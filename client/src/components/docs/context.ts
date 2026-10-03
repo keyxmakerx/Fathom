@@ -19,9 +19,15 @@ export interface DocsApi {
   addLink(id: string, input: { title: string; url: string; pasted: boolean }): Promise<Refused | void>;
   removeLink(linkId: string): Refused | void;
   /** Checks (text goes through the gate), uploads and records a file on a doc. */
-  addFile(docId: string, file: File): Promise<Refused | { note: string }>;
+  addFile(
+    docId: string,
+    file: File,
+    confirmed?: boolean,
+  ): Promise<Refused | { note: string } | { confirm: 'image' | 'PDF' }>;
   removeFile(fileNodeId: string): Refused | void;
   download(file: DocFileView): Promise<Refused | void>;
+  /** Erases the stored bytes; the name, size and hash stay in the design's history. */
+  deleteFileForGood(file: DocFileView): Promise<Refused | void>;
   open(view: DocsView): void;
 }
 

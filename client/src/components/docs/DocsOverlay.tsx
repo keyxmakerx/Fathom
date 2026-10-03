@@ -516,7 +516,7 @@ function size(n: number): string {
 function checkedWords(f: DocFileView): string {
   if (f.checked === 'clean') return 'No passwords found';
   if (f.checked === 'removed') return `${f.removed} password${f.removed === 1 ? '' : 's'} removed`;
-  return f.media === 'image' ? "Image, can't be read" : "Can't be read";
+  return f.media === 'image' ? 'Not checked · image' : f.media === 'pdf' ? 'Not checked · PDF' : 'Not checked';
 }
 
 function FilesBlock({ api, d }: { api: DocsApi; d: DocView }) {
@@ -524,21 +524,63 @@ function FilesBlock({ api, d }: { api: DocsApi; d: DocView }) {
   const [message, setMessage] = useState<{ text: string; bad: boolean } | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const hintId = useId();
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [gone, setGone] = useState<ReadonlySet<string>>(new Set());
 
-  async function pick(file: File | undefined) {
+  const [pending, setPending] = useState<{ file: File; kind: string } | null>(null);
+  async function pick(file: File | undefined, confirmed = false) {
     if (!file || busy) return;
     setBusy(true);
     setMessage(null);
-    const r = await api.addFile(d.id, file);
+    setPending(null);
+    const r = await api.addFile(d.id, file, confirmed);
     setBusy(false);
     if (input.current) input.current.value = '';
-    setMessage('refused' in r ? { text: r.refused, bad: true } : { text: r.note, bad: false });
+    if ('confirm' in r) setPending({ file, kind: r.confirm });
+    else setMessage('refused' in r ? { text: r.refused, bad: true } : { text: r.note, bad: false });
   }
   async function get(f: DocFileView) {
     setMessage(null);
     const r = await api.download(f);
     if (r?.refused) setMessage({ text: r.refused, bad: true });
   }
+
+  async function erase(f: DocFileView) {
+    const r = await api.deleteFileForGood(f);
+    setConfirming(null);
+    if (r?.refused) {
+      setMessage({ text: r.refused, bad: true });
+      return;
+    }
+    setGone((g) => new Set(g).add(f.fileId));
+    setMessage({ text: `${f.name} was deleted for good. Its name, size and hash stay in the history.`, bad: false });
+  }
+  const deleteControl = (f: DocFileView) =>
+    !api.canEdit || gone.has(f.fileId) ? (
+      gone.has(f.fileId) ? (
+        <span className="docs-note"> Deleted for good</span>
+      ) : null
+    ) : confirming === f.id ? (
+      <span role="group" aria-label={`Delete ${f.name} for good?`}>
+        {' '}
+        <button type="button" className="docs-link" onClick={() => void erase(f)}>
+          Really delete {f.name} for good
+        </button>{' '}
+        <button type="button" className="docs-link" onClick={() => setConfirming(null)}>
+          Keep
+        </button>
+      </span>
+    ) : (
+      <button
+        type="button"
+        className="docs-link"
+        onClick={() => setConfirming(f.id)}
+        aria-label={`Delete ${f.name} for good`}
+      >
+        {' '}
+        delete for good
+      </button>
+    );
 
   return (
     <section className="docs-links docs-files" aria-label="Files">
@@ -585,6 +627,7 @@ function FilesBlock({ api, d }: { api: DocsApi; d: DocView }) {
                       remove
                     </button>
                   ) : null}
+                  {deleteControl(f)}
                 </td>
               </tr>
             ))}
@@ -602,9 +645,35 @@ function FilesBlock({ api, d }: { api: DocsApi; d: DocView }) {
             onChange={(e) => void pick(e.target.files?.[0])}
           />
           <p className="docs-note" id={hintId}>
-            PDF, image or text, up to 25 MB. Text is checked for passwords before it is uploaded; images and PDFs can't
-            be read, so they are stored without a check. Files open as downloads, never inside Fathom.
+            PDF, image or text, up to 25 MB. Text is checked for passwords before upload. Images and PDFs are not
+            checked yet. Files open as downloads, never inside Fathom.
           </p>
+        </div>
+      ) : null}
+      {d.removedFiles.length > 0 ? (
+        <div className="docs-files__removed">
+          <h3>Removed files</h3>
+          <ul>
+            {d.removedFiles.map((f) => (
+              <li key={f.id}>
+                {f.name} <span className="docs-links__host">{size(f.size)}</span>
+                {deleteControl(f)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {pending != null ? (
+        <div role="group" aria-label={`Add ${pending.file.name}?`} className="docs-links__add">
+          <p className="docs-note">
+            Fathom can't check {pending.kind === 'PDF' ? 'a PDF' : 'an image'} for passwords. It will say "Not checked".
+          </p>
+          <button type="button" onClick={() => void pick(pending.file, true)}>
+            Add {pending.file.name}, it shows no passwords
+          </button>
+          <button type="button" className="docs-link" onClick={() => setPending(null)}>
+            Cancel
+          </button>
         </div>
       ) : null}
       {busy ? (

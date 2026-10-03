@@ -112,6 +112,8 @@ export interface DocView {
   ownerGone: boolean;
   links: DocLinkView[];
   files: DocFileView[];
+  /** Files taken off the doc (undo can bring them back) until deleted for good. */
+  removedFiles: DocFileView[];
   /** Who last changed the title or body, and when. */
   who: string;
   when: number;
@@ -448,6 +450,21 @@ function num(v: unknown): number {
   return typeof v === 'number' ? v : typeof v === 'bigint' ? Number(v) : 0;
 }
 
+function fileView(fn: NonNullable<ReturnType<typeof findNode>>): DocFileView {
+  const media = str(fieldValue(fn.fields, 'DocFile.media'));
+  const checked = str(fieldValue(fn.fields, 'DocFile.checked'));
+  return {
+    id: fn.id,
+    name: str(fieldValue(fn.fields, 'DocFile.name')),
+    size: num(fieldValue(fn.fields, 'DocFile.size')),
+    media: media === 'pdf' || media === 'image' ? media : 'text',
+    checked: checked === 'clean' || checked === 'removed' ? checked : 'unread',
+    removed: num(fieldValue(fn.fields, 'DocFile.removed')),
+    fileId: str(fieldValue(fn.fields, 'DocFile.file_id')),
+    sha256: str(fieldValue(fn.fields, 'DocFile.sha256')),
+  };
+}
+
 function readDoc(doc: Document, id: string): DocView | undefined {
   const node = findNode(doc, id);
   if (!node || node.absentSince !== undefined) return undefined;
@@ -474,19 +491,13 @@ function readDoc(doc: Document, id: string): DocView | undefined {
   const files: DocFileView[] = [];
   for (const e of edgesOut(doc, id, 'HasDocFile')) {
     const fn = findNode(doc, e.to);
-    if (!fn || fn.absentSince !== undefined) continue;
-    const media = str(fieldValue(fn.fields, 'DocFile.media'));
-    const checked = str(fieldValue(fn.fields, 'DocFile.checked'));
-    files.push({
-      id: fn.id,
-      name: str(fieldValue(fn.fields, 'DocFile.name')),
-      size: num(fieldValue(fn.fields, 'DocFile.size')),
-      media: media === 'pdf' || media === 'image' ? media : 'text',
-      checked: checked === 'clean' || checked === 'removed' ? checked : 'unread',
-      removed: num(fieldValue(fn.fields, 'DocFile.removed')),
-      fileId: str(fieldValue(fn.fields, 'DocFile.file_id')),
-      sha256: str(fieldValue(fn.fields, 'DocFile.sha256')),
-    });
+    if (fn && fn.absentSince === undefined) files.push(fileView(fn));
+  }
+  const removedFiles: DocFileView[] = [];
+  for (const e of doc.edges) {
+    if (e.from !== id || !e.id.startsWith(`${kebab('HasDocFile')}:`) || e.absentSince === undefined) continue;
+    const fn = findNode(doc, e.to);
+    if (fn && fn.absentSince !== undefined) removedFiles.push(fileView(fn));
   }
   return {
     id,
@@ -498,6 +509,7 @@ function readDoc(doc: Document, id: string): DocView | undefined {
     ownerGone: on !== undefined && (!owner || owner.absentSince !== undefined),
     links,
     files,
+    removedFiles,
     who: latest?.assertedBy ?? LOCAL_ACTOR,
     when: latest?.assertedAt ?? 0,
   };

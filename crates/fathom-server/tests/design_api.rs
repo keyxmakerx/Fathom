@@ -2731,6 +2731,109 @@ async fn doc_files_are_checked_by_content_sealed_served_as_downloads_and_survive
 }
 
 #[tokio::test]
+async fn deleting_a_file_for_good_erases_the_bytes_and_only_a_drawer_can() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    designs::write_version(
+        &pool,
+        &ring,
+        estate.organisation,
+        estate.steward.account,
+        design,
+        b"already on file before the files",
+        1,
+    )
+    .await
+    .expect("seed a version");
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+    let reader = a_member_with(&pool, &ring, &estate, "reader", Some(Capability::Read)).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let files = format!(
+        "/organisations/{}/designs/{}/files",
+        estate.organisation, design
+    );
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &files,
+        b"%PDF-1.7\nscan of a router label",
+    )
+    .await;
+    assert_eq!(status, "200");
+    let id = String::from_utf8_lossy(&body)
+        .split(' ')
+        .next()
+        .unwrap()
+        .to_string();
+    let one = format!("{files}/{id}");
+
+    let (status, _) = call(addr, &reader, "DELETE", &one, b"").await;
+    assert_eq!(status, "403", "a reader cannot delete");
+    let (status, _) = call(addr, &reader, "GET", &one, b"").await;
+    assert_eq!(status, "200", "and the file is still there");
+
+    let (status, _) = call(
+        addr,
+        &drawer,
+        "DELETE",
+        &format!("{files}/{}", "0".repeat(32)),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "404");
+    let (status, _) = call(addr, &drawer, "DELETE", &one, b"").await;
+    assert_eq!(status, "200");
+    let (status, _) = call(addr, &drawer, "DELETE", &one, b"").await;
+    assert_eq!(status, "200", "asking again is not an error");
+    for who in [&reader, &drawer] {
+        let (status, body) = call(addr, who, "GET", &one, b"").await;
+        assert_eq!(status, "410");
+        assert!(String::from_utf8_lossy(&body).contains("deleted for good on 20"));
+    }
+
+    // Nothing of the file is left in the table, and a rotation steps over the empty row.
+    let su = support::superuser_client_on_test_database().await;
+    let row = su
+        .query_one(
+            "SELECT octet_length(ciphertext), deleted_by IS NOT NULL FROM design_files \
+             WHERE file_id = $1",
+            &[&id],
+        )
+        .await
+        .expect("row");
+    assert_eq!(row.get::<_, i32>(0), 0);
+    assert!(row.get::<_, bool>(1));
+    designs::rotate_design(
+        &pool,
+        &ring,
+        estate.organisation,
+        estate.steward.account,
+        design,
+        "test",
+    )
+    .await
+    .expect("rotate over a deleted file");
+    let (status, _) = call(addr, &reader, "GET", &one, b"").await;
+    assert_eq!(status, "410");
+    let (status, _) = call(
+        addr,
+        &drawer,
+        "GET",
+        &format!(
+            "/organisations/{}/designs/{}/verify",
+            estate.organisation, design
+        ),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200", "the design's history still verifies");
+}
+
+#[tokio::test]
 async fn a_capture_or_note_carrying_a_junos_psk_refuses_the_write_naming_the_kind_and_line() {
     let _site = support::lock_the_site_chain().await;
     let pool = support::migrated_pool().await;

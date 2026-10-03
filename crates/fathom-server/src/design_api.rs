@@ -207,7 +207,7 @@ pub fn router(state: DesignApiState) -> Router {
         )
         .route(
             "/organisations/{organisation}/designs/{design}/files/{file}",
-            get(read_file_handler),
+            get(read_file_handler).delete(delete_file_handler),
         )
         .route("/catalogue/models", get(catalogue_list_handler))
         .route(
@@ -472,6 +472,9 @@ fn design_error_response(e: DesignError) -> Response {
             (StatusCode::NOT_FOUND, "no such design\n").into_response()
         }
         DesignError::NoSuchFile => (StatusCode::NOT_FOUND, "no such file\n").into_response(),
+        DesignError::FileGone { on } => {
+            (StatusCode::GONE, format!("deleted for good on {on}\n")).into_response()
+        }
         DesignError::FileTooLarge { bytes } => (
             StatusCode::PAYLOAD_TOO_LARGE,
             format!(
@@ -1746,6 +1749,53 @@ async fn store_file_handler(
         .into_response())
 }
 
+/// `DELETE .../files/{file}`: erases the stored bytes for good. Draw holders only.
+async fn delete_file_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, design, file)): PathExtractor<(String, String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let design_id = parse_design(&design)?;
+    if !is_file_id(&file) {
+        return Err(DesignError::NoSuchFile.into());
+    }
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let scope = design_scope(&tx, &ctx, design_id).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    designs::delete_file_in_tx(&tx, &auth, design_id, scope, &file).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok((
+        StatusCode::OK,
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        "deleted\n",
+    )
+        .into_response())
+}
+
+fn is_file_id(file: &str) -> bool {
+    file.len() == 32
+        && file
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
 /// `GET /organisations/{organisation}/designs/{design}/files/{file}`: the stored bytes, only ever
 /// as a download: `attachment`, `nosniff`, an opaque type, no caching.
 async fn read_file_handler(
@@ -1755,11 +1805,7 @@ async fn read_file_handler(
 ) -> Result<Response, RouteError> {
     let tenant = parse_organisation(&organisation)?;
     let design_id = parse_design(&design)?;
-    if file.len() != 32
-        || !file
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
+    if !is_file_id(&file) {
         return Err(DesignError::NoSuchFile.into());
     }
 
