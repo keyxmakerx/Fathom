@@ -6,7 +6,7 @@ import { listTags, renameTag, tagObject, tagsOf as tagsOfDoc, untagObject } from
 import { skippedSentence } from '../../document/liveDoc';
 import { redo as redoBatch, redoSkipping, undo as undoBatch, undoSkipping, undoable } from '../../document/undo';
 import { describeRestore, outlineSelectors } from '../../document/historyDiff';
-import { newUlid } from '../../document/ulid';
+import { restoreTo } from '../../document/restore';
 import { viewOf } from '../../document/view';
 import { Engine } from '../../engine/engine';
 import { refusalSentence } from '../../engine/mirror';
@@ -108,7 +108,7 @@ export function DesignPlace(props: DesignPlaceProps) {
 
   // History beside the canvas: a picked save is shown read-only with what it changed outlined.
   const [historyOpen, setHistoryOpen] = useState(false);
-  const history = useHistory(organisationId, designId, historyOpen);
+  const history = useHistory(organisationId, designId, historyOpen, session.doc?.batches.length ?? 0);
   const pickedSave = historyOpen ? history.picked : null;
   const outlineKey = pickedSave != null ? pickedSave.outline.join('\n') : '';
   useEffect(() => {
@@ -568,10 +568,9 @@ export function DesignPlace(props: DesignPlaceProps) {
     if (pickedSave == null || !session.canDraw) return;
     // A new save of the old content, with one batch saying so; the old saves stay in the chain.
     const when = whenLabel(history.saves?.find((s) => s.designVersion === pickedSave.version)?.atUnix ?? 0);
-    session.applyDocChange({
-      ...pickedSave.doc,
-      batches: [...pickedSave.doc.batches, { id: newUlid(), label: `Restored the save from ${when}`, ops: [] }],
-    });
+    if (doc == null || accountId == null) return;
+    // Real ops, so a live session sends it and peers see an ordinary change.
+    session.applyDocChange(restoreTo(doc, pickedSave.doc, `Restored the save from ${when}`, { actor: accountId, now: Date.now() }));
     setHistoryOpen(false);
   };
   const historyView = historyOpen

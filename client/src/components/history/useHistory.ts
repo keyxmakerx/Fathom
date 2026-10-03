@@ -30,7 +30,9 @@ export interface History {
   back: () => void;
 }
 
-export function useHistory(organisationId: string, designId: string, active: boolean): History {
+/** `edits` changes whenever the open design changes (yours or a peer's live change); the list
+ * then catches up quietly, keeping what is picked. */
+export function useHistory(organisationId: string, designId: string, active: boolean, edits = 0): History {
   const [saves, setSaves] = useState<HistoryEntry[] | null>(null);
   const [verifyLine, setVerifyLine] = useState('Checking…');
   const [summaries, setSummaries] = useState<ReadonlyMap<number, string>>(new Map());
@@ -83,6 +85,33 @@ export function useHistory(organisationId: string, designId: string, active: boo
       live = false;
     };
   }, [active, organisationId, designId]);
+
+  const seen = useRef(edits);
+  useEffect(() => {
+    if (!active || seen.current === edits) {
+      seen.current = edits;
+      return undefined;
+    }
+    seen.current = edits;
+    let live = true;
+    const t = setTimeout(() => {
+      fetchHistory(organisationId, designId)
+        .then((entries) => {
+          if (!live) return;
+          const byVersion = new Map<number, (typeof entries)[number]>();
+          for (const e of entries) if (e.entryType !== 'reencrypt') byVersion.set(e.designVersion, e);
+          setSaves([...byVersion.values()].sort((a, b) => b.designVersion - a.designVersion));
+        })
+        .catch(() => undefined);
+      fetchVerify(organisationId, designId)
+        .then((outcome) => live && setVerifyLine(verifyWords(outcome)))
+        .catch(() => undefined);
+    }, 1500);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [active, edits, organisationId, designId]);
 
   // Summaries for the listed saves, newest first, one at a time (each needs the save and the one before it).
   useEffect(() => {
