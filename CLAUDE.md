@@ -27,6 +27,7 @@ This file is a pointer page. It is loaded before every instruction, so it stays 
 | **How to actually run it** | `docs/RUNNING-IT.md` — `docker compose up` from the root, proven by CI |
 | **The key file, backups, restore, rekey** | `docs/OPERATING.md` — the operator's register ADR-0043 §9 requires |
 | What is actually built right now | `docs/STATE.md` |
+| Short worked tasks on what main does | `docs/EXAMPLES.md` |
 | **What the interface looks like** | `docs/UI-SPEC.md` — approved. Pictures linked from it; open those only when building a surface. |
 | Rules you must not break | `.context/conventions.md` |
 | Decisions already made | `docs/decisions/` |
