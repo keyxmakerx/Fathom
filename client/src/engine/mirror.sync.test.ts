@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { Engine } from './engine';
+import { Engine, EngineTrap } from './engine';
 import { Mirror } from './mirror';
 import { ACTOR, EDITS, buildDesign } from './syncDesign';
 import { fileLoader } from './wasm';
@@ -32,7 +32,7 @@ class FakeEngine {
   loads: Uint8Array[] = [];
   deltas: Uint8Array[] = [];
   /** What `syncDelta` answers: counts of this document, or `null` ("resync needed"). */
-  answer: 'resync' | 'throw' | Document = 'resync';
+  answer: 'resync' | 'throw' | 'trap' | Document = 'resync';
   pasted: Document | null = null;
 
   loadPlain(bytes: Uint8Array): void {
@@ -44,8 +44,11 @@ class FakeEngine {
     this.calls.push('delta');
     this.deltas.push(bytes);
     if (this.answer === 'throw') throw new Error('boom');
+    if (this.answer === 'trap') throw new EngineTrap('unreachable', null);
     if (this.answer === 'resync') return null;
-    return { nodes: this.answer.nodes.length, edges: this.answer.edges.length };
+    // The module's reply counts live elements only.
+    const live = (xs: readonly { absentSince?: number }[]) => xs.filter((x) => x.absentSince === undefined).length;
+    return { nodes: live(this.answer.nodes), edges: live(this.answer.edges) };
   }
 
   pasteInto(): unknown {
@@ -152,6 +155,43 @@ describe('Mirror.sync sequencing', () => {
     const next = edit('set a field', d);
     engine.answer = { ...next, nodes: [...next.nodes, next.nodes[0]] };
     expect(mirror.sync(next)).toBe('full');
+  });
+
+  it('a trap is surfaced, not turned into a reload into the same module', () => {
+    const { engine, mirror } = rig();
+    const d = buildDesign(2);
+    mirror.sync(d.doc);
+    engine.answer = 'trap';
+    expect(() => mirror.sync(edit('set a field', d))).toThrow(EngineTrap);
+    expect(engine.calls).toEqual(['load', 'delta']);
+  });
+
+  it('a tombstone the module was not told about is a reload, and one it was told about is not', () => {
+    const { engine, mirror } = rig();
+    const d = buildDesign(3);
+    mirror.sync(d.doc);
+    // The document tombstones a node outside any batch: the module still counts it live.
+    const quiet: Document = {
+      ...d.doc,
+      batches: [...d.doc.batches],
+      nodes: d.doc.nodes.map((n, i) => (i === 0 ? { ...n, absentSince: 1 } : n)),
+    };
+    engine.answer = d.doc;
+    expect(mirror.sync(quiet)).toBe('full');
+    // The same tombstone through a batch (the module answers the live counts) is a delta.
+    const removed = edit('remove a cable', d);
+    engine.answer = removed;
+    expect(removed.nodes.some((n) => n.absentSince !== undefined)).toBe(true);
+    expect(mirror.sync(removed)).toBe('delta');
+  });
+
+  it('a held document with elements and no batches is not a base for a delta', () => {
+    const { engine, mirror } = rig();
+    const d = buildDesign(2);
+    const bare: Document = { ...d.doc, batches: [] };
+    mirror.sync(bare);
+    engine.answer = d.doc;
+    expect(mirror.sync(d.doc)).toBe('full');
   });
 
   it('follows undo and redo, which are appended batches', () => {

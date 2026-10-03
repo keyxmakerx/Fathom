@@ -21,7 +21,7 @@ import { BOX_H, BOX_W, createLabel, createLine, moveFree, removeFree, setLabel }
 import { FieldValueError, isDeviceRole, setDeviceField } from '../../document/edit';
 import { parseNodeId, type Document } from '../../document/model';
 import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
-import { Engine } from '../../engine/engine';
+import { Engine, EngineTrap } from '../../engine/engine';
 import { Mirror, refusalSentence } from '../../engine/mirror';
 import { JotView } from '../jot/JotView';
 import { deviceChassis, jotPlates, jotSpot, originOf } from '../jot/jotLayout';
@@ -284,7 +284,16 @@ export function RacksPlace(props: RacksPlaceProps) {
   // actually ready.
   const [, forceMirrorRerender] = useState(0);
 
+  // A trapped module is never reused: drop it, so the next need boots another and loads the design whole.
+  const discardTrapped = useCallback(() => {
+    mirrorRef.current = null;
+    mirrorPromiseRef.current = null;
+    mirrorLoadedDocRef.current = null;
+    forceMirrorRerender((n) => n + 1);
+  }, []);
+
   const ensureMirror = useCallback((): Promise<Mirror> => {
+    if (mirrorRef.current?.trapped) discardTrapped();
     if (mirrorPromiseRef.current == null) {
       mirrorPromiseRef.current = Engine.init().then((engine) => {
         const mirror = new Mirror(engine);
@@ -294,7 +303,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       });
     }
     return mirrorPromiseRef.current;
-  }, []);
+  }, [discardTrapped]);
 
   // How long the last sync of the module took, ms: Checks sizes its wait and its guard by it. After the first
   // full load the next sync is a delta, so one full load says little about it and is not counted; a second
@@ -303,12 +312,18 @@ export function RacksPlace(props: RacksPlaceProps) {
   const fullStreakRef = useRef(0);
   const loadInto = useCallback((mirror: Mirror, target: Document) => {
     const t0 = performance.now();
-    const kind = mirror.sync(target);
+    let kind: ReturnType<Mirror['sync']>;
+    try {
+      kind = mirror.sync(target);
+    } catch (e) {
+      if (e instanceof EngineTrap) discardTrapped();
+      throw e;
+    }
     const ms = performance.now() - t0;
     fullStreakRef.current = kind === 'full' ? fullStreakRef.current + 1 : 0;
     if (kind === 'delta' || (kind === 'full' && fullStreakRef.current > 1)) loadCostRef.current = ms;
     mirrorLoadedDocRef.current = target;
-  }, []);
+  }, [discardTrapped]);
 
   // The drawer and the inside stop load the module only when the document it holds is stale, at the moment they
   // are about to use it (`mirrorLoadedDocRef` above). Checks (below) also boots it and keeps it current, but after

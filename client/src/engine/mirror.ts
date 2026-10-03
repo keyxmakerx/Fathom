@@ -14,7 +14,7 @@
 // `InsideStop.tsx`. This file only forwards to it, the same as `load`/
 // `pasteInto` above forward to `engine.ts`'s other doors; it does not
 // decode `OP_INSIDE` itself.
-import { Engine, EngineError, ERRORS, type CableEnd, type CheckFinding, type ChecksResult, type InsideFaces, type PasteResult } from './engine';
+import { Engine, EngineError, EngineTrap, ERRORS, type CableEnd, type CheckFinding, type ChecksResult, type InsideFaces, type PasteResult } from './engine';
 import { errorName } from './protocol.constants';
 import { readPlain, writeDelta, writePlain } from '../document/plain';
 import type { Document } from '../document/model';
@@ -24,6 +24,9 @@ import type { Document } from '../document/model';
  * `commands.ts`), then by value, so a copy of the same history still counts and a comment added
  * to an old batch does not. */
 function continues(held: Document, next: Document): boolean {
+  // A held document with elements and no batches has no last batch for the module to check
+  // against, so nothing says the module holds it: load whole.
+  if (held.batches.length === 0 && (held.nodes.length > 0 || held.edges.length > 0)) return false;
   const a = held.batches;
   const b = next.batches;
   if (b.length < a.length) return false;
@@ -38,6 +41,12 @@ function continues(held: Document, next: Document): boolean {
   return true;
 }
 
+function liveCount(items: readonly { absentSince?: number }[]): number {
+  let n = 0;
+  for (const x of items) if (x.absentSince === undefined) n += 1;
+  return n;
+}
+
 /** What `sync` did: the whole design went in, only new batches did, or nothing needed to. */
 export type SyncKind = 'full' | 'delta' | 'none';
 
@@ -50,6 +59,11 @@ export class Mirror {
 
   constructor(engine: Engine) {
     this.engine = engine;
+  }
+
+  /** The module trapped: discard this mirror and its engine, and boot another. */
+  get trapped(): boolean {
+    return this.engine.trapped;
   }
 
   /** Door one: write the held document to the plain face and hand it to the
@@ -73,11 +87,16 @@ export class Mirror {
       let counts: { nodes: number; edges: number } | null = null;
       try {
         counts = this.engine.syncDelta(writeDelta(doc, held.doc.batches.length));
-      } catch {
-        // The delta could not even be built or sent: load whole below.
+      } catch (e) {
+        // A trap leaves the module unusable: say so rather than load into it. Anything else (a
+        // delta that could not be built, a refusal that is not "resync") falls back to a full load.
+        if (e instanceof EngineTrap) {
+          this.held = null;
+          throw e;
+        }
       }
-      // Counts that differ are an element no batch told the module about: not a delta to trust.
-      if (counts != null && counts.nodes === doc.nodes.length && counts.edges === doc.edges.length) {
+      // Live counts that differ are a tombstone, revive or element no batch told the module about.
+      if (counts != null && counts.nodes === liveCount(doc.nodes) && counts.edges === liveCount(doc.edges)) {
         this.hold(doc);
         return 'delta';
       }
