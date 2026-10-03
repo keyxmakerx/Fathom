@@ -669,7 +669,7 @@ mod body {
         /// `SecurityPolicy.match_any_application` — `bool`, card `0..1`, emit `R`.
         /// Set(true) means the vendor's any keyword for applications (Junos match application any).
         pub fn match_any_application<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&bool, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(364))
+            crate::bag::typed(bag, crate::bag::FieldKey(381))
         }
         /// `SecurityPolicy.log_init` — `bool`, card `0..1`, emit `O`.
         pub fn log_init<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&bool, crate::bag::FieldError> {
@@ -2223,7 +2223,7 @@ mod body {
             361 => Some((core::any::TypeId::of::<u32>(), "u32")),
             362 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
             363 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
-            364 => Some((core::any::TypeId::of::<bool>(), "bool")),
+            381 => Some((core::any::TypeId::of::<bool>(), "bool")),
             _ => None,
         }
     }
@@ -2595,7 +2595,7 @@ mod body {
             361 => crate::canon::slot_to::<u32>(361, "u32", value),
             362 => crate::canon::slot_to::<crate::scalar::Identifier>(362, "crate::scalar::Identifier", value),
             363 => crate::canon::slot_to::<crate::scalar::Text>(363, "crate::scalar::Text", value),
-            364 => crate::canon::slot_to::<bool>(364, "bool", value),
+            381 => crate::canon::slot_to::<bool>(381, "bool", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -2965,7 +2965,7 @@ mod body {
             361 => crate::canon::slot_from::<u32>(j),
             362 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
             363 => crate::canon::slot_from::<crate::scalar::Text>(j),
-            364 => crate::canon::slot_from::<bool>(j),
+            381 => crate::canon::slot_from::<bool>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
