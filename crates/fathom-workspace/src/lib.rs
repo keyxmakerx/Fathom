@@ -41,6 +41,9 @@
 
 #![forbid(unsafe_code)]
 
+mod change;
+pub use change::*;
+
 use std::collections::BTreeMap;
 
 use fathom_canon::Json;
@@ -57,7 +60,8 @@ use fathom_ir::scalar::Text;
 /// Every 0.10-to-0.17 move is additive, so a payload declared at an older
 /// version reads exactly like a current one — nothing renamed, retyped or
 /// removed. Every older version this crate still opens, and no other.
-pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &["0.10", "0.11", "0.12", "0.13", "0.14"];
+pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] =
+    &["0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16"];
 
 /// Node kinds `0.11` (ADR-0058) added. A payload declared at `0.10` cannot
 /// legitimately hold one — its editor never had the kind — so finding one
@@ -92,7 +96,7 @@ const NODE_KINDS_SINCE_0_13: &[NodeKind] = &[NodeKind::Label, NodeKind::Line];
 const EDGE_KINDS_SINCE_0_13: &[EdgeKind] =
     &[EdgeKind::HasLabel, EdgeKind::HasLine, EdgeKind::LineEnd];
 
-/// Kinds `0.14` (ADR-0061 round 7) added; same reasoning, now for `0.10` to `0.13`.
+/// Kinds `0.14` (ADR-0061 round 7, docs) added; same reasoning, for `0.10` to `0.13`.
 const NODE_KINDS_SINCE_0_14: &[NodeKind] = &[NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile];
 const EDGE_KINDS_SINCE_0_14: &[EdgeKind] = &[
     EdgeKind::HasDoc,
@@ -101,15 +105,18 @@ const EDGE_KINDS_SINCE_0_14: &[EdgeKind] = &[
     EdgeKind::HasDocFile,
 ];
 
-/// The minor number of a `0.N` header, or `None` for anything else.
-fn minor_of(version: &str) -> Option<u32> {
-    version.strip_prefix("0.")?.parse().ok()
-}
+/// Kinds `0.15` (ADR-0061 round 7, maintenance plans) added; same reasoning, for `0.10` to `0.14`.
+const NODE_KINDS_SINCE_0_15: &[NodeKind] = &[NodeKind::MaintenancePlan, NodeKind::PlanStep];
+const EDGE_KINDS_SINCE_0_15: &[EdgeKind] = &[EdgeKind::HasPlan, EdgeKind::HasStep];
+
+/// Kinds `0.16` (custom-field values) added; same reasoning, for `0.10` to `0.15`.
+const NODE_KINDS_SINCE_0_16: &[NodeKind] = &[NodeKind::FieldValue];
+const EDGE_KINDS_SINCE_0_16: &[EdgeKind] = &[EdgeKind::HasFieldValue];
 
 /// Refuse a payload declared at `declared` that holds a kind newer than that
 /// version — decision 6's (ADR-0058) and decision 9's (ADR-0059) second
 /// halves, checked once per accepted older version: `0.10` cannot hold
-/// anything `0.11` to `0.14` added, and so on up the chain.
+/// anything `0.11` to `0.16` added, and so on up the chain.
 fn reject_kinds_too_new_for_declared_version(
     declared: &str,
     snapshot: &Snapshot,
@@ -121,40 +128,53 @@ fn reject_kinds_too_new_for_declared_version(
     if !ACCEPTED_OLDER_SCHEMA_VERSIONS.contains(&declared) {
         return Ok(());
     }
-    let Some(minor) = minor_of(declared) else {
-        return Ok(());
+    // Each `since` set is too new for every declared version older than it.
+    // A kind set introduced at minor `m` is too new for any declared version below it.
+    let declared_minor: u32 = declared
+        .strip_prefix("0.")
+        .and_then(|m| m.parse().ok())
+        .unwrap_or(0);
+    let too_new = |n16: bool, n15: bool, n14: bool, n13: bool, n12: bool, n11: bool| {
+        [
+            (16, n16),
+            (15, n15),
+            (14, n14),
+            (13, n13),
+            (12, n12),
+            (11, n11),
+        ]
+        .iter()
+        .any(|&(m, hit)| hit && declared_minor < m)
     };
-    let nodes_since: [(u32, &[NodeKind]); 4] = [
-        (11, NODE_KINDS_SINCE_0_11),
-        (12, NODE_KINDS_SINCE_0_12),
-        (13, NODE_KINDS_SINCE_0_13),
-        (14, NODE_KINDS_SINCE_0_14),
-    ];
-    let edges_since: [(u32, &[EdgeKind]); 4] = [
-        (11, EDGE_KINDS_SINCE_0_11),
-        (12, EDGE_KINDS_SINCE_0_12),
-        (13, EDGE_KINDS_SINCE_0_13),
-        (14, EDGE_KINDS_SINCE_0_14),
-    ];
     for n in &snapshot.nodes {
-        let too_new = nodes_since
-            .iter()
-            .any(|(since, kinds)| minor < *since && kinds.contains(&n.id.kind));
-        if too_new {
+        let k = n.id.kind;
+        if too_new(
+            NODE_KINDS_SINCE_0_16.contains(&k),
+            NODE_KINDS_SINCE_0_15.contains(&k),
+            NODE_KINDS_SINCE_0_14.contains(&k),
+            NODE_KINDS_SINCE_0_13.contains(&k),
+            NODE_KINDS_SINCE_0_12.contains(&k),
+            NODE_KINDS_SINCE_0_11.contains(&k),
+        ) {
             return Err(PlainError::KindNotInDeclaredVersion {
                 declared_version: declared.to_owned(),
-                element_kind: n.id.kind.name(),
+                element_kind: k.name(),
             });
         }
     }
     for e in &snapshot.edges {
-        let too_new = edges_since
-            .iter()
-            .any(|(since, kinds)| minor < *since && kinds.contains(&e.id.kind));
-        if too_new {
+        let k = e.id.kind;
+        if too_new(
+            EDGE_KINDS_SINCE_0_16.contains(&k),
+            EDGE_KINDS_SINCE_0_15.contains(&k),
+            EDGE_KINDS_SINCE_0_14.contains(&k),
+            EDGE_KINDS_SINCE_0_13.contains(&k),
+            EDGE_KINDS_SINCE_0_12.contains(&k),
+            EDGE_KINDS_SINCE_0_11.contains(&k),
+        ) {
             return Err(PlainError::KindNotInDeclaredVersion {
                 declared_version: declared.to_owned(),
-                element_kind: e.id.kind.name(),
+                element_kind: k.name(),
             });
         }
     }
@@ -441,7 +461,7 @@ fn split_header(bytes: &[u8]) -> Result<([&[u8]; 4], &[u8]), PlainError> {
 // Snapshot -> JSON. Module-private free functions: the orphan rule bars trait
 // impls here, and the shape is this crate's, not `fathom-graph`'s.
 
-fn obj(pairs: Vec<(&str, Json)>) -> Json {
+pub(crate) fn obj(pairs: Vec<(&str, Json)>) -> Json {
     let mut m = BTreeMap::new();
     for (k, v) in pairs {
         m.insert(k.to_owned(), v);
@@ -533,7 +553,7 @@ fn edge_to_json(e: &EdgeSnap) -> Json {
     obj(pairs)
 }
 
-fn provenance_to_json(r: &ProvenanceRecord) -> Json {
+pub(crate) fn provenance_to_json(r: &ProvenanceRecord) -> Json {
     let Actor::User(UserId(user)) = r.asserted_by;
     let confidence = match r.confidence {
         Confidence::Asserted => "asserted",
@@ -668,7 +688,7 @@ fn op_to_json(op: &Op) -> Json {
     }
 }
 
-fn batch_to_json(b: &Batch) -> Json {
+pub(crate) fn batch_to_json(b: &Batch) -> Json {
     let mut pairs = vec![
         ("id", ulid_json(b.id.0)),
         ("label", Json::Str(b.label.clone())),
@@ -712,47 +732,54 @@ fn snapshot_to_json(s: &Snapshot) -> Json {
 // ---------------------------------------------------------------------------
 // JSON -> Snapshot
 
-fn shape(path: &str, expected: &'static str) -> PlainError {
+pub(crate) fn shape(path: &str, expected: &'static str) -> PlainError {
     PlainError::Shape {
         path: path.to_owned(),
         expected,
     }
 }
 
-fn get_obj<'a>(j: &'a Json, path: &str) -> Result<&'a BTreeMap<String, Json>, PlainError> {
+pub(crate) fn get_obj<'a>(
+    j: &'a Json,
+    path: &str,
+) -> Result<&'a BTreeMap<String, Json>, PlainError> {
     match j {
         Json::Obj(m) => Ok(m),
         _ => Err(shape(path, "a JSON object")),
     }
 }
 
-fn get_arr<'a>(j: &'a Json, path: &str) -> Result<&'a [Json], PlainError> {
+pub(crate) fn get_arr<'a>(j: &'a Json, path: &str) -> Result<&'a [Json], PlainError> {
     match j {
         Json::Arr(items) => Ok(items),
         _ => Err(shape(path, "a JSON array")),
     }
 }
 
-fn get_str<'a>(j: &'a Json, path: &str) -> Result<&'a str, PlainError> {
+pub(crate) fn get_str<'a>(j: &'a Json, path: &str) -> Result<&'a str, PlainError> {
     match j {
         Json::Str(s) => Ok(s),
         _ => Err(shape(path, "a JSON string")),
     }
 }
 
-fn get_u64(j: &Json, path: &str) -> Result<u64, PlainError> {
+pub(crate) fn get_u64(j: &Json, path: &str) -> Result<u64, PlainError> {
     match j {
         Json::Int(i) if *i >= 0 => Ok(*i as u64),
         _ => Err(shape(path, "a non-negative JSON integer")),
     }
 }
 
-fn key<'a>(m: &'a BTreeMap<String, Json>, k: &str, path: &str) -> Result<&'a Json, PlainError> {
+pub(crate) fn key<'a>(
+    m: &'a BTreeMap<String, Json>,
+    k: &str,
+    path: &str,
+) -> Result<&'a Json, PlainError> {
     m.get(k).ok_or_else(|| shape(path, "a required key"))
 }
 
 /// A bare ULID string, in the one spelling it is allowed to have.
-fn read_ulid(j: &Json, path: &str) -> Result<Ulid, PlainError> {
+pub(crate) fn read_ulid(j: &Json, path: &str) -> Result<Ulid, PlainError> {
     let text = get_str(j, path)?;
     let decoded = Ulid::decode(text).map_err(|e| PlainError::Id(IdParseError::Ulid(e)))?;
     if decoded.encode() != text {
@@ -787,7 +814,7 @@ fn read_origin(j: &Json, path: &str) -> Result<Origin, PlainError> {
     })
 }
 
-fn read_u32(j: &Json, path: &str) -> Result<u32, PlainError> {
+pub(crate) fn read_u32(j: &Json, path: &str) -> Result<u32, PlainError> {
     u32::try_from(get_u64(j, path)?).map_err(|_| shape(path, "a byte offset inside u32"))
 }
 
@@ -828,7 +855,11 @@ fn read_fields(j: &Json, path: &str) -> Result<Vec<FieldSnap>, PlainError> {
     Ok(out)
 }
 
-fn key_or<'a>(m: &'a BTreeMap<String, Json>, k: &str, path: &str) -> Result<&'a Json, PlainError> {
+pub(crate) fn key_or<'a>(
+    m: &'a BTreeMap<String, Json>,
+    k: &str,
+    path: &str,
+) -> Result<&'a Json, PlainError> {
     key(m, k, &format!("{path}.{k}"))
 }
 
@@ -887,33 +918,7 @@ fn snapshot_from_json(j: &Json) -> Result<Snapshot, PlainError> {
         .iter()
         .enumerate()
     {
-        let path = format!("$.provenance[{i}]");
-        let m = get_obj(item, &path)?;
-        let actor = get_obj(key_or(m, "asserted_by", &path)?, &path)?;
-        let user = actor
-            .get("user")
-            .ok_or_else(|| shape(&path, "an actor object with a `user` key"))?;
-        if actor.len() != 1 {
-            return Err(shape(&path, "a one-key actor object"));
-        }
-        let confidence = match get_str(key_or(m, "confidence", &path)?, &path)? {
-            "asserted" => Confidence::Asserted,
-            "derived" => Confidence::Derived,
-            "heuristic" => Confidence::Heuristic,
-            _ => return Err(shape(&path, "one of asserted / derived / heuristic")),
-        };
-        let origin = read_origin(key_or(m, "origin", &path)?, &path)?;
-        provenance.push(ProvenanceRecord {
-            id: ProvenanceId(read_ulid(key_or(m, "id", &path)?, &path)?),
-            origin,
-            asserted_at: Timestamp(get_u64(key_or(m, "asserted_at", &path)?, &path)?),
-            asserted_by: Actor::User(UserId(read_ulid(user, &path)?)),
-            confidence,
-            supersedes: match m.get("supersedes") {
-                None => None,
-                Some(s) => Some(ProvenanceId(read_ulid(s, &path)?)),
-            },
-        });
+        provenance.push(read_provenance(item, &format!("$.provenance[{i}]"))?);
     }
 
     let mut history = Vec::new();
@@ -951,27 +956,7 @@ fn snapshot_from_json(j: &Json) -> Result<Snapshot, PlainError> {
         .iter()
         .enumerate()
     {
-        let path = format!("$.batches[{i}]");
-        let m = get_obj(item, &path)?;
-        let mut ops = Vec::new();
-        for (n, o) in get_arr(key_or(m, "ops", &path)?, &path)?.iter().enumerate() {
-            ops.push(read_op(o, &format!("{path}.ops[{n}]"))?);
-        }
-        batches.push(Batch {
-            id: BatchId(read_ulid(key_or(m, "id", &path)?, &path)?),
-            label: get_str(key_or(m, "label", &path)?, &path)?.to_owned(),
-            ops,
-            // Both ADR-0053 §4 keys: absent on the wire reads as absent here,
-            // exactly `by`'s own established shape for an optional key.
-            comment: match m.get("comment") {
-                Some(v) => Some(Text(get_str(v, &path)?.to_owned())),
-                None => None,
-            },
-            reverses: match m.get("reverses") {
-                Some(v) => Some(BatchId(read_ulid(v, &path)?)),
-                None => None,
-            },
-        });
+        batches.push(read_batch(item, &format!("$.batches[{i}]"))?);
     }
 
     Ok(Snapshot {
@@ -980,6 +965,57 @@ fn snapshot_from_json(j: &Json) -> Result<Snapshot, PlainError> {
         provenance,
         history,
         batches,
+    })
+}
+
+pub(crate) fn read_provenance(item: &Json, path: &str) -> Result<ProvenanceRecord, PlainError> {
+    let m = get_obj(item, path)?;
+    let actor = get_obj(key_or(m, "asserted_by", path)?, path)?;
+    let user = actor
+        .get("user")
+        .ok_or_else(|| shape(path, "an actor object with a `user` key"))?;
+    if actor.len() != 1 {
+        return Err(shape(path, "a one-key actor object"));
+    }
+    let confidence = match get_str(key_or(m, "confidence", path)?, path)? {
+        "asserted" => Confidence::Asserted,
+        "derived" => Confidence::Derived,
+        "heuristic" => Confidence::Heuristic,
+        _ => return Err(shape(path, "one of asserted / derived / heuristic")),
+    };
+    let origin = read_origin(key_or(m, "origin", path)?, path)?;
+    Ok(ProvenanceRecord {
+        id: ProvenanceId(read_ulid(key_or(m, "id", path)?, path)?),
+        origin,
+        asserted_at: Timestamp(get_u64(key_or(m, "asserted_at", path)?, path)?),
+        asserted_by: Actor::User(UserId(read_ulid(user, path)?)),
+        confidence,
+        supersedes: match m.get("supersedes") {
+            None => None,
+            Some(s) => Some(ProvenanceId(read_ulid(s, path)?)),
+        },
+    })
+}
+
+pub(crate) fn read_batch(item: &Json, path: &str) -> Result<Batch, PlainError> {
+    let m = get_obj(item, path)?;
+    let mut ops = Vec::new();
+    for (n, o) in get_arr(key_or(m, "ops", path)?, path)?.iter().enumerate() {
+        ops.push(read_op(o, &format!("{path}.ops[{n}]"))?);
+    }
+    Ok(Batch {
+        id: BatchId(read_ulid(key_or(m, "id", path)?, path)?),
+        label: get_str(key_or(m, "label", path)?, path)?.to_owned(),
+        ops,
+        // Both ADR-0053 §4 keys: absent on the wire reads as absent here.
+        comment: match m.get("comment") {
+            Some(v) => Some(Text(get_str(v, path)?.to_owned())),
+            None => None,
+        },
+        reverses: match m.get("reverses") {
+            Some(v) => Some(BatchId(read_ulid(v, path)?)),
+            None => None,
+        },
     })
 }
 

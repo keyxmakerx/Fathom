@@ -26,7 +26,8 @@
     "OP_CHECKS": 32,
     "OP_CHECK_GESTURE": 33,
     "OP_SYNC": 34,
-    "OP_TRACE": 35
+    "OP_PLAN_PREVIEW": 35,
+    "OP_TRACE": 36
   },
   "faces": {
     "FACE_HEADER": 0,
@@ -58,14 +59,15 @@
     "FACE_IN_ROUTE": 26,
     "FACE_IN_PROTO": 27,
     "FACE_IN_TUNNEL": 28,
-    "FACE_TR_HEAD": 34,
-    "FACE_TR_HOP": 35,
-    "FACE_TR_POL": 36,
+    "FACE_TR_HEAD": 35,
+    "FACE_TR_HOP": 36,
+    "FACE_TR_POL": 37,
     "FACE_INV_KEY": 29,
     "FACE_PASTE_LINE": 30,
     "FACE_DROP": 31,
     "FACE_CHECK_HEAD": 32,
-    "FACE_CHECK": 33
+    "FACE_CHECK": 33,
+    "FACE_PLAN_STEP": 34
   },
   "faceColumns": {
     "FACE_HEADER": ["kind_label", "column_1", "column_2", "column_3", "column_4", "column_5", "column_6", "opinions"],
@@ -104,7 +106,8 @@
     "FACE_PASTE_LINE": ["ordinal", "outcome", "byte_start", "byte_end", "node_id", "fields", "reason", ""],
     "FACE_DROP": ["ordinal", "marker_start", "marker_end", "label", "detectors", "", "", ""],
     "FACE_CHECK_HEAD": ["refuse", "warn", "idea", "rules", "load_failed", "unfinished", "", ""],
-    "FACE_CHECK": ["rule", "severity", "title", "fix", "why", "concept", "source", "elements"]
+    "FACE_CHECK": ["rule", "severity", "title", "fix", "why", "concept", "source", "elements"],
+    "FACE_PLAN_STEP": ["step", "ordinal", "error", "impact", "touches", "", "", ""]
   },
   "errors": {
     "ERR_UNKNOWN_OP": 1,
@@ -128,6 +131,7 @@
     "ERR_CABLE_END": 19,
     "ERR_NO_CABLE": 20,
     "ERR_PLAIN_REFUSED": 21,
-    "ERR_RESYNC": 22
+    "ERR_RESYNC": 22,
+    "ERR_PLATFORM_CHOICE": 23
   }
 }

@@ -50,3 +50,8 @@ export function saveAsDownload(name: string, bytes: Uint8Array): void {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
+
+/** Erases the stored bytes for good (Draw holders). Asking twice is not an error. */
+export async function deleteFile(organisationId: string, designId: string, fileId: string): Promise<void> {
+  await signedFetchWithHeaders('DELETE', `${base(organisationId, designId)}/${encodeURIComponent(fileId)}`);
+}

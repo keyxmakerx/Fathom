@@ -70,7 +70,10 @@ export type NodeKind =
   | "Line"
   | "Doc"
   | "DocLink"
-  | "DocFile";
+  | "DocFile"
+  | "MaintenancePlan"
+  | "PlanStep"
+  | "FieldValue";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -136,6 +139,9 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "Doc",
   "DocLink",
   "DocFile",
+  "MaintenancePlan",
+  "PlanStep",
+  "FieldValue",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -243,10 +249,13 @@ export type EdgeKind =
   | "HasLabel"
   | "HasLine"
   | "LineEnd"
+  | "HasPlan"
+  | "HasStep"
   | "HasDoc"
   | "DocOn"
   | "HasDocLink"
-  | "HasDocFile";
+  | "HasDocFile"
+  | "HasFieldValue";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -351,10 +360,13 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasLabel",
   "HasLine",
   "LineEnd",
+  "HasPlan",
+  "HasStep",
   "HasDoc",
   "DocOn",
   "HasDocLink",
   "HasDocFile",
+  "HasFieldValue",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -502,6 +514,9 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Doc: ["title", "body", "how", "model"],
   DocLink: ["title", "url"],
   DocFile: ["name", "size", "media", "checked", "removed", "file_id", "sha256"],
+  MaintenancePlan: ["title", "window_start", "window_end", "author", "stage", "outcome", "record"],
+  PlanStep: ["ordinal", "kind", "targets", "change", "before", "after", "edit", "state", "note", "done_at"],
+  FieldValue: ["definition", "value"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -869,5 +884,24 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "DocFile.removed": 361,
   "DocFile.file_id": 362,
   "DocFile.sha256": 363,
-  "SecurityPolicy.match_any_application": 381,
+  "MaintenancePlan.title": 364,
+  "MaintenancePlan.window_start": 365,
+  "MaintenancePlan.window_end": 366,
+  "MaintenancePlan.author": 367,
+  "MaintenancePlan.stage": 368,
+  "MaintenancePlan.outcome": 369,
+  "MaintenancePlan.record": 370,
+  "PlanStep.ordinal": 371,
+  "PlanStep.kind": 372,
+  "PlanStep.targets": 373,
+  "PlanStep.change": 374,
+  "PlanStep.before": 375,
+  "PlanStep.after": 376,
+  "PlanStep.edit": 377,
+  "PlanStep.state": 378,
+  "PlanStep.note": 379,
+  "PlanStep.done_at": 380,
+  "FieldValue.value": 381,
+  "FieldValue.definition": 382,
+  "SecurityPolicy.match_any_application": 383,
 };

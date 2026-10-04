@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///usr/bin/../share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.94 scan initiated Mon Sep 29 10:00:00 2026 as: nmap -sV -sC -oX scan.xml 10.0.99.0/24 -->
+<nmaprun scanner="nmap" args="nmap -sV -sC -oX scan.xml 10.0.99.0/24" start="1790676000" version="7.94" xmloutputversion="1.05">
+<scaninfo type="syn" protocol="tcp" numservices="1000" services="1-1000"/>
+<host starttime="1790676001" endtime="1790676020"><status state="up" reason="syn-ack"/>
+<address addr="10.0.99.2" addrtype="ipv4"/>
+<address addr="00:1B:2C:3D:4E:5F" addrtype="mac" vendor="Juniper Networks"/>
+<hostnames><hostname name="sw-01.hq.example" type="PTR"/></hostnames>
+<ports>
+<port protocol="tcp" portid="22"><state state="open" reason="syn-ack"/><service name="ssh" product="OpenSSH" version="8.9" extrainfo="protocol 2.0" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="161"><state state="closed" reason="reset"/><service name="snmp"/></port>
+<port protocol="tcp" portid="80"><state state="open" reason="syn-ack"/><service name="http" product="nginx" method="probed" conf="10"/><script id="http-title" output="Switch login"/><script id="banner" output="SNMP community FATHOMIMPORTbannerComm set snmp community FATHOMIMPORTsnmpRoCommunity2f9c1d7e authorization read-only"/></port>
+</ports>
+<os><osmatch name="Juniper JunOS 20.4" accuracy="95" line="1234"/></os>
+<hostscript><script id="snmp-info" output="community: set snmp community FATHOMIMPORTscriptComm0123456789 authorization read-only"/></hostscript>
+</host>
+<host starttime="1790676002" endtime="1790676021"><status state="up" reason="echo-reply"/>
+<address addr="10.0.99.50" addrtype="ipv4"/>
+<hostnames/>
+<ports><port protocol="tcp" portid="443"><state state="open" reason="syn-ack"/><service name="https" product="Apache httpd" version="2.4.57"/></port></ports>
+</host>
+<host><status state="down" reason="no-response"/><address addr="10.0.99.77" addrtype="ipv4"/></host>
+<runstats><finished time="1790676100" elapsed="100.00" exit="success"/><hosts up="2" down="1" total="3"/></runstats>
+</nmaprun>

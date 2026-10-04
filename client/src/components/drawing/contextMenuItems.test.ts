@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { menuItemsFor, type MenuActions } from './contextMenuItems';
 
-function actions(): Required<MenuActions> {
+function actions(): Required<Omit<MenuActions, 'onPlanChange'>> {
   return {
     onSelect: vi.fn(),
     onOpen: vi.fn(),

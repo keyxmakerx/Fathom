@@ -15,6 +15,7 @@
 
 pub mod checks;
 pub mod dictframe;
+pub mod plan;
 pub mod protocol;
 pub mod shell;
 pub mod wasmbin;
@@ -384,11 +385,19 @@ pub const OP_SYNC: u32 = 34;
 /// face rows, `FACE_TR_HEAD` first, then each hop's `FACE_TR_HOP` followed by its
 /// `FACE_TR_POL` rows. A trace that stops short still replies; the head says why. No estate is
 /// `ERR_NOT_INITIALISED`; a request that is not three lines is `ERR_BAD_FRAME`.
-pub const OP_TRACE: u32 = 35;
+pub const OP_TRACE: u32 = 36;
 
 /// The most bytes of request `OP_SYNC` reads (32 MiB), a generous ceiling, since an ordinary delta is
 /// kilobytes. A bigger one is a reason to load the design whole.
 pub const SYNC_FRAME_MAX: usize = 32 << 20;
+
+/// What a maintenance plan's remaining steps would do, nothing changed (ADR-0061 round 7).
+/// Request: the plan's display id. Reply: for each step still `planned`, in order, one
+/// `FACE_PLAN_STEP` then one `FACE_CHECK` per finding that step ADDS to the one before it
+/// (every severity; the same rows and Why? as `OP_CHECKS`). Steps run in order on a scratch
+/// copy through the same writes the canvas uses, so a step that cannot apply says why and the
+/// later ones still run. An id that is not a live plan answers with no rows.
+pub const OP_PLAN_PREVIEW: u32 = 35;
 
 // There is deliberately no OP_RACK_LIST. A rack is inventory -- it has a
 // label, a capacity and a count of what is in it -- so it is an `InvKind` and

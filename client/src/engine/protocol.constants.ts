@@ -49,8 +49,9 @@ export const OPCODES = {
   OP_CHECK_GESTURE: 33,
   /** Append the batches the module has not seen, or answer ERR_RESYNC (the page then loads the whole design). */
   OP_SYNC: 34,
+  OP_PLAN_PREVIEW: 35,
   /** ADR-0061 item 9: trace one flow through the design. */
-  OP_TRACE: 35,
+  OP_TRACE: 36,
 } as const;
 
 /** `protocol.rs`'s face role bytes — one `KIND_FACE_ROW` (5) record kind,
@@ -85,9 +86,9 @@ export const FACES = {
   FACE_IN_ROUTE: 26,
   FACE_IN_PROTO: 27,
   FACE_IN_TUNNEL: 28,
-  FACE_TR_HEAD: 34,
-  FACE_TR_HOP: 35,
-  FACE_TR_POL: 36,
+  FACE_TR_HEAD: 35,
+  FACE_TR_HOP: 36,
+  FACE_TR_POL: 37,
   FACE_INV_KEY: 29,
   /** ADR-0052 §2: one row per ledger line, the paste's gutter mark. */
   FACE_PASTE_LINE: 30,
@@ -97,6 +98,7 @@ export const FACES = {
   FACE_CHECK_HEAD: 32,
   /** ADR-0061 §5: one finding. */
   FACE_CHECK: 33,
+  FACE_PLAN_STEP: 34,
 } as const;
 
 /** `protocol.rs`'s `ERR_*` codes carried on a `KIND_ERROR` (0) reply. */
@@ -124,6 +126,7 @@ export const ERRORS = {
   ERR_PLAIN_REFUSED: 21,
   /** OP_SYNC could not append; the module is unchanged and the page sends OP_LOAD_PLAIN. */
   ERR_RESYNC: 22,
+  ERR_PLATFORM_CHOICE: 23,
 } as const;
 
 /** The FDLT reply header (`protocol.rs`'s `header()`, `HEADER_LEN`). */

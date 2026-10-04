@@ -29,6 +29,14 @@ function schemaVersionMinor(): number {
   return minor;
 }
 
+/** `u32_le(schema minor) ‖ bytes`, the framing a save and a change share. */
+export function withSchemaPrefix(bytes: Uint8Array): Uint8Array {
+  const body = new Uint8Array(4 + bytes.length);
+  new DataView(body.buffer).setUint32(0, schemaVersionMinor(), true); // little-endian
+  body.set(bytes, 4);
+  return body;
+}
+
 export interface OpenedDesign {
   bytes: Uint8Array;
   /** `fathom-design-version` — the chain version this payload was read at. */
@@ -101,11 +109,7 @@ export async function saveDesign(
   base: number,
 ): Promise<number> {
   const path = `/organisations/${encodeURIComponent(organisationId)}/designs/${encodeURIComponent(designId)}/versions?base=${encodeURIComponent(String(base))}`;
-  const prefix = new Uint8Array(4);
-  new DataView(prefix.buffer).setUint32(0, schemaVersionMinor(), true); // little-endian
-  const body = new Uint8Array(prefix.length + bytes.length);
-  body.set(prefix, 0);
-  body.set(bytes, prefix.length);
+  const body = withSchemaPrefix(bytes);
 
   const response = await signedFetchWithHeaders('POST', path, body);
   const text = new TextDecoder().decode(response.bytes).trim();

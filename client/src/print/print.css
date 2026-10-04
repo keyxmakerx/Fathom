@@ -11,7 +11,7 @@
   position: fixed;
   top: 56px;
   right: 12px;
-  width: 320px;
+  width: 380px;
   max-height: calc(100vh - 72px);
   overflow-y: auto;
   background: var(--page);
@@ -23,9 +23,7 @@
 .print-panel__head {
   padding: 8px 12px;
   border-bottom: 1px solid var(--hairline);
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-size: 15px;
   font-weight: 700;
 }
 
@@ -40,7 +38,8 @@
 .print-panel__section-label--inline {
   display: inline-block;
   padding: 0;
-  width: 56px;
+  min-width: 56px;
+  white-space: nowrap;
 }
 
 .print-panel__option {
@@ -56,6 +55,7 @@
 .print-panel__option input,
 .print-panel__check input {
   appearance: auto;
+  accent-color: var(--ink);
   width: 14px;
   height: 14px;
   flex-shrink: 0;
@@ -119,6 +119,7 @@
 
 .print-panel__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 10px 12px;
   border-top: 1px solid var(--hairline);
@@ -131,6 +132,14 @@
   color: var(--page);
   padding: 6px 0;
   cursor: pointer;
+}
+
+.print-panel__print:disabled,
+.print-panel__cancel:disabled {
+  background: var(--page);
+  color: var(--muted);
+  border-color: var(--hairline);
+  cursor: default;
 }
 
 .print-panel__cancel {
@@ -442,5 +451,71 @@
      page too forces a trailing blank page. */
   .print-page + .print-page {
     break-before: page;
+  }
+}
+
+.print-view-image {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0 auto;
+  object-fit: contain;
+}
+.print-counter {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.print-panel__pages {
+  width: 100%;
+  border-collapse: collapse;
+}
+.print-panel__pages th {
+  padding: 6px 12px;
+  text-align: left;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 2px solid var(--ink);
+}
+.print-panel__pages td {
+  border-bottom: 1px solid var(--hairline);
+  padding: 0;
+}
+.print-panel__pages .print-panel__count {
+  width: 3.5em;
+  padding-right: 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.print-panel__note {
+  margin: 0;
+  padding: 6px 12px;
+  color: var(--muted);
+}
+
+.print-preview__bar button {
+  border: 1px solid var(--ink);
+  background: var(--page);
+  color: var(--ink);
+  padding: 4px 12px;
+  cursor: pointer;
+}
+.print-preview__bar button:first-of-type {
+  background: var(--ink);
+  color: var(--page);
+}
+
+/* Every page is a fixed-size block that carries its own margins. */
+@page {
+  margin: 0;
+}
+@media print {
+  .print-previewing .print-hide-under-preview {
+    display: none !important;
   }
 }

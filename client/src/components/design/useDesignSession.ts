@@ -19,8 +19,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchCatalogue, fetchModel, type CatalogueModel } from '../../api/catalogue';
 import { ApiRefusal } from '../../api/errors';
 import type { DesignCapability } from '../../api/designs';
+import { LiveFeed, postChange, postPresence, type Person } from '../../api/live';
 import { openDesign } from '../../api/payload';
+import { applyEditorChange } from './applyChange';
+import { writeChange } from '../../document/change';
 import { ConditionalSave } from './conditionalSave';
+import { LiveEditing, type LiveMode, type LiveView } from './liveSession';
 import type { EditorChange } from '../drawing';
 import {
   AlreadyPlacedError,
@@ -33,33 +37,13 @@ import {
   RackOverlapError,
   RackRangeError,
   SketchOnCatalogueChassisError,
-  SlotTakenError,
-  SURFACE_FORMS,
-  addSketchPort,
-  addSketchPortRange,
-  createShelf,
-  createSurface,
-  duplicateDevice,
-  isSurfaceForm,
-  movePlacement,
-  removeChassis,
-  removeSketchPort,
-  resizeShelf,
   ShelfResizeError,
+  SlotTakenError,
 } from '../../document/commands';
-import { disconnect, setCableField } from '../../document/cables';
-import { removeFree, setLabel, setLineLabel } from '../../document/freeform';
-import { FieldValueError, setChassisField, setDeviceField, setPassiveNodeField, setRackField, setRackHeight } from '../../document/edit';
+import { FieldValueError } from '../../document/edit';
 import type { Document } from '../../document/model';
 import { readPlain, writePlain } from '../../document/plain';
-import {
-  FixedSlotError,
-  SlotAlreadyFittedError,
-  UnknownSlotError,
-  fitSupply,
-  removeSupply,
-  setSupplyField,
-} from '../../document/supplies';
+import { FixedSlotError, SlotAlreadyFittedError, UnknownSlotError } from '../../document/supplies';
 import { getSession } from '../../state/sessionState';
 import { SaveQueue } from '../racks/saveQueue';
 
@@ -111,8 +95,34 @@ export function refusalFor(error: unknown): { refused: string } | undefined {
   return undefined;
 }
 
+/** What the live connection has to say; the page shows it, `liveSession.ts` decides it. */
+export interface LiveStatus {
+  mode: LiveMode;
+  /** The stream is up. */
+  connected: boolean;
+  /** The stream dropped and is being reopened. */
+  reconnecting: boolean;
+  pendingCount: number;
+  note: string | null;
+  overwrite: LiveView['overwrite'];
+  merged: string | null;
+  self: Person | null;
+  people: Person[];
+}
+
+const NO_LIVE: LiveStatus = { mode: 'connecting', connected: false, reconnecting: false, pendingCount: 0, note: null, overwrite: null, merged: null, self: null, people: [] };
+
 export interface DesignSession {
   doc: Document | null;
+  live: LiveStatus;
+  /** Live editing: restore the value another person's change just replaced (an item's `id` from `live.overwrite`). */
+  putMineBack: (id: string) => void;
+  dismissOverwrite: () => void;
+  dismissNote: () => void;
+  /** One sentence in the live notice's place (e.g. what an undo left alone). */
+  tell: (sentence: string) => void;
+  /** The view this person is in ("canvas" or "inventory") and what they have selected, for presence. */
+  setPresence: (view: string, selected: string | null) => void;
   catalogue: CatalogueModel[];
   /** The open design's id, for per-design browser-local choices (the look). */
   designId?: string;
@@ -123,6 +133,9 @@ export interface DesignSession {
    * it for save (ADR-0052 §5: a reader's document never reaches the
    * `SaveQueue`). */
   applyDocChange: (next: Document) => void;
+  /** As `applyDocChange`, but resolves once a save that carries `next` has landed (void) or has
+   * been refused (`{ refused }`), so a caller can undo a promise it made on the strength of it. */
+  applyAndConfirm: (next: Document) => Promise<{ refused: string } | void>;
   /** ADR-0046 §2, "edited from either": the one `EditorChange` dispatcher
    * both places' `EditorFor` calls raise through `EditorActions.onEdit`. */
   handleEdit: (change: EditorChange) => { refused: string } | void;
@@ -157,6 +170,9 @@ export function useDesignSession(organisationId: string, designId: string, capab
   const [catalogue, setCatalogue] = useState<CatalogueModel[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveRefusal, setSaveRefusal] = useState<string | null>(null);
+  const [live, setLive] = useState<LiveStatus>(NO_LIVE);
+  const liveRef = useRef<LiveEditing | null>(null);
+  const viewRef = useRef<{ view: string; selected: string | null } | null>(null);
 
   // ADR-0054 §1: the base a save is conditioned on, held here rather than in
   // state — it moves on every save that lands, which a document mid-drawing
@@ -189,8 +205,34 @@ export function useDesignSession(organisationId: string, designId: string, capab
         // always the person's own asking (the initial open, or Reload after
         // a conflict), never a reaction to a refusal's own header.
         conditionalSaveRef.current = new ConditionalSave(opened.version);
-        setDoc(readPlain(opened.bytes));
+        const opened0 = readPlain(opened.bytes);
         setSaveRefusal(null);
+        liveRef.current?.dispose();
+        const session = new LiveEditing(
+          {
+            me: getSession()?.accountId,
+            canDraw,
+            reopen: async () => {
+              const again = await openDesign(organisationId, designId);
+              return { doc: readPlain(again.bytes), version: again.version };
+            },
+            post: (change, after) => postChange(organisationId, designId, writeChange(change), after),
+            postView: (body) => postPresence(organisationId, designId, body),
+            makeFeed: (since, events, view) => new LiveFeed({ organisationId, designId, since, events, view }),
+            save: (next) => saveQueueRef.current?.push(writePlain(next)),
+            onView: (v) => {
+              if (cancelledRef.current) return;
+              setDoc(v.doc);
+              setLive({ mode: v.mode, connected: v.connected, reconnecting: v.reconnecting, pendingCount: v.pendingCount, note: v.note, overwrite: v.overwrite, merged: v.merged, self: v.self, people: v.people });
+            },
+          },
+          opened0,
+          opened.version,
+        );
+        liveRef.current = session;
+        setDoc(opened0);
+        session.start();
+        if (viewRef.current !== null) session.setPresence(viewRef.current.view, viewRef.current.selected);
       })
       .catch((error: unknown) => {
         if (!cancelledRef.current) setLoadError(describeError(error));
@@ -201,24 +243,51 @@ export function useDesignSession(organisationId: string, designId: string, capab
     setDoc(null);
     setCatalogue([]);
     setSaveRefusal(null);
+    setLive(NO_LIVE);
     conditionalSaveRef.current = null;
     load();
     return () => {
       cancelledRef.current = true;
+      liveRef.current?.dispose();
+      liveRef.current = null;
     };
   }, [load]);
 
   /** ADR-0054 §1's Reload — see the `DesignSession.reloadDesign` doc. */
   const reloadDesign = useCallback(() => {
-    load();
+    const session = liveRef.current;
+    if (session != null && session.currentMode !== 'legacy') session.reload();
+    else load();
   }, [load]);
+
+  // Callers waiting on the next save to start: it carries everything they applied before it began.
+  const waitersRef = useRef<Array<(error: unknown) => void>>([]);
+  // Callers waiting for a live session to confirm everything it has sent.
+  const liveWaitersRef = useRef<Array<() => void>>([]);
+  // Closing the tab with changes the server has not confirmed loses them: they are never kept in browser storage.
+  const pendingCount = live.pendingCount;
+  useEffect(() => {
+    if (pendingCount === 0) return undefined;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [pendingCount]);
+  useEffect(() => {
+    if (pendingCount !== 0) return;
+    liveWaitersRef.current.splice(0).forEach((w) => w());
+  }, [pendingCount]);
 
   const saveQueue = useMemo(
     () =>
       new SaveQueue<Uint8Array>(
         (bytes) => {
+          const mine = waitersRef.current.splice(0);
           const conditionalSave = conditionalSaveRef.current;
           if (conditionalSave == null) {
+            mine.forEach((w) => w(new Error('save queued before the design finished opening')));
             // Cannot happen through `applyDocChange` (it requires `doc`,
             // which is set in the same step as `conditionalSaveRef`), but a
             // typed `Promise.reject` here is still an honest answer rather
@@ -229,21 +298,69 @@ export function useDesignSession(organisationId: string, designId: string, capab
           // ADR-0054 §1: this is the one call site that ever appends
           // `?base=` — `conditionalSave.save` reads and moves the base
           // itself; this hook never touches it directly.
-          return conditionalSave.save(organisationId, designId, bytes).then(() => setSaveRefusal(null));
+          return conditionalSave.save(organisationId, designId, bytes).then(
+            () => {
+              setSaveRefusal(null);
+              mine.forEach((w) => w(null));
+            },
+            (error: unknown) => {
+              mine.forEach((w) => w(error));
+              throw error;
+            },
+          );
         },
         (error: unknown) => setSaveRefusal(describeError(error)),
       ),
     [organisationId, designId],
   );
 
+  const saveQueueRef = useRef(saveQueue);
+  saveQueueRef.current = saveQueue;
+
   const applyDocChange = useCallback(
     (next: Document) => {
+      const session = liveRef.current;
+      if (session != null) {
+        session.edit(next);
+        return;
+      }
       setDoc(next);
       if (!canDraw) return;
       saveQueue.push(writePlain(next));
     },
     [saveQueue, canDraw],
   );
+
+  const applyAndConfirm = useCallback(
+    (next: Document): Promise<{ refused: string } | void> => {
+      if (!canDraw) return Promise.resolve({ refused: 'You can only read this design.' });
+      const session = liveRef.current;
+      if (session != null && session.currentMode !== 'legacy') {
+        // Live: confirmed once the session has nothing left unsent.
+        return new Promise((resolve) => {
+          session.edit(next);
+          if (session.pendingCount === 0) {
+            resolve({ refused: 'That edit no longer fits what others just changed, so nothing was changed.' });
+            return;
+          }
+          liveWaitersRef.current.push(() => resolve(undefined));
+        });
+      }
+      return new Promise((resolve) => {
+        waitersRef.current.push((error) => resolve(error == null ? undefined : { refused: describeError(error) }));
+        applyDocChange(next);
+      });
+    },
+    [applyDocChange, canDraw],
+  );
+  const putMineBack = useCallback((id: string) => liveRef.current?.putBack(id), []);
+  const dismissOverwrite = useCallback(() => liveRef.current?.dismissOverwrite(), []);
+  const dismissNote = useCallback(() => liveRef.current?.dismissNote(), []);
+  const tell = useCallback((sentence: string) => liveRef.current?.tell(sentence), []);
+  const setPresence = useCallback((view: string, selected: string | null) => {
+    viewRef.current = { view, selected };
+    liveRef.current?.setPresence(view, selected);
+  }, []);
 
   const handleEdit = useCallback(
     (change: EditorChange): { refused: string } | void => {
@@ -262,116 +379,9 @@ export function useDesignSession(organisationId: string, designId: string, capab
       // not a refusal (`contract.ts`'s `EditorActions.onEdit`).
       let placementNotice: string | undefined;
       try {
-        let next: Document;
-        if (change.kind === 'device') {
-          next = setDeviceField(doc, change.id, change.field, change.value, opts);
-        } else if (change.kind === 'chassis') {
-          next = setChassisField(doc, change.id, change.field, change.value, opts);
-        } else if (change.kind === 'shelf') {
-          next = setPassiveNodeField(doc, change.id, change.field, change.value, opts);
-        } else if (change.kind === 'rack') {
-          if (change.field === 'bay') {
-            if (change.value === null) {
-              next = setRackField(doc, change.id, 'bay', null, opts);
-            } else {
-              const parsed = Number(change.value);
-              if (!Number.isInteger(parsed)) {
-                throw new FieldValueError('Rack.bay', change.value, 'must be a whole number');
-              }
-              next = setRackField(doc, change.id, 'bay', parsed, opts);
-            }
-          } else {
-            next = setRackField(doc, change.id, 'row', change.value, opts);
-          }
-        } else if (change.kind === 'rack-height') {
-          next = setRackHeight(doc, change.id, change.heightU, opts);
-        } else if (change.kind === 'supply') {
-          next = setSupplyField(doc, change.id, change.field, change.value, opts);
-        } else if (change.kind === 'supply-remove') {
-          next = removeSupply(doc, change.id, opts);
-        } else if (change.kind === 'supply-fit') {
-          next = fitSupply(doc, change.chassisId, change.slot, {}, opts);
-        } else if (change.kind === 'cable') {
-          // UI-SPEC "Cables", this session's brief — the cable panel's own
-          // fields. `value` is always the raw text a field holds
-          // (`contract.ts`'s own doc on this `EditorChange` kind); `length_m`
-          // is parsed here, the same "the caller parses before the write-
-          // side function gets a chance to refuse it" reading `'rack'`'s
-          // `bay` above already gives.
-          if (change.field === 'length_m') {
-            if (change.value === null) {
-              next = setCableField(doc, change.id, 'length_m', null, opts);
-            } else {
-              const parsed = Number(change.value);
-              if (!Number.isInteger(parsed) || parsed < 0) {
-                throw new FieldValueError('Cable.length_m', change.value, 'must be a whole, non-negative number');
-              }
-              next = setCableField(doc, change.id, 'length_m', parsed, opts);
-            }
-          } else {
-            next = setCableField(doc, change.id, change.field, change.value, opts);
-          }
-        } else if (change.kind === 'cable-disconnect') {
-          next = disconnect(doc, change.id, opts);
-        } else if (change.kind === 'device-remove') {
-          next = removeChassis(doc, change.chassisId, opts);
-        } else if (change.kind === 'move-placement') {
-          next = movePlacement(doc, change.itemId, change.placement, opts);
-        } else if (change.kind === 'add-sketch-port') {
-          next = addSketchPort(
-            doc,
-            change.chassisId,
-            {
-              label: change.label,
-              connector: change.connector,
-              service: change.service ?? undefined,
-              face: change.face,
-            },
-            opts,
-          );
-        } else if (change.kind === 'remove-sketch-port') {
-          next = removeSketchPort(doc, change.chassisId, change.portId, opts);
-        } else if (change.kind === 'add-sketch-port-range') {
-          next = addSketchPortRange(
-            doc,
-            change.chassisId,
-            {
-              labelPrefix: change.labelPrefix,
-              first: change.first,
-              last: change.last,
-              connector: change.connector,
-              service: change.service ?? undefined,
-              face: change.face,
-            },
-            opts,
-          );
-        } else if (change.kind === 'duplicate-device') {
-          const result = duplicateDevice(doc, change.chassisId, { catalogue, ...opts });
-          next = result.doc;
-          if (!result.placed) {
-            placementNotice = 'Duplicated — no free position in this rack, so the copy is unplaced.';
-          }
-        } else if (change.kind === 'create-shelf') {
-          const model = change.model
-            ? catalogue.find((m) => m.vendor === change.model!.vendor && m.model === change.model!.model)
-            : undefined;
-          next = createShelf(doc, change.rackId, { positionU: change.positionU, label: change.label, model, ...opts });
-        } else if (change.kind === 'label') {
-          next = setLabel(doc, change.id, { text: change.value }, opts);
-        } else if (change.kind === 'area-size') {
-          next = setLabel(doc, change.id, { w: change.w, h: change.h }, opts);
-        } else if (change.kind === 'line') {
-          next = setLineLabel(doc, change.id, change.value, opts);
-        } else if (change.kind === 'free-remove') {
-          next = removeFree(doc, [change.id], opts);
-        } else if (change.kind === 'shelf-size') {
-          next = resizeShelf(doc, change.id, { heightU: change.heightU, slots: change.slots }, { catalogue, ...opts });
-        } else {
-          if (!isSurfaceForm(change.form)) {
-            throw new FieldValueError('Surface.form', change.form, `is not one of: ${SURFACE_FORMS.join(', ')}`);
-          }
-          next = createSurface(doc, change.premisesId, { label: change.label, form: change.form, ...opts });
-        }
+        const applied = applyEditorChange(doc, change, catalogue, opts);
+        const next = applied.doc;
+        placementNotice = applied.notice;
         applyDocChange(next);
         if (placementNotice !== undefined) return { refused: placementNotice };
       } catch (e) {
@@ -381,5 +391,22 @@ export function useDesignSession(organisationId: string, designId: string, capab
     [doc, catalogue, applyDocChange],
   );
 
-  return { doc, designId, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign };
+  return {
+    doc,
+    designId,
+    live,
+    putMineBack,
+    dismissOverwrite,
+    dismissNote,
+    tell,
+    setPresence,
+    catalogue,
+    loadError,
+    saveRefusal,
+    canDraw,
+    applyDocChange,
+    applyAndConfirm,
+    handleEdit,
+    reloadDesign,
+  };
 }

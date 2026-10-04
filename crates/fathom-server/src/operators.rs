@@ -1981,6 +1981,7 @@ impl OperatorStore {
             .await?;
             tx.execute("DELETE FROM sessions WHERE id = $1", &[session_id])
                 .await?;
+            crate::sessions::notify_session_ended(tx, session_id).await?;
         }
         Ok(())
     }

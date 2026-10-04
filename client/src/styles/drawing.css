@@ -83,63 +83,6 @@
   --xy-background-pattern-dots-color: var(--hairline);
 }
 
-/* This session's brief item 1 — the cables view control: "a small control
-   on the canvas near the lens row... a view control, not a lens." Flat,
-   hairline, zero radius, no shadow — the plan control on the Room board
-   (`design/places/Room.dc.html`) is the precedent for the form, redrawn in
-   this drawing's own segmented-button language (`Editor.tsx`'s own "PLACED
-   ON" control's inline styles, moved to real CSS here since this file, not
-   that one, owns `drawing.css`). Positioned near the bar's own lens row —
-   top-left of the canvas, never inside the React Flow pane, so it survives
-   a pan or zoom untouched. */
-.drawing-cables-control {
-  position: absolute;
-  top: var(--s2);
-  left: var(--s2);
-  z-index: var(--z-modal);
-  display: flex;
-  align-items: stretch;
-  background: var(--surface);
-  border: var(--rule-hair) solid var(--hairline);
-  border-radius: var(--radius);
-  font-family: var(--sans);
-  font-size: var(--t-micro);
-}
-
-.drawing-cables-control__label {
-  padding: var(--s1) var(--s2);
-  color: var(--muted);
-  letter-spacing: var(--track-label);
-  text-transform: uppercase;
-  display: flex;
-  align-items: center;
-  border-right: var(--rule-hair) solid var(--hairline);
-}
-
-.drawing-cables-control__option {
-  appearance: none;
-  border: none;
-  border-right: var(--rule-hair) solid var(--hairline);
-  background: var(--surface);
-  color: var(--ink);
-  padding: var(--s1) var(--s2);
-  cursor: pointer;
-  font: inherit;
-}
-
-.drawing-cables-control__option:last-child {
-  border-right: none;
-}
-
-/* The one lit choice — ink background, page-coloured text, the exact pair
-   `shell.css`'s own `.shell-lens--on` already uses for "a lens, one lit" —
-   never a risk colour (UI-SPEC "Look": this names a view choice, not an
-   error/warning/recommendation/confirmation). */
-.drawing-cables-control__option--on {
-  background: var(--ink);
-  color: var(--page);
-}
-
 /* ADR-0050 §2: "the flip is one camera, never a page: racks move to their
    mirrored places with the standard motion, nothing remounts." The same
    node ids stay mounted (`Drawing.tsx`'s own `rackPositions`, keyed by rack
@@ -659,6 +602,18 @@
   font-size: var(--t-body);
   color: var(--ink);
   font-variant-numeric: var(--num-tabular);
+}
+
+/* "Hide this cable" / "Show this cable". */
+.drawing-editor__hide-cable {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.drawing-editor__hide-cable-note {
+  font-size: var(--t-micro);
+  color: var(--muted);
 }
 
 /* ---- the palette -------------------------------------------------------- */
@@ -1561,7 +1516,9 @@
   width: 100%;
   height: 100%;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
   padding: 0 var(--s4);
   border: 2px solid var(--ink);
   background: var(--page);
@@ -1571,6 +1528,69 @@
 .drawing-diagram-box--selected {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
+}
+.drawing-diagram-box__words {
+  max-width: 100%;
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-size: var(--t-small);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Show-menu words on the lines: ink on the page, no border, never a risk colour. */
+.drawing-layer-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  padding: 0 4px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ink);
+  background: var(--page);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.drawing-layer-label__more {
+  color: var(--muted);
+}
+.drawing-diagram-box--icon {
+  position: relative;
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.drawing-diagram-box--icon .device-icon {
+  display: block;
+  color: var(--ink);
+}
+.drawing-diagram-box--icon.drawing-diagram-box--selected .device-icon {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.drawing-diagram-box--icon.drawing-diagram-box--selected {
+  outline: none;
+}
+/* The name sits under the icon on the page, so a line passing behind it is hidden, not struck through. */
+.drawing-diagram-box__text--below {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 190px;
+  align-items: center;
+  padding: 1px 4px;
+  background: var(--page);
+  text-align: center;
+}
+.drawing-diagram-box__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 .drawing-diagram-box__name {
   font-size: var(--t-mast);
@@ -1592,4 +1612,31 @@
 .drawing-rack__u-number--lit {
   font-weight: 700;
   color: var(--ink);
+}
+
+/* ADR-0062: a titled group of fields inside the editor (Device, Location, Management, Your fields). */
+.drawing-editor__group {
+  margin-top: var(--s3);
+  padding-bottom: var(--s1);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Another person's selection (UI-SPEC "Presence"): an ink initials dot at the thing's top right. No ring, no animation, and it moves only when their selection does. */
+.drawing-peer {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--page);
+  font-size: var(--t-micro);
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 20;
 }

@@ -2,29 +2,42 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { DesignCapability } from '../../api/designs';
 import { addNote, notesOf as notesOfDoc, removeNote, type NoteHow } from '../../document/notes';
+import { fieldForOwner, fieldsOf as fieldsOfDoc, setFieldValue, type FieldType } from '../../document/fields';
+import { useFieldDefinitions } from './useFieldDefinitions';
+import type { Document } from '../../document/model';
 import { listTags, renameTag, tagObject, tagsOf as tagsOfDoc, untagObject } from '../../document/tags';
-import { redo as redoBatch, undo as undoBatch, undoable } from '../../document/undo';
+import { skippedSentence } from '../../document/liveDoc';
+import { redo as redoBatch, redoSkipping, undo as undoBatch, undoSkipping, undoable } from '../../document/undo';
+import { describeRestore, outlineSelectors } from '../../document/historyDiff';
+import { restoreTo } from '../../document/restore';
 import { viewOf } from '../../document/view';
 import { Engine } from '../../engine/engine';
 import { refusalSentence } from '../../engine/mirror';
 import { buildCsv } from '../../print/csv';
+import { buildCableScheduleRows, cableScheduleHeaderRow, CABLE_SCHEDULE_WIDTHS } from '../../print/cableSchedule';
 import { buildCutSheet } from '../../print/cutSheet';
 import { cutSheetTableRows } from '../../print/cutSheetTable';
+import { buildInventorySheet, type InventoryPrintable } from '../../print/inventoryTable';
 import { PrintPanel } from '../../print/PrintPanel';
 import { SharePanel } from '../../share/SharePanel';
 import { PrintPreview } from '../../print/PrintPreview';
-import { buildPrintJob, type PrintJob, type PrintOptions, type PrintWhat } from '../../print/printJob';
+import { buildPrintJob, type PrintJob, type PrintOptions, type PrintSection } from '../../print/printJob';
+import { captureViewPng, downloadDataUrl } from '../../print/viewImage';
 import { buildXlsx } from '../../print/xlsx';
 import { getSession } from '../../state/sessionState';
 import type { Selection } from '../drawing';
 import { DocsOverlay } from '../docs/DocsOverlay';
 import { DocsContext, useDocsApi } from '../docs/useDocsApi';
+import { HistoryPanel, whenLabel } from '../history/HistoryPanel';
+import { useHistory } from '../history/useHistory';
 import { InventoryPlace } from '../inventory/InventoryPlace';
 import { RacksPlace } from '../racks/RacksPlace';
 import { Trail } from '../racks/Trail';
 import { redoable } from '../racks/trail';
 import { searchDesign } from '../shell/search';
 import type { Place, ShellProps } from '../shell/types';
+import { LiveNotices, announcement, hasLiveNotices } from './LiveNotices';
+import { presenceViewOf } from './liveSession';
 import { useDesignSession } from './useDesignSession';
 
 /** A download with no server round trip. The object URL is revoked a few
@@ -92,9 +105,37 @@ export function DesignPlace(props: DesignPlaceProps) {
   // Print. `activeRackId` is RacksPlace's own report of what the current
   // selection resolves to; `null` when there is none, which the panel reads as "no active rack".
   const [activeRackId, setActiveRackId] = useState<string | null>(null);
+  const [shownCableIds, setShownCableIds] = useState<ReadonlySet<string> | null>(null);
   const [printMode, setPrintMode] = useState<'closed' | 'panel' | 'preview'>('closed');
   const [printJob, setPrintJob] = useState<PrintJob | null>(null);
+  // The Inventory table as shown, kept by ref: it changes with every edit and only the pack reads it.
+  const inventoryPrintRef = useRef<InventoryPrintable | null>(null);
+  const setInventoryPrintable = useCallback((p: InventoryPrintable | null) => {
+    inventoryPrintRef.current = p;
+  }, []);
   const [sharing, setSharing] = useState(false);
+
+  // History beside the canvas: a picked save is shown read-only with what it changed outlined.
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const history = useHistory(organisationId, designId, historyOpen, session.doc?.batches.length ?? 0);
+  const pickedSave = historyOpen ? history.picked : null;
+  const outlineKey = pickedSave != null ? pickedSave.outline.join('\n') : '';
+  useEffect(() => {
+    if (outlineKey === '') return undefined;
+    const selector = outlineSelectors(outlineKey.split('\n')).join(',');
+    // Only touch an element that lacks the class, so the observer never loops on its own edit.
+    const apply = () =>
+      document.querySelectorAll(selector).forEach((el) => {
+        if (!el.classList.contains('history-changed')) el.classList.add('history-changed');
+      });
+    apply();
+    const observer = new MutationObserver(apply); // nodes mount lazily and React Flow rewrites classes on selection
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+    return () => {
+      observer.disconnect();
+      document.querySelectorAll('.history-changed').forEach((el) => el.classList.remove('history-changed'));
+    };
+  }, [outlineKey]);
 
   // A design has no name of its own — the deepest scope stands in; the path is what sits between the organisation and it, never repeating either end.
   const designLabel = shellProps.path[shellProps.path.length - 1]?.label ?? '';
@@ -129,31 +170,49 @@ export function DesignPlace(props: DesignPlaceProps) {
     return () => document.removeEventListener('keydown', onKeyDown, true);
   }, [printMode, openPrintPanel]);
 
-  const handlePrintSubmit = useCallback(
-    (what: PrintWhat, options: PrintOptions) => {
-      const doc = session.doc;
-      if (doc == null) return;
+  // The whole pack for the ticked rows, built from the document as it is now.
+  // `viewPng` is the canvas picture; `''` means "count it, don't draw it".
+  const buildPackJob = useCallback(
+    (sections: ReadonlySet<PrintSection>, options: PrintOptions, viewPng: string | null): PrintJob => {
+      const doc = session.doc!;
       const view = viewOf(doc, session.catalogue);
-      const racks =
-        what === 'closet'
-          ? view.rows.flatMap((row) => row.racks)
-          : what === 'this-rack'
-            ? view.racks.filter((r) => r.id === (activeRackId ?? view.racks[0]?.id))
-            : [];
-      const cutSheetDevices = what === 'cut-sheet' ? buildCutSheet(doc, view) : [];
-      const job = buildPrintJob({
-        what,
+      const allRacks = view.rows.flatMap((row) => row.racks);
+      const racks = options.rackScope === 'active' ? allRacks.filter((r) => r.id === (activeRackId ?? allRacks[0]?.id)) : allRacks;
+      const cableRows = sections.has('cables')
+        ? buildCableScheduleRows(doc, view).filter((r) => options.cables !== 'screen' || shownCableIds == null || shownCableIds.has(r.key ?? ''))
+        : [];
+      const inventory = sections.has('inventory') ? inventoryPrintRef.current : null;
+      return buildPrintJob({
+        sections,
         racks,
         cables: view.cables,
-        cutSheetDevices,
+        shownCableIds,
+        cutSheetDevices: sections.has('ports') ? buildCutSheet(doc, view) : [],
+        extra: {
+          inventory: inventory == null ? [] : [buildInventorySheet(inventory, options.hideSensitive)],
+          view: viewPng == null ? [] : [{ kind: 'image', section: 'view', dataUrl: viewPng, heading: { title: `This view · ${designLabel}`, detail: 'the canvas as drawn' } }],
+          cables: [
+            {
+              kind: 'table',
+              section: 'cables',
+              widths: CABLE_SCHEDULE_WIDTHS,
+              columnHeader: cableScheduleHeaderRow(),
+              bodyRows: cableRows,
+              heading: { title: 'Cable schedule', detail: `${cableRows.length} cable${cableRows.length === 1 ? '' : 's'} · by label` },
+            },
+          ],
+        },
         options,
         meta: { designName: designLabel, path: pathLabel, printedBy: accountAddress ?? '', printedAt: new Date() },
       });
-      setPrintJob(job);
-      setPrintMode('preview');
     },
-    [session.doc, session.catalogue, activeRackId, designLabel, pathLabel, accountAddress],
+    [session.doc, session.catalogue, activeRackId, shownCableIds, designLabel, pathLabel, accountAddress],
   );
+
+  const showPreview = useCallback((job: PrintJob) => {
+    setPrintJob(job);
+    setPrintMode('preview');
+  }, []);
 
   const downloadCutSheet = useCallback(
     (format: 'xlsx' | 'csv') => {
@@ -224,7 +283,14 @@ export function DesignPlace(props: DesignPlaceProps) {
     const target = undoCandidates[0];
     if (target == null) return;
     try {
-      session.applyDocChange(undoBatch(doc, target.id, { actor: accountId, now: Date.now() }));
+      if (session.live.mode !== 'legacy') {
+        // Live: a field another person has changed since is left alone, and said so.
+        const r = undoSkipping(doc, target.id, { actor: accountId, now: Date.now() });
+        if (r.doc !== doc) session.applyDocChange(r.doc);
+        if (r.skipped.length > 0) session.tell(skippedSentence(r.skipped, r.doc === doc));
+      } else {
+        session.applyDocChange(undoBatch(doc, target.id, { actor: accountId, now: Date.now() }));
+      }
       setUndoRefusal(null);
     } catch (error) {
       setUndoRefusal(error instanceof Error ? error.message : 'That undo did not complete.');
@@ -239,7 +305,13 @@ export function DesignPlace(props: DesignPlaceProps) {
     if (!session.canDraw) return; // ADR-0052 §5: a reader redoes nothing, even via a stray Ctrl+Shift+Z
     if (doc == null || accountId == null || redoCandidate == null) return;
     try {
-      session.applyDocChange(redoBatch(doc, redoCandidate.id, { actor: accountId, now: Date.now() }));
+      if (session.live.mode !== 'legacy') {
+        const r = redoSkipping(doc, redoCandidate.id, { actor: accountId, now: Date.now() });
+        if (r.doc !== doc) session.applyDocChange(r.doc);
+        if (r.skipped.length > 0) session.tell(skippedSentence(r.skipped, r.doc === doc));
+      } else {
+        session.applyDocChange(redoBatch(doc, redoCandidate.id, { actor: accountId, now: Date.now() }));
+      }
       setUndoRefusal(null);
     } catch (error) {
       setUndoRefusal(error instanceof Error ? error.message : 'That redo did not complete.');
@@ -387,6 +459,42 @@ export function DesignPlace(props: DesignPlaceProps) {
     [session, accountId],
   );
 
+  // ADR-0062 — custom fields, shared with everyone who opens the design.
+  const fieldDefs = useFieldDefinitions(organisationId);
+  const { refresh: refreshFieldDefs } = fieldDefs;
+  useEffect(() => {
+    if (props.place === 'inventory') void refreshFieldDefs();
+  }, [props.place, refreshFieldDefs]);
+  const fieldsOfCallback = useCallback(
+    (ownerId: string) => (session.doc ? fieldsOfDoc(session.doc, ownerId, fieldDefs.defs) : []),
+    [session.doc, fieldDefs.defs],
+  );
+  const fieldsWrite = useCallback(
+    (write: (current: Document, opts: { actor: string } | undefined) => Document, fallback: string): { refused: string } | void => {
+      const current = session.doc;
+      if (current == null) return { refused: 'No design is open.' };
+      try {
+        const next = write(current, accountId ? { actor: accountId } : undefined);
+        if (next !== current) session.applyDocChange(next);
+      } catch (error) {
+        return { refused: error instanceof Error ? error.message : fallback };
+      }
+    },
+    [session, accountId],
+  );
+  const fieldsActions = {
+    fieldsOf: fieldsOfCallback,
+    onSetField: (ownerId: string, defId: string, raw: string) =>
+      fieldsWrite((d, o) => setFieldValue(d, ownerId, defId, raw, fieldDefs.defs, o), 'That value was refused.'),
+    onAddFieldDef: async (ownerId: string, name: string, type: FieldType, choices?: readonly string[]) => {
+      const kind = fieldForOwner(ownerId);
+      if (kind === undefined) return { refused: 'This kind of thing takes no fields.' };
+      return fieldDefs.create(kind, name, type, choices);
+    },
+    onRemoveFieldDef: (defId: string) => fieldDefs.archive(defId),
+  };
+  const redact = useCallback(async (text: string) => (await ensureEngine()).redactText(text).text, [ensureEngine]);
+
   const showOnRack = useCallback(
     (selection: Selection) => {
       setFocus({ ...selection });
@@ -434,18 +542,50 @@ export function DesignPlace(props: DesignPlaceProps) {
       />
     ) : null;
 
+  // Who else is in this view: initials only, shown as dots in the bar.
+  const presence = session.live.people.map((p) => ({ id: p.account, initials: p.initials, name: p.name }));
+
+  // Presence: which view this person is in (ADR-0063 §12).
+  const { setPresence } = session;
+  const viewId = presenceViewOf(props.place);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  useEffect(() => {
+    setPresence(viewId, selectedId);
+  }, [setPresence, viewId, selectedId]);
+
+  // The same letters for you as others see: the server's own initials, once live.
+  const account =
+    session.live.mode === 'live' && session.live.self != null
+      ? { ...shellProps.account, initials: session.live.self.initials }
+      : shellProps.account;
+
   const sharedShellProps = {
     ...shellProps,
+    account,
+    presence,
+    noticeField: session.live.overwrite?.anchor ?? null,
+    noticeElement: session.live.overwrite?.element ?? null,
+    announce: announcement(session.live),
+    notices: hasLiveNotices(session.live) ? (
+      <LiveNotices
+        live={session.live}
+        onKeepTheirs={session.dismissOverwrite}
+        onPutMineBack={session.putMineBack}
+        onDismissNote={session.dismissNote}
+      />
+    ) : null,
     search,
     trail,
     trailOpen,
     onTrailOpenChange: setTrailOpen,
-    canUndo: session.canDraw && undoCandidates.length > 0,
-    canRedo: session.canDraw && redoCandidate != null,
+    canUndo: session.canDraw && undoCandidates.length > 0 && !historyOpen,
+    canRedo: session.canDraw && redoCandidate != null && !historyOpen,
     onUndo: handleUndo,
     onRedo: handleRedo,
     onPrint: openPrintPanel,
-    onDocs: doc != null ? () => docs.setView({ kind: 'list' }) : undefined,
+    onDocs: doc != null && pickedSave == null ? () => docs.setView({ kind: 'list' }) : undefined,
+    onHistory: doc != null ? () => toggleHistory() : undefined,
+    historyOpen,
     // Offered to stewards only; the server refuses anyone else regardless.
     onShare: capability === 'steward' ? () => setSharing(true) : undefined,
   };
@@ -462,23 +602,64 @@ export function DesignPlace(props: DesignPlaceProps) {
   // The closet view for the print panel/preview only — computed while
   // either is actually open, never on every render of the place itself.
   const printView = printMode !== 'closed' && session.doc != null ? viewOf(session.doc, session.catalogue) : null;
-  const activeRackSummary = printView
-    ? (printView.racks.find((r) => r.id === activeRackId) ?? printView.racks[0] ?? null)
-    : null;
+
+  const toggleHistory = () => {
+    if (historyOpen) {
+      setHistoryOpen(false);
+      return;
+    }
+    if (props.place !== 'racks') onPlaceChange('racks');
+    setHistoryOpen(true);
+  };
+  const restorePicked = () => {
+    if (pickedSave == null || !session.canDraw) return;
+    // A new save of the old content, with one batch saying so; the old saves stay in the chain.
+    const when = whenLabel(history.saves?.find((s) => s.designVersion === pickedSave.version)?.atUnix ?? 0);
+    if (doc == null || accountId == null) return;
+    // Real ops, so a live session sends it and peers see an ordinary change.
+    session.applyDocChange(restoreTo(doc, pickedSave.doc, `Restored the save from ${when}`, { actor: accountId, now: Date.now() }));
+    setHistoryOpen(false);
+  };
+  const historyView = historyOpen
+    ? {
+        panel: (
+          <HistoryPanel
+            history={history}
+            accountId={accountId}
+            accountAddress={accountAddress}
+            canDraw={session.canDraw}
+            restoreText={pickedSave != null && doc != null ? describeRestore(doc, pickedSave.doc) : ''}
+            onRestore={restorePicked}
+            onClose={() => setHistoryOpen(false)}
+          />
+        ),
+        banner:
+          pickedSave != null
+            ? `Showing the design just after ${whenLabel(history.saves?.find((s) => s.designVersion === pickedSave.version)?.atUnix ?? 0)} · what changed is outlined`
+            : null,
+      }
+    : undefined;
+  // A past save is a read-only copy: nothing drawn on it is saved.
+  const racksSession = pickedSave != null ? { ...session, doc: pickedSave.doc, canDraw: false, applyDocChange: () => {} } : session;
 
   const place =
     props.place === 'racks' ? (
       <RacksPlace
         {...sharedShellProps}
+        historyView={historyView}
         onPlaceChange={onPlaceChange}
-        session={session}
+        session={racksSession}
         onZoomChange={onZoomChange}
         initialFocus={focus}
         onOpenInventory={openInInventory}
         accountId={accountId}
         notesActions={notesActions}
         tagsActions={tagsActions}
+        fieldsActions={fieldsActions}
         onActiveRackChange={setActiveRackId}
+        onShownCablesChange={setShownCableIds}
+        designId={designId}
+        onSelectedChange={setSelectedId}
       />
     ) : (
       <InventoryPlace
@@ -486,8 +667,16 @@ export function DesignPlace(props: DesignPlaceProps) {
         onPlaceChange={onPlaceChange}
         session={session}
         onShowOnRack={showOnRack}
+        onSelectedChange={setSelectedId}
+        onPrintableChange={setInventoryPrintable}
         notesActions={notesActions}
         tagsActions={tagsActions}
+        fieldsActions={fieldsActions}
+        fieldDefs={fieldDefs.defs}
+        createField={(kind, name, type) => fieldDefs.create(kind, name, type)}
+        redact={redact}
+        accountId={accountId}
+        organisationId={organisationId}
       />
     );
 
@@ -505,9 +694,15 @@ export function DesignPlace(props: DesignPlaceProps) {
       )}
       {printMode === 'panel' && printView && (
         <PrintPanel
-          activeRack={activeRackSummary ? { id: activeRackSummary.id, label: activeRackSummary.label, heightU: activeRackSummary.heightU } : null}
+          designName={designLabel}
+          buildJob={buildPackJob}
+          hasView={props.place === 'racks'}
+          hasInventory={props.place === 'inventory' && inventoryPrintRef.current != null}
+          cablesFiltered={shownCableIds != null}
           rackCount={printView.racks.length}
-          onPrint={handlePrintSubmit}
+          captureView={captureViewPng}
+          onPrint={showPreview}
+          onSavePng={(png) => downloadDataUrl(`${designLabel || 'view'}.png`, png)}
           onCancel={closePrint}
           onDownloadXlsx={() => downloadCutSheet('xlsx')}
           onDownloadCsv={() => downloadCutSheet('csv')}

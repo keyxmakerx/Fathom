@@ -5,7 +5,7 @@ import { connectPorts } from './cables';
 import { setDeviceField } from './edit';
 import { addContainer, addContainerNetwork, addPublishedPort, attachContainerToNetwork, detachContainerFromNetwork } from './docker';
 import { addSubnet, addVlan } from './networks';
-import { cablesCarryingVlan, deriveNetworks } from './networks-derive';
+import { cablesForVlan, deriveNetworks } from './networks-derive';
 import {
   edgesIn,
   edgesOut,
@@ -345,7 +345,7 @@ describe('deriveNetworks — liveness, vlan_id fallback, and other edge cases', 
   });
 });
 
-describe('cablesCarryingVlan', () => {
+describe('cablesForVlan', () => {
   it('returns the cable joining two devices carrying the same VLAN', () => {
     const { doc, a, b } = twoDevices();
     const before = new Set(doc.nodes.map((n) => n.id));
@@ -354,14 +354,14 @@ describe('cablesCarryingVlan', () => {
     const withA = addVlan(cabled, { vlanId: 10, attach: [{ target: { kind: 'port', portId: a.portId, interfaceName: 'Et1' } }] }, { now: NOW });
     const withBoth = addVlan(withA, { vlanId: 10, attach: [{ target: { kind: 'port', portId: b.portId, interfaceName: 'Et1' } }] }, { now: NOW });
     const row = deriveNetworks(withBoth).vlanRows[0];
-    expect(cablesCarryingVlan(withBoth, row.vlanNodeIds)).toEqual([cableId]);
+    expect(cablesForVlan(withBoth, row.vlanNodeIds).cableIds).toEqual([cableId]);
   });
 
   it('returns nothing for a VLAN id nothing carries', () => {
     const { doc, deviceId } = deviceWithPorts([]);
     const withVlan = addVlan(doc, { vlanId: 20, on: [deviceId] }, { now: NOW });
     const row = deriveNetworks(withVlan).vlanRows[0];
-    expect(cablesCarryingVlan(withVlan, row.vlanNodeIds)).toEqual([]);
+    expect(cablesForVlan(withVlan, row.vlanNodeIds).cableIds).toEqual([]);
   });
 
   it('answers per joined row — two "not joined" rows never merge', () => {
@@ -372,8 +372,8 @@ describe('cablesCarryingVlan', () => {
     expect(rows).toHaveLength(2);
     // Neither row has any cable at all (a and b are uncabled), but each
     // call is scoped to its row's vlanNodeIds, not the shared id.
-    expect(cablesCarryingVlan(withBoth, rows[0].vlanNodeIds)).toEqual([]);
-    expect(cablesCarryingVlan(withBoth, rows[1].vlanNodeIds)).toEqual([]);
+    expect(cablesForVlan(withBoth, rows[0].vlanNodeIds).cableIds).toEqual([]);
+    expect(cablesForVlan(withBoth, rows[1].vlanNodeIds).cableIds).toEqual([]);
   });
 });
 

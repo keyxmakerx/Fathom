@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { cloneElement, createContext, isValidElement, useContext, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 
 import '../../styles/drawing.css';
 // ADR-0053 §6 — "the black block reused from the drawer where a value was
@@ -21,6 +21,7 @@ import { SHEATH_VAR, sheathsFor } from './sheath';
 // right `Placement` literal. Type-only, the same as `DEVICE_ROLES` above —
 // this file still never reads or writes a `Document`.
 import type { FixtureView, Placement, RackView } from '../../document/view';
+import { FIELD_TYPES, FIELD_TYPE_LABEL, type FieldType } from '../../document/fields';
 import { TagChips } from '../TagChips';
 import { DocsSection } from '../docs/DocsSection';
 import {
@@ -288,6 +289,23 @@ function SupplyAction({
   );
 }
 
+/** "Hide this cable" / "Show this cable" in the cable's own panel: a view
+ * choice, never an edit — never gated on `actions.onEdit` the way
+ * `SupplyAction` above is, so a read-only viewer can hide a cable too.
+ * Absent only when the caller supplies neither half of the pair at all. */
+function HideCableAction({ cable, actions }: { cable: CableView; actions: EditorActions }) {
+  if (!actions.isCableHidden || !actions.onToggleCableHidden) return null;
+  const hidden = actions.isCableHidden(cable.id);
+  return (
+    <div className="drawing-editor__hide-cable">
+      <button type="button" onClick={() => actions.onToggleCableHidden!(cable.id)}>
+        {hidden ? 'Show this cable' : 'Hide this cable'}
+      </button>
+      {!hidden && <span className="drawing-editor__hide-cable-note">in this browser only; nothing is deleted</span>}
+    </div>
+  );
+}
+
 /** ADR-0051 §1 — a shelf's own editor lists
  * its occupants by slot, each a link that selects the occupant
  * (`EditorActions.onSelect`, optional — nothing renders here if a caller
@@ -400,8 +418,12 @@ function PortCableSection({ view, port, actions }: { view: ClosetView; port: Por
  * so a present value here is always one a person typed. `extra`, used only
  * for `management_address`, is the board's own ADR-0041 sentence stated
  * once, muted. */
+/** 'each' marks every field (the canvas panel); 'once' leaves it to the page, which says it once (Inventory). */
+export const TypedNoteMode = createContext<'each' | 'once'>('each');
+
 function TypedNote({ shown, extra }: { shown: boolean; extra?: string }) {
-  if (!shown) return null;
+  const mode = useContext(TypedNoteMode);
+  if (!shown || mode === 'once') return null;
   return (
     <div style={TYPED_NOTE_STYLE}>
       <strong style={{ color: 'var(--ink)', fontWeight: 700 }}>Stored as typed.</strong>
@@ -1364,12 +1386,12 @@ function NoteRow({ note, onRemove }: { note: NoteView; onRemove?: () => { refuse
  * are, `RacksPlace.tsx`/`InventoryPlace.tsx`'s own doc on why) but gets no
  * add box and no remove link.
  */
-function NotesSection({ ownerId, actions }: { ownerId: string; actions: EditorActions }) {
+export function NotesSection({ ownerId, actions }: { ownerId: string; actions: EditorActions }) {
   if (!actions.notesOf && !actions.onAddNote) return null;
   const notes = actions.notesOf ? actions.notesOf(ownerId) : [];
 
   return (
-    <div className="drawing-editor__field">
+    <div className="drawing-editor__field drawing-editor__field--notes">
       <div className="drawing-editor__field-label">Notes</div>
       {notes.length === 0 ? <div className="drawing-editor__field-value">{ABSENT}</div> : null}
       {notes.map((note) => (
@@ -1392,7 +1414,7 @@ function NotesSection({ ownerId, actions }: { ownerId: string; actions: EditorAc
  * sees the chips (`tagsOf` is never gated the way `onAddTag`/`onRemoveTag`
  * are) but gets no input and no remove control (`TagChips`'s own reading).
  */
-function TagsSection({ ownerId, actions }: { ownerId: string; actions: EditorActions }) {
+export function TagsSection({ ownerId, actions }: { ownerId: string; actions: EditorActions }) {
   if (!actions.tagsOf && !actions.onAddTag) return null;
   const tags = actions.tagsOf ? actions.tagsOf(ownerId) : [];
   const suggestions = actions.allTags ? actions.allTags() : [];
@@ -1409,6 +1431,124 @@ function TagsSection({ ownerId, actions }: { ownerId: string; actions: EditorAct
         onRename={actions.onRenameTag}
       />
     </div>
+  );
+}
+
+/**
+ * ADR-0062 — "Your fields": the custom fields defined for this kind of thing, shared with
+ * everyone who opens the design. Absent when the caller supplies no `fieldsOf`.
+ */
+export function FieldsSection({ ownerId, actions }: { ownerId: string; actions: EditorActions }) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState('');
+  const [type, setType] = useState<FieldType>('text');
+  const [choicesText, setChoicesText] = useState('');
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  if (!actions.fieldsOf) return null;
+  const rows = actions.fieldsOf(ownerId);
+  if (rows == null) return null;
+  const writable = actions.onSetField != null;
+
+  const submit = async () => {
+    const result = await actions.onAddFieldDef?.(ownerId, name, type, type === 'choice' ? choicesText.split(',').map((c) => c.trim()).filter(Boolean) : undefined);
+    if (result && 'refused' in result) {
+      setRefusal(result.refused);
+      return;
+    }
+    setName('');
+    setChoicesText('');
+    setRefusal(null);
+    setAdding(false);
+  };
+
+  return (
+    <>
+      <div className="drawing-editor__group">Your fields</div>
+      {rows.length === 0 ? <div style={TYPED_NOTE_STYLE}>No fields yet.</div> : null}
+      {rows.map(({ def, value, removed }) => (
+        <div key={def.id} className="drawing-editor__field" style={removed ? { color: 'var(--muted)' } : undefined}>
+          <div className="drawing-editor__field-label">
+            {def.name}
+            {removed ? ' (removed field)' : null}
+            {actions.onRemoveFieldDef && !removed ? (
+              removing === def.id ? (
+                <span style={{ marginLeft: 'var(--s2)' }}>
+                  Remove for the organisation?{' '}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const r = await actions.onRemoveFieldDef!(def.id);
+                      setRemoving(null);
+                      if (r && 'refused' in r) setRefusal(r.refused);
+                    }}
+                  >
+                    Remove
+                  </button>{' '}
+                  <button type="button" onClick={() => setRemoving(null)}>
+                    Keep
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  aria-label={`Remove the field ${def.name}`}
+                  style={{ marginLeft: 'var(--s2)', border: 'none', background: 'none', color: 'var(--muted)', padding: 0 }}
+                  onClick={() => setRemoving(def.id)}
+                >
+                  ×
+                </button>
+              )
+            ) : null}
+          </div>
+          <EditableValue
+            value={value ?? ''}
+            placeholder={def.type === 'date' ? 'YYYY-MM-DD' : ABSENT}
+            editorKind={def.type === 'choice' ? 'select' : 'text'}
+            options={def.type === 'choice' ? def.choices : undefined}
+            onCommit={writable && !removed ? (raw) => actions.onSetField!(ownerId, def.id, raw ?? '') : undefined}
+          />
+        </div>
+      ))}
+      {actions.onAddFieldDef ? (
+        adding ? (
+          <div className="drawing-editor__field">
+            <div className="drawing-editor__field-label">New field</div>
+            <div style={{ display: 'flex', gap: 'var(--s1)', flexWrap: 'wrap' }}>
+              <input
+                aria-label="Field name"
+                value={name}
+                placeholder="Warranty ends"
+                onChange={(e) => setName(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void submit();
+                  if (e.key === 'Escape') setAdding(false);
+                }}
+              />
+              <select aria-label="Field type" value={type} onChange={(e) => setType(e.currentTarget.value as FieldType)}>
+                {FIELD_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {FIELD_TYPE_LABEL[t]}
+                  </option>
+                ))}
+              </select>
+              {type === 'choice' ? (
+                <input aria-label="Choices" value={choicesText} placeholder="Choices, comma separated" onChange={(e) => setChoicesText(e.currentTarget.value)} />
+              ) : null}
+              <button type="button" onClick={() => void submit()}>
+                Add field
+              </button>
+            </div>
+            <div style={TYPED_NOTE_STYLE}>Every one of this kind gets the field, in every design of the organisation.</div>
+            {refusal ? <div style={CAUTION_STYLE}>{refusal}</div> : null}
+          </div>
+        ) : (
+          <button type="button" onClick={() => setAdding(true)}>
+            + Add a field
+          </button>
+        )
+      ) : null}
+    </>
   );
 }
 
@@ -1452,6 +1592,7 @@ function AddNoteForm({
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onPaste={() => setHadPaste(true)}
+        data-gate="self"
         placeholder="add a note"
         rows={2}
         disabled={busy}
@@ -1480,7 +1621,31 @@ function AddNoteForm({
  * page — this file draws the fields and raises `actions.onEdit`; it never
  * reads or writes a `Document` itself.
  */
+/** The ids a panel holds fields of: its own, its device's and its power supplies'. Live notices match on these. */
+function elementsOf(selection: Selection, view: ClosetView): string {
+  const ids = [selection.id];
+  if (selection.kind === 'chassis') {
+    const chassis = findChassis(view, selection.id)?.chassis ?? findUnplacedChassis(view, selection.id);
+    if (chassis != null) {
+      ids.push(chassis.deviceId);
+      for (const inlet of chassis.psuInlets) if (inlet.supplyId != null) ids.push(inlet.supplyId);
+    }
+  }
+  return ids.join(' ');
+}
+
 export function EditorFor(
+  selection: Selection | null,
+  view: ClosetView,
+  actions: EditorActions,
+  catalogue: readonly PaletteItem[] = [],
+): ReactNode {
+  const panel = panelFor(selection, view, actions, catalogue);
+  if (selection == null || !isValidElement<{ 'data-elements'?: string }>(panel)) return panel;
+  return cloneElement(panel, { 'data-elements': elementsOf(selection, view) });
+}
+
+function panelFor(
   selection: Selection | null,
   view: ClosetView,
   actions: EditorActions,
@@ -1531,6 +1696,7 @@ export function EditorFor(
             rack's own "no notes FIELD" (schema's own doc) stays true — this
             is a note reached through `HasNote`, a node, never a field
             `Rack` itself declares. */}
+        <FieldsSection ownerId={rack.id} actions={actions} />
         <NotesSection ownerId={rack.id} actions={actions} />
         <TagsSection ownerId={rack.id} actions={actions} />
         <DocsSection ownerId={rack.id} />
@@ -1676,6 +1842,7 @@ export function EditorFor(
         </div>
         <TypedNote shown={chassis.hostname.length > 0} />
 
+        <div className="drawing-editor__group">Device</div>
         <Field label="Model" value={chassis.model || ABSENT} />
         {/* ADR-0051 §1, brief item 2 — "a box with no catalogue entry draws
             from ports typed by hand and says so." */}
@@ -1686,15 +1853,6 @@ export function EditorFor(
           </div>
         ) : null}
         <Field label="Vendor" value={chassis.vendor || ABSENT} />
-        {/* Rack/face are placement-only — nothing to show for a chassis
-            `PlacedOnControl` below already draws "Placed on: none" for. */}
-        {rack ? <Field label="Rack" value={`${rack.label} · ${uRange}`} /> : null}
-        {rack ? <Field label="Face" value={chassis.face} /> : null}
-        {/* PortView carries no cabled state yet — the count shown is honest
-            about that rather than inventing a "0 of n". */}
-        <Field label="Ports" value={`${chassis.ports.filter((p) => p.cable != null).length} of ${chassis.ports.length} cabled`} />
-        <PortsInWords chassis={chassis} />
-
         <div className="drawing-editor__field">
           <div className="drawing-editor__field-label">Role</div>
           <EditableValue
@@ -1710,6 +1868,42 @@ export function EditorFor(
         <TypedNote shown={(chassis.role ?? '').length > 0} />
 
         <div className="drawing-editor__field">
+          <div className="drawing-editor__field-label">Serial</div>
+          <EditableValue
+            value={chassis.serial ?? ''}
+            placeholder={ABSENT}
+            editorKind="text"
+            onCommit={
+              actions.onEdit ? (v) => actions.onEdit!({ kind: 'chassis', id: chassis.id, field: 'serial', value: v }) : undefined
+            }
+          />
+        </div>
+        <TypedNote shown={(chassis.serial ?? '').length > 0} />
+
+        <Field label="Ports" value={`${chassis.ports.filter((p) => p.cable != null).length} of ${chassis.ports.length} cabled`} />
+        <PortsInWords chassis={chassis} />
+
+        {/* ADR-0051 §1, brief item 2 — a sketch's own ports, typed by hand,
+            each marked TYPED, with add/remove. A catalogued chassis keeps
+            its read-only "Ports" count above, unchanged. */}
+        {chassisSketch ? <SketchPortsSection chassisId={chassis.id} ports={chassis.ports} actions={actions} /> : null}
+
+        <div className="drawing-editor__group">Location</div>
+        {/* Rack/face are placement-only — nothing to show for a chassis
+            `PlacedOnControl` below already draws "Placed on: none" for. */}
+        {rack ? <Field label="Rack" value={`${rack.label} · ${uRange}`} /> : null}
+        {rack ? <Field label="Face" value={chassis.face} /> : null}
+        {/* ADR-0051 §1, brief item 1 — "PLACED ON" as three choices, the
+            current one marked. */}
+        <PlacedOnControl itemId={chassis.id} placement={chassis.placement} view={view} actions={actions} />
+
+        {/* `duplicateDevice` (`commands.ts`) refuses a source that is not
+            rack-mounted — the control stays off an unplaced chassis's panel
+            rather than offering an action that can only ever refuse. */}
+        {rack ? <DuplicateDeviceControl chassisId={chassis.id} actions={actions} /> : null}
+
+        <div className="drawing-editor__group">Management</div>
+        <div className="drawing-editor__field">
           <div className="drawing-editor__field-label">Mgmt address</div>
           <EditableValue
             value={chassis.managementAddress ?? ''}
@@ -1723,19 +1917,6 @@ export function EditorFor(
           />
         </div>
         <TypedNote shown={(chassis.managementAddress ?? '').length > 0} extra={MANAGEMENT_ADDRESS_NOTE} />
-
-        <div className="drawing-editor__field">
-          <div className="drawing-editor__field-label">Serial</div>
-          <EditableValue
-            value={chassis.serial ?? ''}
-            placeholder={ABSENT}
-            editorKind="text"
-            onCommit={
-              actions.onEdit ? (v) => actions.onEdit!({ kind: 'chassis', id: chassis.id, field: 'serial', value: v }) : undefined
-            }
-          />
-        </div>
-        <TypedNote shown={(chassis.serial ?? '').length > 0} />
 
         {chassis.psuInlets.length > 0 ? (
           <div className="drawing-editor__field">
@@ -1780,19 +1961,7 @@ export function EditorFor(
           </div>
         ) : null}
 
-        {/* ADR-0051 §1, brief item 2 — a sketch's own ports, typed by hand,
-            each marked TYPED, with add/remove. A catalogued chassis keeps
-            its read-only "Ports" count above, unchanged. */}
-        {chassisSketch ? <SketchPortsSection chassisId={chassis.id} ports={chassis.ports} actions={actions} /> : null}
-
-        {/* ADR-0051 §1, brief item 1 — "PLACED ON" as three choices, the
-            current one marked. */}
-        <PlacedOnControl itemId={chassis.id} placement={chassis.placement} view={view} actions={actions} />
-
-        {/* `duplicateDevice` (`commands.ts`) refuses a source that is not
-            rack-mounted — the control stays off an unplaced chassis's panel
-            rather than offering an action that can only ever refuse. */}
-        {rack ? <DuplicateDeviceControl chassisId={chassis.id} actions={actions} /> : null}
+        <FieldsSection ownerId={chassis.deviceId} actions={actions} />
 
         {/* ADR-0053 §5 — Device, not Chassis: the device has the page, the
             hostname and the capture, so its notes are `HasNote`'d off
@@ -2040,7 +2209,11 @@ export function EditorFor(
           onCommit={actions.onEdit ? () => actions.onEdit!(disconnectCableChange(cable.id)) : undefined}
         />
 
+        <HideCableAction cable={cable} actions={actions} />
+
         {/* ADR-0059 decision 2 — Cable is one of the `Taggable` kinds. */}
+        <FieldsSection ownerId={cable.id} actions={actions} />
+        <NotesSection ownerId={cable.id} actions={actions} />
         <TagsSection ownerId={cable.id} actions={actions} />
         <DocsSection ownerId={cable.id} />
       </div>
@@ -2071,7 +2244,9 @@ export function EditorFor(
             wherever the port sits (a rack chassis, a shelf occupant or a
             surface fixture — `port.id` is the same `PhysicalPort` node id
             either way, `locatePort`'s own contract). */}
-        <NotesSection ownerId={port.id} actions={actions} />
+        <FieldsSection ownerId={port.id} actions={actions} />
+        <FieldsSection ownerId={port.id} actions={actions} />
+      <NotesSection ownerId={port.id} actions={actions} />
         <TagsSection ownerId={port.id} actions={actions} />
         <DocsSection ownerId={port.id} />
       </div>
@@ -2089,7 +2264,9 @@ export function EditorFor(
         <Field label="Uplink" value={port.uplink ? 'yes' : 'no'} />
         <Field label="Shelf" value={`${shelf.label || shelf.id} · ${rack.label}`} />
         <PortCableSection view={view} port={port} actions={actions} />
-        <NotesSection ownerId={port.id} actions={actions} />
+        <FieldsSection ownerId={port.id} actions={actions} />
+        <FieldsSection ownerId={port.id} actions={actions} />
+      <NotesSection ownerId={port.id} actions={actions} />
         <TagsSection ownerId={port.id} actions={actions} />
         <DocsSection ownerId={port.id} />
       </div>
@@ -2106,6 +2283,7 @@ export function EditorFor(
       <Field label="Uplink" value={port.uplink ? 'yes' : 'no'} />
       <Field label="Surface" value={surface.label || surface.id} />
       <PortCableSection view={view} port={port} actions={actions} />
+      <FieldsSection ownerId={port.id} actions={actions} />
       <NotesSection ownerId={port.id} actions={actions} />
       <TagsSection ownerId={port.id} actions={actions} />
       <DocsSection ownerId={port.id} />

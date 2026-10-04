@@ -5,7 +5,7 @@ use fathom_graph::{
     Actor, Batch, BatchId, Confidence, EdgeId, ElementId, Graph, NodeId, Op, Origin, ProvenanceId,
     ProvenanceRecord, Snapshot, StoredPresence, SyncError, Timestamp, UserId, WriteError,
 };
-use fathom_graph::{FieldSnap, HistorySnap, SnapshotError};
+use fathom_graph::{FieldSnap, HistorySnap};
 use fathom_id::Ulid;
 use fathom_ir::generated::ir_types::{DeviceField, EdgeKind, NodeKind, SiteField};
 use fathom_ir::scalar::{Identifier, Text};
@@ -533,15 +533,10 @@ fn cut_twice() -> Pair {
 }
 
 #[test]
-fn a_revive_after_a_reparent_is_refused_because_the_loader_refuses_it() {
-    // Revive the first owner's edge: the write path takes it, but the loader checks the replaced
-    // edge against the revived one and refuses the design. So must a delta.
-    let loader_refuses = |p: &Pair| {
-        matches!(
-            Graph::from_snapshot(&p.doc.to_snapshot().unwrap()),
-            Err(SnapshotError::L0(WriteError::SecondContainment { .. }))
-        )
-    };
+fn a_revive_after_a_reparent_loads_and_syncs() {
+    // Revive the first owner's edge: the write path takes it, and so must the loader (the
+    // replaced edge is tombstoned, so it counts against nothing) and a delta.
+    let loads = |p: &Pair| Graph::from_snapshot(&p.doc.to_snapshot().unwrap()).is_ok();
     let revive_first = |p: &mut Pair| {
         p.doc.begin_batch(BatchId(ulid(12)), "back").unwrap();
         revive(&mut p.doc, ElementId::Edge(edge_id(3)), 12);
@@ -550,22 +545,18 @@ fn a_revive_after_a_reparent_is_refused_because_the_loader_refuses_it() {
     // All three batches in one delta.
     let mut p = cut_twice();
     revive_first(&mut p);
-    assert!(loader_refuses(&p));
-    let whole = p.fragment();
-    assert!(matches!(
-        refuses(&mut p, &whole),
-        SyncError::NotLoadable(WriteError::SecondContainment { .. })
-    ));
+    assert!(loads(&p));
+    p.sync().unwrap();
+    p.same();
+    p.held.check_loadable().unwrap();
     // The first two held, then the revive alone.
     let mut p = cut_twice();
     p.sync().unwrap();
     revive_first(&mut p);
-    assert!(loader_refuses(&p));
-    let revive_only = p.fragment();
-    assert!(matches!(
-        refuses(&mut p, &revive_only),
-        SyncError::NotLoadable(WriteError::SecondContainment { .. })
-    ));
+    assert!(loads(&p));
+    p.sync().unwrap();
+    p.same();
+    p.held.check_loadable().unwrap();
 }
 
 #[test]

@@ -2,38 +2,15 @@
 // dictionaries, paste, and read the typed reply back. The redaction gate
 // itself never runs here — it runs inside `fathom-wasm` (CLAUDE.md rule 4)
 // — this file only speaks the wire protocol to it.
-import { cableGestureFrame, fieldGestureFrame, packDict, pasteFrame, type CableEnd } from './frames';
+import { cableGestureFrame, fieldGestureFrame, packDict, pasteFrame, type CableEnd, type PastePlatform } from './frames';
 import { decodeReply, type FaceRow } from './protocol';
 import { ERRORS, FACES, OPCODES, errorName } from './protocol.constants';
 import { type ByteLoader, type EngineWasm, fetchLoader, loadWasm } from './wasm';
 
-/** Every dictionary the drawer boots with. Booting all of them, always,
- * mirrors `tests/common/mod.rs`'s `booted_shell` — a helper that booted less
- * than the real boot does would let a slot-routing defect through untested.
- *
- * THIS LIST CANNOT SIMPLY GROW TO EVERY `corpus/dict/` DIRECTORY — checked
- * against the tree, 2026-09-19, the hard way, before extending it further.
- * `crates/fathom-wasm/src/shell.rs`'s `Shell` holds exactly two dictionary
- * slots: `self.csv_dict` for the one platform whose `platform()` is
- * `"opnsense"`, and a single `self.dict` for every other platform — `OP_DICT`
- * routes non-opnsense loads there unconditionally, and each call OVERWRITES
- * whatever was there. Adding a second non-opnsense platform here (tried:
- * `junos-ex`, `edgeos`) does not add a second net; it makes the LAST one
- * booted the only one that survives, silently breaking every platform booted
- * before it — confirmed by running this file's own suite with `junos-ex` and
- * `edgeos` added: the junos-srx paste test's node/edge counts went to zero
- * and its zone/policy decode came back empty, because `self.dict` held
- * `edgeos` by the time the paste ran. Per ADR-0044 §2 this is the exact
- * failure the rule exists to catch — it does not touch what
- * `crates/fathom-corpus`/`fathom-ingest`'s own tests correctly report as
- * green for those platforms, but it means the *client* cannot honestly claim
- * to protect a Junos EX or EdgeOS paste today. Fixing it for real needs a
- * `Shell`-side change (a keyed dictionary store, plus a way for `OP_PASTE` to
- * say which platform it means, or auto-detection across several loaded
- * dictionaries) — a design decision, not a one-line array edit, and not
- * attempted here. See `DICT_PLATFORMS_EXCLUDED` for what is booted vs. what
- * is knowingly not, and why. */
-export const DICT_PLATFORMS = ['junos-srx', 'opnsense'] as const;
+/** The `corpus/dict/` directories this client boots a dictionary for. `shell.rs`
+ * holds them all at once, keyed by platform, and picks one per paste (named in the
+ * frame, else detected; see `ERR_PLATFORM_CHOICE`). */
+export const DICT_PLATFORMS = ['junos-srx', 'opnsense', 'junos-ex', 'edgeos'] as const;
 
 /** `corpus/dict/` directories this client deliberately does not boot a
  * dictionary for, and why — read by the coverage test below so an
@@ -41,10 +18,6 @@ export const DICT_PLATFORMS = ['junos-srx', 'opnsense'] as const;
  * `shell.rs` grows a real multi-platform dictionary store, whoever fixes it
  * has this list telling them exactly what to move into `DICT_PLATFORMS`. */
 export const DICT_PLATFORMS_EXCLUDED: Readonly<Record<string, string>> = {
-  'junos-ex':
-    'shell.rs has one non-opnsense dictionary slot (self.dict); booting this after junos-srx silently discards the junos-srx dictionary rather than adding a second net — needs a Shell-side keyed store first, see engine.ts DICT_PLATFORMS doc comment',
-  edgeos:
-    'same self.dict single-slot limit as junos-ex — booting this after junos-srx silently discards it, confirmed by running the test suite; needs the same Shell-side fix before it can be added here',
   'linux-host':
     'zero-entry placeholder; corpus/dict/README-linux-host.md: no core front end shapes ip/bridge output yet, and no schema/platforms.yaml row exists for it',
 };
@@ -649,6 +622,42 @@ function readFindings(rows: FaceRow[], op: string): CheckFinding[] {
   });
 }
 
+/** `FACE_PLAN_STEP` and the findings that step adds (`OP_PLAN_PREVIEW`). */
+export interface PlanStepPreview {
+  /** The step's node id. */
+  step: string;
+  ordinal: number;
+  /** Why the step cannot be applied to a copy of the design; empty when it can. */
+  error: string;
+  /** What the step touches, read from the design: one sentence each. Never a cause. */
+  impact: string[];
+  touches: CheckElement[];
+  /** Findings this step adds to the ones before it. */
+  findings: CheckFinding[];
+}
+
+function readPlanReply(rows: FaceRow[]): PlanStepPreview[] {
+  const out: PlanStepPreview[] = [];
+  for (const row of rows) {
+    if (row.role === FACES.FACE_PLAN_STEP) {
+      const s = row.strings;
+      out.push({
+        step: s[0],
+        ordinal: parseCount(s[1], 'plan step ordinal'),
+        error: s[2],
+        impact: s[3] === '' ? [] : s[3].split('\n'),
+        touches: parseElements(s[4]),
+        findings: [],
+      });
+    } else if (row.role === FACES.FACE_CHECK && out.length > 0) {
+      out[out.length - 1].findings.push(readFinding(row));
+    } else {
+      throw new Error(`OP_PLAN_PREVIEW reply: unexpected role ${row.role} (${row.roleName ?? 'unknown'})`);
+    }
+  }
+  return out;
+}
+
 function readChecksReply(rows: FaceRow[]): ChecksResult {
   const head = rows[0];
   if (!head || head.role !== FACES.FACE_CHECK_HEAD) {
@@ -730,9 +739,9 @@ export class Engine {
   }
 
   /** `OP_PASTE`: pasted text in, the redacted estate's summary out. */
-  paste(text: string, confirm = false, now: number = Date.now()): PasteResult {
+  paste(text: string, confirm = false, now: number = Date.now(), platform?: PastePlatform): PasteResult {
     const nonce = crypto.getRandomValues(new Uint8Array(16));
-    const frame = pasteFrame(text, confirm, now, nonce);
+    const frame = pasteFrame(text, confirm, now, nonce, platform);
     const rows = this.callFaces(OPCODES.OP_PASTE, frame);
     return readPasteReply(rows);
   }
@@ -813,9 +822,15 @@ export class Engine {
    * u16-length-prefixed device display id, then the pasted text
    * (`shell.rs::paste_into`'s `PREFIX = 27` reads the length as two bytes at
    * offset 25). */
-  pasteInto(deviceId: string, text: string, confirm = false, now: number = Date.now()): PasteResult {
+  pasteInto(
+    deviceId: string,
+    text: string,
+    confirm = false,
+    now: number = Date.now(),
+    platform?: PastePlatform,
+  ): PasteResult {
     const nonce = crypto.getRandomValues(new Uint8Array(16));
-    const prefix = pasteFrame('', confirm, now, nonce).slice(0, 25);
+    const prefix = pasteFrame('', confirm, now, nonce, platform).slice(0, 25);
     const encoder = new TextEncoder();
     const idBytes = encoder.encode(deviceId);
     const idLen = new Uint8Array(2);
@@ -891,6 +906,11 @@ export class Engine {
   /** `OP_CHECK_GESTURE`, a cable: the findings it would cause. Zero rows is go ahead. Never writes. */
   checkCable(near: CableEnd, far: CableEnd, media = ''): CheckFinding[] {
     return readFindings(this.callFaces(OPCODES.OP_CHECK_GESTURE, cableGestureFrame(near, far, media)), 'OP_CHECK_GESTURE');
+  }
+
+  /** `OP_PLAN_PREVIEW`: what the plan's steps still to do would add, in order. Never writes. */
+  planPreview(planId: string): PlanStepPreview[] {
+    return readPlanReply(this.callFaces(OPCODES.OP_PLAN_PREVIEW, new TextEncoder().encode(planId)));
   }
 
   /** `OP_CHECK_GESTURE`, a field edit: `key` is a field key id from the registry. */

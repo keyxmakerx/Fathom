@@ -106,12 +106,17 @@ or a port. That lets a red lead and a *disruptive* chip share a screen.
 **One cable per port.** Type is decided by the port you start from. Only compatible ports stay live
 during a drag; the rest dim. A refused drop shakes the port once (Motion 2).
 
-**Reaching a cable on a crowded plate.** A port is clickable: its panel names the device, connector,
-service and face, and its cable with the far end in words and the sheath swatch, with *Select cable*
-and *Go to far end*. A cable's panel has *Go to end A* and *Go to end B*; a selected cable's two ports
-carry a hairline ring. A click selects; a drag of a few pixels connects. A **cables view control**
-beside the lens row, *all · copper · fibre · power · none*, hides cables by kind and never a box. It is
-a view control, not a lens, remembered per browser, never saved to the design.
+**Reaching a cable on a crowded plate.** A port is a thing you can click:
+its panel names the device, connector, service and face, and its cable with the far end in words
+and the sheath swatch, with two actions, *Select cable* and *Go to far end*; a cable's panel has
+*Go to end A* and *Go to end B*, and a selected cable's two ports carry a hairline ring. A click
+selects; a drag of a few pixels connects. **The Cables list** (GitHub issue #54), a popover hanging
+from the lit Cables lens: any number of groups — a VLAN, a tag, a type or a device — on at once,
+each with its own cable count, plus All and None shortcuts; a box is never hidden, only a cable, and
+a ticked VLAN group's trunk member draws dashed. A cable can also be **hidden one cable at a time**
+from its own panel ("Hide this cable"), independent of every group and offered to a read-only viewer
+too; a bar chip counts however many are hidden and brings them all back. Both live per browser and
+per design, never saved to the design. A refused cable drop shakes the port once, as Motion 2 says.
 
 ## Keeping it readable at forty cables
 
@@ -174,10 +179,12 @@ denied · says "could not establish" over a guess · never changes the estate.
 
 ## Presence
 
-No cursors. A dashed ring on the device someone is editing, a dashed ring on a port someone is holding
-mid-drag, and a name chip on the rack rail: solid when editing, outlined when only looking. Scoped to
-the view. Two people on one device get two offset rings. That shows the collision; **who wins is a plan
-question** (`REBUILD-PLAN.md`, open before Phase 4), not a drawing one.
+No cursors (ADR-0063 §12). Each other person in your view is a small initials dot in the bar, and
+an ink initials dot, no ring and no animation, at the top-right of the first thing they have
+selected. It moves only when their selection changes, never with their pointer. People in another
+view are not shown. Same field, same moment: the later change wins and the overwritten person sees
+"Bob changed the serial on core-sw-01 just after you" under the field, with Keep Bob's / Put mine
+back.
 
 ## Motion
 
@@ -243,7 +250,7 @@ ADR-0046 is the decision; this is the list.
 | Sign in and enrol | everyone | built |
 | **Home**: organisations, the closets and designs you may open, what changed | everyone | built |
 | **Canvas**: the drawing on this page | everyone | approved; built |
-| **Inventory**: lists with filters, a page per device, rack and cable that *is* the editor, bulk edit, import and export, change history from the chain, *show on rack* | everyone | built (basic: lists, page, show on rack, notes, undo) |
+| **Inventory**: lists with filters, a page per device, rack and cable that *is* the editor, bulk edit, paste from a spreadsheet (export not built; ADR-0062), change history from the chain, *show on rack* | everyone | built (basic: lists, page, show on rack, notes, undo) |
 | Search: an overlay, never a page | everyone | not drawn (the patching board's far-end picker is the same box) |
 | Findings and the config checker | everyone | not drawn |
 | Walkthrough: the teaching half | everyone | low-fi sketch; never built |

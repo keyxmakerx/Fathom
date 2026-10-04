@@ -456,5 +456,27 @@ fields:
   DocFile.removed: 361
   DocFile.file_id: 362
   DocFile.sha256: 363
-  # ADR-0061 path trace (schema 0.17, 2026-10-03). Key 381 skips 364-380, held by #98; final key set at landing.
-  SecurityPolicy.match_any_application: 381
+  # ADR-0061 round 7, maintenance plans (2026-10-03). Appended at the tail with the next integers.
+  MaintenancePlan.title: 364
+  MaintenancePlan.window_start: 365
+  MaintenancePlan.window_end: 366
+  MaintenancePlan.author: 367
+  MaintenancePlan.stage: 368
+  MaintenancePlan.outcome: 369
+  MaintenancePlan.record: 370
+  PlanStep.ordinal: 371
+  PlanStep.kind: 372
+  PlanStep.targets: 373
+  PlanStep.change: 374
+  PlanStep.before: 375
+  PlanStep.after: 376
+  PlanStep.edit: 377
+  PlanStep.state: 378
+  PlanStep.note: 379
+  PlanStep.done_at: 380
+  # Custom-field values (0.16, 2026-10-02). Appended at the tail with the next integers. The
+  # unreleased draft's FieldDef keys never left the PR and were dropped, not retired.
+  FieldValue.value: 381
+  FieldValue.definition: 382
+  # ADR-0061 path trace (schema 0.17, 2026-10-03). Appended after 0.15 (364-380) and 0.16 (381-382).
+  SecurityPolicy.match_any_application: 383

@@ -8,6 +8,8 @@
 //! an `Absent` slot is stored explicitly, with its provenance, because
 //! somebody actually looked (`11` §8.5).
 
+use std::rc::Rc;
+
 use crate::prov::{Origin, ProvenanceId};
 
 /// What the store records about a field. The fourth state, `Default`,
@@ -29,9 +31,10 @@ pub struct FieldInfo {
 
 /// One superseded state of a field. The value is moved in, never cloned —
 /// the store does not require slot types to be `Clone`.
+#[derive(Clone)]
 pub struct HistoryEntry {
     pub presence: StoredPresence,
-    pub value: Option<Box<dyn core::any::Any>>,
+    pub value: Option<Rc<dyn core::any::Any>>,
     pub prov: ProvenanceId,
 }
 
@@ -41,6 +44,7 @@ pub struct HistoryEntry {
 /// earliest entry from each distinct `Origin` discriminant, always. Anything
 /// else is dropped and counted — silent truncation is how a provenance
 /// feature becomes a lie.
+#[derive(Clone)]
 pub struct FieldHistory {
     entries: Vec<HistoryEntry>,
     /// `Origin::discriminant()` per entry, index-aligned with `entries`.

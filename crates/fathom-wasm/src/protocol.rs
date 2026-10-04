@@ -228,6 +228,22 @@ pub const FACE_CHECK_HEAD: u8 = 32;
 /// `display id TAB name`, one per line, anchor first.
 pub const FACE_CHECK: u8 = 33;
 
+/// `OP_PLAN_PREVIEW`, one step: `<step display id> <ordinal> <why it cannot apply, or empty>
+/// <impact, one sentence per line> <touches: display id TAB name, one per line>`. Followed by
+/// the [`FACE_CHECK`] rows that step adds.
+pub const FACE_PLAN_STEP: u8 = 34;
+
+/// A trace's head, always record 0: from · to · flow words · why it stopped short, **empty when
+/// it reached the far end** · hop count.
+pub const FACE_TR_HEAD: u8 = 35;
+/// One hop: number · kind (`start`, `device`, `cable`, `switch`, `end`, `stop`) · title · detail
+/// lines joined `\n` · display ids to light on the canvas joined `\n` · why · where the fact
+/// came from · `<zone words>\n<why some rules are unplaced>` (both empty off a firewall).
+pub const FACE_TR_HOP: u8 = 36;
+/// One policy of the hop before it: hop number · display id · ordinal · name · configured action
+/// · `matches`, `doesn't match` or `can't tell` · reason · `placed` or `unplaced`.
+pub const FACE_TR_POL: u8 = 37;
+
 // --- the shape reply (`49` §19 phase 0, item 3) ---
 
 /// The held estate's shape digest: one row, slot 0, 16 lowercase hex characters
@@ -320,17 +336,6 @@ pub const FACE_IN_ROUTE: u8 = 26;
 pub const FACE_IN_PROTO: u8 = 27;
 /// One ipsec vpn: display id · name · the unit it binds, or empty.
 pub const FACE_IN_TUNNEL: u8 = 28;
-
-/// A trace's head, always record 0: from · to · flow words · why it stopped short, **empty when
-/// it reached the far end** · hop count.
-pub const FACE_TR_HEAD: u8 = 34;
-/// One hop: number · kind (`start`, `device`, `cable`, `switch`, `end`, `stop`) · title · detail
-/// lines joined `\n` · display ids to light on the canvas joined `\n` · why · where the fact
-/// came from · `<zone words>\n<why some rules are unplaced>` (both empty off a firewall).
-pub const FACE_TR_HOP: u8 = 35;
-/// One policy of the hop before it: hop number · display id · ordinal · name · configured action
-/// · `matches`, `doesn't match` or `can't tell` · reason · `placed` or `unplaced`.
-pub const FACE_TR_POL: u8 = 36;
 
 /// Codes 1–5 are WO-07's.
 pub const ERR_NO_ELEMENT: u16 = 6;
@@ -448,6 +453,31 @@ pub const ERR_PLAIN_REFUSED: u16 = 21;
 /// module is unchanged. The detail names why, for a log, not for a person.
 pub const ERR_RESYNC: u16 = 22;
 
+/// `OP_PASTE` / `OP_PASTE_INTO` could not tell which set-form platform wrote the text
+/// and no platform was named: two or more dictionaries read it about equally. The
+/// detail is the candidate platforms, comma-separated. The page asks the person and
+/// re-posts naming one; it never picks. Nothing is stored on this refusal.
+pub const ERR_PLATFORM_CHOICE: u16 = 23;
+
+/// The platforms a paste frame's flag byte can name, in bits 1..=3 (value 0 = detect;
+/// bit 0 is `confirm`). Append-only, like the opcode table; `client/src/engine/frames.ts`
+/// mirrors it and a test holds the two together.
+pub const PASTE_PLATFORMS: [&str; 4] = ["junos-srx", "junos-ex", "edgeos", "opnsense"];
+
+/// The platform a paste frame's flag byte names, `None` for detect. Any other bit set
+/// is a bad frame, refused rather than ignored.
+pub fn paste_platform(flags: u8) -> Result<Option<&'static str>, Vec<u8>> {
+    let code = usize::from(flags >> 1);
+    match code {
+        0 => Ok(None),
+        1..=4 if flags & 0xf0 == 0 => Ok(Some(PASTE_PLATFORMS[code - 1])),
+        _ => Err(encode_error(
+            ERR_PASTE_FRAME,
+            &format!("the paste flag byte {flags:#04x} names no platform this build knows"),
+        )),
+    }
+}
+
 /// How many string slots one face record carries.
 const FACE_SLOTS: usize = 8;
 
@@ -527,6 +557,25 @@ pub fn encode_error(code: u16, detail: &str) -> Vec<u8> {
     out.extend_from_slice(&(blob.bytes.len() as u32).to_le_bytes());
     out.extend_from_slice(&blob.bytes);
     out
+}
+
+/// The detail of an error reply, `None` when `reply` is not one.
+pub fn error_detail(reply: &[u8]) -> Option<(u16, String)> {
+    if reply.get(6..8) != Some(&KIND_ERROR.to_le_bytes()[..]) {
+        return None;
+    }
+    let at = |i: usize| {
+        reply
+            .get(i..i + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
+    };
+    let (off, len) = (at(36)?, at(40)?);
+    let blob = reply.get(48..)?;
+    let code = u16::from_le_bytes([*reply.get(16)?, *reply.get(17)?]);
+    Some((
+        code,
+        String::from_utf8_lossy(blob.get(off..off + len)?).into_owned(),
+    ))
 }
 
 fn risk_byte(risk: Risk) -> u8 {
@@ -1351,76 +1400,35 @@ pub fn encode_checks_reply(
     face_reply(records, count, blob)
 }
 
-/// A trace, as records. The page computes nothing: every string is composed here.
-pub fn encode_trace_reply(t: &fathom_inventory::Trace) -> Vec<u8> {
+/// `OP_PLAN_PREVIEW`'s reply.
+pub fn encode_plan_reply(steps: &[crate::plan::StepOut]) -> Vec<u8> {
     let mut blob = Blob::default();
     let mut records: Vec<u8> = Vec::new();
-    let hops = t.hops.len().to_string();
-    let rec = face_slots(
-        &mut blob,
-        FACE_TR_HEAD,
-        5,
-        &[
-            t.from.as_str(),
-            t.to.as_str(),
-            t.flow.as_str(),
-            t.stopped.as_str(),
-            hops.as_str(),
-        ],
-    );
-    write_face_record(&mut records, &rec);
-    let mut count = 1usize;
-    for (i, h) in t.hops.iter().enumerate() {
-        let n = (i + 1).to_string();
-        let one = |v: &[String]| {
-            v.iter()
-                .map(|x| x.replace(['\r', '\n'], " "))
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
-        let detail = one(&h.detail);
-        let nodes = one(&h.nodes);
-        let scope = format!(
-            "{}\n{}",
-            h.scope.replace(['\r', '\n'], " "),
-            h.unplaced_why.replace(['\r', '\n'], " ")
-        );
+    let mut count = 0usize;
+    for s in steps {
+        let ordinal = s.ordinal.to_string();
         let rec = face_slots(
             &mut blob,
-            FACE_TR_HOP,
-            8,
-            &[
-                n.as_str(),
-                h.kind,
-                h.title.as_str(),
-                detail.as_str(),
-                nodes.as_str(),
-                h.why.as_str(),
-                h.source.as_str(),
-                scope.as_str(),
-            ],
+            FACE_PLAN_STEP,
+            5,
+            &[&s.id, &ordinal, &s.error, &s.impact, &s.touches],
         );
         write_face_record(&mut records, &rec);
         count += 1;
-        for (placed, p) in h
-            .policies
-            .iter()
-            .map(|p| ("placed", p))
-            .chain(h.unplaced.iter().map(|p| ("unplaced", p)))
-        {
+        for r in &s.rows {
             let rec = face_slots(
                 &mut blob,
-                FACE_TR_POL,
+                FACE_CHECK,
                 8,
                 &[
-                    n.as_str(),
-                    p.id.as_str(),
-                    p.ordinal.as_str(),
-                    p.name.as_str(),
-                    p.action.as_str(),
-                    p.state,
-                    p.reason.as_str(),
-                    placed,
+                    &r.rule,
+                    r.severity,
+                    &r.title,
+                    &r.fix,
+                    &r.why,
+                    &r.concept,
+                    &r.source,
+                    &r.elements,
                 ],
             );
             write_face_record(&mut records, &rec);
@@ -1843,4 +1851,83 @@ pub fn decode_reply(bytes: &[u8]) -> Result<ReplyView, String> {
             Ok(ReplyView::FinderRows(rows))
         }
     }
+}
+
+/// A trace, as records. The page computes nothing: every string is composed here.
+pub fn encode_trace_reply(t: &fathom_inventory::Trace) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+    let hops = t.hops.len().to_string();
+    let rec = face_slots(
+        &mut blob,
+        FACE_TR_HEAD,
+        5,
+        &[
+            t.from.as_str(),
+            t.to.as_str(),
+            t.flow.as_str(),
+            t.stopped.as_str(),
+            hops.as_str(),
+        ],
+    );
+    write_face_record(&mut records, &rec);
+    let mut count = 1usize;
+    for (i, h) in t.hops.iter().enumerate() {
+        let n = (i + 1).to_string();
+        let one = |v: &[String]| {
+            v.iter()
+                .map(|x| x.replace(['\r', '\n'], " "))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let detail = one(&h.detail);
+        let nodes = one(&h.nodes);
+        let scope = format!(
+            "{}\n{}",
+            h.scope.replace(['\r', '\n'], " "),
+            h.unplaced_why.replace(['\r', '\n'], " ")
+        );
+        let rec = face_slots(
+            &mut blob,
+            FACE_TR_HOP,
+            8,
+            &[
+                n.as_str(),
+                h.kind,
+                h.title.as_str(),
+                detail.as_str(),
+                nodes.as_str(),
+                h.why.as_str(),
+                h.source.as_str(),
+                scope.as_str(),
+            ],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+        for (placed, p) in h
+            .policies
+            .iter()
+            .map(|p| ("placed", p))
+            .chain(h.unplaced.iter().map(|p| ("unplaced", p)))
+        {
+            let rec = face_slots(
+                &mut blob,
+                FACE_TR_POL,
+                8,
+                &[
+                    n.as_str(),
+                    p.id.as_str(),
+                    p.ordinal.as_str(),
+                    p.name.as_str(),
+                    p.action.as_str(),
+                    p.state,
+                    p.reason.as_str(),
+                    placed,
+                ],
+            );
+            write_face_record(&mut records, &rec);
+            count += 1;
+        }
+    }
+    face_reply(records, count, blob)
 }

@@ -1,0 +1,63 @@
+[
+  {
+    "id": "node/pve1",
+    "type": "node",
+    "node": "pve1",
+    "status": "online",
+    "maxcpu": 16,
+    "maxmem": 68719476736,
+    "maxdisk": 1000000000000,
+    "uptime": 86400
+  },
+  {
+    "id": "qemu/100",
+    "type": "qemu",
+    "vmid": 100,
+    "name": "web-01",
+    "node": "pve1",
+    "status": "running",
+    "maxcpu": 4,
+    "maxmem": 8589934592,
+    "maxdisk": 53687091200,
+    "tags": "prod;web",
+    "template": 0
+  },
+  {
+    "id": "qemu/101",
+    "type": "qemu",
+    "vmid": 101,
+    "name": "db-01",
+    "node": "pve1",
+    "status": "stopped",
+    "maxcpu": 8,
+    "maxmem": 17179869184,
+    "maxdisk": 214748364800,
+    "tags": "prod",
+    "template": 0
+  },
+  {
+    "id": "lxc/200",
+    "type": "lxc",
+    "vmid": 200,
+    "name": "dns-01",
+    "node": "pve1",
+    "status": "running",
+    "maxcpu": 1,
+    "maxmem": 536870912,
+    "maxdisk": 8589934592,
+    "tags": "infra",
+    "template": 0
+  },
+  {
+    "id": "storage/pve1/local",
+    "type": "storage",
+    "storage": "local",
+    "node": "pve1",
+    "status": "available"
+  },
+  {
+    "id": "pool/prod",
+    "type": "pool",
+    "pool": "prod"
+  }
+]

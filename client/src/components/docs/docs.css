@@ -294,3 +294,14 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+.docs-files__removed h3 {
+  font-size: var(--t-small);
+  color: var(--muted);
+  margin-top: var(--s3);
+}
+
+.docs-files__removed ul {
+  list-style: none;
+  padding: 0;
+}
