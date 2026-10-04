@@ -222,6 +222,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0035_field_definitions.sql",
         sql: include_str!("../migrations/0035_field_definitions.sql"),
     },
+    // Cable corrections from the floor.
+    Migration {
+        version: 36,
+        name: "0036_cable_corrections.sql",
+        sql: include_str!("../migrations/0036_cable_corrections.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

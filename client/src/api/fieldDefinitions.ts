@@ -34,7 +34,7 @@ function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 
-const body = (value: unknown): Uint8Array => utf8(`${canonical(value)}\n`);
+export const body = (value: unknown): Uint8Array => utf8(`${canonical(value)}\n`);
 const base = (organisationId: string): string => `/organisations/${encodeURIComponent(organisationId)}/field-definitions`;
 
 function parseDef(raw: unknown): FieldDefView {

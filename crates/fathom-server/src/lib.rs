@@ -57,6 +57,7 @@ pub mod chains;
 pub mod client;
 pub mod client_address;
 pub mod config;
+pub mod corrections;
 pub mod crypto;
 pub mod db;
 pub mod design_api;

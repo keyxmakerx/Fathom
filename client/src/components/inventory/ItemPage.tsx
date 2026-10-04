@@ -1,13 +1,17 @@
 // The page beside the list (ADR-0062, ADR-0046): the canvas details panel's own editor under a
 // title and tabs. Overview is `EditorFor` itself, so an edit here is the edit the canvas makes.
 
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
 import type { Document } from '../../document/model';
 import { type ClosetView, type EditorActions, type PaletteItem, type PortView, type Selection } from '../drawing/contract';
-import { EditorFor, NotesSection } from '../drawing/Editor';
+import { EditorFor, NotesSection, TypedNoteMode } from '../drawing/Editor';
 import { findChassis, findFixture, findOccupant } from '../drawing/lookup';
+import { CableCorrections, type CorrectionsApi } from './CableCorrections';
+import { dismissedLabel } from './corrections';
 import { historyOf } from './kinds';
+import { PanelMap, PathStrip, PluggedInto, RackContents } from './PageParts';
+import type { PlaceIndex, Where } from './placeIndex';
 import { PortsList } from './PortsList';
 
 type TabKey = 'overview' | 'ports' | 'notes' | 'history';
@@ -23,9 +27,15 @@ export interface ItemPageProps {
   palette: readonly PaletteItem[];
   accountId: string | null;
   onShowOnCanvas: () => void;
-  /** When the page was reached from another page (a port from a device), where back goes. */
-  backLabel: string | null;
-  onBack: () => void;
+  /** Where everything is, for the cable's run, what a device is plugged into and what a rack holds. */
+  idx: PlaceIndex;
+  /** A rack page's "Set Where to this rack". */
+  onSetWhere?: (w: Where) => void;
+  /** The open tab, as the address holds it ('' is Overview), so Back lands on the same tab. */
+  tab: string;
+  onTab: (tab: string) => void;
+  /** Corrections from the floor (a cable page sends or settles them). Absent: none shown. */
+  corrections?: CorrectionsApi;
 }
 
 function portsOf(view: ClosetView, selection: Selection): PortView[] {
@@ -36,8 +46,9 @@ function portsOf(view: ClosetView, selection: Selection): PortView[] {
 }
 
 export function ItemPage(props: ItemPageProps) {
-  const { doc, view, selection, ownerId, title, actions, palette, accountId, onShowOnCanvas, backLabel, onBack } = props;
-  const [tab, setTab] = useState<TabKey>('overview');
+  const { doc, view, selection, ownerId, title, actions, palette, accountId, onShowOnCanvas, tab: tabText, onTab, idx, onSetWhere, corrections } = props;
+  const tab: TabKey = tabText === 'ports' || tabText === 'notes' || tabText === 'history' ? tabText : 'overview';
+  const setTab = (t: TabKey) => onTab(t === 'overview' ? '' : t);
   const isDevice = selection.kind === 'chassis' || selection.kind === 'occupant' || selection.kind === 'fixture';
   const ports = isDevice ? portsOf(view, selection) : [];
   const notes = ownerId && actions.notesOf ? actions.notesOf(ownerId).length : 0;
@@ -54,7 +65,14 @@ export function ItemPage(props: ItemPageProps) {
   if (active === 'overview') {
     body = (
       <div className="inv-page__overview">
-        {EditorFor(selection, view, actions, palette)}
+        {selection.kind === 'cable' ? <PathStrip doc={doc} view={view} idx={idx} cableId={selection.id} actions={actions} /> : null}
+        {selection.kind === 'cable' && corrections ? <CableCorrections cableId={selection.id} api={corrections} accountId={accountId} /> : null}
+        {selection.kind === 'rack' ? <RackContents view={view} idx={idx} rackId={selection.id} actions={actions} onSetWhere={onSetWhere} /> : null}
+        {isDevice ? <PluggedInto view={view} idx={idx} hostId={selection.id} actions={actions} /> : null}
+        <TypedNoteMode.Provider value="once">{EditorFor(selection, view, actions, palette)}</TypedNoteMode.Provider>
+        <p className="inv-page__typed">
+          <b>Stored as typed.</b> Fathom does not redact what you type, only what you paste, so it is saved and exported exactly as written.
+        </p>
         {notes > 0 ? (
           <button type="button" className="inv-page__link" onClick={() => setTab('notes')}>
             {notes} {notes === 1 ? 'note' : 'notes'}
@@ -63,7 +81,12 @@ export function ItemPage(props: ItemPageProps) {
       </div>
     );
   } else if (active === 'ports') {
-    body = <PortsList view={view} ports={ports} actions={actions} />;
+    body = (
+      <>
+        {ports.some((p) => p.passThroughId) ? <PanelMap view={view} ports={ports} actions={actions} /> : null}
+        <PortsList view={view} ports={ports} actions={actions} />
+      </>
+    );
   } else if (active === 'notes') {
     body = ownerId ? (
       <div className="drawing-editor__panel">
@@ -74,7 +97,14 @@ export function ItemPage(props: ItemPageProps) {
     );
   } else {
     const ids = [ownerId, selection.id, ...ports.map((p) => p.id)].filter((x): x is string => !!x);
-    const lines = historyOf(doc, ids);
+    // A dismissal changes nothing in the design, so it comes from the corrections themselves.
+    const dismissed =
+      selection.kind === 'cable' && corrections
+        ? corrections.list
+            .filter((c) => c.cable === selection.id && c.state === 'dismissed' && c.decidedAt != null)
+            .map((c) => ({ label: dismissedLabel(c), who: c.decidedBy ?? '', when: c.decidedAt! }))
+        : [];
+    const lines = [...historyOf(doc, ids), ...dismissed].sort((a, b) => b.when - a.when);
     body = (
       <ul className="inv-page__list">
         {lines.length === 0 ? <li className="inv-page__muted">No changes recorded.</li> : null}
@@ -93,13 +123,7 @@ export function ItemPage(props: ItemPageProps) {
   return (
     <aside className="shell-editor inv-page" aria-label={`${title} page`}>
       <div className="inv-page__head">
-        {backLabel ? (
-          <button type="button" onClick={onBack}>
-            ← {backLabel}
-          </button>
-        ) : (
-          <span className="inv-page__title">{title}</span>
-        )}
+        <span className="inv-page__title">{title}</span>
         <button type="button" onClick={onShowOnCanvas}>
           Show on canvas
         </button>

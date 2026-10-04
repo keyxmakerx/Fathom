@@ -5581,3 +5581,937 @@ async fn only_a_steward_shares_and_only_with_a_member_who_is_not_themselves() {
         "steward is not a thing the Share panel hands out"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Cable corrections from the floor
+// ---------------------------------------------------------------------------
+
+const A_CABLE: &str = "cable:01JABCDEFGHJKMNPQRSTVWXYZ0";
+
+fn correction_body(cable: &str, kind: &str, text: &str) -> Vec<u8> {
+    canon(vec![
+        ("cable", jstr(cable)),
+        ("kind", jstr(kind)),
+        ("text", jstr(text)),
+    ])
+}
+
+fn corrections_path(estate: &Estate, design: impl std::fmt::Display) -> String {
+    format!(
+        "/organisations/{}/designs/{}/corrections",
+        estate.organisation, design
+    )
+}
+
+fn decision_body(version: i64) -> Vec<u8> {
+    canon(vec![if_version(version)])
+}
+
+/// Sends one `label` correction and returns its id.
+async fn send_correction(
+    addr: SocketAddr,
+    who: &Person,
+    path: &str,
+    cable: &str,
+    text: &str,
+) -> String {
+    let (status, body) = call(
+        addr,
+        who,
+        "POST",
+        path,
+        &correction_body(cable, "label", text),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    text_of(&parsed(&body), "id")
+}
+
+#[tokio::test]
+async fn a_sender_without_read_is_refused_the_same_for_a_real_design_and_an_invented_one() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let (other_scope, _other) = a_scope_and_design(&pool, &estate).await;
+    let ungranted = a_member_as(&pool, &ring, &estate, "ungranted", repo::Role::Member).await;
+    // Read, but on a different place: not this design's.
+    let elsewhere = a_member_with_scope(
+        &pool,
+        &ring,
+        &estate,
+        "elsewhere",
+        other_scope,
+        Capability::Read,
+    )
+    .await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    let real = corrections_path(&estate, design);
+    let fake = corrections_path(&estate, a_design_id_nothing_was_ever_created_under());
+    for who in [&ungranted, &elsewhere] {
+        let body = correction_body(A_CABLE, "label", "PP1-04");
+        let (rs, rb) = call(addr, who, "POST", &real, &body).await;
+        let (fs, fb) = call(addr, who, "POST", &fake, &body).await;
+        assert_eq!(rs, "403", "{}", String::from_utf8_lossy(&rb));
+        assert_eq!(
+            (rs, rb),
+            (fs, fb),
+            "a real and an invented design must read the same"
+        );
+        // Listing and deciding are refused the same way.
+        let (rs, rb) = call(addr, who, "GET", &real, b"").await;
+        let (fs, fb) = call(addr, who, "GET", &fake, b"").await;
+        assert_eq!(rs, "403");
+        assert_eq!((rs, rb), (fs, fb));
+        let id = fathom_server::ids::new_ulid().to_string();
+        let (rs, rb) = call(
+            addr,
+            who,
+            "POST",
+            &format!("{real}/{id}/accept"),
+            &decision_body(1),
+        )
+        .await;
+        let (fs, fb) = call(
+            addr,
+            who,
+            "POST",
+            &format!("{fake}/{id}/accept"),
+            &decision_body(1),
+        )
+        .await;
+        assert_eq!(rs, "403");
+        assert_eq!((rs, rb), (fs, fb));
+    }
+    let client = support::superuser_client_on_test_database().await;
+    let n: i64 = client
+        .query_one(
+            "SELECT count(*) FROM cable_corrections WHERE organisation_id = $1",
+            &[&estate.organisation.to_string()],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(n, 0, "the refused sends stored nothing");
+}
+
+#[tokio::test]
+async fn a_read_only_member_sends_and_sees_only_their_own_and_cannot_decide() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let ann = a_member_with(&pool, &ring, &estate, "ann", Some(Capability::Read)).await;
+    let bob = a_member_with(&pool, &ring, &estate, "bob", Some(Capability::Read)).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = corrections_path(&estate, design);
+
+    let anns = send_correction(addr, &ann, &path, A_CABLE, "  PP1-04  ").await;
+    let _bobs = send_correction(addr, &bob, &path, A_CABLE, "PP2-09").await;
+    let (status, body) = call(
+        addr,
+        &ann,
+        "POST",
+        &path,
+        &correction_body(A_CABLE, "traced", ""),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+
+    // Each reader sees their own and no one else's.
+    let (status, body) = call(addr, &ann, "GET", &path, b"").await;
+    assert_eq!(status, "200");
+    let mine = list_of(&body);
+    assert_eq!(mine.len(), 2);
+    assert!(mine
+        .iter()
+        .all(|c| text_of(c, "sender") == ann.account.to_string()));
+    let label = mine.iter().find(|c| text_of(c, "kind") == "label").unwrap();
+    assert_eq!(text_of(label, "text"), "PP1-04", "whitespace collapsed");
+    assert_eq!(text_of(label, "state"), "open");
+    let (_, body) = call(addr, &bob, "GET", &path, b"").await;
+    assert_eq!(list_of(&body).len(), 1);
+
+    // Draw includes Read: a drawer can send one too.
+    let (status, _) = call(
+        addr,
+        &drawer,
+        "POST",
+        &path,
+        &correction_body(A_CABLE, "traced", ""),
+    )
+    .await;
+    assert_eq!(status, "200");
+    let (_, body) = call(addr, &ann, "GET", &path, b"").await;
+    assert_eq!(list_of(&body).len(), 2, "ann still sees only her own");
+
+    // A Draw member sees every open one.
+    let (_, body) = call(addr, &drawer, "GET", &path, b"").await;
+    assert_eq!(list_of(&body).len(), 4);
+
+    // A Read member can decide none, theirs or anyone's.
+    for id in [&anns] {
+        for verb in ["accept", "dismiss"] {
+            let (status, _) = call(
+                addr,
+                &ann,
+                "POST",
+                &format!("{path}/{id}/{verb}"),
+                &decision_body(1),
+            )
+            .await;
+            assert_eq!(status, "403", "{verb}");
+        }
+    }
+    let (_, body) = call(addr, &drawer, "GET", &path, b"").await;
+    assert_eq!(list_of(&body).len(), 4, "still all open");
+}
+
+#[tokio::test]
+async fn a_drawer_accepts_or_dismisses_once_and_a_second_decision_is_a_conflict() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let ann = a_member_with(&pool, &ring, &estate, "ann", Some(Capability::Read)).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = corrections_path(&estate, design);
+
+    let one = send_correction(addr, &ann, &path, A_CABLE, "PP1-04").await;
+    let two = send_correction(addr, &ann, &path, A_CABLE, "PP1-05").await;
+
+    // A stale version is a conflict and changes nothing.
+    let (status, _) = call(
+        addr,
+        &drawer,
+        "POST",
+        &format!("{path}/{one}/accept"),
+        &decision_body(9),
+    )
+    .await;
+    assert_eq!(status, "409");
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &format!("{path}/{one}/accept"),
+        &decision_body(1),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let done = parsed(&body);
+    assert_eq!(text_of(&done, "state"), "accepted");
+    assert_eq!(text_of(&done, "decidedBy"), drawer.account.to_string());
+    assert_eq!(int_of(&done, "version"), 2);
+
+    // Deciding it again, either way, by anyone with Draw: refused, and nothing moves.
+    for (verb, version) in [("accept", 1), ("dismiss", 1), ("dismiss", 2)] {
+        let (status, _) = call(
+            addr,
+            &drawer,
+            "POST",
+            &format!("{path}/{one}/{verb}"),
+            &decision_body(version),
+        )
+        .await;
+        assert_eq!(status, "409", "{verb} at {version}");
+    }
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &format!("{path}/{two}/dismiss"),
+        &decision_body(1),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    assert_eq!(text_of(&parsed(&body), "state"), "dismissed");
+
+    // The Draw list keeps the recently decided ones, marked; the sender sees how each ended.
+    let (_, body) = call(addr, &drawer, "GET", &path, b"").await;
+    let all = list_of(&body);
+    assert!(all.iter().all(|c| text_of(c, "state") != "open"));
+    assert_eq!(all.len(), 2);
+    assert_eq!(text_of(&all[0], "senderName"), "ann");
+    let (_, body) = call(addr, &ann, "GET", &path, b"").await;
+    let mine = list_of(&body);
+    let states: Vec<String> = mine.iter().map(|c| text_of(c, "state")).collect();
+    assert_eq!(
+        states,
+        vec!["accepted".to_string(), "dismissed".to_string()]
+    );
+
+    // No such correction is a plain 404 to someone who may decide.
+    let (status, _) = call(
+        addr,
+        &drawer,
+        "POST",
+        &format!("{path}/{}/accept", fathom_server::ids::new_ulid()),
+        &decision_body(1),
+    )
+    .await;
+    assert_eq!(status, "404");
+}
+
+#[tokio::test]
+async fn corrections_are_capped_per_cable_per_sender_and_per_design() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let ann = a_member_with(&pool, &ring, &estate, "ann", Some(Capability::Read)).await;
+    let bob = a_member_with(&pool, &ring, &estate, "bob", Some(Capability::Read)).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = corrections_path(&estate, design);
+
+    // 5 on one cable, then the 6th is refused.
+    for n in 0..5 {
+        send_correction(addr, &ann, &path, A_CABLE, &format!("L{n}")).await;
+    }
+    let (status, _) = call(
+        addr,
+        &ann,
+        "POST",
+        &path,
+        &correction_body(A_CABLE, "label", "L5"),
+    )
+    .await;
+    assert_eq!(status, "429");
+    // Another cable still takes some, up to 20 on the design.
+    for n in 0..15 {
+        let cable = format!("cable:01JABCDEFGHJKMNPQRSTVW{n:04}");
+        send_correction(addr, &ann, &path, &cable, "x").await;
+    }
+    let (status, _) = call(
+        addr,
+        &ann,
+        "POST",
+        &path,
+        &correction_body("cable:01JABCDEFGHJKMNPQRSTVWZZZZ", "label", "x"),
+    )
+    .await;
+    assert_eq!(status, "429");
+    // Another sender is not held back by ann's count.
+    send_correction(addr, &bob, &path, A_CABLE, "bob").await;
+
+    // The design-wide cap: fill it to 200 open, directly, then one more is refused.
+    let client = support::superuser_client_on_test_database().await;
+    client
+        .execute(
+            "INSERT INTO cable_corrections \
+             (organisation_id, id, design_id, cable, kind, sender, ciphertext, nonce, key_epoch) \
+             SELECT $1, lpad(g::text, 26, '0'), $2, 'cable:filler', 'label', $3, \
+                    '\\x00'::bytea, decode('000000000000000000000000', 'hex'), 1 \
+             FROM generate_series(1, 200 - 21) g",
+            &[
+                &estate.organisation.to_string(),
+                &design.to_string(),
+                &bob.account.to_string(),
+            ],
+        )
+        .await
+        .unwrap();
+    let carol = a_member_with(&pool, &ring, &estate, "carol", Some(Capability::Read)).await;
+    let (status, body) = call(
+        addr,
+        &carol,
+        "POST",
+        &path,
+        &correction_body(A_CABLE, "label", "c"),
+    )
+    .await;
+    assert_eq!(status, "429", "{}", String::from_utf8_lossy(&body));
+}
+
+#[tokio::test]
+async fn a_correction_body_is_checked_and_a_password_in_it_is_refused() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let ann = a_member_with(&pool, &ring, &estate, "ann", Some(Capability::Read)).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = corrections_path(&estate, design);
+
+    for (what, cable, kind, text, want) in [
+        ("unknown kind", A_CABLE, "delete", "x", "400"),
+        ("traced with text", A_CABLE, "traced", "x", "400"),
+        ("label with none", A_CABLE, "label", "   ", "400"),
+        ("label too long", A_CABLE, "label", &"x".repeat(201), "400"),
+        (
+            "not here too long",
+            A_CABLE,
+            "not_here",
+            &"x".repeat(501),
+            "400",
+        ),
+        ("control character", A_CABLE, "label", "a\u{7}b", "400"),
+        ("bidi override", A_CABLE, "not_here", "a\u{202e}b", "400"),
+        ("cable with a space", "cable x", "label", "x", "400"),
+        ("empty cable", "", "label", "x", "400"),
+        ("not a ulid", "cable:abc", "label", "x", "400"),
+        (
+            "no cable prefix",
+            "01JABCDEFGHJKMNPQRSTVWXYZ0",
+            "label",
+            "x",
+            "400",
+        ),
+        (
+            "a port, not a cable",
+            "port:01JABCDEFGHJKMNPQRSTVWXYZ0",
+            "label",
+            "x",
+            "400",
+        ),
+        (
+            "lowercase ulid",
+            "cable:01jabcdefghjkmnpqrstvwxyz0",
+            "label",
+            "x",
+            "400",
+        ),
+        (
+            "with an extra space",
+            "cable:01JABCDEFGHJKMNPQRSTVWXYZ0 ",
+            "label",
+            "x",
+            "400",
+        ),
+        (
+            "the delimiter form",
+            A_CABLE,
+            "not_here",
+            "behind it, switch password: hunter2",
+            "422",
+        ),
+        (
+            "enable secret",
+            A_CABLE,
+            "label",
+            "enable secret cisco123",
+            "422",
+        ),
+        (
+            "username password",
+            A_CABLE,
+            "label",
+            "username admin password 0 Cisco123!",
+            "422",
+        ),
+        (
+            "snmp community",
+            A_CABLE,
+            "not_here",
+            "snmp-server community s3cr3tR0 RO",
+            "422",
+        ),
+        (
+            "tacacs key",
+            A_CABLE,
+            "not_here",
+            "tacacs-server key 7 0822455D0A16",
+            "422",
+        ),
+        (
+            "isakmp key",
+            A_CABLE,
+            "not_here",
+            "crypto isakmp key Sh4redS3cret address 10.0.0.1",
+            "422",
+        ),
+        ("wpa psk", A_CABLE, "label", "wpa-psk Tr0ub4dor&3", "422"),
+        (
+            "prose with the word key",
+            A_CABLE,
+            "not_here",
+            "replaced the key switch in rack 4",
+            "422",
+        ),
+    ] {
+        let (status, body) = call(
+            addr,
+            &ann,
+            "POST",
+            &path,
+            &correction_body(cable, kind, text),
+        )
+        .await;
+        assert_eq!(status, want, "{what}: {}", String::from_utf8_lossy(&body));
+    }
+    // The refusal says why, in words a person can act on.
+    let (status, body) = call(
+        addr,
+        &ann,
+        "POST",
+        &path,
+        &correction_body(A_CABLE, "not_here", "enable secret cisco123"),
+    )
+    .await;
+    assert_eq!(status, "422");
+    assert!(String::from_utf8_lossy(&body).contains("even in an ordinary sentence"));
+    // Ordinary places and labels pass.
+    let (status, _) = call(
+        addr,
+        &ann,
+        "POST",
+        &path,
+        &correction_body(A_CABLE, "not_here", "Behind the blanking plate in B3"),
+    )
+    .await;
+    assert_eq!(status, "200");
+    // An unknown body key is malformed, not ignored.
+    let (status, _) = call(
+        addr,
+        &ann,
+        "POST",
+        &path,
+        &canon(vec![
+            ("cable", jstr(A_CABLE)),
+            ("kind", jstr("traced")),
+            ("who", jstr("me")),
+        ]),
+    )
+    .await;
+    assert_eq!(status, "400");
+    // A real design that does not exist is a 404 only to someone who may read it.
+    let (status, _) = call(
+        addr,
+        &ann,
+        "POST",
+        &corrections_path(&estate, a_design_id_nothing_was_ever_created_under()),
+        &correction_body(A_CABLE, "traced", ""),
+    )
+    .await;
+    assert_eq!(status, "404");
+}
+
+#[tokio::test]
+async fn a_correction_is_sealed_at_rest_and_bound_to_its_row() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let ann = a_member_with(&pool, &ring, &estate, "ann", Some(Capability::Read)).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = corrections_path(&estate, design);
+
+    let words = "Behind the Hartwell blanking plate in B3";
+    let (status, body) = call(
+        addr,
+        &ann,
+        "POST",
+        &path,
+        &correction_body(A_CABLE, "not_here", words),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let id = text_of(&parsed(&body), "id");
+    let other = send_correction(addr, &ann, &path, A_CABLE, "PP9").await;
+
+    let client = support::superuser_client_on_test_database().await;
+    let rows = client
+        .query(
+            "SELECT t::text, ciphertext, nonce FROM cable_corrections t WHERE id = $1",
+            &[&id],
+        )
+        .await
+        .unwrap();
+    let rendered: String = rows[0].get(0);
+    let ciphertext: Vec<u8> = rows[0].get(1);
+    let nonce: Vec<u8> = rows[0].get(2);
+    for needle in ["Hartwell", "blanking", words] {
+        assert!(!rendered.contains(needle), "{needle} in {rendered}");
+        assert!(
+            !ciphertext
+                .windows(needle.len())
+                .any(|w| w == needle.as_bytes()),
+            "{needle} in the ciphertext"
+        );
+    }
+    assert!(rendered.contains("not_here"), "the kind is a plain column");
+
+    // Sealed bytes moved onto another row (same sender, same cable, other id) do not open.
+    client
+        .execute(
+            "UPDATE cable_corrections SET ciphertext = $1, nonce = $2 WHERE id = $3",
+            &[&ciphertext, &nonce, &other],
+        )
+        .await
+        .unwrap();
+    let (status, _) = call(addr, &drawer, "GET", &path, b"").await;
+    assert_eq!(status, "500");
+    // The same bytes moved to another KIND (a plain column) do not open either.
+    client
+        .execute(
+            "UPDATE cable_corrections SET ciphertext = $1, nonce = $2 WHERE id = $3",
+            &[&rows[0].get::<_, Vec<u8>>(1), &nonce, &id],
+        )
+        .await
+        .unwrap();
+    client
+        .execute("DELETE FROM cable_corrections WHERE id = $1", &[&other])
+        .await
+        .unwrap();
+    let (status, _) = call(addr, &drawer, "GET", &path, b"").await;
+    assert_eq!(status, "200", "restored row opens again");
+    client
+        .execute(
+            "UPDATE cable_corrections SET kind = 'label' WHERE id = $1",
+            &[&id],
+        )
+        .await
+        .unwrap();
+    let (status, _) = call(addr, &drawer, "GET", &path, b"").await;
+    assert_eq!(status, "500", "the kind is bound into the sealed bytes");
+    client
+        .execute(
+            "UPDATE cable_corrections SET kind = 'not_here', sender = $2 WHERE id = $1",
+            &[&id, &drawer.account.to_string()],
+        )
+        .await
+        .unwrap();
+    let (status, _) = call(addr, &drawer, "GET", &path, b"").await;
+    assert_eq!(status, "500", "the sender is bound into the sealed bytes");
+}
+
+#[tokio::test]
+async fn the_app_role_cannot_delete_or_rewrite_a_correction() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let ann = a_member_with(&pool, &ring, &estate, "ann", Some(Capability::Read)).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = corrections_path(&estate, design);
+    let id = send_correction(addr, &ann, &path, A_CABLE, "PP1").await;
+
+    // Each statement in its own tenant-scoped transaction: a refused one aborts its own.
+    let attempt = |sql: String| {
+        let pool = pool.clone();
+        let tenant = estate.organisation.to_string();
+        let id = id.clone();
+        async move {
+            let mut conn = pool.get().await.unwrap();
+            let tx = conn.transaction().await.unwrap();
+            tx.execute("SELECT set_config('app.tenant_id', $1, true)", &[&tenant])
+                .await
+                .unwrap();
+            tx.execute(sql.as_str(), &[&id]).await
+        }
+    };
+    assert!(
+        attempt("DELETE FROM cable_corrections WHERE id = $1".into())
+            .await
+            .is_err()
+    );
+    for column in ["sender", "cable", "kind", "design_id", "created_at"] {
+        let sql = format!("UPDATE cable_corrections SET {column} = {column} WHERE id = $1");
+        assert!(
+            attempt(sql).await.is_err(),
+            "the app role must not write {column}"
+        );
+    }
+    for column in [
+        "state",
+        "decided_by",
+        "decided_at",
+        "version",
+        "ciphertext",
+        "nonce",
+        "key_epoch",
+    ] {
+        let sql = format!("UPDATE cable_corrections SET {column} = {column} WHERE id = $1");
+        assert!(attempt(sql).await.is_ok(), "the app role writes {column}");
+    }
+}
+
+#[tokio::test]
+async fn dismissing_a_correction_scrubs_what_was_typed_but_keeps_the_row_bound() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let ann = a_member_with(&pool, &ring, &estate, "ann", Some(Capability::Read)).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = corrections_path(&estate, design);
+
+    let (status, body) = call(
+        addr,
+        &ann,
+        "POST",
+        &path,
+        &correction_body(A_CABLE, "not_here", "Behind the Hartwell blanking plate"),
+    )
+    .await;
+    assert_eq!(status, "200");
+    let id = text_of(&parsed(&body), "id");
+    let kept = send_correction(addr, &ann, &path, A_CABLE, "PP7").await;
+
+    let client = support::superuser_client_on_test_database().await;
+    let before: Vec<u8> = client
+        .query_one(
+            "SELECT ciphertext FROM cable_corrections WHERE id = $1",
+            &[&id],
+        )
+        .await
+        .unwrap()
+        .get(0);
+
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &format!("{path}/{id}/dismiss"),
+        &decision_body(1),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        text_of(&parsed(&body), "text"),
+        "",
+        "the answer carries no text"
+    );
+
+    // The stored bytes changed, still open (so the body is sealed under the same binding), and are empty.
+    let after: Vec<u8> = client
+        .query_one(
+            "SELECT ciphertext FROM cable_corrections WHERE id = $1",
+            &[&id],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_ne!(before, after, "the sealed body was replaced");
+    for who in [&drawer, &ann] {
+        let (status, body) = call(addr, who, "GET", &path, b"").await;
+        assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+        let list = list_of(&body);
+        let gone = list.iter().find(|c| text_of(c, "id") == id).unwrap();
+        assert_eq!(text_of(gone, "state"), "dismissed");
+        assert_eq!(text_of(gone, "text"), "", "it opens, and to nothing");
+        let live = list.iter().find(|c| text_of(c, "id") == kept).unwrap();
+        assert_eq!(
+            text_of(live, "text"),
+            "PP7",
+            "other corrections are untouched"
+        );
+    }
+    // An old copy of the sealed text put back is not a way to read it again: the row is still
+    // bound by its AAD, but the plaintext it holds is what the thief already had. What the
+    // dismissal guarantees is that the server's current row no longer holds it.
+    let rendered: String = client
+        .query_one(
+            "SELECT t::text FROM cable_corrections t WHERE id = $1",
+            &[&id],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert!(!rendered.contains("Hartwell"));
+}
+
+#[tokio::test]
+async fn reopening_takes_an_accepted_correction_back_and_nothing_else() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let ann = a_member_with(&pool, &ring, &estate, "ann", Some(Capability::Read)).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = corrections_path(&estate, design);
+    let fake = corrections_path(&estate, a_design_id_nothing_was_ever_created_under());
+
+    let accepted = send_correction(addr, &ann, &path, A_CABLE, "PP1").await;
+    let dismissed = send_correction(addr, &ann, &path, A_CABLE, "PP2").await;
+    let open = send_correction(addr, &ann, &path, A_CABLE, "PP3").await;
+    let (status, _) = call(
+        addr,
+        &drawer,
+        "POST",
+        &format!("{path}/{accepted}/accept"),
+        &decision_body(1),
+    )
+    .await;
+    assert_eq!(status, "200");
+    let (status, _) = call(
+        addr,
+        &drawer,
+        "POST",
+        &format!("{path}/{dismissed}/dismiss"),
+        &decision_body(1),
+    )
+    .await;
+    assert_eq!(status, "200");
+
+    // A reader is refused, identically for a real design and an invented one.
+    let (rs, rb) = call(
+        addr,
+        &ann,
+        "POST",
+        &format!("{path}/{accepted}/reopen"),
+        &decision_body(2),
+    )
+    .await;
+    let (fs, fb) = call(
+        addr,
+        &ann,
+        "POST",
+        &format!("{fake}/{accepted}/reopen"),
+        &decision_body(2),
+    )
+    .await;
+    assert_eq!(rs, "403");
+    assert_eq!((rs, rb), (fs, fb));
+
+    // Only an accepted one reopens: not a dismissed one (its text is gone), not an open one.
+    for (id, version) in [(&dismissed, 2), (&open, 1)] {
+        let (status, _) = call(
+            addr,
+            &drawer,
+            "POST",
+            &format!("{path}/{id}/reopen"),
+            &decision_body(version),
+        )
+        .await;
+        assert_eq!(status, "409");
+    }
+    let (status, _) = call(
+        addr,
+        &drawer,
+        "POST",
+        &format!("{path}/{accepted}/reopen"),
+        &decision_body(9),
+    )
+    .await;
+    assert_eq!(status, "409", "a stale version");
+
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &format!("{path}/{accepted}/reopen"),
+        &decision_body(2),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let back = parsed(&body);
+    assert_eq!(text_of(&back, "state"), "open");
+    assert_eq!(int_of(&back, "version"), 3);
+    assert_eq!(back["decidedBy"], fathom_canon::Json::Null);
+    assert_eq!(
+        text_of(&back, "text"),
+        "PP1",
+        "the text was kept for an accepted one"
+    );
+    let (status, _) = call(
+        addr,
+        &drawer,
+        "POST",
+        &format!("{path}/{accepted}/reopen"),
+        &decision_body(3),
+    )
+    .await;
+    assert_eq!(status, "409", "it is open now");
+
+    // It can be accepted again.
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &format!("{path}/{accepted}/accept"),
+        &decision_body(3),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+}
+
+#[tokio::test]
+async fn the_database_binds_the_sender_and_the_decider_to_the_session_account() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let ann = a_member_with(&pool, &ring, &estate, "ann", Some(Capability::Read)).await;
+    let bob = a_member_with(&pool, &ring, &estate, "bob", Some(Capability::Draw)).await;
+
+    // As the app role, tenant and account set the way `open_tenant_context` sets them; the
+    // statements run in order in one transaction, which commits only if all of them pass.
+    type Params<'a> = &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)];
+    async fn run_as(
+        pool: &Pool,
+        org: &str,
+        account: &str,
+        statements: &[(&str, Params<'_>)],
+    ) -> Result<(), tokio_postgres::Error> {
+        let mut conn = pool.get().await.unwrap();
+        let tx = conn.transaction().await.unwrap();
+        tx.execute(
+            "SELECT set_config('app.tenant_id', $1, true), set_config('app.account_id', $2, true)",
+            &[&org, &account],
+        )
+        .await
+        .unwrap();
+        for (sql, params) in statements {
+            tx.execute(*sql, params).await?;
+        }
+        tx.commit().await
+    }
+    let insert = "INSERT INTO cable_corrections \
+        (organisation_id, id, design_id, cable, kind, sender, ciphertext, nonce, key_epoch) \
+        VALUES ($1, $2, $3, 'cable:x', 'traced', $4, '\\x00'::bytea, \
+                decode('000000000000000000000000', 'hex'), 1)";
+    let decide = "UPDATE cable_corrections SET state = 'accepted', decided_by = $2, \
+                  decided_at = now() WHERE id = $1";
+    let org = estate.organisation.to_string();
+    let (ann_id, bob_id) = (ann.account.to_string(), bob.account.to_string());
+    let dsn = design.to_string();
+    let id1 = fathom_server::ids::new_ulid().to_string();
+
+    // Someone else's name as the sender: refused. Their own: accepted.
+    assert!(
+        run_as(
+            &pool,
+            &org,
+            &ann_id,
+            &[(insert, &[&org, &id1, &dsn, &bob_id])]
+        )
+        .await
+        .is_err(),
+        "a sender other than the session account"
+    );
+    run_as(
+        &pool,
+        &org,
+        &ann_id,
+        &[(insert, &[&org, &id1, &dsn, &ann_id])],
+    )
+    .await
+    .expect("own sender");
+    // Deciding it in anyone else's name: refused. In the session account's own: accepted.
+    assert!(
+        run_as(&pool, &org, &ann_id, &[(decide, &[&id1, &bob_id])])
+            .await
+            .is_err(),
+        "a decider other than the session account"
+    );
+    run_as(&pool, &org, &ann_id, &[(decide, &[&id1, &ann_id])])
+        .await
+        .expect("own decision");
+}

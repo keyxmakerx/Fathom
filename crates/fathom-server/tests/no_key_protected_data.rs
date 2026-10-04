@@ -280,6 +280,16 @@ const TABLES: &[TableClaim] = &[
               creator and an archived flag, none of which names a field.",
     },
     TableClaim {
+        name: "cable_corrections",
+        protection: Protection::KeyProtected {
+            columns: &["ciphertext"],
+            under: "the organisation content key, which is wrapped under the tenant key",
+        },
+        why: "what a floor visitor typed about a cable: a proposed label, or where it really \
+              is. One sealed blob. The plaintext columns are ids, the kind, the sender, the \
+              state and the decision, none of which holds typed words.",
+    },
+    TableClaim {
         name: "org_content_keys",
         protection: Protection::KeyProtected {
             columns: &["wrapped_key"],

@@ -133,6 +133,9 @@ export interface DesignSession {
    * it for save (ADR-0052 §5: a reader's document never reaches the
    * `SaveQueue`). */
   applyDocChange: (next: Document) => void;
+  /** As `applyDocChange`, but resolves once a save that carries `next` has landed (void) or has
+   * been refused (`{ refused }`), so a caller can undo a promise it made on the strength of it. */
+  applyAndConfirm: (next: Document) => Promise<{ refused: string } | void>;
   /** ADR-0046 §2, "edited from either": the one `EditorChange` dispatcher
    * both places' `EditorFor` calls raise through `EditorActions.onEdit`. */
   handleEdit: (change: EditorChange) => { refused: string } | void;
@@ -257,6 +260,10 @@ export function useDesignSession(organisationId: string, designId: string, capab
     else load();
   }, [load]);
 
+  // Callers waiting on the next save to start: it carries everything they applied before it began.
+  const waitersRef = useRef<Array<(error: unknown) => void>>([]);
+  // Callers waiting for a live session to confirm everything it has sent.
+  const liveWaitersRef = useRef<Array<() => void>>([]);
   // Closing the tab with changes the server has not confirmed loses them: they are never kept in browser storage.
   const pendingCount = live.pendingCount;
   useEffect(() => {
@@ -268,13 +275,19 @@ export function useDesignSession(organisationId: string, designId: string, capab
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [pendingCount]);
+  useEffect(() => {
+    if (pendingCount !== 0) return;
+    liveWaitersRef.current.splice(0).forEach((w) => w());
+  }, [pendingCount]);
 
   const saveQueue = useMemo(
     () =>
       new SaveQueue<Uint8Array>(
         (bytes) => {
+          const mine = waitersRef.current.splice(0);
           const conditionalSave = conditionalSaveRef.current;
           if (conditionalSave == null) {
+            mine.forEach((w) => w(new Error('save queued before the design finished opening')));
             // Cannot happen through `applyDocChange` (it requires `doc`,
             // which is set in the same step as `conditionalSaveRef`), but a
             // typed `Promise.reject` here is still an honest answer rather
@@ -285,7 +298,16 @@ export function useDesignSession(organisationId: string, designId: string, capab
           // ADR-0054 §1: this is the one call site that ever appends
           // `?base=` — `conditionalSave.save` reads and moves the base
           // itself; this hook never touches it directly.
-          return conditionalSave.save(organisationId, designId, bytes).then(() => setSaveRefusal(null));
+          return conditionalSave.save(organisationId, designId, bytes).then(
+            () => {
+              setSaveRefusal(null);
+              mine.forEach((w) => w(null));
+            },
+            (error: unknown) => {
+              mine.forEach((w) => w(error));
+              throw error;
+            },
+          );
         },
         (error: unknown) => setSaveRefusal(describeError(error)),
       ),
@@ -309,6 +331,28 @@ export function useDesignSession(organisationId: string, designId: string, capab
     [saveQueue, canDraw],
   );
 
+  const applyAndConfirm = useCallback(
+    (next: Document): Promise<{ refused: string } | void> => {
+      if (!canDraw) return Promise.resolve({ refused: 'You can only read this design.' });
+      const session = liveRef.current;
+      if (session != null && session.currentMode !== 'legacy') {
+        // Live: confirmed once the session has nothing left unsent.
+        return new Promise((resolve) => {
+          session.edit(next);
+          if (session.pendingCount === 0) {
+            resolve({ refused: 'That edit no longer fits what others just changed, so nothing was changed.' });
+            return;
+          }
+          liveWaitersRef.current.push(() => resolve(undefined));
+        });
+      }
+      return new Promise((resolve) => {
+        waitersRef.current.push((error) => resolve(error == null ? undefined : { refused: describeError(error) }));
+        applyDocChange(next);
+      });
+    },
+    [applyDocChange, canDraw],
+  );
   const putMineBack = useCallback((id: string) => liveRef.current?.putBack(id), []);
   const dismissOverwrite = useCallback(() => liveRef.current?.dismissOverwrite(), []);
   const dismissNote = useCallback(() => liveRef.current?.dismissNote(), []);
@@ -361,6 +405,7 @@ export function useDesignSession(organisationId: string, designId: string, capab
     saveRefusal,
     canDraw,
     applyDocChange,
+    applyAndConfirm,
     handleEdit,
     reloadDesign,
   };

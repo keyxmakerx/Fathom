@@ -69,7 +69,7 @@ fn bad(why: &'static str) -> DesignError {
 
 /// Control, line/paragraph separator and invisible or bidi-override characters,
 /// which could make a name display as something else.
-fn is_unsafe_char(c: char) -> bool {
+pub(crate) fn is_unsafe_char(c: char) -> bool {
     c.is_control()
         || matches!(c, '\u{00AD}' | '\u{034F}' | '\u{061C}' | '\u{0600}'..='\u{0605}'
             | '\u{115F}' | '\u{1160}' | '\u{180E}' | '\u{200B}'..='\u{200F}'

@@ -21,6 +21,7 @@ import { addNote, type NoteHow } from './document/notes';
 import { emptyDocument, formatEdgeId, formatNodeId, parseNodeId, type Document, type NodeKind } from './document/model';
 import { addSubnet, addVlan } from './document/networks';
 import { setFieldValue, type FieldDefView } from './document/fields';
+import { bulkEstate } from './components/inventory/bulkEstate';
 import { tagObject } from './document/tags';
 import { newUlid } from './document/ulid';
 import { naturalLabelCompare, viewOf } from './document/view';
@@ -710,6 +711,12 @@ export function seedLookScene(catalogue: CatalogueModel[], me: string): Document
       .sort((x, y) => naturalLabelCompare(x.label, y.label));
   working = connectPorts(working, rj('fw-01', 'A-04')[1]!.id, rj('sw-09', 'R7')[0]!.id, { sheath: 'red' }, { actor: me });
   return working;
+}
+
+/** Inventory v5's drives: a made-up estate (components/inventory/bulkEstate.ts). `scale` 1 is about
+ * 1,900 devices, 13,000 ports and 5,000 cables. */
+export function seedBulkEstate(me: string, scale: number): Document {
+  return bulkEstate({ scale, actor: me }).doc;
 }
 
 /** The lowest-numbered UNCABLED front RJ45 port — `frontRj45`'s own doc,
