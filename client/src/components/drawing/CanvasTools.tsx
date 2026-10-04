@@ -36,10 +36,10 @@ export function CanvasTools({ tool, onTool, wheel, onWheel }: CanvasToolsProps) 
     <div className="canvas-tools" role="toolbar" aria-label="Canvas tools">
       {tool && onTool ? (
         <>
-          <button type="button" className="canvas-tool" aria-pressed={tool === 'select'} aria-label="Select" title="Select: drag to box-select (V)" onClick={() => onTool('select')}>
+          <button type="button" className="canvas-tool" aria-pressed={tool === 'select'} aria-label="Select" aria-keyshortcuts="V" title="Select: drag to box-select (V)" onClick={() => onTool('select')}>
             <svg {...ICON}><path d="M3 2l9 5-4 1.2L6.5 12z" /></svg>
           </button>
-          <button type="button" className="canvas-tool" aria-pressed={tool === 'pan'} aria-label="Pan" title="Pan: drag to move the view (H)" onClick={() => onTool('pan')}>
+          <button type="button" className="canvas-tool" aria-pressed={tool === 'pan'} aria-label="Pan" aria-keyshortcuts="H" title="Pan: drag to move the view (H)" onClick={() => onTool('pan')}>
             <svg {...ICON}><path d="M5 8V3.5a1 1 0 012 0V7M7 7V2.5a1 1 0 012 0V7M9 7V3.5a1 1 0 012 0V9M5 8L3.8 6.8a1 1 0 00-1.5 1.3L5.5 13a3 3 0 002.4 1.2H9a3 3 0 003-3V9" /></svg>
           </button>
           <span className="canvas-tools__rule" aria-hidden="true" />
@@ -49,7 +49,8 @@ export function CanvasTools({ tool, onTool, wheel, onWheel }: CanvasToolsProps) 
         type="button"
         className="canvas-tool"
         aria-pressed={wheel === 'zoom'}
-        aria-label={wheel === 'zoom' ? 'Mouse wheel zooms' : 'Mouse wheel scrolls'}
+        aria-label="Wheel zooms"
+
         title={wheel === 'zoom' ? 'Wheel zooms (Ctrl+wheel always zooms). Click to scroll instead.' : 'Wheel scrolls (Ctrl+wheel always zooms). Click to zoom instead.'}
         onClick={() => onWheel(wheel === 'zoom' ? 'scroll' : 'zoom')}
       >

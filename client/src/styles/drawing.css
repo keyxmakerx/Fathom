@@ -1666,7 +1666,7 @@
   color: var(--ink);
   cursor: pointer;
 }
-.canvas-tool:hover { border-color: var(--hairline); }
-.canvas-tool[aria-pressed='true'] { border-color: var(--ink); }
+.canvas-tool:hover { border-color: var(--ink); }
+.canvas-tool[aria-pressed='true'] { background: var(--ink); color: var(--page); border-color: var(--ink); }
 .canvas-tool:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
 .canvas-tools__rule { width: 1px; height: 16px; background: var(--hairline); margin: 0 2px; }

@@ -229,7 +229,7 @@ try {
     await page.waitForTimeout(400);
     const w1 = await boxes(page).first().boundingBox();
     check('the wheel scrolls by default', Math.abs(w1.width - w0.width) < 0.5 && Math.abs(w1.y - w0.y) > 5, `${w1.y - w0.y}`);
-    await page.getByRole('button', { name: 'Mouse wheel scrolls' }).click();
+    await page.getByRole('button', { name: 'Wheel zooms' }).click();
     await page.mouse.move(700, 700);
     await page.mouse.wheel(0, -120);
     await page.waitForTimeout(400);
