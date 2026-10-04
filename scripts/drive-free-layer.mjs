@@ -165,11 +165,28 @@ try {
     await pickKind(page, 'Server');
     check('clicking a square adds a box joined by a line', (await boxes(page).count()) === 3 && (await page.locator('.free-line__ink').count()) === 2);
 
+    // A plain left-drag on empty canvas pans the view.
     await page.mouse.click(700, 700);
+    const before = await boxes(page).first().boundingBox();
+    await page.mouse.move(700, 700);
+    await page.mouse.down();
+    await page.mouse.move(760, 740, { steps: 6 });
+    await page.mouse.up();
+    const after = await boxes(page).first().boundingBox();
+    check('a plain left-drag on empty canvas pans', Math.round(after.x - before.x) === 60 && Math.round(after.y - before.y) === 40, `${after.x - before.x},${after.y - before.y}`);
+    await page.mouse.move(700, 700);
+    await page.mouse.down();
+    await page.mouse.move(640, 660, { steps: 6 });
+    await page.mouse.up();
+
+    // Shift+drag draws the marquee.
+    await page.mouse.click(700, 700);
+    await page.keyboard.down('Shift');
     await page.mouse.move(60, 150);
     await page.mouse.down();
     await page.mouse.move(1000, 650, { steps: 8 });
     await page.mouse.up();
+    await page.keyboard.up('Shift');
     await page.waitForTimeout(300);
     check('a marquee selects the boxes and offers the word menu', (await page.locator('.free-wordmenu').count()) === 1);
     await shot(page, 'FL-04-marquee-wordmenu');

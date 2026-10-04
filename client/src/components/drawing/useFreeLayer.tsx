@@ -73,6 +73,8 @@ export interface FreeLayerArgs {
   selected: Selection | null;
   onSelect: (selection: Selection | null) => void;
   actions: FreeActions;
+  /** What a plain left-drag on empty canvas does: pan the view, or draw a selection box (Shift always draws one). */
+  tool?: 'pan' | 'select';
 }
 
 const NUDGE = 4;
@@ -114,7 +116,7 @@ export interface FreeLayer {
   removeSelected: () => boolean;
 }
 
-export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSelect, actions }: FreeLayerArgs): FreeLayer {
+export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSelect, actions, tool = 'pan' }: FreeLayerArgs): FreeLayer {
   const [group, setGroup] = useState<string[]>([]);
   const [freeDrag, setFreeDrag] = useState<Record<string, Point> | null>(null);
   const [guides, setGuides] = useState<Guides | null>(null);
@@ -531,6 +533,7 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
       onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => {
         if (!canDraw || event.button !== 0 || spaceDown.current || event.pointerType === 'touch') return; // one finger pans on touch
         if (!(event.target as HTMLElement).classList.contains('react-flow__pane')) return;
+        if (tool !== 'select' && !event.shiftKey) return; // a plain drag pans
         const startClient = { x: event.clientX, y: event.clientY };
         const additive = event.shiftKey;
         const base = additive ? selectedIds : [];
@@ -561,7 +564,7 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
         window.addEventListener('pointerup', onUp);
       },
     }),
-    [canDraw, selectedIds, containerPoint, rf, allNodeIds, rectOf, labelById, selectMany],
+    [canDraw, tool, selectedIds, containerPoint, rf, allNodeIds, rectOf, labelById, selectMany],
   );
 
   // ---- arranging -----------------------------------------------------------
