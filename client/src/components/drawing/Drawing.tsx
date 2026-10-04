@@ -63,6 +63,8 @@ import { CableEdge, type CableEdgeData, type CableEdgeType } from './CableEdge';
 import { ColourPicker } from './ColourPicker';
 import { ContextMenu } from './ContextMenu';
 import { parseFreeNodeId } from './freeLayout';
+import { CanvasTools, type CanvasTool } from './CanvasTools';
+import { useWheelMode } from './canvasPrefs';
 import { FREE_EDGE_TYPES, FREE_NODE_TYPES, useFreeLayer } from './useFreeLayer';
 import { menuItemsFor, type MenuActions, type MenuTarget } from './contextMenuItems';
 import { createLiveStore, EMPTY_STRING_SET, LiveStoreProvider, useLive, type LiveStore } from './liveStore';
@@ -417,7 +419,8 @@ function DrawingInner({
   // overlay actually needs.
   const containerRef = useRef<HTMLDivElement>(null);
   // What a plain left-drag on empty canvas does. Pan by default; Shift+drag draws a selection box either way.
-  const [tool] = useState<'pan' | 'select'>('pan');
+  const [tool, setTool] = useState<CanvasTool>('pan');
+  const [wheel, setWheel] = useWheelMode('scroll');
   const free = useFreeLayer({
     view,
     canDraw,
@@ -1630,8 +1633,8 @@ function DrawingInner({
         // Left-drag on empty canvas pans (Shift+drag is the marquee); the middle button, Space+drag, the wheel or a trackpad pan too (pinch zooms).
         panOnDrag={tool === 'pan' ? PAN_BUTTONS : MIDDLE_ONLY}
         panActivationKeyCode="Space"
-        panOnScroll
-        zoomOnScroll={false}
+        panOnScroll={wheel === 'scroll'}
+        zoomOnScroll={wheel === 'zoom'}
         zoomOnPinch
         // UI-SPEC "Cables": a drag may be picked up from either end of a
         // future cable, and dropped on any other live port — loose mode is
@@ -1677,6 +1680,7 @@ function DrawingInner({
         )}
       </ReactFlow>
       {free.overlay}
+      <CanvasTools tool={tool} onTool={setTool} wheel={wheel} onWheel={setWheel} />
       <ChecksCanvasBridge />
       <PlansCanvasBridge />
       {selectedChassis != null && callout?.id === selectedChassis.id && opened == null && calloutRack != null ? (

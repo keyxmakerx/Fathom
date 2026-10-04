@@ -19,12 +19,14 @@ import '../../styles/drawing.css';
 
 import type { CableView, ClosetView, Selection } from './contract';
 import { BOX_H, BOX_W, diagramLines, layoutDiagram, orthRoute, type Route } from './diagram';
-import { MAX_ZOOM, MIN_ZOOM, U_PX, zoomBandAt } from './geometry';
+import { DIAGRAM_MAX_ZOOM, MIN_ZOOM, U_PX, zoomBandAt } from './geometry';
 import { DeviceIcon, ICON_H, ICON_W, iconForRole, type IconKind } from './deviceIcons';
 import type { DiagramStyle } from './diagramStyle';
 import { CableCheckBadge, CheckBadge } from '../checks/CheckBadge';
 import { StubTags } from './StubTags';
 import { cableCandidates, placeLabels, type LayerWords } from './layerLabels';
+import { CanvasTools } from './CanvasTools';
+import { useWheelMode } from './canvasPrefs';
 import { useSettledView } from './settledView';
 import { endOffScreen, stubTagText, type StubEnd } from './stubs';
 
@@ -237,6 +239,7 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
     void rf.setViewport({ ...live, zoom: zoom / 100 });
   }, [zoom, rf]);
 
+  const [wheel, setWheel] = useWheelMode('zoom');
   const handleMove: OnMove = useCallback((_e, vp) => setBand(zoomBandAt(Math.round(vp.zoom * 1000) / 10)), []);
   const handleMoveEnd: OnMove = useCallback(
     (_e, vp) => {
@@ -263,7 +266,9 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         onMove={handleMove}
         onMoveEnd={handleMoveEnd}
         minZoom={MIN_ZOOM}
-        maxZoom={MAX_ZOOM}
+        maxZoom={DIAGRAM_MAX_ZOOM}
+        panOnScroll={wheel === 'scroll'}
+        zoomOnScroll={wheel === 'zoom'}
         deleteKeyCode={null}
         proOptions={{ hideAttribution: true }}
       >
@@ -283,6 +288,7 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
           </ViewportPortal>
         )}
       </ReactFlow>
+      <CanvasTools wheel={wheel} onWheel={setWheel} />
     </div>
   );
 }

@@ -210,6 +210,33 @@ try {
     await page.waitForTimeout(300);
     check('an area is added', (await page.locator('.free-area').count()) === 1);
     await shot(page, 'FL-06-area');
+    // The tool strip: Select makes a plain drag a marquee; the wheel toggle swaps scroll for zoom.
+    check('the canvas tool strip is shown', (await page.locator('.canvas-tools').count()) === 1);
+    await shot(page, 'FL-06b-tool-strip');
+    await page.getByRole('button', { name: 'Select' }).click();
+    await page.mouse.click(30, 700);
+    await page.mouse.move(40, 120);
+    await page.mouse.down();
+    await page.mouse.move(1000, 650, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    check('with Select, a plain drag draws the marquee', (await page.locator('.free-wordmenu').count()) === 1);
+    await page.getByRole('button', { name: 'Pan' }).click();
+    await page.mouse.click(30, 700);
+    const w0 = await boxes(page).first().boundingBox();
+    await page.mouse.move(700, 700);
+    await page.mouse.wheel(0, 120);
+    await page.waitForTimeout(400);
+    const w1 = await boxes(page).first().boundingBox();
+    check('the wheel scrolls by default', Math.abs(w1.width - w0.width) < 0.5 && Math.abs(w1.y - w0.y) > 5, `${w1.y - w0.y}`);
+    await page.getByRole('button', { name: 'Mouse wheel scrolls' }).click();
+    await page.mouse.move(700, 700);
+    await page.mouse.wheel(0, -120);
+    await page.waitForTimeout(400);
+    const w2 = await boxes(page).first().boundingBox();
+    check('set to zoom, the wheel zooms', w2.width > w1.width + 0.5, `${w1.width} -> ${w2.width}`);
+    check('the wheel choice is stored', (await page.evaluate(() => localStorage.getItem('fathom-canvas-wheel'))) === 'zoom');
+
     check('no uncaught page errors (free layer)', pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }
