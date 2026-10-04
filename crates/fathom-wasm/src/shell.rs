@@ -23,7 +23,7 @@ use crate::{
     OP_CABLE, OP_CHECKS, OP_CHECK_GESTURE, OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE,
     OP_EQUIPMENT, OP_EQUIP_ADD, OP_EXPORT_PLAIN, OP_FIELD_SET, OP_FINDINGS, OP_INIT, OP_INSIDE,
     OP_INV_ROWS, OP_LINK, OP_LOAD_PLAIN, OP_PASTE, OP_PASTE_INTO, OP_PLACE, OP_PLAN_PREVIEW,
-    OP_QUERY, OP_RACK_ELEVATION, OP_RACK_PLACE, OP_REDACT_TEXT, OP_SYNC,
+    OP_QUERY, OP_RACK_ELEVATION, OP_RACK_PLACE, OP_REDACT_TEXT, OP_SYNC, OP_TRACE,
 };
 
 pub struct Shell {
@@ -101,6 +101,7 @@ impl Shell {
             OP_CHECK_GESTURE => self.check_gesture(req),
             OP_PLAN_PREVIEW => self.plan_preview(req),
             OP_INSIDE => self.inside(req),
+            OP_TRACE => self.trace(req),
             _ => protocol::encode_error(
                 ERR_UNKNOWN_OP,
                 &format!("opcode {op} is not implemented by this module"),
@@ -2346,6 +2347,52 @@ impl Shell {
             Err(reply) => return reply,
         };
         protocol::encode_inside_reply(fathom_inventory::inside(estate, node).as_ref())
+    }
+
+    /// `OP_TRACE`: see [`crate::OP_TRACE`] for the frame.
+    fn trace(&mut self, req: &[u8]) -> Vec<u8> {
+        let Some(estate) = self.estate.as_ref() else {
+            return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+        };
+        let Ok(text) = std::str::from_utf8(req) else {
+            return protocol::encode_error(ERR_BAD_UTF8, "the trace request is not UTF-8");
+        };
+        let mut lines = text.split('\n');
+        let (Some(from), Some(to), Some(flow), None) =
+            (lines.next(), lines.next(), lines.next(), lines.next())
+        else {
+            return protocol::encode_error(
+                ERR_BAD_FRAME,
+                "a trace request is three lines: start, end, flow",
+            );
+        };
+        let flow = flow.trim();
+        let flow = if flow.is_empty() {
+            None
+        } else {
+            let mut parts = flow.split_whitespace();
+            let parsed = match (parts.next(), parts.next(), parts.next()) {
+                (Some(p), Some(port), None) => p
+                    .parse()
+                    .ok()
+                    .zip(port.parse().ok())
+                    .map(|(protocol, port)| fathom_inventory::Flow { protocol, port }),
+                _ => None,
+            };
+            if parsed.is_none() {
+                return protocol::encode_error(
+                    ERR_BAD_FRAME,
+                    "the flow line is `<protocol number> <port>` or empty",
+                );
+            }
+            parsed
+        };
+        protocol::encode_trace_reply(&fathom_inventory::trace(
+            estate,
+            from.trim(),
+            to.trim(),
+            flow,
+        ))
     }
 
     fn element(&mut self, req: &[u8]) -> Vec<u8> {

@@ -26,6 +26,7 @@ import './plans-canvas.css';
 
 import { compatible } from '../../document/compat';
 import { ChecksCanvasBridge, useChecksFade } from '../checks/fade';
+import { TraceBadges, useTraceFade } from '../trace/fade';
 import { mediaCandidates } from '../checks/checksModel';
 import { useChecksApi } from '../checks/checksStore';
 import { PlanGhostEdge } from './PlanGhostEdge';
@@ -257,6 +258,8 @@ export interface DrawingProps extends DrawingActions {
    * beyond faceplate. Same shape as `renderConfigDrawer` above, called once
    * the camera reads as the `'inside'` stop for the selected chassis. */
   renderInsideStop?: (chassis: ChassisView) => ReactNode;
+  /** Starts a path trace from this device (ADR-0061 item 9); absent where there is nothing to trace. */
+  onTraceFrom?: (chassisId: string) => void;
   /** ADR-0052 §1, this session's brief item 2 — "click a line and the port
    * it built lights, tagged with which line built it." The caller
    * (`racks/RacksPlace.tsx`) tracks the drawer's own hover/select state and
@@ -374,6 +377,7 @@ function DrawingInner({
   canDraw,
   renderConfigDrawer,
   renderInsideStop,
+  onTraceFrom,
   litPortLabel,
   emptyHint,
   openRequest,
@@ -474,8 +478,8 @@ function DrawingInner({
     onRemoveFree,
   };
   const menuActions: MenuActions = canDraw
-    ? { onSelect, onOpen: openChassis, onOpenInside, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, onPasteConfig, onPlanChange, ...freeMenuActions }
-    : { onSelect, onOpen: openChassis, onOpenInside };
+    ? { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, onPasteConfig, onPlanChange, ...freeMenuActions }
+    : { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom };
   const menuActionsRef = useRef(menuActions);
   useLayoutEffect(() => {
     menuActionsRef.current = menuActions;
@@ -1590,9 +1594,10 @@ function DrawingInner({
     [allNodes, peers, view],
   );
   const allEdges = useMemo(() => [...edges, ...free.edges], [edges, free.edges]);
-  // An open plan's marks and focus first; a Checks Show then fades on top and wins.
+  // An open plan's marks and focus first; a Checks Show then fades on top and wins, and a trace on top of both.
   const planned = usePlansFade(allNodes, allEdges, resolvePlanPort);
-  const shown = useChecksFade(planned.nodes, planned.edges);
+  const faded = useChecksFade(planned.nodes, planned.edges);
+  const shown = useTraceFade(faded.nodes, faded.edges);
 
   return (
     <LiveStoreProvider value={liveStore}>
@@ -1682,6 +1687,7 @@ function DrawingInner({
       {free.overlay}
       <CanvasTools tool={tool} onTool={setTool} wheel={wheel} onWheel={setWheel} />
       <ChecksCanvasBridge />
+      <TraceBadges />
       <PlansCanvasBridge />
       {selectedChassis != null && callout?.id === selectedChassis.id && opened == null && calloutRack != null ? (
         <Callout

@@ -160,6 +160,14 @@ Surfaces are specified in `docs/UI-SPEC.md` and `ADR-0060`/`0061`.
   off the one unnamed default routing instance. Not recorded: an OPNsense rule's interface and
   direction (a design call), zone-scoped address books, `dns-name`/`range-address`, predefined
   application ports, NAT. The five value types have shapes (`value.rs`); nothing builds NAT.
+- **Path trace** (ADR-0061 item 9, schema shapes in 0.17). `fathom-inventory/src/trace.rs` walks cables and
+  patch panels, VLANs at switches, a route lookup at each routed device (connected and static, longest
+  prefix) and the firewall (zones, then every policy in device order with "matches / doesn't match /
+  can't tell" and the reason). It stops at the first thing the design does not state. `OP_TRACE` (36) runs
+  in the page; right-click a device, "Trace a path from here", then an address or device and an optional
+  "TCP 445". Never a verdict. Not built: interface-to-port ties from a paste (so a pasted device's trace
+  stops at "not tied to a port" until the tie is drawn), learned routes, NAT, port right-click, the
+  Diagram look, the "Trace from here" offer from "It's down". `scripts/drive-trace.mjs` drives it.
 - **Inventory table with pages and shared custom fields** (schema 0.16, ADR-0062). Field definitions are an organisation-wide server store (migration 0035); a value is a `FieldValue` node in the design. Private fields are not built.
 - **IP and VLAN tables, file importer** (ADR-0063): Inventory Prefix and VLAN kinds derived from the drawing, and one importer (CSV, NetBox, Proxmox, nmap).
 - **Cable corrections from the floor.** Anyone with Read on a design's place sends "Traced ✓", "Label wrong" or "Not here" about a cable (`cable:` and a ULID); someone with Draw accepts or dismisses it. Corrections are their own server store (`cable_corrections`, migration 0036), sealed under the organisation content key, never graph nodes. Text is refused when the redaction gate's bare credential check fires (`enable secret cisco123` form), so ordinary prose with key or secret in it can be refused too. Accepting is the Draw user's ordinary edit as one undoable batch ("accepted <name>'s correction"; a not-here report becomes a note without the name); if the edit or its save fails the client reopens the correction (`POST .../reopen`, accepted only). Dismissing re-seals the body as empty text, so what was typed is not kept; a dismissed one cannot be reopened. The database binds sender and decider to the session account. A Read sender sees only their own; caps of 5 open per sender per cable, 20 per sender and 200 per design. Orphaned corrections (cable removed) list on the Corrections waiting page with Dismiss only. Known limits: no chain entry for a correction or decision (L2), no retention clean-up of decided rows.
