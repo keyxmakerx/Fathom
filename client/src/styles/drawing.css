@@ -1640,3 +1640,33 @@
   pointer-events: none;
   z-index: 20;
 }
+
+/* The canvas tool strip: a small ink-and-hairline bar in the top-left corner of the canvas. */
+.canvas-tools {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--page);
+  border: var(--rule-hair) solid var(--hairline);
+}
+.canvas-tool {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: var(--rule-hair) solid transparent;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+.canvas-tool:hover { border-color: var(--ink); }
+.canvas-tool[aria-pressed='true'] { background: var(--ink); color: var(--page); border-color: var(--ink); }
+.canvas-tool:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+.canvas-tools__rule { width: 1px; height: 16px; background: var(--hairline); margin: 0 2px; }
