@@ -106,7 +106,8 @@ const NODE_TYPES = {
 const EDGE_TYPES = { cable: CableEdge, bundle: BundleEdge, planGhost: PlanGhostEdge };
 const ALL_NODE_TYPES = { ...NODE_TYPES, ...FREE_NODE_TYPES };
 const ALL_EDGE_TYPES = { ...EDGE_TYPES, ...FREE_EDGE_TYPES };
-const PAN_BUTTONS = [1];
+const PAN_BUTTONS = [0, 1];
+const MIDDLE_ONLY = [1];
 
 // React Flow's corner credit link is hidden; the About page credits the library (ADR-0060).
 const PRO_OPTIONS = { hideAttribution: true };
@@ -415,6 +416,8 @@ function DrawingInner({
   // it into the page coordinates the colour picker's `position: fixed`
   // overlay actually needs.
   const containerRef = useRef<HTMLDivElement>(null);
+  // What a plain left-drag on empty canvas does. Pan by default; Shift+drag draws a selection box either way.
+  const [tool] = useState<'pan' | 'select'>('pan');
   const free = useFreeLayer({
     view,
     canDraw,
@@ -422,6 +425,7 @@ function DrawingInner({
     containerRef,
     selected,
     onSelect,
+    tool,
     actions: { onAddFreeBox, onAddDeviceAt, onMoveFree, onConnectBoxes, onAddLabel, onSetLabel, onRemoveFree, onDuplicateFree },
   });
 
@@ -1623,8 +1627,8 @@ function DrawingInner({
         onNodeDragStop={handleNodeDragStop}
         minZoom={MIN_ZOOM}
         maxZoom={MAX_ZOOM}
-        // Left-drag on empty canvas is the marquee; pan with the middle button, Space+drag, the wheel or a trackpad (Ctrl+wheel or pinch zooms); one finger pans on touch.
-        panOnDrag={PAN_BUTTONS}
+        // Left-drag on empty canvas pans (Shift+drag is the marquee); the middle button, Space+drag, the wheel or a trackpad pan too (pinch zooms).
+        panOnDrag={tool === 'pan' ? PAN_BUTTONS : MIDDLE_ONLY}
         panActivationKeyCode="Space"
         panOnScroll
         zoomOnScroll={false}
