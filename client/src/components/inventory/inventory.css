@@ -697,3 +697,160 @@
   display: block;
   margin-top: var(--s2);
 }
+
+/* ---- Prefixes and VLANs (round 9) ------------------------------------- */
+
+/* The fill bar: ink on paper, with the count beside it. Fullness is not a warning, so no colour. */
+.inv-table__meter {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+}
+
+.inv-table__bar {
+  flex: none;
+  width: 72px;
+  height: 10px;
+  border: var(--rule-hair) solid var(--ink);
+  background: var(--page);
+}
+
+.inv-table__bar > span {
+  display: block;
+  height: 100%;
+  background: var(--ink);
+}
+
+.ipam-page {
+  width: 520px;
+}
+
+.ipam-sub {
+  margin: 0 0 var(--s2);
+}
+
+.ipam-summary {
+  margin: 0 0 var(--s2);
+}
+
+.ipam-h {
+  margin: var(--s4) 0 var(--s1);
+  font-size: var(--t-small);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Filled = used, hollow = free, filled and ringed = carried by two devices. */
+.ipam-grid {
+  display: grid;
+  grid-template-columns: repeat(32, 1fr);
+  gap: 2px;
+}
+
+.ipam-grid__cell {
+  display: inline-block;
+  aspect-ratio: 1;
+  min-width: 8px;
+  border: 1px solid var(--ink);
+  box-sizing: border-box;
+  vertical-align: middle;
+}
+
+.ipam-grid__cell--used {
+  background: var(--ink);
+}
+
+.ipam-grid__cell--free {
+  background: var(--page);
+}
+
+.ipam-grid__cell--shared {
+  background: var(--ink);
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.ipam-legend {
+  margin: var(--s2) 0 0;
+}
+
+.ipam-legend .ipam-grid__cell {
+  width: 10px;
+  min-width: 10px;
+  margin: 0 2px 0 var(--s2);
+}
+
+.ipam-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: var(--rule-hair) solid var(--hairline);
+}
+
+.ipam-list__head,
+.ipam-list__row {
+  display: grid;
+  grid-template-columns: 8rem 1fr 10rem;
+  gap: var(--s2);
+  align-items: baseline;
+  padding: var(--s1) var(--s2);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.ipam-list__head {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ipam-list__row--free {
+  color: var(--muted);
+}
+
+.ipam-list__row > span {
+  overflow-wrap: anywhere;
+}
+
+.inv-page .ipam-list__remove {
+  margin-left: var(--s2);
+  border-color: var(--hairline);
+  color: var(--muted);
+}
+
+.ipam-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.ipam-form--inline {
+  margin-top: var(--s2);
+}
+
+.ipam-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  font-size: var(--t-small);
+}
+
+.ipam-form__field input,
+.ipam-form__field select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: 0;
+  padding: var(--s1) var(--s2);
+}
+
+.ipam-form__error {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--t-small);
+  border-left: var(--rule-accent) solid var(--ink);
+  padding-left: var(--s2);
+}

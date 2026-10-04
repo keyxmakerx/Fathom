@@ -13,18 +13,21 @@ import { FIELD_TYPE_LABEL, fieldsOf, listFieldDefs, setFieldValues, type FieldDe
 import { edgesIn, findNode, parseNodeId, readChassisFields, readDeviceFields, type Document } from '../../document/model';
 import { tagObject, tagsOf, untagObject } from '../../document/tags';
 import type { SubnetRow } from '../../document/networks-derive';
+import { vlanLabel, type PrefixRow, type VlanKindRow } from '../../document/ipam';
 import type { CableEnd, ClosetView, Selection } from '../drawing/contract';
 import { ABSENT } from '../drawing/contract';
 import type { Lens } from '../shell/lens';
 import { formatLastChange, groupDeviceRows, whereText, type DeviceRow } from './rows';
 
-export type Kind = 'devices' | 'racks' | 'cables' | 'interfaces' | 'networks' | 'addresses';
+export type Kind = 'devices' | 'racks' | 'cables' | 'interfaces' | 'networks' | 'prefixes' | 'vlans' | 'addresses';
 export const KINDS: ReadonlyArray<{ key: Kind; label: string }> = [
   { key: 'devices', label: 'Devices' },
   { key: 'racks', label: 'Racks' },
   { key: 'cables', label: 'Cables' },
   { key: 'interfaces', label: 'Interfaces' },
   { key: 'networks', label: 'Networks' },
+  { key: 'prefixes', label: 'Prefixes' },
+  { key: 'vlans', label: 'VLANs' },
   { key: 'addresses', label: 'Addresses' },
 ];
 
@@ -36,7 +39,7 @@ export const FIELD_FOR_KIND: Partial<Record<Kind, FieldFor>> = {
   interfaces: 'port',
 };
 
-export type CellType = 'text' | 'select' | FieldType | 'tags';
+export type CellType = 'text' | 'select' | FieldType | 'tags' | 'bar';
 
 export interface Column {
   /** A core key, `tags`, or `field:<defId>`. */
@@ -61,6 +64,10 @@ export interface InvRow {
   ids: { deviceId?: string; chassisId?: string; rackId?: string; cableId?: string };
   /** Words for the page header. */
   title: string;
+  /** Numbers to sort a column by when its text sorts badly (a prefix, a fill). */
+  sort?: Readonly<Record<string, number>>;
+  /** 0..1 for a `bar` column. */
+  meter?: Readonly<Record<string, number>>;
   /** A Device-row's name, for jumping to it from an address. */
   deviceNodeId?: string;
 }
@@ -122,6 +129,21 @@ const CORE_COLUMNS: Record<Kind, readonly Column[]> = {
     core('cable', 'Cable to', 190),
   ],
   networks: [],
+  prefixes: [
+    core('prefix', 'Prefix', 150),
+    core('vlan', 'VLAN', 130),
+    core('site', 'Site', 120),
+    core('used', 'Used', 200, { type: 'bar' }),
+    core('gateway', 'Gateway', 190),
+  ],
+  vlans: [
+    core('vlan', 'VLAN', 80),
+    core('label', 'Name', 140),
+    core('prefixes', 'Prefixes', 180),
+    core('site', 'Site', 120),
+    core('devices', 'Devices', 220),
+    core('members', 'Members', 90),
+  ],
   addresses: [
     core('address', 'Address', 150),
     core('interface', 'Interface', 120),
@@ -140,13 +162,15 @@ export function defaultColumnKeys(kind: Kind, lens: Lens): string[] {
   if (kind === 'cables') return ['name', 'kind', 'sheath', 'length', 'endA', 'endB', 'tags'];
   if (kind === 'interfaces') return ['name', 'device', 'connector', 'face', 'cable', 'tags'];
   if (kind === 'addresses') return ['address', 'interface', 'device', 'subnet'];
+  if (kind === 'prefixes') return ['prefix', 'vlan', 'site', 'used', 'gateway'];
+  if (kind === 'vlans') return ['vlan', 'label', 'prefixes', 'site', 'devices', 'members'];
   return [];
 }
 
 /** Every column the kind can show: core, tags, then one per custom field. */
 export function allColumns(kind: Kind, defs: readonly FieldDefView[]): Column[] {
   const cols: Column[] = [...CORE_COLUMNS[kind]];
-  if (kind === 'addresses' || kind === 'networks') return cols;
+  if (kind === 'addresses' || kind === 'networks' || kind === 'prefixes' || kind === 'vlans') return cols;
   cols.push(TAGS_COLUMN);
   const fieldFor = FIELD_FOR_KIND[kind];
   if (fieldFor) {
@@ -355,6 +379,47 @@ export function addressRows(doc: Document, subnets: readonly SubnetRow[], device
   }
   void doc;
   return out;
+}
+
+/** Prefix rows: derived from the addresses on devices, read-only here (typing writes to a device). */
+export function prefixRows(rows: readonly PrefixRow[]): InvRow[] {
+  return rows.map((p) => ({
+    key: p.key,
+    selection: null,
+    ownerId: null,
+    cells: {
+      prefix: p.prefix,
+      vlan: p.vlan ? vlanLabel(p.vlan) : '',
+      site: p.sites.join(', '),
+      used: p.readable ? `${p.used}/${p.total}` : 'IPv6, not read',
+      gateway: p.gateway ? `${p.gateway.address} ${p.gateway.deviceName}` : '',
+    },
+    tags: [],
+    ids: {},
+    title: p.prefix,
+    sort: { prefix: p.range ? p.range.base * 33 + p.range.len : Number.MAX_SAFE_INTEGER, used: p.readable && p.total > 0 ? p.used / p.total : -1 },
+    meter: p.readable && p.total > 0 ? { used: p.used / p.total } : undefined,
+  }));
+}
+
+export function vlanKindRows(rows: readonly VlanKindRow[]): InvRow[] {
+  return rows.map((v) => ({
+    key: v.key,
+    selection: null,
+    ownerId: null,
+    cells: {
+      vlan: String(v.vlanId),
+      label: v.name ?? '',
+      prefixes: v.prefixes.join(', '),
+      site: v.sites.join(', '),
+      devices: v.deviceNames.join(', '),
+      members: String(v.members.length),
+    },
+    tags: [],
+    ids: {},
+    title: v.name ? `VLAN ${v.vlanId} · ${v.name}` : `VLAN ${v.vlanId}`,
+    sort: { vlan: v.vlanId, members: v.members.length },
+  }));
 }
 
 // ---------------------------------------------------------------------------

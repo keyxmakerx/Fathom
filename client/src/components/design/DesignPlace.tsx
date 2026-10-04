@@ -673,6 +673,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         tagsActions={tagsActions}
         fieldsActions={fieldsActions}
         fieldDefs={fieldDefs.defs}
+        createField={(kind, name, type) => fieldDefs.create(kind, name, type)}
         redact={redact}
         accountId={accountId}
       />

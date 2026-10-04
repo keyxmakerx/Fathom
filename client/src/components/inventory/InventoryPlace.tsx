@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getSession } from '../../state/sessionState';
 import { viewOf, type ClosetView } from '../../document/view';
 import { deriveNetworks, type NetworksDerived } from '../../document/networks-derive';
+import { deriveIpam, type IpamDerived } from '../../document/ipam';
+import { pastePrefixRows, pasteVlanRows } from '../../document/ipam-write';
 import type { DesignSession } from '../design/useDesignSession';
 import { cableEndText } from '../drawing/Editor';
 import { EditorFor, type FieldsActions, type NotesActions, type Selection, type TagsActions } from '../drawing';
@@ -12,10 +14,13 @@ import { Shell } from '../Shell';
 import type { ShellProps } from '../shell/types';
 import { DataTable, type Sort } from './DataTable';
 import { ItemPage } from './ItemPage';
+import type { FieldFor, FieldType } from '../../api/fieldDefinitions';
+import { ImportDialog } from '../import/ImportDialog';
 import type { FieldDefView } from '../../document/fields';
 import { ListToolbar, type Filter } from './ListToolbar';
 import { NetworksPanel } from './NetworksPanel';
-import { PasteDialog } from './PasteDialog';
+import { AddPrefixForm, AddVlanForm, PrefixPage, VlanPage } from './IpamPages';
+import { PasteDialog, type CustomPaste } from './PasteDialog';
 import {
   CAN_ADD,
   KINDS,
@@ -27,7 +32,9 @@ import {
   defaultColumnKeys,
   deviceRows,
   interfaceRows,
+  prefixRows,
   rackRows,
+  vlanKindRows,
   type CellEdit,
   type Column,
   type InvRow,
@@ -37,6 +44,9 @@ import './inventory.css';
 
 const EMPTY_VIEW: ClosetView = { premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [], free: [], lines: [], labels: [] };
 const EMPTY_NETWORKS_DERIVED: NetworksDerived = { vlanRows: [], subnetRows: [], dockerNetworkRows: [], dockerUnattachedContainers: [] };
+const EMPTY_IPAM: IpamDerived = { prefixes: [], vlans: [] };
+/** Kinds read off the network derivation. */
+const NETWORK_KINDS: ReadonlySet<Kind> = new Set<Kind>(['networks', 'addresses', 'prefixes', 'vlans']);
 
 export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'children'> {
   session: DesignSession;
@@ -51,6 +61,8 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
   fieldsActions: FieldsActions;
   /** The organisation's field definitions (ADR-0062). */
   fieldDefs: readonly FieldDefView[];
+  /** Makes an organisation-wide field (the importer's new columns). */
+  createField: (kind: FieldFor, name: string, type: FieldType) => Promise<{ refused: string } | void>;
   /** Runs pasted text through the redaction gate (CLAUDE.md rule 4). */
   redact: (text: string) => Promise<string>;
   accountId: string | null;
@@ -92,7 +104,7 @@ function matches(row: InvRow, filter: Filter): boolean {
  * beside it. Every edit goes through the same document commands the canvas editor uses.
  */
 export function InventoryPlace(props: InventoryPlaceProps) {
-  const { session, onShowOnRack, onSelectedChange, onPrintableChange, notesActions, tagsActions, fieldsActions, fieldDefs, redact, accountId, lens, ...shellProps } = props;
+  const { session, onShowOnRack, onSelectedChange, onPrintableChange, notesActions, tagsActions, fieldsActions, fieldDefs, createField, redact, accountId, lens, ...shellProps } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit, applyDocChange, reloadDesign } = session;
 
   const [kind, setKind] = useState<Kind>('devices');
@@ -105,21 +117,36 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const [prefs, setPrefs] = useState<string[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pasteText, setPasteText] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  // The design as it was when the importer opened, and as it is now (the dialog's callback is old by
+  // the time a long import finishes). An import is applied only to the design it was made against.
+  const importBase = useRef<typeof doc>(null);
+  const liveDoc = useRef(doc);
+  liveDoc.current = doc;
+  const [adding, setAdding] = useState<'prefix' | 'vlan' | null>(null);
 
   const view = useMemo<ClosetView>(() => (doc ? viewOf(doc, catalogue) : EMPTY_VIEW), [doc, catalogue]);
   const endText = useCallback((end: Parameters<typeof cableEndText>[1]) => cableEndText(view, end), [view]);
 
-  // Networks and addresses share one derivation, computed only when one of them is shown, and a
-  // debounced one for the rail counts.
+  // Networks, addresses, prefixes and VLANs share one derivation, computed only when one of them
+  // is shown, and a debounced one for the rail counts.
   const networksDerived = useMemo(() => {
-    if (!doc || (kind !== 'networks' && kind !== 'addresses')) return EMPTY_NETWORKS_DERIVED;
+    if (!doc || !NETWORK_KINDS.has(kind)) return EMPTY_NETWORKS_DERIVED;
     try {
       return deriveNetworks(doc);
     } catch {
       return EMPTY_NETWORKS_DERIVED;
     }
   }, [doc, kind]);
-  const [background, setBackground] = useState<{ networks: number; addresses: number } | null>(null);
+  const ipam = useMemo(() => {
+    if (!doc || (kind !== 'prefixes' && kind !== 'vlans')) return EMPTY_IPAM;
+    try {
+      return deriveIpam(doc, networksDerived);
+    } catch {
+      return EMPTY_IPAM;
+    }
+  }, [doc, kind, networksDerived]);
+  const [background, setBackground] = useState<{ networks: number; addresses: number; prefixes: number; vlans: number } | null>(null);
   useEffect(() => {
     if (!doc) return undefined;
     const timer = window.setTimeout(() => {
@@ -128,9 +155,11 @@ export function InventoryPlace(props: InventoryPlaceProps) {
         setBackground({
           networks: d.vlanRows.length + d.subnetRows.length + d.dockerNetworkRows.length,
           addresses: d.subnetRows.reduce((n, s) => n + s.members.length, 0),
+          prefixes: deriveIpam(doc, d).prefixes.length,
+          vlans: d.vlanRows.length,
         });
       } catch {
-        setBackground({ networks: 0, addresses: 0 });
+        setBackground({ networks: 0, addresses: 0, prefixes: 0, vlans: 0 });
       }
     }, 250);
     return () => window.clearTimeout(timer);
@@ -152,8 +181,10 @@ export function InventoryPlace(props: InventoryPlaceProps) {
       const labelOf = (id: string) => rowsByKind.devices?.find((r) => r.deviceNodeId === id)?.title ?? id;
       return addressRows(doc, networksDerived.subnetRows, labelOf);
     }
+    if (kind === 'prefixes') return prefixRows(ipam.prefixes);
+    if (kind === 'vlans') return vlanKindRows(ipam.vlans);
     return rowsByKind[kind] ?? [];
-  }, [doc, kind, rowsByKind, networksDerived]);
+  }, [doc, kind, rowsByKind, networksDerived, ipam]);
 
   const counts: Record<Kind, number | null> = {
     devices: rowsByKind.devices?.length ?? 0,
@@ -161,6 +192,8 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     cables: rowsByKind.cables?.length ?? 0,
     interfaces: rowsByKind.interfaces?.length ?? 0,
     networks: kind === 'networks' ? networksDerived.vlanRows.length + networksDerived.subnetRows.length + networksDerived.dockerNetworkRows.length : (background?.networks ?? null),
+    prefixes: kind === 'prefixes' ? baseRows.length : (background?.prefixes ?? null),
+    vlans: kind === 'vlans' ? baseRows.length : (background?.vlans ?? null),
     addresses: kind === 'addresses' ? baseRows.length : (background?.addresses ?? null),
   };
 
@@ -176,7 +209,11 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     let out = baseRows.filter((r) => filters.every((f) => matches(r, f)));
     if (sort) {
       const dir = sort.dir === 'asc' ? 1 : -1;
-      out = [...out].sort((a, b) => dir * collator.compare(a.cells[sort.key] ?? '', b.cells[sort.key] ?? ''));
+      out = [...out].sort((a, b) => {
+        const x = a.sort?.[sort.key];
+        const y = b.sort?.[sort.key];
+        return dir * (x !== undefined && y !== undefined ? x - y : collator.compare(a.cells[sort.key] ?? '', b.cells[sort.key] ?? ''));
+      });
     }
     return out;
   }, [baseRows, filters, sort]);
@@ -206,6 +243,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     setChecked(new Set());
     setPrefs(null);
     setNotice(null);
+    setAdding(null);
   };
 
   const openRow = openKey ? (rows.find((r) => r.key === openKey) ?? null) : null;
@@ -276,6 +314,48 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     onAddFieldDef: canDraw ? fieldsActions.onAddFieldDef : undefined,
     onRemoveFieldDef: canDraw ? fieldsActions.onRemoveFieldDef : undefined,
   };
+
+  const actorOpts = ctx.actor ? { actor: ctx.actor } : undefined;
+  const afterIpamWrite = (next: typeof doc, openNext?: string) => {
+    if (!next) return;
+    applyDocChange(next);
+    setAdding(null);
+    setNotice(null);
+    if (openNext) setOpenKey(openNext);
+  };
+  const ipamPage = (() => {
+    if (!doc) return null;
+    if (adding === 'prefix') return <AddPrefixForm doc={doc} actor={actorOpts} onDone={(next, key) => afterIpamWrite(next, key)} onCancel={() => setAdding(null)} />;
+    if (adding === 'vlan') return <AddVlanForm doc={doc} actor={actorOpts} onDone={(next) => afterIpamWrite(next)} onCancel={() => setAdding(null)} />;
+    if (!openRow) return null;
+    const prefix = kind === 'prefixes' ? ipam.prefixes.find((p) => p.key === openRow.key) : undefined;
+    if (prefix) return <PrefixPage key={prefix.key} doc={doc} row={prefix} actor={actorOpts} canDraw={canDraw} applyDocChange={applyDocChange} />;
+    const vlan = kind === 'vlans' ? ipam.vlans.find((v) => v.key === openRow.key) : undefined;
+    if (vlan) return <VlanPage key={vlan.key} doc={doc} row={vlan} actor={actorOpts} canDraw={canDraw} applyDocChange={applyDocChange} />;
+    return null;
+  })();
+
+  const customPaste: CustomPaste | undefined =
+    kind === 'prefixes' || kind === 'vlans'
+      ? {
+          hint:
+            kind === 'prefixes'
+              ? 'Rows of Prefix, Address, Device and Interface, tab-separated or CSV, with or without a header row. Each row is one address put on one device interface. Pasted text passes the redaction gate.'
+              : 'Rows of VLAN number, Name and Device, tab-separated or CSV, with or without a header row. Each row puts a VLAN on a device. Pasted text passes the redaction gate.',
+          summarise: (table) => {
+            const header = table[0]?.every((c) => c.trim() === '' || !/^\d/.test(c.trim())) ?? false;
+            const n = table.length - (header ? 1 : 0);
+            return `${n} ${n === 1 ? 'row' : 'rows'} to try.`;
+          },
+          onApply: (clean) => {
+            if (!doc) return;
+            const r = kind === 'prefixes' ? pastePrefixRows(doc, clean, actorOpts) : pasteVlanRows(doc, clean, actorOpts);
+            if (r.done > 0) applyDocChange(r.doc);
+            setPasteText(null);
+            setNotice(`Pasted: ${r.done} added${r.refused.length ? `, ${r.refused.length} not added: ${r.refused.slice(0, 3).join('; ')}` : '.'}`);
+          },
+        }
+      : undefined;
 
   const palette = useMemo(() => paletteFromCatalogue(catalogue), [catalogue]);
   const showPage = doc != null && kind !== 'networks' && pageSelection != null && EditorFor(pageSelection, view, {}, palette) != null;
@@ -351,9 +431,15 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                   filters={filters}
                   onFilters={setFilters}
                   canAdd={canDraw && CAN_ADD.has(kind)}
+                  addAction={
+                    canDraw && (kind === 'prefixes' || kind === 'vlans')
+                      ? { label: kind === 'prefixes' ? '+ Add a prefix' : '+ Add a VLAN', onClick: () => setAdding(kind === 'prefixes' ? 'prefix' : 'vlan') }
+                      : undefined
+                  }
                   addHint={kind === 'cables' ? 'Draw cables on the canvas.' : kind === 'interfaces' ? 'Interfaces come with a device.' : kind === 'addresses' ? 'Addresses are read from your devices.' : ''}
                   onAdd={onAdd}
-                  onPaste={canDraw && (kind === 'devices' || kind === 'racks' || kind === 'cables' || kind === 'interfaces') ? () => setPasteText('') : undefined}
+                  onImport={canDraw && kind === 'devices' ? () => { importBase.current = liveDoc.current; setImporting(true); } : undefined}
+                  onPaste={canDraw && (kind === 'devices' || kind === 'racks' || kind === 'cables' || kind === 'interfaces' || kind === 'prefixes' || kind === 'vlans') ? () => setPasteText('') : undefined}
                   checkedRows={checkedRows}
                   bulkColumns={columnsAll.filter((c) => c.editable)}
                   onBulk={canDraw ? (edits) => commitEdits(edits) : undefined}
@@ -394,11 +480,33 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                   />
                 </div>
               </div>
-              {kind === 'addresses' ? <AddressNote row={openRow} onOpenDevice={() => switchKind('devices')} /> : page}
+              {kind === 'addresses' ? <AddressNote row={openRow} onOpenDevice={() => switchKind('devices')} /> : (ipamPage ?? page)}
             </>
           )}
+          {importing && doc ? (
+            <ImportDialog
+              doc={doc}
+              catalogue={catalogue}
+              fieldDefs={fieldDefs}
+              createField={createField}
+              redact={redact}
+              actor={accountId ?? undefined}
+              canDraw={canDraw}
+              onCancel={() => setImporting(false)}
+              onApply={(next, summary) => {
+                setImporting(false);
+                if (liveDoc.current !== importBase.current) {
+                  setNotice('The design changed while you were importing. Nothing was applied; try again.');
+                  return;
+                }
+                applyDocChange(next);
+                setNotice(`Imported ${summary.fileName}: ${summary.created} new, ${summary.filled} filled in. One undo step.`);
+              }}
+            />
+          ) : null}
           {pasteText !== null ? (
             <PasteDialog
+              custom={customPaste}
               initialText={pasteText}
               kindLabel={KINDS.find((k) => k.key === kind)!.label}
               columns={columnsAll.filter((c) => c.editable)}

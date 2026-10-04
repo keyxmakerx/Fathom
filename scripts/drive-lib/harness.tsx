@@ -27,6 +27,7 @@ import {
   seedFreestanding,
   COST_CENTRE,
   seedInventoryScene,
+  seedIpamScene,
   seedHistoryVersions,
   seedManyDevicesScene,
   seedNetworksScene,
@@ -137,6 +138,7 @@ async function main() {
   else if (scene === 'networks' || scene === 'networks-010') doc = seedNetworksScene(catalogue, ME);
   else if (scene === 'tags') doc = seedTagsScene(catalogue, ME);
   else if (scene === 'inventory') doc = seedInventoryScene(catalogue, ME);
+  else if (scene === 'ipam') doc = seedIpamScene(catalogue, ME);
   else if (scene === 'docker') doc = seedDockerScene(catalogue, ME);
   else if (scene === 'unplaced') doc = seedUnplacedDevice(ME);
   else if (scene === 'print') doc = seedPrintScene(catalogue, ME);

@@ -161,6 +161,7 @@ Surfaces are specified in `docs/UI-SPEC.md` and `ADR-0060`/`0061`.
   direction (a design call), zone-scoped address books, `dns-name`/`range-address`, predefined
   application ports, NAT. The five value types have shapes (`value.rs`); nothing builds NAT.
 - **Inventory table with pages and shared custom fields** (schema 0.16, ADR-0062). Field definitions are an organisation-wide server store (migration 0035); a value is a `FieldValue` node in the design. Private fields are not built.
+- **IP and VLAN tables, file importer** (ADR-0063): Inventory Prefix and VLAN kinds derived from the drawing, and one importer (CSV, NetBox, Proxmox, nmap).
 
 **The canvas** (one canvas, detail by degrees; ADR-0060)
 - **Racks and devices.** Opening a design reads the plain face (ADR-0049) and draws racks with rails,
