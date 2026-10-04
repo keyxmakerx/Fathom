@@ -1221,6 +1221,47 @@ export function viewOf(doc: Document, catalogue: CatalogueModel[]): ClosetView {
   return { premisesId: premises.id, racks, cables, rows: rowsOf(racks), surfaces, unplaced, ...freeViews(doc, unplaced) };
 }
 
+/** A premises and what stands in it, for the Inventory's Where bar. */
+export interface PremisesIn {
+  id: string;
+  rackIds: string[];
+  surfaceIds: string[];
+}
+
+/** Every live Premises (not only the first), their racks and surfaces merged into one view. */
+export interface AllPremisesView extends ClosetView {
+  premises: PremisesIn[];
+}
+
+/**
+ * The Inventory's view: what `viewOf` gives for the first premises, widened to every live premises.
+ * Racks, surfaces and rows of all of them are in one `ClosetView`; `premises` says which stands where.
+ * With one premises (or none) it is `viewOf`'s answer. Cables are root-level, so already all there.
+ */
+export function viewOfAll(doc: Document, catalogue: CatalogueModel[]): AllPremisesView {
+  const all = doc.nodes.filter((n) => isLiveNode(n) && isNodeOfKind(n.id, 'Premises'));
+  if (all.length <= 1) {
+    const v = viewOf(doc, catalogue);
+    return { ...v, premises: all.map((p) => ({ id: p.id, rackIds: v.racks.map((r) => r.id), surfaceIds: v.surfaces.map((s) => s.id) })) };
+  }
+  const closetRackIds = new Set<string>();
+  const edges = all.map((p) => ({ p, racks: edgesOut(doc, p.id, 'HasRack'), surfaces: edgesOut(doc, p.id, 'HasSurface') }));
+  for (const e of edges) for (const r of e.racks) closetRackIds.add(r.to);
+  const racks: RackView[] = [];
+  const surfaces: SurfaceView[] = [];
+  const premises: PremisesIn[] = [];
+  for (const e of edges) {
+    const mine = e.racks.map((r) => rackView(doc, r.to, catalogue, closetRackIds)).filter((r): r is RackView => r !== undefined);
+    const flat = e.surfaces.map((s) => surfaceView(doc, s.to, catalogue, closetRackIds)).filter((s): s is SurfaceView => s !== undefined);
+    racks.push(...mine);
+    surfaces.push(...flat);
+    premises.push({ id: e.p.id, rackIds: mine.map((r) => r.id), surfaceIds: flat.map((s) => s.id) });
+  }
+  const cables = doc.nodes.filter((n) => isLiveNode(n) && isNodeOfKind(n.id, 'Cable')).map((n) => cableView(doc, n));
+  const unplaced = unplacedChassisViews(doc, catalogue, closetRackIds);
+  return { premisesId: all[0]!.id, racks, cables, rows: rowsOf(racks), surfaces, unplaced, ...freeViews(doc, unplaced), premises };
+}
+
 /** The free boxes, lines and labels (`document/freeform.ts` writes them). */
 function freeViews(doc: Document, unplaced: readonly ChassisView[]): Pick<ClosetView, 'free' | 'lines' | 'labels'> {
   const free: FreeBoxView[] = [];
