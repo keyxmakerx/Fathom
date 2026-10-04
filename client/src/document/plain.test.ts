@@ -20,7 +20,7 @@ import { newUlid } from './ulid';
 const PINNED =
   'fathom-plain 1\n' +
   'THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n' +
-  'schema 0.16\n' +
+  'schema 0.17\n' +
   '\n' +
   '{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}\n';
 
@@ -317,7 +317,7 @@ describe('readPlain refusals', () => {
   });
 
   it('refuses a mismatched schema version', () => {
-    const bumped = PINNED.replace('schema 0.16', 'schema 0.1');
+    const bumped = PINNED.replace('schema 0.17', 'schema 0.1');
     try {
       readPlain(bytesOf(bumped));
       throw new Error('expected a refusal');
@@ -326,7 +326,7 @@ describe('readPlain refusals', () => {
       expect((e as PlainError).reason).toEqual({
         kind: 'schema-version-mismatch',
         found: '0.1',
-        supported: '0.16',
+        supported: '0.17',
       });
     }
   });
@@ -335,7 +335,7 @@ describe('readPlain refusals', () => {
   // is no migration chain, so nothing shipped since is allowed to narrow
   // what already opened.
   it('opens a 0.10 vector and writes it back at the current version', () => {
-    const at010 = PINNED.replace('schema 0.16', 'schema 0.10');
+    const at010 = PINNED.replace('schema 0.17', 'schema 0.10');
     const doc = readPlain(bytesOf(at010));
     const rewritten = new TextDecoder().decode(writePlain(doc));
     expect(rewritten).toEqual(PINNED);
@@ -344,44 +344,44 @@ describe('readPlain refusals', () => {
   // ADR-0059 decision 9: a design saved at 0.11 keeps opening at 0.14, and
   // saving it again writes the current version, not the one it arrived at.
   it('opens a 0.11 vector and writes it back at the current version', () => {
-    const at011 = PINNED.replace('schema 0.16', 'schema 0.11');
+    const at011 = PINNED.replace('schema 0.17', 'schema 0.11');
     const doc = readPlain(bytesOf(at011));
     const rewritten = new TextDecoder().decode(writePlain(doc));
     expect(rewritten).toEqual(PINNED);
   });
 
   it('opens a 0.12 vector and refuses a 0.12 header holding a 0.13-only kind', () => {
-    const at012 = PINNED.replace('schema 0.16', 'schema 0.12');
+    const at012 = PINNED.replace('schema 0.17', 'schema 0.12');
     expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(at012))))).toEqual(PINNED);
     const doc = readPlain(bytesOf(PINNED));
     const withLabel: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId('Label', newUlid()), existence: newUlid(), fields: {} }] };
-    const bad = new TextDecoder().decode(writePlain(withLabel)).replace('schema 0.16', 'schema 0.12');
+    const bad = new TextDecoder().decode(writePlain(withLabel)).replace('schema 0.17', 'schema 0.12');
     expect(() => readPlain(bytesOf(bad))).toThrow('Label does not exist in schema 0.12');
   });
 
   it('opens a 0.13 vector, holds a Label there, and refuses a Doc under a 0.13 header', () => {
-    const at013 = PINNED.replace('schema 0.16', 'schema 0.13');
+    const at013 = PINNED.replace('schema 0.17', 'schema 0.13');
     expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(at013))))).toEqual(PINNED);
     const doc = readPlain(bytesOf(PINNED));
     const withLabel: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId('Label', newUlid()), existence: newUlid(), fields: {} }] };
-    const label013 = new TextDecoder().decode(writePlain(withLabel)).replace('schema 0.16', 'schema 0.13');
+    const label013 = new TextDecoder().decode(writePlain(withLabel)).replace('schema 0.17', 'schema 0.13');
     expect(() => readPlain(bytesOf(label013))).not.toThrow();
     const withDoc: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId('Doc', newUlid()), existence: newUlid(), fields: {} }] };
-    const bad = new TextDecoder().decode(writePlain(withDoc)).replace('schema 0.16', 'schema 0.13');
+    const bad = new TextDecoder().decode(writePlain(withDoc)).replace('schema 0.17', 'schema 0.13');
     expect(() => readPlain(bytesOf(bad))).toThrow('Doc does not exist in schema 0.13');
   });
 
   it('opens a 0.14 vector and refuses a plan under a 0.14 header', () => {
-    const at014 = PINNED.replace('schema 0.16', 'schema 0.14');
+    const at014 = PINNED.replace('schema 0.17', 'schema 0.14');
     expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(at014))))).toEqual(PINNED);
     const doc = readPlain(bytesOf(PINNED));
     const withPlan: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId('MaintenancePlan', newUlid()), existence: newUlid(), fields: {} }] };
-    const bad = new TextDecoder().decode(writePlain(withPlan)).replace('schema 0.16', 'schema 0.14');
+    const bad = new TextDecoder().decode(writePlain(withPlan)).replace('schema 0.17', 'schema 0.14');
     expect(() => readPlain(bytesOf(bad))).toThrow('MaintenancePlan does not exist in schema 0.14');
   });
 
   it('refuses an unlisted older version', () => {
-    const at09 = PINNED.replace('schema 0.16', 'schema 0.9');
+    const at09 = PINNED.replace('schema 0.17', 'schema 0.9');
     try {
       readPlain(bytesOf(at09));
       throw new Error('expected a refusal');
@@ -401,7 +401,7 @@ describe('readPlain refusals', () => {
       ],
     };
     const atCurrent = new TextDecoder().decode(writePlain(withNetwork));
-    const at010 = atCurrent.replace('schema 0.16', 'schema 0.10');
+    const at010 = atCurrent.replace('schema 0.17', 'schema 0.10');
     try {
       readPlain(bytesOf(at010));
       throw new Error('expected a refusal');
@@ -423,7 +423,7 @@ describe('readPlain refusals', () => {
       nodes: [...doc.nodes, { id: formatNodeId('Tag', newUlid()), existence: newUlid(), fields: {} }],
     };
     const atCurrent = new TextDecoder().decode(writePlain(withTag));
-    const at010 = atCurrent.replace('schema 0.16', 'schema 0.10');
+    const at010 = atCurrent.replace('schema 0.17', 'schema 0.10');
     try {
       readPlain(bytesOf(at010));
       throw new Error('expected a refusal');
@@ -445,7 +445,7 @@ describe('readPlain refusals', () => {
       nodes: [...doc.nodes, { id: formatNodeId('Tag', newUlid()), existence: newUlid(), fields: {} }],
     };
     const at012 = new TextDecoder().decode(writePlain(withTag));
-    const at011 = at012.replace('schema 0.16', 'schema 0.11');
+    const at011 = at012.replace('schema 0.17', 'schema 0.11');
     try {
       readPlain(bytesOf(at011));
       throw new Error('expected a refusal');
@@ -461,14 +461,14 @@ describe('readPlain refusals', () => {
   });
 
   it('opens a 0.12 vector and writes it back at the current version', () => {
-    const at012 = PINNED.replace('schema 0.16', 'schema 0.12');
+    const at012 = PINNED.replace('schema 0.17', 'schema 0.12');
     const doc = readPlain(bytesOf(at012));
     const rewritten = new TextDecoder().decode(writePlain(doc));
     expect(rewritten).toEqual(PINNED);
   });
 
   it('opens a 0.13 vector and writes it back at the current version', () => {
-    const at013 = PINNED.replace('schema 0.16', 'schema 0.13');
+    const at013 = PINNED.replace('schema 0.17', 'schema 0.13');
     const doc = readPlain(bytesOf(at013));
     const rewritten = new TextDecoder().decode(writePlain(doc));
     expect(rewritten).toEqual(PINNED);
@@ -484,7 +484,7 @@ describe('readPlain refusals', () => {
     // The same payload under the current header round-trips.
     expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(at016))))).toEqual(at016);
     for (const old of ['0.12', '0.13', '0.14', '0.15']) {
-      const atOld = at016.replace('schema 0.16', `schema ${old}`);
+      const atOld = at016.replace('schema 0.17', `schema ${old}`);
       try {
         readPlain(bytesOf(atOld));
         throw new Error('expected a refusal');

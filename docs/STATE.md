@@ -153,6 +153,13 @@ Surfaces are specified in `docs/UI-SPEC.md` and `ADR-0060`/`0061`.
   needs `draw`. Not built: people, invitations and roles on the Organisation tab (need server routes).
 - **About Fathom** (You panel) lists every shipped library and licence; `scripts/licences-npm.mjs` fails
   CI when a package's licence is off `deny.toml`'s list or the list and lockfile disagree (`--write` fixes).
+- **What a pasted Junos SRX config now records for the path trace** (ADR-0061 item 9, schema 0.17).
+  Each policy set holds its zone pair (`PolicyScope::ZonePair`, zones as node ids), policies keep
+  `then permit/deny/reject` and `match` any/names (address objects and sets from the global address
+  book, applications by name), and static routes (`next-hop` address, interface unit, `discard`) hang
+  off the one unnamed default routing instance. Not recorded: an OPNsense rule's interface and
+  direction (a design call), zone-scoped address books, `dns-name`/`range-address`, predefined
+  application ports, NAT. The five value types have shapes (`value.rs`); nothing builds NAT.
 - **Inventory table with pages and shared custom fields** (schema 0.16, ADR-0062). Field definitions are an organisation-wide server store (migration 0035); a value is a `FieldValue` node in the design. Private fields are not built.
 
 **The canvas** (one canvas, detail by degrees; ADR-0060)

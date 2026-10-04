@@ -117,7 +117,7 @@ fn slot_type_covers_every_registry_key() {
     // 380 -> 382: custom-field values' two keys, `FieldValue.value` and `.definition` (381-382).
     assert_eq!(
         FIELD_KEYS.len(),
-        382,
+        383,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

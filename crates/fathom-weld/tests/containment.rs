@@ -387,6 +387,7 @@ fn every_owner_pair_the_shipped_dictionary_produces_resolves() {
             "Interface->LogicalUnit",
             "LogicalUnit->Address",
             "PolicySet->SecurityPolicy",
+            "RoutingInstance->StaticRoute",
             "SystemSettings->NtpServer",
             "TunnelInterface->LogicalUnit",
         ],

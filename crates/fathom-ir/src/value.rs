@@ -183,27 +183,73 @@ pub struct NodePriority {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct OspfArea;
 
-/// Security-policy scope — carries zone/unit `NodeId`s, registered like
-/// `NextHop` (11 §6.6). Shape stated nowhere read.
+/// Which way a rule reads traffic on an interface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PolicyScope;
+pub enum PolicyDirection {
+    In,
+    Out,
+}
 
-/// Address-object value (11 §6.6). Shape stated nowhere read.
+/// Security-policy scope, `ZonePair / InterfaceDirection / Global` (schema
+/// doc; 11 §6.6). Carries zone/unit `NodeId`s, registered like `NextHop`.
+/// Junos is a zone pair, an OPNsense rule an interface and a direction, PAN
+/// one global list. `Vsys` (the schema doc's fourth) is not shaped: nothing
+/// builds it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct AddressValue;
+pub enum PolicyScope {
+    ZonePair {
+        from: fathom_id::NodeId,
+        to: fathom_id::NodeId,
+    },
+    InterfaceDirection {
+        unit: fathom_id::NodeId,
+        direction: PolicyDirection,
+    },
+    Global,
+}
 
-/// L4 match specification (11 §6.6). Shape stated nowhere read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct L4Spec;
+/// Address-object value, `Prefix / Range / Host / Fqdn / Any` (schema doc;
+/// 11 §6.6). `Any` is the vendor's keyword, not an everything-set.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AddressValue {
+    Prefix(scalar::IpPrefix),
+    Range(scalar::IpRange),
+    Host(scalar::IpAddr),
+    Fqdn(scalar::Fqdn),
+    Any,
+}
 
-/// NAT rule scope — Zone/Interface/RoutingInstance `NodeId`s (11 §6.6).
-/// Shape stated nowhere read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NatScope;
+/// L4 match, `{ protocol, source_ports, destination_ports }` or `Any`
+/// (schema doc, 11 §6.6). An empty port list means every port.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum L4Spec {
+    Any,
+    Protocol {
+        protocol: scalar::IpProtocol,
+        source_ports: Vec<scalar::PortRange>,
+        destination_ports: Vec<scalar::PortRange>,
+    },
+}
 
-/// NAT action (11 §6.6). Shape stated nowhere read.
+/// NAT rule scope — `Zone / Interface / RoutingInstance` `NodeId`s (11 §6.6).
+/// Shaped for a later reader; nothing builds NAT yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NatAction;
+pub enum NatScope {
+    Zone(fathom_id::NodeId),
+    Interface(fathom_id::NodeId),
+    RoutingInstance(fathom_id::NodeId),
+}
+
+/// NAT action, `Interface / Pool / Off / Static` (schema doc; 11 §6.6).
+/// `Off` is the explicit no-NAT rule. Shaped for a later reader; nothing
+/// builds NAT yet.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum NatAction {
+    Interface,
+    Pool(scalar::Identifier),
+    Off,
+    Static(scalar::IpPrefix),
+}
 
 /// VPN monitor settings — `source_interface: NodeId` (11 §6.7). Shape
 /// stated nowhere read.

@@ -23,25 +23,20 @@
 //! > names the two `Zone`s, the `PolicySet` between them, and that set's
 //! > policies **in the order the device reads them**.
 //!
-//! Three clauses. Measured against `schema/` and the shipped dictionaries on
-//! 2026-08-21, **two of the three are answerable today and the middle one is
-//! not**:
+//! Three clauses, measured against `schema/` and the shipped dictionaries on
+//! 2026-10-03 (schema 0.17):
 //!
 //! | clause | state |
 //! |---|---|
-//! | which zone an interface is in | **exact.** `ZoneMember` (`Zone → LogicalUnit`) is declared, reverse-indexed, and `corpus/dict/junos-srx/security-zones.yaml` writes it from `set security zones security-zone … interfaces …` |
-//! | which policy set governs that pair | **not recordable.** `PolicySet.scope` is typed `PolicyScope`, and `fathom_ir::value::PolicyScope` is `pub struct PolicyScope;` — a unit struct, carrying no zone ids at all. `crates/fathom-ingest/tests/opnsense_csv.rs` asserts this in as many words: *"the PolicySet asserts nothing"* |
+//! | which zone an interface is in | **exact.** `ZoneMember` (`Zone → LogicalUnit`), written by `corpus/dict/junos-srx/security-zones.yaml` |
+//! | which policy set governs that pair | **exact for Junos SRX.** `PolicySet.scope` is `PolicyScope::ZonePair { from, to }`, built by `security-policies.yaml`. **Not recordable for OPNsense**: a rules paste names an interface (`lan`) that is not an `Interface`/`LogicalUnit` node, so its sets stay unscoped and [`SetBand::scope`] is empty |
 //! | that set's policies in order | **exact.** `SecurityPolicy.ordinal` is `card: "1"`, and `HasPolicy` hangs them off the set |
 //!
-//! So this module reports the two it can and **draws no edge for the one it
-//! cannot**. [`SetBand::scope`] is empty whenever the stored value carries
-//! nothing readable, and the page says so in words. Inventing a zone pair from
-//! the policies' names, or from the order the sets arrived in, would produce
-//! precisely the confident wrong answer `57` §6.3 was written to forbid.
-//!
-//! **This is a schema gap and it is filed as a report item, not patched here**
-//! — ADR-0008: a field that is not in `schema/` does not exist, and needing one
-//! is somebody's decision to take.
+//! Where nothing is recorded this module **draws no edge**: [`SetBand::scope`]
+//! is empty whenever the stored value carries nothing readable, and the page
+//! says so in words. Inventing a zone pair from the policies' names, or from
+//! the order the sets arrived in, would produce precisely the confident wrong
+//! answer `57` §6.3 was written to forbid.
 //!
 //! # Why a paste fills less of this than `57` §7 assumed
 //!
@@ -53,26 +48,26 @@
 //! |---|---|---|
 //! | interfaces, units, addresses | yes | no |
 //! | zones and their members | yes | no |
-//! | policy sets and policies | **no — the dictionary has no `security policies` entry at all** | yes |
+//! | policy sets and policies | yes (zone pairs; `then permit`, `deny`, `reject`) | yes |
 //! | routing instances, protocols, adjacencies | yes | no |
 //! | ipsec vpns | yes | no |
 //!
-//! `NatRuleSet`, `NatRule`, `AddressObject`, `Application` and `StaticRoute`
-//! are declared in `schema/` and **nothing builds any of them**, on any
-//! platform, today. They are therefore not bands here: a band that is empty on
-//! every estate in existence is furniture that teaches a reader to ignore the
-//! column it is in.
+//! `NatRuleSet` and `NatRule` are declared in `schema/` and **nothing builds
+//! them**, on any platform. `AddressObject`, `Application` and `StaticRoute`
+//! are built by a junos-srx paste since schema 0.17 and are read by the path
+//! trace, not drawn here: this view is the shape of one box, and a band for
+//! each would be a second listing of what Inventory already lists.
 //!
-//! The consequence is stated rather than hidden: on a junos-srx estate the
-//! policy band is empty and the view says the design holds no policy set for
-//! this device — which is true, and is the honest form of `57` §6.3's
-//! narrowing when there is nothing to narrow.
+//! Where a device holds no policy set the view says so, which is the honest
+//! form of `57` §6.3's narrowing when there is nothing to narrow.
 
-use fathom_graph::{Graph, NodeId};
+use fathom_graph::{ElementId, Graph, NodeId};
+use fathom_ir::generated::accessors::policy_set;
 use fathom_ir::generated::ir_types::{EdgeKind, NodeKind};
+use fathom_ir::value::{PolicyDirection, PolicyScope};
 
 use crate::element::display_name;
-use crate::render::{field_text, key, UNRENDERED};
+use crate::render::{field_text, key};
 
 /// One device, taken apart into the bands the page draws left to right.
 ///
@@ -181,12 +176,11 @@ pub struct ZoneBand {
 pub struct SetBand {
     pub id: String,
     /// **What the graph can say about which zone pair this set governs, or
-    /// empty.**
+    /// empty** (`from trust to untrust`).
     ///
-    /// Empty is the state on every estate this build can produce, and the
-    /// module doc says why: `PolicyScope` is a unit struct. It is read rather
-    /// than assumed so that the day the type grows a shape, this band starts
-    /// telling the truth without anyone remembering to come back here.
+    /// Empty where the set records no scope (an OPNsense rules paste; the module
+    /// doc says why). A zone the design no longer holds reads `a zone not in
+    /// this design`, never a guess.
     ///
     /// `UNRENDERED` is filtered out deliberately. `(no renderer)` is a defect
     /// marker aimed at a developer reading the inventory; printing it in a
@@ -284,6 +278,36 @@ fn children(g: &Graph, n: NodeId, k: EdgeKind) -> Vec<NodeId> {
 /// projection depends on: `—` is an answer to a different question.
 fn text(g: &Graph, n: NodeId, name: &'static str) -> String {
     field_text(g, n, key(name)).unwrap_or_default()
+}
+
+/// A policy set's scope in the words a device reads it in, or empty.
+fn scope_words(g: &Graph, set: NodeId) -> String {
+    let Some(node) = g.node(set) else {
+        return String::new();
+    };
+    let Ok(scope) = policy_set::scope(node) else {
+        return String::new();
+    };
+    let zone = |r: fathom_id::NodeId| match g.resolve_ref(r) {
+        Some(ElementId::Node(n)) if n.kind == NodeKind::Zone && live(g, n) => {
+            text(g, n, "Zone.name")
+        }
+        _ => "a zone not in this design".to_owned(),
+    };
+    match scope {
+        PolicyScope::ZonePair { from, to } => format!("from {} to {}", zone(*from), zone(*to)),
+        PolicyScope::Global => "every zone".to_owned(),
+        PolicyScope::InterfaceDirection { unit, direction } => {
+            let on = match g.resolve_ref(*unit) {
+                Some(ElementId::Node(n)) if live(g, n) => display_name(g, n),
+                _ => "an interface not in this design".to_owned(),
+            };
+            match direction {
+                PolicyDirection::In => format!("in on {on}"),
+                PolicyDirection::Out => format!("out on {on}"),
+            }
+        }
+    }
 }
 
 /// Everything inside one device.
@@ -418,14 +442,9 @@ pub fn inside(g: &Graph, id: NodeId) -> Option<Inside> {
             let kb = b.ordinal.parse::<u64>().unwrap_or(u64::MAX);
             ka.cmp(&kb).then(a.id.cmp(&b.id))
         });
-        let scope = text(g, s, "PolicySet.scope");
         sets.push(SetBand {
             id: s.to_string(),
-            scope: if scope == UNRENDERED {
-                String::new()
-            } else {
-                scope
-            },
+            scope: scope_words(g, s),
             policies,
         });
     }

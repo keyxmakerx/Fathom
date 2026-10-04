@@ -293,6 +293,40 @@ fn render_set<B: FieldBag + ?Sized>(bag: &B, k: FieldKey) -> String {
             .unwrap_or_default();
     }
 
+    // Schema 0.17's shapes. Graph-free on purpose (a bag cannot look up a zone):
+    // a scope says what kind it is, and `inside` words the zone pair itself.
+    if tid == TypeId::of::<value::PolicyScope>() {
+        return typed::<value::PolicyScope, _>(bag, k)
+            .map(|v| match v {
+                value::PolicyScope::ZonePair { .. } => "zone pair",
+                value::PolicyScope::InterfaceDirection { .. } => "interface and direction",
+                value::PolicyScope::Global => "global",
+            })
+            .unwrap_or_default()
+            .to_owned();
+    }
+    if tid == TypeId::of::<value::AddressValue>() {
+        return typed::<value::AddressValue, _>(bag, k)
+            .map(address_value)
+            .unwrap_or_default();
+    }
+    if tid == TypeId::of::<Vec<value::NextHop>>() {
+        return typed::<Vec<value::NextHop>, _>(bag, k)
+            .map(|hops| {
+                hops.iter()
+                    .map(|h| match h {
+                        value::NextHop::Address(a) => a.canonical(),
+                        value::NextHop::Interface(_) => "interface".to_owned(),
+                        value::NextHop::Discard => "discard".to_owned(),
+                        value::NextHop::Reject => "reject".to_owned(),
+                        value::NextHop::NextTable(t) => format!("table {}", t.0),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .unwrap_or_default();
+    }
+
     // A slot type with no arm above. This USED to be unreachable — the comment
     // on this function said so, and it was true over the demo estate. A pasted
     // config reaches it, and the failure mode is the worst kind: a real value,
@@ -321,6 +355,17 @@ pub(crate) fn postal_address(a: &value::PostalAddress) -> String {
         parts.push(t.0.as_str());
     }
     parts.join(", ")
+}
+
+/// An address object's value as a person writes it.
+fn address_value(v: &value::AddressValue) -> String {
+    match v {
+        value::AddressValue::Prefix(p) => p.canonical(),
+        value::AddressValue::Range(r) => r.canonical(),
+        value::AddressValue::Host(a) => a.canonical(),
+        value::AddressValue::Fqdn(f) => f.canonical(),
+        value::AddressValue::Any => "any".to_owned(),
+    }
 }
 
 /// `state.token()`, then ` — ` + the reason where one is carried.

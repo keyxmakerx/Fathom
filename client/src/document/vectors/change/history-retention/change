@@ -1,4 +1,4 @@
 fathom-change 1
-schema 0.16
+schema 0.17
 
 {"batch":{"id":"01HF7YAT00000000000001X141","label":"relabel","ops":[{"set_field":{"element":"rack:01HF7YAT000000000000000003","key":"Rack.label","presence":"set","prov":"01HF7YAT00000000000000YGVC"}}]},"provenance":[{"asserted_at":1700000000300,"asserted_by":{"user":"01HF7YAT000000000000000007"},"confidence":"asserted","id":"01HF7YAT00000000000000YGVC","origin":"hand"}],"values":["L20"]}

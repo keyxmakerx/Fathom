@@ -110,13 +110,11 @@ fn fixture_outcome_classes() {
     // The backslash continuation is one logical line, and dead-peer-detection
     // is deliberately not bindable in this slice (§4.7).
     assert_eq!(at(15), LineOutcome::Unmapped { known_prefix: 4 });
-    // `security idp` is understood as far as `security`; the static route as
-    // far as `routing-options` (`14` §8.3's own worked pair — the second half
-    // read 0 until 2026-08-15, when `routing-options router-id` made
-    // `routing-options` a segment the dictionary knows. The line is still
-    // unmapped: nothing here reaches `static`.)
+    // `security idp` is understood as far as `security`. The static route was
+    // `14` §8.3's worked pair of residue until schema 0.17 (2026-10-03), when
+    // `routing-static.yaml` bound it; line 32 is that route.
     assert_eq!(at(31), LineOutcome::Unmapped { known_prefix: 1 });
-    assert_eq!(at(32), LineOutcome::Unmapped { known_prefix: 1 });
+    assert!(matches!(at(32), LineOutcome::Bound { .. }));
     // Secret-only entries catalogue without modelling: residue, with a drop.
     assert_eq!(at(33), LineOutcome::Unmapped { known_prefix: 3 });
     assert_eq!(at(34), LineOutcome::Unmapped { known_prefix: 3 });
@@ -132,7 +130,7 @@ fn fixture_outcome_classes() {
     assert_eq!(at(38), LineOutcome::Blank);
 
     // Every remaining statement line bound.
-    for idx in (3..=14).chain(17..=30).chain([37]) {
+    for idx in (3..=14).chain(17..=30).chain([32, 37]) {
         assert!(
             matches!(at(idx), LineOutcome::Bound { .. }),
             "line {idx} did not bind: {:?}",
@@ -167,15 +165,15 @@ fn fixture_counts_pinned() {
         };
         *classes.entry(name).or_default() += 1;
     }
-    assert_eq!(classes.get("Bound"), Some(&27));
-    assert_eq!(classes.get("Unmapped"), Some(&6));
+    assert_eq!(classes.get("Bound"), Some(&28));
+    assert_eq!(classes.get("Unmapped"), Some(&5));
     assert_eq!(classes.get("Unshaped"), Some(&1));
     assert_eq!(classes.get("Quarantined"), Some(&1));
     assert_eq!(classes.get("Noise"), Some(&5));
     assert_eq!(classes.get("Blank"), Some(&2));
-    assert_eq!(out.residue.len(), 8, "Unmapped + Unshaped + Quarantined");
+    assert_eq!(out.residue.len(), 7, "Unmapped + Unshaped + Quarantined");
 
-    assert_eq!(out.fragment.nodes.len(), 13);
+    assert_eq!(out.fragment.nodes.len(), 15);
     let mut kinds: BTreeMap<&str, usize> = BTreeMap::new();
     for node in &out.fragment.nodes {
         *kinds.entry(node.kind.name()).or_default() += 1;
@@ -192,7 +190,10 @@ fn fixture_counts_pinned() {
     assert_eq!(kinds.get("LogicalUnit"), Some(&1));
     assert_eq!(kinds.get("Address"), Some(&1));
     assert_eq!(kinds.get("Zone"), Some(&2));
-    assert_eq!(kinds.len(), 12);
+    // Schema 0.17: the static route's default instance and the route.
+    assert_eq!(kinds.get("RoutingInstance"), Some(&1));
+    assert_eq!(kinds.get("StaticRoute"), Some(&1));
+    assert_eq!(kinds.len(), 14);
 
     assert_eq!(out.fragment.edges.len(), 7);
     let mut edges: BTreeMap<&str, usize> = BTreeMap::new();

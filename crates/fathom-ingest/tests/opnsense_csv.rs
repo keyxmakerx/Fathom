@@ -131,8 +131,9 @@ fn four_rules_come_out_of_four_rows() {
     assert_eq!(sets.len(), 1);
     assert!(
         sets[0].fields.is_empty(),
-        "the PolicySet asserts nothing: PolicyScope is an empty struct and \
-         OPNsense's evaluation order has no token in the schema"
+        "the PolicySet asserts nothing: an OPNsense rule's interface is no \
+         LogicalUnit and its evaluation order has no token in the schema \
+         (corpus/dict/opnsense/README.md §4)"
     );
 
     // The pf action vocabulary, mapped through the token map.
@@ -286,13 +287,12 @@ fn every_non_empty_cell_is_bound_or_named() {
     );
 }
 
-/// The three columns the IR cannot hold, named rather than dropped.
+/// The three columns the dictionary does not bind, named rather than dropped.
 ///
-/// This is the finding the work order asked to be checked before scoping:
-/// `AddressValue`, `L4Spec`, `PolicyScope`, `NatScope` and `NatAction` are
-/// still empty structs in `crates/fathom-ir/src/value.rs`, so a rule's source
-/// network, destination network and destination port have nowhere to go. They
-/// are on the residue list with their own bytes, which is the honest answer.
+/// The IR types for them have had shapes since schema 0.17, but the CSV
+/// spellings are not cited from a page read, so a rule's source network,
+/// destination network and destination port are on the residue list with
+/// their own bytes, which is the honest answer.
 #[test]
 fn the_matches_the_ir_cannot_hold_are_on_the_list() {
     let out = ingest_csv(&fixture(), &dict()).expect("within the caps");

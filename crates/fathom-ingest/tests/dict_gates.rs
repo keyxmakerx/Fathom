@@ -71,8 +71,8 @@ fn dictionary_loads() {
 /// pages that day, quoted in the file. The five other §5.3 forms are named
 /// residue by WO-10 §11 item 4's decision.
 #[test]
-fn entry_count_is_90() {
-    assert_eq!(dict().entry_count(), 90);
+fn entry_count_is_104() {
+    assert_eq!(dict().entry_count(), 104);
 }
 
 /// `14` §6.5: no entry's path is a strict prefix of another's unless the

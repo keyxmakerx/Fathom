@@ -478,3 +478,5 @@ fields:
   # unreleased draft's FieldDef keys never left the PR and were dropped, not retired.
   FieldValue.value: 381
   FieldValue.definition: 382
+  # ADR-0061 path trace (schema 0.17, 2026-10-03). Appended after 0.15 (364-380) and 0.16 (381-382).
+  SecurityPolicy.match_any_application: 383

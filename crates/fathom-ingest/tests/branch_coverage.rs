@@ -206,8 +206,12 @@ fn measure(out: &IngestOutput) -> (Vec<Row>, usize, usize) {
 /// lines, which stay residue because `SecurityPolicy` has no
 /// `match_any_application` field and a real application name has nowhere to
 /// bind — see the dictionary file's own header comment.
+///
+/// 2026-10-03 (schema 0.17, path trace): +18. The 9 `match application …` lines bind
+/// now (`any` onto `match_any_application`, names onto a MatchApplication edge),
+/// plus the three static routes and the six global address-book lines.
 const STATEMENTS: usize = 122;
-const BOUND: usize = 70;
+const BOUND: usize = 88;
 
 #[test]
 fn branch_configuration_bind_rate_is_pinned() {
