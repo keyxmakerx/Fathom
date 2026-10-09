@@ -15,4 +15,9 @@ describe('homeTabs', () => {
     expect(homeTabs({ organisationAdmin: false, admin: true })).toEqual(['designs', 'admin']);
     expect(homeTabs({ organisationAdmin: true, admin: true })).toEqual(['designs', 'organisation', 'admin']);
   });
+
+  it('gives someone who joined from an invitation and still waits no tabs to choose between', () => {
+    expect(homeTabs({ organisationAdmin: true, admin: true, waitingInvitee: true })).toEqual(['designs']);
+    expect(homeTabs({ organisationAdmin: false, admin: true, waitingInvitee: false })).toEqual(['designs', 'admin']);
+  });
 });

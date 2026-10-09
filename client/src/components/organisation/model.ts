@@ -19,15 +19,53 @@ export function accessWords(capability: Asked, scopeId: string | null, label: st
   return `${CAPABILITY_WORD[capability]} · ${scopeId === null ? 'whole organisation' : label}`;
 }
 
-export function stateWords(person: Person): string {
-  if (person.state === 'active') return 'Active';
+/**
+ * When an active person's access begins, if it has not begun for any of it yet
+ * (every row they hold starts in the future). `null` otherwise.
+ */
+export function startsLater(person: Person, nowMs: number): number | null {
+  if (person.state !== 'active' || person.access.length === 0) return null;
+  if (!person.access.every((a) => a.effectiveFromUnix * 1000 > nowMs)) return null;
+  return Math.min(...person.access.map((a) => a.effectiveFromUnix));
+}
+
+export function stateWords(person: Person, nowMs: number = Date.now()): string {
+  if (person.state === 'active') {
+    const starts = startsLater(person, nowMs);
+    return starts === null ? 'Active' : `Starts ${shortDateLabel(starts)}`;
+  }
   if (person.state === 'waiting') return person.expired ? 'Joined, too late to confirm' : 'Waiting for you';
   return person.expired ? 'Invited, link expired' : 'Invited';
 }
 
 /** Ink, not colour: a filled dot for someone in, an open one for someone not yet. */
-export function stateMark(person: Person): string {
-  return person.state === 'active' ? '●' : person.state === 'waiting' ? '◆' : '○';
+export function stateMark(person: Person, nowMs: number = Date.now()): string {
+  if (person.state === 'active') return startsLater(person, nowMs) === null ? '●' : '○';
+  return person.state === 'waiting' ? '◐' : '○';
+}
+
+/**
+ * The small print under an access row, parts joined with a middle dot so none
+ * leads the line.
+ */
+export function accessDetail(row: AccessRow, nowMs: number): string {
+  const parts: string[] = [];
+  if (row.inherited) parts.push('from a folder above');
+  if (row.expiresAtUnix !== null) parts.push(`until ${dateLabel(row.expiresAtUnix)}`);
+  if (row.awaitingSecond) parts.push('waiting for a second steward');
+  if (row.suspended) parts.push('suspended');
+  parts.push(
+    row.effectiveFromUnix * 1000 > nowMs
+      ? `starts ${dateLabel(row.effectiveFromUnix)}, not yet in force`
+      : `since ${dateLabel(row.effectiveFromUnix)}`,
+  );
+  return parts.join(' · ');
+}
+
+/** Whom the line under a name belongs to: an active member's address is their sign-in name. */
+export function contactLine(person: Person): string | null {
+  if (!person.email) return null;
+  return person.state === 'active' ? `sign-in name: ${person.email}` : person.email;
 }
 
 /** What a person can do, one line: the rows, or what is asked of them. */
@@ -54,6 +92,19 @@ export function whenLabel(unix: number, nowMs: number): string {
   if (diff === 1) return `yesterday ${clock}`;
   const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
   return `${d.getDate()} ${month} ${clock}`;
+}
+
+/** "4 Oct": a date within the coming year, where the year adds nothing. */
+export function shortDateLabel(unix: number): string {
+  const d = new Date(unix * 1000);
+  const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
+  return `${d.getDate()} ${month}`;
+}
+
+/** A moment with its time, for when something takes effect: "4 Oct 2026 09:12". */
+export function dateTimeLabel(unix: number): string {
+  const d = new Date(unix * 1000);
+  return `${dateLabel(unix)} ${two(d.getHours())}:${two(d.getMinutes())}`;
 }
 
 export function dateLabel(unix: number): string {
@@ -166,6 +217,45 @@ export function confirmButton(count: number): { label: string; disabled: boolean
 }
 
 /** Say what a steward request needs, once the server has said whether it is a sole appointment. */
+/** Said on the Steward requests box, before anyone presses Review. */
+export const STEWARD_REQUEST_RULE =
+  'If you are the only steward it takes effect 24 hours after you sign; otherwise a second steward must agree.';
+
+/** Said when a row is changed to Steward and so leaves the table for its own box. */
+export const MOVED_TO_STEWARD = 'Moved to Steward requests: a Steward is confirmed on its own.';
+
+/** What a failed run of refusals says: how many went through before it stopped. */
+export function refusedBeforeError(said: string, done: number, total: number): string {
+  return done === 0 ? said : `${said} ${done} of ${total} ${total === 1 ? 'person was' : 'people were'} refused before it stopped.`;
+}
+
+/**
+ * Refuse `ids` one after another with `refuseOne`, stopping at the first failure.
+ * Says how many went through, because the ones before a failure are already refused.
+ */
+export async function refuseEach(
+  ids: readonly string[],
+  refuseOne: (id: string) => Promise<void>,
+): Promise<{ refused: number; error: unknown }> {
+  let refused = 0;
+  try {
+    for (const id of ids) {
+      await refuseOne(id);
+      refused += 1;
+    }
+    return { refused, error: null };
+  } catch (error) {
+    return { refused, error: error ?? new Error('That request did not complete.') };
+  }
+}
+
+/** The ticks left once `gone` (just confirmed or refused) are taken out. */
+export function ticksWithout(ticks: ReadonlySet<string>, gone: Iterable<string>): Set<string> {
+  const out = new Set(ticks);
+  for (const id of gone) out.delete(id);
+  return out;
+}
+
 export function stewardNeeds(sole: boolean): string {
   return sole
     ? 'You are the only steward, so this takes effect 24 hours after you sign. No second steward is needed.'

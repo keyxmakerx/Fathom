@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   BATCH_CAP,
@@ -19,9 +19,14 @@ import {
   dateLabel,
   expiryFromDays,
   initialTicks,
+  MOVED_TO_STEWARD,
+  refuseEach,
+  refusedBeforeError,
   splitRows,
+  STEWARD_REQUEST_RULE,
   stewardNeeds,
   ticked,
+  ticksWithout,
   whenLabel,
   type RowEdit,
   type WaitingRow,
@@ -60,11 +65,13 @@ export function WaitingTable(p: WaitingTableProps) {
           <th>
             <input type="checkbox" aria-label="Tick everyone" checked={allOn} onChange={(e) => p.onToggleAll(e.target.checked)} />
           </th>
-          <th>Name (typed by the steward)</th>
+          <th>Name</th>
           <th>Key-check code</th>
           <th>Access asked for</th>
           <th>Invited by · joined</th>
-          <th />
+          <th>
+            <span className="org-visually-hidden">Actions</span>
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -133,6 +140,52 @@ export function WaitingTable(p: WaitingTableProps) {
         })}
       </tbody>
     </table>
+  );
+}
+
+/**
+ * Refusing is asked twice, wherever it is: the first button asks, the second
+ * does it. `asking` is whether the question is showing.
+ */
+export function RefuseConfirm({
+  ask,
+  confirm,
+  question,
+  asking,
+  busy,
+  onAsk,
+  onRefuse,
+  onKeep,
+}: {
+  /** The first button: "Refuse", or "Refuse ticked". */
+  ask: string;
+  /** The second button: "Refuse Jo Kim", or "Refuse 3 people". */
+  confirm: string;
+  /** Said beside the second button, e.g. "They get no access." */
+  question: string;
+  asking: boolean;
+  busy: boolean;
+  onAsk: () => void;
+  onRefuse: () => void;
+  onKeep: () => void;
+}) {
+  if (!asking) {
+    return (
+      <button type="button" className="org-btn" disabled={busy} onClick={onAsk}>
+        {ask}
+      </button>
+    );
+  }
+  return (
+    <>
+      <span className="org-sub">{question}</span>
+      <button type="button" className="org-btn org-btn--primary" disabled={busy} onClick={onRefuse}>
+        {confirm}
+      </button>
+      <button type="button" className="org-btn" onClick={onKeep}>
+        Keep
+      </button>
+    </>
   );
 }
 
@@ -251,16 +304,20 @@ export interface StewardCardsProps {
   days: number;
   onDays: (days: number) => void;
   onReview: (row: WaitingRow) => void;
+  /** The row whose Refuse question is showing, if any. */
+  refusing?: string | null;
+  onRefuseAsk?: (id: string | null) => void;
   onRefuse: (id: string) => void;
 }
 
-export function StewardCards({ rows, nowMs, busy, days, onDays, onReview, onRefuse }: StewardCardsProps) {
+export function StewardCards({ rows, nowMs, busy, days, onDays, onReview, refusing = null, onRefuseAsk = () => undefined, onRefuse }: StewardCardsProps) {
   if (rows.length === 0) return null;
   return (
     <section className="org-box" data-testid="steward-requests">
       <div className="home__label">Steward requests, one at a time</div>
       <p className="org-note">
-        A Steward can invite and confirm people and remove their access. Each request is confirmed on its own, with an end date.
+        A Steward can invite and confirm people and remove their access. Each request is confirmed on its own, with an end date.{' '}
+        {STEWARD_REQUEST_RULE}
       </p>
       <ul className="org-review">
         {rows.map((r) => (
@@ -285,9 +342,16 @@ export function StewardCards({ rows, nowMs, busy, days, onDays, onReview, onRefu
               <button type="button" className="org-btn org-btn--primary" disabled={busy || expiryFromDays(days, 0) === null} onClick={() => onReview(r)}>
                 Review as Steward
               </button>
-              <button type="button" className="org-btn" disabled={busy} onClick={() => onRefuse(r.invitation.id)}>
-                Refuse
-              </button>
+              <RefuseConfirm
+                ask="Refuse"
+                confirm={`Refuse ${r.invitation.displayName}`}
+                question="They get no access."
+                asking={refusing === r.invitation.id}
+                busy={busy}
+                onAsk={() => onRefuseAsk(r.invitation.id)}
+                onRefuse={() => onRefuse(r.invitation.id)}
+                onKeep={() => onRefuseAsk(null)}
+              />
             </div>
           </li>
         ))}
@@ -340,7 +404,8 @@ export interface WaitingPanelProps {
   /** Checks a proposal for the rows; writes nothing. */
   onPropose: (rows: ReturnType<typeof confirmRowOf>[], expiresAtUnix: number | null) => Promise<CheckedProposal>;
   onSign: (checked: CheckedProposal) => Promise<ConfirmResult>;
-  onRefuse: (ids: string[]) => Promise<void>;
+  /** Refuse one invitation. The panel calls it once per person, so it can say how far it got. */
+  onRefuse: (id: string) => Promise<void>;
   onApprove: (item: SecondingItem) => Promise<void>;
   /** Called after anything changed on the server. */
   onChanged: () => void;
@@ -357,6 +422,8 @@ export function WaitingPanel(props: WaitingPanelProps) {
   const [ticks, setTicks] = useState<Set<string>>(() => initialTicks(split.batch));
   const [editing, setEditing] = useState<string | null>(null);
   const [refusing, setRefusing] = useState<string | null>(null);
+  const [refusingMany, setRefusingMany] = useState(false);
+  const status = useRef<HTMLParagraphElement>(null);
   const [review, setReview] = useState<Review | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
   const [days, setDays] = useState(365);
@@ -406,29 +473,48 @@ export function WaitingPanel(props: WaitingPanelProps) {
       setReview({ checked, steward });
     });
 
+  // One at a time, so a failure part-way says how many went through. The list is
+  // reloaded either way: whoever was refused must not stay on screen, ticked.
   const refuse = (ids: string[]) =>
     act(async () => {
-      await props.onRefuse(ids);
+      const { refused, error } = await refuseEach(ids, props.onRefuse);
+      if (error === null) {
+        setDone(ids.length === 1 ? 'Refused. They get no access.' : `Refused ${ids.length} people. They get no access.`);
+      } else {
+        setError(refusedBeforeError(props.describeError(error), refused, ids.length));
+      }
+      setTicks((cur) => ticksWithout(cur, ids.slice(0, refused)));
       setRefusing(null);
-      setDone(ids.length === 1 ? 'Refused. They get no access.' : `Refused ${ids.length} people. They get no access.`);
+      setRefusingMany(false);
       props.onChanged();
     });
 
   const sign = () =>
     act(async () => {
       if (!review) return;
-      const result = await props.onSign(review.checked);
-      setReview(null);
-      const second = result.confirmed.filter((c) => c.needsSecond).length;
-      const n = result.confirmed.length;
-      setDone(
-        `Confirmed ${n} ${n === 1 ? 'person' : 'people'}.` +
-          (second > 0 ? ' A Steward appointment waits for a second steward before it takes effect.' : ''),
-      );
-      props.onChanged();
+      try {
+        const result = await props.onSign(review.checked);
+        setReview(null);
+        // Straight away, so the table cannot offer Confirm on people already confirmed.
+        setTicks((cur) => ticksWithout(cur, result.confirmed.map((c) => c.invitation)));
+        const second = result.confirmed.filter((c) => c.needsSecond).length;
+        const n = result.confirmed.length;
+        setDone(
+          `Confirmed ${n} ${n === 1 ? 'person' : 'people'}.` +
+            (second > 0 ? ' A Steward appointment waits for a second steward before it takes effect.' : ''),
+        );
+      } finally {
+        props.onChanged();
+      }
     });
 
   const nothing = rows.length === 0 && waiting.seconding.length === 0;
+
+  // The button that was pressed goes away when the work is done; the status line
+  // is where a keyboard or screen-reader user is sent instead.
+  useEffect(() => {
+    if (done !== null) status.current?.focus();
+  }, [done]);
 
   return (
     <section className="org-page">
@@ -437,14 +523,14 @@ export function WaitingPanel(props: WaitingPanelProps) {
         These people joined from your invitations. Ask each to read you the code on their screen: if it is not the one
         here, someone else may have used their link. Refuse that row.
       </p>
-      <p className="org-note">{TYPED_BY_STEWARD}</p>
+      {!nothing && <p className="org-note">{TYPED_BY_STEWARD}</p>}
       {error && (
         <p className="home__error" role="alert">
           {error}
         </p>
       )}
       {done && (
-        <p className="org-note" role="status">
+        <p className="org-note" role="status" tabIndex={-1} ref={status}>
           {done}
         </p>
       )}
@@ -486,6 +572,8 @@ export function WaitingPanel(props: WaitingPanelProps) {
                 onEditSave={(id, edit) => {
                   setEdits((cur) => ({ ...cur, [id]: edit }));
                   setEditing(null);
+                  // A Steward leaves this table for its own box; say so.
+                  if (edit.capability === 'steward') setDone(MOVED_TO_STEWARD);
                 }}
                 onRefuseAsk={setRefusing}
                 onRefuse={(id) => void refuse([id])}
@@ -499,14 +587,16 @@ export function WaitingPanel(props: WaitingPanelProps) {
                 >
                   {busy ? 'Checking…' : button.label}
                 </button>
-                <button
-                  type="button"
-                  className="org-btn"
-                  disabled={busy || chosen.length === 0}
-                  onClick={() => void refuse(chosen.map((r) => r.invitation.id))}
-                >
-                  Refuse ticked
-                </button>
+                <RefuseConfirm
+                  ask="Refuse ticked"
+                  confirm={`Refuse ${chosen.length} ${chosen.length === 1 ? 'person' : 'people'}`}
+                  question={`Refuse ${chosen.length} ${chosen.length === 1 ? 'person' : 'people'}? They get no access.`}
+                  asking={refusingMany && chosen.length > 0}
+                  busy={busy || chosen.length === 0}
+                  onAsk={() => setRefusingMany(true)}
+                  onRefuse={() => void refuse(chosen.map((r) => r.invitation.id))}
+                  onKeep={() => setRefusingMany(false)}
+                />
                 <span className="org-sub">
                   {button.note ?? `Signed once, in your browser. Up to ${BATCH_CAP} at a time. You see the full list before you sign.`}
                 </span>
@@ -524,6 +614,8 @@ export function WaitingPanel(props: WaitingPanelProps) {
               const expiry = expiryFromDays(days, Math.floor(Date.now() / 1000));
               if (expiry !== null) void startReview([r], true, expiry);
             }}
+            refusing={refusing}
+            onRefuseAsk={setRefusing}
             onRefuse={(id) => void refuse([id])}
           />
 
@@ -538,9 +630,16 @@ export function WaitingPanel(props: WaitingPanelProps) {
                       ? 'this invitation could not be verified.'
                       : 'joined more than 14 days ago, so they can no longer be confirmed. Invite them again if they should still join.'}
                     <div className="org-actions">
-                      <button type="button" className="org-btn" disabled={busy} onClick={() => void refuse([r.invitation.id])}>
-                        Refuse
-                      </button>
+                      <RefuseConfirm
+                        ask="Refuse"
+                        confirm={`Refuse ${r.invitation.displayName}`}
+                        question="They get no access."
+                        asking={refusing === r.invitation.id}
+                        busy={busy}
+                        onAsk={() => setRefusing(r.invitation.id)}
+                        onRefuse={() => void refuse([r.invitation.id])}
+                        onKeep={() => setRefusing(null)}
+                      />
                     </div>
                   </li>
                 ))}

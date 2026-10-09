@@ -38,8 +38,8 @@ export function InviteForm({ folders, organisationName, busy, error, onSubmit, o
       </label>
       <label className="org-field">
         <span className="org-field__label">Email (optional)</span>
-        <input className="org-input" type="text" inputMode="email" value={email} maxLength={254} onChange={(e) => setEmail(e.target.value)} />
-        <span className="org-field__hint">
+        <input className="org-input" type="text" inputMode="email" value={email} maxLength={254} aria-describedby="invite-email-hint" onChange={(e) => setEmail(e.target.value)} />
+        <span className="org-field__hint" id="invite-email-hint">
           A note for you and the other stewards. Fathom does not send anything to it and the person does not sign in
           with it.
         </span>
@@ -58,7 +58,7 @@ export function InviteForm({ folders, organisationName, busy, error, onSubmit, o
       </fieldset>
       <label className="org-field">
         <span className="org-field__label">Where</span>
-        <select className="org-input" value={scope} onChange={(e) => setScope(e.target.value)}>
+        <select className="org-input" value={scope} aria-describedby="invite-where-hint" onChange={(e) => setScope(e.target.value)}>
           {folders.map((f) => (
             <option key={f.scopeId} value={f.scopeId}>
               {f.displayName}
@@ -66,7 +66,7 @@ export function InviteForm({ folders, organisationName, busy, error, onSubmit, o
           ))}
           <option value="">Whole organisation ({organisationName})</option>
         </select>
-        <span className="org-field__hint">
+        <span className="org-field__hint" id="invite-where-hint">
           It covers the folder and everything in it. Whole organisation needs you to be a steward of all of it.
         </span>
       </label>

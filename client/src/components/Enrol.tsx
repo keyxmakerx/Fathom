@@ -5,6 +5,7 @@ import { PRINCIPAL_KIND_OPERATOR, PRINCIPAL_KIND_STEWARD, type PrincipalKind } f
 import { ApiRefusal } from '../api/errors';
 import { spacedCode } from '../api/grantBytes';
 import { keyCheckCode } from '../api/joining';
+import { markJoinedFromInvitation } from '../state/waitingInvitee';
 import {
   EnrolmentNotAttemptedError,
   EnrolmentOutcomeUnknownError,
@@ -193,6 +194,7 @@ export function Enrol({ onUseExistingKey, initialToken }: EnrolProps = {}) {
     if (!outcomeUnknown && parsed.kind === 'steward') {
       // Show the code of the key just made before going on. A failure to read
       // it is not a failure to join: the card still says so, without a code.
+      markJoinedFromInvitation(principal);
       setStage({ kind: 'joined', principal, code: await keyCheckCode(principal).catch(() => null) });
       return;
     }
@@ -337,11 +339,11 @@ export function Enrol({ onUseExistingKey, initialToken }: EnrolProps = {}) {
     <div className="enrol">
       <form className="enrol__card" onSubmit={handleSubmit}>
         <h1 className="enrol__title">Fathom</h1>
-        <p className="enrol__subtitle">Redeem your token.</p>
+        <p className="enrol__subtitle">{typedKind === 'steward' ? 'You were invited to Fathom.' : 'Redeem your token.'}</p>
 
         <div className="enrol__field">
           <label className="enrol__label" htmlFor="enrol-token">
-            Token
+            {typedKind === 'steward' ? 'Invitation link' : 'Token'}
           </label>
           <input
             id="enrol-token"
@@ -454,13 +456,16 @@ function describePrincipal(principal: string, kind: PrincipalKind): string {
  * operator's, and the server refused it. The refusal is the server's own
  * words; the one thing this screen can add without guessing at the cause is
  * that the other reading exists. */
-function describeRefusal(error: unknown, guessedOperator = false, invitation = false): string {
+export function describeRefusal(error: unknown, guessedOperator = false, invitation = false): string {
   if (error instanceof ApiRefusal) {
     const said =
       error.retryAfterSeconds != null ? `${error.message} Try again in ${error.retryAfterSeconds}s.` : error.message;
     // One refusal covers an unknown link, a used one, an expired one and a wrong name.
+    // The server's own text is terse and lower case, so a person is given a sentence.
     const base = invitation
-      ? `${said} If this link was already used or has expired, tell the person who sent it, and they can send a new one. Check the sign-in name too.`
+      ? `Fathom refused this sign-in.${
+          error.retryAfterSeconds != null ? ` Try again in ${error.retryAfterSeconds}s.` : ''
+        } If this link was already used or has expired, tell the person who sent it, and they can send a new one. Check the sign-in name too.`
       : said;
     return guessedOperator ? `${base} If this is an invitation to an account, add the address it was sent to.` : base;
   }

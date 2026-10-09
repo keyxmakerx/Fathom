@@ -19,7 +19,7 @@ import { shareWith } from '../../api/share';
 import { canStewardFor } from '../home/capabilities';
 import { FoldersPanel, type Loadable } from './FoldersPanel';
 import { InviteForm, LinkCard } from './InvitePanel';
-import { accessWords } from './model';
+import { accessWords, dateTimeLabel } from './model';
 import { PeopleList, PersonPage } from './PeoplePanel';
 import { WaitingPanel } from './WaitingPanel';
 import './organisation.css';
@@ -161,7 +161,16 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
     }
     if (page.kind === 'waiting') {
       if (waiting.status === 'loading') return <p className="home__muted">Loading…</p>;
-      if (waiting.status === 'error') return <p className="home__error" role="alert">{waiting.message}</p>;
+      if (waiting.status === 'error') {
+        return (
+          <section className="org-page">
+            <div className="org-page__title">Waiting for you</div>
+            <p className="home__error" role="alert" data-testid="waiting-refused">
+              {waiting.message}
+            </p>
+          </section>
+        );
+      }
       return (
         <WaitingPanel
           waiting={waiting.value}
@@ -170,9 +179,7 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
           describeError={describeError}
           onPropose={(rows, expiry) => proposeConfirm(org, rows, expiry)}
           onSign={signAndConfirm}
-          onRefuse={async (ids) => {
-            for (const id of ids) await refuseInvitation(org, id);
-          }}
+          onRefuse={(id) => refuseInvitation(org, id)}
           onApprove={(item) => secondSteward(org, item)}
           onChanged={reload}
         />
@@ -196,7 +203,7 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
               const result = await removeAccess(org, row);
               setNotice(
                 result.delayed && result.takesEffectAtUnix !== null
-                  ? `Signed. This steward keeps their access until ${new Date(result.takesEffectAtUnix * 1000).toLocaleString()}, 24 hours after you signed.`
+                  ? `Signed. This steward keeps their access until ${dateTimeLabel(result.takesEffectAtUnix)}, 24 hours after you signed.`
                   : 'Removed and signed. It is in the organisation’s history.',
               );
               reload();
@@ -227,15 +234,15 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
   return (
     <div className="org">
       <nav className="org-rail" aria-label="Organisation">
-        <button type="button" className={current === 'people' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} onClick={() => go({ kind: 'people' })}>
+        <button type="button" className={current === 'people' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} aria-current={current === 'people' ? 'page' : undefined} onClick={() => go({ kind: 'people' })}>
           People
         </button>
         {waitingReady && (
-          <button type="button" className={current === 'waiting' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} data-testid="rail-waiting" onClick={() => go({ kind: 'waiting' })}>
+          <button type="button" className={current === 'waiting' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} data-testid="rail-waiting" aria-current={current === 'waiting' ? 'page' : undefined} onClick={() => go({ kind: 'waiting' })}>
             Waiting for you{needs > 0 ? ` (${needs})` : ''}
           </button>
         )}
-        <button type="button" className={current === 'folders' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} onClick={() => go({ kind: 'folders' })}>
+        <button type="button" className={current === 'folders' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} aria-current={current === 'folders' ? 'page' : undefined} onClick={() => go({ kind: 'folders' })}>
           Folders
         </button>
       </nav>

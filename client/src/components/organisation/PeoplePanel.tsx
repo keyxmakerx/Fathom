@@ -3,7 +3,7 @@ import { useState } from 'react';
 import type { Asked } from '../../api/invitations';
 import type { AccessRow, People, Person } from '../../api/people';
 import type { Scope } from '../../api/scopes';
-import { accessWords, canDoWords, CAPABILITY_WORD, dateLabel, removalWords, stateMark, stateWords, whyNotRemovable } from './model';
+import { accessDetail, accessWords, canDoWords, CAPABILITY_WORD, contactLine, removalWords, stateMark, stateWords, whyNotRemovable } from './model';
 
 export interface PeopleListProps {
   people: People;
@@ -66,7 +66,7 @@ export function PeopleList({ people, needsYou, onOpenPerson, onInvite, onOpenWai
                     {p.name}
                   </button>
                   {p.you && <span className="org-tag">you</span>}
-                  {p.email && <div className="org-sub">{p.email}</div>}
+                  {contactLine(p) && <div className="org-sub">{contactLine(p)}</div>}
                 </td>
                 <td>{canDoWords(p)}</td>
                 <td>
@@ -93,11 +93,14 @@ export interface PersonPageProps {
   onGive: (capability: Exclude<Asked, 'steward'>, scopeId: string) => void;
   onWithdraw: () => void;
   onOpenWaiting: () => void;
+  /** Draw the page with the Withdraw question already asked (a test seam, like `refusing`). */
+  withdrawing?: boolean;
 }
 
 /** One person: exactly what they can do, in the folders you steward. */
-export function PersonPage({ person, folders, busy, error, notice, onBack, onRemove, onGive, onWithdraw, onOpenWaiting }: PersonPageProps) {
+export function PersonPage({ person, folders, busy, error, notice, onBack, onRemove, onGive, onWithdraw, onOpenWaiting, withdrawing: withdrawingFirst = false }: PersonPageProps) {
   const [removing, setRemoving] = useState<string | null>(null);
+  const [withdrawing, setWithdrawing] = useState(withdrawingFirst);
   const [giving, setGiving] = useState(false);
   const [capability, setCapability] = useState<Exclude<Asked, 'steward'>>('draw');
   const [scope, setScope] = useState(folders[0]?.scopeId ?? '');
@@ -112,9 +115,9 @@ export function PersonPage({ person, folders, busy, error, notice, onBack, onRem
         {person.name}
         {person.you && <span className="org-tag">you</span>}
       </div>
-      {person.email && <div className="org-sub">{person.email}</div>}
+      {contactLine(person) && <div className="org-sub">{contactLine(person)}</div>}
       <p className="home__muted">
-        {stateMark(person)} {stateWords(person)}
+        <span aria-hidden="true">{stateMark(person)}</span> {stateWords(person)}
       </p>
       {notice && <p className="org-note">{notice}</p>}
       {error && (
@@ -135,15 +138,7 @@ export function PersonPage({ person, folders, busy, error, notice, onBack, onRem
                 <li key={row.grant} className="org-row">
                   <div className="org-row__main">
                     <strong>{accessWords(row.capability, row.scopeId, row.label)}</strong>
-                    <span className="org-sub">
-                      {row.inherited ? ' · from a folder above' : ''}
-                      {row.expiresAtUnix !== null ? ` · until ${dateLabel(row.expiresAtUnix)}` : ''}
-                      {row.awaitingSecond ? ' · waiting for a second steward' : ''}
-                      {row.suspended ? ' · suspended' : ''}
-                      {row.effectiveFromUnix * 1000 > Date.now()
-                        ? ` · starts ${dateLabel(row.effectiveFromUnix)}, not yet in force`
-                        : ` · since ${dateLabel(row.effectiveFromUnix)}`}
-                    </span>
+                    <div className="org-sub">{accessDetail(row, Date.now())}</div>
                     {open && <p className="org-note">{removalWords(row, person.name)}</p>}
                   </div>
                   <div className="org-row__actions">
@@ -241,9 +236,20 @@ export function PersonPage({ person, folders, busy, error, notice, onBack, onRem
                 Go to Waiting for you
               </button>
             )}
-            <button type="button" className="org-btn" disabled={busy} onClick={onWithdraw}>
-              Withdraw the invitation
-            </button>
+            {withdrawing ? (
+              <>
+                <button type="button" className="org-btn org-btn--primary" disabled={busy} onClick={onWithdraw}>
+                  Withdraw it for {person.name}
+                </button>
+                <button type="button" className="org-btn" onClick={() => setWithdrawing(false)}>
+                  Keep
+                </button>
+              </>
+            ) : (
+              <button type="button" className="org-btn" disabled={busy} onClick={() => setWithdrawing(true)}>
+                Withdraw the invitation
+              </button>
+            )}
           </div>
         </>
       )}

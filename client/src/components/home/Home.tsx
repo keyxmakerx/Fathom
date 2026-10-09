@@ -16,6 +16,7 @@ import { createScope, fetchScopes, type Scope } from '../../api/scopes';
 import { emptyDocument } from '../../document/model';
 import { writePlain } from '../../document/plain';
 import { About } from '../about/About';
+import { clearJoinedFromInvitation, stillWaitingInvitee, wasJoinedFromInvitation } from '../../state/waitingInvitee';
 import { AwaitingSteward } from './AwaitingSteward';
 import { type Loadable } from '../organisation/FoldersPanel';
 import { OrganisationTab } from '../organisation/OrganisationTab';
@@ -65,6 +66,9 @@ export interface HomeProps {
    * console. Choosing the tab calls `onOpen`, which starts the operator
    * sign-in; `panel` is what the tab shows meanwhile. */
   admin?: { onOpen: () => void; panel: ReactNode };
+  /** Told whether the person joined from an invitation and still waits, so the
+   * caller can leave out what would send them the wrong way (the Admin pill). */
+  onWaitingInviteeChange?: (waiting: boolean) => void;
 }
 
 /** The interface's names for the server's scope kinds (the owner, 2026-09-23). */
@@ -99,6 +103,7 @@ export function Home({
   onTabChange,
   onTabsChange,
   admin,
+  onWaitingInviteeChange,
 }: HomeProps) {
   const [organisations, setOrganisations] = useState<Loadable<Organisation[]>>({ status: 'loading' });
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
@@ -204,6 +209,18 @@ export function Home({
     }
   }, [organisations, designs, landed, onDirectEntry]);
 
+  // Joined from an invitation, no organisation yet: the person waits for a steward.
+  // Admin, Claim an organisation and the Designs tab would each send them the wrong
+  // way. The note is dropped once an organisation appears.
+  const organisationCount = organisations.status === 'ready' ? organisations.value.length : null;
+  const waitingInvitee = stillWaitingInvitee(organisationCount, wasJoinedFromInvitation(address));
+  useEffect(() => {
+    if (organisationCount !== null && organisationCount > 0) clearJoinedFromInvitation(address);
+  }, [organisationCount, address]);
+  useEffect(() => {
+    onWaitingInviteeChange?.(waitingInvitee);
+  }, [waitingInvitee, onWaitingInviteeChange]);
+
   // ADR-0060 decision 7: each tab only for someone who may use it. A tab that
   // goes (another organisation chosen, Admin refused) falls back to Designs.
   // An admin, or anyone who stewards a folder: People and Waiting are theirs.
@@ -211,7 +228,7 @@ export function Home({
     (organisations.status === 'ready' &&
       organisations.value.some((org) => org.organisationId === selectedOrgId && org.role === 'admin')) ||
     (scopes.status === 'ready' && scopes.value.some((scope) => canStewardFor(scope.capability)));
-  const tabs = homeTabs({ organisationAdmin, admin: admin !== undefined });
+  const tabs = homeTabs({ organisationAdmin, admin: admin !== undefined, waitingInvitee });
   const shownTab: HomeTab = tabs.includes(tab) ? tab : 'designs';
   const tabsKey = tabs.join(' ');
   useEffect(() => {
@@ -334,7 +351,7 @@ export function Home({
         {organisations.status === 'ready' && organisations.value.length === 0 && (
           <>
             <p className="home__muted">You belong to no organisations yet.</p>
-            {onClaimOrganisation && (
+            {onClaimOrganisation && !waitingInvitee && (
               <button type="button" className="home__btn home__btn--small" onClick={onClaimOrganisation}>
                 Claim an organisation
               </button>
@@ -401,7 +418,7 @@ export function Home({
 
         {shownTab === 'admin' && admin && <section className="home__section">{admin.panel}</section>}
 
-        {shownTab === 'designs' && (
+        {shownTab === 'designs' && !waitingInvitee && (
         <section className="home__section">
           <div className="home__section-head">
             <div className="home__label">Designs you may open</div>

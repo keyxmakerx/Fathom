@@ -12,8 +12,19 @@ import {
   initialTicks,
   removalWords,
   splitRows,
+  accessDetail,
+  contactLine,
+  dateTimeLabel,
+  MOVED_TO_STEWARD,
+  refuseEach,
+  refusedBeforeError,
+  shortDateLabel,
+  startsLater,
+  stateMark,
   stateWords,
+  STEWARD_REQUEST_RULE,
   stewardNeeds,
+  ticksWithout,
   ticked,
   whenLabel,
   whyNotRemovable,
@@ -117,5 +128,88 @@ describe('steward requests', () => {
     expect(expiryFromDays(1, 1000)).toBeNull();
     expect(expiryFromDays(366, 1000)).toBeNull();
     expect(expiryFromDays(Number.NaN, 1000)).toBeNull();
+  });
+});
+
+describe('someone whose access has not started', () => {
+  const now = new Date(2026, 9, 3, 12, 0).getTime();
+  const unix = (d: number) => new Date(2026, 9, d, 9, 0).getTime() / 1000;
+
+  it('shows "Starts D Mon" with an open mark only when every row is still ahead', () => {
+    const later = person({ access: [access({ effectiveFromUnix: unix(4) }), access({ grant: 'G2', effectiveFromUnix: unix(9) })] });
+    expect(startsLater(later, now)).toBe(unix(4));
+    expect(stateWords(later, now)).toBe('Starts 4 Oct');
+    expect(stateMark(later, now)).toBe('○');
+    const mixed = person({ access: [access({ effectiveFromUnix: unix(1) }), access({ grant: 'G2', effectiveFromUnix: unix(9) })] });
+    expect(stateWords(mixed, now)).toBe('Active');
+    expect(stateMark(mixed, now)).toBe('●');
+    expect(stateWords(person({ access: [] }), now)).toBe('Active');
+  });
+
+  it('draws the waiting person with a glyph the interface font has', () => {
+    const waiting = person({ state: 'waiting', access: [] });
+    expect(stateMark(waiting)).toBe('◐');
+  });
+
+  it('formats a short date and a date with its time', () => {
+    expect(shortDateLabel(unix(4))).toBe('4 Oct');
+    expect(dateTimeLabel(unix(4))).toBe('4 Oct 2026 09:00');
+  });
+});
+
+describe('the line under an access row', () => {
+  const now = new Date(2026, 9, 3, 12, 0).getTime();
+  const unix = (d: number) => new Date(2026, 9, d, 9, 0).getTime() / 1000;
+
+  it('joins its parts with a middle dot and never starts with one', () => {
+    expect(accessDetail(access({ effectiveFromUnix: unix(1) }), now)).toBe('since 1 Oct 2026');
+    expect(accessDetail(access({ effectiveFromUnix: unix(1), inherited: true, expiresAtUnix: unix(9), awaitingSecond: true, suspended: true }), now)).toBe(
+      'from a folder above · until 9 Oct 2026 · waiting for a second steward · suspended · since 1 Oct 2026',
+    );
+    expect(accessDetail(access({ effectiveFromUnix: unix(4) }), now)).toBe('starts 4 Oct 2026, not yet in force');
+  });
+});
+
+describe('what is under a name', () => {
+  it('labels a member address as the sign-in name, and leaves a typed email as typed', () => {
+    expect(contactLine(person({ email: 'ana-silva-33cw9a40' }))).toBe('sign-in name: ana-silva-33cw9a40');
+    expect(contactLine(person({ state: 'invited', email: 'ana@northwind.example' }))).toBe('ana@northwind.example');
+    expect(contactLine(person({ email: null }))).toBeNull();
+  });
+});
+
+describe('refusing several people', () => {
+  it('stops at the first failure and says how many went through', async () => {
+    const seen: string[] = [];
+    const failing = async (id: string) => {
+      if (id === 'c') throw new Error('The server said no.');
+      seen.push(id);
+    };
+    const result = await refuseEach(['a', 'b', 'c', 'd'], failing);
+    expect(seen).toEqual(['a', 'b']);
+    expect(result.refused).toBe(2);
+    expect(result.error).toBeInstanceOf(Error);
+    expect(refusedBeforeError('The server said no.', 2, 4)).toBe('The server said no. 2 of 4 people were refused before it stopped.');
+    expect(refusedBeforeError('The server said no.', 0, 4)).toBe('The server said no.');
+    expect(refusedBeforeError('x.', 1, 1)).toBe('x. 1 of 1 person was refused before it stopped.');
+  });
+
+  it('reports no error when all go through', async () => {
+    expect(await refuseEach(['a', 'b'], async () => undefined)).toEqual({ refused: 2, error: null });
+  });
+
+  it('takes the people just confirmed or refused out of the ticks at once', () => {
+    expect([...ticksWithout(new Set(['a', 'b', 'c']), ['a', 'c'])]).toEqual(['b']);
+  });
+});
+
+describe('words that explain the rules before they bite', () => {
+  it('says the 24-hour wait and the second steward on the Steward requests box', () => {
+    expect(STEWARD_REQUEST_RULE).toMatch(/24 hours after you sign/);
+    expect(STEWARD_REQUEST_RULE).toMatch(/second steward must agree/);
+  });
+
+  it('says a row moved to the Steward requests box', () => {
+    expect(MOVED_TO_STEWARD).toBe('Moved to Steward requests: a Steward is confirmed on its own.');
   });
 });
