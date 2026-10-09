@@ -7,6 +7,7 @@ function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown'>> {
     onSelect: vi.fn(),
     onOpen: vi.fn(),
     onOpenInside: vi.fn(),
+    onTraceFrom: vi.fn(),
     onDuplicateDevice: vi.fn(),
     onRemoveDevice: vi.fn(),
     onDisconnect: vi.fn(),
@@ -23,24 +24,26 @@ function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown'>> {
 }
 
 describe('menuItemsFor', () => {
-  it('offers a device Open, Inside, details, a duplicate and removal, removal marked', () => {
+  it('offers a device Open, Inside, a trace, details, a duplicate and removal, removal marked', () => {
     const a = actions();
     const items = menuItemsFor({ kind: 'chassis', id: 'c1' }, a);
-    expect(items.map((i) => i.label)).toEqual(['Open', 'Inside', 'Details', 'Duplicate', 'Remove']);
-    expect(items[4].danger).toBe(true);
-    items[3].onSelect();
+    expect(items.map((i) => i.label)).toEqual(['Open', 'Inside', 'Trace a path from here', 'Details', 'Duplicate', 'Remove']);
+    expect(items[5].danger).toBe(true);
+    items[4].onSelect();
     expect(a.onDuplicateDevice).toHaveBeenCalledWith('c1');
     items[0].onSelect();
     expect(a.onOpen).toHaveBeenCalledWith('c1');
     items[2].onSelect();
+    expect(a.onTraceFrom).toHaveBeenCalledWith('c1');
+    items[3].onSelect();
     expect(a.onSelect).toHaveBeenCalledWith({ kind: 'chassis', id: 'c1' });
   });
 
   it("offers It's down on a device and a free box when it can be used, and not otherwise", () => {
     const a = { ...actions(), onItsDown: vi.fn() };
     const chassis = menuItemsFor({ kind: 'chassis', id: 'c1' }, a);
-    expect(chassis.map((i) => i.label)).toEqual(['Open', 'Inside', 'Details', "It's down", 'Duplicate', 'Remove']);
-    chassis[3].onSelect();
+    expect(chassis.map((i) => i.label)).toEqual(['Open', 'Inside', 'Trace a path from here', 'Details', "It's down", 'Duplicate', 'Remove']);
+    chassis.find((i) => i.label === "It's down")!.onSelect();
     expect(a.onItsDown).toHaveBeenCalledWith('c1');
     const free = menuItemsFor({ kind: 'free', id: 'f1' }, a);
     expect(free.map((i) => i.label)).toContain("It's down");

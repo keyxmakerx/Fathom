@@ -129,7 +129,7 @@ try {
 
   await page.getByTestId('shell-show').click();
   const items = await page.locator('.shell-show__row').allInnerTexts();
-  check('menu lists the layers that have data: Checks, Addresses, VLANs, Docs, Tags', items.length === 5 && items.every((t) => /Checks|Addresses|VLANs|Docs|Tags/.test(t)), items.join(' | '));
+  check('menu lists the layers: Checks, Addresses, VLANs, Docs, Maintenance, Tags', items.length === 6 && items.every((t) => /Checks|Addresses|VLANs|Docs|Maintenance|Tags/.test(t)), items.join(' | '));
   await page.screenshot({ path: SHOTS + 'show-menu.png' });
   await page.getByTestId('show-addresses').click();
   await page.getByTestId('show-vlans').click();

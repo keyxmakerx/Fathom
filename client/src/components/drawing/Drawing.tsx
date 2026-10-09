@@ -26,6 +26,7 @@ import './plans-canvas.css';
 
 import { compatible } from '../../document/compat';
 import { ChecksCanvasBridge, useChecksFade } from '../checks/fade';
+import { TraceBadges, useTraceFade } from '../trace/fade';
 import { mediaCandidates } from '../checks/checksModel';
 import { useChecksApi } from '../checks/checksStore';
 import { PlanGhostEdge } from './PlanGhostEdge';
@@ -64,6 +65,8 @@ import { CableEdge, type CableEdgeData, type CableEdgeType } from './CableEdge';
 import { ColourPicker } from './ColourPicker';
 import { ContextMenu } from './ContextMenu';
 import { parseFreeNodeId } from './freeLayout';
+import { CanvasTools, type CanvasTool } from './CanvasTools';
+import { useWheelMode } from './canvasPrefs';
 import { FREE_EDGE_TYPES, FREE_NODE_TYPES, useFreeLayer } from './useFreeLayer';
 import { menuItemsFor, type MenuActions, type MenuTarget } from './contextMenuItems';
 import { createLiveStore, EMPTY_STRING_SET, LiveStoreProvider, useLive, type LiveStore } from './liveStore';
@@ -107,7 +110,8 @@ const NODE_TYPES = {
 const EDGE_TYPES = { cable: CableEdge, bundle: BundleEdge, planGhost: PlanGhostEdge };
 const ALL_NODE_TYPES = { ...NODE_TYPES, ...FREE_NODE_TYPES };
 const ALL_EDGE_TYPES = { ...EDGE_TYPES, ...FREE_EDGE_TYPES };
-const PAN_BUTTONS = [1];
+const PAN_BUTTONS = [0, 1];
+const MIDDLE_ONLY = [1];
 
 // React Flow's corner credit link is hidden; the About page credits the library (ADR-0060).
 const PRO_OPTIONS = { hideAttribution: true };
@@ -257,6 +261,8 @@ export interface DrawingProps extends DrawingActions {
    * beyond faceplate. Same shape as `renderConfigDrawer` above, called once
    * the camera reads as the `'inside'` stop for the selected chassis. */
   renderInsideStop?: (chassis: ChassisView) => ReactNode;
+  /** Starts a path trace from this device (ADR-0061 item 9); absent where there is nothing to trace. */
+  onTraceFrom?: (chassisId: string) => void;
   /** ADR-0052 §1, this session's brief item 2 — "click a line and the port
    * it built lights, tagged with which line built it." The caller
    * (`racks/RacksPlace.tsx`) tracks the drawer's own hover/select state and
@@ -375,6 +381,7 @@ function DrawingInner({
   canDraw,
   renderConfigDrawer,
   renderInsideStop,
+  onTraceFrom,
   litPortLabel,
   emptyHint,
   openRequest,
@@ -419,6 +426,9 @@ function DrawingInner({
   // it into the page coordinates the colour picker's `position: fixed`
   // overlay actually needs.
   const containerRef = useRef<HTMLDivElement>(null);
+  // What a plain left-drag on empty canvas does. Pan by default; Shift+drag draws a selection box either way.
+  const [tool, setTool] = useState<CanvasTool>('pan');
+  const [wheel, setWheel] = useWheelMode('scroll');
   const free = useFreeLayer({
     view,
     canDraw,
@@ -426,6 +436,7 @@ function DrawingInner({
     containerRef,
     selected,
     onSelect,
+    tool,
     actions: { onAddFreeBox, onAddDeviceAt, onMoveFree, onConnectBoxes, onAddLabel, onSetLabel, onRemoveFree, onDuplicateFree },
   });
 
@@ -471,8 +482,8 @@ function DrawingInner({
     onRemoveFree,
   };
   const menuActions: MenuActions = canDraw
-    ? { onSelect, onOpen: openChassis, onOpenInside, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, onPasteConfig, onPlanChange, onItsDown, ...freeMenuActions }
-    : { onSelect, onOpen: openChassis, onOpenInside };
+    ? { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, onPasteConfig, onPlanChange, onItsDown, ...freeMenuActions }
+    : { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom };
   const menuActionsRef = useRef(menuActions);
   useLayoutEffect(() => {
     menuActionsRef.current = menuActions;
@@ -1587,10 +1598,11 @@ function DrawingInner({
     [allNodes, peers, view],
   );
   const allEdges = useMemo(() => [...edges, ...free.edges], [edges, free.edges]);
-  // An open plan's marks and focus first; a Checks Show then fades on top and wins.
+  // An open plan's marks and focus first; a Checks Show then fades on top and wins, and a trace on top of both.
   const planned = usePlansFade(allNodes, allEdges, resolvePlanPort);
   const troubled = useTroubleFade(planned.nodes, planned.edges);
-  const shown = useChecksFade(troubled.nodes, troubled.edges);
+  const faded = useChecksFade(troubled.nodes, troubled.edges);
+  const shown = useTraceFade(faded.nodes, faded.edges);
 
   return (
     <LiveStoreProvider value={liveStore}>
@@ -1628,11 +1640,11 @@ function DrawingInner({
         onNodeDragStop={handleNodeDragStop}
         minZoom={MIN_ZOOM}
         maxZoom={MAX_ZOOM}
-        // Left-drag on empty canvas is the marquee; pan with the middle button, Space+drag, the wheel or a trackpad (Ctrl+wheel or pinch zooms); one finger pans on touch.
-        panOnDrag={PAN_BUTTONS}
+        // Left-drag on empty canvas pans (Shift+drag is the marquee); the middle button, Space+drag, the wheel or a trackpad pan too (pinch zooms).
+        panOnDrag={tool === 'pan' ? PAN_BUTTONS : MIDDLE_ONLY}
         panActivationKeyCode="Space"
-        panOnScroll
-        zoomOnScroll={false}
+        panOnScroll={wheel === 'scroll'}
+        zoomOnScroll={wheel === 'zoom'}
         zoomOnPinch
         // UI-SPEC "Cables": a drag may be picked up from either end of a
         // future cable, and dropped on any other live port — loose mode is
@@ -1678,7 +1690,9 @@ function DrawingInner({
         )}
       </ReactFlow>
       {free.overlay}
+      <CanvasTools tool={tool} onTool={setTool} wheel={wheel} onWheel={setWheel} />
       <ChecksCanvasBridge />
+      <TraceBadges />
       <PlansCanvasBridge />
       <TroubleCanvasBridge />
       {selectedChassis != null && callout?.id === selectedChassis.id && opened == null && calloutRack != null ? (

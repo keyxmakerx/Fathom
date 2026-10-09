@@ -11,7 +11,7 @@
 | 1 | Why the reasoning is here and not in the YAML | *read this first* |
 | 2 | The path shape | *not a command path* |
 | 3 | What is bound | *four columns and two literals* |
-| 4 | What is deliberately absent, and why | *the empty-struct finding* |
+| 4 | What is deliberately absent, and why | what is still unbound |
 | 5 | The vendor facts, with sources and dates | *ADR-0034* |
 | | Failure modes | |
 | | Open decisions | |
@@ -97,7 +97,7 @@ here is a literal, not a capture — and lands on the residue list with its own 
 and the weld refuses to invent a containment parent, so a set has to exist. It asserts
 nothing, and both omissions are honest rather than lazy:
 
-- `PolicySet.scope` (card 1) is typed `PolicyScope`, an **empty struct** (§4).
+- `PolicySet.scope` (card 1) is typed `PolicyScope`; the OPNsense binding is an open design call (§4).
 - `PolicySet.evaluation` (card 1) offers `first_match` and `first_match_global`. **OPNsense
   is neither.** Its manual, checked 2026-08-15: *"When set to quick, the rule is handled on
   'first match' basis… When `quick` is not set, last match wins."* A pf ruleset is
@@ -107,31 +107,22 @@ nothing, and both omissions are honest rather than lazy:
 `70` §16 ratified exactly this shape of answer: an incomplete path is drawn and **marked**,
 never refused.
 
-## 4. What is deliberately absent, and why — the empty-struct finding
+## 4. What is deliberately absent
 
 A firewall rule's matches — source network, destination network, ports, protocol, interface,
-direction — have nowhere to go. The IR types that exist for exactly them are **empty
-structs**, each carrying the comment *"Shape stated nowhere read"*, in
-`crates/fathom-ir/src/value.rs`:
+direction — are still not bound, though the IR types for them have shapes since schema 0.17
+(2026-10-03: `PolicyScope`, `AddressValue`, `L4Spec`, `NatScope`, `NatAction`; they were empty
+structs when this file was written, and `tests/opnsense_csv.rs::the_matches_the_ir_cannot_hold_are_on_the_list`
+still pins the residue by name). What is missing now is a binding, not a shape:
 
-| Type | Line | Blocks |
-|---|---|---|
-| `PolicyScope` | 189 | `PolicySet.scope` (card 1) — interface, direction, zone pair |
-| `AddressValue` | 193 | `AddressObject.value` (card 1) — **no address object can be built at all** |
-| `L4Spec` | 197 | `Application.l4` — protocol and ports |
-| `NatScope` | 202 | `NatRuleSet.from`/`.to` (card 1) — all NAT |
-| `NatAction` | 206 | `NatRule.then` (card 1) — all NAT |
-
-Two of those cardinalities are the hard stop: `AddressObject.value` and `NatRule.then` are
-required fields of types that cannot be constructed, so an address object and a NAT rule
-cannot be created honestly by any dictionary on any platform. This is not an OPNsense
-problem; it is the same wall in front of Junos `security policies` and PAN-OS security
-rules. Filling those five types is schema/IR design work — a planning session's, per `78`
-§5 — and it is the single largest thing standing between this engine and a useful one.
-
-Until then the cells land on the residue list, at cell granularity, with their own bytes.
-`crates/fathom-ingest/tests/opnsense_csv.rs::the_matches_the_ir_cannot_hold_are_on_the_list`
-pins that by name, so the day the types get shapes, the test that has to change says why.
+- **`PolicySet.scope`.** `InterfaceDirection { unit, direction }` wants a `LogicalUnit`, and a
+  rules-only paste names an interface (`lan`, `opt2`) that is no `Interface` node, with no `form`
+  or unit index to give it. Binding it also splits the one `PolicySet` into one per interface and
+  direction, which changes how "last match wins" reads across them. A design call, not a dictionary
+  line; until it is made the set is unscoped and the trace says it could not establish the pair.
+- **Address and port matches** (`source_net`, `destination_net`, `destination_port`, `protocol`)
+  have an `AddressValue` and an `L4Spec` to land in, but the CSV spellings (`lan` as a network
+  name, `<alias>`, `1-1024`, `any`) are not cited from a page read, so they stay residue.
 
 ## 5. The vendor facts, with sources and dates
 

@@ -1,0 +1,210 @@
+{
+  "count": 3,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 1,
+      "url": "https://netbox.example/api/dcim/devices/1/",
+      "display": "sw-01",
+      "name": "sw-01",
+      "device_type": {
+        "id": 7,
+        "url": "https://netbox.example/api/dcim/device-types/7/",
+        "display": "EX2300-48P",
+        "manufacturer": {
+          "id": 3,
+          "name": "Juniper",
+          "slug": "juniper"
+        },
+        "model": "EX2300-48P",
+        "slug": "ex2300-48p"
+      },
+      "role": {
+        "id": 2,
+        "name": "Access switch",
+        "slug": "access-switch"
+      },
+      "tenant": {
+        "id": 1,
+        "name": "Acme"
+      },
+      "serial": "JN123456AB",
+      "asset_tag": "A-1001",
+      "site": {
+        "id": 1,
+        "name": "HQ",
+        "slug": "hq"
+      },
+      "rack": {
+        "id": 5,
+        "name": "R1"
+      },
+      "position": 30.0,
+      "face": {
+        "value": "front",
+        "label": "Front"
+      },
+      "status": {
+        "value": "active",
+        "label": "Active"
+      },
+      "primary_ip4": {
+        "id": 91,
+        "address": "10.0.99.2/24",
+        "family": 4
+      },
+      "tags": [
+        {
+          "name": "core",
+          "slug": "core"
+        },
+        {
+          "name": "dc1",
+          "slug": "dc1"
+        }
+      ],
+      "custom_fields": {
+        "owner": "Facilities",
+        "warranty_end": "2028-03-01",
+        "snmp_note": null
+      },
+      "comments": "Upstairs",
+      "description": "",
+      "created": "2025-01-02T10:00:00Z",
+      "last_updated": "2026-09-01T10:00:00Z"
+    },
+    {
+      "id": 2,
+      "url": "https://netbox.example/api/dcim/devices/2/",
+      "display": "fw-01",
+      "name": "fw-01",
+      "device_type": {
+        "id": 7,
+        "url": "https://netbox.example/api/dcim/device-types/7/",
+        "display": "SRX300",
+        "manufacturer": {
+          "id": 3,
+          "name": "Juniper",
+          "slug": "juniper"
+        },
+        "model": "SRX300",
+        "slug": "srx300"
+      },
+      "role": {
+        "id": 2,
+        "name": "Firewall",
+        "slug": "firewall"
+      },
+      "tenant": {
+        "id": 1,
+        "name": "Acme"
+      },
+      "serial": "JN998877EF",
+      "asset_tag": "A-1002",
+      "site": {
+        "id": 1,
+        "name": "HQ",
+        "slug": "hq"
+      },
+      "rack": {
+        "id": 5,
+        "name": "R1"
+      },
+      "position": 40.0,
+      "face": {
+        "value": "front",
+        "label": "Front"
+      },
+      "status": {
+        "value": "active",
+        "label": "Active"
+      },
+      "primary_ip4": {
+        "id": 92,
+        "address": "10.0.99.1/24",
+        "family": 4
+      },
+      "tags": [
+        {
+          "name": "core",
+          "slug": "core"
+        },
+        {
+          "name": "dc1",
+          "slug": "dc1"
+        }
+      ],
+      "custom_fields": {
+        "owner": "Facilities",
+        "warranty_end": "2028-03-01",
+        "snmp_note": null
+      },
+      "comments": "set snmp community FATHOMIMPORTsnmpRoCommunity2f9c1d7e authorization read-only",
+      "description": "",
+      "created": "2025-01-02T10:00:00Z",
+      "last_updated": "2026-09-01T10:00:00Z"
+    },
+    {
+      "id": 3,
+      "url": "https://netbox.example/api/dcim/devices/3/",
+      "display": "lab-nas",
+      "name": "lab-nas",
+      "device_type": {
+        "id": 7,
+        "url": "https://netbox.example/api/dcim/device-types/7/",
+        "display": "RS822+",
+        "manufacturer": {
+          "id": 3,
+          "name": "Synology",
+          "slug": "synology"
+        },
+        "model": "RS822+",
+        "slug": "rs822+"
+      },
+      "role": {
+        "id": 2,
+        "name": "Server",
+        "slug": "server"
+      },
+      "tenant": {
+        "id": 1,
+        "name": "Acme"
+      },
+      "serial": "SY2026X",
+      "asset_tag": "A-1003",
+      "site": {
+        "id": 1,
+        "name": "HQ",
+        "slug": "hq"
+      },
+      "rack": null,
+      "position": null,
+      "face": null,
+      "status": {
+        "value": "active",
+        "label": "Active"
+      },
+      "primary_ip4": null,
+      "tags": [
+        {
+          "name": "core",
+          "slug": "core"
+        },
+        {
+          "name": "dc1",
+          "slug": "dc1"
+        }
+      ],
+      "custom_fields": {
+        "owner": "Lab",
+        "warranty_end": "2028-03-01",
+        "snmp_note": null
+      },
+      "comments": "admin note: set security ike policy ike-pol pre-shared-key ascii-text FATHOMIMPORTikePreSharedKey0123456789abcdef",
+      "description": "",
+      "created": "2025-01-02T10:00:00Z",
+      "last_updated": "2026-09-01T10:00:00Z"
+    }
+  ]
+}

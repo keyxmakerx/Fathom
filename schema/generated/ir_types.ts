@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.17";
+export const SCHEMA_VERSION = "0.18";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -73,6 +73,7 @@ export type NodeKind =
   | "DocFile"
   | "MaintenancePlan"
   | "PlanStep"
+  | "FieldValue"
   | "Issue"
   | "IssueStep";
 export const NODE_KINDS: readonly NodeKind[] = [
@@ -142,6 +143,7 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "DocFile",
   "MaintenancePlan",
   "PlanStep",
+  "FieldValue",
   "Issue",
   "IssueStep",
 ];
@@ -258,7 +260,8 @@ export type EdgeKind =
   | "HasDoc"
   | "DocOn"
   | "HasDocLink"
-  | "HasDocFile";
+  | "HasDocFile"
+  | "HasFieldValue";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -371,6 +374,7 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "DocOn",
   "HasDocLink",
   "HasDocFile",
+  "HasFieldValue",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -473,7 +477,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   ProtocolAdjacency: ["peer_address", "peer_as", "local_address", "area", "cost", "network_type", "import_policy", "export_policy", "route_reflector_client", "passive"],
   Zone: ["name", "description", "host_inbound_system_services", "host_inbound_protocols", "screen", "application_tracking", "tcp_rst"],
   PolicySet: ["scope", "evaluation", "default_action"],
-  SecurityPolicy: ["name", "ordinal", "action", "match_any_source", "match_any_destination", "log_init", "log_close", "count", "scheduler", "description", "enabled"],
+  SecurityPolicy: ["name", "ordinal", "action", "match_any_source", "match_any_destination", "match_any_application", "log_init", "log_close", "count", "scheduler", "description", "enabled"],
   AddressObject: ["name", "value", "description"],
   AddressSet: ["name", "description"],
   Application: ["l4", "name", "app_id", "inactivity_timeout", "alg"],
@@ -520,6 +524,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   DocFile: ["name", "size", "media", "checked", "removed", "file_id", "sha256"],
   MaintenancePlan: ["title", "window_start", "window_end", "author", "stage", "outcome", "record"],
   PlanStep: ["ordinal", "kind", "targets", "change", "before", "after", "edit", "state", "note", "done_at"],
+  FieldValue: ["definition", "value"],
   Issue: ["title", "device", "author", "opened_at", "stage", "outcome", "plan"],
   IssueStep: ["ordinal", "topic", "question", "detail", "targets", "answer", "note", "answered_at"],
 };
@@ -906,19 +911,22 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "PlanStep.state": 378,
   "PlanStep.note": 379,
   "PlanStep.done_at": 380,
-  "Issue.title": 381,
-  "Issue.device": 382,
-  "Issue.author": 383,
-  "Issue.opened_at": 384,
-  "Issue.stage": 385,
-  "Issue.outcome": 386,
-  "Issue.plan": 387,
-  "IssueStep.ordinal": 388,
-  "IssueStep.topic": 389,
-  "IssueStep.question": 390,
-  "IssueStep.detail": 391,
-  "IssueStep.targets": 392,
-  "IssueStep.answer": 393,
-  "IssueStep.note": 394,
-  "IssueStep.answered_at": 395,
+  "FieldValue.value": 381,
+  "FieldValue.definition": 382,
+  "SecurityPolicy.match_any_application": 383,
+  "Issue.title": 390,
+  "Issue.device": 391,
+  "Issue.author": 392,
+  "Issue.opened_at": 393,
+  "Issue.stage": 394,
+  "Issue.outcome": 395,
+  "Issue.plan": 396,
+  "IssueStep.ordinal": 397,
+  "IssueStep.topic": 398,
+  "IssueStep.question": 399,
+  "IssueStep.detail": 400,
+  "IssueStep.targets": 401,
+  "IssueStep.answer": 402,
+  "IssueStep.note": 403,
+  "IssueStep.answered_at": 404,
 };

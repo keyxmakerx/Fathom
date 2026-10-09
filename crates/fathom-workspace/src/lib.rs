@@ -57,11 +57,12 @@ use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{EdgeKind, NodeKind, FIELD_KEYS, SCHEMA_VERSION};
 use fathom_ir::scalar::Text;
 
-/// Every 0.10-to-0.17 move is additive, so a payload declared at an older
+/// Every 0.10-to-0.18 move is additive, so a payload declared at an older
 /// version reads exactly like a current one — nothing renamed, retyped or
 /// removed. Every older version this crate still opens, and no other.
-pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] =
-    &["0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16"];
+pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &[
+    "0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17",
+];
 
 /// Node kinds `0.11` (ADR-0058) added. A payload declared at `0.10` cannot
 /// legitimately hold one — its editor never had the kind — so finding one
@@ -96,7 +97,7 @@ const NODE_KINDS_SINCE_0_13: &[NodeKind] = &[NodeKind::Label, NodeKind::Line];
 const EDGE_KINDS_SINCE_0_13: &[EdgeKind] =
     &[EdgeKind::HasLabel, EdgeKind::HasLine, EdgeKind::LineEnd];
 
-/// Kinds `0.14` (ADR-0061 round 7, docs) added; same reasoning, now for `0.10` to `0.13`.
+/// Kinds `0.14` (ADR-0061 round 7, docs) added; same reasoning, for `0.10` to `0.13`.
 const NODE_KINDS_SINCE_0_14: &[NodeKind] = &[NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile];
 const EDGE_KINDS_SINCE_0_14: &[EdgeKind] = &[
     EdgeKind::HasDoc,
@@ -109,65 +110,73 @@ const EDGE_KINDS_SINCE_0_14: &[EdgeKind] = &[
 const NODE_KINDS_SINCE_0_15: &[NodeKind] = &[NodeKind::MaintenancePlan, NodeKind::PlanStep];
 const EDGE_KINDS_SINCE_0_15: &[EdgeKind] = &[EdgeKind::HasPlan, EdgeKind::HasStep];
 
-/// Kinds `0.17` (ADR-0061 troubleshooting) added; every accepted older header is too old for them.
-const NODE_KINDS_SINCE_0_17: &[NodeKind] = &[NodeKind::Issue, NodeKind::IssueStep];
-const EDGE_KINDS_SINCE_0_17: &[EdgeKind] = &[EdgeKind::HasIssue, EdgeKind::HasIssueStep];
+/// Kinds `0.16` (custom-field values) added; same reasoning, for `0.10` to `0.15`.
+const NODE_KINDS_SINCE_0_16: &[NodeKind] = &[NodeKind::FieldValue];
+const EDGE_KINDS_SINCE_0_16: &[EdgeKind] = &[EdgeKind::HasFieldValue];
+
+/// Kinds `0.18` (ADR-0061 troubleshooting) added; every accepted older header is too old for them.
+const NODE_KINDS_SINCE_0_18: &[NodeKind] = &[NodeKind::Issue, NodeKind::IssueStep];
+const EDGE_KINDS_SINCE_0_18: &[EdgeKind] = &[EdgeKind::HasIssue, EdgeKind::HasIssueStep];
 
 /// Refuse a payload declared at `declared` that holds a kind newer than that
 /// version — decision 6's (ADR-0058) and decision 9's (ADR-0059) second
 /// halves, checked once per accepted older version: `0.10` cannot hold
-/// anything `0.11` to `0.17` added, and so on up the chain.
+/// anything `0.11` to `0.18` added, and so on up the chain.
 fn reject_kinds_too_new_for_declared_version(
     declared: &str,
     snapshot: &Snapshot,
 ) -> Result<(), PlainError> {
-    // Nothing to check for the current version (`0.17`, everything is
+    // Nothing to check for the current version (`0.18`, everything is
     // legitimate there) or any value `SchemaVersionMismatch` already
     // refused above this call — only the accepted older headers name a
     // kind set their own editor could never have written.
     if !ACCEPTED_OLDER_SCHEMA_VERSIONS.contains(&declared) {
         return Ok(());
     }
-    // The declared minor: a kind first added at minor `m` is too new for any header below `m`.
-    let minor: u32 = declared
+    // A kind set introduced at minor `m` is too new for any declared version below it.
+    let declared_minor: u32 = declared
         .strip_prefix("0.")
         .and_then(|m| m.parse().ok())
         .unwrap_or(0);
-    let nodes_since: [(u32, &[NodeKind]); 6] = [
+    let nodes_since: [(u32, &[NodeKind]); 7] = [
         (11, NODE_KINDS_SINCE_0_11),
         (12, NODE_KINDS_SINCE_0_12),
         (13, NODE_KINDS_SINCE_0_13),
         (14, NODE_KINDS_SINCE_0_14),
         (15, NODE_KINDS_SINCE_0_15),
-        (17, NODE_KINDS_SINCE_0_17),
+        (16, NODE_KINDS_SINCE_0_16),
+        (18, NODE_KINDS_SINCE_0_18),
     ];
-    let edges_since: [(u32, &[EdgeKind]); 6] = [
+    let edges_since: [(u32, &[EdgeKind]); 7] = [
         (11, EDGE_KINDS_SINCE_0_11),
         (12, EDGE_KINDS_SINCE_0_12),
         (13, EDGE_KINDS_SINCE_0_13),
         (14, EDGE_KINDS_SINCE_0_14),
         (15, EDGE_KINDS_SINCE_0_15),
-        (17, EDGE_KINDS_SINCE_0_17),
+        (16, EDGE_KINDS_SINCE_0_16),
+        (18, EDGE_KINDS_SINCE_0_18),
     ];
     for n in &snapshot.nodes {
+        let k = n.id.kind;
         if nodes_since
             .iter()
-            .any(|(since, kinds)| minor < *since && kinds.contains(&n.id.kind))
+            .any(|(m, kinds)| declared_minor < *m && kinds.contains(&k))
         {
             return Err(PlainError::KindNotInDeclaredVersion {
                 declared_version: declared.to_owned(),
-                element_kind: n.id.kind.name(),
+                element_kind: k.name(),
             });
         }
     }
     for e in &snapshot.edges {
+        let k = e.id.kind;
         if edges_since
             .iter()
-            .any(|(since, kinds)| minor < *since && kinds.contains(&e.id.kind))
+            .any(|(m, kinds)| declared_minor < *m && kinds.contains(&k))
         {
             return Err(PlainError::KindNotInDeclaredVersion {
                 declared_version: declared.to_owned(),
-                element_kind: e.id.kind.name(),
+                element_kind: k.name(),
             });
         }
     }

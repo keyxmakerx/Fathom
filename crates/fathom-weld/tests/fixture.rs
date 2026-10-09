@@ -84,12 +84,12 @@ fn the_synthetic_srx_fixture_applies() {
 
     // One store node per fragment node, and nothing else created.
     assert_eq!(out.nodes.len(), ingest.fragment.nodes.len());
-    assert_eq!(out.nodes.len(), 13);
-    assert_eq!(graph.nodes().count(), 13);
+    assert_eq!(out.nodes.len(), 15);
+    assert_eq!(graph.nodes().count(), 15);
     assert_eq!(out.edges.len(), 7);
-    assert_eq!(out.containment.len(), 12);
-    assert_eq!(graph.edges().count(), 19);
-    assert_eq!(out.minted, 99);
+    assert_eq!(out.containment.len(), 14);
+    assert_eq!(graph.edges().count(), 21);
+    assert_eq!(out.minted, 109);
 
     // The device the paste created, with the two fields a face names it by:
     // `hostname` the capture states, `platform` the dictionary derives.

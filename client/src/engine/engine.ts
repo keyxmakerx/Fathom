@@ -118,6 +118,99 @@ export interface PasteResult {
   drops: DropRow[];
 }
 
+// --- OP_TRACE (opcode 35), ADR-0061 item 9 ---------------------------------
+//
+// `FACE_TR_HEAD`, then each hop's `FACE_TR_HOP` followed by its `FACE_TR_POL`
+// rows. Every string is composed in Rust; this decoder only splits the joined
+// lists. The verdict words (allowed, blocked, reachable…) are never produced.
+
+/** A policy a firewall hop reads, with this flow's match state. */
+export interface TracePolicy {
+  id: string;
+  ordinal: string;
+  name: string;
+  action: string;
+  state: "matches" | "doesn't match" | "can't tell";
+  reason: string;
+  /** False only for `doesn't match`. */
+  couldAffect: boolean;
+}
+
+export interface TraceHop {
+  n: number;
+  kind: 'start' | 'device' | 'cable' | 'switch' | 'end' | 'stop';
+  title: string;
+  detail: string[];
+  /** Display ids of the nodes to light on the canvas. */
+  nodes: string[];
+  why: string;
+  source: string;
+  /** The zone words at a firewall, e.g. `lan to wan`; empty elsewhere. */
+  scope: string;
+  policies: TracePolicy[];
+  /** Rules that could not be placed on this hop (an unscoped set). */
+  unplaced: TracePolicy[];
+  unplacedWhy: string;
+}
+
+export interface TraceResult {
+  from: string;
+  to: string;
+  flow: string;
+  /** Why the trace stopped short; empty when it reached the far end. */
+  stopped: string;
+  hops: TraceHop[];
+}
+
+function lines(s: string): string[] {
+  return s === '' ? [] : s.split('\n');
+}
+
+function readTraceReply(rows: FaceRow[]): TraceResult {
+  const head = rows[0];
+  if (!head || head.role !== FACES.FACE_TR_HEAD) {
+    throw new Error(`OP_TRACE reply: record 0 is not the FACE_TR_HEAD (got role ${head?.role})`);
+  }
+  const hops: TraceHop[] = [];
+  for (const row of rows.slice(1)) {
+    if (row.role === FACES.FACE_TR_HOP) {
+      const [scope = '', unplacedWhy = ''] = row.strings[7].split('\n');
+      hops.push({
+        n: parseCount(row.strings[0], 'trace hop number'),
+        kind: row.strings[1] as TraceHop['kind'],
+        title: row.strings[2],
+        detail: lines(row.strings[3]),
+        nodes: lines(row.strings[4]),
+        why: row.strings[5],
+        source: row.strings[6],
+        scope,
+        policies: [],
+        unplaced: [],
+        unplacedWhy,
+      });
+    } else if (row.role === FACES.FACE_TR_POL) {
+      const hop = hops[hops.length - 1];
+      if (!hop) {
+        throw new Error('OP_TRACE reply: FACE_TR_POL arrived before any FACE_TR_HOP');
+      }
+      const state = row.strings[5] as TracePolicy['state'];
+      const policy: TracePolicy = {
+        id: row.strings[1],
+        ordinal: row.strings[2],
+        name: row.strings[3],
+        action: row.strings[4],
+        state,
+        reason: row.strings[6],
+        couldAffect: state !== "doesn't match",
+      };
+      (row.strings[7] === 'unplaced' ? hop.unplaced : hop.policies).push(policy);
+    } else {
+      throw new Error(`OP_TRACE reply: unexpected role ${row.role} (${row.roleName ?? 'unknown'})`);
+    }
+  }
+  return { from: head.strings[0], to: head.strings[1], flow: head.strings[2], stopped: head.strings[3], hops };
+}
+
 // --- OP_INSIDE (opcode 26), UI-SPEC "Inside a box" -------------------------
 //
 // `crates/fathom-wasm/src/protocol.rs`'s `encode_inside_reply`: one
@@ -189,10 +282,9 @@ export interface InsidePolicy {
 
 /** One `FACE_IN_SET` row, with its `FACE_IN_POLICY` children already in
  * device order — "a policy set is a stack with an ordinal rail — a rack of
- * rules" (UI-SPEC "Inside a box"). `scope` is empty in this build:
- * `tests/inside.rs`'s `a_policy_set_cannot_name_the_zone_pair_it_governs`,
- * `PolicyScope` has no shape yet, so this client draws nothing rather than
- * inventing one. */
+ * rules" (UI-SPEC "Inside a box"). `scope` is the zone pair in the device's words
+ * ("from trust to untrust"), empty where the set records none (an OPNsense rules
+ * paste), so this client draws nothing rather than inventing one. */
 export interface InsidePolicySet {
   id: string;
   scope: string;
@@ -797,6 +889,13 @@ export class Engine {
     const req = new TextEncoder().encode(deviceId);
     const rows = this.callFaces(OPCODES.OP_INSIDE, req);
     return readInsideReply(rows);
+  }
+
+  /** `OP_TRACE`: one flow's path. `flow` is `{ protocol, port }` (6 is TCP, 17 UDP), or omitted. A trace
+   * that stops short still returns; `stopped` says why. */
+  trace(from: string, to: string, flow?: { protocol: number; port: number }): TraceResult {
+    const req = new TextEncoder().encode(`${from}\n${to}\n${flow ? `${flow.protocol} ${flow.port}` : ''}`);
+    return readTraceReply(this.callFaces(OPCODES.OP_TRACE, req));
   }
 
   /** `OP_CHECKS`: the standing findings over the estate the module holds (`Mirror.load` puts it there). */

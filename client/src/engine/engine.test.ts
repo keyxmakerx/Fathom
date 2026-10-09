@@ -377,6 +377,32 @@ describe('OP_INSIDE (26)', () => {
   });
 });
 
+// `OP_TRACE` (opcode 35), decoded by `Engine.trace`. A paste makes one device with no cables, so the trace walks
+// its route and firewall hop and stops at the port behind the interface, said in words.
+describe('OP_TRACE (35)', () => {
+  const TRACE_PASTE = [
+    'set interfaces ge-0/0/0 unit 0 family inet address 203.0.113.2/30',
+    'set routing-options static route 198.51.100.0/24 next-hop 203.0.113.1',
+    'set security zones security-zone untrust interfaces ge-0/0/0.0',
+  ].join('\n');
+
+  it('decodes the hops and stops where the design stops', () => {
+    const deviceId = placeDevice('srx-trace-01', 'junos-srx');
+    engine.pasteInto(deviceId, TRACE_PASTE);
+    const t = engine.trace(deviceId, '198.51.100.77', { protocol: 6, port: 443 });
+    expect(t.flow).toBe('TCP 443');
+    expect(t.hops.map((h) => h.kind)).toEqual(['start', 'device', 'stop']);
+    expect(t.hops[1]!.detail.join(' ')).toContain('static route 198.51.100.0/24 via 203.0.113.1');
+    expect(t.stopped).toContain('is not tied to a port');
+    const everything = JSON.stringify(t).toLowerCase();
+    for (const w of ['permitted', 'denied', 'allowed', 'blocked', 'reachable']) expect(everything).not.toContain(w);
+  });
+
+  it('a start it cannot read is said in the head, not thrown', () => {
+    expect(engine.trace('not an id', '198.51.100.77').stopped).toContain('could not read');
+  });
+});
+
 // ADR-0053 §6 — the redaction gate alone, for a pasted note. `OP_REDACT_TEXT`
 // (opcode 31) is landing on the Rust side in parallel with this client slice;
 // if this build of `fathom_wasm.wasm` predates it, the module answers

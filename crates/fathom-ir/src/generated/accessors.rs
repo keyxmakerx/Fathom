@@ -627,7 +627,7 @@ mod body {
     /// Typed reads for `PolicySet` fields.
     pub mod policy_set {
         /// `PolicySet.scope` — `PolicyScope`, card `1`, emit `R`.
-        /// ZonePair / InterfaceDirection / Global / Vsys. Registered contains_reference.
+        /// ZonePair / InterfaceDirection / Global (Vsys is not shaped). Registered contains_reference.
         pub fn scope<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::value::PolicyScope, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(113))
         }
@@ -666,6 +666,11 @@ mod body {
         pub fn match_any_destination<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&bool, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(120))
         }
+        /// `SecurityPolicy.match_any_application` — `bool`, card `0..1`, emit `R`.
+        /// Set(true) means the vendor's any keyword for applications (Junos match application any).
+        pub fn match_any_application<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&bool, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(383))
+        }
         /// `SecurityPolicy.log_init` — `bool`, card `0..1`, emit `O`.
         pub fn log_init<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&bool, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(121))
@@ -699,7 +704,7 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(127))
         }
         /// `AddressObject.value` — `AddressValue`, card `1`, emit `R`.
-        /// Prefix / Range / Dns / Wildcard.
+        /// Prefix / Range / Host / Fqdn / Any.
         pub fn value<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::value::AddressValue, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(128))
         }
@@ -1940,42 +1945,55 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(380))
         }
     }
+    /// Typed reads for `FieldValue` fields.
+    pub mod field_value {
+        /// `FieldValue.definition` — `Text`, card `1`, emit `—`.
+        /// The organisation's field-definition id this value fills.
+        pub fn definition<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(382))
+        }
+        /// `FieldValue.value` — `Text`, card `1`, emit `—`.
+        /// The value as text.
+        pub fn value<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(381))
+        }
+    }
     /// Typed reads for `Issue` fields.
     pub mod issue {
         /// `Issue.title` — `Text`, card `1`, emit `—`.
         /// What the issue is called.
         pub fn title<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(381))
+            crate::bag::typed(bag, crate::bag::FieldKey(390))
         }
         /// `Issue.device` — `Text`, card `1`, emit `—`.
         /// Design id of the device that is down.
         pub fn device<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(382))
+            crate::bag::typed(bag, crate::bag::FieldKey(391))
         }
         /// `Issue.author` — `Text`, card `0..1`, emit `—`.
         /// Who ran the checks.
         pub fn author<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(383))
+            crate::bag::typed(bag, crate::bag::FieldKey(392))
         }
         /// `Issue.opened_at` — `Text`, card `1`, emit `—`.
         /// When it was opened, as an ISO time.
         pub fn opened_at<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(384))
+            crate::bag::typed(bag, crate::bag::FieldKey(393))
         }
         /// `Issue.stage` — `enum { open, closed }`, card `1`, emit `—`.
         /// Where the issue is.
         pub fn stage<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::IssueStage, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(385))
+            crate::bag::typed(bag, crate::bag::FieldKey(394))
         }
         /// `Issue.outcome` — `Text`, card `0..1`, emit `—`.
         /// Where the answers point, frozen when saved, and anything typed.
         pub fn outcome<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(386))
+            crate::bag::typed(bag, crate::bag::FieldKey(395))
         }
         /// `Issue.plan` — `Text`, card `0..1`, emit `—`.
         /// Design id of a maintenance plan made from it.
         pub fn plan<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(387))
+            crate::bag::typed(bag, crate::bag::FieldKey(396))
         }
     }
     /// Typed reads for `IssueStep` fields.
@@ -1983,42 +2001,42 @@ mod body {
         /// `IssueStep.ordinal` — `u32`, card `1`, emit `—`.
         /// Position in the issue. Steps are asked in this order.
         pub fn ordinal<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(388))
+            crate::bag::typed(bag, crate::bag::FieldKey(397))
         }
         /// `IssueStep.topic` — `enum { power, neighbours, link, port, address, gateway, other }`, card `1`, emit `—`.
         /// What the step checks.
         pub fn topic<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::IssueStepTopic, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(389))
+            crate::bag::typed(bag, crate::bag::FieldKey(398))
         }
         /// `IssueStep.question` — `Text`, card `1`, emit `—`.
         /// The question asked.
         pub fn question<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(390))
+            crate::bag::typed(bag, crate::bag::FieldKey(399))
         }
         /// `IssueStep.detail` — `Text`, card `0..1`, emit `—`.
         /// What to look at.
         pub fn detail<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(391))
+            crate::bag::typed(bag, crate::bag::FieldKey(400))
         }
         /// `IssueStep.targets` — `Text`, card `0..1`, emit `—`.
         /// Design ids of what the step lights, one per line.
         pub fn targets<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(392))
+            crate::bag::typed(bag, crate::bag::FieldKey(401))
         }
         /// `IssueStep.answer` — `enum { unanswered, ok, not_ok, cant_tell }`, card `1`, emit `—`.
         /// The answer given.
         pub fn answer<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::IssueStepAnswer, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(393))
+            crate::bag::typed(bag, crate::bag::FieldKey(402))
         }
         /// `IssueStep.note` — `Text`, card `0..1`, emit `—`.
         /// What the person saw, typed.
         pub fn note<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(394))
+            crate::bag::typed(bag, crate::bag::FieldKey(403))
         }
         /// `IssueStep.answered_at` — `Text`, card `0..1`, emit `—`.
         /// When it was answered, as an ISO time.
         pub fn answered_at<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(395))
+            crate::bag::typed(bag, crate::bag::FieldKey(404))
         }
     }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
@@ -2409,19 +2427,22 @@ mod body {
             380 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             381 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             382 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
-            383 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
-            384 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
-            385 => Some((core::any::TypeId::of::<crate::generated::ir_types::IssueStage>(), "crate::generated::ir_types::IssueStage")),
-            386 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
-            387 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
-            388 => Some((core::any::TypeId::of::<u32>(), "u32")),
-            389 => Some((core::any::TypeId::of::<crate::generated::ir_types::IssueStepTopic>(), "crate::generated::ir_types::IssueStepTopic")),
+            383 => Some((core::any::TypeId::of::<bool>(), "bool")),
             390 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             391 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             392 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
-            393 => Some((core::any::TypeId::of::<crate::generated::ir_types::IssueStepAnswer>(), "crate::generated::ir_types::IssueStepAnswer")),
-            394 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            393 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            394 => Some((core::any::TypeId::of::<crate::generated::ir_types::IssueStage>(), "crate::generated::ir_types::IssueStage")),
             395 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            396 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            397 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            398 => Some((core::any::TypeId::of::<crate::generated::ir_types::IssueStepTopic>(), "crate::generated::ir_types::IssueStepTopic")),
+            399 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            400 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            401 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            402 => Some((core::any::TypeId::of::<crate::generated::ir_types::IssueStepAnswer>(), "crate::generated::ir_types::IssueStepAnswer")),
+            403 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            404 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             _ => None,
         }
     }
@@ -2812,19 +2833,22 @@ mod body {
             380 => crate::canon::slot_to::<crate::scalar::Text>(380, "crate::scalar::Text", value),
             381 => crate::canon::slot_to::<crate::scalar::Text>(381, "crate::scalar::Text", value),
             382 => crate::canon::slot_to::<crate::scalar::Text>(382, "crate::scalar::Text", value),
-            383 => crate::canon::slot_to::<crate::scalar::Text>(383, "crate::scalar::Text", value),
-            384 => crate::canon::slot_to::<crate::scalar::Text>(384, "crate::scalar::Text", value),
-            385 => crate::canon::slot_to::<crate::generated::ir_types::IssueStage>(385, "crate::generated::ir_types::IssueStage", value),
-            386 => crate::canon::slot_to::<crate::scalar::Text>(386, "crate::scalar::Text", value),
-            387 => crate::canon::slot_to::<crate::scalar::Text>(387, "crate::scalar::Text", value),
-            388 => crate::canon::slot_to::<u32>(388, "u32", value),
-            389 => crate::canon::slot_to::<crate::generated::ir_types::IssueStepTopic>(389, "crate::generated::ir_types::IssueStepTopic", value),
+            383 => crate::canon::slot_to::<bool>(383, "bool", value),
             390 => crate::canon::slot_to::<crate::scalar::Text>(390, "crate::scalar::Text", value),
             391 => crate::canon::slot_to::<crate::scalar::Text>(391, "crate::scalar::Text", value),
             392 => crate::canon::slot_to::<crate::scalar::Text>(392, "crate::scalar::Text", value),
-            393 => crate::canon::slot_to::<crate::generated::ir_types::IssueStepAnswer>(393, "crate::generated::ir_types::IssueStepAnswer", value),
-            394 => crate::canon::slot_to::<crate::scalar::Text>(394, "crate::scalar::Text", value),
+            393 => crate::canon::slot_to::<crate::scalar::Text>(393, "crate::scalar::Text", value),
+            394 => crate::canon::slot_to::<crate::generated::ir_types::IssueStage>(394, "crate::generated::ir_types::IssueStage", value),
             395 => crate::canon::slot_to::<crate::scalar::Text>(395, "crate::scalar::Text", value),
+            396 => crate::canon::slot_to::<crate::scalar::Text>(396, "crate::scalar::Text", value),
+            397 => crate::canon::slot_to::<u32>(397, "u32", value),
+            398 => crate::canon::slot_to::<crate::generated::ir_types::IssueStepTopic>(398, "crate::generated::ir_types::IssueStepTopic", value),
+            399 => crate::canon::slot_to::<crate::scalar::Text>(399, "crate::scalar::Text", value),
+            400 => crate::canon::slot_to::<crate::scalar::Text>(400, "crate::scalar::Text", value),
+            401 => crate::canon::slot_to::<crate::scalar::Text>(401, "crate::scalar::Text", value),
+            402 => crate::canon::slot_to::<crate::generated::ir_types::IssueStepAnswer>(402, "crate::generated::ir_types::IssueStepAnswer", value),
+            403 => crate::canon::slot_to::<crate::scalar::Text>(403, "crate::scalar::Text", value),
+            404 => crate::canon::slot_to::<crate::scalar::Text>(404, "crate::scalar::Text", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -3213,19 +3237,22 @@ mod body {
             380 => crate::canon::slot_from::<crate::scalar::Text>(j),
             381 => crate::canon::slot_from::<crate::scalar::Text>(j),
             382 => crate::canon::slot_from::<crate::scalar::Text>(j),
-            383 => crate::canon::slot_from::<crate::scalar::Text>(j),
-            384 => crate::canon::slot_from::<crate::scalar::Text>(j),
-            385 => crate::canon::slot_from::<crate::generated::ir_types::IssueStage>(j),
-            386 => crate::canon::slot_from::<crate::scalar::Text>(j),
-            387 => crate::canon::slot_from::<crate::scalar::Text>(j),
-            388 => crate::canon::slot_from::<u32>(j),
-            389 => crate::canon::slot_from::<crate::generated::ir_types::IssueStepTopic>(j),
+            383 => crate::canon::slot_from::<bool>(j),
             390 => crate::canon::slot_from::<crate::scalar::Text>(j),
             391 => crate::canon::slot_from::<crate::scalar::Text>(j),
             392 => crate::canon::slot_from::<crate::scalar::Text>(j),
-            393 => crate::canon::slot_from::<crate::generated::ir_types::IssueStepAnswer>(j),
-            394 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            393 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            394 => crate::canon::slot_from::<crate::generated::ir_types::IssueStage>(j),
             395 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            396 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            397 => crate::canon::slot_from::<u32>(j),
+            398 => crate::canon::slot_from::<crate::generated::ir_types::IssueStepTopic>(j),
+            399 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            400 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            401 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            402 => crate::canon::slot_from::<crate::generated::ir_types::IssueStepAnswer>(j),
+            403 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            404 => crate::canon::slot_from::<crate::scalar::Text>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

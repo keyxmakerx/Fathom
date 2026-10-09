@@ -78,16 +78,18 @@ fn shipped_tree_declaration_counts_hold() {
     // ADR-0061 round 7 docs (schema 0.14): +3 kinds, +4 edges, +1 class, +13 field keys (351-363).
     // ADR-0061 round 7 plans (schema 0.15): +2 kinds (`MaintenancePlan`, `PlanStep`), +2 edges
     // (`HasPlan`, `HasStep`), +17 field keys (364-380).
-    // ADR-0061 troubleshooting (schema 0.17): +2 kinds (`Issue`, `IssueStep`), +2 edges (`HasIssue`,
-    // `HasIssueStep`), +15 field keys (381-395).
-    assert_eq!(tree.kinds.len(), 68, "kind count");
-    assert_eq!(tree.edges.len(), 119, "edge count (100 + 8 derived)");
+    // ADR-0061 troubleshooting (schema 0.18): +2 kinds (`Issue`, `IssueStep`), +2 edges (`HasIssue`,
+    // `HasIssueStep`), +15 field keys (390-404).
+    assert_eq!(tree.kinds.len(), 69, "kind count");
+    assert_eq!(tree.edges.len(), 120, "edge count (103 + 8 derived)");
+    // Custom-field values (2026-10-02, schema 0.16): +1 kind (`FieldValue`), +1 edge
+    // (`HasFieldValue`), +1 CLASS (`Fieldable`), +2 field keys (380 -> 382).
     assert_eq!(tree.scalars.len(), 61, "scalar count");
     assert_eq!(tree.enums.len(), 10, "enum file count");
-    assert_eq!(tree.classes.len(), 7, "class count");
+    assert_eq!(tree.classes.len(), 8, "class count");
     assert_eq!(tree.import_scopes.len(), 4, "import scope count");
     let fk = tree.field_keys.as_ref().expect("registry loads");
-    assert_eq!(fk.entries.len(), 395, "field-key registry entries");
+    assert_eq!(fk.entries.len(), 398, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -157,7 +159,9 @@ fn shipped_tree_declaration_counts_hold() {
     // (`Tag`, 58 -> 59), +2 edges (`HasTag`, `TaggedWith`, 106 -> 108), +1 class
     // (`Taggable`, 5 -> 6), +1 field key (`Tag.name`, 342 -> 343). Scalars, enum
     // FILE count and import scopes are unmoved -- `Tag.name` reuses `Text`.
-    assert_eq!(tree.version.as_deref(), Some("0.17"));
+    //
+    // 0.15 -> 0.16 is custom-field values and moves the same four counts, as noted above.
+    assert_eq!(tree.version.as_deref(), Some("0.18"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

@@ -43,11 +43,11 @@ export const PLAIN_WARNING =
   'THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.';
 export { SCHEMA_VERSION };
 
-// Every 0.10-to-0.17 move is additive, so a payload declared at an older
+// Every 0.10-to-0.18 move is additive, so a payload declared at an older
 // version reads exactly like a current one. Every older version this reader
 // still opens, and no other -- byte-identical to
 // `fathom_workspace::ACCEPTED_OLDER_SCHEMA_VERSIONS`.
-export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12', '0.13', '0.14', '0.15', '0.16'];
+export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12', '0.13', '0.14', '0.15', '0.16', '0.17'];
 
 // Kinds 0.11 (ADR-0058) added. A payload declared at 0.10 cannot
 // legitimately hold one -- its editor never had the kind -- so finding one
@@ -80,9 +80,13 @@ const EDGE_KINDS_SINCE_0_14: ReadonlySet<EdgeKind> = new Set(['HasDoc', 'DocOn',
 const NODE_KINDS_SINCE_0_15: ReadonlySet<NodeKind> = new Set(['MaintenancePlan', 'PlanStep']);
 const EDGE_KINDS_SINCE_0_15: ReadonlySet<EdgeKind> = new Set(['HasPlan', 'HasStep']);
 
-// Kinds 0.17 (ADR-0061 troubleshooting) added; every accepted older header is too old for them.
-const NODE_KINDS_SINCE_0_17: ReadonlySet<NodeKind> = new Set(['Issue', 'IssueStep']);
-const EDGE_KINDS_SINCE_0_17: ReadonlySet<EdgeKind> = new Set(['HasIssue', 'HasIssueStep']);
+// Kinds 0.16 (custom-field values) added; same reasoning, for 0.10 to 0.15.
+const NODE_KINDS_SINCE_0_16: ReadonlySet<NodeKind> = new Set(['FieldValue']);
+const EDGE_KINDS_SINCE_0_16: ReadonlySet<EdgeKind> = new Set(['HasFieldValue']);
+
+// Kinds 0.18 (ADR-0061 troubleshooting) added; every accepted older header is too old for them.
+const NODE_KINDS_SINCE_0_18: ReadonlySet<NodeKind> = new Set(['Issue', 'IssueStep']);
+const EDGE_KINDS_SINCE_0_18: ReadonlySet<EdgeKind> = new Set(['HasIssue', 'HasIssueStep']);
 
 // A kind first added at minor `m` is too new for any header below `m`. Mirrors the Rust table.
 const NODES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<NodeKind>]> = [
@@ -91,7 +95,8 @@ const NODES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<NodeKind>]> = [
   [13, NODE_KINDS_SINCE_0_13],
   [14, NODE_KINDS_SINCE_0_14],
   [15, NODE_KINDS_SINCE_0_15],
-  [17, NODE_KINDS_SINCE_0_17],
+  [16, NODE_KINDS_SINCE_0_16],
+  [18, NODE_KINDS_SINCE_0_18],
 ];
 const EDGES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<EdgeKind>]> = [
   [11, EDGE_KINDS_SINCE_0_11],
@@ -99,7 +104,8 @@ const EDGES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<EdgeKind>]> = [
   [13, EDGE_KINDS_SINCE_0_13],
   [14, EDGE_KINDS_SINCE_0_14],
   [15, EDGE_KINDS_SINCE_0_15],
-  [17, EDGE_KINDS_SINCE_0_17],
+  [16, EDGE_KINDS_SINCE_0_16],
+  [18, EDGE_KINDS_SINCE_0_18],
 ];
 
 function rejectKindsTooNewForDeclaredVersion(declared: string, doc: Document): void {

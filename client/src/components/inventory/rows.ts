@@ -94,8 +94,20 @@ export function deviceNodeIds(chassis: ChassisView): string[] {
  * pair today, but this reads honestly rather than assuming one always
  * will). A node id this document does not have is silently skipped, the
  * same "absent, not an error" reading `findNode` callers elsewhere use. */
+const PROV_INDEX = new WeakMap<object, Map<string, { assertedAt: number }>>();
+
+/** Provenance by id, built once per document: a list of thousands asks for it once per row. */
+function provenanceById(doc: Document): Map<string, { assertedAt: number }> {
+  let m = PROV_INDEX.get(doc.provenance);
+  if (!m) {
+    m = new Map(doc.provenance.map((p) => [p.id, p]));
+    PROV_INDEX.set(doc.provenance, m);
+  }
+  return m;
+}
+
 export function lastChangeMs(doc: Document, nodeIds: readonly string[]): number | null {
-  const provById = new Map(doc.provenance.map((p) => [p.id, p]));
+  const provById = provenanceById(doc);
   let latest: number | null = null;
   for (const nodeId of nodeIds) {
     const node = findNode(doc, nodeId);
@@ -173,8 +185,14 @@ export function occupantPowerLabel(ports: readonly PortView[]): string {
  * fibre 2." `ABSENT` when the device carries no cable at all. Counts
  * distinct cables, not port ends (a cable with both ends on the same
  * device would otherwise count twice for one physical lead). */
+const KIND_INDEX = new WeakMap<object, Map<string, CableView['kind']>>();
+
 export function cablesByKindText(ports: readonly PortView[], cables: readonly CableView[]): string {
-  const kindById = new Map(cables.map((c) => [c.id, c.kind]));
+  let kindById = KIND_INDEX.get(cables);
+  if (!kindById) {
+    kindById = new Map(cables.map((c) => [c.id, c.kind]));
+    KIND_INDEX.set(cables, kindById);
+  }
   const seen = new Set<string>();
   const counts: Record<CableView['kind'], number> = { copper: 0, fibre: 0, power: 0 };
   for (const port of ports) {

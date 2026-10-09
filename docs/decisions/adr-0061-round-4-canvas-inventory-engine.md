@@ -159,16 +159,16 @@ Still open: private custom fields (#93 builds shared fields only).
 - **Network icons** are drawn in outline, in ink, like the rest of the canvas.
 - **Cable corrections** can be sent by anyone with Read on the place; no new access level. Someone
   with Draw accepts or dismisses; both are recorded with the sender's name.
-- **People and access:** one invite flow, but confirming each person who joins one at a time was
-  sent back as too tedious. Access is still signed only after the person joins, because the grant
-  names their own key (PHASE-2 design §6.4: no grant to an account without a registered key; batches are capped and listed); a
-  capped, listed batch confirm is the way to make it quick. Recorded once answered.
+- **People and access:** one invite flow (name, what they can do, folder; a one-time link the
+  steward sends). People who join wait on an Organisation > "Waiting for you" screen, where a
+  steward confirms everyone ticked at once. Access is signed only after the person joins, because
+  the grant names their own key (PHASE-2 design §6.4); a batch is capped and listed before signing.
 - **Design defaults** (design thread): pasted interfaces join drawn ports only by a confirmed
   suggestion (the `Occupies` rule); suggestions come only from cited, dated vendor naming.
 
 ## Troubleshooting, built 2026-10-03
 
-"It's down" as the round 7 note describes it, on schema 0.17.
+"It's down" as the round 7 note describes it, on schema 0.18 (field keys 390-404).
 - **Stored:** an `Issue` (title, author, opened, outcome, stage open or closed) with ordered `IssueStep`
   nodes (question, detail, answer, note, targets, answered-at), joined by `HasIssue` and `HasIssueStep`.
   Layer physical, emits nothing. A saved issue is a record: answers are not edited, only "Mark closed".

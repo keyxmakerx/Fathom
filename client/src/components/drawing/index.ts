@@ -4,6 +4,8 @@ export type {
   DrawingActions,
   EditorActions,
   EditorChange,
+  FieldRow,
+  FieldsActions,
   InletView,
   NoteHow,
   NoteView,
@@ -18,5 +20,5 @@ export type {
   TagSummary,
 } from './contract';
 export { Drawing, type DrawingProps } from './Drawing';
-export { EditorFor } from './Editor';
+export { EditorFor, FieldsSection, NotesSection, TagsSection } from './Editor';
 export { Palette, type PaletteProps } from './Palette';
