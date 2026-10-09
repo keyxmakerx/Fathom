@@ -645,6 +645,8 @@ export function InventoryPlace(props: InventoryPlaceProps) {
         tab={ls.tab}
         onTab={(t) => go({ tab: t })}
         corrections={correctionsApi}
+        onApply={canDraw ? applyDocChange : undefined}
+        actor={ctx.actor ?? undefined}
       />
     ) : null;
 

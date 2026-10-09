@@ -133,11 +133,11 @@ export function PasteCard({ state, onText, onPlatform, onChoose, onCancel }: Pas
               </label>
             )}
             {preview.match === null ? (
-              <span>It will be added as a new device.</span>
+              <span>It will be added as a new device, with a port for each physical interface, tied to it.</span>
             ) : (
               <label>
                 <input type="radio" name="paste-choice" checked={choice === 'add'} onChange={() => setChoice('add')} />
-                Add as a new device
+                Add as a new device, with a port for each physical interface
               </label>
             )}
           </fieldset>

@@ -5,7 +5,7 @@ import { useState } from 'react';
 import type { JSX } from 'react';
 
 import type { TraceHop, TracePolicy } from '../../engine/engine';
-import { endLine, hiddenCount, readingAs, visiblePolicies } from './traceModel';
+import { endLine, hiddenCount, readingAs, untiedStop, visiblePolicies } from './traceModel';
 import type { TraceController } from './useTraceController';
 import './trace.css';
 
@@ -88,10 +88,11 @@ function Hop({ hop, only }: { hop: TraceHop; only: boolean }): JSX.Element {
   );
 }
 
-export function TracePanel({ controller }: { controller: TraceController }): JSX.Element | null {
+export function TracePanel({ controller, onTie }: { controller: TraceController; onTie?: (deviceId: string) => void }): JSX.Element | null {
   const [only, setOnly] = useState(false);
   const { from, result, query, target } = controller;
   if (from == null) return null;
+  const untied = result != null && onTie != null ? untiedStop(result) : null;
   const reading = readingAs(query, target?.label ?? null);
   return (
     <aside
@@ -176,6 +177,14 @@ export function TracePanel({ controller }: { controller: TraceController }): JSX
             ))}
           </ol>
           {result.stopped === '' && <p className="trace-end">{endLine(result)}</p>}
+          {untied != null && (
+            <p className="trace-end">
+              Not tied to a port ·{' '}
+              <button type="button" className="trace-link" onClick={() => onTie?.(untied)} data-testid="trace-tie">
+                Tie ports
+              </button>
+            </p>
+          )}
         </>
       )}
     </aside>

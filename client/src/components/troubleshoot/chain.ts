@@ -3,6 +3,7 @@
 // is missing the step says Fathom does not know, and is still answerable. Fathom never names a cause: a step
 // carries the parts that would be suspect if it fails and the tests that would tell them apart (pointing.ts).
 import { deriveNetworks } from '../../document/networks-derive';
+import { tiePlan } from '../../document/portTies';
 import {
   asString,
   edgesIn,
@@ -36,6 +37,8 @@ export interface ChainStep {
   known: boolean;
   suspects: Suspect[];
   tests: string[];
+  /** A device whose pasted interfaces are not tied to its ports, so this step cannot read them: offer "Tie ports". */
+  tie?: string;
 }
 
 export interface Chain {
@@ -402,6 +405,7 @@ export function buildChain(doc: Document, deviceId: string): Chain {
     if (farDevice !== '') {
       const facts = networkFacts(doc, deviceId, up.cable, farDevice);
       const iface = edgesIn(doc, up.far.port, 'Occupies')[0]?.from;
+      const untied = iface === undefined && (tiePlan(doc, farDevice, [])?.rows.length ?? 0) > 0;
       const adminUp = iface === undefined ? undefined : fieldValue(live(doc, iface)?.fields ?? {}, 'Interface.admin_up');
       const vlan = facts.vlan !== undefined ? `VLAN ${facts.vlan}` : '';
       steps.push({
@@ -411,13 +415,14 @@ export function buildChain(doc: Document, deviceId: string): Chain {
           adminUp === false
             ? `Fathom has ${farWord} recorded as switched off.`
             : vlan === ''
-              ? `Fathom has no VLAN recorded for ${farWord}.`
+              ? `Fathom has no VLAN recorded for ${farWord}.${untied ? ` ${sw}'s pasted interfaces are not tied to a port.` : ''}`
               : `Fathom has it ${facts.mode === 'trunk' ? 'as a trunk' : 'as an access port'} in ${vlan}.`,
         targets: unique([farDevice, up.far.port, up.cable]),
         why: [FIXED.port, WHY_RULES['l2.vlan.access-mismatch'], WHY_RULES['l2.vlan.trunk-missing']],
         known: iface !== undefined || vlan !== '',
         suspects: [{ label: `the setup of ${farWord} on ${sw}`, id: up.far.port }],
         tests: [`Check ${farWord} is enabled${vlan !== '' ? ` and in ${vlan}` : ''} on ${sw}`],
+        ...(untied ? { tie: farDevice } : {}),
       });
     }
   }

@@ -1,0 +1,37 @@
+/* Port ties: tokens only, hairlines, no radius or shadow (the paste card's own language). */
+.ties__head {
+  font-size: var(--t-small);
+  font-weight: 700;
+  margin: 0 0 var(--s2);
+}
+.ties__sub {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--track-label);
+  color: var(--muted);
+  margin: var(--s3) 0 var(--s1);
+}
+.ties__note {
+  margin: var(--s2) 0;
+}
+.ties__muted {
+  color: var(--muted);
+}
+.ties__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.ties__open {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+.ties__name {
+  font-family: var(--mono);
+}

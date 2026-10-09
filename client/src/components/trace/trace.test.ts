@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { TraceHop, TracePolicy, TraceResult } from '../../engine/engine';
 import { TracePanel } from './TracePanel';
-import { endLine, hiddenCount, hopNumbers, parseFlow, pathKeys, readAddress, readingAs, VERDICT_WORDS, visiblePolicies } from './traceModel';
+import { endLine, hiddenCount, hopNumbers, parseFlow, pathKeys, readAddress, readingAs, untiedStop, VERDICT_WORDS, visiblePolicies } from './traceModel';
 import { createTraceStore } from './traceStore';
 import type { TraceController } from './useTraceController';
 
@@ -172,5 +172,25 @@ describe('the look', () => {
     expect(css).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     expect(css).not.toMatch(/\b(rgb|rgba|hsl|hsla|oklch)\(/);
     expect(css).toContain('var(--ink)');
+  });
+});
+
+describe('a stop at an interface not tied to a port', () => {
+  const stoppedAt = (): TraceResult => ({
+    ...result(),
+    stopped: 'ge-0/0/1.0 is not tied to a port, so the cable it leaves by could not be established',
+    hops: [result().hops[0], result().hops[1], hop({ n: 3, kind: 'stop', title: 'could not establish', nodes: [] })],
+  });
+
+  it('names the device before the stop, and nothing for any other stop', () => {
+    expect(untiedStop(stoppedAt())).toBe('device:01M4067EA712RDAY2P182YNR94');
+    expect(untiedStop({ ...stoppedAt(), stopped: 'no route to 10.8.0.5' })).toBeNull();
+    expect(untiedStop(result())).toBeNull();
+  });
+
+  it('offers Tie ports only where the panel can write', () => {
+    const c = controller({ result: stoppedAt() });
+    expect(renderToStaticMarkup(createElement(TracePanel, { controller: c, onTie: () => undefined }))).toContain('Tie ports');
+    expect(renderToStaticMarkup(createElement(TracePanel, { controller: c }))).not.toContain('Tie ports');
   });
 });
