@@ -179,7 +179,10 @@ fn schema_version_is_the_trees() {
     //
     // 0.16 -> 0.17: ADR-0061 path trace, part 1. One field, `SecurityPolicy.match_any_application`
     // (383); five structured value types get shapes; all MINOR.
-    assert_eq!(SCHEMA_VERSION, "0.17");
+    //
+    // 0.17 -> 0.18: ADR-0061 troubleshooting. Two node kinds (`Issue`, `IssueStep`), two edge kinds
+    // (`HasIssue`, `HasIssueStep`), fifteen field keys (390-404); all MINOR.
+    assert_eq!(SCHEMA_VERSION, "0.18");
 }
 
 #[test]
@@ -703,7 +706,7 @@ fn dispatch_names_every_registry_key() {
     // `FieldValue.definition` (382).
     //
     // 382 -> 383: path trace's `SecurityPolicy.match_any_application` (383).
-    assert_eq!(FIELD_KEYS.len(), 383, "the registry grew or shrank");
+    assert_eq!(FIELD_KEYS.len(), 398, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

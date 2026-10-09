@@ -21,8 +21,8 @@ import { formatLastChange, groupDeviceRows, whereText, type DeviceRow } from './
 import type { Place, PlaceIndex } from './placeIndex';
 import type { FacetSpec } from './rowQuery';
 
-export type Kind = 'devices' | 'ports' | 'racks' | 'cables' | 'networks' | 'prefixes' | 'vlans' | 'addresses';
-/** The side list's kinds in quiet groups. Docs, Maintenance and Issues are not built, so not listed. */
+export type Kind = 'devices' | 'ports' | 'racks' | 'cables' | 'networks' | 'prefixes' | 'vlans' | 'addresses' | 'issues';
+/** The side list's kinds in quiet groups. Docs and Maintenance are not built, so not listed. Issues has its own body. */
 export const KIND_GROUPS: ReadonlyArray<ReadonlyArray<{ key: Kind; label: string }>> = [
   [
     { key: 'devices', label: 'Devices' },
@@ -36,6 +36,7 @@ export const KIND_GROUPS: ReadonlyArray<ReadonlyArray<{ key: Kind; label: string
     { key: 'vlans', label: 'VLANs' },
     { key: 'addresses', label: 'Addresses' },
   ],
+  [{ key: 'issues', label: 'Issues' }],
 ];
 export const KINDS: ReadonlyArray<{ key: Kind; label: string }> = KIND_GROUPS.flat();
 export const isKind = (s: string): s is Kind => KINDS.some((k) => k.key === s);
@@ -194,6 +195,7 @@ const CORE_COLUMNS: Record<Kind, readonly Column[]> = {
     core('cable', 'Cable to', 190),
   ],
   networks: [],
+  issues: [],
   prefixes: [
     core('prefix', 'Prefix', 150),
     core('vlan', 'VLAN', 130),

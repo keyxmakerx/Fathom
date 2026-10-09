@@ -3,6 +3,9 @@ import { useState, type FormEvent } from 'react';
 import { signIn } from '../api/auth';
 import { PRINCIPAL_KIND_OPERATOR, PRINCIPAL_KIND_STEWARD, type PrincipalKind } from '../api/constants';
 import { ApiRefusal } from '../api/errors';
+import { spacedCode } from '../api/grantBytes';
+import { keyCheckCode } from '../api/joining';
+import { markJoinedFromInvitation } from '../state/waitingInvitee';
 import {
   EnrolmentNotAttemptedError,
   EnrolmentOutcomeUnknownError,
@@ -19,6 +22,9 @@ type Stage =
   | { kind: 'form' }
   | { kind: 'enrolling' }
   | { kind: 'signing-in' }
+  // An invitation redeemed: the key is enrolled. The person reads this code to
+  // whoever invited them, then goes on to sign in.
+  | { kind: 'joined'; principal: string; code: string | null }
   // Redemption was confirmed OK, but the follow-on sign-in did not complete.
   | { kind: 'enrolled-sign-in-failed'; principal: string; principalKind: PrincipalKind; detail: string }
   // Redemption's outcome could not be confirmed either way, and the sign-in
@@ -122,7 +128,7 @@ export function Enrol({ onUseExistingKey, initialToken }: EnrolProps = {}) {
         : PRINCIPAL_KIND_STEWARD;
     const isOperator = principalKind === PRINCIPAL_KIND_OPERATOR;
     if (!isOperator && trimmedAddress.length === 0) {
-      setRefusal('An invitation is redeemed with the address it was sent to.');
+      setRefusal('Type the sign-in name you were sent with the link.');
       return;
     }
 
@@ -157,7 +163,7 @@ export function Enrol({ onUseExistingKey, initialToken }: EnrolProps = {}) {
         // exactly as usable as before this attempt, so the field is left
         // as typed rather than cleared.
         setStage({ kind: 'form' });
-        setRefusal(describeRefusal(error, parsed.kind === null && isOperator));
+        setRefusal(describeRefusal(error, parsed.kind === null && isOperator, parsed.kind === 'steward'));
         return;
       }
     }
@@ -184,6 +190,14 @@ export function Enrol({ onUseExistingKey, initialToken }: EnrolProps = {}) {
     // that refusal deletes is one an operator can replace by reissuing the
     // invitation (an account's key, unlike the first operator's, is not the
     // last of its kind).
+
+    if (!outcomeUnknown && parsed.kind === 'steward') {
+      // Show the code of the key just made before going on. A failure to read
+      // it is not a failure to join: the card still says so, without a code.
+      markJoinedFromInvitation(principal);
+      setStage({ kind: 'joined', principal, code: await keyCheckCode(principal).catch(() => null) });
+      return;
+    }
 
     setStage({ kind: 'signing-in' });
     try {
@@ -218,6 +232,25 @@ export function Enrol({ onUseExistingKey, initialToken }: EnrolProps = {}) {
       console.error(error);
       setStage({ kind: stageKind, principal, principalKind: kind, detail: describeRefusal(error) });
     }
+  }
+
+  if (stage.kind === 'joined') {
+    return (
+      <div className="enrol">
+        <div className="enrol__card" data-testid="enrol-joined">
+          <h1 className="enrol__title">Fathom</h1>
+          <p className="enrol__subtitle">This browser now holds your key.</p>
+          <JoinedCode code={stage.code} />
+          <button
+            type="button"
+            className="enrol__submit"
+            onClick={() => retrySignIn('enrolled-sign-in-failed', stage.principal, PRINCIPAL_KIND_STEWARD)}
+          >
+            Continue
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (stage.kind === 'enrolled-sign-in-failed') {
@@ -306,11 +339,11 @@ export function Enrol({ onUseExistingKey, initialToken }: EnrolProps = {}) {
     <div className="enrol">
       <form className="enrol__card" onSubmit={handleSubmit}>
         <h1 className="enrol__title">Fathom</h1>
-        <p className="enrol__subtitle">Redeem your token.</p>
+        <p className="enrol__subtitle">{typedKind === 'steward' ? 'You were invited to Fathom.' : 'Redeem your token.'}</p>
 
         <div className="enrol__field">
           <label className="enrol__label" htmlFor="enrol-token">
-            Token
+            {typedKind === 'steward' ? 'Invitation link' : 'Token'}
           </label>
           <input
             id="enrol-token"
@@ -331,7 +364,7 @@ export function Enrol({ onUseExistingKey, initialToken }: EnrolProps = {}) {
         {wantsAddress && (
           <div className="enrol__field">
             <label className="enrol__label" htmlFor="enrol-address">
-              {typedKind === 'steward' ? 'Address' : 'Address (for an invitation; leave empty for an operator token)'}
+              {typedKind === 'steward' ? 'Sign-in name' : 'Address (for an invitation; leave empty for an operator token)'}
             </label>
             <input
               id="enrol-address"
@@ -364,7 +397,12 @@ export function Enrol({ onUseExistingKey, initialToken }: EnrolProps = {}) {
           {typedKind === 'operator'
             ? 'An operator token: the one the server wrote at first start, or one the console issued. It names ' +
               'its operator and works once.'
-            : 'An invitation is redeemed with the address it was sent to. Every token works once. Redeeming one ' +
+            : typedKind === 'steward'
+              ? 'The sign-in name came with the link you were sent. It is not your email. The link works once. ' +
+                'Opening it asks for no password: this browser makes a key, and you then read a short code to the ' +
+                'person who invited you, so they can check it is you. They confirm you; until they do you have no ' +
+                'access. A password and an authenticator app are set afterwards, on your own account screen.'
+              : 'An invitation is redeemed with the address it was sent to. Every token works once. Redeeming one ' +
               'asks for no password: the key this browser generates is what proves the account is yours. A ' +
               'password and an authenticator app are set afterwards, on your own account screen.'}
         </p>
@@ -376,6 +414,27 @@ export function Enrol({ onUseExistingKey, initialToken }: EnrolProps = {}) {
         )}
       </form>
     </div>
+  );
+}
+
+/** What a person who has just joined needs to know, and the code to read out. */
+export function JoinedCode({ code }: { code: string | null }) {
+  return (
+    <>
+      <p className="enrol__body">
+        If someone invited you to an organisation, read this code to them. They compare it with the one on their
+        screen, and only then confirm you.
+      </p>
+      {code !== null && (
+        <p className="enrol__code" data-testid="enrol-key-code">
+          {spacedCode(code)}
+        </p>
+      )}
+      <p className="enrol__body">
+        Until they confirm you, you can sign in but you will see no organisation. If the code on their screen is
+        different, tell them: someone else may have used your link.
+      </p>
+    </>
   );
 }
 
@@ -397,10 +456,17 @@ function describePrincipal(principal: string, kind: PrincipalKind): string {
  * operator's, and the server refused it. The refusal is the server's own
  * words; the one thing this screen can add without guessing at the cause is
  * that the other reading exists. */
-function describeRefusal(error: unknown, guessedOperator = false): string {
+export function describeRefusal(error: unknown, guessedOperator = false, invitation = false): string {
   if (error instanceof ApiRefusal) {
-    const base =
+    const said =
       error.retryAfterSeconds != null ? `${error.message} Try again in ${error.retryAfterSeconds}s.` : error.message;
+    // One refusal covers an unknown link, a used one, an expired one and a wrong name.
+    // The server's own text is terse and lower case, so a person is given a sentence.
+    const base = invitation
+      ? `Fathom refused this sign-in.${
+          error.retryAfterSeconds != null ? ` Try again in ${error.retryAfterSeconds}s.` : ''
+        } If this link was already used or has expired, tell the person who sent it, and they can send a new one. Check the sign-in name too.`
+      : said;
     return guessedOperator ? `${base} If this is an invitation to an account, add the address it was sent to.` : base;
   }
   if (error instanceof EnrolmentNotAttemptedError || error instanceof EnrolmentOutcomeUnknownError) {

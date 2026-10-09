@@ -297,3 +297,15 @@
   padding: var(--s1) 0;
   border-bottom: var(--rule-hair) solid var(--hairline);
 }
+
+/* The key-check code a joined person reads to a steward. */
+.home__key-code {
+  font-family: var(--mono);
+  font-size: var(--t-title);
+  font-weight: 700;
+  letter-spacing: var(--track-head);
+  border: var(--rule-hair) dashed var(--ink);
+  padding: var(--s3);
+  margin: var(--s3) 0;
+  align-self: flex-start;
+}

@@ -1,0 +1,75 @@
+import { describe, expect, it } from 'vitest';
+
+import { fromHex, toHex } from '../crypto/bytes';
+import { grantBytes, keyCode, keyCodeOfPublicKey, keyFingerprint, secondBytes, spacedCode, type GrantFacts } from './grantBytes';
+
+// The literals below are the ones in `crates/fathom-server/tests/authority_vectors.rs`
+// (`the_clients_read_draw_and_steward_grants_match_the_bytes_the_browser_builds`),
+// laid out there by an independent script. If this file and that one stop
+// agreeing, a signed construction moved.
+
+const fill = (n: number) => new Uint8Array(32).fill(n);
+const base: GrantFacts = {
+  organisation: '01JQZ0000000000000000000AA',
+  rootPubkeyFpr: fill(0x41),
+  scope: '01JQZ0000000000000000000BB',
+  subject: '01JQZ0000000000000000000CC',
+  subjectKeyFpr: fill(0x42),
+  capability: 'read',
+  granter: '01JQZ0000000000000000000DD',
+  granterKeyFpr: fill(0x43),
+  effectiveFromUnix: 1_760_000_000,
+  expiresAtUnix: 0,
+  soleSteward: false,
+  authEpoch: 3,
+};
+
+const CASES: { name: string; facts: GrantFacts; grant: string; second: string }[] = [
+  { name: 'read at a folder', facts: base, grant: '0f000000666174686f6d2f6772616e742f76321a00000030314a515a3030303030303030303030303030303030303041412000000041414141414141414141414141414141414141414141414141414141414141411a00000030314a515a3030303030303030303030303030303030303042421a00000030314a515a30303030303030303030303030303030303030434320000000424242424242424242424242424242424242424242424242424242424242424204000000726561641a00000030314a515a3030303030303030303030303030303030303044442000000043434343434343434343434343434343434343434343434343434343434343430078e7680000000000000000000000000000000003000000', second: '16000000666174686f6d2f6772616e742f7365636f6e642f7631200000008c7438850a6e39c675f37d0a052d0e7d8d3eef0fcbf8319d123f4e40d380ff76200000004343434343434343434343434343434343434343434343434343434343434343' },
+  {
+    name: 'draw at the organisation',
+    facts: { ...base, scope: '', capability: 'draw', effectiveFromUnix: 1_760_000_001, authEpoch: 4 },
+    grant: '0f000000666174686f6d2f6772616e742f76321a00000030314a515a303030303030303030303030303030303030304141200000004141414141414141414141414141414141414141414141414141414141414141000000001a00000030314a515a30303030303030303030303030303030303030434320000000424242424242424242424242424242424242424242424242424242424242424204000000647261771a00000030314a515a3030303030303030303030303030303030303044442000000043434343434343434343434343434343434343434343434343434343434343430178e7680000000000000000000000000000000004000000',
+    second: '16000000666174686f6d2f6772616e742f7365636f6e642f7631200000009310b5d2221b87e9b934b0db8919966c2a9ec11a5453fa1a05b3bb2151769096200000004343434343434343434343434343434343434343434343434343434343434343',
+  },
+  {
+    name: 'steward with an expiry',
+    facts: { ...base, scope: '', capability: 'steward', expiresAtUnix: 1_790_000_000, authEpoch: 9 },
+    grant: '0f000000666174686f6d2f6772616e742f76321a00000030314a515a303030303030303030303030303030303030304141200000004141414141414141414141414141414141414141414141414141414141414141000000001a00000030314a515a30303030303030303030303030303030303030434320000000424242424242424242424242424242424242424242424242424242424242424207000000737465776172641a00000030314a515a3030303030303030303030303030303030303044442000000043434343434343434343434343434343434343434343434343434343434343430078e76800000000803bb16a000000000000000009000000',
+    second: '16000000666174686f6d2f6772616e742f7365636f6e642f76312000000005e0cf800d2f9106be6d9cb15d72a8e57572c39b249924b7cb9802db2171f1a8200000004343434343434343434343434343434343434343434343434343434343434343',
+  },
+];
+
+describe('grantBytes and secondBytes against the Rust vectors', () => {
+  for (const c of CASES) {
+    it(c.name, async () => {
+      const bytes = grantBytes(c.facts);
+      expect(toHex(bytes)).toBe(c.grant);
+      expect(toHex(await secondBytes(bytes, c.facts.granterKeyFpr))).toBe(c.second);
+    });
+  }
+
+  it('signs the sole-steward flag', () => {
+    const steward: GrantFacts = { ...base, capability: 'steward', expiresAtUnix: 1_790_000_000 };
+    expect(toHex(grantBytes(steward))).not.toBe(toHex(grantBytes({ ...steward, soleSteward: true })));
+  });
+});
+
+describe('the key-check code', () => {
+  it('matches the Rust vectors', async () => {
+    expect(keyCode(Uint8Array.from({ length: 32 }, (_, i) => i))).toBe('000G40R40M');
+    expect(keyCode(fill(0xff))).toBe('ZZZZZZZZZZ');
+    expect(keyCode(fill(0))).toBe('0000000000');
+    const publicKey = fromHex(
+      '041e18532fd4754c02f3041d9c75ceb33b83ffd81ac7ce4fe882ccb1c98bc5896ea46c311c4e2ff40dd96a3653e6e45445d32dfe486eced75c7a90c6a18881c0a3',
+    );
+    const fpr = await keyFingerprint(publicKey);
+    expect(toHex(fpr)).toBe('bb696e05eadbe40309d13723938eebc04ce20951cddc229b20053e6356d944c6');
+    expect(keyCode(fpr)).toBe('QDMPW1FAVF');
+    expect(await keyCodeOfPublicKey(publicKey)).toBe('QDMPW1FAVF');
+  });
+
+  it('is read out in two halves', () => {
+    expect(spacedCode('QDMPW1FAVF')).toBe('QDMPW 1FAVF');
+  });
+});

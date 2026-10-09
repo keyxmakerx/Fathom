@@ -457,9 +457,20 @@ const TABLES: &[TableClaim] = &[
         name: "enrolment_tokens",
         protection: Protection::NoKeyProtectedMaterial,
         why: "the HASH of a single-use enrolment token, never the token, plus which subject it \
-              names, who issued it, when it expires and whether it has been spent. The token \
+              names, who issued it (an operator, or since `0037` the steward account and \
+              invitation that did), when it expires and whether it has been spent. The token \
               itself is returned once and is gone from this server the moment it is handed \
               out; the hash is useless to redeem with, exactly as `sessions.token_hash` is.",
+    },
+    TableClaim {
+        name: "organisation_invitations",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "a steward's invitation to a person: the name and the contact email the steward \
+              typed, in the clear and the same class as `accounts` (identity, \"Low -- must be \
+              queryable\"), the sign-in name the server chose, the capability and scope asked \
+              for, the fingerprint of the key the person enrolled when they joined, and the \
+              state. No link and no key material: the link's hash is on `enrolment_tokens`, \
+              and a public-key fingerprint is public by construction.",
     },
     TableClaim {
         name: "site_settings_versions",

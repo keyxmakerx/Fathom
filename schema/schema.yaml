@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.17"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.18"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -257,6 +257,11 @@ schema:
                     # One optional field, SecurityPolicy.match_any_application (key 383), joins its
                     # two siblings so a policy can say "any application" (62 §16.2: minor).
                     # Whole change = MINOR; the reader opens the same older versions as before.
+                    #
+                    # 0.18 is ADR-0061 troubleshooting (2026-10-03), all additive: two node kinds,
+                    # Issue and IssueStep (joining Placeable), two edge kinds, HasIssue (root
+                    # containment, HasPlan's shape) and HasIssueStep, fifteen field keys (390-404).
+                    # Whole change = MINOR. The reader still opens 0.10 to 0.17.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -481,6 +486,9 @@ classes:
       # ADR-0061 round 7: a plan and its steps are drawn by the plan views, not the layout.
       - MaintenancePlan
       - PlanStep
+      # ADR-0061 troubleshooting: an issue and its steps are drawn by the issue views.
+      - Issue
+      - IssueStep
       # Custom-field values (0.16): joins Placeable as Tag does; the client draws no box.
       - FieldValue
     doc: |
@@ -2008,6 +2016,42 @@ kinds:
     identity:
       - [ owner(Fieldable), definition ]
 
+  # ADR-0061 troubleshooting (2026-10-03). Appended at the tail (62 §13).
+  - kind: Issue
+    layer: physical
+    emits: false
+    doc: |
+      One "It's down" session saved: the device, ordered steps (HasIssueStep), and where the
+      answers pointed. Hung off the root through HasIssue. Fathom never names a cause; `outcome`
+      is the sentence frozen when it was saved, plus anything typed. Weak identity, as for a plan.
+      Anyone who can read the design can read its issues; only an editor writes one.
+    fields:
+      - { name: title, type: Text, card: "1", emit: "—", doc: What the issue is called. }
+      - { name: device, type: Text, card: "1", emit: "—", doc: Design id of the device that is down. }
+      - { name: author, type: Text, card: "0..1", emit: "—", doc: Who ran the checks. }
+      - { name: opened_at, type: Text, card: "1", emit: "—", doc: "When it was opened, as an ISO time." }
+      - { name: stage, type: "enum { open, closed }", card: "1", emit: "—", doc: Where the issue is. }
+      - { name: outcome, type: Text, card: "0..1", emit: "—", doc: "Where the answers point, frozen when saved, and anything typed." }
+      - { name: plan, type: Text, card: "0..1", emit: "—", doc: Design id of a maintenance plan made from it. }
+    identity: []
+
+  - kind: IssueStep
+    layer: physical
+    emits: false
+    doc: |
+      One check of an issue, in `ordinal` order, with the answer given. `targets` names what it
+      lights, one design id per line, as for `PlanStep`.
+    fields:
+      - { name: ordinal, type: u32, card: "1", emit: "—", doc: Position in the issue. Steps are asked in this order. }
+      - { name: topic, type: "enum { power, neighbours, link, port, address, gateway, other }", card: "1", emit: "—", doc: What the step checks. }
+      - { name: question, type: Text, card: "1", emit: "—", doc: The question asked. }
+      - { name: detail, type: Text, card: "0..1", emit: "—", doc: What to look at. }
+      - { name: targets, type: Text, card: "0..1", emit: "—", doc: "Design ids of what the step lights, one per line." }
+      - { name: answer, type: "enum { unanswered, ok, not_ok, cant_tell }", card: "1", emit: "—", doc: The answer given. }
+      - { name: note, type: Text, card: "0..1", emit: "—", doc: "What the person saw, typed." }
+      - { name: answered_at, type: Text, card: "0..1", emit: "—", doc: "When it was answered, as an ISO time." }
+    identity: []
+
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
   # require reverse adjacency, and ADR-0007's reverse index already guarantees it (11 §14.3).
@@ -3455,6 +3499,29 @@ edges:
     fields: []
     emit_dict: null
     doc: ADR-0061 round 7. A plan's steps; their order is PlanStep.ordinal.
+  # ADR-0061 troubleshooting (2026-10-03). Appended at the tail (62 §13).
+  - edge: HasIssue
+    class: containment
+    from: [root]
+    to: [Issue]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ADR-0061 troubleshooting. Issues hang off the design root as plans do.
+  - edge: HasIssueStep
+    class: containment
+    from: [Issue]
+    to: [IssueStep]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ADR-0061 troubleshooting. An issue's steps; their order is IssueStep.ordinal.
 
   # ADR-0061 round 7 (2026-10-03). Appended at the tail (62 §13).
   - edge: HasDoc

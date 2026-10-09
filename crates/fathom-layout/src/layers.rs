@@ -386,6 +386,9 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     ADR-0061 round 7: plans are drawn by the plan views, never as a box.
         | NodeKind::MaintenancePlan
         | NodeKind::PlanStep
+        //     ADR-0061 troubleshooting: issues are drawn by the issue views, never as a box.
+        | NodeKind::Issue
+        | NodeKind::IssueStep
         //     Custom fields (0.16): a value is text with no geometry,
         //     UNTABLED like `Tag`.
         | NodeKind::FieldValue

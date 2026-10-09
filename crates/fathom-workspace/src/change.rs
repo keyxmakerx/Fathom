@@ -465,7 +465,9 @@ enum Read {
 /// so it stays on the delimiter-only check (ADR-0053 §5). A link's address is
 /// stored as typed: ordinary ones carry long ids this check reads as secrets.
 fn gated_fields() -> Vec<(NodeKind, fathom_ir::bag::FieldKey, &'static str, Read)> {
-    use fathom_ir::generated::ir_types::{MaintenancePlanField as P, PlanStepField as S};
+    use fathom_ir::generated::ir_types::{
+        IssueField as I, IssueStepField as IS, MaintenancePlanField as P, PlanStepField as S,
+    };
     let prose = Read::Lines(false);
     let mut v = vec![
         (
@@ -497,6 +499,23 @@ fn gated_fields() -> Vec<(NodeKind, fathom_ir::bag::FieldKey, &'static str, Read
         Read::Targets,
     ));
     v.push((NodeKind::PlanStep, S::Edit.key(), "PlanStep", Read::Edit));
+    // An issue and its steps (ADR-0061 troubleshooting): typed or pasted prose, same check as a plan;
+    // `device`, `plan` and `targets` hold design ids only.
+    for f in [I::Title, I::Author, I::OpenedAt, I::Outcome] {
+        v.push((NodeKind::Issue, f.key(), "Issue", prose));
+    }
+    for f in [I::Device, I::Plan] {
+        v.push((NodeKind::Issue, f.key(), "Issue", Read::Targets));
+    }
+    for f in [IS::Question, IS::Detail, IS::Note, IS::AnsweredAt] {
+        v.push((NodeKind::IssueStep, f.key(), "IssueStep", prose));
+    }
+    v.push((
+        NodeKind::IssueStep,
+        IS::Targets.key(),
+        "IssueStep",
+        Read::Targets,
+    ));
     v
 }
 

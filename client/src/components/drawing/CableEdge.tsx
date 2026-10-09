@@ -17,6 +17,9 @@ export interface CableEdgeData extends Record<string, unknown> {
   checksFaded?: boolean;
   /** Set while an open plan touches this cable: its stage colour and tag. */
   planMark?: PlanEdgeMark;
+  /** While "It's down" runs (ADR-0061): sheath colours drop to ink, and the chain's cables carry the lit halo. */
+  troubleInk?: boolean;
+  troubleLit?: boolean;
   cable: CableView;
   onSelect: (cableId: string) => void;
   onHoverChange: (cableId: string | null) => void;
@@ -70,13 +73,14 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   // Read straight from `liveStore.ts`, so a hover never rebuilds every
   // cable's edge — ahead of the `!data` guard below so these hooks always run.
   const litCableId = useLive((s) => s.litCableId);
-  const lit = useLive((s) => (data ? s.litCableIdSet.has(data.cable.id) : false));
+  const litByHover = useLive((s) => (data ? s.litCableIdSet.has(data.cable.id) : false));
   if (!data) return null;
+  const lit = litByHover || data.troubleLit === true;
   const { cable, onSelect, onHoverChange, portPairLabel, ends, endLabels, stub, onPanTo, dashed } = data;
   // Checks' Show fades the whole edge already: do not dim it a second time.
   const dimmed = data.checksFaded !== true && litCableId != null && !lit;
   const sheath = cable.sheath ?? 'grey';
-  const colour = SHEATH_VAR[sheath];
+  const colour = data.troubleInk === true ? 'var(--ink)' : SHEATH_VAR[sheath];
   const strokeWidth = STROKE_WIDTH_VAR[cable.kind];
   const leads = ends != null ? leadsFor(ends[0], ends[1], { x: sourceX, y: sourceY }, { x: targetX, y: targetY }) : null;
   const d = leads != null ? cableLeadPath(leads, cable.kind) : cableSagPath(sourceX, sourceY, targetX, targetY, cable.kind);
@@ -134,7 +138,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
       {data.planMark != null && (
         <path d={d} fill="none" stroke={TONE_COLOUR[data.planMark.tone]} className="plan-mark__wash" strokeLinecap="round" />
       )}
-      {needsHairlineOutline(sheath) && (
+      {needsHairlineOutline(sheath) && data.troubleInk !== true && (
         <path
           d={d}
           fill="none"

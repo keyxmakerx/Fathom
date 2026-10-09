@@ -548,6 +548,7 @@ async fn main() -> ExitCode {
         catalogue,
         client_address: client_address.clone(),
         live,
+        invitation_limits: fathom_server::invitations::Limits::STANDARD,
     };
 
     // The operator plane. ADR-0055 decision 3: the quorum is `min(2, live

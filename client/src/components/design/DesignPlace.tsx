@@ -98,6 +98,7 @@ export function DesignPlace(props: DesignPlaceProps) {
   const { organisationId, designId, capability, scopeId, onZoomChange, onPlaceChange, ...shellProps } = props;
   const session = useDesignSession(organisationId, designId, capability);
   const [focus, setFocus] = useState<Selection | null>(null);
+  const [issueRequest, setIssueRequest] = useState<{ id: string } | null>(null);
 
   const accountId = getSession()?.accountId ?? null;
   const accountAddress = getSession()?.address ?? null;
@@ -504,6 +505,14 @@ export function DesignPlace(props: DesignPlaceProps) {
     [onPlaceChange],
   );
 
+  const showIssue = useCallback(
+    (id: string) => {
+      setIssueRequest({ id });
+      onPlaceChange('racks');
+    },
+    [onPlaceChange],
+  );
+
   const openInInventory = useCallback(
     (chassisId: string) => {
       // The reverse trip carries no focus today — `InventoryPlace` has no
@@ -652,6 +661,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         session={racksSession}
         onZoomChange={onZoomChange}
         initialFocus={focus}
+        initialIssue={issueRequest}
         onOpenInventory={openInInventory}
         accountId={accountId}
         notesActions={notesActions}
@@ -668,6 +678,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         onPlaceChange={onPlaceChange}
         session={session}
         onShowOnRack={showOnRack}
+        onShowIssue={showIssue}
         onSelectedChange={setSelectedId}
         onPrintableChange={setInventoryPrintable}
         notesActions={notesActions}

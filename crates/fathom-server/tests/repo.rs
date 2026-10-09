@@ -1043,7 +1043,13 @@ fn the_policy_rule_catches_the_shape_it_is_looking_for() {
 /// is held to the same rule without anyone remembering to come back here.
 #[tokio::test]
 async fn every_tenant_table_forces_row_security_and_checks_its_writes() {
-    const TENANT_TABLES: &[&str] = &["accounts", "organisations", "memberships", "scopes"];
+    const TENANT_TABLES: &[&str] = &[
+        "accounts",
+        "organisations",
+        "memberships",
+        "scopes",
+        "organisation_invitations",
+    ];
 
     let pool = support::migrated_pool().await;
     let client = pool.get().await.expect("connection");

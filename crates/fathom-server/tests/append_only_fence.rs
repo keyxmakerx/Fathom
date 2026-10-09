@@ -803,10 +803,7 @@ async fn a_superuser_cannot_rewrite_erase_or_truncate_any_authority_table() {
         .expect_err("the keyring is append-only");
     assert_eq!(err.code(), Some(&SqlState::RAISE_EXCEPTION), "{err}");
 
-    let err = client
-        .batch_execute("TRUNCATE account_keys CASCADE")
-        .await
-        .expect_err("the keyring is append-only");
+    let err = truncate_refused(&client, "TRUNCATE account_keys CASCADE").await;
     assert_refused_by_the_trigger(&err, "TRUNCATE account_keys");
 
     // The positive control at the end: the rows are all still there.

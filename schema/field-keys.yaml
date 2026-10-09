@@ -480,3 +480,19 @@ fields:
   FieldValue.definition: 382
   # ADR-0061 path trace (schema 0.17, 2026-10-03). Appended after 0.15 (364-380) and 0.16 (381-382).
   SecurityPolicy.match_any_application: 383
+  # ADR-0061 troubleshooting (schema 0.18, 2026-10-03). Appended after 0.17's 383; 384-389 are held elsewhere.
+  Issue.title: 390
+  Issue.device: 391
+  Issue.author: 392
+  Issue.opened_at: 393
+  Issue.stage: 394
+  Issue.outcome: 395
+  Issue.plan: 396
+  IssueStep.ordinal: 397
+  IssueStep.topic: 398
+  IssueStep.question: 399
+  IssueStep.detail: 400
+  IssueStep.targets: 401
+  IssueStep.answer: 402
+  IssueStep.note: 403
+  IssueStep.answered_at: 404

@@ -228,6 +228,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0036_cable_corrections.sql",
         sql: include_str!("../migrations/0036_cable_corrections.sql"),
     },
+    // Steward-issued invitations, "Waiting for you" and batch confirm.
+    Migration {
+        version: 37,
+        name: "0037_steward_invitations.sql",
+        sql: include_str!("../migrations/0037_steward_invitations.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

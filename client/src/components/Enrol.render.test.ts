@@ -2,7 +2,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { Enrol, invitationFromLocation, type EnrolProps } from './Enrol';
+import { ApiRefusal } from '../api/errors';
+import { describeRefusal, Enrol, invitationFromLocation, JoinedCode, type EnrolProps } from './Enrol';
 
 // Render-to-string smoke tests (see `SignIn.render.test.ts`'s note), and the
 // reading of the address an invitation carries. ADR-0056 decision 6:
@@ -15,6 +16,50 @@ describe('the enrolment door opened by an invitation link', () => {
     const token = `inv_${'a'.repeat(64)}`;
     const html = renderToStaticMarkup(createElement<EnrolProps>(Enrol, { initialToken: token }));
     expect(html).toContain(`value="${token}"`);
+  });
+});
+
+describe('the page an invited person opens', () => {
+  const token = `inv_${'c'.repeat(64)}`;
+  const html = renderToStaticMarkup(createElement<EnrolProps>(Enrol, { initialToken: token }));
+
+  it('speaks to an invited person, not to an operator redeeming a token', () => {
+    expect(html).toContain('You were invited to Fathom.');
+    expect(html).toContain('Invitation link');
+    expect(html).not.toContain('Redeem your token.');
+    const operator = renderToStaticMarkup(createElement<EnrolProps>(Enrol, { initialToken: `op_${'a'.repeat(64)}` }));
+    expect(operator).toContain('Redeem your token.');
+    expect(operator).not.toContain('Invitation link');
+  });
+
+  it('turns the server\u2019s terse refusal of a link into a sentence', () => {
+    const said = describeRefusal(new ApiRefusal(401, 'sign-in refused', null), false, true);
+    expect(said).toMatch(/^Fathom refused this sign-in\. If this link was already used/);
+    expect(said).not.toContain('sign-in refused');
+    expect(describeRefusal(new ApiRefusal(429, 'slow down', 30), false, true)).toContain('Try again in 30s.');
+    // Other kinds of token keep the server's own words.
+    expect(describeRefusal(new ApiRefusal(401, 'sign-in refused', null))).toBe('sign-in refused');
+  });
+
+  it('asks for the sign-in name that came with the link, and says it is not their email', () => {
+    expect(html).toContain('Sign-in name');
+    expect(html).toContain('It is not your email.');
+    expect(html).toContain('read a short code to the');
+    expect(html).toContain('until they do you have no');
+  });
+
+  it('shows the key-check code to read out, and what happens until a steward confirms', () => {
+    const joined = renderToStaticMarkup(createElement(JoinedCode, { code: 'QDMPW1FAVF' }));
+    expect(joined).toContain('QDMPW 1FAVF');
+    expect(joined).toContain('read this code to them');
+    expect(joined).toContain('you will see no organisation');
+    expect(joined).toContain('someone else may have used your link');
+  });
+
+  it('says what to do when the code could not be read, without inventing one', () => {
+    const joined = renderToStaticMarkup(createElement(JoinedCode, { code: null }));
+    expect(joined).not.toContain('enrol__code');
+    expect(joined).toContain('Until they confirm you');
   });
 });
 

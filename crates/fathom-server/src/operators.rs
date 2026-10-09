@@ -50,6 +50,7 @@ use crate::chains::{self, ChainStoreError, CHAIN_KEY_EPOCH};
 use crate::crypto::{self, Key32};
 use crate::grants::{self, AuthorityError, GenesisGrant};
 use crate::ids;
+use crate::invitations;
 use crate::keys::KeyRing;
 use crate::repo::{AccountId, OrganisationId, RepoError};
 use crate::sessions::{Assurance, PrincipalKind, VerifiedSession};
@@ -2358,22 +2359,50 @@ impl OperatorStore {
                 .await);
         }
 
+        let mut fields = vec![
+            ("token", Json::Str(row.id.clone())),
+            ("purpose", Json::Str(Purpose::Account.as_str().to_string())),
+            ("account", Json::Str(account.clone())),
+        ];
+        // A steward's invitation: the join is recorded as this same entry, with
+        // the invitation named (redemption has no tenant to file anything else on).
+        if let Some(invitation) = &row.invitation_id {
+            fields.push(("invitation", Json::Str(invitation.clone())));
+        }
         let redeemed = chains::append_site(
             &tx,
             &self.ring,
             &self.deployment,
             EntryType::EnrolmentTokenRedeemed,
-            &entry_metadata(
-                EntryType::EnrolmentTokenRedeemed,
-                &[
-                    ("token", Json::Str(row.id.clone())),
-                    ("purpose", Json::Str(Purpose::Account.as_str().to_string())),
-                    ("account", Json::Str(account.clone())),
-                ],
-            ),
+            &entry_metadata(EntryType::EnrolmentTokenRedeemed, &fields),
         )
         .await?;
         self.mark_redeemed(&tx, &row, redeemed.seq).await?;
+
+        // An invitation token enrols the account's FIRST key and only while the
+        // invitation is still open (`0037`): a second key on an account that
+        // already has one would get everything that account holds. Taken after
+        // the site chain lock above (ADR-0057 decision 1's order).
+        let open = match &row.invitation_id {
+            Some(invitation) => {
+                match invitations::check_open_for_join(&tx, &self.ring, invitation, &account)
+                    .await?
+                {
+                    invitations::JoinCheck::Open(open) => Some(open),
+                    invitations::JoinCheck::Refused(reason) => {
+                        return Err(self
+                            .refuse_redemption(
+                                tx,
+                                EntryType::AccountSigninFailed,
+                                Purpose::Account,
+                                reason,
+                            )
+                            .await);
+                    }
+                }
+            }
+            None => None,
+        };
 
         let key = grants::enrol_software_key_at_invitation(
             &tx,
@@ -2383,6 +2412,9 @@ impl OperatorStore {
             public_key,
         )
         .await?;
+        if let Some(open) = open {
+            invitations::mark_joined(&tx, &self.ring, open, &key, redeemed.seq).await?;
+        }
 
         leave_custody(&tx).await?;
         tx.commit().await?;
@@ -4815,32 +4847,68 @@ impl OperatorStore {
         reason: &str,
         lifetime: Duration,
     ) -> Result<Invitation, OperatorError> {
+        let expires_at = now_unix() + lifetime.as_secs() as i64;
+        self.issue_token_for(
+            tx,
+            purpose,
+            subject,
+            TokenIssuer::Operator(issued_by),
+            reason,
+            expires_at,
+        )
+        .await
+    }
+
+    /// [`OperatorStore::issue_token`] for either kind of issuer, with the expiry
+    /// as an absolute time so a steward's invitation row can carry the same one.
+    async fn issue_token_for(
+        &self,
+        tx: &Transaction<'_>,
+        purpose: Purpose,
+        subject: &str,
+        issuer: TokenIssuer<'_>,
+        reason: &str,
+        expires_at: i64,
+    ) -> Result<Invitation, OperatorError> {
+        let issued_by = match issuer {
+            TokenIssuer::Operator(id) => id,
+            TokenIssuer::Steward { account, .. } => account,
+        };
+        let mut fields = vec![
+            ("purpose", Json::Str(purpose.as_str().to_string())),
+            ("subject", Json::Str(subject.to_string())),
+            ("issued_by", Json::Str(issued_by.to_string())),
+            ("reason", Json::Str(reason.to_string())),
+        ];
+        if let TokenIssuer::Steward { invitation, .. } = issuer {
+            fields.push(("invitation", Json::Str(invitation.to_string())));
+        }
         let issued = chains::append_site(
             tx,
             &self.ring,
             &self.deployment,
             EntryType::EnrolmentTokenIssued,
-            &entry_metadata(
-                EntryType::EnrolmentTokenIssued,
-                &[
-                    ("purpose", Json::Str(purpose.as_str().to_string())),
-                    ("subject", Json::Str(subject.to_string())),
-                    ("issued_by", Json::Str(issued_by.to_string())),
-                    ("reason", Json::Str(reason.to_string())),
-                ],
-            ),
+            &entry_metadata(EntryType::EnrolmentTokenIssued, &fields),
         )
         .await?;
         let issued_seq = issued.seq;
         let id = ids::new_ulid().to_string();
         let token = random_32()?;
         let hash = token_hash(&token);
-        let expires_at = now_unix() + lifetime.as_secs() as i64;
 
         let (account, operator, shell) = match purpose {
             Purpose::Account => (Some(subject), None, None),
             Purpose::Operator | Purpose::Setup => (None, Some(subject), None),
             Purpose::Organisation => (None, None, Some(subject)),
+        };
+        // A steward's token has no operator behind it: the column holds NULL and
+        // the seal covers the account and the invitation instead (`0037` §E).
+        let (operator_issuer, steward_issuer, invitation) = match issuer {
+            TokenIssuer::Operator(id) => (Some(id), None, None),
+            TokenIssuer::Steward {
+                account,
+                invitation,
+            } => (None, Some(account), Some(invitation)),
         };
 
         let facts = TokenFacts {
@@ -4848,7 +4916,9 @@ impl OperatorStore {
             purpose,
             token_hash: &hash,
             subject,
-            issued_by,
+            issued_by: operator_issuer.unwrap_or(""),
+            issued_by_account: steward_issuer,
+            invitation,
             expires_at_unix: expires_at,
             redeemed_at_unix: 0,
             expired_at_unix: 0,
@@ -4858,8 +4928,9 @@ impl OperatorStore {
         tx.execute(
             "INSERT INTO enrolment_tokens \
                  (id, purpose, token_hash, account_id, operator_id, shell_id, issued_by, \
-                  issued_seq, expires_at, row_version, row_seal) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, to_timestamp($9::bigint), 1, $10)",
+                  issued_by_account, invitation_id, issued_seq, expires_at, row_version, \
+                  row_seal) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11::bigint), 1, $12)",
             &[
                 &id,
                 &purpose.as_str(),
@@ -4867,7 +4938,9 @@ impl OperatorStore {
                 &account,
                 &operator,
                 &shell,
-                &issued_by,
+                &operator_issuer,
+                &steward_issuer,
+                &invitation,
                 &issued_seq,
                 &expires_at,
                 &seal.to_vec(),
@@ -5565,21 +5638,6 @@ impl OperatorStore {
         issued_seq: i64,
         row_version: i32,
     ) -> Result<[u8; 32], OperatorError> {
-        let mut map = BTreeMap::new();
-        map.insert("expired_at".to_string(), Json::Int(facts.expired_at_unix));
-        map.insert("expires_at".to_string(), Json::Int(facts.expires_at_unix));
-        map.insert("id".to_string(), Json::Str(facts.id.to_string()));
-        map.insert(
-            "issued_by".to_string(),
-            Json::Str(facts.issued_by.to_string()),
-        );
-        map.insert(
-            "purpose".to_string(),
-            Json::Str(facts.purpose.as_str().to_string()),
-        );
-        map.insert("redeemed_at".to_string(), Json::Int(facts.redeemed_at_unix));
-        map.insert("subject".to_string(), Json::Str(facts.subject.to_string()));
-        map.insert("token_hash".to_string(), Json::Str(hex(facts.token_hash)));
         Ok(authority::row_seal(
             &grants::site_row_key(tx, &self.ring).await?,
             &RowFacts {
@@ -5587,7 +5645,7 @@ impl OperatorStore {
                 row_id: facts.id,
                 chain_seq: issued_seq,
                 row_version,
-                row_state: &Json::Obj(map).to_canonical_bytes(),
+                row_state: &token_row_state(facts),
             },
         ))
     }
@@ -6039,7 +6097,8 @@ enum TokenUse {
 const TOKEN_COLUMNS: &str = "id, purpose, account_id, operator_id, shell_id, issued_by, \
      issued_seq, EXTRACT(EPOCH FROM expires_at)::bigint, \
      COALESCE(EXTRACT(EPOCH FROM redeemed_at)::bigint, 0), \
-     COALESCE(EXTRACT(EPOCH FROM expired_at)::bigint, 0), row_version, row_seal, token_hash";
+     COALESCE(EXTRACT(EPOCH FROM expired_at)::bigint, 0), row_version, row_seal, token_hash, \
+     issued_by_account, invitation_id";
 
 /// One `enrolment_tokens` row and **the seal as stored**, returned beside it
 /// rather than checked: the two callers mean different things by a failure.
@@ -6056,7 +6115,10 @@ fn token_row(row: &tokio_postgres::Row) -> Result<(TokenRow, Vec<u8>), OperatorE
             account_id: row.get(2),
             operator_id: row.get(3),
             shell_id: row.get(4),
-            issued_by: row.get(5),
+            // NULL for a steward's token (`0037` §E): the seal reads it as "".
+            issued_by: row.get::<_, Option<String>>(5).unwrap_or_default(),
+            issued_by_account: row.get(13),
+            invitation_id: row.get(14),
             issued_seq: row.get(6),
             expires_at_unix: row.get(7),
             redeemed_at_unix: row.get(8),
@@ -6077,6 +6139,9 @@ struct TokenRow {
     operator_id: Option<String>,
     shell_id: Option<String>,
     issued_by: String,
+    /// Set, with `invitation_id`, exactly on a steward's invitation token.
+    issued_by_account: Option<String>,
+    invitation_id: Option<String>,
     issued_seq: i64,
     expires_at_unix: i64,
     redeemed_at_unix: i64,
@@ -6100,11 +6165,47 @@ impl TokenRow {
             token_hash: &self.token_hash,
             subject: self.subject(),
             issued_by: &self.issued_by,
+            issued_by_account: self
+                .invitation_id
+                .as_ref()
+                .and(self.issued_by_account.as_deref()),
+            invitation: self.invitation_id.as_deref(),
             expires_at_unix: self.expires_at_unix,
             redeemed_at_unix: self.redeemed_at_unix,
             expired_at_unix: self.expired_at_unix,
         }
     }
+}
+
+/// The sealed state of one `enrolment_tokens` row, as canonical JSON. A pure
+/// function so `tests/authority_vectors.rs` can pin its bytes: an operator's row
+/// must keep sealing byte for byte as it did before `0037`.
+pub fn token_row_state(facts: &TokenFacts<'_>) -> Vec<u8> {
+    let mut map = BTreeMap::new();
+    map.insert("expired_at".to_string(), Json::Int(facts.expired_at_unix));
+    map.insert("expires_at".to_string(), Json::Int(facts.expires_at_unix));
+    map.insert("id".to_string(), Json::Str(facts.id.to_string()));
+    map.insert(
+        "issued_by".to_string(),
+        Json::Str(facts.issued_by.to_string()),
+    );
+    map.insert(
+        "purpose".to_string(),
+        Json::Str(facts.purpose.as_str().to_string()),
+    );
+    map.insert("redeemed_at".to_string(), Json::Int(facts.redeemed_at_unix));
+    map.insert("subject".to_string(), Json::Str(facts.subject.to_string()));
+    map.insert("token_hash".to_string(), Json::Str(hex(facts.token_hash)));
+    // Only a steward's token carries these, so an operator's row seals byte
+    // for byte as it did before `0037`.
+    if let Some(invitation) = facts.invitation {
+        map.insert("invitation".to_string(), Json::Str(invitation.to_string()));
+        map.insert(
+            "issued_by_account".to_string(),
+            Json::Str(facts.issued_by_account.unwrap_or("").to_string()),
+        );
+    }
+    Json::Obj(map).to_canonical_bytes()
 }
 
 /// What a token row's seal covers.
@@ -6118,9 +6219,24 @@ pub struct TokenFacts<'a> {
     pub token_hash: &'a [u8; 32],
     pub subject: &'a str,
     pub issued_by: &'a str,
+    /// A steward's invitation token names the steward's account and its
+    /// invitation, and has no operator (`issued_by` is then empty). `None` on an
+    /// operator's token, which is sealed exactly as before `0037`.
+    pub issued_by_account: Option<&'a str>,
+    pub invitation: Option<&'a str>,
     pub expires_at_unix: i64,
     pub redeemed_at_unix: i64,
     pub expired_at_unix: i64,
+}
+
+/// Who issued an enrolment token.
+#[derive(Clone, Copy)]
+enum TokenIssuer<'a> {
+    Operator(&'a str),
+    Steward {
+        account: &'a str,
+        invitation: &'a str,
+    },
 }
 
 struct SettingRow {
@@ -7017,6 +7133,35 @@ fn sealed_int(metadata: &[u8], field: &'static str) -> Result<i64, OperatorError
         Some(Json::Int(value)) => Ok(*value),
         _ => Err(OperatorError::Unverifiable("entry metadata")),
     }
+}
+
+/// Issue the enrolment token for a steward's invitation, in the caller's
+/// transaction. The shell account and the invitation row must already be written
+/// there; the caller holds `app.invitation_custody` and is the steward named.
+/// `expires_at_unix` is the invitation row's own `asked_expires_at`.
+pub(crate) async fn issue_invitation_token(
+    pool: &Pool,
+    ring: &Arc<KeyRing>,
+    tx: &Transaction<'_>,
+    steward: &str,
+    invitation: &str,
+    account: &str,
+    expires_at_unix: i64,
+) -> Result<Invitation, OperatorError> {
+    let deployment = chains::deployment_id(&**tx).await?;
+    OperatorStore::new(pool.clone(), Arc::clone(ring), deployment)
+        .issue_token_for(
+            tx,
+            Purpose::Account,
+            account,
+            TokenIssuer::Steward {
+                account: steward,
+                invitation,
+            },
+            "steward_invitation",
+            expires_at_unix,
+        )
+        .await
 }
 
 fn entry_metadata(entry_type: EntryType, fields: &[(&str, Json)]) -> Vec<u8> {

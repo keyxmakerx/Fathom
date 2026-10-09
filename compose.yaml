@@ -29,8 +29,7 @@
 #                        uses to build the same stage from this checkout instead
 #                        (compose-spec 05-services.md, read 2026-09-19: with a
 #                        build section present, pulling is still the default,
-#                        `pull_policy: missing` says so explicitly, and a
-#                        `latest` tag is always re-pulled). To freeze a
+#                        `pull_policy: always` says so explicitly). To freeze a
 #                        deployment, set `FATHOM_TAG=sha-<40-hex commit>` in
 #                        `.env`; publish.yml pushes that tag beside `latest`.
 #   read_only: true      the ROOT filesystem. The server writes exactly one
@@ -256,7 +255,10 @@ services:
     # `build:` is here so the stack can be brought up from a clean checkout
     # before any image has been published.
     image: ghcr.io/keyxmakerx/fathom-server:${FATHOM_TAG:-latest}
-    pull_policy: missing
+    # `always`, so `docker compose up -d` checks the registry every time and a
+    # host following `latest` actually gets the newest build. With `missing` a
+    # host that already held a `latest` image kept running it (2026-10-09).
+    pull_policy: always
     restart: unless-stopped
     read_only: true
     user: "65532:65532"
