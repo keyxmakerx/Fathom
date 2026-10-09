@@ -145,12 +145,19 @@ Surfaces are specified in `docs/UI-SPEC.md` and `ADR-0060`/`0061`.
   operators, console placement and the SMTP setting. The organisation claim signs the genesis grant in the
   browser, shows the recovery key once, then forgets it (ADR-0057). Not on the console: the two-person
   verbs (no assertion by the enrolled key yet), the site trail, an account list.
-- **Home** has tabs (ADR-0060 decision 7): Designs, Organisation (admins: folders, i.e. Sites, Buildings
-  and Closets), and Admin (the console, only where it answers). Each shows only to someone who may use it.
+- **Home** has tabs (ADR-0060 decision 7): Designs, Organisation (admins and folder stewards; a rail of
+  People, Waiting for you (N) and Folders), and Admin (the console, only where it answers). Each shows only to someone who may use it.
   The account menu holds Your account, Signed-in browsers, theme and Sign out; an amber "Admin" pill
   shows beside the initials where the console answers. "New design" goes in the first Site the person may
   draw in. Names start as "Untitled design", sealed under the organisation key (`designs.name_*`); Rename
-  needs `draw`. Not built: people, invitations and roles on the Organisation tab (need server routes).
+  needs `draw`. **People and access** (client, `components/organisation/`, `api/invitations.ts`,
+  `api/people.ts`): invite (name, optional email, Read/Draw/Steward, folder) gives a one-time link and a
+  sign-in name that the steward sends; the invited person opens `/invite#inv_...`, gets a key and a
+  key-check code to read out; the steward confirms everyone waiting with one signature action (up to 500,
+  full list shown first, proposal checked against the rows before signing), steward requests one at a
+  time, second-steward approval in the same screen, per-person page with Remove and Give more access.
+  Not built: removing access given to the whole organisation (the server's revoke route needs a folder),
+  making an existing member a Steward, the contact email after confirmation.
 - **About Fathom** (You panel) lists every shipped library and licence; `scripts/licences-npm.mjs` fails
   CI when a package's licence is off `deny.toml`'s list or the list and lockfile disagree (`--write` fixes).
 - **What a pasted Junos SRX config now records for the path trace** (ADR-0061 item 9, schema 0.17).
@@ -279,6 +286,11 @@ live co-editing, #110 Show menu, #111 print pack.
   v0.1 tag waits on that run.
 - The server's credential check is the detector only; SNMPv3 auth and priv values are a known residual
   (W7). Narrow redaction leaks are tracked in issue #104.
+- People and access, residuals named: (1) an operator-issued token for an account can still be redeemed
+  after a steward confirms that account (design section 4.4), so a second key could appear after confirm;
+  (2) confirm checks that the account has exactly one live key, and nothing about a password or app
+  code, which only the joiner can set today (revisit once a mail path exists); (3) the daily cap of 50
+  invitations is per steward per organisation, not across organisations.
 - Nothing exercises two genuinely concurrent saves (the row lock serialises them).
 - Trail and notes: the sealed mark is an idle-time approximation; the comment box should attach to the
   next batch; a note's line count is taken before the gate; private notes arrive with the vault (W6).

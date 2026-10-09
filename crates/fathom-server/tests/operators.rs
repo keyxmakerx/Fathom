@@ -2101,6 +2101,8 @@ async fn expire_token_now(
         token_hash: &token_hash,
         subject,
         issued_by: &issued_by,
+        issued_by_account: None,
+        invitation: None,
         expires_at_unix: new_expiry,
         redeemed_at_unix: 0,
         expired_at_unix: 0,

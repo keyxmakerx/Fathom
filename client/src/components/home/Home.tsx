@@ -16,6 +16,10 @@ import { createScope, fetchScopes, type Scope } from '../../api/scopes';
 import { emptyDocument } from '../../document/model';
 import { writePlain } from '../../document/plain';
 import { About } from '../about/About';
+import { clearJoinedFromInvitation, stillWaitingInvitee, wasJoinedFromInvitation } from '../../state/waitingInvitee';
+import { AwaitingSteward } from './AwaitingSteward';
+import { type Loadable } from '../organisation/FoldersPanel';
+import { OrganisationTab } from '../organisation/OrganisationTab';
 import { canDrawFor } from '../design/useDesignSession';
 import { canStewardFor } from './capabilities';
 import { pickDirectEntry, type DirectEntry } from './directEntry';
@@ -62,14 +66,14 @@ export interface HomeProps {
    * console. Choosing the tab calls `onOpen`, which starts the operator
    * sign-in; `panel` is what the tab shows meanwhile. */
   admin?: { onOpen: () => void; panel: ReactNode };
+  /** Told whether the person joined from an invitation and still waits, so the
+   * caller can leave out what would send them the wrong way (the Admin pill). */
+  onWaitingInviteeChange?: (waiting: boolean) => void;
 }
 
 /** The interface's names for the server's scope kinds (the owner, 2026-09-23). */
 const LEVEL: Record<string, string> = { network: 'Site', building: 'Building', rack: 'Closet' };
-/** What can be created under each kind (`child_kind_under` on the server). */
-const CHILD_LEVEL: Record<string, string | null> = { network: 'building', building: 'closet', rack: null };
 
-type Loadable<T> = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; value: T };
 
 /**
  * Home: what you see after sign-in. `docs/decisions/adr-0046-two-places-one-editor-and-an-undo-that-records.md`
@@ -99,6 +103,7 @@ export function Home({
   onTabChange,
   onTabsChange,
   admin,
+  onWaitingInviteeChange,
 }: HomeProps) {
   const [organisations, setOrganisations] = useState<Loadable<Organisation[]>>({ status: 'loading' });
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
@@ -204,12 +209,26 @@ export function Home({
     }
   }, [organisations, designs, landed, onDirectEntry]);
 
+  // Joined from an invitation, no organisation yet: the person waits for a steward.
+  // Admin, Claim an organisation and the Designs tab would each send them the wrong
+  // way. The note is dropped once an organisation appears.
+  const organisationCount = organisations.status === 'ready' ? organisations.value.length : null;
+  const waitingInvitee = stillWaitingInvitee(organisationCount, wasJoinedFromInvitation(address));
+  useEffect(() => {
+    if (organisationCount !== null && organisationCount > 0) clearJoinedFromInvitation(address);
+  }, [organisationCount, address]);
+  useEffect(() => {
+    onWaitingInviteeChange?.(waitingInvitee);
+  }, [waitingInvitee, onWaitingInviteeChange]);
+
   // ADR-0060 decision 7: each tab only for someone who may use it. A tab that
   // goes (another organisation chosen, Admin refused) falls back to Designs.
+  // An admin, or anyone who stewards a folder: People and Waiting are theirs.
   const organisationAdmin =
-    organisations.status === 'ready' &&
-    organisations.value.some((org) => org.organisationId === selectedOrgId && org.role === 'admin');
-  const tabs = homeTabs({ organisationAdmin, admin: admin !== undefined });
+    (organisations.status === 'ready' &&
+      organisations.value.some((org) => org.organisationId === selectedOrgId && org.role === 'admin')) ||
+    (scopes.status === 'ready' && scopes.value.some((scope) => canStewardFor(scope.capability)));
+  const tabs = homeTabs({ organisationAdmin, admin: admin !== undefined, waitingInvitee });
   const shownTab: HomeTab = tabs.includes(tab) ? tab : 'designs';
   const tabsKey = tabs.join(' ');
   useEffect(() => {
@@ -332,7 +351,7 @@ export function Home({
         {organisations.status === 'ready' && organisations.value.length === 0 && (
           <>
             <p className="home__muted">You belong to no organisations yet.</p>
-            {onClaimOrganisation && (
+            {onClaimOrganisation && !waitingInvitee && (
               <button type="button" className="home__btn home__btn--small" onClick={onClaimOrganisation}>
                 Claim an organisation
               </button>
@@ -372,6 +391,7 @@ export function Home({
           </p>
         )}
         <div className="home__title">{selectedOrganisation?.displayName ?? 'Home'}</div>
+        {organisations.status === 'ready' && organisations.value.length === 0 && <AwaitingSteward address={address} />}
         <HomeTabs tabs={tabs} current={shownTab} onSelect={selectTab} testIds={{ admin: 'console-entry' }} />
 
         {shownTab === 'organisation' && selectedOrganisation && (
@@ -398,7 +418,7 @@ export function Home({
 
         {shownTab === 'admin' && admin && <section className="home__section">{admin.panel}</section>}
 
-        {shownTab === 'designs' && (
+        {shownTab === 'designs' && !waitingInvitee && (
         <section className="home__section">
           <div className="home__section-head">
             <div className="home__label">Designs you may open</div>
@@ -607,71 +627,6 @@ function ScopeHeading({ scope, designCount, busy, onCreateDesign, bare }: ScopeH
     </>
   );
   return bare ? body : <div className="home__scope-heading">{body}</div>;
-}
-
-interface OrganisationTabProps {
-  organisation: Organisation;
-  scopes: Loadable<Scope[]>;
-  /** ADR-0054 §3 — opens the new-scope form under `parentId`, or at the top
-   * of the organisation when it is `null`. */
-  onCreateScope: (parentId: string | null, parentLabel: string, child: string) => void;
-  /** The open new-scope form, if any. */
-  scopeForm: ReactNode;
-}
-
-/**
- * The Organisation tab (ADR-0060 decision 7), for the organisation's admins:
- * its folders — Sites, Buildings and Closets — and where to make more. None
- * is needed to start a design. People, invitations and roles join this tab
- * once the server has routes for them.
- */
-function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm }: OrganisationTabProps) {
-  return (
-    <section className="home__section">
-      <div className="home__section-head">
-        <div className="home__label">Folders</div>
-        <button
-          type="button"
-          className="home__btn home__btn--small"
-          onClick={() => onCreateScope(null, organisation.displayName, 'site')}
-        >
-          New site
-        </button>
-      </div>
-      <p className="home__muted">Sites, Buildings and Closets sort designs. None is needed to start one.</p>
-      {scopeForm}
-      {scopes.status === 'loading' && <p className="home__muted">Loading…</p>}
-      {scopes.status === 'error' && <p className="home__error">{scopes.message}</p>}
-      {scopes.status === 'ready' && scopes.value.length === 0 && <p className="home__muted">No folders yet.</p>}
-      {scopes.status === 'ready' && scopes.value.length > 0 && (
-        <ul className="home-folders">
-          {scopes.value.map((scope) => {
-            const child = CHILD_LEVEL[scope.kind];
-            return (
-              <li
-                key={scope.scopeId}
-                className="home-folders__row"
-                style={{ paddingLeft: `calc(${Math.max(0, scope.depth - 1)} * var(--s4))` }}
-              >
-                <span className="home__scope-name">{scope.displayName}</span>
-                <span className="home__scope-kind">{LEVEL[scope.kind] ?? scope.kind}</span>
-                {canStewardFor(scope.capability) && child && (
-                  <button
-                    type="button"
-                    className="home__btn home__btn--small"
-                    onClick={() => onCreateScope(scope.scopeId, scope.displayName, child)}
-                  >
-                    New {child}
-                  </button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      <p className="home__muted">People, invitations and roles will be here once the server can do them.</p>
-    </section>
-  );
 }
 
 interface ScopeFormProps {

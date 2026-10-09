@@ -457,6 +457,7 @@ async fn app(
         catalogue: Arc::new(catalogue),
         client_address: fathom_server::client_address::ClientAddress::peer(),
         live,
+        invitation_limits: fathom_server::invitations::Limits::STANDARD,
     };
     fathom_server::api::router(api_state).merge(design_api::router(design_state))
 }

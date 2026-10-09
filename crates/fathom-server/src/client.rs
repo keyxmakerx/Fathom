@@ -162,7 +162,9 @@ impl ClientRoot {
     }
 }
 
-/// The path a request may name, or `None`. `/` is `index.html`; anything
+/// The path a request may name, or `None`. `/` is `index.html`, and so is
+/// `/invite`: an invitation is redeemed at `/invite#inv_…` (ADR-0056 decision 6)
+/// and the page that reads the fragment is the same single-page client. Anything
 /// else is a run of segments each made only of ASCII letters, digits, `.`,
 /// `-` and `_`, none empty and none starting with a dot -- which is every
 /// file Vite emits and nothing that can climb out of the root (`..`, a
@@ -170,7 +172,7 @@ impl ClientRoot {
 /// than canonicalising and provably tighter: the accepted set is exactly the
 /// names in a built client.
 fn safe_relative_path(path: &str) -> Option<PathBuf> {
-    if path == "/" || path.is_empty() {
+    if path == "/" || path.is_empty() || path == "/invite" || path == "/invite/" {
         return Some(PathBuf::from("index.html"));
     }
     let rest = path.strip_prefix('/')?;
@@ -368,6 +370,22 @@ mod tests {
     #[test]
     fn the_root_is_index_html() {
         assert_eq!(safe_relative_path("/"), Some(PathBuf::from("index.html")));
+    }
+
+    #[test]
+    fn the_invitation_address_is_the_client_too() {
+        // The token is in the fragment, which never reaches this function.
+        for p in ["/invite", "/invite/"] {
+            assert_eq!(
+                safe_relative_path(p),
+                Some(PathBuf::from("index.html")),
+                "{p}"
+            );
+        }
+        assert_eq!(
+            safe_relative_path("/invite/x"),
+            Some(PathBuf::from("invite/x"))
+        );
     }
 
     #[test]

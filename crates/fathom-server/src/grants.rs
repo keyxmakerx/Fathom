@@ -342,7 +342,7 @@ pub struct Capabilities {
 // ---------------------------------------------------------------------------
 
 /// `K_row` for one organisation, from the organisation chain key.
-fn row_key_for(ring: &KeyRing, organisation: &str) -> Key32 {
+pub(crate) fn row_key_for(ring: &KeyRing, organisation: &str) -> Key32 {
     let chain_key = chain::chain_key(
         ring.chain_master(),
         ChainRef::Org { organisation },
@@ -1531,6 +1531,19 @@ pub async fn sign_grant(
     proposal: &GrantProposal,
     signature: &[u8],
 ) -> Result<String, AuthorityError> {
+    sign_grant_at(tx, auth, proposal, signature, now_unix()).await
+}
+
+/// [`sign_grant`] with the clock taken by the caller. A batch confirm takes `now`
+/// once, so the later items of 500 are not refused by the drift check for the
+/// time the earlier ones took. The epoch stays the real freshness check.
+pub(crate) async fn sign_grant_at(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    proposal: &GrantProposal,
+    signature: &[u8],
+    now: i64,
+) -> Result<String, AuthorityError> {
     let (ring, ctx, tenant_key) = (auth.ring, auth.ctx, auth.tenant_key);
     let organisation = auth.organisation();
 
@@ -1555,7 +1568,6 @@ pub async fn sign_grant(
     // Every server-chosen value, re-derived from current state. The sole-steward
     // determination is checked BEFORE the epoch, so an overtaken proposal says
     // which fact moved.
-    let now = now_unix();
     let state = read_authority_state(tx, &organisation).await?;
     let choices = server_choices(&state, proposal.capability, now)?;
     if choices.sole_steward_appointment != proposal.sole_steward_appointment {
@@ -2081,14 +2093,16 @@ pub async fn suspend_grant_by_operator(
     Ok(organisation)
 }
 
-/// Revoke a grant — the positive, append-only fact §3.2 requires.
+/// Revoke a grant — the positive, append-only fact §3.2 requires. Answers when the
+/// revocation takes effect: `at_unix`, or a day later when it removes another
+/// steward (§3.5 as amended).
 pub async fn revoke_grant(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
     grant_id: &str,
     signature: &[u8],
     at_unix: i64,
-) -> Result<(), AuthorityError> {
+) -> Result<i64, AuthorityError> {
     let (ring, ctx, tenant_key) = (auth.ring, auth.ctx, auth.tenant_key);
     let organisation = auth.organisation();
     let actor = auth.actor();
@@ -2179,7 +2193,7 @@ pub async fn revoke_grant(
     .await?;
 
     advance_head(tx, auth.ring, auth.ctx, auth.tenant_key).await?;
-    Ok(())
+    Ok(takes_effect)
 }
 
 // ---------------------------------------------------------------------------
@@ -2257,25 +2271,40 @@ pub fn is_shareable(capability: Capability) -> bool {
     capability != Capability::Steward
 }
 
-/// The message to sign to revoke one `read`/`draw` grant made exactly at `scope`.
-/// Refuses anything else, so this route cannot be pointed at a steward's grant.
+/// What revoking one grant means: the bytes to sign, and when it takes effect.
+pub struct RevokeView {
+    pub bytes: Vec<u8>,
+    /// `at_unix`, or a day later when this removes another steward (§3.5).
+    pub takes_effect_unix: i64,
+    /// Whether the grant is a steward grant.
+    pub steward: bool,
+}
+
+/// The message to sign to revoke one grant made exactly at `scope`: `read`,
+/// `draw`, or `steward`. Never a genesis or recovery grant, which are
+/// root-signed and have their own controls.
 pub async fn revoke_bytes_for_share(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
     scope: ScopeId,
     grant_id: &str,
     at_unix: i64,
-) -> Result<Vec<u8>, AuthorityError> {
-    let grant = shareable_grant_at(tx, auth, scope, grant_id).await?;
-    Ok(authority::revoke_bytes(
-        &auth.organisation(),
-        &grant.id,
-        &grant_bytes_of(tx, auth.ring, &grant).await?,
-        at_unix,
-    ))
+) -> Result<RevokeView, AuthorityError> {
+    let grant = revocable_grant_at(tx, auth, scope, grant_id).await?;
+    Ok(RevokeView {
+        bytes: authority::revoke_bytes(
+            &auth.organisation(),
+            &grant.id,
+            &grant_bytes_of(tx, auth.ring, &grant).await?,
+            at_unix,
+        ),
+        takes_effect_unix: weakening_act_takes_effect_at(&grant, &auth.actor(), true, at_unix),
+        steward: grant.capability == Capability::Steward,
+    })
 }
 
-/// [`revoke_grant`], limited to a `read`/`draw` grant made exactly at `scope`.
+/// [`revoke_grant`], limited to a non-genesis grant made exactly at `scope`.
+/// Answers when it takes effect.
 pub async fn revoke_shared_grant(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
@@ -2283,12 +2312,12 @@ pub async fn revoke_shared_grant(
     grant_id: &str,
     signature: &[u8],
     at_unix: i64,
-) -> Result<(), AuthorityError> {
-    shareable_grant_at(tx, auth, scope, grant_id).await?;
+) -> Result<i64, AuthorityError> {
+    revocable_grant_at(tx, auth, scope, grant_id).await?;
     revoke_grant(tx, auth, grant_id, signature, at_unix).await
 }
 
-async fn shareable_grant_at(
+async fn revocable_grant_at(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
     scope: ScopeId,
@@ -2300,8 +2329,8 @@ async fn shareable_grant_at(
         .ok_or(AuthorityError::NotAuthorised)?;
     if grant.organisation_id != auth.organisation()
         || grant.scope_id.as_deref() != Some(scope.to_string().as_str())
-        || !is_shareable(grant.capability)
         || grant.is_genesis
+        || grant.is_recovery
     {
         return Err(AuthorityError::NotAuthorised);
     }
@@ -2313,6 +2342,413 @@ async fn shareable_grant_at(
         return Err(AuthorityError::NotAuthorised);
     }
     Ok(grant)
+}
+
+// ---------------------------------------------------------------------------
+// Invitations, the People page and seconding (`invitations.rs` is the caller)
+//
+// Reads over the verified authority state, and one proposal shape that names a
+// registered key by fingerprint. Kept here because the state's fields are
+// private to this module.
+// ---------------------------------------------------------------------------
+
+/// What the acting account may steward, asked one scope at a time and
+/// remembered for the length of one request.
+#[derive(Default)]
+pub(crate) struct StewardCheck {
+    cache: HashMap<Option<String>, bool>,
+}
+
+impl StewardCheck {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    /// Whether the caller holds `steward` at `scope` (`None` is the organisation),
+    /// by the same walk every request runs. A refusal is `false`, never an error;
+    /// an unverifiable store is still an error.
+    pub(crate) async fn holds(
+        &mut self,
+        tx: &Transaction<'_>,
+        auth: &Authority<'_>,
+        verified: &VerifiedAuthorityState,
+        scope: Option<&str>,
+    ) -> Result<bool, AuthorityError> {
+        let key = scope.map(str::to_string);
+        if let Some(known) = self.cache.get(&key) {
+            return Ok(*known);
+        }
+        let parsed = scope.map(parse_scope).transpose()?;
+        let held = match authorise_in_verified_state(
+            tx,
+            auth,
+            verified,
+            parsed,
+            Capability::Steward,
+        )
+        .await
+        {
+            Ok(_) => true,
+            Err(AuthorityError::NotAuthorised | AuthorityError::QuorumNotMet { .. }) => false,
+            Err(other) => return Err(other),
+        };
+        self.cache.insert(key, held);
+        Ok(held)
+    }
+}
+
+/// One scope of an organisation, as the People page labels it.
+pub(crate) struct ScopeInfo {
+    pub id: String,
+    pub label: String,
+    /// Ancestor ids and the scope's own, joined by `.`.
+    pub path: String,
+}
+
+pub(crate) async fn organisation_scopes(
+    tx: &Transaction<'_>,
+    organisation: &str,
+) -> Result<Vec<ScopeInfo>, AuthorityError> {
+    Ok(tx
+        .query(
+            "SELECT id, display_name, path FROM scopes WHERE organisation_id = $1 ORDER BY path",
+            &[&organisation],
+        )
+        .await?
+        .iter()
+        .map(|r| ScopeInfo {
+            id: r.get(0),
+            label: r.get(1),
+            path: r.get(2),
+        })
+        .collect())
+}
+
+/// One thing a person can do, as the People page shows it.
+#[derive(Clone, Debug)]
+pub(crate) struct AccessLine {
+    /// The scope this line is shown at: the grant's own, or (when `inherited`)
+    /// one the caller stewards beneath it. `None` is the organisation.
+    pub scope: Option<String>,
+    pub capability: Capability,
+    pub grant: String,
+    pub inherited: bool,
+    pub genesis: bool,
+    /// Whether the caller can revoke it from here: made at a scope the caller
+    /// stewards, and neither genesis nor recovery.
+    pub revocable: bool,
+    pub effective_from_unix: i64,
+    /// `0` for none.
+    pub expires_at_unix: i64,
+    /// Seconds a revocation by the caller waits before it bites: a day for
+    /// removing another steward, otherwise none.
+    pub revoke_delay_seconds: i64,
+    /// A revocation already written that has not yet taken effect.
+    pub revoking_at_unix: Option<i64>,
+    /// A steward grant nobody has seconded, and not a sole-steward appointment.
+    pub awaiting_second: bool,
+    pub suspended: bool,
+}
+
+/// The scopes the caller holds a steward grant at (`None` is the organisation),
+/// each one checked by the same walk every request runs. Empty means the caller
+/// stewards nothing.
+pub(crate) async fn steward_anchors(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    verified: &VerifiedAuthorityState,
+    check: &mut StewardCheck,
+) -> Result<BTreeSet<Option<String>>, AuthorityError> {
+    let caller = auth.actor();
+    let mut anchors: BTreeSet<Option<String>> = BTreeSet::new();
+    for g in &verified.state.grants {
+        if g.subject_id == caller
+            && g.capability == Capability::Steward
+            && !anchors.contains(&g.scope_id)
+            && check
+                .holds(tx, auth, verified, g.scope_id.as_deref())
+                .await?
+        {
+            anchors.insert(g.scope_id.clone());
+        }
+    }
+    Ok(anchors)
+}
+
+/// What each of `members` holds in the scopes the caller stewards.
+///
+/// A grant made at a scope the caller stewards is shown there. A grant made
+/// above (at an ancestor, or the organisation) is shown as inherited at each
+/// scope the caller holds a steward grant at beneath it. Revoked, expired and
+/// not-yet-effective grants are handled as `authorise_account` handles them: a
+/// revocation that has taken effect hides the grant, one still waiting is shown
+/// with `revoking_at_unix`.
+pub(crate) async fn access_lines(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    verified: &VerifiedAuthorityState,
+    members: &BTreeSet<String>,
+    check: &mut StewardCheck,
+) -> Result<BTreeMap<String, Vec<AccessLine>>, AuthorityError> {
+    let state = &verified.state;
+    let caller = auth.actor();
+    let now = now_unix();
+    let scopes = organisation_scopes(tx, &verified.organisation).await?;
+    let path_of: HashMap<&str, &str> = scopes
+        .iter()
+        .map(|s| (s.id.as_str(), s.path.as_str()))
+        .collect();
+
+    let anchors = steward_anchors(tx, auth, verified, check).await?;
+
+    let mut out: BTreeMap<String, Vec<AccessLine>> = BTreeMap::new();
+    for g in &state.grants {
+        if !members.contains(&g.subject_id)
+            || state.revoked_by(&g.id, now)
+            || (g.expires_at_unix != 0 && g.expires_at_unix <= now)
+        {
+            continue;
+        }
+        let steward = g.capability == Capability::Steward;
+        let direct = check
+            .holds(tx, auth, verified, g.scope_id.as_deref())
+            .await?;
+        let revocable = direct && !g.is_genesis && !g.is_recovery;
+        let line = |scope: Option<String>, inherited: bool| AccessLine {
+            scope,
+            capability: g.capability,
+            grant: g.id.clone(),
+            inherited,
+            genesis: g.is_genesis,
+            revocable: revocable && !inherited,
+            effective_from_unix: g.effective_from_unix,
+            expires_at_unix: g.expires_at_unix,
+            revoke_delay_seconds: weakening_act_takes_effect_at(g, &caller, true, 0),
+            revoking_at_unix: state
+                .revocations
+                .iter()
+                .find(|r| r.grant_id == g.id)
+                .map(|r| r.takes_effect_unix),
+            awaiting_second: steward
+                && !g.is_genesis
+                && !g.is_recovery
+                && !g.sole_steward_appointment
+                && !state.secondings.iter().any(|s| s.grant_id == g.id),
+            suspended: state.suspended_at(&g.id, now, i64::MAX),
+        };
+        let lines = out.entry(g.subject_id.clone()).or_default();
+        if direct {
+            lines.push(line(g.scope_id.clone(), false));
+            continue;
+        }
+        // Above the caller: shown at each steward anchor beneath it.
+        for anchor in &anchors {
+            let beneath = match (&g.scope_id, anchor) {
+                (None, _) => true,
+                (Some(_), None) => false,
+                (Some(above), Some(at)) => path_of
+                    .get(at.as_str())
+                    .is_some_and(|p| p.split('.').any(|id| id == above)),
+            };
+            if beneath {
+                lines.push(line(anchor.clone(), true));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Steward grants waiting for the caller's second signature: not a sole-steward
+/// appointment, nobody has seconded, neither made by nor for the caller, at a
+/// scope the caller stewards, and still live.
+pub(crate) async fn grants_awaiting_my_second(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    verified: &VerifiedAuthorityState,
+    check: &mut StewardCheck,
+) -> Result<Vec<Grant>, AuthorityError> {
+    let state = &verified.state;
+    let caller = auth.actor();
+    let now = now_unix();
+    let mut out = Vec::new();
+    for g in &state.grants {
+        if g.capability != Capability::Steward
+            || g.is_genesis
+            || g.is_recovery
+            || g.sole_steward_appointment
+            || g.subject_id == caller
+            || g.granted_by.as_deref() == Some(caller.as_str())
+            || state.revocations.iter().any(|r| r.grant_id == g.id)
+            || (g.expires_at_unix != 0 && g.expires_at_unix <= now)
+            || state.secondings.iter().any(|s| s.grant_id == g.id)
+        {
+            continue;
+        }
+        if check
+            .holds(tx, auth, verified, g.scope_id.as_deref())
+            .await?
+        {
+            out.push(g.clone());
+        }
+    }
+    Ok(out)
+}
+
+/// A grant offered for seconding: everything needed to rebuild what the granter
+/// signed, and the bytes the seconder signs.
+pub struct SecondView {
+    pub grant: Grant,
+    pub root_pubkey_fpr: [u8; 32],
+    pub grant_bytes: Vec<u8>,
+    pub second_bytes: Vec<u8>,
+}
+
+/// Every guard on seconding, then the view. `scope` is the scope the route
+/// named, when it named one: the grant must be made exactly there.
+///
+/// The caller is a steward at the grant's scope; the grant is in this
+/// organisation, a steward grant, not genesis, not recovery, not a sole-steward
+/// appointment (that path never seconds), not revoked, not expired, and not
+/// already seconded by the caller; the caller is neither its granter nor its
+/// subject (the database refuses both as well). Every refusal is
+/// [`AuthorityError::NotAuthorised`].
+pub async fn second_view(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    scope: Option<ScopeId>,
+    grant_id: &str,
+) -> Result<SecondView, AuthorityError> {
+    let grant = read_grant(tx, grant_id)
+        .await?
+        .ok_or(AuthorityError::NotAuthorised)?;
+    let grant_scope = grant.scope_id.as_deref().map(parse_scope).transpose()?;
+    authorise_account(tx, auth, grant_scope, Capability::Steward).await?;
+
+    let caller = auth.actor();
+    let now = now_unix();
+    if grant.organisation_id != auth.organisation()
+        || scope.is_some_and(|s| grant.scope_id.as_deref() != Some(s.to_string().as_str()))
+        || grant.capability != Capability::Steward
+        || grant.is_genesis
+        || grant.is_recovery
+        || grant.sole_steward_appointment
+        || grant.subject_id == caller
+        || grant.granted_by.as_deref() == Some(caller.as_str())
+        || (grant.expires_at_unix != 0 && grant.expires_at_unix <= now)
+    {
+        return Err(AuthorityError::NotAuthorised);
+    }
+    let state = read_authority_state(tx, &auth.organisation()).await?;
+    if state.revocations.iter().any(|r| r.grant_id == grant.id)
+        || state
+            .secondings
+            .iter()
+            .any(|s| s.grant_id == grant.id && s.seconded_by == caller)
+    {
+        return Err(AuthorityError::NotAuthorised);
+    }
+
+    let root_pubkey_fpr = organisation_root_fpr(tx, auth.ring, &grant.organisation_id).await?;
+    let grant_bytes = grant_bytes_of(tx, auth.ring, &grant).await?;
+    let second_bytes = authority::second_bytes(&grant_bytes, &grant.granter_key_fpr);
+    Ok(SecondView {
+        grant,
+        root_pubkey_fpr,
+        grant_bytes,
+        second_bytes,
+    })
+}
+
+/// [`second_grant`] behind [`second_view`]'s guards.
+pub async fn second_grant_guarded(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    scope: Option<ScopeId>,
+    grant_id: &str,
+    signature: &[u8],
+) -> Result<(), AuthorityError> {
+    second_view(tx, auth, scope, grant_id).await?;
+    second_grant(tx, auth, grant_id, signature).await
+}
+
+/// One grant to propose for a person who has a key but, until the signature
+/// commits, no membership. The key is named by its fingerprint, taken from the
+/// invitation row, because the steward cannot read a non-member's keyring (F2).
+pub(crate) struct KeyedGrantRequest {
+    pub scope: Option<ScopeId>,
+    pub subject: String,
+    pub subject_key_fpr: [u8; 32],
+    pub capability: Capability,
+    pub expires_at_unix: i64,
+}
+
+/// Propose `items` as consecutive epochs, writing nothing. Every server choice is
+/// made as [`propose_grant`] makes it, at `now`, from the one `verified` state.
+///
+/// **The caller must already have checked Steward at each item's scope** against
+/// that state (a [`StewardCheck`] remembers each scope), so this stays cheap
+/// enough for 500.
+pub(crate) async fn propose_grants_for_keys(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    verified: &VerifiedAuthorityState,
+    items: &[KeyedGrantRequest],
+    now: i64,
+) -> Result<Vec<GrantProposal>, AuthorityError> {
+    let organisation = auth.organisation();
+    let granter = auth.actor();
+    let granter_key = signing_key_of(tx, &granter)
+        .await?
+        .ok_or(AuthorityError::NoSigningKey)?;
+    let base = next_epoch(tx, &organisation).await?;
+
+    let mut out = Vec::with_capacity(items.len());
+    for (i, item) in items.iter().enumerate() {
+        let choices = server_choices(&verified.state, item.capability, now)?;
+        let proposal = GrantProposal {
+            organisation: organisation.clone(),
+            scope: item.scope.map(|s| s.to_string()),
+            subject: item.subject.clone(),
+            subject_key_fpr: item.subject_key_fpr,
+            capability: item.capability,
+            granter: granter.clone(),
+            granter_key_fpr: granter_key.fpr,
+            root_pubkey_fpr: verified.root_fpr,
+            effective_from_unix: choices.effective_from_unix,
+            expires_at_unix: item.expires_at_unix,
+            auth_epoch: base + i as i32,
+            sole_steward_appointment: choices.sole_steward_appointment,
+            bytes: Vec::new(),
+        };
+        out.push(GrantProposal {
+            bytes: proposal_bytes(&proposal),
+            ..proposal
+        });
+    }
+    Ok(out)
+}
+
+/// Whether a grant of `capability` made now would be a sole-steward appointment
+/// (the server's own determination, which `sign_grant` re-derives and compares).
+pub(crate) async fn is_sole_steward_appointment(
+    tx: &Transaction<'_>,
+    organisation: &str,
+    capability: Capability,
+    now: i64,
+) -> Result<bool, AuthorityError> {
+    if capability != Capability::Steward {
+        return Ok(false);
+    }
+    let state = read_authority_state(tx, organisation).await?;
+    Ok(server_choices(&state, capability, now)?.sole_steward_appointment)
+}
+
+/// The authority head's epoch today (0 when the organisation has none).
+pub(crate) async fn head_epoch(
+    tx: &Transaction<'_>,
+    organisation: &str,
+) -> Result<i32, AuthorityError> {
+    Ok(next_epoch(tx, organisation).await? - 1)
 }
 
 // ---------------------------------------------------------------------------
@@ -3497,9 +3933,9 @@ async fn row_verifies<'a>(
 /// re-digesting the state and re-verifying genesis per row. `authorise_account`
 /// still does all seven steps every time, by calling both in sequence.
 pub(crate) struct VerifiedAuthorityState {
-    organisation: String,
+    pub(crate) organisation: String,
     auth_epoch: i32,
-    root_fpr: [u8; 32],
+    pub(crate) root_fpr: [u8; 32],
     state: AuthorityState,
 }
 

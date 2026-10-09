@@ -217,6 +217,9 @@ export default function App() {
   // same row.
   const [homeTab, setHomeTab] = useState<HomeTab>('designs');
   const [homeTabList, setHomeTabList] = useState<HomeTab[]>(['designs']);
+  // Joined from an invitation and still waiting for a steward: Home says so, and
+  // Admin (tab and pill) goes while it is true.
+  const [waitingInvitee, setWaitingInvitee] = useState(false);
 
   // The organisation claim screen (ADR-0057 decision 5). `token`/`noticeAddress`
   // set: handed over from "Claim it now"; absent: Home's own "Claim an organisation".
@@ -730,7 +733,7 @@ export default function App() {
   // 2: a live account session endorses Admin, and one whose own
   // second-factor proof has gone stale needs a current code beside it.
   const admin =
-    consoleHost && !custodyRefused
+    consoleHost && !custodyRefused && !waitingInvitee
       ? {
           onOpen: () => void enterConsole(() => {}),
           panel: operatorCodePending ? (
@@ -845,6 +848,7 @@ export default function App() {
           initialTab={homeTab}
           onTabChange={setHomeTab}
           onTabsChange={setHomeTabList}
+          onWaitingInviteeChange={setWaitingInvitee}
           admin={admin}
         />
       </Shell>

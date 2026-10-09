@@ -3,10 +3,12 @@
 // here, with this browser's enrolled key: the server fixes the bytes first and
 // re-derives every field of them when the signature comes back.
 
-import { concatBytes, fromHex, lp, toHex, u32LE, u64LE, utf8 } from '../crypto/bytes';
-import { getEnrolledKeyPair, signMessage } from '../crypto/keys';
+import { concatBytes, fromHex, lp, toHex, u64LE, utf8 } from '../crypto/bytes';
+import { exportPublicKeyRaw, getEnrolledKeyPair, signMessage } from '../crypto/keys';
 import { getSession } from '../state/sessionState';
 import { keySlot } from './constants';
+import { grantBytes, keyFingerprint } from './grantBytes';
+import { sameBytes } from './json';
 import { signedFetch } from './signedFetch';
 
 /** What a person can do at a scope. `steward` is shown, never handed out. */
@@ -80,11 +82,20 @@ export async function fetchAccess(organisation: string, scope: string): Promise<
   return parseAccess(await signedFetch('GET', `${base(organisation, scope)}/access`));
 }
 
-async function signingKey(): Promise<CryptoKey> {
+async function enrolledPair(): Promise<CryptoKeyPair> {
   const session = getSession();
   const pair = session ? await getEnrolledKeyPair(keySlot(session.kind, session.address)) : null;
   if (!pair) throw new NoSigningKeyHere();
-  return pair.privateKey;
+  return pair;
+}
+
+export async function signingKey(): Promise<CryptoKey> {
+  return (await enrolledPair()).privateKey;
+}
+
+/** The fingerprint of this browser's enrolled key, which a grant signed here must name as its granter's. */
+export async function ownKeyFingerprint(): Promise<Uint8Array> {
+  return keyFingerprint(await exportPublicKeyRaw((await enrolledPair()).publicKey));
 }
 
 function text(record: Record<string, unknown>, key: string): string {
@@ -93,12 +104,8 @@ function text(record: Record<string, unknown>, key: string): string {
   throw new Error(`malformed proposal: no ${key}`);
 }
 
-function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
-  return a.length === b.length && a.every((v, i) => v === b[i]);
-}
-
-/** `authority::grant_bytes` for a View/Draw grant, built here from what the
- * steward chose, so the key never signs bytes the server merely asserts. */
+/** `authority::grant_bytes` for a View/Draw grant at a folder: `grantBytes`
+ * (`./grantBytes.ts`) with no expiry and no sole-steward flag. */
 export function shareGrantBytes(f: {
   organisation: string;
   rootPubkeyFpr: Uint8Array;
@@ -111,21 +118,20 @@ export function shareGrantBytes(f: {
   effectiveFromUnix: number;
   authEpoch: number;
 }): Uint8Array {
-  return concatBytes(
-    lp(utf8('fathom/grant/v2')),
-    lp(utf8(f.organisation)),
-    lp(f.rootPubkeyFpr),
-    lp(utf8(f.scope)),
-    lp(utf8(f.subject)),
-    lp(f.subjectKeyFpr),
-    lp(utf8(f.capability)),
-    lp(utf8(f.granter)),
-    lp(f.granterKeyFpr),
-    u64LE(f.effectiveFromUnix),
-    u64LE(0), // expires: never
-    u32LE(0), // sole-steward appointment: no
-    u32LE(f.authEpoch),
-  );
+  return grantBytes({
+    organisation: f.organisation,
+    rootPubkeyFpr: f.rootPubkeyFpr,
+    scope: f.scope,
+    subject: f.subject,
+    subjectKeyFpr: f.subjectKeyFpr,
+    capability: f.capability,
+    granter: f.granter,
+    granterKeyFpr: f.granterKeyFpr,
+    effectiveFromUnix: f.effectiveFromUnix,
+    expiresAtUnix: 0,
+    soleSteward: false,
+    authEpoch: f.authEpoch,
+  });
 }
 
 /** Give `person` View (`read`) or Draw at the scope: propose, sign, send. The
@@ -178,7 +184,11 @@ export async function shareWith(
 
 /** Take back one View/Draw grant made at this scope. The bytes to sign must be a
  * revocation of this grant, in this organisation, at the time being sent. */
-export async function stopSharing(organisation: string, scope: string, grant: string): Promise<void> {
+export async function stopSharing(
+  organisation: string,
+  scope: string,
+  grant: string,
+): Promise<{ takesEffectAtUnix: number | null; delayed: boolean }> {
   const key = await signingKey();
   const path = `${base(organisation, scope)}/grants/${encodeURIComponent(grant)}/revoke`;
   const prepared = parseJson(await signedFetch('GET', path), 'revoke');
@@ -195,7 +205,12 @@ export async function stopSharing(organisation: string, scope: string, grant: st
     throw new Error('The server asked for a signature on something other than this revocation, so it was not signed.');
   }
   const signature = await signMessage(key, bytes);
-  await signedFetch('POST', path, concatBytes(lp(utf8(String(at))), lp(utf8(toHex(signature)))));
+  const answer = parseJson(await signedFetch('POST', path, concatBytes(lp(utf8(String(at))), lp(utf8(toHex(signature))))), 'revoke');
+  // Revoking another steward is signed now and takes effect a day later.
+  return {
+    takesEffectAtUnix: typeof answer.takes_effect_at_unix === 'number' ? answer.takes_effect_at_unix : null,
+    delayed: answer.delayed === true,
+  };
 }
 
 /** Make `person`'s own grants here exactly `choice`: drop the ones that differ, add the missing one. */
