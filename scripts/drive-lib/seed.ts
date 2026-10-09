@@ -19,7 +19,9 @@ import {
 import { setChassisField, setDeviceField } from './document/edit';
 import { addNote, type NoteHow } from './document/notes';
 import { emptyDocument, formatEdgeId, formatNodeId, parseNodeId, type Document, type NodeKind } from './document/model';
-import { addVlan } from './document/networks';
+import { addSubnet, addVlan } from './document/networks';
+import { setFieldValue, type FieldDefView } from './document/fields';
+import { bulkEstate } from './components/inventory/bulkEstate';
 import { tagObject } from './document/tags';
 import { newUlid } from './document/ulid';
 import { naturalLabelCompare, viewOf } from './document/view';
@@ -621,6 +623,74 @@ export function seedCanvasScene(catalogue: CatalogueModel[], me: string): Docume
   return working;
 }
 
+/** The organisation field the inventory drive starts with (the harness serves it from its mocked store). */
+export const COST_CENTRE: FieldDefView = {
+  id: '01ARZ3NDEKTSV4RRFFQ69G5FCC',
+  appliesTo: 'device',
+  name: 'Cost centre',
+  type: 'text',
+  choices: [],
+  version: 1,
+  createdBy: 'drive',
+  archived: false,
+};
+
+/** ADR-0062's drive: the tags scene, a "Cost centre" field with a value on core-01, and `count`
+ * unplaced sketch devices so the table has hundreds of rows to window. */
+export function seedInventoryScene(catalogue: CatalogueModel[], me: string, count = 600): Document {
+  let doc = seedTagsScene(catalogue, me);
+  const core = firstRack(doc, catalogue).chassis.find((c) => c.hostname === 'core-01')!;
+  doc = setFieldValue(doc, core.deviceId, COST_CENTRE.id, 'IT-204', [COST_CENTRE], { actor: me });
+  for (let i = 0; i < count; i += 1) {
+    doc = createSketchDevice(doc, { hostname: `bulk-${String(i + 1).padStart(4, '0')}`, actor: me });
+  }
+  return doc;
+}
+
+/**
+ * The prefixes drive: four sketch devices on one floor of one premises. fw-01 gateways VLAN 20
+ * (10.0.20.0/24) and has 10.0.10.1/24 and 172.16.9.9/16; two nas/cam boxes sit in 10.0.20.0/24,
+ * and nas-02 and cam-07 carry the same 10.0.20.16 so the page shows a clash.
+ */
+export function seedIpamScene(catalogue: CatalogueModel[], me: string): Document {
+  void catalogue; // sketch devices need no catalogue model
+  const premises = createPremises(emptyDocument(), { actor: me });
+  const floor = newSurface(premises.doc, premises.premisesId, { label: 'Floor 1', form: 'floor', actor: me });
+  let doc = floor.doc;
+  const box = (hostname: string, ports: string[], role?: string) => {
+    const made = newSketchDevice(doc, hostname, me);
+    doc = fixTo(made.doc, made.chassisId, floor.surfaceId, { xMm: 100 + doc.nodes.length, yMm: 100 }, { actor: me });
+    if (role) {
+      const deviceId = doc.nodes.filter((n) => parseNodeId(n.id).kind === 'Device').find((n) => n.fields['Device.hostname']?.value === hostname)!.id;
+      doc = setDeviceField(doc, deviceId, 'role', role, { actor: me });
+    }
+    return ports.map((label) => {
+      const before = doc;
+      doc = addSketchPort(doc, made.chassisId, { label, connector: 'rj45', face: 'front' }, { actor: me });
+      return newestNode(before, doc, 'PhysicalPort');
+    });
+  };
+  const fw = box('fw-01', ['ge-0/0/1', 'ge-0/0/2', 'ge-0/0/3'], 'firewall');
+  const nas1 = box('nas-01', ['eth0']);
+  const nas2 = box('nas-02', ['eth0']);
+  const cam = box('cam-07', ['eth0']);
+  const label = ['ge-0/0/1', 'ge-0/0/2', 'ge-0/0/3'];
+  doc = addVlan(
+    doc,
+    { vlanId: 20, name: 'Storage', attach: [{ target: { kind: 'port', portId: fw[0]!, interfaceName: label[0]! }, gateway: true }], subnet: '10.0.20.0/24', gatewayAddress: '10.0.20.1/24' },
+    { actor: me },
+  );
+  const put = (prefix: string, address: string, portId: string, name: string) => {
+    doc = addSubnet(doc, { prefix, attach: [{ target: { kind: 'port', portId, interfaceName: name }, address }] }, { actor: me });
+  };
+  put('10.0.20.0/24', '10.0.20.15/24', nas1[0]!, 'eth0');
+  put('10.0.20.0/24', '10.0.20.16/24', nas2[0]!, 'eth0');
+  put('10.0.20.0/24', '10.0.20.16/24', cam[0]!, 'eth0');
+  put('10.0.10.0/24', '10.0.10.1/24', fw[1]!, label[1]!);
+  put('172.16.0.0/16', '172.16.9.9/16', fw[2]!, label[2]!);
+  return doc;
+}
+
 /** The canvas scene plus three more racks and a firewall cable to sw-09 in the
  * last (R7), far enough away to draw as stubs: the look-switch scene. */
 export function seedLookScene(catalogue: CatalogueModel[], me: string): Document {
@@ -641,6 +711,12 @@ export function seedLookScene(catalogue: CatalogueModel[], me: string): Document
       .sort((x, y) => naturalLabelCompare(x.label, y.label));
   working = connectPorts(working, rj('fw-01', 'A-04')[1]!.id, rj('sw-09', 'R7')[0]!.id, { sheath: 'red' }, { actor: me });
   return working;
+}
+
+/** Inventory v5's drives: a made-up estate (components/inventory/bulkEstate.ts). `scale` 1 is about
+ * 1,900 devices, 13,000 ports and 5,000 cables. */
+export function seedBulkEstate(me: string, scale: number): Document {
+  return bulkEstate({ scale, actor: me }).doc;
 }
 
 /** The lowest-numbered UNCABLED front RJ45 port — `frontRj45`'s own doc,

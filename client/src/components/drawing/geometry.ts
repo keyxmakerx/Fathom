@@ -180,6 +180,8 @@ const STOP_ORDER: CameraStop[] = ['closet', 'rack', 'faceplate', 'inside'];
 export const MIN_ZOOM = CAMERA_STOPS.closet / 100 - 0.1;
 /** The last stop: zoom only magnifies, and stops here. */
 export const MAX_ZOOM = 4;
+/** The diagram look never magnifies past this, so one device cannot fill the screen; only the rack look reaches the faceplate. */
+export const DIAGRAM_MAX_ZOOM = 1.5;
 
 /** Which named stop a zoom percentage reads as right now — nearest stop by
  * absolute distance, ties won by the earlier (smaller) stop. */

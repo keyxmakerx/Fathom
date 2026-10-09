@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.15";
+export const SCHEMA_VERSION = "0.17";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -72,7 +72,8 @@ export type NodeKind =
   | "DocLink"
   | "DocFile"
   | "MaintenancePlan"
-  | "PlanStep";
+  | "PlanStep"
+  | "FieldValue";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -140,6 +141,7 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "DocFile",
   "MaintenancePlan",
   "PlanStep",
+  "FieldValue",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -252,7 +254,8 @@ export type EdgeKind =
   | "HasDoc"
   | "DocOn"
   | "HasDocLink"
-  | "HasDocFile";
+  | "HasDocFile"
+  | "HasFieldValue";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -363,6 +366,7 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "DocOn",
   "HasDocLink",
   "HasDocFile",
+  "HasFieldValue",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -465,7 +469,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   ProtocolAdjacency: ["peer_address", "peer_as", "local_address", "area", "cost", "network_type", "import_policy", "export_policy", "route_reflector_client", "passive"],
   Zone: ["name", "description", "host_inbound_system_services", "host_inbound_protocols", "screen", "application_tracking", "tcp_rst"],
   PolicySet: ["scope", "evaluation", "default_action"],
-  SecurityPolicy: ["name", "ordinal", "action", "match_any_source", "match_any_destination", "log_init", "log_close", "count", "scheduler", "description", "enabled"],
+  SecurityPolicy: ["name", "ordinal", "action", "match_any_source", "match_any_destination", "match_any_application", "log_init", "log_close", "count", "scheduler", "description", "enabled"],
   AddressObject: ["name", "value", "description"],
   AddressSet: ["name", "description"],
   Application: ["l4", "name", "app_id", "inactivity_timeout", "alg"],
@@ -512,6 +516,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   DocFile: ["name", "size", "media", "checked", "removed", "file_id", "sha256"],
   MaintenancePlan: ["title", "window_start", "window_end", "author", "stage", "outcome", "record"],
   PlanStep: ["ordinal", "kind", "targets", "change", "before", "after", "edit", "state", "note", "done_at"],
+  FieldValue: ["definition", "value"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -896,4 +901,7 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "PlanStep.state": 378,
   "PlanStep.note": 379,
   "PlanStep.done_at": 380,
+  "FieldValue.value": 381,
+  "FieldValue.definition": 382,
+  "SecurityPolicy.match_any_application": 383,
 };

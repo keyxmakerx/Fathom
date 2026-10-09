@@ -7,6 +7,7 @@ function actions(): Required<Omit<MenuActions, 'onPlanChange'>> {
     onSelect: vi.fn(),
     onOpen: vi.fn(),
     onOpenInside: vi.fn(),
+    onTraceFrom: vi.fn(),
     onDuplicateDevice: vi.fn(),
     onRemoveDevice: vi.fn(),
     onDisconnect: vi.fn(),
@@ -23,16 +24,18 @@ function actions(): Required<Omit<MenuActions, 'onPlanChange'>> {
 }
 
 describe('menuItemsFor', () => {
-  it('offers a device Open, Inside, details, a duplicate and removal, removal marked', () => {
+  it('offers a device Open, Inside, a trace, details, a duplicate and removal, removal marked', () => {
     const a = actions();
     const items = menuItemsFor({ kind: 'chassis', id: 'c1' }, a);
-    expect(items.map((i) => i.label)).toEqual(['Open', 'Inside', 'Details', 'Duplicate', 'Remove']);
-    expect(items[4].danger).toBe(true);
-    items[3].onSelect();
+    expect(items.map((i) => i.label)).toEqual(['Open', 'Inside', 'Trace a path from here', 'Details', 'Duplicate', 'Remove']);
+    expect(items[5].danger).toBe(true);
+    items[4].onSelect();
     expect(a.onDuplicateDevice).toHaveBeenCalledWith('c1');
     items[0].onSelect();
     expect(a.onOpen).toHaveBeenCalledWith('c1');
     items[2].onSelect();
+    expect(a.onTraceFrom).toHaveBeenCalledWith('c1');
+    items[3].onSelect();
     expect(a.onSelect).toHaveBeenCalledWith({ kind: 'chassis', id: 'c1' });
   });
 

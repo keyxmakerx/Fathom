@@ -30,7 +30,7 @@ import type { PastePlatform } from '../../engine/frames';
 import { devicePlatform, platformChoices, previewPaste, worthReading } from '../paste/pasteConfig';
 import { ConfigDrawer } from '../config/ConfigDrawer';
 import { canDrawFor, refusalFor, type DesignSession } from '../design/useDesignSession';
-import { Drawing, EditorFor, Palette, type NotesActions, type Selection, type TagsActions } from '../drawing';
+import { Drawing, EditorFor, Palette, type NotesActions, type Selection, type TagsActions, type FieldsActions } from '../drawing';
 import {
   cableGroupsStorageKey,
   closetCableIdSet,
@@ -59,6 +59,9 @@ import { ChecksBarChip, ChecksSurface } from '../checks/ChecksPanel';
 import { mediaCandidates } from '../checks/checksModel';
 import { CheckMarksContext, ChecksContext } from '../checks/checksStore';
 import { useChecksController } from '../checks/useChecksController';
+import { TracePanel } from '../trace/TracePanel';
+import { TraceContext } from '../trace/traceStore';
+import { useTraceController } from '../trace/useTraceController';
 import { PlanBand, PlansBarChip } from '../plans/PlanBand';
 import { PlansSurface } from '../plans/PlansSurface';
 import { PlansContext } from '../plans/plansStore';
@@ -219,6 +222,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   /** ADR-0059 — Tags, threaded straight into `EditorFor`'s own `actions`
    * below, `notesActions`'s own shape. */
   tagsActions: TagsActions;
+  /** ADR-0062 — custom fields in the canvas panel, the same editor Inventory shows. */
+  fieldsActions: FieldsActions;
   /** The rack the current selection resolves to, for the Print panel's
    * "this rack" — `null` when the selection names nothing rack-shaped. */
   onActiveRackChange?: (rackId: string | null) => void;
@@ -260,6 +265,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     accountId,
     notesActions,
     tagsActions,
+    fieldsActions,
     onActiveRackChange,
     historyView,
     onShownCablesChange,
@@ -749,6 +755,9 @@ export function RacksPlace(props: RacksPlaceProps) {
       />
     ) : undefined;
 
+  // Path trace (ADR-0061 item 9): the same module; opened from a device's right-click.
+  const trace = useTraceController({ doc, view: realView, boot: ensureMirror, mirrorNow });
+
   // Resolves the current selection to a rack id, however it was reached;
   // anything not rack-shaped reports `null`.
   useEffect(() => {
@@ -1235,6 +1244,10 @@ export function RacksPlace(props: RacksPlaceProps) {
             onAddTag: canDraw ? tagsActions.onAddTag : undefined,
             onRemoveTag: canDraw ? tagsActions.onRemoveTag : undefined,
             onRenameTag: canDraw ? tagsActions.onRenameTag : undefined,
+            fieldsOf: fieldsActions.fieldsOf,
+            onSetField: canDraw ? fieldsActions.onSetField : undefined,
+            onAddFieldDef: canDraw ? fieldsActions.onAddFieldDef : undefined,
+            onRemoveFieldDef: canDraw ? fieldsActions.onRemoveFieldDef : undefined,
             // A view choice, offered to every reader regardless of
             // `canDraw`.
             isCableHidden: handleIsCableHidden,
@@ -1308,6 +1321,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       ) : null}
       <CheckMarksContext.Provider value={layerOn(layers, 'checks')}>
       <PlansContext.Provider value={plans.store}>
+      <TraceContext.Provider value={trace.store}>
       {doc == null ? (
         <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
       ) : look === 'diagram' ? (
@@ -1358,6 +1372,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           openRequest={openRequest}
           renderConfigDrawer={renderConfigDrawer}
           renderInsideStop={renderInsideStop}
+          onTraceFrom={trace.openFrom}
           litPortLabel={litPortLabel}
           emptyHint={canDraw && realView.racks.length === 0 && (realView.surfaces?.length ?? 0) === 0 && realView.free.length === 0 && realView.labels.length === 0 ? EMPTY_HINT : null}
           drawnCableIds={cableDraw.drawnIds}
@@ -1423,8 +1438,10 @@ export function RacksPlace(props: RacksPlaceProps) {
           {canvasNotice}
         </div>
       ) : null}
-      {doc != null ? <ChecksSurface controller={checks} canShow={jot == null} /> : null}
+      {doc != null && !trace.open ? <ChecksSurface controller={checks} canShow={jot == null} /> : null}
       {doc != null ? <PlansSurface controller={plans} besideChecks={checks.open} /> : null}
+      {doc != null && jot == null ? <TracePanel controller={trace} /> : null}
+      </TraceContext.Provider>
       </PlansContext.Provider>
       </CheckMarksContext.Provider>
       </ChecksContext.Provider>

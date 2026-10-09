@@ -155,6 +155,9 @@ fn node_existence_span_is_the_first_assertion() {
     let (graph, ingest, out) = applied();
     let mut checked = 0usize;
 
+    // A node with no assertion is the other half's case (below). The fixture's
+    // static route makes one: the default `RoutingInstance` is named by nothing
+    // (66 §9 item 1), so it has no field.
     for (index, frag) in ingest.fragment.nodes.iter().enumerate() {
         let Some(first) = frag.fields.first() else {
             continue;
@@ -178,7 +181,13 @@ fn node_existence_span_is_the_first_assertion() {
         assert_eq!(record.confidence, fathom_graph::Confidence::Asserted);
         checked += 1;
     }
-    assert_eq!(checked, ingest.fragment.nodes.len());
+    let with_fields = ingest
+        .fragment
+        .nodes
+        .iter()
+        .filter(|n| !n.fields.is_empty())
+        .count();
+    assert_eq!(checked, with_fields);
 }
 
 /// §4.5 step 3's other half: a node the capture named but asserted nothing

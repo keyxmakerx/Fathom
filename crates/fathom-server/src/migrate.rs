@@ -216,6 +216,18 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0034_live_co_editing.sql",
         sql: include_str!("../migrations/0034_live_co_editing.sql"),
     },
+    // ADR-0062: organisation-wide custom-field definitions.
+    Migration {
+        version: 35,
+        name: "0035_field_definitions.sql",
+        sql: include_str!("../migrations/0035_field_definitions.sql"),
+    },
+    // Cable corrections from the floor.
+    Migration {
+        version: 36,
+        name: "0036_cable_corrections.sql",
+        sql: include_str!("../migrations/0036_cable_corrections.sql"),
+    },
     // Steward-issued invitations, "Waiting for you" and batch confirm.
     Migration {
         version: 37,

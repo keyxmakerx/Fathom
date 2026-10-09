@@ -160,6 +160,24 @@ Surfaces are specified in `docs/UI-SPEC.md` and `ADR-0060`/`0061`.
   making an existing member a Steward, the contact email after confirmation.
 - **About Fathom** (You panel) lists every shipped library and licence; `scripts/licences-npm.mjs` fails
   CI when a package's licence is off `deny.toml`'s list or the list and lockfile disagree (`--write` fixes).
+- **What a pasted Junos SRX config now records for the path trace** (ADR-0061 item 9, schema 0.17).
+  Each policy set holds its zone pair (`PolicyScope::ZonePair`, zones as node ids), policies keep
+  `then permit/deny/reject` and `match` any/names (address objects and sets from the global address
+  book, applications by name), and static routes (`next-hop` address, interface unit, `discard`) hang
+  off the one unnamed default routing instance. Not recorded: an OPNsense rule's interface and
+  direction (a design call), zone-scoped address books, `dns-name`/`range-address`, predefined
+  application ports, NAT. The five value types have shapes (`value.rs`); nothing builds NAT.
+- **Path trace** (ADR-0061 item 9, schema shapes in 0.17). `fathom-inventory/src/trace.rs` walks cables and
+  patch panels, VLANs at switches, a route lookup at each routed device (connected and static, longest
+  prefix) and the firewall (zones, then every policy in device order with "matches / doesn't match /
+  can't tell" and the reason). It stops at the first thing the design does not state. `OP_TRACE` (36) runs
+  in the page; right-click a device, "Trace a path from here", then an address or device and an optional
+  "TCP 445". Never a verdict. Not built: interface-to-port ties from a paste (so a pasted device's trace
+  stops at "not tied to a port" until the tie is drawn), learned routes, NAT, port right-click, the
+  Diagram look, the "Trace from here" offer from "It's down". `scripts/drive-trace.mjs` drives it.
+- **Inventory table with pages and shared custom fields** (schema 0.16, ADR-0062). Field definitions are an organisation-wide server store (migration 0035); a value is a `FieldValue` node in the design. Private fields are not built.
+- **IP and VLAN tables, file importer** (ADR-0063): Inventory Prefix and VLAN kinds derived from the drawing, and one importer (CSV, NetBox, Proxmox, nmap).
+- **Cable corrections from the floor.** Anyone with Read on a design's place sends "Traced ✓", "Label wrong" or "Not here" about a cable (`cable:` and a ULID); someone with Draw accepts or dismisses it. Corrections are their own server store (`cable_corrections`, migration 0036), sealed under the organisation content key, never graph nodes. Text is refused when the redaction gate's bare credential check fires (`enable secret cisco123` form), so ordinary prose with key or secret in it can be refused too. Accepting is the Draw user's ordinary edit as one undoable batch ("accepted <name>'s correction"; a not-here report becomes a note without the name); if the edit or its save fails the client reopens the correction (`POST .../reopen`, accepted only). Dismissing re-seals the body as empty text, so what was typed is not kept; a dismissed one cannot be reopened. The database binds sender and decider to the session account. A Read sender sees only their own; caps of 5 open per sender per cable, 20 per sender and 200 per design. Orphaned corrections (cable removed) list on the Corrections waiting page with Dismiss only. Known limits: no chain entry for a correction or decision (L2), no retention clean-up of decided rows.
 
 **The canvas** (one canvas, detail by degrees; ADR-0060)
 - **Racks and devices.** Opening a design reads the plain face (ADR-0049) and draws racks with rails,
@@ -207,7 +225,7 @@ Surfaces are specified in `docs/UI-SPEC.md` and `ADR-0060`/`0061`.
   refuses by name. The trail shows sealed and pending, with a comment on the next change.
 - **Tags** (schema 0.12): chips on devices, ports, cables, racks, premises, VLANs, Docker networks,
   containers; "Add tag" suggests existing ones; quick search finds by tag; tags are a Cables list group.
-  Not built: the Inventory column and filter.
+  Inventory has a Tags column and chip filter; typing `tag:edge` (or `Model:x`) in + Filter picks the column.
 
 **Saves, designs, scopes** (ADR-0054). A save names its base version; a stale base is refused naming both
 numbers and nothing is written (the wash offers Reload). Draw can create a design, a steward of the parent
@@ -246,7 +264,7 @@ outside invites, a public link.
 from the canvas), Rack elevations, Cable schedule, Port map; "Make PDF" opens the preview and the browser's
 own Save as PDF. A4 or Letter; cables none, all or as shown on screen; serials and management addresses
 optional; black and white with colours as words; title block and page x of y. Port map also as .csv or
-.xlsx. Not built: the Inventory table page.
+.xlsx. From Inventory the pack also prints the table as shown (its columns, filters and sort).
 
 **Cables list** (#54). From the lit Cables lens: groups by VLAN, tag, type or device, a count each; a ticked
 VLAN's trunks draw dashed; "Hide this cable" with a "n hidden · show" chip. Per browser and design, never

@@ -29,6 +29,8 @@ export interface MenuActions {
   onOpen?(chassisId: string): void;
   /** Opens a device's inside view, where the device has one. */
   onOpenInside?(chassisId: string): void;
+  /** Starts a path trace from a device (ADR-0061 item 9). */
+  onTraceFrom?(chassisId: string): void;
   onDuplicateDevice?(chassisId: string): void;
   /** Opens a maintenance plan on a device (ADR-0061 round 7). */
   onPlanChange?(elementId: string): void;
@@ -56,6 +58,7 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
       const { id } = target;
       if (actions.onOpen) items.push({ label: 'Open', onSelect: () => actions.onOpen?.(id) });
       if (actions.onOpenInside) items.push({ label: 'Inside', onSelect: () => actions.onOpenInside?.(id) });
+      if (actions.onTraceFrom) items.push({ label: 'Trace a path from here', onSelect: () => actions.onTraceFrom?.(id) });
       items.push({ label: 'Details', onSelect: () => actions.onSelect({ kind: 'chassis', id }) });
       if (actions.onPlanChange) items.push({ label: 'Plan a change', onSelect: () => actions.onPlanChange?.(id) });
       if (actions.onDuplicateDevice) items.push({ label: 'Duplicate', onSelect: () => actions.onDuplicateDevice?.(id) });
@@ -81,6 +84,7 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
       const { id } = target;
       const sel: Selection = target.kind === 'free' ? { kind: 'chassis', id } : { kind: 'label', id };
       if (target.kind === 'free' && actions.onOpen) items.push({ label: 'Open', onSelect: () => actions.onOpen?.(id) });
+      if (target.kind === 'free' && actions.onTraceFrom) items.push({ label: 'Trace a path from here', onSelect: () => actions.onTraceFrom?.(id) });
       items.push({ label: 'Details', onSelect: () => actions.onSelect(sel) });
       if (target.kind === 'free' && actions.onPlanChange) items.push({ label: 'Plan a change', onSelect: () => actions.onPlanChange?.(id) });
       if (actions.onDuplicateFree) items.push({ label: 'Duplicate', onSelect: () => actions.onDuplicateFree?.([id]) });

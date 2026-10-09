@@ -109,10 +109,9 @@ function UnzonedBand({ units }: { units: InsideUnit[] }): JSX.Element | null {
  * order `faces.policySets[].policies` already arrives (`Engine.inside`'s
  * own decode never re-sorts it; `tests/inside.rs`'s
  * `policies_come_back_in_the_order_the_device_reads_them` is the property
- * this relies on). `scope` prints only when the module supplies one — this
- * build's own `PolicyScope` carries none yet
- * (`tests/inside.rs`'s `a_policy_set_cannot_name_the_zone_pair_it_governs`),
- * so nothing here invents a "governs X → Y" line the schema cannot back. */
+ * this relies on). `scope` ("from trust to untrust") prints only when the
+ * module supplies one: a Junos set records its zone pair, an OPNsense rules
+ * paste records none, and nothing here invents a "governs X → Y" line. */
 function PolicySetStack({ setId, scope, policies }: { setId: string; scope: string; policies: InsideFaces['policySets'][number]['policies'] }): JSX.Element {
   return (
     <div className="inside-stop__policy-set" data-set-id={setId}>

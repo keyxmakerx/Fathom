@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { DesignCapability } from '../../api/designs';
 import { addNote, notesOf as notesOfDoc, removeNote, type NoteHow } from '../../document/notes';
+import { fieldForOwner, fieldsOf as fieldsOfDoc, setFieldValue, type FieldType } from '../../document/fields';
+import { useFieldDefinitions } from './useFieldDefinitions';
+import type { Document } from '../../document/model';
 import { listTags, renameTag, tagObject, tagsOf as tagsOfDoc, untagObject } from '../../document/tags';
 import { skippedSentence } from '../../document/liveDoc';
 import { redo as redoBatch, redoSkipping, undo as undoBatch, undoSkipping, undoable } from '../../document/undo';
@@ -14,6 +17,7 @@ import { buildCsv } from '../../print/csv';
 import { buildCableScheduleRows, cableScheduleHeaderRow, CABLE_SCHEDULE_WIDTHS } from '../../print/cableSchedule';
 import { buildCutSheet } from '../../print/cutSheet';
 import { cutSheetTableRows } from '../../print/cutSheetTable';
+import { buildInventorySheet, type InventoryPrintable } from '../../print/inventoryTable';
 import { PrintPanel } from '../../print/PrintPanel';
 import { SharePanel } from '../../share/SharePanel';
 import { PrintPreview } from '../../print/PrintPreview';
@@ -104,6 +108,11 @@ export function DesignPlace(props: DesignPlaceProps) {
   const [shownCableIds, setShownCableIds] = useState<ReadonlySet<string> | null>(null);
   const [printMode, setPrintMode] = useState<'closed' | 'panel' | 'preview'>('closed');
   const [printJob, setPrintJob] = useState<PrintJob | null>(null);
+  // The Inventory table as shown, kept by ref: it changes with every edit and only the pack reads it.
+  const inventoryPrintRef = useRef<InventoryPrintable | null>(null);
+  const setInventoryPrintable = useCallback((p: InventoryPrintable | null) => {
+    inventoryPrintRef.current = p;
+  }, []);
   const [sharing, setSharing] = useState(false);
 
   // History beside the canvas: a picked save is shown read-only with what it changed outlined.
@@ -172,6 +181,7 @@ export function DesignPlace(props: DesignPlaceProps) {
       const cableRows = sections.has('cables')
         ? buildCableScheduleRows(doc, view).filter((r) => options.cables !== 'screen' || shownCableIds == null || shownCableIds.has(r.key ?? ''))
         : [];
+      const inventory = sections.has('inventory') ? inventoryPrintRef.current : null;
       return buildPrintJob({
         sections,
         racks,
@@ -179,6 +189,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         shownCableIds,
         cutSheetDevices: sections.has('ports') ? buildCutSheet(doc, view) : [],
         extra: {
+          inventory: inventory == null ? [] : [buildInventorySheet(inventory, options.hideSensitive)],
           view: viewPng == null ? [] : [{ kind: 'image', section: 'view', dataUrl: viewPng, heading: { title: `This view · ${designLabel}`, detail: 'the canvas as drawn' } }],
           cables: [
             {
@@ -448,6 +459,42 @@ export function DesignPlace(props: DesignPlaceProps) {
     [session, accountId],
   );
 
+  // ADR-0062 — custom fields, shared with everyone who opens the design.
+  const fieldDefs = useFieldDefinitions(organisationId);
+  const { refresh: refreshFieldDefs } = fieldDefs;
+  useEffect(() => {
+    if (props.place === 'inventory') void refreshFieldDefs();
+  }, [props.place, refreshFieldDefs]);
+  const fieldsOfCallback = useCallback(
+    (ownerId: string) => (session.doc ? fieldsOfDoc(session.doc, ownerId, fieldDefs.defs) : []),
+    [session.doc, fieldDefs.defs],
+  );
+  const fieldsWrite = useCallback(
+    (write: (current: Document, opts: { actor: string } | undefined) => Document, fallback: string): { refused: string } | void => {
+      const current = session.doc;
+      if (current == null) return { refused: 'No design is open.' };
+      try {
+        const next = write(current, accountId ? { actor: accountId } : undefined);
+        if (next !== current) session.applyDocChange(next);
+      } catch (error) {
+        return { refused: error instanceof Error ? error.message : fallback };
+      }
+    },
+    [session, accountId],
+  );
+  const fieldsActions = {
+    fieldsOf: fieldsOfCallback,
+    onSetField: (ownerId: string, defId: string, raw: string) =>
+      fieldsWrite((d, o) => setFieldValue(d, ownerId, defId, raw, fieldDefs.defs, o), 'That value was refused.'),
+    onAddFieldDef: async (ownerId: string, name: string, type: FieldType, choices?: readonly string[]) => {
+      const kind = fieldForOwner(ownerId);
+      if (kind === undefined) return { refused: 'This kind of thing takes no fields.' };
+      return fieldDefs.create(kind, name, type, choices);
+    },
+    onRemoveFieldDef: (defId: string) => fieldDefs.archive(defId),
+  };
+  const redact = useCallback(async (text: string) => (await ensureEngine()).redactText(text).text, [ensureEngine]);
+
   const showOnRack = useCallback(
     (selection: Selection) => {
       setFocus({ ...selection });
@@ -608,6 +655,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         accountId={accountId}
         notesActions={notesActions}
         tagsActions={tagsActions}
+        fieldsActions={fieldsActions}
         onActiveRackChange={setActiveRackId}
         onShownCablesChange={setShownCableIds}
         designId={designId}
@@ -620,8 +668,15 @@ export function DesignPlace(props: DesignPlaceProps) {
         session={session}
         onShowOnRack={showOnRack}
         onSelectedChange={setSelectedId}
+        onPrintableChange={setInventoryPrintable}
         notesActions={notesActions}
         tagsActions={tagsActions}
+        fieldsActions={fieldsActions}
+        fieldDefs={fieldDefs.defs}
+        createField={(kind, name, type) => fieldDefs.create(kind, name, type)}
+        redact={redact}
+        accountId={accountId}
+        organisationId={organisationId}
       />
     );
 
@@ -642,7 +697,7 @@ export function DesignPlace(props: DesignPlaceProps) {
           designName={designLabel}
           buildJob={buildPackJob}
           hasView={props.place === 'racks'}
-          hasInventory={false}
+          hasInventory={props.place === 'inventory' && inventoryPrintRef.current != null}
           cablesFiltered={shownCableIds != null}
           rackCount={printView.racks.length}
           captureView={captureViewPng}

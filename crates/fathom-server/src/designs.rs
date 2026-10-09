@@ -158,6 +158,27 @@ pub enum DesignError {
     NoSuchScope,
     /// A design name that is too long or holds control characters.
     InvalidName,
+    /// A custom-field definition (ADR-0062) that fails the name, type or choice rules.
+    InvalidFieldDefinition(&'static str),
+    /// No such field definition in this organisation.
+    NoSuchFieldDefinition,
+    /// A field definition changed since the caller read it.
+    FieldDefinitionConflict {
+        current: i64,
+    },
+    /// A cable correction that fails the kind, cable or text rules.
+    InvalidCorrection(&'static str),
+    /// Correction text the redaction gate's bare check reads as a credential.
+    CorrectionLooksSecret,
+    /// Too many corrections waiting (per cable, per sender or per design).
+    CorrectionCap(&'static str),
+    /// No such correction on this design.
+    NoSuchCorrection,
+    /// A correction already decided, or changed since the caller read it.
+    CorrectionConflict {
+        state: String,
+        version: i64,
+    },
     /// Larger than [`MAX_PAYLOAD_BYTES`].
     PayloadTooLarge {
         bytes: usize,
@@ -267,6 +288,17 @@ impl fmt::Display for DesignError {
             Self::NoSuchDesign => f.write_str("no such design in this organisation"),
             Self::NoSuchVersion => f.write_str("no such version of this design"),
             Self::NoSuchScope => f.write_str("no such scope in this organisation"),
+            Self::InvalidFieldDefinition(why) => f.write_str(why),
+            Self::NoSuchFieldDefinition => f.write_str("no such field definition"),
+            Self::FieldDefinitionConflict { current } => {
+                write!(f, "that field is now at version {current}")
+            }
+            Self::InvalidCorrection(why) | Self::CorrectionCap(why) => f.write_str(why),
+            Self::CorrectionLooksSecret => f.write_str("correction text looks like a credential"),
+            Self::NoSuchCorrection => f.write_str("no such correction"),
+            Self::CorrectionConflict { state, version } => {
+                write!(f, "that correction is {state} at version {version}")
+            }
             Self::FileTooLarge { bytes } => write!(
                 f,
                 "that file is {bytes} bytes; a doc file may be at most {MAX_FILE_BYTES}"

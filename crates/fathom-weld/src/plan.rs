@@ -14,9 +14,12 @@
 //! No write escapes this module without a provenance record: `write_field`
 //! takes one by value and hands it straight to the store.
 
-use fathom_graph::{ElementId, Graph, WriteError};
-use fathom_ingest::bind::{BoundValue, FieldAssertion, Fragment};
+use fathom_graph::{ElementId, Graph, NodeId, WriteError};
+use fathom_ingest::bind::{
+    BoundNextHop, BoundScope, BoundValue, FieldAssertion, FragNodeId, Fragment,
+};
 use fathom_ir::generated::ir_types::NodeKind;
+use fathom_ir::value;
 
 use crate::apply::WeldError;
 
@@ -28,6 +31,21 @@ pub(crate) fn validate(fragment: &Fragment) -> Result<(), WeldError> {
     match fragment.nodes.first() {
         Some(root) if root.kind == NodeKind::Device => {}
         _ => return Err(WeldError::NotDeviceRooted),
+    }
+    // Every node reference inside a field value points into the fragment.
+    let len = fragment.nodes.len();
+    let in_range = |at: &FragNodeId| usize::try_from(at.0).is_ok_and(|i| i < len);
+    let refs_ok = |a: &FieldAssertion| match &a.value {
+        BoundValue::Scope(BoundScope::ZonePair { from, to }) => in_range(from) && in_range(to),
+        BoundValue::NextHops(hops) => hops.iter().all(|h| match h {
+            BoundNextHop::Interface(u) => in_range(u),
+            _ => true,
+        }),
+        _ => true,
+    };
+    let edges_ok = fragment.edges.iter().all(|e| e.fields.iter().all(refs_ok));
+    if !edges_ok || !fragment.nodes.iter().all(|n| n.fields.iter().all(refs_ok)) {
+        return Err(WeldError::NotDeviceRooted);
     }
     for (index, node) in fragment.nodes.iter().enumerate() {
         let Some(owner) = node.owner else { continue };
@@ -50,7 +68,17 @@ pub(crate) fn write_field(
     element: ElementId,
     assertion: &FieldAssertion,
     record: fathom_graph::ProvenanceRecord,
+    nodes: &[NodeId],
 ) -> Result<(), WriteError> {
+    // A fragment index becomes the store id minted for it. `validate` proved
+    // every index in range, so the error arm is unreachable, not assumed.
+    let node = |at: FragNodeId| {
+        usize::try_from(at.0)
+            .ok()
+            .and_then(|i| nodes.get(i))
+            .map(|n| fathom_id::NodeId(n.ulid))
+            .ok_or(WriteError::UnknownElement { element })
+    };
     let key = assertion.key;
     // ONE call, through the boxed door, rather than one `set_field::<T>` per
     // variant.
@@ -116,6 +144,25 @@ pub(crate) fn write_field(
         BoundValue::RoutingProtocolProtocol(v) => Box::new(v.clone()),
         BoundValue::ProtocolAdjacencyNetworkType(v) => Box::new(v.clone()),
         BoundValue::PolicyAction(v) => Box::new(v.clone()),
+        BoundValue::Scope(BoundScope::ZonePair { from, to }) => {
+            Box::new(value::PolicyScope::ZonePair {
+                from: node(*from)?,
+                to: node(*to)?,
+            })
+        }
+        BoundValue::Address(v) => Box::new(v.clone()),
+        BoundValue::NextHops(hops) => {
+            let mut out = Vec::with_capacity(hops.len());
+            for hop in hops {
+                out.push(match hop {
+                    BoundNextHop::Address(a) => value::NextHop::Address(*a),
+                    BoundNextHop::Discard => value::NextHop::Discard,
+                    BoundNextHop::Reject => value::NextHop::Reject,
+                    BoundNextHop::Interface(u) => value::NextHop::Interface(node(*u)?),
+                });
+            }
+            Box::new(out)
+        }
     };
     graph.set_field_boxed(element, key, value, record)
 }

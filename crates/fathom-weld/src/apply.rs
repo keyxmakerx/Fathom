@@ -296,7 +296,7 @@ fn apply(
         let element = ElementId::Node(*id);
         for assertion in &node.fields {
             let record = prov::field(&mut mint, manifest, capture, span_of(assertion.prov.span))?;
-            plan::write_field(graph, element, assertion, record).map_err(field_error)?;
+            plan::write_field(graph, element, assertion, record, &nodes).map_err(field_error)?;
         }
     }
 
@@ -313,7 +313,7 @@ fn apply(
         edges.push(id);
         for assertion in &edge.fields {
             let record = prov::field(&mut mint, manifest, capture, span_of(assertion.prov.span))?;
-            plan::write_field(graph, ElementId::Edge(id), assertion, record)
+            plan::write_field(graph, ElementId::Edge(id), assertion, record, &nodes)
                 .map_err(field_error)?;
         }
     }

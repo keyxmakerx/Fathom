@@ -233,6 +233,17 @@ pub const FACE_CHECK: u8 = 33;
 /// the [`FACE_CHECK`] rows that step adds.
 pub const FACE_PLAN_STEP: u8 = 34;
 
+/// A trace's head, always record 0: from · to · flow words · why it stopped short, **empty when
+/// it reached the far end** · hop count.
+pub const FACE_TR_HEAD: u8 = 35;
+/// One hop: number · kind (`start`, `device`, `cable`, `switch`, `end`, `stop`) · title · detail
+/// lines joined `\n` · display ids to light on the canvas joined `\n` · why · where the fact
+/// came from · `<zone words>\n<why some rules are unplaced>` (both empty off a firewall).
+pub const FACE_TR_HOP: u8 = 36;
+/// One policy of the hop before it: hop number · display id · ordinal · name · configured action
+/// · `matches`, `doesn't match` or `can't tell` · reason · `placed` or `unplaced`.
+pub const FACE_TR_POL: u8 = 37;
+
 // --- the shape reply (`49` §19 phase 0, item 3) ---
 
 /// The held estate's shape digest: one row, slot 0, 16 lowercase hex characters
@@ -304,13 +315,13 @@ pub const FACE_IN_IFACE: u8 = 21;
 pub const FACE_IN_UNIT: u8 = 22;
 /// One zone: display id · name · member units.
 pub const FACE_IN_ZONE: u8 = 23;
-/// One policy set: display id · what the graph can say about the zone pair it
-/// governs, **empty on every estate this build can produce** · policy count.
+/// One policy set: display id · the zone pair it governs (`from trust to
+/// untrust`), **empty where the set records none** · policy count.
 ///
 /// Slot 1's emptiness is the honest half of `57` §6.3
-/// (`fathom_inventory::SetBand::scope`): `PolicyScope` is a unit struct, so a
-/// `PolicySet` cannot name its pair. The page says so in words and draws no edge
-/// into this band.
+/// (`fathom_inventory::SetBand::scope`): an OPNsense rules paste cannot name
+/// its interface, so its set records no scope. The page says so in words and
+/// draws no edge into this band.
 pub const FACE_IN_SET: u8 = 24;
 /// One security policy: display id · its set's display id · ordinal · name ·
 /// action · `1`/`0`/empty for enabled · description.
@@ -1840,4 +1851,83 @@ pub fn decode_reply(bytes: &[u8]) -> Result<ReplyView, String> {
             Ok(ReplyView::FinderRows(rows))
         }
     }
+}
+
+/// A trace, as records. The page computes nothing: every string is composed here.
+pub fn encode_trace_reply(t: &fathom_inventory::Trace) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+    let hops = t.hops.len().to_string();
+    let rec = face_slots(
+        &mut blob,
+        FACE_TR_HEAD,
+        5,
+        &[
+            t.from.as_str(),
+            t.to.as_str(),
+            t.flow.as_str(),
+            t.stopped.as_str(),
+            hops.as_str(),
+        ],
+    );
+    write_face_record(&mut records, &rec);
+    let mut count = 1usize;
+    for (i, h) in t.hops.iter().enumerate() {
+        let n = (i + 1).to_string();
+        let one = |v: &[String]| {
+            v.iter()
+                .map(|x| x.replace(['\r', '\n'], " "))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let detail = one(&h.detail);
+        let nodes = one(&h.nodes);
+        let scope = format!(
+            "{}\n{}",
+            h.scope.replace(['\r', '\n'], " "),
+            h.unplaced_why.replace(['\r', '\n'], " ")
+        );
+        let rec = face_slots(
+            &mut blob,
+            FACE_TR_HOP,
+            8,
+            &[
+                n.as_str(),
+                h.kind,
+                h.title.as_str(),
+                detail.as_str(),
+                nodes.as_str(),
+                h.why.as_str(),
+                h.source.as_str(),
+                scope.as_str(),
+            ],
+        );
+        write_face_record(&mut records, &rec);
+        count += 1;
+        for (placed, p) in h
+            .policies
+            .iter()
+            .map(|p| ("placed", p))
+            .chain(h.unplaced.iter().map(|p| ("unplaced", p)))
+        {
+            let rec = face_slots(
+                &mut blob,
+                FACE_TR_POL,
+                8,
+                &[
+                    n.as_str(),
+                    p.id.as_str(),
+                    p.ordinal.as_str(),
+                    p.name.as_str(),
+                    p.action.as_str(),
+                    p.state,
+                    p.reason.as_str(),
+                    placed,
+                ],
+            );
+            write_face_record(&mut records, &rec);
+            count += 1;
+        }
+    }
+    face_reply(records, count, blob)
 }

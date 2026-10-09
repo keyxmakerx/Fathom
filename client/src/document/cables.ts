@@ -314,7 +314,7 @@ export function disconnect(doc: Document, cableId: string, opts?: Actor): Docume
 
 // ---------------------------------------------------------------------------
 
-export type CableFieldKey = 'label' | 'sheath' | 'media' | 'length_m' | 'ownership';
+export type CableFieldKey = 'label' | 'sheath' | 'media' | 'length_m' | 'ownership' | 'last_confirmed';
 
 /** `Cable.label` (`Text`), `.sheath`/`.media`/`.ownership` (the enums above)
  * or `.length_m` (`u32`) on one live `Cable` — `value: null` clears the
@@ -354,6 +354,16 @@ export function setCableField(
         if (typeof value !== 'number') throw new FieldValueError(wireKey, String(value), 'must be a number');
         encoded = uint(value, 32);
         break;
+      case 'last_confirmed': {
+        // A Date: "YYYY-MM-DD", a real calendar day.
+        const m = typeof value === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(value) : null;
+        const d = m ? new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))) : null;
+        if (!m || !d || d.getUTCMonth() !== Number(m[2]) - 1 || d.getUTCDate() !== Number(m[3]) || Number(m[1]) < 1) {
+          throw new FieldValueError(wireKey, String(value), 'must be a date, YYYY-MM-DD');
+        }
+        encoded = text(value as string);
+        break;
+      }
       case 'ownership':
         if (typeof value !== 'string' || !isCableOwnership(value)) {
           throw new FieldValueError(wireKey, String(value), `is not one of: ${OWNERSHIP_VALUES.join(', ')}`);

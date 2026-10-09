@@ -1614,6 +1614,17 @@
   color: var(--ink);
 }
 
+/* ADR-0062: a titled group of fields inside the editor (Device, Location, Management, Your fields). */
+.drawing-editor__group {
+  margin-top: var(--s3);
+  padding-bottom: var(--s1);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 /* Another person's selection (UI-SPEC "Presence"): an ink initials dot at the thing's top right. No ring, no animation, and it moves only when their selection does. */
 .drawing-peer {
   position: absolute;
@@ -1629,3 +1640,33 @@
   pointer-events: none;
   z-index: 20;
 }
+
+/* The canvas tool strip: a small ink-and-hairline bar in the top-left corner of the canvas. */
+.canvas-tools {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--page);
+  border: var(--rule-hair) solid var(--hairline);
+}
+.canvas-tool {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: var(--rule-hair) solid transparent;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+.canvas-tool:hover { border-color: var(--ink); }
+.canvas-tool[aria-pressed='true'] { background: var(--ink); color: var(--page); border-color: var(--ink); }
+.canvas-tool:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+.canvas-tools__rule { width: 1px; height: 16px; background: var(--hairline); margin: 0 2px; }
