@@ -188,7 +188,7 @@ export function addClass(existing: string | undefined, cls: string): string {
 const FADED = 'checks-faded';
 
 /** The same phantom fade Checks' Show uses: the class, and `checksFaded` so a cable does not dim itself again. */
-function withFade<T extends { className?: string; data?: unknown }>(item: T): T {
+export function withFade<T extends { className?: string; data?: unknown }>(item: T): T {
   return { ...item, className: addClass(item.className, FADED), data: { ...(item.data as object | undefined), checksFaded: true } };
 }
 

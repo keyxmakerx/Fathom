@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.17";
+export const SCHEMA_VERSION = "0.18";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -73,7 +73,9 @@ export type NodeKind =
   | "DocFile"
   | "MaintenancePlan"
   | "PlanStep"
-  | "FieldValue";
+  | "FieldValue"
+  | "Issue"
+  | "IssueStep";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -142,6 +144,8 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "MaintenancePlan",
   "PlanStep",
   "FieldValue",
+  "Issue",
+  "IssueStep",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -251,6 +255,8 @@ export type EdgeKind =
   | "LineEnd"
   | "HasPlan"
   | "HasStep"
+  | "HasIssue"
+  | "HasIssueStep"
   | "HasDoc"
   | "DocOn"
   | "HasDocLink"
@@ -362,6 +368,8 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "LineEnd",
   "HasPlan",
   "HasStep",
+  "HasIssue",
+  "HasIssueStep",
   "HasDoc",
   "DocOn",
   "HasDocLink",
@@ -517,6 +525,8 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   MaintenancePlan: ["title", "window_start", "window_end", "author", "stage", "outcome", "record"],
   PlanStep: ["ordinal", "kind", "targets", "change", "before", "after", "edit", "state", "note", "done_at"],
   FieldValue: ["definition", "value"],
+  Issue: ["title", "device", "author", "opened_at", "stage", "outcome", "plan"],
+  IssueStep: ["ordinal", "topic", "question", "detail", "targets", "answer", "note", "answered_at"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -904,4 +914,19 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "FieldValue.value": 381,
   "FieldValue.definition": 382,
   "SecurityPolicy.match_any_application": 383,
+  "Issue.title": 390,
+  "Issue.device": 391,
+  "Issue.author": 392,
+  "Issue.opened_at": 393,
+  "Issue.stage": 394,
+  "Issue.outcome": 395,
+  "Issue.plan": 396,
+  "IssueStep.ordinal": 397,
+  "IssueStep.topic": 398,
+  "IssueStep.question": 399,
+  "IssueStep.detail": 400,
+  "IssueStep.targets": 401,
+  "IssueStep.answer": 402,
+  "IssueStep.note": 403,
+  "IssueStep.answered_at": 404,
 };

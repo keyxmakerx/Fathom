@@ -21,6 +21,8 @@ import { ImportDialog } from '../import/ImportDialog';
 import type { FieldDefView } from '../../document/fields';
 import { ListToolbar } from './ListToolbar';
 import { isKind } from './kinds';
+import { listIssues } from '../../document/issues';
+import { IssuesList } from '../troubleshoot/IssuesList';
 import { nextSorts, setSort, sortRows } from './sorting';
 import { ColumnMenu } from './ColumnMenu';
 import { ListFoot } from './ListFoot';
@@ -78,6 +80,8 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
   onShowOnRack: (selection: Selection) => void;
   /** What is selected, by element id, for presence (ADR-0063 §12). */
   onSelectedChange?: (id: string | null) => void;
+  /** An Inventory issue page's "Show on canvas": the Canvas place with that issue open. */
+  onShowIssue?: (issueId: string) => void;
   /** The table as shown (columns, filtered and sorted rows), for the print pack; `null` when no table is shown. */
   onPrintableChange?: (printable: InventoryPrintable | null) => void;
   notesActions: NotesActions;
@@ -136,7 +140,7 @@ function saveColumnPrefs(kind: Kind, keys: string[]): void {
  * beside it. Every edit goes through the same document commands the canvas editor uses.
  */
 export function InventoryPlace(props: InventoryPlaceProps) {
-  const { session, onShowOnRack, onSelectedChange, onPrintableChange, notesActions, tagsActions, fieldsActions, fieldDefs, createField, redact, accountId, organisationId, lens, ...shellProps } = props;
+  const { session, onShowOnRack, onShowIssue, onSelectedChange, onPrintableChange, notesActions, tagsActions, fieldsActions, fieldDefs, createField, redact, accountId, organisationId, lens, ...shellProps } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit, applyDocChange, reloadDesign } = session;
 
   const { ls, go, back: stepBack, backLabel, moves } = useListState();
@@ -284,6 +288,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     prefixes: kind === 'prefixes' ? baseRows.length : scopedCount(background?.prefixes),
     vlans: kind === 'vlans' ? baseRows.length : scopedCount(background?.vlans),
     addresses: kind === 'addresses' ? baseRows.length : (background?.addresses ?? null),
+    issues: doc ? listIssues(doc).length : 0,
   };
 
   // Find anything reads the whole design, Where applied afterwards so it can say what it hid.
@@ -365,7 +370,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
 
   useEffect(() => {
     if (!onPrintableChange) return undefined;
-    if (doc == null || kind === 'networks') {
+    if (doc == null || kind === 'networks' || kind === 'issues') {
       onPrintableChange(null);
       return undefined;
     }
@@ -680,6 +685,10 @@ export function InventoryPlace(props: InventoryPlaceProps) {
           {kind === 'networks' ? (
             <div className="inventory-place__main inventory-place__main--flush">
               <NetworksPanel doc={doc} derived={networksDerived} view={view} applyDocChange={applyDocChange} canDraw={canDraw} />
+            </div>
+          ) : kind === 'issues' ? (
+            <div className="inventory-place__main">
+              <IssuesList doc={doc} onShowOnCanvas={onShowIssue} />
             </div>
           ) : adding || (openKey && (ipamPage || page || (kind === 'addresses' && openRow))) ? (
             <div className="inv-pageframe">

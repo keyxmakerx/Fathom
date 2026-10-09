@@ -1,5 +1,5 @@
 // Pieces the panel and the list page share: what a plan touches, and the Why card.
-import { useState, type ClipboardEventHandler } from 'react';
+import { useState, type ClipboardEventHandler, type FormEventHandler } from 'react';
 
 import type { Plan } from '../../document/plans';
 import { SEVERITY } from '../checks/checksModel';
@@ -11,9 +11,22 @@ import type { PlansController } from './usePlansController';
 export const PLAN_TYPED_SENTENCE = 'Stored as typed. Fathom does not redact what you type, only what you paste.';
 
 /** A real `onPaste` on a field marks its form; sticky until the form is sent (Editor's `hadPaste`). */
-export function usePasteMark(): { pasted: boolean; onPaste: ClipboardEventHandler; reset(): void } {
+export function usePasteMark(): { pasted: boolean; onPaste: ClipboardEventHandler; onInput: FormEventHandler; reset(): void } {
   const [pasted, setPasted] = useState(false);
-  return { pasted, onPaste: () => setPasted(true), reset: () => setPasted(false) };
+  return {
+    pasted,
+    onPaste: () => setPasted(true),
+    // Dropped text arrives as an input event, not a paste.
+    onInput: (e) => {
+      if (isPasteInput(e.nativeEvent as { inputType?: string })) setPasted(true);
+    },
+    reset: () => setPasted(false),
+  };
+}
+
+/** An input event made by a paste or a drop: either way the text did not come from the keys. */
+export function isPasteInput(e: { inputType?: string } | null | undefined): boolean {
+  return e?.inputType === 'insertFromPaste' || e?.inputType === 'insertFromDrop';
 }
 
 export function TypedSentence() {
