@@ -1681,6 +1681,32 @@ fn waiting_row(
     Ok(row)
 }
 
+/// Hide a row from a caller who does not steward the **invitation's own** scope
+/// (the scope it was issued at, not the one the request names): the answer is the
+/// one a missing id gets, so a folder steward cannot tell an organisation-wide
+/// invitation from nothing, and cannot confirm one.
+async fn hide_outside_scope(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    verified: &grants::VerifiedAuthorityState,
+    check: &mut StewardCheck,
+    row: Option<InvitationRow>,
+    index: usize,
+) -> Result<Option<InvitationRow>, InviteError> {
+    let Some(row) = row else { return Ok(None) };
+    if row.organisation_id == auth.ctx.tenant().to_string()
+        && !check
+            .holds(tx, auth, verified, row.scope_id.as_deref())
+            .await?
+    {
+        return Err(InviteError::Batch {
+            index,
+            reason: BatchReason::NotWaiting,
+        });
+    }
+    Ok(Some(row))
+}
+
 /// The expiry a request implies: none for read and draw, and for a steward grant
 /// the one named or [`STEWARD_GRANT_LIFETIME_SECONDS`] from `now`. An expiry past
 /// that lifetime, or not in the future, is refused.
@@ -1723,13 +1749,16 @@ pub async fn propose(
     let mut rows = Vec::with_capacity(items.len());
     let mut requests = Vec::with_capacity(items.len());
     for (index, item) in items.iter().enumerate() {
-        let row = waiting_row(
-            ring,
+        let row = hide_outside_scope(
+            tx,
+            auth,
+            &verified,
+            &mut check,
             read_invitation(tx, &item.invitation, false).await?,
-            &organisation,
-            now,
             index,
-        )?;
+        )
+        .await?;
+        let row = waiting_row(ring, row, &organisation, now, index)?;
         let fpr = row.enrolled_key_fpr.ok_or(InviteError::Batch {
             index,
             reason: BatchReason::KeyChanged,
@@ -1814,15 +1843,9 @@ pub async fn confirm(
     let n = items.len();
     let batch_id = ids::new_ulid().to_string();
 
-    // The head's next epoch is the first item's, and the caller stewards every
-    // scope, under the real epoch watch and before anything is written.
-    let head = grants::head_epoch(tx, &organisation).await?;
-    if items.first().map(|i| i.auth_epoch) != head.checked_add(1) {
-        return Err(InviteError::Batch {
-            index: 0,
-            reason: BatchReason::Stale,
-        });
-    }
+    // The caller stewards every scope named, under the real epoch watch and before
+    // anything is written. This comes before the epoch compare, so a member who
+    // stewards nothing learns nothing about the head.
     let verified = grants::verify_authority_state(tx, auth).await?;
     let mut check = StewardCheck::new();
     for (index, item) in items.iter().enumerate() {
@@ -1833,6 +1856,14 @@ pub async fn confirm(
                 reason: BatchReason::NotAuthorised,
             });
         }
+    }
+    // The head's next epoch is the first item's.
+    let head = grants::head_epoch(tx, &organisation).await?;
+    if items.first().map(|i| i.auth_epoch) != head.checked_add(1) {
+        return Err(InviteError::Batch {
+            index: 0,
+            reason: BatchReason::Stale,
+        });
     }
     enter_custody(tx).await?;
 
@@ -1868,13 +1899,16 @@ pub async fn confirm(
     let mut out = Vec::with_capacity(n);
     for (index, item) in items.iter().enumerate() {
         let refuse = |reason| InviteError::Batch { index, reason };
-        let row = waiting_row(
-            ring,
+        let row = hide_outside_scope(
+            tx,
+            auth,
+            &verified,
+            &mut check,
             rows.remove(&item.invitation),
-            &organisation,
-            now,
             index,
-        )?;
+        )
+        .await?;
+        let row = waiting_row(ring, row, &organisation, now, index)?;
         let enrolled = row
             .enrolled_key_fpr
             .ok_or(refuse(BatchReason::KeyChanged))?;

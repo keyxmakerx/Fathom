@@ -1038,40 +1038,47 @@ async fn a_steward_shaped_token_is_refused_without_the_custody_or_for_another_is
     let steward = estate.stewards[0].account.to_string();
 
     // As the application role, in the steward's own tenant context.
-    let attempt = |custody: Option<&'static str>, issuer: String, invitation: String| {
-        let pool = pool.clone();
-        let (ring, estate_org, steward_id, account) = (
-            ring.clone(),
-            estate.organisation,
-            estate.stewards[0].account,
-            issued.account.clone(),
-        );
-        async move {
-            let mut client = pool.get().await.expect("connection");
-            let (tx, _ctx, _) = tenant_tx(&mut client, &ring, estate_org, steward_id).await;
-            if let Some(custody) = custody {
-                tx.execute(
-                    "SELECT set_config('app.invitation_custody', $1, true)",
-                    &[&custody],
-                )
-                .await
-                .unwrap();
+    let attempt =
+        |custody: Option<&'static str>, issuer: String, invitation: String, account: String| {
+            let pool = pool.clone();
+            let (ring, estate_org, steward_id) = (
+                ring.clone(),
+                estate.organisation,
+                estate.stewards[0].account,
+            );
+            async move {
+                let mut client = pool.get().await.expect("connection");
+                let (tx, _ctx, _) = tenant_tx(&mut client, &ring, estate_org, steward_id).await;
+                if let Some(custody) = custody {
+                    tx.execute(
+                        "SELECT set_config('app.invitation_custody', $1, true)",
+                        &[&custody],
+                    )
+                    .await
+                    .unwrap();
+                }
+                let id = fathom_server::ids::new_ulid().to_string();
+                let hash = Key32::random().unwrap().expose().to_vec();
+                let result = tx
+                    .execute(
+                        INSERT,
+                        &[&id, &hash, &account, &issuer, &invitation, &vec![7u8; 32]],
+                    )
+                    .await;
+                let _ = tx.rollback().await;
+                result
             }
-            let id = fathom_server::ids::new_ulid().to_string();
-            let hash = Key32::random().unwrap().expose().to_vec();
-            let result = tx
-                .execute(
-                    INSERT,
-                    &[&id, &hash, &account, &issuer, &invitation, &vec![7u8; 32]],
-                )
-                .await;
-            let _ = tx.rollback().await;
-            result
-        }
-    };
+        };
 
     // No custody: refused by row security, not by a constraint.
-    let refused = attempt(None, steward.clone(), issued.invitation.clone()).await;
+    let shell = issued.account.clone();
+    let refused = attempt(
+        None,
+        steward.clone(),
+        issued.invitation.clone(),
+        shell.clone(),
+    )
+    .await;
     let error = refused.expect_err("no invitation custody, no token");
     assert_eq!(
         error.code(),
@@ -1080,17 +1087,102 @@ async fn a_steward_shaped_token_is_refused_without_the_custody_or_for_another_is
     );
     // Custody but the issuer is not the account acting: refused.
     let other = estate.stewards[0].account.to_string().replace('0', "1");
-    let refused = attempt(Some("yes"), other, issued.invitation.clone()).await;
+    let refused = attempt(Some("yes"), other, issued.invitation.clone(), shell.clone()).await;
     assert!(refused.is_err(), "an issuer other than app.account_id");
+    // Custody and the right issuer, but the token names an account that is not
+    // the invitation's own shell (here the steward's own, an account that exists):
+    // refused by row security, not by a constraint.
+    let error = attempt(
+        Some("yes"),
+        steward.clone(),
+        issued.invitation.clone(),
+        steward.clone(),
+    )
+    .await
+    .expect_err("a token for an account other than the invitation's shell");
+    assert_eq!(
+        error.code(),
+        Some(&tokio_postgres::error::SqlState::INSUFFICIENT_PRIVILEGE),
+        "{error}"
+    );
     // The same row, custody and the right issuer: passes the policy (the row
     // then fails only because its invitation already has a token).
-    let accepted = attempt(Some("yes"), steward, issued.invitation.clone()).await;
+    let accepted = attempt(Some("yes"), steward, issued.invitation.clone(), shell).await;
     let error = accepted.expect_err("the invitation has its one token already");
     assert_eq!(
         error.code(),
         Some(&tokio_postgres::error::SqlState::UNIQUE_VIOLATION),
         "the policy admitted the row and only uniqueness refused it: {error}"
     );
+}
+
+#[tokio::test]
+async fn an_invitation_row_can_only_be_inserted_fresh_and_in_the_actors_name() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring, 1).await;
+    let (issued, _) =
+        issued_directly(&pool, &ring, &estate, "Insert", Capability::Read, None).await;
+    let template = read_row(&pool, &ring, &estate, &issued.invitation).await;
+    let steward = estate.stewards[0].account.to_string();
+
+    // The columns of a legitimate insert; each case changes one thing. A
+    // fresh account id and invitation id each time, so only the policy can refuse.
+    const INSERT: &str = "INSERT INTO organisation_invitations \
+        (id, organisation_id, account_id, capability_asked, display_name, sign_in_name, \
+         issued_by, issued_seq, issued_at, asked_expires_at, state, row_version, row_seal) \
+        VALUES ($1, $2, $3, 'read', 'Direct', 'direct-name', $4, 1, now(), \
+                now() + interval '1 hour', $5, 1, $6)";
+    let mut client = pool.get().await.expect("connection");
+    for (state, issuer, why) in [
+        (
+            "joined",
+            steward.clone(),
+            "a row may not be inserted already joined",
+        ),
+        ("confirmed", steward.clone(), "nor already confirmed"),
+        (
+            "asked",
+            template.account_id.clone(),
+            "nor in another account's name",
+        ),
+    ] {
+        let (tx, _, _) = tenant_tx(
+            &mut client,
+            &ring,
+            estate.organisation,
+            estate.stewards[0].account,
+        )
+        .await;
+        tx.execute(
+            "SELECT set_config('app.invitation_custody', 'yes', true)",
+            &[],
+        )
+        .await
+        .unwrap();
+        let id = fathom_server::ids::new_ulid().to_string();
+        let error = tx
+            .execute(
+                INSERT,
+                &[
+                    &id,
+                    &template.organisation_id,
+                    &template.account_id,
+                    &issuer,
+                    &state,
+                    &vec![7u8; 32],
+                ],
+            )
+            .await
+            .expect_err(why);
+        assert_eq!(
+            error.code(),
+            Some(&tokio_postgres::error::SqlState::INSUFFICIENT_PRIVILEGE),
+            "{why}: {error}"
+        );
+        tx.rollback().await.unwrap();
+    }
 }
 
 #[tokio::test]
@@ -2771,6 +2863,79 @@ async fn another_organisations_invitation_gets_the_same_refusal_as_one_that_neve
     assert!(array(&seen, "invitations").is_empty());
     let own = parse(&waiting(addr, &elsewhere, &elsewhere.stewards[0]).await.1);
     assert_eq!(array(&own, "invitations").len(), 1);
+}
+
+#[tokio::test]
+async fn a_folder_steward_cannot_propose_or_confirm_an_invitation_issued_above_their_folder() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring, 2).await;
+    let mine = a_scope(&pool, &estate, None, ScopeKind::Network).await;
+    let folder_steward = a_folder_steward(&pool, &ring, &estate, mine, "folder-steward").await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Limits::STANDARD).await).await;
+    let superuser = su().await;
+
+    // Invited at the organisation root by the organisation steward, and joined.
+    let invited = invite(
+        addr,
+        &estate,
+        &estate.stewards[0],
+        "Root Guest",
+        "read",
+        None,
+    )
+    .await;
+    let person = join(&pool, &ring, &invited).await;
+    let never = fathom_server::ids::new_ulid().to_string();
+    let head = head_epoch(&superuser, &estate).await;
+
+    // The folder steward names a scope they do steward. The invitation's own scope
+    // is the root, which they do not: the answer is a missing id's answer.
+    let mut answers = Vec::new();
+    for id in [invited.invitation.as_str(), never.as_str()] {
+        let (status, answer) = propose(
+            addr,
+            &estate,
+            &folder_steward,
+            &propose_body(&[(id, "read", Some(mine))], None),
+        )
+        .await;
+        assert_eq!(status, "409", "{}", String::from_utf8_lossy(&answer));
+        assert_eq!(text(&parse(&answer), "reason"), "not_waiting");
+        answers.push((status, answer));
+    }
+    assert_eq!(answers[0].1, answers[1].1, "not an existence oracle");
+
+    // A valid proposal for that same person and scope, made by the organisation
+    // steward, sent by the folder steward to confirm: refused the same way, and
+    // nothing is written.
+    let (status, answer) = propose(
+        addr,
+        &estate,
+        &estate.stewards[0],
+        &propose_body(&[(&invited.invitation, "read", Some(mine))], None),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
+    let proposal = parse(&answer);
+    let body = confirm_body(
+        array(&proposal, "items"),
+        &estate,
+        &estate.stewards[0],
+        &|_, s| s,
+    );
+    let (status, answer) = confirm(addr, &estate, &folder_steward, &body).await;
+    assert_eq!(status, "409", "{}", String::from_utf8_lossy(&answer));
+    assert_eq!(text(&parse(&answer), "reason"), "not_waiting");
+    assert_eq!(memberships_of(&superuser, &invited.account).await, 0);
+    assert_eq!(grants_of(&superuser, &invited.account).await, 0);
+    assert_eq!(head_epoch(&superuser, &estate).await, head);
+    let _ = person;
+
+    // The organisation steward still can.
+    let (status, answer) = confirm(addr, &estate, &estate.stewards[0], &body).await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
 }
 
 #[tokio::test]

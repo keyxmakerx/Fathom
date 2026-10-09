@@ -109,7 +109,13 @@ CREATE POLICY organisation_invitations_readable ON organisation_invitations
 CREATE POLICY organisation_invitations_insertable ON organisation_invitations
     FOR INSERT WITH CHECK (
         organisation_id = current_setting('app.tenant_id', true)
-        AND current_setting('app.invitation_custody', true) = 'yes');
+        AND current_setting('app.invitation_custody', true) = 'yes'
+        -- A new row is a fresh ask by the account acting, not yet used.
+        AND state = 'asked'
+        AND issued_by = current_setting('app.account_id', true)
+        AND joined_at IS NULL
+        AND enrolled_key_id IS NULL
+        AND enrolled_key_fpr IS NULL);
 CREATE POLICY organisation_invitations_updatable_by_steward ON organisation_invitations
     FOR UPDATE USING (
         organisation_id = current_setting('app.tenant_id', true)
@@ -226,7 +232,11 @@ CREATE POLICY enrolment_tokens_insertable_by_steward ON enrolment_tokens
         AND purpose = 'account'
         AND issued_by IS NULL
         AND issued_by_account = current_setting('app.account_id', true)
-        AND invitation_id IS NOT NULL);
+        AND invitation_id IS NOT NULL
+        -- The token enrols the invitation's own shell account. The subquery runs
+        -- under the invitations' row security, so it also pins the tenant.
+        AND account_id = (SELECT i.account_id FROM organisation_invitations i
+                           WHERE i.id = invitation_id));
 
 -- ---------------------------------------------------------------------------
 -- F. TWO ORGANISATION-CHAIN ENTRY TYPES

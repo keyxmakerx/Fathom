@@ -5638,30 +5638,6 @@ impl OperatorStore {
         issued_seq: i64,
         row_version: i32,
     ) -> Result<[u8; 32], OperatorError> {
-        let mut map = BTreeMap::new();
-        map.insert("expired_at".to_string(), Json::Int(facts.expired_at_unix));
-        map.insert("expires_at".to_string(), Json::Int(facts.expires_at_unix));
-        map.insert("id".to_string(), Json::Str(facts.id.to_string()));
-        map.insert(
-            "issued_by".to_string(),
-            Json::Str(facts.issued_by.to_string()),
-        );
-        map.insert(
-            "purpose".to_string(),
-            Json::Str(facts.purpose.as_str().to_string()),
-        );
-        map.insert("redeemed_at".to_string(), Json::Int(facts.redeemed_at_unix));
-        map.insert("subject".to_string(), Json::Str(facts.subject.to_string()));
-        map.insert("token_hash".to_string(), Json::Str(hex(facts.token_hash)));
-        // Only a steward's token carries these, so an operator's row seals byte
-        // for byte as it did before `0037`.
-        if let Some(invitation) = facts.invitation {
-            map.insert("invitation".to_string(), Json::Str(invitation.to_string()));
-            map.insert(
-                "issued_by_account".to_string(),
-                Json::Str(facts.issued_by_account.unwrap_or("").to_string()),
-            );
-        }
         Ok(authority::row_seal(
             &grants::site_row_key(tx, &self.ring).await?,
             &RowFacts {
@@ -5669,7 +5645,7 @@ impl OperatorStore {
                 row_id: facts.id,
                 chain_seq: issued_seq,
                 row_version,
-                row_state: &Json::Obj(map).to_canonical_bytes(),
+                row_state: &token_row_state(facts),
             },
         ))
     }
@@ -6199,6 +6175,37 @@ impl TokenRow {
             expired_at_unix: self.expired_at_unix,
         }
     }
+}
+
+/// The sealed state of one `enrolment_tokens` row, as canonical JSON. A pure
+/// function so `tests/authority_vectors.rs` can pin its bytes: an operator's row
+/// must keep sealing byte for byte as it did before `0037`.
+pub fn token_row_state(facts: &TokenFacts<'_>) -> Vec<u8> {
+    let mut map = BTreeMap::new();
+    map.insert("expired_at".to_string(), Json::Int(facts.expired_at_unix));
+    map.insert("expires_at".to_string(), Json::Int(facts.expires_at_unix));
+    map.insert("id".to_string(), Json::Str(facts.id.to_string()));
+    map.insert(
+        "issued_by".to_string(),
+        Json::Str(facts.issued_by.to_string()),
+    );
+    map.insert(
+        "purpose".to_string(),
+        Json::Str(facts.purpose.as_str().to_string()),
+    );
+    map.insert("redeemed_at".to_string(), Json::Int(facts.redeemed_at_unix));
+    map.insert("subject".to_string(), Json::Str(facts.subject.to_string()));
+    map.insert("token_hash".to_string(), Json::Str(hex(facts.token_hash)));
+    // Only a steward's token carries these, so an operator's row seals byte
+    // for byte as it did before `0037`.
+    if let Some(invitation) = facts.invitation {
+        map.insert("invitation".to_string(), Json::Str(invitation.to_string()));
+        map.insert(
+            "issued_by_account".to_string(),
+            Json::Str(facts.issued_by_account.unwrap_or("").to_string()),
+        );
+    }
+    Json::Obj(map).to_canonical_bytes()
 }
 
 /// What a token row's seal covers.
