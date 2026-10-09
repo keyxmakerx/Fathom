@@ -274,6 +274,7 @@ pub fn apply_change_in_place(
     check_shape(graph, change, actor)?;
     let batch = &change.batch;
 
+    let mut written: Vec<(NodeKind, fathom_ir::bag::FieldKey, String)> = Vec::new();
     graph.begin_batch(batch.id, &batch.label)?;
     if let Some(comment) = &batch.comment {
         graph.set_batch_comment(comment.clone())?;
@@ -315,12 +316,9 @@ pub fn apply_change_in_place(
                         if let (ElementId::Node(n), Some(text)) =
                             (element, boxed.downcast_ref::<Text>())
                         {
-                            if let Some(hit) = credential_in_text(n.kind, *key, &text.0) {
-                                return Err(ChangeError::Credential {
-                                    kind: hit.0,
-                                    line: hit.1,
-                                });
-                            }
+                            // Read once the batch has ended: an id in a target list may
+                            // name a node a later op of this batch adds.
+                            written.push((n.kind, *key, text.0.clone()));
                         }
                         graph.set_field_boxed(*element, *key, boxed, rec)?;
                     }
@@ -334,6 +332,14 @@ pub fn apply_change_in_place(
     }
     graph.end_batch()?;
 
+    if let Some((kind, line)) = batch_credential(batch) {
+        return Err(ChangeError::Credential { kind, line });
+    }
+    for (kind, key, text) in &written {
+        if let Some((kind, line)) = credential_in_text(graph, *kind, *key, text) {
+            return Err(ChangeError::Credential { kind, line });
+        }
+    }
     if graph.log().last() != Some(batch) {
         return Err(ChangeError::NotCanonical);
     }
@@ -500,10 +506,13 @@ fn gated_fields() -> Vec<(NodeKind, fathom_ir::bag::FieldKey, &'static str, Read
 /// Superseded values count too: the history of those fields is stored and
 /// streamed with the face, so a secret there is as stored as one in the value.
 pub fn find_credential(graph: &Graph) -> Option<(&'static str, usize)> {
+    if let Some(hit) = graph.log().iter().find_map(batch_credential) {
+        return Some(hit);
+    }
     for (kind, key, _, _) in gated_fields() {
         for node in graph.nodes_of_kind(kind) {
             let value = fathom_ir::bag::typed::<Text, _>(node, key).ok();
-            if let Some(hit) = value.and_then(|t| credential_in_text(kind, key, &t.0)) {
+            if let Some(hit) = value.and_then(|t| credential_in_text(graph, kind, key, &t.0)) {
                 return Some(hit);
             }
             let Some(history) = graph.history(node.id.into(), key) else {
@@ -511,7 +520,7 @@ pub fn find_credential(graph: &Graph) -> Option<(&'static str, usize)> {
             };
             for entry in history.entries() {
                 let text = entry.value.as_ref().and_then(|v| v.downcast_ref::<Text>());
-                if let Some(hit) = text.and_then(|t| credential_in_text(kind, key, &t.0)) {
+                if let Some(hit) = text.and_then(|t| credential_in_text(graph, kind, key, &t.0)) {
                     return Some(hit);
                 }
             }
@@ -520,9 +529,21 @@ pub fn find_credential(graph: &Graph) -> Option<(&'static str, usize)> {
     None
 }
 
+/// A batch's own free text, its label and its "Why?" comment, read as prose. Both are stored
+/// and streamed with the change.
+fn batch_credential(batch: &fathom_graph::Batch) -> Option<(&'static str, usize)> {
+    credential_line(&batch.label, false)
+        .map(|l| ("Batch label", l))
+        .or_else(|| {
+            let comment = batch.comment.as_ref()?;
+            credential_line(&comment.0, false).map(|l| ("Batch comment", l))
+        })
+}
+
 /// The credential check for one value written to `key` of a `kind` node:
 /// `None` unless that field is gated ([`gated_fields`]).
 fn credential_in_text(
+    graph: &Graph,
     kind: NodeKind,
     key: fathom_ir::bag::FieldKey,
     text: &str,
@@ -530,7 +551,7 @@ fn credential_in_text(
     gated_fields()
         .into_iter()
         .find(|(k, f, _, _)| *k == kind && *f == key)
-        .and_then(|(_, _, label, read)| read_line(text, read).map(|l| (label, l)))
+        .and_then(|(_, _, label, read)| read_line(graph, text, read).map(|l| (label, l)))
 }
 
 /// [`find_credential`] for one node's current values; `None` for an ungated kind.
@@ -541,7 +562,7 @@ pub fn credential_in_node(graph: &Graph, id: NodeId) -> Option<(&'static str, us
         .filter(|(k, ..)| *k == id.kind)
         .find_map(|(kind, key, _, _)| {
             let text = fathom_ir::bag::typed::<Text, _>(node, key).ok()?;
-            credential_in_text(kind, key, &text.0)
+            credential_in_text(graph, kind, key, &text.0)
         })
 }
 
@@ -560,36 +581,38 @@ pub fn credential_line(text: &str, bare: bool) -> Option<usize> {
         .map(|(idx, _)| idx + 1)
 }
 
-fn read_line(text: &str, read: Read) -> Option<usize> {
+fn read_line(graph: &Graph, text: &str, read: Read) -> Option<usize> {
     match read {
         Read::Lines(bare) => credential_line(text, bare),
-        Read::Targets => parts_credential_line(text, '\n', None),
+        Read::Targets => parts_credential_line(graph, text, '\n', None),
         Read::Edit => {
             let prose = text.starts_with("field\t").then_some(3);
-            parts_credential_line(text, '\t', prose)
+            parts_credential_line(graph, text, '\t', prose)
         }
     }
 }
 
-/// `kind:ULID`: a design id, which the shape detectors would otherwise read as base64.
-fn id_shaped(part: &str) -> bool {
-    part.split_once(':').is_some_and(|(kind, ulid)| {
-        !kind.is_empty()
-            && kind.chars().all(|c| c.is_ascii_lowercase() || c == '-')
-            && ulid.len() == 26
-            && ulid.chars().all(|c| c.is_ascii_alphanumeric())
-    })
+/// `kind:ULID` naming a node this graph holds: a design id, which the shape detectors would
+/// otherwise read as base64. A shape alone is not enough: a secret fits it, so the part must
+/// parse as a real id and name a node that exists (tombstoned ones count).
+fn id_shaped(graph: &Graph, part: &str) -> bool {
+    NodeId::parse(part).is_ok_and(|id| graph.node(id).is_some())
 }
 
 /// The 1-based line of `text` with a part (split on `sep`) that is not an id and looks
 /// like a credential. `prose_part` is the one part index that may be a typed value, so it
 /// gets the prose-safe check; every other part is read bare, as it should hold no prose.
-fn parts_credential_line(text: &str, sep: char, prose_part: Option<usize>) -> Option<usize> {
+fn parts_credential_line(
+    graph: &Graph,
+    text: &str,
+    sep: char,
+    prose_part: Option<usize>,
+) -> Option<usize> {
     text.lines()
         .enumerate()
         .find(|(_, line)| {
             line.split(sep).enumerate().any(|(i, part)| {
-                if id_shaped(part) {
+                if id_shaped(graph, part) {
                     return false;
                 }
                 if Some(i) == prose_part {

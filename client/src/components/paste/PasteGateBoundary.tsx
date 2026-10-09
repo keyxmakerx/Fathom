@@ -37,7 +37,9 @@ export function PasteGateBoundary({ redact, children }: { redact: Redact | null;
     },
     [redact],
   );
+  // A boundary nested in another leaves what the outer one already took.
   const onPaste = (e: ClipboardEvent<HTMLElement>) => {
+    if (e.defaultPrevented) return;
     const box = gatedBox(e.target);
     const text = e.clipboardData.getData('text/plain');
     if (!box || text === '') return;
@@ -45,6 +47,7 @@ export function PasteGateBoundary({ redact, children }: { redact: Redact | null;
     take(box, text);
   };
   const onDrop = (e: DragEvent<HTMLElement>) => {
+    if (e.defaultPrevented) return;
     const box = gatedBox(e.target);
     const text = e.dataTransfer.getData('text/plain');
     if (!box || text === '') return;

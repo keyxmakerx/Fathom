@@ -566,3 +566,38 @@ fn tombstones_history_and_log_survive() {
     assert_eq!(reloaded.to_snapshot().expect("closed"), s);
     same_observables(&g, &reloaded);
 }
+
+/// A history entry is a stored value like any other: a key its node kind never declared is
+/// refused on load, as it is in the field slots.
+#[test]
+fn history_under_an_undeclared_field_refused() {
+    let mut g = side1();
+    let device = g
+        .nodes()
+        .find(|n| n.id.kind == NodeKind::Device)
+        .expect("side 1 has a device")
+        .id;
+    g.begin_batch(BatchId(ulid(500)), "rename").expect("open");
+    g.set_field(
+        ElementId::Node(device),
+        DeviceField::Hostname.key(),
+        Identifier("srx-a-02".to_owned()),
+        prov(200),
+    )
+    .expect("rename");
+    g.end_batch().expect("close");
+    let mut s = g.to_snapshot().expect("closed");
+    let mut h = s
+        .history
+        .iter()
+        .find(|h| h.element == ElementId::Node(device))
+        .expect("the rename left a history")
+        .clone();
+    assert!(!NodeKind::Device.fields().contains(&SiteField::Name.key()));
+    h.key = SiteField::Name.key();
+    s.history = vec![h];
+    match Graph::from_snapshot(&s).err() {
+        Some(SnapshotError::L0(WriteError::UndeclaredField { .. })) => {}
+        other => panic!("history under an undeclared key must refuse: {other:?}"),
+    }
+}

@@ -1592,6 +1592,7 @@ function AddNoteForm({
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onPaste={() => setHadPaste(true)}
+        onDrop={() => setHadPaste(true)}
         data-gate="self"
         placeholder="add a note"
         rows={2}

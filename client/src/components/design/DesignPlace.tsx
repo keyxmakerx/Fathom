@@ -31,6 +31,7 @@ import { DocsContext, useDocsApi } from '../docs/useDocsApi';
 import { HistoryPanel, whenLabel } from '../history/HistoryPanel';
 import { useHistory } from '../history/useHistory';
 import { InventoryPlace } from '../inventory/InventoryPlace';
+import { PasteGateBoundary } from '../paste/PasteGateBoundary';
 import { RacksPlace } from '../racks/RacksPlace';
 import { Trail } from '../racks/Trail';
 import { redoable } from '../racks/trail';
@@ -683,7 +684,7 @@ export function DesignPlace(props: DesignPlaceProps) {
   // The place stays mounted while the preview shows, so closing it loses nothing; print CSS hides it, `inert` disables it.
   // `inert`: Firefox 112+, Chrome 102+, Safari 15.5+ (html.global_attributes.inert, read 2026-09-26).
   return (
-    <>
+    <PasteGateBoundary redact={redact}>
       <div className="print-hide-under-preview" inert={printMode === 'preview' || docs.view != null}>
         <DocsContext.Provider value={docs.api}>{place}</DocsContext.Provider>
       </div>
@@ -712,6 +713,6 @@ export function DesignPlace(props: DesignPlaceProps) {
       {sharing && (
         <SharePanel organisationId={organisationId} scopeId={scopeId} title={designLabel} onClose={() => setSharing(false)} />
       )}
-    </>
+    </PasteGateBoundary>
   );
 }
