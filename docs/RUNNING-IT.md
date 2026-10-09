@@ -198,6 +198,12 @@ and publishes the server on port 8080 (`FATHOM_PORT` moves it). `docker compose 
 builds from the checkout instead. To freeze a deployment on one build, set
 `FATHOM_TAG=sha-<the 40-hex commit>` in `.env`; `latest` follows `main`.
 
+**To update a running install:** back up the database first (`docs/OPERATING.md`), because a new
+build may run forward-only migrations on its first start. Then `docker compose pull` and
+`docker compose up -d`. Check `docker image ls ghcr.io/keyxmakerx/fathom-server` for a recent
+created date, and hard-refresh the browser. If `.env` sets `FATHOM_TAG`, the install stays on that
+build until you change it.
+
 **Your reverse proxy does HTTPS.** The browser generates your sign-in key with WebCrypto, which
 browsers allow only on HTTPS or `localhost`, so a plain-HTTP address on the network cannot sign in.
 Set `Strict-Transport-Security: max-age=31536000` on the proxy and redirect plain HTTP to HTTPS
