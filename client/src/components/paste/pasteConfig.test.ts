@@ -90,7 +90,9 @@ describe('previewPaste', () => {
       expect(tie.length).toBe(1);
       expect(findNode(p.addDoc, tie[0].from)!.fields['Interface.name']?.value).toBe(port.fields['PhysicalPort.label']?.value);
     }
-    expect(tiePlan(p.addDoc, device.id, [])!.rows.map((r) => r.name)).not.toEqual(expect.arrayContaining(['ge-0/0/0', 'xe-0/0/1']));
+    const untied = tiePlan(p.addDoc, device.id, [])!.rows.map((r) => r.name);
+    expect(untied).not.toContain('ge-0/0/0');
+    expect(untied).not.toContain('xe-0/0/1');
   });
 
   it('offers to attach to the same-named device, in either letter case, without touching the original', () => {

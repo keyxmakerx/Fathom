@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { addSketchPort, createSketchDevice } from './commands';
 import { addEdge, addNode, begin, finish, setNodeField } from './freeform';
 import { edgesIn, edgesOut, emptyDocument, interfaceName, parseNodeId, token, type Document } from './model';
-import { TieRefusal, addPortsFromConfig, allPortNameRules, citedPortNameRules, isCited, positionOf, tiePlan, tiePorts, type PortNameRule } from './portTies';
+import { TieRefusal, addPortsFromConfig, allPortNameRules, citedPortNameRules, isCited, positionOf, tiePlan, tiePorts, tiedPairs, untie, type PortNameRule } from './portTies';
 import { undo } from './undo';
 
 const NOW = 1_700_000_000_000;
@@ -137,6 +137,8 @@ describe('tying', () => {
     expect(edgesOut(undone, f.ifaces['ge-0/0/1'], 'Occupies')).toEqual([]);
   });
 
+  // The engine refuses a second paste onto a device that already carries one, so "a re-paste keeps ties" is held
+  // here: a later plan never lists a tied interface and never moves a tie.
   it('keeps ties already made: a later plan lists only untied interfaces and free ports', () => {
     const f = device('junos-ex', { '0': at(0), '1': at(1) }, ['ge-0/0/0', 'ge-0/0/1']);
     const tied = tiePorts(f.doc, f.deviceId, [{ interfaceId: f.ifaces['ge-0/0/0'], portId: f.ports['1'] }], OPTS);
@@ -160,6 +162,27 @@ describe('tying', () => {
         { interfaceId: f.ifaces['ge-0/0/1'], portId: f.ports['0'] },
       ], OPTS),
     ).toThrow(TieRefusal);
+  });
+});
+
+describe('untying', () => {
+  it('lists ties and removes one in one undo step, leaving interface and port', () => {
+    const f = device('junos-ex', { '0': at(0) }, ['ge-0/0/0']);
+    const tied = tiePorts(f.doc, f.deviceId, [{ interfaceId: f.ifaces['ge-0/0/0'], portId: f.ports['0'] }], OPTS);
+    expect(tiedPairs(tied, f.deviceId)).toEqual([{ interfaceId: f.ifaces['ge-0/0/0'], name: 'ge-0/0/0', port: 'port 0' }]);
+    const loose = untie(tied, f.ifaces['ge-0/0/0'], OPTS);
+    expect(loose.batches.length).toBe(tied.batches.length + 1);
+    expect(tiedPairs(loose, f.deviceId)).toEqual([]);
+    expect(tiePlan(loose, f.deviceId, [JUNOS])!.rows.map((r) => r.suggested)).toEqual([f.ports['0']]);
+    expect(() => untie(loose, f.ifaces['ge-0/0/0'], OPTS)).toThrow(TieRefusal);
+  });
+
+  it('does not offer an interface with no form whose name is not a jack', () => {
+    const f = device('junos-ex', { '0': at(0) }, ['ge-0/0/0']);
+    const b = begin(f.doc, OPTS);
+    const v = addNode(b, 'Interface', { 'Interface.name': interfaceName('vlan') });
+    addEdge(b, 'HasInterface', f.deviceId, v);
+    expect(tiePlan(finish(b, 'paste'), f.deviceId, [JUNOS])!.rows.map((r) => r.name)).toEqual(['ge-0/0/0']);
   });
 });
 

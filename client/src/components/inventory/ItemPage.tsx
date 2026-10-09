@@ -4,7 +4,7 @@
 import { useState, type ReactNode } from 'react';
 
 import type { Document } from '../../document/model';
-import { addPortsFromConfig, tiePlan, tiePorts } from '../../document/portTies';
+import { addPortsFromConfig, tiePlan, tiePorts, tiedPairs, untie } from '../../document/portTies';
 import { type ClosetView, type EditorActions, type PaletteItem, type PortView, type Selection } from '../drawing/contract';
 import { EditorFor, NotesSection, TypedNoteMode } from '../drawing/Editor';
 import { findChassis, findFixture, findOccupant } from '../drawing/lookup';
@@ -44,21 +44,43 @@ export interface ItemPageProps {
   actor?: string;
 }
 
-/** The Ports tab's "Tie interfaces": pasted interfaces not yet on a port, opened on request. */
+/** The Ports tab's ties: which interface sits on which port, each with Untie, and "Tie interfaces" for the rest. */
 function TieSection({ doc, hostId, onApply, actor }: { doc: Document; hostId: string; onApply: (next: Document) => void; actor?: string }) {
   const [open, setOpen] = useState(false);
+  const [refusal, setRefusal] = useState('');
   const plan = tiePlan(doc, hostId);
-  if (plan === null || plan.rows.length === 0) return null;
+  const tied = tiedPairs(doc, hostId);
   const opts = actor !== undefined ? { actor } : undefined;
   const done = (next: Document) => {
     onApply(next);
     setOpen(false);
   };
-  if (!open) {
+  const untied = plan?.rows.length ?? 0;
+  const list =
+    tied.length > 0 ? (
+      <ul className="inv-page__list" aria-label="Interfaces on ports" data-testid="tied-list">
+        {tied.map((t) => (
+          <li key={t.interfaceId}>
+            <span className="inv-page__mono">{t.name}</span> on {t.port}{' '}
+            <button type="button" className="inv-page__link" onClick={() => setRefusal(tieAttempt(() => untie(doc, t.interfaceId, opts), onApply) ?? '')}>
+              Untie
+            </button>
+          </li>
+        ))}
+      </ul>
+    ) : null;
+  if (plan === null || (untied === 0 && tied.length === 0)) return null;
+  if (!open || untied === 0) {
     return (
-      <button type="button" className="inv-page__link" onClick={() => setOpen(true)} data-testid="tie-open">
-        Tie interfaces ({plan.rows.length} not on a port)
-      </button>
+      <>
+        {list}
+        {refusal !== '' && <p role="alert">{refusal}</p>}
+        {untied > 0 && (
+          <button type="button" className="inv-page__link" onClick={() => setOpen(true)} data-testid="tie-open">
+            Tie interfaces ({untied} not on a port)
+          </button>
+        )}
+      </>
     );
   }
   return (

@@ -15,7 +15,7 @@ import { EngineError, ERRORS } from '../../engine/engine';
 import { PASTE_PLATFORMS, type PastePlatform } from '../../engine/frames';
 import type { Mirror } from '../../engine/mirror';
 import { captureOf } from '../../document/capture';
-import { tiePlan, tiePorts } from '../../document/portTies';
+import { PHYSICAL_NAME, tiePlan, tiePorts } from '../../document/portTies';
 
 export interface PasteInterface {
   name: string;
@@ -65,7 +65,7 @@ export function pastePlatform(value: string | null): PastePlatform | null {
   return (PASTE_PLATFORMS as readonly string[]).includes(value ?? '') ? (value as PastePlatform) : null;
 }
 
-const PHYSICAL = /^(ge|xe|et|fe|me|fxp|em|eth|ether|gi|gig|fa|te|ten|port|lan|wan|sfp|igb|ix|vtnet|re)[-/]?\d/i;
+const PHYSICAL = PHYSICAL_NAME;
 const FAST = /^(xe|te|ten|sfp)/i;
 const MAX_PORTS = 96;
 

@@ -1,7 +1,7 @@
 // Port ties (brief: port-ties): the list a paste, the device page's Ports tab and a trace or troubleshooting stop all
 // open. Suggested pairs come ticked; the rest sit under "Not tied" with a port picker. "Tie these" is one edit, one
 // undo step. Skipping is always allowed.
-import { useMemo, useState, type JSX } from 'react';
+import { useId, useMemo, useState, type JSX } from 'react';
 
 import type { TiePair, TiePlan } from '../../document/portTies';
 import '../paste/paste.css';
@@ -23,18 +23,20 @@ export function TieList({ plan, onTie, onAddPorts, onSkip }: TieListProps): JSX.
   const [ticked, setTicked] = useState<ReadonlySet<string>>(() => new Set(suggested.map((r) => r.interfaceId)));
   const [picks, setPicks] = useState<ReadonlyMap<string, string>>(new Map());
   const [refusal, setRefusal] = useState('');
+  const headId = useId();
   const label = useMemo(() => new Map(plan.ports.map((p) => [p.id, p.label])), [plan.ports]);
 
+  // A pick whose row or port has gone (someone else tied it) is dropped, never sent unseen.
   const pairs: TiePair[] = [
     ...suggested.filter((r) => ticked.has(r.interfaceId)).map((r) => ({ interfaceId: r.interfaceId, portId: r.suggested! })),
-    ...[...picks].map(([interfaceId, portId]) => ({ interfaceId, portId })),
+    ...[...picks].filter(([i, p]) => open.some((r) => r.interfaceId === i) && label.has(p)).map(([interfaceId, portId]) => ({ interfaceId, portId })),
   ];
   const used = new Set(pairs.map((p) => p.portId));
   const run = (r: string | void) => setRefusal(typeof r === 'string' ? r : '');
 
   return (
-    <section className="ties" aria-label="Tie interfaces to ports" data-testid="tie-list">
-      <h3 className="ties__head">Tie {plural(plan.rows.length, 'interface', 'interfaces')} to ports</h3>
+    <section className="ties" aria-labelledby={headId} data-testid="tie-list">
+      <h3 className="ties__head" id={headId}>Tie {plural(plan.rows.length, 'interface', 'interfaces')} to ports</h3>
 
       {plan.canAddPorts ? (
         <>

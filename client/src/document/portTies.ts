@@ -3,7 +3,7 @@
 // (an interface name read as a PortPosition, matched against a port that holds that position). Never a guess:
 // no name likeness, no first free port. Logical interfaces never occupy a port, so they are never offered.
 
-import { addEdge, addNode, begin, finish } from './freeform';
+import { addEdge, addNode, begin, finish, tombstone } from './freeform';
 import { asString, edgesIn, edgesOut, fieldValue, findNode, parseNodeId, readChassisFields, readPhysicalPortFields, type Document, type GraphNode } from './model';
 
 interface Actor {
@@ -84,7 +84,13 @@ export function deviceOf(doc: Document, id: string): string | null {
   return null;
 }
 
-/** Member Interfaces only: no units, VLANs, loopbacks, IRBs, tunnels or aggregate parents. */
+/** A name that reads as a jack (ge-0/0/0, eth0, igb1), for interfaces a paste left without a form. Shared with the
+ * paste's own "a port per physical interface". */
+export const PHYSICAL_NAME = /^(ge|xe|et|fe|me|fxp|em|eth|ether|gi|gig|fa|te|ten|port|lan|wan|sfp|igb|ix|vtnet|re)[-/]?\d/i;
+const JACK_FORMS = new Set(['ethernet', 'serial', 'management']);
+
+/** Member Interfaces only: no units, VLANs, loopbacks, IRBs, tunnels or aggregate parents. A paste does not always
+ * write Interface.form, so an interface without one is offered only when its name reads as a jack. */
 function memberInterfaces(doc: Document, deviceId: string): { id: string; name: string }[] {
   const out: { id: string; name: string }[] = [];
   for (const e of edgesOut(doc, deviceId, 'HasInterface')) {
@@ -92,7 +98,8 @@ function memberInterfaces(doc: Document, deviceId: string): { id: string; name: 
     const n = live(doc, e.to);
     const name = n ? asString(fieldValue(n.fields, 'Interface.name')) : undefined;
     const form = n ? asString(fieldValue(n.fields, 'Interface.form')) : undefined;
-    if (!n || name === undefined || name.includes('.') || form === 'loopback' || form === 'irb') continue;
+    if (!n || name === undefined || name.includes('.')) continue;
+    if (form !== undefined ? !JACK_FORMS.has(form) : !PHYSICAL_NAME.test(name)) continue;
     out.push({ id: n.id, name });
   }
   return out;
@@ -113,8 +120,8 @@ function devicePorts(doc: Document, deviceId: string): GraphNode[] {
 }
 
 const portWord = (p: GraphNode): string => {
-  const label = readPhysicalPortFields(p).label;
-  return label === undefined ? 'unlabelled port' : `port ${label}`;
+  const label = readPhysicalPortFields(p).label ?? '';
+  return label === '' ? 'unlabelled port' : `port ${label}`;
 };
 
 export interface TieRow {
@@ -209,4 +216,31 @@ export function addPortsFromConfig(doc: Document, id: string, opts?: Actor): Doc
     addEdge(b, 'Occupies', row.interfaceId, portId);
   }
   return finish(b, 'add ports from config');
+}
+
+export interface TiedPair {
+  interfaceId: string;
+  name: string;
+  port: string;
+}
+
+/** The ties already made on a device, in name order: what the Ports tab shows, each with Untie. */
+export function tiedPairs(doc: Document, id: string): TiedPair[] {
+  const deviceId = deviceOf(doc, id);
+  if (deviceId === null) return [];
+  const out: TiedPair[] = [];
+  for (const i of memberInterfaces(doc, deviceId)) {
+    const port = edgesOut(doc, i.id, 'Occupies').map((e) => live(doc, e.to)).find((p) => p !== undefined);
+    if (port) out.push({ interfaceId: i.id, name: i.name, port: portWord(port) });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+}
+
+/** Removes an interface's ties, as one undo step. The interface and the port stay. */
+export function untie(doc: Document, interfaceId: string, opts?: Actor): Document {
+  const edges = edgesOut(doc, interfaceId, 'Occupies');
+  if (edges.length === 0) throw new TieRefusal('That interface is not tied to a port.');
+  const b = begin(doc, opts);
+  tombstone(b, new Set(), new Set(edges.map((e) => e.id)));
+  return finish(b, 'untie port');
 }

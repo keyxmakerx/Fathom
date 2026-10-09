@@ -65,3 +65,20 @@ describe('a trace through a tied pasted device', () => {
     expect(untiedStop(after)).toBeNull();
   });
 });
+
+describe('what a real paste offers', () => {
+  it('offers jacks only, though the paste writes no Interface.form', () => {
+    const a = addDevice(emptyDocument());
+    const mirror = new Mirror(engine);
+    mirror.load(a.doc);
+    const paste = [
+      'set interfaces ge-0/0/0 unit 0 family inet address 203.0.113.2/30',
+      'set interfaces fxp0 unit 0 family inet address 192.0.2.5/24',
+      'set interfaces lo0 unit 0 family inet address 10.0.0.1/32',
+      'set interfaces irb unit 10 family inet address 10.0.10.1/24',
+      'set interfaces vlan unit 20 family inet address 10.0.20.1/24',
+    ].join('\n');
+    const doc = mirror.pasteInto(a.deviceId, paste, 'junos-srx').doc;
+    expect(tiePlan(doc, a.deviceId, [])!.rows.map((r) => r.name)).toEqual(['fxp0', 'ge-0/0/0']);
+  });
+});
