@@ -5344,6 +5344,167 @@ mod live {
         assert_eq!(status, "422", "{}", String::from_utf8_lossy(&answer));
         assert_eq!(w.latest().await, 1);
     }
+
+    /// Timing only, not a claim: how the History panel's three reads scale with
+    /// the number of saved changes. `cargo test -p fathom-server --test design_api
+    /// -- --ignored history_load_timing --nocapture`.
+    #[tokio::test]
+    #[ignore]
+    async fn history_load_timing() {
+        let _site = support::lock_the_site_chain().await;
+        let pool = support::migrated_pool().await;
+        let ring = ring();
+        let estate = bootstrap(&pool, &ring).await;
+        let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+        let by = estate.steward.account;
+        // A base with a few hundred devices, so a face is not trivially small.
+        let mut base = a_base(by);
+        base.begin_batch(BatchId(u(2_000_001)), "devices").unwrap();
+        for i in 0..400u128 {
+            let d = base
+                .insert_node(
+                    NodeKind::Device,
+                    u(5_000_000 + 4 * i),
+                    prov_of(500_000 + 4 * i, by),
+                )
+                .unwrap();
+            let c = base
+                .insert_node(
+                    NodeKind::Chassis,
+                    u(5_000_001 + 4 * i),
+                    prov_of(500_001 + 4 * i, by),
+                )
+                .unwrap();
+            base.insert_edge(
+                EdgeKind::HasChassis,
+                u(5_000_002 + 4 * i),
+                d,
+                c,
+                prov_of(500_002 + 4 * i, by),
+            )
+            .unwrap();
+        }
+        base.end_batch().unwrap();
+        designs::write_version(
+            &pool,
+            &ring,
+            estate.organisation,
+            by,
+            design,
+            &fathom_workspace::write_plain(&base).expect("writes"),
+            CURRENT_SCHEMA_WIRE_VERSION as i32,
+        )
+        .await
+        .expect("version 1");
+        let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+        let w = World {
+            pool,
+            ring,
+            estate,
+            scope: _scope,
+            design,
+            addr,
+            base,
+        };
+        let total: u128 = std::env::var("HISTORY_CHANGES")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(2000);
+        let mut local = w.base.clone();
+        let t = std::time::Instant::now();
+        let mut marks = vec![200u128, 1000, 2000, 5000];
+        marks.retain(|m| *m <= total);
+        for n in 1..=total {
+            local
+                .begin_batch(BatchId(u(30_000_000 + n)), "add a rack")
+                .unwrap();
+            let rack = local
+                .insert_node(
+                    NodeKind::Rack,
+                    u(10_000_000 + n),
+                    prov_of(100_000 + 10 * n, by),
+                )
+                .unwrap();
+            local
+                .insert_edge(
+                    EdgeKind::HasRack,
+                    u(20_000_000 + n),
+                    node(NodeKind::Premises, PREMISES),
+                    rack,
+                    prov_of(100_001 + 10 * n, by),
+                )
+                .unwrap();
+            local.end_batch().unwrap();
+            let body = body_of(&local);
+            // Under the per-account change rate.
+            tokio::time::sleep(Duration::from_millis(52)).await;
+            let (status, answer) = w.post_change(&w.estate.steward, &body, n as i64).await;
+            assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
+            if marks.first() == Some(&n) {
+                marks.remove(0);
+                let latest = n as i64 + 1;
+                let t0 = std::time::Instant::now();
+                let (s, hist) =
+                    call(w.addr, &w.estate.steward, "GET", &w.path("history"), b"").await;
+                let th = t0.elapsed();
+                assert_eq!(s, "200");
+                let t1 = std::time::Instant::now();
+                let (s, _) = call(w.addr, &w.estate.steward, "GET", &w.path("verify"), b"").await;
+                let tv = t1.elapsed();
+                assert_eq!(s, "200");
+                let t2 = std::time::Instant::now();
+                let mut face = 0;
+                for v in (latest - 15)..=latest {
+                    let (s, b) = call(
+                        w.addr,
+                        &w.estate.steward,
+                        "GET",
+                        &format!("{}?version={v}", w.root()),
+                        b"",
+                    )
+                    .await;
+                    assert_eq!(s, "200");
+                    face = b.len();
+                }
+                let tf = t2.elapsed();
+                // One version that is a checkpoint (no replay) against the one
+                // just before the next checkpoint (replays 99 changes).
+                let base_v = (latest / 100) * 100;
+                let t3 = std::time::Instant::now();
+                let (_, _) = call(
+                    w.addr,
+                    &w.estate.steward,
+                    "GET",
+                    &format!("{}?version={base_v}", w.root()),
+                    b"",
+                )
+                .await;
+                let tb = t3.elapsed();
+                let t4 = std::time::Instant::now();
+                let (_, last) = call(
+                    w.addr,
+                    &w.estate.steward,
+                    "GET",
+                    &format!("{}?version={}", w.root(), base_v - 1),
+                    b"",
+                )
+                .await;
+                let tr = t4.elapsed();
+                eprintln!(
+                    "TIMING checkpoint v{base_v}={tb:?} replay-99 v{}={tr:?}",
+                    base_v - 1
+                );
+                if let Ok(dir) = std::env::var("HISTORY_FACE_OUT") {
+                    std::fs::write(format!("{dir}/face-{n}.bin"), &last).unwrap();
+                }
+                eprintln!(
+                    "TIMING changes={n} history={th:?} ({} bytes) verify={tv:?} sixteen_versions={tf:?} (face {face} bytes) [posting so far {:?}]",
+                    hist.len(),
+                    t.elapsed()
+                );
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

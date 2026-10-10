@@ -12,6 +12,9 @@ import { readPlain } from '../../document/plain';
 
 const PAGE = 15;
 const KEEP_DOCS = 4;
+/** Versions fetched ahead of the one being summarised. Each fetch is a whole face, and the
+ * server's share of it overlaps with the browser reading the one before. */
+const AHEAD = 4;
 
 export interface History {
   /** Saves, newest first. `null` while loading. */
@@ -40,6 +43,7 @@ export function useHistory(organisationId: string, designId: string, active: boo
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<History['picked']>(null);
   const cache = useRef(new Map<number, Document>());
+  const ahead = useRef(new Map<number, Promise<Uint8Array>>());
   const changes = useRef(new Map<number, SaveChange>());
   const pickSeq = useRef(0);
 
@@ -51,10 +55,23 @@ export function useHistory(organisationId: string, designId: string, active: boo
         cache.current.set(version, hit);
         return hit;
       }
-      const doc = readPlain((await openDesign(organisationId, designId, version)).bytes);
+      const fetched = ahead.current.get(version);
+      ahead.current.delete(version);
+      const doc = readPlain(await (fetched ?? openDesign(organisationId, designId, version).then((o) => o.bytes)));
       cache.current.set(version, doc);
       while (cache.current.size > KEEP_DOCS) cache.current.delete(cache.current.keys().next().value as number);
       return doc;
+    },
+    [organisationId, designId],
+  );
+
+  /** Start fetching `version` if it is neither read nor on its way. */
+  const prefetch = useCallback(
+    (version: number) => {
+      if (cache.current.has(version) || ahead.current.has(version)) return;
+      const bytes = openDesign(organisationId, designId, version).then((o) => o.bytes);
+      bytes.catch(() => undefined); // read, and reported, by `load` if it is ever wanted
+      ahead.current.set(version, bytes);
     },
     [organisationId, designId],
   );
@@ -69,6 +86,7 @@ export function useHistory(organisationId: string, designId: string, active: boo
     setShown(PAGE);
     setSummaries(new Map());
     changes.current.clear();
+    ahead.current.clear();
     setVerifyLine('Checking…');
     fetchHistory(organisationId, designId)
       .then((entries) => {
@@ -118,9 +136,13 @@ export function useHistory(organisationId: string, designId: string, active: boo
     if (saves == null) return undefined;
     let live = true;
     (async () => {
-      for (let i = 0; i < Math.min(shown, saves.length) && live; i += 1) {
+      const end = Math.min(shown, saves.length);
+      for (let i = 0; i < end && live; i += 1) {
         const v = saves[i]!.designVersion;
         if (changes.current.has(v)) continue;
+        for (let j = i; j <= Math.min(i + AHEAD, end, saves.length - 1); j += 1) {
+          if (!changes.current.has(saves[j]!.designVersion)) prefetch(saves[j]!.designVersion);
+        }
         try {
           const after = await load(v);
           const prev = saves[i + 1];
@@ -137,7 +159,7 @@ export function useHistory(organisationId: string, designId: string, active: boo
     return () => {
       live = false;
     };
-  }, [saves, shown, load]);
+  }, [saves, shown, load, prefetch]);
 
   const pickVersion = useCallback(
     async (version: number) => {
