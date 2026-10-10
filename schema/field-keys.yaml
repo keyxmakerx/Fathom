@@ -507,3 +507,5 @@ fields:
   # The owner's ticked ideas (schema 0.20, 2026-10-10). Appended after 0.19's 411; 384-389 stay held elsewhere.
   PhysicalPort.plate_x: 412
   PhysicalPort.plate_y: 413
+  # Round 15 quality-of-life items (schema 0.21, 2026-10-10). 414-461 are held for the other round 15 threads; this range is 462-477.
+  PhysicalPort.mac: 462

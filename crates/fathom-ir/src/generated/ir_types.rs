@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.20";
+    pub const SCHEMA_VERSION: &str = "0.21";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -923,7 +923,7 @@ mod body {
                 NodeKind::SystemSettings => &[crate::bag::FieldKey(198), crate::bag::FieldKey(199), crate::bag::FieldKey(200)],
                 NodeKind::NtpServer => &[crate::bag::FieldKey(201), crate::bag::FieldKey(202), crate::bag::FieldKey(203)],
                 NodeKind::SyslogTarget => &[crate::bag::FieldKey(204), crate::bag::FieldKey(205), crate::bag::FieldKey(206), crate::bag::FieldKey(207)],
-                NodeKind::PhysicalPort => &[crate::bag::FieldKey(208), crate::bag::FieldKey(209), crate::bag::FieldKey(210), crate::bag::FieldKey(211), crate::bag::FieldKey(325), crate::bag::FieldKey(412), crate::bag::FieldKey(413), crate::bag::FieldKey(212), crate::bag::FieldKey(213), crate::bag::FieldKey(214), crate::bag::FieldKey(215)],
+                NodeKind::PhysicalPort => &[crate::bag::FieldKey(208), crate::bag::FieldKey(209), crate::bag::FieldKey(210), crate::bag::FieldKey(211), crate::bag::FieldKey(325), crate::bag::FieldKey(412), crate::bag::FieldKey(413), crate::bag::FieldKey(462), crate::bag::FieldKey(212), crate::bag::FieldKey(213), crate::bag::FieldKey(214), crate::bag::FieldKey(215)],
                 NodeKind::Cable => &[crate::bag::FieldKey(216), crate::bag::FieldKey(217), crate::bag::FieldKey(218), crate::bag::FieldKey(219), crate::bag::FieldKey(220), crate::bag::FieldKey(221), crate::bag::FieldKey(222), crate::bag::FieldKey(223), crate::bag::FieldKey(224), crate::bag::FieldKey(312)],
                 NodeKind::PassiveNode => &[crate::bag::FieldKey(225), crate::bag::FieldKey(226), crate::bag::FieldKey(227), crate::bag::FieldKey(228), crate::bag::FieldKey(229), crate::bag::FieldKey(350)],
                 NodeKind::Premises => &[crate::bag::FieldKey(230), crate::bag::FieldKey(231), crate::bag::FieldKey(232), crate::bag::FieldKey(233), crate::bag::FieldKey(234), crate::bag::FieldKey(235), crate::bag::FieldKey(236)],
@@ -7950,6 +7950,7 @@ mod body {
         Face,
         PlateX,
         PlateY,
+        Mac,
         SpeedMax,
         Transceiver,
         Notes,
@@ -7957,9 +7958,9 @@ mod body {
     }
 
     impl PhysicalPortField {
-        pub const COUNT: usize = 11;
+        pub const COUNT: usize = 12;
         /// Every field, declaration order.
-        pub const ALL: [PhysicalPortField; 11] = [
+        pub const ALL: [PhysicalPortField; 12] = [
             PhysicalPortField::Label,
             PhysicalPortField::Position,
             PhysicalPortField::Connector,
@@ -7967,6 +7968,7 @@ mod body {
             PhysicalPortField::Face,
             PhysicalPortField::PlateX,
             PhysicalPortField::PlateY,
+            PhysicalPortField::Mac,
             PhysicalPortField::SpeedMax,
             PhysicalPortField::Transceiver,
             PhysicalPortField::Notes,
@@ -7984,6 +7986,7 @@ mod body {
                 PhysicalPortField::Face => "face",
                 PhysicalPortField::PlateX => "plate_x",
                 PhysicalPortField::PlateY => "plate_y",
+                PhysicalPortField::Mac => "mac",
                 PhysicalPortField::SpeedMax => "speed_max",
                 PhysicalPortField::Transceiver => "transceiver",
                 PhysicalPortField::Notes => "notes",
@@ -8000,6 +8003,7 @@ mod body {
                 PhysicalPortField::Face => crate::bag::FieldKey(325),
                 PhysicalPortField::PlateX => crate::bag::FieldKey(412),
                 PhysicalPortField::PlateY => crate::bag::FieldKey(413),
+                PhysicalPortField::Mac => crate::bag::FieldKey(462),
                 PhysicalPortField::SpeedMax => crate::bag::FieldKey(212),
                 PhysicalPortField::Transceiver => crate::bag::FieldKey(213),
                 PhysicalPortField::Notes => crate::bag::FieldKey(214),
@@ -9911,7 +9915,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 407] = [
+    pub const FIELD_KEYS: [(&str, u32); 408] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -10319,16 +10323,17 @@ mod body {
         ("Device.firmware_hold", 411),
         ("PhysicalPort.plate_x", 412),
         ("PhysicalPort.plate_y", 413),
+        ("PhysicalPort.mac", 462),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
     /// per key, least-significant bit first. Read it through [`field_required`];
     /// the array is public only so a test can pin its length.
-    pub const FIELD_REQUIRED_BITS: [u8; 52] = [
+    pub const FIELD_REQUIRED_BITS: [u8; 58] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
         0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0xa3, 0xfb, 0x1d, 0x59, 0x64,
-        0xc0, 0xe6, 0x64, 0x00,
+        0xc0, 0xe6, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

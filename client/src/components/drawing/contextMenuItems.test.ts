@@ -12,6 +12,8 @@ function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'o
     onRemoveDevice: vi.fn(),
     onDisconnect: vi.fn(),
     onAddDevice: vi.fn(),
+    onCloseRackGaps: vi.fn(),
+    onCopyRack: vi.fn(),
     onAddRack: vi.fn(),
     onAddWall: vi.fn(),
     onPasteConfig: vi.fn(),
@@ -69,9 +71,13 @@ describe('menuItemsFor', () => {
   it('offers a rack its details and a new device', () => {
     const a = actions();
     const items = menuItemsFor({ kind: 'rack', id: 'r1' }, a);
-    expect(items.map((i) => i.label)).toEqual(['Details', 'Add a device']);
+    expect(items.map((i) => i.label)).toEqual(['Details', 'Add a device', 'Close gaps', 'Copy rack, with its cables']);
     items[1].onSelect();
     expect(a.onAddDevice).toHaveBeenCalledWith('r1');
+    items[2].onSelect();
+    expect(a.onCloseRackGaps).toHaveBeenCalledWith('r1');
+    items[3].onSelect();
+    expect(a.onCopyRack).toHaveBeenCalledWith('r1');
   });
 
   it('offers a cable its details and a disconnect', () => {
@@ -110,9 +116,9 @@ describe('menuItemsFor', () => {
   it('offers Add here only when the click landed on a free unit of a rack', () => {
     const a = actions();
     const at = { screen: { x: 1, y: 2 }, flow: { x: 3, y: 4 } };
-    expect(menuItemsFor({ kind: 'rack', id: 'r1' }, a).map((i) => i.label)).toEqual(['Details', 'Add a device']);
+    expect(menuItemsFor({ kind: 'rack', id: 'r1' }, a).map((i) => i.label)).toEqual(['Details', 'Add a device', 'Close gaps', 'Copy rack, with its cables']);
     const items = menuItemsFor({ kind: 'rack', id: 'r1', freeU: { u: 12, ...at } }, a);
-    expect(items.map((i) => i.label)).toEqual(['Details', 'Add here (U12)', 'Add a device', 'Add a note here']);
+    expect(items.map((i) => i.label)).toEqual(['Details', 'Add here (U12)', 'Add a device', 'Add a note here', 'Close gaps', 'Copy rack, with its cables']);
     items[1].onSelect();
     expect(a.onAddInRack).toHaveBeenCalledWith('r1', 12, expect.objectContaining({ screen: at.screen }));
   });

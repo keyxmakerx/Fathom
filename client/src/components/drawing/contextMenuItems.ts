@@ -43,6 +43,10 @@ export interface MenuActions {
   onRemoveDevice?(chassisId: string): void;
   onDisconnect?(cableId: string): void;
   onAddDevice?(rackId: string): void;
+  /** Slides everything in a rack up to close the gaps (round 15). */
+  onCloseRackGaps?(rackId: string): void;
+  /** A copy of the whole rack with its cables (round 15). */
+  onCopyRack?(rackId: string): void;
   onAddRack?(heightU: number): void;
   onAddWall?(): void;
   onPasteConfig?(): void;
@@ -84,6 +88,8 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
       if (actions.onAddDevice) items.push({ label: 'Add a device', onSelect: () => actions.onAddDevice?.(id) });
       // A note sits on the canvas at the spot, over the rack; it does not follow the rack if it moves.
       if (free && actions.onAddLabelHere) items.push({ label: 'Add a note here', onSelect: () => actions.onAddLabelHere?.('note', free.flow) });
+      if (actions.onCloseRackGaps) items.push({ label: 'Close gaps', onSelect: () => actions.onCloseRackGaps?.(id) });
+      if (actions.onCopyRack) items.push({ label: 'Copy rack, with its cables', onSelect: () => actions.onCopyRack?.(id) });
       break;
     }
     case 'cable': {

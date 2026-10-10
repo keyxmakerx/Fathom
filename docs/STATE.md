@@ -309,6 +309,14 @@ wins, and the overwritten person can **Put mine back**. Others show as initials 
 every save is intact", "Broken at save N"), lists saves newest first, shows any save read-only with its
 changes outlined, and **Restore this version** (Draw) makes a new save.
 
+**Round 15 quality of life** (r15-qol; schema 0.21, field key 462). A sketch port's name field takes a
+pattern (`ge-0/0/{0-23}` is 24 ports, `document/portPattern.ts`). A port has a MAC (`PhysicalPort.mac`),
+edited on its panel or the Ports table; Find and Ctrl+K answer a MAC, or its start, with the port and
+where it is plugged. A rack's panel and right-click offer **Close gaps** and **Copy rack, with its
+cables** (R1 gives R2, names get -2; `document/rackTidy.ts`), one undo step each. A device panel shows
+its **Photo**: the newest image on its own docs, added by drop or pick onto a "Photo" doc, shown as a
+`data:` image (the CSP allows no `blob:`), confirmed as showing no passwords first.
+
 **Open, not on main yet:** #136 port ties, #137 reconnecting, #138 History speed. #141 (ticked ideas:
 Ctrl+K, Undo note, saved views, folding panels, faceplate port dragging, pinned notes) merged into the
 UI sweep branch after that branch had merged, so it is not on main.

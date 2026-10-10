@@ -1541,6 +1541,8 @@ export interface DuplicateDeviceOptions extends Actor {
   unplaced?: boolean;
   /** Put the copy in this rack (the source's height), not the source's own. */
   intoRackId?: string;
+  /** Mount the copy at this unit rather than the first free run (copying a whole rack keeps its layout). */
+  positionU?: number;
 }
 
 export interface DuplicateDeviceResult {
@@ -1675,7 +1677,11 @@ export function duplicateDevice(doc: Document, sourceChassisId: string, opts: Du
     }
   }
 
-  const positionU = rackId === undefined ? undefined : findFreeRun(working, rackId, rackHeightU(working, rackId), heightU);
+  let positionU = rackId === undefined ? undefined : findFreeRun(working, rackId, rackHeightU(working, rackId), heightU);
+  if (rackId !== undefined && opts.positionU !== undefined) {
+    checkPlacement(working, rackId, rackHeightU(working, rackId), opts.positionU, heightU);
+    positionU = opts.positionU;
+  }
   let placed = false;
   if (rackId !== undefined && positionU !== undefined) {
     const mountedProv = assertHand(working, { assertedAt: now, assertedBy: actor });

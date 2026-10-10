@@ -1787,13 +1787,9 @@
   background: var(--page);
 }
 
-.drawing-ports__modes {
+.drawing-ports__pattern {
   grid-column: 1 / -1;
-  display: flex;
-}
-
-.drawing-ports__modes > button {
-  flex: 1 1 0;
+  overflow-wrap: anywhere;
 }
 
 .drawing-ports__cell {
