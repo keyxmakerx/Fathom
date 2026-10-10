@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.20"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.21"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -277,6 +277,12 @@ schema:
                     # `note`, on Label.form: a sticky note pinned to the canvas. 62 §16.2: "New
                     # optional field" is minor, twice; "New enum variant" is minor. No kind, edge
                     # or key moved. Whole change = MINOR. The reader still opens 0.10 to 0.19.
+                    #
+                    # 0.21 is the describe-a-model builder (2026-10-10), all additive. Three enum
+                    # variants on the existing PhysicalPort.face — left, right, top — so a box with
+                    # ports on its sides or top (the owner's NUC, sign-off r15-catalogue) can say
+                    # so. 62 §16.2: "New enum variant" is minor, three times. No kind, edge or key
+                    # added or moved. Whole change = MINOR. The reader still opens 0.10 to 0.20.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -1268,7 +1274,7 @@ kinds:
       - { name: position, type: PortPosition, card: "0..1", emit: "—", doc: "{ slot: Option<u8>, subslot: Option<u8>, index: u16 }." }
       - { name: connector, type: "enum { rj45, sfp, sfp_plus, sfp28, qsfp, qsfp28, lc, sc, mpo, f, bnc, c13, c14, nema515r, nema515p, other }", card: "0..1", emit: "—", doc: "c13/c14 are the IEC 60320 power connectors — a PDU outlet is c13, a device PSU inlet is c14 (docs/UI-SPEC.md \"Power\"). ADR-0051 §1 adds nema515r and nema515p beside them: the North American household outlet and plug a tower UPS and many PDUs carry (NEMA 5-15), receptacle and plug the same pairing c13/c14 already model." }
       - { name: service, type: "enum { ethernet, pon, rf, serial, console, management, power, other }", card: "0..1", emit: "—", doc: "What the cage is for. power: a PDU outlet or a device PSU inlet, ports the same way as any other faceplate opening (docs/UI-SPEC.md \"Power\"); Cable.media already carries power for the run between them." }
-      - { name: face, type: "enum { front, rear }", card: "0..1", emit: "—", doc: "ADR-0051 §1 — the faceplate the port sits on. Absent means front, or the catalogue's own answer when the model has one: an outlet's rear face is the punchdown, its front the jacks, and this is the field the view guessed at until now." }
+      - { name: face, type: "enum { front, rear, left, right, top }", card: "0..1", emit: "—", doc: "ADR-0051 §1 — the faceplate the port sits on. Absent means front, or the catalogue's own answer when the model has one: an outlet's rear face is the punchdown, its front the jacks, and this is the field the view guessed at until now. 0.21 adds left, right and top, each as you face the front: a mini PC or NAS with ports on its sides or top." }
       - { name: plate_x, type: u16, card: "0..1", emit: "—", doc: "0.20 — where a hand-typed port sits across its faceplate: thousandths of the plate's width, left edge to the port's centre (0-1000). Absent means the computed layout places it. Layout only, never identity: position is tier 1." }
       - { name: plate_y, type: u16, card: "0..1", emit: "—", doc: "0.19 — plate_x's partner: thousandths of the plate's height, top edge to the port's centre (0-1000)." }
       - { name: speed_max, type: Bandwidth, card: "0..1", emit: "—", doc: The cage's ceiling — a different fact from Interface.speed. }

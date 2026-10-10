@@ -13,7 +13,7 @@
 // `SitsOn` / `FixedTo` is live for it — `commands.ts`'s `movePlacement` is
 // this module's write-side mirror: exactly one of the three survives.
 
-import { connectorTokenOf } from './compat';
+import { connectorTokenOf, isPortFace, type PortFace } from './compat';
 import { labelView, lineEnds, lineLabelOf, liveLabelNodes, liveLineNodes, pinOf } from './freeform';
 import type {
   CataloguePort,
@@ -114,7 +114,9 @@ export interface PortView {
    * entry at all. `uplink` above is derived from this when it is present
    * (`role === 'uplink'`), the catalogue's own `uplink` bit otherwise. */
   role: 'access' | 'uplink' | 'management' | 'console' | null;
-  face: 'front' | 'rear';
+  /** Schema 0.21 adds left, right and top (`PortFace`): a side or top port draws in neither
+   * rack elevation, only where the whole box shows (a free box, jot mode). */
+  face: PortFace;
   /** ADR-0051 §1 — the id of the live `PassThrough` edge this port carries
    * ("these two holes are the same hole", `schema/schema.yaml`'s own doc),
    * `null` when this port passes nothing through. Degree above one (a
@@ -493,8 +495,8 @@ function roleAndUplinkOf(match: CataloguePort): { role: PortView['role']; uplink
   return { role: null, uplink: match.uplink };
 }
 
-function explicitFaceOf(face: string | undefined): 'front' | 'rear' | undefined {
-  return face === 'front' || face === 'rear' ? face : undefined;
+function explicitFaceOf(face: string | undefined): PortFace | undefined {
+  return isPortFace(face) ? face : undefined;
 }
 
 /** Natural, numeric-aware compare for a typed-by-hand port's own label —

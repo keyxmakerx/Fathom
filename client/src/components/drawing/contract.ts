@@ -52,6 +52,7 @@ import type { NoteHow, NoteView } from '../../document/notes';
 // precedent for re-exporting the one `document/` shape a caller needs.
 import type { TagChip, TagSummary } from '../../document/tags';
 import type { FieldFor, FieldRow, FieldType } from '../../document/fields';
+import type { PortFace } from '../../document/compat';
 
 export type {
   CableEnd,
@@ -176,7 +177,7 @@ export type EditorChange =
    * `addSketchPort`). `service` is the schema's own optional field on
    * `PhysicalPort`, `null` when left blank — never an empty string standing
    * in for unset (UI-SPEC "Absent is drawn as absent"). */
-  | { kind: 'add-sketch-port'; chassisId: string; label: string; connector: string; service: string | null; face: 'front' | 'rear' }
+  | { kind: 'add-sketch-port'; chassisId: string; label: string; connector: string; service: string | null; face: PortFace }
   /** ADR-0051 §1 — the reverse: `commands.ts`'s `removeSketchPort`. */
   | { kind: 'remove-sketch-port'; chassisId: string; portId: string }
   /** ADR-0051 §1 — a numbered range of sketch ports in one batch
@@ -190,7 +191,7 @@ export type EditorChange =
       last: number;
       connector: string;
       service: string | null;
-      face: 'front' | 'rear';
+      face: PortFace;
     }
   /** ADR-0051 §1 — "Duplicate a device" (`commands.ts`'s `duplicateDevice`).
    * Shown only on a rack-mounted chassis's own panel. */

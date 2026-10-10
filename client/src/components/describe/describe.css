@@ -1,0 +1,152 @@
+/* "Not here? Describe it" (mockup r15-f1), in the Blueprint finish: square, flat, one 8px grid,
+   28px controls, labels in small spaced capitals. */
+
+.describe {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2, 8px);
+  padding: var(--s2, 8px) var(--s3, 12px) var(--s3, 12px);
+  border-top: 1px solid var(--hairline);
+  color: var(--ink);
+  font-size: var(--t-small, 12px);
+}
+
+.describe__head,
+.describe__name > span,
+.describe__face-name {
+  font-size: var(--t-micro, 10px);
+  letter-spacing: var(--track-label, 0.08em);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.describe__name {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1, 4px);
+}
+
+.describe input:not([type='checkbox']),
+.describe select {
+  height: var(--control-h, 28px);
+  box-sizing: border-box;
+  min-width: 0;
+  border: 1px solid var(--control-line, var(--hairline));
+  border-radius: var(--radius-control, 0);
+  color: var(--ink);
+  padding-left: var(--s1, 4px);
+  font: inherit;
+}
+
+.describe__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1, 4px);
+}
+
+/* Kind, count, face, remove: one row on one grid so every row lines up. */
+.describe__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40px minmax(0, 1fr) 14px;
+  gap: var(--s1, 4px);
+  align-items: center;
+}
+
+.describe__row select {
+  padding-right: 13px;
+  background-position: calc(100% - 9px) 55%, calc(100% - 5px) 55%;
+}
+
+.describe__count {
+  font-variant-numeric: var(--num-tabular, tabular-nums);
+}
+
+.describe__remove {
+  height: var(--control-h, 28px);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+}
+
+.describe__add {
+  align-self: flex-start;
+}
+
+.describe__preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1, 4px);
+}
+
+.describe__face {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: var(--s1, 4px);
+  align-items: center;
+}
+
+.describe__plate {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  align-items: center;
+  min-height: 28px;
+  padding: var(--s1, 4px) 6px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--ink);
+}
+
+.describe__plate--empty {
+  color: var(--muted);
+  border-style: dashed;
+  border-width: 1px;
+}
+
+.describe__port {
+  display: inline-flex;
+  line-height: 0;
+}
+
+.describe__keep {
+  display: flex;
+  gap: var(--s1, 4px);
+  align-items: center;
+}
+
+/* The global `input { appearance: none }` collapses a checkbox to nothing; restore the native control. */
+.describe__keep input[type='checkbox'] {
+  appearance: auto;
+  -webkit-appearance: checkbox;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+.describe__problem {
+  margin: 0;
+  color: var(--danger, #b42318);
+}
+
+.describe__face-name {
+  white-space: nowrap;
+}
+
+.describe__actions button {
+  white-space: nowrap;
+}
+
+.describe__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s1, 4px);
+}
+
+/* The entry point, under the list: always there, and the obvious next step when a search finds nothing. */
+.describe-open {
+  margin: var(--s2, 8px) var(--s3, 12px);
+  align-self: flex-start;
+}

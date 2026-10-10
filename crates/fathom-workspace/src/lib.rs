@@ -57,11 +57,11 @@ use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{EdgeKind, NodeKind, FIELD_KEYS, SCHEMA_VERSION};
 use fathom_ir::scalar::Text;
 
-/// Every 0.10-to-0.20 move is additive, so a payload declared at an older
+/// Every 0.10-to-0.21 move is additive, so a payload declared at an older
 /// version reads exactly like a current one — nothing renamed, retyped or
 /// removed. Every older version this crate still opens, and no other.
 pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &[
-    "0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17", "0.18", "0.19",
+    "0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17", "0.18", "0.19", "0.20",
 ];
 
 /// Node kinds `0.11` (ADR-0058) added. A payload declared at `0.10` cannot

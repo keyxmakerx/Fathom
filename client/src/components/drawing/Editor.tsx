@@ -6,7 +6,7 @@ import '../../styles/drawing.css';
 // here, read-only, rather than copied.
 import '../config/config.css';
 import { DEVICE_ROLES } from '../../document/edit';
-import { PORT_CONNECTOR_VALUES, PORT_SERVICE_VALUES } from '../../document/compat';
+import { PORT_CONNECTOR_VALUES, PORT_FACE_VALUES, PORT_SERVICE_VALUES, faceWords, type PortFace } from '../../document/compat';
 // `OWNERSHIP_VALUES` (`Cable.ownership`'s own enum) — the same "mirrored
 // once, never guessed" reasoning `DEVICE_ROLES` above already gives, for
 // this session's own cable panel.
@@ -481,7 +481,7 @@ export function addSketchPortChange(
   label: string,
   connector: string,
   service: string | null,
-  face: 'front' | 'rear',
+  face: PortFace,
 ): EditorChange {
   return { kind: 'add-sketch-port', chassisId, label, connector, service, face };
 }
@@ -497,7 +497,7 @@ export function addSketchPortRangeChange(
   last: number,
   connector: string,
   service: string | null,
-  face: 'front' | 'rear',
+  face: PortFace,
 ): EditorChange {
   return { kind: 'add-sketch-port-range', chassisId, labelPrefix, first, last, connector, service, face };
 }
@@ -1021,7 +1021,7 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
   const [rangeLast, setRangeLast] = useState('0');
   const [connector, setConnector] = useState<string>(PORT_CONNECTOR_VALUES[0]);
   const [service, setService] = useState('');
-  const [face, setFace] = useState<'front' | 'rear'>('front');
+  const [face, setFace] = useState<PortFace>('front');
   const [refusal, setRefusal] = useState<string | null>(null);
   const labelRef = useRef<HTMLInputElement>(null);
 
@@ -1130,9 +1130,12 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
       </label>
       <label className="drawing-ports__cell">
         <span>Face</span>
-        <select value={face} onChange={(e) => setFace(e.target.value as 'front' | 'rear')}>
-          <option value="front">Front</option>
-          <option value="rear">Rear</option>
+        <select value={face} onChange={(e) => setFace(e.target.value as PortFace)}>
+          {PORT_FACE_VALUES.map((f) => (
+            <option key={f} value={f}>
+              {faceWords(f).charAt(0).toUpperCase() + faceWords(f).slice(1)}
+            </option>
+          ))}
         </select>
       </label>
       <label className="drawing-ports__cell drawing-ports__cell--wide">
@@ -1164,7 +1167,7 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
 function PortsInWords({ chassis }: { chassis: ChassisView }) {
   const lines = useMemo(() => {
     const out: string[] = [];
-    for (const face of ['front', 'rear'] as const) {
+    for (const face of PORT_FACE_VALUES) {
       const ports = chassis.ports.filter((p) => p.face === face);
       if (ports.length === 0) continue;
       out.push(...describePorts(ports, faceplateLayoutFor(ports, chassis.heightU, chassis.hostname)));
@@ -1202,7 +1205,7 @@ function SketchPortsSection({ chassisId, ports, actions }: { chassisId: string; 
               <span className="drawing-ports__label">{port.label || ABSENT}</span>
               <span className="drawing-ports__kind">
                 {connectorName(port.connector)}
-                {port.face === 'rear' ? ' · rear' : ''}
+                {port.face !== 'front' ? ` · ${faceWords(port.face)}` : ''}
               </span>
               {actions.onEdit ? (
                 <button

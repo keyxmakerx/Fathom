@@ -4,7 +4,7 @@
 
 import { useCallback, useSyncExternalStore } from 'react';
 
-import { PORT_CONNECTOR_VALUES, PORT_SERVICE_VALUES } from '../../document/compat';
+import { PORT_CONNECTOR_VALUES, PORT_SERVICE_VALUES, isPortFace } from '../../document/compat';
 import { clampPlate, type TemplatePort } from '../../document/plate';
 import type { ChassisView } from '../../document/view';
 
@@ -38,7 +38,7 @@ export function captureTemplate(id: string, name: string, chassis: Pick<ChassisV
 function isPort(x: unknown): x is TemplatePort {
   if (typeof x !== 'object' || x === null) return false;
   const p = x as Record<string, unknown>;
-  if (typeof p.label !== 'string' || typeof p.connector !== 'string' || (p.face !== 'front' && p.face !== 'rear')) return false;
+  if (typeof p.label !== 'string' || typeof p.connector !== 'string' || !isPortFace(p.face)) return false;
   if (p.service !== undefined && typeof p.service !== 'string') return false;
   if (p.plate !== undefined) {
     const at = p.plate as Record<string, unknown> | null;

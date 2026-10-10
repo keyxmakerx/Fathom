@@ -209,6 +209,13 @@ breadcrumb does one thing.
   cable whose far end is off screen draws as stubs ending in a tag that pans to it (`drawing/stubs.ts`).
 - **Equipment list** (left "Equipment" button): search, headings Common / On a wall / Exact models; click
   or Enter adds where there is room. Common devices arrive named (router-1) with a role.
+  **Not here? Describe it** (r15-f1, `components/describe/`): rows of ports (copper, SFP, SFP+, SFP28,
+  QSFP28, console, power; how many; which face), the faceplate drawn per face as you go. Faces are
+  front, rear, left, right and top (schema 0.21, `PhysicalPort.face`; the catalogue format reads the
+  same five). Use this model adds the device named from its description (nuc-13-1) with hand-typed
+  ports, one undo step, and keeps it in this browser under **Your models** at the top of the list.
+  A side or top port draws in neither rack elevation; the opened device shows every face, captioned.
+  Not built: PoE marking (no schema field), a model kept on the server for the whole organisation.
 - **Right-click menus:** device (Details, Duplicate, Remove, Open, Inside, Paste config), rack (Details,
   Add a device), cable (Details, Disconnect), empty canvas (42U, 24U, 12U rack, wall). A reader gets Details.
 - **Open a device, paste a config anywhere** (ADR-0060 step 8). Right-click Open or double-click enters

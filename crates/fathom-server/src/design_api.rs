@@ -3381,6 +3381,9 @@ fn json_of_face(f: Face) -> &'static str {
     match f {
         Face::Front => "front",
         Face::Rear => "rear",
+        Face::Left => "left",
+        Face::Right => "right",
+        Face::Top => "top",
     }
 }
 
