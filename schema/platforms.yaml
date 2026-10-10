@@ -67,6 +67,12 @@ vendors:
                          # EdgeOS routers (EdgeRouter/EdgeMAX) are Vyatta-derived and
                          # do print one, hence the platform row.
 
+  mikrotik:  {}          # Added 2026-10-10 for corpus/dict/routeros/ (round 15 sign-off,
+                         # paste reads home-lab gear). `/export` prints the whole config
+                         # as menu headers and `add`/`set` lines a person pastes; the
+                         # reader is crates/fathom-ingest/src/routeros.rs and the source
+                         # trail is corpus/dict/README-routeros.md.
+
   proxmox:   {}          # Owner-named 2026-08-28 (`70` §18.4): *"proxmox would probably
                          # need to be an engine"* — the first general-purpose host vendor,
                          # and the sentence that set the direction for ADR-0037 §5's open
@@ -135,3 +141,6 @@ platforms:
   # capture is not parseable by the dictionary this row backs. See
   # corpus/dict/README-ubiquiti.md for exactly what the core would need to read it.
   edgeos:    { vendor: ubiquiti,  family: edgeos,  version_scheme: edgeos }
+  # Added 2026-10-10. `/export` output, read by its own front end
+  # (crates/fathom-ingest/src/routeros.rs), not by the set-form shaper.
+  routeros:  { vendor: mikrotik,  family: routeros, version_scheme: routeros }

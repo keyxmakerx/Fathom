@@ -18,6 +18,11 @@ engine detects it from lines only one dictionary binds; unsure is `ERR_PLATFORM_
 candidates, never a guess. `OP_REDACT_TEXT` runs every set-form dictionary. A paste into a device reads as that
 device's platform; otherwise, when the engine cannot tell, the card asks "Which device is this from?" once.
 
+**Paste: MikroTik RouterOS (engine, 2026-10-10).** A RouterOS `/export` (v6 or v7) has its own front end,
+`fathom-ingest/src/routeros.rs`, picked by an exact sniff; set-form detection never reads it. Secrets go by
+name in every menu, script bodies whole (`corpus/dict/README-routeros.md`). Naming `routeros` in the paste
+frame and the paste card's summary wait on the client.
+
 **The server.** `crates/fathom-server` starts, answers a health check through a real PostgreSQL, shuts
 down cleanly, and runs as the one plain-HTTP published port of a composed stack, behind the operator's
 own TLS-terminating proxy. It stores identity and structure (accounts, organisations, memberships, the

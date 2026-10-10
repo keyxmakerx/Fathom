@@ -1,0 +1,15 @@
+# corpus/dict/routeros/system.yaml -- the box itself. See interfaces.yaml's
+# header for the path shape and README-routeros.md for sources.
+platform: routeros
+source: { cite: "MikroTik RouterOS manual (help.mikrotik.com) and real /export captures; see corpus/dict/README-routeros.md", read_on: "2026-10-10" }
+reviewed_by: <named human>
+entries:
+  # `/system identity set name=R1`: `name` is the row's identity, so the
+  # statement is the identity alone.
+  - id: routeros/system.identity
+    path: [system, identity, name, "$h"]
+    binds:
+      nodes:
+        - { as: n0, kind: Device, fields: [ { field: hostname, from: "$h", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>

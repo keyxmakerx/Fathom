@@ -152,6 +152,13 @@ impl Shell {
             Some(p) => p == "opnsense",
             None => fathom_ingest::csv::looks_like_rules_csv(text),
         };
+        // A RouterOS export has its own front end, like the table: an exact sniff,
+        // and never read by a set-form dictionary.
+        let export = !table
+            && match hint {
+                Some(p) => p == "routeros",
+                None => fathom_ingest::routeros::looks_like_routeros(text),
+            };
 
         // No fallback, by design: the dictionary bytes live in the page
         // (`crate::dictframe`), and carrying on with an empty one binds nothing, telling
@@ -169,8 +176,14 @@ impl Shell {
             };
             let read = fathom_ingest::csv::ingest_csv(text, dict).map_err(refuse)?;
             (read, dict.platform().to_owned())
+        } else if export {
+            let Some(dict) = self.dicts.get("routeros") else {
+                return missing("RouterOS");
+            };
+            let read = fathom_ingest::routeros::ingest_routeros(text, dict).map_err(refuse)?;
+            (read, dict.platform().to_owned())
         } else if let Some(p) = hint {
-            let Some(dict) = self.dicts.get(p).filter(|_| p != "opnsense") else {
+            let Some(dict) = self.dicts.get(p).filter(|_| !is_own_front_end(p)) else {
                 return missing("statement");
             };
             let read = fathom_ingest::ingest(text, dict).map_err(refuse)?;
@@ -207,7 +220,7 @@ impl Shell {
     ) -> Result<(fathom_ingest::IngestOutput, String), Vec<u8>> {
         use std::collections::BTreeSet;
         let mut reads = Vec::new();
-        for (name, dict) in self.dicts.iter().filter(|(n, _)| *n != "opnsense") {
+        for (name, dict) in self.dicts.iter().filter(|(n, _)| !is_own_front_end(n)) {
             let out = fathom_ingest::ingest(text, dict)
                 .map_err(|e| protocol::encode_error(ERR_INGEST_REFUSED, &refusal_text(e)))?;
             let bound: BTreeSet<u32> = out
@@ -264,7 +277,7 @@ impl Shell {
         let mut dicts = self
             .dicts
             .iter()
-            .filter(|(n, _)| *n != "opnsense")
+            .filter(|(n, _)| !is_own_front_end(n))
             .peekable();
         if dicts.peek().is_none() {
             return protocol::encode_error(
@@ -3098,6 +3111,13 @@ fn field_name(key: fathom_ir::bag::FieldKey) -> &'static str {
 
 /// The comma-joined detectors that fired on one destroyed value (`14` §9.2:
 /// "redacted once and the manifest records both reasons").
+/// Platforms read by a front end of their own (the rules CSV, a RouterOS export),
+/// never by the set-form shaper: detection, a named set-form platform and
+/// `OP_REDACT_TEXT` all skip them.
+fn is_own_front_end(platform: &str) -> bool {
+    platform == "opnsense" || platform == "routeros"
+}
+
 fn detector_names(d: fathom_ingest::redact::DetectorSet) -> String {
     use fathom_ingest::redact::DetectorSet;
     const NAMED: [(u8, &str); 6] = [
