@@ -72,6 +72,9 @@ vendors:
   # for any of them here; a paste parser that needs one (MikroTik RouterOS,
   # pfSense) adds its row with its own dictionary and redaction tests.
   mikrotik:   {}         # corpus/catalogue/mikrotik/: routers and CRS switches.
+                         # Also the paste reader for `/export` (platform row
+                         # `routeros` below; crates/fathom-ingest/src/routeros.rs,
+                         # source trail corpus/dict/README-routeros.md).
   tplink:     {}         # corpus/catalogue/tplink/: Easy Smart / Omada switches,
                          # Omada routers and an access point.
   netgear:    {}         # corpus/catalogue/netgear/: Plus desktop switches.
@@ -151,3 +154,6 @@ platforms:
   # capture is not parseable by the dictionary this row backs. See
   # corpus/dict/README-ubiquiti.md for exactly what the core would need to read it.
   edgeos:    { vendor: ubiquiti,  family: edgeos,  version_scheme: edgeos }
+  # Added 2026-10-10. `/export` output, read by its own front end
+  # (crates/fathom-ingest/src/routeros.rs), not by the set-form shaper.
+  routeros:  { vendor: mikrotik,  family: routeros, version_scheme: routeros }

@@ -110,7 +110,7 @@ pub fn booted_shell() -> Shell {
 #[allow(dead_code)]
 pub fn all_booted_shell() -> Shell {
     let mut shell = Shell::new();
-    for platform in ["junos-srx", "opnsense", "junos-ex", "edgeos"] {
+    for platform in ["junos-srx", "opnsense", "junos-ex", "edgeos", "routeros"] {
         let reply = shell.handle(OP_DICT, &frame_of(&platform_sources(platform)));
         assert!(reply.is_empty(), "{platform} must boot");
     }
