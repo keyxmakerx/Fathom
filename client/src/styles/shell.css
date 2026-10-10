@@ -979,3 +979,17 @@ button.shell-admin-pill {
   .shell-trail,
   .shell-rail { animation: none; }
 }
+
+/* The folded View menu carries the Cables lens's groups under the lenses. */
+.shell-bar__fold-groups {
+  margin-top: var(--s2);
+  padding-top: var(--s2);
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+.shell-bar__fold-groups .cable-groups-pop {
+  width: 300px;
+  max-width: 100%;
+}
+.shell-show:has(.shell-bar__fold-groups) {
+  min-width: 300px;
+}

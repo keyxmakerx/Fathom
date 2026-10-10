@@ -286,6 +286,10 @@ export function Bar({
                       {candidate === 'cables' && cablesGroupsSummary != null ? ` · ${cablesGroupsSummary}` : ''}
                     </PopoverRow>
                   ))}
+                  {/* Folded, the Cables lens's own list of groups sits here. */}
+                  {lens === 'cables' && cablesGroupsPopover != null && (
+                    <div className="shell-bar__fold-groups">{cablesGroupsPopover}</div>
+                  )}
                   {look != null && (
                     <>
                       <div className="shell-show__head">Look</div>
