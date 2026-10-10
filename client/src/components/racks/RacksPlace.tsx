@@ -84,6 +84,9 @@ import { Shell } from '../Shell';
 import { addFreeBoxDoc, addSurfaceDeviceDoc, duplicateFreeDoc } from './freeActions';
 import { addFreeBoxFromTemplateDoc } from './freeActions';
 import { addTemplatePorts, placePorts, resetPortPlaces, type PortPlace, type TemplatePort } from '../../document/plate';
+import { newUlid } from '../../document/ulid';
+import type { DescribedModel } from '../describe/DescribeModel';
+import { nameStem, portsSummary } from '../describe/describe';
 import { useFaceplateTemplates } from '../jot/faceplateTemplates';
 import { NoteAuthorsContext } from '../drawing/noteByline';
 import { addRack, createPremises, ensureRackToPlaceInto, nextName } from './emptyDesign';
@@ -924,7 +927,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   }, [selection, realView, onActiveRackChange]);
 
   const handlePlace = useCallback(
-    (rackId: string, catalogueRef: { vendor: string; model: string; role?: string }, positionU: number) => {
+    (rackId: string, catalogueRef: { vendor: string; model: string; role?: string; ports?: readonly TemplatePort[]; nameStem?: string }, positionU: number) => {
       if (doc == null) return;
       // ADR-0053 §3, same stamp `useDesignSession.ts`'s `handleEdit` gives
       // every field write — every command dispatched from here (creating a
@@ -957,17 +960,23 @@ export function RacksPlace(props: RacksPlaceProps) {
           const beforeIds = new Set(working.nodes.map((n) => n.id));
           // A common device (ADR-0060 decision 4) arrives named, such as router-1, with its role set.
           const role = catalogueRef.role !== undefined && isDeviceRole(catalogueRef.role) ? catalogueRef.role : null;
+          const stem = catalogueRef.nameStem ?? role;
           const withDevice = createSketchDevice(
             working,
-            role !== null ? { ...(opts ?? {}), hostname: nextHostname(hostnamesOf(working), role) } : (opts ?? {}),
+            stem !== null ? { ...(opts ?? {}), hostname: nextHostname(hostnamesOf(working), stem) } : (opts ?? {}),
           );
           const chassisNode = withDevice.nodes.find((n) => !beforeIds.has(n.id) && parseNodeId(n.id).kind === 'Chassis');
           if (!chassisNode) return;
           let placed = movePlacement(withDevice, chassisNode.id, { kind: 'rack', rackId: targetRackId, positionU, face: 'front' }, opts);
           const deviceNode = role !== null ? withDevice.nodes.find((n) => !beforeIds.has(n.id) && parseNodeId(n.id).kind === 'Device') : undefined;
           if (role !== null && deviceNode) placed = setDeviceField(placed, deviceNode.id, 'role', role, opts);
-          for (const run of role !== null ? (DEFAULT_FACEPLATES[role] ?? []) : []) {
-            placed = addSketchPortRange(placed, chassisNode.id, { ...run, face: 'front' }, opts);
+          // A described device (`describe/`) brings its own ports instead of the role's usual ones.
+          if (catalogueRef.ports !== undefined) {
+            if (catalogueRef.ports.length > 0) placed = addTemplatePorts(placed, chassisNode.id, catalogueRef.ports, opts);
+          } else {
+            for (const run of role !== null ? (DEFAULT_FACEPLATES[role] ?? []) : []) {
+              placed = addSketchPortRange(placed, chassisNode.id, { ...run, face: 'front' }, opts);
+            }
           }
           applyDocChange(oneUndoStep(placed, working.batches.length));
         } catch {
@@ -1291,6 +1300,54 @@ export function RacksPlace(props: RacksPlaceProps) {
       }
     },
     [doc, realView.surfaces, openSpot, displayView.racks, selection, handlePlace, handleAddFreeBox, applyDocChange, accountId, jot, jotPlateList, jotOrigin],
+  );
+
+  // "Not here? Describe it" (r15-f1) and the models kept from it: the device lands where a click
+  // in the list would put an "Any device" (open device, free canvas, or the rack in use), with the
+  // described ports, in one undo step. Kept models live in this browser, as faceplate templates do.
+  const placeDescribed = useCallback(
+    (described: { role: string | null; ports: readonly TemplatePort[]; nameStem?: string }) => {
+      if (doc == null) return;
+      if ((jot != null && jotPlateList != null) || displayView.racks.length === 0) {
+        const at = jot != null && jotPlateList != null ? jotSpot(jotPlateList) : null;
+        const x = at != null ? jotOrigin.x + at.x : openSpot().x;
+        const y = at != null ? jotOrigin.y + at.y : openSpot().y;
+        const chassisId = freeWrite((d, o) => {
+          const r = addFreeBoxFromTemplateDoc(d, described, x, y, undefined, o);
+          return { doc: r.doc, out: r.chassisId };
+        });
+        if (chassisId != null) setSelection({ kind: 'chassis', id: chassisId });
+        return;
+      }
+      for (const rack of racksInPickOrder(displayView.racks, selection)) {
+        const positionU = highestFreeU(rack, 1);
+        if (positionU !== null) {
+          handlePlace(rack.id, { ...SKETCH_DEVICE_PALETTE_ITEM, ...(described.role != null ? { role: described.role } : {}), ports: described.ports, ...(described.nameStem !== undefined ? { nameStem: described.nameStem } : {}) }, positionU);
+          return;
+        }
+      }
+      setCanvasNotice('No rack has a free unit for it. Make room, or add a rack.');
+    },
+    [doc, jot, jotPlateList, jotOrigin, displayView.racks, selection, openSpot, freeWrite, handlePlace],
+  );
+  const handleDescribe = useCallback(
+    (model: DescribedModel) => {
+      if (model.keep) faceplateTemplates.save({ id: newUlid(Date.now()), name: model.name, role: null, ports: model.ports });
+      placeDescribed({ role: null, ports: model.ports, nameStem: nameStem(model.name) });
+    },
+    [faceplateTemplates, placeDescribed],
+  );
+  const handlePickYours = useCallback(
+    (id: string) => {
+      const t = faceplateTemplates.templates.find((x) => x.id === id);
+      // A template saved from a box with a role is named like one (switch-2); a described one from its name.
+      if (t) placeDescribed({ role: t.role, ports: t.ports, ...(t.role === null ? { nameStem: nameStem(t.name) } : {}) });
+    },
+    [faceplateTemplates.templates, placeDescribed],
+  );
+  const yourModels = useMemo(
+    () => faceplateTemplates.templates.map((t) => ({ id: t.id, name: t.name, summary: portsSummary(t.ports) })),
+    [faceplateTemplates.templates],
   );
 
   const handleMove = useCallback(
@@ -1628,7 +1685,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           models; `AddShelfControl`'s own model dropdown (inside `editor`
           above) keeps using plain `paletteFromCatalogue` so a shelf's
           optional model never offers either as if it were a real one. */}
-      <Palette palette={paletteRows(catalogue)} onPick={handlePick} />
+      <Palette palette={paletteRows(catalogue)} onPick={handlePick} yours={yourModels} onPickYours={handlePickYours} onDescribe={handleDescribe} />
     </>
   ) : null;
 

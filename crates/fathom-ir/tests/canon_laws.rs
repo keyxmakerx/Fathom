@@ -188,7 +188,7 @@ fn schema_version_is_the_trees() {
     //
     // 0.19 -> 0.20: the owner's ticked ideas. Two optional fields, `PhysicalPort.plate_x` and
     // `.plate_y` (412-413), and a `note` variant on `Label.form`; all MINOR.
-    assert_eq!(SCHEMA_VERSION, "0.20");
+    assert_eq!(SCHEMA_VERSION, "0.21");
 }
 
 #[test]

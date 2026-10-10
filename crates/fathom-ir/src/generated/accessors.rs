@@ -1137,8 +1137,8 @@ mod body {
         pub fn service<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::PhysicalPortService, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(211))
         }
-        /// `PhysicalPort.face` — `enum { front, rear }`, card `0..1`, emit `—`.
-        /// ADR-0051 §1 — the faceplate the port sits on. Absent means front, or the catalogue's own answer when the model has one: an outlet's rear face is the punchdown, its front the jacks, and this is the field the view guessed at until now.
+        /// `PhysicalPort.face` — `enum { front, rear, left, right, top }`, card `0..1`, emit `—`.
+        /// ADR-0051 §1 — the faceplate the port sits on. Absent means front, or the catalogue's own answer when the model has one: an outlet's rear face is the punchdown, its front the jacks, and this is the field the view guessed at until now. 0.21 adds left, right and top, each as you face the front: a mini PC or NAS with ports on its sides or top.
         pub fn face<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::PhysicalPortFace, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(325))
         }

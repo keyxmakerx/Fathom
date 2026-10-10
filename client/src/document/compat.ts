@@ -90,6 +90,20 @@ export type PortConnector = (typeof PORT_CONNECTOR_VALUES)[number];
 export const PORT_SERVICE_VALUES = ['ethernet', 'pon', 'rf', 'serial', 'console', 'management', 'power', 'other'] as const;
 export type PortService = (typeof PORT_SERVICE_VALUES)[number];
 
+/** `PhysicalPort.face` (`schema/schema.yaml`), verbatim. Schema 0.21 added left, right and top, each
+ * as you face the front: a mini PC or NAS with ports on its sides or top. */
+export const PORT_FACE_VALUES = ['front', 'rear', 'left', 'right', 'top'] as const;
+export type PortFace = (typeof PORT_FACE_VALUES)[number];
+
+export function isPortFace(x: unknown): x is PortFace {
+  return typeof x === 'string' && (PORT_FACE_VALUES as readonly string[]).includes(x);
+}
+
+/** A face in words: "front", "rear", "left side", "right side", "top". */
+export function faceWords(face: PortFace): string {
+  return face === 'left' || face === 'right' ? `${face} side` : face;
+}
+
 const SCHEMA_CONNECTORS = new Set<string>(PORT_CONNECTOR_VALUES);
 
 export function compatible(fromConnectorRaw: string, toConnectorRaw: string): CompatResult {

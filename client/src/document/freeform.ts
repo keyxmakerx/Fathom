@@ -2,6 +2,7 @@
 // A free box is an unplaced sketch Device+Chassis with a LayoutPin; a Line joins two
 // boxes through LineEnd edges; a Label is a text label or an area. All pure, one batch each.
 
+import type { PortFace } from './compat';
 import { cascadeRemoval } from './cascade';
 import { createSketchDevice } from './commands';
 import { setDeviceField } from './edit';
@@ -347,7 +348,7 @@ export interface CopiedBox {
   role: string | null;
   x: number;
   y: number;
-  ports: { label: string; connector: string; face: 'front' | 'rear' }[];
+  ports: { label: string; connector: string; face: PortFace }[];
 }
 
 export interface Clipboard {

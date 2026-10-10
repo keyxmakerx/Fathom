@@ -2,6 +2,7 @@
 // flow units. The device sits at the stage origin; everything else is placed relative to where the
 // device is on the full canvas, so a box dropped here lands beside it there.
 
+import type { PortFace } from '../../document/compat';
 import type { CableView, ChassisView, ClosetView } from '../../document/view';
 import { findChassis, findOccupant, findUnplacedChassis } from '../drawing/lookup';
 import { faceplateLayoutFor, type FaceplateLayout } from '../drawing/faceplate';
@@ -133,3 +134,18 @@ export function portCentre(plate: JotPlate, portId: string): { x: number; y: num
 }
 
 export { BOX_W };
+
+/** Under a box whose ports sit on more than its front (schema 0.21: sides and top too), one caption
+ * per face spanning that face's ports, so an unfolded NUC reads "rear · left side · top". Empty for
+ * a box with front ports only. */
+export function faceCaptions(plate: JotPlate): { face: PortFace; x: number; w: number }[] {
+  const spans = new Map<PortFace, { x0: number; x1: number }>();
+  for (const port of plate.chassis.ports) {
+    const box = plate.layout.byId.get(port.id);
+    if (!box) continue;
+    const s = spans.get(port.face);
+    spans.set(port.face, s ? { x0: Math.min(s.x0, box.x), x1: Math.max(s.x1, box.x + box.w) } : { x0: box.x, x1: box.x + box.w });
+  }
+  if (spans.size === 0 || (spans.size === 1 && spans.has('front'))) return [];
+  return [...spans].map(([face, s]) => ({ face, x: s.x0, w: s.x1 - s.x0 })).sort((a, b) => a.x - b.x);
+}

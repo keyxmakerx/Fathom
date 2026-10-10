@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.20";
+    pub const SCHEMA_VERSION: &str = "0.21";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -3971,6 +3971,9 @@ mod body {
     pub enum PhysicalPortFace {
         Front,
         Rear,
+        Left,
+        Right,
+        Top,
         /// The generated unknown arm (62 §7 rule 2) — carries the
         /// unrecognised token verbatim; what makes a new variant a minor
         /// bump an old client survives (62 §16.2).
@@ -3979,15 +3982,21 @@ mod body {
 
     impl PhysicalPortFace {
         /// Declared tokens, declaration order.
-        pub const DECLARED: [&'static str; 2] = [
+        pub const DECLARED: [&'static str; 5] = [
             "front",
             "rear",
+            "left",
+            "right",
+            "top",
         ];
         /// Neutral token → variant; anything undeclared lands in `Unknown`.
         pub fn from_token(token: &str) -> PhysicalPortFace {
             match token {
                 "front" => PhysicalPortFace::Front,
                 "rear" => PhysicalPortFace::Rear,
+                "left" => PhysicalPortFace::Left,
+                "right" => PhysicalPortFace::Right,
+                "top" => PhysicalPortFace::Top,
                 other => PhysicalPortFace::Unknown(other.to_owned()),
             }
         }
@@ -3996,6 +4005,9 @@ mod body {
             match self {
                 PhysicalPortFace::Front => "front",
                 PhysicalPortFace::Rear => "rear",
+                PhysicalPortFace::Left => "left",
+                PhysicalPortFace::Right => "right",
+                PhysicalPortFace::Top => "top",
                 PhysicalPortFace::Unknown(t) => t,
             }
         }

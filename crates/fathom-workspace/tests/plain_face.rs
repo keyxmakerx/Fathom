@@ -60,7 +60,7 @@ use std::collections::BTreeSet;
 const PINNED: &str = concat!(
     "fathom-plain 1\n",
     "THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n",
-    "schema 0.20\n",
+    "schema 0.21\n",
     "\n",
     r#"{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}"#,
     "\n",
@@ -888,6 +888,15 @@ fn a_0_19_header_opens_and_holds_a_firmware_target() {
     let text = String::from_utf8(write_plain(&g).expect("writes")).expect("UTF-8");
     let old = text.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.19", 1);
     read_plain(old.as_bytes()).expect("a firmware target is legitimate under a 0.19 header");
+}
+
+/// The describe-a-model builder (0.21) adds only port faces, so a 0.20 design opens.
+#[test]
+fn a_0_20_header_opens() {
+    use fathom_ir::generated::ir_types::SCHEMA_VERSION;
+    let older = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.20", 1);
+    assert_ne!(older, PINNED, "the substitution must have landed");
+    read_plain(older.as_bytes()).expect("a 0.20 payload opens");
 }
 
 /// A 0.15 design holds plans, and a 0.14 one does not (the plan kinds arrived at 0.15).

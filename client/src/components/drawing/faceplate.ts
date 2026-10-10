@@ -54,20 +54,28 @@ interface Cell {
   gap: boolean;
 }
 
+/** The order faces flow across a plate that shows the whole box (a free box, jot mode): as if
+ * the box were unfolded with its front in the middle. */
+const FACE_ORDER: Record<string, number> = { left: 0, front: 1, top: 2, right: 3, rear: 4 };
+
 /** Ports with no catalogue position (typed by hand) are flowed: numbered, two
- * rows when there are more than twelve, one cluster per connector. */
+ * rows when there are more than twelve, one cluster per face and connector. */
 function flowed(ports: PortView[], kinds: Map<string, PortKind>): Cell[] {
   const sorted = [...ports].sort((a, b) => natural(a.label, b.label));
   const rows = sorted.length > 12 ? 2 : 1;
-  const groups = new Map<PortKind, PortView[]>();
+  const groups = new Map<string, { face: number; kind: PortKind; members: PortView[] }>();
   for (const p of sorted) {
     const k = kinds.get(p.id)!;
-    groups.set(k, [...(groups.get(k) ?? []), p]);
+    const key = `${p.face}|${k}`;
+    const g = groups.get(key) ?? { face: FACE_ORDER[p.face] ?? 1, kind: k, members: [] };
+    g.members.push(p);
+    groups.set(key, g);
   }
   const cells: Cell[] = [];
   let col = 0;
   let first = true;
-  for (const [kind, members] of [...groups].sort((a, b) => GLYPH_SIZE[a[0]].w - GLYPH_SIZE[b[0]].w)) {
+  const ordered = [...groups.values()].sort((a, b) => a.face - b.face || GLYPH_SIZE[a.kind].w - GLYPH_SIZE[b.kind].w);
+  for (const { kind, members } of ordered) {
     members.forEach((port, i) => {
       cells.push({ port, kind, row: rows === 2 ? i % 2 : -1, col: col + Math.floor(i / rows), gap: !first && i === 0 });
     });
@@ -246,6 +254,8 @@ export function describePorts(ports: readonly PortView[], layout: FaceplateLayou
       if (members.length < ports.length) line += at > 0.75 ? ', on the right' : at < 0.25 ? ', on the left' : '';
     }
     if (face === 'rear') line += ', on the rear';
+    else if (face === 'left' || face === 'right') line += `, on the ${face} side`;
+    else if (face === 'top') line += ', on top';
     lines.push(line);
   }
   return lines;

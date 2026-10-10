@@ -174,3 +174,15 @@
   overflow: auto;
   border-top: var(--rule-hair) solid var(--hairline);
 }
+/* Schema 0.21: a box with ports on its sides or top names each face under its ports. */
+.jot-plate__face {
+  position: absolute;
+  top: calc(100% + 4px / var(--k, 1));
+  font-size: calc(9px / var(--k, 1));
+  letter-spacing: var(--track-label, 0.08em);
+  text-transform: uppercase;
+  text-align: center;
+  white-space: nowrap;
+  color: var(--muted);
+  pointer-events: none;
+}

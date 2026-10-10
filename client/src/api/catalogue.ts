@@ -26,6 +26,7 @@
 // connector `kind` any more).
 
 import { signedFetch } from './signedFetch';
+import { isPortFace, type PortFace } from '../document/compat';
 
 export interface CatalogueSource {
   cite: string;
@@ -43,7 +44,7 @@ export interface CatalogueSlotPosition {
 export interface CataloguePsuSlot {
   name: string;
   hotSwap: boolean;
-  face: 'front' | 'rear';
+  face: PortFace;
   position: CatalogueSlotPosition;
 }
 
@@ -59,7 +60,7 @@ export interface CataloguePort {
 }
 
 export interface CatalogueFaceplate {
-  face: 'front' | 'rear';
+  face: PortFace;
   portCount: number;
   ports: CataloguePort[];
 }
@@ -130,10 +131,10 @@ function parseRow(v: unknown, what: string): 'top' | 'bottom' | 'single' {
   return row;
 }
 
-function parseFace(v: unknown, what: string): 'front' | 'rear' {
+function parseFace(v: unknown, what: string): PortFace {
   const face = str(v, what);
-  if (face !== 'front' && face !== 'rear') {
-    throw malformed(`${what} is not front / rear`);
+  if (!isPortFace(face)) {
+    throw malformed(`${what} is not front / rear / left / right / top`);
   }
   return face;
 }

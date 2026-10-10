@@ -41,14 +41,16 @@ export function addSurfaceDeviceDoc(doc: Document, surfaceId: string, role: stri
  * and its role and a name when the template kept one. Joined to `fromBoxId` if given. One undo step. */
 export function addFreeBoxFromTemplateDoc(
   doc: Document,
-  template: { role: string | null; ports: readonly TemplatePort[] },
+  template: { role: string | null; ports: readonly TemplatePort[]; nameStem?: string },
   x: number,
   y: number,
   fromBoxId: string | undefined,
   opts?: Actor,
 ): { doc: Document; chassisId: string } {
   const known = template.role !== null && isDeviceRole(template.role) ? template.role : undefined;
-  const made = createFreeBox(doc, { ...opts, x: snap(x), y: snap(y), ...(known ? { role: known, hostname: nextHostname(hostnamesOf(doc), known) } : {}) });
+  // A described device is named from its description (nuc-13-1); otherwise from its role (router-1).
+  const stem = template.nameStem ?? known;
+  const made = createFreeBox(doc, { ...opts, x: snap(x), y: snap(y), ...(known ? { role: known } : {}), ...(stem ? { hostname: nextHostname(hostnamesOf(doc), stem) } : {}) });
   let working = template.ports.length > 0 ? addTemplatePorts(made.doc, made.chassisId, template.ports, opts) : made.doc;
   if (fromBoxId !== undefined) working = createLine(working, fromBoxId, made.chassisId, opts).doc;
   return { doc: foldFrom(working, doc.batches.length), chassisId: made.chassisId };
