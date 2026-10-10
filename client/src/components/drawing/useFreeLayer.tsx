@@ -61,7 +61,7 @@ interface Pending {
 
 export type FreeActions = Pick<
   DrawingActions,
-  'onAddFreeBox' | 'onAddDeviceAt' | 'onMoveFree' | 'onConnectBoxes' | 'onAddLabel' | 'onSetLabel' | 'onRemoveFree' | 'onDuplicateFree'
+  'onAddFreeBox' | 'onAddDeviceAt' | 'onMoveFree' | 'onConnectBoxes' | 'onAddLabel' | 'onSetLabel' | 'onRemoveFree' | 'onDuplicateFree' | 'onAddFreeBoxFromTemplate'
 >;
 
 /** The camera helpers the free layer uses; none depends on the node type. */
@@ -77,6 +77,8 @@ export interface FreeLayerArgs {
   actions: FreeActions;
   /** What a plain left-drag on empty canvas does: pan the view, or draw a selection box (Shift always draws one). */
   tool?: 'pan' | 'select';
+  /** Saved faceplates a new box may start from (this person's, in this browser). */
+  templates?: readonly { id: string; name: string }[];
 }
 
 const NUDGE = 4;
@@ -107,7 +109,7 @@ export interface FreeLayer {
   dropBox: (role: string | null, flow: Point, model?: { vendor: string; model: string }) => void;
   /** Opens the NEW box menu at a point, from a right-click, or the edge square of a racked device. */
   openAdd: (screen: Point, flow: Point, rack?: Pending['rack']) => void;
-  addLabelAt: (form: 'text' | 'area', flow: Point) => void;
+  addLabelAt: (form: 'text' | 'area' | 'note', flow: Point) => void;
   /** Props for the drawing's own div: marquee on empty canvas. */
   containerProps: { onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void };
   /** Whether the next pane click is the end of a marquee and must be ignored. */
@@ -122,7 +124,7 @@ export interface FreeLayer {
   clearGroup: () => void;
 }
 
-export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSelect, actions, tool = 'pan' }: FreeLayerArgs): FreeLayer {
+export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSelect, actions, tool = 'pan', templates = [] }: FreeLayerArgs): FreeLayer {
   const [group, setGroup] = useState<string[]>([]);
   // Rack-mounted devices picked with Shift. They are only ever read for the details panel and the
   // highlight: every move, nudge, align, copy and delete below works on `group` (free nodes) alone.
@@ -315,6 +317,17 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
     [pending, actions, selectOnly],
   );
 
+  const addFromTemplate = useCallback(
+    (templateId: string) => {
+      const p = pending;
+      setPending(null);
+      if (!p || p.rack) return;
+      const made = actions.onAddFreeBoxFromTemplate?.(templateId, p.flow.x, p.flow.y, p.fromBoxId);
+      if (typeof made === 'string') selectOnly(freeNodeId(made));
+    },
+    [pending, actions, selectOnly],
+  );
+
   const dropBox = useCallback(
     (role: string | null, flow: Point, model?: { vendor: string; model: string }) => {
       const made = actions.onAddFreeBox?.(role, flow.x - BOX_W / 2, flow.y - BOX_H / 2, undefined, model);
@@ -324,8 +337,8 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
   );
 
   const addLabelAt = useCallback(
-    (form: 'text' | 'area', flow: Point) => {
-      const made = actions.onAddLabel?.(form, form === 'area' ? 'Area' : 'Label', flow.x, flow.y, form === 'area' ? AREA_DEFAULT_W : undefined, form === 'area' ? AREA_DEFAULT_H : undefined);
+    (form: 'text' | 'area' | 'note', flow: Point) => {
+      const made = actions.onAddLabel?.(form, form === 'area' ? 'Area' : form === 'note' ? 'Note' : 'Label', flow.x, flow.y, form === 'area' ? AREA_DEFAULT_W : undefined, form === 'area' ? AREA_DEFAULT_H : undefined);
       if (typeof made === 'string') {
         selectOnly(labelNodeId(made));
         setEditing(made);
@@ -382,6 +395,7 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
       const data: LabelNodeData = {
         text: l.text,
         form: l.form,
+        ...(l.author ? { author: l.author } : {}),
         w: size.w,
         h: size.h,
         editing: editing === l.id,
@@ -645,6 +659,16 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
     }
   }, [actions, selectedRects, selectOnly]);
 
+  // A note beside the selection, for teammates and for later (schema 0.19).
+  const note_ = useCallback(() => {
+    const b = boundsOf(selectedRects());
+    const made = actions.onAddLabel?.('note', 'Note', b.x + b.w + 16, b.y);
+    if (typeof made === 'string') {
+      selectOnly(labelNodeId(made));
+      setEditing(made);
+    }
+  }, [actions, selectedRects, selectOnly]);
+
   // ---- keys ----------------------------------------------------------------
 
   const removeSelected = useCallback((): boolean => {
@@ -785,6 +809,7 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
               onSpread={(axis) => arrange(spreadRects(selectedRects(), axis))}
               onGroup={group_}
               onLabel={label_}
+              onNote={actions.onAddLabel ? note_ : undefined}
             />
           )}
         </Anchored>
@@ -796,9 +821,13 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
           x={pending.screen.x + (pending.rack ? 12 : (BOX_W / 2) * rf.getZoom() + 8)}
           y={pending.screen.y}
           onClose={() => setPending(null)}
-          items={[...BOX_KINDS]
-            .sort((a, b) => (a.role === lastKind ? -1 : b.role === lastKind ? 1 : 0))
-            .map((k) => ({ label: k.label, onSelect: () => addBox(k.role) }))}
+          items={[
+            ...[...BOX_KINDS]
+              .sort((a, b) => (a.role === lastKind ? -1 : b.role === lastKind ? 1 : 0))
+              .map((k) => ({ label: k.label, onSelect: () => addBox(k.role) })),
+            // A box can start from a saved faceplate (not offered for a rack unit: those take the catalogue's).
+            ...(!pending.rack && actions.onAddFreeBoxFromTemplate ? templates.map((t) => ({ label: `From template: ${t.name}`, onSelect: () => addFromTemplate(t.id) })) : []),
+          ]}
         />
       ) : null}
     </>

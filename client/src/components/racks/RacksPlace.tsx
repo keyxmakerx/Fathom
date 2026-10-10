@@ -80,6 +80,10 @@ import { useTroubleController } from '../troubleshoot/useTroubleController';
 import type { PathPart, ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
 import { addFreeBoxDoc, addSurfaceDeviceDoc, duplicateFreeDoc } from './freeActions';
+import { addFreeBoxFromTemplateDoc } from './freeActions';
+import { addTemplatePorts, placePorts, resetPortPlaces, type PortPlace, type TemplatePort } from '../../document/plate';
+import { useFaceplateTemplates } from '../jot/faceplateTemplates';
+import { NoteAuthorsContext } from '../drawing/noteByline';
 import { addRack, createPremises, ensureRackToPlaceInto, nextName } from './emptyDesign';
 import type { PaletteItem } from '../drawing/contract';
 import { DEFAULT_FACEPLATES, SKETCH_DEVICE_PALETTE_ITEM, isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
@@ -1099,6 +1103,38 @@ export function RacksPlace(props: RacksPlaceProps) {
     [realView, freeWrite],
   );
 
+  // The owner's ticked ideas (schema 0.19): drag hand-typed ports on their plate, and faceplate
+  // templates kept in this browser per account. Every write is one undo step through `freeWrite`.
+  const faceplateTemplates = useFaceplateTemplates(accountId);
+  // A pinned note's byline names whoever this client can name: you, and the people here live.
+  const ownInitials = shellProps.account?.initials;
+  const livePeople = session.live.people;
+  const noteAuthors = useMemo(() => {
+    const m = new Map<string, string>(livePeople.map((p) => [p.account, p.initials]));
+    if (accountId != null && ownInitials) m.set(accountId, ownInitials);
+    return m;
+  }, [livePeople, accountId, ownInitials]);
+  const handlePlacePorts = useCallback(
+    (chassisId: string, places: PortPlace[]) => void freeWrite((d, o) => ({ doc: placePorts(d, chassisId, places, o), out: null })),
+    [freeWrite],
+  );
+  const handleResetPorts = useCallback((chassisId: string) => void freeWrite((d, o) => ({ doc: resetPortPlaces(d, chassisId, o), out: null })), [freeWrite]);
+  const handleApplyTemplate = useCallback(
+    (chassisId: string, ports: readonly TemplatePort[]) => void freeWrite((d, o) => ({ doc: addTemplatePorts(d, chassisId, ports, o), out: null })),
+    [freeWrite],
+  );
+  const handleAddFreeBoxFromTemplate = useCallback(
+    (templateId: string, x: number, y: number, fromBoxId?: string) => {
+      const template = faceplateTemplates.templates.find((t) => t.id === templateId);
+      if (!template) return undefined;
+      return freeWrite((d, o) => {
+        const r = addFreeBoxFromTemplateDoc(d, template, x, y, fromBoxId, o);
+        return { doc: r.doc, out: r.chassisId };
+      });
+    },
+    [faceplateTemplates.templates, freeWrite],
+  );
+
   // ADR-0060 decision 4: a click in the equipment list adds the item where there
   // is room, the rack in use first; a backboard goes on the first wall.
   const handlePick = useCallback(
@@ -1268,7 +1304,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   const handleMoveFree = useCallback((moves: readonly { id: string; x: number; y: number }[]) => void freeWrite((d, o) => ({ doc: moveFree(d, moves, o), out: null })), [freeWrite]);
   const handleConnectBoxes = useCallback((a: string, b: string) => void freeWrite((d, o) => ({ doc: createLine(d, a, b, o).doc, out: null })), [freeWrite]);
   const handleAddLabel = useCallback(
-    (form: 'text' | 'area', text: string, x: number, y: number, w?: number, h?: number) =>
+    (form: 'text' | 'area' | 'note', text: string, x: number, y: number, w?: number, h?: number) =>
       freeWrite((d, o) => {
         const r = createLabel(d, { ...o, text, form, x, y, ...(w !== undefined ? { w } : {}), ...(h !== undefined ? { h } : {}) });
         return { doc: r.doc, out: r.id };
@@ -1493,6 +1529,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       band={doc != null && plans.bandOpen ? <PlanBand controller={plans} /> : undefined}
     >
       <ChecksContext.Provider value={checks.api}>
+      <NoteAuthorsContext.Provider value={noteAuthors}>
       {historyView?.banner != null ? (
         <div className="history-banner" role="status" data-testid="history-banner">
           {historyView.banner}
@@ -1552,6 +1589,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           onSetLabel={canDraw ? handleSetLabel : undefined}
           onRemoveFree={canDraw ? handleRemoveFree : undefined}
           onDuplicateFree={canDraw ? handleDuplicateFree : undefined}
+          onAddFreeBoxFromTemplate={canDraw ? handleAddFreeBoxFromTemplate : undefined}
+          faceplateTemplates={faceplateTemplates.templates}
           onResizeShelf={canDraw ? handleResizeShelf : undefined}
           onSelect={setSelection}
           onPlanChange={canDraw ? plans.planChange : undefined}
@@ -1598,6 +1637,10 @@ export function RacksPlace(props: RacksPlaceProps) {
           paused={pasteState != null}
           renderConfigDrawer={renderConfigDrawer}
           renderInsideStop={renderInsideStop}
+          onPlacePorts={canDraw ? handlePlacePorts : undefined}
+          onResetPorts={canDraw ? handleResetPorts : undefined}
+          templateOwner={accountId}
+          onApplyTemplate={canDraw ? handleApplyTemplate : undefined}
         />
       ) : null}
       {drawerAsk != null && pasteState == null ? (
@@ -1637,6 +1680,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       </TroubleContext.Provider>
       </PlansContext.Provider>
       </CheckMarksContext.Provider>
+      </NoteAuthorsContext.Provider>
       </ChecksContext.Provider>
     </Shell>
   );

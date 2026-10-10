@@ -260,6 +260,8 @@ function centreAboveDrawer(centre: { x: number; y: number }, zoomLevel: number, 
 
 export interface DrawingProps extends DrawingActions {
   view: ClosetView;
+  /** Saved faceplates a new hand-typed box may start from (schema 0.19 ideas; kept in this browser). */
+  faceplateTemplates?: readonly { id: string; name: string }[];
   /** Others in this view; each gets an initials dot on the thing they have selected. */
   peers?: readonly Person[];
   selected: Selection | null;
@@ -433,6 +435,8 @@ function DrawingInner({
   onSetLabel,
   onRemoveFree,
   onDuplicateFree,
+  onAddFreeBoxFromTemplate,
+  faceplateTemplates,
   onUndo,
   onRedo,
   canDraw,
@@ -503,7 +507,8 @@ function DrawingInner({
     selected,
     onSelect,
     tool,
-    actions: { onAddFreeBox, onAddDeviceAt, onMoveFree, onConnectBoxes, onAddLabel, onSetLabel, onRemoveFree, onDuplicateFree },
+    templates: faceplateTemplates,
+    actions: { onAddFreeBox, onAddDeviceAt, onMoveFree, onConnectBoxes, onAddLabel, onSetLabel, onRemoveFree, onDuplicateFree, onAddFreeBoxFromTemplate },
   });
 
   // ADR-0060 decision 4: a right-click opens Fathom's own menu, not the

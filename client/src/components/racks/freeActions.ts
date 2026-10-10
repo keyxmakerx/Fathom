@@ -5,6 +5,7 @@ import { ModelMismatchError, addSketchPortRange, createSketchDevice, duplicateDe
 import { isDeviceRole, setDeviceField } from '../../document/edit';
 import { createFreeBox, createLabel, createLine, foldFrom, moveFree, setLineLabel, snap } from '../../document/freeform';
 import { parseNodeId, type Document } from '../../document/model';
+import { addTemplatePorts, type TemplatePort } from '../../document/plate';
 import type { ClosetView } from '../../document/view';
 import { DEFAULT_FACEPLATES } from './palette';
 import { copyName, hostnamesOf, nextHostname } from './pick';
@@ -34,6 +35,23 @@ export function addSurfaceDeviceDoc(doc: Document, surfaceId: string, role: stri
   else for (const run of known ? (DEFAULT_FACEPLATES[known] ?? []) : []) working = addSketchPortRange(working, chassisId, { ...run, face: 'front' }, opts);
   working = fixTo(working, chassisId, surfaceId, { ...(xMm != null ? { xMm } : {}), ...(yMm != null ? { yMm } : {}) }, opts);
   return { doc: foldFrom(working, doc.batches.length), chassisId };
+}
+
+/** A box at (x, y) that starts from a saved faceplate: its ports (and where they were dragged),
+ * and its role and a name when the template kept one. Joined to `fromBoxId` if given. One undo step. */
+export function addFreeBoxFromTemplateDoc(
+  doc: Document,
+  template: { role: string | null; ports: readonly TemplatePort[] },
+  x: number,
+  y: number,
+  fromBoxId: string | undefined,
+  opts?: Actor,
+): { doc: Document; chassisId: string } {
+  const known = template.role !== null && isDeviceRole(template.role) ? template.role : undefined;
+  const made = createFreeBox(doc, { ...opts, x: snap(x), y: snap(y), ...(known ? { role: known, hostname: nextHostname(hostnamesOf(doc), known) } : {}) });
+  let working = template.ports.length > 0 ? addTemplatePorts(made.doc, made.chassisId, template.ports, opts) : made.doc;
+  if (fromBoxId !== undefined) working = createLine(working, fromBoxId, made.chassisId, opts).doc;
+  return { doc: foldFrom(working, doc.batches.length), chassisId: made.chassisId };
 }
 
 /** Copies the named boxes, labels and areas, and the lines between them, offset by (dx, dy). A copy keeps the

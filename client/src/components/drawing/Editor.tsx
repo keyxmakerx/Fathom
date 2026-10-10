@@ -1758,7 +1758,7 @@ function panelFor(
     const area = label.form === 'area';
     return (
       <div className="drawing-editor__panel">
-        <div className="drawing-editor__title">{area ? 'Area' : 'Label'}</div>
+        <div className="drawing-editor__title">{area ? 'Area' : label.form === 'note' ? 'Note' : 'Label'}</div>
         <div className="drawing-editor__field">
           <div className="drawing-editor__field-label">Text</div>
           <EditableValue
@@ -1774,7 +1774,7 @@ function panelFor(
             <NumberField label="Height" value={Math.round(label.h)} onCommit={actions.onEdit ? (n) => actions.onEdit!({ kind: 'area-size', id: label.id, w: label.w, h: n }) : undefined} />
           </>
         )}
-        <SupplyAction label={area ? 'Remove area' : 'Remove label'} onCommit={actions.onEdit ? () => actions.onEdit!({ kind: 'free-remove', id: label.id }) : undefined} />
+        <SupplyAction label={area ? 'Remove area' : label.form === 'note' ? 'Remove note' : 'Remove label'}onCommit={actions.onEdit ? () => actions.onEdit!({ kind: 'free-remove', id: label.id }) : undefined} />
       </div>
     );
   }

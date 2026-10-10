@@ -13,6 +13,8 @@ export interface WordMenuProps {
   onSpread: (axis: 'x' | 'y') => void;
   onGroup: () => void;
   onLabel: () => void;
+  /** Pins a note beside the selection; absent leaves the word out. */
+  onNote?: () => void;
 }
 
 const ALIGNS: readonly { mode: AlignMode; label: string }[] = [
@@ -24,7 +26,7 @@ const ALIGNS: readonly { mode: AlignMode; label: string }[] = [
   { mode: 'bottom', label: 'Bottom edges' },
 ];
 
-export function WordMenu({ x, y, count, onAlign, onSpread, onGroup, onLabel }: WordMenuProps) {
+export function WordMenu({ x, y, count, onAlign, onSpread, onGroup, onLabel, onNote }: WordMenuProps) {
   const [open, setOpen] = useState<{ which: 'align' | 'spread'; x: number; y: number } | null>(null);
   const parent = (e: { currentTarget: HTMLElement }) => {
     const at = e.currentTarget.getBoundingClientRect();
@@ -50,6 +52,11 @@ export function WordMenu({ x, y, count, onAlign, onSpread, onGroup, onLabel }: W
       <button type="button" className="free-wordmenu__item" onClick={onLabel}>
         Label
       </button>
+      {onNote && (
+        <button type="button" className="free-wordmenu__item" onClick={onNote}>
+          Note
+        </button>
+      )}
     </div>
       {open?.which === 'align' && (
         <ContextMenu

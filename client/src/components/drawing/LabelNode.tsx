@@ -2,12 +2,15 @@ import { useEffect, useRef } from 'react';
 import type { Node, NodeProps } from '@xyflow/react';
 
 import { AREA_MIN_H, AREA_MIN_W } from '../../document/freeform';
+import { NoteCard } from './NoteCard';
 import { useGripDrag, type GripDrag } from './useGripDrag';
 
-/** A text label, or an area: a labelled rectangle that groups things by meaning. */
+/** A text label, an area (a labelled rectangle that groups things by meaning), or a note pinned to the canvas. */
 export interface LabelNodeData extends Record<string, unknown> {
   text: string;
-  form: 'text' | 'area';
+  form: 'text' | 'area' | 'note';
+  /** A note's author and time, when on record. */
+  author?: { actor: string; at: number };
   w: number;
   h: number;
   editing: boolean;
@@ -69,6 +72,7 @@ function AreaGrip({ data }: { data: LabelNodeData }) {
 }
 
 export function LabelNode({ data, selected }: NodeProps<LabelNodeType>) {
+  if (data.form === 'note') return <NoteCard text={data.text} author={data.author} editing={data.editing} selected={selected === true} onEdit={data.onEdit} />;
   const edit = data.editing ? <TextEditor data={data} /> : null;
   if (data.form === 'area') {
     return (

@@ -116,9 +116,10 @@ fn slot_type_covers_every_registry_key() {
     // 342 -> 343: ADR-0059's one key -- `Tag.name` (343).
     // 343 -> 350: ADR-0060 step 7's seven keys (344-350).
     // 380 -> 382: custom-field values' two keys, `FieldValue.value` and `.definition` (381-382).
+    // 398 -> 400: `PhysicalPort.plate_x` and `.plate_y` (405-406, schema 0.19).
     assert_eq!(
         FIELD_KEYS.len(),
-        398,
+        400,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {
