@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { menuItemsFor, type MenuActions } from './contextMenuItems';
 
-function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'onPlanFirmware' | 'firmwareNeedsVersion'>> {
+function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'onPlanFirmware' | 'firmwareNeedsVersion' | 'onSuggestCables'>> {
   return {
     onSelect: vi.fn(),
     onOpen: vi.fn(),
@@ -64,6 +64,19 @@ describe('menuItemsFor', () => {
     // A reader's menu carries no action for it, so no item.
     expect(menuItemsFor({ kind: 'chassis', id: 'c1' }, { onSelect: vi.fn(), onOpen: vi.fn() }).map((i) => i.label)).not.toContain("It's down");
     expect(menuItemsFor({ kind: 'label', id: 'l1' }, a).map((i) => i.label)).not.toContain("It's down");
+  });
+
+  it('offers cable suggestions on a device, a free box and the empty canvas when they can be used', () => {
+    const go = vi.fn();
+    const a = { ...actions(), onSuggestCables: go };
+    const label = 'Suggest cables from its neighbours (LLDP)';
+    menuItemsFor({ kind: 'chassis', id: 'c1' }, a).find((i) => i.label === label)!.onSelect();
+    expect(go).toHaveBeenLastCalledWith('c1');
+    menuItemsFor({ kind: 'free', id: 'f1' }, a).find((i) => i.label === label)!.onSelect();
+    expect(go).toHaveBeenLastCalledWith('f1');
+    menuItemsFor({ kind: 'pane' }, a).find((i) => i.label === 'Suggest cables from a neighbour list (LLDP)')!.onSelect();
+    expect(go).toHaveBeenLastCalledWith(null);
+    expect(menuItemsFor({ kind: 'chassis', id: 'c1' }, actions()).map((i) => i.label)).not.toContain(label);
   });
 
   it('offers a rack its details and a new device', () => {

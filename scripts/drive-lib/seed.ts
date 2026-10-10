@@ -23,7 +23,7 @@ import { addSubnet, addVlan } from './document/networks';
 import { setFieldValue, type FieldDefView } from './document/fields';
 import { bulkEstate } from './components/inventory/bulkEstate';
 import { tagObject } from './document/tags';
-import { begin, finish, setNodeField } from './document/freeform';
+import { begin, createFreeBox, finish, setNodeField } from './document/freeform';
 import { setFirmwareHold, setTarget } from './document/firmware';
 import { newUlid } from './document/ulid';
 import { naturalLabelCompare, viewOf } from './document/view';
@@ -983,4 +983,23 @@ export function seedFirmwareScene(catalogue: CatalogueModel[], me: string): Docu
   choose('DCS-7050SX3-48YC8', '4.30.2F', 'eos', 5);
   working = setFirmwareHold(working, held, 'Lab rig, kept on old version for a class', { actor: me });
   return working;
+}
+
+/** The cable-suggestions mockup (r15-f3): switch-1 and four neighbours as boxes on the canvas, no cables yet.
+ * ap-office has a numbered port, so its line from an LLDP list is left for the person. */
+export function seedSuggestScene(me: string): Document {
+  let doc = createPremises(emptyDocument(), { actor: me }).doc;
+  const boxes: [string, number, number, string[]][] = [
+    ['switch-1', 80, 80, ['ge-0/0/1', 'ge-0/0/4', 'ge-0/0/7', 'ge-0/0/9']],
+    ['router-1', 520, 40, ['ether2']],
+    ['ap-lobby', 500, 280, ['eth0']],
+    ['nas-1', 120, 420, ['eth0']],
+    ['ap-office', 600, 480, ['1']],
+  ];
+  for (const [hostname, x, y, ports] of boxes) {
+    const made = createFreeBox(doc, { hostname, x, y, actor: me });
+    doc = made.doc;
+    for (const label of ports) doc = addSketchPort(doc, made.chassisId, { label, connector: 'rj45', face: 'front' }, { actor: me });
+  }
+  return doc;
 }
