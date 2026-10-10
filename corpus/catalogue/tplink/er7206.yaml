@@ -1,0 +1,32 @@
+# corpus/catalogue/tplink/er7206.yaml — TP-Link ER7206, Omada Gigabit VPN router, hardware
+# version V2.30 (the version the vendor page shows; V1, V2, V2.20 also listed).
+# Read 2026-10-10: https://www.omadanetworks.com/us/business-networking/omada-router-wired-router/er7206/
+# and the V2.0 datasheet (static.tp-link.com ER7206(UN) 2.0 Data Sheet.pdf). Ports as read:
+# "1 Gigabit SFP WAN/LAN Port", "1 Gigabit WAN Port", "4 Gigabit LAN/WAN Ports", "1 USB 3.0"
+# (USB not recorded). No console port is listed. 12 V/1 A adapter; 226 x 131 x 35 mm.
+# The older V1 page (omada-sdn-router/er7206) lists a different set (fixed SFP WAN, 2 LAN,
+# 2 changeable); this file follows V2.30.
+# Mounting "Desktop/Wall/Rackmount", rack kit in box, but no U height is stated: rack_units: 1
+# is nominal (35 mm tall).
+# Roles: fixed RJ45 WAN is uplink. The SFP and the 4 RJ45 ports are WAN/LAN-switchable, so
+# they are recorded as access.
+# Not confirmed: port order and printed numbers (this file's own sequence, not silkscreen).
+# reviewed_by: <named human> is a placeholder (invariant 10).
+vendor: tplink
+model: ER7206
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    TP-Link Omada, "ER7206 V2.30" product page,
+    https://www.omadanetworks.com/us/business-networking/omada-router-wired-router/er7206/,
+    read 2026-10-10, with the V2.0 datasheet. 1 SFP WAN/LAN, 1 RJ45 WAN, 4 RJ45
+    LAN/WAN, 1 USB 3.0. Port order/numbering not confirmed. rack_units nominal.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 6
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 4, start_number: 1 }
+      - { kind: "SFP", role: access, layout: single_row, count: 1, start_number: 1 }
+      - { kind: "RJ45", role: uplink, layout: single_row, count: 1, start_number: 5 }
