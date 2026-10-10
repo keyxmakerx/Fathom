@@ -3830,6 +3830,9 @@ mod tests {
         );
     }
 
+    const FIX_DEVICE: &str = "device:01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    const FIX_PORT: &str = "physical-port:01ARZ3NDEKTSV4RRFFQ69G5FAW";
+
     /// A graph with one plan and one step carrying exactly the given texts.
     fn plan_graph(plan: &[(u32, &str)], step: &[(u32, &str)]) -> Graph {
         use fathom_graph::{
@@ -3850,6 +3853,11 @@ mod tests {
             .insert_node(NodeKind::MaintenancePlan, Ulid(2), prov(3))
             .unwrap();
         let st = g.insert_node(NodeKind::PlanStep, Ulid(4), prov(5)).unwrap();
+        // The two ids the tests below name: an id is exempt from the scan only if it exists.
+        for (n, id) in [(6, FIX_DEVICE), (7, FIX_PORT)] {
+            let id = fathom_graph::NodeId::parse(id).unwrap();
+            g.insert_node(id.kind, id.ulid, prov(n)).unwrap();
+        }
         for (i, (key, text)) in plan.iter().enumerate() {
             g.set_field(
                 p.into(),
@@ -3878,8 +3886,7 @@ mod tests {
     fn find_credential_reads_plan_and_step_text() {
         use fathom_ir::generated::ir_types::{MaintenancePlanField as P, PlanStepField as S};
         let psk = "set security ike policy p pre-shared-key ascii-text $9$Qz7Lx-VYgoJDm5T3";
-        let id = "device:01ARZ3NDEKTSV4RRFFQ69G5FAV";
-        let port = "physical-port:01ARZ3NDEKTSV4RRFFQ69G5FAW";
+        let (id, port) = (FIX_DEVICE, FIX_PORT);
 
         let plan_fields = [
             P::Title.key().0,
@@ -3982,6 +3989,14 @@ mod tests {
         let st = g
             .insert_node(NodeKind::IssueStep, Ulid(4), prov(5))
             .unwrap();
+        // The ids the test names: an id is exempt from the scan only if it exists.
+        for (n, id) in [
+            (6, FIX_DEVICE),
+            (7, "maintenance-plan:01ARZ3NDEKTSV4RRFFQ69G5FAW"),
+        ] {
+            let id = fathom_graph::NodeId::parse(id).unwrap();
+            g.insert_node(id.kind, id.ulid, prov(n)).unwrap();
+        }
         for (n, (key, text)) in issue_fields.iter().enumerate() {
             let k = fathom_ir::bag::FieldKey(*key);
             let t = fathom_ir::scalar::Text((*text).to_owned());
@@ -4063,5 +4078,94 @@ mod tests {
             ],
         );
         assert_eq!(fathom_workspace::find_credential(&g), None);
+    }
+
+    /// A secret that merely has the shape of an id (`word:` plus 26 letters or digits) is not
+    /// an id: it must parse and name a node the graph holds, or the scan reads it.
+    #[test]
+    fn an_id_shaped_secret_is_not_taken_for_an_id() {
+        use fathom_ir::generated::ir_types::PlanStepField as S;
+        // 26 alphanumerics, not a ULID (`U` and `I` are outside the alphabet).
+        let shaped = "secret:AbCdEfGhIjKlMnOpQrStUvWxYz";
+        assert_eq!(shaped.split_once(':').unwrap().1.len(), 26);
+        let g = plan_graph(
+            &[],
+            &[(S::Targets.key().0, &format!("{FIX_DEVICE}\n{shaped}"))],
+        );
+        assert_eq!(fathom_workspace::find_credential(&g), Some(("PlanStep", 2)));
+        // A real kind and a valid ULID, but no such node: still read, and a base64-ish ULID
+        // trips the detector only if it looks like one, so use a clearly secret-shaped probe.
+        let g = plan_graph(
+            &[],
+            &[(
+                S::Edit.key().0,
+                &format!("cut\t{shaped}\tenable secret 5 Abc12345"),
+            )],
+        );
+        assert_eq!(fathom_workspace::find_credential(&g), Some(("PlanStep", 1)));
+        let missing = "device:01ARZ3NDEKTSV4RRFFQ69G5FAX";
+        let g = plan_graph(&[], &[(S::Targets.key().0, missing)]);
+        assert!(
+            fathom_workspace::find_credential(&g).is_some(),
+            "an id that names no node is read as text, and 26 mixed characters read as a secret"
+        );
+    }
+
+    /// A credential set and then replaced by clean text is in the field's history, and the
+    /// history is stored: the door refuses it.
+    #[test]
+    fn a_replaced_credential_in_history_is_refused() {
+        use fathom_graph::{
+            Actor, BatchId, Confidence, Origin, ProvenanceId, ProvenanceRecord, Timestamp, UserId,
+        };
+        use fathom_id::Ulid;
+        let prov = |n: u128| ProvenanceRecord {
+            id: ProvenanceId(Ulid(n)),
+            origin: Origin::Hand,
+            asserted_at: Timestamp(0),
+            asserted_by: Actor::User(UserId(Ulid(9_999))),
+            confidence: Confidence::Asserted,
+            supersedes: None,
+        };
+        let mut g = Graph::new();
+        g.begin_batch(BatchId(Ulid(1)), "fixture").unwrap();
+        let n = g.insert_node(NodeKind::Note, Ulid(2), prov(3)).unwrap();
+        let key = fathom_ir::generated::ir_types::NoteField::Text.key();
+        for (i, t) in [
+            "set security ike policy p pre-shared-key ascii-text $9$Qz7Lx-VYgoJDm5T3",
+            "all clear",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            g.set_field(
+                n.into(),
+                key,
+                fathom_ir::scalar::Text(t.to_owned()),
+                prov(10 + i as u128),
+            )
+            .unwrap();
+        }
+        g.end_batch().unwrap();
+        assert_eq!(fathom_workspace::find_credential(&g), Some(("Note", 1)));
+    }
+
+    /// The "Why?" comment on a batch is stored with the change: a credential typed there is
+    /// refused like one in a note.
+    #[test]
+    fn a_credential_in_a_batch_comment_is_refused() {
+        use fathom_graph::{BatchId, Graph};
+        use fathom_id::Ulid;
+        let mut g = Graph::new();
+        g.begin_batch(BatchId(Ulid(1)), "fixture").unwrap();
+        g.set_batch_comment(fathom_ir::scalar::Text(
+            "fine\nset security ike policy p pre-shared-key ascii-text $9$Qz7Lx-VYgoJDm5T3".into(),
+        ))
+        .unwrap();
+        g.end_batch().unwrap();
+        assert_eq!(
+            fathom_workspace::find_credential(&g),
+            Some(("Batch comment", 2))
+        );
     }
 }

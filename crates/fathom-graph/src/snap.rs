@@ -461,6 +461,12 @@ impl Graph {
                 SnapshotError::DuplicateElement { element: h.element }
             })?;
             loader.require_element(h.element)?;
+            if !declares(h.element, h.key) {
+                return Err(SnapshotError::L0(WriteError::UndeclaredField {
+                    element: h.element,
+                    key: h.key,
+                }));
+            }
             let mut entries = Vec::with_capacity(h.entries.len());
             let mut origins = Vec::with_capacity(h.entries.len());
             for entry in &h.entries {
