@@ -252,11 +252,11 @@ set security ike policy ike-two pre-shared-key ascii-text hunter22
     await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
     check('Esc from Inside returns to the device', (await page.locator('[data-testid=jot]').count()) === 1 && (await page.locator('.inside-stop').count()) === 0);
-    await page.getByRole('button', { name: 'Config' }).click();
+    await page.getByRole('button', { name: 'Config', exact: true }).click();
     await page.waitForTimeout(500);
     check('Config opens the drawer under the device', (await page.locator('.config-drawer').count()) === 1);
     await shot(page, 'S8-07-config');
-    await page.getByRole('button', { name: 'Config' }).click();
+    await page.getByRole('button', { name: 'Config', exact: true }).click();
 
     // A paste while inside a device still reads through the card.
     await pasteText(page, CONFIG('srx-in-room'));

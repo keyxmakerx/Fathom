@@ -401,7 +401,7 @@ export function JotView(props: JotViewProps): JSX.Element {
             </svg>
           </div>
           {canDraw && shown.length === 1 && (
-            <p className="jot__hint">Open Equipment on the left, then drag an item here or click it. Draw a cable from one port to another.</p>
+            <p className="jot__hint">Open Equipment on the right, then drag an item here or click it. Draw a cable from one port to another.</p>
           )}
         </div>
       )}

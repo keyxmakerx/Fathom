@@ -156,7 +156,7 @@ const PENDING_RACK_VIEW: ClosetView['racks'][number] = {
 
 /** What an empty design says (ADR-0060 decision 4). */
 const EMPTY_HINT =
-  'An empty design. Open Equipment on the left and drag a device onto the rack, or right-click the canvas to add a rack or a wall.';
+  'An empty design. Open Equipment on the right and drag a device onto the rack, or right-click the canvas to add a rack or a wall.';
 
 /**
  * ADR-0051 §1 — "+ add a surface". There is no

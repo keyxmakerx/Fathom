@@ -43,7 +43,7 @@ export function ColourKey({ rows, onHighlight }: { rows: readonly KeyRow[]; onHi
                 aria-hidden="true"
               />
               <span className="colour-key__text">{r.text}</span>
-              <span className="colour-key__count">{r.count}</span>
+              {r.shares != null && <span className="colour-key__count">{r.count}</span>}
             </button>
           </li>
         ))}

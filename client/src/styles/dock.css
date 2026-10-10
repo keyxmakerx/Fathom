@@ -232,3 +232,19 @@
     transition: none;
   }
 }
+
+/* The right edge: the open panel, then the strip of tabs at the window's edge. */
+.dock-right {
+  display: flex;
+  flex: 0 0 auto;
+  align-self: stretch;
+  min-height: 0;
+}
+
+.dock-right > .dock-slot {
+  height: 100%;
+}
+
+.dock-right > .dock-strip {
+  height: 100%;
+}

@@ -128,7 +128,8 @@ try {
   check('Show starts with nothing ticked that has data: no words on the canvas', (await labels()).length === 0);
 
   await page.getByTestId('shell-show').click();
-  const items = await page.locator('.shell-show__row').allInnerTexts();
+  // The canvas aids (Mini-map, Cable colour key) share the menu; the layers are the rest.
+  const items = (await page.locator('.shell-show__row').allInnerTexts()).filter((t) => !/Mini-map|Cable colour key/.test(t));
   check('menu lists the layers: Checks, Addresses, VLANs, Docs, Maintenance, Tags', items.length === 6 && items.every((t) => /Checks|Addresses|VLANs|Docs|Maintenance|Tags/.test(t)), items.join(' | '));
   await page.screenshot({ path: SHOTS + 'show-menu.png' });
   await page.getByTestId('show-addresses').click();

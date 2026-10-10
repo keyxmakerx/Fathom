@@ -1,6 +1,7 @@
 /* The Views group in the bar: one segmented row (Views menu, the first saved views, "+"), then the
    menu itself: named camera + layers. Blueprint: square, hairline, 28px controls. */
 .vgroup {
+  align-self: center;
   position: relative;
   display: inline-flex;
   align-items: stretch;

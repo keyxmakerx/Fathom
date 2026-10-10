@@ -872,6 +872,8 @@ function DrawingInner({
   // A move with a source event is a person's wheel, pinch or drag; a
   // programmatic `setCenter`, `fitView` or auto-pan has none.
   const personMovingRef = useRef(false);
+  // The zoom (percent) a bar-driven glide is heading for, while it runs.
+  const barGlideRef = useRef<number | null>(null);
   const handleMoveStart: OnMove = useCallback((event) => {
     if (event != null) {
       personMovingRef.current = true;
@@ -882,12 +884,17 @@ function DrawingInner({
   const stubbedRef = useRef(new Set<string>());
   const handleMove: OnMove = useCallback((_event, vp) => followCamera(vp), [followCamera]);
   const handleMoveEnd: OnMove = useCallback(
-    (_event, vp) => {
+    (event, vp) => {
       personMovingRef.current = false;
       followCamera(vp);
       settled.settle(vp);
       onViewportSettledRef.current?.(vp);
       const pct = Math.round(vp.zoom * 100);
+      // A glide the bar asked for, cut short by the next press: its halfway zoom is not news.
+      // Reporting it would send the bar back there and start a glide that the newer one cuts
+      // short in turn, for ever.
+      if (barGlideRef.current != null && pct !== barGlideRef.current && event == null) return;
+      barGlideRef.current = null;
       if (pct !== zoomRef.current) onZoomChangeRef.current(pct);
     },
     [followCamera, settled.settle],
@@ -1126,6 +1133,7 @@ function DrawingInner({
       restoredPctRef.current = null;
     }
     const nextZoom = zoom / 100;
+    if (GLIDE.duration > 0) barGlideRef.current = zoom;
     const pane = containerRef.current;
     const target = configDrawerOpen && selectedChassisFlowCentre != null ? centreAboveDrawer(selectedChassisFlowCentre, nextZoom, pane) : null;
     if (target != null) void rf.setCenter(target.x, target.y, { zoom: nextZoom, ...GLIDE });
