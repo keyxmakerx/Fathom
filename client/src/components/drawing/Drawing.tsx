@@ -36,6 +36,7 @@ import type { PortTarget } from './plansMarks';
 import { Callout } from './Callout';
 import { useSettledView } from './settledView';
 import { endOffScreen, stubTagText, type StubEnd } from './stubs';
+import { viewShowsAny } from '../design/resume';
 import type { Bundle } from './bundles';
 import { leadsFor, placeLabels, type LabelItem, type PortPoint } from './cableEnds';
 import { faceplateLayoutFor, plateItems } from './faceplate';
@@ -288,6 +289,11 @@ export interface DrawingProps extends DrawingActions {
    * dashed. */
   drawnCableIds?: ReadonlySet<string>;
   dashedCableIds?: ReadonlySet<string>;
+  /** Where this person left the camera last time (kept in this browser). Replaces the first fit
+   * rather than fighting it; ignored if it no longer shows any rack. */
+  initialViewport?: Viewport | null;
+  /** Called with the camera when a pan or zoom ends. */
+  onViewportSettled?: (vp: Viewport) => void;
 }
 
 type AnyRackNode = RackNodeType;
@@ -353,6 +359,8 @@ function DrawingInner({
   zoom,
   onZoomChange,
   fitRequest,
+  initialViewport,
+  onViewportSettled,
   onPlace,
   onMove,
   onSelect,
@@ -417,9 +425,13 @@ function DrawingInner({
   const [shakingId, setShakingId] = useState<string | null>(null);
   // React Flow owns the camera; this component keeps only the stop and the
   // zoom band, and updates them when the camera crosses into another.
-  const [defaultViewport] = useState<Viewport>(() => ({ x: 0, y: 0, zoom: Math.max(zoom, 1) / 100 }));
-  const [cameraStop, setCameraStop] = useState<CameraStop>(() => cameraStopAt(Math.max(zoom, 1)));
-  const [zoomBand, setZoomBand] = useState<ZoomBand>(() => zoomBandAt(Math.max(zoom, 1)));
+  const [defaultViewport] = useState<Viewport>(() => initialViewport ?? { x: 0, y: 0, zoom: Math.max(zoom, 1) / 100 });
+  // A restored camera speaks for the zoom the bar shows until the person moves it.
+  const startPct = initialViewport != null ? Math.round(initialViewport.zoom * 100) : Math.max(zoom, 1);
+  const [cameraStop, setCameraStop] = useState<CameraStop>(() => cameraStopAt(startPct));
+  const [zoomBand, setZoomBand] = useState<ZoomBand>(() => zoomBandAt(startPct));
+  // Whether the restored camera is still in use: true until the first fit decides it shows nothing.
+  const restoredCameraRef = useRef(initialViewport != null);
   const shakeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // `FinalConnectionState.to` (below) is already screen space, but relative
   // to the React Flow container rather than the page — this is what turns
@@ -711,6 +723,18 @@ function DrawingInner({
     const isFirstRun = !hasFitOnceRef.current;
     hasFitOnceRef.current = true;
     if (!shouldFitOnMount(isFirstRun, selected)) return; // a pending focus wins outright, once
+    if (isFirstRun && restoredCameraRef.current && initialViewport != null) {
+      // The camera was restored: that replaces the fit, unless it no longer shows any rack.
+      const pane = containerRef.current;
+      const rects = view.racks.flatMap((r) => {
+        const at = rackPositions[r.id];
+        return at == null ? [] : [{ x: at.x, y: at.y, width: RACK_NODE_WIDTH, height: rackNodeHeight(r) }];
+      });
+      if (pane == null || viewShowsAny(initialViewport, { width: pane.clientWidth, height: pane.clientHeight }, rects)) {
+        return;
+      }
+      restoredCameraRef.current = false;
+    }
     const raf = requestAnimationFrame(() => {
       void rf.fitView(rackFitViewOptions(view.racks, free.fitIds));
     });
@@ -755,12 +779,19 @@ function DrawingInner({
       setZoomBand(band);
     }
   }, []);
+  const restoredPctRef = useRef<number | null>(initialViewport != null ? Math.round(initialViewport.zoom * 100) : null);
   const zoomRef = useRef(zoom);
   const onZoomChangeRef = useRef(onZoomChange);
+  const onViewportSettledRef = useRef(onViewportSettled);
   useLayoutEffect(() => {
     zoomRef.current = zoom;
     onZoomChangeRef.current = onZoomChange;
+    onViewportSettledRef.current = onViewportSettled;
   });
+  useEffect(() => {
+    if (initialViewport != null) onZoomChangeRef.current(Math.round(initialViewport.zoom * 100));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on mount
+  }, []);
   // A move with a source event is a person's wheel, pinch or drag; a
   // programmatic `setCenter`, `fitView` or auto-pan has none.
   const personMovingRef = useRef(false);
@@ -778,6 +809,7 @@ function DrawingInner({
       personMovingRef.current = false;
       followCamera(vp);
       settled.settle(vp);
+      onViewportSettledRef.current?.(vp);
       const pct = Math.round(vp.zoom * 100);
       if (pct !== zoomRef.current) onZoomChangeRef.current(pct);
     },
@@ -1009,6 +1041,11 @@ function DrawingInner({
     if (personMovingRef.current) return;
     const live = rf.getViewport();
     if (Math.round(live.zoom * 100) === zoom) return;
+    if (restoredPctRef.current != null) {
+      // A restored camera tells the bar its zoom (on mount) rather than being reset to the bar's.
+      if (zoom !== restoredPctRef.current) return;
+      restoredPctRef.current = null;
+    }
     const nextZoom = zoom / 100;
     const pane = containerRef.current;
     const target = configDrawerOpen && selectedChassisFlowCentre != null ? centreAboveDrawer(selectedChassisFlowCentre, nextZoom, pane) : null;

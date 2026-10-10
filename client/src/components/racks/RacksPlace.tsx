@@ -19,6 +19,7 @@ import {
 import { nextFreeSpot } from '../drawing/freeLayout';
 import { BOX_H, BOX_W, createLabel, createLine, moveFree, removeFree, setLabel } from '../../document/freeform';
 import { FieldValueError, isDeviceRole, setDeviceField } from '../../document/edit';
+import { useResumeView } from './useResumeView';
 import { edgesIn, parseNodeId, type Document } from '../../document/model';
 import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
 import { Engine, EngineTrap } from '../../engine/engine';
@@ -286,6 +287,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   useEffect(() => {
     onSelectedChange?.(selectedId);
   }, [onSelectedChange, selectedId]);
+  const resumeView = useResumeView({ accountId, designId, doc, hasFocus: initialFocus != null, selection, setSelection });
   // A device whose callout is showing keeps the details panel closed; the callout's Details opens it.
   const [calloutId, setCalloutId] = useState<string | null>(null);
   // Rack or Diagram: this person's choice for this design, kept in this browser.
@@ -1285,7 +1287,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           paletteFromCatalogue(catalogue),
         )
       : null;
-  const editor = historyView != null ? historyView.panel : saveRefusal != null ? (
+  const editor = saveRefusal != null ? (
       <div className="racks-place__refusal">
         {saveRefusal}
         {/* ADR-0054 §1's refusal wash "offers reload". */}
@@ -1333,7 +1335,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
-    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle } }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle } }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
         doc != null ? (
           <>
             <PlansBarChip controller={plans} />
@@ -1376,6 +1378,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           zoom={shellProps.zoom}
           onZoomChange={onZoomChange}
           fitRequest={fitRequest}
+          initialViewport={resumeView.initialViewport}
+          onViewportSettled={resumeView.onViewportSettled}
           onPlace={handlePlace}
           onMove={handleMove}
           onConnect={handleConnect}

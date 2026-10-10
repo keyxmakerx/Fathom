@@ -136,6 +136,12 @@ export interface ShellProps {
   /** The selection's editor surface. `null` when nothing is selected — the
    * editor is then absent from the DOM, not an empty panel. */
   editor: ReactNode | null;
+  /** The History panel's content while History is open (the right-hand History tab). */
+  history?: ReactNode;
+  /** A key for what is selected; selecting something new shows its Details tab. */
+  selectionKey?: string | null;
+  /** Which design this is, for remembering the open panels per person in this browser. */
+  resume?: { accountId: string | null; designId: string };
 
   /** Content for the folded rail's open state (`Strip`'s `nav`) — the
    * palette, for the Racks place. Omitted or `null` falls back to `Strip`'s

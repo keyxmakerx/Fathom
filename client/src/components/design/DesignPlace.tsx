@@ -38,6 +38,7 @@ import { searchDesign } from '../shell/search';
 import type { Place, ShellProps } from '../shell/types';
 import { LiveNotices, announcement, hasLiveNotices } from './LiveNotices';
 import { presenceViewOf } from './liveSession';
+import { loadResume } from './resume';
 import { useDesignSession } from './useDesignSession';
 
 /** A download with no server round trip. The object URL is revoked a few
@@ -276,7 +277,7 @@ export function DesignPlace(props: DesignPlaceProps) {
   const redoCandidate = doc != null && accountId != null ? redoable(doc, accountId) : undefined;
   const [undoRefusal, setUndoRefusal] = useState<string | null>(null);
   // The trail starts folded; a refused undo or redo opens it so the refusal is seen.
-  const [trailOpen, setTrailOpen] = useState(false);
+  const [trailOpen, setTrailOpen] = useState(() => loadResume(accountId, designId).tab === 'trail');
 
   const handleUndo = useCallback(() => {
     if (!session.canDraw) return; // ADR-0052 §5: a reader undoes nothing, even via a stray Ctrl+Z
@@ -585,6 +586,8 @@ export function DesignPlace(props: DesignPlaceProps) {
     ) : null,
     search,
     trail,
+    selectionKey: selectedId,
+    resume: { accountId, designId },
     trailOpen,
     onTrailOpenChange: setTrailOpen,
     canUndo: session.canDraw && undoCandidates.length > 0 && !historyOpen,
