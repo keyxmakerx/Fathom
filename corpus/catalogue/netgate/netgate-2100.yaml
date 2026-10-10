@@ -1,0 +1,31 @@
+# corpus/catalogue/netgate/netgate-2100.yaml -- Netgate 2100 pfSense+ desktop gateway.
+# `reviewed_by: <named human>` is a placeholder (invariant 10). rack_units: 1 is NOMINAL (desktop unit).
+# Read 2026-10-10: docs.netgate.com/pfsense/en/latest/solutions/netgate-2100/io-ports.html (lists the
+# Ethernet ports under "Rear Side") and shop.netgate.com/products/2100-base-pfsense ("One 1 Gigabit
+# Ethernet WAN port (RJ45 / SFP Combo)", "Four 1 Gigabit Ethernet LAN ports (Marvell 88E6141 switch)").
+# Recorded, rear: LAN1-LAN4 (RJ-45 1 GbE, switched), WAN (RJ-45 1 GbE).
+# WAN is an RJ45/SFP COMBO port, one socket where only one medium works; recorded once, as RJ45. The
+# SFP half is not recorded. NOT RECORDED: Mini-USB serial console (not RJ45), USB ports.
+# The format requires a `front` faceplate; an empty one (port_count: 0) is declared.
+# NOT CONFIRMED: left-to-right order (docs state none) and no photo, so single_row; WAN is listed last
+# because the format requires uplinks after access ports, which may not match the box.
+vendor: netgate
+model: Netgate 2100
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Netgate, "Input and Output Ports" (Netgate 2100 docs),
+    docs.netgate.com/pfsense/en/latest/solutions/netgate-2100/io-ports.html, and
+    shop.netgate.com/products/2100-base-pfsense, read 2026-10-10. Rear: WAN
+    (RJ-45/SFP combo, recorded as RJ-45) + LAN1-LAN4 RJ-45 1 GbE switch ports.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 0
+    port_groups: []
+  - face: rear
+    port_count: 5
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, names: ["LAN1", "LAN2", "LAN3", "LAN4"] }
+      - { kind: "RJ45", role: uplink, layout: single_row, names: ["WAN"] }

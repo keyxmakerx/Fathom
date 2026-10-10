@@ -1,0 +1,28 @@
+# corpus/catalogue/raspberrypi/raspberry-pi-4-model-b.yaml -- Raspberry Pi 4 Model B single-board computer.
+# `reviewed_by: <named human>` is a placeholder (invariant 10). rack_units: 1 is NOMINAL (bare board).
+# Read 2026-10-10: raspberrypi.com/products/raspberry-pi-4-model-b/specifications/ ("Gigabit
+# Ethernet"; "Power over Ethernet (PoE) enabled (requires separate PoE HAT)"), the Raspberry Pi 4
+# Model B Product Brief ("Gigabit Ethernet"), and raspberrypi.com/documentation/computers/raspberry-pi.html
+# ("Gigabit (1 Gb/s) Ethernet RJ45 ..."). Recorded: 1x RJ-45 1GbE, on the REAR (the Ethernet/USB
+# edge of the board). No Raspberry Pi page read states the board edge in words, so "rear" is the
+# catalogue's convention, not a quoted fact.
+# NOT RECORDED: USB, micro-HDMI, PoE header. The format requires a `front` faceplate; an empty one is declared.
+vendor: raspberrypi
+model: Raspberry Pi 4 Model B
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Raspberry Pi Ltd, "Raspberry Pi 4 Model B specifications",
+    raspberrypi.com/products/raspberry-pi-4-model-b/specifications/, and Raspberry Pi
+    Documentation, raspberrypi.com/documentation/computers/raspberry-pi.html, read
+    2026-10-10. 1x RJ45 Gigabit Ethernet; rear placement is a convention.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 0
+    port_groups: []
+  - face: rear
+    port_count: 1
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 1, start_number: 1 }
