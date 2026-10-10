@@ -75,7 +75,7 @@ import { PlanBand, PlansBarChip } from '../plans/PlanBand';
 import { PlansSurface } from '../plans/PlansSurface';
 import { PlansContext } from '../plans/plansStore';
 import { usePlansController } from '../plans/usePlansController';
-import { DeviceIssues } from '../troubleshoot/DeviceIssues';
+import { DeviceIssues, ItsDownButton } from '../troubleshoot/DeviceIssues';
 import { TroublePanel } from '../troubleshoot/TroublePanel';
 import { TroubleContext } from '../troubleshoot/troubleStore';
 import { useTroubleController } from '../troubleshoot/useTroubleController';
@@ -1584,6 +1584,16 @@ export function RacksPlace(props: RacksPlaceProps) {
             onToggleCableHidden: handleToggleCableHidden,
           },
           paletteFromCatalogue(catalogue),
+          selection?.kind === 'chassis' ? (
+            <>
+              {onOpenInventory ? (
+                <button type="button" className="btn-quiet racks-place__open-inventory" onClick={() => onOpenInventory(selection.id)}>
+                  Open in inventory
+                </button>
+              ) : null}
+              <ItsDownButton controller={trouble} chassisId={selection.id} />
+            </>
+          ) : undefined,
         )
       : null;
   const editor = saveRefusal != null ? (
@@ -1607,12 +1617,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     ) : selectedPanel != null ? (
       <>
         {selectedPanel}
-        {selection?.kind === 'chassis' && doc != null ? <DeviceIssues controller={trouble} chassisId={selection.id} deviceId={edgesIn(doc, selection.id, 'HasChassis')[0]?.from ?? ''} /> : null}
-        {selection?.kind === 'chassis' && onOpenInventory ? (
-          <button type="button" className="racks-place__open-inventory" onClick={() => onOpenInventory(selection.id)}>
-            Open in inventory
-          </button>
-        ) : null}
+        {selection?.kind === 'chassis' && doc != null ? <DeviceIssues controller={trouble} chassisId={selection.id} deviceId={edgesIn(doc, selection.id, 'HasChassis')[0]?.from ?? ''} withButton={false} /> : null}
       </>
     ) : null;
 

@@ -154,6 +154,7 @@ try {
   // -------------------------------------------------------------------------
   await page.locator('.react-flow__node-chassis', { hasText: 'core-01' }).click();
   await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
+  await page.getByRole('tab', { name: 'Notes' }).click();
   const seededChips = await page.locator('.drawing-editor__panel .tag-chip .tag-chip__name').allTextContents();
   check('core-01 already carries the seeded "core" tag', seededChips.includes('core'), seededChips.join(', '));
   await page.screenshot({ path: SHOTS + 'tags-01-device-chip.png' });

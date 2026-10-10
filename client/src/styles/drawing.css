@@ -610,6 +610,103 @@
 /* An unset hostname (UI-SPEC "Absent is drawn as absent"): the muted word,
    never bold, never blank — the panel's own version of
    `.drawing-chassis__hostname--placeholder`. */
+/* A device's head: its name, its role, and where it sits (r14 A2). */
+.drawing-editor__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+}
+.drawing-editor__head .drawing-editor__title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.drawing-editor__badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: var(--rule-hair) solid var(--control-line);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.drawing-editor__subtitle {
+  margin-top: calc(-1 * var(--s2));
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+.drawing-editor__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+  margin: calc(-1 * var(--s2)) 0 0 -10px;
+}
+
+/* Tabs: spaced capitals, the open one underlined with a 2px ink line. */
+.drawing-tabs {
+  display: flex;
+  gap: var(--s4);
+  margin: 0 calc(-1 * var(--s4));
+  padding: 0 var(--s4);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+.drawing-tabs__tab {
+  margin-bottom: calc(-1 * var(--rule-hair));
+  padding: var(--s2) 0;
+  border: 0;
+  border-bottom: var(--rule-sel) solid transparent;
+  background: none;
+  font-size: var(--t-tab);
+  letter-spacing: var(--control-track);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.drawing-tabs__tab:not(:disabled):hover {
+  background: none;
+  color: var(--ink);
+}
+.drawing-tabs__tab[aria-selected='true'] {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+.drawing-tabs__panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.drawing-tabs__panel[hidden] {
+  display: none;
+}
+
+/* The panel's actions sit at its foot: the destructive one as red text on
+   the left, the one main action filled on the right. */
+.drawing-editor__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--s2);
+  margin: var(--s2) calc(-1 * var(--s4)) calc(-1 * var(--s4));
+  padding: var(--s3) var(--s4);
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+/* Beside the canvas the foot stays in view while the panel scrolls. */
+.shell-editor .drawing-editor__footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background: var(--surface-2);
+}
+.drawing-editor__footer:empty {
+  display: none;
+}
+.drawing-editor__footer > .drawing-editor__field {
+  flex: none;
+  width: auto;
+  margin-left: auto;
+}
+
 .drawing-editor__title--placeholder {
   color: var(--muted);
   font-weight: 400;
