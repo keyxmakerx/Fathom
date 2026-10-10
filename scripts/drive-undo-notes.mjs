@@ -235,6 +235,7 @@ try {
     await page.goto(`${BASE}/drive.html?scene=note`);
     await page.click('.react-flow__node-chassis >> nth=0');
     await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
+    await page.getByRole('tab', { name: 'Notes' }).click();
 
     const noteBox = page.locator('.drawing-editor__panel textarea[placeholder="add a note"]');
     await noteBox.fill(PSK_PASTE);
@@ -271,6 +272,7 @@ try {
     await page.goto(`${BASE}/drive.html?scene=typed`);
     await page.click('.react-flow__node-chassis >> nth=0');
     await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
+    await page.getByRole('tab', { name: 'Notes' }).click();
 
     const noteBox = page.locator('.drawing-editor__panel textarea[placeholder="add a note"]');
     await noteBox.fill('Uplink patched Tuesday, ports relabelled.');

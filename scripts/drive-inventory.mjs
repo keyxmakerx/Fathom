@@ -139,7 +139,7 @@ try {
 
   // 3 — add by name, then the page opens on it.
   await page.getByLabel(/Name of the new/).fill('edge-fw');
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByRole('button', { name: '+ Device', exact: true }).click();
   await page.waitForSelector('.inv-page', { timeout: 5_000 });
   check('adding by name opens its page', (await page.locator('.inv-page').innerText()).includes('edge-fw'));
   check('the page replaces the list', (await page.locator('.inv-table__row').count()) === 0);

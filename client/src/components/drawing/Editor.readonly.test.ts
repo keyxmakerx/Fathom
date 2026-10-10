@@ -92,9 +92,11 @@ const VIEW: ClosetView = {
 };
 
 function assertNoEditMarkup(markup: string) {
-  expect(markup).not.toContain('<input');
-  expect(markup).not.toContain('<select');
-  expect(markup).not.toContain('<button');
+  // A panel's tabs only show another part of it, so a reader keeps them.
+  const edits = markup.replace(/<button type="button" role="tab"[^>]*>[^<]*<\/button>/g, '');
+  expect(edits).not.toContain('<input');
+  expect(edits).not.toContain('<select');
+  expect(edits).not.toContain('<button');
 }
 
 describe('EditorFor — ADR-0052 §5 reader rendering (no EditorActions.onEdit)', () => {

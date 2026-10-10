@@ -1,4 +1,4 @@
-import { cloneElement, createContext, isValidElement, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { cloneElement, createContext, isValidElement, useContext, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 
 import '../../styles/drawing.css';
 // ADR-0053 §6 — "the black block reused from the drawer where a value was
@@ -265,8 +265,10 @@ function EditableValue({ value, placeholder, placeholderClassName, editorKind, o
 function SupplyAction({
   label,
   onCommit,
+  className,
 }: {
   label: string;
+  className?: string;
   /** `undefined` when the caller holds no `EditorActions.onEdit`
    * (ADR-0052 §5) — nothing renders at all, "no actions" rather than a
    * disabled button, since there is no refusal to show for a click that
@@ -279,7 +281,7 @@ function SupplyAction({
     <>
       <button
         type="button"
-        className={label.startsWith('Remove') ? 'btn-danger' : undefined}
+        className={className ?? (label.startsWith('Remove') ? 'btn-danger' : undefined)}
         onClick={() => {
           const result = onCommit();
           setRefusal(result?.refused ?? null);
@@ -1225,6 +1227,72 @@ function SketchPortsSection({ chassisId, ports, actions }: { chassisId: string; 
   );
 }
 
+/** A panel's tabs (UI-SPEC "Look"): every tab's body stays in the page,
+ * the others hidden, so a tab never loses what was typed in it. */
+type PanelTab = { id: string; label: string; body: ReactNode };
+
+/** 'flat' where the page around the panel already has tabs of its own (Inventory's item page). */
+export const PanelTabsMode = createContext<'tabs' | 'flat'>('tabs');
+
+/** The tab last opened, so the next device opens on the same one. */
+let lastTab: string | null = null;
+
+function PanelTabs({ tabs, initial }: { tabs: readonly PanelTab[]; initial?: string }) {
+  const mode = useContext(PanelTabsMode);
+  const [picked, setPickedState] = useState(initial ?? lastTab ?? tabs[0].id);
+  const setPicked = (id: string) => {
+    lastTab = id;
+    setPickedState(id);
+  };
+  const base = useId();
+  if (mode === 'flat') return <>{tabs.map((tab) => <div key={tab.id} className="drawing-tabs__panel">{tab.body}</div>)}</>;
+  const current = tabs.some((t) => t.id === picked) ? picked : tabs[0].id;
+
+  function onKey(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+    if (step === 0) return;
+    event.preventDefault();
+    const next = tabs[(index + step + tabs.length) % tabs.length];
+    setPicked(next.id);
+    document.getElementById(`${base}-${next.id}`)?.focus();
+  }
+
+  return (
+    <>
+      <div className="drawing-tabs" role="tablist">
+        {tabs.map((tab, index) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            id={`${base}-${tab.id}`}
+            className="drawing-tabs__tab"
+            aria-selected={tab.id === current}
+            aria-controls={`${base}-${tab.id}-panel`}
+            tabIndex={tab.id === current ? 0 : -1}
+            onClick={() => setPicked(tab.id)}
+            onKeyDown={(e) => onKey(e, index)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      {tabs.map((tab) => (
+        <div
+          key={tab.id}
+          role="tabpanel"
+          id={`${base}-${tab.id}-panel`}
+          aria-labelledby={`${base}-${tab.id}`}
+          className="drawing-tabs__panel"
+          hidden={tab.id !== current}
+        >
+          {tab.body}
+        </div>
+      ))}
+    </>
+  );
+}
+
 /** ADR-0051 §1 — "Duplicate": `commands.ts`'s `duplicateDevice`, shown only
  * on a rack-mounted chassis's panel. May carry a NOTICE, not a refusal
  * (`contract.ts`'s `EditorActions.onEdit`). */
@@ -1240,7 +1308,7 @@ function DuplicateDeviceControl({ chassisId, actions }: { chassisId: string; act
 
   return (
     <div className="drawing-editor__field">
-      <button type="button" onClick={commit}>
+      <button type="button" className="btn-main" onClick={commit}>
         Duplicate
       </button>
       {notice != null ? <div style={CAUTION_STYLE}>{notice}</div> : null}
@@ -1668,8 +1736,10 @@ export function EditorFor(
   view: ClosetView,
   actions: EditorActions,
   catalogue: readonly PaletteItem[] = [],
+  /** Quiet actions the caller adds under a device's name (open elsewhere, "It's down"). */
+  links?: ReactNode,
 ): ReactNode {
-  const panel = panelFor(selection, view, actions, catalogue);
+  const panel = panelFor(selection, view, actions, catalogue, links);
   if (selection == null || !isValidElement<{ 'data-elements'?: string }>(panel)) return panel;
   return cloneElement(panel, { 'data-elements': elementsOf(selection, view) });
 }
@@ -1679,6 +1749,7 @@ function panelFor(
   view: ClosetView,
   actions: EditorActions,
   catalogue: readonly PaletteItem[] = [],
+  links?: ReactNode,
 ): ReactNode {
   if (selection == null) return null;
 
@@ -1856,160 +1927,199 @@ function panelFor(
     // same "no catalogue model" reading the fixture panel below already
     // derives locally for its own `sketch` for the identical reason.
     const chassisSketch = chassis.model === '';
+    const where = [[chassis.vendor, chassis.model].filter(Boolean).join(' '), rack?.label, rack ? uRange : null].filter(Boolean).join(' · ');
     return (
-      <div className="drawing-editor__panel">
-        <div className="drawing-editor__title">
-          <EditableValue
-            value={chassis.hostname}
-            placeholder={UNNAMED_HOSTNAME}
-            placeholderClassName="drawing-editor__title--placeholder"
-            editorKind="text"
-            onCommit={
-              actions.onEdit ? (v) => actions.onEdit!({ kind: 'device', id: chassis.deviceId, field: 'hostname', value: v }) : undefined
-            }
-          />
+      <div className="drawing-editor__panel drawing-editor__panel--tabbed">
+        <div className="drawing-editor__head">
+          <div className="drawing-editor__title">
+            <EditableValue
+              value={chassis.hostname}
+              placeholder={UNNAMED_HOSTNAME}
+              placeholderClassName="drawing-editor__title--placeholder"
+              editorKind="text"
+              onCommit={
+                actions.onEdit ? (v) => actions.onEdit!({ kind: 'device', id: chassis.deviceId, field: 'hostname', value: v }) : undefined
+              }
+            />
+          </div>
+          {chassis.role ? <span className="drawing-editor__badge">{chassis.role}</span> : null}
         </div>
         <TypedNote shown={chassis.hostname.length > 0} />
+        {where ? <div className="drawing-editor__subtitle">{where}</div> : null}
+        {links ? <div className="drawing-editor__links">{links}</div> : null}
 
-        <div className="drawing-editor__group">Device</div>
-        <Field label="Model" value={chassis.model || ABSENT} />
-        {/* ADR-0051 §1, brief item 2 — "a box with no catalogue entry draws
-            from ports typed by hand and says so." */}
-        {chassisSketch ? (
-          <div style={TYPED_NOTE_STYLE}>
-            <strong style={{ color: 'var(--ink)', fontWeight: 700 }}>No catalogue entry.</strong> Ports typed by
-            hand.
-          </div>
-        ) : null}
-        <Field label="Vendor" value={chassis.vendor || ABSENT} />
-        <div className="drawing-editor__field">
-          <div className="drawing-editor__field-label">Role</div>
-          <EditableValue
-            value={chassis.role ?? ''}
-            placeholder={ABSENT}
-            editorKind="select"
-            options={DEVICE_ROLES}
-            onCommit={
-              actions.onEdit ? (v) => actions.onEdit!({ kind: 'device', id: chassis.deviceId, field: 'role', value: v }) : undefined
-            }
-          />
-        </div>
-        <TypedNote shown={(chassis.role ?? '').length > 0} />
-
-        <div className="drawing-editor__field">
-          <div className="drawing-editor__field-label">Serial</div>
-          <EditableValue
-            value={chassis.serial ?? ''}
-            placeholder={ABSENT}
-            editorKind="text"
-            onCommit={
-              actions.onEdit ? (v) => actions.onEdit!({ kind: 'chassis', id: chassis.id, field: 'serial', value: v }) : undefined
-            }
-          />
-        </div>
-        <TypedNote shown={(chassis.serial ?? '').length > 0} />
-
-        <Field label="Ports" value={`${chassis.ports.filter((p) => p.cable != null).length} of ${chassis.ports.length} cabled`} />
-        <PortsInWords chassis={chassis} />
-
-        {/* ADR-0051 §1, brief item 2 — a sketch's own ports, typed by hand,
-            each marked TYPED, with add/remove. A catalogued chassis keeps
-            its read-only "Ports" count above, unchanged. */}
-        {chassisSketch ? <SketchPortsSection chassisId={chassis.id} ports={chassis.ports} actions={actions} /> : null}
-
-        <div className="drawing-editor__group">Location</div>
-        {/* Rack/face are placement-only — nothing to show for a chassis
-            `PlacedOnControl` below already draws "Placed on: none" for. */}
-        {rack ? <Field label="Rack" value={`${rack.label} · ${uRange}`} /> : null}
-        {rack ? <Field label="Face" value={chassis.face} /> : null}
-        {/* ADR-0051 §1, brief item 1 — "PLACED ON" as three choices, the
-            current one marked. */}
-        <PlacedOnControl itemId={chassis.id} placement={chassis.placement} view={view} actions={actions} />
-
-        {/* `duplicateDevice` (`commands.ts`) refuses a source that is not
-            rack-mounted — the control stays off an unplaced chassis's panel
-            rather than offering an action that can only ever refuse. */}
-        {rack ? <DuplicateDeviceControl chassisId={chassis.id} actions={actions} /> : null}
-
-        <div className="drawing-editor__group">Management</div>
-        <div className="drawing-editor__field">
-          <div className="drawing-editor__field-label">Mgmt address</div>
-          <EditableValue
-            value={chassis.managementAddress ?? ''}
-            placeholder={ABSENT}
-            editorKind="text"
-            onCommit={
-              actions.onEdit
-                ? (v) => actions.onEdit!({ kind: 'device', id: chassis.deviceId, field: 'management_address', value: v })
-                : undefined
-            }
-          />
-        </div>
-        <TypedNote shown={(chassis.managementAddress ?? '').length > 0} extra={MANAGEMENT_ADDRESS_NOTE} />
-
-        {chassis.psuInlets.length > 0 ? (
-          <div className="drawing-editor__field">
-            <div className="drawing-editor__field-label">Power</div>
-            {chassis.psuInlets.map((inlet) => (
-              <div key={inlet.id} className="drawing-editor__field">
-                <div className="drawing-editor__field-label">{inlet.slot}</div>
-                <div className="drawing-editor__field-value">
-                  {!inlet.fitted ? (
-                    <SupplyAction
-                      label="fit"
+        {/* A new sketch has nothing to show but its ports, so it opens there. */}
+        <PanelTabs
+          key={chassis.id}
+          initial={chassisSketch && chassis.ports.length === 0 ? 'ports' : undefined}
+          tabs={[
+            {
+              id: 'details',
+              label: 'Details',
+              body: (
+                <>
+                  <div className="drawing-editor__group">Device</div>
+                  <Field label="Model" value={chassis.model || ABSENT} />
+                  {/* ADR-0051 §1, brief item 2 — "a box with no catalogue entry draws
+                      from ports typed by hand and says so." */}
+                  {chassisSketch ? (
+                    <div style={TYPED_NOTE_STYLE}>
+                      <strong style={{ color: 'var(--ink)', fontWeight: 700 }}>No catalogue entry.</strong> Ports typed by
+                      hand.
+                    </div>
+                  ) : null}
+                  <Field label="Vendor" value={chassis.vendor || ABSENT} />
+                  <div className="drawing-editor__field">
+                    <div className="drawing-editor__field-label">Role</div>
+                    <EditableValue
+                      value={chassis.role ?? ''}
+                      placeholder={ABSENT}
+                      editorKind="select"
+                      options={DEVICE_ROLES}
                       onCommit={
-                        actions.onEdit ? () => actions.onEdit!({ kind: 'supply-fit', chassisId: chassis.id, slot: inlet.slot }) : undefined
+                        actions.onEdit ? (v) => actions.onEdit!({ kind: 'device', id: chassis.deviceId, field: 'role', value: v }) : undefined
                       }
                     />
-                  ) : inlet.hotSwap && inlet.supplyId != null ? (
-                    <>
-                      <EditableValue
-                        value={inlet.serial ?? ''}
-                        placeholder={ABSENT}
-                        editorKind="text"
-                        onCommit={
-                          actions.onEdit
-                            ? (v) => actions.onEdit!({ kind: 'supply', id: inlet.supplyId!, field: 'serial', value: v })
-                            : undefined
-                        }
-                      />
-                      <TypedNote shown={(inlet.serial ?? '').length > 0} />
-                      <SupplyAction
-                        label="remove"
-                        onCommit={actions.onEdit ? () => actions.onEdit!({ kind: 'supply-remove', id: inlet.supplyId! }) : undefined}
-                      />
-                    </>
-                  ) : (
-                    'fitted'
-                  )}
-                </div>
-              </div>
-            ))}
-            {chassis.singleFed ? <div style={CAUTION_STYLE}>Single-fed: only one supply is cabled.</div> : null}
-            {chassis.oneFitted ? <div style={CAUTION_STYLE}>One fitted: a slot is empty.</div> : null}
-          </div>
-        ) : null}
+                  </div>
+                  <TypedNote shown={(chassis.role ?? '').length > 0} />
 
-        <FirmwareSection deviceId={chassis.deviceId} />
+                  <div className="drawing-editor__field">
+                    <div className="drawing-editor__field-label">Serial</div>
+                    <EditableValue
+                      value={chassis.serial ?? ''}
+                      placeholder={ABSENT}
+                      editorKind="text"
+                      onCommit={
+                        actions.onEdit ? (v) => actions.onEdit!({ kind: 'chassis', id: chassis.id, field: 'serial', value: v }) : undefined
+                      }
+                    />
+                  </div>
+                  <TypedNote shown={(chassis.serial ?? '').length > 0} />
 
-        <FieldsSection ownerId={chassis.deviceId} actions={actions} />
+                  <div className="drawing-editor__group">Location</div>
+                  {/* Rack/face are placement-only — nothing to show for a chassis
+                      `PlacedOnControl` below already draws "Placed on: none" for. */}
+                  {rack ? <Field label="Rack" value={`${rack.label} · ${uRange}`} /> : null}
+                  {rack ? <Field label="Face" value={chassis.face} /> : null}
+                  {/* ADR-0051 §1, brief item 1 — "PLACED ON" as three choices, the
+                      current one marked. */}
+                  <PlacedOnControl itemId={chassis.id} placement={chassis.placement} view={view} actions={actions} />
 
-        {/* ADR-0053 §5 — Device, not Chassis: the device has the page, the
-            hostname and the capture, so its notes are `HasNote`'d off
-            `chassis.deviceId`, not `chassis.id`. */}
-        <NotesSection ownerId={chassis.deviceId} actions={actions} />
-        <TagsSection ownerId={chassis.deviceId} actions={actions} />
-        <DocsSection ownerId={chassis.deviceId} model={chassis.model} />
+                  <div className="drawing-editor__group">Management</div>
+                  <div className="drawing-editor__field">
+                    <div className="drawing-editor__field-label">Mgmt address</div>
+                    <EditableValue
+                      value={chassis.managementAddress ?? ''}
+                      placeholder={ABSENT}
+                      editorKind="text"
+                      onCommit={
+                        actions.onEdit
+                          ? (v) => actions.onEdit!({ kind: 'device', id: chassis.deviceId, field: 'management_address', value: v })
+                          : undefined
+                      }
+                    />
+                  </div>
+                  <TypedNote shown={(chassis.managementAddress ?? '').length > 0} extra={MANAGEMENT_ADDRESS_NOTE} />
 
-        {/* UI-SPEC's cable-delete rule — the same one-shot action shape
-            `SupplyAction` already gives "remove"/"Disconnect", raising
-            `document/commands.ts`'s `removeChassis` through
-            `EditorActions.onEdit`. No confirmation dialog; undo is the
-            record's job. */}
-        <SupplyAction
-          label="Remove device"
-          onCommit={actions.onEdit ? () => actions.onEdit!(removeDeviceChange(chassis.id)) : undefined}
+                  <FirmwareSection deviceId={chassis.deviceId} />
+
+                </>
+              ),
+            },
+            {
+              id: 'ports',
+              label: 'Ports',
+              body: (
+                <>
+                  <Field label="Ports" value={`${chassis.ports.filter((p) => p.cable != null).length} of ${chassis.ports.length} cabled`} />
+                  <PortsInWords chassis={chassis} />
+
+                  {/* ADR-0051 §1, brief item 2 — a sketch's own ports, typed by hand,
+                      each marked TYPED, with add/remove. A catalogued chassis keeps
+                      its read-only "Ports" count above, unchanged. */}
+                  {chassisSketch ? <SketchPortsSection chassisId={chassis.id} ports={chassis.ports} actions={actions} /> : null}
+
+                  {chassis.psuInlets.length > 0 ? (
+                    <div className="drawing-editor__field">
+                      <div className="drawing-editor__field-label">Power</div>
+                      {chassis.psuInlets.map((inlet) => (
+                        <div key={inlet.id} className="drawing-editor__field">
+                          <div className="drawing-editor__field-label">{inlet.slot}</div>
+                          <div className="drawing-editor__field-value">
+                            {!inlet.fitted ? (
+                              <SupplyAction
+                                label="fit"
+                                onCommit={
+                                  actions.onEdit ? () => actions.onEdit!({ kind: 'supply-fit', chassisId: chassis.id, slot: inlet.slot }) : undefined
+                                }
+                              />
+                            ) : inlet.hotSwap && inlet.supplyId != null ? (
+                              <>
+                                <EditableValue
+                                  value={inlet.serial ?? ''}
+                                  placeholder={ABSENT}
+                                  editorKind="text"
+                                  onCommit={
+                                    actions.onEdit
+                                      ? (v) => actions.onEdit!({ kind: 'supply', id: inlet.supplyId!, field: 'serial', value: v })
+                                      : undefined
+                                  }
+                                />
+                                <TypedNote shown={(inlet.serial ?? '').length > 0} />
+                                <SupplyAction
+                                  label="remove"
+                                  onCommit={actions.onEdit ? () => actions.onEdit!({ kind: 'supply-remove', id: inlet.supplyId! }) : undefined}
+                                />
+                              </>
+                            ) : (
+                              'fitted'
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {chassis.singleFed ? <div style={CAUTION_STYLE}>Single-fed: only one supply is cabled.</div> : null}
+                      {chassis.oneFitted ? <div style={CAUTION_STYLE}>One fitted: a slot is empty.</div> : null}
+                    </div>
+                  ) : null}
+
+                </>
+              ),
+            },
+            {
+              id: 'notes',
+              label: 'Notes',
+              body: (
+                <>
+                  <FieldsSection ownerId={chassis.deviceId} actions={actions} />
+
+                  {/* ADR-0053 §5 — Device, not Chassis: the device has the page, the
+                      hostname and the capture, so its notes are `HasNote`'d off
+                      `chassis.deviceId`, not `chassis.id`. */}
+                  <NotesSection ownerId={chassis.deviceId} actions={actions} />
+                  <TagsSection ownerId={chassis.deviceId} actions={actions} />
+                  <DocsSection ownerId={chassis.deviceId} model={chassis.model} />
+
+                </>
+              ),
+            },
+          ]}
         />
+
+        <div className="drawing-editor__footer">
+          {/* UI-SPEC's cable-delete rule — the same one-shot action shape
+              `SupplyAction` already gives "remove"/"Disconnect", raising
+              `document/commands.ts`'s `removeChassis` through
+              `EditorActions.onEdit`. No confirmation dialog; undo is the
+              record's job. */}
+          <SupplyAction
+            label="Remove device"
+            onCommit={actions.onEdit ? () => actions.onEdit!(removeDeviceChange(chassis.id)) : undefined}
+          />
+          {/* `duplicateDevice` (`commands.ts`) refuses a source that is not
+              rack-mounted — the control stays off an unplaced chassis's panel
+              rather than offering an action that can only ever refuse. */}
+          {rack ? <DuplicateDeviceControl chassisId={chassis.id} actions={actions} /> : null}
+        </div>
       </div>
     );
   }
@@ -2070,10 +2180,12 @@ function panelFor(
             outlet) has no such action — racks/surfaces and everything on
             them that is not a device stay out of scope. */}
         {occupant.kind === 'chassis' ? (
-          <SupplyAction
-            label="Remove device"
-            onCommit={actions.onEdit ? () => actions.onEdit!(removeDeviceChange(occupant.id)) : undefined}
-          />
+          <div className="drawing-editor__footer">
+            <SupplyAction
+              label="Remove device"
+              onCommit={actions.onEdit ? () => actions.onEdit!(removeDeviceChange(occupant.id)) : undefined}
+            />
+          </div>
         ) : null}
       </div>
     );
@@ -2147,10 +2259,12 @@ function panelFor(
             exactly like a rack-mounted one; a board or any other passive
             fixture has no such action. */}
         {fixture.kind === 'chassis' ? (
-          <SupplyAction
-            label="Remove device"
-            onCommit={actions.onEdit ? () => actions.onEdit!(removeDeviceChange(fixture.id)) : undefined}
-          />
+          <div className="drawing-editor__footer">
+            <SupplyAction
+              label="Remove device"
+              onCommit={actions.onEdit ? () => actions.onEdit!(removeDeviceChange(fixture.id)) : undefined}
+            />
+          </div>
         ) : null}
       </div>
     );

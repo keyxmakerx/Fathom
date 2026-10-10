@@ -19,7 +19,7 @@ import { ItemPage } from './ItemPage';
 import type { FieldFor, FieldType } from '../../api/fieldDefinitions';
 import { ImportDialog } from '../import/ImportDialog';
 import type { FieldDefView } from '../../document/fields';
-import { ListToolbar } from './ListToolbar';
+import { ListToolbar, type KindFilter } from './ListToolbar';
 import { isKind } from './kinds';
 import { listIssues } from '../../document/issues';
 import { IssuesList } from '../troubleshoot/IssuesList';
@@ -37,7 +37,7 @@ import { ListFoot } from './ListFoot';
 import { PROGRESS_FROM, applyPlan, applyPlanChunked, bulkStillUndoable, dryRun, keepSelected, type BulkPlan } from './bulk';
 import { undo as undoBatch } from '../../document/undo';
 import { schemaFor, filterRows, type QuerySchema } from './rowQuery';
-import { joinUnits, quoteValue, units } from './query';
+import { fieldState, joinUnits, quoteValue, setField, units } from './query';
 import { useListState } from './useListState';
 import { linkTarget } from './links';
 import { listKey, loadMemory, saveMemory, type ListMemory } from './listView';
@@ -335,6 +335,27 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const schema = useMemo(() => schemaFor(kindWord(kind), columnsAll, FACETS[kind] ?? []), [kind, columnsAll]);
   const filtered = useMemo(() => filterRows(baseRows, schema, q), [baseRows, schema, q]);
   const rows = useMemo(() => sortRows(filtered.rows, sorts), [filtered, sorts]);
+
+  // r14 A1: the device list narrows by role in one click; the pick is a `role:` term in the line.
+  const roleFilter = useMemo<KindFilter | undefined>(() => {
+    if (kind !== 'devices') return undefined;
+    const counts = new Map<string, number>();
+    for (const r of baseRows) {
+      const role = r.cells.role ?? '';
+      if (role !== '') counts.set(role, (counts.get(role) ?? 0) + 1);
+    }
+    const picked = fieldState(q, 'role').values;
+    const options = [...counts]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 4)
+      .map(([value, count]) => ({ value, count, label: roleWord(value) }));
+    return {
+      label: 'Show devices by role',
+      options,
+      current: picked.length === 1 ? picked[0]!.toLowerCase() : null,
+      onPick: (value) => go({ q: setField(q, 'role', { values: value ? [value] : [], min: '', max: '', has: '' }) }),
+    };
+  }, [kind, baseRows, q]); // eslint-disable-line react-hooks/exhaustive-deps -- `go` is a fresh closure each render.
 
   const allViews = useMemo(() => [...PINNED_VIEWS, ...mine], [mine]);
   const currentView = ls.view ? allViews.find((v) => v.id === ls.view && v.kind === kind) : undefined;
@@ -782,6 +803,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                 }
                 addHint={kind === 'cables' ? 'Draw cables on the canvas.' : kind === 'ports' ? 'Ports come with a device.' : kind === 'addresses' ? 'Addresses are read from your devices.' : ''}
                 onAdd={onAdd}
+                kindFilter={roleFilter}
                 onImport={canDraw && kind === 'devices' ? () => { importBase.current = liveDoc.current; setImporting(true); } : undefined}
                 onPaste={canDraw && (kind === 'devices' || kind === 'racks' || kind === 'cables' || kind === 'ports' || kind === 'prefixes' || kind === 'vlans') ? () => setPasteText('') : undefined}
                 checkedRows={checkedRows}
@@ -958,4 +980,11 @@ function AddressNote({ row, onOpenDevice }: { row: InvRow | null; onOpenDevice: 
       </div>
     </aside>
   );
+}
+
+/** "switch" -> "Switches", "access_point" -> "Access points". */
+function roleWord(role: string): string {
+  const words = role.replace(/_/g, ' ');
+  const plural = /(s|sh|ch|x)$/.test(words) ? `${words}es` : `${words}s`;
+  return plural.charAt(0).toUpperCase() + plural.slice(1);
 }

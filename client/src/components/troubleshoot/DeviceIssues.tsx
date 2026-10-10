@@ -4,12 +4,22 @@ import { historyLine } from './troubleModel';
 import type { TroubleController } from './useTroubleController';
 import './trouble.css';
 
-export function DeviceIssues({ controller, chassisId, deviceId }: { controller: TroubleController; chassisId: string; deviceId: string }) {
+/** The "It's down" button alone, quiet, for the head of a device's panel. */
+export function ItsDownButton({ controller, chassisId }: { controller: TroubleController; chassisId: string }) {
+  if (!controller.canEdit) return null;
+  return (
+    <button type="button" className="btn-quiet" onClick={() => controller.start(chassisId)} data-testid="its-down-button">
+      It's down
+    </button>
+  );
+}
+
+export function DeviceIssues({ controller, chassisId, deviceId, withButton = true }: { controller: TroubleController; chassisId: string; deviceId: string; withButton?: boolean }) {
   const issues = controller.issuesOf(deviceId);
-  if (!controller.canEdit && issues.length === 0) return null;
+  if ((!withButton || !controller.canEdit) && issues.length === 0) return null;
   return (
     <section className="trouble-history" aria-label="Issues" data-testid="device-issues">
-      {controller.canEdit && (
+      {withButton && controller.canEdit && (
         <button type="button" className="trouble-btn" onClick={() => controller.start(chassisId)} data-testid="its-down-button">
           It's down
         </button>
