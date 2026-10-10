@@ -387,6 +387,8 @@ export interface LabelView {
   id: string;
   text: string;
   form: 'text' | 'area' | 'note';
+  /** A note's author and time, from the provenance of the batch that added it; absent when unknown. */
+  author?: { actor: string; at: number };
   x: number;
   y: number;
   /** An area's size; a text label's are the defaults and unused. */

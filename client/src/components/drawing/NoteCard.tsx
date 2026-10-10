@@ -1,12 +1,15 @@
-// A note pinned to the canvas (schema 0.19, `Label.form` = note): a small card for teammates and
-// for later. Square, hairline, a surface tint, the words wrapping. Edited in place like a label:
-// Enter keeps it, Shift Enter starts a new line, Esc leaves it as it was.
-import { useEffect, useRef } from 'react';
+// A note pinned to the canvas (schema 0.19, `Label.form` = note), as the owner approved it: a card
+// about 270px wide on the surface colour with a soft floating shadow, an amber top edge and a small
+// amber pin at its corner, the words at body size, and under them who added it and when.
+// Edited in place like a label: Enter keeps it, Shift Enter starts a new line, Esc leaves it as it was.
+import { useContext, useEffect, useRef } from 'react';
 
+import { NoteAuthorsContext, noteByline } from './noteByline';
 import '../../styles/notes.css';
 
 export interface NoteCardProps {
   text: string;
+  author?: { actor: string; at: number };
   editing: boolean;
   selected: boolean;
   onEdit: (text: string | null) => void;
@@ -45,13 +48,14 @@ function NoteEditor({ text, onEdit }: { text: string; onEdit: (text: string | nu
   );
 }
 
-export function NoteCard({ text, editing, selected, onEdit }: NoteCardProps) {
+export function NoteCard({ text, author, editing, selected, onEdit }: NoteCardProps) {
+  const people = useContext(NoteAuthorsContext);
+  const byline = noteByline(author, people);
   return (
-    <div className={'free-note' + (selected ? ' free-note--selected' : '') + (editing ? ' free-note--editing' : '')} data-testid="free-note">
-      <span className="free-note__tag" aria-hidden="true">
-        Note
-      </span>
+    <div className={'free-note' + (selected ? ' free-note--selected' : '') + (editing ? ' free-note--editing' : '')} data-testid="free-note" role="note">
+      <span className="free-note__pin" aria-hidden="true" />
       {editing ? <NoteEditor text={text} onEdit={onEdit} /> : <p className="free-note__text">{text || 'Note'}</p>}
+      {byline !== null && <div className="free-note__by">{byline}</div>}
     </div>
   );
 }

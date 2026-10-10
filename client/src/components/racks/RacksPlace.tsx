@@ -76,6 +76,7 @@ import { addFreeBoxDoc, duplicateFreeDoc } from './freeActions';
 import { addFreeBoxFromTemplateDoc } from './freeActions';
 import { addTemplatePorts, placePorts, resetPortPlaces, type PortPlace, type TemplatePort } from '../../document/plate';
 import { useFaceplateTemplates } from '../jot/faceplateTemplates';
+import { NoteAuthorsContext } from '../drawing/noteByline';
 import { addRack, createPremises, ensureRackToPlaceInto, nextName } from './emptyDesign';
 import type { PaletteItem } from '../drawing/contract';
 import { DEFAULT_FACEPLATES, SKETCH_DEVICE_PALETTE_ITEM, isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
@@ -1057,6 +1058,14 @@ export function RacksPlace(props: RacksPlaceProps) {
   // The owner's ticked ideas (schema 0.19): drag hand-typed ports on their plate, and faceplate
   // templates kept in this browser per account. Every write is one undo step through `freeWrite`.
   const faceplateTemplates = useFaceplateTemplates(accountId);
+  // A pinned note's byline names whoever this client can name: you, and the people here live.
+  const ownInitials = shellProps.account?.initials;
+  const livePeople = session.live.people;
+  const noteAuthors = useMemo(() => {
+    const m = new Map<string, string>(livePeople.map((p) => [p.account, p.initials]));
+    if (accountId != null && ownInitials) m.set(accountId, ownInitials);
+    return m;
+  }, [livePeople, accountId, ownInitials]);
   const handlePlacePorts = useCallback(
     (chassisId: string, places: PortPlace[]) => void freeWrite((d, o) => ({ doc: placePorts(d, chassisId, places, o), out: null })),
     [freeWrite],
@@ -1371,6 +1380,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       band={doc != null && plans.bandOpen ? <PlanBand controller={plans} /> : undefined}
     >
       <ChecksContext.Provider value={checks.api}>
+      <NoteAuthorsContext.Provider value={noteAuthors}>
       {historyView?.banner != null ? (
         <div className="history-banner" role="status" data-testid="history-banner">
           {historyView.banner}
@@ -1511,6 +1521,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       </TroubleContext.Provider>
       </PlansContext.Provider>
       </CheckMarksContext.Provider>
+      </NoteAuthorsContext.Provider>
       </ChecksContext.Provider>
     </Shell>
   );

@@ -56,6 +56,9 @@ export interface JotViewProps {
 interface PortDrag extends SnappedPort {
   plateId: string;
   portId: string;
+  /** Where the pointer has the port's centre now, kept on the plate; it snaps to `cx`/`cy` on drop. */
+  px: number;
+  py: number;
 }
 
 /** A port moves only on a hand-typed box, and only if it is not a catalogue port. */
@@ -232,8 +235,10 @@ export function JotView(props: JotViewProps): JSX.Element {
     let last: SnappedPort | null = null;
     const move = (ev: PointerEvent) => {
       const p = toStage(ev.clientX, ev.clientY);
-      last = snapPort({ cx: start.cx + p.x - grab.x, cy: start.cy + p.y - grab.y }, box, dims, others, within);
-      setPortDrag({ plateId: plate.chassis.id, portId: box.id, ...last });
+      const raw = { cx: start.cx + p.x - grab.x, cy: start.cy + p.y - grab.y };
+      last = snapPort(raw, box, dims, others, within);
+      const keep = (v: number, half: number, span: number) => Math.max(half, Math.min(span - half, v));
+      setPortDrag({ plateId: plate.chassis.id, portId: box.id, ...last, px: keep(raw.cx, box.w / 2, dims.w), py: keep(raw.cy, box.h / 2, dims.h) });
     };
     const up = () => {
       el.removeEventListener('pointermove', move);
@@ -393,17 +398,28 @@ function Plate(props: {
     <div className={'jot-plate' + (plate.isDevice ? ' jot-plate--device' : '') + (selected ? ' jot-plate--selected' : '') + (arrangeHere ? ' jot-plate--arranging' : '')} style={{ left: plate.x, top: plate.y, width: plate.w, height: plate.h }} data-testid={plate.isDevice ? 'jot-device' : 'jot-box'}>
       <span className="jot-plate__name" onPointerDown={(e) => onStartMove(e, plate)}>
         {plate.chassis.hostname || 'unnamed'}
+        {arrangeHere && plate.chassis.ports.length > 0 && (
+          <span className="jot-plate__caption">
+            {' · '}
+            {plate.chassis.ports.some((p) => p.face === 'front') ? 'front' : 'rear'} · drag a port to move it
+          </span>
+        )}
       </span>
       {portDrag?.guides.v.map((x) => <span key={`v${x}`} className="plate-guide plate-guide--v" style={{ left: x }} aria-hidden="true" />)}
       {portDrag?.guides.h.map((y) => <span key={`h${y}`} className="plate-guide plate-guide--h" style={{ top: y }} aria-hidden="true" />)}
+      {portDrag &&
+        (() => {
+          const from = plate.layout.byId.get(portDrag.portId);
+          return from ? <span className="plate-ghost" style={{ left: from.x, top: from.y, width: from.w, height: from.h }} aria-hidden="true" /> : null;
+        })()}
       {plate.layout.boxes.map((box) => {
         const port = byId.get(box.id)!;
         const Glyph = PORT_GLYPHS[box.kind];
         const cabled = port.cable != null;
         const moves = arrangeHere && movable(plate, box.id);
         const dragging = portDrag?.portId === box.id;
-        const left = dragging ? portDrag.cx - box.w / 2 : box.x;
-        const top = dragging ? portDrag.cy - box.h / 2 : box.y;
+        const left = dragging ? portDrag.px - box.w / 2 : box.x;
+        const top = dragging ? portDrag.py - box.h / 2 : box.y;
         return (
           <button
             key={box.id}

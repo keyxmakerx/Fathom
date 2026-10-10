@@ -366,6 +366,7 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
       const data: LabelNodeData = {
         text: l.text,
         form: l.form,
+        ...(l.author ? { author: l.author } : {}),
         w: size.w,
         h: size.h,
         editing: editing === l.id,

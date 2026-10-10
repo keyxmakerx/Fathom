@@ -1,44 +1,52 @@
-/* Notes pinned to the canvas (schema 0.19). Blueprint: square, hairline, a surface tint. */
+/* Notes pinned to the canvas (schema 0.19), as approved: a surface card, soft floating shadow,
+   an amber top edge and a small amber pin just left of its top-left corner. */
 .free-note {
+  position: relative;
   box-sizing: border-box;
-  min-width: 96px;
-  max-width: 200px;
-  padding: var(--s1, 4px) var(--s2, 8px) var(--s2, 8px);
+  width: 270px;
+  padding: var(--s2, 8px) var(--s3, 12px) var(--s2, 8px);
   background: var(--surface);
   border: 1px solid var(--hairline);
-  border-top: 2px solid var(--ink);
+  border-top: 2px solid var(--caution);
   border-radius: 0;
   color: var(--ink);
-  box-shadow: var(--shadow-card, 0 2px 8px rgba(0, 0, 0, 0.12));
+  box-shadow: var(--shadow-pop, 0 16px 40px rgba(0, 0, 0, 0.28));
   cursor: grab;
   animation: fathom-note-in var(--m-pop, 160ms) var(--m-ease, cubic-bezier(0.2, 0.8, 0.2, 1));
-  transition: box-shadow var(--m-hover, 120ms) var(--m-ease, ease), transform var(--m-hover, 120ms) var(--m-ease, ease);
+  transition: transform var(--m-hover, 120ms) var(--m-ease, ease);
 }
-.free-note:hover { box-shadow: var(--shadow-pop, 0 16px 40px rgba(0, 0, 0, 0.28)); }
+.free-note:hover { transform: translateY(-1px); }
 .free-note--selected { outline: var(--focus-width, 2px) solid var(--focus-colour, var(--ink)); outline-offset: 2px; }
-.free-note--editing { width: 200px; cursor: text; }
-.free-note__tag {
-  display: block;
+.free-note--editing { cursor: text; }
+.free-note__pin {
+  position: absolute;
+  left: -5px;
+  top: -6px;
+  width: 8px;
+  height: 8px;
+  background: var(--caution);
+}
+.free-note__text {
+  margin: 0;
+  font-size: var(--t-body, 14px);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.free-note__by {
+  margin-top: var(--s1, 4px);
   font-size: var(--t-micro, 10px);
   letter-spacing: var(--track-label, 0.08em);
   text-transform: uppercase;
   color: var(--muted);
-  margin-bottom: 2px;
-}
-.free-note__text {
-  margin: 0;
-  font-size: var(--t-small, 12px);
-  line-height: 1.35;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 .free-note__input {
   display: block;
   box-sizing: border-box;
   width: 100%;
   font: inherit;
-  font-size: var(--t-small, 12px);
-  line-height: 1.35;
+  font-size: var(--t-body, 14px);
+  line-height: 1.4;
   color: var(--ink);
   background: var(--page);
   border: 1px solid var(--ink);
@@ -54,4 +62,5 @@
 
 @media (prefers-reduced-motion: reduce) {
   .free-note { animation: none; transition: none; }
+  .free-note:hover { transform: none; }
 }

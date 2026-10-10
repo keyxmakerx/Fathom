@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { duplicateFreeDoc } from '../components/racks/freeActions';
+import { noteByline } from '../components/drawing/noteByline';
 import { faceplateGlyphRows } from '../print/rackSheet';
 import { createLabel, removeFree, setLabel } from './freeform';
 import { emptyDocument } from './model';
@@ -21,6 +22,26 @@ describe('notes pinned to the canvas (schema 0.19)', () => {
 
     const gone = removeFree(copy.doc, [made.id]);
     expect(viewOf(gone, []).labels.map((l) => l.id)).toEqual(copy.ids);
+  });
+});
+
+describe("a note's byline", () => {
+  it('names who added it and when, from the batch that made it', () => {
+    const at = new Date(2026, 9, 9, 15, 0).getTime();
+    const made = createLabel(emptyDocument(), { text: 'Ask facilities', form: 'note', x: 0, y: 0, actor: 'acct-km', now: at });
+    const note = viewOf(made.doc, []).labels[0]!;
+    expect(note.author).toEqual({ actor: 'acct-km', at });
+    expect(noteByline(note.author, new Map([['acct-km', 'KM']]), at)).toBe('KM · 9 OCT');
+    expect(noteByline(note.author, new Map(), at)).toBe('9 OCT');
+    expect(noteByline(note.author, new Map([['acct-km', 'KM']]), new Date(2027, 0, 1).getTime())).toBe('KM · 9 OCT 2026');
+  });
+
+  it('has no byline when nobody is on record, and labels never carry one', () => {
+    const local = createLabel(emptyDocument(), { text: 'n', form: 'note', x: 0, y: 0 });
+    expect(viewOf(local.doc, []).labels[0]!.author).toBeUndefined();
+    expect(noteByline(undefined, new Map())).toBeNull();
+    const label = createLabel(emptyDocument(), { text: 'l', form: 'text', x: 0, y: 0, actor: 'acct-km', now: 1_700_000_000_000 });
+    expect(viewOf(label.doc, []).labels[0]!.author).toBeUndefined();
   });
 });
 

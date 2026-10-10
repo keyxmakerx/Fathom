@@ -9,6 +9,8 @@ import { useGripDrag, type GripDrag } from './useGripDrag';
 export interface LabelNodeData extends Record<string, unknown> {
   text: string;
   form: 'text' | 'area' | 'note';
+  /** A note's author and time, when on record. */
+  author?: { actor: string; at: number };
   w: number;
   h: number;
   editing: boolean;
@@ -70,7 +72,7 @@ function AreaGrip({ data }: { data: LabelNodeData }) {
 }
 
 export function LabelNode({ data, selected }: NodeProps<LabelNodeType>) {
-  if (data.form === 'note') return <NoteCard text={data.text} editing={data.editing} selected={selected === true} onEdit={data.onEdit} />;
+  if (data.form === 'note') return <NoteCard text={data.text} author={data.author} editing={data.editing} selected={selected === true} onEdit={data.onEdit} />;
   const edit = data.editing ? <TextEditor data={data} /> : null;
   if (data.form === 'area') {
     return (
