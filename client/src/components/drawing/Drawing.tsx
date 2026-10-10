@@ -49,7 +49,6 @@ import {
   RACK_HEADER_PX,
   RACK_INNER_PX,
   U_PX,
-  cableSagPath,
   cameraStopAt,
   overlapsRack,
   rackAtPoint,
@@ -99,6 +98,9 @@ import type { Person } from '../../api/live';
 import { buildDrawingNodes, ownerNodeIdForPort } from './buildDrawingNodes';
 import { PEER_DOT_PX, peerMarks } from './peerMarks';
 import { useDrawingNodeCaches } from './useDrawingNodeCaches';
+import { easeOut, glideOptions } from './motion';
+import { useSettle } from './useSettle';
+import { liveSagPath, markFreshCable } from './cableMotion';
 
 const NODE_TYPES = {
   rack: RackNode,
@@ -151,7 +153,8 @@ function rowBandY(rowLayouts: readonly RowLayout[], rowIndex: number): number {
  * `Patching.dc.html`'s own reference board draws the in-hand lead the same
  * plain grey. */
 function ConnectionLine({ fromX, fromY, toX, toY }: ConnectionLineComponentProps) {
-  const d = cableSagPath(fromX, fromY, toX, toY, 'copper');
+  // The slack follows the pointer: the farther the pointer, the lower the lead hangs (capped).
+  const d = liveSagPath(fromX, fromY, toX, toY);
   return (
     <path d={d} fill="none" stroke="var(--muted)" strokeWidth={2.4} strokeLinecap="round" className="drawing-cable__live" />
   );
@@ -229,8 +232,16 @@ function closetFitViewOptions(racks: readonly { id: string }[], surfaces: readon
 }
 
 /** The camera's glide: linear, so its zoom runs straight between the two ends
- * and never dips into another stop or band on the way. */
-const GLIDE = { duration: 300, interpolate: 'linear' } as const;
+ * and never dips into another stop or band on the way, with an ease-out on the
+ * timing so it lands softly. `duration` is read when the options are spread, so
+ * the person's reduce-motion setting (duration 0) applies at once. */
+const GLIDE = {
+  get duration() {
+    return glideOptions().duration;
+  },
+  ease: easeOut,
+  interpolate: 'linear',
+} as const;
 
 /** Matches `.drawing-config-drawer`'s height in `drawing.css`. */
 const DRAWER_HEIGHT_FRACTION = 0.46;
@@ -305,6 +316,10 @@ export interface DrawingProps extends DrawingActions {
   openRequest?: { id: string; view: 'config' | 'inside' } | null;
   /** The chassis whose callout is showing, or null; the caller keeps the details panel closed meanwhile. */
   onCalloutChange?: (id: string | null) => void;
+  /** The devices picked together (two or more, by chassis id), or empty. Racked and free devices both count. */
+  onGroupChange?: (chassisIds: string[]) => void;
+  /** Bump to drop the picked devices (a counter, so a repeat press fires). */
+  groupClearRequest?: number;
   /** The Cables list's own draw rule, already computed once by the caller
    * (`racks/RacksPlace.tsx`, which holds the `Document` a VLAN or a tag
    * group needs — this drawing never imports it, and never runs the draw
@@ -412,6 +427,8 @@ function DrawingInner({
   emptyHint,
   openRequest,
   onCalloutChange,
+  onGroupChange,
+  groupClearRequest,
   drawnCableIds,
   dashedCableIds,
 }: DrawingProps) {
@@ -486,6 +503,17 @@ function DrawingInner({
   useEffect(() => {
     onCalloutChange?.(callout?.id ?? null);
   }, [callout, onCalloutChange]);
+  // Tell the caller which devices are picked together, so its panel can edit them all; empty again on leaving.
+  const groupKey = free.deviceIds.join('|');
+  useEffect(() => {
+    onGroupChange?.(groupKey === '' ? [] : groupKey.split('|'));
+  }, [groupKey, onGroupChange]);
+  useEffect(() => () => onGroupChange?.([]), [onGroupChange]);
+  const clearGroup = free.clearGroup;
+  useEffect(() => {
+    if (groupClearRequest) clearGroup();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires on the counter alone.
+  }, [groupClearRequest]);
   const openChassis = useCallback(
     (id: string, view: 'config' | 'inside' = 'config') => {
       onSelect({ kind: 'chassis', id });
@@ -810,6 +838,8 @@ function DrawingInner({
     [followCamera, settled.settle],
   );
 
+  const { settleMoved, settlePlaced } = useSettle(containerRef, view);
+
   const triggerShake = useCallback((id: string) => {
     if (shakeTimer.current != null) clearTimeout(shakeTimer.current);
     setShakingId(id);
@@ -1038,8 +1068,8 @@ function DrawingInner({
     const nextZoom = zoom / 100;
     const pane = containerRef.current;
     const target = configDrawerOpen && selectedChassisFlowCentre != null ? centreAboveDrawer(selectedChassisFlowCentre, nextZoom, pane) : null;
-    if (target != null) void rf.setCenter(target.x, target.y, { zoom: nextZoom });
-    else void rf.setViewport(pane == null ? { ...live, zoom: nextZoom } : zoomAboutPaneCentre(live, nextZoom, pane.clientWidth, pane.clientHeight));
+    if (target != null) void rf.setCenter(target.x, target.y, { zoom: nextZoom, ...GLIDE });
+    else void rf.setViewport(pane == null ? { ...live, zoom: nextZoom } : zoomAboutPaneCentre(live, nextZoom, pane.clientWidth, pane.clientHeight), { ...GLIDE });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reacts to the bar alone; the drawer and chassis are read as they are now.
   }, [zoom, rf]);
 
@@ -1308,8 +1338,16 @@ function DrawingInner({
       if (free.onNodeDoubleClick(node)) return;
       const parsed = parseNodeId(node.id);
       if (parsed?.kind === 'chassis') openChassis(parsed.id);
+      // A double-click on a rack glides to the rack stop, centred on that rack.
+      if (parsed?.kind === 'rack') {
+        const inner = rf.getInternalNode(node.id);
+        if (inner == null) return;
+        const w = inner.measured.width ?? RACK_NODE_WIDTH;
+        const h = inner.measured.height ?? 0;
+        void rf.setCenter(inner.internals.positionAbsolute.x + w / 2, inner.internals.positionAbsolute.y + h / 2, { zoom: CAMERA_STOPS.rack / 100, ...GLIDE });
+      }
     },
-    [openChassis, onOpenDevice, free.onNodeDoubleClick],
+    [openChassis, onOpenDevice, free.onNodeDoubleClick, rf],
   );
 
   const chassisHeightUFor = (node: FlowNode): number =>
@@ -1375,8 +1413,9 @@ function DrawingInner({
         return;
       }
       onMove(parsed.id, rack.id, positionU);
+      settleMoved(parsed.id);
     },
-    [view.racks, rackPositions, onMove, triggerShake, free.onNodeDragStop],
+    [view.racks, rackPositions, onMove, triggerShake, free.onNodeDragStop, settleMoved],
   );
 
   const handleDragOver = useCallback(
@@ -1439,9 +1478,10 @@ function DrawingInner({
         triggerShake(rackNodeId(rack.id));
         return;
       }
+      settlePlaced(rack.id, positionU);
       onPlace(rack.id, { vendor: payload.vendor, model: payload.model, role: payload.role }, positionU);
     },
-    [rf, view.racks, rackPositions, onPlace, onPlaceOnSurface, triggerShake, canDraw, free.dropBox],
+    [rf, view.racks, rackPositions, onPlace, onPlaceOnSurface, triggerShake, canDraw, free.dropBox, settlePlaced],
   );
 
   // UI-SPEC "Drag-to-connect": "the lead droops live between the fixed
@@ -1529,6 +1569,7 @@ function DrawingInner({
     (sheath: Sheath) => {
       if (!pendingConnect) return;
       setLastSheathByKind((prev) => ({ ...prev, [pendingConnect.kind]: sheath }));
+      markFreshCable(pendingConnect.fromPortId, pendingConnect.toPortId);
       onConnect?.(pendingConnect.fromPortId, pendingConnect.toPortId, sheath);
       setPendingConnect(null);
     },

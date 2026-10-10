@@ -30,6 +30,7 @@ import type { PastePlatform } from '../../engine/frames';
 import { devicePlatform, platformChoices, previewPaste, worthReading } from '../paste/pasteConfig';
 import { ConfigDrawer } from '../config/ConfigDrawer';
 import { canDrawFor, refusalFor, type DesignSession } from '../design/useDesignSession';
+import { MultiDevicePanel } from '../drawing/MultiDevicePanel';
 import { Drawing, EditorFor, Palette, type NotesActions, type Selection, type TagsActions, type FieldsActions } from '../drawing';
 import {
   cableGroupsStorageKey,
@@ -283,6 +284,9 @@ export function RacksPlace(props: RacksPlaceProps) {
   const { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign } = session;
   const [selection, setSelection] = useState<Selection | null>(initialFocus ?? null);
   const selectedId = selection?.id ?? null;
+  // Several devices picked together on the canvas (Shift+click or a marquee), edited from one panel.
+  const [groupIds, setGroupIds] = useState<string[]>([]);
+  const [groupClear, setGroupClear] = useState(0);
   useEffect(() => {
     onSelectedChange?.(selectedId);
   }, [onSelectedChange, selectedId]);
@@ -1310,6 +1314,16 @@ export function RacksPlace(props: RacksPlaceProps) {
           Reload
         </button>
       </div>
+    ) : doc != null && selection == null && groupIds.length >= 2 ? (
+      <MultiDevicePanel
+        ids={groupIds}
+        view={displayView}
+        doc={doc}
+        apply={applyDocChange}
+        actor={actorOpts(accountId)}
+        canDraw={canDraw}
+        onClear={() => setGroupClear((n) => n + 1)}
+      />
     ) : selectedPanel != null ? (
       <>
         {selectedPanel}
@@ -1419,6 +1433,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           onPlanChange={canDraw ? plans.planChange : undefined}
           onItsDown={canDraw ? trouble.start : undefined}
           onCalloutChange={setCalloutId}
+          onGroupChange={setGroupIds}
+          groupClearRequest={groupClear}
           canDraw={canDraw && jot === null}
           openRequest={openRequest}
           renderConfigDrawer={renderConfigDrawer}

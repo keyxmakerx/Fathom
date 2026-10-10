@@ -1,0 +1,68 @@
+/* The details panel for several devices at once. Plain buttons and selects take the app's base look;
+   this only lays them out. */
+.multi-panel__names {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: var(--t-small);
+  overflow-wrap: anywhere;
+}
+
+.multi-panel__select {
+  width: 100%;
+  min-height: var(--control-h, 28px);
+  box-sizing: border-box;
+}
+
+.multi-panel__row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.multi-panel__apply {
+  min-height: var(--control-h, 28px);
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: var(--t-small);
+}
+
+.multi-panel__hint {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.multi-panel__note {
+  margin: 8px 0;
+  padding: 8px;
+  border: 1px solid var(--hairline);
+  font-size: var(--t-small);
+  animation: multi-panel-in var(--m-pop, 160ms) var(--m-ease, ease-out);
+}
+
+.multi-panel__note--refused {
+  border-color: var(--danger, var(--ink));
+}
+
+.multi-panel__clear {
+  margin-top: 8px;
+  min-height: var(--control-h, 28px);
+}
+
+/* Devices picked on the canvas, racked ones included. */
+.drawing-chassis-wrap--picked {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+@keyframes multi-panel-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .multi-panel__note {
+    animation: none;
+  }
+}
