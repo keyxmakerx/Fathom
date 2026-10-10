@@ -1,0 +1,188 @@
+/* Other people on the canvas: their pointers, and the bar that says what they changed while you were away. */
+:root {
+  --m-glow: 1500ms; /* how long a changed thing's outline takes to fade; the same number is in components/collab/glow.ts */
+  --m-pointer: 120ms; /* a pointer glides between the updates it is sent */
+}
+
+/* ---- Changed things: an amber double outline, fading out ---- */
+
+.collab-glow {
+  outline: 2px solid var(--caution);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--caution) 45%, transparent);
+  animation: collab-glow-fade var(--m-glow) ease-out both;
+}
+
+/* A cable is a line: it glows rather than being boxed. */
+.react-flow__edge.collab-glow {
+  outline: none;
+  box-shadow: none;
+  animation-name: collab-edge-fade;
+}
+
+@keyframes collab-glow-fade {
+  from {
+    outline-color: var(--caution);
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--caution) 45%, transparent);
+  }
+  to {
+    outline-color: transparent;
+    box-shadow: 0 0 0 5px transparent;
+  }
+}
+
+@keyframes collab-edge-fade {
+  from {
+    filter: drop-shadow(0 0 2px var(--caution)) drop-shadow(0 0 5px var(--caution));
+  }
+  to {
+    filter: drop-shadow(0 0 0 transparent) drop-shadow(0 0 0 transparent);
+  }
+}
+
+/* ---- Pointers ---- */
+
+.collab-pointer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 30;
+  pointer-events: none;
+  transition: transform var(--m-pointer) linear, opacity var(--m-pop, 160ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1));
+  will-change: transform;
+}
+
+.collab-pointer__inner {
+  transform-origin: 0 0;
+  display: flex;
+  align-items: flex-start;
+}
+
+.collab-pointer__arrow {
+  display: block;
+  fill: var(--ink);
+  stroke: var(--page);
+  stroke-width: 1px;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
+}
+
+.collab-pointer__tag {
+  margin: 12px 0 0 -2px;
+  padding: 0 6px;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--ink);
+  color: var(--page);
+  font-size: var(--t-micro);
+  line-height: 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* ---- The bar at the bottom left ---- */
+
+.collab-changes {
+  position: absolute;
+  left: var(--s3, 12px);
+  bottom: var(--s3, 12px);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: var(--s2, 8px);
+  min-height: 40px;
+  box-sizing: border-box;
+  max-width: calc(100% - 24px);
+  padding: 0 var(--s2, 8px) 0 var(--s3, 12px);
+  border: var(--rule-hair) solid var(--hairline);
+  border-left: 3px solid var(--caution);
+  background: var(--pop-bg, color-mix(in srgb, var(--surface) 88%, transparent));
+  backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
+  -webkit-backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
+  border-radius: var(--radius-pop, 0);
+  box-shadow: var(--shadow-pop, 0 16px 40px rgba(0, 0, 0, 0.28));
+  color: var(--ink);
+  font-size: var(--t-small);
+  animation: collab-rise var(--m-pop, 160ms) cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.collab-changes__words {
+  min-width: 0;
+}
+
+.collab-changes__count {
+  color: var(--muted);
+  font-size: var(--t-micro);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.collab-changes__button,
+.collab-changes__icon {
+  height: var(--control-h, 28px);
+  border: var(--rule-hair) solid var(--control-line, var(--hairline));
+  border-radius: var(--radius-control, 0);
+  background: var(--control-bg, transparent);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1)), border-color var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.collab-changes__button {
+  padding: 0 var(--s3, 12px);
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-label, 0.08em);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.collab-changes__icon {
+  width: var(--control-h, 28px);
+  padding: 0;
+  font-size: var(--t-head);
+  line-height: 1;
+}
+
+.collab-changes__button:hover,
+.collab-changes__icon:hover {
+  background: var(--control-bg-hover, var(--surface));
+  border-color: var(--ink);
+}
+
+.collab-changes__button:focus-visible,
+.collab-changes__icon:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+@keyframes collab-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* No fade, no glide, no rise: the outline simply shows for its moment and goes. */
+@media (prefers-reduced-motion: reduce) {
+  .collab-glow,
+  .react-flow__edge.collab-glow {
+    animation: none;
+  }
+  .collab-pointer {
+    transition: none;
+  }
+  .collab-changes {
+    animation: none;
+  }
+  .collab-changes__button,
+  .collab-changes__icon {
+    transition: none;
+  }
+}

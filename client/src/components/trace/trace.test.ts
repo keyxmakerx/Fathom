@@ -76,6 +76,7 @@ const controller = (over: Partial<TraceController> = {}): TraceController => ({
   setQuery: () => {},
   pick: () => {},
   setFlowText: () => {},
+  replay: () => {},
   ...over,
 });
 

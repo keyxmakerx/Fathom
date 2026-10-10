@@ -5,6 +5,7 @@ import type { Facing, FaceplateItem } from './elevation';
 import type { RackView } from './contract';
 import { RACK_HEADER_PX, RACK_INNER_PX, RAIL_PX, U_PX, sortFreeRuns } from './geometry';
 import { useLive } from './liveStore';
+import { EditableName } from './NameEdit';
 
 /** The C14 glyph's true (`scale` 1) box is 22×16 (`components/ports/C14.tsx`'s
  * `frame(22, 16)`) — UI-SPEC "Power": "the C14 glyph... at rail scale," read
@@ -114,7 +115,10 @@ export function RackNode({ data }: NodeProps<RackNodeType>) {
     >
       <div className="drawing-rack__label">
         <span className="drawing-rack__label-text">
-          {rack.label} &middot; {rack.heightU}U &middot; {usedU} used
+          <EditableName target={{ kind: 'rack', id: rack.id }} text={rack.label} className="drawing-rack__name">
+            {rack.label}
+          </EditableName>{' '}
+          &middot; {rack.heightU}U &middot; {usedU} used
         </span>
         {/* Always mounted; `drawing.css` hides it outside the rack stop by
             `data-camera-stop` on the drawing's own wrapper, so this idle

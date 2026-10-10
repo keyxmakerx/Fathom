@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { highestFreeU, nextHostname, racksInPickOrder } from './pick';
+import { copyName, highestFreeU, nextHostname, racksInPickOrder } from './pick';
 
 type Rack = Parameters<typeof highestFreeU>[0] & { id: string; chassis: Array<{ id: string; positionU: number; heightU: number }> };
 
@@ -56,5 +56,31 @@ describe('nextHostname', () => {
 
   it('writes a role with an underscore as a hyphenated name', () => {
     expect(nextHostname(new Set(), 'access_point')).toBe('access-point-1');
+  });
+});
+
+describe('copyName', () => {
+  const taken = (...names: string[]) => new Set(names);
+
+  it('counts up from the number at the end, keeping its zero padding', () => {
+    expect(copyName(taken('sw-02'), 'sw-02', 'switch')).toBe('sw-03');
+    expect(copyName(taken('sw-009'), 'sw-009', 'switch')).toBe('sw-010');
+    expect(copyName(taken('sw-9'), 'sw-9', 'switch')).toBe('sw-10');
+    expect(copyName(taken('core1'), 'core1', null)).toBe('core2');
+  });
+
+  it('skips names that are taken', () => {
+    expect(copyName(taken('sw-02', 'sw-03', 'sw-04'), 'sw-02', 'switch')).toBe('sw-05');
+    expect(copyName(taken('sw-02', 'sw-04'), 'sw-02', 'switch')).toBe('sw-03');
+  });
+
+  it('falls back to the first free role name when the name has no number at the end', () => {
+    expect(copyName(taken('edge'), 'edge', 'router')).toBe('router-1');
+    expect(copyName(taken('edge', 'router-1'), 'edge', 'router')).toBe('router-2');
+    expect(copyName(taken('edge'), 'edge', null)).toBe('device-1');
+  });
+
+  it('does not treat a number in the middle as a sequence', () => {
+    expect(copyName(taken('rack2-sw'), 'rack2-sw', 'switch')).toBe('switch-1');
   });
 });

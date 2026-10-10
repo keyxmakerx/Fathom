@@ -1,0 +1,297 @@
+/* The Views group in the bar: one segmented row (Views menu, the first saved views, "+"), then the
+   menu itself: named camera + layers. Blueprint: square, hairline, 28px controls. */
+.vgroup {
+  align-self: center;
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  flex: none;
+}
+
+.vgroup > * + * {
+  margin-left: -1px;
+}
+
+.vgroup .shell-popover-host {
+  display: flex;
+}
+
+.vgroup__btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  height: var(--control-h, 28px);
+  padding: 0 var(--s3);
+  border: var(--rule-hair) solid var(--control-line, var(--hairline));
+  border-radius: var(--radius-control, 0);
+  background: var(--control-bg, transparent);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.vgroup__btn:hover {
+  background: var(--control-bg-hover, var(--surface));
+}
+
+.vgroup__btn--on {
+  background: var(--control-on, var(--surface));
+}
+
+.vgroup__btn:focus-visible {
+  z-index: 1;
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+
+.vgroup__btn--view {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  line-height: calc(var(--control-h, 28px) - 2px);
+  animation: views-row-in var(--m-pop, 160ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1));
+}
+
+/* The view being shown: a 2px ink line under its name. */
+.vgroup__btn--current::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--ink);
+  animation: vgroup-mark-in var(--m-pane, 150ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1)) both;
+  transform-origin: left;
+}
+
+.vgroup__btn--plus {
+  padding: 0 var(--s2);
+  min-width: var(--control-h, 28px);
+  justify-content: center;
+  font-size: var(--t-body);
+}
+
+.vgroup__eye {
+  flex: none;
+}
+
+.vgroup__add {
+  position: relative;
+  display: flex;
+}
+
+.vgroup__add input {
+  width: 148px;
+  height: var(--control-h, 28px);
+  padding: 0 var(--s2);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: var(--radius-control, 0);
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-small);
+  animation: views-row-in var(--m-pop, 160ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.vgroup__add input:focus-visible {
+  outline: none;
+}
+
+.vgroup__note {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 5;
+  margin: 0;
+  padding: var(--s1) var(--s2);
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--pop-bg, color-mix(in srgb, var(--surface) 88%, transparent));
+  backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
+  -webkit-backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
+  box-shadow: var(--shadow-pop, 0 16px 40px rgba(0, 0, 0, 0.28));
+  color: var(--danger);
+  font-size: var(--t-small);
+  white-space: nowrap;
+}
+
+.views__go--current .views__name {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.views {
+  width: 320px;
+  padding: 0 var(--s3) var(--s3);
+  font-size: var(--t-small);
+}
+
+.views__head {
+  padding: var(--s2) 0;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.views__empty,
+.views__hint {
+  margin: 0 0 var(--s2);
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.views__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.views__row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--s1);
+  border-top: var(--rule-hair) solid var(--hairline);
+  animation: views-row-in var(--m-pop, 160ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.views__go {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: var(--s2) 0;
+  background: none;
+  border: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.views__go:hover .views__name {
+  text-decoration: underline;
+}
+
+.views__name {
+  font-weight: 700;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.views__what {
+  color: var(--muted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.views__small {
+  align-self: center;
+  height: var(--control-h-sm, 24px);
+  padding: 0 var(--s2);
+  background: none;
+  border: var(--rule-hair) solid transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.views__small:hover {
+  color: var(--ink);
+  border-color: var(--hairline);
+}
+
+.views__rename,
+.views__save {
+  display: flex;
+  gap: var(--s1);
+  width: 100%;
+  padding: var(--s2) 0;
+}
+
+.views__save {
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+
+.views input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: var(--control-h, 28px);
+  padding: 0 var(--s2);
+  color: var(--ink);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--hairline);
+  border-radius: var(--radius-control, 0);
+  font: inherit;
+}
+
+.views input:focus-visible {
+  outline: var(--focus-width) solid var(--focus-colour);
+  outline-offset: -1px;
+}
+
+.views__save button,
+.views__rename button {
+  height: var(--control-h, 28px);
+  padding: 0 var(--s3);
+  color: var(--ink);
+  background: var(--control-bg, var(--page));
+  border: var(--rule-hair) solid var(--control-line, var(--ink));
+  border-radius: var(--radius-control, 0);
+  font: inherit;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.views__save button:hover,
+.views__rename button:hover {
+  background: var(--control-bg-hover, var(--surface));
+}
+
+.views__note {
+  margin: 0 0 var(--s2);
+  color: var(--danger);
+}
+
+@keyframes vgroup-mark-in {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes views-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .views__row,
+  .vgroup__btn--view,
+  .vgroup__btn--current::after,
+  .vgroup__add input {
+    animation: none;
+  }
+  .vgroup__btn {
+    transition: none;
+  }
+}

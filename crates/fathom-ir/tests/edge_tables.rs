@@ -118,9 +118,10 @@ fn slot_type_covers_every_registry_key() {
     // 343 -> 350: ADR-0060 step 7's seven keys (344-350).
     // 380 -> 382: custom-field values' two keys, `FieldValue.value` and `.definition` (381-382).
     // 404 -> 411: firmware targets' seven keys (405-411).
+    // 411 -> 413: `PhysicalPort.plate_x` and `.plate_y` (412-413, schema 0.20).
     assert_eq!(
         FIELD_KEYS.len(),
-        405,
+        407,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

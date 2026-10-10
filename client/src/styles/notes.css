@@ -1,0 +1,66 @@
+/* Notes pinned to the canvas (schema 0.19), as approved: a surface card, soft floating shadow,
+   an amber top edge and a small amber pin just left of its top-left corner. */
+.free-note {
+  position: relative;
+  box-sizing: border-box;
+  width: 270px;
+  padding: var(--s2, 8px) var(--s3, 12px) var(--s2, 8px);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-top: 2px solid var(--caution);
+  border-radius: 0;
+  color: var(--ink);
+  box-shadow: var(--shadow-pop, 0 16px 40px rgba(0, 0, 0, 0.28));
+  cursor: grab;
+  animation: fathom-note-in var(--m-pop, 160ms) var(--m-ease, cubic-bezier(0.2, 0.8, 0.2, 1));
+  transition: transform var(--m-hover, 120ms) var(--m-ease, ease);
+}
+.free-note:hover { transform: translateY(-1px); }
+.free-note--selected { outline: var(--focus-width, 2px) solid var(--focus-colour, var(--ink)); outline-offset: 2px; }
+.free-note--editing { cursor: text; }
+.free-note__pin {
+  position: absolute;
+  left: -5px;
+  top: -6px;
+  width: 8px;
+  height: 8px;
+  background: var(--caution);
+}
+.free-note__text {
+  margin: 0;
+  font-size: var(--t-body, 14px);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.free-note__by {
+  margin-top: var(--s1, 4px);
+  font-size: var(--t-micro, 10px);
+  letter-spacing: var(--track-label, 0.08em);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.free-note__input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  font: inherit;
+  font-size: var(--t-body, 14px);
+  line-height: 1.4;
+  color: var(--ink);
+  background: var(--page);
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  padding: 2px var(--s1, 4px);
+  resize: none;
+}
+
+@keyframes fathom-note-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .free-note { animation: none; transition: none; }
+  .free-note:hover { transform: none; }
+}

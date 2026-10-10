@@ -1142,6 +1142,16 @@ mod body {
         pub fn face<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::PhysicalPortFace, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(325))
         }
+        /// `PhysicalPort.plate_x` — `u16`, card `0..1`, emit `—`.
+        /// 0.20 — where a hand-typed port sits across its faceplate: thousandths of the plate's width, left edge to the port's centre (0-1000). Absent means the computed layout places it. Layout only, never identity: position is tier 1.
+        pub fn plate_x<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u16, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(412))
+        }
+        /// `PhysicalPort.plate_y` — `u16`, card `0..1`, emit `—`.
+        /// 0.19 — plate_x's partner: thousandths of the plate's height, top edge to the port's centre (0-1000).
+        pub fn plate_y<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u16, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(413))
+        }
         /// `PhysicalPort.speed_max` — `Bandwidth`, card `0..1`, emit `—`.
         /// The cage's ceiling — a different fact from Interface.speed.
         pub fn speed_max<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Bandwidth, crate::bag::FieldError> {
@@ -1761,8 +1771,8 @@ mod body {
         pub fn text<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(344))
         }
-        /// `Label.form` — `enum { text, area }`, card `1`, emit `—`.
-        /// Discriminant: a bare text label or a labelled rectangle.
+        /// `Label.form` — `enum { text, area, note }`, card `1`, emit `—`.
+        /// Discriminant: a bare text label, a labelled rectangle, or (0.20) a note pinned to the canvas for teammates.
         pub fn form<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::LabelForm, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(345))
         }
@@ -2488,6 +2498,8 @@ mod body {
             409 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             410 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             411 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            412 => Some((core::any::TypeId::of::<u16>(), "u16")),
+            413 => Some((core::any::TypeId::of::<u16>(), "u16")),
             _ => None,
         }
     }
@@ -2901,6 +2913,8 @@ mod body {
             409 => crate::canon::slot_to::<crate::scalar::Text>(409, "crate::scalar::Text", value),
             410 => crate::canon::slot_to::<crate::scalar::Text>(410, "crate::scalar::Text", value),
             411 => crate::canon::slot_to::<crate::scalar::Text>(411, "crate::scalar::Text", value),
+            412 => crate::canon::slot_to::<u16>(412, "u16", value),
+            413 => crate::canon::slot_to::<u16>(413, "u16", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -3312,6 +3326,8 @@ mod body {
             409 => crate::canon::slot_from::<crate::scalar::Text>(j),
             410 => crate::canon::slot_from::<crate::scalar::Text>(j),
             411 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            412 => crate::canon::slot_from::<u16>(j),
+            413 => crate::canon::slot_from::<u16>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import '../styles/shell.css';
 import { Bar } from './shell/Bar';
-import { Editor } from './shell/Editor';
-import { Strip } from './shell/Strip';
-import { TrailPane } from './shell/TrailPane';
+import { useElementWidth, useWindowWidth } from './shell/Dock';
+import { fitPanels, loadPanelWidth, panelMax, savePanelWidth, PANEL_DEFAULT, type PanelId } from './shell/panelSizing';
+import { PANEL_OF, RightDock } from './shell/RightDock';
+import { rememberedTab, useRightTab, type RightTab } from './shell/useRightTab';
+import { loadResume, patchResume } from './design/resume';
 import type { ShellProps } from './shell/types';
 
 export type {
@@ -34,6 +36,8 @@ export function Shell({
   onLensChange,
   look,
   layers,
+  views,
+  viewsFolded,
   presence,
   zoom,
   onZoomIn,
@@ -50,6 +54,9 @@ export function Shell({
   historyOpen,
   account,
   editor,
+  history,
+  selectionKey,
+  resume,
   notices,
   noticeField,
   noticeElement,
@@ -74,6 +81,67 @@ export function Shell({
   // The notice sits under its field when the open panel shows it; otherwise in the canvas corner.
   const [anchored, setAnchored] = useState(false);
   const inEditor = editor != null && anchored;
+
+  // The side panels: Equipment, Details, History and Trail share one slot on the right, one open at a time.
+  // It folds to a strip of labelled tabs, slides, and is resized by its handle, and the canvas keeps its width.
+  const accountId = resume?.accountId ?? null;
+  const designId = resume?.designId;
+  const [stored] = useState(() => (designId != null ? loadResume(accountId, designId) : null));
+  const rememberPick = useCallback(
+    (pick: RightTab | null) => {
+      if (designId != null) patchResume(accountId, designId, { tab: rememberedTab(pick), equipmentOpen: pick === 'equipment' });
+    },
+    [accountId, designId],
+  );
+  const { shown, choose, fold } = useRightTab({
+    hasEquipment: rail != null,
+    initialEquipment: stored?.equipmentOpen ?? false,
+    hasDetails: editor != null,
+    historyOpen: historyOpen ?? false,
+    trailOpen: trailOpen ?? false,
+    hasTrail: trail != null,
+    selectionKey: selectionKey ?? null,
+    initialTab: stored?.tab ?? null,
+    restoredKey: stored?.selection?.id ?? null,
+    onHistory,
+    onTrailOpenChange,
+    onPick: rememberPick,
+  });
+  const [wants, setWants] = useState<Record<PanelId, number>>(() => ({
+    rail: loadPanelWidth('rail'),
+    details: loadPanelWidth('details'),
+    history: loadPanelWidth('history'),
+    trail: loadPanelWidth('trail'),
+  }));
+  const resizePanel = useCallback((panel: PanelId, width: number, commit: boolean) => {
+    setWants((w) => ({ ...w, [panel]: width }));
+    if (commit) savePanelWidth(panel, width);
+  }, []);
+  const resetPanel = useCallback((panel: PanelId) => {
+    setWants((w) => ({ ...w, [panel]: PANEL_DEFAULT[panel] }));
+    savePanelWidth(panel, PANEL_DEFAULT[panel]);
+  }, []);
+  const [resizing, setResizing] = useState(false);
+  const windowWidth = useWindowWidth();
+  const [bodyRef, bodyWidth] = useElementWidth<HTMLDivElement>();
+  const lastRight = useRef<RightTab>(rail != null ? 'equipment' : 'details');
+  if (shown != null) lastRight.current = shown;
+  const rightPresent = rail != null || editor != null || onHistory != null || trail != null;
+  const stripsWidth = rightPresent ? 28 : 0;
+  const fit = fitPanels({
+    bodyWidth,
+    windowWidth,
+    stripsWidth,
+    left: null,
+    right: shown != null ? wants[PANEL_OF[shown]] : null,
+  });
+  // While a panel slides shut its slot still needs a width to shrink from.
+  const lastWidths = useRef({ right: wants[PANEL_OF[lastRight.current]] });
+  useEffect(() => {
+    if (fit.right > 0) lastWidths.current.right = fit.right;
+  });
+  const rightWidth = fit.right > 0 ? fit.right : Math.min(lastWidths.current.right, wants[PANEL_OF[lastRight.current]]);
+  const rightMax = panelMax(windowWidth, bodyWidth, stripsWidth, 0);
   return (
     <div className="shell">
       {announce !== undefined && (
@@ -90,6 +158,8 @@ export function Shell({
         onLensChange={onLensChange}
         look={look}
         layers={layers}
+        views={views}
+        viewsFolded={viewsFolded}
         presence={presence}
         zoom={zoom}
         onZoomIn={onZoomIn}
@@ -117,25 +187,29 @@ export function Shell({
         onShowAllHiddenCables={onShowAllHiddenCables}
       />
       {band}
-      <div className="shell__body">
-        {/* The folded rail exists where it has something to open (the Racks
-            palette); Home, Site and Inventory carry their own rails. */}
-        {rail != null && <Strip rail={rail} />}
+      <div className="shell__body" ref={bodyRef} data-resizing={resizing ? '' : undefined}>
         <main className="shell__drawing" aria-label="Drawing">
           {children}
           {!inEditor && notices != null && <div className="shell__notices-corner">{notices}</div>}
         </main>
-        {editor != null && (
-          <Editor notices={notices} noticeField={noticeField} noticeElement={noticeElement} onAnchored={setAnchored}>
-            {editor}
-          </Editor>
-        )}
-        {/* The trail folds to a strip on the right; it can be open beside the editor. */}
-        {trail != null && (
-          <TrailPane open={trailOpen ?? false} onOpenChange={(open) => onTrailOpenChange?.(open)}>
-            {trail}
-          </TrailPane>
-        )}
+        {/* One right-hand slot: Equipment, Details, History and the Trail are its tabs; one is open at a time. */}
+        <RightDock
+          shown={shown}
+          equipment={rail ?? null}
+          details={editor}
+          history={history ?? null}
+          trail={trail ?? null}
+          canOpenHistory={onHistory != null}
+          historyLive={historyOpen ?? false}
+          editorProps={{ notices, noticeField, noticeElement, onAnchored: setAnchored }}
+          width={rightWidth}
+          max={rightMax}
+          onChoose={choose}
+          onFold={fold}
+          onResize={resizePanel}
+          onReset={resetPanel}
+          onDragging={setResizing}
+        />
       </div>
     </div>
   );

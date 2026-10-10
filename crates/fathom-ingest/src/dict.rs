@@ -2488,4 +2488,48 @@ mod tests {
         );
         assert_eq!(d.token_map("DhGroup", "group999"), None);
     }
+
+    /// #104 item 4: a paste is gated by ONE dictionary, the one it sniffed as. A secret
+    /// another platform's dictionary names must still be destroyed by the generic
+    /// backstop (the secret-word walk), or a paste misread as the wrong platform keeps
+    /// it. This drives every `secret:` entry of every set-form dictionary, as a line,
+    /// through every other set-form dictionary's gate. A representative passphrase,
+    /// not a detector-shaped one (CLAUDE.md rule 2): it trips no shape detector, so
+    /// only the word walk can catch it.
+    #[test]
+    fn every_declared_secret_is_caught_by_every_other_platforms_gate() {
+        const SECRET: &str = "Horse-Battery-77";
+        let platforms = ["junos-srx", "junos-ex", "edgeos", "linux-host"];
+        let dicts: Vec<Dictionary> = platforms
+            .iter()
+            .map(|p| Dictionary::load_platform(&repo_root(), p).expect("ships"))
+            .collect();
+        let mut checked = 0;
+        for (owner, d) in platforms.iter().zip(&dicts) {
+            for e in d.entries.iter().filter(|e| e.secret.is_some()) {
+                let Some(pos) = e.secret_pos() else { continue };
+                let words: Vec<String> = e
+                    .path
+                    .iter()
+                    .enumerate()
+                    .map(|(at, seg)| match seg {
+                        PathSeg::Literal(t) => t.clone(),
+                        PathSeg::Capture(_) if at == pos => SECRET.to_owned(),
+                        PathSeg::Capture(_) => "x1".to_owned(),
+                    })
+                    .collect();
+                let line = format!("set {}\n", words.join(" "));
+                for (other, g) in platforms.iter().zip(&dicts) {
+                    let out = crate::redact_only(line.as_bytes(), g).expect("within caps");
+                    assert!(
+                        !out.text.text().contains(SECRET),
+                        "`{}` ({owner}) survives {other}'s gate: {line}",
+                        e.id
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 0, "no secret entries were driven");
+    }
 }

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Document } from '../../document/model';
 import { trailRows } from './trail';
 import './racks.css';
+import { EmptyState } from '../ui/EmptyState';
 
 export interface TrailProps {
   doc: Document;
@@ -77,7 +78,7 @@ export function Trail({ doc, accountId, accountAddress, sealedBatchIds, undoRefu
 
       <div className="racks-trail__rows">
         {rows.length === 0 ? (
-          <div className="racks-trail__empty">No changes yet.</div>
+          <EmptyState className="racks-trail__empty" title="No changes yet.">Every edit to this design is recorded here, with who made it and when.</EmptyState>
         ) : (
           rows.map((row) => (
             <div

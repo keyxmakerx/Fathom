@@ -212,13 +212,18 @@ export function paginateRackTableByHeight(
 /** A device's ports grouped by `PortView.row`, each row left to right by
  * column — a sketch device's ports all share row 0, so they draw as one row. */
 export function faceplateGlyphRows(ports: readonly PortView[]): PortView[][] {
+  // Schema 0.19: a hand-typed port dragged on its plate prints in the order it was arranged —
+  // the top or bottom half of the plate, then left to right. The sheet keeps its own packed rows
+  // so a glyph never runs into the name or the model.
+  const rowOf = (p: PortView): number => (p.plate != null ? (p.plate.y >= 500 ? 1 : 0) : p.row);
+  const colOf = (p: PortView): number => (p.plate != null ? p.plate.x : p.column);
   const byRow = new Map<number, PortView[]>();
   for (const p of ports) {
-    const list = byRow.get(p.row) ?? [];
+    const list = byRow.get(rowOf(p)) ?? [];
     list.push(p);
-    byRow.set(p.row, list);
+    byRow.set(rowOf(p), list);
   }
-  return [...byRow.entries()].sort((a, b) => a[0] - b[0]).map(([, list]) => [...list].sort((a, b) => a.column - b.column));
+  return [...byRow.entries()].sort((a, b) => a[0] - b[0]).map(([, list]) => [...list].sort((a, b) => colOf(a) - colOf(b)));
 }
 
 export interface FaceplateGlyph {

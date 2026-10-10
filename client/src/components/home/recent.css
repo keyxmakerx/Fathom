@@ -1,0 +1,73 @@
+/* Home's "Recent" row: what this person opened last, one click to open it again. */
+.recent__list {
+  list-style: none;
+  margin: var(--s2) 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--s2);
+}
+
+.recent__card {
+  width: 100%;
+  min-height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  padding: var(--s2) var(--s3);
+  text-align: left;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: var(--rule-hair) solid var(--hairline);
+  border-radius: var(--radius-control, 0);
+  cursor: pointer;
+  transition:
+    border-color var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1)),
+    box-shadow var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1)),
+    transform var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.recent__card:hover {
+  border-color: var(--ink);
+  box-shadow: var(--shadow-pop, 0 8px 20px rgba(0, 0, 0, 0.16));
+  transform: translateY(-1px);
+}
+
+.recent__card:active {
+  transform: none;
+}
+
+.recent__name {
+  font-weight: 700;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent__meta {
+  color: var(--muted);
+  font-size: var(--t-small);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent__kind {
+  color: var(--muted);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recent__card {
+    transition: none;
+  }
+  .recent__card:hover {
+    transform: none;
+  }
+}
