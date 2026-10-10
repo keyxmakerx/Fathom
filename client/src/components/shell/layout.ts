@@ -23,3 +23,18 @@ export function searchShouldCollapse({
 }: BarFitInput): boolean {
   return containerWidth < fixedWidth + searchExpandedWidth;
 }
+
+/** How far the bar is folded: 0 is everything shown; each step folds one more
+ * group (search, the action chips, the path, the lenses, then undo and zoom). */
+export const BAR_FOLD_MAX = 5;
+
+/** Pure: the next fold level. Fold one more while the row is wider than the
+ * bar; unfold one when the width the less-folded row needed now fits.
+ * `needed[l]` is the row's width last measured at level `l`. */
+export function nextFoldLevel(input: { level: number; total: number; avail: number; needed: readonly (number | undefined)[] }): number {
+  const { level, total, avail, needed } = input;
+  if (total > avail && level < BAR_FOLD_MAX) return level + 1;
+  const wider = level > 0 ? needed[level - 1] : undefined;
+  if (wider !== undefined && wider <= avail) return level - 1;
+  return level;
+}

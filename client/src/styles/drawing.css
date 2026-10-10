@@ -1156,6 +1156,22 @@
   margin-left: auto;
 }
 
+/* In a narrow fixture box the two groups stack and each fills the width, so
+   ports wrap into rows rather than one tall column. */
+.drawing-surface__fixture .drawing-surface__port-row {
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.drawing-surface__fixture .drawing-surface__port-group {
+  flex: 1 1 100%;
+}
+
+/* Ports in a fixture never outgrow their true size, so the box stays its size when zoomed out. */
+.drawing-surface__fixture {
+  --budget-cap: 1;
+}
+
 .drawing-surface__port {
   position: relative;
   appearance: none;
@@ -1670,3 +1686,109 @@
 .canvas-tool[aria-pressed='true'] { background: var(--ink); color: var(--page); border-color: var(--ink); }
 .canvas-tool:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
 .canvas-tools__rule { width: 1px; height: 16px; background: var(--hairline); margin: 0 2px; }
+
+/* A sketch's own ports: a tidy list, then the add form as a small grid. */
+.drawing-ports__list {
+  list-style: none;
+  margin: var(--s1) 0 var(--s2);
+  padding: 0;
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+
+.drawing-ports__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 24px;
+  align-items: center;
+  gap: var(--s2);
+  min-height: var(--row-min);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.drawing-ports__label {
+  font-family: var(--mono);
+  font-size: var(--t-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawing-ports__kind {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.shell-editor button.drawing-ports__remove,
+.drawing-ports__remove {
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border-color: transparent;
+  background: none;
+  color: var(--muted);
+  font-size: var(--t-body);
+}
+
+.shell-editor button.drawing-ports__remove:hover,
+.drawing-ports__remove:hover {
+  color: var(--danger);
+  border-color: var(--hairline);
+}
+
+.drawing-ports__form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s2);
+  margin-top: var(--s2);
+  padding: var(--s3);
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--page);
+}
+
+.drawing-ports__modes {
+  grid-column: 1 / -1;
+  display: flex;
+}
+
+.drawing-ports__modes > button {
+  flex: 1 1 0;
+}
+
+.drawing-ports__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.drawing-ports__cell > span {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.drawing-ports__cell--wide {
+  grid-column: 1 / -1;
+}
+
+.drawing-ports__cell input,
+.drawing-ports__cell select {
+  width: 100%;
+}
+
+.drawing-ports__actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: var(--s2);
+  justify-content: flex-end;
+}
+
+.shell-editor button.drawing-ports__primary,
+.drawing-ports__primary {
+  background: var(--ink);
+  color: var(--page);
+}
+
+.drawing-ports__add {
+  margin-top: var(--s1);
+}

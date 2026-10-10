@@ -7,6 +7,7 @@ import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { barAction } from './drive-lib/bar.mjs';
 
 const pw = await import(
   process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js'
@@ -217,7 +218,7 @@ try {
   await page.getByLabel('Filter devices').fill('tag:lab');
   await page.waitForTimeout(400);
   check('tag:lab filters to the tagged row', (await page.locator('.inv-table__row').count()) === 1);
-  await page.locator('[data-testid="shell-print"]').click();
+  await barAction(page, 'print');
   await page.waitForSelector('[data-testid="print-panel"]', { timeout: 10_000 });
   check('the pack offers the Inventory table', await page.locator('[data-testid="print-section-inventory"]').isChecked());
   await page.locator('[data-testid="print-panel-print"]').click();

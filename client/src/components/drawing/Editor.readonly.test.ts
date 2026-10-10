@@ -123,9 +123,9 @@ describe('EditorFor — ADR-0052 §5 reader rendering (no EditorActions.onEdit)'
     // here so a future change to those controls' markup (e.g. a link
     // instead of a button) is still caught by an explicit assertion, not
     // only the generic one.
-    expect(markup).not.toContain('+ add a port');
+    expect(markup).not.toContain('+ Add a port');
     expect(markup).not.toContain('+ add a shelf');
-    expect(markup).not.toContain('a range');
+    expect(markup).not.toContain('A range');
     expect(markup).not.toContain('Duplicate');
   });
 

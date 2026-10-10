@@ -8,6 +8,7 @@ import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { barAction } from './drive-lib/bar.mjs';
 
 const pw = await import(
   process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js'
@@ -121,10 +122,10 @@ try {
   const pageErrors = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
   await page.goto(`${BASE}/drive.html?scene=history`);
-  await page.waitForSelector('[data-testid="shell-history"]', { timeout: 20_000 });
+  await page.waitForSelector('[data-testid="shell-history"], [data-testid="shell-more"]', { timeout: 20_000 });
   await page.waitForTimeout(1500);
 
-  await page.click('[data-testid="shell-history"]');
+  await barAction(page, 'history');
   await page.waitForSelector('.history__row', { timeout: 10_000 });
   const summariesDone = () => document.querySelectorAll('.history__what').length > 0 && ![...document.querySelectorAll('.history__what')].some((e) => e.textContent === '…');
   await page.waitForFunction(summariesDone, null, { timeout: 15_000 });
@@ -161,7 +162,7 @@ try {
   const saves = await page.evaluate(() => window.__saveCount__);
   check('restoring made one new save', saves === 1, String(saves));
 
-  await page.click('[data-testid="shell-history"]');
+  await barAction(page, 'history');
   await page.waitForFunction(() => document.querySelectorAll('.history__row').length === 5, null, { timeout: 10_000 });
   await page.waitForFunction(summariesDone, null, { timeout: 15_000 });
   const after = await page.locator('.history__what').allTextContents();

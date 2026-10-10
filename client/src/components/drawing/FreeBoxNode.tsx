@@ -10,6 +10,8 @@ import { useGripDrag, type GripDrag } from './useGripDrag';
 export interface FreeBoxNodeData extends Record<string, unknown> {
   name: string;
   role: string | null;
+  /** A catalogued box names its model rather than a role code. */
+  model?: string;
   /** Show the four edge squares (one box selected, and a person who can draw). */
   squares: boolean;
   onSquare: (side: Side, drag: GripDrag, cancelled: boolean) => void;
@@ -46,7 +48,7 @@ export function FreeBoxNode({ id, data, selected }: NodeProps<FreeBoxNodeType>) 
     <div className={selected ? 'free-box free-box--selected' : 'free-box'} style={{ width: BOX_W, height: BOX_H }}>
       <CheckBadge id={id.replace(/^free:/, '')} />
       <span className="free-box__name">{data.name}</span>
-      <span className="free-box__code">{roleCode(data.role)}</span>
+      <span className="free-box__code">{data.role === null && data.model ? '' : roleCode(data.role)}</span>
       {SIDES.map(({ side, position }) => (
         <Handle key={side} id={side} type="source" position={position} isConnectable={false} className="free-handle" />
       ))}

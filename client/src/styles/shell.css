@@ -19,6 +19,9 @@
 /* ---- the bar -------------------------------------------------------- */
 
 .shell-bar {
+  /* Folding (Bar.tsx) keeps the row inside the bar; this stops a last
+     overflow scrolling the whole page sideways. */
+  overflow-x: clip;
   height: 44px;
   box-sizing: border-box;
   border-bottom: var(--rule-mast) solid var(--ink);
@@ -149,6 +152,18 @@ span.shell-bar__tab {
   color: var(--ink);
 }
 
+.shell-bar__path-label--plain {
+  cursor: default;
+}
+
+.shell-bar__path-label--plain:hover {
+  color: var(--muted);
+}
+
+.shell-bar__path-caret {
+  color: var(--muted);
+}
+
 .shell-bar__path-label--current {
   color: var(--ink);
   font-weight: 700;
@@ -180,6 +195,7 @@ span.shell-bar__tab {
   /* The bar stretches its children so the place tabs can underline the
      full 44px; the search box is the one fixed-height child and centres. */
   align-self: center;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -469,6 +485,12 @@ button.shell-admin-pill {
   position: relative;
   display: flex;
   align-items: stretch;
+}
+
+/* A lens-style trigger keeps its own height; only the path and tabs fill the bar. */
+.shell-popover-host > .shell-lens,
+.shell-popover-host > .shell-chip {
+  align-self: center;
 }
 
 .shell-popover {

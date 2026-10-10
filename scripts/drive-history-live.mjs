@@ -23,6 +23,7 @@ import net from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrateUrl, runtimeUrl } from './drive-lib/db.mjs';
+import { barAction } from './drive-lib/bar.mjs';
 
 const pw = await import(process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js');
 const { chromium } = pw.default ?? pw;
@@ -317,7 +318,7 @@ async function runProof(browser, seed) {
   await until(async () => (await labels(B)).includes('core-sw-01'), 10000);
   await A.waitForTimeout(2500);
 
-  await A.getByTestId('shell-history').click();
+  await barAction(A, 'history');
   await A.getByTestId('history-panel').waitFor({ timeout: 10000 });
   await rows(A).first().waitFor({ timeout: 15000 });
   const before = await rows(A).count();
@@ -357,7 +358,7 @@ async function runProof(browser, seed) {
   await A.reload({ waitUntil: 'domcontentloaded' });
   await A.locator('.drawing-chassis').first().waitFor({ timeout: 20000 });
   check('H5. after a reload the restored name is still there', (await labels(A)).includes('core-sw-01') && !(await labels(A)).includes('bob-was-here'), await labels(A));
-  await A.getByTestId('shell-history').click();
+  await barAction(A, 'history');
   await rows(A).first().waitFor({ timeout: 15000 });
   const after = await rows(A).count();
   await until(async () => !((await rows(A).first().innerText()) ?? '').includes('…'), 15000);

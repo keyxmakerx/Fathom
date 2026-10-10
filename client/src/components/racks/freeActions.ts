@@ -1,23 +1,39 @@
 // The free layer's writes (ADR-0060 step 7): pure, one undo step each, so a vitest drives them.
 
-import { addSketchPortRange } from '../../document/commands';
-import { isDeviceRole } from '../../document/edit';
+import type { CatalogueModel } from '../../api/catalogue';
+import { addSketchPortRange, createSketchDevice, equipFromCatalogue, fixTo } from '../../document/commands';
+import { isDeviceRole, setDeviceField } from '../../document/edit';
 import { createFreeBox, createLabel, createLine, foldFrom, setLineLabel, snap } from '../../document/freeform';
-import type { Document } from '../../document/model';
+import { parseNodeId, type Document } from '../../document/model';
 import type { ClosetView } from '../../document/view';
 import { DEFAULT_FACEPLATES } from './palette';
 import { hostnamesOf, nextHostname } from './pick';
 
 type Actor = { actor?: string };
 
-/** A box at (x, y), named and given its usual ports when it has a known role, joined to `fromBoxId` if given. */
-export function addFreeBoxDoc(doc: Document, role: string | null, x: number, y: number, fromBoxId: string | undefined, opts?: Actor): { doc: Document; chassisId: string } {
+/** A box at (x, y), named and given its usual ports when it has a known role, joined to `fromBoxId` if given.
+ * A catalogue model brings its own ports instead. */
+export function addFreeBoxDoc(doc: Document, role: string | null, x: number, y: number, fromBoxId: string | undefined, opts?: Actor, model?: CatalogueModel): { doc: Document; chassisId: string } {
   const known = role !== null && isDeviceRole(role) ? role : undefined;
   const made = createFreeBox(doc, { ...opts, x: snap(x), y: snap(y), ...(known ? { role: known, hostname: nextHostname(hostnamesOf(doc), known) } : {}) });
-  let working = made.doc;
-  for (const run of known ? (DEFAULT_FACEPLATES[known] ?? []) : []) working = addSketchPortRange(working, made.chassisId, { ...run, face: 'front' }, opts);
+  let working = model ? equipFromCatalogue(made.doc, made.chassisId, model, opts) : made.doc;
+  for (const run of known && !model ? (DEFAULT_FACEPLATES[known] ?? []) : []) working = addSketchPortRange(working, made.chassisId, { ...run, face: 'front' }, opts);
   if (fromBoxId !== undefined) working = createLine(working, fromBoxId, made.chassisId, opts).doc;
   return { doc: foldFrom(working, doc.batches.length), chassisId: made.chassisId };
+}
+
+/** A device fixed to a surface at (xMm, yMm): named and ported as `addFreeBoxDoc`'s box is. One undo step. */
+export function addSurfaceDeviceDoc(doc: Document, surfaceId: string, role: string | null, xMm: number | null, yMm: number | null, opts?: Actor, model?: CatalogueModel): { doc: Document; chassisId: string } {
+  const known = role !== null && isDeviceRole(role) ? role : undefined;
+  const before = new Set(doc.nodes.map((n) => n.id));
+  let working = createSketchDevice(doc, known ? { ...opts, hostname: nextHostname(hostnamesOf(doc), known) } : { ...opts });
+  const fresh = (kind: string) => working.nodes.find((n) => !before.has(n.id) && parseNodeId(n.id).kind === kind)!.id;
+  const chassisId = fresh('Chassis');
+  if (known) working = setDeviceField(working, fresh('Device'), 'role', known, opts);
+  if (model) working = equipFromCatalogue(working, chassisId, model, opts);
+  else for (const run of known ? (DEFAULT_FACEPLATES[known] ?? []) : []) working = addSketchPortRange(working, chassisId, { ...run, face: 'front' }, opts);
+  working = fixTo(working, chassisId, surfaceId, { ...(xMm != null ? { xMm } : {}), ...(yMm != null ? { yMm } : {}) }, opts);
+  return { doc: foldFrom(working, doc.batches.length), chassisId };
 }
 
 /** Copies the named boxes, labels and areas, and the lines between them, offset by (dx, dy). Copies get fresh names. */

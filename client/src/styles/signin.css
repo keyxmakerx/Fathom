@@ -114,6 +114,18 @@
   margin-bottom: var(--s4);
 }
 
+.signin__identities-head {
+  margin: 0;
+  font-size: var(--t-tab);
+  letter-spacing: var(--track-head);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.signin__identities .signin__hint {
+  margin: 0 0 var(--s1) 0;
+}
+
 .signin__identity {
   display: flex;
   align-items: baseline;

@@ -1,0 +1,48 @@
+/* The page's default controls (UI-SPEC "Look"): square, flat, one hairline,
+   token colours. `:where` keeps these at zero specificity, so any class rule
+   still wins; they only replace the browser's own bevelled defaults. */
+
+:where(button) {
+  font: inherit;
+  font-size: var(--t-small);
+  line-height: 16px;
+  color: var(--ink);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: 0;
+  padding: 2px var(--s2);
+  cursor: pointer;
+}
+
+:where(button:disabled) {
+  color: var(--muted);
+  border-color: var(--hairline);
+  cursor: default;
+}
+
+:where(button:focus-visible) {
+  outline: var(--focus-width) solid var(--focus-colour);
+  outline-offset: var(--focus-offset-outset);
+}
+
+:where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file']), select, textarea) {
+  font: inherit;
+  font-size: var(--t-small);
+  color: var(--ink);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--hairline);
+  border-radius: 0;
+  padding: var(--s1) var(--s2);
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+:where(input:focus-visible, select:focus-visible, textarea:focus-visible) {
+  outline: var(--focus-width) solid var(--focus-colour);
+  outline-offset: -1px;
+}
+
+:where(input[type='checkbox'], input[type='radio']) {
+  accent-color: var(--ink);
+  margin: 0;
+}

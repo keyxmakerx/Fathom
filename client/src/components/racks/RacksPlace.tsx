@@ -72,7 +72,7 @@ import { TroubleContext } from '../troubleshoot/troubleStore';
 import { useTroubleController } from '../troubleshoot/useTroubleController';
 import type { PathPart, ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
-import { addFreeBoxDoc, duplicateFreeDoc } from './freeActions';
+import { addFreeBoxDoc, addSurfaceDeviceDoc, duplicateFreeDoc } from './freeActions';
 import { addRack, createPremises, ensureRackToPlaceInto, nextName } from './emptyDesign';
 import type { PaletteItem } from '../drawing/contract';
 import { DEFAULT_FACEPLATES, SKETCH_DEVICE_PALETTE_ITEM, isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
@@ -291,9 +291,12 @@ export function RacksPlace(props: RacksPlaceProps) {
   // Rack or Diagram: this person's choice for this design, kept in this browser.
   const [look, setLookState] = useState<Look>(() => loadLook(accountId, session.designId));
   useEffect(() => setLookState(loadLook(accountId, session.designId)), [accountId, session.designId]);
+  // Set by the first switch, so the Rack look refits on its return.
+  const [lookSwitched, setLookSwitched] = useState(false);
   const changeLook = useCallback(
     (next: Look) => {
       setLookState(next);
+      setLookSwitched(true);
       setCalloutId(null);
       saveLook(accountId, session.designId, next);
     },
@@ -928,12 +931,26 @@ export function RacksPlace(props: RacksPlaceProps) {
     [doc, accountId, applyDocChange],
   );
   const handleAddFreeBox = useCallback(
-    (role: string | null, x: number, y: number, fromBoxId?: string) =>
-      freeWrite((d, o) => {
-        const r = addFreeBoxDoc(d, role, x, y, fromBoxId, o);
+    (role: string | null, x: number, y: number, fromBoxId?: string, ref?: { vendor: string; model: string }) => {
+      const model = ref ? catalogue.find((m) => m.vendor === ref.vendor && m.model === ref.model) : undefined;
+      return freeWrite((d, o) => {
+        const r = addFreeBoxDoc(d, role, x, y, fromBoxId, o, model);
         return { doc: r.doc, out: r.chassisId };
-      }),
-    [freeWrite],
+      });
+    },
+    [freeWrite, catalogue],
+  );
+  // A drop on a wall, floor or desk fixes the device there, so it draws on the surface.
+  const handlePlaceOnSurface = useCallback(
+    (surfaceId: string, ref: { vendor: string; model: string; role?: string }, xMm: number | null, yMm: number | null) => {
+      const model = ref.role === undefined ? catalogue.find((m) => m.vendor === ref.vendor && m.model === ref.model) : undefined;
+      const chassisId = freeWrite((d, o) => {
+        const r = addSurfaceDeviceDoc(d, surfaceId, ref.role ?? null, xMm, yMm, o, model);
+        return { doc: r.doc, out: r.chassisId };
+      });
+      if (chassisId != null) setSelection({ kind: 'chassis', id: chassisId });
+    },
+    [freeWrite, catalogue],
   );
   // ADR-0060 decision 10: Open goes into a device ("jot mode"). Drawing stays mounted beneath, so its camera is
   // where it was on the way back; the way out is Esc, the bar's path, or the Back button.
@@ -1040,13 +1057,13 @@ export function RacksPlace(props: RacksPlaceProps) {
     [doc, applyDocChange, accountId, checks.api, realView],
   );
   const handleJotAddPort = useCallback(
-    (chassisId: string) => {
+    (chassisId: string, connector: string) => {
       const chassis = deviceChassis(realView, chassisId);
       if (!chassis) return;
       const taken = new Set(chassis.ports.map((p) => p.label));
       let n = chassis.ports.length + 1;
       while (taken.has(String(n))) n += 1;
-      void freeWrite((d, o) => ({ doc: addSketchPort(d, chassisId, { label: String(n), connector: 'rj45', face: 'front' }, o), out: null }));
+      void freeWrite((d, o) => ({ doc: addSketchPort(d, chassisId, { label: String(n), connector, face: 'front' }, o), out: null }));
     },
     [realView, freeWrite],
   );
@@ -1068,13 +1085,13 @@ export function RacksPlace(props: RacksPlaceProps) {
       }
       if (jot != null && jotPlateList != null) {
         const at = jotSpot(jotPlateList);
-        handleAddFreeBox(item.role ?? null, jotOrigin.x + at.x, jotOrigin.y + at.y);
+        handleAddFreeBox(item.role ?? null, jotOrigin.x + at.x, jotOrigin.y + at.y, undefined, item.role === undefined ? item : undefined);
         return;
       }
       if (displayView.racks.length === 0) {
         // Only free boxes so far: the pick lands on the next open spot of the canvas.
         const at = openSpot();
-        handleAddFreeBox(item.role ?? null, at.x, at.y);
+        handleAddFreeBox(item.role ?? null, at.x, at.y, undefined, item.role === undefined ? item : undefined);
         return;
       }
       for (const rack of racksInPickOrder(displayView.racks, selection)) {
@@ -1327,7 +1344,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     jotDevice != null && shellProps.path.length > 0
       ? [
           ...shellProps.path.slice(0, -1),
-          { ...shellProps.path[shellProps.path.length - 1]!, onSelect: () => { shellProps.path[shellProps.path.length - 1]!.onSelect?.(); leaveJot(); } },
+          { ...shellProps.path[shellProps.path.length - 1]!, opensTree: false, hint: 'Back to the canvas', onSelect: () => { shellProps.path[shellProps.path.length - 1]!.onSelect?.(); leaveJot(); } },
           { label: jotDevice.hostname || 'unnamed' },
         ]
       : shellProps.path;
@@ -1376,6 +1393,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           zoom={shellProps.zoom}
           onZoomChange={onZoomChange}
           fitRequest={fitRequest}
+          lookSwitched={lookSwitched}
           onPlace={handlePlace}
           onMove={handleMove}
           onConnect={handleConnect}
@@ -1388,6 +1406,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           onPasteConfig={canDraw ? handlePasteConfig : undefined}
           onOpenDevice={handleOpenDevice}
           onAddFreeBox={canDraw ? handleAddFreeBox : undefined}
+          onPlaceOnSurface={canDraw ? handlePlaceOnSurface : undefined}
           onAddDeviceAt={canDraw ? handleAddDeviceAt : undefined}
           onMoveFree={canDraw ? handleMoveFree : undefined}
           onConnectBoxes={canDraw ? handleConnectBoxes : undefined}

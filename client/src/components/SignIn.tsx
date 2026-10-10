@@ -347,7 +347,11 @@ export function SignIn({ onForgotPassword, initialAddress, notice }: SignInProps
         {notice && <p className="signin__notice">{notice}</p>}
 
         {hasIdentities && (
-          <div className="signin__identities">
+          <div className="signin__identities" role="group" aria-labelledby="signin-saved">
+            <p className="signin__identities-head" id="signin-saved">
+              Saved on this browser
+            </p>
+            <p className="signin__hint">Press one to use it, or type an address below.</p>
             {identities.map((who) => (
               <button
                 key={`${who.kind}:${who.id}`}
@@ -358,7 +362,7 @@ export function SignIn({ onForgotPassword, initialAddress, notice }: SignInProps
               >
                 <span className="signin__identity-id">{who.id}</span>
                 <span className="signin__identity-kind">
-                  {busy === who.id ? 'signing in…' : who.kind === 'operator' ? 'operator' : 'this browser'}
+                  {busy === who.id ? 'signing in…' : who.kind === 'operator' ? 'server operator' : 'account'}
                 </span>
               </button>
             ))}

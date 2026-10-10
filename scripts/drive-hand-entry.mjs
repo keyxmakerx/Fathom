@@ -169,22 +169,19 @@ try {
 
   // Add ports `eth` 0 to 7 in one go (`addSketchPortRange`, the editor's
   // "a range" mode).
-  await page.locator('.drawing-editor__panel button', { hasText: '+ add a port' }).click();
-  await page.locator('.drawing-editor__panel label', { hasText: 'a range' }).click();
-  await page.locator('.drawing-editor__panel').getByPlaceholder('label prefix, e.g. ge-0/0/').fill('eth');
-  await page.locator('.drawing-editor__panel').getByPlaceholder('first').fill('0');
-  await page.locator('.drawing-editor__panel').getByPlaceholder('last').fill('7');
-  await page.locator('.drawing-editor__panel').getByRole('button', { name: 'add', exact: true }).click();
+  await page.locator('.drawing-editor__panel button', { hasText: '+ Add a port' }).click();
+  await page.locator('.drawing-editor__panel').getByRole('radio', { name: 'A range' }).click();
+  await page.locator('.drawing-editor__panel').getByLabel('Label prefix').fill('eth');
+  await page.locator('.drawing-editor__panel').getByLabel('First').fill('0');
+  await page.locator('.drawing-editor__panel').getByLabel('Last').fill('7');
+  await page.locator('.drawing-editor__panel').getByRole('button', { name: 'Add ports', exact: true }).click();
   await page.waitForTimeout(300);
   const panelTextAfterRange = await page.locator('.drawing-editor__panel').innerText();
   check('eth0 typed onto the faceplate', panelTextAfterRange.includes('eth0'));
   check('eth7 typed onto the faceplate', panelTextAfterRange.includes('eth7'));
-  // One "remove" button per port — an exact match (a regex anchored both
-  // ends) so Duplicate/notes buttons, and the device panel's "Remove
-  // device" (a `hasText` STRING match is a case-insensitive substring one,
-  // which "Remove device" also satisfies), never count.
-  const removeButtonCount = await page.locator('.drawing-editor__panel button', { hasText: /^remove$/ }).count();
-  check('8 ports typed in one go', removeButtonCount === 8, `${removeButtonCount} "remove" buttons`);
+  // One remove button per port.
+  const removeButtonCount = await page.locator('.drawing-editor__panel .drawing-ports__remove').count();
+  check('8 ports typed in one go', removeButtonCount === 8, `${removeButtonCount} remove buttons`);
   // Natural label order (`document/view.ts`'s `naturalLabelCompare`), not
   // mint order.
   const orderedLabels = (panelTextAfterRange.split(/ports · typed by hand/i)[1] ?? panelTextAfterRange).match(/eth\d+/g) ?? [];

@@ -40,7 +40,7 @@ import {
   type Selection,
 } from './contract';
 import { findChassis, findFixture, findOccupant, findRack, findShelf, findUnplacedChassis, locatePort } from './lookup';
-import { describePorts, faceplateLayoutFor } from './faceplate';
+import { connectorName, describePorts, faceplateLayoutFor } from './faceplate';
 
 // `DEVICE_ROLES` is `Device.role`'s own enum vocabulary (`schema/schema.yaml`,
 // mirrored once in `document/edit.ts` rather than guessed here — CLAUDE.md
@@ -465,20 +465,6 @@ const SEGMENT_STYLE: CSSProperties = {
   background: 'var(--surface)',
   color: 'var(--ink)',
   cursor: 'pointer',
-};
-
-/** The compact "TYPED" mark the Shelf board's editor prints beside every
- * hand-typed port (`design/places/renders/Shelf.png`) — muted, bordered,
- * never a risk colour (it names provenance, not a caution). */
-const TYPED_BADGE_STYLE: CSSProperties = {
-  display: 'inline-block',
-  fontSize: 'var(--t-micro)',
-  letterSpacing: 'var(--track-label)',
-  textTransform: 'uppercase',
-  color: 'var(--muted)',
-  border: 'var(--rule-hair) solid var(--muted)',
-  padding: '0 3px',
-  lineHeight: 1.4,
 };
 
 export function moveToRackChange(itemId: string, rackId: string, positionU: number, face: 'front' | 'rear' = 'front'): EditorChange {
@@ -1068,8 +1054,8 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
 
   if (!open) {
     return (
-      <button type="button" onClick={() => setIsOpen(true)}>
-        + add a port
+      <button type="button" className="drawing-ports__add" onClick={() => setIsOpen(true)}>
+        + Add a port
       </button>
     );
   }
@@ -1108,49 +1094,71 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
   }
 
   return (
-    <div className="drawing-editor__field">
-      <div style={{ display: 'flex', gap: 'var(--s2)' }}>
-        <label>
-          <input type="radio" checked={mode === 'single'} onChange={() => setMode('single')} /> one port
-        </label>
-        <label>
-          <input type="radio" checked={mode === 'range'} onChange={() => setMode('range')} /> a range
-        </label>
+    <div className="drawing-ports__form">
+      <div className="drawing-ports__modes" role="radiogroup" aria-label="How many">
+        {(['single', 'range'] as const).map((m) => (
+          <button key={m} type="button" role="radio" aria-checked={mode === m} style={mode === m ? SEGMENT_ACTIVE_STYLE : SEGMENT_STYLE} onClick={() => setMode(m)}>
+            {m === 'single' ? 'One port' : 'A range'}
+          </button>
+        ))}
       </div>
       {mode === 'single' ? (
-        <input placeholder="label" value={label} onChange={(e) => setLabel(e.target.value)} />
+        <label className="drawing-ports__cell drawing-ports__cell--wide">
+          <span>Label</span>
+          <input placeholder="e.g. ge-0/0/1" value={label} onChange={(e) => setLabel(e.target.value)} />
+        </label>
       ) : (
         <>
-          <input placeholder="label prefix, e.g. ge-0/0/" value={rangePrefix} onChange={(e) => setRangePrefix(e.target.value)} />
-          <input placeholder="first" value={rangeFirst} onChange={(e) => setRangeFirst(e.target.value)} />
-          <input placeholder="last" value={rangeLast} onChange={(e) => setRangeLast(e.target.value)} />
+          <label className="drawing-ports__cell drawing-ports__cell--wide">
+            <span>Label prefix</span>
+            <input placeholder="e.g. ge-0/0/" value={rangePrefix} onChange={(e) => setRangePrefix(e.target.value)} />
+          </label>
+          <label className="drawing-ports__cell">
+            <span>First</span>
+            <input inputMode="numeric" value={rangeFirst} onChange={(e) => setRangeFirst(e.target.value)} />
+          </label>
+          <label className="drawing-ports__cell">
+            <span>Last</span>
+            <input inputMode="numeric" value={rangeLast} onChange={(e) => setRangeLast(e.target.value)} />
+          </label>
         </>
       )}
-      <select value={connector} onChange={(e) => setConnector(e.target.value)}>
-        {PORT_CONNECTOR_VALUES.map((c) => (
-          <option key={c} value={c}>
-            {c}
-          </option>
-        ))}
-      </select>
-      <select value={service} onChange={(e) => setService(e.target.value)}>
-        <option value="">{ABSENT}</option>
-        {PORT_SERVICE_VALUES.map((s) => (
-          <option key={s} value={s}>
-            {s}
-          </option>
-        ))}
-      </select>
-      <select value={face} onChange={(e) => setFace(e.target.value as 'front' | 'rear')}>
-        <option value="front">front</option>
-        <option value="rear">rear</option>
-      </select>
-      <button type="button" onClick={commit}>
-        add
-      </button>
-      <button type="button" onClick={() => setIsOpen(false)}>
-        cancel
-      </button>
+      <label className="drawing-ports__cell">
+        <span>Connector</span>
+        <select value={connector} onChange={(e) => setConnector(e.target.value)}>
+          {PORT_CONNECTOR_VALUES.map((c) => (
+            <option key={c} value={c}>
+              {connectorName(c)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="drawing-ports__cell">
+        <span>Face</span>
+        <select value={face} onChange={(e) => setFace(e.target.value as 'front' | 'rear')}>
+          <option value="front">Front</option>
+          <option value="rear">Rear</option>
+        </select>
+      </label>
+      <label className="drawing-ports__cell drawing-ports__cell--wide">
+        <span>Service (optional)</span>
+        <select value={service} onChange={(e) => setService(e.target.value)}>
+          <option value="">{ABSENT}</option>
+          {PORT_SERVICE_VALUES.map((sv) => (
+            <option key={sv} value={sv}>
+              {sv}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="drawing-ports__actions">
+        <button type="button" className="drawing-ports__primary" onClick={commit}>
+          {mode === 'single' ? 'Add port' : 'Add ports'}
+        </button>
+        <button type="button" onClick={() => setIsOpen(false)}>
+          Cancel
+        </button>
+      </div>
       {refusal != null ? <div style={CAUTION_STYLE}>{refusal}</div> : null}
     </div>
   );
@@ -1182,24 +1190,41 @@ function PortsInWords({ chassis }: { chassis: ChassisView }) {
 }
 
 /** ADR-0051 §1, brief item 2 — a sketch's own ports, each marked TYPED
- * (`TYPED_BADGE_STYLE`) with a remove action, plus "+ add a port". A
+ * under a "typed by hand" heading with a remove action, plus "+ Add a port". A
  * chassis WITH a catalogue model shows its ports read-only "as today" (the
  * brief's own words) — this section is never rendered for one. */
 function SketchPortsSection({ chassisId, ports, actions }: { chassisId: string; ports: PortView[]; actions: EditorActions }) {
+  const [refusal, setRefusal] = useState<string | null>(null);
   return (
     <div className="drawing-editor__field">
-      <div className="drawing-editor__field-label">Ports · typed by hand</div>
-      {ports.map((port) => (
-        <div key={port.id} className="drawing-editor__field" style={{ display: 'flex', alignItems: 'center', gap: 'var(--s2)' }}>
-          <span>{port.label || ABSENT}</span>
-          <span style={{ color: 'var(--muted)' }}>{port.connector}</span>
-          <span style={TYPED_BADGE_STYLE}>typed</span>
-          <SupplyAction
-            label="remove"
-            onCommit={actions.onEdit ? () => actions.onEdit!(removeSketchPortChange(chassisId, port.id)) : undefined}
-          />
-        </div>
-      ))}
+      <div className="drawing-editor__field-label">
+        Ports · typed by hand
+      </div>
+      {ports.length > 0 ? (
+        <ul className="drawing-ports__list">
+          {ports.map((port) => (
+            <li key={port.id} className="drawing-ports__row">
+              <span className="drawing-ports__label">{port.label || ABSENT}</span>
+              <span className="drawing-ports__kind">
+                {connectorName(port.connector)}
+                {port.face === 'rear' ? ' · rear' : ''}
+              </span>
+              {actions.onEdit ? (
+                <button
+                  type="button"
+                  className="drawing-ports__remove"
+                  aria-label={`Remove port ${port.label}`}
+                  title="Remove this port"
+                  onClick={() => setRefusal(actions.onEdit!(removeSketchPortChange(chassisId, port.id))?.refused ?? null)}
+                >
+                  ×
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {refusal != null ? <div style={CAUTION_STYLE}>{refusal}</div> : null}
       <AddSketchPortForm chassisId={chassisId} actions={actions} />
     </div>
   );

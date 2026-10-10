@@ -291,12 +291,9 @@ try {
   // "Inside a box": "guess neither"). Type the one the paste below will
   // name, so the drawer's own "click a line and the port it built lights"
   // (UI-SPEC "Config") has a real port to try to light.
-  await page.locator('.drawing-editor__panel button', { hasText: '+ add a port' }).click();
-  await page.locator('.drawing-editor__panel').getByPlaceholder('label').fill('ge-0/0/0');
-  // Exact text, not `.last()`: the Notes section below this form (ADR-0053
-  // §5/§6) has its own "add typed"/"add pasted" buttons, which a substring
-  // match on "add" also catches — `.last()` would land on the wrong one.
-  await page.locator('.drawing-editor__panel').getByRole('button', { name: 'add', exact: true }).click();
+  await page.locator('.drawing-editor__panel button', { hasText: '+ Add a port' }).click();
+  await page.locator('.drawing-editor__panel').getByLabel('Label', { exact: true }).fill('ge-0/0/0');
+  await page.locator('.drawing-editor__panel').getByRole('button', { name: 'Add port', exact: true }).click();
   await page.waitForTimeout(300);
   check('the ge-0/0/0 port typed onto the faceplate', (await page.locator('.drawing-editor__panel').innerText()).includes('ge-0/0/0'));
 

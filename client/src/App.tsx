@@ -857,17 +857,18 @@ export default function App() {
 
   // The path: the organisation, then the chain of scopes actually returned
   // for the open design's scope (`pathTo` — root-most first, stopping at
-  // whatever ancestor came back, never inventing one it did not). Each
-  // scope part is selectable: clicking it opens that scope's most recent
-  // design in the place already open, mirroring the tree row below.
+  // whatever ancestor came back, never inventing one it did not). The
+  // organisation goes Home, a scope with a design opens its latest one, and
+  // the design's own crumb opens the tree to switch.
   const scopeChain = pathTo(scopes, view.design.scopeId);
   const path: PathPart[] = [
-    { label: view.organisation.displayName },
-    ...scopeChain.map((scope) => ({
-      label: scope.displayName,
-      onSelect: () => selectScope(scope.scopeId),
-    })),
-    { label: designTitle(view.design) },
+    { label: view.organisation.displayName, onSelect: () => setView({ kind: 'home' }), hint: 'Home' },
+    ...scopeChain.map((scope) =>
+      firstDesignByScopeId.has(scope.scopeId)
+        ? { label: scope.displayName, onSelect: () => selectScope(scope.scopeId), hint: `Open ${scope.displayName}'s latest design` }
+        : { label: scope.displayName },
+    ),
+    { label: designTitle(view.design), opensTree: true },
   ];
 
   // The tree: the forest built from every scope the caller may at least
