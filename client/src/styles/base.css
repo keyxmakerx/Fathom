@@ -44,7 +44,7 @@
    row or a menu row that happens to be a <button> keeps its own case. */
 :where(button:not(.react-flow *, [class]), .btn, .btn-main, .btn-quiet, .btn-danger),
 :where(.checks-btn, .config-drawer__paste-button, .live-notice__btn, .home__btn,
-  .inv-pageframe__back, .inv-where__clear, .networks-panel__add, .networks-editor__save,
+  .inv-where__clear, .networks-panel__add, .networks-editor__save,
   .networks-editor__cancel, .org-btn, .plans-btn, .trouble-btn, .signin__submit,
   .enrol__submit, .imp__primary, .console__btn, .history__btn, .drawing-ports__primary,
   .drawing-ports__add, .shell-chip--ink, .canvas-add),
@@ -71,9 +71,13 @@
   border-color: var(--control-line);
 }
 
-/* A destructive action: red text and line, never a red fill. */
+/* A destructive action: red text, never a red box; the line shows under
+   the pointer. */
 :where(button.btn-danger) {
   color: var(--danger);
+  border-color: transparent;
+}
+:where(button.btn-danger:not(:disabled):hover) {
   border-color: var(--danger);
 }
 

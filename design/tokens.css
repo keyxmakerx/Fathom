@@ -267,7 +267,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-input, button, select, textarea {
+:where(input, button, select, textarea) {
   font: inherit; color: inherit;
   border-radius: var(--radius);
   appearance: none;
