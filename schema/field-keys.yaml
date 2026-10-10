@@ -496,3 +496,6 @@ fields:
   IssueStep.answer: 402
   IssueStep.note: 403
   IssueStep.answered_at: 404
+  # The owner's ticked ideas (schema 0.19, 2026-10-10). Appended after 0.18's 404; 384-389 stay held elsewhere.
+  PhysicalPort.plate_x: 405
+  PhysicalPort.plate_y: 406

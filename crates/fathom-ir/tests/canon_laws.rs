@@ -182,7 +182,10 @@ fn schema_version_is_the_trees() {
     //
     // 0.17 -> 0.18: ADR-0061 troubleshooting. Two node kinds (`Issue`, `IssueStep`), two edge kinds
     // (`HasIssue`, `HasIssueStep`), fifteen field keys (390-404); all MINOR.
-    assert_eq!(SCHEMA_VERSION, "0.18");
+    //
+    // 0.18 -> 0.19: the owner's ticked ideas. Two optional fields, `PhysicalPort.plate_x` and
+    // `.plate_y` (405-406), and a `note` variant on `Label.form`; all MINOR.
+    assert_eq!(SCHEMA_VERSION, "0.19");
 }
 
 #[test]
@@ -706,7 +709,9 @@ fn dispatch_names_every_registry_key() {
     // `FieldValue.definition` (382).
     //
     // 382 -> 383: path trace's `SecurityPolicy.match_any_application` (383).
-    assert_eq!(FIELD_KEYS.len(), 398, "the registry grew or shrank");
+    //
+    // 398 -> 400: the ticked ideas' `PhysicalPort.plate_x` and `.plate_y` (405-406).
+    assert_eq!(FIELD_KEYS.len(), 400, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.
