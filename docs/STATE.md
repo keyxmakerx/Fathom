@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-10-02: 1561 Rust tests and 1531 client tests on commit 3b10bfc, read off the runs. Prose brought up to main (aef4c10) on 2026-10-03; counts not re-read. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-10-02: 1561 Rust tests and 1531 client tests on commit 3b10bfc, read off the runs. Prose brought up to main (40f0fea) on 2026-10-10; counts not re-read. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -135,6 +135,12 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
 `client/`: React, Vite, React Flow, plain CSS. Typecheck, tests, build and `gate-npm` are green.
 Surfaces are specified in `docs/UI-SPEC.md` and `ADR-0060`/`0061`.
 
+**The look** (#139; UI-SPEC "Look"): Hairline with the Blueprint finish. Square flat buttons with
+spaced-capital labels, grouped buttons in one frame, frosted pop-overs, a selection as four corner
+ticks, every duration a token and off under reduced motion. The bar folds as the window narrows
+(search, then Docs/History/Share/Print into **More ▾**, then lenses and look into **View ▾**); each
+breadcrumb does one thing.
+
 **Sign-in and the console**
 - **Enrolment and sign-in, both planes.** A token's prefix names its door (`op_` operator, `inv_`
   invitation). Enrolment makes a non-extractable keypair before the request goes out. First run (ADR-0056)
@@ -176,7 +182,7 @@ Surfaces are specified in `docs/UI-SPEC.md` and `ADR-0060`/`0061`.
   stops at "not tied to a port" until the tie is drawn), learned routes, NAT, port right-click, the
   Diagram look, the "Trace from here" offer from "It's down". `scripts/drive-trace.mjs` drives it.
 - **Inventory table with pages and shared custom fields** (schema 0.16, ADR-0062). Field definitions are an organisation-wide server store (migration 0035); a value is a `FieldValue` node in the design. Private fields are not built.
-- **IP and VLAN tables, file importer** (ADR-0063): Inventory Prefix and VLAN kinds derived from the drawing, and one importer (CSV, NetBox, Proxmox, nmap).
+- **IP and VLAN tables, file importer** (ADR-0063, importer): Inventory Prefix and VLAN kinds derived from the drawing, and one importer (CSV, NetBox, Proxmox, nmap).
 - **Cable corrections from the floor.** Anyone with Read on a design's place sends "Traced ✓", "Label wrong" or "Not here" about a cable (`cable:` and a ULID); someone with Draw accepts or dismisses it. Corrections are their own server store (`cable_corrections`, migration 0036), sealed under the organisation content key, never graph nodes. Text is refused when the redaction gate's bare credential check fires (`enable secret cisco123` form), so ordinary prose with key or secret in it can be refused too. Accepting is the Draw user's ordinary edit as one undoable batch ("accepted <name>'s correction"; a not-here report becomes a note without the name); if the edit or its save fails the client reopens the correction (`POST .../reopen`, accepted only). Dismissing re-seals the body as empty text, so what was typed is not kept; a dismissed one cannot be reopened. The database binds sender and decider to the session account. A Read sender sees only their own; caps of 5 open per sender per cable, 20 per sender and 200 per design. Orphaned corrections (cable removed) list on the Corrections waiting page with Dismiss only. Known limits: no chain entry for a correction or decision (L2), no retention clean-up of decided rows.
 
 **The canvas** (one canvas, detail by degrees; ADR-0060)
@@ -240,7 +246,7 @@ cable media, link speed, one cable per port, single-fed power, single-cabled swi
   note. A wrong drop is refused with a card naming the rule. Badges show for refuse and warn only.
 - Checks load incrementally: about 19 ms per edit at 1000 devices against about 4.5 s reloading whole.
 - Every rule's reviewer is `pending: Key Maker`, so Why? says "Source not yet checked by a person".
-- The server runs no checks. Not built: the Show-menu Checks layer (#110).
+- The server runs no checks.
 
 **Docs** (ADR-0061 round 7, #109, schema 0.14). A doc has a title, Markdown text and links, and is about a
 device, port, cable, rack, catalogue model (shows on every unit) or the design. A "Docs" line in those
@@ -252,7 +258,7 @@ password, seals bytes under the design key and serves downloads only. Images and
 check yet) need a per-file confirm ("Add, it shows no passwords") and show "Not checked · image/PDF".
 "Remove" takes a file off the doc (undoable); "Delete for good" (Draw) erases the sealed bytes, keeps
 name, size and hash in the history, and fetch answers 410 (migration 0033). Not built: a Docs Inventory
-kind (#93), docs on maintenance plans (#98).
+kind, docs on maintenance plans.
 
 **"It's down"** (ADR-0061, troubleshooting; schema 0.18, field keys 390-404): right-click a device, or the button on its page,
 opens a side panel with the device's chain as a checklist (power, neighbours, link, port, address, gateway)
@@ -285,14 +291,35 @@ optional; black and white with colours as words; title block and page x of y. Po
 VLAN's trunks draw dashed; "Hide this cable" with a "n hidden · show" chip. Per browser and design, never
 saved; both looks. Quick search also finds cables, VLANs and containers by name or tag.
 
-**Open, not on main yet:** #93 Inventory table, #98 maintenance plans, #100 more paste platforms, #101
-live co-editing, #110 Show menu, #111 print pack.
+**Show menu** (#110, #121, #123). Layers on the drawing: Checks (on by default), Addresses, VLANs, Docs,
+Maintenance, Tags. Device style for the Diagram look: Boxes or Icons (outline router, switch, firewall,
+server, access point). Per browser and design, never saved.
+
+**Maintenance plans** (#98; schema 0.15). A plan is ordered typed steps. Plan (indigo, dashed, What it
+touches with Why? cards via `OP_PLAN_PREVIEW`), Do (teal checklist, one live step, Done or Went
+differently), Record (outcome, never edited again). Right-click "Plan a change". Steps apply through the
+ordinary edit path; plan text is gated like notes.
+
+**Live co-editing** (#98, ADR-0063 live). Changes are signed requests the server applies to its own
+head through the engine, refusing what the engine or the credential check refuses, then numbers, chains,
+encrypts and streams them to other browsers. Different fields merge; on the same field the later one
+wins, and the overwritten person can **Put mine back**. Others show as initials dots in the bar.
+
+**History panel** (#124, #128). The bar's **History** leads with the chain check in words ("Checked:
+every save is intact", "Broken at save N"), lists saves newest first, shows any save read-only with its
+changes outlined, and **Restore this version** (Draw) makes a new save.
+
+**Open, not on main yet:** #136 port ties, #137 reconnecting, #138 History speed. #141 (ticked ideas:
+Ctrl+K, Undo note, saved views, folding panels, faceplate port dragging, pinned notes) merged into the
+UI sweep branch after that branch had merged, so it is not on main.
 
 **Carried**
 - The dependency-vulnerability gate needs egress to the advisory database (`scripts/osv-gate.sh`); the
   v0.1 tag waits on that run.
 - The server's credential check is the detector only; SNMPv3 auth and priv values are a known residual
-  (W7). Narrow redaction leaks are tracked in issue #104.
+  (W7). Narrow redaction leaks are tracked in issue #104; #135 closed its server items (id-shaped
+  secrets in plan text, batch comments, history under undeclared keys, canvas-editor paste), and its
+  quoting and wrapped-tail items remain.
 - People and access, residuals named: (1) an operator-issued token for an account can still be redeemed
   after a steward confirms that account (design section 4.4), so a second key could appear after confirm;
   (2) confirm checks that the account has exactly one live key, and nothing about a password or app
@@ -380,9 +407,7 @@ into the distroless runtime stage from the build stage. `FATHOM_SCHEMA_ROOT` ove
     (`crates/fathom-ingest/tests/arista_eos.rs`).
   - Every explainer carries `reviewed_by: <named human>`, which means unreviewed; no client surface
     shows that yet (OPEN-QUESTIONS E2 is answered, not built).
-  - **Engine gaps:** the client boots one dictionary beside OPNsense (`shell.rs` holds a single slot),
-    so `junos-ex` and `edgeos` are compiled in but not booted (`engine.ts` lists them as excluded; a
-    test refuses a silent omission). ADR-0044 rule 2's redaction-unproven refusal is not built; the
+  - **Engine gaps:** ADR-0044 rule 2's redaction-unproven refusal is not built; the
     core floor is the only fence. A credential typed into the free-text description cell of the
     OPNsense CSV is not caught (pinned in `opnsense_csv.rs`). The `<named human>` placeholder is a
     warning, not a build failure, because the shipping gate does not exist. A dictionary cannot bind

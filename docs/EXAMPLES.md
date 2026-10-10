@@ -1,11 +1,12 @@
 # Worked examples
 
-Short walkthroughs of tasks main supports today. Features still in review (#93, #98, #100, #101, #110,
-#111) are not covered. Wording on screen may differ slightly; `docs/STATE.md` is the page of record.
+Short walkthroughs of tasks main supports today. Open pull requests (#136, #137, #138) and the ticked
+ideas (#141, not on main) are not covered. Wording on screen may differ slightly; `docs/STATE.md` is the page of record.
 
 ## 1. Paste a device config
 
-Browser paste understands **Junos SRX** and **OPNsense** (rules-migration CSV) today.
+Browser paste understands **Junos SRX**, **Junos EX**, **EdgeOS** and **OPNsense** (rules-migration
+CSV). It tells them apart from the text; when it can't, the card asks "Which device is this from?".
 
 1. On the canvas, press **Ctrl+V** with the config text on the clipboard, or right-click and choose
    **Paste config**.
@@ -60,7 +61,7 @@ A doc on a catalogue model shows on every unit of it ("on the model").
 
 You need steward standing at the design's scope.
 
-1. Click **Share** in the bar.
+1. Click **Share** in the bar (under **More ▾** on a narrow window).
 2. The panel lists people in your organisation, each with a **Can** choice: **View** (see everything,
    change nothing) or **Draw** (edit).
 3. Pick **View** for a colleague. Your browser signs the grant; the server checks every field of it.
@@ -73,3 +74,19 @@ inside the scope; set the person back to no access here to end it. A reader sees
 Press **Ctrl+P** or the **Print** button. Pick this rack, every rack in the closet, or the cut sheet; A4
 or Letter; cables none or all. A rack sheet draws front and rear to scale with a device table. The cut
 sheet is a row per port, as .csv or .xlsx.
+
+## 7. Plan a firmware upgrade
+
+Set `FATHOM_FIRMWARE_FETCH_BASE_URL` first (`docs/RUNNING-IT.md`); firmware is off without it.
+
+1. **Inventory › Firmware**: upload the image. Fathom records its SHA-256, version and models.
+2. **Inventory › Models**: choose the model's version. A device behind it gets the check
+   `fw.device.behind-chosen-version`; hold one back with a reason if it must stay.
+3. Right-click the device, **Plan a firmware upgrade**. The plan carries the vendor's steps (Junos,
+   IOS XE, NX-OS, EOS) and a one-time link the device fetches its image from.
+
+## 8. Look back and restore
+
+1. Click **History** in the bar. It says first whether every save is intact.
+2. Pick a save to see the design as it was, its changes outlined. **Back to now** returns.
+3. **Restore this version** (Draw) makes a new save; both stay listed.

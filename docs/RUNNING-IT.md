@@ -204,6 +204,11 @@ build may run forward-only migrations on its first start. Then `docker compose p
 created date, and hard-refresh the browser. If `.env` sets `FATHOM_TAG`, the install stays on that
 build until you change it.
 
+**Firmware is off until you name an address.** Set `FATHOM_FIRMWARE_FETCH_BASE_URL` in `.env` to the
+address your switches can reach this server on (often not the one your browser uses), then
+`docker compose up -d`. Images upload in the browser; each device fetches its own over a one-time link.
+`FATHOM_FIRMWARE_MAX_BYTES` caps an image (default 2 GiB).
+
 **Your reverse proxy does HTTPS.** The browser generates your sign-in key with WebCrypto, which
 browsers allow only on HTTPS or `localhost`, so a plain-HTTP address on the network cannot sign in.
 Set `Strict-Transport-Security: max-age=31536000` on the proxy and redirect plain HTTP to HTTPS
