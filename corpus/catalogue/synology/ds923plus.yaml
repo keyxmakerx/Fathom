@@ -1,0 +1,29 @@
+# corpus/catalogue/synology/ds923plus.yaml -- Synology DiskStation DS923+ 4-bay desktop NAS.
+# `reviewed_by: <named human>` is a placeholder (invariant 10). rack_units: 1 is NOMINAL (desktop NAS).
+# Read 2026-10-10: Synology's own product page for DS923+ did not load (returned the Download Center
+# landing page), so the spec came from two pages that reproduce Synology's table: adorama.com/syds9234bd2.html
+# ("RJ-45 1GbE LAN Port: 2 (with Link Aggregation / Failover support)") and
+# nascompares.com/news/synology-ds923-4-bay-10gbe-nas-now-officially-released/ (same line); the
+# NASCompares installation guide says "LAN ports at the back of your NAS".
+# Recorded, rear: 2x RJ-45 1GbE. NOT RECORDED (expansion slots are not recorded): the optional
+# E10G22-T1-Mini 10GbE RJ-45 upgrade module in the "Gen3 x2 network upgrade slot". Also not recorded: USB, eSATA.
+# The format requires a `front` faceplate; an empty one (port_count: 0) is declared.
+# NOT CONFIRMED: vendor-hosted source, left-to-right order and layout (no photo), so single_row.
+vendor: synology
+model: DS923+
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Synology DS923+ specification table as reproduced by adorama.com/syds9234bd2.html and
+    nascompares.com (DS923+ 4-bay 10GbE NAS officially released), read 2026-10-10;
+    synology.com page not fetchable. 2x RJ-45 1GbE LAN, rear; optional 10GbE not recorded.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 0
+    port_groups: []
+  - face: rear
+    port_count: 2
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 2, start_number: 1 }

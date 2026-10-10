@@ -67,11 +67,24 @@ vendors:
                          # EdgeOS routers (EdgeRouter/EdgeMAX) are Vyatta-derived and
                          # do print one, hence the platform row.
 
-  mikrotik:  {}          # Added 2026-10-10 for corpus/dict/routeros/ (round 15 sign-off,
-                         # paste reads home-lab gear). `/export` prints the whole config
-                         # as menu headers and `add`/`set` lines a person pastes; the
-                         # reader is crates/fathom-ingest/src/routeros.rs and the source
-                         # trail is corpus/dict/README-routeros.md.
+  # Added 2026-10-10 for the home-lab catalogue (sign-off r15-catalogue): hardware-
+  # catalogue vendors only, like `apc`/`panduit` above. No platform row is added
+  # for any of them here; a paste parser that needs one (MikroTik RouterOS,
+  # pfSense) adds its row with its own dictionary and redaction tests.
+  mikrotik:   {}         # corpus/catalogue/mikrotik/: routers and CRS switches.
+                         # Also the paste reader for `/export` (platform row
+                         # `routeros` below; crates/fathom-ingest/src/routeros.rs,
+                         # source trail corpus/dict/README-routeros.md).
+  tplink:     {}         # corpus/catalogue/tplink/: Easy Smart / Omada switches,
+                         # Omada routers and an access point.
+  netgear:    {}         # corpus/catalogue/netgear/: Plus desktop switches.
+  netgate:    {}         # corpus/catalogue/netgate/: pfSense appliances.
+  protectli:  {}         # corpus/catalogue/protectli/: a fanless firewall box.
+  synology:   {}         # corpus/catalogue/synology/: NAS units.
+  qnap:       {}         # corpus/catalogue/qnap/: a NAS unit.
+  intel:      {}         # corpus/catalogue/intel/: a NUC mini PC.
+  lenovo:     {}         # corpus/catalogue/lenovo/: a ThinkCentre Tiny mini PC.
+  raspberrypi: {}        # corpus/catalogue/raspberrypi/: single-board computers.
 
   proxmox:   {}          # Owner-named 2026-08-28 (`70` §18.4): *"proxmox would probably
                          # need to be an engine"* — the first general-purpose host vendor,

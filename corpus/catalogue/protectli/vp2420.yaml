@@ -1,0 +1,29 @@
+# corpus/catalogue/protectli/vp2420.yaml -- Protectli Vault Pro VP2420 fanless firewall appliance.
+# `reviewed_by: <named human>` is a placeholder (invariant 10). rack_units: 1 is NOMINAL (desktop box,
+# 146 x 127 x 50 mm).
+# Read 2026-10-10: VP2420 Datasheet 20250115 (eu.protectli.com/wp-content/uploads/2025/01/VP2420-Datasheet-20250115.pdf)
+# and protectli.com/product/vp2420/. Four RJ-45 2.5G Ethernet ports ("4x Intel I226-V 2.5G"), on the
+# REAR panel (datasheet "Rear Panel Configuration": Ethernet Port 4, 3, 2, 1 listed in that order).
+# Console is USB Micro-B (front, not RJ45) -- not recorded; HDMI/DP/USB not recorded. No SFP listed.
+# The format requires a `front` faceplate; an empty one (port_count: 0) is declared.
+# NOT CONFIRMED: physical left-to-right order (datasheet does not state it; numbering 1..4 with
+# single_row assumed) and no photo layout.
+vendor: protectli
+model: VP2420
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Protectli, "VP2420 Datasheet 20250115",
+    eu.protectli.com/wp-content/uploads/2025/01/VP2420-Datasheet-20250115.pdf, and
+    protectli.com/product/vp2420/, read 2026-10-10. 4x RJ-45 2.5GbE (Intel
+    I226-V) on the rear panel; USB Micro-B console not recorded.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 0
+    port_groups: []
+  - face: rear
+    port_count: 4
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 4, start_number: 1 }

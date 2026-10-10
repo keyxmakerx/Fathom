@@ -1,0 +1,30 @@
+# corpus/catalogue/netgate/netgate-4200.yaml -- Netgate 4200 pfSense+ desktop gateway.
+# `reviewed_by: <named human>` is a placeholder (invariant 10). rack_units: 1 is NOMINAL (desktop unit).
+# Read 2026-10-10: docs.netgate.com/pfsense/en/latest/solutions/netgate-4200/io-ports.html (rear
+# side, "labeled 1 through 4 on the device": all RJ-45, 2.5 Gbps) and shop.netgate.com/products/4200-pfsense
+# ("Four 2.5G independent and configurable RJ45 LAN ports"; "(4) 2.5 Gbps RJ-45 'direct' (unswitched)").
+# Recorded, rear: ports 1-4, RJ-45 2.5G. Docs name 1 as PORT1WAN and 2 as PORT2LAN by default; the
+# vendor calls all four flexible WAN/LAN, so all four are `access` (no uplink, keeps printed order 1..4).
+# No SFP/SFP+ port appears on either page. NOT RECORDED: the console (USB Micro-B plus a "Cisco" RJ45
+# serial port on the rear -- a console, not a network port) and USB.
+# The format requires a `front` faceplate; an empty one (port_count: 0) is declared.
+# NOT CONFIRMED: left-to-right order and layout (docs give no photo or order), so single_row.
+vendor: netgate
+model: Netgate 4200
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Netgate, "Input and Output Ports" (Netgate 4200 docs),
+    docs.netgate.com/pfsense/en/latest/solutions/netgate-4200/io-ports.html, and
+    shop.netgate.com/products/4200-pfsense, read 2026-10-10. 4x RJ-45 2.5 GbE
+    on the rear (labelled 1-4); no SFP; consoles not recorded.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 0
+    port_groups: []
+  - face: rear
+    port_count: 4
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 4, start_number: 1 }

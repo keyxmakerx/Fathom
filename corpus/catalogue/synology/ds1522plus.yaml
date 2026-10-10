@@ -1,0 +1,27 @@
+# corpus/catalogue/synology/ds1522plus.yaml -- Synology DiskStation DS1522+ 5-bay desktop NAS.
+# `reviewed_by: <named human>` is a placeholder (invariant 10). rack_units: 1 is NOMINAL (desktop NAS).
+# Read 2026-10-10: "Synology NAS DS1522+ Hardware Installation Guide" (copy at
+# adorama.com/col/productManuals/SYDS1522B.pdf): "LAN Port 1GbE (RJ-45) x 4", LAN Port in the rear
+# panel parts list. Synology's own DS1522+ product page did not load (Download Center landing page).
+# Recorded, rear: 4x RJ-45 1GbE. NOT RECORDED (expansion slots are not recorded): the "Network
+# Upgrade Slot Gen3 x2" for the optional E10G22-T1-Mini 10GbE module. Also not recorded: USB, eSATA.
+# The format requires a `front` faceplate; an empty one (port_count: 0) is declared.
+# NOT CONFIRMED: left-to-right order and layout (no photo), so single_row.
+vendor: synology
+model: DS1522+
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Synology, "Synology NAS DS1522+ Hardware Installation Guide" (PDF copy at
+    adorama.com/col/productManuals/SYDS1522B.pdf), read 2026-10-10.
+    4x RJ-45 1GbE LAN on the rear panel; 10GbE upgrade slot not recorded.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 0
+    port_groups: []
+  - face: rear
+    port_count: 4
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 4, start_number: 1 }

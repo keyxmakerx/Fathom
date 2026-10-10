@@ -1,0 +1,25 @@
+# corpus/catalogue/tplink/tl-sg116e.yaml — TP-Link TL-SG116E, 16-port Easy Smart switch,
+# hardware version V2 (the version the vendor page shows selected; V1 and V1.20 also listed).
+# Read 2026-10-10: https://www.tp-link.com/us/business-networking/easy-smart-switch/tl-sg116e/
+# Ports as read: "16 10/100/1000Mbps RJ45 Ports". External 12 VDC/1.0 A adapter; 286 x 111.7
+# x 25.4 mm; fanless. The page states no mounting method (only "Rubber Feet" in the box).
+# Desktop gear: rack_units: 1 is nominal (field is required), not a vendor U height.
+# Not confirmed: no photo read, so single_row is the catalogue's convention for a one-row
+# desktop box (the reader will draw a visual gap after port 12). All 16 are access.
+# reviewed_by: <named human> is a placeholder (invariant 10).
+vendor: tplink
+model: TL-SG116E
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    TP-Link, "TL-SG116E V2" product page,
+    https://www.tp-link.com/us/business-networking/easy-smart-switch/tl-sg116e/,
+    read 2026-10-10. 16x 10/100/1000 RJ45; external 12 VDC adapter. Layout is the
+    catalogue's convention, not photo-confirmed. rack_units nominal (desktop).
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 16
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 16, start_number: 1 }
