@@ -178,6 +178,42 @@ describe('sending', () => {
     expect(last(r).reconnecting).toBe(false);
   });
 
+  it('after 20 s of failing says what it keeps running into, and forgets it once a frame gets through', async () => {
+    const { base } = world();
+    const r = rig(base);
+    r.events().status('up');
+    r.events().status('down', 'The server answered 429: too many live streams on this design for this account');
+    expect(last(r).reconnecting).toBe(true);
+    expect(last(r).stuck).toBeNull();
+    await vi.advanceTimersByTimeAsync(15_000);
+    // Opening and failing again does not restart the clock: no frame came through.
+    r.events().status('up');
+    r.events().status('down', 'The server answered 429: too many live streams on this design for this account');
+    expect(last(r).stuck).toBeNull();
+    await vi.advanceTimersByTimeAsync(6_000);
+    r.events().status('down', 'The server answered 429: too many live streams on this design for this account');
+    expect(last(r).stuck).toBe('The server answered 429: too many live streams on this design for this account');
+    r.events().status('up');
+    expect(last(r).stuck).toBeNull();
+    r.events().frame(frame(FRAME_PRESENCE, 10, new TextEncoder().encode('{"self":null,"others":[]}')));
+    r.events().status('down', 'The server could not be reached.');
+    expect(last(r).stuck).toBeNull();
+  });
+
+  it('says why after a change has failed to send four times', async () => {
+    const { base, deviceId } = world();
+    const r = rig(base);
+    r.events().status('up');
+    r.post.mockRejectedValue(new ApiRefusal(500, 'internal error', null));
+    r.live.edit(setDeviceField(base, deviceId, 'hostname', 'one', { actor: ME, now: Date.now() }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(last(r).reconnecting).toBe(true);
+    expect(last(r).stuck).toBeNull();
+    await vi.advanceTimersByTimeAsync(1000 + 2000 + 4000);
+    expect(r.post).toHaveBeenCalledTimes(4);
+    expect(last(r).stuck).toBe('Sending a change failed: the server answered 500: internal error');
+  });
+
   it('a reader sends nothing', async () => {
     const { base, deviceId } = world();
     const r = rig(base, { canDraw: false });

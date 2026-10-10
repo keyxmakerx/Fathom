@@ -15,6 +15,7 @@ import { EngineError, ERRORS } from '../../engine/engine';
 import { PASTE_PLATFORMS, type PastePlatform } from '../../engine/frames';
 import type { Mirror } from '../../engine/mirror';
 import { captureOf } from '../../document/capture';
+import { PHYSICAL_NAME, tiePlan, tiePorts } from '../../document/portTies';
 
 export interface PasteInterface {
   name: string;
@@ -64,7 +65,7 @@ export function pastePlatform(value: string | null): PastePlatform | null {
   return (PASTE_PLATFORMS as readonly string[]).includes(value ?? '') ? (value as PastePlatform) : null;
 }
 
-const PHYSICAL = /^(ge|xe|et|fe|me|fxp|em|eth|ether|gi|gig|fa|te|ten|port|lan|wan|sfp|igb|ix|vtnet|re)[-/]?\d/i;
+const PHYSICAL = PHYSICAL_NAME;
 const FAST = /^(xe|te|ten|sfp)/i;
 const MAX_PORTS = 96;
 
@@ -131,17 +132,23 @@ export function sameNamed(doc: Document, hostname: string): PasteMatch | null {
   return { deviceId: d.id, chassisId: chassis?.to ?? null, hostname: str(d, 'Device.hostname') ?? hostname, hasCapture: captureOf(doc, d.id) !== null, ambiguous: hits.length > 1 };
 }
 
-/** A port for each physical-looking interface, so the config's lines can light them. */
-function withPorts(doc: Document, chassisId: string, names: readonly string[], opts?: Actor): Document {
+/** A port for each physical-looking interface, so the config's lines can light them, each tied to the interface it
+ * was made for (the person confirms it with Add). */
+function withPorts(doc: Document, deviceId: string, chassisId: string, names: readonly string[], opts?: Actor): Document {
   let working = doc;
-  const seen = new Set<string>();
+  const made = new Map<string, string>();
   for (const name of names) {
-    if (seen.size >= MAX_PORTS) break;
-    if (name.includes('.') || !PHYSICAL.test(name) || seen.has(name)) continue;
-    seen.add(name);
+    if (made.size >= MAX_PORTS) break;
+    if (name.includes('.') || !PHYSICAL.test(name) || made.has(name)) continue;
+    const before = new Set(working.nodes.map((n) => n.id));
     working = addSketchPort(working, chassisId, { label: name, connector: FAST.test(name) ? 'sfp_plus' : 'rj45', face: 'front' }, opts);
+    const port = working.nodes.find((n) => !before.has(n.id) && parseNodeId(n.id).kind === 'PhysicalPort');
+    if (port) made.set(name, port.id);
   }
-  return working;
+  const pairs = (tiePlan(working, deviceId, [])?.rows ?? [])
+    .filter((r) => made.has(r.name))
+    .map((r) => ({ interfaceId: r.interfaceId, portId: made.get(r.name)! }));
+  return pairs.length > 0 ? tiePorts(working, deviceId, pairs, opts) : working;
 }
 
 /**
@@ -170,7 +177,7 @@ export function previewPaste(
   if (hostname !== '' && (node === undefined || str(node, 'Device.hostname') === null)) {
     addDoc = setDeviceField(addDoc, device, 'hostname', hostname, opts);
   }
-  addDoc = withPorts(addDoc, made.chassisId, interfaces.map((i) => i.name), opts);
+  addDoc = withPorts(addDoc, device, made.chassisId, interfaces.map((i) => i.name), opts);
   addDoc = foldFrom(addDoc, doc.batches.length);
 
   const match = sameNamed(doc, hostname);

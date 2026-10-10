@@ -132,26 +132,6 @@ impl Shard {
         }
     }
 
-    /// `ticket`'s pending copy becomes the head at `version`, `tip`.
-    fn commit(&mut self, design: &str, ticket: u64, version: i64, tip: Vec<u8>) {
-        if self.pending.get(design).is_none_or(|p| p.0 != ticket) {
-            return;
-        }
-        if let Some((_, graph, cost)) = self.pending.remove(design) {
-            self.bytes = self.bytes.saturating_sub(cost);
-            self.insert(
-                design,
-                Head {
-                    graph,
-                    version,
-                    tip,
-                    cost,
-                    used: 0,
-                },
-            );
-        }
-    }
-
     /// The head at `key`, or build it from `rebuild`.
     fn head_at(&mut self, key: &HeadKey, rebuild: Option<&Rebuild>) -> Result<(), HeadError> {
         let hit = self
@@ -182,6 +162,24 @@ impl Shard {
             },
         );
         Ok(())
+    }
+
+    fn commit(&mut self, design: &str, ticket: u64, version: i64, tip: Vec<u8>) {
+        if self.pending.get(design).is_some_and(|p| p.0 == ticket) {
+            if let Some((_, graph, cost)) = self.pending.remove(design) {
+                self.bytes = self.bytes.saturating_sub(cost);
+                self.insert(
+                    design,
+                    Head {
+                        graph,
+                        version,
+                        tip,
+                        cost,
+                        used: 0,
+                    },
+                );
+            }
+        }
     }
 
     fn apply(
@@ -216,20 +214,19 @@ impl Shard {
             None
         };
         let cost = head.cost.saturating_add(change.len() * COST_FACTOR);
-        let ticket = self.stage(&key.design, next, cost);
-        Ok(Applied { ticket, plain })
-    }
-
-    /// Hold `next` as `design`'s pending copy until its change commits. It is
-    /// counted while it waits, so the commit that takes it away (or a later
-    /// copy that replaces it) takes away bytes that were added.
-    fn stage(&mut self, design: &str, next: Graph, cost: usize) -> u64 {
         self.next_ticket += 1;
         let ticket = self.next_ticket;
-        self.drop_pending(design);
-        self.bytes += cost;
-        self.pending.insert(design.to_owned(), (ticket, next, cost));
-        ticket
+        // Counted while pending, as `commit` and `drop_pending` expect: they
+        // subtract it again. Uncounted, the next commit took the head's bytes
+        // to zero and `insert` then underflowed, panicking the worker.
+        if let Some((_, _, old)) = self
+            .pending
+            .insert(key.design.clone(), (ticket, next, cost))
+        {
+            self.bytes = self.bytes.saturating_sub(old);
+        }
+        self.bytes = self.bytes.saturating_add(cost);
+        Ok(Applied { ticket, plain })
     }
 }
 
@@ -390,27 +387,60 @@ mod tests {
         assert_eq!(shard.bytes, 100);
     }
 
+    /// A change adding one rack, as a client sends it: batch `n` on top of `g`.
+    fn add_rack(g: &mut Graph, n: u128) -> Vec<u8> {
+        use fathom_graph::{
+            BatchId, Confidence, Origin, ProvenanceId, ProvenanceRecord, Timestamp,
+        };
+        use fathom_ir::generated::ir_types::NodeKind;
+        let u = |x: u128| Ulid::from_parts(1_700_000_000_000, x).unwrap();
+        let prov = ProvenanceRecord {
+            id: ProvenanceId(u(1_000 + n)),
+            origin: Origin::Hand,
+            asserted_at: Timestamp(1_700_000_000_000 + n as u64),
+            asserted_by: Actor::User(UserId(u(1))),
+            confidence: Confidence::Asserted,
+            supersedes: None,
+        };
+        g.begin_batch(BatchId(u(2_000 + n)), "add a rack").unwrap();
+        g.insert_node(NodeKind::Rack, u(3_000 + n), prov.clone())
+            .unwrap();
+        g.end_batch().unwrap();
+        fathom_workspace::write_change(&fathom_workspace::Change {
+            batch: g.log().last().unwrap().clone(),
+            provenance: vec![prov],
+            values: Vec::new(),
+        })
+    }
+
     #[test]
-    fn changes_one_after_another_keep_the_byte_count_true() {
-        // The count once fell below the heads it held: a pending copy was
-        // never counted but its commit took its bytes away, so the next
-        // commit's replaced head took away more than was left (a panic in a
-        // debug build, a wrapped count in release).
+    fn changes_applied_and_committed_one_after_another_keep_the_count_whole() {
         let mut shard = Shard {
             cap: 1 << 20,
             ..Shard::default()
         };
+        let mut client = Graph::new();
         shard.head(Graph::new(), key(1), 100);
-        for v in 1..4_i64 {
-            let cost = 100 + v as usize * 10;
-            // A copy replaced before it commits is no longer counted.
-            shard.stage("d", Graph::new(), 1);
-            let ticket = shard.stage("d", Graph::new(), cost);
-            assert_eq!(shard.bytes, shard.heads["d"].cost + cost);
-            let next = key(v + 1);
-            shard.commit("d", ticket, next.version, next.tip);
-            assert_eq!(shard.bytes, cost);
+        for n in 1..=3u128 {
+            let change = add_rack(&mut client, n);
+            let version = n as i64;
+            let applied = shard
+                .apply(
+                    &key(version),
+                    None,
+                    &change,
+                    Ulid::from_parts(1_700_000_000_000, 1).unwrap(),
+                    false,
+                )
+                .expect("applies");
+            let pending = shard.pending["d"].2;
+            assert_eq!(shard.bytes, shard.heads["d"].cost + pending);
+            // This used to underflow on the second change and panic the worker.
+            shard.commit("d", applied.ticket, version + 1, vec![1]);
             assert!(shard.pending.is_empty());
+            assert_eq!(shard.heads["d"].version, version + 1);
+            assert_eq!(shard.bytes, pending);
+            assert_eq!(shard.heads["d"].graph.log().len(), n as usize);
         }
     }
 

@@ -18,6 +18,7 @@ import {
   parseAuthor,
   parsePresence,
   presenceInView,
+  serverAnswered,
   type FeedEvents,
   type FeedStatus,
   type LiveFrame,
@@ -55,6 +56,8 @@ export interface LiveView {
   connected: boolean;
   /** The stream dropped and is being reopened. */
   reconnecting: boolean;
+  /** Reconnecting has gone on for a while: what the last attempt ran into. */
+  stuck: string | null;
   /** Changes made here the server has not yet confirmed. */
   pendingCount: number;
   /** A sentence about a change that was dropped or refused. */
@@ -105,6 +108,16 @@ export interface LiveDeps {
 }
 
 const RETRY_MS = [1000, 2000, 4000, 8000, 15000];
+/** How long reconnecting goes on before the page says what it keeps running into. */
+const STUCK_MS = 20_000;
+/** Failed sends of one change before the page says why (1 + 2 + 4 s of retries). */
+const STUCK_RETRIES = 3;
+
+function sendWhy(e: unknown): string {
+  if (e instanceof ApiRefusal) return `Sending a change failed: the ${serverAnswered(e)}`;
+  if (e instanceof TypeError) return 'Sending a change failed: the server could not be reached.';
+  return 'Sending a change failed.';
+}
 const PRESENCE_GAP_MS = 500;
 const MERGED_MS = 20_000;
 
@@ -131,6 +144,10 @@ export class LiveEditing {
   private connected = false;
   private down = false;
   private sendFailed = false;
+  /** Since when the feed has failed without a frame getting through, and why. Only a frame clears it,
+   * so a stream that opens but carries nothing (a buffering proxy) still counts as failing. */
+  private trouble: { since: number; why: string } | null = null;
+  private sendWhy: string | null = null;
   private note: string | null = null;
   private overwrites: Overwrite[] = [];
   private merged: string | null = null;
@@ -169,7 +186,7 @@ export class LiveEditing {
       () => this.state.version,
       {
         frame: (f) => this.onFrame(f),
-        status: (s) => this.onStatus(s),
+        status: (s, why) => this.onStatus(s, why),
       },
       () => this.view,
     );
@@ -208,6 +225,7 @@ export class LiveEditing {
       mode: this.mode,
       connected: this.connected,
       reconnecting: this.down || (this.sendFailed && this.state.pending.length > 0),
+      stuck: this.stuck(),
       pendingCount: this.state.pending.length,
       note: this.note,
       overwrite: this.overwriteView(),
@@ -215,6 +233,12 @@ export class LiveEditing {
       self: this.self,
       people: this.people,
     });
+  }
+
+  private stuck(): string | null {
+    if (this.down && this.trouble !== null && this.now() - this.trouble.since >= STUCK_MS) return this.trouble.why;
+    if (this.sendFailed && this.state.pending.length > 0 && this.retries >= STUCK_RETRIES) return this.sendWhy;
+    return null;
   }
 
   private nameOf = (account: string): string => this.directory.get(account)?.name ?? 'Someone';
@@ -374,8 +398,10 @@ export class LiveEditing {
 
   // ---- the stream -----------------------------------------------------
 
-  private onStatus(status: FeedStatus): void {
+  private onStatus(status: FeedStatus, why?: string): void {
     if (this.disposed) return;
+    if (status === 'down') this.trouble = { since: this.trouble?.since ?? this.now(), why: why ?? 'The live connection was cut.' };
+    else if (status === 'unavailable') this.trouble = null;
     if (status === 'up') {
       this.connected = true;
       this.down = false;
@@ -405,6 +431,7 @@ export class LiveEditing {
 
   private onFrame(frame: LiveFrame): void {
     if (this.disposed || this.mode === 'legacy') return;
+    this.trouble = null;
     if (frame.type === FRAME_PRESENCE) {
       const heard = parsePresence(frame.bytes);
       this.heard = { people: heard.others, ownerView: frame.view };
@@ -542,6 +569,7 @@ export class LiveEditing {
           }
           if (this.lostAccess(e)) break;
           this.sendFailed = true;
+          this.sendWhy = sendWhy(e);
           this.emit();
           this.retryLater();
           break;

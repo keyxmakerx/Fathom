@@ -8,7 +8,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import { captureOf } from '../../document/capture';
 import { createFreeBox } from '../../document/freeform';
-import { emptyDocument, parseNodeId } from '../../document/model';
+import { edgesIn, emptyDocument, findNode, parseNodeId } from '../../document/model';
+import { tiePlan } from '../../document/portTies';
 import { writePlain } from '../../document/plain';
 import { Engine } from '../../engine/engine';
 import { Mirror } from '../../engine/mirror';
@@ -83,6 +84,15 @@ describe('previewPaste', () => {
     expect(cap).not.toBeNull();
     for (const s of SECRETS) expect(cap!.lines.map((l) => l.text).join('\n')).not.toContain(s);
     expect(interfacesOf(p.addDoc, device.id).map((i) => i.name)).toEqual(expect.arrayContaining(['ge-0/0/0', 'xe-0/0/1']));
+    // Each port made from the config is tied to the interface it was made for, in the same undo step.
+    for (const port of p.addDoc.nodes.filter((n) => parseNodeId(n.id).kind === 'PhysicalPort')) {
+      const tie = edgesIn(p.addDoc, port.id, 'Occupies');
+      expect(tie.length).toBe(1);
+      expect(findNode(p.addDoc, tie[0].from)!.fields['Interface.name']?.value).toBe(port.fields['PhysicalPort.label']?.value);
+    }
+    const untied = tiePlan(p.addDoc, device.id, [])!.rows.map((r) => r.name);
+    expect(untied).not.toContain('ge-0/0/0');
+    expect(untied).not.toContain('xe-0/0/1');
   });
 
   it('offers to attach to the same-named device, in either letter case, without touching the original', () => {

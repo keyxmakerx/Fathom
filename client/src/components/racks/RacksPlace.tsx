@@ -26,6 +26,7 @@ import { FieldValueError, isDeviceRole, setDeviceField } from '../../document/ed
 import { useResumeView } from './useResumeView';
 import type { CameraHub } from '../drawing/camera';
 import { edgesIn, parseNodeId, type Document } from '../../document/model';
+import { tiePlan } from '../../document/portTies';
 import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
 import { Engine, EngineTrap } from '../../engine/engine';
 import { Mirror, refusalSentence } from '../../engine/mirror';
@@ -69,6 +70,7 @@ import { useChecksController } from '../checks/useChecksController';
 import { TracePanel } from '../trace/TracePanel';
 import { TraceContext } from '../trace/traceStore';
 import { useTraceController } from '../trace/useTraceController';
+import { TieCard } from '../ties/TieCard';
 import { PlanBand, PlansBarChip } from '../plans/PlanBand';
 import { PlansSurface } from '../plans/PlansSurface';
 import { PlansContext } from '../plans/plansStore';
@@ -615,6 +617,8 @@ export function RacksPlace(props: RacksPlaceProps) {
   // The drawer's paste asks "which device is this from?" only when the device has no platform of its own
   // and the engine cannot tell; the text is held for that one question and dropped on any other outcome.
   const [drawerAsk, setDrawerAsk] = useState<{ deviceId: string; text: string; candidates: PastePlatform[] } | null>(null);
+  // The device whose tie list is open: after a paste onto it, or from a trace or troubleshooting stop.
+  const [tieFor, setTieFor] = useState<string | null>(null);
   const handlePasteInto = useCallback(
     (deviceId: string, text: string, platform?: PastePlatform) => {
       setPasteRefusal(null);
@@ -636,6 +640,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           // happened.
           mirrorLoadedDocRef.current = nextDoc;
           applyDocChange(nextDoc);
+          if ((tiePlan(nextDoc, deviceId)?.rows.length ?? 0) > 0) setTieFor(deviceId);
         })
         // `mirror.ts`'s own `refusalSentence` — the one place an
         // `EngineError`'s code is read into the drawer's own sentence
@@ -1168,6 +1173,8 @@ export function RacksPlace(props: RacksPlaceProps) {
       applyDocChange(next);
       if (chassisId !== null) setSelection({ kind: 'chassis', id: chassisId });
       setPasteState(null);
+      const attached = choice === 'attach' ? (preview.match?.deviceId ?? null) : null;
+      if (attached !== null && (tiePlan(next, attached)?.rows.length ?? 0) > 0) setTieFor(attached);
     },
     [pasteState, doc, applyDocChange],
   );
@@ -1794,6 +1801,9 @@ export function RacksPlace(props: RacksPlaceProps) {
           }}
         />
       ) : null}
+      {tieFor != null && doc != null && canDraw && pasteState == null ? (
+        <TieCard doc={doc} deviceId={tieFor} actor={accountId ?? undefined} onApply={applyDocChange} onClose={() => setTieFor(null)} />
+      ) : null}
       {canvasNotice != null ? (
         <div className="racks-place__notice" role="status" data-testid="canvas-notice">
           {canvasNotice}
@@ -1801,8 +1811,8 @@ export function RacksPlace(props: RacksPlaceProps) {
       ) : null}
       {doc != null && !trace.open ? <ChecksSurface controller={checks} canShow={jot == null} /> : null}
       {doc != null ? <PlansSurface controller={plans} besideChecks={checks.open} /> : null}
-      {doc != null && (trouble.draft != null || trouble.viewing != null) ? <TroublePanel controller={trouble} besideChecks={checks.open} besidePlans={plans.plan != null && plans.panelOpen && !plans.listMode} /> : null}
-      {doc != null && jot == null ? <TracePanel controller={trace} /> : null}
+      {doc != null && (trouble.draft != null || trouble.viewing != null) ? <TroublePanel controller={trouble} besideChecks={checks.open} besidePlans={plans.plan != null && plans.panelOpen && !plans.listMode} onTie={canDraw ? setTieFor : undefined} /> : null}
+      {doc != null && jot == null ? <TracePanel controller={trace} onTie={canDraw ? setTieFor : undefined} /> : null}
       </TraceContext.Provider>
       </TroubleContext.Provider>
       </PlansContext.Provider>

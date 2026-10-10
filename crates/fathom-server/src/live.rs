@@ -83,6 +83,9 @@ struct Signal {
     /// Someone else's pointer may have moved. Apart from `wake` so that a
     /// pointer never costs a database read.
     pointer: Notify,
+    /// A newer stream from the same session on the same design took this
+    /// one's place: end without writing more.
+    replaced: AtomicBool,
 }
 
 impl Signal {
@@ -178,6 +181,36 @@ impl Hub {
         name: &str,
     ) -> Result<Registered, Refusal> {
         let mut h = self.lock();
+        // A reconnect whose predecessor the server still holds (a connection
+        // that died without closing: sleep, a network change, a proxy) would
+        // otherwise be refused until that stream's writes fail, minutes later.
+        // At a limit, the session's own oldest stream on this design makes way.
+        let at_limit = {
+            let on_design = h.by_design.get(design).map_or(0, BTreeSet::len);
+            let mine = h.streams.values().filter(|e| e.account == account);
+            let (total, here) = mine.fold((0, 0), |(t, d), e| {
+                (t + 1, d + usize::from(e.design == design))
+            });
+            on_design >= STREAMS_PER_DESIGN
+                || total >= STREAMS_PER_ACCOUNT
+                || here >= STREAMS_PER_ACCOUNT_PER_DESIGN
+        };
+        if at_limit {
+            let oldest = h
+                .streams
+                .iter()
+                .find(|(_, e)| e.design == design && e.session == session)
+                .map(|(id, _)| *id);
+            if let Some(old) = oldest {
+                if let Some(e) = h.streams.remove(&old) {
+                    e.signal.replaced.store(true, Ordering::SeqCst);
+                    e.signal.poke();
+                }
+                if let Some(set) = h.by_design.get_mut(design) {
+                    set.remove(&old);
+                }
+            }
+        }
         let on_design = h.by_design.get(design).map_or(0, BTreeSet::len);
         if on_design >= STREAMS_PER_DESIGN {
             return Err(Refusal::Design);
@@ -817,7 +850,7 @@ async fn run(o: Opening, registered: Registered, writer: DuplexStream, gone: Arc
         .unwrap_or_else(Instant::now);
     let mut read = true;
     loop {
-        if read && s.deliver(force).await.is_err() {
+        if s.signal.replaced.load(Ordering::SeqCst) || (read && s.deliver(force).await.is_err()) {
             break;
         }
         if force {
@@ -843,7 +876,7 @@ async fn run(o: Opening, registered: Registered, writer: DuplexStream, gone: Arc
             }
         }
         let now = Instant::now();
-        if now >= end {
+        if now >= end || s.signal.replaced.load(Ordering::SeqCst) {
             break;
         }
         if now >= last_check + RECHECK {
@@ -1092,23 +1125,47 @@ mod tests {
     #[test]
     fn a_stream_limit_holds_per_account_and_per_design() {
         let hub = Hub::default();
-        let a = hub.admit("d1", "o", "s", "alice", "Alice A").unwrap();
-        let _b = hub.admit("d1", "o", "s", "alice", "Alice A").unwrap();
+        let a = hub.admit("d1", "o", "s1", "alice", "Alice A").unwrap();
+        let _b = hub.admit("d1", "o", "s2", "alice", "Alice A").unwrap();
         assert_eq!(
-            hub.admit("d1", "o", "s", "alice", "Alice A").err(),
+            hub.admit("d1", "o", "s3", "alice", "Alice A").err(),
             Some(Refusal::AccountDesign)
         );
         for d in 2..=4 {
             let name = format!("d{d}");
-            hub.admit(&name, "o", "s", "alice", "Alice A").unwrap();
-            hub.admit(&name, "o", "s", "alice", "Alice A").unwrap();
+            hub.admit(&name, "o", "s1", "alice", "Alice A").unwrap();
+            hub.admit(&name, "o", "s2", "alice", "Alice A").unwrap();
         }
         assert_eq!(
-            hub.admit("d5", "o", "s", "alice", "Alice A").err(),
+            hub.admit("d5", "o", "s3", "alice", "Alice A").err(),
             Some(Refusal::Account)
         );
         assert!(!hub.leave(a.id));
         assert_eq!(hub.stream_count(), 7);
+    }
+
+    #[test]
+    fn a_reconnect_at_the_limit_replaces_its_own_oldest_stream() {
+        let hub = Hub::default();
+        // Two streams the server still holds for one session: the connections
+        // died without closing, so neither has noticed yet.
+        let stale = hub.admit("d1", "o", "s", "alice", "Alice A").unwrap();
+        let other = hub.admit("d1", "o", "s", "alice", "Alice A").unwrap();
+        let fresh = hub.admit("d1", "o", "s", "alice", "Alice A").unwrap();
+        assert!(stale.signal.replaced.load(Ordering::SeqCst));
+        assert!(!other.signal.replaced.load(Ordering::SeqCst));
+        assert!(!fresh.signal.replaced.load(Ordering::SeqCst));
+        assert_eq!(hub.stream_count(), 2);
+        // The replaced stream's own leave finds nothing and is not the last.
+        assert!(!hub.leave(stale.id));
+        assert_eq!(hub.stream_count(), 2);
+        // Another session of the same account is still refused: it cannot
+        // push out streams that are not its own.
+        assert_eq!(
+            hub.admit("d1", "o", "s2", "alice", "Alice A").err(),
+            Some(Refusal::AccountDesign)
+        );
+        assert!(!other.signal.replaced.load(Ordering::SeqCst));
     }
 
     #[test]

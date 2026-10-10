@@ -204,6 +204,11 @@ build may run forward-only migrations on its first start. Then `docker compose p
 created date, and hard-refresh the browser. If `.env` sets `FATHOM_TAG`, the install stays on that
 build until you change it.
 
+**Firmware is off until you name an address.** Set `FATHOM_FIRMWARE_FETCH_BASE_URL` in `.env` to the
+address your switches can reach this server on (often not the one your browser uses), then
+`docker compose up -d`. Images upload in the browser; each device fetches its own over a one-time link.
+`FATHOM_FIRMWARE_MAX_BYTES` caps an image (default 2 GiB).
+
 **Your reverse proxy does HTTPS.** The browser generates your sign-in key with WebCrypto, which
 browsers allow only on HTTPS or `localhost`, so a plain-HTTP address on the network cannot sign in.
 Set `Strict-Transport-Security: max-age=31536000` on the proxy and redirect plain HTTP to HTTPS
@@ -236,6 +241,16 @@ side):
   each is right; if your proxy sets only `X-Real-IP`, name that header in
   `FATHOM_TRUSTED_CLIENT_IP_HEADER`. A proxy behind another edge (Cloudflare, an ISP load
   balancer) needs that edge's ranges listed too, or the edge becomes every client's address.
+
+**Let the live connection through.** An open design keeps one long-lived signed `GET
+…/designs/<id>/live` streaming bytes down for up to ten minutes, with a heartbeat every 25 s
+(ADR-0063). The proxy has to pass that response through as it arrives and not cut a connection that
+has been quiet for under a minute. The server marks the response `Cache-Control: no-store` and
+`X-Accel-Buffering: no`, which tells nginx not to buffer it. With any other proxy, turn response
+buffering off for that path and keep its read or idle timeout above 60 s. A proxy that holds the
+stream back shows as the canvas line *"Reconnecting; your changes are kept."*. After 20 s it adds
+*"The live connection opened but nothing came through it"*, and the browser console logs each
+failed attempt.
 
 To sign in the first time: open the page, and type the setup password you set in `.env` — the
 client's first-run flow asks for it on its first screen (§5 above says what follows). Nothing is

@@ -34,7 +34,9 @@ export function announcement(live: LiveStatus): string {
   if (live.overwrite != null) out.push(...live.overwrite.lines);
   if (live.merged != null) out.push(live.merged);
   if (live.note != null) out.push(live.note);
-  if (live.mode !== 'legacy' && live.reconnecting) out.push('Reconnecting; your changes are kept.');
+  if (live.mode !== 'legacy' && live.reconnecting) {
+    out.push(live.stuck ? `Reconnecting; your changes are kept. Still trying. ${live.stuck}` : 'Reconnecting; your changes are kept.');
+  }
   return out.join('. ');
 }
 
@@ -105,6 +107,12 @@ export function LiveNotices({ live, onKeepTheirs, onPutMineBack, onDismissNote }
       {down && (
         <span className="live-notice__muted" data-testid="live-down">
           Reconnecting; your changes are kept.
+          {live.stuck && (
+            <>
+              {' '}
+              <span data-testid="live-stuck">Still trying. {live.stuck}</span>
+            </>
+          )}
         </span>
       )}
     </div>
