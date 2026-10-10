@@ -7,7 +7,7 @@
 # NOT RECORDED: USB, micro-HDMI, PCIe FFC, PoE header. The format requires a `front` faceplate;
 # an empty one is declared.
 vendor: raspberrypi
-model: Raspberry Pi 5
+model: Raspberry-Pi-5
 rack_units: 1
 reviewed_by: <named human>
 source:

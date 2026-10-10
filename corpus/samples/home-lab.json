@@ -51,14 +51,14 @@
     },
     {
       "hostname": "server-1", "role": "server",
-      "catalogue": { "vendor": "lenovo", "model": "ThinkCentre M920q Tiny" },
+      "catalogue": { "vendor": "lenovo", "model": "ThinkCentre-M920q-Tiny" },
       "place": { "shelf": "shelf", "slot": 2 },
       "ports": [{ "label": "1", "connector": "rj45" }],
       "face": "rear"
     },
     {
       "hostname": "pi-1", "role": "server",
-      "catalogue": { "vendor": "raspberrypi", "model": "Raspberry Pi 5" },
+      "catalogue": { "vendor": "raspberrypi", "model": "Raspberry-Pi-5" },
       "place": { "shelf": "shelf", "slot": 3 },
       "ports": [{ "label": "1", "connector": "rj45" }],
       "face": "rear"
