@@ -41,7 +41,7 @@ export function rememberedTab(pick: RightTab | null): 'details' | 'trail' | null
  * Which right-hand tab is open, and how the three stay in step with the two things the design
  * place owns (History mode and the Trail's open flag).
  *
- * Selecting something shows its Details. If History was open, History mode stays on (the canvas
+ * Selecting something shows its Details, unless Equipment is open. If History was open, History mode stays on (the canvas
  * keeps showing the past save, and the History tab stays marked) rather than ending silently;
  * the History tab brings the list back.
  */
@@ -51,6 +51,8 @@ export function useRightTab(input: RightTabInput) {
     input.historyOpen ? 'history' : input.trailOpen ? 'trail' : input.initialEquipment === true && hasEquipment ? 'equipment' : input.initialTab,
   );
 
+  const pickNow = useRef(pick);
+  pickNow.current = pick;
   const trailRef = useRef(onTrailOpenChange);
   trailRef.current = onTrailOpenChange;
   const historyRef = useRef(onHistory);
@@ -83,6 +85,9 @@ export function useRightTab(input: RightTabInput) {
     if (!hasDetails) return;
     seen.current = selectionKey;
     restorePending.current = false;
+    // While Equipment is open, placing one device after another selects each new one; the list
+    // stays open so the next can be dragged out. The Details tab is one click away.
+    if (pickNow.current === 'equipment') return;
     setPick('details');
     if (trailRef.current != null) trailRef.current(false);
   }, [selectionKey, hasDetails]);
