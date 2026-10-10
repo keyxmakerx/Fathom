@@ -507,3 +507,8 @@ fields:
   # The owner's ticked ideas (schema 0.20, 2026-10-10). Appended after 0.19's 411; 384-389 stay held elsewhere.
   PhysicalPort.plate_x: 412
   PhysicalPort.plate_y: 413
+  # Cable runs and ties (schema 0.21, 2026-10-10). Keys 414-429 are reserved for this work.
+  CableRun.form: 414
+  CableRun.side: 415
+  CableRun.label: 416
+  CableTie.at: 417
