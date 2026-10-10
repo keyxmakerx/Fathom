@@ -155,6 +155,7 @@
   cursor: pointer;
   text-align: left;
   overflow: hidden;
+  box-shadow: none;
 }
 
 .drawing-shelf__occupant:last-child {
@@ -245,6 +246,7 @@
   align-items: center;
   gap: 1px;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .drawing-shelf__port:focus-visible {

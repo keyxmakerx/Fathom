@@ -78,6 +78,7 @@
   --rule-hair:   1px;      /* [E] */
   --rule-mast:   3px;      /* [E] */
   --rule-accent: 4px;      /* [E] 3pt in the source PDF */
+  --rule-sel:    2px;      /* the line beside or under a selected item, UI-SPEC "Look" */
   --rule-style-deterministic: solid;
   --rule-style-proposed:      dashed;
   --rule-style-pending:       dotted;
@@ -85,8 +86,26 @@
             var(--hairline) 0 1px, transparent 1px 6px);
 
   /* --- radius and elevation ------------------------------ §10, §11 ----- */
-  --radius: 0;             /* [C] deliberate. Read §10 before changing.     */
-  --shadow: none;          /* [C] there is no elevation scale.              */
+  --radius: 0;             /* [C] the drawing: racks, boxes, faceplates.    */
+  --shadow: none;          /* [C] the drawing casts no shadow.              */
+  /* Controls, menus and panels: UI-SPEC "Look" (Hairline, Blueprint
+     finish), decided 2026-10-10. Square and flat like the drawing; only
+     floating things lift, on frosted glass. */
+  --radius-control: 0;
+  --radius-pop:     0;
+  --control-h:     28px;   /* the bar and forms; dense rows use 24px */
+  --control-h-sm:  24px;
+  --control-line:       #C3CAD1;
+  --control-line-hover: #949EA8;
+  --control-bg:         transparent;
+  --control-bg-hover:   rgb(20 23 26 / 0.05);
+  --control-bg-press:   rgb(20 23 26 / 0.09);
+  --control-on:         rgb(20 23 26 / 0.07);   /* the lit part of a group */
+  --control-on-mark:    inset 0 -2px 0 var(--ink);
+  --control-track:      0.1em;   /* button labels: small spaced capitals */
+  --pop-bg:       rgb(255 255 255 / 0.86);
+  --pop-blur:     blur(10px) saturate(1.2);
+  --shadow-pop:   0 16px 40px rgb(20 23 26 / 0.16);
   --scrim-opacity: 0.72;
   --z-content: auto;  --z-egress: 10;  --z-modal: 20;
 
@@ -146,6 +165,9 @@
 
   /* --- motion --------------------------------------------------- §12 ---- */
   --motion-state:      0ms;
+  /* UI-SPEC "Look": a colour change under the pointer, and a menu arriving. */
+  --m-hover: 120ms;
+  --m-pop:  160ms;
   /* --motion-disclosure deleted per M34 — the product has no animation */
   --motion-ease:       linear;
 }
@@ -159,6 +181,13 @@
     --safe:      #35A06E;  --safe-wash:    #132019;
     --caution:   #D97328;  --caution-wash: #29180E;
     --danger:    #EA6260;  --danger-wash:  #271817;
+    --control-line:       #3A424B;
+    --control-line-hover: #5A646E;
+    --control-bg-hover:   rgb(223 228 232 / 0.05);
+    --control-bg-press:   rgb(223 228 232 / 0.09);
+    --control-on:         rgb(223 228 232 / 0.1);
+    --pop-bg:       rgb(25 28 32 / 0.82);
+    --shadow-pop:   0 16px 40px rgb(0 0 0 / 0.45);
   }
 }
 :root[data-theme="dark"] {
@@ -169,6 +198,13 @@
   --safe:      #35A06E;  --safe-wash:    #132019;
   --caution:   #D97328;  --caution-wash: #29180E;
   --danger:    #EA6260;  --danger-wash:  #271817;
+  --control-line:       #3A424B;
+  --control-line-hover: #5A646E;
+  --control-bg-hover:   rgb(223 228 232 / 0.05);
+  --control-bg-press:   rgb(223 228 232 / 0.09);
+  --control-on:         rgb(223 228 232 / 0.1);
+  --pop-bg:       rgb(25 28 32 / 0.82);
+  --shadow-pop:   0 16px 40px rgb(0 0 0 / 0.45);
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -231,7 +267,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-input, button, select, textarea {
+:where(input, button, select, textarea) {
   font: inherit; color: inherit;
   border-radius: var(--radius);
   appearance: none;

@@ -1,22 +1,37 @@
-/* The page's default controls (UI-SPEC "Look"): square, flat, one hairline,
-   token colours. `:where` keeps these at zero specificity, so any class rule
-   still wins; they only replace the browser's own bevelled defaults. */
+/* The page's default controls (UI-SPEC "Look", Hairline with the Blueprint
+   finish): square and flat, a thin border, labels in small spaced capitals,
+   a fill only under the pointer. `:where` keeps all of it at zero
+   specificity, so a class rule still wins. The drawing (inside React Flow)
+   keeps its own look. */
 
-:where(button) {
+:where(button:not(.react-flow *)) {
   font: inherit;
-  font-size: var(--t-small);
+  font-size: var(--t-tab);
   line-height: 16px;
   color: var(--ink);
-  background: var(--page);
-  border: var(--rule-hair) solid var(--ink);
-  border-radius: 0;
-  padding: 2px var(--s2);
+  background: var(--control-bg);
+  border: var(--rule-hair) solid var(--control-line);
+  border-radius: var(--radius-control);
+  box-shadow: none;
+  padding: 3px 10px;
   cursor: pointer;
+  transition:
+    background-color var(--m-hover) var(--m-ease),
+    border-color var(--m-hover) var(--m-ease),
+    color var(--m-hover) var(--m-ease);
 }
 
-:where(button:disabled) {
-  color: var(--muted);
-  border-color: var(--hairline);
+:where(button:not(.react-flow *, :disabled):hover) {
+  background-color: var(--control-bg-hover);
+  border-color: var(--control-line-hover);
+}
+
+:where(button:not(.react-flow *, :disabled):active) {
+  background-color: var(--control-bg-press);
+}
+
+:where(button:not(.react-flow *):disabled) {
+  opacity: 0.45;
   cursor: default;
 }
 
@@ -25,24 +40,137 @@
   outline-offset: var(--focus-offset-outset);
 }
 
-:where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file']), select, textarea) {
+/* A button's label is small spaced capitals. Opt-in, so a link, a list
+   row or a menu row that happens to be a <button> keeps its own case. */
+:where(button:not(.react-flow *, [class]), .btn, .btn-main, .btn-quiet, .btn-danger),
+:where(.checks-btn, .config-drawer__paste-button, .live-notice__btn, .home__btn,
+  .inv-where__clear, .networks-panel__add, .networks-editor__save,
+  .networks-editor__cancel, .org-btn, .plans-btn, .trouble-btn, .signin__submit,
+  .enrol__submit, .imp__primary, .console__btn, .history__btn, .drawing-ports__primary,
+  .drawing-ports__add, .shell-chip--ink, .canvas-add),
+:where(.btn-group) > :where(button),
+:where(.btn-group) > * > :where(button) {
+  letter-spacing: var(--control-track);
+  text-transform: uppercase;
+}
+
+/* The main action of a view: solid ink. */
+:where(button.btn-main, .btn-main) {
+  background: var(--ink);
+  color: var(--page);
+  border-color: var(--ink);
+}
+
+/* A quiet action: no box until pointed at. */
+:where(button.btn-quiet) {
+  border-color: transparent;
+  color: var(--muted);
+}
+:where(button.btn-quiet:not(:disabled):hover) {
+  color: var(--ink);
+  border-color: var(--control-line);
+}
+
+/* A destructive action: red text, never a red box; the line shows under
+   the pointer. */
+:where(button.btn-danger) {
+  color: var(--danger);
+  border-color: transparent;
+}
+:where(button.btn-danger:not(:disabled):hover) {
+  border-color: var(--danger);
+}
+
+/* Buttons that belong together share one frame with dividers; the lit one
+   takes a faint fill and a 2px ink underline. */
+:where(.btn-group) {
+  display: inline-flex;
+  align-items: stretch;
+  border: var(--rule-hair) solid var(--control-line);
+}
+:where(.btn-group) > :where(button),
+:where(.btn-group) > * > :where(button) {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+:where(.btn-group) > :where(* + *) {
+  border-left: var(--rule-hair) solid var(--control-line);
+}
+:where(.btn-group) > :where(button:not(:disabled):hover),
+:where(.btn-group) > * > :where(button:not(:disabled):hover) {
+  background: var(--control-bg-hover);
+  color: var(--ink);
+}
+:where(.btn-group) > :where(button[aria-pressed='true'], button[aria-checked='true'], button[aria-selected='true'], .is-on),
+:where(.btn-group) > * > :where(button[aria-pressed='true']) {
+  background: var(--control-on);
+  box-shadow: var(--control-on-mark);
+  color: var(--ink);
+}
+
+:where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file']), select, textarea):where(:not(.react-flow *)) {
   font: inherit;
   font-size: var(--t-small);
   color: var(--ink);
-  background: var(--page);
-  border: var(--rule-hair) solid var(--hairline);
-  border-radius: 0;
+  background-color: var(--page);
+  border: var(--rule-hair) solid var(--control-line);
+  border-radius: var(--radius-control);
   padding: var(--s1) var(--s2);
   max-width: 100%;
   box-sizing: border-box;
+  transition: border-color var(--m-hover) var(--m-ease);
+}
+
+:where(input:not([type='checkbox'], [type='radio']):hover, select:hover, textarea:hover) {
+  border-color: var(--control-line-hover);
 }
 
 :where(input:focus-visible, select:focus-visible, textarea:focus-visible) {
-  outline: var(--focus-width) solid var(--focus-colour);
-  outline-offset: -1px;
+  border-color: var(--ink);
+  outline: var(--focus-width) solid color-mix(in srgb, var(--ink) 16%, transparent);
+  outline-offset: 0;
+}
+
+:where(select:not(.react-flow *)) {
+  appearance: none;
+  padding-right: 22px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 12px) 55%, calc(100% - 8px) 55%;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
 }
 
 :where(input[type='checkbox'], input[type='radio']) {
   accent-color: var(--ink);
   margin: 0;
+}
+
+/* Floating things (menus, pop-overs, notices) are frosted glass. */
+:where(.glass) {
+  background: var(--pop-bg);
+  backdrop-filter: var(--pop-blur);
+  -webkit-backdrop-filter: var(--pop-blur);
+  box-shadow: var(--shadow-pop);
+}
+
+/* A pop-over or menu arriving: fades and drops into place. */
+@keyframes fathom-pop-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* A panel arriving at the drawing's edge (UI-SPEC Motion 9). */
+@keyframes fathom-from-right {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fathom-from-left {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(button, input, select, textarea) { transition: none; }
 }

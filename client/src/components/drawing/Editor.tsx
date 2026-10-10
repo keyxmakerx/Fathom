@@ -278,6 +278,7 @@ function SupplyAction({
     <>
       <button
         type="button"
+        className={label.startsWith('Remove') ? 'btn-danger' : undefined}
         onClick={() => {
           const result = onCommit();
           setRefusal(result?.refused ?? null);
@@ -317,6 +318,7 @@ function HideCableAction({ cable, actions }: { cable: CableView; actions: Editor
 const LINK_STYLE: CSSProperties = {
   background: 'none',
   border: 'none',
+  boxShadow: 'none',
   padding: 0,
   margin: 0,
   color: 'var(--ink)',
@@ -447,26 +449,6 @@ const MANAGEMENT_ADDRESS_NOTE =
 // its siblings below) so the SHAPE of what gets raised is testable without
 // rendering or simulating a click — this project's tests have no DOM
 // environment to drive one (`Editor.render.test.ts`'s own header).
-
-/** ADR-0051 §1 — the "PLACED ON" control's own segmented-button look: a flat
- * hairline box, the current choice filled ink, per UI-SPEC "zero radius, no
- * shadows" — applied inline for the same reason `SELECTED_STYLE` above is
- * (this file does not touch `drawing.css`). */
-const SEGMENT_ACTIVE_STYLE: CSSProperties = {
-  background: 'var(--ink)',
-  color: 'var(--page)',
-  border: 'var(--rule-hair) solid var(--ink)',
-  padding: 'var(--s1) var(--s2)',
-  fontSize: 'var(--t-micro)',
-  cursor: 'default',
-};
-
-const SEGMENT_STYLE: CSSProperties = {
-  ...SEGMENT_ACTIVE_STYLE,
-  background: 'var(--surface)',
-  color: 'var(--ink)',
-  cursor: 'pointer',
-};
 
 export function moveToRackChange(itemId: string, rackId: string, positionU: number, face: 'front' | 'rear' = 'front'): EditorChange {
   return { kind: 'move-placement', itemId, placement: { kind: 'rack', rackId, positionU, face } };
@@ -774,14 +756,13 @@ function RackHeightControl({ rack, actions }: { rack: RackView; actions: EditorA
   return (
     <div className="drawing-editor__field">
       <div className="drawing-editor__field-label">Height</div>
-      <div style={{ display: 'flex', gap: 0, flexWrap: 'wrap' }}>
+      <div className="btn-group">
         {RACK_SIZES.map((u) => (
           <button
             key={u}
             type="button"
-            style={u === rack.heightU ? SEGMENT_ACTIVE_STYLE : SEGMENT_STYLE}
-            disabled={u === rack.heightU}
-            onClick={() => choose(u)}
+            aria-pressed={u === rack.heightU}
+            onClick={() => u !== rack.heightU && choose(u)}
           >
             {u}U
           </button>
@@ -942,14 +923,13 @@ function PlacedOnControl({ itemId, placement, view, actions }: PlacedOnControlPr
   return (
     <div className="drawing-editor__field">
       <div className="drawing-editor__field-label">Placed on</div>
-      <div style={{ display: 'flex', gap: 0 }}>
+      <div className="btn-group">
         {CHOICES.map((choice) => (
           <button
             key={choice}
             type="button"
-            style={choice === currentKind ? SEGMENT_ACTIVE_STYLE : SEGMENT_STYLE}
-            disabled={choice === currentKind}
-            onClick={() => open(choice)}
+            aria-pressed={choice === currentKind}
+            onClick={() => choice !== currentKind && open(choice)}
           >
             {choice === 'rack' ? 'Rack' : choice === 'shelf' ? 'Shelf' : 'Surface'}
           </button>
@@ -1109,9 +1089,9 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
 
   return (
     <div className="drawing-ports__form">
-      <div className="drawing-ports__modes" role="radiogroup" aria-label="How many">
+      <div className="drawing-ports__modes btn-group" role="radiogroup" aria-label="How many">
         {(['single', 'range'] as const).map((m) => (
-          <button key={m} type="button" role="radio" aria-checked={mode === m} style={mode === m ? SEGMENT_ACTIVE_STYLE : SEGMENT_STYLE} onClick={() => setMode(m)}>
+          <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)}>
             {m === 'single' ? 'One port' : 'A range'}
           </button>
         ))}

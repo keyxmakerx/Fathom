@@ -93,8 +93,13 @@
   position: absolute;
   z-index: 15;
   display: flex;
-  border: 1px solid var(--ink);
-  background: var(--page);
+  border: var(--rule-hair) solid var(--control-line);
+  border-radius: var(--radius-pop);
+  background: var(--pop-bg);
+  backdrop-filter: var(--pop-blur);
+  -webkit-backdrop-filter: var(--pop-blur);
+  box-shadow: var(--shadow-pop);
+  animation: fathom-pop-in var(--m-pop) var(--m-ease);
 }
 .free-wordmenu__item {
   padding: var(--s1) var(--s2);
@@ -106,6 +111,7 @@
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   cursor: pointer;
+  box-shadow: none;
 }
 .free-wordmenu__item:hover, .free-wordmenu__item:focus-visible { background: var(--surface); outline: none; }
 
@@ -118,4 +124,8 @@
   text-transform: uppercase;
   color: var(--muted);
   border-bottom: 1px solid var(--hairline);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .free-wordmenu { animation: none; }
 }

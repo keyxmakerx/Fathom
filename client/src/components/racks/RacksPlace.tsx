@@ -175,8 +175,8 @@ function AddSurfaceControl({ onAdd }: { onAdd: (label: string, form: string) => 
 
   if (!open) {
     return (
-      <button type="button" onClick={() => setOpen(true)}>
-        + Add a wall, floor or desk
+      <button type="button" className="canvas-add" onClick={() => setOpen(true)}>
+        + Wall, floor or desk
       </button>
     );
   }
@@ -1594,10 +1594,10 @@ export function RacksPlace(props: RacksPlaceProps) {
   return (
     <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, aids: showAids }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
         doc != null ? (
-          <>
+          <div className="shell-bar__undoredo">
             <PlansBarChip controller={plans} />
             <ChecksBarChip controller={checks} />
-          </>
+          </div>
         ) : undefined
       }
       band={doc != null && plans.bandOpen ? <PlanBand controller={plans} /> : undefined}

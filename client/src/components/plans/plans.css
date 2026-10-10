@@ -39,10 +39,6 @@
 .plans-btn,
 .plans-chip {
   padding: 2px var(--s3);
-  border: var(--rule-hair) solid var(--ink);
-  border-radius: var(--radius);
-  background: var(--page);
-  color: var(--ink);
   font: inherit;
   cursor: pointer;
 }
@@ -50,10 +46,12 @@
 .plans-btn--ink {
   background: var(--ink);
   color: var(--page);
+  box-shadow: none;
 }
 
 .plans-bar-chip[aria-pressed='true'] {
-  box-shadow: inset 0 0 0 var(--rule-hair) var(--ink);
+  background: var(--control-on);
+  box-shadow: var(--control-on-mark);
 }
 
 .plans-btn:disabled,
@@ -85,6 +83,7 @@
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .plans-link:disabled {

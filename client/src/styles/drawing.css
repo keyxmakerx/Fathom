@@ -153,6 +153,7 @@
   letter-spacing: inherit;
   color: var(--muted);
   cursor: pointer;
+  box-shadow: none;
 }
 
 .drawing-rack__face--on {
@@ -195,9 +196,11 @@
   box-sizing: border-box;
 }
 
-.drawing-rack--selected .drawing-rack__frame {
-  outline: var(--focus-width) solid var(--focus-colour);
-  outline-offset: var(--focus-offset-outset);
+.drawing-rack--selected .drawing-rack__frame::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
+  pointer-events: none;
 }
 
 .drawing-rack__rail {
@@ -345,9 +348,29 @@
   font-family: var(--sans);
 }
 
-.drawing-chassis--selected {
-  outline: var(--focus-width) solid var(--focus-colour);
-  outline-offset: var(--focus-offset-inset);
+/* The chassis clips its own overflow, so its ticks sit on the node around it. */
+.react-flow__node:has(.drawing-chassis--selected)::after {
+  --tick-len: 8px;
+  content: '';
+  position: absolute;
+  inset: -5px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Selection is four corner ticks (UI-SPEC "Look", Blueprint). */
+.react-flow__node:has(.drawing-chassis--selected)::after,
+.drawing-rack--selected .drawing-rack__frame::after,
+.drawing-diagram-box--selected::after {
+  background:
+    linear-gradient(var(--ink), var(--ink)) left top / var(--tick-len, 10px) 2px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) left top / 2px var(--tick-len, 10px) no-repeat,
+    linear-gradient(var(--ink), var(--ink)) right top / var(--tick-len, 10px) 2px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) right top / 2px var(--tick-len, 10px) no-repeat,
+    linear-gradient(var(--ink), var(--ink)) left bottom / var(--tick-len, 10px) 2px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) left bottom / 2px var(--tick-len, 10px) no-repeat,
+    linear-gradient(var(--ink), var(--ink)) right bottom / var(--tick-len, 10px) 2px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) right bottom / 2px var(--tick-len, 10px) no-repeat;
 }
 
 /* A plate with no ports keeps the old header row: name left, model right. */
@@ -496,6 +519,7 @@
   margin: 0;
   display: flex;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .drawing-chassis__port:focus-visible {
@@ -1181,6 +1205,7 @@
   margin: 0;
   display: flex;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .drawing-surface__port:focus-visible {
@@ -1355,8 +1380,13 @@
   display: flex;
   flex-direction: column;
   padding: var(--s1) 0;
-  border: 1px solid var(--ink);
-  background: var(--page);
+  border: var(--rule-hair) solid var(--control-line);
+  border-radius: var(--radius-pop);
+  background: var(--pop-bg);
+  backdrop-filter: var(--pop-blur);
+  -webkit-backdrop-filter: var(--pop-blur);
+  box-shadow: var(--shadow-pop);
+  animation: fathom-pop-in var(--m-pop) var(--m-ease);
 }
 
 .drawing-context-menu__item {
@@ -1368,6 +1398,7 @@
   font-size: var(--t-small);
   text-align: left;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .drawing-context-menu__item:hover,
@@ -1542,8 +1573,13 @@
   cursor: pointer;
 }
 .drawing-diagram-box--selected {
-  outline: 2px solid var(--ink);
-  outline-offset: 2px;
+  position: relative;
+}
+.drawing-diagram-box--selected::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
+  pointer-events: none;
 }
 .drawing-diagram-box__words {
   max-width: 100%;
@@ -1590,6 +1626,9 @@
 }
 .drawing-diagram-box--icon.drawing-diagram-box--selected {
   outline: none;
+}
+.drawing-diagram-box--icon.drawing-diagram-box--selected::after {
+  display: none;
 }
 /* The name sits under the icon on the page, so a line passing behind it is hidden, not struck through. */
 .drawing-diagram-box__text--below {
@@ -1668,22 +1707,25 @@
   gap: 2px;
   padding: 2px;
   background: var(--page);
-  border: var(--rule-hair) solid var(--hairline);
+  border: var(--rule-hair) solid var(--control-line);
+  border-radius: var(--radius-pop);
 }
 .canvas-tool {
-  width: 24px;
-  height: 24px;
+  width: var(--control-h);
+  height: var(--control-h);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: var(--rule-hair) solid transparent;
+  border: 0;
+  border-radius: var(--radius-control);
   background: transparent;
-  color: var(--ink);
+  color: var(--muted);
   cursor: pointer;
+  box-shadow: none;
 }
-.canvas-tool:hover { border-color: var(--ink); }
-.canvas-tool[aria-pressed='true'] { background: var(--ink); color: var(--page); border-color: var(--ink); }
+.canvas-tool:hover { background: var(--control-bg-hover); color: var(--ink); box-shadow: none; }
+.canvas-tool[aria-pressed='true'] { background: var(--control-on); color: var(--ink); }
 .canvas-tool:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
 .canvas-tools__rule { width: 1px; height: 16px; background: var(--hairline); margin: 0 2px; }
 
@@ -1726,6 +1768,7 @@
   background: none;
   color: var(--muted);
   font-size: var(--t-body);
+  box-shadow: none;
 }
 
 .shell-editor button.drawing-ports__remove:hover,
@@ -1787,8 +1830,13 @@
 .drawing-ports__primary {
   background: var(--ink);
   color: var(--page);
+  box-shadow: none;
 }
 
 .drawing-ports__add {
   margin-top: var(--s1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawing-context-menu { animation: none; }
 }

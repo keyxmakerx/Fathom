@@ -135,11 +135,13 @@
   padding: var(--s2) var(--s3);
   font-size: var(--t-body);
   cursor: pointer;
+  box-shadow: none;
 }
 
 .console__btn--quiet {
   background: transparent;
   color: var(--ink);
+  box-shadow: none;
 }
 
 .console__btn:disabled {

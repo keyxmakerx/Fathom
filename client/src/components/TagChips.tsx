@@ -10,6 +10,7 @@ const REMOVE_STYLE: CSSProperties = {
   display: 'inline-block',
   border: 'none',
   background: 'none',
+  boxShadow: 'none',
   color: 'var(--ink)',
   font: 'inherit',
   fontSize: 'var(--t-small)',

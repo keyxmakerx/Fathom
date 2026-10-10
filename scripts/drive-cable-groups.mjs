@@ -158,6 +158,16 @@ async function cabledPortFillSnapshot(page) {
 }
 
 async function openCableGroupsList(page) {
+  // A narrow bar folds the lenses into one View menu that carries the list.
+  if ((await page.locator('[data-testid="shell-view-menu"]').count()) > 0) {
+    await page.locator('[data-testid="shell-view-menu"]').click();
+    if ((await page.locator('.cable-groups-pop').count()) === 0) {
+      await page.locator('.shell-show [role="menuitemradio"], .shell-show button', { hasText: 'Cables' }).first().click();
+      await page.locator('[data-testid="shell-view-menu"]').click();
+    }
+    await page.waitForSelector('.cable-groups-pop', { timeout: 5_000 });
+    return;
+  }
   await page.locator('.shell-bar__lenses .shell-lens', { hasText: 'Cables' }).click();
   await page.waitForSelector('.cable-groups-pop', { timeout: 5_000 });
 }

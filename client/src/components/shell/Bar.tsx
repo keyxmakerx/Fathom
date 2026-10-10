@@ -271,6 +271,10 @@ export function Bar({
                       {candidate === 'cables' && cablesGroupsSummary != null ? ` · ${cablesGroupsSummary}` : ''}
                     </PopoverRow>
                   ))}
+                  {/* Folded, the Cables lens's own list of groups sits here. */}
+                  {lens === 'cables' && cablesGroupsPopover != null && (
+                    <div className="shell-bar__fold-groups">{cablesGroupsPopover}</div>
+                  )}
                   {look != null && (
                     <>
                       <div className="shell-show__head">Look</div>
@@ -398,7 +402,7 @@ export function Bar({
                       data-testid={`show-${l.id}`}
                       onClick={() => layers.onToggle(l.id)}
                     >
-                      <span aria-hidden="true">{layers.value[l.id] ? '☑' : '☐'}</span>
+                      <span className="shell-show__tick" aria-hidden="true">{layers.value[l.id] ? '✓' : ''}</span>
                       <span>{l.label}</span>
                       {l.onByDefault && <span className="shell-show__note">on by default</span>}
                     </button>
@@ -423,6 +427,7 @@ export function Bar({
                   {layers.style != null && (
                     <div className="shell-show__style" role="group" aria-label="Device style">
                       <span className="shell-show__head">Device style</span>
+                      <span className="btn-group">
                       {DIAGRAM_STYLES.map((st) => (
                         <button
                           key={st}
@@ -436,6 +441,7 @@ export function Bar({
                           {DIAGRAM_STYLE_LABEL[st]}
                         </button>
                       ))}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -534,46 +540,39 @@ export function Bar({
             <Sep />
           </>
         ) : (
-          <>
-          {onDocs && (
+          (onDocs || onHistory || onShare || onPrint) && (
             <>
-              <button type="button" className="shell-chip shell-chip--ink" onClick={onDocs} data-testid="shell-docs">
-                Docs
-              </button>
+              <div className="shell-bar__undoredo">
+                {onDocs && (
+                  <button type="button" className="shell-chip shell-chip--ink" onClick={onDocs} data-testid="shell-docs">
+                    Docs
+                  </button>
+                )}
+                {onHistory && (
+                  <button
+                    type="button"
+                    className="shell-chip shell-chip--ink"
+                    aria-pressed={historyOpen ?? false}
+                    onClick={onHistory}
+                    data-testid="shell-history"
+                  >
+                    History
+                  </button>
+                )}
+                {onShare && (
+                  <button type="button" className="shell-chip shell-chip--ink" onClick={onShare} data-testid="shell-share">
+                    Share
+                  </button>
+                )}
+                {onPrint && (
+                  <button type="button" className="shell-chip shell-chip--ink" onClick={onPrint} data-testid="shell-print">
+                    Print
+                  </button>
+                )}
+              </div>
               <Sep />
             </>
-          )}
-          {onHistory && (
-            <>
-              <button
-                type="button"
-                className="shell-chip shell-chip--ink"
-                aria-pressed={historyOpen ?? false}
-                onClick={onHistory}
-                data-testid="shell-history"
-              >
-                History
-              </button>
-              <Sep />
-            </>
-          )}
-          {onShare && (
-            <>
-              <button type="button" className="shell-chip shell-chip--ink" onClick={onShare} data-testid="shell-share">
-                Share
-              </button>
-              <Sep />
-            </>
-          )}
-          {onPrint && (
-            <>
-              <button type="button" className="shell-chip shell-chip--ink" onClick={onPrint} data-testid="shell-print">
-                Print
-              </button>
-              <Sep />
-            </>
-          )}
-          </>
+          )
         )}
         {place === 'racks' && !editsFolded && (
           <>

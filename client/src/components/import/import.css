@@ -117,6 +117,7 @@
 .imp .imp__primary:not(:disabled) {
   color: var(--page);
   background: var(--ink);
+  box-shadow: none;
 }
 
 .imp__recognised {

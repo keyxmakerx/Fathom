@@ -59,6 +59,7 @@
   padding: var(--s2) var(--s3);
   font-size: var(--t-body);
   cursor: pointer;
+  box-shadow: none;
 }
 
 .signin__submit:disabled {
@@ -99,6 +100,7 @@
   text-align: left;
   text-decoration: underline;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .signin__switch:hover {
@@ -132,19 +134,12 @@
   justify-content: space-between;
   gap: var(--s3);
   width: 100%;
-  border: var(--rule-hair) solid var(--hairline);
-  background: var(--page);
-  color: var(--ink);
   padding: var(--s2) var(--s3);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
-.signin__identity:hover:enabled,
-.signin__identity:focus-visible {
-  border-color: var(--ink);
-}
 
 .signin__identity:disabled {
   opacity: 0.6;
@@ -304,9 +299,6 @@
   gap: var(--s2);
   width: 100%;
   margin: var(--s4) 0;
-  border: var(--rule-hair) solid var(--hairline);
-  background: var(--page);
-  color: var(--ink);
   padding: var(--s2) var(--s3);
   font: inherit;
   font-size: var(--t-small);

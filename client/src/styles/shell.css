@@ -68,6 +68,7 @@ button.shell-bar__brand {
   padding: 0;
   font-family: inherit;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .shell-bar__sep-wrap {
@@ -100,6 +101,7 @@ button.shell-bar__brand {
   border: none;
   border-bottom: var(--rule-accent) solid transparent;
   cursor: pointer;
+  box-shadow: none;
 }
 
 button.shell-bar__tab:hover {
@@ -120,7 +122,7 @@ span.shell-bar__tab {
 .shell-bar__path {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   font-size: var(--t-tab);
   white-space: nowrap;
 }
@@ -142,7 +144,8 @@ span.shell-bar__tab {
 .shell-bar__path-label {
   background: none;
   border: none;
-  padding: 0;
+  border-radius: var(--radius-control);
+  padding: 2px 4px;
   font: inherit;
   color: var(--muted);
   cursor: pointer;
@@ -154,6 +157,7 @@ span.shell-bar__tab {
 
 .shell-bar__path-label--plain {
   cursor: default;
+  padding: 0;
 }
 
 .shell-bar__path-label--plain:hover {
@@ -171,24 +175,73 @@ span.shell-bar__tab {
 
 .shell-bar__lenses {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: stretch;
+  align-self: center;
+  height: var(--control-h);
+  border: var(--rule-hair) solid var(--control-line);
 }
 
+/* A lens: one part of the group's shared frame (UI-SPEC "Look"): small
+   spaced capitals, the lit one a faint fill over a 2px ink underline. */
 .shell-lens {
-  border: var(--rule-hair) solid var(--hairline);
-  padding: 2px 8px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0 12px;
   font-size: var(--t-tab);
-  line-height: 14px;
-  color: var(--ink);
-  background: var(--page);
+  line-height: 16px;
+  letter-spacing: var(--control-track);
+  text-transform: uppercase;
+  color: var(--muted);
+  background: transparent;
   cursor: pointer;
 }
 
-.shell-lens--on {
-  background: var(--ink);
-  color: var(--page);
-  border-color: var(--ink);
+.shell-bar__lenses > :not(:first-child),
+.shell-bar__lenses > * + .shell-popover-host > .shell-lens {
+  border-left: var(--rule-hair) solid var(--control-line);
+}
+
+.shell-bar__lenses > .shell-popover-host {
+  align-items: stretch;
+}
+
+.shell-lens:not(:disabled):hover {
+  background: var(--control-bg-hover);
+  color: var(--ink);
+}
+
+.shell-lens--on,
+.shell-lens--on:not(:disabled):hover {
+  background: var(--control-on);
+  box-shadow: var(--control-on-mark);
+  color: var(--ink);
+}
+
+/* A lens-style trigger standing alone (Show, View): a button of its own. */
+.shell-popover-host > .shell-lens,
+.shell-lens.shell-bar__fold {
+  height: var(--control-h);
+  border: var(--rule-hair) solid var(--control-line);
+  color: var(--ink);
+}
+.shell-popover-host > .shell-lens:not(:disabled):hover,
+.shell-lens.shell-bar__fold:not(:disabled):hover {
+  border-color: var(--control-line-hover);
+}
+.shell-popover-host > .shell-lens--on,
+.shell-lens.shell-bar__fold.shell-lens--on {
+  border-color: var(--control-line-hover);
+  box-shadow: none;
+}
+.shell-bar__lenses > .shell-popover-host > .shell-lens {
+  height: auto;
+  border: 0;
+  color: var(--muted);
+}
+.shell-bar__lenses > .shell-popover-host > .shell-lens--on {
+  box-shadow: var(--control-on-mark);
+  color: var(--ink);
 }
 
 .shell-search {
@@ -200,15 +253,20 @@ span.shell-bar__tab {
   align-items: center;
   gap: 6px;
   width: 180px;
-  height: 24px;
-  border: var(--rule-hair) solid var(--hairline);
+  height: var(--control-h);
+  border: var(--rule-hair) solid var(--control-line);
+  border-radius: var(--radius-control);
   padding: 0 var(--s2);
   background: var(--page);
+  box-shadow: none;
   color: var(--muted);
 }
 
 .shell-search--collapsed {
-  width: 24px;
+  width: var(--control-h);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
   justify-content: center;
   padding: 0;
 }
@@ -242,8 +300,13 @@ button.shell-search {
   top: calc(100% + 6px);
   right: -1px;
   width: 440px;
-  background: var(--page);
-  border: var(--rule-hair) solid var(--ink);
+  border: var(--rule-hair) solid var(--control-line);
+  border-radius: var(--radius-pop);
+  background: var(--pop-bg);
+  backdrop-filter: var(--pop-blur);
+  -webkit-backdrop-filter: var(--pop-blur);
+  box-shadow: var(--shadow-pop);
+  animation: fathom-pop-in var(--m-pop) var(--m-ease);
   z-index: var(--z-egress);
 }
 
@@ -271,6 +334,7 @@ button.shell-search {
   border: none;
   padding: 5px var(--s3) 5px var(--s4);
   cursor: pointer;
+  box-shadow: none;
 }
 
 .shell-search__row--on {
@@ -362,23 +426,46 @@ button.shell-search {
 }
 
 .shell-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border: var(--rule-hair) solid var(--hairline);
+  border-radius: var(--radius-control);
   padding: 2px 8px;
   font-size: var(--t-tab);
   line-height: 14px;
   color: var(--muted);
-  background: var(--page);
+  background: transparent;
+  box-shadow: none;
 }
 
+/* A chip that is a button: the shared control look, bar height. */
 .shell-chip--ink {
-  border-color: var(--ink);
+  height: var(--control-h);
+  padding: 0 12px;
+  font-size: var(--t-tab);
+  letter-spacing: var(--control-track);
+  text-transform: uppercase;
+  border-color: var(--control-line);
+  background: var(--control-bg);
+  box-shadow: none;
   color: var(--ink);
   cursor: pointer;
 }
 
+.shell-chip--ink:not(:disabled):hover {
+  background: var(--control-bg-hover);
+  border-color: var(--control-line-hover);
+  box-shadow: none;
+}
+
+.shell-chip--on {
+  background: var(--control-on);
+  border-color: var(--control-line-hover);
+}
+
 .shell-chip--ink:disabled {
-  color: var(--muted);
-  border-color: var(--hairline);
+  opacity: 0.45;
   cursor: default;
 }
 
@@ -401,6 +488,7 @@ button.shell-search {
   color: var(--ink);
   text-decoration: underline;
   cursor: pointer;
+  box-shadow: none;
 }
 
 /* The Cables lens's own disclosure mark, lit only. */
@@ -408,42 +496,73 @@ button.shell-search {
   font-size: inherit;
 }
 
-.shell-bar__undoredo {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
+.shell-bar__undoredo,
 .shell-bar__zoom {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: stretch;
+  align-self: center;
+  height: var(--control-h);
+  border: var(--rule-hair) solid var(--control-line);
+  border-radius: var(--radius-control);
+  background: var(--control-bg);
+  box-shadow: none;
+}
+
+.shell-bar__undoredo > .shell-chip--ink,
+.shell-bar__zoom > button {
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.shell-bar__undoredo > :not(:first-child),
+.shell-bar__zoom > :not(:first-child) {
+  border-left: var(--rule-hair) solid var(--control-line);
+}
+
+.shell-bar__undoredo > .shell-chip--ink:not(:disabled):hover,
+.shell-bar__zoom > button:not(:disabled):hover {
+  background: var(--control-bg-hover);
+  box-shadow: none;
+}
+
+.shell-bar__undoredo > [aria-pressed='true'],
+.shell-bar__undoredo > .shell-chip--on {
+  background: var(--control-on);
+  box-shadow: var(--control-on-mark);
+}
+
+.shell-bar__undoredo > :first-child,
+.shell-bar__zoom > :first-child {
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+}
+
+.shell-bar__undoredo > :last-child,
+.shell-bar__zoom > :last-child {
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
 }
 
 .shell-zoom-btn {
-  width: 20px;
-  height: 20px;
-  border: var(--rule-hair) solid var(--hairline);
+  width: var(--control-h);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--t-tab);
+  font-size: var(--t-small);
   color: var(--ink);
-  background: var(--page);
-  cursor: pointer;
   padding: 0;
+  cursor: pointer;
 }
 
 .shell-zoom-value {
   font-family: var(--mono);
   font-size: var(--t-tab);
-  min-width: 36px;
+  min-width: 44px;
   text-align: center;
   color: var(--ink);
   font-variant-numeric: var(--num-tabular);
-  border: none;
-  background: transparent;
-  padding: 0;
+  padding: 0 4px;
   cursor: pointer;
 }
 
@@ -452,10 +571,12 @@ button.shell-search {
   padding: 2px 8px;
   background: #b45309;
   color: #fff;
+  border-radius: var(--radius-control);
   font-size: var(--t-micro);
   line-height: 14px;
   border: none;
   font-family: inherit;
+  box-shadow: none;
 }
 
 button.shell-admin-pill {
@@ -463,8 +584,10 @@ button.shell-admin-pill {
 }
 
 .shell-account {
-  width: 24px;
-  height: 24px;
+  width: var(--control-h);
+  height: var(--control-h);
+  border-radius: 50%;
+  box-shadow: none;
   background: var(--ink);
   color: var(--page);
   font-size: var(--t-micro);
@@ -477,9 +600,8 @@ button.shell-admin-pill {
 }
 
 /* ---- the popover ------------------------------------------------------
-   One kind, everywhere — BRIEF.md "Under the bar": a hairline box, surface-2,
-   square corners, no shadow, opened by a click, closed by clicking away or
-   Escape. */
+   One kind, everywhere (UI-SPEC "Pop-overs"): a hairline box on a soft
+   shadow, dropping into place, closed by clicking away or Escape. */
 
 .shell-popover-host {
   position: relative;
@@ -498,14 +620,22 @@ button.shell-admin-pill {
   top: 100%;
   left: 0;
   z-index: var(--z-egress);
-  border: var(--rule-hair) solid var(--hairline);
-  background: var(--surface-2);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 6px 0;
+  margin-top: 4px;
+  border: var(--rule-hair) solid var(--control-line);
+  background: var(--pop-bg);
+  backdrop-filter: var(--pop-blur);
+  -webkit-backdrop-filter: var(--pop-blur);
+  border-radius: var(--radius-pop);
+  box-shadow: var(--shadow-pop);
+  padding: 4px;
   display: flex;
   flex-direction: column;
   min-width: 200px;
+  animation: fathom-pop-in var(--m-pop) var(--m-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-popover { animation: none; }
 }
 
 .shell-popover--right {
@@ -517,7 +647,9 @@ button.shell-admin-pill {
   text-align: left;
   background: none;
   border: none;
-  padding: 5px 12px;
+  border-radius: var(--radius-control);
+  box-shadow: none;
+  padding: 6px 10px;
   font-size: var(--t-small);
   line-height: 18px;
   color: var(--ink);
@@ -526,7 +658,8 @@ button.shell-admin-pill {
 }
 
 .shell-popover__row:hover:not(:disabled) {
-  background: var(--surface);
+  background: var(--control-on);
+  box-shadow: none;
 }
 
 .shell-popover__row--current {
@@ -555,9 +688,13 @@ button.shell-admin-pill {
   width: 240px;
   border-right: var(--rule-hair) solid var(--hairline);
   background: var(--surface);
+  box-shadow: none;
+  position: relative;
+  z-index: 1;
   padding: var(--s4);
   flex-shrink: 0;
   overflow-y: auto;
+  animation: fathom-from-left var(--m-pane) var(--m-ease);
 }
 
 .shell-rail__empty {
@@ -593,41 +730,15 @@ button.shell-admin-pill {
   flex-shrink: 0;
   border-left: var(--rule-hair) solid var(--hairline);
   background: var(--surface-2);
+  box-shadow: none;
+  position: relative;
+  z-index: 1;
   overflow-y: auto;
   padding: var(--s4);
+  animation: fathom-from-right var(--m-pane) var(--m-ease);
 }
 
-/* The editor's own controls in the page's language (UI-SPEC "Look"):
-   square, flat, one hairline. Inline styles (segments, links) still win. */
-.shell-editor button {
-  font: inherit;
-  font-size: var(--t-small);
-  color: var(--ink);
-  background: var(--page);
-  border: var(--rule-hair) solid var(--ink);
-  border-radius: 0;
-  padding: 2px var(--s2);
-  cursor: pointer;
-}
-
-.shell-editor button:disabled {
-  color: var(--muted);
-  border-color: var(--hairline);
-  cursor: default;
-}
-
-.shell-editor input,
-.shell-editor select,
-.shell-editor textarea {
-  font: inherit;
-  font-size: var(--t-small);
-  color: var(--ink);
-  background: var(--page);
-  border: var(--rule-hair) solid var(--hairline);
-  border-radius: 0;
-  padding: var(--s1) var(--s2);
-  max-width: 100%;
-}
+/* The editor's controls take the page's default look from base.css. */
 
 /* The trail (ADR-0053 §4): folded to a strip on the right until opened.
    Wider than the editor, since "What changed" and "Why" need the room. */
@@ -641,9 +752,13 @@ button.shell-admin-pill {
   flex-shrink: 0;
   border-left: var(--rule-hair) solid var(--hairline);
   background: var(--surface-2);
+  box-shadow: none;
+  position: relative;
+  z-index: 1;
   overflow: hidden;
   display: flex;
   min-width: 0;
+  animation: fathom-from-right var(--m-pane) var(--m-ease);
 }
 
 /* The right strip is one button: the handle, then the word "Trail". */
@@ -656,6 +771,7 @@ button.shell-admin-pill {
   font: inherit;
   color: var(--muted);
   cursor: pointer;
+  box-shadow: none;
 }
 
 .shell-strip--trail:hover,
@@ -690,13 +806,7 @@ button.shell-admin-pill {
 }
 
 .app-placeholder button {
-  border: 1px solid var(--ink);
-  background: var(--page);
-  color: var(--ink);
-  font: inherit;
-  font-size: 12px;
   padding: 5px 16px;
-  cursor: pointer;
 }
 
 /* Nothing in the bar may shrink except the search box.
@@ -741,11 +851,11 @@ button.shell-admin-pill {
 /* ---- the Show menu: ticks for canvas layers ----------------------------- */
 .shell-show {
   width: 260px;
-  padding: 0 12px;
+  padding: 0;
   font-size: var(--t-small);
 }
 .shell-show__head {
-  padding: 4px 0 8px;
+  padding: 6px 8px 6px;
   color: var(--muted);
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -753,31 +863,79 @@ button.shell-admin-pill {
 .shell-show__row {
   width: 100%;
   background: none;
-  border-left: none;
-  border-right: none;
-  border-bottom: none;
+  border: none;
+  border-radius: var(--radius-control);
   color: var(--ink);
   font: inherit;
   text-align: left;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 0;
-  border-top: var(--rule-hair) solid var(--hairline);
+  padding: 6px 8px;
   cursor: pointer;
+  box-shadow: none;
+}
+.shell-show__tick {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border: var(--rule-hair) solid var(--control-line);
+  border-radius: var(--radius-control);
+  background: var(--page);
+  color: var(--page);
+  font-size: var(--t-micro);
+  line-height: 1;
+}
+.shell-show__row[aria-checked='true'] .shell-show__tick {
+  background: var(--ink);
+  border-color: var(--ink);
 }
 .shell-show__note {
   margin-left: auto;
   color: var(--muted);
 }
 .shell-show__hint {
-  margin: 8px 0 4px;
+  margin: 8px 8px 4px;
   color: var(--muted);
   line-height: 1.4;
 }
 .shell-show__style {
   display: flex;
   align-items: center;
-  gap: var(--s2);
-  padding: var(--s2) 0;
+  padding: var(--s2) 8px;
+  margin-top: 4px;
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+.shell-show__style .shell-show__head {
+  padding: 0;
+  margin-right: auto;
+}
+.shell-show__style .btn-group {
+  height: var(--control-h-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-search__results { animation: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-editor,
+  .shell-trail,
+  .shell-rail { animation: none; }
+}
+
+/* The folded View menu carries the Cables lens's groups under the lenses. */
+.shell-bar__fold-groups {
+  margin-top: var(--s2);
+  padding-top: var(--s2);
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+.shell-bar__fold-groups .cable-groups-pop {
+  width: 300px;
+  max-width: 100%;
+}
+.shell-show:has(.shell-bar__fold-groups) {
+  min-width: 300px;
 }
