@@ -444,10 +444,12 @@ export function Bar({
                       </span>
                     </div>
                   )}
+                  {/* Saved views give way before the lenses do: once the action chips fold, they sit in here. */}
+                  {layers != null && actionsFolded && viewsFolded}
                 </div>
               </Popover>
             )}
-            {layers != null && !lensesFolded && views}
+            {layers != null && !actionsFolded && views}
           </>
         )}
       </div>
