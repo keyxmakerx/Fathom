@@ -120,12 +120,8 @@ try {
     const pageErrors = [];
     page.on('pageerror', (e) => pageErrors.push(e.message));
     await page.goto(`${BASE}/drive.html?scene=trail${capability ? `&capability=${capability}` : ''}`);
-    // ADR-0052 §5: a reader's rail is genuinely absent (`Shell.tsx`'s
-    // `rail != null && <Strip .../>` — `RacksPlace.tsx` hands `rail: null`
-    // for `canDraw` false), so there is no "Open the equipment list" handle to click.
-    if (capability !== 'read') {
-      await page.click('button[aria-label="Open the equipment list"]');
-    }
+    // The equipment list now shares the right-hand dock with Details. It stays folded here, so
+    // selecting a device opens its Details, which is what this scene removes it from.
     await page.waitForSelector('.react-flow__node-chassis', { timeout: 15_000 });
     return { context, page, pageErrors };
   }
