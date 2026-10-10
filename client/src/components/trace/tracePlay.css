@@ -1,0 +1,61 @@
+/* Path trace playback: each hop lights in order, its cable draws, its dot pops in, and its row in the panel
+   takes the highlight while it plays. Short, one play, and none of it under reduced motion. No colour. */
+@keyframes trace-light {
+  from { opacity: var(--phantom); }
+  to { opacity: 1; }
+}
+
+@keyframes trace-draw {
+  from { stroke-dashoffset: 4000; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes trace-dot-pop {
+  0% { transform: translate(var(--trace-x, 0), var(--trace-y, 0)) translate(-50%, -50%) scale(0.4); opacity: 0; }
+  70% { transform: translate(var(--trace-x, 0), var(--trace-y, 0)) translate(-50%, -50%) scale(1.15); opacity: 1; }
+  100% { transform: translate(var(--trace-x, 0), var(--trace-y, 0)) translate(-50%, -50%) scale(1); opacity: 1; }
+}
+
+.react-flow__node.trace-lit {
+  animation: trace-light 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.react-flow__edge.trace-play .drawing-cable path,
+.react-flow__edge.trace-play .react-flow__edge-path {
+  stroke-dasharray: 4000;
+  animation: trace-draw 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.trace-dot {
+  animation: trace-dot-pop 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.trace-hop {
+  transition: opacity var(--m-pane) var(--m-ease), background-color var(--m-pane) var(--m-ease);
+}
+
+.trace-hop--later {
+  opacity: 0.35;
+}
+
+.trace-hop--now {
+  background: var(--surface-2);
+  box-shadow: inset 3px 0 0 var(--ink);
+}
+
+.trace-replay {
+  margin: var(--s1) 0;
+  display: inline-block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__node.trace-lit,
+  .react-flow__edge.trace-play .drawing-cable path,
+  .react-flow__edge.trace-play .react-flow__edge-path,
+  .trace-dot {
+    animation: none;
+  }
+  .trace-hop {
+    transition: none;
+  }
+}

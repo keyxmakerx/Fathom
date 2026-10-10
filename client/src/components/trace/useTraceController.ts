@@ -8,6 +8,7 @@ import type { TraceResult } from '../../engine/engine';
 import type { Mirror } from '../../engine/mirror';
 import { searchDesign } from '../shell/search';
 import { parseFlow, readAddress } from './traceModel';
+import { createTracePlayer, traceKey } from './tracePlayback';
 import { createTraceStore, type TraceStore } from './traceStore';
 
 export interface TraceEnd {
@@ -35,6 +36,8 @@ export interface TraceController {
   setQuery(text: string): void;
   pick(end: TraceEnd): void;
   setFlowText(text: string): void;
+  /** Plays the hops again, one by one. */
+  replay(): void;
 }
 
 function chassisOf(view: Pick<ClosetView, 'racks' | 'unplaced'>, id: string): ChassisView | null {
@@ -53,6 +56,9 @@ interface Deps {
 
 export function useTraceController({ doc, view, boot, mirrorNow }: Deps): TraceController {
   const store = useMemo(createTraceStore, []);
+  const player = useMemo(() => createTracePlayer(store), [store]);
+  const playedKey = useRef('');
+  useEffect(() => () => player.cancel(), [player]);
   const [from, setFrom] = useState<TraceEnd | null>(null);
   const [query, setQueryText] = useState('');
   const [target, setTarget] = useState<TraceEnd | null>(null);
@@ -69,6 +75,8 @@ export function useTraceController({ doc, view, boot, mirrorNow }: Deps): TraceC
     if (from == null || to == null || flow === null) {
       setResult(null);
       setError('');
+      player.cancel();
+      playedKey.current = '';
       store.set({ result: null });
       return undefined;
     }
@@ -82,11 +90,19 @@ export function useTraceController({ doc, view, boot, mirrorNow }: Deps): TraceC
         if (run !== runRef.current) return;
         setResult(r);
         setError('');
-        store.set({ result: r });
+        // A new answer plays hop by hop; the same one coming back after a live edit just updates in place.
+        const key = traceKey(r);
+        if (key === playedKey.current) store.set({ result: r, revealed: store.get().revealed ?? null });
+        else {
+          playedKey.current = key;
+          player.play(r);
+        }
       } catch (e) {
         if (run !== runRef.current) return;
         setResult(null);
         setError(e instanceof Error ? e.message : 'The trace could not run.');
+        player.cancel();
+        playedKey.current = '';
         store.set({ result: null });
       }
     })();
@@ -127,8 +143,15 @@ export function useTraceController({ doc, view, boot, mirrorNow }: Deps): TraceC
     setFlowText('');
     setResult(null);
     setError('');
+    player.cancel();
+    playedKey.current = '';
     store.set({ result: null });
-  }, [store]);
+  }, [store, player]);
+
+  const replay = useCallback(() => {
+    const r = store.get().result;
+    if (r != null) player.play(r);
+  }, [store, player]);
 
   const setQuery = useCallback((text: string) => {
     setQueryText(text);
@@ -157,5 +180,6 @@ export function useTraceController({ doc, view, boot, mirrorNow }: Deps): TraceC
     setQuery,
     pick,
     setFlowText,
+    replay,
   };
 }
