@@ -18,7 +18,8 @@ import { decodeReply } from './protocol';
 import { ERRORS, OPCODES } from './protocol.constants';
 import { fileLoader } from './wasm';
 import { connectPorts } from '../document/cables';
-import { addSketchPort, createSketchDevice, removeChassis } from '../document/commands';
+import { addSketchPort, createRack, createSketchDevice, movePlacement, removeChassis } from '../document/commands';
+import { createPremises } from '../components/racks/emptyDesign';
 import { setDeviceField } from '../document/edit';
 import { addContainer, addContainerNetwork, addPublishedPort, attachContainerToNetwork } from '../document/docker';
 import { edgesIn, edgesOut, emptyDocument, text, type Document } from '../document/model';
@@ -26,7 +27,7 @@ import { addSubnet, addVlan, removeVlanNetwork } from '../document/networks';
 import { begin, createFreeBox, createLabel, createLine, finish, removeFree, setLineLabel, setNodeField } from '../document/freeform';
 import { addNote } from '../document/notes';
 import { writePlain } from '../document/plain';
-import { undo } from '../document/undo';
+import { redo, undo } from '../document/undo';
 import { TYPED_AS_WRITTEN, addStep, createPlan, markDone, markWentDifferently, recordPlan, startPlan, readPlan } from '../document/plans';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -491,6 +492,46 @@ describe('a design stays saveable after undo', () => {
     // The cable first, then both ports: newest first, as Ctrl Z would.
     for (const batch of doc.batches.slice(-3).reverse()) doc = undo(doc, batch.id, step());
 
+    expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
+  });
+
+  // #108: moving a placed item twice and undoing the second move revives the first
+  // `MountedIn` edge after tombstoning the second. The issue reported the result as
+  // refused by OP_LOAD_PLAIN with `OutBoundExceeded{MountedIn}`; this pins that it loads,
+  // after one undo and after undoing both moves, and that redo and the next move still do.
+  it('undoing a moved placement still loads through the Rust reader', () => {
+    const actor = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+    let now = 1_790_100_000_000;
+    const step = () => ({ actor, now: (now += 1000) });
+    const added = (before: Document, after: Document, prefix: string) =>
+      after.nodes.find((n) => n.id.startsWith(prefix) && !before.nodes.some((b) => b.id === n.id))!.id;
+
+    const premises = createPremises(emptyDocument(), step());
+    let doc = premises.doc;
+    let before = doc;
+    doc = createRack(doc, premises.premisesId, { label: 'R1', heightU: 42, unitNumbering: 'ascending', ...step() });
+    const rack = added(before, doc, 'rack:');
+    before = doc;
+    doc = createSketchDevice(doc, step());
+    const chassis = added(before, doc, 'chassis:');
+    const at = (positionU: number) => ({ kind: 'rack' as const, rackId: rack, positionU, face: 'front' as const });
+    doc = movePlacement(doc, chassis, at(10), step());
+    doc = movePlacement(doc, chassis, at(20), step());
+    const [first, second] = doc.batches.slice(-2);
+
+    const live = (d: Document) => d.edges.filter((e) => e.id.startsWith('mounted-in:') && e.absentSince == null);
+    expect(doc.edges.filter((e) => e.id.startsWith('mounted-in:'))).toHaveLength(2);
+
+    doc = undo(doc, second.id, step());
+    expect(live(doc)).toHaveLength(1);
+    expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
+    const undone = doc.batches[doc.batches.length - 1];
+    doc = redo(doc, undone.id, step());
+    expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
+    doc = undo(doc, doc.batches[doc.batches.length - 1].id, step());
+    doc = undo(doc, first.id, step());
+    expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
+    doc = movePlacement(doc, chassis, at(30), step());
     expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
   });
 
