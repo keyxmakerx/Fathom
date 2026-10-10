@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 import { DockSlot } from './Dock';
 import type { PanelId } from './panelSizing';
+import { EmptyState } from '../ui/EmptyState';
 
 export interface StripProps {
   /** The open rail's content, e.g. the Canvas place's equipment list. `null` or
@@ -47,7 +48,11 @@ export function Strip({ rail, open, onOpenChange, width, max, onResize, onReset,
 
       <DockSlot side="left" open={open} width={width} name="Equipment" panel="rail" max={max} onResize={onResize} onReset={onReset} onDragging={onDragging}>
         <nav className="shell-rail" aria-label="Equipment">
-          {rail ?? <p className="shell-rail__empty">Nothing to show yet.</p>}
+          {rail ?? (
+            <EmptyState className="shell-rail__empty" title="Nothing to show yet." compact>
+              Equipment you can add to the drawing is listed here.
+            </EmptyState>
+          )}
         </nav>
       </DockSlot>
     </div>

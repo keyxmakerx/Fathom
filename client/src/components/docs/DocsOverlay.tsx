@@ -12,6 +12,7 @@ import {
 import { DocsContext, type DocsApi, type DocsView } from './context';
 import { Markdown } from './markdown';
 import './docs.css';
+import { EmptyState } from '../ui/EmptyState';
 
 const TYPED_SENTENCE = 'Stored as typed. Fathom does not redact what you type, only what you paste.';
 
@@ -138,9 +139,17 @@ function DocsList({ api, onView }: { api: DocsApi; onView: (v: DocsView) => void
           ))}
         </tbody>
       </table>
-      {rows.length === 0 ? <p className="docs-note">No docs yet.</p> : null}
+      {rows.length === 0 ? (
+        <EmptyState
+          title="No docs yet."
+          compact
+          action={api.canEdit ? { label: 'Add doc', onClick: () => onView({ kind: 'new', from: 'list' }) } : undefined}
+        >
+          Write down how this design works, or why it is built this way.
+        </EmptyState>
+      ) : null}
       <p className="docs-note">Docs about one thing also show in that thing's panel under Docs.</p>
-      {api.canEdit ? (
+      {api.canEdit && rows.length > 0 ? (
         <button type="button" className="docs-link" onClick={() => onView({ kind: 'new', from: 'list' })}>
           + Add doc
         </button>

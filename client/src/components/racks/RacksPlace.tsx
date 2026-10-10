@@ -79,6 +79,7 @@ import type { PaletteItem } from '../drawing/contract';
 import { DEFAULT_FACEPLATES, SKETCH_DEVICE_PALETTE_ITEM, isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
 import { highestFreeU, hostnamesOf, nextHostname, racksInPickOrder } from './pick';
 import './racks.css';
+import { SkeletonRacks } from '../ui/Skeleton';
 
 // `canDrawFor`/`refusalFor` now live in `components/design/useDesignSession.ts`,
 // re-exported here unchanged, so the two
@@ -1364,7 +1365,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       <TroubleContext.Provider value={trouble.store}>
       <TraceContext.Provider value={trace.store}>
       {doc == null ? (
-        <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
+        <div className="racks-place__loading">{loadError ?? <SkeletonRacks label="Opening the design…" />}</div>
       ) : look === 'diagram' ? (
         <DiagramDrawing
           view={displayView}

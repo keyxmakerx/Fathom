@@ -41,6 +41,7 @@ import {
 } from './contract';
 import { findChassis, findFixture, findOccupant, findRack, findShelf, findUnplacedChassis, locatePort } from './lookup';
 import { describePorts, faceplateLayoutFor } from './faceplate';
+import { EmptyState } from '../ui/EmptyState';
 
 // `DEVICE_ROLES` is `Device.role`'s own enum vocabulary (`schema/schema.yaml`,
 // mirrored once in `document/edit.ts` rather than guessed here — CLAUDE.md
@@ -1465,7 +1466,15 @@ export function FieldsSection({ ownerId, actions }: { ownerId: string; actions: 
   return (
     <>
       <div className="drawing-editor__group">Your fields</div>
-      {rows.length === 0 ? <div style={TYPED_NOTE_STYLE}>No fields yet.</div> : null}
+      {rows.length === 0 ? (
+        <EmptyState
+          title="No fields yet."
+          compact
+          action={actions.onAddFieldDef && !adding ? { label: 'Add a field', onClick: () => setAdding(true) } : undefined}
+        >
+          Fields are your own details for this thing, like a warranty date.
+        </EmptyState>
+      ) : null}
       {rows.map(({ def, value, removed }) => (
         <div key={def.id} className="drawing-editor__field" style={removed ? { color: 'var(--muted)' } : undefined}>
           <div className="drawing-editor__field-label">

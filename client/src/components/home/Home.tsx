@@ -29,6 +29,8 @@ import { homeTabs, type HomeTab } from './homeTabs';
 import { newDesignTarget } from './newDesign';
 import { RecentRow } from './RecentRow';
 import './home.css';
+import { EmptyState } from '../ui/EmptyState';
+import { SkeletonRows } from '../ui/Skeleton';
 
 export interface HomeProps {
   /** The signed-in account's address, exactly as `Shell`/`Masthead` already
@@ -350,7 +352,7 @@ export function Home({
     <div className="home">
       <aside className="home__rail">
         <div className="home__label">Your organisations</div>
-        {organisations.status === 'loading' && <p className="home__muted">Loading…</p>}
+        {organisations.status === 'loading' && <SkeletonRows rows={2} />}
         {organisations.status === 'error' && <p className="home__error">{organisations.message}</p>}
         {organisations.status === 'ready' && organisations.value.length === 0 && (
           <>
@@ -449,7 +451,7 @@ export function Home({
           </div>
           {selectedOrgId === null && <p className="home__muted">No organisation selected.</p>}
           {selectedOrgId !== null && (designs.status === 'loading' || scopes.status === 'loading') && (
-            <p className="home__muted">Loading…</p>
+            <SkeletonRows rows={5} />
           )}
           {designs.status === 'error' && <p className="home__error">{designs.message}</p>}
           {designs.status !== 'error' && scopes.status === 'error' && (
@@ -466,6 +468,7 @@ export function Home({
               onOpenInventory={onOpenInventory}
               onCreateDesign={handleCreateDesign}
               busyScopeId={newDesignBusyScopeId}
+              onNewDesign={() => handleNewDesign(selectedOrganisation)}
               onRenamed={(designId, name) =>
                 setDesigns((current) =>
                   current.status === 'ready'
@@ -509,6 +512,8 @@ interface HomeDesignsProps {
   busyScopeId: string | null;
   /** A rename was saved; `name` is `null` when it was cleared. */
   onRenamed: (designId: string, name: string | null) => void;
+  /** The same New design the section header offers, for the empty state. */
+  onNewDesign?: () => void;
 }
 
 /**
@@ -529,6 +534,7 @@ function HomeDesigns({
   onCreateDesign,
   busyScopeId,
   onRenamed,
+  onNewDesign,
 }: HomeDesignsProps) {
   const { groups, elsewhere } = groupDesignsByScope(designs, scopes);
   const startable = scopesWithNoDesigns(scopes, designs).filter((scope) => canDrawFor(scope.capability));
@@ -582,7 +588,13 @@ function HomeDesigns({
       )}
 
       {groups.length === 0 && elsewhere.length === 0 && (
-        <p className="home__muted">No designs in this organisation yet.</p>
+        <EmptyState
+          title="No designs in this organisation yet."
+          compact
+          action={onNewDesign ? { label: 'New design', onClick: onNewDesign, disabled: busyScopeId !== null } : undefined}
+        >
+          A design holds your racks, devices and cables. Start one and draw into it.
+        </EmptyState>
       )}
 
       {startable.length > 0 && (
