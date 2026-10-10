@@ -1,0 +1,83 @@
+/* Faceplate tools in the open device: arrange ports, templates (owner's ticked ideas, 2026-10-10). */
+
+.plate-tools { display: inline-flex; gap: var(--s1, 4px); align-items: center; }
+.plate-templates { position: relative; display: inline-flex; }
+
+.plate-templates__pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  width: 280px;
+  padding: var(--s2, 8px);
+  background: var(--pop-bg, color-mix(in srgb, var(--surface) 88%, transparent));
+  backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
+  -webkit-backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
+  box-shadow: var(--shadow-pop, 0 16px 40px rgba(0, 0, 0, 0.28));
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pop, 0);
+  color: var(--ink);
+  animation: plate-pop-in var(--m-pop, 160ms) var(--m-ease, cubic-bezier(0.2, 0.8, 0.2, 1));
+}
+.plate-templates__head {
+  display: block;
+  margin: var(--s1, 4px) 0;
+  font-size: var(--t-micro, 10px);
+  letter-spacing: var(--track-label, 0.08em);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.plate-templates__row { display: flex; gap: var(--s1, 4px); }
+.plate-templates__row input {
+  flex: 1;
+  min-width: 0;
+  height: var(--control-h, 28px);
+  box-sizing: border-box;
+  border: 1px solid var(--control-line, var(--hairline));
+  border-radius: var(--radius-control, 0);
+  background: var(--page);
+  color: var(--ink);
+  padding: 0 var(--s1, 4px);
+  font: inherit;
+}
+.plate-templates__note { margin: var(--s1, 4px) 0 var(--s2, 8px); font-size: var(--t-small, 12px); color: var(--muted); }
+.plate-templates__list { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow: auto; }
+.plate-templates__item {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: var(--s1, 4px);
+  align-items: center;
+  padding: 2px 0;
+  border-top: 1px solid var(--hairline);
+}
+.plate-templates__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plate-templates__count { font-size: var(--t-small, 12px); color: var(--muted); }
+.plate-templates__item button { height: var(--control-h-sm, 24px); }
+.plate-templates__delete { color: var(--muted); }
+
+/* Arranging: the plate shows its grid, a movable port can be picked up, guides show alignment. */
+.jot-plate.jot-plate--arranging {
+  background-image: radial-gradient(circle, var(--hairline) 0.6px, transparent 0.7px);
+  background-size: 4px 4px;
+}
+.jot-port.jot-port--movable { cursor: grab; transition: left var(--m-hover, 120ms) var(--m-ease, ease), top var(--m-hover, 120ms) var(--m-ease, ease); }
+.jot-port--movable:focus-visible { outline: 1px solid var(--ink); outline-offset: 1px; }
+.jot-port.jot-port--dragging {
+  cursor: grabbing;
+  transition: none;
+  z-index: 3;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.25));
+}
+.plate-guide { position: absolute; pointer-events: none; z-index: 2; border: 0 dashed var(--ink); opacity: 0.7; }
+.plate-guide--v { top: 0; bottom: 0; width: 0; border-left-width: calc(1px / var(--k, 1)); }
+.plate-guide--h { left: 0; right: 0; height: 0; border-top-width: calc(1px / var(--k, 1)); }
+
+@keyframes plate-pop-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plate-templates__pop { animation: none; }
+  .jot-port.jot-port--movable { transition: none; }
+}

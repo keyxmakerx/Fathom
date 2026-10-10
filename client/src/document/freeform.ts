@@ -212,7 +212,8 @@ export function foldFrom(doc: Document, from: number): Document {
 // ---------------------------------------------------------------------------
 // Labels and areas
 
-export type LabelForm = 'text' | 'area';
+/** `note` (schema 0.19): a sticky note pinned to the canvas, for teammates and for later. */
+export type LabelForm = 'text' | 'area' | 'note';
 
 export interface CreateLabelOptions extends Actor {
   text: string;
@@ -232,7 +233,7 @@ export function createLabel(doc: Document, opts: CreateLabelOptions): { doc: Doc
   }
   const id = addNode(b, 'Label', fields);
   pinInto(b, id, opts.x, opts.y);
-  return { doc: finish(b, opts.form === 'area' ? 'add area' : 'add label'), id };
+  return { doc: finish(b, opts.form === 'area' ? 'add area' : opts.form === 'note' ? 'add note' : 'add label'), id };
 }
 
 export function setLabel(doc: Document, id: string, patch: { text?: string; w?: number; h?: number }, opts?: Actor): Document {
@@ -368,7 +369,7 @@ export function labelView(doc: Document, node: GraphNode): { id: string; text: s
   const pin = pinOf(doc, node.id);
   const f = readLabelFields(node);
   if (!pin || f.text === undefined) return null;
-  const form: LabelForm = f.form === 'area' ? 'area' : 'text';
+  const form: LabelForm = f.form === 'area' ? 'area' : f.form === 'note' ? 'note' : 'text';
   return { id: node.id, text: f.text, form, x: pin.x, y: pin.y, w: f.w ?? AREA_DEFAULT_W, h: f.h ?? AREA_DEFAULT_H };
 }
 

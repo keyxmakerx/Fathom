@@ -11,6 +11,10 @@ import { connectorName } from '../drawing/faceplate';
 import { decodePaletteDrag, PALETTE_DRAG_MIME } from '../drawing/dnd';
 import { SHEATH_VAR } from '../drawing/sheath';
 import { boundsOf, jotPlates, portCentre, type JotPlate } from './jotLayout';
+import type { PortPlace, TemplatePort } from '../../document/plate';
+import type { PortBox } from '../drawing/faceplate';
+import { PlateTools } from './PlateTools';
+import { ALIGN_PX, PLATE_GRID, snapPort, toPlate, type SnappedPort } from './portArrange';
 import './jot.css';
 
 export interface JotViewProps {
@@ -38,6 +42,27 @@ export interface JotViewProps {
   paused: boolean;
   renderConfigDrawer?: (chassis: ChassisView) => ReactNode;
   renderInsideStop?: (chassis: ChassisView) => ReactNode;
+  /** Schema 0.19: hand-typed ports dragged to new spots, in thousandths of the plate. Absent: ports stay put. */
+  onPlacePorts?: (chassisId: string, places: PortPlace[]) => void;
+  /** Every dragged port on a box back in the usual order. */
+  onResetPorts?: (chassisId: string) => void;
+  /** Whose saved faceplates to offer; `undefined` leaves templates out. */
+  templateOwner?: string | null;
+  /** Adds a template's ports to an empty hand-typed box, one undo step. */
+  onApplyTemplate?: (chassisId: string, ports: readonly TemplatePort[]) => void;
+}
+
+/** A port being dragged on its plate: where it would settle now, and the guides it lines up on. */
+interface PortDrag extends SnappedPort {
+  plateId: string;
+  portId: string;
+}
+
+/** A port moves only on a hand-typed box, and only if it is not a catalogue port. */
+function movable(plate: JotPlate, portId: string): boolean {
+  if (plate.chassis.model !== '') return false;
+  const port = plate.chassis.ports.find((p) => p.id === portId);
+  return port !== undefined && port.rowKind === undefined;
 }
 
 interface Pt {
@@ -55,6 +80,9 @@ function focusInField(): boolean {
 
 export function JotView(props: JotViewProps): JSX.Element {
   const { view, deviceId, origin, canDraw, selected, litPortLabel, startInside, onSelect, onBack, onAddBox, onMoveBox, onConnect, onDisconnect, onRemoveBox, onAddPort, onUndo, onRedo, fitRequest, paused, renderConfigDrawer, renderInsideStop } = props;
+  const { onPlacePorts, onResetPorts, templateOwner, onApplyTemplate } = props;
+  const [arranging, setArranging] = useState(false);
+  const [portDrag, setPortDrag] = useState<PortDrag | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 800, h: 500 });
@@ -187,6 +215,52 @@ export function JotView(props: JotViewProps): JSX.Element {
     el.addEventListener('pointerup', up);
   };
 
+  // Arranging (schema 0.19): press a hand-typed port and drag it anywhere on its plate. It snaps to
+  // the grid, or lines up with another port when it comes close; the drop is one undo step.
+  const othersOn = (plate: JotPlate, portId: string) =>
+    plate.layout.boxes.filter((b) => b.id !== portId).map((b) => ({ id: b.id, cx: b.x + b.w / 2, cy: b.y + b.h / 2 }));
+  const startPortDrag = (e: ReactPointerEvent, plate: JotPlate, box: PortBox) => {
+    e.stopPropagation();
+    if (!canDraw || !onPlacePorts) return;
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const grab = toStage(e.clientX, e.clientY);
+    const start = { cx: box.x + box.w / 2, cy: box.y + box.h / 2 };
+    const dims = { w: plate.w, h: plate.h };
+    const others = othersOn(plate, box.id);
+    const within = Math.max(1.5, (ALIGN_PX * 2) / k);
+    let last: SnappedPort | null = null;
+    const move = (ev: PointerEvent) => {
+      const p = toStage(ev.clientX, ev.clientY);
+      last = snapPort({ cx: start.cx + p.x - grab.x, cy: start.cy + p.y - grab.y }, box, dims, others, within);
+      setPortDrag({ plateId: plate.chassis.id, portId: box.id, ...last });
+    };
+    const up = () => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+      setPortDrag(null);
+      const at = last;
+      if (at && Math.abs(at.cx - start.cx) + Math.abs(at.cy - start.cy) > 0.5) onPlacePorts(plate.chassis.id, [{ portId: box.id, ...toPlate(at.cx, at.cy, dims) }]);
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  };
+  // The keyboard way to arrange: arrows move a port one grid step, Shift four.
+  const nudgePort = (e: React.KeyboardEvent, plate: JotPlate, box: PortBox) => {
+    const dir = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] } as Record<string, [number, number]>)[e.key];
+    if (!dir || !canDraw || !onPlacePorts) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const step = PLATE_GRID * (e.shiftKey ? 4 : 1);
+    const dims = { w: plate.w, h: plate.h };
+    const keep = (v: number, half: number, span: number) => Math.max(half, Math.min(span - half, v));
+    const cx = keep(box.x + box.w / 2 + dir[0] * step, box.w / 2, dims.w);
+    const cy = keep(box.y + box.h / 2 + dir[1] * step, box.h / 2, dims.h);
+    onPlacePorts(plate.chassis.id, [{ portId: box.id, ...toPlate(cx, cy, dims) }]);
+  };
+
   const plateById = new Map(shown.map((p) => [p.chassis.id, p]));
   const cables = view.cables.flatMap((c) => {
     const ends = c.ends.filter((e): e is { portId: string; chassisId: string; rackId: string | null } => 'portId' in e);
@@ -221,6 +295,18 @@ export function JotView(props: JotViewProps): JSX.Element {
             Inside
           </button>
         )}
+        {!inside && (
+          <PlateTools
+            device={device}
+            canDraw={canDraw}
+            canArrange={onPlacePorts !== undefined}
+            arranging={arranging}
+            onArrange={setArranging}
+            onReset={onResetPorts ? () => onResetPorts(device.id) : undefined}
+            templateOwner={templateOwner}
+            onApplyTemplate={onApplyTemplate ? (ports) => onApplyTemplate(device.id, ports) : undefined}
+          />
+        )}
       </div>
 
       {insideBody != null ? (
@@ -248,6 +334,10 @@ export function JotView(props: JotViewProps): JSX.Element {
                 onEndWire={endWire}
                 onAddPort={onAddPort}
                 onHoverPort={setHoverPort}
+                arranging={arranging && canDraw && onPlacePorts !== undefined}
+                portDrag={portDrag?.plateId === plate.chassis.id ? portDrag : null}
+                onStartPortDrag={startPortDrag}
+                onNudgePort={nudgePort}
               />
             ))}
 
@@ -291,27 +381,39 @@ function Plate(props: {
   onEndWire: (e: ReactPointerEvent) => void;
   onAddPort: (chassisId: string) => void;
   onHoverPort: (text: string | null) => void;
+  arranging: boolean;
+  portDrag: PortDrag | null;
+  onStartPortDrag: (e: ReactPointerEvent, p: JotPlate, box: PortBox) => void;
+  onNudgePort: (e: React.KeyboardEvent, p: JotPlate, box: PortBox) => void;
 }): JSX.Element {
-  const { plate, selected, lit, canDraw, onStartMove, onStartWire, onMoveWire, onEndWire, onAddPort, onHoverPort } = props;
+  const { plate, selected, lit, canDraw, onStartMove, onStartWire, onMoveWire, onEndWire, onAddPort, onHoverPort, arranging, portDrag, onStartPortDrag, onNudgePort } = props;
   const byId = new Map(plate.chassis.ports.map((p) => [p.id, p]));
+  const arrangeHere = arranging && plate.chassis.model === '';
   return (
-    <div className={'jot-plate' + (plate.isDevice ? ' jot-plate--device' : '') + (selected ? ' jot-plate--selected' : '')} style={{ left: plate.x, top: plate.y, width: plate.w, height: plate.h }} data-testid={plate.isDevice ? 'jot-device' : 'jot-box'}>
+    <div className={'jot-plate' + (plate.isDevice ? ' jot-plate--device' : '') + (selected ? ' jot-plate--selected' : '') + (arrangeHere ? ' jot-plate--arranging' : '')} style={{ left: plate.x, top: plate.y, width: plate.w, height: plate.h }} data-testid={plate.isDevice ? 'jot-device' : 'jot-box'}>
       <span className="jot-plate__name" onPointerDown={(e) => onStartMove(e, plate)}>
         {plate.chassis.hostname || 'unnamed'}
       </span>
+      {portDrag?.guides.v.map((x) => <span key={`v${x}`} className="plate-guide plate-guide--v" style={{ left: x }} aria-hidden="true" />)}
+      {portDrag?.guides.h.map((y) => <span key={`h${y}`} className="plate-guide plate-guide--h" style={{ top: y }} aria-hidden="true" />)}
       {plate.layout.boxes.map((box) => {
         const port = byId.get(box.id)!;
         const Glyph = PORT_GLYPHS[box.kind];
         const cabled = port.cable != null;
+        const moves = arrangeHere && movable(plate, box.id);
+        const dragging = portDrag?.portId === box.id;
+        const left = dragging ? portDrag.cx - box.w / 2 : box.x;
+        const top = dragging ? portDrag.cy - box.h / 2 : box.y;
         return (
           <button
             key={box.id}
             type="button"
             data-jot-port={box.id}
-            title={`${port.label || 'Port'} · ${connectorName(port.connector)} · ${cabled ? 'cabled' : 'free'}`}
-            className={'jot-port' + (port.label === lit ? ' jot-port--lit' : '')}
-            style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
-            onPointerDown={(e) => onStartWire(e, plate, box.id)}
+            title={moves ? `${port.label || 'Port'} · drag to move, or use the arrow keys` : `${port.label || 'Port'} · ${connectorName(port.connector)} · ${cabled ? 'cabled' : 'free'}`}
+            className={'jot-port' + (port.label === lit ? ' jot-port--lit' : '') + (moves ? ' jot-port--movable' : '') + (dragging ? ' jot-port--dragging' : '')}
+            style={{ left, top, width: box.w, height: box.h }}
+            onKeyDown={moves ? (e) => onNudgePort(e, plate, box) : undefined}
+            onPointerDown={(e) => (moves ? onStartPortDrag(e, plate, box) : arrangeHere ? e.stopPropagation() : onStartWire(e, plate, box.id))}
             onPointerEnter={() => onHoverPort(`${plate.chassis.hostname || 'unnamed'} · ${port.label || 'Port'} · ${connectorName(port.connector)} · ${cabled ? 'cabled' : 'free'}`)}
             onPointerLeave={() => onHoverPort(null)}
             onPointerMove={onMoveWire}

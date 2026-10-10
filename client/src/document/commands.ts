@@ -1619,6 +1619,15 @@ export function duplicateDevice(doc: Document, sourceChassisId: string, opts: Du
         newPortFields['PhysicalPort.service'] = serviceField.entry;
         portFieldOps.push(serviceField.op);
       }
+      // Schema 0.19: a copy keeps where each hand-typed port was dragged on the plate.
+      if (portFields.plateX !== undefined && portFields.plateY !== undefined) {
+        for (const [key, value] of [['PhysicalPort.plate_x', portFields.plateX], ['PhysicalPort.plate_y', portFields.plateY]] as const) {
+          const plateField = setField(working, now, actor, portId, undefined, key, uint(value, 16));
+          working = plateField.doc;
+          newPortFields[key] = plateField.entry;
+          portFieldOps.push(plateField.op);
+        }
+      }
       working = withNode(working, { id: portId, existence: portExistence.id, fields: newPortFields });
       ops.push({ type: 'add_node', node: portId, prov: portExistence.id }, ...portFieldOps);
 

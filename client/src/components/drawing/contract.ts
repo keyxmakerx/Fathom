@@ -125,7 +125,9 @@ export interface DrawingActions {
   onMoveFree?(moves: readonly { id: string; x: number; y: number }[]): void;
   onConnectBoxes?(aChassisId: string, bChassisId: string): void;
   /** Returns the new label's id. */
-  onAddLabel?(form: 'text' | 'area', text: string, x: number, y: number, w?: number, h?: number): string | void;
+  onAddLabel?(form: 'text' | 'area' | 'note', text: string, x: number, y: number, w?: number, h?: number): string | void;
+  /** A new hand-typed box that starts from a saved faceplate template (one undo step). Returns the new chassis's id. */
+  onAddFreeBoxFromTemplate?(templateId: string, x: number, y: number, fromBoxId?: string): string | void;
   onSetLabel?(labelId: string, patch: { text?: string; w?: number; h?: number }): void;
   /** Removes boxes, labels, areas and lines together. */
   onRemoveFree?(ids: readonly string[]): void;
