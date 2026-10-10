@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { DesignCapability } from '../../api/designs';
 import { addNote, notesOf as notesOfDoc, removeNote, type NoteHow } from '../../document/notes';
@@ -34,7 +34,12 @@ import { InventoryPlace } from '../inventory/InventoryPlace';
 import { RacksPlace } from '../racks/RacksPlace';
 import { Trail } from '../racks/Trail';
 import { redoable } from '../racks/trail';
-import { searchDesign } from '../shell/search';
+import type { PaletteAction } from '../shell/palette';
+import { PaletteRegistryContext, createPaletteRegistry } from '../shell/paletteRegistry';
+import { ShortcutsSheet } from '../shell/ShortcutsSheet';
+import { isTypingTarget, matches, shortcutText } from '../shell/shortcuts';
+import { createThingsFinder } from '../shell/thingsSearch';
+import { applyTheme, getStoredTheme } from '../../theme';
 import type { Place, ShellProps } from '../shell/types';
 import { ChangeToast } from './ChangeToast';
 import { LiveNotices, announcement, hasLiveNotices } from './LiveNotices';
@@ -171,6 +176,18 @@ export function DesignPlace(props: DesignPlaceProps) {
     document.addEventListener('keydown', onKeyDown, true);
     return () => document.removeEventListener('keydown', onKeyDown, true);
   }, [printMode, openPrintPanel]);
+
+  // "?" opens the list of keyboard shortcuts, anywhere but in a field.
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (!matches(event, 'shortcuts') || isTypingTarget(event.target)) return;
+      event.preventDefault();
+      setShortcutsOpen((open) => !open);
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   // The whole pack for the ticked rows, built from the document as it is now.
   // `viewPng` is the canvas picture; `''` means "count it, don't draw it".
@@ -533,9 +550,58 @@ export function DesignPlace(props: DesignPlaceProps) {
   // silently rather than writing a batch nobody with read-only access is
   // allowed to write.
   // Quick search (the owner's option A): the open design; a choice shows it on the rack.
+  // The view and the Find index are kept between keystrokes; they are rebuilt only when the design changes.
+  const paletteRegistry = useMemo(createPaletteRegistry, []);
+  const thingsFinder = useMemo(createThingsFinder, []);
+  const paletteViewRef = useRef<{ doc: Document; catalogue: typeof session.catalogue; view: ReturnType<typeof viewOf> } | null>(null);
+  const paletteView = (d: Document) => {
+    const kept = paletteViewRef.current;
+    if (kept != null && kept.doc === d && kept.catalogue === session.catalogue) return kept.view;
+    const view = viewOf(d, session.catalogue);
+    paletteViewRef.current = { doc: d, catalogue: session.catalogue, view };
+    return view;
+  };
   const search = {
-    run: (query: string) => (session.doc ? searchDesign(viewOf(session.doc, session.catalogue), query, session.doc) : []),
+    run: (query: string) => (session.doc ? thingsFinder(session.doc, paletteView(session.doc), query) : []),
     choose: (selection: Selection) => showOnRack(selection),
+    actions: (): PaletteAction[] => [
+      ...paletteRegistry.all(),
+      ...(session.canDraw
+        ? [
+            {
+              id: 'undo',
+              label: 'Undo',
+              hint: shortcutText('undo'),
+              keywords: ['back', 'revert'],
+              disabled: undoCandidates.length === 0 || historyOpen ? 'Nothing to undo' : undefined,
+              run: handleUndo,
+            },
+            {
+              id: 'redo',
+              label: 'Redo',
+              hint: shortcutText('redo'),
+              disabled: redoCandidate == null || historyOpen ? 'Nothing to redo' : undefined,
+              run: handleRedo,
+            },
+          ]
+        : []),
+      ...(doc != null ? [{ id: 'print', label: 'Print', hint: shortcutText('print'), keywords: ['export', 'pdf', 'cut sheet'], run: openPrintPanel }] : []),
+      ...(doc != null ? [{ id: 'history', label: historyOpen ? 'Close History' : 'Open History', keywords: ['saves', 'restore', 'past'], run: () => toggleHistory() }] : []),
+      ...(doc != null && pickedSave == null ? [{ id: 'docs', label: 'Open Docs', keywords: ['documentation', 'notes'], run: () => docs.setView({ kind: 'list' }) }] : []),
+      { id: 'racks', label: 'Show Racks', keywords: ['canvas', 'drawing'], disabled: props.place === 'racks' ? 'Already showing' : undefined, run: () => onPlaceChange('racks') },
+      { id: 'inventory', label: 'Show Inventory', keywords: ['list', 'table'], disabled: props.place === 'inventory' ? 'Already showing' : undefined, run: () => onPlaceChange('inventory') },
+      { id: 'shortcuts', label: 'Show keyboard shortcuts', hint: shortcutText('shortcuts'), keywords: ['keys', 'help'], run: () => setShortcutsOpen(true) },
+      {
+        id: 'theme',
+        label: 'Toggle theme',
+        keywords: ['dark', 'light', 'mode'],
+        run: () => {
+          const stored = getStoredTheme();
+          const dark = stored != null ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+          applyTheme(dark ? 'light' : 'dark');
+        },
+      },
+    ],
   };
 
   // One trail for the design, the same in Racks and Inventory.
@@ -697,7 +763,9 @@ export function DesignPlace(props: DesignPlaceProps) {
   return (
     <>
       <div className="print-hide-under-preview" inert={printMode === 'preview' || docs.view != null}>
-        <DocsContext.Provider value={docs.api}>{place}</DocsContext.Provider>
+        <PaletteRegistryContext.Provider value={paletteRegistry}>
+          <DocsContext.Provider value={docs.api}>{place}</DocsContext.Provider>
+        </PaletteRegistryContext.Provider>
       </div>
       {docs.view != null && printMode === 'closed' && (
         <DocsContext.Provider value={docs.api}>
@@ -721,6 +789,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         />
       )}
       {printMode === 'preview' && printJob && <PrintPreview job={printJob} onClose={closePrint} />}
+      {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
       <ChangeToast
         doc={doc}
         accountId={accountId}

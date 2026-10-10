@@ -1,0 +1,294 @@
+/* Floating sheets: the command palette (Ctrl+K) and the keyboard shortcuts list (?). */
+:root {
+  --m-glide: 220ms;
+}
+
+.float-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-modal) + 6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: color-mix(in srgb, var(--page) 40%, transparent);
+  animation: float-scrim-in var(--m-pop, 160ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1)) both;
+}
+
+.float-scrim--top {
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+
+.float-sheet {
+  width: min(640px, 92vw);
+  max-height: 72vh;
+  display: flex;
+  flex-direction: column;
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--pop-bg, color-mix(in srgb, var(--surface) 88%, transparent));
+  backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
+  -webkit-backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
+  border-radius: var(--radius-pop, 0);
+  box-shadow: var(--shadow-pop, 0 16px 40px rgba(0, 0, 0, 0.28));
+  color: var(--ink);
+  animation: float-sheet-in var(--m-glide, 220ms) cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.float-sheet:focus {
+  outline: none;
+}
+
+.float-sheet__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--s3) var(--s4);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.float-sheet__title {
+  margin: 0;
+  font-size: var(--t-small);
+  font-weight: 700;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.float-sheet__close {
+  height: var(--control-h, 28px);
+  padding: 0 var(--s3);
+  border: var(--rule-hair) solid var(--control-line, var(--hairline));
+  border-radius: var(--radius-control, 0);
+  background: var(--control-bg, transparent);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.float-sheet__close:hover {
+  background: var(--control-bg-hover, var(--surface));
+}
+
+.float-sheet__close:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+/* The palette */
+.palette__box {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  height: 44px;
+  padding: 0 var(--s4);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  color: var(--muted);
+}
+
+.palette__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: var(--t-body);
+  color: var(--ink);
+}
+
+.palette__list {
+  overflow-y: auto;
+  padding: var(--s1) 0;
+}
+
+.palette__group {
+  padding: var(--s2) var(--s4) 2px;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.palette__row {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  width: 100%;
+  min-height: var(--control-h, 28px);
+  padding: 5px var(--s4);
+  border: none;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.palette__row--on {
+  background: var(--control-bg-hover, var(--surface));
+}
+
+.palette__row--on::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--rule-accent);
+  background: var(--ink);
+  animation: float-mark-in var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1)) both;
+}
+
+.palette__row--disabled {
+  cursor: default;
+  color: var(--muted);
+}
+
+.palette__name {
+  font-size: var(--t-body);
+  white-space: nowrap;
+}
+
+.palette__name--mono {
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+}
+
+.palette__why {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--t-tab);
+  color: var(--muted);
+}
+
+.palette__hint,
+.palette__tag {
+  flex: none;
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  color: var(--muted);
+}
+
+.palette__tag {
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.palette__none {
+  padding: var(--s3) var(--s4);
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+.palette__foot {
+  display: flex;
+  gap: var(--s4);
+  padding: var(--s2) var(--s4);
+  border-top: var(--rule-hair) solid var(--hairline);
+  font-size: var(--t-micro);
+  color: var(--muted);
+}
+
+/* The shortcuts list */
+.shortcuts-sheet__body {
+  overflow-y: auto;
+  padding: var(--s2) var(--s4) var(--s4);
+}
+
+.shortcuts-sheet__heading {
+  margin: var(--s3) 0 var(--s1);
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.shortcuts-sheet__list {
+  margin: 0;
+}
+
+.shortcuts-sheet__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  min-height: var(--control-h, 28px);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.shortcuts-sheet__keys {
+  flex: 0 0 160px;
+  display: flex;
+  gap: var(--s1);
+  margin: 0;
+}
+
+.shortcuts-sheet__what {
+  margin: 0;
+  font-size: var(--t-small);
+}
+
+.shortcuts-sheet__cap {
+  min-width: 22px;
+  padding: 1px 6px;
+  border: var(--rule-hair) solid var(--control-line, var(--hairline));
+  border-radius: var(--radius-control, 0);
+  background: var(--control-bg, var(--surface));
+  font-family: var(--mono);
+  font-size: var(--t-tab);
+  text-align: center;
+}
+
+@keyframes float-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes float-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes float-mark-in {
+  from {
+    transform: scaleY(0.4);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .float-scrim,
+  .float-sheet,
+  .palette__row--on::before {
+    animation: none;
+  }
+  .palette__row,
+  .float-sheet__close {
+    transition: none;
+  }
+}

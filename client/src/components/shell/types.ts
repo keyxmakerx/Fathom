@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 import type { Lens } from './lens';
 import type { PathPart } from './path';
+import type { PaletteAction } from './palette';
 import type { SearchHit } from './search';
 
 export type { Lens } from './lens';
@@ -17,6 +18,8 @@ export type Place = 'racks' | 'inventory';
 export interface ShellSearch {
   run: (query: string) => SearchHit[];
   choose: (selection: SearchHit['selection']) => void;
+  /** The command palette's actions, asked for each time it opens so they follow what is selected now. */
+  actions?: () => PaletteAction[];
 }
 
 /** One person in "who else is here", drawn as an initials dot. */
