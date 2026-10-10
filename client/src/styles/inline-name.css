@@ -1,0 +1,37 @@
+/* A name on the canvas, being renamed in place. */
+.inline-name {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 8ch;
+  height: var(--control-h-sm, 24px);
+  margin: 0;
+  padding: 0 var(--s1);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: var(--radius-control, 0);
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: none;
+  animation: inline-name-in var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1)) both;
+}
+
+.inline-name:focus {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+@keyframes inline-name-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inline-name {
+    animation: none;
+  }
+}

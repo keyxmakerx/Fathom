@@ -1,4 +1,4 @@
-import { cloneElement, createContext, isValidElement, useContext, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { cloneElement, createContext, isValidElement, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 
 import '../../styles/drawing.css';
 // ADR-0053 §6 — "the black block reused from the drawer where a value was
@@ -1041,6 +1041,19 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
   const [service, setService] = useState('');
   const [face, setFace] = useState<'front' | 'rear'>('front');
   const [refusal, setRefusal] = useState<string | null>(null);
+  const labelRef = useRef<HTMLInputElement>(null);
+
+  // The command palette's "Add port" opens this form for the selected device.
+  useEffect(() => {
+    function onRequest(event: Event) {
+      if ((event as CustomEvent<{ chassisId: string }>).detail.chassisId !== chassisId) return;
+      setMode('single');
+      setIsOpen(true);
+      window.requestAnimationFrame(() => labelRef.current?.focus());
+    }
+    window.addEventListener('fathom:add-port', onRequest);
+    return () => window.removeEventListener('fathom:add-port', onRequest);
+  }, [chassisId]);
 
   const onEdit = actions.onEdit;
   // ADR-0052 §5: no `EditorActions.onEdit` — no add control at all, not
@@ -1105,7 +1118,7 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
       {mode === 'single' ? (
         <label className="drawing-ports__cell drawing-ports__cell--wide">
           <span>Label</span>
-          <input placeholder="e.g. ge-0/0/1" value={label} onChange={(e) => setLabel(e.target.value)} />
+          <input ref={labelRef} placeholder="e.g. ge-0/0/1" value={label} onChange={(e) => setLabel(e.target.value)} />
         </label>
       ) : (
         <>

@@ -3,6 +3,7 @@ import type { Node, NodeProps } from '@xyflow/react';
 
 import { CheckBadge } from '../checks/CheckBadge';
 import { BOX_H, BOX_W, roleCode, type Side } from './freeLayout';
+import { EditableName } from './NameEdit';
 import { useGripDrag, type GripDrag } from './useGripDrag';
 
 /** ADR-0060 step 7: a box with no rack, no model yet. A selected one shows a hollow square on
@@ -47,7 +48,9 @@ export function FreeBoxNode({ id, data, selected }: NodeProps<FreeBoxNodeType>) 
   return (
     <div className={selected ? 'free-box free-box--selected' : 'free-box'} style={{ width: BOX_W, height: BOX_H }}>
       <CheckBadge id={id.replace(/^free:/, '')} />
-      <span className="free-box__name">{data.name}</span>
+      <EditableName target={{ kind: 'chassis', id: id.replace(/^free:/, '') }} text={data.name === 'unnamed' ? '' : data.name} className="free-box__name">
+        {data.name}
+      </EditableName>
       <span className="free-box__code">{data.role === null && data.model ? '' : roleCode(data.role)}</span>
       {SIDES.map(({ side, position }) => (
         <Handle key={side} id={side} type="source" position={position} isConnectable={false} className="free-handle" />

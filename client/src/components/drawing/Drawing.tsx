@@ -27,6 +27,8 @@ import './plans-canvas.css';
 import { compatible } from '../../document/compat';
 import { ChecksCanvasBridge, useChecksFade } from '../checks/fade';
 import { TraceBadges, useTraceFade } from '../trace/fade';
+import { rackDeviceKey } from './rackKeys';
+import { NameEditContext, type NameEditApi } from './NameEdit';
 import { mediaCandidates } from '../checks/checksModel';
 import { useChecksApi } from '../checks/checksStore';
 import { PlanGhostEdge } from './PlanGhostEdge';
@@ -400,6 +402,8 @@ function DrawingInner({
   onDisconnect,
   onRemoveDevice,
   onDuplicateDevice,
+  onPasteDevice,
+  onRename,
   onAddDevice,
   onAddRack,
   onAddWall,
@@ -464,6 +468,8 @@ function DrawingInner({
   const [cameraStop, setCameraStop] = useState<CameraStop>(() => cameraStopAt(Math.max(zoom, 1)));
   const [zoomBand, setZoomBand] = useState<ZoomBand>(() => zoomBandAt(Math.max(zoom, 1)));
   const shakeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The rack device last copied with Ctrl+C, for Ctrl+V.
+  const rackClipboardRef = useRef<string | null>(null);
   // `FinalConnectionState.to` (below) is already screen space, but relative
   // to the React Flow container rather than the page — this is what turns
   // it into the page coordinates the colour picker's `position: fixed`
@@ -1603,6 +1609,20 @@ function DrawingInner({
     }
 
     function onKeyDown(event: KeyboardEvent) {
+      // A device in a rack: Up and Down move it a unit, Ctrl+D duplicates, Ctrl+C and Ctrl+V copy and paste.
+      if (
+        rackDeviceKey(event, {
+          racks: view.racks,
+          selected,
+          canDraw,
+          clipboard: rackClipboardRef,
+          onMove,
+          onDuplicate: onDuplicateDevice,
+          onPaste: onPasteDevice,
+          shake: (rackId) => triggerShake(rackNodeId(rackId)),
+        })
+      )
+        return;
       if (free.onKeyDown(event)) return;
       if (event.key === 'Escape' && !event.defaultPrevented && !focusIsInAField()) {
         if (openedRef.current != null) setOpened(null);
@@ -1643,7 +1663,7 @@ function DrawingInner({
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [selected, onSelect, onDisconnect, onRemoveDevice, canDraw, onUndo, onRedo, view, free.onKeyDown]);
+  }, [selected, onSelect, onDisconnect, onRemoveDevice, canDraw, onUndo, onRedo, view, free.onKeyDown, onMove, onDuplicateDevice, onPasteDevice, triggerShake]);
 
   // `useLayoutEffect`, not `useEffect` — commits before the browser paints, so a node subscribed to one of these never draws one frame stale.
   useLayoutEffect(() => {
@@ -1675,9 +1695,12 @@ function DrawingInner({
   const troubled = useTroubleFade(planned.nodes, planned.edges);
   const faded = useChecksFade(troubled.nodes, troubled.edges);
   const shown = useTraceFade(faded.nodes, faded.edges);
+  // A name on the canvas edits in place only for someone who may edit.
+  const nameEdit = useMemo<NameEditApi | null>(() => (canDraw && onRename ? { rename: onRename } : null), [canDraw, onRename]);
 
   return (
     <LiveStoreProvider value={liveStore}>
+      <NameEditContext.Provider value={nameEdit}>
     <LiveLitPath view={view} portalGroups={portalGroups} selected={selected} liveStore={liveStore} drawnCableIds={drawnCableIds} />
     <div
       className="drawing"
@@ -1825,6 +1848,7 @@ function DrawingInner({
         </div>
       )}
     </div>
+      </NameEditContext.Provider>
     </LiveStoreProvider>
   );
 }

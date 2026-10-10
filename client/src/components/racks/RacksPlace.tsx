@@ -17,6 +17,10 @@ import {
   resizeShelf,
 } from '../../document/commands';
 import { nextFreeSpot } from '../drawing/freeLayout';
+import { requestRename } from '../drawing/NameEdit';
+import type { PaletteAction } from '../shell/palette';
+import { usePaletteActions } from '../shell/paletteRegistry';
+import { shortcutText } from '../shell/shortcuts';
 import { BOX_H, BOX_W, createLabel, createLine, moveFree, removeFree, setLabel } from '../../document/freeform';
 import { FieldValueError, isDeviceRole, setDeviceField } from '../../document/edit';
 import { edgesIn, parseNodeId, type Document } from '../../document/model';
@@ -1226,6 +1230,14 @@ export function RacksPlace(props: RacksPlaceProps) {
     [handleEdit],
   );
 
+  const handlePasteDevice = useCallback(
+    (chassisId: string, rackId: string) => {
+      const result = handleEdit({ kind: 'duplicate-device', chassisId, intoRackId: rackId });
+      if (result != null && 'refused' in result) setCanvasNotice(result.refused);
+    },
+    [handleEdit],
+  );
+
   const handleAddDeviceAt = useCallback(
     (rackId: string, positionU: number, role: string | null) => handlePlace(rackId, role !== null ? { ...SKETCH_DEVICE_PALETTE_ITEM, role } : SKETCH_DEVICE_PALETTE_ITEM, positionU),
     [handlePlace],
@@ -1245,10 +1257,10 @@ export function RacksPlace(props: RacksPlaceProps) {
   const handleDuplicateFree = useCallback(
     (ids: readonly string[], dx: number, dy: number) =>
       freeWrite((d, o) => {
-        const r = duplicateFreeDoc(d, realView, ids, dx, dy, o);
+        const r = duplicateFreeDoc(d, realView, ids, dx, dy, { ...o, catalogue });
         return { doc: r.doc, out: r.ids };
       }),
-    [freeWrite, realView],
+    [freeWrite, realView, catalogue],
   );
   const handleResizeShelf = useCallback(
     (shelfId: string, change: { heightU?: number; slots?: number }, preview: boolean) => {
@@ -1267,6 +1279,89 @@ export function RacksPlace(props: RacksPlaceProps) {
     },
     [handleEdit, doc, catalogue, accountId],
   );
+
+  // A name double-clicked on the canvas and typed over: the same field edits the details panel makes.
+  const handleRename = useCallback(
+    (target: { kind: 'chassis' | 'rack'; id: string }, value: string) => {
+      if (doc == null) return;
+      let result: { refused: string } | void;
+      if (target.kind === 'rack') {
+        if (value === '') return; // a rack always has a name
+        result = handleEdit({ kind: 'rack', id: target.id, field: 'label', value });
+      } else {
+        const deviceId = edgesIn(doc, target.id, 'HasChassis')[0]?.from;
+        if (deviceId === undefined) return;
+        result = handleEdit({ kind: 'device', id: deviceId, field: 'hostname', value: value === '' ? null : value });
+      }
+      if (result != null && 'refused' in result) setCanvasNotice(result.refused);
+    },
+    [doc, handleEdit],
+  );
+
+  // What the command palette (Ctrl+K) can do with the selection. Asked for each time it opens.
+  usePaletteActions('racks', (): PaletteAction[] => {
+    if (!canDraw && selection?.kind !== 'chassis') return [];
+    const chassisId = selection?.kind === 'chassis' ? selection.id : null;
+    const racked = chassisId !== null ? realView.racks.flatMap((r) => r.chassis).find((c) => c.id === chassisId) : undefined;
+    const isFree = chassisId !== null && realView.free.some((f) => f.id === chassisId);
+    const needDevice = 'Select a device first';
+    const out: PaletteAction[] = [
+      {
+        id: 'trace',
+        label: 'Trace from here',
+        keywords: ['path', 'follow', 'cable'],
+        disabled: chassisId === null ? needDevice : undefined,
+        run: () => chassisId !== null && trace.openFrom(chassisId),
+      },
+    ];
+    if (!canDraw) return out;
+    const renameTarget = chassisId !== null ? { kind: 'chassis' as const, id: chassisId } : selection?.kind === 'rack' ? { kind: 'rack' as const, id: selection.id } : null;
+    out.unshift(
+      {
+        id: 'add-port',
+        label: 'Add port',
+        keywords: ['connector', 'interface'],
+        disabled: chassisId === null ? needDevice : racked !== undefined && racked.model !== '' ? "This device's ports come from its model" : undefined,
+        run: () => {
+          if (chassisId === null) return;
+          // The details panel holds the form; a second later it is there to open.
+          setSelection({ kind: 'chassis', id: chassisId });
+          window.setTimeout(() => window.dispatchEvent(new CustomEvent('fathom:add-port', { detail: { chassisId } })), 80);
+        },
+      },
+      {
+        id: 'rename',
+        label: 'Rename',
+        keywords: ['name', 'hostname', 'label'],
+        disabled: renameTarget === null ? 'Select a device or rack first' : look === 'diagram' ? 'Switch to the Rack look to rename on the canvas' : undefined,
+        run: () => renameTarget !== null && requestRename(renameTarget),
+      },
+      {
+        id: 'duplicate',
+        label: 'Duplicate',
+        hint: shortcutText('duplicate'),
+        keywords: ['copy', 'clone'],
+        disabled: racked === undefined && !isFree ? 'Select a device first' : undefined,
+        run: () => {
+          if (chassisId === null) return;
+          if (racked !== undefined) handleDuplicateDevice(chassisId);
+          else handleDuplicateFree([chassisId], 24, 24);
+        },
+      },
+      {
+        id: 'delete',
+        label: selection?.kind === 'cable' ? 'Delete cable' : 'Delete',
+        hint: shortcutText('delete'),
+        keywords: ['remove'],
+        disabled: chassisId === null && selection?.kind !== 'cable' ? 'Select a device or cable first' : undefined,
+        run: () => {
+          if (chassisId !== null) handleRemoveDevice(chassisId);
+          else if (selection?.kind === 'cable') handleDisconnect(selection.id);
+        },
+      },
+    );
+    return out;
+  });
 
   // `handleEdit` (ADR-0046 §2's one editor) now lives in
   // `useDesignSession`, so the exact same
@@ -1414,6 +1509,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           onDisconnect={handleDisconnect}
           onRemoveDevice={handleRemoveDevice}
           onDuplicateDevice={canDraw ? handleDuplicateDevice : undefined}
+          onPasteDevice={canDraw ? handlePasteDevice : undefined}
+          onRename={canDraw ? handleRename : undefined}
           onAddDevice={canDraw ? handleAddDevice : undefined}
           onAddRack={canDraw ? handleAddRack : undefined}
           onAddWall={canDraw ? handleAddWall : undefined}
