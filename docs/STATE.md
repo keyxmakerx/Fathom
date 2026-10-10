@@ -23,6 +23,11 @@ device's platform; otherwise, when the engine cannot tell, the card asks "Which 
 name in every menu, script bodies whole (`corpus/dict/README-routeros.md`). Naming `routeros` in the paste
 frame and the paste card's summary wait on the client.
 
+**Paste: pfSense (engine, 2026-10-10).** A `config.xml` backup has its own front end,
+`fathom-ingest/src/xml.rs`, picked when the root is `<pfsense>`. Its dictionary is an allowlist: every value
+no entry describes is destroyed, because pfSense stores keys and passwords base64-encoded
+(`corpus/dict/README-pfsense.md`).
+
 **The server.** `crates/fathom-server` starts, answers a health check through a real PostgreSQL, shuts
 down cleanly, and runs as the one plain-HTTP published port of a composed stack, behind the operator's
 own TLS-terminating proxy. It stores identity and structure (accounts, organisations, memberships, the

@@ -455,3 +455,58 @@ fn set_form_detection_never_reads_a_routeros_export() {
         assert_eq!(platform_of(&shell.handle(OP_PASTE, &frame(0, &text))), want);
     }
 }
+
+// pfSense: a `config.xml` backup, its own front end, every undescribed value destroyed.
+const PF_HASH: &str = "$2y$10$AMCpA.Z.RNaferLp1yzFq.BvaGgfqaJKtQug7OErbocyNagsEK6xW";
+const PF_PPP: &str = "aXNwLVB3OTN4blEy";
+const PF_PSK: &str = "Correct-Horse-Site-To-Site-Key-99";
+
+fn pf_config() -> String {
+    format!(
+        "<?xml version=\"1.0\"?>\n<pfsense>\n\t<system>\n\t\t<hostname>fw1</hostname>\n\
+         \t\t<user>\n\t\t\t<name>admin</name>\n\t\t\t<bcrypt-hash>{PF_HASH}</bcrypt-hash>\n\t\t</user>\n\
+         \t</system>\n\t<interfaces>\n\t\t<lan>\n\t\t\t<enable></enable>\n\t\t\t<if>igb1</if>\n\
+         \t\t\t<ipaddr>192.168.1.1</ipaddr>\n\t\t\t<subnet>24</subnet>\n\t\t</lan>\n\t</interfaces>\n\
+         \t<ppps>\n\t\t<ppp>\n\t\t\t<password><![CDATA[{PF_PPP}]]></password>\n\t\t</ppp>\n\t</ppps>\n\
+         \t<ipsec>\n\t\t<phase1>\n\t\t\t<ikeid>1</ikeid>\n\t\t\t<pre-shared-key>{PF_PSK}</pre-shared-key>\n\
+         \t\t</phase1>\n\t</ipsec>\n</pfsense>\n"
+    )
+}
+
+#[test]
+fn a_pfsense_backup_is_detected_and_no_secret_survives() {
+    let secrets = [PF_HASH, PF_PPP, PF_PSK];
+    let mut shell = common::all_booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(0, &pf_config()));
+    assert_eq!(platform_of(&reply), "pfsense");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    for s in secrets {
+        assert!(!contains(&reply, s), "reply leaks {s}");
+        assert!(!contains(&stored, s), "stored design leaks {s}");
+    }
+
+    let mut shell = common::all_booted_shell();
+    let display = place(&mut shell, "pfsense");
+    let reply = shell.handle(OP_PASTE_INTO, &into_frame(0, &display, &pf_config()));
+    assert_eq!(platform_of(&reply), "pfsense");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    assert!(
+        contains(&stored, "REDACTED"),
+        "the capture is stored, gated"
+    );
+    for s in secrets {
+        assert!(!contains(&reply, s), "paste-into reply leaks {s}");
+        assert!(!contains(&stored, s), "paste-into stored capture leaks {s}");
+    }
+}
+
+#[test]
+fn an_encrypted_pfsense_backup_is_refused_and_stores_nothing() {
+    let mut shell = common::all_booted_shell();
+    platform_of(&shell.handle(OP_PASTE, &frame(0, &srx_config())));
+    let before = shell.handle(OP_EXPORT_PLAIN, &[]);
+    let text = "---- BEGIN config.xml ----\nU2FsdGVkX1+vupppZksvRf5pq5g5XjFRIipRkwB0K1Y96Qsv2Lm+31cmzaAILwyt\n---- END config.xml ----\n";
+    let (code, _) = refusal(&shell.handle(OP_PASTE, &frame(0, text)));
+    assert_eq!(code, ERR_NOTHING_UNDERSTOOD);
+    assert_eq!(shell.handle(OP_EXPORT_PLAIN, &[]), before);
+}

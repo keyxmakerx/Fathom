@@ -46,8 +46,7 @@ use std::collections::BTreeMap;
 use crate::bind;
 use crate::dict::Dictionary;
 use crate::frame::{
-    self, ByteSpan, JoinKind, LineClass, LineOrdinal, LineOutcome, LogicalLine, Outcome,
-    ShapeError,
+    self, ByteSpan, JoinKind, LineClass, LineOrdinal, LineOutcome, LogicalLine, Outcome, ShapeError,
 };
 use crate::lex::{Token, TokenKind};
 use crate::redact;
@@ -88,8 +87,11 @@ pub fn root_element(paste: &[u8]) -> Option<&str> {
     let r = rest.strip_prefix('<')?;
     let end = r.find(|c: char| c == '>' || c == '/' || c.is_whitespace())?;
     let name = r.get(..end)?;
-    (!name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || "-_.:".contains(c)))
-        .then_some(name)
+    (!name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_.:".contains(c)))
+    .then_some(name)
 }
 
 /// One element, read whole.
@@ -228,7 +230,9 @@ fn parse(text: &str) -> Option<Doc> {
                 start: pos as u32,
                 end: (pos + end) as u32,
             };
-            let value = r.get(..inner)?.to_owned();
+            // pfSense entity-escapes values even inside CDATA and decodes them
+            // after parsing (`xmlparse.inc`), so `a&amp;b` there means `a&b`.
+            let value = decode(r.get(..inner)?);
             pending = Some(match pending.take() {
                 Some((s, v)) => (
                     ByteSpan {
@@ -413,13 +417,19 @@ fn logical_lines(capture: &str, joins: &[ByteSpan]) -> Vec<LogicalLine> {
     lines
 }
 
-/// Whitespace-separated words of a span, as bare tokens for the sweep.
+/// The words of a span, as bare tokens for the sweep. Markup separates words
+/// as whitespace does, so `<password>hunter2</password>` is `password`,
+/// `hunter2`, `/password`, and the sweep's leaf-name walk sees the value
+/// follow its name.
 fn word_tokens(capture: &str, span: ByteSpan) -> Vec<Token> {
     let text = frame::slice(capture, span);
     let mut out = Vec::new();
     let mut start: Option<usize> = None;
-    for (at, ch) in text.char_indices().chain(std::iter::once((text.len(), ' '))) {
-        if ch.is_whitespace() {
+    for (at, ch) in text
+        .char_indices()
+        .chain(std::iter::once((text.len(), ' ')))
+    {
+        if ch.is_whitespace() || ch == '<' || ch == '>' {
             if let Some(s) = start.take() {
                 out.push(bare(ByteSpan {
                     start: span.start + s as u32,
@@ -447,6 +457,8 @@ struct Builder<'a> {
     tree: StmtTree,
     intern: BTreeMap<String, SegId>,
     stmts: Vec<Stmt>,
+    /// Per statement: its last segment is a value (not a flag's name).
+    valued: Vec<bool>,
     noise: Vec<UnshapedLine>,
     /// For each statement, the logical line it belongs to.
     line_of: &'a dyn Fn(u32) -> usize,
@@ -454,7 +466,7 @@ struct Builder<'a> {
 }
 
 impl Builder<'_> {
-    fn emit(&mut self, at: u32, segs: &[(String, ByteSpan)]) {
+    fn emit(&mut self, at: u32, segs: &[(String, ByteSpan)], valued: bool) {
         let idx = (self.line_of)(at);
         let Some(line) = self.lines.get(idx) else {
             return;
@@ -481,6 +493,7 @@ impl Builder<'_> {
             tokens,
             list_pos: 0,
         });
+        self.valued.push(valued);
     }
 
     fn sweep(&mut self, at: u32, span: ByteSpan, kind: TokenKind) {
@@ -495,7 +508,7 @@ impl Builder<'_> {
     }
 
     /// The statements under element `idx`, whose own path is `prefix`.
-    fn walk(&mut self, idx: usize, prefix: &[(String, ByteSpan)]) {
+    fn walk(&mut self, idx: usize, prefix: &[(String, ByteSpan)], named: bool) {
         let doc = self.doc;
         let Some(e) = doc.elems.get(idx) else {
             return;
@@ -513,17 +526,19 @@ impl Builder<'_> {
                 .copied()
         });
         let mut own: Vec<(String, ByteSpan)> = prefix.to_vec();
-        own.push((e.name.clone(), e.name_span));
+        if named {
+            own.push((e.name.clone(), e.name_span));
+        }
         if let Some((k, (span, value))) = id.and_then(|c| leaf_text(&c)) {
             own.push((k.name.clone(), k.name_span));
             own.push((value.clone(), *span));
-            self.emit(span.start, &own);
+            self.emit(span.start, &own, true);
         }
         for a in &e.attrs {
             let mut segs = own.clone();
             segs.push((a.name.clone(), a.name_span));
             segs.push((a.value.clone(), a.value_span));
-            self.emit(a.value_span.start, &segs);
+            self.emit(a.value_span.start, &segs, true);
             if needs_sweep(&a.value) {
                 self.sweep(a.value_span.start, a.value_span, TokenKind::Quoted);
             }
@@ -536,7 +551,7 @@ impl Builder<'_> {
                 continue;
             };
             if !k.children.is_empty() || !k.attrs.is_empty() {
-                self.walk(*c, &own);
+                self.walk(*c, &own, true);
                 continue;
             }
             let mut segs = own.clone();
@@ -544,13 +559,13 @@ impl Builder<'_> {
             match &k.text {
                 Some((span, value)) => {
                     segs.push((value.clone(), *span));
-                    self.emit(span.start, &segs);
+                    self.emit(span.start, &segs, true);
                     if needs_sweep(value) {
                         self.sweep(span.start, *span, TokenKind::Bare);
                     }
                 }
                 // `<enable/>` or `<enable></enable>`: a flag.
-                None => self.emit(k.name_span.start, &segs),
+                None => self.emit(k.name_span.start, &segs, false),
             }
         }
     }
@@ -595,18 +610,18 @@ pub fn ingest_xml(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, Inges
         },
         intern: BTreeMap::new(),
         stmts: Vec::new(),
+        valued: Vec::new(),
         noise: Vec::new(),
         line_of: &line_of,
         lines: &lines,
     };
-    if let Some(root) = b.doc.elems.first() {
-        for c in root.children.clone() {
-            b.walk(c, &[]);
-        }
+    if !b.doc.elems.is_empty() {
+        b.walk(0, &[], false);
     }
     let Builder {
         mut tree,
         stmts,
+        valued,
         mut noise,
         ..
     } = b;
@@ -657,7 +672,23 @@ pub fn ingest_xml(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, Inges
     }
 
     let matches = dict.match_statements(&tree, &stmts);
-    let gated = redact::gate(
+    // ALLOWLIST, NOT DENY-LIST: every value the dictionary does not describe
+    // is destroyed. pfSense stores private keys, VPN keys and PPP passwords
+    // base64-encoded (no word or shape detector sees a password in
+    // `aHVudGVyMg==`), carries SSH host keys deflated then base64-encoded, and
+    // every package adds fields nobody can list in advance
+    // (`corpus/dict/README-pfsense.md`). What survives in the stored capture
+    // is what an entry was written for.
+    let forced: Vec<(usize, usize)> = matches
+        .iter()
+        .enumerate()
+        .filter(|(at, m)| {
+            let len = stmts.get(*at).map(|s| s.path.len()).unwrap_or(0);
+            valued.get(*at).copied().unwrap_or(false) && (m.entry.is_none() || m.consumed < len)
+        })
+        .map(|(at, _)| (at, stmts.get(at).map(|s| s.path.len()).unwrap_or(1) - 1))
+        .collect();
+    let gated = redact::gate_with_forced(
         &mut capture,
         &lines,
         &mut tree,
@@ -667,6 +698,7 @@ pub fn ingest_xml(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, Inges
         &noise,
         &matches,
         dict,
+        &forced,
     );
     let fragment = bind::bind(&tree, &stmts, &matches, dict, &mut outcomes);
 

@@ -307,8 +307,60 @@ pub(crate) fn gate(
     matches: &[Match],
     dict: &Dictionary,
 ) -> Gated {
+    gate_with_forced(
+        capture,
+        lines,
+        tree,
+        outcomes,
+        stmts,
+        unshaped,
+        noise,
+        matches,
+        dict,
+        &[],
+    )
+}
+
+/// [`gate`], plus positions a front end requires destroyed whatever any
+/// detector says: `(statement index, path position)`. Used by a platform whose
+/// format hides secrets where no detector can see them (`xml.rs`: pfSense
+/// stores keys and passwords base64-encoded, and packages add secret fields
+/// nobody can list), so its front end destroys every value the dictionary
+/// does not describe. This can only add destruction, never remove it.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn gate_with_forced(
+    capture: &mut String,
+    lines: &[LogicalLine],
+    tree: &mut StmtTree,
+    outcomes: &mut [Outcome],
+    stmts: &[Stmt],
+    unshaped: &[UnshapedLine],
+    noise: &[UnshapedLine],
+    matches: &[Match],
+    dict: &Dictionary,
+    forced: &[(usize, usize)],
+) -> Gated {
     let mut edits: Vec<Edit> = Vec::new();
     let mut already: BTreeSet<u32> = BTreeSet::new();
+
+    for (at, pos) in forced {
+        let Some(stmt) = stmts.get(*at) else {
+            continue;
+        };
+        let Some(token) = stmt.tokens.get(*pos) else {
+            continue;
+        };
+        edits.push(Edit {
+            start: token.span.start,
+            end: token.span.end,
+            text: marker(RedactLabel::Unknown),
+            ordinal: stmt.line,
+            label: RedactLabel::Unknown,
+            detectors: DetectorSet::PATH,
+            node: stmt.path.get(*pos).copied(),
+            quarantine: false,
+        });
+    }
 
     for (idx, stmt) in stmts.iter().enumerate() {
         let m = match matches.get(idx) {
