@@ -36,6 +36,7 @@ import { Trail } from '../racks/Trail';
 import { redoable } from '../racks/trail';
 import { searchDesign } from '../shell/search';
 import type { Place, ShellProps } from '../shell/types';
+import { ChangeToast } from './ChangeToast';
 import { LiveNotices, announcement, hasLiveNotices } from './LiveNotices';
 import { presenceViewOf } from './liveSession';
 import { useDesignSession } from './useDesignSession';
@@ -720,6 +721,15 @@ export function DesignPlace(props: DesignPlaceProps) {
         />
       )}
       {printMode === 'preview' && printJob && <PrintPreview job={printJob} onClose={closePrint} />}
+      <ChangeToast
+        doc={doc}
+        accountId={accountId}
+        undoBatchId={undoCandidates[0]?.id ?? null}
+        redoBatchId={redoCandidate?.id ?? null}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        suppressed={historyOpen || !session.canDraw}
+      />
       {sharing && (
         <SharePanel organisationId={organisationId} scopeId={scopeId} title={designLabel} onClose={() => setSharing(false)} />
       )}

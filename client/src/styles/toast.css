@@ -1,0 +1,93 @@
+/* The note at the bottom after you change something ("Port added", with Undo). */
+.change-toast-host {
+  position: fixed;
+  left: 50%;
+  bottom: 56px;
+  transform: translateX(-50%);
+  z-index: calc(var(--z-modal) + 4);
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.change-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  min-height: 36px;
+  padding: 0 var(--s2) 0 var(--s4);
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--menu-bg, color-mix(in srgb, var(--surface) 88%, transparent));
+  backdrop-filter: var(--menu-blur, blur(10px) saturate(1.2));
+  -webkit-backdrop-filter: var(--menu-blur, blur(10px) saturate(1.2));
+  box-shadow: var(--menu-sh, 0 16px 40px rgba(0, 0, 0, 0.28));
+  color: var(--ink);
+  font-size: var(--t-small);
+  animation: change-toast-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.change-toast--leaving {
+  animation: change-toast-out var(--m-pane) var(--m-ease) both;
+}
+
+.change-toast__words {
+  white-space: nowrap;
+}
+
+.change-toast__button {
+  height: 28px;
+  padding: 0 var(--s3);
+  border: var(--rule-hair) solid var(--hairline);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background var(--m-mark) var(--m-ease), border-color var(--m-mark) var(--m-ease);
+}
+
+.change-toast__button:hover {
+  background: var(--surface);
+  border-color: var(--ink);
+}
+
+.change-toast__button:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+@keyframes change-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes change-toast-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .change-toast,
+  .change-toast--leaving {
+    animation: none;
+  }
+  .change-toast__button {
+    transition: none;
+  }
+}
