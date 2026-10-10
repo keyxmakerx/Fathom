@@ -90,6 +90,10 @@ RUN mkdir -p /bootstrap-seed && \
       "" \
       "Once any operator key is enrolled that command refuses, by design." \
       > /bootstrap-seed/README
+# The firmware store's seed (ADR-0045), made here for the same reason.
+RUN mkdir -p /firmware-seed && \
+    printf '%s\n' "Staged firmware images (ADR-0045). Fathom writes them; switches fetch them." \
+      > /firmware-seed/README
 
 
 # ---- wasm-build (the browser engine, ADR-0052 §1) ------------------------
@@ -218,6 +222,9 @@ ENV FATHOM_CLIENT_ROOT=/srv/www
 # ownership without a shell to `chown` with.
 COPY --from=build --chown=65532:65532 /bootstrap-seed /var/lib/fathom/bootstrap
 ENV FATHOM_BOOTSTRAP_TOKEN_FILE=/var/lib/fathom/bootstrap/first-operator-token
+# The second writable path: staged firmware images, owned by 65532 for the same
+# reason. Only used when compose turns firmware on (FATHOM_FIRMWARE_DIR).
+COPY --from=build --chown=65532:65532 /firmware-seed /var/lib/fathom/firmware
 
 # 65532:65532 is distroless's `nonroot`. The compose file says so as well; both
 # say it so that neither alone is load-bearing.
