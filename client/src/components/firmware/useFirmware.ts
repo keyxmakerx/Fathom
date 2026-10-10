@@ -10,6 +10,8 @@ import {
   firmwareRefusalWords,
   issueFetchLink,
   listFirmware,
+  modelsProblem,
+  setImageModels,
   sendImageBytes,
 } from '../../api/firmware';
 import { FirmwareRefusal, clearTarget, deviceFirmware, setFirmwareHold, setTarget, targetOfDevice } from '../../document/firmware';
@@ -84,6 +86,8 @@ export function useFirmwareApi(inputs: FirmwareInputs): FirmwareApi | null {
       upload: async (form, onProgress, signal) => {
         const checked = checkUpload({ filename: form.file.name, size: form.file.size, platform: form.platform, version: form.version, sha256: form.sha256 });
         if ('problem' in checked) return { refused: checked.problem };
+        const modelsWrong = modelsProblem(form.models);
+        if (modelsWrong !== null) return { refused: modelsWrong };
         try {
           const declared = await declareImage(organisationId, scopeId, {
             filename: checked.ok.filename,
@@ -98,6 +102,17 @@ export function useFirmwareApi(inputs: FirmwareInputs): FirmwareApi | null {
           return { imageId: declared.imageId };
         } catch (e) {
           reload();
+          return { refused: firmwareRefusalWords(e) };
+        }
+      },
+      setImageModels: async (imageId, models) => {
+        const problem = modelsProblem(models);
+        if (problem !== null) return { refused: problem };
+        try {
+          const done = await setImageModels(organisationId, imageId, models);
+          reload();
+          return { changed: done.changed };
+        } catch (e) {
           return { refused: firmwareRefusalWords(e) };
         }
       },

@@ -11,6 +11,7 @@ import { FirmwareList } from './FirmwareList';
 import { FirmwareSection } from './FirmwareSection';
 import { ImagePage } from './ImagePage';
 import { ModelPage, statusWords } from './ModelPage';
+import { CommandNotes } from './parts';
 import { UploadForm } from './UploadForm';
 import { modelTableRows } from './rows';
 import { modelRows } from '../../document/firmware';
@@ -52,6 +53,7 @@ const api = (doc: Document, over: Partial<FirmwareApi> = {}): FirmwareApi => ({
   clearTarget: () => {},
   setHold: () => {},
   upload: async () => ({ refused: 'no' }),
+  setImageModels: async () => ({ changed: true }),
   issueLink: async () => ({ refused: 'no' }),
   planUpgrade: () => {},
   openModel: () => {},
@@ -165,6 +167,38 @@ describe('an image page', () => {
     const reader = html(api(doc, { canEdit: false, isSteward: false }));
     expect(reader).not.toContain('Get a one-time link');
     expect(reader).not.toContain('Choose this version for a model');
+  });
+
+  it('gives a steward Edit models, and a writer who is not a steward does not get it', () => {
+    const html = (a: FirmwareApi) => renderToStaticMarkup(createElement(ImagePage, { api: a, rowKey: 'img:' + IMG_ID, onOpenModel: noop }));
+    expect(html(api(world().doc))).toContain('Edit models');
+    expect(html(api(world().doc, { isSteward: false }))).not.toContain('Edit models');
+  });
+
+  it("lists the server's models, not the chosen-version fallback, once the server has any", () => {
+    const out = renderToStaticMarkup(createElement(ImagePage, { api: api(world().doc, { server: { status: 'ready', images: [{ ...image, models: ['srx300'] }], error: null } }), rowKey: 'img:' + IMG_ID, onOpenModel: noop }));
+    expect(out).toContain('srx300');
+    expect(out).not.toContain('>ex4300-48t<');
+  });
+});
+
+describe('what the server could not write', () => {
+  const commands = { expectedSha256: HASH, devicePath: '', sourcedNote: '', sourced: 'none', platform: 'frr', family: 'unknown', couldNotEstablish: [], deviceHash: { algorithm: 'sha256', comparesWith: 'expected_sha256' }, steps: [] };
+
+  it('says no steps are written for a platform without them', () => {
+    expect(renderToStaticMarkup(createElement(CommandNotes, { commands }))).toContain('No steps are written for this platform yet.');
+  });
+
+  it('shows each thing not established, muted, under the commands', () => {
+    const out = renderToStaticMarkup(createElement(CommandNotes, { commands: { ...commands, steps: [{ order: 1, step: 's', command: 'c', note: '' }], couldNotEstablish: ['a rollback command', 'x'] } }));
+    expect(out).toContain('Not established: a rollback command');
+    expect(out).toContain('Not established: x');
+    expect(out).toContain('fw-muted');
+    expect(out).not.toContain('No steps are written');
+  });
+
+  it('shows nothing when there are no commands', () => {
+    expect(renderToStaticMarkup(createElement(CommandNotes, { commands: null }))).toBe('');
   });
 });
 

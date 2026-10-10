@@ -1,4 +1,4 @@
-// Firmware staging (ADR-0045, crates/fathom-server/src/firmware.rs). Four routes, and the client
+// Firmware staging (ADR-0045, crates/fathom-server/src/firmware.rs). Five routes, and the client
 // never connects to a device: it declares an image, sends its bytes, reads back what is staged, and
 // asks for a one-time link a switch can fetch from. The bytes never pass through memory here: the
 // browser reads the File as it sends it.
@@ -8,6 +8,7 @@
 
 import { concatBytes, lp, u64LE, utf8 } from '../crypto/bytes';
 import { ApiRefusal } from './errors';
+import { body as canonicalBody } from './fieldDefinitions';
 import { signedFetch } from './signedFetch';
 
 /** `HEADER_UPLOAD_TOKEN` in firmware.rs; the declaration names it too, and that wins. */
@@ -29,11 +30,27 @@ export interface FirmwareStep {
   note: string;
 }
 
+/** What the device can compute, and what to compare it with (firmware_commands.rs). */
+export interface DeviceHash {
+  /** `sha256` where Fathom's hash is comparable; `sha512` on IOS XE. */
+  algorithm: string;
+  /** `expected_sha256`, or `vendor_published_sha512`. */
+  comparesWith: string;
+}
+
 export interface FirmwareCommands {
   expectedSha256: string;
   devicePath: string;
   steps: FirmwareStep[];
   sourcedNote: string;
+  /** `none` when no steps are written for the platform. */
+  sourced: string;
+  platform: string | null;
+  /** `junos`, `ios-xe`, `nx-os`, `eos`, or `unknown`. */
+  family: string;
+  /** What the vendor's pages did not settle; shown, never papered over. */
+  couldNotEstablish: string[];
+  deviceHash: DeviceHash;
 }
 
 export interface FirmwareImage {
@@ -98,10 +115,19 @@ function parseCommands(v: unknown): FirmwareCommands | null {
   if (v === null || v === undefined) return null;
   const o = obj(v, 'commands');
   const steps = Array.isArray(o.steps) ? o.steps : [];
+  const dh = typeof o.device_hash === 'object' && o.device_hash !== null && !Array.isArray(o.device_hash) ? (o.device_hash as Record<string, unknown>) : {};
   return {
     expectedSha256: typeof o.expected_sha256 === 'string' ? o.expected_sha256 : '',
     devicePath: typeof o.device_path === 'string' ? o.device_path : '',
     sourcedNote: typeof o.sourced_note === 'string' ? o.sourced_note : '',
+    sourced: typeof o.sourced === 'string' ? o.sourced : '',
+    platform: optStr(o, 'platform'),
+    family: typeof o.family === 'string' ? o.family : '',
+    couldNotEstablish: Array.isArray(o.could_not_establish) ? o.could_not_establish.filter((m): m is string => typeof m === 'string' && m !== '') : [],
+    deviceHash: {
+      algorithm: typeof dh.algorithm === 'string' && dh.algorithm !== '' ? dh.algorithm : 'sha256',
+      comparesWith: typeof dh.compares_with === 'string' && dh.compares_with !== '' ? dh.compares_with : 'expected_sha256',
+    },
     steps: steps.map((s, i) => {
       const r = obj(s, `step ${i}`);
       return { order: optNum(r, 'order') ?? i + 1, step: strField(r, 'step', `step ${i}`), command: strField(r, 'command', `step ${i}`), note: typeof r.note === 'string' ? r.note : '' };
@@ -156,10 +182,8 @@ export interface Declaration {
 }
 
 /**
- * The signed declaration body: `LP(filename) || LP(u64le length) || LP(sha256)`, and when the
- * server carries them, `|| LP(platform) || LP(version) || LP(models, comma-separated)`. The extra
- * three are the one thing this file guesses at (another change adds them); `declareImage` falls
- * back to the plain body when the server does not take them.
+ * The signed declaration body: `LP(filename) || LP(u64le length) || LP(sha256)`, and with `withMeta`
+ * `|| LP(platform) || LP(version) || LP(models, comma-separated)`; an empty one means "not given".
  */
 export function declarationBody(d: Declaration, withMeta: boolean): Uint8Array {
   if (!/^[0-9a-f]{64}$/.test(d.sha256)) throw new Error('A SHA-256 is 64 hexadecimal characters.');
@@ -191,17 +215,45 @@ export function parseDeclared(bytes: Uint8Array): Declared {
 
 /** Tells the server what is coming and the hash it must have. Steward access is needed. */
 export async function declareImage(organisationId: string, scopeId: string, d: Declaration): Promise<Declared> {
-  const path = scopePath(organisationId, scopeId);
-  const wantsMeta = (d.platform ?? '') !== '' || (d.version ?? '') !== '' || (d.models ?? []).length > 0;
-  if (wantsMeta) {
-    try {
-      return parseDeclared(await signedFetch('POST', path, declarationBody(d, true)));
-    } catch (e) {
-      // A server that does not read platform and version yet refuses the longer body as malformed.
-      if (!(e instanceof ApiRefusal && e.status === 400 && /declaration body/i.test(e.message))) throw e;
-    }
+  const withMeta = (d.platform ?? '') !== '' || (d.version ?? '') !== '' || (d.models ?? []).length > 0;
+  return parseDeclared(await signedFetch('POST', scopePath(organisationId, scopeId), declarationBody(d, withMeta)));
+}
+
+export const MAX_MODELS = 16;
+
+/** `safe_models` in firmware.rs: at most 16, each 1 to 64 of letters, digits and `- _ . / +`, no duplicates. */
+export function modelsProblem(models: readonly string[]): string | null {
+  if (models.length > MAX_MODELS) return `An image can name at most ${MAX_MODELS} models.`;
+  for (const [i, m] of models.entries()) {
+    if (!/^[A-Za-z0-9._/+-]{1,64}$/.test(m)) return `"${m}" is not a model id: 1 to 64 characters of letters, digits and - _ . / + only.`;
+    if (models.indexOf(m) !== i) return `"${m}" is listed twice.`;
   }
-  return parseDeclared(await signedFetch('POST', path, declarationBody(d, false)));
+  return null;
+}
+
+export interface ModelsChanged {
+  imageId: string;
+  models: string[];
+  /** False when the list was already this one: nothing was sealed. */
+  changed: boolean;
+  changedSeq: number | null;
+}
+
+/** The exact body of the models call: `{"models":["A","B"]}` and a newline. */
+export const modelsBody = (models: readonly string[]): Uint8Array => canonicalBody({ models });
+
+/** Replaces the whole list of models an image is for (`[]` clears it). Steward access is needed. */
+export async function setImageModels(organisationId: string, imageId: string, models: readonly string[]): Promise<ModelsChanged> {
+  const problem = modelsProblem(models);
+  if (problem !== null) throw new Error(problem);
+  const bytes = await signedFetch('PUT', `${base(organisationId)}/firmware/${encodeURIComponent(imageId)}/models`, modelsBody(models));
+  const o = obj(json(bytes, 'the models answer'), 'the models answer');
+  return {
+    imageId: strField(o, 'image_id', 'the models answer'),
+    models: Array.isArray(o.models) ? o.models.filter((m): m is string => typeof m === 'string') : [],
+    changed: o.changed === true,
+    changedSeq: optNum(o, 'changed_seq'),
+  };
 }
 
 /**

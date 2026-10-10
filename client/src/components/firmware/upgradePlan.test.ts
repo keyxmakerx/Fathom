@@ -25,6 +25,11 @@ const image = (over: Partial<FirmwareImage> = {}): FirmwareImage => ({
     expectedSha256: HASH,
     devicePath: '/var/tmp/x.tgz',
     sourcedNote: '',
+    sourced: 'summary',
+    platform: null,
+    family: 'junos',
+    couldNotEstablish: [],
+    deviceHash: { algorithm: 'sha256', comparesWith: 'expected_sha256' },
     steps: [
       { order: 1, step: 'check space first', command: 'show system storage', note: '' },
       { order: 2, step: 'make room BEFORE the copy', command: 'request system storage cleanup', note: '' },
@@ -84,9 +89,69 @@ describe('buildUpgradePlan', () => {
     expect(u.steps.every((s) => s.after === undefined)).toBe(true);
   });
 
+  it('has no command the server did not write: a staged image without steps gets none, and says so', () => {
+    const none = image({ platform: 'frr', commands: { ...image().commands!, platform: 'frr', family: 'unknown', sourced: 'none', steps: [] } });
+    const u = buildUpgradePlan({ devices: [{ ...dev('d1', 'a'), platform: 'frr' }], model: 'X', target: { ...target, platform: 'frr' }, image: none });
+    expect(u.steps.every((s) => s.after === undefined)).toBe(true);
+    expect(u.steps[2]!.change).toBe(`${FETCH_STEP_TITLE}\nNo steps are written for this platform yet.`);
+    expect(JSON.stringify(u)).not.toContain('copy the image from');
+  });
+
   it("does not hand a Juniper command list to another vendor's switch", () => {
     const u = buildUpgradePlan({ devices: [{ ...dev('d1', 'a'), platform: 'eos' }], model: 'DCS-7050', target: { ...target, platform: 'eos', version: '4.31.1.1M' }, image: image() });
     expect(u.steps.some((s) => (s.after ?? '').includes('request system'))).toBe(false);
+  });
+});
+
+const step = (n: number, title: string, command: string) => ({ order: n, step: title, command, note: '' });
+
+describe('the plan for other vendors, from the server steps', () => {
+  const ios = image({
+    platform: 'ios-xe',
+    commands: {
+      expectedSha256: HASH,
+      devicePath: 'bootflash:x.bin',
+      sourcedNote: '',
+      sourced: 'vendor_docs',
+      platform: 'ios-xe',
+      family: 'ios-xe',
+      couldNotEstablish: ['an on-device SHA-256 command on IOS XE'],
+      deviceHash: { algorithm: 'sha512', comparesWith: 'vendor_published_sha512' },
+      steps: [
+        step(1, 'check space first', 'dir bootflash:'),
+        step(2, 'make room BEFORE the copy', 'install remove inactive'),
+        step(3, 'have the device pull the image', 'copy <the fetch URL, from POST .../fetch-urls> bootflash:x.bin'),
+        step(4, 'prove the whole file arrived', 'verify /sha512 bootflash:x.bin'),
+        step(5, 'check Cisco signed it', 'show software authenticity file bootflash:x.bin'),
+        step(6, "install -- yours to run, not Fathom's", 'install add file bootflash:x.bin activate commit'),
+        step(7, 'check after it comes back', 'show version'),
+      ],
+    },
+  });
+  const plan = buildUpgradePlan({ devices: [{ ...dev('d1', 'a'), platform: 'ios-xe' }], model: 'C9300', target: { ...target, platform: 'ios-xe' }, image: ios });
+
+  it('puts IOS XE steps under the six plain ones, "install remove inactive" in the room step', () => {
+    expect(plan.steps).toHaveLength(6);
+    expect(plan.steps[1]!.after).toBe('dir bootflash:\ninstall remove inactive');
+    expect(plan.steps[2]!.after).toBe(`copy ${LINK_PLACEHOLDER} bootflash:x.bin`);
+    expect(plan.steps[3]!.after).toBe('verify /sha512 bootflash:x.bin\nshow software authenticity file bootflash:x.bin');
+    expect(plan.steps[4]!.after).toBe('install add file bootflash:x.bin activate commit');
+    expect(plan.steps[5]!.after).toBe('show version');
+  });
+
+  it("words step 4 from the device hash: IOS XE compares a SHA-512 with Cisco's, not Fathom's SHA-256", () => {
+    expect(plan.steps[3]!.change).toBe("Check the SHA-512 on the device\nCompare with the SHA-512 on Cisco's download page.");
+    expect(plan.steps[3]!.change).not.toContain('SHA-256');
+    expect(plan.steps[3]!.change).not.toContain('9f2c');
+  });
+
+  it('keeps the SHA-256 wording where the device offers a SHA-256', () => {
+    const eos = image({ platform: 'eos', commands: { ...ios.commands!, platform: 'eos', family: 'eos', deviceHash: { algorithm: 'sha256', comparesWith: 'expected_sha256' }, steps: [step(1, 'save the configuration', 'copy running-config flash:/b'), step(2, 'reload -- yours to run, not Fathom\'s', 'reload'), step(3, 'compare with the hash Arista publishes', 'verify /sha512 flash:/x.swi')] } });
+    const p = buildUpgradePlan({ devices: [{ ...dev('d1', 'a'), platform: 'eos' }], model: 'DCS', target: { ...target, platform: 'eos' }, image: eos });
+    expect(p.steps[3]!.change).toContain('Check the SHA-256 on the device');
+    expect(p.steps[0]!.after).toBe('copy running-config flash:/b');
+    expect(p.steps[3]!.after).toBe('verify /sha512 flash:/x.swi');
+    expect(p.steps[4]!.after).toBe('reload');
   });
 });
 
@@ -96,6 +161,7 @@ describe('helpers', () => {
     expect(commandsFit(image({ platform: 'junos-srx' }), 'junos-ex')).toBe(false);
     expect(commandsFit(image(), 'junos-mx')).toBe(true);
     expect(commandsFit(image(), 'ios-xe')).toBe(false);
+    expect(commandsFit(image({ platform: 'ios-xe' }), 'ios-xe')).toBe(true);
     expect(commandsFit(null, 'junos-ex')).toBe(false);
   });
   it('masks a link after its path', () => {

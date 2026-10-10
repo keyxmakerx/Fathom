@@ -11,8 +11,11 @@ import {
   firmwareRefusalWords,
   issueFetchLink,
   listFirmware,
+  modelsBody,
+  modelsProblem,
   parseImages,
   sendImageBytes,
+  setImageModels,
   shortHash,
   sizeWords,
 } from './firmware';
@@ -25,8 +28,12 @@ const HASH = 'ab'.repeat(32);
 const COMMANDS = {
   expected_sha256: HASH,
   device_path: '/var/tmp/junos.tgz',
+  platform: null,
+  family: 'junos',
   sourced: 'summary',
   sourced_note: 'Check them.',
+  could_not_establish: [],
+  device_hash: { algorithm: 'sha256', compares_with: 'expected_sha256' },
   steps: [{ order: 1, step: 'check space first', command: 'show system storage', note: 'n', run_by: 'operator' }],
 };
 
@@ -114,18 +121,96 @@ describe('declaring', () => {
 
   const DECLARED = { image_id: 'I1', filename: 'a', byte_length: 5, upload_path: '/firmware/uploads/I1', upload_token: 'tok', upload_token_header: 'fathom-firmware-upload-token', upload_token_expires_at_unix: 99 };
 
-  it('declares with platform and version, and again without them when the server does not take them yet', async () => {
-    signed.mockRejectedValueOnce(new ApiRefusal(400, 'the declaration body is not the shape it must be', null)).mockResolvedValueOnce(bytes(DECLARED));
-    const out = await declareImage('o', 's', { filename: 'a.tgz', byteLength: 5, sha256: HASH, platform: 'eos', version: '4.30.2F' });
+  const bodyOf = (call: number) => signed.mock.calls[call]![2]!;
+  const fields = (b: Uint8Array): string[] => {
+    const out: string[] = [];
+    for (let r = b; r.length > 0; ) {
+      const f = readLp(r);
+      out.push(new TextDecoder().decode(f.value));
+      r = f.rest;
+    }
+    return out;
+  };
+
+  it('sends the six-field body once, with no retry, when platform, version or models is set', async () => {
+    signed.mockResolvedValueOnce(bytes(DECLARED));
+    const out = await declareImage('o', 's', { filename: 'a.tgz', byteLength: 5, sha256: HASH, platform: 'eos', version: '4.30.2F', models: ['DCS-7050', 'DCS-7060'] });
     expect(out).toMatchObject({ imageId: 'I1', uploadPath: '/firmware/uploads/I1', uploadToken: 'tok' });
-    expect(signed).toHaveBeenCalledTimes(2);
-    expect(signed.mock.calls[0]![2]!.length).toBeGreaterThan(signed.mock.calls[1]![2]!.length);
+    expect(signed).toHaveBeenCalledTimes(1);
+    const f = fields(bodyOf(0));
+    expect(f).toHaveLength(6);
+    expect(f[0]).toBe('a.tgz');
+    expect(f.slice(3)).toEqual(['eos', '4.30.2F', 'DCS-7050,DCS-7060']);
   });
 
-  it('does not retry a refusal that is about something else', async () => {
-    signed.mockRejectedValue(new ApiRefusal(403, 'not authorised', null));
+  it('sends an empty field for each one not given, as long as any is', async () => {
+    signed.mockResolvedValueOnce(bytes(DECLARED));
+    await declareImage('o', 's', { filename: 'a.tgz', byteLength: 5, sha256: HASH, models: ['A'] });
+    expect(fields(bodyOf(0)).slice(3)).toEqual(['', '', 'A']);
+  });
+
+  it('sends the three-field body when none is set', async () => {
+    signed.mockResolvedValueOnce(bytes(DECLARED));
+    await declareImage('o', 's', { filename: 'a.tgz', byteLength: 5, sha256: HASH });
+    expect(fields(bodyOf(0))).toHaveLength(3);
+  });
+
+  it('does not retry any refusal, a 400 on the declaration body included', async () => {
+    signed.mockRejectedValue(new ApiRefusal(400, 'the declaration body is not the shape it must be', null));
     await expect(declareImage('o', 's', { filename: 'a.tgz', byteLength: 5, sha256: HASH, platform: 'eos' })).rejects.toBeInstanceOf(ApiRefusal);
     expect(signed).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the models of an image', () => {
+  it('writes exactly the canonical body with a trailing newline', () => {
+    expect(new TextDecoder().decode(modelsBody(['A', 'B']))).toBe('{"models":["A","B"]}\n');
+    expect(new TextDecoder().decode(modelsBody([]))).toBe('{"models":[]}\n');
+  });
+
+  it('PUTs it signed to the image path and reads the answer', async () => {
+    signed.mockResolvedValue(bytes({ image_id: 'I 1', models: ['A'], changed: true, changed_seq: 7 }));
+    const done = await setImageModels('org 1', 'I 1', ['A']);
+    expect(done).toEqual({ imageId: 'I 1', models: ['A'], changed: true, changedSeq: 7 });
+    expect(signed.mock.calls[0]![0]).toBe('PUT');
+    expect(signed.mock.calls[0]![1]).toBe('/organisations/org%201/firmware/I%201/models');
+    expect(new TextDecoder().decode(signed.mock.calls[0]![2])).toBe('{"models":["A"]}\n');
+  });
+
+  it('reads an unchanged answer, which has no sequence', async () => {
+    signed.mockResolvedValue(bytes({ image_id: 'I1', models: [], changed: false, changed_seq: null }));
+    expect(await setImageModels('o', 'I1', [])).toMatchObject({ changed: false, changedSeq: null });
+  });
+
+  it('applies the server rule before sending anything', async () => {
+    expect(modelsProblem(['EX2300-24P', 'a.b/c+d_e'])).toBeNull();
+    expect(modelsProblem([])).toBeNull();
+    expect(modelsProblem(Array.from({ length: 16 }, (_, i) => `m${i}`))).toBeNull();
+    expect(modelsProblem(Array.from({ length: 17 }, (_, i) => `m${i}`))).toMatch(/at most 16/);
+    expect(modelsProblem(['has space'])).toMatch(/not a model id/);
+    expect(modelsProblem([''])).toMatch(/not a model id/);
+    expect(modelsProblem(['x'.repeat(65)])).toMatch(/not a model id/);
+    expect(modelsProblem(['x'.repeat(64)])).toBeNull();
+    expect(modelsProblem(['A', 'B', 'A'])).toMatch(/twice/);
+    await expect(setImageModels('o', 'I1', ['a,b'])).rejects.toThrow('not a model id');
+    expect(signed).not.toHaveBeenCalled();
+  });
+
+  it('a 403 says steward access is needed', () => {
+    expect(firmwareRefusalWords(new ApiRefusal(403, 'not authorised', null), 'link')).toMatch(/steward/);
+  });
+});
+
+describe('the commands the server writes per platform', () => {
+  it('reads family, platform, what could not be established and the device hash', () => {
+    const ios = { ...COMMANDS, platform: 'ios-xe', family: 'ios-xe', sourced: 'vendor_docs', could_not_establish: ['an on-device SHA-256 command on IOS XE'], device_hash: { algorithm: 'sha512', compares_with: 'vendor_published_sha512' } };
+    const [img] = parseImages(bytes([{ ...IMAGE, commands: ios }]));
+    expect(img!.commands).toMatchObject({ platform: 'ios-xe', family: 'ios-xe', sourced: 'vendor_docs', couldNotEstablish: ['an on-device SHA-256 command on IOS XE'], deviceHash: { algorithm: 'sha512', comparesWith: 'vendor_published_sha512' } });
+  });
+
+  it('reads an unknown platform: no steps, sourced none', () => {
+    const [img] = parseImages(bytes([{ ...IMAGE, commands: { ...COMMANDS, platform: 'frr', family: 'unknown', sourced: 'none', steps: [], device_path: null } }]));
+    expect(img!.commands).toMatchObject({ family: 'unknown', sourced: 'none', steps: [], devicePath: '', platform: 'frr' });
   });
 });
 
