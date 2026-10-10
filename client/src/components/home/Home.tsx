@@ -27,6 +27,7 @@ import { groupDesignsByScope, scopesWithNoDesigns } from './groupByScope';
 import { HomeTabs } from './HomeTabs';
 import { homeTabs, type HomeTab } from './homeTabs';
 import { newDesignTarget } from './newDesign';
+import { RecentRow } from './RecentRow';
 import './home.css';
 
 export interface HomeProps {
@@ -41,6 +42,8 @@ export interface HomeProps {
   onOpenRacks: (organisation: Organisation, design: DesignSummary) => void;
   /** Open `design` (within `organisation`) in the Inventory place. */
   onOpenInventory: (organisation: Organisation, design: DesignSummary) => void;
+  /** Open a device recently opened in `design`, on the rack. Absent: Recent shows designs only. */
+  onOpenDevice?: (organisation: Organisation, design: DesignSummary, chassisId: string) => void;
   /**
    * ADR-0046 §3: "An account with exactly one place to go lands there
    * directly." `directEntry.ts` decides WHETHER that is true; this is the
@@ -96,6 +99,7 @@ export function Home({
   address,
   onOpenRacks,
   onOpenInventory,
+  onOpenDevice,
   onDirectEntry,
   notice,
   onClaimOrganisation,
@@ -417,6 +421,16 @@ export function Home({
         )}
 
         {shownTab === 'admin' && admin && <section className="home__section">{admin.panel}</section>}
+
+        {shownTab === 'designs' && !waitingInvitee && designs.status === 'ready' && scopes.status === 'ready' && selectedOrganisation && (
+          <RecentRow
+            organisation={selectedOrganisation}
+            designs={designs.value}
+            scopes={scopes.value}
+            onOpenDesign={onOpenRacks}
+            onOpenDevice={onOpenDevice}
+          />
+        )}
 
         {shownTab === 'designs' && !waitingInvitee && (
         <section className="home__section">

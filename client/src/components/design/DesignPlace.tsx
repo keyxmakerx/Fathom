@@ -4,7 +4,7 @@ import type { DesignCapability } from '../../api/designs';
 import { addNote, notesOf as notesOfDoc, removeNote, type NoteHow } from '../../document/notes';
 import { fieldForOwner, fieldsOf as fieldsOfDoc, setFieldValue, type FieldType } from '../../document/fields';
 import { useFieldDefinitions } from './useFieldDefinitions';
-import type { Document } from '../../document/model';
+import { findNode, type Document } from '../../document/model';
 import { listTags, renameTag, tagObject, tagsOf as tagsOfDoc, untagObject } from '../../document/tags';
 import { skippedSentence } from '../../document/liveDoc';
 import { redo as redoBatch, redoSkipping, undo as undoBatch, undoSkipping, undoable } from '../../document/undo';
@@ -38,6 +38,7 @@ import { searchDesign } from '../shell/search';
 import type { Place, ShellProps } from '../shell/types';
 import { LiveNotices, announcement, hasLiveNotices } from './LiveNotices';
 import { presenceViewOf } from './liveSession';
+import { recordDesignOpen, recordDeviceOpen } from '../home/recent';
 import { loadResume } from './resume';
 import { useDesignSession } from './useDesignSession';
 
@@ -63,6 +64,8 @@ export interface DesignPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | '
   /** The design's scope: what the Share panel shares. */
   scopeId: string;
   onZoomChange: (zoom: number) => void;
+  /** A device to open on arrival (Home's Recent row). */
+  openDevice?: string;
 }
 
 /**
@@ -95,13 +98,29 @@ export interface DesignPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | '
 const SEAL_SETTLE_MS = 1_500;
 
 export function DesignPlace(props: DesignPlaceProps) {
-  const { organisationId, designId, capability, scopeId, onZoomChange, onPlaceChange, ...shellProps } = props;
+  const { organisationId, designId, capability, scopeId, onZoomChange, onPlaceChange, openDevice, ...shellProps } = props;
   const session = useDesignSession(organisationId, designId, capability);
   const [focus, setFocus] = useState<Selection | null>(null);
   const [issueRequest, setIssueRequest] = useState<{ id: string } | null>(null);
 
   const accountId = getSession()?.accountId ?? null;
   const accountAddress = getSession()?.address ?? null;
+
+  // Home's Recent row remembers which designs this person opened, and opens a recent device on arrival.
+  useEffect(() => {
+    recordDesignOpen(accountId, organisationId, designId);
+  }, [accountId, organisationId, designId]);
+  const openedDevice = useRef(false);
+  const arrivedDoc = session.doc;
+  useEffect(() => {
+    if (openDevice == null || openedDevice.current || arrivedDoc == null) return;
+    openedDevice.current = true;
+    if (findNode(arrivedDoc, openDevice) != null) setFocus({ kind: 'chassis', id: openDevice });
+  }, [openDevice, arrivedDoc]);
+  const noteDeviceOpened = useCallback(
+    (chassisId: string, name: string) => recordDeviceOpen(accountId, organisationId, designId, chassisId, name),
+    [accountId, organisationId, designId],
+  );
 
   // ------------------------------------------------------------------
   // Print. `activeRackId` is RacksPlace's own report of what the current
@@ -673,6 +692,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         onShownCablesChange={setShownCableIds}
         designId={designId}
         onSelectedChange={setSelectedId}
+        onDeviceOpened={noteDeviceOpened}
       />
     ) : (
       <InventoryPlace

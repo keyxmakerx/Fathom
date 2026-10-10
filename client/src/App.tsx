@@ -71,7 +71,7 @@ type Door = 'sign-in' | 'enrol' | 'reset';
  */
 type View =
   | { kind: 'home' }
-  | { kind: 'place'; place: Place; organisation: Organisation; design: DesignSummary };
+  | { kind: 'place'; place: Place; organisation: Organisation; design: DesignSummary; openDevice?: string };
 
 /**
  * An operator sign-in `enterConsole` is waiting on a verification code for
@@ -512,6 +512,13 @@ export default function App() {
     [],
   );
 
+  // Home's Recent row: a device opened lately, on the rack, in its design.
+  const openDevice = useCallback(
+    (organisation: Organisation, design: DesignSummary, chassisId: string) =>
+      setView({ kind: 'place', place: 'racks', organisation, design, openDevice: chassisId }),
+    [],
+  );
+
   // ADR-0046 §3: "An account with exactly one place to go lands there
   // directly." `Home` decides whether that is true; this decides what it
   // means, which the component deliberately left to its caller. Racks,
@@ -842,6 +849,7 @@ export default function App() {
           address={session.address}
           onOpenRacks={openIn('racks')}
           onOpenInventory={openIn('inventory')}
+          onOpenDevice={openDevice}
           onDirectEntry={directEntrySession === accountSessionId ? undefined : handleDirectEntry}
           notice={consoleRefusal}
           onClaimOrganisation={() => setClaiming({})}
@@ -908,6 +916,7 @@ export default function App() {
       onZoomChange={setZoom}
       capability={view.design.capability}
       scopeId={view.design.scopeId}
+      openDevice={view.openDevice}
     />
   );
 }

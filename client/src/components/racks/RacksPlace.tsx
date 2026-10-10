@@ -244,6 +244,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   designId: string;
   /** What is selected, by element id, for presence (ADR-0063 §12). */
   onSelectedChange?: (id: string | null) => void;
+  /** A device was opened (double-click): Home's Recent row remembers it. */
+  onDeviceOpened?: (chassisId: string, name: string) => void;
 }
 
 /**
@@ -279,6 +281,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     onShownCablesChange,
     designId,
     onSelectedChange,
+    onDeviceOpened,
     ...shellProps
   } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign } = session;
@@ -940,9 +943,14 @@ export function RacksPlace(props: RacksPlaceProps) {
   // ADR-0060 decision 10: Open goes into a device ("jot mode"). Drawing stays mounted beneath, so its camera is
   // where it was on the way back; the way out is Esc, the bar's path, or the Back button.
   const [jot, setJot] = useState<{ id: string; origin: { x: number; y: number } | null; inside: boolean } | null>(null);
+  const realViewRef = useRef(realView);
+  realViewRef.current = realView;
+  const onDeviceOpenedRef = useRef(onDeviceOpened);
+  onDeviceOpenedRef.current = onDeviceOpened;
   const handleOpenDevice = useCallback((id: string, inside: boolean, at: { x: number; y: number } | null) => {
     setSelection({ kind: 'chassis', id });
     setJot({ id, origin: at, inside });
+    onDeviceOpenedRef.current?.(id, deviceChassis(realViewRef.current, id)?.hostname ?? '');
   }, []);
   const leaveJot = useCallback(() => setJot(null), []);
 
