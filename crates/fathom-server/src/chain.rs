@@ -412,6 +412,9 @@ pub enum EntryType {
     /// A fetch URL was spent: the bytes went somewhere. Committed BEFORE the body
     /// is served, so a transfer that dies half way still leaves the record.
     FirmwareFetchRedeemed,
+    /// A steward replaced the list of catalogue models an image is for (`0038`).
+    /// The entry names the image and the old and new lists.
+    FirmwareModelsChanged,
     // ---- Steward invitations (migration 0037) ------------------------------
     /// A steward invited someone. The entry names the invitation, the scope, the
     /// capability asked and who issued it; never the link and never an email.
@@ -543,6 +546,7 @@ impl EntryType {
             Self::FirmwareStaged => "firmware_staged",
             Self::FirmwareFetchIssued => "firmware_fetch_issued",
             Self::FirmwareFetchRedeemed => "firmware_fetch_redeemed",
+            Self::FirmwareModelsChanged => "firmware_models_changed",
             Self::InvitationIssued => "invitation_issued",
             Self::InvitationClosed => "invitation_closed",
             // ADR-0055 stream (c)
@@ -612,6 +616,7 @@ impl EntryType {
             "firmware_staged" => Some(Self::FirmwareStaged),
             "firmware_fetch_issued" => Some(Self::FirmwareFetchIssued),
             "firmware_fetch_redeemed" => Some(Self::FirmwareFetchRedeemed),
+            "firmware_models_changed" => Some(Self::FirmwareModelsChanged),
             "invitation_issued" => Some(Self::InvitationIssued),
             "invitation_closed" => Some(Self::InvitationClosed),
             // ADR-0055 stream (c)
@@ -688,6 +693,7 @@ impl EntryType {
             | Self::FirmwareStaged
             | Self::FirmwareFetchIssued
             | Self::FirmwareFetchRedeemed
+            | Self::FirmwareModelsChanged
             | Self::InvitationIssued
             | Self::InvitationClosed => &[ChainKind::Org],
             // **Two types are filed on two kinds.** `rewrap` because the master key

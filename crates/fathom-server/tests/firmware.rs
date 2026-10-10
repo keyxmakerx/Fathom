@@ -608,6 +608,21 @@ fn sha256_of(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }
 
+/// `declaration` plus the optional trailing platform and version (`0038`); an
+/// empty string is "not given".
+fn labelled_declaration(
+    filename: &str,
+    byte_length: u64,
+    sha256: &[u8; 32],
+    platform: &str,
+    version: &str,
+) -> Vec<u8> {
+    let mut out = declaration(filename, byte_length, sha256);
+    lp(&mut out, platform.as_bytes());
+    lp(&mut out, version.as_bytes());
+    out
+}
+
 /// Declare, then send the bytes, and return the staged image's id.
 async fn stage(
     addr: SocketAddr,
@@ -617,13 +632,32 @@ async fn stage(
     filename: &str,
     bytes: &[u8],
 ) -> String {
+    stage_labelled(addr, person, organisation, scope, filename, bytes, "", "").await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn stage_labelled(
+    addr: SocketAddr,
+    person: &Person,
+    organisation: OrganisationId,
+    scope: ScopeId,
+    filename: &str,
+    bytes: &[u8],
+    platform: &str,
+    version: &str,
+) -> String {
     let digest = sha256_of(bytes);
+    let body = if platform.is_empty() && version.is_empty() {
+        declaration(filename, bytes.len() as u64, &digest)
+    } else {
+        labelled_declaration(filename, bytes.len() as u64, &digest, platform, version)
+    };
     let (status, body) = call(
         addr,
         person,
         "POST",
         &format!("/organisations/{organisation}/scopes/{scope}/firmware"),
-        &declaration(filename, bytes.len() as u64, &digest),
+        &body,
     )
     .await;
     assert_eq!(status, "200", "declare: {}", String::from_utf8_lossy(&body));
@@ -1734,6 +1768,555 @@ async fn a_read_caller_sees_the_staged_image_and_its_real_hash_and_can_publish_n
     )
     .await;
     assert_eq!(status, "403", "a read caller may not publish the bytes");
+}
+
+async fn list_firmware(
+    addr: SocketAddr,
+    person: &Person,
+    organisation: OrganisationId,
+    scope: ScopeId,
+) -> String {
+    let (status, body) = call(
+        addr,
+        person,
+        "GET",
+        &format!("/organisations/{organisation}/scopes/{scope}/firmware"),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    String::from_utf8(body).expect("JSON is UTF-8")
+}
+
+async fn issue_fetch_url(
+    addr: SocketAddr,
+    person: &Person,
+    organisation: OrganisationId,
+    image: &str,
+) -> String {
+    let (status, body) = call(
+        addr,
+        person,
+        "POST",
+        &format!("/organisations/{organisation}/firmware/{image}/fetch-urls"),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    String::from_utf8(body).expect("JSON is UTF-8")
+}
+
+/// `0038`: the platform and version round-trip through declare, upload, list and
+/// the fetch-URL answer, and the commands follow the platform -- including the URL
+/// in the fetch-URL answer's copy line.
+#[tokio::test]
+async fn a_declared_platform_and_version_round_trip_and_choose_the_commands() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+
+    let bytes = an_image(2048);
+    let sha = hex(sha256_of(&bytes));
+
+    // The declare answer echoes the labels.
+    let (status, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &format!(
+            "/organisations/{}/scopes/{scope}/firmware",
+            estate.organisation
+        ),
+        &labelled_declaration(
+            "cat9k_iosxe.17.09.04a.SPA.bin",
+            bytes.len() as u64,
+            &sha256_of(&bytes),
+            "ios-xe",
+            "17.09.04a",
+        ),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let text = String::from_utf8_lossy(&body);
+    assert!(text.contains("\"platform\":\"ios-xe\""), "{text}");
+    assert!(text.contains("\"version\":\"17.09.04a\""), "{text}");
+
+    let cisco = stage_labelled(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "cat9k_iosxe.17.09.04a.SPA.bin",
+        &bytes,
+        "ios-xe",
+        "17.09.04a",
+    )
+    .await;
+    let arista = stage_labelled(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "EOS-4.32.2F.swi",
+        &bytes,
+        "eos",
+        "4.32.2F",
+    )
+    .await;
+    let plain = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "junos.tgz",
+        &bytes,
+    )
+    .await;
+
+    let listed = list_firmware(addr, &estate.steward, estate.organisation, scope).await;
+    for needle in [
+        "\"platform\":\"ios-xe\"",
+        "\"version\":\"17.09.04a\"",
+        "\"platform\":\"eos\"",
+        "\"version\":\"4.32.2F\"",
+        "\"family\":\"ios-xe\"",
+        "\"family\":\"eos\"",
+        "install add file bootflash:cat9k_iosxe.17.09.04a.SPA.bin activate commit",
+        "boot system flash:/EOS-4.32.2F.swi",
+        // The image declared without labels is still shown the Junos steps.
+        "file checksum sha-256 /var/tmp/junos.tgz",
+        "\"platform\":null",
+        "\"version\":null",
+    ] {
+        assert!(listed.contains(needle), "{needle} missing from {listed}");
+    }
+    assert!(listed.contains(&sha), "{listed}");
+
+    // The fetch-URL answer uses the image's own platform, with the real URL.
+    let issued = issue_fetch_url(addr, &estate.steward, estate.organisation, &cisco).await;
+    let url = json_str(issued.as_bytes(), "fetch_url");
+    assert!(issued.contains("\"platform\":\"ios-xe\""), "{issued}");
+    assert!(
+        issued.contains(&format!(
+            "copy {url} bootflash:cat9k_iosxe.17.09.04a.SPA.bin"
+        )),
+        "{issued}"
+    );
+    assert!(!issued.contains("request system"), "{issued}");
+    assert!(issued.contains(&sha), "{issued}");
+
+    let issued = issue_fetch_url(addr, &estate.steward, estate.organisation, &arista).await;
+    let url = json_str(issued.as_bytes(), "fetch_url");
+    assert!(
+        issued.contains(&format!("copy {url} flash:/EOS-4.32.2F.swi")),
+        "{issued}"
+    );
+
+    let issued = issue_fetch_url(addr, &estate.steward, estate.organisation, &plain).await;
+    let url = json_str(issued.as_bytes(), "fetch_url");
+    assert!(
+        issued.contains(&format!("file copy {url} /var/tmp/")),
+        "{issued}"
+    );
+}
+
+/// A platform that is a valid slug but has no steps written gets none, in both
+/// answers, and is not shown Junos commands.
+#[tokio::test]
+async fn an_unknown_platform_is_staged_and_shows_no_steps() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+
+    let bytes = an_image(1024);
+    let image = stage_labelled(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "sonic.bin",
+        &bytes,
+        "sonic",
+        "202405",
+    )
+    .await;
+
+    let listed = list_firmware(addr, &estate.steward, estate.organisation, scope).await;
+    assert!(listed.contains("\"steps\":[]"), "{listed}");
+    assert!(listed.contains("No steps are written"), "{listed}");
+    assert!(!listed.contains("request system"), "{listed}");
+    assert!(listed.contains(&hex(sha256_of(&bytes))), "{listed}");
+
+    let issued = issue_fetch_url(addr, &estate.steward, estate.organisation, &image).await;
+    assert!(issued.contains("\"steps\":[]"), "{issued}");
+    assert!(issued.contains("\"fetch_url\":\"https://"), "{issued}");
+}
+
+/// Bad labels are refused with a 400 and nothing is declared.
+#[tokio::test]
+async fn a_malformed_platform_or_version_is_refused_and_nothing_is_declared() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+
+    let bytes = an_image(256);
+    let digest = sha256_of(&bytes);
+    let too_long_platform = "a".repeat(33);
+    let too_long_version = "1".repeat(65);
+    let cases: [(&str, &str); 9] = [
+        ("IOS-XE", ""),
+        ("ios xe", ""),
+        ("ios_xe", ""),
+        ("eos;reload", ""),
+        (&too_long_platform, ""),
+        ("eos", "1; reload"),
+        ("eos", "4.32 2F"),
+        ("eos", "$(id)"),
+        ("eos", &too_long_version),
+    ];
+    for (platform, version) in cases {
+        let (status, body) = call(
+            addr,
+            &estate.steward,
+            "POST",
+            &format!(
+                "/organisations/{}/scopes/{scope}/firmware",
+                estate.organisation
+            ),
+            &labelled_declaration("x.bin", bytes.len() as u64, &digest, platform, version),
+        )
+        .await;
+        assert_eq!(
+            status,
+            "400",
+            "platform {platform:?} version {version:?}: {}",
+            String::from_utf8_lossy(&body)
+        );
+    }
+
+    let listed = list_firmware(addr, &estate.steward, estate.organisation, scope).await;
+    assert_eq!(
+        listed.trim(),
+        "[]",
+        "no refused declaration left a row: {listed}"
+    );
+}
+
+fn models_body(models: &[&str]) -> Vec<u8> {
+    let items: Vec<String> = models.iter().map(|m| format!("{m:?}")).collect();
+    format!("{{\"models\":[{}]}}\n", items.join(",")).into_bytes()
+}
+
+async fn put_models(
+    addr: SocketAddr,
+    person: &Person,
+    organisation: OrganisationId,
+    image: &str,
+    body: &[u8],
+) -> (String, String) {
+    let (status, body) = call(
+        addr,
+        person,
+        "PUT",
+        &format!("/organisations/{organisation}/firmware/{image}/models"),
+        body,
+    )
+    .await;
+    (status, String::from_utf8_lossy(&body).into_owned())
+}
+
+/// `models` round-trip through declare and the list, and an image without any lists
+/// an empty array.
+#[tokio::test]
+async fn declared_models_round_trip_and_a_bad_list_is_refused() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+
+    let bytes = an_image(512);
+    let digest = sha256_of(&bytes);
+    let declare_path = format!(
+        "/organisations/{}/scopes/{scope}/firmware",
+        estate.organisation
+    );
+    let with_models = |models: &str| {
+        let mut b = labelled_declaration("x.tgz", bytes.len() as u64, &digest, "junos", "21.4R3");
+        lp(&mut b, models.as_bytes());
+        b
+    };
+
+    let (status, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &declare_path,
+        &with_models("EX2300-24P,EX2300-48P"),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    assert!(
+        String::from_utf8_lossy(&body).contains("\"models\":[\"EX2300-24P\",\"EX2300-48P\"]"),
+        "{}",
+        String::from_utf8_lossy(&body)
+    );
+    let image = json_str(&body, "image_id");
+    let token = json_str(&body, "upload_token");
+    let (status, _) = raw_request(
+        addr,
+        "POST",
+        &format!("/firmware/uploads/{image}"),
+        &[(HEADER_UPLOAD_TOKEN, token)],
+        &bytes,
+    )
+    .await;
+    assert_eq!(status, "200");
+    let plain = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "plain.tgz",
+        &bytes,
+    )
+    .await;
+
+    let listed = list_firmware(addr, &estate.steward, estate.organisation, scope).await;
+    assert!(
+        listed.contains("\"models\":[\"EX2300-24P\",\"EX2300-48P\"]"),
+        "{listed}"
+    );
+    assert!(listed.contains("\"models\":[]"), "{listed}");
+    assert!(listed.contains(&plain), "{listed}");
+    let issued = issue_fetch_url(addr, &estate.steward, estate.organisation, &image).await;
+    assert!(
+        issued.contains("\"models\":[\"EX2300-24P\",\"EX2300-48P\"]"),
+        "{issued}"
+    );
+
+    let seventeen: Vec<String> = (0..17).map(|i| format!("M{i}")).collect();
+    let too_many = seventeen.join(",");
+    let too_long = "x".repeat(65);
+    for bad in [
+        "A,A", "A,,B", "A,", "a b", "A;B", "$(id)", &too_many, &too_long,
+    ] {
+        let (status, body) = call(
+            addr,
+            &estate.steward,
+            "POST",
+            &declare_path,
+            &with_models(bad),
+        )
+        .await;
+        assert_eq!(status, "400", "{bad:?}: {}", String::from_utf8_lossy(&body));
+    }
+    let listed = list_firmware(addr, &estate.steward, estate.organisation, scope).await;
+    assert_eq!(
+        listed.matches("\"image_id\"").count(),
+        2,
+        "refused declarations left no row: {listed}"
+    );
+}
+
+/// The replace route: steward only, validated, sealed on the chain, and a no-op
+/// seals nothing.
+#[tokio::test]
+async fn a_steward_can_replace_an_images_models_and_nobody_else_can() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let reader = a_member_with(&pool, &ring, &estate, "reader", Some(Capability::Read)).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+    let other = bootstrap(&pool, &ring).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+
+    let image = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "junos.tgz",
+        &an_image(512),
+    )
+    .await;
+    let org = estate.organisation;
+
+    // Replace, then read back.
+    let (status, body) = put_models(
+        addr,
+        &estate.steward,
+        org,
+        &image,
+        &models_body(&["EX2300-24P", "EX2300-48P"]),
+    )
+    .await;
+    assert_eq!(status, "200", "{body}");
+    assert!(body.contains("\"changed\":true"), "{body}");
+    assert!(
+        body.contains("\"models\":[\"EX2300-24P\",\"EX2300-48P\"]"),
+        "{body}"
+    );
+    let listed = list_firmware(addr, &estate.steward, org, scope).await;
+    assert!(
+        listed.contains("\"models\":[\"EX2300-24P\",\"EX2300-48P\"]"),
+        "{listed}"
+    );
+
+    // The same list again changes and seals nothing.
+    let (status, body) = put_models(
+        addr,
+        &estate.steward,
+        org,
+        &image,
+        &models_body(&["EX2300-24P", "EX2300-48P"]),
+    )
+    .await;
+    assert_eq!(status, "200", "{body}");
+    assert!(body.contains("\"changed\":false"), "{body}");
+    assert!(body.contains("\"changed_seq\":null"), "{body}");
+
+    // Replace is replace: a shorter list, then empty.
+    let (status, _) = put_models(
+        addr,
+        &estate.steward,
+        org,
+        &image,
+        &models_body(&["EX2300-48P"]),
+    )
+    .await;
+    assert_eq!(status, "200");
+    let (status, _) = put_models(addr, &estate.steward, org, &image, &models_body(&[])).await;
+    assert_eq!(status, "200");
+    let listed = list_firmware(addr, &estate.steward, org, scope).await;
+    assert!(listed.contains("\"models\":[]"), "{listed}");
+
+    // Refused: not a steward, not a member, bad bodies, an image that is not there.
+    let good = models_body(&["EX2300-24P"]);
+    for (who, name) in [
+        (&reader, "read"),
+        (&drawer, "draw"),
+        (&other.steward, "other org"),
+    ] {
+        let (status, _) = put_models(addr, who, org, &image, &good).await;
+        assert_eq!(status, "403", "{name} must not replace models");
+    }
+    let seventeen: Vec<String> = (0..17).map(|i| format!("M{i}")).collect();
+    let seventeen: Vec<&str> = seventeen.iter().map(String::as_str).collect();
+    for (bad, why) in [
+        (models_body(&["A", "A"]), "duplicate"),
+        (models_body(&["a b"]), "space"),
+        (models_body(&["x;y"]), "semicolon"),
+        (models_body(&[&"x".repeat(65)]), "too long"),
+        (models_body(&seventeen), "too many"),
+        (b"{\"models\":[1]}\n".to_vec(), "not a string"),
+        (b"{\"models\":[\"A\"],\"x\":1}\n".to_vec(), "extra key"),
+        (b"{\"models\":[\"A\"]}".to_vec(), "no final newline"),
+        (b"not json".to_vec(), "not json"),
+    ] {
+        let (status, body) = put_models(addr, &estate.steward, org, &image, &bad).await;
+        assert_eq!(status, "400", "{why}: {body}");
+    }
+    let nothing = fathom_server::ids::new_ulid().to_string();
+    let (status, _) = put_models(addr, &estate.steward, org, &nothing, &good).await;
+    assert_eq!(status, "404", "no such image");
+
+    // Only the real changes were sealed: three (set, shorten, clear).
+    let su = support::superuser_client_on_test_database().await;
+    let rows = su
+        .query(
+            "SELECT entry_type FROM chain_entries \
+             WHERE chain_kind = 'org' AND organisation_id = $1 \
+               AND entry_type = 'firmware_models_changed'",
+            &[&org.to_string()],
+        )
+        .await
+        .expect("read the organisation chain");
+    assert_eq!(rows.len(), 3, "each real change is sealed, a no-op is not");
+}
+
+/// The database holds the same rule, so a row that skipped the handler still
+/// cannot carry a platform or version that is not the shape.
+#[tokio::test]
+async fn the_database_refuses_a_malformed_platform_or_version_too() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let su = support::superuser_client_on_test_database().await;
+
+    let many: Vec<String> = (0..17).map(|i| format!("M{i}")).collect();
+    let models_cases: [Vec<String>; 4] = [
+        vec!["A".to_string(), "A".to_string()],
+        vec!["a b".to_string()],
+        vec!["".to_string()],
+        many,
+    ];
+    for models in &models_cases {
+        let id = fathom_server::ids::new_ulid().to_string();
+        let refused = su
+            .execute(
+                "INSERT INTO firmware_images \
+                     (id, organisation_id, scope_id, filename, byte_length, declared_sha256, \
+                      state, created_by, models) \
+                 VALUES ($1, $2, $3, 'x.bin', 1, $4, 'declared', $5, $6)",
+                &[
+                    &id,
+                    &estate.organisation.to_string(),
+                    &scope.to_string(),
+                    &vec![0u8; 32],
+                    &estate.steward.account.to_string(),
+                    models,
+                ],
+            )
+            .await;
+        assert!(refused.is_err(), "{models:?} must be refused");
+    }
+
+    for (platform, version) in [
+        (Some("Eos"), None),
+        (Some("a b"), None),
+        (None, Some("")),
+        (None, Some("1;2")),
+    ] {
+        let id = fathom_server::ids::new_ulid().to_string();
+        let refused = su
+            .execute(
+                "INSERT INTO firmware_images \
+                     (id, organisation_id, scope_id, filename, byte_length, declared_sha256, \
+                      state, created_by, platform, version) \
+                 VALUES ($1, $2, $3, 'x.bin', 1, $4, 'declared', $5, $6, $7)",
+                &[
+                    &id,
+                    &estate.organisation.to_string(),
+                    &scope.to_string(),
+                    &vec![0u8; 32],
+                    &estate.steward.account.to_string(),
+                    &platform,
+                    &version,
+                ],
+            )
+            .await;
+        assert!(refused.is_err(), "{platform:?} {version:?} must be refused");
+    }
 }
 
 /// The directory is proved usable at startup, not at the first two-gigabyte

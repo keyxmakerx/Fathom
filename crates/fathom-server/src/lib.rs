@@ -65,6 +65,7 @@ pub mod designs;
 pub mod engine;
 pub mod field_defs;
 pub mod firmware;
+pub mod firmware_commands;
 pub mod grants;
 pub mod heads;
 pub mod health;
