@@ -58,6 +58,66 @@ async function clearOnUnauthorized(plane: Plane, response: Response): Promise<ne
 const EMPTY_BODY = new Uint8Array(0);
 
 /**
+ * How many signed requests one plane may have between drawing a nonce and
+ * reading the answer's headers.
+ *
+ * **The server ends a session that is sent more than 32 at once.**
+ * `sessions.rs` holds at most `MAX_OUTSTANDING_NONCES` (32) unspent nonces
+ * per session and refuses a counter more than `COUNTER_WINDOW` (32) past the
+ * mark its nonce was issued against; both refusals are a `401`, and a `401`
+ * clears the plane (`clearOnUnauthorized`). Every request here draws its
+ * nonce before any of them lands, so a burst of 33 or more shares one
+ * issued mark and the 33rd is refused. Opening a design fetches every
+ * catalogue model at once, and the home-lab models (#147) took the
+ * catalogue from 16 to 55: opening any design signed the person out.
+ *
+ * Eight is well inside both bounds, and a browser runs no more than six
+ * HTTP/1.1 requests to one host at a time anyway. The bound is here, in the
+ * one module every signed call goes through, so that no future screen can
+ * spend the session by asking for a lot at once.
+ */
+export const MAX_SIGNED_IN_FLIGHT = 8;
+
+/** A first-come, first-served limit on how many tasks run at once. */
+export class RequestGate {
+  private readonly limit: number;
+  private running = 0;
+  private readonly waiting: Array<() => void> = [];
+
+  constructor(limit: number) {
+    this.limit = limit;
+  }
+
+  async run<T>(task: () => Promise<T>): Promise<T> {
+    if (this.running >= this.limit) {
+      await new Promise<void>((resolve) => this.waiting.push(resolve));
+    } else {
+      this.running += 1;
+    }
+    try {
+      return await task();
+    } finally {
+      // The slot passes straight to the next in line, so `running` never
+      // dips and lets a newcomer jump the queue.
+      const next = this.waiting.shift();
+      if (next) next();
+      else this.running -= 1;
+    }
+  }
+}
+
+/** One gate per plane: the server's bounds are per session. */
+const gates = new Map<Plane, RequestGate>();
+function gateFor(plane: Plane): RequestGate {
+  let gate = gates.get(plane);
+  if (!gate) {
+    gate = new RequestGate(MAX_SIGNED_IN_FLIGHT);
+    gates.set(plane, gate);
+  }
+  return gate;
+}
+
+/**
  * `signedFetch`'s full result — added for `document/api/payload.ts`'s
  * `openDesign`, which needs `open_design_handler`'s response headers
  * (`fathom-design-version`, `fathom-payload-schema-version`) and not only
@@ -128,7 +188,24 @@ export async function signedFetchOn(
   return (await send(plane, session, method, path, body)).bytes;
 }
 
-async function sendRaw(
+/**
+ * One signed request, inside its plane's [`MAX_SIGNED_IN_FLIGHT`] gate. The
+ * slot is held from the nonce until the answer's headers arrive, which is
+ * when the server has spent the nonce and moved the counter; a live feed's
+ * body goes on streaming after the slot is given back.
+ */
+function sendRaw(
+  plane: Plane,
+  session: ActiveSession,
+  method: string,
+  path: string,
+  body: Uint8Array,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return gateFor(plane).run(() => sendRawNow(plane, session, method, path, body, signal));
+}
+
+async function sendRawNow(
   plane: Plane,
   session: ActiveSession,
   method: string,
