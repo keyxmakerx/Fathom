@@ -5,6 +5,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { barAction } from './drive-lib/bar.mjs';
 
 const pw = await import(
   process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js'
@@ -112,7 +113,7 @@ async function openPanel(page, scene = 'print') {
   // The first navigation of a run pays Vite's own cold dependency
   // pre-bundle; every later one in this same run is warm and fast.
   await page.waitForSelector('.react-flow__node-rack', { timeout: 45_000 });
-  await page.locator('[data-testid="shell-print"]').click();
+  await barAction(page, 'print');
   await page.waitForSelector('[data-testid="print-panel"]', { timeout: 10_000 });
 }
 
@@ -403,7 +404,7 @@ try {
   await page.waitForTimeout(200);
   const chassisCountBefore = await page.locator('.react-flow__node-chassis').count();
 
-  await page.locator('[data-testid="shell-print"]').click();
+  await barAction(page, 'print');
   await page.locator('[data-testid="print-panel-print"]').click();
   await page.waitForSelector('[data-testid="print-preview"]', { timeout: 10_000 });
   const saveCountBefore = await page.evaluate(() => window.__saveCount__);
@@ -465,7 +466,7 @@ try {
   const transformBefore = await page.locator('.react-flow__viewport').getAttribute('style');
   const editorBefore = await readOrMissing(page.locator('.drawing-editor__panel'));
 
-  await page.locator('[data-testid="shell-print"]').click();
+  await barAction(page, 'print');
   await page.locator('[data-testid="print-panel-print"]').click();
   await page.waitForSelector('[data-testid="print-preview"]', { timeout: 10_000 });
   await page.locator('[data-testid="print-preview-close"]').click();

@@ -1444,6 +1444,20 @@ export interface CreateSketchDeviceOptions extends Actor {
   hostname?: string;
 }
 
+
+/** A catalogue model for a chassis that has none yet: `Chassis.model`, then
+ * the model's ports and inlets. One undo step. */
+export function equipFromCatalogue(doc: Document, chassisId: string, model: CatalogueModel, opts?: Actor): Document {
+  const { actor, now } = resolve(opts);
+  const chassisModel = setField(doc, now, actor, chassisId, undefined, 'Chassis.model', identifier(model.model));
+  const withModel: Document = {
+    ...chassisModel.doc,
+    nodes: chassisModel.doc.nodes.map((n) => (n.id === chassisId ? { ...n, fields: { ...n.fields, 'Chassis.model': chassisModel.entry } } : n)),
+  };
+  const equipment = buildCatalogueEquipment(withModel, now, actor, chassisId, model);
+  return withBatch(equipment.working, { id: newUlid(now), label: 'set model', ops: [chassisModel.op, ...equipment.ops] });
+}
+
 /**
  * ADR-0051 §1, this session's brief item 2 — a `Device` with a `Chassis`
  * (`HasChassis`), no `Chassis.model` at all: the first command in this file

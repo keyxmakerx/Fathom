@@ -112,6 +112,7 @@
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .checks-link[aria-pressed='true'] {
@@ -153,10 +154,6 @@
 
 .checks-btn {
   padding: 2px var(--s2);
-  border: var(--rule-hair) solid var(--ink);
-  border-radius: var(--radius);
-  background: var(--page);
-  color: var(--ink);
   font: inherit;
   cursor: pointer;
 }

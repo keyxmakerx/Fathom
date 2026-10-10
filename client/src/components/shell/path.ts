@@ -1,10 +1,15 @@
 /** One step of the breadcrumb under the tabs (BRIEF.md "The bar", point 3):
  * `Northwind › HQ › Building A › IDF-2`. `onSelect`, if given, fires when
- * this specific part is clicked, in addition to opening the tree popover —
- * BRIEF.md's rule that clicking *any* part opens the tree beneath it. */
+ * this specific part is clicked; only the part marked `opensTree` opens the
+ * tree popover (the owner, 2026-10-10: every crumb opening the same menu read
+ * as pointless). */
 export interface PathPart {
   label: string;
   onSelect?: () => void;
+  /** This crumb opens the list of places and designs to switch to. */
+  opensTree?: boolean;
+  /** What a click does, as a tooltip. */
+  hint?: string;
 }
 
 export interface PathItem extends PathPart {

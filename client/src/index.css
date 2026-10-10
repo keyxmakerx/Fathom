@@ -5,6 +5,7 @@
    client states an opinion about where that file is; `vite.config.ts`'s
    `server.fs.allow` is what lets the dev server read it from there. */
 @import '../../design/tokens.css';
+@import './styles/base.css';
 
 #root {
   height: 100vh;

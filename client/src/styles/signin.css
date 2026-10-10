@@ -59,6 +59,7 @@
   padding: var(--s2) var(--s3);
   font-size: var(--t-body);
   cursor: pointer;
+  box-shadow: none;
 }
 
 .signin__submit:disabled {
@@ -99,6 +100,7 @@
   text-align: left;
   text-decoration: underline;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .signin__switch:hover {
@@ -114,25 +116,30 @@
   margin-bottom: var(--s4);
 }
 
+.signin__identities-head {
+  margin: 0;
+  font-size: var(--t-tab);
+  letter-spacing: var(--track-head);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.signin__identities .signin__hint {
+  margin: 0 0 var(--s1) 0;
+}
+
 .signin__identity {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--s3);
   width: 100%;
-  border: var(--rule-hair) solid var(--hairline);
-  background: var(--page);
-  color: var(--ink);
   padding: var(--s2) var(--s3);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
-.signin__identity:hover:enabled,
-.signin__identity:focus-visible {
-  border-color: var(--ink);
-}
 
 .signin__identity:disabled {
   opacity: 0.6;
@@ -292,9 +299,6 @@
   gap: var(--s2);
   width: 100%;
   margin: var(--s4) 0;
-  border: var(--rule-hair) solid var(--hairline);
-  background: var(--page);
-  color: var(--ink);
   padding: var(--s2) var(--s3);
   font: inherit;
   font-size: var(--t-small);

@@ -6,12 +6,17 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { snap } from '../../document/freeform';
 import type { ChassisView, ClosetView } from '../../document/view';
 import { PORT_GLYPHS } from '../ports';
+import { portKindFor } from '../drawing/portGlyph';
 import type { Selection } from '../drawing/contract';
 import { connectorName } from '../drawing/faceplate';
 import { decodePaletteDrag, PALETTE_DRAG_MIME } from '../drawing/dnd';
 import { SHEATH_VAR } from '../drawing/sheath';
 import { boundsOf, jotPlates, portCentre, type JotPlate } from './jotLayout';
 import './jot.css';
+
+/** The port kinds the tray offers, dragged onto a plate or clicked. */
+const TRAY_CONNECTORS = ['rj45', 'sfp_plus', 'sfp28', 'qsfp28', 'lc'] as const;
+const PORT_DRAG_MIME = 'application/x-fathom-port-kind';
 
 export interface JotViewProps {
   view: ClosetView;
@@ -24,12 +29,13 @@ export interface JotViewProps {
   startInside: boolean;
   onSelect: (selection: Selection | null) => void;
   onBack: () => void;
-  onAddBox: (role: string | null, x: number, y: number) => void;
+  onAddBox: (role: string | null, x: number, y: number, fromBoxId?: string, model?: { vendor: string; model: string }) => void;
   onMoveBox: (id: string, x: number, y: number) => void;
   onConnect: (fromPortId: string, toPortId: string) => void;
   onDisconnect: (cableId: string) => void;
   onRemoveBox: (id: string) => void;
-  onAddPort: (chassisId: string) => void;
+  /** A hand-typed port of `connector` on a box with no catalogue model. */
+  onAddPort: (chassisId: string, connector: string) => void;
   onUndo: () => void;
   onRedo: () => void;
   /** Bumped by the bar's fit button: back to the fitted size. */
@@ -137,7 +143,7 @@ export function JotView(props: JotViewProps): JSX.Element {
     if (!payload) return;
     e.preventDefault();
     const at = toStage(e.clientX, e.clientY);
-    onAddBox(payload.role ?? null, origin.x + at.x - 64, origin.y + at.y - 28);
+    onAddBox(payload.role ?? null, origin.x + at.x - 64, origin.y + at.y - 28, undefined, payload.role === undefined ? { vendor: payload.vendor, model: payload.model } : undefined);
   };
 
   // A cable: press a port, drag, release on another port.
@@ -200,6 +206,11 @@ export function JotView(props: JotViewProps): JSX.Element {
   const stageW = Math.max(bounds.x + bounds.w, 1);
   const stageH = Math.max(bounds.y + bounds.h, 1);
 
+  const handTyped = shown.filter((p) => p.chassis.model === '').map((p) => p.chassis);
+  const trayTarget = !canDraw
+    ? null
+    : (handTyped.find((c) => selected?.kind === 'chassis' && selected.id === c.id) ?? handTyped.find((c) => c.id === deviceId) ?? handTyped[0] ?? null);
+
   if (!device) return <div className="jot jot--gone">That device is no longer in the design.</div>;
   const insideBody = inside && renderInsideStop ? renderInsideStop(device) : null;
 
@@ -220,6 +231,31 @@ export function JotView(props: JotViewProps): JSX.Element {
           <button type="button" aria-pressed={inside} onClick={() => setInside((v) => !v)}>
             Inside
           </button>
+        )}
+        {trayTarget != null && !inside && (
+          <div className="jot__tray" role="group" aria-label="Add a port">
+            <span className="jot__tray-label">Add port</span>
+            {TRAY_CONNECTORS.map((c) => {
+              const Glyph = PORT_GLYPHS[portKindFor(c) ?? 'generic'];
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  className="jot__tray-item"
+                  draggable
+                  title={`Drag onto a box, or click to add one to ${trayTarget.hostname || 'this box'}`}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData(PORT_DRAG_MIME, c);
+                    e.dataTransfer.effectAllowed = 'copy';
+                  }}
+                  onClick={() => onAddPort(trayTarget.id, c)}
+                >
+                  <Glyph cabled={false} />
+                  <span>{connectorName(c)}</span>
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
 
@@ -289,13 +325,34 @@ function Plate(props: {
   onStartWire: (e: ReactPointerEvent, p: JotPlate, portId: string) => void;
   onMoveWire: (e: ReactPointerEvent) => void;
   onEndWire: (e: ReactPointerEvent) => void;
-  onAddPort: (chassisId: string) => void;
+  onAddPort: (chassisId: string, connector: string) => void;
   onHoverPort: (text: string | null) => void;
 }): JSX.Element {
   const { plate, selected, lit, canDraw, onStartMove, onStartWire, onMoveWire, onEndWire, onAddPort, onHoverPort } = props;
   const byId = new Map(plate.chassis.ports.map((p) => [p.id, p]));
+  const [over, setOver] = useState(false);
+  const takesPorts = canDraw && plate.chassis.model === '';
+  const isPortDrag = (e: React.DragEvent) => takesPorts && e.dataTransfer.types.includes(PORT_DRAG_MIME);
   return (
-    <div className={'jot-plate' + (plate.isDevice ? ' jot-plate--device' : '') + (selected ? ' jot-plate--selected' : '')} style={{ left: plate.x, top: plate.y, width: plate.w, height: plate.h }} data-testid={plate.isDevice ? 'jot-device' : 'jot-box'}>
+    <div
+      className={'jot-plate' + (plate.isDevice ? ' jot-plate--device' : '') + (selected ? ' jot-plate--selected' : '') + (over ? ' jot-plate--drop' : '')}
+      style={{ left: plate.x, top: plate.y, width: plate.w, height: plate.h }}
+      data-testid={plate.isDevice ? 'jot-device' : 'jot-box'}
+      onDragOver={(e) => {
+        if (!isPortDrag(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setOver(true);
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        setOver(false);
+        if (!isPortDrag(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onAddPort(plate.chassis.id, e.dataTransfer.getData(PORT_DRAG_MIME));
+      }}
+    >
       <span className="jot-plate__name" onPointerDown={(e) => onStartMove(e, plate)}>
         {plate.chassis.hostname || 'unnamed'}
       </span>
@@ -321,11 +378,6 @@ function Plate(props: {
           </button>
         );
       })}
-      {canDraw && plate.chassis.model === '' && (
-        <button type="button" className="jot-plate__add" onPointerDown={(e) => e.stopPropagation()} onClick={() => onAddPort(plate.chassis.id)}>
-          + port
-        </button>
-      )}
     </div>
   );
 }

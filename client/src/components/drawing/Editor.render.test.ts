@@ -364,11 +364,11 @@ describe('EditorFor', () => {
     expect(sketchMarkup).toContain('No catalogue entry.');
     expect(sketchMarkup).toContain('eth0');
     expect(sketchMarkup).toContain('typed');
-    expect(sketchMarkup).toContain('+ add a port');
+    expect(sketchMarkup).toContain('+ Add a port');
 
     const catalogued = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-1' }, VIEW, NOOP_ACTIONS) as never);
     expect(catalogued).not.toContain('No catalogue entry.');
-    expect(catalogued).not.toContain('+ add a port');
+    expect(catalogued).not.toContain('+ Add a port');
   });
 
   // ADR-0051 §1/§2, this session's brief item 3 — occupant and fixture
@@ -386,7 +386,7 @@ describe('EditorFor', () => {
     expect(markup).toContain('shelf-a01');
     expect(markup).toContain('A-01');
     expect(markup).toContain('eth0');
-    expect(markup).toContain('+ add a port');
+    expect(markup).toContain('+ Add a port');
     expect(markup).toContain('Placed on');
     expect(markup).toContain('Shelf');
   });
@@ -478,7 +478,7 @@ describe('EditorFor', () => {
     };
     const markup = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-3' }, view, NOOP_ACTIONS) as never);
     expect(markup).toContain('No catalogue entry.');
-    expect(markup).toContain('+ add a port');
+    expect(markup).toContain('+ Add a port');
   });
 
   it('a shelf occupant with no model and zero ports still shows "+ add a port"', () => {
@@ -498,7 +498,7 @@ describe('EditorFor', () => {
     };
     const markup = renderToStaticMarkup(EditorFor({ kind: 'occupant', id: 'nuc-2' }, view, NOOP_ACTIONS) as never);
     expect(markup).toContain('No catalogue entry.');
-    expect(markup).toContain('+ add a port');
+    expect(markup).toContain('+ Add a port');
   });
 });
 
@@ -646,8 +646,8 @@ describe('the PLACED ON / sketch-port / add-shelf / add-surface change shapes', 
     const view: ClosetView = {
       ...VIEW,
       free: [
-        { id: 'chassis:a', hostname: 'router-1', role: 'router', x: 0, y: 0, portCount: 0 },
-        { id: 'chassis:b', hostname: 'switch-1', role: 'switch', x: 200, y: 0, portCount: 0 },
+        { id: 'chassis:a', hostname: 'router-1', role: 'router', model: '', x: 0, y: 0, portCount: 0 },
+        { id: 'chassis:b', hostname: 'switch-1', role: 'switch', model: '', x: 200, y: 0, portCount: 0 },
       ],
       labels: [
         { id: 'label:1', text: 'Office', form: 'area', x: 0, y: 0, w: 240, h: 160 },

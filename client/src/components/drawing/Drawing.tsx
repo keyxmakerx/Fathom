@@ -90,6 +90,7 @@ import {
   mirroredRackX,
   RACK_GAP_PX,
   ROW_GAP_PX,
+  pxPerMm,
   rowBandY as rowBandYOf,
   rowKey,
   type RowLayout,
@@ -186,6 +187,27 @@ export function shouldFitOnMount(isFirstRun: boolean, selected: Selection | null
   return !(isFirstRun && selected?.kind === 'chassis');
 }
 
+/** A dropped fixture's rough height, so it lands below the pointer, not above. */
+const DROP_LIFT_PX = 90;
+
+/** The surface under a drop and where on it, in millimetres from its left
+ * edge and the floor; a floor keeps no height. `null` off every surface. */
+function surfaceDropAt(clientX: number, clientY: number, zoom: number): { surfaceId: string; xMm: number; yMm: number | null } | null {
+  for (const el of document.elementsFromPoint(clientX, clientY)) {
+    const node = el.closest<HTMLElement>('.react-flow__node');
+    const id = node?.dataset.id;
+    if (!node || !id?.startsWith('surface:')) continue;
+    const stage = node.querySelector<HTMLElement>('.drawing-surface__stage, .drawing-surface__floor-stage');
+    if (!stage) return null;
+    const r = stage.getBoundingClientRect();
+    const mm = (px: number) => Math.max(0, Math.round(px / zoom / pxPerMm(U_PX)));
+    const floor = stage.classList.contains('drawing-surface__floor-stage');
+    // A fixture hangs from its bottom edge; lift it so the drop point is near its top.
+    return { surfaceId: id.slice('surface:'.length), xMm: mm(clientX - r.left), yMm: floor ? null : mm(r.bottom - clientY - DROP_LIFT_PX * zoom) };
+  }
+  return null;
+}
+
 /** Fit every rack: used on mount, landing at the rack stop. */
 function rackFitViewOptions(racks: readonly { id: string }[], free: readonly { id: string }[] = []) {
   return {
@@ -237,6 +259,8 @@ export interface DrawingProps extends DrawingActions {
   onItsDown?: (elementId: string) => void;
   /** Bump to fit every rack into view (a counter, so a repeat press fires). */
   fitRequest?: number;
+  /** Remounted by a Rack/Diagram switch: no focus is pending, so fit even with a selection. */
+  lookSwitched?: boolean;
   /** ADR-0052 §5's view-only rendering: `capability !== 'read'`
    * (`RacksPlace.tsx`'s own computation, the one place capability is read).
    * `false` disables React Flow's own `nodesDraggable`/`nodesConnectable`
@@ -353,6 +377,7 @@ function DrawingInner({
   zoom,
   onZoomChange,
   fitRequest,
+  lookSwitched,
   onPlace,
   onMove,
   onSelect,
@@ -369,6 +394,7 @@ function DrawingInner({
   onOpenDevice,
   onResizeShelf,
   onAddFreeBox,
+  onPlaceOnSurface,
   onAddDeviceAt,
   onMoveFree,
   onConnectBoxes,
@@ -710,7 +736,7 @@ function DrawingInner({
     if (!allRacksPositioned || view.racks.length === 0) return;
     const isFirstRun = !hasFitOnceRef.current;
     hasFitOnceRef.current = true;
-    if (!shouldFitOnMount(isFirstRun, selected)) return; // a pending focus wins outright, once
+    if (!lookSwitched && !shouldFitOnMount(isFirstRun, selected)) return; // a pending focus wins outright, once
     const raf = requestAnimationFrame(() => {
       void rf.fitView(rackFitViewOptions(view.racks, free.fitIds));
     });
@@ -1397,8 +1423,13 @@ function DrawingInner({
 
       const flowPoint = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
       const rack = rackAtPoint<RackView>(view.racks, rackPositions, flowPoint, RACK_NODE_WIDTH);
+      const onSurface = rack == null && onPlaceOnSurface ? surfaceDropAt(event.clientX, event.clientY, rf.getZoom()) : null;
+      if (onSurface != null) {
+        onPlaceOnSurface!(onSurface.surfaceId, { vendor: payload.vendor, model: payload.model, role: payload.role }, onSurface.xMm, onSurface.yMm);
+        return;
+      }
       if (rack == null) {
-        free.dropBox(payload.role ?? null, flowPoint);
+        free.dropBox(payload.role ?? null, flowPoint, payload.role === undefined ? { vendor: payload.vendor, model: payload.model } : undefined);
         return;
       }
       const rackPos = rackPositions[rack.id];
@@ -1410,7 +1441,7 @@ function DrawingInner({
       }
       onPlace(rack.id, { vendor: payload.vendor, model: payload.model, role: payload.role }, positionU);
     },
-    [rf, view.racks, rackPositions, onPlace, triggerShake, canDraw, free.dropBox],
+    [rf, view.racks, rackPositions, onPlace, onPlaceOnSurface, triggerShake, canDraw, free.dropBox],
   );
 
   // UI-SPEC "Drag-to-connect": "the lead droops live between the fixed
@@ -1622,6 +1653,8 @@ function DrawingInner({
         edges={shown.edges}
         nodeTypes={ALL_NODE_TYPES}
         edgeTypes={ALL_EDGE_TYPES}
+        // A selected wall must not rise over the boxes in front of it.
+        elevateNodesOnSelect={false}
         defaultViewport={defaultViewport}
         onMoveStart={handleMoveStart}
         onMove={handleMove}

@@ -36,9 +36,12 @@
 .jot__bar > * {
   white-space: nowrap;
 }
+.jot__bar {
+  min-width: 0;
+}
 .jot__bar button[aria-pressed='true'] {
-  background: var(--ink);
-  color: var(--page);
+  background: var(--control-on);
+  box-shadow: var(--control-on-mark);
 }
 .jot__field {
   position: relative;
@@ -109,18 +112,45 @@
   background: none;
   cursor: crosshair;
   touch-action: none;
+  box-shadow: none;
 }
 .jot-port--lit {
   outline: 2px solid var(--ink);
   outline-offset: 1px;
 }
-.jot-plate__add {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 2px / var(--k, 1));
-  font-size: calc(11px / var(--k, 1));
-  padding: 0 calc(4px / var(--k, 1));
-  white-space: nowrap;
+.jot-plate--drop {
+  outline: calc(2px / var(--k, 1)) dashed var(--ink);
+  outline-offset: calc(3px / var(--k, 1));
+}
+.jot__tray {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  margin-left: var(--s3);
+  padding-left: var(--s3);
+  border-left: var(--rule-hair) solid var(--hairline);
+  overflow-x: auto;
+  min-width: 0;
+}
+.jot__tray-label {
+  color: var(--muted);
+  font-size: var(--t-tab);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  margin-right: var(--s1);
+}
+.jot__bar .jot__tray-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  border-color: var(--hairline);
+  cursor: grab;
+}
+.jot__bar .jot__tray-item:hover {
+  border-color: var(--ink);
+}
+.jot__tray-item svg {
+  flex: none;
 }
 .jot__hint {
   position: absolute;

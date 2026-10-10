@@ -118,7 +118,9 @@ export interface DrawingActions {
   /** ADR-0060 step 7, free boxes, lines and areas. Each is optional, and a place that cannot do it
    * leaves its control out. `fromBoxId` joins the new box to that box with a line. Return the id of
    * the new chassis, or nothing when the add was refused. */
-  onAddFreeBox?(role: string | null, x: number, y: number, fromBoxId?: string): string | void;
+  onAddFreeBox?(role: string | null, x: number, y: number, fromBoxId?: string, model?: { vendor: string; model: string }): string | void;
+  /** A dropped item fixed to a wall, floor, desk or ceiling where it landed. */
+  onPlaceOnSurface?(surfaceId: string, ref: { vendor: string; model: string; role?: string }, xMm: number | null, yMm: number | null): void;
   /** A device into a free unit of a rack, by role (the edge squares on a racked device). */
   onAddDeviceAt?(rackId: string, positionU: number, role: string | null): void;
   /** One undo step: every moved box, label or area, by the id it is selected by, at its new top-left. */

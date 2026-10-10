@@ -35,7 +35,7 @@ describe('free boxes', () => {
     expect(pinOf(doc, chassisId)).toEqual({ x: snap(41), y: snap(50) });
     expect(snap(41)).toBe(40);
     const view = viewOf(doc, []);
-    expect(view.free).toEqual([{ id: chassisId, hostname: 'switch-1', role: 'switch', x: 40, y: 52, portCount: 0 }]);
+    expect(view.free).toEqual([{ id: chassisId, hostname: 'switch-1', role: 'switch', model: '', x: 40, y: 52, portCount: 0 }]);
     expect(view.unplaced.map((c) => c.id)).toContain(chassisId);
   });
 

@@ -16,6 +16,7 @@ import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { barAction } from './drive-lib/bar.mjs';
 
 const pw = await import(
   process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js'
@@ -238,7 +239,7 @@ try {
   await page.keyboard.press('Escape');
 
   // 6 - the design Docs list shows every doc; dark mode too.
-  await page.locator('[data-testid="shell-docs"]').click();
+  await barAction(page, 'docs');
   await page.waitForSelector('.docs-table', { timeout: 5_000 });
   const rows = await page.locator('.docs-table tbody tr').allInnerTexts();
   check('the list has the model doc and the doc about acc-01', rows.length === 2 && rows.some((r) => r.includes('Model EX4300-48P')) && rows.some((r) => r.includes('acc-01')), rows.join(' | '));
@@ -256,7 +257,7 @@ try {
   await page.locator('.react-flow__node-chassis', { hasText: 'core-01' }).click();
   await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
   check('a reader sees the Docs line but no "+ Add doc"', (await page.locator('[data-testid="docs-section"]').count()) === 1 && (await page.getByText('+ Add doc').count()) === 0);
-  await page.locator('[data-testid="shell-docs"]').click();
+  await barAction(page, 'docs');
   await page.waitForSelector('.docs-overlay');
   check('a reader has no add in the list', (await page.getByText('+ Add doc').count()) === 0);
   await page.screenshot({ path: SHOTS + 'docs-06-reader.png' });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { searchShouldCollapse } from './layout';
+import { BAR_FOLD_MAX, nextFoldLevel, searchShouldCollapse } from './layout';
 
 describe('searchShouldCollapse', () => {
   it('does not collapse when the container comfortably fits the expanded search box', () => {
@@ -40,5 +40,19 @@ describe('searchShouldCollapse', () => {
     expect(
       searchShouldCollapse({ containerWidth: 1440, fixedWidth: longPathFixedWidth, searchExpandedWidth: 180 }),
     ).toBe(true);
+  });
+});
+
+describe('nextFoldLevel', () => {
+  it('folds one step while the row is wider than the bar', () => {
+    expect(nextFoldLevel({ level: 0, total: 1500, avail: 1400, needed: [] })).toBe(1);
+    expect(nextFoldLevel({ level: BAR_FOLD_MAX, total: 1500, avail: 1400, needed: [] })).toBe(BAR_FOLD_MAX);
+  });
+  it('unfolds once the wider row would fit again', () => {
+    expect(nextFoldLevel({ level: 2, total: 1000, avail: 1400, needed: [1500, 1300] })).toBe(1);
+    expect(nextFoldLevel({ level: 1, total: 1300, avail: 1400, needed: [1500, 1300] })).toBe(1);
+  });
+  it('stays put when it fits and nothing wider was measured', () => {
+    expect(nextFoldLevel({ level: 0, total: 900, avail: 1400, needed: [] })).toBe(0);
   });
 });

@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { signOut } from '../../api/auth';
 import { applyTheme, getStoredTheme } from '../../theme';
 import type { Theme } from '../../theme';
-import { searchShouldCollapse } from './layout';
+import { nextFoldLevel } from './layout';
 import { DIAGRAM_STYLES, DIAGRAM_STYLE_LABEL, type DiagramStyle } from '../drawing/diagramStyle';
 import { LAYERS, type LayerId, type LayerSet } from '../drawing/layers';
 import { LOOKS, LOOK_LABEL, type Look } from '../drawing/look';
@@ -12,17 +12,13 @@ import { LENSES_IN, LENS_LABEL } from './lens';
 import type { Lens } from './lens';
 import { Popover, PopoverRow } from './Popover';
 import { pathToItems } from './path';
-import type { PathPart } from './path';
+import type { PathItem, PathPart } from './path';
 import { SearchBox } from './SearchBox';
 import type { AccountInfo, Place, PresenceUser, ShellSearch } from './types';
 
-// BRIEF.md "The bar": "a hairline-bordered box ~180px". The magnifier alone
-// (the collapsed state) is a 24px square — see `.shell-search--collapsed`.
-const SEARCH_EXPANDED_WIDTH = 180;
-// The bar's own `gap` (BRIEF.md's groups are separated by a hairline, but
-// the flex gap on either side of the search box is unadorned space) — two
-// of these sit between the fixed groups and the search box.
+// The bar's own `gap` and side padding, counted when measuring its row.
 const BAR_GAP = 12;
+const BAR_PAD = 16;
 
 const THEME_LABEL: Record<'system' | Theme, string> = {
   system: 'Theme: system',
@@ -137,36 +133,44 @@ export function Bar({
   const containerRef = useRef<HTMLDivElement>(null);
   const leadingRef = useRef<HTMLDivElement>(null);
   const trailingRef = useRef<HTMLDivElement>(null);
-  const [searchCollapsed, setSearchCollapsed] = useState(false);
   const [themeMode, setThemeMode] = useState<'system' | Theme>(() => getStoredTheme() ?? 'system');
 
-  // BRIEF.md "The bar": "if it will not fit 1440, search collapses to the
-  // magnifier alone before anything else gives." Real behaviour, not a
-  // fixed choice: measured against whatever width the bar actually has.
+  // BRIEF.md "The bar": search folds to the magnifier before anything else
+  // gives; past that the action chips fold into More, the path to its last
+  // part, and the lenses into one View menu. Measured, never a breakpoint.
+  const [fold, setFold] = useState(0);
+  const foldRef = useRef(0);
+  foldRef.current = fold;
+  const neededRef = useRef<(number | undefined)[]>([]);
+  const contentKey = [place, path.map((p) => p.label).join('/'), lens, presence.length, account.initials, zoom, viewOnly, hiddenCablesCount, look?.value, onDocs != null, onHistory != null, onShare != null, onPrint != null].join('|');
+  useLayoutEffect(() => {
+    neededRef.current = [];
+    setFold(0);
+  }, [contentKey]);
   useLayoutEffect(() => {
     const container = containerRef.current;
-    const leading = leadingRef.current;
-    const trailing = trailingRef.current;
-    if (!container || !leading || !trailing) {
-      return undefined;
-    }
-
+    if (!container) return undefined;
     function measure() {
-      if (!container || !leading || !trailing) {
-        return;
-      }
-      const containerWidth = container.clientWidth;
-      const fixedWidth = leading.getBoundingClientRect().width + trailing.getBoundingClientRect().width + BAR_GAP * 2;
-      setSearchCollapsed(
-        searchShouldCollapse({ containerWidth, fixedWidth, searchExpandedWidth: SEARCH_EXPANDED_WIDTH }),
-      );
+      if (!container) return;
+      const kids = Array.from(container.children) as HTMLElement[];
+      const total = kids.reduce((sum, el) => sum + naturalWidth(el), 0) + BAR_GAP * Math.max(0, kids.length - 1) + BAR_PAD * 2;
+      const level = foldRef.current;
+      const next = nextFoldLevel({ level, total, avail: container.clientWidth, needed: neededRef.current });
+      if (next > level) neededRef.current[level] = total;
+      if (next !== level) setFold(next);
     }
-
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(container);
+    if (leadingRef.current) observer.observe(leadingRef.current);
+    if (trailingRef.current) observer.observe(trailingRef.current);
     return () => observer.disconnect();
-  }, [path, lens, presence, account, zoom]);
+  }, [fold, contentKey]);
+  const searchCollapsed = fold >= 1;
+  const actionsFolded = fold >= 2;
+  const pathFolded = fold >= 3;
+  const lensesFolded = fold >= 4;
+  const editsFolded = fold >= 5;
 
   function cycleTheme() {
     const next = THEME_NEXT[themeMode];
@@ -178,7 +182,10 @@ export function Bar({
     await signOut();
   }
 
-  const pathItems = pathToItems(path);
+  const allPathItems = pathToItems(path);
+  // Folded, the path keeps the crumb that opens the switcher and what follows it.
+  const switcherAt = allPathItems.findLastIndex((item) => item.opensTree === true);
+  const pathItems = pathFolded ? allPathItems.slice(switcherAt >= 0 ? switcherAt : Math.max(0, allPathItems.length - 2)) : allPathItems;
 
   return (
     <div className="shell-bar" ref={containerRef}>
@@ -220,43 +227,21 @@ export function Bar({
           )}
         </div>
         <Sep />
-        <Popover
-          align="left"
-          renderTrigger={({ toggle, triggerRef, triggerProps }) => (
-            <div className="shell-bar__path">
-              {pathItems.length === 0 && <span className="shell-bar__path-empty">Home</span>}
-              {pathItems.map((item, index) => (
-                <span className="shell-bar__path-part" key={`${item.label}-${index}`}>
-                  {index > 0 && (
-                    <span className="shell-bar__path-sep" aria-hidden="true">
-                      &rsaquo;
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    className={
-                      item.current
-                        ? 'shell-bar__path-label shell-bar__path-label--current'
-                        : 'shell-bar__path-label'
-                    }
-                    aria-haspopup={triggerProps['aria-haspopup']}
-                    aria-expanded={triggerProps['aria-expanded']}
-                    aria-controls={triggerProps['aria-controls']}
-                    onClick={(event) => {
-                      triggerRef.current = event.currentTarget;
-                      item.onSelect?.();
-                      toggle();
-                    }}
-                  >
-                    {item.label}
-                  </button>
+        {/* Earlier crumbs go somewhere; the design's own crumb opens the
+            list of places to switch to. */}
+        <div className="shell-bar__path">
+          {pathItems.length === 0 && <span className="shell-bar__path-empty">Home</span>}
+          {pathItems.map((item, index) => (
+            <span className="shell-bar__path-part" key={`${item.label}-${index}`}>
+              {index > 0 && (
+                <span className="shell-bar__path-sep" aria-hidden="true">
+                  &rsaquo;
                 </span>
-              ))}
-            </div>
-          )}
-        >
-          {tree}
-        </Popover>
+              )}
+              <PathCrumb item={item} tree={tree} />
+            </span>
+          ))}
+        </div>
         {/* Others in this view: a round dot with their initials; the full name is its label. */}
         {presence.length > 0 && (
           <div className="shell-bar__people" role="group" aria-label="Also in this view">
@@ -275,6 +260,50 @@ export function Bar({
         {place !== null && (
           <>
             <Sep />
+            {lensesFolded ? (
+              <Popover
+                align="left"
+                renderTrigger={({ open, triggerProps, triggerRef }) => (
+                  <button
+                    type="button"
+                    className={open ? 'shell-lens shell-lens--on shell-bar__fold' : 'shell-lens shell-bar__fold'}
+                    data-testid="shell-view-menu"
+                    ref={(el) => {
+                      triggerRef.current = el;
+                    }}
+                    {...triggerProps}
+                  >
+                    {LENS_LABEL[lens]}
+                    {look != null ? ` · ${LOOK_LABEL[look.value]}` : ''} ▾
+                  </button>
+                )}
+              >
+                <div className="shell-show" role="group" aria-label="View">
+                  <div className="shell-show__head">Lens</div>
+                  {LENSES_IN[place].map((candidate) => (
+                    <PopoverRow key={candidate} current={candidate === lens} onSelect={() => onLensChange(candidate)}>
+                      {LENS_LABEL[candidate]}
+                      {candidate === 'cables' && cablesGroupsSummary != null ? ` · ${cablesGroupsSummary}` : ''}
+                    </PopoverRow>
+                  ))}
+                  {/* Folded, the Cables lens's own list of groups sits here. */}
+                  {lens === 'cables' && cablesGroupsPopover != null && (
+                    <div className="shell-bar__fold-groups">{cablesGroupsPopover}</div>
+                  )}
+                  {look != null && (
+                    <>
+                      <div className="shell-show__head">Look</div>
+                      {LOOKS.map((candidate) => (
+                        <PopoverRow key={candidate} current={candidate === look.value} onSelect={() => look.onChange(candidate)}>
+                          {LOOK_LABEL[candidate]}
+                        </PopoverRow>
+                      ))}
+                    </>
+                  )}
+                </div>
+              </Popover>
+            ) : (
+            <>
             <div className="shell-bar__lenses">
               {LENSES_IN[place].map((candidate) =>
                 candidate === 'cables' && cablesGroupsPopover != null ? (
@@ -345,6 +374,8 @@ export function Bar({
                 ))}
               </div>
             )}
+            </>
+            )}
             {hiddenCablesCount != null && hiddenCablesCount > 0 && (
               <>
                 <Sep />
@@ -385,7 +416,7 @@ export function Bar({
                       data-testid={`show-${l.id}`}
                       onClick={() => layers.onToggle(l.id)}
                     >
-                      <span aria-hidden="true">{layers.value[l.id] ? '☑' : '☐'}</span>
+                      <span className="shell-show__tick" aria-hidden="true">{layers.value[l.id] ? '✓' : ''}</span>
                       <span>{l.label}</span>
                       {l.onByDefault && <span className="shell-show__note">on by default</span>}
                     </button>
@@ -395,6 +426,7 @@ export function Bar({
                   {layers.style != null && (
                     <div className="shell-show__style" role="group" aria-label="Device style">
                       <span className="shell-show__head">Device style</span>
+                      <span className="btn-group">
                       {DIAGRAM_STYLES.map((st) => (
                         <button
                           key={st}
@@ -408,6 +440,7 @@ export function Bar({
                           {DIAGRAM_STYLE_LABEL[st]}
                         </button>
                       ))}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -445,7 +478,7 @@ export function Bar({
 
         {/* Undo and Redo act on an open design; zoom acts on the drawing,
             so it is Racks only (Inventory is lists). */}
-        {place !== null && (
+        {place !== null && !editsFolded && (
           <>
             <div className="shell-bar__undoredo">
               <button type="button" className="shell-chip shell-chip--ink" disabled={!canUndo} onClick={onUndo}>
@@ -458,45 +491,88 @@ export function Bar({
             <Sep />
           </>
         )}
-        {onDocs && (
+        {actionsFolded && (onDocs || onHistory || onShare || onPrint || editsFolded) ? (
           <>
-            <button type="button" className="shell-chip shell-chip--ink" onClick={onDocs} data-testid="shell-docs">
-              Docs
-            </button>
-            <Sep />
-          </>
-        )}
-        {onHistory && (
-          <>
-            <button
-              type="button"
-              className="shell-chip shell-chip--ink"
-              aria-pressed={historyOpen ?? false}
-              onClick={onHistory}
-              data-testid="shell-history"
+            <Popover
+              align="right"
+              renderTrigger={({ open, triggerProps, triggerRef }) => (
+                <button
+                  type="button"
+                  className={open ? 'shell-chip shell-chip--ink shell-chip--on' : 'shell-chip shell-chip--ink'}
+                  data-testid="shell-more"
+                  ref={(el) => {
+                    triggerRef.current = el;
+                  }}
+                  {...triggerProps}
+                >
+                  More ▾
+                </button>
+              )}
             >
-              History
-            </button>
+              {editsFolded && place !== null && (
+                <>
+                  <PopoverRow onSelect={onUndo} disabled={!canUndo}>
+                    Undo
+                  </PopoverRow>
+                  <PopoverRow onSelect={onRedo} disabled={!canRedo}>
+                    Redo
+                  </PopoverRow>
+                </>
+              )}
+              {editsFolded && place === 'racks' && (
+                <>
+                  <PopoverRow onSelect={onZoomIn}>Zoom in</PopoverRow>
+                  <PopoverRow onSelect={onZoomOut}>Zoom out</PopoverRow>
+                  {onZoomFit && <PopoverRow onSelect={onZoomFit}>Fit to view ({zoom}%)</PopoverRow>}
+                </>
+              )}
+              {onDocs && <PopoverRow onSelect={onDocs} testId="shell-docs">Docs</PopoverRow>}
+              {onHistory && (
+                <PopoverRow onSelect={onHistory} current={historyOpen ?? false} testId="shell-history">
+                  History
+                </PopoverRow>
+              )}
+              {onShare && <PopoverRow onSelect={onShare} testId="shell-share">Share</PopoverRow>}
+              {onPrint && <PopoverRow onSelect={onPrint} testId="shell-print">Print</PopoverRow>}
+            </Popover>
             <Sep />
           </>
+        ) : (
+          (onDocs || onHistory || onShare || onPrint) && (
+            <>
+              <div className="shell-bar__undoredo">
+                {onDocs && (
+                  <button type="button" className="shell-chip shell-chip--ink" onClick={onDocs} data-testid="shell-docs">
+                    Docs
+                  </button>
+                )}
+                {onHistory && (
+                  <button
+                    type="button"
+                    className="shell-chip shell-chip--ink"
+                    aria-pressed={historyOpen ?? false}
+                    onClick={onHistory}
+                    data-testid="shell-history"
+                  >
+                    History
+                  </button>
+                )}
+                {onShare && (
+                  <button type="button" className="shell-chip shell-chip--ink" onClick={onShare} data-testid="shell-share">
+                    Share
+                  </button>
+                )}
+                {onPrint && (
+                  <button type="button" className="shell-chip shell-chip--ink" onClick={onPrint} data-testid="shell-print">
+                    Print
+                  </button>
+                )}
+              </div>
+              <Sep />
+            </>
+          )
         )}
-        {onShare && (
-          <>
-            <button type="button" className="shell-chip shell-chip--ink" onClick={onShare} data-testid="shell-share">
-              Share
-            </button>
-            <Sep />
-          </>
-        )}
-        {onPrint && (
-          <>
-            <button type="button" className="shell-chip shell-chip--ink" onClick={onPrint} data-testid="shell-print">
-              Print
-            </button>
-            <Sep />
-          </>
-        )}
-        {place === 'racks' && (
+        {place === 'racks' && !editsFolded && (
           <>
             <div className="shell-bar__zoom">
               <button type="button" className="shell-zoom-btn" aria-label="Zoom out" title="Zoom out" onClick={onZoomOut}>
@@ -553,6 +629,58 @@ export function Bar({
       </div>
     </div>
   );
+}
+
+function PathCrumb({ item, tree }: { item: PathItem; tree: ReactNode }) {
+  const className = item.current ? 'shell-bar__path-label shell-bar__path-label--current' : 'shell-bar__path-label';
+  if (item.opensTree) {
+    return (
+      <Popover
+        align="left"
+        renderTrigger={({ toggle, triggerRef, triggerProps }) => (
+          <button
+            type="button"
+            className={className}
+            title="Switch to another place or design"
+            aria-haspopup={triggerProps['aria-haspopup']}
+            aria-expanded={triggerProps['aria-expanded']}
+            aria-controls={triggerProps['aria-controls']}
+            onClick={(event) => {
+              triggerRef.current = event.currentTarget;
+              item.onSelect?.();
+              toggle();
+            }}
+          >
+            {item.label}
+            <span className="shell-bar__path-caret" aria-hidden="true">
+              {' '}
+              ▾
+            </span>
+          </button>
+        )}
+      >
+        {tree}
+      </Popover>
+    );
+  }
+  if (item.onSelect) {
+    return (
+      <button type="button" className={className + ' shell-bar__path-label--link'} title={item.hint} onClick={item.onSelect}>
+        {item.label}
+      </button>
+    );
+  }
+  return <span className={className + ' shell-bar__path-label--plain'}>{item.label}</span>;
+}
+
+/** A bar group's width at its content's size, however the row squeezed it.
+ * Open pop-overs are positioned out of flow and never count. */
+function naturalWidth(el: HTMLElement): number {
+  if (el.classList.contains('shell-bar__spacer')) return 0;
+  if (!el.classList.contains('shell-bar__leading') && !el.classList.contains('shell-bar__trailing')) return el.offsetWidth;
+  const kids = Array.from(el.children) as HTMLElement[];
+  const gap = parseFloat(getComputedStyle(el).columnGap) || 0;
+  return kids.reduce((sum, k) => sum + k.offsetWidth, 0) + gap * Math.max(0, kids.length - 1);
 }
 
 function Sep() {

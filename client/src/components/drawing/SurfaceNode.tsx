@@ -167,7 +167,7 @@ function PortGlyphs({ ports, onSelectPort, liveDrag, portSheath, litCableId }: P
           onSelectPort(port.id);
         }}
       >
-        <Glyph cabled={cabled} title={port.label} className="drawing-port-glyph--zoomed" />
+        <Glyph cabled={cabled} title={port.label} className="drawing-port-glyph--budgeted" />
         <Handle type="source" position={Position.Right} id={port.id} isConnectable={!cabled} className="drawing-surface__port-handle" />
       </button>
     );

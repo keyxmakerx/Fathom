@@ -59,4 +59,5 @@
   font-size: var(--t-small);
   text-decoration: underline;
   cursor: pointer;
+  box-shadow: none;
 }

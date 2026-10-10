@@ -233,10 +233,16 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
     void rf.fitView({ padding: 0.15 });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once on mount
   }, []);
+  // Follows the bar's zoom about the pane centre; skipped on mount, where the
+  // fit above wins over the zoom the Rack look left behind.
+  const zoomMounted = useRef(false);
   useEffect(() => {
-    const live = rf.getViewport();
-    if (Math.round(live.zoom * 100) === zoom) return;
-    void rf.setViewport({ ...live, zoom: zoom / 100 });
+    if (!zoomMounted.current) {
+      zoomMounted.current = true;
+      return;
+    }
+    if (Math.round(rf.getZoom() * 100) === zoom) return;
+    void rf.zoomTo(zoom / 100);
   }, [zoom, rf]);
 
   const [wheel, setWheel] = useWheelMode('zoom');

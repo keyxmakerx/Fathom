@@ -13,6 +13,7 @@
   gap: var(--s1);
   border: var(--rule-hair) solid var(--hairline);
   background: var(--page);
+  animation: fathom-pop-in var(--m-pop) var(--m-ease);
   padding: var(--s2);
 }
 
@@ -44,10 +45,6 @@
   min-height: 24px;
   font: inherit;
   font-size: var(--t-small);
-  color: var(--ink);
-  background: var(--page);
-  border: var(--rule-hair) solid var(--ink);
-  border-radius: 0;
   padding: 2px var(--s2);
   cursor: pointer;
 }
@@ -72,9 +69,14 @@
   background: none;
   border: none;
   cursor: pointer;
+  box-shadow: none;
 }
 
 /* A device's name is kept whole, never broken across lines. */
 .live-notice__device {
   white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-notice { animation: none; }
 }

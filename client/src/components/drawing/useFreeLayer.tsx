@@ -102,7 +102,7 @@ export interface FreeLayer {
   onPaneClick: () => boolean;
   onKeyDown: (event: KeyboardEvent) => boolean;
   /** A palette item dropped on empty canvas becomes a free box. */
-  dropBox: (role: string | null, flow: Point) => void;
+  dropBox: (role: string | null, flow: Point, model?: { vendor: string; model: string }) => void;
   /** Opens the NEW box menu at a point, from a right-click, or the edge square of a racked device. */
   openAdd: (screen: Point, flow: Point, rack?: Pending['rack']) => void;
   addLabelAt: (form: 'text' | 'area', flow: Point) => void;
@@ -287,8 +287,8 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
   );
 
   const dropBox = useCallback(
-    (role: string | null, flow: Point) => {
-      const made = actions.onAddFreeBox?.(role, flow.x - BOX_W / 2, flow.y - BOX_H / 2);
+    (role: string | null, flow: Point, model?: { vendor: string; model: string }) => {
+      const made = actions.onAddFreeBox?.(role, flow.x - BOX_W / 2, flow.y - BOX_H / 2, undefined, model);
       if (typeof made === 'string') selectOnly(freeNodeId(made));
     },
     [actions, selectOnly],
@@ -381,8 +381,9 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
     for (const b of boxes) {
       const id = freeNodeId(b.id);
       const data: FreeBoxNodeData = {
-        name: b.hostname || 'unnamed',
+        name: b.hostname || b.model || 'unnamed',
         role: b.role,
+        model: b.model,
         squares: squares && selSet.has(id),
         onSquare: (side, drag, cancelled) => squareEnd(b.id, side, drag, cancelled),
         onSquareMove: (side, drag) => squareMove(b.id, side, drag),

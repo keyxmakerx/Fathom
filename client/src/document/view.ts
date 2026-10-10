@@ -367,6 +367,8 @@ export interface FreeBoxView {
   id: string;
   hostname: string;
   role: string | null;
+  /** The catalogue model, `''` for a box typed by hand. */
+  model: string;
   x: number;
   y: number;
   portCount: number;
@@ -1267,7 +1269,7 @@ function freeViews(doc: Document, unplaced: readonly ChassisView[]): Pick<Closet
   const free: FreeBoxView[] = [];
   for (const c of unplaced) {
     const pin = pinOf(doc, c.id);
-    if (pin) free.push({ id: c.id, hostname: c.hostname, role: c.role, x: pin.x, y: pin.y, portCount: c.ports.length });
+    if (pin) free.push({ id: c.id, hostname: c.hostname, role: c.role, model: c.model, x: pin.x, y: pin.y, portCount: c.ports.length });
   }
   const freeIds = new Set(free.map((f) => f.id));
   const lines: FreeLineView[] = [];
