@@ -152,7 +152,8 @@ export type FeedStatus = 'connecting' | 'up' | 'down' | 'unavailable';
 
 export interface FeedEvents {
   frame(frame: LiveFrame): void;
-  status(status: FeedStatus): void;
+  /** `why`, with `down`: what the last attempt ran into, in words the page can show. */
+  status(status: FeedStatus, why?: string): void;
 }
 
 export interface FeedOptions {
@@ -175,9 +176,26 @@ export interface FeedOptions {
 type Relay =
   | { k: 'hello' }
   | { k: 'frame'; type: number; version: number; bytes: Uint8Array; view?: string }
-  | { k: 'status'; status: FeedStatus };
+  | { k: 'status'; status: FeedStatus; why?: string };
 
 const BACKOFF_MS = [500, 1000, 2000, 4000, 8000, 15000];
+
+/** "server answered 429: <its sentence>", the sentence left out when it is a proxy's error page. */
+export function serverAnswered(error: ApiRefusal): string {
+  const said = error.message.length <= 160 && !/[<\n]/.test(error.message) ? `: ${error.message}` : '.';
+  return `server answered ${error.status}${said}`;
+}
+
+/** What a failed attempt ran into: the server's own status and sentence when
+ * it answered, otherwise only what this browser saw. */
+export function whyDown(error: unknown, quiet: boolean): string {
+  if (quiet) {
+    return 'The live connection opened but nothing came through it. A proxy in front of Fathom may be holding the stream back.';
+  }
+  if (error instanceof ApiRefusal) return `The ${serverAnswered(error)}`;
+  if (error instanceof TypeError) return 'The server could not be reached.';
+  return 'The live connection was cut.';
+}
 
 /**
  * One stream per design per browser: the tab holding the Web Lock opens it
@@ -254,13 +272,13 @@ export class LiveFeed {
   private heard(m: Relay): void {
     if (this.stopped || this.owner) return;
     if (m.k === 'frame') this.o.events.frame({ type: m.type, version: m.version, bytes: m.bytes, view: m.view });
-    else if (m.k === 'status') this.o.events.status(m.status);
+    else if (m.k === 'status') this.o.events.status(m.status, m.why);
   }
 
-  private tell(status: FeedStatus): void {
+  private tell(status: FeedStatus, why?: string): void {
     this.last = status;
-    this.o.events.status(status);
-    this.channel?.postMessage({ k: 'status', status } satisfies Relay);
+    this.o.events.status(status, why);
+    this.channel?.postMessage({ k: 'status', status, why } satisfies Relay);
   }
 
   private deliver(frame: LiveFrame): void {
@@ -290,6 +308,7 @@ export class LiveFeed {
       this.restarting = false;
       const path = `${base(this.o.organisationId, this.o.designId)}/live?since=${encodeURIComponent(String(this.o.since()))}`;
       let timer: ReturnType<typeof setTimeout> | undefined;
+      let quiet = false;
       try {
         const response = await open(path, ctl.signal);
         if (!response.body) throw new Error('the live feed has no body');
@@ -299,7 +318,10 @@ export class LiveFeed {
         const frames = new FrameReader();
         const arm = (): void => {
           clearTimeout(timer);
-          timer = setTimeout(() => ctl.abort(), silenceMs);
+          timer = setTimeout(() => {
+            quiet = true;
+            ctl.abort();
+          }, silenceMs);
         };
         arm();
         for (;;) {
@@ -329,7 +351,9 @@ export class LiveFeed {
           this.restarting = false;
           continue;
         }
-        this.tell('down');
+        const why = whyDown(error, quiet);
+        console.warn(`live feed: ${why}`, error);
+        this.tell('down', why);
         await wait(BACKOFF_MS[Math.min(failures, BACKOFF_MS.length - 1)]);
         failures += 1;
       }

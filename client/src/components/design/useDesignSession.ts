@@ -102,6 +102,8 @@ export interface LiveStatus {
   connected: boolean;
   /** The stream dropped and is being reopened. */
   reconnecting: boolean;
+  /** Reconnecting has gone on for a while: what it keeps running into. */
+  stuck?: string | null;
   pendingCount: number;
   note: string | null;
   overwrite: LiveView['overwrite'];
@@ -223,7 +225,7 @@ export function useDesignSession(organisationId: string, designId: string, capab
             onView: (v) => {
               if (cancelledRef.current) return;
               setDoc(v.doc);
-              setLive({ mode: v.mode, connected: v.connected, reconnecting: v.reconnecting, pendingCount: v.pendingCount, note: v.note, overwrite: v.overwrite, merged: v.merged, self: v.self, people: v.people });
+              setLive({ mode: v.mode, connected: v.connected, reconnecting: v.reconnecting, stuck: v.stuck, pendingCount: v.pendingCount, note: v.note, overwrite: v.overwrite, merged: v.merged, self: v.self, people: v.people });
             },
           },
           opened0,

@@ -39,6 +39,13 @@ describe('LiveNotices', () => {
     expect(markup).toContain('Reconnecting; your changes are kept.');
   });
 
+  it('once reconnecting has gone on, says what it keeps running into', () => {
+    const stuck = 'The server answered 429: too many live streams for this account';
+    const markup = render({ ...QUIET, connected: false, reconnecting: true, stuck });
+    expect(markup).toContain(`Still trying. ${stuck}`);
+    expect(announcement({ ...QUIET, reconnecting: true, stuck })).toBe(`Reconnecting; your changes are kept. Still trying. ${stuck}`);
+  });
+
   it('names the person, field and device, shows yours→theirs, and offers the two buttons', () => {
     const markup = render({ ...QUIET, overwrite: one() });
     expect(markup).toContain('<b>Bob Roe changed the serial on <span class="live-notice__device">core-sw-01</span></b> just after you');

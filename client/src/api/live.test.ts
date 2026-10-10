@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { setSession, type ActiveSession } from '../state/sessionState';
 import { ApiRefusal } from './errors';
-import { FRAME_CHANGE, FRAME_HEARTBEAT, FRAME_PRESENCE, FrameReader, LiveFeed, isRefusal, liveChannelName, parseAuthor, parsePresence, presenceInView, type FeedStatus, type LiveFrame } from './live';
+import { FRAME_CHANGE, FRAME_HEARTBEAT, FRAME_PRESENCE, FrameReader, LiveFeed, isRefusal, liveChannelName, parseAuthor, parsePresence, presenceInView, whyDown, type FeedStatus, type LiveFrame } from './live';
 
 function frame(type: number, version: number, body: Uint8Array): Uint8Array {
   const out = new Uint8Array(13 + body.length);
@@ -212,13 +212,14 @@ describe('LiveFeed on a half-dead connection', () => {
   it('treats 60 s without any frame as dead, says down, aborts and opens again', async () => {
     vi.useFakeTimers();
     const statuses: FeedStatus[] = [];
+    const whys: Array<string | undefined> = [];
     const aborted: boolean[] = [];
     let opens = 0;
     const feed = new LiveFeed({
       organisationId: 'o',
       designId: 'd',
       since: () => 0,
-      events: { frame() {}, status: (s) => statuses.push(s) },
+      events: { frame() {}, status: (s, why) => (statuses.push(s), whys.push(why)) },
       open: async (_p, signal) => {
         opens += 1;
         aborted.push(false);
@@ -242,9 +243,21 @@ describe('LiveFeed on a half-dead connection', () => {
     await vi.advanceTimersByTimeAsync(2_000);
     expect(aborted[0]).toBe(true);
     expect(statuses.slice(0, 2)).toEqual(['up', 'down']);
+    expect(whys[1]).toMatch(/opened but nothing came through/);
     await vi.advanceTimersByTimeAsync(1_000);
     expect(opens).toBe(2);
     expect(statuses.slice(0, 3)).toEqual(['up', 'down', 'up']);
     feed.stop();
+  });
+});
+
+describe('whyDown', () => {
+  it('says what the server answered, or only what the browser saw', () => {
+    expect(whyDown(new ApiRefusal(429, 'too many live streams for this account', null), false)).toBe(
+      'The server answered 429: too many live streams for this account',
+    );
+    expect(whyDown(new ApiRefusal(502, '<html><body>Bad Gateway</body></html>', null), false)).toBe('The server answered 502.');
+    expect(whyDown(new TypeError('Failed to fetch'), false)).toBe('The server could not be reached.');
+    expect(whyDown(new DOMException('aborted', 'AbortError'), true)).toMatch(/nothing came through/);
   });
 });

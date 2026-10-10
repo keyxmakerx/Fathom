@@ -237,6 +237,16 @@ side):
   `FATHOM_TRUSTED_CLIENT_IP_HEADER`. A proxy behind another edge (Cloudflare, an ISP load
   balancer) needs that edge's ranges listed too, or the edge becomes every client's address.
 
+**Let the live connection through.** An open design keeps one long-lived signed `GET
+…/designs/<id>/live` streaming bytes down for up to ten minutes, with a heartbeat every 25 s
+(ADR-0063). The proxy has to pass that response through as it arrives and not cut a connection that
+has been quiet for under a minute. The server marks the response `Cache-Control: no-store` and
+`X-Accel-Buffering: no`, which tells nginx not to buffer it. With any other proxy, turn response
+buffering off for that path and keep its read or idle timeout above 60 s. A proxy that holds the
+stream back shows as the canvas line *"Reconnecting; your changes are kept."*. After 20 s it adds
+*"The live connection opened but nothing came through it"*, and the browser console logs each
+failed attempt.
+
 To sign in the first time: open the page, and type the setup password you set in `.env` — the
 client's first-run flow asks for it on its first screen (§5 above says what follows). Nothing is
 copied out of the container and nothing is read from a log.
