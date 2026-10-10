@@ -7,6 +7,7 @@ import type { PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 're
 import { ViewportPortal, useViewport, type Node as RFNode, type Edge as RFEdge, type ReactFlowInstance } from '@xyflow/react';
 
 import '../../styles/free.css';
+import '../../styles/multiPanel.css';
 import { AREA_DEFAULT_H, AREA_DEFAULT_W, AREA_MIN_H, AREA_MIN_W } from '../../document/freeform';
 import type { ClosetView, DrawingActions, Selection } from './contract';
 import { ContextMenu } from './ContextMenu';
@@ -39,6 +40,7 @@ import {
 } from './freeLayout';
 import { LabelNode, type LabelNodeData } from './LabelNode';
 import { LineEdge, type LineEdgeData } from './LineEdge';
+import { parseNodeId } from './nodeId';
 import type { GripDrag } from './useGripDrag';
 import { WordMenu } from './WordMenu';
 
@@ -114,10 +116,17 @@ export interface FreeLayer {
   hasSelection: boolean;
   selectedIds: string[];
   removeSelected: () => boolean;
+  /** Two or more devices picked together (free boxes and rack-mounted ones), by chassis id; empty otherwise. */
+  deviceIds: string[];
+  /** Drops the whole multi-selection. */
+  clearGroup: () => void;
 }
 
 export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSelect, actions, tool = 'pan' }: FreeLayerArgs): FreeLayer {
   const [group, setGroup] = useState<string[]>([]);
+  // Rack-mounted devices picked with Shift. They are only ever read for the details panel and the
+  // highlight: every move, nudge, align, copy and delete below works on `group` (free nodes) alone.
+  const [racked, setRacked] = useState<string[]>([]);
   const [freeDrag, setFreeDrag] = useState<Record<string, Point> | null>(null);
   const [guides, setGuides] = useState<Guides | null>(null);
   const [resizing, setResizing] = useState<{ id: string; w: number; h: number } | null>(null);
@@ -193,8 +202,20 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
 
   // A selection made elsewhere (a click on a rack) ends a group made here.
   useEffect(() => {
-    if (selected !== null) setGroup((g) => (g.length > 0 ? [] : g));
+    if (selected !== null) {
+      setGroup((g) => (g.length > 0 ? [] : g));
+      setRacked((r) => (r.length > 0 ? [] : r));
+    }
   }, [selected]);
+
+  // Rack-mounted devices that no longer exist drop out too.
+  const rackedLive = useMemo(() => new Set(view.racks.flatMap((r) => r.chassis.map((c) => c.id))), [view.racks]);
+  useEffect(() => {
+    setRacked((r) => {
+      const live = r.filter((id) => rackedLive.has(id));
+      return live.length === r.length ? r : live;
+    });
+  }, [rackedLive]);
 
   // Ids that no longer exist drop out of the group (a removal, an undo).
   useEffect(() => {
@@ -209,22 +230,30 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
       const parsed = parseFreeNodeId(nodeId);
       if (!parsed) return;
       setGroup([]);
+      setRacked([]);
       onSelect(parsed.kind === 'box' ? { kind: 'chassis', id: parsed.id } : { kind: 'label', id: parsed.id });
     },
     [onSelect],
   );
 
+  // `rackedIds` are rack-mounted devices picked along with the free nodes in `ids`.
   const selectMany = useCallback(
-    (ids: string[]) => {
-      if (ids.length <= 1) {
+    (ids: string[], rackedIds: string[] = []) => {
+      if (ids.length + rackedIds.length <= 1) {
         if (ids[0]) selectOnly(ids[0]);
-        else {
+        else if (rackedIds[0]) {
           setGroup([]);
+          setRacked([]);
+          onSelect({ kind: 'chassis', id: rackedIds[0] });
+        } else {
+          setGroup([]);
+          setRacked([]);
           onSelect(null);
         }
         return;
       }
       setGroup(ids);
+      setRacked(rackedIds);
       onSelect(null);
     },
     [onSelect, selectOnly],
@@ -425,18 +454,31 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
 
   // ---- clicks and drags ----------------------------------------------------
 
+  // Rack-mounted devices already picked: the Shift group, or the one device selected on its own.
+  const rackedBase = useMemo(() => {
+    if (racked.length > 0) return racked;
+    return selected?.kind === 'chassis' && rackedLive.has(selected.id) ? [selected.id] : [];
+  }, [racked, selected, rackedLive]);
+
   const onNodeClick = useCallback(
     (event: { shiftKey: boolean }, node: RFNode): boolean => {
-      if (!parseFreeNodeId(node.id)) return false;
+      if (!parseFreeNodeId(node.id)) {
+        // Shift+click on a rack-mounted device adds it to (or takes it out of) the picked devices.
+        const parsedRacked = parseNodeId(node.id);
+        if (!event.shiftKey || !canDraw || parsedRacked?.kind !== 'chassis' || !rackedLive.has(parsedRacked.id)) return false;
+        const next = rackedBase.includes(parsedRacked.id) ? rackedBase.filter((i) => i !== parsedRacked.id) : [...rackedBase, parsedRacked.id];
+        selectMany(selectedIds, next);
+        return true;
+      }
       if (event.shiftKey) {
         const next = selSet.has(node.id) ? selectedIds.filter((i) => i !== node.id) : [...selectedIds, node.id];
-        selectMany(next);
+        selectMany(next, rackedBase);
       } else if (!(selSet.has(node.id) && selectedIds.length > 1)) {
         selectOnly(node.id);
       }
       return true;
     },
-    [selSet, selectedIds, selectMany, selectOnly],
+    [selSet, selectedIds, selectMany, selectOnly, canDraw, rackedLive, rackedBase],
   );
 
   const onNodeDoubleClick = useCallback(
@@ -523,6 +565,7 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
       return true;
     }
     setGroup([]);
+    setRacked([]);
     return false;
   }, []);
 
@@ -558,13 +601,19 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
             const r = rectOf(id);
             return labelById.get(idOf(id))?.form === 'area' ? contains(box, r) : overlaps(box, r);
           });
-          selectMany([...new Set([...base, ...hit])]);
+          // Rack-mounted devices the box touches join too (each is a node of its own, measured live).
+          const hitRacked = [...rackedLive].filter((id) => {
+            const n = rf.getInternalNode(`chassis:${id}`);
+            const p = n?.internals.positionAbsolute;
+            return n != null && p != null && overlaps(box, { x: p.x, y: p.y, w: n.measured.width ?? 0, h: n.measured.height ?? 0 });
+          });
+          selectMany([...new Set([...base, ...hit])], [...new Set([...(additive ? rackedBase : []), ...hitRacked])]);
         };
         window.addEventListener('pointermove', onMove);
         window.addEventListener('pointerup', onUp);
       },
     }),
-    [canDraw, tool, selectedIds, containerPoint, rf, allNodeIds, rectOf, labelById, selectMany],
+    [canDraw, tool, selectedIds, containerPoint, rf, allNodeIds, rectOf, labelById, selectMany, rackedLive, rackedBase],
   );
 
   // ---- arranging -----------------------------------------------------------
@@ -626,10 +675,11 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
       const inField = el instanceof HTMLElement && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
       if (inField || !canDraw) return false;
       const mod = event.ctrlKey || event.metaKey;
-      if (event.key === 'Escape' && (pending || group.length > 0 || editing)) {
+      if (event.key === 'Escape' && (pending || group.length > 0 || racked.length > 0 || editing)) {
         setPending(null);
         setEditing(null);
         setGroup([]);
+        setRacked([]);
         return true;
       }
       if (mod && (event.key === 'a' || event.key === 'A') && allNodeIds.length > 0) {
@@ -670,7 +720,7 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
       }
       return false;
     },
-    [canDraw, pending, group, editing, allNodeIds, selectedIds, selected, selectMany, duplicate, removeSelected, flushNudge],
+    [canDraw, pending, group, racked, editing, allNodeIds, selectedIds, selected, selectMany, duplicate, removeSelected, flushNudge],
   );
 
   useEffect(() => {
@@ -680,6 +730,35 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
     window.addEventListener('keyup', up);
     return () => window.removeEventListener('keyup', up);
   }, []);
+
+  // ---- several devices at once ---------------------------------------------
+
+  // The chassis ids of every device in a multi-selection (free boxes and rack-mounted ones); only
+  // while it is a group (nothing single is selected).
+  const deviceIds = useMemo(() => {
+    if (selected !== null) return [];
+    const freeBoxes = selectedIds.flatMap((id) => (parseFreeNodeId(id)?.kind === 'box' ? [idOf(id)] : []));
+    const all = [...freeBoxes, ...racked];
+    return all.length >= 2 ? all : [];
+  }, [selected, selectedIds, racked]);
+
+  const clearGroup = useCallback(() => {
+    setGroup([]);
+    setRacked([]);
+    onSelect(null);
+  }, [onSelect]);
+
+  // The picked rack-mounted devices wear an outline (a class on the box's static wrapper, which React never rewrites).
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root || racked.length === 0) return undefined;
+    const els = racked.flatMap((id) => {
+      const el = root.querySelector(`[data-id="${CSS.escape(`chassis:${id}`)}"] .drawing-chassis-wrap`);
+      return el ? [el] : [];
+    });
+    els.forEach((el) => el.classList.add('drawing-chassis-wrap--picked'));
+    return () => els.forEach((el) => el.classList.remove('drawing-chassis-wrap--picked'));
+  }, [racked, containerRef, view]);
 
   // ---- what is drawn over the canvas ---------------------------------------
 
@@ -742,9 +821,11 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
     addLabelAt,
     containerProps,
     panModifier: false,
-    hasSelection: selectedIds.length > 0,
+    hasSelection: selectedIds.length > 0 || racked.length > 0,
     selectedIds,
     removeSelected,
+    deviceIds,
+    clearGroup,
   };
 }
 

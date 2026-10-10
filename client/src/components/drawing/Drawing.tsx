@@ -292,6 +292,10 @@ export interface DrawingProps extends DrawingActions {
   openRequest?: { id: string; view: 'config' | 'inside' } | null;
   /** The chassis whose callout is showing, or null; the caller keeps the details panel closed meanwhile. */
   onCalloutChange?: (id: string | null) => void;
+  /** The devices picked together (two or more, by chassis id), or empty. Racked and free devices both count. */
+  onGroupChange?: (chassisIds: string[]) => void;
+  /** Bump to drop the picked devices (a counter, so a repeat press fires). */
+  groupClearRequest?: number;
   /** The Cables list's own draw rule, already computed once by the caller
    * (`racks/RacksPlace.tsx`, which holds the `Document` a VLAN or a tag
    * group needs — this drawing never imports it, and never runs the draw
@@ -397,6 +401,8 @@ function DrawingInner({
   emptyHint,
   openRequest,
   onCalloutChange,
+  onGroupChange,
+  groupClearRequest,
   drawnCableIds,
   dashedCableIds,
 }: DrawingProps) {
@@ -471,6 +477,17 @@ function DrawingInner({
   useEffect(() => {
     onCalloutChange?.(callout?.id ?? null);
   }, [callout, onCalloutChange]);
+  // Tell the caller which devices are picked together, so its panel can edit them all; empty again on leaving.
+  const groupKey = free.deviceIds.join('|');
+  useEffect(() => {
+    onGroupChange?.(groupKey === '' ? [] : groupKey.split('|'));
+  }, [groupKey, onGroupChange]);
+  useEffect(() => () => onGroupChange?.([]), [onGroupChange]);
+  const clearGroup = free.clearGroup;
+  useEffect(() => {
+    if (groupClearRequest) clearGroup();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires on the counter alone.
+  }, [groupClearRequest]);
   const openChassis = useCallback(
     (id: string, view: 'config' | 'inside' = 'config') => {
       onSelect({ kind: 'chassis', id });
