@@ -5,9 +5,9 @@ a drawing (racks, devices, ports, cables), an inventory, checks that say why, an
 estate-of-record are co-equal goals.
 
 **Server product.** Data lives on the server and the browser is a window onto it. Multi-tenant,
-organisations and designs, live co-editing on its way (#101).
+organisations and designs, live co-editing.
 
-**Status (2026-10-03): built and green, not yet usable.** "Usable" is the owner's word and means beta:
+**Status (2026-10-10): built and green, not yet usable.** "Usable" is the owner's word and means beta:
 polished, the app basically done, a few features allowed to be missing. Green gates do not grant it; a
 walkthrough by the owner does. What exists is in `docs/STATE.md`; what is next is in GitHub issues.
 

@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-Index current to ADR-0061 (2026-10-03). 0062 onward are not on main yet.
+Index current to ADR-0064 (2026-10-10). Two records share 0063; code comments cite the live co-editing one.
 
 > **Status:** Accepted
 > **Date:** 2026-07-28
@@ -98,6 +98,10 @@ question was not in the register. *R* is the reversal cost from `73` §1.2 — R
 | **[0059](adr-0059-tags.md)** | Tags | Accepted |  |  |
 | **[0060](adr-0060-one-canvas-detail-by-degrees.md)** | One canvas, detail by degrees | Accepted |  |  |
 | **[0061](adr-0061-round-4-canvas-inventory-engine.md)** | Round 4: canvas, Inventory and the engine | Accepted |  |  |
+| **[0062](adr-0062-inventory-table-and-custom-fields.md)** | Inventory as a table with pages; custom fields | Accepted |  |  |
+| **[0063](adr-0063-live-co-editing.md)** | Live co-editing | Proposed (built) |  |  |
+| **[0063](adr-0063-prefixes-vlans-and-the-importer.md)** | Prefixes and VLANs in Inventory; one file importer | Accepted |  |  |
+| **[0064](adr-0064-firmware-targets-holds-and-screens.md)** | Firmware targets, holds and screens | Accepted |  |  |
 
 ## What is not reopened
 
