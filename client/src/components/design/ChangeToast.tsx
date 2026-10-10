@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 
 import type { Document } from '../../document/model';
 import { freshOwnChange, type FreshChange } from './changeToast';
 import '../../styles/toast.css';
 
 /** How long the note stays, and how long its leaving takes. */
-export const TOAST_MS = 5_000;
+export const TOAST_MS = 8_000;
 const LEAVE_MS = 150;
 /** After the pointer leaves, it stays at least this long. */
 const MIN_AFTER_HOVER_MS = 1_500;
@@ -34,8 +34,9 @@ interface Shown extends FreshChange {
 
 /**
  * The short note at the bottom centre after you change something, with an Undo button. One at a
- * time: a newer one replaces the older. It goes after about five seconds, and waits while the
- * pointer or the keyboard is on it. A teammate's live edit never shows one.
+ * time: a newer one replaces the older. It goes after eight seconds, a thin line along its bottom
+ * edge running down, and waits (line and timer together) while the pointer or the keyboard is on it.
+ * A teammate's live edit never shows one.
  */
 export function ChangeToast({ doc, accountId, undoBatchId, redoBatchId, onUndo, onRedo, suppressed = false }: ChangeToastProps) {
   const [shown, setShown] = useState<Shown | null>(null);
@@ -47,6 +48,8 @@ export function ChangeToast({ doc, accountId, undoBatchId, redoBatchId, onUndo, 
   const startedRef = useRef(0);
   const remainingRef = useRef(TOAST_MS);
   const heldRef = useRef(false);
+  // The progress line: where it starts (a share of the full time), how long it runs, and whether it is held.
+  const [bar, setBar] = useState({ key: 0, from: 1, ms: TOAST_MS, paused: false });
 
   const clearTimers = useCallback(() => {
     if (timerRef.current != null) clearTimeout(timerRef.current);
@@ -75,6 +78,7 @@ export function ChangeToast({ doc, accountId, undoBatchId, redoBatchId, onUndo, 
       startedRef.current = Date.now();
       remainingRef.current = ms;
       timerRef.current = setTimeout(leave, ms);
+      setBar((b) => ({ key: b.key + 1, from: ms / TOAST_MS, ms, paused: false }));
     },
     [leave],
   );
@@ -122,6 +126,8 @@ export function ChangeToast({ doc, accountId, undoBatchId, redoBatchId, onUndo, 
     clearTimeout(timerRef.current);
     timerRef.current = null;
     remainingRef.current = Math.max(MIN_AFTER_HOVER_MS, remainingRef.current - (Date.now() - startedRef.current));
+    const left = remainingRef.current;
+    setBar((b) => ({ key: b.key + 1, from: left / TOAST_MS, ms: left, paused: true }));
   }, []);
 
   const release = useCallback(() => {
@@ -148,9 +154,24 @@ export function ChangeToast({ doc, accountId, undoBatchId, redoBatchId, onUndo, 
           <span className="change-toast__words">{shown.words}</span>
           {action != null ? (
             <button type="button" className="change-toast__button" onClick={press}>
+              <svg className={action === 'Redo' ? 'change-toast__arrow change-toast__arrow--redo' : 'change-toast__arrow'} width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+                <path d="M5 2 2.5 4.5 5 7" />
+                <path d="M3 4.5h5a2.5 2.5 0 0 1 0 5H4" />
+              </svg>
               {action}
             </button>
           ) : null}
+          <button type="button" className="change-toast__close" aria-label="Dismiss" title="Dismiss" onClick={leave}>
+            ×
+          </button>
+          {!reducedMotion() && (
+            <span
+              key={bar.key}
+              className="change-toast__line"
+              aria-hidden="true"
+              style={{ '--toast-from': bar.from, animationDuration: `${bar.ms}ms`, animationPlayState: bar.paused ? 'paused' : 'running' } as CSSProperties}
+            />
+          )}
         </div>
       ) : null}
     </div>

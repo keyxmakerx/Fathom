@@ -1,0 +1,82 @@
+/* The account menu is frosted glass, and its Theme list is a titled group of three checkable rows. */
+.shell-popover--frosted {
+  background: var(--pop-bg, color-mix(in srgb, var(--surface) 88%, transparent));
+  backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
+  -webkit-backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
+  box-shadow: var(--shadow-pop, 0 16px 40px rgba(0, 0, 0, 0.28));
+  border-radius: var(--radius-pop, 0);
+  animation: theme-menu-in var(--m-pop, 160ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1)) both;
+}
+
+.theme-menu {
+  display: flex;
+  flex-direction: column;
+  border-top: var(--rule-hair) solid var(--hairline);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  margin: var(--s1) 0;
+  padding: var(--s1) 0;
+}
+
+.theme-menu__head {
+  padding: var(--s1) 12px;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.theme-menu__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 5px 12px;
+  border: none;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-small);
+  line-height: 18px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.theme-menu__row:hover {
+  background: var(--control-bg-hover, var(--surface));
+}
+
+.theme-menu__row:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+
+.theme-menu__row--on {
+  font-weight: 700;
+}
+
+.theme-menu__box {
+  width: 1em;
+  color: var(--muted);
+}
+
+.theme-menu__row--on .theme-menu__box {
+  color: var(--ink);
+}
+
+@keyframes theme-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-popover--frosted {
+    animation: none;
+  }
+  .theme-menu__row {
+    transition: none;
+  }
+}

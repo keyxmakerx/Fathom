@@ -98,3 +98,15 @@ export function layersSummary(layers: LayerSet, labels: Readonly<Record<string, 
   const on = LAYER_IDS.filter((id) => layers[id]).map((id) => labels[id] ?? id);
   return on.length === 0 ? 'no layers' : on.join(', ');
 }
+
+/** How many saved views get a button in the bar; the rest are in the Views menu. */
+export const BAR_VIEWS = 3;
+
+/** Is the drawing showing this view right now: same look, same Show layers, and a camera within a
+ * hair of where the view put it. Used to mark the current view in the bar. */
+export function viewIsCurrent(view: SavedView, now: { look: Look; layers: LayerSet; camera: ViewCamera | null }): boolean {
+  if (now.camera == null || view.look !== now.look) return false;
+  if (!LAYER_IDS.every((id) => view.layers[id] === now.layers[id])) return false;
+  const near = Math.abs(view.camera.zoom - now.camera.zoom) <= view.camera.zoom * 0.01;
+  return near && Math.abs(view.camera.x - now.camera.x) <= 4 && Math.abs(view.camera.y - now.camera.y) <= 4;
+}

@@ -45,6 +45,18 @@ describe('RightDock', () => {
     expect(markup).toContain('aria-valuenow="420"');
   });
 
+  it('has Equipment as a tab beside the rest, with the entry point the drives use', () => {
+    const folded = render({ equipment: 'items' });
+    expect(folded).toContain('aria-label="Open the equipment list"');
+    expect(folded).toContain('data-testid="dock-equipment"');
+    expect(folded).not.toContain('items');
+    const open = render({ shown: 'equipment', equipment: 'items' });
+    expect(open).toContain('<nav class="shell-rail" aria-label="Equipment">items</nav>');
+    expect(open).toContain('aria-label="Close the equipment list"');
+    expect(open).toContain('aria-valuenow="420"');
+    expect(open.indexOf('dock-equipment')).toBeLessThan(open.indexOf('dock-history'));
+  });
+
   it('offers Details only while something is selected', () => {
     expect(render({ details: 'fields' })).toContain('Open the details');
   });

@@ -2,29 +2,46 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { EmptyState } from '../ui/EmptyState';
 import { createPortal } from 'react-dom';
 
-import { firstEnabled, matchActions, moveActive, type PaletteAction } from './palette';
+import { cycleGroup, firstEnabled, highlightParts, matchActions, moveActive, noteOf, type PaletteAction } from './palette';
 import type { SearchHit } from './search';
 import type { ShellSearch } from './types';
 import '../../styles/palette.css';
 
-type Entry = { kind: 'action'; action: PaletteAction } | { kind: 'thing'; hit: SearchHit };
+type Entry = ({ kind: 'action'; action: PaletteAction } | { kind: 'thing'; hit: SearchHit }) & { group: string };
 
-const GROUP_WORD: Record<SearchHit['group'], string> = {
-  Devices: 'Device',
-  Racks: 'Rack',
-  Ports: 'Port',
-  Cables: 'Cable',
-  VLANs: 'VLAN',
-  Containers: 'Container',
-};
+/** The heading over each group: what was found (Devices first), then what to do, then where to go. */
+const ACTION_GROUP = { do: 'Do', go: 'Go to' } as const;
+
+/** A label with the letters that were typed underlined. */
+function Marked({ text, query }: { text: string; query: string }) {
+  return (
+    <>
+      {highlightParts(text, query).map((part, i) =>
+        part.hit ? (
+          <span className="palette__hit" key={i}>
+            {part.text}
+          </span>
+        ) : (
+          part.text
+        ),
+      )}
+    </>
+  );
+}
 
 /**
  * Ctrl+K: one box that finds things in the design and runs actions. A frosted sheet near the top.
  * Arrow keys move over what can be chosen, Enter runs it, Esc closes.
  */
-export function CommandPalette({ search, onClose }: { search: ShellSearch; onClose: () => void }) {
-  const [query, setQuery] = useState('');
+export function CommandPalette(props: { search: ShellSearch; onClose: () => void }) {
+  return createPortal(<PaletteSheet {...props} />, document.body);
+}
+
+/** The sheet itself, apart from where it is mounted. */
+export function PaletteSheet({ search, onClose, initialQuery = '' }: { search: ShellSearch; onClose: () => void; initialQuery?: string }) {
+  const [query, setQuery] = useState(initialQuery);
   const [active, setActive] = useState(0);
+  const [narrow, setNarrow] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const activeRef = useRef<HTMLButtonElement>(null);
   const listId = useId();
@@ -33,10 +50,18 @@ export function CommandPalette({ search, onClose }: { search: ShellSearch; onClo
   const allActions = useMemo(() => search.actions?.() ?? [], [search]);
   const actions = useMemo(() => matchActions(allActions, query), [allActions, query]);
   const things = useMemo(() => (query.trim() === '' ? [] : search.run(query)), [search, query]);
-  const entries = useMemo<Entry[]>(
-    () => [...actions.map((action): Entry => ({ kind: 'action', action })), ...things.map((hit): Entry => ({ kind: 'thing', hit }))],
+  const everything = useMemo<Entry[]>(
+    () => [
+      ...things.map((hit): Entry => ({ kind: 'thing', hit, group: hit.group })),
+      ...actions.filter((a) => a.group !== 'go').map((action): Entry => ({ kind: 'action', action, group: ACTION_GROUP.do })),
+      ...actions.filter((a) => a.group === 'go').map((action): Entry => ({ kind: 'action', action, group: ACTION_GROUP.go })),
+    ],
     [actions, things],
   );
+  const groups = useMemo(() => [...new Set(everything.map((e) => e.group))], [everything]);
+  // Tab narrows to one group; a group with nothing left in it counts as all.
+  const narrowed = narrow !== null && groups.includes(narrow) ? narrow : null;
+  const entries = useMemo(() => (narrowed === null ? everything : everything.filter((e) => e.group === narrowed)), [everything, narrowed]);
   const enabled = useMemo(() => entries.map((e) => e.kind === 'thing' || e.action.disabled === undefined), [entries]);
 
   useEffect(() => {
@@ -46,7 +71,7 @@ export function CommandPalette({ search, onClose }: { search: ShellSearch; onClo
   }, []);
 
   // A new set of rows starts on the first one that can be chosen.
-  const rowsKey = `${query}|${entries.length}|${enabled.map(Number).join('')}`;
+  const rowsKey = `${query}|${narrowed ?? ''}|${entries.length}|${enabled.map(Number).join('')}`;
   useEffect(() => {
     setActive(Math.max(0, firstEnabled(enabled)));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on what the rows are, not on their object identity.
@@ -85,15 +110,16 @@ export function CommandPalette({ search, onClose }: { search: ShellSearch; onClo
       event.preventDefault();
       choose(entries[active]);
     } else if (event.key === 'Tab') {
-      event.preventDefault(); // the box is the one thing to focus; the list is moved with the arrows
+      event.preventDefault(); // the box is the one thing to focus; Tab narrows to one group and back
+      setNarrow(cycleGroup(groups, narrowed, event.shiftKey ? -1 : 1));
     }
   }
 
   const rowId = (i: number) => `${listId}-row-${i}`;
-  const thingStart = actions.length;
+  const showShortcuts = allActions.find((a) => a.id === 'shortcuts');
   const nothing = query.trim() !== '' && entries.length === 0;
 
-  return createPortal(
+  return (
     <div className="float-scrim float-scrim--top" onPointerDown={onClose}>
       <div className="float-sheet palette" role="dialog" aria-modal="true" aria-label="Find or do anything" onPointerDown={(event) => event.stopPropagation()} onKeyDown={onKeyDown}>
         <div className="palette__box">
@@ -115,12 +141,14 @@ export function CommandPalette({ search, onClose }: { search: ShellSearch; onClo
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
+          <kbd className="palette__esc" aria-hidden="true">
+            Esc
+          </kbd>
         </div>
         <div className="palette__list" id={listId} role="listbox" aria-label="Results">
-          {actions.length > 0 && <div className="palette__group" role="presentation">Actions</div>}
           {entries.map((entry, i) => {
             const on = i === active;
-            const heading = entry.kind === 'thing' && i === thingStart ? <div className="palette__group" role="presentation" key={`h-${i}`}>Things</div> : null;
+            const heading = i === 0 || entries[i - 1]!.group !== entry.group ? <div className="palette__group" role="presentation">{entry.group}</div> : null;
             const disabled = entry.kind === 'action' && entry.action.disabled !== undefined;
             return (
               <div key={entry.kind === 'action' ? `a-${entry.action.id}` : `t-${entry.hit.group}:${entry.hit.selection.kind}:${entry.hit.selection.id}:${entry.hit.name}`} role="presentation">
@@ -139,15 +167,19 @@ export function CommandPalette({ search, onClose }: { search: ShellSearch; onClo
                 >
                   {entry.kind === 'action' ? (
                     <>
-                      <span className="palette__name">{entry.action.label}</span>
+                      <span className="palette__name">
+                        <Marked text={entry.action.label} query={query} />
+                      </span>
                       <span className="palette__why">{entry.action.disabled ?? ''}</span>
-                      {entry.action.hint ? <kbd className="palette__hint">{entry.action.hint}</kbd> : null}
+                      {on && !disabled ? <span className="palette__enter">{entry.action.group === 'go' ? 'Enter to open' : 'Enter to run'}</span> : entry.action.hint ? <kbd className="palette__hint">{entry.action.hint}</kbd> : null}
                     </>
                   ) : (
                     <>
-                      <span className="palette__name palette__name--mono">{entry.hit.name}</span>
-                      <span className="palette__why">{entry.hit.why}</span>
-                      <span className="palette__tag">{GROUP_WORD[entry.hit.group]}</span>
+                      <span className="palette__name palette__name--mono">
+                        <Marked text={entry.hit.name} query={query} />
+                      </span>
+                      <span className="palette__why">{noteOf(entry.hit)}</span>
+                      {on ? <span className="palette__enter">Enter to open</span> : null}
                     </>
                   )}
                 </button>
@@ -160,13 +192,27 @@ export function CommandPalette({ search, onClose }: { search: ShellSearch; onClo
             </EmptyState>
           )}
         </div>
-        <div className="palette__foot" aria-hidden="true">
-          <span>↑ ↓ move</span>
-          <span>Enter run</span>
-          <span>Esc close</span>
+        <div className="palette__foot">
+          <span className="palette__keys" aria-hidden="true">
+            <span>↑↓ move</span>
+            <span>Enter go</span>
+            <span>{narrowed !== null ? `Tab shows only ${narrowed}` : 'Tab narrow to one group'}</span>
+          </span>
+          {showShortcuts !== undefined ? (
+            <button
+              type="button"
+              className="palette__more"
+              tabIndex={-1}
+              onClick={() => {
+                onClose();
+                window.setTimeout(showShortcuts.run, 0);
+              }}
+            >
+              ? all shortcuts
+            </button>
+          ) : null}
         </div>
       </div>
-    </div>,
-    document.body,
+    </div>
   );
 }

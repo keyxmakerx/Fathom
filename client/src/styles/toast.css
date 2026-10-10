@@ -6,7 +6,8 @@
 .change-toast-host {
   position: fixed;
   left: 50%;
-  bottom: 56px;
+  /* Clear of anything that sits along the bottom of the canvas (a zoom bar, a stop control). */
+  bottom: calc(var(--s4) + var(--canvas-controls-h, 40px));
   transform: translateX(-50%);
   z-index: calc(var(--z-modal) + 4);
   display: flex;
@@ -20,6 +21,8 @@
   align-items: center;
   gap: var(--s3);
   min-height: 36px;
+  position: relative;
+  overflow: hidden;
   padding: 0 var(--s2) 0 var(--s4);
   border: var(--rule-hair) solid var(--hairline);
   background: var(--pop-bg, color-mix(in srgb, var(--surface) 88%, transparent));
@@ -41,6 +44,9 @@
 }
 
 .change-toast__button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
   height: var(--control-h, 28px);
   padding: 0 var(--s3);
   border: var(--rule-hair) solid var(--control-line, var(--hairline));
@@ -64,6 +70,57 @@
 .change-toast__button:focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 1px;
+}
+
+.change-toast__arrow--redo {
+  transform: scaleX(-1);
+}
+
+.change-toast__close {
+  width: var(--control-h, 28px);
+  height: var(--control-h, 28px);
+  padding: 0;
+  border: var(--rule-hair) solid transparent;
+  border-radius: var(--radius-control, 0);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--t-body);
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1)), border-color var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.change-toast__close:hover {
+  color: var(--ink);
+  border-color: var(--hairline);
+}
+
+.change-toast__close:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+/* A thin ink line along the bottom edge that runs down over the time the note stays. */
+.change-toast__line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--ink);
+  transform-origin: left center;
+  transform: scaleX(var(--toast-from, 1));
+  animation: change-toast-run linear forwards;
+}
+
+@keyframes change-toast-run {
+  from {
+    transform: scaleX(var(--toast-from, 1));
+  }
+  to {
+    transform: scaleX(0);
+  }
 }
 
 @keyframes change-toast-in {
@@ -93,7 +150,11 @@
   .change-toast--leaving {
     animation: none;
   }
-  .change-toast__button {
+  .change-toast__button,
+  .change-toast__close {
     transition: none;
+  }
+  .change-toast__line {
+    display: none;
   }
 }

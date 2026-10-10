@@ -224,7 +224,7 @@ set security ike policy ike-two pre-shared-key ascii-text hunter22
     await shot(page, 'S8-04-open-device');
 
     // Drop equipment beside it: click an item in the equipment list.
-    await page.locator('.shell-strip--rail').click();
+    await page.locator('[data-testid="dock-equipment"]').click();
     await page.waitForTimeout(300);
     await page.locator('.drawing-palette__item', { hasText: 'Switch' }).first().click();
     await page.waitForTimeout(500);

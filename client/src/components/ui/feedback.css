@@ -8,15 +8,20 @@
 .empty-state {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: center;
   gap: var(--s2);
-  padding: var(--s4);
+  margin: var(--s3);
+  padding: var(--s5, 24px) var(--s4);
+  border: var(--rule-hair) dashed var(--hairline);
+  text-align: center;
   color: var(--muted);
   animation: empty-state-in var(--m-pane, 150ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1));
 }
 
 .empty-state--compact {
-  padding: var(--s2) 0;
+  margin: var(--s2) 0;
+  padding: var(--s3);
   gap: var(--s1);
 }
 
@@ -28,9 +33,11 @@
 .empty-state__text {
   margin: 0;
   max-width: var(--measure, 68ch);
+  line-height: 1.4;
 }
 
 .empty-state__action {
+  margin-top: var(--s1);
   height: var(--control-h, 28px);
   padding: 0 var(--s3);
   color: var(--ink);
@@ -38,8 +45,9 @@
   border: var(--rule-hair) solid var(--control-line, var(--ink));
   border-radius: var(--radius-control, 0);
   font: inherit;
-  font-size: var(--t-small);
-  letter-spacing: var(--track-label);
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   cursor: pointer;
 }

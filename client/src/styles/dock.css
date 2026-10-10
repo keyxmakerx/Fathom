@@ -1,5 +1,5 @@
-/* The side panels (Equipment on the left; Details, History and Trail on the right): each folds to
-   a slim labelled strip at its edge, slides open and shut, and is resized by a handle on its inner
+/* The side panels (Equipment, Details, History and Trail share one slot on the right): folded, a slim
+   strip of labelled tabs at the edge; open, one panel slides out beside it and is resized by a handle on its inner
    edge. The width of an open panel is set inline from `shell/panelSizing.ts`, which keeps the
    canvas from being squeezed. The motion is the slot's width only: the panel inside keeps one
    width, so its contents do not reflow while it moves. */

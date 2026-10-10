@@ -156,11 +156,11 @@ export function ConfigDrawer(props: ConfigDrawerProps): JSX.Element {
       {capture === null && (
         <EmptyState
           className="config-drawer__empty"
-          title="No config captured for this device yet."
+          title="No configs yet"
           compact
           action={canDraw ? { label: 'Paste a config', onClick: () => pasteBox.current?.focus() } : undefined}
         >
-          Once a config is pasted, its lines and the ports they built appear here.
+          {canDraw ? 'Paste or drop a running config. Credentials are removed before anything is saved.' : 'Nobody has added a running config for this device yet.'}
         </EmptyState>
       )}
 

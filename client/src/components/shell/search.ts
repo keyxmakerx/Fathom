@@ -10,6 +10,8 @@ export interface SearchHit {
   group: 'Devices' | 'Racks' | 'Ports' | 'Cables' | 'VLANs' | 'Containers';
   name: string;
   why: string;
+  /** Where it is, short ("R1 · U40"), shown after the name in the command palette. */
+  where?: string;
   selection: Selection;
 }
 
@@ -55,7 +57,7 @@ export function searchDesign(view: Pick<ClosetView, 'racks'> & Partial<Pick<Clos
       const deviceTagHit = deviceNameMatches ? undefined : matchingTagName(ch.deviceId);
       if (deviceNameMatches || deviceTagHit) {
         const why = deviceTagHit ? `tag: ${deviceTagHit}` : `${ch.model} · ${rack.label} U${ch.positionU}`;
-        hits.push({ group: 'Devices', name: device, why, selection: { kind: 'chassis', id: ch.id } });
+        hits.push({ group: 'Devices', name: device, why, where: `${rack.label} · U${ch.positionU}`, selection: { kind: 'chassis', id: ch.id } });
       }
       for (const port of ch.ports) {
         const name = `${device} · ${port.label}`;

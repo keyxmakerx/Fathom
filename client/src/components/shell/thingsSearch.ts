@@ -6,6 +6,7 @@ import type { ClosetView } from '../../document/view';
 import { cableRows, deviceRows, portRows, rackRows, type Kind } from '../inventory/kinds';
 import { NO_WHERE, buildPlaceIndex } from '../inventory/placeIndex';
 import { buildSearchIndex, search, type SearchIndex } from '../inventory/search';
+import { matchRanges } from './palette';
 import { searchDesign, type SearchHit } from './search';
 
 const GROUP_OF: Partial<Record<Kind, SearchHit['group']>> = {
@@ -49,12 +50,30 @@ export function inventoryHits(ix: SearchIndex, clue: string): SearchHit[] {
   return hits;
 }
 
+/** Devices and racks whose name has the typed letters in order ("sw1" for "switch-1"). */
+export function fuzzyHits(view: Pick<ClosetView, 'racks'>, query: string, limit = 8): SearchHit[] {
+  if (query.trim().length < 2) return [];
+  const hits: SearchHit[] = [];
+  for (const rack of view.racks) {
+    if (matchRanges(rack.label, query) !== null) {
+      hits.push({ group: 'Racks', name: rack.label, why: `${rack.heightU}U · ${rack.chassis.length} devices`, selection: { kind: 'rack', id: rack.id } });
+    }
+    for (const ch of rack.chassis) {
+      const name = ch.hostname || ch.model;
+      if (name === '' || matchRanges(name, query) === null) continue;
+      hits.push({ group: 'Devices', name, why: `${ch.model} · ${rack.label} U${ch.positionU}`, where: `${rack.label} · U${ch.positionU}`, selection: { kind: 'chassis', id: ch.id } });
+    }
+  }
+  return hits.slice(0, limit);
+}
+
 /** Builds the Find index once per document and answers every keystroke from it. */
 export function createThingsFinder() {
   let built: { doc: Document; view: ClosetView; ix: SearchIndex } | null = null;
   return function find(doc: Document, view: ClosetView, query: string): SearchHit[] {
     const quick = searchDesign(view, query, doc);
     if (query.trim() === '') return quick;
+    const fuzzy = fuzzyHits(view, query);
     if (built === null || built.doc !== doc || built.view !== view) {
       const idx = buildPlaceIndex(doc, view);
       built = {
@@ -69,6 +88,6 @@ export function createThingsFinder() {
         }),
       };
     }
-    return mergeHits(quick, inventoryHits(built.ix, query));
+    return mergeHits(quick, [...inventoryHits(built.ix, query), ...fuzzy]);
   };
 }

@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-/** The right-hand side is one slot with three tabs; one is open at a time, or none. */
-export type RightTab = 'details' | 'history' | 'trail';
+/** The right-hand side is one slot with four tabs (Equipment, Details, History, Trail); one is open at a time, or none. */
+export type RightTab = 'equipment' | 'details' | 'history' | 'trail';
 
 export interface RightTabInput {
+  /** The Equipment list exists here (the Racks place). */
+  hasEquipment?: boolean;
+  /** Equipment was left open by the last visit. */
+  initialEquipment?: boolean;
   hasDetails: boolean;
   /** History mode is on (the saves list is the open panel's content). */
   historyOpen: boolean;
@@ -20,7 +24,8 @@ export interface RightTabInput {
 }
 
 /** What is actually open: the chosen tab, unless there is nothing behind it. */
-export function visibleTab(pick: RightTab | null, have: { hasDetails: boolean; historyOpen: boolean; trailOpen: boolean; hasTrail: boolean }): RightTab | null {
+export function visibleTab(pick: RightTab | null, have: { hasEquipment?: boolean; hasDetails: boolean; historyOpen: boolean; trailOpen: boolean; hasTrail: boolean }): RightTab | null {
+  if (pick === 'equipment') return have.hasEquipment === true ? 'equipment' : null;
   if (pick === 'details') return have.hasDetails ? 'details' : null;
   if (pick === 'history') return have.historyOpen ? 'history' : null;
   if (pick === 'trail') return have.hasTrail && have.trailOpen ? 'trail' : null;
@@ -41,8 +46,10 @@ export function rememberedTab(pick: RightTab | null): 'details' | 'trail' | null
  * the History tab brings the list back.
  */
 export function useRightTab(input: RightTabInput) {
-  const { hasDetails, historyOpen, trailOpen, hasTrail, selectionKey, onHistory, onTrailOpenChange, onPick } = input;
-  const [pick, setPick] = useState<RightTab | null>(() => (input.historyOpen ? 'history' : input.trailOpen ? 'trail' : input.initialTab));
+  const { hasEquipment = false, hasDetails, historyOpen, trailOpen, hasTrail, selectionKey, onHistory, onTrailOpenChange, onPick } = input;
+  const [pick, setPick] = useState<RightTab | null>(() =>
+    input.historyOpen ? 'history' : input.trailOpen ? 'trail' : input.initialEquipment === true && hasEquipment ? 'equipment' : input.initialTab,
+  );
 
   const trailRef = useRef(onTrailOpenChange);
   trailRef.current = onTrailOpenChange;
@@ -110,6 +117,6 @@ export function useRightTab(input: RightTabInput) {
     [],
   );
 
-  const shown = visibleTab(pick, { hasDetails, historyOpen, trailOpen, hasTrail });
+  const shown = visibleTab(pick, { hasEquipment, hasDetails, historyOpen, trailOpen, hasTrail });
   return { shown, choose, fold };
 }
