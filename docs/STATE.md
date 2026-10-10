@@ -262,6 +262,13 @@ Inventory's Issues list (an Issue page per record). A read holder sees saved iss
 a credential in issue text. Logic: `components/troubleshoot/`, `document/issues.ts`,
 `drawing/troubleMarks.ts`. Checked by `scripts/drive-troubleshoot.mjs`.
 
+**Firmware** (ADR-0045, ADR-0064; schema 0.19, field keys 405-411; migration 0038). Inventory › Firmware
+lists staged images (version, models, SHA-256, running, behind, plans) with upload; Inventory › Models sets
+a model's chosen version and holds devices back with a reason. Check `fw.device.behind-chosen-version`
+flags a device behind its model's version. "Plan a firmware upgrade" (right-click, device page, or for every
+behind device) makes a maintenance plan with the vendor's steps for Junos, IOS XE, NX-OS or EOS; the
+device fetches its image with a one-time link. On in compose once `FATHOM_FIRMWARE_FETCH_BASE_URL` is set.
+
 **View sharing** (ADR-0061 round 9, #102). A steward's **Share** button in the bar opens a panel with
 PERSON / CAN rows: **View** (see everything, change nothing) or **Draw**. Only people already in the
 organisation can be added. The grant is signed in the steward's enrolled browser and the server
