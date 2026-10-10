@@ -49,7 +49,6 @@ import {
   RACK_HEADER_PX,
   RACK_INNER_PX,
   U_PX,
-  cableSagPath,
   cameraStopAt,
   overlapsRack,
   rackAtPoint,
@@ -100,6 +99,7 @@ import { PEER_DOT_PX, peerMarks } from './peerMarks';
 import { useDrawingNodeCaches } from './useDrawingNodeCaches';
 import { easeOut, glideOptions } from './motion';
 import { useSettle } from './useSettle';
+import { liveSagPath, markFreshCable } from './cableMotion';
 
 const NODE_TYPES = {
   rack: RackNode,
@@ -152,7 +152,8 @@ function rowBandY(rowLayouts: readonly RowLayout[], rowIndex: number): number {
  * `Patching.dc.html`'s own reference board draws the in-hand lead the same
  * plain grey. */
 function ConnectionLine({ fromX, fromY, toX, toY }: ConnectionLineComponentProps) {
-  const d = cableSagPath(fromX, fromY, toX, toY, 'copper');
+  // The slack follows the pointer: the farther the pointer, the lower the lead hangs (capped).
+  const d = liveSagPath(fromX, fromY, toX, toY);
   return (
     <path d={d} fill="none" stroke="var(--muted)" strokeWidth={2.4} strokeLinecap="round" className="drawing-cable__live" />
   );
@@ -1520,6 +1521,7 @@ function DrawingInner({
     (sheath: Sheath) => {
       if (!pendingConnect) return;
       setLastSheathByKind((prev) => ({ ...prev, [pendingConnect.kind]: sheath }));
+      markFreshCable(pendingConnect.fromPortId, pendingConnect.toPortId);
       onConnect?.(pendingConnect.fromPortId, pendingConnect.toPortId, sheath);
       setPendingConnect(null);
     },
