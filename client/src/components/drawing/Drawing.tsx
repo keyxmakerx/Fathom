@@ -65,6 +65,9 @@ import {
 import { ChassisNode, INLET_ANCHOR_HANDLE_ID, type ChassisNodeData, type ChassisNodeType } from './ChassisNode';
 import { BundleEdge, type BundleEdgeData, type BundleEdgeType } from './BundleEdge';
 import { CableEdge, type CableEdgeData, type CableEdgeType } from './CableEdge';
+import { CableCrossingKeys, CableOverlayEdge, CABLE_OVERLAY_EDGE_ID, type CableOverlayEdgeType } from './CableOverlayEdge';
+import { planTies, type TieInput } from './cableRoute';
+import { DEFAULT_CABLE_STYLE, type CableStyle } from './cableStyle';
 import { ColourPicker } from './ColourPicker';
 import { ContextMenu } from './ContextMenu';
 import { parseFreeNodeId } from './freeLayout';
@@ -116,7 +119,7 @@ const NODE_TYPES = {
   surface: SurfaceNode,
   shelf: ShelfPlate,
 };
-const EDGE_TYPES = { cable: CableEdge, bundle: BundleEdge, planGhost: PlanGhostEdge };
+const EDGE_TYPES = { cable: CableEdge, bundle: BundleEdge, planGhost: PlanGhostEdge, cableOverlay: CableOverlayEdge };
 const ALL_NODE_TYPES = { ...NODE_TYPES, ...FREE_NODE_TYPES };
 const ALL_EDGE_TYPES = { ...EDGE_TYPES, ...FREE_EDGE_TYPES };
 const PAN_BUTTONS = [0, 1];
@@ -349,6 +352,8 @@ export interface DrawingProps extends DrawingActions {
   keyCableIds?: ReadonlySet<string> | null;
   /** The mini-map may show (it still appears only on big drawings). */
   minimap?: boolean;
+  /** This person's cable style (`cableStyle.ts`); physics when absent. */
+  cableStyle?: CableStyle;
 }
 
 type AnyRackNode = RackNodeType;
@@ -464,6 +469,7 @@ function DrawingInner({
   dashedCableIds,
   keyCableIds,
   minimap,
+  cableStyle = DEFAULT_CABLE_STYLE,
 }: DrawingProps) {
   const rf = useReactFlow<FlowNode>();
 
@@ -641,7 +647,7 @@ function DrawingInner({
   const [lastSheathByKind, setLastSheathByKind] = useState<LastSheathByKind>({});
   // Writes straight to `liveStore.ts` rather than to component state, so
   // hovering a cable or a rail hexagon never re-renders this component.
-  const handleHoverCable = useCallback((cableId: string | null) => liveStore.setState({ hoveredCableId: cableId }), [liveStore]);
+  const handleHoverCable = useCallback((cableId: string | null) => liveStore.setState({ hoveredCableId: cableId, hoverStack: [] }), [liveStore]);
   // This session's brief items 3/4 — the selected cable's two ports (a
   // hairline ring) and the port a refused cable drop landed on (a shake),
   // both toggled as a DOM class on the SAME `data-port-id` element
@@ -1282,6 +1288,22 @@ function DrawingInner({
   // member hidden or filtered out is a bundle nobody should see either.
   const bundles = useMemo(() => groupBundles(drawnCables), [drawnCables]);
 
+  // Cable-tied: cables leaving one device toward the same side gather into bundles with ties
+  // (`cableRoute.ts`). Only cables drawn whole between two port boxes take part.
+  const tiePlan = (() => {
+    if (cableStyle !== 'tied') return null;
+    const inputs: TieInput[] = [];
+    for (const cable of drawnCables) {
+      const real = realEndsOf(cable);
+      if (real.length !== 2) continue;
+      const a = portBox(real[0]!);
+      const b = portBox(real[1]!);
+      if (a == null || b == null || stubFor(cable.id, real[0]!, real[1]!, a, b) != null) continue;
+      inputs.push({ id: cable.id, chassis: [real[0]!.chassisId, real[1]!.chassisId], leads: leadsFor(a, b, { x: 0, y: 0 }, { x: 0, y: 0 }) });
+    }
+    return planTies(inputs);
+  })();
+
   function buildCableEdge(cable: CableView, portPairLabel?: string): CableEdgeType | null {
     const real = cable.ends.filter((e): e is { portId: string; chassisId: string; rackId: string | null } => 'portId' in e);
     const outside = cable.ends.find((e): e is { outside: true; label: string } => 'outside' in e && e.outside);
@@ -1311,6 +1333,8 @@ function DrawingInner({
       stub: real.length === 2 ? stubFor(cable.id, real[0]!, real[1]!, boxes[0], boxes[1]) : undefined,
       onPanTo: handlePanTo,
       dashed: dashedCableIds?.has(cable.id) ?? false,
+      tied: tiePlan?.routes.get(cable.id),
+      ties: tiePlan?.ties.get(cable.id),
     };
     return {
       id: cable.id,
@@ -1384,6 +1408,23 @@ function DrawingInner({
     if (bundledCableIds.has(cable.id)) continue; // drawn above, as the bundle's band and (when fanned) its members
     const built = buildCableEdge(cable);
     if (built) edges.push(built);
+  }
+  // The top cable layer: one edge, after every cable, that draws the pointed-at cable again on
+  // top (`CableOverlayEdge.tsx`). It needs a node to hang on; any device's bundle handle will do.
+  const overlayAnchor = plates.keys().next().value;
+  if (edges.length > 0 && overlayAnchor != null) {
+    edges.push({
+      id: CABLE_OVERLAY_EDGE_ID,
+      type: 'cableOverlay',
+      source: chassisNodeId(overlayAnchor),
+      sourceHandle: '__bundle__',
+      target: chassisNodeId(overlayAnchor),
+      targetHandle: '__bundle__',
+      selectable: false,
+      focusable: false,
+      zIndex: 6,
+      data: {},
+    } satisfies CableOverlayEdgeType);
   }
 
   const handleNodeClick: NodeMouseHandler = useCallback(
@@ -1746,8 +1787,9 @@ function DrawingInner({
       showPortGlyphs,
       splitBundles,
       keyCableIds: keyCableIds ?? null,
+      cableStyle,
     });
-  }, [liveStore, selected, dragFromPortId, livePortIds, dropPreview, shakingId, dimmedChassisId, cameraStop, showPortGlyphs, splitBundles, keyCableIds]);
+  }, [liveStore, selected, dragFromPortId, livePortIds, dropPreview, shakingId, dimmedChassisId, cameraStop, showPortGlyphs, splitBundles, keyCableIds, cableStyle]);
 
   const allNodes = useMemo(() => [...nodes, ...free.nodes], [nodes, free.nodes]);
   const marks = useMemo(
@@ -1781,6 +1823,7 @@ function DrawingInner({
       onDragLeave={handleDragLeave}
       {...free.containerProps}
     >
+      <CableCrossingKeys />
       <ReactFlow
         nodes={shown.nodes}
         edges={shown.edges}

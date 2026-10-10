@@ -811,6 +811,39 @@
   transition: opacity var(--m-pane) var(--m-ease);
 }
 
+/* Cable styles (round 15). Faded: the reveal on hover is instant, so nothing about a faded
+   cable eases; the rest of the run stays as a ghost you can just see. */
+.drawing .drawing-cable.drawing-cable--faded {
+  transition: none;
+}
+
+.drawing-cable__ghost {
+  opacity: 0.1;
+}
+
+/* Cable-tied: a tie is ink across the bundle, never a sheath colour. */
+.drawing-cable__tie {
+  stroke: var(--ink);
+  stroke-width: 2.5;
+  stroke-linecap: butt;
+}
+
+/* Where cables cross under the pointer: how many, which one is lit, and the key that moves on. */
+.drawing-cable-crossing {
+  position: absolute;
+  left: 50%;
+  bottom: var(--s2);
+  z-index: 6;
+  transform: translateX(-50%);
+  padding: 2px var(--s2);
+  font-size: var(--t-small);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 /* UI-SPEC "Keeping it readable at forty cables" #2: "each with its own
    sheath and its port pair labelled" — drawn only on a fanned bundle
    member (`CableEdge.tsx`'s own `portPairLabel`). */

@@ -2,8 +2,9 @@ import type { Edge, EdgeProps } from '@xyflow/react';
 
 import type { Bundle } from './bundles';
 import { SHEATH_VAR } from './sheath';
-import { cableLeadPath, leadsFor, type PortPoint } from './cableEnds';
-import { cableSagPath } from './geometry';
+import type { PortPoint } from './cableEnds';
+import { pointAlong, polylineLength } from './cableRoute';
+import { cableShape, FadedTips } from './cableShape';
 import { useLive } from './liveStore';
 import { PlanEdgeTag } from './PlanGhostEdge';
 import { TONE_COLOUR, type PlanEdgeMark } from './plansMarks';
@@ -57,17 +58,28 @@ export function BundleEdge({ sourceX, sourceY, targetX, targetY, data }: EdgePro
         (s.keyCableIds != null && !data.bundle.members.some((m) => s.keyCableIds!.has(m.id)))
       : false,
   );
+  const style = useLive((s) => s.cableStyle);
+  const pointedAt = useLive((s) => (data ? data.bundle.members.some((m) => m.id === s.hoveredCableId) : false));
   if (!data) return null;
   const { bundle, fanned, onFan } = data;
-  const leads = data.ends != null && (data.ends[0] != null || data.ends[1] != null) ? leadsFor(data.ends[0], data.ends[1], { x: sourceX, y: sourceY }, { x: targetX, y: targetY }) : null;
-  const d = leads != null ? cableLeadPath(leads, bundle.kind) : cableSagPath(sourceX, sourceY, targetX, targetY, bundle.kind);
+  // A band draws in the person's cable style too; cable-tied bands run square, as a lone tied cable does.
+  const shape = cableShape({
+    style: style === 'tied' ? 'square' : style,
+    id: bundle.key,
+    kind: bundle.kind,
+    ends: data.ends,
+    source: { x: sourceX, y: sourceY },
+    target: { x: targetX, y: targetY },
+  });
+  const { d, leads } = shape;
   const count = bundle.members.length;
   // One shared sheath draws the band in it (Zoom B); a mix draws grey.
   const sheaths = new Set(bundle.members.map((m) => m.sheath ?? 'grey'));
   const bandColour = data.troubleInk === true ? 'var(--ink)' : sheaths.size === 1 ? SHEATH_VAR[[...sheaths][0]!] : 'var(--sheath-grey)';
   const width = BAND_BASE_WIDTH_PX + BAND_WIDTH_PER_MEMBER_PX * (count - 1);
-  const midX = leads != null ? (leads.a.x + leads.b.x) / 2 : (sourceX + targetX) / 2;
-  const midY = leads != null ? (leads.a.y + leads.b.y) / 2 : (sourceY + targetY) / 2;
+  const mid = pointAlong(shape.points, polylineLength(shape.points) / 2);
+  const midX = mid.x;
+  const midY = mid.y;
   const opacity = dimmed ? 'var(--phantom)' : 1;
 
   if (data.stub != null && leads != null && data.onPanTo != null) {
@@ -99,7 +111,11 @@ export function BundleEdge({ sourceX, sourceY, targetX, targetY, data }: EdgePro
           {data.planMark != null && (
             <path d={d} fill="none" stroke={TONE_COLOUR[data.planMark.tone]} strokeWidth={width + 6} strokeLinecap="round" className="plan-mark__wash" />
           )}
-          <path d={d} fill="none" stroke={bandColour} strokeWidth={width} strokeLinecap="round" className="drawing-bundle__band" />
+          {style === 'faded' && !pointedAt ? (
+            <FadedTips id={bundle.key} d={d} points={shape.points} colour={bandColour} width={`${width}px`} />
+          ) : (
+            <path d={d} fill="none" stroke={bandColour} strokeWidth={width} strokeLinecap="round" className="drawing-bundle__band" />
+          )}
           {data.planMark != null && <PlanEdgeTag x={midX} y={midY - 16} mark={data.planMark} />}
           <g transform={`translate(${midX}, ${midY})`} className="drawing-bundle__badge">
             <rect x={-11} y={-7} width={22} height={14} className="drawing-bundle__badge-box" />
