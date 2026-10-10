@@ -22,7 +22,8 @@ export function PlanEdgeTag({ x, y, mark }: { x: number; y: number; mark: PlanEd
   );
 }
 
-/** A cable the plan adds, drawn between the two port plates; it is not in the document and cannot be hit. */
+/** A cable the plan adds (or a suggestion, with no word and so no tag), drawn between the two port plates; it is
+ * not in the document and cannot be hit. */
 export function PlanGhostEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProps<PlanGhostEdgeType>) {
   if (!data) return null;
   const { planMark, ends } = data;
@@ -35,7 +36,7 @@ export function PlanGhostEdge({ sourceX, sourceY, targetX, targetY, data }: Edge
     <g className={`plan-ghost plan-ghost--${planMark.tone}`} data-plan-ghost pointerEvents="none">
       <path d={d} className="plan-ghost__wash" style={{ stroke: colour }} />
       <path d={d} className="plan-ghost__line" style={{ stroke: colour, strokeDasharray: planMark.dashed ? '5 3' : undefined }} />
-      <PlanEdgeTag x={midX} y={midY} mark={planMark} />
+      {planMark.word !== '' && <PlanEdgeTag x={midX} y={midY} mark={planMark} />}
     </g>
   );
 }

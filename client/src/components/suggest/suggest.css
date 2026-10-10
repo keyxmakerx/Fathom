@@ -1,0 +1,68 @@
+/* Cable suggestions (mockup r15-f3): the paste card's language, held at the right so the dashed lines show. */
+.paste-card.suggest-card {
+  left: auto;
+  right: var(--s4);
+  transform: none;
+  width: min(26rem, calc(100% - 2 * var(--s4)));
+}
+.suggest-card__line {
+  margin: 0 0 var(--s2);
+  color: var(--muted);
+}
+.suggest-card__from {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin: var(--s2) 0;
+}
+.suggest-card__from span {
+  color: var(--muted);
+}
+.suggest-card__from select {
+  flex: 1;
+  min-height: var(--control-h);
+}
+.suggest-card__how code,
+.suggest-card__port {
+  font-family: var(--mono);
+}
+.suggest-card__port {
+  color: var(--muted);
+}
+.suggest-card__rows {
+  list-style: none;
+  margin: var(--s2) 0;
+  padding: 0;
+}
+.suggest-card__rows li {
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+.suggest-card__rows label {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: var(--control-h);
+  padding: var(--s1) 0;
+}
+.suggest-card__rows input {
+  appearance: auto;
+  margin: 0;
+}
+.suggest-card__far {
+  margin-left: auto;
+  text-align: right;
+}
+.suggest-card__left {
+  color: var(--muted);
+}
+.suggest-card__why {
+  color: var(--muted);
+  margin: var(--s1) 0;
+}
+.suggest-card__actions {
+  justify-content: flex-end;
+}
+.suggest-card__add:not(:disabled) {
+  background: var(--ink);
+  color: var(--page);
+}

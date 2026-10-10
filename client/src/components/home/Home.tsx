@@ -12,10 +12,12 @@ import {
 } from '../../api/designs';
 import { ApiRefusal } from '../../api/errors';
 import { fetchOrganisations, type Organisation } from '../../api/organisations';
+import { fetchCatalogue, fetchModel, type CatalogueModel } from '../../api/catalogue';
 import { createScope, fetchScopes, type Scope } from '../../api/scopes';
 import { emptyDocument } from '../../document/model';
 import { writePlain } from '../../document/plain';
 import { About } from '../about/About';
+import { getSession } from '../../state/sessionState';
 import { clearJoinedFromInvitation, stillWaitingInvitee, wasJoinedFromInvitation } from '../../state/waitingInvitee';
 import { AwaitingSteward } from './AwaitingSteward';
 import { type Loadable } from '../organisation/FoldersPanel';
@@ -28,6 +30,9 @@ import { HomeTabs } from './HomeTabs';
 import { homeTabs, type HomeTab } from './homeTabs';
 import { newDesignTarget } from './newDesign';
 import { RecentRow } from './RecentRow';
+import { loadFirstSteps, rememberSample, setFirstStepsHidden, type FirstStepsState } from './firstSteps';
+import { GettingStarted, SampleCard } from './GettingStarted';
+import { buildSample, modelKey, sample, sampleModels } from './sampleNetwork';
 import './home.css';
 import { EmptyState } from '../ui/EmptyState';
 import { SkeletonRows } from '../ui/Skeleton';
@@ -97,6 +102,18 @@ const LEVEL: Record<string, string> = { network: 'Site', building: 'Building', r
 /** The busy marker while the home screen's own New design is making a Site. */
 const NEW_SITE_PENDING = 'new-site-pending';
 
+/** The sample Home offers (r15-start); its file is `corpus/samples/home-lab.json`. */
+const HOME_SAMPLE = 'home-lab';
+
+/** The catalogue models a sample names, each fetched once; one the catalogue does not hold is left out, and the
+ * sample draws that device as a sketch. Never a refusal: the sample opens whatever the catalogue answers. */
+async function modelsFor(names: readonly { vendor: string; model: string }[]): Promise<Map<string, CatalogueModel>> {
+  const list = await fetchCatalogue().catch(() => []);
+  const held = list.filter((e) => names.some((n) => modelKey(n.vendor, n.model) === modelKey(e.vendor, e.model)));
+  const models = await Promise.all(held.map((e) => fetchModel(e.vendor, e.model).catch(() => null)));
+  return new Map(models.filter((m): m is CatalogueModel => m !== null).map((m) => [modelKey(m.vendor, m.model), m]));
+}
+
 export function Home({
   address,
   onOpenRacks,
@@ -118,6 +135,10 @@ export function Home({
   const [landed, setLanded] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [tab, setTab] = useState<HomeTab>(initialTab ?? 'designs');
+  const accountId = getSession()?.accountId ?? null;
+  const [firstSteps, setFirstSteps] = useState<FirstStepsState>(() => loadFirstSteps(accountId));
+  const [sampleBusy, setSampleBusy] = useState(false);
+  const [sampleError, setSampleError] = useState<string | null>(null);
 
   // "New design" (ADR-0054 §2, draw creates a design): which scope's button
   // is mid-request, and the last refusal, if any. Never more than one
@@ -305,6 +326,43 @@ export function Home({
       });
   }
 
+  /**
+   * r15-start: a fresh copy of the sample, made as a design of the person's own in the same place New design puts
+   * one, named after the sample, then opened. Nothing else is touched; wrecking it costs nothing.
+   */
+  async function openSample(organisation: Organisation) {
+    if (scopes.status !== 'ready') return;
+    setSampleError(null);
+    setSampleBusy(true);
+    try {
+      const spec = sample(HOME_SAMPLE);
+      const target = newDesignTarget(scopes.value);
+      let scope: Scope;
+      if (target.kind === 'scope') {
+        scope = target.scope;
+      } else {
+        scope = await createScope(organisation.organisationId, null, organisation.displayName);
+        setScopes((current) => (current.status === 'ready' ? { status: 'ready', value: [...current.value, scope] } : current));
+      }
+      const built = buildSample(spec, await modelsFor(sampleModels(spec)), accountId != null ? { actor: accountId } : undefined);
+      const design = await createDesign(organisation.organisationId, scope.scopeId, writePlain(built.doc));
+      rememberSample(accountId, design.designId);
+      // The name is a nicety; a refused rename still opens the sample, untitled.
+      const named = await renameDesign(organisation.organisationId, design.designId, spec.name).then(
+        () => ({ ...design, name: spec.name }),
+        () => design,
+      );
+      onOpenRacks(organisation, named);
+    } catch (error: unknown) {
+      setSampleError(describeError(error));
+      setSampleBusy(false);
+    }
+  }
+
+  function hideFirstSteps(hidden: boolean) {
+    setFirstSteps(setFirstStepsHidden(accountId, hidden));
+  }
+
   function openScopeForm(parentId: string | null, parentLabel: string, child: string) {
     setScopeFormParent({ id: parentId, label: parentLabel, child });
     setScopeLabelInput('');
@@ -424,6 +482,16 @@ export function Home({
 
         {shownTab === 'admin' && admin && <section className="home__section">{admin.panel}</section>}
 
+        {shownTab === 'designs' && !waitingInvitee && !firstSteps.hidden && selectedOrganisation && (
+          <SampleCard
+            summary={sample(HOME_SAMPLE).summary}
+            busy={sampleBusy}
+            disabled={scopes.status !== 'ready'}
+            error={sampleError}
+            onOpen={() => void openSample(selectedOrganisation)}
+          />
+        )}
+
         {shownTab === 'designs' && !waitingInvitee && designs.status === 'ready' && scopes.status === 'ready' && selectedOrganisation && (
           <RecentRow
             organisation={selectedOrganisation}
@@ -487,11 +555,31 @@ export function Home({
       )}
 
       <aside className="home__panel">
+        {!firstSteps.hidden && !waitingInvitee && (
+          <GettingStarted done={firstSteps.done} onHide={() => hideFirstSteps(true)} />
+        )}
         <div className="home__label">You</div>
         <div className="home__you-address m">{address}</div>
         <button type="button" className="home__btn" onClick={() => void signOut()}>
           Sign out
         </button>
+        <div className="home__label home__help">Help</div>
+        {firstSteps.hidden && (
+          <button type="button" className="about-link" onClick={() => hideFirstSteps(false)}>
+            Getting started
+          </button>
+        )}
+        {firstSteps.hidden && selectedOrganisation && !waitingInvitee && (
+          <button
+            type="button"
+            className="about-link"
+            disabled={sampleBusy || scopes.status !== 'ready'}
+            onClick={() => void openSample(selectedOrganisation)}
+          >
+            {sampleBusy ? 'Opening the sample…' : 'Open the sample home lab'}
+          </button>
+        )}
+        {firstSteps.hidden && sampleError && <p className="home__error">{sampleError}</p>}
         <button type="button" className="about-link" onClick={() => setAboutOpen(true)}>
           About Fathom
         </button>

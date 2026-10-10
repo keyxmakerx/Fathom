@@ -40,6 +40,8 @@ export interface MenuActions {
   firmwareNeedsVersion?(chassisId: string): boolean;
   /** Opens the "It's down" checklist on a device (ADR-0061 troubleshooting). */
   onItsDown?(elementId: string): void;
+  /** Opens cable suggestions from a neighbour list (LLDP), for a device or, from the empty canvas, any. */
+  onSuggestCables?(chassisId: string | null): void;
   onRemoveDevice?(chassisId: string): void;
   onDisconnect?(cableId: string): void;
   onAddDevice?(rackId: string): void;
@@ -68,6 +70,7 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
       items.push({ label: 'Details', onSelect: () => actions.onSelect({ kind: 'chassis', id }) });
       if (actions.onItsDown) items.push({ label: "It's down", onSelect: () => actions.onItsDown?.(id) });
       if (actions.onPlanChange) items.push({ label: 'Plan a change', onSelect: () => actions.onPlanChange?.(id) });
+      if (actions.onSuggestCables) items.push({ label: 'Suggest cables from its neighbours (LLDP)', onSelect: () => actions.onSuggestCables?.(id) });
       if (actions.onPlanFirmware) {
         const label = actions.firmwareNeedsVersion?.(id) ? 'Plan a firmware upgrade (choose a version first)' : 'Plan a firmware upgrade';
         items.push({ label, onSelect: () => actions.onPlanFirmware?.(id) });
@@ -101,6 +104,7 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
       items.push({ label: 'Details', onSelect: () => actions.onSelect(sel) });
       if (target.kind === 'free' && actions.onItsDown) items.push({ label: "It's down", onSelect: () => actions.onItsDown?.(id) });
       if (target.kind === 'free' && actions.onPlanChange) items.push({ label: 'Plan a change', onSelect: () => actions.onPlanChange?.(id) });
+      if (target.kind === 'free' && actions.onSuggestCables) items.push({ label: 'Suggest cables from its neighbours (LLDP)', onSelect: () => actions.onSuggestCables?.(id) });
       if (actions.onDuplicateFree) items.push({ label: 'Duplicate', onSelect: () => actions.onDuplicateFree?.([id]) });
       if (actions.onRemoveFree) items.push({ label: 'Remove', onSelect: () => actions.onRemoveFree?.([id]), danger: true });
       break;
@@ -124,6 +128,7 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
       }
       if (actions.onAddWall) items.push({ label: 'Add a wall', onSelect: () => actions.onAddWall?.() });
       if (actions.onPasteConfig) items.push({ label: 'Paste config', onSelect: () => actions.onPasteConfig?.() });
+      if (actions.onSuggestCables) items.push({ label: 'Suggest cables from a neighbour list (LLDP)', onSelect: () => actions.onSuggestCables?.(null) });
       break;
     }
   }

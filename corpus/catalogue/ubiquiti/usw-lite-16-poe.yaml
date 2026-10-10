@@ -1,0 +1,26 @@
+# corpus/catalogue/ubiquiti/usw-lite-16-poe.yaml — UniFi Switch Lite 16 PoE, a
+# compact desktop/wall switch. rack_units: 1 is NOMINAL (the page says
+# "Compact desktop, wall"; it gives a supported rack depth but no rack kit).
+# Read 2026-10-10: https://techspecs.ui.com/unifi/switching/usw-lite-16-poe;
+# cross-checked against linitx.com's USW-Lite-16-POE listing ("(16) 10/100/1000
+# Mbps Ethernet RJ45", "(8) PoE+", no SFP).
+# Port list as read: "1 GbE RJ45" 16 (8 PoE+) (1G/100M/10M); no SFP or console;
+# power is internal AC (no psu_slots).
+# NOT CONFIRMED: which 8 ports are PoE+, face, and layout (no photo;
+# paired_columns assumed for 16 ports).
+vendor: ubiquiti
+model: USW-Lite-16-PoE
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Ubiquiti, UniFi Switch Lite 16 PoE tech specs
+    (https://techspecs.ui.com/unifi/switching/usw-lite-16-poe), read
+    2026-10-10; port count cross-checked on a retailer listing (linitx.com).
+    16x GbE RJ45 (8 PoE+); compact desktop/wall. Face and layout not confirmed.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 16
+    port_groups:
+      - { kind: "RJ45", role: access, layout: paired_columns, count: 16, start_number: 1 }
