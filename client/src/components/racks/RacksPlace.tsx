@@ -25,7 +25,7 @@ import { BOX_H, BOX_W, createLabel, createLine, moveFree, removeFree, setLabel }
 import { FieldValueError, isDeviceRole, setDeviceField } from '../../document/edit';
 import { useResumeView } from './useResumeView';
 import type { CameraHub } from '../drawing/camera';
-import { edgesIn, parseNodeId, type Document } from '../../document/model';
+import { edgesIn, edgesOut, parseNodeId, type Document } from '../../document/model';
 import { tiePlan } from '../../document/portTies';
 import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
 import { Engine, EngineTrap } from '../../engine/engine';
@@ -33,6 +33,9 @@ import { Mirror, refusalSentence } from '../../engine/mirror';
 import { JotView } from '../jot/JotView';
 import { deviceChassis, jotPlates, jotSpot, originOf } from '../jot/jotLayout';
 import { PasteCard, type PasteState } from '../paste/PasteCard';
+import { SuggestCard } from '../suggest/SuggestCard';
+import { createSuggestStore, SuggestContext } from '../suggest/suggestStore';
+import { looksLikeNeighbours } from '../../document/neighbours';
 import type { PastePlatform } from '../../engine/frames';
 import { devicePlatform, platformChoices, previewPaste, worthReading } from '../paste/pasteConfig';
 import { ConfigDrawer } from '../config/ConfigDrawer';
@@ -1124,10 +1127,20 @@ export function RacksPlace(props: RacksPlaceProps) {
   }, [realView.free, realView.labels]);
   // Held only while the card asks "which device is this from?"; cleared on every other outcome.
   const pendingPasteRef = useRef<string | null>(null);
+  // Cable suggestions (r15-cables): the device the neighbour list was read on (null asks), and text already pasted.
+  const [suggest, setSuggest] = useState<{ deviceId: string | null; text?: string } | null>(null);
+  const suggestStore = useMemo(createSuggestStore, []);
+  const selectedChassis = selection?.kind === 'chassis' ? selection.id : null;
   const startPaste = useCallback(
     (text: string, platform?: PastePlatform) => {
       if (doc == null || !canDraw) return;
       pendingPasteRef.current = null;
+      // A neighbour list is not a config: it opens the suggestions, for the selected device if there is one.
+      if (looksLikeNeighbours(text)) {
+        setPasteState(null);
+        setSuggest({ deviceId: selectedChassis, text });
+        return;
+      }
       setPasteState({ kind: 'reading' });
       withMirror()
         .then((mirror) => {
@@ -1148,7 +1161,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           setPasteState({ kind: 'refused', message: tidySentence(refusalFor(error)?.refused ?? refusalSentence(error)) });
         });
     },
-    [doc, canDraw, withMirror, openSpot, accountId],
+    [doc, canDraw, withMirror, openSpot, accountId, selectedChassis],
   );
   const handlePasteConfig = useCallback(() => {
     // A right-click is a gesture, so the browser may let the page read the clipboard; if not, the card has a box.
@@ -1503,6 +1516,12 @@ export function RacksPlace(props: RacksPlaceProps) {
     const renameTarget = chassisId !== null ? { kind: 'chassis' as const, id: chassisId } : selection?.kind === 'rack' ? { kind: 'rack' as const, id: selection.id } : null;
     out.unshift(
       {
+        id: 'suggest-cables',
+        label: deviceName === '' ? 'Suggest cables from a neighbour list (LLDP)' : `Suggest cables from ${deviceName}'s neighbours (LLDP)`,
+        keywords: ['lldp', 'neighbours', 'neighbors', 'cables', 'discover'],
+        run: () => setSuggest({ deviceId: chassisId }),
+      },
+      {
         id: 'add-port',
         label: deviceName === '' ? 'Add a port to a device' : `Add a port to ${deviceName}`,
         keywords: ['connector', 'interface'],
@@ -1663,6 +1682,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       ) : null}
       <CheckMarksContext.Provider value={layerOn(layers, 'checks')}>
       <PlansContext.Provider value={plans.store}>
+      <SuggestContext.Provider value={suggestStore}>
       <TroubleContext.Provider value={trouble.store}>
       <TraceContext.Provider value={trace.store}>
       {doc == null ? (
@@ -1726,6 +1746,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           onPlanFirmware={canDraw && firmware ? planFirmwareFor : undefined}
           firmwareNeedsVersion={firmwareNeedsVersion}
           onItsDown={canDraw ? trouble.start : undefined}
+          onSuggestCables={canDraw ? (chassisId) => setSuggest({ deviceId: chassisId ?? selectedChassis }) : undefined}
           onCalloutChange={setCalloutId}
           onGroupChange={setGroupIds}
           groupClearRequest={groupClear}
@@ -1801,6 +1822,14 @@ export function RacksPlace(props: RacksPlaceProps) {
           }}
         />
       ) : null}
+      {suggest != null && doc != null && canDraw && pasteState == null ? (
+        <SuggestCard key={suggest.text ?? suggest.deviceId ?? 'any'} doc={doc} deviceId={suggest.deviceId} text={suggest.text} actor={accountId ?? undefined} onApply={(next, deviceId) => {
+            applyDocChange(next);
+            // The switch's details say how many of its ports are now cabled: the added cables, in words.
+            const chassisId = edgesOut(next, deviceId, 'HasChassis')[0]?.to;
+            if (chassisId !== undefined) setSelection({ kind: 'chassis', id: chassisId });
+          }} onClose={() => setSuggest(null)} />
+      ) : null}
       {tieFor != null && doc != null && canDraw && pasteState == null ? (
         <TieCard doc={doc} deviceId={tieFor} actor={accountId ?? undefined} onApply={applyDocChange} onClose={() => setTieFor(null)} />
       ) : null}
@@ -1815,6 +1844,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       {doc != null && jot == null ? <TracePanel controller={trace} onTie={canDraw ? setTieFor : undefined} /> : null}
       </TraceContext.Provider>
       </TroubleContext.Provider>
+      </SuggestContext.Provider>
       </PlansContext.Provider>
       </CheckMarksContext.Provider>
       </NoteAuthorsContext.Provider>
