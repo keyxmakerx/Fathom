@@ -1,0 +1,30 @@
+# corpus/catalogue/tplink/tl-sg2210p.yaml — TP-Link TL-SG2210P, Omada 8-port PoE+ smart
+# switch with 2 SFP slots. The vendor page marks it "End of Sale" (replacement: SG2210P) and
+# shows no single current hardware version; its spec table cites V3.2, V4 and V5. This file
+# records the page's one Interface row, not a specific version.
+# Read 2026-10-10: https://www.omadanetworks.com/us/business-networking/omada-switch-access/tl-sg2210p/
+# Ports as read: "8 10/100/1000Mbps RJ45 Ports" and "2 1000Mbps SFP Slots"; 8 PoE ports, 61 W
+# (PoE not recorded by this format). 54 VDC/1.3 A external adapter; "Desktop / Wall-Mounting";
+# 209 x 126 x 26 mm. No console port or rack units are listed.
+# Desktop gear: rack_units: 1 is nominal (field is required), not a vendor U height.
+# Roles: the SFP slots are the uplinks (the page does not say so; this is the usual reading).
+# Not confirmed: no photo read; single_row is the catalogue's convention.
+# reviewed_by: <named human> is a placeholder (invariant 10).
+vendor: tplink
+model: TL-SG2210P
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    TP-Link Omada, "TL-SG2210P" product page (End of Sale; versions V3.2/V4/V5 in the
+    spec table),
+    https://www.omadanetworks.com/us/business-networking/omada-switch-access/tl-sg2210p/,
+    read 2026-10-10. 8x 10/100/1000 RJ45 (PoE+) + 2x 1000 Mbps SFP. Uplink role for the
+    SFPs is a reading. Layout not photo-confirmed. rack_units nominal (desktop).
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 10
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 8, start_number: 1 }
+      - { kind: "SFP", role: uplink, layout: single_row, count: 2, start_number: 9 }

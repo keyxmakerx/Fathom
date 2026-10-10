@@ -6,7 +6,7 @@ import { useState, type ReactNode } from 'react';
 import type { Document } from '../../document/model';
 import { addPortsFromConfig, tiePlan, tiePorts, tiedPairs, untie } from '../../document/portTies';
 import { type ClosetView, type EditorActions, type PaletteItem, type PortView, type Selection } from '../drawing/contract';
-import { EditorFor, NotesSection, TypedNoteMode } from '../drawing/Editor';
+import { EditorFor, NotesSection, PanelTabsMode, TypedNoteMode } from '../drawing/Editor';
 import { findChassis, findFixture, findOccupant } from '../drawing/lookup';
 import { CableCorrections, type CorrectionsApi } from './CableCorrections';
 import { dismissedLabel } from './corrections';
@@ -124,7 +124,9 @@ export function ItemPage(props: ItemPageProps) {
         {selection.kind === 'cable' && corrections ? <CableCorrections cableId={selection.id} api={corrections} accountId={accountId} /> : null}
         {selection.kind === 'rack' ? <RackContents view={view} idx={idx} rackId={selection.id} actions={actions} onSetWhere={onSetWhere} /> : null}
         {isDevice ? <PluggedInto view={view} idx={idx} hostId={selection.id} actions={actions} /> : null}
-        <TypedNoteMode.Provider value="once">{EditorFor(selection, view, actions, palette)}</TypedNoteMode.Provider>
+        <TypedNoteMode.Provider value="once">
+          <PanelTabsMode.Provider value="flat">{EditorFor(selection, view, actions, palette)}</PanelTabsMode.Provider>
+        </TypedNoteMode.Provider>
         <p className="inv-page__typed">
           <b>Stored as typed.</b> Fathom does not redact what you type, only what you paste, so it is saved and exported exactly as written.
         </p>

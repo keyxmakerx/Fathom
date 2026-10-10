@@ -198,6 +198,7 @@ try {
   console.log('    wrote ' + SHOTS + 'H-02-ports.png');
 
   // Backspace and Delete while typing in a field edit the field, never the selected device.
+  await page.getByRole('tab', { name: 'Notes' }).click();
   const noteBox = page.locator('.drawing-editor__panel').getByPlaceholder('add a note');
   await noteBox.click();
   await noteBox.pressSequentially('ab');

@@ -1,0 +1,25 @@
+# corpus/catalogue/netgear/gs308e.yaml — NETGEAR GS308E, 8-Port Gigabit Ethernet Easy Smart
+# Managed Essentials ("Plus") switch.
+# Read 2026-10-10: https://www.netgear.com/business/wired/switches/plus/gs308e/
+# Ports as read: "8 Ports", "8 x 1G". External power, 12V/1.5A; "desktop, or mount it to your
+# wall or rack with the hardware provided"; 158 x 101 x 29 mm. The page lists no hardware
+# version.
+# Desktop gear: rack_units: 1 is nominal (field is required); no U height is stated.
+# Not confirmed: no photo read, so single_row is the catalogue's convention. All 8 are access.
+# reviewed_by: <named human> is a placeholder (invariant 10).
+vendor: netgear
+model: GS308E
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    NETGEAR, GS308E product page,
+    https://www.netgear.com/business/wired/switches/plus/gs308e/, read 2026-10-10.
+    8x 1G RJ45; external 12V/1.5A. Layout is the catalogue's convention, not
+    photo-confirmed. rack_units nominal (desktop).
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 8
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 8, start_number: 1 }

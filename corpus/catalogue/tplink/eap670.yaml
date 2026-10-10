@@ -1,0 +1,30 @@
+# corpus/catalogue/tplink/eap670.yaml — TP-Link EAP670, Omada Wi-Fi 6 ceiling/wall access
+# point, hardware version V3 (the version the vendor page shows; V1 and V2 also listed).
+# Read 2026-10-10: https://www.omadanetworks.com/us/business-networking/omada-wifi-ceiling-mount/eap670/
+# Interface as read: "1x 2.5 Gigabit RJ45 Port"; power "802.3at PoE" or "12 V / 2 A DC (Power
+# Adapter included)". No console or USB is listed. Ceiling/wall/junction-box mount; 220 x 220
+# x 32.5 mm.
+# Ceiling gear: rack_units: 1 is nominal (field is required), not a vendor U height.
+# The single RJ45 is the PoE-in uplink. The page does not say which side of the unit it is
+# on; it is recorded on rear (a side/underside face is coming later). The front plate is
+# empty because the format requires a front face.
+# reviewed_by: <named human> is a placeholder (invariant 10).
+vendor: tplink
+model: EAP670
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    TP-Link Omada, "EAP670 V3" product page,
+    https://www.omadanetworks.com/us/business-networking/omada-wifi-ceiling-mount/eap670/,
+    read 2026-10-10. 1x 2.5 Gigabit RJ45 (802.3at PoE in). Port location on the unit not
+    stated. rack_units nominal (ceiling AP).
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 0
+    port_groups: []
+  - face: rear
+    port_count: 1
+    port_groups:
+      - { kind: "RJ45", role: uplink, layout: single_row, count: 1, start_number: 1 }
