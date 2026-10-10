@@ -1,0 +1,32 @@
+# corpus/catalogue/ubiquiti/udm-pro.yaml — UniFi Dream Machine Pro, 1U rack-mount
+# console + gateway.
+# Read 2026-10-10: https://techspecs.ui.com/unifi/cloud-gateways/udm-pro (ports:
+# "1 GbE RJ45" 9, "10G SFP+" 2 (10G/1G), default WAN "(1) 10G SFP+" and "(1) GbE
+# RJ45"; "Rack mount (1U)"), plus the quick start guide
+# https://dl.ui.com/qsg/UDM-Pro/UDM-Pro_EN.html (ports 1-8 RJ45 LAN, port 9 RJ45
+# Internet, port 10 SFP+ Internet, port 11 SFP+ LAN; port 9 stated to be on the
+# front) and linitx.com's UDM-PRO listing (same port list).
+# NOT CONFIRMED: the guide states only port 9 and the HDD bay are on the front;
+# all 11 ports are recorded on front. Layout is a guess (no photo). Role: the
+# SFP+ LAN port is recorded uplink beside the WAN, as udm-se.yaml does (the
+# format needs uplink groups after access groups). Power is internal AC plus a
+# "USP-RPS DC input" (not a hot-swap bay), so no psu_slots.
+vendor: ubiquiti
+model: UDM-Pro
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Ubiquiti, UniFi Dream Machine Pro tech specs
+    (https://techspecs.ui.com/unifi/cloud-gateways/udm-pro) and quick start
+    guide (https://dl.ui.com/qsg/UDM-Pro/UDM-Pro_EN.html), read 2026-10-10.
+    8x GbE RJ45 LAN, 1x GbE RJ45 WAN, 2x 1/10G SFP+ (one WAN, one LAN); 1U.
+    Face (front) and layout not fully confirmed.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 11
+    port_groups:
+      - { kind: "RJ45", role: access, layout: paired_columns, count: 8, start_number: 1 }
+      - { kind: "RJ45", role: uplink, layout: single_row, count: 1, start_number: 9 }
+      - { kind: "SFP+", role: uplink, layout: single_row, count: 2, start_number: 10 }

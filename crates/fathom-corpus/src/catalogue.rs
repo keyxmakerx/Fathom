@@ -1879,10 +1879,34 @@ mod tests {
     }
 
     #[test]
+    fn every_shipped_vendor_catalogue_loads() {
+        // Every directory under corpus/catalogue/ loads with every gate passing,
+        // so a model added for a vendor no other test names is still checked.
+        let dir = repo_root().join("corpus").join("catalogue");
+        let mut vendors: Vec<String> = fs::read_dir(&dir)
+            .expect("corpus/catalogue/ is readable")
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect();
+        vendors.sort();
+        assert!(!vendors.is_empty());
+        for vendor in vendors {
+            let cat = Catalogue::load_platform(&repo_root(), &vendor)
+                .unwrap_or_else(|e| panic!("{vendor} catalogue fails to load: {e:?}"));
+            assert!(!cat.models().is_empty(), "{vendor} has no models");
+        }
+    }
+
+    #[test]
     fn ubiquiti_catalogue_loads() {
         let cat = Catalogue::load_platform(&repo_root(), "ubiquiti")
             .expect("the shipped Ubiquiti catalogue loads");
-        assert_eq!(cat.models().len(), 3, "gateway + 24-port + 48-port switch");
+        assert_eq!(
+            cat.models().len(),
+            13,
+            "three original models + ten home-lab models"
+        );
 
         let gw = cat.model("UDM-SE").expect("UDM-SE is reachable by name");
         assert_eq!(gw.vendor, "ubiquiti");

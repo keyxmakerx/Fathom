@@ -1,0 +1,28 @@
+# corpus/catalogue/ubiquiti/u6-lite.yaml — UniFi U6 Lite, a ceiling/wall WiFi 6
+# access point. rack_units: 1 is NOMINAL (not rack gear; field is required).
+# Read 2026-10-10: https://techspecs.ui.com/unifi/wifi/u6-lite
+# Port list as read: "Networking Interface: (1) GbE RJ45 port"; "Uplink: GbE";
+# "Power Method: PoE", 44-57V DC; mounting "Ceiling, Wall". The one RJ45 is the
+# uplink and the PoE input.
+# NOT CONFIRMED: which side the port is on; recorded on rear (underside/back
+# of a ceiling unit, per the catalogue's side-face rule).
+# The format requires a `front` faceplate; an empty one (port_count: 0) is declared,
+# as in tripplite/srshelf2p1u.yaml.
+vendor: ubiquiti
+model: U6-Lite
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Ubiquiti, UniFi U6 Lite tech specs
+    (https://techspecs.ui.com/unifi/wifi/u6-lite), read 2026-10-10.
+    1x GbE RJ45 uplink, powered by PoE (44-57V DC); ceiling/wall AP.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 0
+    port_groups: []
+  - face: rear
+    port_count: 1
+    port_groups:
+      - { kind: "RJ45", role: uplink, layout: single_row, count: 1, start_number: 1 }
