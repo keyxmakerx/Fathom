@@ -77,6 +77,11 @@ describe('imageRows', () => {
     expect(rows).toEqual([]);
   });
 
+  it('ignores the chosen-version fallback once the server names models', () => {
+    const named = image('I9', '23.4R2', ['EX2300-48P']);
+    expect(modelsOfImage(named, [{ id: 't', model: 'EX2300-24P', version: '23.4R2', platform: '', image: 'I9', imageSha256: '', note: '' }])).toEqual(['EX2300-48P']);
+  });
+
   it('falls back to the models whose chosen version names the image', () => {
     const { doc } = estate();
     const bare = image('01JQZ00000000000000000000E', '23.4R2', []);

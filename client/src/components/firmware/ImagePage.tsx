@@ -8,6 +8,7 @@ import { shortHash, sizeWords } from '../../api/firmware';
 import { modelRows } from '../../document/firmware';
 import type { FirmwareApi } from './context';
 import { BADGE_WORD, imageRows, platformWords } from './images';
+import { ModelsEditor } from './ModelsEditor';
 import { CopyButton, GetLink } from './parts';
 import './firmware.css';
 
@@ -84,6 +85,7 @@ export function ImagePage({ api, rowKey, onOpenModel }: { api: FirmwareApi; rowK
               </div>
             ))
           )}
+          {img && api.isSteward ? <ModelsEditor api={api} imageId={img.imageId} current={img.models} known={options} /> : null}
         </dd>
         <dt>Running</dt>
         <dd>{row.running}</dd>

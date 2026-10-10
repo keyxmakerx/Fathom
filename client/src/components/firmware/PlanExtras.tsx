@@ -9,7 +9,7 @@ import type { FetchLink } from '../../api/firmware';
 import { deviceFirmware, targetOfDevice } from '../../document/firmware';
 import { touchedBy, type Plan, type PlanStep } from '../../document/plans';
 import { FirmwareContext } from './context';
-import { CopyButton, copyText } from './parts';
+import { CommandNotes, CopyButton, copyText } from './parts';
 import { LINK_PLACEHOLDER, commandWithLink, maskedLink, parseUpgradeTitle } from './upgradePlan';
 import './firmware.css';
 
@@ -144,6 +144,7 @@ export function FirmwarePlanExtras({ plan }: { plan: Plan }) {
               {scope.error}
             </p>
           ) : null}
+          <CommandNotes commands={api.server.images.find((i) => i.imageId === scope.imageId)?.commands} />
         </>
       ) : (
         <p className="plans-note">A steward gets the one-time link on the day.</p>

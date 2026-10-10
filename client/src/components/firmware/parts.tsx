@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import type { FetchLink } from '../../api/firmware';
+import type { FetchLink, FirmwareCommands } from '../../api/firmware';
 import { MAX_REASON, STATE_WORD, type FwState } from '../../document/firmware';
 import type { FirmwareApi } from './context';
 import { commandWithLink, maskedLink } from './upgradePlan';
@@ -72,6 +72,23 @@ export function HoldForm({ onHold, onCancel }: { onHold: (reason: string) => str
   );
 }
 
+/** What the server could not write: no steps for the platform, and what the vendor's pages did not settle. */
+export function CommandNotes({ commands }: { commands: FirmwareCommands | null | undefined }) {
+  if (!commands) return null;
+  return (
+    <>
+      {commands.steps.length === 0 ? (
+        <p className="fw-muted" data-testid="fw-no-steps">
+          No steps are written for this platform yet.
+        </p>
+      ) : null}
+      {commands.couldNotEstablish.map((line) => (
+        <p key={line} className="fw-muted fw-not-established">{`Not established: ${line}`}</p>
+      ))}
+    </>
+  );
+}
+
 /** "https://host/fw/fetch/••••" with the commands under it. The link is held in this component only. */
 export function LinkView({ link, detail }: { link: FetchLink; detail?: string }) {
   const [now, setNow] = useState(() => Date.now());
@@ -100,6 +117,7 @@ export function LinkView({ link, detail }: { link: FetchLink; detail?: string })
       {steps.length > 0 ? (
         <pre className="fw-link-box__cmd">{steps.map((s) => `${s.step}\n  ${commandWithLink(s.command, link.url)}`).join('\n')}</pre>
       ) : null}
+      <CommandNotes commands={link.commands} />
     </div>
   );
 }

@@ -55,9 +55,10 @@ export interface FwImageRow {
 export const rowKeyOfImage = (imageId: string): string => `img:${imageId}`;
 export const rowKeyOfVersion = (version: string): string => `ver:${version}`;
 
-/** The models an image is for: what the server says, then any whose chosen version names it. */
+/** The models an image is for: what the server says; only when it says none, those whose chosen version names it. */
 export function modelsOfImage(img: FirmwareImage, targets: readonly FwTarget[]): string[] {
-  const out = [...img.models];
+  if (img.models.length > 0) return [...img.models];
+  const out: string[] = [];
   for (const t of targets) if (t.image === img.imageId && !out.includes(t.model)) out.push(t.model);
   return out;
 }
