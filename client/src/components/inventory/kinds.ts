@@ -10,7 +10,7 @@ import type { CatalogueModel } from '../../api/catalogue';
 import { SHEATH_VALUES, OWNERSHIP_VALUES } from '../../document/cables';
 import { DEVICE_ROLES } from '../../document/edit';
 import { FIELD_TYPE_LABEL, fieldsOf, listFieldDefs, setFieldValues, type FieldDefView, type FieldFor, type FieldSet, type FieldType } from '../../document/fields';
-import { edgesIn, findNode, parseNodeId, readChassisFields, readDeviceFields, type Document } from '../../document/model';
+import { edgesIn, findNode, parseNodeId, readChassisFields, readDeviceFields, readPhysicalPortFields, type Document } from '../../document/model';
 import { tagObject, tagsOf, untagObject } from '../../document/tags';
 import { STATE_WORD, deviceFirmware, listTargets, stateOf } from '../../document/firmware';
 import type { SubnetRow } from '../../document/networks-derive';
@@ -200,6 +200,7 @@ const CORE_COLUMNS: Record<Kind, readonly Column[]> = {
     core('face', 'Face', 70),
     core('uplink', 'Uplink', 70),
     core('cable', 'Cable to', 190),
+    core('mac', 'MAC', 140, { editable: true }),
   ],
   networks: [],
   issues: [],
@@ -459,6 +460,9 @@ export function portRows(doc: Document, view: ClosetView, idx: PlaceIndex, defs:
       uplink: port.uplink ? 'yes' : 'no',
       cable: cableTo,
     };
+    const node = findNode(doc, port.id);
+    const mac = node ? readPhysicalPortFields(node).mac : undefined;
+    if (mac !== undefined) cells.mac = mac;
     const { tags } = withExtras(doc, 'ports', port.id, cells, defs);
     const places = port.place ? [port.place] : [];
     return {
@@ -581,6 +585,8 @@ function coreChange(kind: Kind, row: InvRow, colKey: string, value: string): imp
       if (v === null || !Number.isInteger(n)) throw new CellRefusal('A rack height must be a whole number of units.');
       return { kind: 'rack-height', id: row.ids.rackId, heightU: n };
     }
+  } else if (kind === 'ports' && row.selection?.kind === 'port') {
+    if (colKey === 'mac') return { kind: 'port', id: row.selection.id, field: 'mac', value: v };
   } else if (kind === 'cables' && row.ids.cableId) {
     const field = colKey === 'name' ? 'label' : colKey === 'sheath' ? 'sheath' : colKey === 'length' ? 'length_m' : colKey === 'ownership' ? 'ownership' : null;
     if (field) return { kind: 'cable', id: row.ids.cableId, field, value: v };

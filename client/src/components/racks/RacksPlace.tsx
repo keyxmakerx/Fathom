@@ -1410,6 +1410,22 @@ export function RacksPlace(props: RacksPlaceProps) {
     [handleEdit],
   );
 
+  // Round 15: both answer with a sentence (what moved, what was copied), shown on the canvas.
+  const handleCloseRackGaps = useCallback(
+    (rackId: string) => {
+      const result = handleEdit({ kind: 'rack-close-gaps', rackId });
+      if (result != null && 'refused' in result) setCanvasNotice(result.refused);
+    },
+    [handleEdit],
+  );
+  const handleCopyRack = useCallback(
+    (rackId: string) => {
+      const result = handleEdit({ kind: 'rack-copy', rackId });
+      if (result != null && 'refused' in result) setCanvasNotice(result.refused);
+    },
+    [handleEdit],
+  );
+
   const handlePasteDevice = useCallback(
     (chassisId: string, rackId: string) => {
       const result = handleEdit({ kind: 'duplicate-device', chassisId, intoRackId: rackId });
@@ -1706,6 +1722,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           onRename={canDraw ? handleRename : undefined}
           onAddDevice={canDraw ? handleAddDevice : undefined}
           onAddRack={canDraw ? handleAddRack : undefined}
+          onCloseRackGaps={canDraw ? handleCloseRackGaps : undefined}
+          onCopyRack={canDraw ? handleCopyRack : undefined}
           onAddWall={canDraw ? handleAddWall : undefined}
           onPasteConfig={canDraw ? handlePasteConfig : undefined}
           onOpenDevice={handleOpenDevice}

@@ -1,4 +1,4 @@
-import { cloneElement, createContext, isValidElement, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { cloneElement, createContext, isValidElement, useContext, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 
 import '../../styles/drawing.css';
 // ADR-0053 §6 — "the black block reused from the drawer where a value was
@@ -7,6 +7,7 @@ import '../../styles/drawing.css';
 import '../config/config.css';
 import { DEVICE_ROLES } from '../../document/edit';
 import { PORT_CONNECTOR_VALUES, PORT_SERVICE_VALUES } from '../../document/compat';
+import { expandPortPattern, previewLabels } from '../../document/portPattern';
 // `OWNERSHIP_VALUES` (`Cable.ownership`'s own enum) — the same "mirrored
 // once, never guessed" reasoning `DEVICE_ROLES` above already gives, for
 // this session's own cable panel.
@@ -24,6 +25,7 @@ import type { FixtureView, Placement, RackView } from '../../document/view';
 import { FIELD_TYPES, FIELD_TYPE_LABEL, type FieldType } from '../../document/fields';
 import { TagChips } from '../TagChips';
 import { DocsSection } from '../docs/DocsSection';
+import { DevicePhoto } from '../docs/DevicePhoto';
 import { FirmwareSection } from '../firmware/FirmwareSection';
 import {
   ABSENT,
@@ -289,6 +291,59 @@ function SupplyAction({
       </button>
       {refusal != null ? <div style={CAUTION_STYLE}>{refusal}</div> : null}
     </>
+  );
+}
+
+/** Round 15 (r15-qol), find by MAC: the hardware address seen on a port, in any spelling. */
+function PortMacField({ port, actions }: { port: PortView; actions: EditorActions }) {
+  return (
+    <>
+      <div className="drawing-editor__field">
+        <div className="drawing-editor__field-label">MAC</div>
+        <EditableValue
+          value={port.mac ?? ''}
+          placeholder={ABSENT}
+          editorKind="text"
+          onCommit={actions.onEdit ? (v) => actions.onEdit!({ kind: 'port', id: port.id, field: 'mac', value: v }) : undefined}
+        />
+      </div>
+      <TypedNote shown={(port.mac ?? '').length > 0} />
+    </>
+  );
+}
+
+/** Round 15 (r15-qol): "Close gaps" slides everything up against the thing above it; "Copy
+ * rack" makes R2 with the same devices, shelves and the cables between them. Each answers with
+ * what it did. Close gaps shows only while there is a gap. */
+function RackTidyControl({ rack, actions }: { rack: RackView; actions: EditorActions }) {
+  const [said, setSaid] = useState<{ text: string; bad: boolean } | null>(null);
+  const onEdit = actions.onEdit;
+  if (!onEdit) return null;
+  const items = [...rack.chassis, ...rack.shelves].sort((a, b) => b.positionU - a.positionU);
+  const gaps = items.some((it, i) => i > 0 && items[i - 1]!.positionU > it.positionU + it.heightU);
+  const run = (change: EditorChange) => {
+    const r = onEdit(change);
+    const text = r?.refused ?? null;
+    setSaid(text === null ? null : { text, bad: !/^(Closed the gaps|No gaps|Copied to)/.test(text) });
+  };
+  return (
+    <div className="drawing-editor__field">
+      <div className="btn-group">
+        {gaps ? (
+          <button type="button" onClick={() => run({ kind: 'rack-close-gaps', rackId: rack.id })}>
+            Close gaps
+          </button>
+        ) : null}
+        <button type="button" onClick={() => run({ kind: 'rack-copy', rackId: rack.id })}>
+          Copy rack
+        </button>
+      </div>
+      {said ? (
+        <div role={said.bad ? 'alert' : 'status'} style={said.bad ? CAUTION_STYLE : TYPED_NOTE_STYLE}>
+          {said.text}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -1007,29 +1062,24 @@ function PlacedOnControl({ itemId, placement, view, actions }: PlacedOnControlPr
 
 /** ADR-0051 §1, brief item 2 — "+ add a port" on a sketch: label, connector
  * (the schema's own `PhysicalPort.connector` enum, `document/compat.ts`'s
- * `PORT_CONNECTOR_VALUES` — the same vocabulary `commands.ts`'s
- * `addSketchPort` itself refuses outside of), service (its optional
- * `PhysicalPort.service`, `PORT_SERVICE_VALUES`, blank means unset) and
- * face. A "range" mode adds a label prefix plus first/last number
- * (`commands.ts`'s `addSketchPortRange`); "one port" stays the default. */
+ * `PORT_CONNECTOR_VALUES`), service (optional, blank means unset) and face.
+ * Round 15, ports by pattern: the one name field also takes a pattern, so
+ * `ge-0/0/{0-23}` is 24 ports typed once (`document/portPattern.ts`), with
+ * the count and a preview shown as it is typed. One batch either way. */
 function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions: EditorActions }) {
   const [open, setIsOpen] = useState(false);
-  const [mode, setMode] = useState<'single' | 'range'>('single');
   const [label, setLabel] = useState('');
-  const [rangePrefix, setRangePrefix] = useState('');
-  const [rangeFirst, setRangeFirst] = useState('0');
-  const [rangeLast, setRangeLast] = useState('0');
   const [connector, setConnector] = useState<string>(PORT_CONNECTOR_VALUES[0]);
   const [service, setService] = useState('');
   const [face, setFace] = useState<'front' | 'rear'>('front');
   const [refusal, setRefusal] = useState<string | null>(null);
   const labelRef = useRef<HTMLInputElement>(null);
+  const hintId = useId();
 
   // The command palette's "Add port" opens this form for the selected device.
   useEffect(() => {
     function onRequest(event: Event) {
       if ((event as CustomEvent<{ chassisId: string }>).detail.chassisId !== chassisId) return;
-      setMode('single');
       setIsOpen(true);
       window.requestAnimationFrame(() => labelRef.current?.focus());
     }
@@ -1042,9 +1092,6 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
   // even the closed "+ add a port" button, the same "no actions" reading
   // `SupplyAction` gives a reader.
   if (!onEdit) return null;
-  // As `PlacedOnControl`'s own `doEdit` above — `commit`, a nested
-  // `function` declaration, does not inherit the narrowing the `if
-  // (!onEdit)` check just proved.
   const doEdit: (change: EditorChange) => { refused: string } | void = onEdit;
 
   if (!open) {
@@ -1055,29 +1102,21 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
     );
   }
 
+  const pattern = label.includes('{') || label.includes('}') ? expandPortPattern(label) : null;
+  const count = pattern?.ok ? pattern.labels.length : 1;
+
   function commit() {
-    if (mode === 'range') {
-      const first = Number(rangeFirst);
-      const last = Number(rangeLast);
-      if (!Number.isInteger(first) || !Number.isInteger(last)) {
-        setRefusal('first and last must be whole numbers');
-        return;
-      }
-      const result = doEdit(
-        addSketchPortRangeChange(chassisId, rangePrefix, first, last, connector, service.length > 0 ? service : null, face),
-      );
-      if (result?.refused) {
-        setRefusal(result.refused);
-        return;
-      }
-      setRefusal(null);
-      setIsOpen(false);
-      setRangePrefix('');
-      setRangeFirst('0');
-      setRangeLast('0');
+    const expanded = expandPortPattern(label);
+    if (!expanded.ok) {
+      setRefusal(expanded.reason);
       return;
     }
-    const result = doEdit(addSketchPortChange(chassisId, label, connector, service.length > 0 ? service : null, face));
+    const svc = service.length > 0 ? service : null;
+    const result = doEdit(
+      expanded.labels.length === 1
+        ? addSketchPortChange(chassisId, expanded.labels[0]!, connector, svc, face)
+        : { kind: 'add-sketch-ports', chassisId, labels: expanded.labels, connector, service: svc, face },
+    );
     if (result?.refused) {
       setRefusal(result.refused);
       return;
@@ -1090,34 +1129,33 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
 
   return (
     <div className="drawing-ports__form">
-      <div className="drawing-ports__modes btn-group" role="radiogroup" aria-label="How many">
-        {(['single', 'range'] as const).map((m) => (
-          <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)}>
-            {m === 'single' ? 'One port' : 'A range'}
-          </button>
-        ))}
+      <label className="drawing-ports__cell drawing-ports__cell--wide">
+        <span>Name, or a pattern</span>
+        <input
+          ref={labelRef}
+          placeholder="eth0, or ge-0/0/{0-23}"
+          value={label}
+          aria-describedby={hintId}
+          onChange={(e) => {
+            setLabel(e.target.value);
+            setRefusal(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit();
+          }}
+        />
+      </label>
+      <div id={hintId} className="drawing-ports__pattern" style={TYPED_NOTE_STYLE}>
+        {pattern === null ? (
+          'Braces make many at once: {0-23}, {01-24} or {wan,lan}.'
+        ) : pattern.ok ? (
+          <>
+            <strong style={{ color: 'var(--ink)' }}>{pattern.labels.length} ports</strong> · {previewLabels(pattern.labels)}
+          </>
+        ) : (
+          pattern.reason
+        )}
       </div>
-      {mode === 'single' ? (
-        <label className="drawing-ports__cell drawing-ports__cell--wide">
-          <span>Label</span>
-          <input ref={labelRef} placeholder="e.g. ge-0/0/1" value={label} onChange={(e) => setLabel(e.target.value)} />
-        </label>
-      ) : (
-        <>
-          <label className="drawing-ports__cell drawing-ports__cell--wide">
-            <span>Label prefix</span>
-            <input placeholder="e.g. ge-0/0/" value={rangePrefix} onChange={(e) => setRangePrefix(e.target.value)} />
-          </label>
-          <label className="drawing-ports__cell">
-            <span>First</span>
-            <input inputMode="numeric" value={rangeFirst} onChange={(e) => setRangeFirst(e.target.value)} />
-          </label>
-          <label className="drawing-ports__cell">
-            <span>Last</span>
-            <input inputMode="numeric" value={rangeLast} onChange={(e) => setRangeLast(e.target.value)} />
-          </label>
-        </>
-      )}
       <label className="drawing-ports__cell">
         <span>Connector</span>
         <select value={connector} onChange={(e) => setConnector(e.target.value)}>
@@ -1148,7 +1186,7 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
       </label>
       <div className="drawing-ports__actions">
         <button type="button" className="drawing-ports__primary" onClick={commit}>
-          {mode === 'single' ? 'Add port' : 'Add ports'}
+          {count === 1 ? 'Add port' : `Add ${count} ports`}
         </button>
         <button type="button" onClick={() => setIsOpen(false)}>
           Cancel
@@ -1720,6 +1758,7 @@ function panelFor(
         {/* ADR-0051 §1, brief item 3 — "a rack's editor gains '+ add a
             shelf'". */}
         <AddShelfControl rackId={rack.id} catalogue={catalogue} actions={actions} />
+        <RackTidyControl rack={rack} actions={actions} />
 
         {/* ADR-0053 §5 — a Rack is one of the three `Notable` kinds; the
             rack's own "no notes FIELD" (schema's own doc) stays true — this
@@ -1999,6 +2038,7 @@ function panelFor(
             `chassis.deviceId`, not `chassis.id`. */}
         <NotesSection ownerId={chassis.deviceId} actions={actions} />
         <TagsSection ownerId={chassis.deviceId} actions={actions} />
+        <DevicePhoto ownerId={chassis.deviceId} name={chassis.hostname || UNNAMED_HOSTNAME} />
         <DocsSection ownerId={chassis.deviceId} model={chassis.model} />
 
         {/* UI-SPEC's cable-delete rule — the same one-shot action shape
@@ -2275,9 +2315,9 @@ function panelFor(
             wherever the port sits (a rack chassis, a shelf occupant or a
             surface fixture — `port.id` is the same `PhysicalPort` node id
             either way, `locatePort`'s own contract). */}
+        <PortMacField port={port} actions={actions} />
         <FieldsSection ownerId={port.id} actions={actions} />
-        <FieldsSection ownerId={port.id} actions={actions} />
-      <NotesSection ownerId={port.id} actions={actions} />
+        <NotesSection ownerId={port.id} actions={actions} />
         <TagsSection ownerId={port.id} actions={actions} />
         <DocsSection ownerId={port.id} />
       </div>
@@ -2295,9 +2335,9 @@ function panelFor(
         <Field label="Uplink" value={port.uplink ? 'yes' : 'no'} />
         <Field label="Shelf" value={`${shelf.label || shelf.id} · ${rack.label}`} />
         <PortCableSection view={view} port={port} actions={actions} />
+        <PortMacField port={port} actions={actions} />
         <FieldsSection ownerId={port.id} actions={actions} />
-        <FieldsSection ownerId={port.id} actions={actions} />
-      <NotesSection ownerId={port.id} actions={actions} />
+        <NotesSection ownerId={port.id} actions={actions} />
         <TagsSection ownerId={port.id} actions={actions} />
         <DocsSection ownerId={port.id} />
       </div>
@@ -2314,6 +2354,7 @@ function panelFor(
       <Field label="Uplink" value={port.uplink ? 'yes' : 'no'} />
       <Field label="Surface" value={surface.label || surface.id} />
       <PortCableSection view={view} port={port} actions={actions} />
+      <PortMacField port={port} actions={actions} />
       <FieldsSection ownerId={port.id} actions={actions} />
       <NotesSection ownerId={port.id} actions={actions} />
       <TagsSection ownerId={port.id} actions={actions} />

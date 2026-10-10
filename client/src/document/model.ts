@@ -463,6 +463,15 @@ export function text(s: string): CanonValue {
   return s;
 }
 
+/** `MacAddress` (scalar.rs): six lowercase colon-separated hex pairs. Any common spelling is read
+ * (colons, dashes, Cisco dots, bare) and written canonically; anything else is refused. */
+export function macAddress(s: string): CanonValue {
+  const t = s.trim();
+  const shapes = [/^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/i, /^[0-9a-f]{2}(-[0-9a-f]{2}){5}$/i, /^[0-9a-f]{4}([.-][0-9a-f]{4}){2}$/i, /^[0-9a-f]{12}$/i];
+  if (!shapes.some((r) => r.test(t))) throw new RangeError(`MacAddress: "${s}" is not a MAC address`);
+  return (t.replace(/[^0-9a-f]/gi, '').toLowerCase().match(/.{2}/g) ?? []).join(':');
+}
+
 export function identifier(s: string): CanonValue {
   if (s.length === 0) {
     throw new RangeError('Identifier: must not be empty');
@@ -777,6 +786,8 @@ export interface PhysicalPortFields {
    * the plate's width and height to its centre. Absent: the computed layout. */
   plateX?: number;
   plateY?: number;
+  /** Schema 0.21 — the hardware address seen on this port, canonical `aa:bb:cc:dd:ee:ff`. */
+  mac?: string;
 }
 
 export function readPhysicalPortFields(node: GraphNode): PhysicalPortFields {
@@ -787,6 +798,7 @@ export function readPhysicalPortFields(node: GraphNode): PhysicalPortFields {
     service: asString(fieldValue(node.fields, 'PhysicalPort.service')),
     plateX: asNumber(fieldValue(node.fields, 'PhysicalPort.plate_x')),
     plateY: asNumber(fieldValue(node.fields, 'PhysicalPort.plate_y')),
+    mac: asString(fieldValue(node.fields, 'PhysicalPort.mac')),
   };
 }
 

@@ -428,6 +428,8 @@ function DrawingInner({
   onPasteDevice,
   onRename,
   onAddDevice,
+  onCloseRackGaps,
+  onCopyRack,
   onAddRack,
   onAddWall,
   onPasteConfig,
@@ -577,7 +579,7 @@ function DrawingInner({
     onRemoveFree,
   };
   const menuActions: MenuActions = canDraw
-    ? { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, ...freeMenuActions }
+    ? { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onCloseRackGaps, onCopyRack, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, ...freeMenuActions }
     : { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom };
   const menuActionsRef = useRef(menuActions);
   useLayoutEffect(() => {

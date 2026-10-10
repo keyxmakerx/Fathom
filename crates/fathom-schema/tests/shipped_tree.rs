@@ -92,7 +92,8 @@ fn shipped_tree_declaration_counts_hold() {
     let fk = tree.field_keys.as_ref().expect("registry loads");
     // The owner's ticked ideas (schema 0.20): +2 field keys (`PhysicalPort.plate_x`, `.plate_y`,
     // 412-413). No kind, edge or class moves.
-    assert_eq!(fk.entries.len(), 407, "field-key registry entries");
+    // Round 15 quality-of-life (schema 0.21): +1 field key (`PhysicalPort.mac`, 462; 414-461 are held for the other round 15 threads).
+    assert_eq!(fk.entries.len(), 408, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -167,7 +168,9 @@ fn shipped_tree_declaration_counts_hold() {
     //
     // 0.19 -> 0.20 is the owner's ticked ideas: two optional PhysicalPort fields and one
     // `Label.form` variant; only the field-key count above moves.
-    assert_eq!(tree.version.as_deref(), Some("0.20"));
+    //
+    // 0.20 -> 0.21 is round 15's quality-of-life items: one optional PhysicalPort field, `mac`.
+    assert_eq!(tree.version.as_deref(), Some("0.21"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and
