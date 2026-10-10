@@ -234,6 +234,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0037_steward_invitations.sql",
         sql: include_str!("../migrations/0037_steward_invitations.sql"),
     },
+    // Firmware images may name their platform and release.
+    Migration {
+        version: 38,
+        name: "0038_firmware_platform_version.sql",
+        sql: include_str!("../migrations/0038_firmware_platform_version.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.
