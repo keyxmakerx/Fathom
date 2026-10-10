@@ -26,11 +26,9 @@
 #   sibling (used only to corroborate the 4x SFP uplink COUNT convention
 #   this tier's port count shares, not its PoE wattage or SFP+ capability).
 #
-# THE FOUR UPLINK PORTS ARE NAMED `SFP+` BELOW BUT ARE NOT SFP+ METAL — same
-# caveat, same reasoning, as `corpus/catalogue/ubiquiti/usw-24-poe.yaml`'s
-# header states in full for its own two uplink ports (1G SFP cages, not
-# 10G-capable SFP+; this reader has no plain `Sfp` `PortKind` yet). Not
-# repeated in full here; see that file.
+# THE FOUR UPLINK PORTS ARE 1G SFP CAGES, recorded as `kind: "SFP"`. Until
+# 2026-10-10 they were recorded as `SFP+` because the reader had no plain
+# `Sfp` kind; see `corpus/catalogue/ubiquiti/usw-24-poe.yaml`'s header.
 #
 # WHAT IS NOT INDEPENDENTLY CONFIRMED, AND THE CONSERVATIVE READING USED:
 #
@@ -64,4 +62,4 @@ faceplates:
     port_count: 52
     port_groups:
       - { kind: "RJ45", role: access, layout: paired_columns, count: 48, start_number: 1 }
-      - { kind: "SFP+", role: uplink, layout: single_row, count: 4, start_number: 1 }
+      - { kind: "SFP", role: uplink, layout: single_row, count: 4, start_number: 1 }

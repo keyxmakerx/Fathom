@@ -1,0 +1,28 @@
+# corpus/catalogue/qnap/ts-464.yaml -- QNAP TS-464 4-bay tower NAS (not the TS-464U rack models).
+# `reviewed_by: <named human>` is a placeholder (invariant 10). rack_units: 1 is NOMINAL (tower, 165 x 170 x 226.5 mm).
+# Read 2026-10-10: qnap.com/en/product/ts-464/specs/hardware ("2.5 Gigabit Ethernet Port
+# (2.5G/1G/100M): 2 (2.5G/1G/100M/10M)") and qnap.com/en/product/ts-464 ("two built-in 2.5GbE ports").
+# Recorded: 2x 2.5GbE as RJ45. QNAP's pages never print "RJ45"; it is inferred from the 10M/100M
+# speeds (copper only). A retailer page that does say RJ-45 was for the TS-464U rack model, not used.
+# NOT RECORDED (expansion slots are not recorded): the PCIe Gen3 x2 slot (optional 5GbE/10GbE card).
+# USB and HDMI not recorded. The format requires a `front` faceplate; an empty one is declared.
+# NOT CONFIRMED: that the ports are on the rear (QNAP's text never says so; a gallery image is named
+# "..._TS-464_back.png"; NAS convention), left-to-right order, layout (single_row).
+vendor: qnap
+model: TS-464
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    QNAP, "TS-464 | Bye-bye Gigabit NAS, hello 2.5GbE NAS. | QNAP",
+    qnap.com/en/product/ts-464 and qnap.com/en/product/ts-464/specs/hardware,
+    read 2026-10-10. 2x 2.5GbE ports (RJ45 inferred, rear assumed); PCIe slot not recorded.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 0
+    port_groups: []
+  - face: rear
+    port_count: 2
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 2, start_number: 1 }

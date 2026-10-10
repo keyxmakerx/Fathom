@@ -1,0 +1,26 @@
+# corpus/catalogue/ubiquiti/usw-flex-mini.yaml — UniFi Switch Flex Mini, a 5-port
+# compact desktop switch. rack_units: 1 is NOMINAL (desktop gear).
+# Read 2026-10-10: https://techspecs.ui.com/unifi/switching/usw-flex-mini and
+# the quick start guide https://dl.ui.com/qsg/USW-Flex-Mini/USW-Flex-Mini_EN.html
+# Port list as read: "1 GbE RJ45" 5 (1G/100M/10M). Power is USB-C 5V or 802.3af/at
+# PoE input; the guide calls one port the "PoE In Port" (implied port 1, ports
+# 2-5 plain). Power is not modelled (no psu_slots).
+# NOT CONFIRMED: all 5 are recorded access (the PoE-in port also carries data);
+# the guide does not say which panel the ports are on; recorded on front,
+# single row (no photo).
+vendor: ubiquiti
+model: USW-Flex-Mini
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Ubiquiti, UniFi Switch Flex Mini tech specs
+    (https://techspecs.ui.com/unifi/switching/usw-flex-mini) and quick start
+    guide (dl.ui.com/qsg/USW-Flex-Mini), read 2026-10-10. 5x GbE RJ45, one
+    accepting PoE input; compact desktop. Face and layout not confirmed.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 5
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 5, start_number: 1 }

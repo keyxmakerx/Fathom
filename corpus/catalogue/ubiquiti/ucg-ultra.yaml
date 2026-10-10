@@ -1,0 +1,27 @@
+# corpus/catalogue/ubiquiti/ucg-ultra.yaml — UniFi Cloud Gateway Ultra, a compact
+# desktop gateway. rack_units: 1 is NOMINAL (desktop gear, field is required).
+# Read 2026-10-10: https://techspecs.ui.com/unifi/cloud-gateways/ucg-ultra
+# Port list as read: "1 GbE RJ45" 4 (1G/100M/10M); "2.5 GbE RJ45" 1
+# (2.5G/1G/100M/10M); "Default WAN Ports: (1) 2.5 GbE RJ45"; "Max. WAN Port
+# Count: 4"; power is USB-C 5V/3A (adapter, no psu_slots).
+# NOT CONFIRMED: which physical face carries the ports (the page and the quick
+# start guide, dl.ui.com, were unreadable for it: robots-disallowed); recorded on
+# front. Port order/numbering is positional, not read off the box. WAN is the
+# DEFAULT only; any port can be assigned WAN. Single row is a guess (no photo).
+vendor: ubiquiti
+model: UCG-Ultra
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Ubiquiti, UniFi Cloud Gateway Ultra tech specs
+    (https://techspecs.ui.com/unifi/cloud-gateways/ucg-ultra), read 2026-10-10.
+    4x 1GbE RJ45 LAN + 1x 2.5GbE RJ45 (default WAN); compact desktop. Face and
+    layout not confirmed by a photo.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 5
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 4, start_number: 1 }
+      - { kind: "RJ45", role: uplink, layout: single_row, count: 1, start_number: 5 }

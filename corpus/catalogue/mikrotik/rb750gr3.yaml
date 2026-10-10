@@ -1,0 +1,27 @@
+# MikroTik hEX (RB750Gr3): desktop five-port Gigabit router. rack_units: 1 is
+# NOMINAL (small desktop box, 113x89x28 mm; no rack mounting stated).
+# Read 2026-10-10: https://mikrotik.com/product/RB750Gr3 ("10/100/1000 Ethernet
+# ports 5", "PoE in Passive PoE", "Number of USB ports 1", no SFP, no console).
+# Ports recorded: 5 x RJ45 1G, numbered 1..5 (RouterOS ether1..ether5).
+# Not confirmed: the page designates no WAN port; the RouterOS manual says only
+# that ether1 is "typically used as the WAN interface" (manual.mikrotik.com
+# getting-started/first-time-configuration, read the same day), so all five are
+# role access. Port face (front) and single_row layout are the conventions for
+# a small one-row desktop unit, not read off a photograph.
+# `reviewed_by: <named human>` is a placeholder, not a name.
+vendor: mikrotik
+model: RB750Gr3
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    MikroTik, "hEX" product page (https://mikrotik.com/product/RB750Gr3),
+    read 2026-10-10. 5 x 10/100/1000 Ethernet, 1 x USB, passive PoE in, no SFP;
+    113x89x28 mm desktop unit. Port face, layout and roles are conventions,
+    not photo-confirmed; see the file header.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 5
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 5, start_number: 1 }

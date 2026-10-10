@@ -1,0 +1,25 @@
+# corpus/catalogue/netgear/gs305e.yaml — NETGEAR GS305E, 5-Port Gigabit Ethernet Easy Smart
+# Managed Essentials ("Plus") switch.
+# Read 2026-10-10: https://www.netgear.com/business/wired/switches/plus/gs305e/
+# Ports as read: "5 Ports", "5 x 1G". External power (no rating on the page); "desktop, or
+# mount it to your wall or rack with the hardware provided"; 94 x 100 x 27 mm. No PoE is
+# mentioned and the page lists no hardware version.
+# Desktop gear: rack_units: 1 is nominal (field is required); no U height is stated.
+# Not confirmed: no photo read, so single_row is the catalogue's convention. All 5 are access.
+# reviewed_by: <named human> is a placeholder (invariant 10).
+vendor: netgear
+model: GS305E
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    NETGEAR, GS305E product page,
+    https://www.netgear.com/business/wired/switches/plus/gs305e/, read 2026-10-10.
+    5x 1G RJ45; external power. Layout is the catalogue's convention, not
+    photo-confirmed. rack_units nominal (desktop).
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 5
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 5, start_number: 1 }

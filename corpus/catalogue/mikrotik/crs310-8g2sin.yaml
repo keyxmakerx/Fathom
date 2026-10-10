@@ -1,0 +1,28 @@
+# MikroTik CRS310-8G+2S+IN: 1U switch, 8 x 2.5G RJ45 + 2 x SFP+ (10G).
+# rack_units: 1 from the page's "standard 19" rack using the provided rackmount
+# ears" and a 44 mm height (200x206.1x44 mm as printed, units not stated).
+# Read 2026-10-10: https://mikrotik.com/product/crs310_8g_2s_in ("Number of
+# 2.5G Ethernet ports 8", "SFP+ ports 2", cages "support multiple data rates:
+# 1G, 2.5G, and 10G"; no console or PoE listed). The 8 copper ports are 2.5G
+# RJ45, recorded as kind RJ45.
+# Ports recorded: 8 x RJ45 2.5G (1..8, access) + 2 x SFP+ (1..2, uplink).
+# Not confirmed: the uplink role (a convention for SFP+ beside a copper bank),
+# face (front) and single_row layout; no photo was read.
+# `reviewed_by: <named human>` is a placeholder, not a name.
+vendor: mikrotik
+model: CRS310-8G+2S+IN
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    MikroTik, "CRS310-8G+2S+IN" product page
+    (https://mikrotik.com/product/crs310_8g_2s_in), read 2026-10-10. 8 x 2.5G
+    Ethernet, 2 x SFP+ (1G/2.5G/10G), rackmount ears provided, 1 DC jack.
+    Uplink role, face and layout are conventions; see the file header.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 10
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 8, start_number: 1 }
+      - { kind: "SFP+", role: uplink, layout: single_row, count: 2, start_number: 1 }

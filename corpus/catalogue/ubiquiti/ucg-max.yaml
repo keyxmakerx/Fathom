@@ -1,0 +1,26 @@
+# corpus/catalogue/ubiquiti/ucg-max.yaml — UniFi Cloud Gateway Max, a compact
+# desktop gateway. rack_units: 1 is NOMINAL (desktop gear, field is required).
+# Read 2026-10-10: https://techspecs.ui.com/unifi/cloud-gateways/ucg-max
+# Port list as read: "2.5 GbE RJ45" 5 (2.5G/1G/100M/10M); "Default WAN Ports:
+# (1) 2.5 GbE RJ45"; "Max. WAN Port Count: 4"; power is USB-C 5V/5A (adapter,
+# no psu_slots). No PoE, console or USB data port listed.
+# NOT CONFIRMED: which physical face carries the ports (quick start guide was
+# robots-disallowed); recorded on front. Port order/numbering is positional.
+# WAN is the DEFAULT only; any port can be assigned WAN. Single row is a guess.
+vendor: ubiquiti
+model: UCG-Max
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Ubiquiti, UniFi Cloud Gateway Max tech specs
+    (https://techspecs.ui.com/unifi/cloud-gateways/ucg-max), read 2026-10-10.
+    5x 2.5GbE RJ45, one the default WAN; compact desktop. Face and layout not
+    confirmed by a photo.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 5
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 4, start_number: 1 }
+      - { kind: "RJ45", role: uplink, layout: single_row, count: 1, start_number: 5 }

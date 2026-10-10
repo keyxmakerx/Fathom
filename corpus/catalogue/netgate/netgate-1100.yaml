@@ -1,0 +1,25 @@
+# corpus/catalogue/netgate/netgate-1100.yaml -- Netgate 1100 pfSense+ desktop gateway.
+# `reviewed_by: <named human>` is a placeholder (invariant 10). rack_units: 1 is NOMINAL (desktop unit).
+# Read 2026-10-10: docs.netgate.com/pfsense/en/latest/solutions/sg-1100/io-ports.html (Input and Output
+# Ports) and shop.netgate.com/products/1100-pfsense. Ports as read: WAN, LAN, OPT, all RJ-45 1 Gbps,
+# front, behind a Marvell 88E6141 switch ("3x GbE Ethernet (WAN/LAN/OPT)").
+# NOT RECORDED: the USB Micro-B serial console (rear; not RJ45) and USB ports.
+# NOT CONFIRMED: left-to-right order (the docs table order WAN, LAN, OPT is used) and any photo, so
+# single_row. WAN/LAN/OPT are software roles on a switch ("repurposed" per vendor); the format needs
+# uplinks listed last, so the printed order is kept by recording all three as `access`.
+vendor: netgate
+model: Netgate 1100
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Netgate, "Input and Output Ports" (Netgate 1100 docs),
+    docs.netgate.com/pfsense/en/latest/solutions/sg-1100/io-ports.html, and
+    shop.netgate.com/products/1100-pfsense, read 2026-10-10. 3x RJ-45 1 Gbps
+    (WAN/LAN/OPT) on the front panel; USB Micro-B console not recorded.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 3
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, names: ["WAN", "LAN", "OPT"] }
