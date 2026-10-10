@@ -1,12 +1,13 @@
-// The sample home lab (corpus/samples/home-lab.json) traces end to end, through two switches, whether its devices come
-// from the catalogue or are drawn as sketches.
+// The sample home lab (corpus/samples/home-lab.json) opens and traces end to end, through two switches, whether its
+// devices come from the whole shipped catalogue or are drawn as sketches.
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import type { CatalogueModel, CataloguePort } from '../api/catalogue';
+import type { CatalogueFaceplate, CatalogueModel, CataloguePort } from '../api/catalogue';
+import { identifier } from '../document/model';
 import { buildSample, modelKey, sample } from '../components/home/sampleNetwork';
 import { Engine } from './engine';
 import { Mirror } from './mirror';
@@ -21,36 +22,61 @@ beforeAll(async () => {
   engine = await Engine.init(fileLoader(WASM_PATH));
 });
 
-const ports = (kind: string, count: number, start: number): CataloguePort[] =>
-  Array.from({ length: count }, (_, i) => ({ kind, number: start + i, uplink: false, row: 'single', column: i, groupGapBefore: false }));
+// The whole shipped catalogue, read from corpus/catalogue/ the way the server lists it: every model, with its port
+// groups expanded to ports. Only what the sample builder reads is filled in; the Rust loader (fathom-corpus) is the
+// one that checks these files, so a file it would refuse never reaches the server either.
+const catalogueFiles = import.meta.glob('../../../corpus/catalogue/*/*.yaml', { eager: true, query: '?raw', import: 'default' }) as Record<
+  string,
+  string
+>;
 
-// The two models the sample racks that main's catalogue holds, as corpus/catalogue/ubiquiti/*.yaml lists their ports.
-const MODELS: CatalogueModel[] = [
-  {
-    vendor: 'ubiquiti',
-    model: 'UDM-SE',
-    rackUnits: 1,
-    reviewedBy: '<named human>',
-    source: { cite: 'corpus/catalogue/ubiquiti/udm-se.yaml', readOn: '2026-09-19' },
+function readModel(text: string): CatalogueModel {
+  const field = (name: string): string => {
+    const m = new RegExp(`^${name}: *(.+)$`, 'm').exec(text);
+    if (!m) throw new Error(`catalogue file without ${name}`);
+    return m[1].trim().replace(/^"(.*)"$/, '$1');
+  };
+  const faceplates: CatalogueFaceplate[] = [];
+  for (const line of text.split('\n')) {
+    const face = /^ {2}- face: (front|rear)/.exec(line);
+    if (face) faceplates.push({ face: face[1] as 'front' | 'rear', portCount: 0, ports: [] });
+    const group = /^ +- \{ *kind: "([^"]+)".*\}/.exec(line);
+    if (!group || faceplates.length === 0) continue;
+    const plate = faceplates[faceplates.length - 1];
+    const port = (number: number | null, name: string | null): CataloguePort => ({
+      kind: group[1],
+      number,
+      name,
+      uplink: false,
+      row: 'single',
+      column: plate.ports.length,
+      groupGapBefore: false,
+    });
+    const counted = /count: (\d+), start_number: (\d+)/.exec(line);
+    const named = /names: \[([^\]]*)\]/.exec(line);
+    if (counted) for (let i = 0; i < Number(counted[1]); i++) plate.ports.push(port(Number(counted[2]) + i, null));
+    else if (named) for (const n of named[1].split(',')) plate.ports.push(port(null, n.trim().replace(/^"(.*)"$/, '$1')));
+    else throw new Error(`a port group the test cannot read: ${line}`);
+    plate.portCount = plate.ports.length;
+  }
+  return {
+    vendor: field('vendor'),
+    model: field('model'),
+    rackUnits: Number(field('rack_units')),
+    reviewedBy: field('reviewed_by'),
+    source: { cite: '', readOn: '' },
     psuSlots: [],
-    faceplates: [{ face: 'front', portCount: 11, ports: [...ports('RJ45', 9, 1), ...ports('SFP+', 2, 1)] }],
-  },
-  {
-    vendor: 'ubiquiti',
-    model: 'USW-24-PoE',
-    rackUnits: 1,
-    reviewedBy: '<named human>',
-    source: { cite: 'corpus/catalogue/ubiquiti/usw-24-poe.yaml', readOn: '2026-09-19' },
-    psuSlots: [],
-    faceplates: [{ face: 'front', portCount: 26, ports: [...ports('RJ45', 24, 1), ...ports('SFP+', 2, 1)] }],
-  },
-];
+    faceplates,
+  };
+}
+
+const CATALOGUE: CatalogueModel[] = Object.values(catalogueFiles).map(readModel);
 
 const spec = sample('home-lab');
 
 describe.each([
   ['sketches only', new Map<string, CatalogueModel>()],
-  ['with catalogue models', new Map(MODELS.map((m) => [modelKey(m.vendor, m.model), m]))],
+  ['against the full catalogue', new Map(CATALOGUE.map((m) => [modelKey(m.vendor, m.model), m]))],
 ])('the sample home lab, %s', (_, models) => {
   const built = buildSample(spec, models);
   const mirror = (): Mirror => {
@@ -77,5 +103,22 @@ describe.each([
   it('opens with nothing a check refuses', () => {
     const checks = mirror().checks();
     expect(checks.findings.filter((f) => f.severity === 'refuse')).toEqual([]);
+  });
+});
+
+describe('the sample home lab against the full catalogue', () => {
+  it('reads every catalogue model', () => {
+    expect(CATALOGUE.length).toBe(Object.keys(catalogueFiles).length);
+    expect(CATALOGUE.length).toBeGreaterThan(0);
+  });
+
+  // Chassis.model is an Identifier (schema/schema.yaml): a model named with a space could not be placed at all.
+  it.each(CATALOGUE.map((m) => [`${m.vendor}/${m.model}`, m.model]))('%s is a model id a chassis can carry', (_, model) => {
+    expect(() => identifier(model)).not.toThrow();
+  });
+
+  it('draws every device the sample names a model for from the catalogue', () => {
+    const built = buildSample(spec, new Map(CATALOGUE.map((m) => [modelKey(m.vendor, m.model), m])));
+    expect(built.catalogued.sort()).toEqual(spec.devices.filter((d) => d.catalogue).map((d) => d.hostname).sort());
   });
 });

@@ -10,7 +10,7 @@
 # NOT CONFIRMED: left-to-right order (docs state none) and no photo, so single_row; WAN is listed last
 # because the format requires uplinks after access ports, which may not match the box.
 vendor: netgate
-model: Netgate 2100
+model: Netgate-2100
 rack_units: 1
 reviewed_by: <named human>
 source:

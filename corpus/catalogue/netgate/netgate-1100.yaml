@@ -8,7 +8,7 @@
 # single_row. WAN/LAN/OPT are software roles on a switch ("repurposed" per vendor); the format needs
 # uplinks listed last, so the printed order is kept by recording all three as `access`.
 vendor: netgate
-model: Netgate 1100
+model: Netgate-1100
 rack_units: 1
 reviewed_by: <named human>
 source:

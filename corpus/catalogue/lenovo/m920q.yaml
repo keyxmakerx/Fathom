@@ -8,7 +8,7 @@
 # Intel I350-T4 4-port adapter, the optional serial/VGA/DP/HDMI/USB-C port, and USB/video ports.
 # The format requires a `front` faceplate; an empty one is declared.
 vendor: lenovo
-model: ThinkCentre M920q Tiny
+model: ThinkCentre-M920q-Tiny
 rack_units: 1
 reviewed_by: <named human>
 source:

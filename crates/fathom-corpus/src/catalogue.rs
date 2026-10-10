@@ -115,6 +115,10 @@ pub enum CatalogueGate {
     /// A model's `form:` is present but is not one of `shelf`, `outlet`,
     /// `board` or `panel` — see [`ModelForm`].
     FormUnknown,
+    /// `model` is not an `Identifier` (bytes 0x21..=0x7E, no spaces): the id is
+    /// written as `Chassis.model`, which the schema types `Identifier`, so a
+    /// model named with a space could never be placed.
+    ModelNotIdentifier,
 }
 
 /// UI-SPEC "Ports" names four glyphs — "Four glyphs, never confusable" — but
@@ -793,6 +797,15 @@ fn load_model(
     }
 
     let model_name = req_str(file, root, "model")?;
+    if model_name.is_empty() || !model_name.bytes().all(|b| (0x21..=0x7e).contains(&b)) {
+        let line = root.get("model").map_or(root.line, |n| n.line);
+        return Err(err(
+            file,
+            line,
+            CatalogueGate::ModelNotIdentifier,
+            format!("`{model_name}` is not an identifier (no spaces): it becomes `Chassis.model`"),
+        ));
+    }
     let rack_units = req_u32_range(file, root, "rack_units", 1, MAX_RACK_UNITS)?;
 
     // Non-empty, not just present: this loader checks a name is genuinely IN
@@ -1311,6 +1324,14 @@ mod tests {
                    - {{ kind: \"RJ45\", role: access, layout: paired_columns, count: 12, start_number: 1 }}\n      \
                    - {{ kind: \"SFP+\", role: uplink, layout: paired_rows, count: 2, start_number: 1 }}\n"
         )
+    }
+
+    #[test]
+    fn a_model_name_with_a_space_is_refused() {
+        let text = good_model_text("").replace("model: TEST-12P", "model: TEST 12P");
+        let e = Catalogue::from_sources(&source(&text), "juniper", &juniper_vendors())
+            .expect_err("a model id must be an Identifier");
+        assert_eq!(e.gate, CatalogueGate::ModelNotIdentifier);
     }
 
     #[test]

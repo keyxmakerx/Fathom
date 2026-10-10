@@ -10,7 +10,7 @@
 # The format requires a `front` faceplate; an empty one (port_count: 0) is declared.
 # NOT CONFIRMED: left-to-right order and layout (docs give no photo or order), so single_row.
 vendor: netgate
-model: Netgate 4200
+model: Netgate-4200
 rack_units: 1
 reviewed_by: <named human>
 source:
