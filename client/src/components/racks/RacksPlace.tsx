@@ -23,6 +23,8 @@ import { usePaletteActions } from '../shell/paletteRegistry';
 import { shortcutText } from '../shell/shortcuts';
 import { BOX_H, BOX_W, createLabel, createLine, moveFree, removeFree, setLabel } from '../../document/freeform';
 import { FieldValueError, isDeviceRole, setDeviceField } from '../../document/edit';
+import { useResumeView } from './useResumeView';
+import type { CameraHub } from '../drawing/camera';
 import { edgesIn, parseNodeId, type Document } from '../../document/model';
 import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
 import { Engine, EngineTrap } from '../../engine/engine';
@@ -83,6 +85,8 @@ import type { PaletteItem } from '../drawing/contract';
 import { DEFAULT_FACEPLATES, SKETCH_DEVICE_PALETTE_ITEM, isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
 import { highestFreeU, hostnamesOf, nextHostname, racksInPickOrder } from './pick';
 import './racks.css';
+import { SkeletonRacks } from '../ui/Skeleton';
+import { useSavedViews } from './useSavedViews';
 
 // `canDrawFor`/`refusalFor` now live in `components/design/useDesignSession.ts`,
 // re-exported here unchanged, so the two
@@ -248,6 +252,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   designId: string;
   /** What is selected, by element id, for presence (ADR-0063 §12). */
   onSelectedChange?: (id: string | null) => void;
+  /** A device was opened (double-click): Home's Recent row remembers it. */
+  onDeviceOpened?: (chassisId: string, name: string) => void;
 }
 
 /**
@@ -283,6 +289,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     onShownCablesChange,
     designId,
     onSelectedChange,
+    onDeviceOpened,
     ...shellProps
   } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign } = session;
@@ -294,6 +301,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   useEffect(() => {
     onSelectedChange?.(selectedId);
   }, [onSelectedChange, selectedId]);
+  const resumeView = useResumeView({ accountId, designId, doc, hasFocus: initialFocus != null, selection, setSelection });
   // A device whose callout is showing keeps the details panel closed; the callout's Details opens it.
   const [calloutId, setCalloutId] = useState<string | null>(null);
   // Rack or Diagram: this person's choice for this design, kept in this browser.
@@ -332,6 +340,16 @@ export function RacksPlace(props: RacksPlaceProps) {
       }),
     [accountId, session.designId],
   );
+  // The Views menu: named camera + Show layers, per person and design, kept in this browser.
+  const cameraHub = useRef<CameraHub>({ control: null, pending: null }).current;
+  const applyLayers = useCallback(
+    (next: LayerSet) => {
+      setLayers(next);
+      saveLayers(accountId, session.designId, next);
+    },
+    [accountId, session.designId],
+  );
+  const viewsMenu = useSavedViews({ accountId, designId, hub: cameraHub, look, layers, applyLayers, changeLook, setRackCamera: resumeView.setCamera });
   // Bumped by the bar's percentage button; the drawing fits every rack.
   const [fitRequest, setFitRequest] = useState(0);
   // A short-lived note over the canvas for a menu action that did nothing
@@ -963,9 +981,14 @@ export function RacksPlace(props: RacksPlaceProps) {
   // ADR-0060 decision 10: Open goes into a device ("jot mode"). Drawing stays mounted beneath, so its camera is
   // where it was on the way back; the way out is Esc, the bar's path, or the Back button.
   const [jot, setJot] = useState<{ id: string; origin: { x: number; y: number } | null; inside: boolean } | null>(null);
+  const realViewRef = useRef(realView);
+  realViewRef.current = realView;
+  const onDeviceOpenedRef = useRef(onDeviceOpened);
+  onDeviceOpenedRef.current = onDeviceOpened;
   const handleOpenDevice = useCallback((id: string, inside: boolean, at: { x: number; y: number } | null) => {
     setSelection({ kind: 'chassis', id });
     setJot({ id, origin: at, inside });
+    onDeviceOpenedRef.current?.(id, deviceChassis(realViewRef.current, id)?.hostname ?? '');
   }, []);
   const leaveJot = useCallback(() => setJot(null), []);
 
@@ -1401,7 +1424,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           paletteFromCatalogue(catalogue),
         )
       : null;
-  const editor = historyView != null ? historyView.panel : saveRefusal != null ? (
+  const editor = saveRefusal != null ? (
       <div className="racks-place__refusal">
         {saveRefusal}
         {/* ADR-0054 §1's refusal wash "offers reload". */}
@@ -1459,7 +1482,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
-    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle } }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle } }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
         doc != null ? (
           <>
             <PlansBarChip controller={plans} />
@@ -1480,7 +1503,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       <TroubleContext.Provider value={trouble.store}>
       <TraceContext.Provider value={trace.store}>
       {doc == null ? (
-        <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
+        <div className="racks-place__loading">{loadError ?? <SkeletonRacks label="Opening the design…" />}</div>
       ) : look === 'diagram' ? (
         <DiagramDrawing
           view={displayView}
@@ -1493,6 +1516,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           dashedCableIds={cableDraw.dashedIds}
           words={words}
           style={diagramStyle}
+          cameraHub={cameraHub}
         />
       ) : (
         <Drawing
@@ -1503,6 +1527,9 @@ export function RacksPlace(props: RacksPlaceProps) {
           onZoomChange={onZoomChange}
           fitRequest={fitRequest}
           lookSwitched={lookSwitched}
+          cameraHub={cameraHub}
+          initialViewport={resumeView.initialViewport}
+          onViewportSettled={resumeView.onViewportSettled}
           onPlace={handlePlace}
           onMove={handleMove}
           onConnect={handleConnect}

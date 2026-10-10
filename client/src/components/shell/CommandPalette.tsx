@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { EmptyState } from '../ui/EmptyState';
 import { createPortal } from 'react-dom';
 
 import { firstEnabled, matchActions, moveActive, type PaletteAction } from './palette';
@@ -153,7 +154,11 @@ export function CommandPalette({ search, onClose }: { search: ShellSearch; onClo
               </div>
             );
           })}
-          {nothing && <div className="palette__none">Nothing in this design matches.</div>}
+          {nothing && (
+            <EmptyState className="palette__none" title="Nothing in this design matches." compact>
+              Try a device name, a rack, an address or a tag.
+            </EmptyState>
+          )}
         </div>
         <div className="palette__foot" aria-hidden="true">
           <span>↑ ↓ move</span>

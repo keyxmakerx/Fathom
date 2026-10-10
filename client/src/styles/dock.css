@@ -1,0 +1,234 @@
+/* The side panels (Equipment on the left; Details, History and Trail on the right): each folds to
+   a slim labelled strip at its edge, slides open and shut, and is resized by a handle on its inner
+   edge. The width of an open panel is set inline from `shell/panelSizing.ts`, which keeps the
+   canvas from being squeezed. The motion is the slot's width only: the panel inside keeps one
+   width, so its contents do not reflow while it moves. */
+
+:root {
+  --m-dock: 200ms; /* a side panel sliding open */
+  --m-dock-shut: 160ms; /* and shut; DOCK_EXIT_MS in Dock.tsx must match */
+}
+
+.dock-slot {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.dock-slot--left {
+  border-right: var(--rule-hair) solid var(--hairline);
+}
+
+.dock-slot--right {
+  border-left: var(--rule-hair) solid var(--hairline);
+}
+
+/* The panel holds its width while the slot grows or shrinks around it, pinned to the edge it came from. */
+.dock-panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dock-slot--left .dock-panel {
+  left: 0;
+}
+
+.dock-slot--right .dock-panel {
+  right: 0;
+}
+
+/* What the panel holds fills it; the old fixed widths and edge rules belong to the slot now. */
+.dock-panel > .shell-rail,
+.dock-panel > .shell-editor,
+.dock-panel > .shell-trail {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  border: none;
+}
+
+.dock-panel > .shell-rail {
+  background: var(--surface);
+}
+
+/* Slide open and shut. Width only; opacity eases the content in so the clipped edge is soft. */
+@keyframes dock-open {
+  from {
+    width: 0;
+    opacity: 0.4;
+  }
+}
+
+@keyframes dock-shut {
+  to {
+    width: 0;
+    opacity: 0.4;
+  }
+}
+
+.dock-slot[data-state='open'] {
+  animation: dock-open var(--m-dock, 200ms) cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.dock-slot[data-state='closing'] {
+  animation: dock-shut var(--m-dock-shut, 160ms) cubic-bezier(0.4, 0, 1, 1) forwards;
+  pointer-events: none;
+}
+
+/* The drag handle on the inner edge. */
+.dock-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  z-index: 3;
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+  transition: background var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.dock-handle--left {
+  left: 0;
+}
+
+.dock-handle--right {
+  right: 0;
+}
+
+.dock-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+  transition: background var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.dock-handle--left::after {
+  left: 0;
+}
+
+.dock-handle--right::after {
+  right: 0;
+}
+
+.dock-handle:hover::after,
+.dock-handle:focus-visible::after,
+.shell__body[data-resizing] .dock-handle::after {
+  background: var(--ink);
+}
+
+.dock-handle:focus-visible {
+  outline: none;
+}
+
+/* While a handle is being dragged: no animation, no text selection, and the canvas does not take the pointer. */
+.shell__body[data-resizing] {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.shell__body[data-resizing] .dock-slot {
+  animation: none;
+}
+
+.shell__body[data-resizing] .shell__drawing {
+  pointer-events: none;
+}
+
+/* The folded edge: labelled tabs, one per panel. */
+.dock-strip {
+  width: 28px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+}
+
+.dock-strip--right {
+  border-left: var(--rule-hair) solid var(--hairline);
+}
+
+.dock-tab {
+  position: relative;
+  width: 28px;
+  margin: 0;
+  padding: var(--s3) 0;
+  display: flex;
+  justify-content: center;
+  border: none;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    color var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1)),
+    background var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.dock-tab__word {
+  writing-mode: vertical-rl;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.dock-tab:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+
+.dock-tab:focus-visible {
+  outline: var(--rule-hair) solid var(--ink);
+  outline-offset: -2px;
+}
+
+.dock-tab--on {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+
+.dock-tab--on::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--ink);
+}
+
+/* Something is going on behind a folded tab (a past save is showing). */
+.dock-tab--marked::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  background: var(--caution);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dock-slot[data-state='open'],
+  .dock-slot[data-state='closing'] {
+    animation: none;
+  }
+  .dock-handle,
+  .dock-handle::after,
+  .dock-tab {
+    transition: none;
+  }
+}

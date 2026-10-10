@@ -42,6 +42,7 @@ export interface BarProps {
   /** The Rack | Diagram switch; omitted where the look does not apply. */
   look?: { value: Look; onChange: (look: Look) => void };
   /** The Show ▾ menu of canvas layers; omitted where there is no canvas. */
+  views?: ReactNode;
   layers?: { value: LayerSet; onToggle: (id: LayerId) => void; style?: { value: DiagramStyle; onChange: (style: DiagramStyle) => void } };
   presence: PresenceUser[];
   zoom: number;
@@ -104,6 +105,7 @@ export function Bar({
   onLensChange,
   look,
   layers,
+  views,
   presence,
   zoom,
   onZoomIn,
@@ -440,6 +442,7 @@ export function Bar({
                 </div>
               </Popover>
             )}
+            {layers != null && views}
           </>
         )}
       </div>

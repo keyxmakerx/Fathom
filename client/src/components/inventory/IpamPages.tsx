@@ -9,6 +9,7 @@ import { GRID_CELLS, buildGrid, formatIpv4, freeRuns, parseCidr, prefixText, ran
 import { IpamRefusal, NEEDS_OWNER, addAddress, addVlanOnDevice, deviceChoices, interfaceChoices, type OwnerChoice } from '../../document/ipam-write';
 import type { Document } from '../../document/model';
 import { detachAddress } from '../../document/networks';
+import { EmptyState } from '../ui/EmptyState';
 
 type Actor = { actor: string } | undefined;
 
@@ -426,7 +427,13 @@ export function VlanPage(props: { doc: Document; row: VlanKindRow; actor: Actor;
         </ul>
         <h3 className="ipam-h">Members</h3>
         <ul className="inv-page__list">
-          {row.members.length === 0 ? <li className="inv-page__muted">No port is on this VLAN yet.</li> : null}
+          {row.members.length === 0 ? (
+            <li>
+              <EmptyState title="No port is on this VLAN yet." compact>
+                Ports join a VLAN from the port's own panel.
+              </EmptyState>
+            </li>
+          ) : null}
           {row.members.map((m, i) => (
             <li key={i}>
               <span>

@@ -22,3 +22,30 @@ export function applyTheme(theme: Theme | null): void {
     localStorage.removeItem(STORAGE_KEY);
   }
 }
+
+/** What the person chose: follow the system, or pin light or dark. */
+export type ThemeChoice = 'system' | Theme;
+
+export const THEME_CHOICES: readonly ThemeChoice[] = ['system', 'light', 'dark'];
+
+export function getThemeChoice(): ThemeChoice {
+  try {
+    return getStoredTheme() ?? 'system';
+  } catch {
+    return 'system';
+  }
+}
+
+export function setThemeChoice(choice: ThemeChoice): void {
+  applyTheme(choice === 'system' ? null : choice);
+}
+
+/** At startup: put the stored choice on the page before anything is drawn. Writes nothing back. */
+export function applyStoredTheme(): void {
+  try {
+    const stored = getStoredTheme();
+    if (stored) document.documentElement.setAttribute('data-theme', stored);
+  } catch {
+    // storage blocked: follow the system
+  }
+}

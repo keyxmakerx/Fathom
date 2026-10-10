@@ -4,11 +4,12 @@
 // only the drawer's own box: the gutter, the config text with its destroyed
 // blocks, the paste box, and the assistant's six rules, printed here and
 // nowhere else.
-import { useState, type JSX, type ReactNode } from 'react';
+import { useRef, useState, type JSX, type ReactNode } from 'react';
 
 import type { CaptureLine, CaptureView } from '../../document/capture';
 import type { ChassisView } from '../../document/view';
 import './config.css';
+import { EmptyState } from '../ui/EmptyState';
 
 /** UI-SPEC "Config": "click a line and the port it built lights". A line's
  * own `builtLabel` (`document/capture.ts`) is checked against this
@@ -89,6 +90,7 @@ export interface ConfigDrawerProps {
 export function ConfigDrawer(props: ConfigDrawerProps): JSX.Element {
   const { chassis, capture, canDraw, onPaste, onLineHover, onLineSelect, refusal } = props;
   const [pasteText, setPasteText] = useState('');
+  const pasteBox = useRef<HTMLTextAreaElement>(null);
   const [selectedOrdinal, setSelectedOrdinal] = useState<number | null>(null);
 
   const lines = capture?.lines ?? [];
@@ -133,6 +135,7 @@ export function ConfigDrawer(props: ConfigDrawerProps): JSX.Element {
       {canDraw && (
         <div className="config-drawer__paste">
           <textarea
+            ref={pasteBox}
             className="config-drawer__paste-input"
             value={pasteText}
             onChange={(e) => setPasteText(e.target.value)}
@@ -151,7 +154,14 @@ export function ConfigDrawer(props: ConfigDrawerProps): JSX.Element {
       )}
 
       {capture === null && (
-        <div className="config-drawer__empty">No config captured for this device yet.</div>
+        <EmptyState
+          className="config-drawer__empty"
+          title="No config captured for this device yet."
+          compact
+          action={canDraw ? { label: 'Paste a config', onClick: () => pasteBox.current?.focus() } : undefined}
+        >
+          Once a config is pasted, its lines and the ports they built appear here.
+        </EmptyState>
       )}
 
       {capture !== null && (
