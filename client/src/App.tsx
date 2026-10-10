@@ -847,9 +847,20 @@ export default function App() {
       >
         <Home
           address={session.address}
-          onOpenRacks={openIn('racks')}
-          onOpenInventory={openIn('inventory')}
-          onOpenDevice={openDevice}
+          // A design the person opened from Home (their first, or the sample) is a choice made here: coming back
+          // must stay on Home, the same latch direct entry sets.
+          onOpenRacks={(organisation, design) => {
+            setDirectEntrySession(accountSessionId);
+            openIn('racks')(organisation, design);
+          }}
+          onOpenInventory={(organisation, design) => {
+            setDirectEntrySession(accountSessionId);
+            openIn('inventory')(organisation, design);
+          }}
+          onOpenDevice={(organisation, design, chassisId) => {
+            setDirectEntrySession(accountSessionId);
+            openDevice(organisation, design, chassisId);
+          }}
           onDirectEntry={directEntrySession === accountSessionId ? undefined : handleDirectEntry}
           notice={consoleRefusal}
           onClaimOrganisation={() => setClaiming({})}
