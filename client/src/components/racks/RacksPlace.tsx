@@ -1224,10 +1224,10 @@ export function RacksPlace(props: RacksPlaceProps) {
   const handleDuplicateFree = useCallback(
     (ids: readonly string[], dx: number, dy: number) =>
       freeWrite((d, o) => {
-        const r = duplicateFreeDoc(d, realView, ids, dx, dy, o);
+        const r = duplicateFreeDoc(d, realView, ids, dx, dy, { ...o, catalogue });
         return { doc: r.doc, out: r.ids };
       }),
-    [freeWrite, realView],
+    [freeWrite, realView, catalogue],
   );
   const handleResizeShelf = useCallback(
     (shelfId: string, change: { heightU?: number; slots?: number }, preview: boolean) => {

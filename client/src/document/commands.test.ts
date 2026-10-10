@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CatalogueModel } from '../api/catalogue';
-import { FieldValueError } from './edit';
+import { FieldValueError, setDeviceField } from './edit';
 import {
   AlreadyPlacedError,
   DuplicatePortLabelError,
@@ -1171,6 +1171,33 @@ describe('duplicateDevice', () => {
   it('refuses a chassis that is not rack-mounted', () => {
     const { doc, chassisId } = bareChassis(emptyDocument());
     expect(() => duplicateDevice(doc, chassisId, { now: NOW })).toThrow(UnknownReferenceError);
+  });
+
+  it('gives the copy the name it is asked for and the source role, never the source name', () => {
+    const { doc, chassisId } = sketchDeviceInRack();
+    const sourceDevice = edgesIn(doc, chassisId, 'HasChassis')[0].from;
+    const withRole = setDeviceField(doc, sourceDevice, 'role', 'switch', { now: NOW });
+    const result = duplicateDevice(withRole, chassisId, { now: NOW, hostname: 'src-02' });
+    const copyDevice = findNode(result.doc, edgesIn(result.doc, result.chassisId, 'HasChassis')[0].from)!;
+    expect(copyDevice.fields['Device.hostname']?.value).toBe('src-02');
+    expect(copyDevice.fields['Device.role']?.value).toBe('switch');
+  });
+
+  it('puts the copy in another rack when asked', () => {
+    const { doc, chassisId } = sketchDeviceInRack();
+    const premisesId = doc.nodes.find((n) => n.id.startsWith('premises:'))!.id;
+    const other = createRack(doc, premisesId, { label: 'Other', heightU: 10, unitNumbering: 'ascending', now: NOW });
+    const otherId = other.nodes.find((n) => n.id.startsWith('rack:') && n.id !== edgesOut(doc, chassisId, 'MountedIn')[0].to)!.id;
+    const result = duplicateDevice(other, chassisId, { now: NOW, intoRackId: otherId });
+    expect(edgesOut(result.doc, result.chassisId, 'MountedIn')[0].to).toBe(otherId);
+    expect(result.placed).toBe(true);
+  });
+
+  it('copies a box that is in no rack when told it is unplaced, leaving the copy unplaced', () => {
+    const { doc, chassisId } = bareChassis(emptyDocument());
+    const result = duplicateDevice(doc, chassisId, { now: NOW, unplaced: true });
+    expect(result.placed).toBe(false);
+    expect(findNode(result.doc, result.chassisId)).toBeDefined();
   });
 });
 

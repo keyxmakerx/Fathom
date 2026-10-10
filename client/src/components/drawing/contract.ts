@@ -186,7 +186,7 @@ export type EditorChange =
     }
   /** ADR-0051 §1 — "Duplicate a device" (`commands.ts`'s `duplicateDevice`).
    * Shown only on a rack-mounted chassis's own panel. */
-  | { kind: 'duplicate-device'; chassisId: string }
+  | { kind: 'duplicate-device'; chassisId: string; /** Paste: put the copy in this rack's next free units. */ intoRackId?: string }
   /** ADR-0051 §1 — a rack's "+ add a shelf" (`commands.ts`'s `createShelf`);
    * `label` is required (`PassiveNode.label`, schema card "1" — this
    * session's brief item 1); `model` names a catalogue entry from the
