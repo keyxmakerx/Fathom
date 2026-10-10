@@ -98,6 +98,8 @@ import type { Person } from '../../api/live';
 import { buildDrawingNodes, ownerNodeIdForPort } from './buildDrawingNodes';
 import { PEER_DOT_PX, peerMarks } from './peerMarks';
 import { useDrawingNodeCaches } from './useDrawingNodeCaches';
+import { easeOut, glideOptions } from './motion';
+import { useSettle } from './useSettle';
 
 const NODE_TYPES = {
   rack: RackNode,
@@ -207,8 +209,16 @@ function closetFitViewOptions(racks: readonly { id: string }[], surfaces: readon
 }
 
 /** The camera's glide: linear, so its zoom runs straight between the two ends
- * and never dips into another stop or band on the way. */
-const GLIDE = { duration: 300, interpolate: 'linear' } as const;
+ * and never dips into another stop or band on the way, with an ease-out on the
+ * timing so it lands softly. `duration` is read when the options are spread, so
+ * the person's reduce-motion setting (duration 0) applies at once. */
+const GLIDE = {
+  get duration() {
+    return glideOptions().duration;
+  },
+  ease: easeOut,
+  interpolate: 'linear',
+} as const;
 
 /** Matches `.drawing-config-drawer`'s height in `drawing.css`. */
 const DRAWER_HEIGHT_FRACTION = 0.46;
@@ -784,6 +794,8 @@ function DrawingInner({
     [followCamera, settled.settle],
   );
 
+  const { settleMoved, settlePlaced } = useSettle(containerRef, view);
+
   const triggerShake = useCallback((id: string) => {
     if (shakeTimer.current != null) clearTimeout(shakeTimer.current);
     setShakingId(id);
@@ -1012,8 +1024,8 @@ function DrawingInner({
     const nextZoom = zoom / 100;
     const pane = containerRef.current;
     const target = configDrawerOpen && selectedChassisFlowCentre != null ? centreAboveDrawer(selectedChassisFlowCentre, nextZoom, pane) : null;
-    if (target != null) void rf.setCenter(target.x, target.y, { zoom: nextZoom });
-    else void rf.setViewport(pane == null ? { ...live, zoom: nextZoom } : zoomAboutPaneCentre(live, nextZoom, pane.clientWidth, pane.clientHeight));
+    if (target != null) void rf.setCenter(target.x, target.y, { zoom: nextZoom, ...GLIDE });
+    else void rf.setViewport(pane == null ? { ...live, zoom: nextZoom } : zoomAboutPaneCentre(live, nextZoom, pane.clientWidth, pane.clientHeight), { ...GLIDE });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reacts to the bar alone; the drawer and chassis are read as they are now.
   }, [zoom, rf]);
 
@@ -1282,8 +1294,16 @@ function DrawingInner({
       if (free.onNodeDoubleClick(node)) return;
       const parsed = parseNodeId(node.id);
       if (parsed?.kind === 'chassis') openChassis(parsed.id);
+      // A double-click on a rack glides to the rack stop, centred on that rack.
+      if (parsed?.kind === 'rack') {
+        const inner = rf.getInternalNode(node.id);
+        if (inner == null) return;
+        const w = inner.measured.width ?? RACK_NODE_WIDTH;
+        const h = inner.measured.height ?? 0;
+        void rf.setCenter(inner.internals.positionAbsolute.x + w / 2, inner.internals.positionAbsolute.y + h / 2, { zoom: CAMERA_STOPS.rack / 100, ...GLIDE });
+      }
     },
-    [openChassis, onOpenDevice, free.onNodeDoubleClick],
+    [openChassis, onOpenDevice, free.onNodeDoubleClick, rf],
   );
 
   const chassisHeightUFor = (node: FlowNode): number =>
@@ -1349,8 +1369,9 @@ function DrawingInner({
         return;
       }
       onMove(parsed.id, rack.id, positionU);
+      settleMoved(parsed.id);
     },
-    [view.racks, rackPositions, onMove, triggerShake, free.onNodeDragStop],
+    [view.racks, rackPositions, onMove, triggerShake, free.onNodeDragStop, settleMoved],
   );
 
   const handleDragOver = useCallback(
@@ -1408,9 +1429,10 @@ function DrawingInner({
         triggerShake(rackNodeId(rack.id));
         return;
       }
+      settlePlaced(rack.id, positionU);
       onPlace(rack.id, { vendor: payload.vendor, model: payload.model, role: payload.role }, positionU);
     },
-    [rf, view.racks, rackPositions, onPlace, triggerShake, canDraw, free.dropBox],
+    [rf, view.racks, rackPositions, onPlace, triggerShake, canDraw, free.dropBox, settlePlaced],
   );
 
   // UI-SPEC "Drag-to-connect": "the lead droops live between the fixed
