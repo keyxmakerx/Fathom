@@ -39,21 +39,11 @@
 #   §*Currency*'s two-source rule, applied the same way
 #   `udm-se.yaml`'s header applies it to that model's management port).
 #
-#   THE TWO REAR/UPLINK PORTS ARE NAMED `SFP+` BELOW BUT ARE NOT SFP+ METAL:
-#   every source read says "2 x 1G SFP ports" — 1000BASE-X cages, not the
-#   10G SFP+ cages the EX4300's uplink module genuinely carries. This
-#   catalogue's `PortKind` enum has exactly `Rj45, SfpPlus, QsfpPlus, Lc,
-#   C14, C13, NemaP5_15R, NemaP5_15P` (`crates/fathom-corpus/src/
-#   catalogue.rs`) — no plain, non-Plus `Sfp` member exists yet, the same
-#   kind of gap this reader's own module doc records for `QsfpPlus` before
-#   that kind was added. Recording these as `SfpPlus` overstates what the
-#   port accepts (a 1G-only cage will not link at 10G); recorded here
-#   anyway, flagged, because the alternative — inventing a ninth `PortKind`
-#   as a one-file side effect of an engine contribution — is a bigger
-#   unreviewed change than one accurately-caveated model file. A ninth
-#   `PortKind` (`Sfp`, non-Plus) is future work, argued in the open like
-#   every other change to this reader, not a guess this file should make
-#   silently.
+#   THE TWO UPLINK PORTS ARE 1G SFP CAGES, recorded as `kind: "SFP"`. Every
+#   source read says "2 x 1G SFP ports" (1000BASE-X, not 10G SFP+). Until
+#   2026-10-10 this file recorded them as `SFP+`, flagged, because the reader
+#   had no plain `Sfp` kind; `crates/fathom-corpus/src/catalogue.rs` gained
+#   `PortKind::Sfp` for the home-lab catalogue and this file now uses it.
 #
 #   The internal AC power supply's inlet is not independently confirmed as
 #   field-replaceable or hot-swappable by any source read; this switch tier
@@ -84,4 +74,4 @@ faceplates:
     port_count: 26
     port_groups:
       - { kind: "RJ45", role: access, layout: paired_columns, count: 24, start_number: 1 }
-      - { kind: "SFP+", role: uplink, layout: single_row, count: 2, start_number: 1 }
+      - { kind: "SFP", role: uplink, layout: single_row, count: 2, start_number: 1 }

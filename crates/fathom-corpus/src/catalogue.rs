@@ -131,7 +131,7 @@ pub enum CatalogueGate {
 /// with the `C14` glyph mirrored (`client/src/components/drawing/
 /// portGlyph.ts`) — a drawing-layer stopgap, not a reason to misname the
 /// metal here (the same reasoning `QsfpPlus` already established). A
-/// spelling outside all eight is still a `PortKindUnknown` load error, not a
+/// spelling outside all nine is still a `PortKindUnknown` load error, not a
 /// silently accepted synonym.
 ///
 /// `NemaP5_15R`/`NemaP5_15P` are the seventh and eighth kinds, added for a
@@ -143,9 +143,17 @@ pub enum CatalogueGate {
 /// `nema_5_15p`, all-lowercase and underscored rather than `NEMA 5-15R`
 /// verbatim — `token()` returns exactly what `from_token` accepts, same as
 /// every other kind.
+///
+/// `Sfp` is the ninth: the plain 1G SFP cage (1000BASE-X), which
+/// `corpus/catalogue/ubiquiti/usw-24-poe.yaml` had to record as `SFP+` before
+/// it existed. A 1G cage will not link at 10G, so the two are different
+/// metal for the record even though the client draws one glyph for both
+/// (`client/src/components/drawing/portGlyph.ts` already reads `sfp`, and
+/// `client/src/document/compat.ts` already maps `SFP` to the schema's `sfp`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PortKind {
     Rj45,
+    Sfp,
     SfpPlus,
     QsfpPlus,
     Lc,
@@ -159,6 +167,7 @@ impl PortKind {
     fn from_token(t: &str) -> Option<PortKind> {
         match t {
             "RJ45" => Some(PortKind::Rj45),
+            "SFP" => Some(PortKind::Sfp),
             "SFP+" => Some(PortKind::SfpPlus),
             "QSFP+" => Some(PortKind::QsfpPlus),
             "LC" => Some(PortKind::Lc),
@@ -173,6 +182,7 @@ impl PortKind {
     pub fn token(self) -> &'static str {
         match self {
             PortKind::Rj45 => "RJ45",
+            PortKind::Sfp => "SFP",
             PortKind::SfpPlus => "SFP+",
             PortKind::QsfpPlus => "QSFP+",
             PortKind::Lc => "LC",
@@ -1361,6 +1371,32 @@ mod tests {
         let e = Catalogue::from_sources(&source(&text), "juniper", &juniper_vendors())
             .expect_err("an unknown key stays refused regardless of its value's shape");
         assert_eq!(e.gate, CatalogueGate::UnknownKey);
+    }
+
+    #[test]
+    fn plain_sfp_parses_as_its_own_kind() {
+        // The 1G cage: must round-trip as `PortKind::Sfp`, never collapse into
+        // `SfpPlus` (a 1G cage does not link at 10G).
+        let text = "vendor: juniper\n\
+             model: TEST-SFP\n\
+             rack_units: 1\n\
+             reviewed_by: <named human>\n\
+             source:\n  cite: \"fixture\"\n  read_on: \"2026-10-10\"\n\
+             faceplates:\n  \
+               - face: front\n    \
+                 port_count: 2\n    \
+                 port_groups:\n      \
+                   - { kind: \"SFP\", role: uplink, layout: single_row, count: 2, start_number: 1 }\n";
+        let cat = Catalogue::from_sources(&source(text), "juniper", &juniper_vendors())
+            .expect("an SFP group is a recognised kind, not a load error");
+        let ports = cat
+            .model("TEST-SFP")
+            .expect("model present")
+            .faceplate(Face::Front)
+            .expect("front face")
+            .ports();
+        assert!(ports.iter().all(|p| p.kind == PortKind::Sfp));
+        assert_eq!(PortKind::Sfp.token(), "SFP");
     }
 
     #[test]
