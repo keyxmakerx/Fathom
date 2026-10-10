@@ -1,0 +1,132 @@
+{
+  "id": "home-lab",
+  "name": "Sample home lab",
+  "summary": "A router, two switches, Wi-Fi, a NAS, two small servers and two cameras, already cabled.",
+  "sources": [
+    {
+      "claim": "Every address in this sample is private address space (192.168.0.0/16), so nothing here names a real network.",
+      "cite": "RFC 1918, Address Allocation for Private Internets, section 3, Private Address Space",
+      "url": "https://www.rfc-editor.org/rfc/rfc1918.html",
+      "read_on": "2026-10-10"
+    },
+    {
+      "claim": "Device models, their port counts and which switch ports give PoE are the catalogue's, and cite their own sources there.",
+      "cite": "corpus/catalogue/ (each model's own source block)",
+      "url": "",
+      "read_on": "2026-10-10"
+    }
+  ],
+  "rack": { "label": "Rack 1", "heightU": 12, "numbering": "ascending" },
+  "shelves": [{ "key": "shelf", "label": "Shelf", "positionU": 6 }],
+  "surfaces": [
+    { "key": "desk", "label": "Office desk", "form": "desk", "widthMm": 1600, "heightMm": 750 },
+    { "key": "ceiling", "label": "Hall ceiling", "form": "ceiling", "widthMm": 1200, "heightMm": 1200 },
+    { "key": "wall", "label": "Outside wall", "form": "wall", "widthMm": 2000, "heightMm": 2400 }
+  ],
+  "devices": [
+    {
+      "hostname": "router-1", "role": "router",
+      "catalogue": { "vendor": "ubiquiti", "model": "UDM-SE" },
+      "place": { "rack": 10 },
+      "ports": [{ "label": "1", "connector": "rj45" }, { "label": "2", "connector": "rj45" }, { "label": "9", "connector": "rj45" }],
+      "face": "front"
+    },
+    {
+      "hostname": "switch-1", "role": "switch",
+      "catalogue": { "vendor": "ubiquiti", "model": "USW-24-PoE" },
+      "place": { "rack": 8 },
+      "ports": [
+        { "label": "1", "connector": "rj45" }, { "label": "2", "connector": "rj45" }, { "label": "3", "connector": "rj45" },
+        { "label": "4", "connector": "rj45" }, { "label": "5", "connector": "rj45" }, { "label": "6", "connector": "rj45" },
+        { "label": "7", "connector": "rj45" }, { "label": "8", "connector": "rj45" }, { "label": "9", "connector": "rj45" }
+      ],
+      "face": "front"
+    },
+    {
+      "hostname": "nas-1", "role": "server",
+      "catalogue": { "vendor": "synology", "model": "DS224+" },
+      "place": { "shelf": "shelf", "slot": 1 },
+      "ports": [{ "label": "1", "connector": "rj45" }, { "label": "2", "connector": "rj45" }],
+      "face": "rear"
+    },
+    {
+      "hostname": "server-1", "role": "server",
+      "catalogue": { "vendor": "lenovo", "model": "ThinkCentre M920q Tiny" },
+      "place": { "shelf": "shelf", "slot": 2 },
+      "ports": [{ "label": "1", "connector": "rj45" }],
+      "face": "rear"
+    },
+    {
+      "hostname": "pi-1", "role": "server",
+      "catalogue": { "vendor": "raspberrypi", "model": "Raspberry Pi 5" },
+      "place": { "shelf": "shelf", "slot": 3 },
+      "ports": [{ "label": "1", "connector": "rj45" }],
+      "face": "rear"
+    },
+    {
+      "hostname": "ap-1", "role": "access_point",
+      "catalogue": { "vendor": "ubiquiti", "model": "U6-Lite" },
+      "place": { "surface": "ceiling", "x": 600, "y": 600 },
+      "ports": [{ "label": "1", "connector": "rj45" }],
+      "face": "rear"
+    },
+    {
+      "hostname": "switch-2", "role": "switch",
+      "catalogue": { "vendor": "tplink", "model": "TL-SG108E" },
+      "place": { "surface": "desk", "x": 200, "y": 100 },
+      "ports": [{ "label": "1", "connector": "rj45" }, { "label": "2", "connector": "rj45" }, { "label": "3", "connector": "rj45" }],
+      "face": "front"
+    },
+    { "hostname": "desktop-1", "role": "other", "place": { "surface": "desk", "x": 700, "y": 100 }, "ports": [{ "label": "eth0", "connector": "rj45" }], "face": "rear" },
+    { "hostname": "printer-1", "role": "other", "place": { "surface": "desk", "x": 1300, "y": 100 }, "ports": [{ "label": "eth0", "connector": "rj45" }], "face": "rear" },
+    { "hostname": "camera-1", "role": "other", "place": { "surface": "wall", "x": 300, "y": 2200 }, "ports": [{ "label": "eth0", "connector": "rj45" }], "face": "rear" },
+    { "hostname": "camera-2", "role": "other", "place": { "surface": "wall", "x": 1700, "y": 2200 }, "ports": [{ "label": "eth0", "connector": "rj45" }], "face": "rear" }
+  ],
+  "cables": [
+    { "a": "router-1:9", "outside": "ISP modem", "sheath": "black", "label": "WAN" },
+    { "a": "router-1:1", "b": "switch-1:1", "sheath": "blue", "label": "LAN uplink" },
+    { "a": "router-1:2", "b": "switch-1:2", "sheath": "yellow", "label": "Cameras uplink" },
+    { "a": "switch-1:3", "b": "nas-1:1", "sheath": "blue" },
+    { "a": "switch-1:4", "b": "server-1:1", "sheath": "blue" },
+    { "a": "switch-1:5", "b": "pi-1:1", "sheath": "blue" },
+    { "a": "switch-1:6", "b": "ap-1:1", "sheath": "white", "label": "Hall AP" },
+    { "a": "switch-1:7", "b": "switch-2:1", "sheath": "blue", "label": "Office run" },
+    { "a": "switch-1:8", "b": "camera-1:eth0", "sheath": "yellow" },
+    { "a": "switch-1:9", "b": "camera-2:eth0", "sheath": "yellow" },
+    { "a": "switch-2:2", "b": "desktop-1:eth0", "sheath": "grey" },
+    { "a": "switch-2:3", "b": "printer-1:eth0", "sheath": "grey" }
+  ],
+  "vlans": [
+    {
+      "id": 10, "name": "lan", "description": "Home LAN",
+      "access": ["switch-1:1", "switch-1:3", "switch-1:4", "switch-1:5", "switch-1:6", "switch-1:7", "switch-2:1", "switch-2:2", "switch-2:3"]
+    },
+    {
+      "id": 30, "name": "cameras", "description": "Cameras, kept apart from the LAN",
+      "access": ["switch-1:2", "switch-1:8", "switch-1:9"]
+    }
+  ],
+  "subnets": [
+    {
+      "prefix": "192.168.10.0/24",
+      "hosts": [
+        { "port": "router-1:1", "address": "192.168.10.1/24", "name": "LAN" },
+        { "port": "ap-1:1", "address": "192.168.10.5/24" },
+        { "port": "nas-1:1", "address": "192.168.10.10/24" },
+        { "port": "server-1:1", "address": "192.168.10.11/24" },
+        { "port": "pi-1:1", "address": "192.168.10.12/24" },
+        { "port": "desktop-1:eth0", "address": "192.168.10.50/24" },
+        { "port": "printer-1:eth0", "address": "192.168.10.60/24" }
+      ]
+    },
+    {
+      "prefix": "192.168.30.0/24",
+      "hosts": [
+        { "port": "router-1:2", "address": "192.168.30.1/24", "name": "Cameras" },
+        { "port": "camera-1:eth0", "address": "192.168.30.21/24" },
+        { "port": "camera-2:eth0", "address": "192.168.30.22/24" }
+      ]
+    }
+  ],
+  "trace": { "from": "desktop-1", "to": "nas-1" }
+}

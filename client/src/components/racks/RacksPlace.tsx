@@ -70,6 +70,7 @@ import { useChecksController } from '../checks/useChecksController';
 import { TracePanel } from '../trace/TracePanel';
 import { TraceContext } from '../trace/traceStore';
 import { useTraceController } from '../trace/useTraceController';
+import { recordFirstSteps } from '../home/firstSteps';
 import { TieCard } from '../ties/TieCard';
 import { PlanBand, PlansBarChip } from '../plans/PlanBand';
 import { PlansSurface } from '../plans/PlansSurface';
@@ -886,6 +887,12 @@ export function RacksPlace(props: RacksPlaceProps) {
 
   // Path trace (ADR-0061 item 9): the same module; opened from a device's right-click.
   const trace = useTraceController({ doc, view: realView, boot: ensureMirror, mirrorNow });
+
+  // Getting started (r15-start): Home's five first steps tick from what the person does here.
+  const traced = trace.result != null && trace.result.hops.length > 0;
+  useEffect(() => {
+    recordFirstSteps(accountId, designId, doc, traced);
+  }, [accountId, designId, doc, traced]);
 
   // Resolves the current selection to a rack id, however it was reached;
   // anything not rack-shaped reports `null`.
