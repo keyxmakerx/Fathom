@@ -1,0 +1,31 @@
+# MikroTik CRS326-24G-2S+RM: 1U rackmount switch, 24 x 1G RJ45 + 2 x SFP+.
+# Read 2026-10-10: https://mikrotik.com/product/CRS326-24G-2SplusRM
+# ("10/100/1000 Ethernet ports 24", "SFP+ ports 2", "Serial console port
+# RJ45", "Dimensions 443 x 144 x 44 mm"). 1U from the 44 mm height and the
+# retailer title "1U Rackmount" (dateks.lv, same day); the vendor text read does
+# not say "1U" itself.
+# Ports recorded: console (RJ45, named), 24 x RJ45 (1..24, access, paired
+# columns), 2 x SFP+ (1..2, uplink; the cages take SFP too per dateks.lv).
+# Not confirmed: the console's printed label ("console" is this file's own
+# word), its face and position, the uplink role, and the paired-column order
+# are conventions; no photo was read.
+# `reviewed_by: <named human>` is a placeholder, not a name.
+vendor: mikrotik
+model: CRS326-24G-2S+RM
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    MikroTik, "CRS326-24G-2S+RM" product page
+    (https://mikrotik.com/product/CRS326-24G-2SplusRM), read 2026-10-10.
+    24 x 10/100/1000 Ethernet, 2 x SFP+, RJ45 serial console, 443x144x44 mm.
+    Corroborated for 1U by dateks.lv's listing. Roles, face and layout are
+    conventions; see the file header.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 27
+    port_groups:
+      - { kind: "RJ45", role: console, layout: single_row, names: ["console"] }
+      - { kind: "RJ45", role: access, layout: paired_columns, count: 24, start_number: 1 }
+      - { kind: "SFP+", role: uplink, layout: single_row, count: 2, start_number: 1 }

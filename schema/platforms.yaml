@@ -67,6 +67,22 @@ vendors:
                          # EdgeOS routers (EdgeRouter/EdgeMAX) are Vyatta-derived and
                          # do print one, hence the platform row.
 
+  # Added 2026-10-10 for the home-lab catalogue (sign-off r15-catalogue): hardware-
+  # catalogue vendors only, like `apc`/`panduit` above. No platform row is added
+  # for any of them here; a paste parser that needs one (MikroTik RouterOS,
+  # pfSense) adds its row with its own dictionary and redaction tests.
+  mikrotik:   {}         # corpus/catalogue/mikrotik/: routers and CRS switches.
+  tplink:     {}         # corpus/catalogue/tplink/: Easy Smart / Omada switches,
+                         # Omada routers and an access point.
+  netgear:    {}         # corpus/catalogue/netgear/: Plus desktop switches.
+  netgate:    {}         # corpus/catalogue/netgate/: pfSense appliances.
+  protectli:  {}         # corpus/catalogue/protectli/: a fanless firewall box.
+  synology:   {}         # corpus/catalogue/synology/: NAS units.
+  qnap:       {}         # corpus/catalogue/qnap/: a NAS unit.
+  intel:      {}         # corpus/catalogue/intel/: a NUC mini PC.
+  lenovo:     {}         # corpus/catalogue/lenovo/: a ThinkCentre Tiny mini PC.
+  raspberrypi: {}        # corpus/catalogue/raspberrypi/: single-board computers.
+
   proxmox:   {}          # Owner-named 2026-08-28 (`70` §18.4): *"proxmox would probably
                          # need to be an engine"* — the first general-purpose host vendor,
                          # and the sentence that set the direction for ADR-0037 §5's open

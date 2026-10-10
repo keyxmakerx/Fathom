@@ -1,0 +1,29 @@
+# corpus/catalogue/tplink/er605.yaml — TP-Link ER605, Omada Gigabit VPN router, hardware
+# version V2.30 (the version the vendor page shows; V2 and V2.20 also listed).
+# Read 2026-10-10: https://www.omadanetworks.com/us/business-networking/omada-router-wired-router/er605/
+# (tp-link.com/us redirects there). Ports as read: "1 Gigabit WAN port", "2 Gigabit WAN/LAN
+# ports", "2 Gigabit LAN ports", "1 USB2.0" (USB is not a kind this format has; not recorded).
+# No console port is listed. External 12 V/1 A adapter; desktop/wall-mount; 158 x 101 x 25 mm.
+# Desktop gear: rack_units: 1 is nominal (field is required), not a vendor U height.
+# Roles: the fixed WAN port is uplink. The 2 WAN/LAN ports are switchable, so they are
+# recorded as access with the 2 LAN ports (one group of 4).
+# Not confirmed: port order and printed numbers (no photo or manual read). Numbers 1-4 for
+# the access group and 5 for the WAN are this file's own sequence, not silkscreen.
+# reviewed_by: <named human> is a placeholder (invariant 10).
+vendor: tplink
+model: ER605
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    TP-Link Omada, "ER605 V2.30" product page,
+    https://www.omadanetworks.com/us/business-networking/omada-router-wired-router/er605/,
+    read 2026-10-10. 5x gigabit RJ45: 1 WAN, 2 WAN/LAN (switchable), 2 LAN; 1 USB 2.0.
+    Port numbering/order not confirmed. rack_units nominal (desktop).
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 5
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 4, start_number: 1 }
+      - { kind: "RJ45", role: uplink, layout: single_row, count: 1, start_number: 5 }

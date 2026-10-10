@@ -1,0 +1,30 @@
+# corpus/catalogue/ubiquiti/u7-pro.yaml — UniFi U7 Pro, a ceiling WiFi 7 access
+# point. rack_units: 1 is NOMINAL (not rack gear; field is required).
+# Read 2026-10-10. techspecs.ui.com/unifi/wifi/u7-pro and the dl.ui.com quick
+# start guide were robots-disallowed; ui.com/store pages omit the spec table.
+# Port list is from a retailer listing, linitx.com/product/ubiquiti-unifi-u7-pro-
+# wifi-7-access-point-u7-pro/17733: "Networking interface: (1) 2.5 GbE RJ45 port",
+# "Power method: PoE+", 44-57V DC; corroborated by other listings titled "2.5GbE
+# uplink" (cisilion, directcomputers). So the vendor spec page itself was NOT read.
+# The one RJ45 is the 2.5G uplink and the PoE input.
+# NOT CONFIRMED: which side the port is on; recorded on rear (side-face rule).
+# The format requires a `front` faceplate; an empty one (port_count: 0) is declared,
+# as in tripplite/srshelf2p1u.yaml.
+vendor: ubiquiti
+model: U7-Pro
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Retailer listing (linitx.com, UniFi U7 Pro, U7-Pro), read 2026-10-10;
+    vendor spec page techspecs.ui.com/unifi/wifi/u7-pro could not be fetched
+    (robots-disallowed). 1x 2.5GbE RJ45 uplink, PoE+ powered (44-57V DC).
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 0
+    port_groups: []
+  - face: rear
+    port_count: 1
+    port_groups:
+      - { kind: "RJ45", role: uplink, layout: single_row, count: 1, start_number: 1 }
