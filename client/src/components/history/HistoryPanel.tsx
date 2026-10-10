@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import type { History } from './useHistory';
 import './history.css';
+import { SkeletonRows } from '../ui/Skeleton';
 
 /** "Today 14:02", "Yesterday 09:12", "2 Oct 09:12". */
 export function whenLabel(atUnix: number, now: Date = new Date()): string {
@@ -44,7 +45,7 @@ export function HistoryPanel({ history, accountId, accountAddress, canDraw, rest
         {history.verifyLine}
       </p>
       {history.error != null && <p className="history__note">{history.error}</p>}
-      {saves == null && history.error == null && <p className="history__note">Loading the saves…</p>}
+      {saves == null && history.error == null && <SkeletonRows label="Loading the saves…" rows={6} />}
       <ol className="history__list">
         {saves?.slice(0, history.shown).map((s) => {
           const on = picked?.version === s.designVersion;

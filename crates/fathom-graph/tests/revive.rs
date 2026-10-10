@@ -194,3 +194,33 @@ fn refuse_reviving_an_edge_whose_slot_was_refilled() {
         other => panic!("expected InBoundExceeded, got {other:?}"),
     }
 }
+
+/// #108's Rust repro: cut `HasPort` e1, add e2, cut e2, revive e1. The store the write
+/// path built must load, and the loader's check must agree (`check_loadable`).
+#[test]
+fn a_revive_after_a_cut_replacement_loads() {
+    let mut fx = Fx::bare();
+    fx.open(0, "build");
+    let a = fx.node(NodeKind::Chassis);
+    let b = fx.node(NodeKind::Chassis);
+    let port = fx.node(NodeKind::PhysicalPort);
+    let e1 = fx.edge(EdgeKind::HasPort, a, port);
+    fx.g.end_batch().expect("close");
+
+    fx.open(1, "move the port");
+    fx.g.tombstone(ElementId::Edge(e1), Timestamp(AT + 1), Fx::actor())
+        .expect("cut e1");
+    let e2 = fx.edge(EdgeKind::HasPort, b, port);
+    fx.g.end_batch().expect("close");
+
+    fx.open(2, "undo of move the port");
+    fx.g.tombstone(ElementId::Edge(e2), Timestamp(AT + 2), Fx::actor())
+        .expect("cut e2");
+    fx.g.revive(ElementId::Edge(e1), Timestamp(AT + 2), Fx::actor())
+        .expect("revive e1");
+    fx.g.end_batch().expect("close");
+
+    fx.g.check_loadable().expect("the loader's check agrees");
+    let loaded = Graph::from_snapshot(&fx.g.to_snapshot().expect("snapshot")).expect("loads");
+    assert_eq!(loaded.owner(port), Some(a));
+}

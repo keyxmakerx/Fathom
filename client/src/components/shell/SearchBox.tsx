@@ -1,6 +1,7 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 
-import type { SearchHit } from './search';
+import { CommandPalette } from './CommandPalette';
+import { matches } from './shortcuts';
 import type { ShellSearch } from './types';
 
 function MagnifierIcon() {
@@ -12,53 +13,30 @@ function MagnifierIcon() {
   );
 }
 
-/** The bar's quick search (the owner's option A): type in the box, results drop beneath it. */
+/** The bar's search button. It opens the command palette: find things in the design, or run a command. */
 export function SearchBox({ search, collapsed }: { search: ShellSearch; collapsed: boolean }) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [active, setActive] = useState(0);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const hits = open ? search.run(query) : [];
 
-  function close() {
-    setOpen(false);
-    setQuery('');
-    setActive(0);
-  }
-
-  function choose(hit: SearchHit) {
-    close();
-    search.choose(hit.selection);
-  }
-
-  // Ctrl K (Cmd K on a Mac) opens it from anywhere.
+  // Ctrl K (Cmd K on a Mac) opens it from anywhere, and closes it again.
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+      if (matches(event, 'find')) {
         event.preventDefault();
-        setOpen(true);
+        setOpen((o) => !o);
       }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // A click anywhere else closes it.
-  useEffect(() => {
-    if (!open) return undefined;
-    function onDown(event: PointerEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) close();
-    }
-    document.addEventListener('pointerdown', onDown, true);
-    return () => document.removeEventListener('pointerdown', onDown, true);
-  }, [open]);
-
-  if (!open) {
-    return (
+  return (
+    <>
       <button
         type="button"
         className={collapsed ? 'shell-search shell-search--collapsed' : 'shell-search'}
         aria-label="Search"
+        aria-haspopup="dialog"
+        aria-keyshortcuts="Control+K Meta+K"
         onClick={() => setOpen(true)}
       >
         <MagnifierIcon />
@@ -70,64 +48,7 @@ export function SearchBox({ search, collapsed }: { search: ShellSearch; collapse
           </>
         )}
       </button>
-    );
-  }
-
-  return (
-    <div className="shell-search shell-search--open" ref={rootRef}>
-      <MagnifierIcon />
-      <input
-        className="shell-search__input"
-        aria-label="Search this design"
-        autoFocus
-        value={query}
-        onChange={(event) => {
-          setQuery(event.target.value);
-          setActive(0);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault();
-            close();
-          } else if (event.key === 'ArrowDown') {
-            event.preventDefault();
-            setActive((i) => Math.min(i + 1, hits.length - 1));
-          } else if (event.key === 'ArrowUp') {
-            event.preventDefault();
-            setActive((i) => Math.max(i - 1, 0));
-          } else if (event.key === 'Enter' && hits[active]) {
-            event.preventDefault();
-            choose(hits[active]);
-          }
-        }}
-      />
-      {query.trim() !== '' && (
-        <div className="shell-search__results" role="listbox" aria-label="Search results">
-          {hits.length === 0 && <div className="shell-search__none">Nothing in this design matches.</div>}
-          {hits.map((hit, i) => (
-            <Fragment key={`${hit.group}:${hit.selection.kind}:${hit.selection.id}:${hit.name}`}>
-              {(i === 0 || hits[i - 1].group !== hit.group) && <div className="shell-search__group">{hit.group}</div>}
-              <button
-                type="button"
-                role="option"
-                aria-selected={i === active}
-                className={i === active ? 'shell-search__row shell-search__row--on' : 'shell-search__row'}
-                onMouseEnter={() => setActive(i)}
-                onClick={() => choose(hit)}
-              >
-                <span className="shell-search__name">{hit.name}</span>
-                <span className="shell-search__why">{hit.why}</span>
-              </button>
-            </Fragment>
-          ))}
-          <div className="shell-search__foot">
-            <span>↑ ↓ move</span>
-            <span>Enter go</span>
-            <span>Esc close</span>
-            <span className="shell-search__scope">this design only</span>
-          </div>
-        </div>
-      )}
-    </div>
+      {open && <CommandPalette search={search} onClose={() => setOpen(false)} />}
+    </>
   );
 }

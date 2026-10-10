@@ -54,6 +54,15 @@ pub const PRESENCE_PER_SECOND: f64 = 2.0;
 pub const PRESENCE_BURST: f64 = 2.0;
 /// A presence post is at most this many bytes.
 pub const PRESENCE_BODY_MAX: usize = 256;
+/// Pointer posts have their own bucket; the client sends at most 8 a second.
+pub const POINTER_PER_SECOND: f64 = 10.0;
+pub const POINTER_BURST: f64 = 10.0;
+/// A pointer post is at most this many bytes.
+pub const POINTER_BODY_MAX: usize = 128;
+/// A pointer coordinate is within this many canvas units of the origin.
+pub const POINTER_RANGE: f64 = 10_000_000.0;
+/// Pointer frames reach one stream at most this often.
+const POINTER_GAP: Duration = Duration::from_millis(100);
 
 /// Workers and bytes for the head store when nothing says otherwise.
 pub const DEFAULT_HEAD_THREADS: usize = 4;
@@ -71,6 +80,9 @@ struct Signal {
     authority: AtomicBool,
     /// Who is in this stream's view may have changed.
     presence: AtomicBool,
+    /// Someone else's pointer may have moved. Apart from `wake` so that a
+    /// pointer never costs a database read.
+    pointer: Notify,
     /// A newer stream from the same session on the same design took this
     /// one's place: end without writing more.
     replaced: AtomicBool,
@@ -96,6 +108,9 @@ struct Entry {
 struct Person {
     view: &'static str,
     selected: Option<String>,
+    /// The pointer on the canvas in tenths of a canvas unit. Held in memory
+    /// with the rest; never stored.
+    pointer: Option<(i64, i64)>,
 }
 
 struct Bucket {
@@ -127,6 +142,7 @@ struct Inner {
     people: BTreeMap<String, BTreeMap<String, Person>>,
     change_rate: BTreeMap<String, Bucket>,
     presence_rate: BTreeMap<(String, String), Bucket>,
+    pointer_rate: BTreeMap<(String, String), Bucket>,
 }
 
 /// Why a stream was not admitted.
@@ -372,11 +388,65 @@ impl Hub {
         if !here {
             return false;
         }
-        h.people
-            .entry(design.to_owned())
-            .or_default()
-            .insert(account.to_owned(), Person { view, selected });
+        let people = h.people.entry(design.to_owned()).or_default();
+        // The pointer stays while the person stays in the same view.
+        let pointer = people
+            .get(account)
+            .filter(|p| p.view == view)
+            .and_then(|p| p.pointer);
+        people.insert(
+            account.to_owned(),
+            Person {
+                view,
+                selected,
+                pointer,
+            },
+        );
         Self::poke_presence(&h, design);
+        true
+    }
+
+    pub fn allow_pointer(&self, account: &str, design: &str) -> bool {
+        let mut h = self.lock();
+        if h.pointer_rate.len() > BUCKET_SWEEP {
+            let now = Instant::now();
+            h.pointer_rate
+                .retain(|_, b| now.duration_since(b.at) < Duration::from_secs(5));
+        }
+        h.pointer_rate
+            .entry((account.to_owned(), design.to_owned()))
+            .or_insert(Bucket {
+                tokens: POINTER_BURST,
+                at: Instant::now(),
+            })
+            .take(POINTER_PER_SECOND, POINTER_BURST)
+    }
+
+    /// Record where `account`'s pointer is (`None` clears it). Only a person
+    /// who has said they are on the canvas has one; false (and nothing kept)
+    /// otherwise. Wakes the other streams in that view, with no database read.
+    pub fn set_pointer(&self, design: &str, account: &str, pointer: Option<(i64, i64)>) -> bool {
+        let mut h = self.lock();
+        let Some(me) = h.people.get_mut(design).and_then(|p| p.get_mut(account)) else {
+            return false;
+        };
+        if me.view != "canvas" {
+            return false;
+        }
+        if me.pointer == pointer {
+            return true;
+        }
+        me.pointer = pointer;
+        if let (Some(ids), Some(people)) = (h.by_design.get(design), h.people.get(design)) {
+            for id in ids {
+                let Some(e) = h.streams.get(id) else { continue };
+                if e.account != account
+                    && people.get(&e.account).is_some_and(|p| p.view == "canvas")
+                {
+                    e.signal.pointer.notify_one();
+                }
+            }
+        }
         true
     }
 
@@ -406,11 +476,16 @@ impl Hub {
                         out.push(',');
                     }
                     first = false;
-                    out.push_str(&person_json(
-                        other,
-                        &name_of(other),
-                        Some(p.selected.as_deref()),
-                    ));
+                    let mut one = person_json(other, &name_of(other), Some(p.selected.as_deref()));
+                    if let (Some((x, y)), "canvas") = (p.pointer, me.view) {
+                        one.pop();
+                        one.push_str(&format!(
+                            ",\"pointer\":{{\"x\":{},\"y\":{}}}}}",
+                            tenths(x),
+                            tenths(y)
+                        ));
+                    }
+                    out.push_str(&one);
                 }
             }
         }
@@ -492,6 +567,82 @@ pub fn parse_presence(body: &[u8]) -> Option<(&'static str, Option<String>)> {
                 return None;
             }
             return Some((view?, selected?));
+        }
+    }
+}
+
+/// A coordinate in tenths of a unit as decimal text: `-5` is `-0.5`.
+fn tenths(v: i64) -> String {
+    let sign = if v < 0 { "-" } else { "" };
+    format!("{sign}{}.{}", v.abs() / 10, v.abs() % 10)
+}
+
+/// One plain JSON number: optional `-`, digits, optional `.` and up to six
+/// more digits; no exponent, no leading zeros. Returns it in tenths of a unit
+/// (rounded) and the text after it. `None` outside [`POINTER_RANGE`].
+fn plain_number(at: &str) -> Option<(i64, &str)> {
+    let end = at
+        .find(|c: char| !(c.is_ascii_digit() || c == '-' || c == '.'))
+        .unwrap_or(at.len());
+    let (text, rest) = at.split_at(end);
+    let digits = text.strip_prefix('-').unwrap_or(text);
+    let (whole, frac) = match digits.split_once('.') {
+        Some((w, f)) => (w, Some(f)),
+        None => (digits, None),
+    };
+    let plain = !whole.is_empty()
+        && whole.bytes().all(|b| b.is_ascii_digit())
+        && (whole == "0" || !whole.starts_with('0'))
+        && frac.is_none_or(|f| (1..=6).contains(&f.len()) && f.bytes().all(|b| b.is_ascii_digit()));
+    if !plain {
+        return None;
+    }
+    let v: f64 = text.parse().ok()?;
+    if !v.is_finite() || v.abs() > POINTER_RANGE {
+        return None;
+    }
+    Some(((v * 10.0).round() as i64, rest))
+}
+
+/// A pointer post: `{"pointer": {"x": <number>, "y": <number>}}` to say where
+/// it is, `{"pointer": null}` to say it has left. Whitespace and the order of
+/// `x` and `y` are free; nothing else is. At most [`POINTER_BODY_MAX`] bytes.
+/// The outer `None` is a refusal.
+pub fn parse_pointer(body: &[u8]) -> Option<Option<(i64, i64)>> {
+    if body.len() > POINTER_BODY_MAX {
+        return None;
+    }
+    let text = core::str::from_utf8(body).ok()?;
+    let at = text.trim_start().strip_prefix('{')?.trim_start();
+    let at = at.strip_prefix("\"pointer\"")?.trim_start();
+    let at = at.strip_prefix(':')?.trim_start();
+    // The closing brace of the whole body and nothing after it.
+    fn end(rest: &str) -> Option<()> {
+        let rest = rest.trim_start().strip_prefix('}')?;
+        rest.trim().is_empty().then_some(())
+    }
+    if let Some(rest) = at.strip_prefix("null") {
+        end(rest)?;
+        return Some(None);
+    }
+    let mut at = at.strip_prefix('{')?.trim_start();
+    let (mut x, mut y) = (None, None);
+    loop {
+        let rest = at.strip_prefix('"')?;
+        let (key, rest) = rest.split_once('"')?;
+        let rest = rest.trim_start().strip_prefix(':')?.trim_start();
+        let (value, rest) = plain_number(rest)?;
+        match key {
+            "x" if x.is_none() => x = Some(value),
+            "y" if y.is_none() => y = Some(value),
+            _ => return None,
+        }
+        let rest = rest.trim_start();
+        if let Some(r) = rest.strip_prefix(',') {
+            at = r.trim_start();
+        } else {
+            end(rest.strip_prefix('}')?)?;
+            return Some(Some((x?, y?)));
         }
     }
 }
@@ -692,21 +843,37 @@ async fn run(o: Opening, registered: Registered, writer: DuplexStream, gone: Arc
     let end = Instant::now() + STREAM_LIFE;
     let mut last_check = Instant::now();
     let mut force = true;
+    // A pointer frame is due at this time; pointers wake the stream without a read.
+    let mut pointer_due: Option<Instant> = None;
+    let mut pointer_sent = Instant::now()
+        .checked_sub(POINTER_GAP)
+        .unwrap_or_else(Instant::now);
+    let mut read = true;
     loop {
-        if s.signal.replaced.load(Ordering::SeqCst) || s.deliver(force).await.is_err() {
+        if s.signal.replaced.load(Ordering::SeqCst) || (read && s.deliver(force).await.is_err()) {
             break;
         }
         if force {
             last_check = Instant::now();
             force = false;
         }
-        let wake_at = (last_check + RECHECK)
+        let base_wake = (last_check + RECHECK)
             .min(s.last_write + HEARTBEAT)
             .min(end);
+        let wake_at = pointer_due.map_or(base_wake, |due| due.min(base_wake));
+        read = true;
         tokio::select! {
             _ = s.signal.wake.notified() => {}
+            _ = s.signal.pointer.notified() => {
+                read = false;
+                if pointer_due.is_none() {
+                    pointer_due = Some(Instant::now().max(pointer_sent + POINTER_GAP));
+                }
+            }
             _ = gone.notified() => break,
-            _ = tokio::time::sleep_until(wake_at) => {}
+            _ = tokio::time::sleep_until(wake_at) => {
+                read = Instant::now() >= base_wake;
+            }
         }
         let now = Instant::now();
         if now >= end || s.signal.replaced.load(Ordering::SeqCst) {
@@ -714,9 +881,17 @@ async fn run(o: Opening, registered: Registered, writer: DuplexStream, gone: Arc
         }
         if now >= last_check + RECHECK {
             force = true;
+            read = true;
         }
         if now >= s.last_write + HEARTBEAT && s.frame(FRAME_HEARTBEAT, 0, &[]).await.is_err() {
             break;
+        }
+        if pointer_due.is_some_and(|due| now >= due) {
+            pointer_due = None;
+            pointer_sent = now;
+            if s.send_presence().await.is_err() {
+                break;
+            }
         }
     }
     drop(s);
@@ -833,21 +1008,27 @@ impl Stream {
             force = false;
         }
         if self.signal.presence.swap(false, Ordering::SeqCst) {
-            let json = self
-                .o
-                .state
-                .live
-                .hub
-                .presence_json(&self.o.design.to_string(), &self.o.account);
-            let changed = match &self.last_presence {
-                Some(prev) => *prev != json,
-                None => true,
-            };
-            if changed {
-                let since = self.o.since;
-                self.frame(FRAME_PRESENCE, since, json.as_bytes()).await?;
-                self.last_presence = Some(json);
-            }
+            self.send_presence().await?;
+        }
+        Ok(())
+    }
+
+    /// Who is present, if it differs from what this stream last sent.
+    async fn send_presence(&mut self) -> Result<(), Stop> {
+        let json = self
+            .o
+            .state
+            .live
+            .hub
+            .presence_json(&self.o.design.to_string(), &self.o.account);
+        let changed = match &self.last_presence {
+            Some(prev) => *prev != json,
+            None => true,
+        };
+        if changed {
+            let since = self.o.since;
+            self.frame(FRAME_PRESENCE, since, json.as_bytes()).await?;
+            self.last_presence = Some(json);
         }
         Ok(())
     }
@@ -1059,6 +1240,104 @@ mod tests {
             "{\"self\":{\"account\":\"carol\",\"initials\":\"CC\",\"name\":\"Carol Cho\"},\"others\":[]}"
         );
         assert!(!hub.set_presence("d", "dave", "canvas", None));
+    }
+
+    #[test]
+    fn a_pointer_body_is_validated_by_shape_range_and_length() {
+        let ok = |b: &str| parse_pointer(b.as_bytes());
+        assert_eq!(
+            ok(r#"{"pointer":{"x":12.5,"y":-3}}"#),
+            Some(Some((125, -30)))
+        );
+        assert_eq!(
+            ok(r#" { "pointer" : { "y" : 0.04 , "x" : -0.25 } } "#),
+            Some(Some((-3, 0)))
+        );
+        assert_eq!(ok(r#"{"pointer":null}"#), Some(None));
+        assert_eq!(
+            ok(r#"{"pointer":{"x":10000000,"y":-10000000}}"#),
+            Some(Some((100_000_000, -100_000_000)))
+        );
+        for bad in [
+            "",
+            "{}",
+            r#"{"pointer":{}}"#,
+            r#"{"pointer":{"x":1}}"#,
+            r#"{"pointer":{"x":1,"y":2,"z":3}}"#,
+            r#"{"pointer":{"x":1,"x":2,"y":3}}"#,
+            r#"{"pointer":{"x":1,"y":2},"view":"canvas"}"#,
+            r#"{"pointer":{"x":1e3,"y":2}}"#,
+            r#"{"pointer":{"x":+1,"y":2}}"#,
+            r#"{"pointer":{"x":01,"y":2}}"#,
+            r#"{"pointer":{"x":.5,"y":2}}"#,
+            r#"{"pointer":{"x":1.,"y":2}}"#,
+            r#"{"pointer":{"x":1.1234567,"y":2}}"#,
+            r#"{"pointer":{"x":--1,"y":2}}"#,
+            r#"{"pointer":{"x":"1","y":2}}"#,
+            r#"{"pointer":{"x":null,"y":2}}"#,
+            r#"{"pointer":{"x":NaN,"y":2}}"#,
+            r#"{"pointer":{"x":10000001,"y":2}}"#,
+            r#"{"pointer":{"x":1,"y":-10000000.1}}"#,
+            r#"{"pointer":{"x":1,"y":2}"#,
+            r#"{"pointer":{"x":1,"y":2}} x"#,
+            r#"{"pointer":nul}"#,
+            r#"{"pointer":null,"pointer":null}"#,
+            r#"[1]"#,
+        ] {
+            assert_eq!(ok(bad), None, "{bad}");
+        }
+        let long = format!(
+            r#"{{"pointer":{{"x":1,"y":2}},"pad":"{}"}}"#,
+            "x".repeat(200)
+        );
+        assert_eq!(ok(&long), None);
+        let padded = format!(r#"{{"pointer":{{"x":1,"y":2}}}}{}"#, " ".repeat(120));
+        assert_eq!(ok(&padded), None);
+    }
+
+    #[test]
+    fn a_pointer_reaches_only_others_on_the_canvas_and_is_never_kept_across_views() {
+        let hub = Hub::default();
+        hub.admit("d", "o", "s1", "alice", "Alice A").unwrap();
+        hub.admit("d", "o", "s2", "bob", "Bob B").unwrap();
+        hub.admit("d", "o", "s3", "carol", "Carol C").unwrap();
+        // Nobody has said where they are yet.
+        assert!(!hub.set_pointer("d", "alice", Some((15, -5))));
+        hub.set_presence("d", "alice", "canvas", None);
+        hub.set_presence("d", "bob", "canvas", None);
+        hub.set_presence("d", "carol", "inventory", None);
+        assert!(hub.set_pointer("d", "alice", Some((15, -5))));
+        // Not on the canvas: nothing to point with.
+        assert!(!hub.set_pointer("d", "carol", Some((1, 1))));
+        assert!(!hub.set_pointer("d", "dave", Some((1, 1))));
+        let bob = hub.presence_json("d", "bob");
+        assert!(
+            bob.contains(",\"selected\":null,\"pointer\":{\"x\":1.5,\"y\":-0.5}}"),
+            "{bob}"
+        );
+        // You do not hear your own, and another view does not hear it at all.
+        assert!(!hub.presence_json("d", "alice").contains("pointer"));
+        assert!(!hub.presence_json("d", "carol").contains("pointer"));
+        // A new selection keeps the pointer; a new view drops it; null clears it.
+        hub.set_presence("d", "alice", "canvas", Some(ID_A.to_owned()));
+        assert!(hub.presence_json("d", "bob").contains("\"pointer\""));
+        assert!(hub.set_pointer("d", "alice", None));
+        assert!(!hub.presence_json("d", "bob").contains("pointer"));
+        assert!(hub.set_pointer("d", "alice", Some((0, 0))));
+        hub.set_presence("d", "alice", "inventory", None);
+        hub.set_presence("d", "alice", "canvas", None);
+        assert!(!hub.presence_json("d", "bob").contains("pointer"));
+    }
+
+    #[test]
+    fn pointer_posts_have_their_own_bucket() {
+        let hub = Hub::default();
+        let pointers = (0..40).filter(|_| hub.allow_pointer("alice", "d")).count();
+        assert_eq!(pointers, POINTER_BURST as usize);
+        assert!(hub.allow_pointer("bob", "d"));
+        // Presence is neither used up by pointers nor given more room.
+        let presence = (0..40).filter(|_| hub.allow_presence("alice", "d")).count();
+        assert_eq!(presence, PRESENCE_BURST as usize);
     }
 
     #[test]

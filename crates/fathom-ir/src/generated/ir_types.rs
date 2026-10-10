@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.19";
+    pub const SCHEMA_VERSION: &str = "0.20";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -923,7 +923,7 @@ mod body {
                 NodeKind::SystemSettings => &[crate::bag::FieldKey(198), crate::bag::FieldKey(199), crate::bag::FieldKey(200)],
                 NodeKind::NtpServer => &[crate::bag::FieldKey(201), crate::bag::FieldKey(202), crate::bag::FieldKey(203)],
                 NodeKind::SyslogTarget => &[crate::bag::FieldKey(204), crate::bag::FieldKey(205), crate::bag::FieldKey(206), crate::bag::FieldKey(207)],
-                NodeKind::PhysicalPort => &[crate::bag::FieldKey(208), crate::bag::FieldKey(209), crate::bag::FieldKey(210), crate::bag::FieldKey(211), crate::bag::FieldKey(325), crate::bag::FieldKey(212), crate::bag::FieldKey(213), crate::bag::FieldKey(214), crate::bag::FieldKey(215)],
+                NodeKind::PhysicalPort => &[crate::bag::FieldKey(208), crate::bag::FieldKey(209), crate::bag::FieldKey(210), crate::bag::FieldKey(211), crate::bag::FieldKey(325), crate::bag::FieldKey(412), crate::bag::FieldKey(413), crate::bag::FieldKey(212), crate::bag::FieldKey(213), crate::bag::FieldKey(214), crate::bag::FieldKey(215)],
                 NodeKind::Cable => &[crate::bag::FieldKey(216), crate::bag::FieldKey(217), crate::bag::FieldKey(218), crate::bag::FieldKey(219), crate::bag::FieldKey(220), crate::bag::FieldKey(221), crate::bag::FieldKey(222), crate::bag::FieldKey(223), crate::bag::FieldKey(224), crate::bag::FieldKey(312)],
                 NodeKind::PassiveNode => &[crate::bag::FieldKey(225), crate::bag::FieldKey(226), crate::bag::FieldKey(227), crate::bag::FieldKey(228), crate::bag::FieldKey(229), crate::bag::FieldKey(350)],
                 NodeKind::Premises => &[crate::bag::FieldKey(230), crate::bag::FieldKey(231), crate::bag::FieldKey(232), crate::bag::FieldKey(233), crate::bag::FieldKey(234), crate::bag::FieldKey(235), crate::bag::FieldKey(236)],
@@ -4801,6 +4801,7 @@ mod body {
     pub enum LabelForm {
         Text,
         Area,
+        Note,
         /// The generated unknown arm (62 §7 rule 2) — carries the
         /// unrecognised token verbatim; what makes a new variant a minor
         /// bump an old client survives (62 §16.2).
@@ -4809,15 +4810,17 @@ mod body {
 
     impl LabelForm {
         /// Declared tokens, declaration order.
-        pub const DECLARED: [&'static str; 2] = [
+        pub const DECLARED: [&'static str; 3] = [
             "text",
             "area",
+            "note",
         ];
         /// Neutral token → variant; anything undeclared lands in `Unknown`.
         pub fn from_token(token: &str) -> LabelForm {
             match token {
                 "text" => LabelForm::Text,
                 "area" => LabelForm::Area,
+                "note" => LabelForm::Note,
                 other => LabelForm::Unknown(other.to_owned()),
             }
         }
@@ -4826,6 +4829,7 @@ mod body {
             match self {
                 LabelForm::Text => "text",
                 LabelForm::Area => "area",
+                LabelForm::Note => "note",
                 LabelForm::Unknown(t) => t,
             }
         }
@@ -7944,6 +7948,8 @@ mod body {
         Connector,
         Service,
         Face,
+        PlateX,
+        PlateY,
         SpeedMax,
         Transceiver,
         Notes,
@@ -7951,14 +7957,16 @@ mod body {
     }
 
     impl PhysicalPortField {
-        pub const COUNT: usize = 9;
+        pub const COUNT: usize = 11;
         /// Every field, declaration order.
-        pub const ALL: [PhysicalPortField; 9] = [
+        pub const ALL: [PhysicalPortField; 11] = [
             PhysicalPortField::Label,
             PhysicalPortField::Position,
             PhysicalPortField::Connector,
             PhysicalPortField::Service,
             PhysicalPortField::Face,
+            PhysicalPortField::PlateX,
+            PhysicalPortField::PlateY,
             PhysicalPortField::SpeedMax,
             PhysicalPortField::Transceiver,
             PhysicalPortField::Notes,
@@ -7974,6 +7982,8 @@ mod body {
                 PhysicalPortField::Connector => "connector",
                 PhysicalPortField::Service => "service",
                 PhysicalPortField::Face => "face",
+                PhysicalPortField::PlateX => "plate_x",
+                PhysicalPortField::PlateY => "plate_y",
                 PhysicalPortField::SpeedMax => "speed_max",
                 PhysicalPortField::Transceiver => "transceiver",
                 PhysicalPortField::Notes => "notes",
@@ -7988,6 +7998,8 @@ mod body {
                 PhysicalPortField::Connector => crate::bag::FieldKey(210),
                 PhysicalPortField::Service => crate::bag::FieldKey(211),
                 PhysicalPortField::Face => crate::bag::FieldKey(325),
+                PhysicalPortField::PlateX => crate::bag::FieldKey(412),
+                PhysicalPortField::PlateY => crate::bag::FieldKey(413),
                 PhysicalPortField::SpeedMax => crate::bag::FieldKey(212),
                 PhysicalPortField::Transceiver => crate::bag::FieldKey(213),
                 PhysicalPortField::Notes => crate::bag::FieldKey(214),
@@ -9899,7 +9911,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 405] = [
+    pub const FIELD_KEYS: [(&str, u32); 407] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -10305,6 +10317,8 @@ mod body {
         ("FirmwareTarget.image_sha256", 409),
         ("FirmwareTarget.note", 410),
         ("Device.firmware_hold", 411),
+        ("PhysicalPort.plate_x", 412),
+        ("PhysicalPort.plate_y", 413),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit

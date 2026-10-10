@@ -112,8 +112,22 @@ describe('menuItemsFor', () => {
     const at = { screen: { x: 1, y: 2 }, flow: { x: 3, y: 4 } };
     expect(menuItemsFor({ kind: 'rack', id: 'r1' }, a).map((i) => i.label)).toEqual(['Details', 'Add a device']);
     const items = menuItemsFor({ kind: 'rack', id: 'r1', freeU: { u: 12, ...at } }, a);
-    expect(items.map((i) => i.label)).toEqual(['Details', 'Add here (U12)', 'Add a device']);
+    expect(items.map((i) => i.label)).toEqual(['Details', 'Add here (U12)', 'Add a device', 'Add a note here']);
     items[1].onSelect();
     expect(a.onAddInRack).toHaveBeenCalledWith('r1', 12, expect.objectContaining({ screen: at.screen }));
+  });
+
+  it('offers a note on the empty canvas and on a free unit of a rack, at the spot clicked', () => {
+    const onAddLabelHere = vi.fn();
+    const a: MenuActions = { onSelect: vi.fn(), onAddLabelHere };
+    const at = { screen: { x: 1, y: 2 }, flow: { x: 30, y: 40 } };
+    const pane = menuItemsFor({ kind: 'pane', at }, a);
+    expect(pane.map((i) => i.label)).toEqual(['Add a label here', 'Add an area here', 'Add a note here']);
+    pane[2]!.onSelect();
+    expect(onAddLabelHere).toHaveBeenLastCalledWith('note', at.flow);
+    const rack = menuItemsFor({ kind: 'rack', id: 'r1', freeU: { u: 3, ...at } }, a);
+    expect(rack.map((i) => i.label)).toEqual(['Details', 'Add a note here']);
+    rack[1]!.onSelect();
+    expect(onAddLabelHere).toHaveBeenLastCalledWith('note', at.flow);
   });
 });

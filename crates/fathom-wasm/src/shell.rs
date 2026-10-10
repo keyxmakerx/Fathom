@@ -2986,7 +2986,29 @@ fn nothing_understood(ingest: &fathom_ingest::IngestOutput) -> String {
              a different vendor, Fathom reads Junos, EdgeOS and OPNsense today. Nothing was \
              changed; what you had is still loaded.",
             lines.len(),
-            ingest.residue.first().map_or(1, |r| r.ordinal.0 + 1)
+            // The physical line, not the logical ordinal: a backslash join makes the two
+            // differ (#104 item 7). Counted in the gated capture, which keeps every line
+            // break outside a quarantined joined line.
+            ingest.residue.first().map_or(1, |r| text
+                .get(..r.span.start as usize)
+                .map_or(0, |t| t.matches('\n').count())
+                + 1)
+        );
+    }
+
+    // A line the gate quarantined is not a statement Fathom failed to know: it looked
+    // like it held a password or key, and its text is gone (#104 item 7).
+    let quarantined = ingest
+        .residue
+        .iter()
+        .filter(|r| matches!(r.outcome, LineOutcome::Quarantined { .. }))
+        .count();
+    if quarantined > 0 {
+        return format!(
+            "none of these {} lines became a fact, and {quarantined} of them looked like they \
+             held a password or key, so their text was destroyed before anything was kept. \
+             Nothing was changed; what you had is still loaded.",
+            lines.len()
         );
     }
 
@@ -3120,13 +3142,14 @@ fn is_own_front_end(platform: &str) -> bool {
 
 fn detector_names(d: fathom_ingest::redact::DetectorSet) -> String {
     use fathom_ingest::redact::DetectorSet;
-    const NAMED: [(u8, &str); 6] = [
+    const NAMED: [(u8, &str); 7] = [
         (DetectorSet::PATH, "path"),
         (DetectorSet::CRYPT_PREFIX, "crypt-prefix"),
         (DetectorSet::PEM_ARMOUR, "pem-armour"),
         (DetectorSet::LONG_HEX, "long-hex"),
         (DetectorSet::BASE64, "base64"),
         (DetectorSet::LEAF_NAME, "leaf-name"),
+        (DetectorSet::QUOTE_WRAP, "quote-wrap"),
     ];
     NAMED
         .iter()

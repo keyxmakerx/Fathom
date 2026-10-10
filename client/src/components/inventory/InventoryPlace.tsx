@@ -75,6 +75,8 @@ import {
   type Kind,
 } from './kinds';
 import './inventory.css';
+import { EmptyState } from '../ui/EmptyState';
+import { SkeletonRows } from '../ui/Skeleton';
 
 const EMPTY_VIEW: ClosetView = { premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [], free: [], lines: [], labels: [] };
 const EMPTY_NETWORKS_DERIVED: NetworksDerived = { vlanRows: [], subnetRows: [], dockerNetworkRows: [], dockerUnattachedContainers: [] };
@@ -697,7 +699,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   return (
     <Shell {...shellProps} lens={lens} editor={null} viewOnly={!canDraw}>
       {doc == null ? (
-        <div className="inventory-place__loading">{loadError ?? 'Opening the design…'}</div>
+        <div className="inventory-place__loading">{loadError ?? <SkeletonRows label="Opening the design…" rows={9} />}</div>
       ) : (
         <PasteGateBoundary redact={redact}>
         <div className="inventory-place">
@@ -834,6 +836,37 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                     />
                   )}
                   emptyText={baseRows.length === 0 ? `No ${kind} yet.` : 'Nothing matches the filters.'}
+                  empty={
+                    baseRows.length === 0 ? (
+                      <EmptyState
+                        title={`No ${kind} yet.`}
+                        compact
+                        action={
+                          canDraw && (kind === 'prefixes' || kind === 'vlans')
+                            ? { label: kind === 'prefixes' ? 'Add a prefix' : 'Add a VLAN', onClick: () => setAdding(kind === 'prefixes' ? 'prefix' : 'vlan') }
+                            : canDraw && kind === 'devices'
+                              ? { label: 'Import devices', onClick: () => { importBase.current = liveDoc.current; setImporting(true); } }
+                              : undefined
+                        }
+                      >
+                        {kind === 'devices'
+                          ? 'Type a name in the box above to add one, or import a list.'
+                          : kind === 'racks'
+                            ? 'Type a name in the box above to add a rack.'
+                            : kind === 'cables'
+                              ? 'Draw cables on the canvas and they are listed here.'
+                              : kind === 'ports'
+                                ? 'Ports come with a device.'
+                                : kind === 'addresses'
+                                  ? 'Addresses are read from your devices.'
+                                  : 'Add one with the button above.'}
+                      </EmptyState>
+                    ) : (
+                      <EmptyState title="Nothing matches the filters." compact action={{ label: 'Clear filters', onClick: () => go({ q: '' }) }}>
+                        Loosen the search, or clear it to see every row.
+                      </EmptyState>
+                    )
+                  }
                   initialScrollTop={scrollTop.current}
                   onScrollTop={(top) => {
                     scrollTop.current = top;

@@ -87,6 +87,16 @@ function positioned(ports: PortView[], kinds: Map<string, PortKind>): Cell[] {
   }));
 }
 
+/** A plate coordinate's span: thousandths of the plate (schema 0.20, `PhysicalPort.plate_x`). */
+export const PLATE_SPAN = 1000;
+
+/** Top-left of a `w`×`h` port whose centre is stored at `plate`, kept wholly on a plate `plateH` tall. */
+export function plateBoxAt(plate: { x: number; y: number }, w: number, h: number, plateH: number, plateW: number = RACK_INNER_PX): { x: number; y: number } {
+  const cx = (plate.x / PLATE_SPAN) * plateW;
+  const cy = (plate.y / PLATE_SPAN) * plateH;
+  return { x: Math.max(0, Math.min(plateW - w, cx - w / 2)), y: Math.max(0, Math.min(plateH - h, cy - h / 2)) };
+}
+
 export function layoutFaceplate(ports: readonly PortView[], heightU: number, name: string): FaceplateLayout {
   const kinds = new Map<string, PortKind>();
   const drawable: PortView[] = [];
@@ -143,13 +153,22 @@ export function layoutFaceplate(ports: readonly PortView[], heightU: number, nam
     const slotW = colTrue.get(c.col)! * scale;
     const rowTop = c.row === 1 ? top + rowH + CELL_GAP : top;
     const slotH = c.row === -1 ? blockH : rowH;
+    const plate = c.port.plate;
+    // Schema 0.20: a hand-typed port someone dragged sits where they put it, kept on the plate.
+    if (plate != null && c.port.rowKind === undefined) {
+      const at = plateBoxAt(plate, w, h, plateH);
+      return { id: c.port.id, x: at.x, y: at.y, w, h, kind: c.kind, row: c.row };
+    }
     return { id: c.port.id, x: left + colX.get(c.col)! + (slotW - w) / 2, y: (c.row === -1 ? top : rowTop) + (slotH - h) / 2, w, h, kind: c.kind, row: c.row };
   });
 
+  const placedAny = cells.some((c) => c.port.plate != null && c.port.rowKind === undefined);
+  const leftmost = placedAny ? Math.min(...boxes.map((b) => b.x)) : left;
+  const topmost = placedAny ? Math.min(...boxes.map((b) => b.y)) : top;
   let spot: NameSpot = { mode: 'tab' };
-  const free = left - PAD_X - 4;
+  const free = leftmost - PAD_X - 4;
   if (nameW <= free && free >= NAME_MIN_FREE) spot = { mode: 'inline', x: PAD_X, y: 0, w: free };
-  else if (top >= BAND_PX) spot = { mode: 'band', x: PAD_X, y: 0, w: availW };
+  else if (topmost >= BAND_PX) spot = { mode: 'band', x: PAD_X, y: 0, w: availW };
   return { boxes, byId: new Map(boxes.map((b) => [b.id, b])), scale, name: spot };
 }
 

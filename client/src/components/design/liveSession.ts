@@ -45,6 +45,7 @@ import {
   type OverwritePart,
 } from '../../document/liveDoc';
 import type { Document } from '../../document/model';
+import { PointerThrottle, pointerGapMs, type Point, type PointerInfo } from '../collab/pointers';
 
 export type LiveMode = 'connecting' | 'live' | 'legacy';
 
@@ -93,6 +94,12 @@ export interface LiveDeps {
   reopen(): Promise<{ doc: Document; version: number }>;
   post(change: Change, after: number): Promise<number>;
   postView(body: PresenceBody): Promise<void>;
+  /** Tells the others where this person's pointer is (`null`: it left). Absent: pointers are not shared. */
+  postPointer?(pointer: Point | null): Promise<void>;
+  /** Everyone else's pointer on the canvas, whenever a presence frame brings news. */
+  onPointers?(pointers: PointerInfo[]): void;
+  /** A person the server named (presence or an author frame). */
+  onPerson?(person: Person): void;
   makeFeed(since: () => number, events: FeedEvents, view: () => string): FeedLike;
   /** Legacy mode: save the whole document. */
   save(doc: Document): void;
@@ -119,8 +126,17 @@ export function presenceViewOf(place: 'racks' | 'inventory'): string {
   return place === 'inventory' ? 'inventory' : 'canvas';
 }
 
+/** The same people, selecting the same things: a pointer moving is not news to the bar and the dots. */
+function sameCrowd(a: readonly Person[], b: readonly Person[]): boolean {
+  return a.length === b.length && a.every((p, i) => p.account === b[i]!.account && p.name === b[i]!.name && p.initials === b[i]!.initials && p.selected === b[i]!.selected);
+}
+
 export class LiveEditing {
   private readonly d: LiveDeps;
+  private readonly pointer: PointerThrottle;
+  private pointerShown = false;
+  private pointerInFlight = false;
+  private pointerQueued: { point: Point | null } | undefined;
   private readonly now: () => number;
   private readonly sittingStart: number;
   private state: LiveState;
@@ -158,6 +174,13 @@ export class LiveEditing {
     this.d = deps;
     this.now = deps.now ?? Date.now;
     this.sittingStart = this.now();
+    this.pointer = new PointerThrottle({
+      send: (p) => this.sendPointer(p),
+      now: this.now,
+      gap: () => pointerGapMs(this.people.length),
+      setTimer: (run, ms) => setTimeout(run, ms),
+      clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+    });
     this.state = openLive(doc, version);
     this.feed = deps.makeFeed(
       () => this.state.version,
@@ -180,6 +203,7 @@ export class LiveEditing {
     clearTimeout(this.retryTimer);
     clearTimeout(this.viewTimer);
     clearTimeout(this.mergedTimer);
+    this.pointer.dispose();
   }
 
   get doc(): Document {
@@ -295,6 +319,7 @@ export class LiveEditing {
 
   /** The view this person is in ("canvas" or "inventory") and what they have selected. At most twice a second. */
   setPresence(view: string, selected: string | null): void {
+    if (view !== this.view) this.pointer.forget();
     this.view = view;
     this.selected = selected;
     const people = presenceInView(this.heard.people, this.heard.ownerView, view);
@@ -303,6 +328,50 @@ export class LiveEditing {
       this.emit();
     }
     this.schedulePresence();
+  }
+
+  /** The pointer over the canvas, in canvas coordinates; `null` once it has left or the tab is hidden. At most 8 a second. */
+  setPointer(point: Point | null): void {
+    if (point === null) this.pointer.leave();
+    else this.pointer.move(point);
+  }
+
+  /** Sent only on the canvas, on a live stream, and while someone else is there to see it. */
+  private sendPointer(point: Point | null): boolean {
+    if (this.disposed || this.mode !== 'live' || !this.connected || this.view !== 'canvas' || this.d.postPointer === undefined) return false;
+    if (point !== null && this.people.length === 0) return false;
+    this.postPointerNow(point);
+    return true;
+  }
+
+  /** One pointer post in flight at a time, so they cannot overtake each other; what came meanwhile is the latest only. */
+  private postPointerNow(point: Point | null): void {
+    if (this.pointerInFlight) {
+      this.pointerQueued = { point };
+      return;
+    }
+    this.pointerInFlight = true;
+    this.d
+      .postPointer?.(point)
+      .catch((e: unknown) => {
+        this.lostAccess(e);
+      })
+      .finally(() => {
+        this.pointerInFlight = false;
+        const next = this.pointerQueued;
+        this.pointerQueued = undefined;
+        if (next !== undefined && !this.disposed) this.postPointerNow(next.point);
+      });
+  }
+
+  private firePointers(): void {
+    if (this.d.onPointers === undefined) return;
+    const list: PointerInfo[] = this.people
+      .filter((p) => p.pointer !== undefined)
+      .map((p) => ({ account: p.account, name: p.name, initials: p.initials, x: p.pointer!.x, y: p.pointer!.y }));
+    if (list.length === 0 && !this.pointerShown) return;
+    this.pointerShown = list.length > 0;
+    this.d.onPointers(list);
   }
 
   private presenceKey(): string {
@@ -338,6 +407,7 @@ export class LiveEditing {
       this.down = false;
       this.mode = this.mode === 'legacy' ? 'legacy' : 'live';
       this.viewSent = null;
+      this.pointer.forget();
       this.schedulePresence();
       void this.pump();
     } else if (status === 'down') {
@@ -345,6 +415,7 @@ export class LiveEditing {
       this.down = true;
       this.people = [];
       this.heard = { people: [], ownerView: undefined };
+      this.firePointers();
     } else if (status === 'unavailable') {
       this.connected = false;
       this.down = false;
@@ -364,16 +435,28 @@ export class LiveEditing {
     if (frame.type === FRAME_PRESENCE) {
       const heard = parsePresence(frame.bytes);
       this.heard = { people: heard.others, ownerView: frame.view };
+      let selfNews = false;
       if (heard.self) {
+        selfNews = this.self?.account !== heard.self.account || this.self.name !== heard.self.name || this.self.initials !== heard.self.initials;
         this.self = heard.self;
         this.directory.set(heard.self.account, heard.self);
+        this.d.onPerson?.(heard.self);
       }
-      for (const p of heard.others) this.directory.set(p.account, p);
+      for (const p of heard.others) {
+        this.directory.set(p.account, p);
+        this.d.onPerson?.(p);
+      }
+      const before = this.people;
       this.people = presenceInView(this.heard.people, this.heard.ownerView, this.view);
-      this.emit();
+      this.firePointers();
+      // A pointer moving is no news to the dots: only who is here, or what they hold, re-renders the page.
+      if (selfNews || !sameCrowd(before, this.people)) this.emit();
     } else if (frame.type === FRAME_AUTHOR) {
       const person = parseAuthor(frame.bytes);
-      if (person) this.directory.set(person.account, person);
+      if (person) {
+        this.directory.set(person.account, person);
+        this.d.onPerson?.(person);
+      }
     } else if (frame.type === FRAME_CHANGE) {
       this.onChange(frame);
     } else if (frame.type === FRAME_RELOAD) {

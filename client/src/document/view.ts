@@ -133,6 +133,10 @@ export interface PortView {
    * every reader added this session treats a missing one exactly as an
    * explicit `null` (`port.service ?? null`). */
   service?: string | null;
+  /** Schema 0.20 — where a hand-typed port was dragged on its plate, in
+   * thousandths of the plate's width and height to its centre. Absent or
+   * `null`: the computed layout places it. Never set on a catalogue port. */
+  plate?: { x: number; y: number } | null;
 }
 
 /** One PSU slot (ADR-0050 §3/§4), joining the catalogue's own `psuSlots`
@@ -384,7 +388,9 @@ export interface FreeLineView {
 export interface LabelView {
   id: string;
   text: string;
-  form: 'text' | 'area';
+  form: 'text' | 'area' | 'note';
+  /** A note's author and time, from the provenance of the batch that added it; absent when unknown. */
+  author?: { actor: string; at: number };
   x: number;
   y: number;
   /** An area's size; a text label's are the defaults and unused. */
@@ -581,6 +587,7 @@ function portView(
     passThroughId,
     cable,
     service: fields.service ?? null,
+    ...(fields.plateX !== undefined && fields.plateY !== undefined ? { plate: { x: fields.plateX, y: fields.plateY } } : {}),
   };
 }
 

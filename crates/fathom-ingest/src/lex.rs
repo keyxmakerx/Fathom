@@ -172,14 +172,44 @@ pub(crate) fn interned_text(capture: &str, token: &Token, table: &LexTable) -> S
     if token.kind != TokenKind::Quoted {
         return raw.to_owned();
     }
-    let q = raw.chars().next().unwrap_or(table.quote);
-    let inner = raw
-        .strip_prefix(q)
-        .and_then(|t| t.strip_suffix(q))
-        .unwrap_or(raw);
-    let mut out = String::with_capacity(inner.len());
+    // Read as a shell reads a word: quoted pieces lose their quotes and resolve their
+    // escapes, glued bare pieces stay as written (`"a"b` is `ab`, #104 item 5).
+    let is_quote = |c: char| c == table.quote || Some(c) == table.alt_quote;
+    let mut out = String::with_capacity(raw.len());
+    let mut open: Option<char> = None;
     let mut escaped = false;
-    for ch in inner.chars() {
+    for ch in raw.chars() {
+        match open {
+            Some(q) => {
+                if escaped {
+                    out.push(ch);
+                    escaped = false;
+                } else if ch == table.escape {
+                    escaped = true;
+                } else if ch == q {
+                    open = None;
+                } else {
+                    out.push(ch);
+                }
+            }
+            None if is_quote(ch) => open = Some(ch),
+            None => out.push(ch),
+        }
+    }
+    if open.is_some() {
+        // Unterminated: the token ran to the end of the line. Keep the old reading,
+        // opening quote and all, so the shaper never sees a value that looks closed.
+        let q = raw.chars().next().unwrap_or(table.quote);
+        let inner = raw.strip_prefix(q).unwrap_or(raw);
+        return format!("{q}{}", unescape(inner, table));
+    }
+    out
+}
+
+fn unescape(text: &str, table: &LexTable) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut escaped = false;
+    for ch in text.chars() {
         if escaped {
             out.push(ch);
             escaped = false;
@@ -248,6 +278,15 @@ mod tests {
         let text = "set x \"a \\\"b\\\" c\"";
         let tokens = scan_all(text);
         assert_eq!(interned_text(text, &tokens[2], &JUNOS_SET), "a \"b\" c");
+    }
+
+    /// #104 item 5: a glued quoted token interns as a shell reads it, quotes dropped.
+    #[test]
+    fn glued_quoted_token_interns_without_its_quotes() {
+        let text = "set x \"a\"b 'c d'e\"f\"";
+        let tokens = scan_all(text);
+        assert_eq!(interned_text(text, &tokens[2], &JUNOS_SET), "ab");
+        assert_eq!(interned_text(text, &tokens[3], &JUNOS_SET), "c def");
     }
 
     #[test]

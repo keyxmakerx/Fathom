@@ -285,6 +285,9 @@ try {
 
   // Select it.
   await page.click('.react-flow__node-chassis', { position: { x: 2, y: 2 } });
+  // Equipment and Details share the right-hand dock, and a device placed from an open Equipment
+  // list keeps the list showing; its Details are one tab away.
+  if (!(await page.locator('.drawing-editor__panel').isVisible())) await page.getByTestId('dock-details').click();
   await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
 
   // A sketch device has no faceplate ports until typed by hand (UI-SPEC

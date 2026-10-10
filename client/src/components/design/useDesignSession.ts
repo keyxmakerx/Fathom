@@ -19,7 +19,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchCatalogue, fetchModel, type CatalogueModel } from '../../api/catalogue';
 import { ApiRefusal } from '../../api/errors';
 import type { DesignCapability } from '../../api/designs';
-import { LiveFeed, postChange, postPresence, type Person } from '../../api/live';
+import { LiveFeed, postChange, postPointer, postPresence, type Person } from '../../api/live';
+import { rememberNames } from '../collab/changesSince';
+import type { Point, PointerInfo } from '../collab/pointers';
 import { openDesign } from '../../api/payload';
 import { applyEditorChange } from './applyChange';
 import { writeChange } from '../../document/change';
@@ -125,6 +127,10 @@ export interface DesignSession {
   tell: (sentence: string) => void;
   /** The view this person is in ("canvas" or "inventory") and what they have selected, for presence. */
   setPresence: (view: string, selected: string | null) => void;
+  /** Where this person's pointer is on the canvas, in canvas coordinates; `null` when it left. Sent sparingly, and only while someone else is here. */
+  setPointer: (point: Point | null) => void;
+  /** Hears everyone else's pointer on the canvas. Returns how to stop listening. */
+  subscribePointers: (listener: (pointers: PointerInfo[]) => void) => () => void;
   catalogue: CatalogueModel[];
   /** The open design's id, for per-design browser-local choices (the look). */
   designId?: string;
@@ -175,6 +181,7 @@ export function useDesignSession(organisationId: string, designId: string, capab
   const [live, setLive] = useState<LiveStatus>(NO_LIVE);
   const liveRef = useRef<LiveEditing | null>(null);
   const viewRef = useRef<{ view: string; selected: string | null } | null>(null);
+  const pointerListeners = useRef(new Set<(pointers: PointerInfo[]) => void>());
 
   // ADR-0054 §1: the base a save is conditioned on, held here rather than in
   // state — it moves on every save that lands, which a document mid-drawing
@@ -220,6 +227,9 @@ export function useDesignSession(organisationId: string, designId: string, capab
             },
             post: (change, after) => postChange(organisationId, designId, writeChange(change), after),
             postView: (body) => postPresence(organisationId, designId, body),
+            postPointer: (point) => postPointer(organisationId, designId, point),
+            onPointers: (list) => pointerListeners.current.forEach((fn) => fn(list)),
+            onPerson: (person) => rememberNames(getSession()?.accountId ?? null, designId, [person]),
             makeFeed: (since, events, view) => new LiveFeed({ organisationId, designId, since, events, view }),
             save: (next) => saveQueueRef.current?.push(writePlain(next)),
             onView: (v) => {
@@ -363,6 +373,11 @@ export function useDesignSession(organisationId: string, designId: string, capab
     viewRef.current = { view, selected };
     liveRef.current?.setPresence(view, selected);
   }, []);
+  const setPointer = useCallback((point: Point | null) => liveRef.current?.setPointer(point), []);
+  const subscribePointers = useCallback((listener: (pointers: PointerInfo[]) => void) => {
+    pointerListeners.current.add(listener);
+    return () => void pointerListeners.current.delete(listener);
+  }, []);
 
   const handleEdit = useCallback(
     (change: EditorChange): { refused: string } | void => {
@@ -402,6 +417,8 @@ export function useDesignSession(organisationId: string, designId: string, capab
     dismissNote,
     tell,
     setPresence,
+    setPointer,
+    subscribePointers,
     catalogue,
     loadError,
     saveRefusal,

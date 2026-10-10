@@ -306,11 +306,12 @@ try {
   // -------------------------------------------------------------------------
   // 6 — quick search finds core-01 by its renamed tag.
   // -------------------------------------------------------------------------
+  // Ctrl K opens the find-or-do palette (the owner's ticked ideas); its device rows carry the tag note.
   await page.keyboard.press('Control+k');
-  await page.waitForSelector('.shell-search--open', { timeout: 5_000 });
-  await page.locator('.shell-search__input').fill('core-net');
+  await page.waitForSelector('.palette', { timeout: 5_000 });
+  await page.locator('.palette__input').fill('core-net');
   await page.waitForTimeout(300);
-  const searchRows = await page.locator('.shell-search__row').allTextContents();
+  const searchRows = await page.locator('.palette__row').allTextContents();
   check('quick search finds core-01 by its tag', searchRows.some((t) => t.includes('core-01') && t.includes('tag: core-network')), searchRows.join(' | '));
   await page.screenshot({ path: SHOTS + 'tags-08-search.png' });
   console.log('    wrote ' + SHOTS + 'tags-08-search.png');

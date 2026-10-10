@@ -1,13 +1,17 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import type { Node, NodeProps } from '@xyflow/react';
 
 import { AREA_MIN_H, AREA_MIN_W } from '../../document/freeform';
+import { NoteCard } from './NoteCard';
+import { useEditFocus } from './useEditFocus';
 import { useGripDrag, type GripDrag } from './useGripDrag';
 
-/** A text label, or an area: a labelled rectangle that groups things by meaning. */
+/** A text label, an area (a labelled rectangle that groups things by meaning), or a note pinned to the canvas. */
 export interface LabelNodeData extends Record<string, unknown> {
   text: string;
-  form: 'text' | 'area';
+  form: 'text' | 'area' | 'note';
+  /** A note's author and time, when on record. */
+  author?: { actor: string; at: number };
   w: number;
   h: number;
   editing: boolean;
@@ -21,10 +25,7 @@ export type LabelNodeType = Node<LabelNodeData, 'label'>;
 
 function TextEditor({ data }: { data: LabelNodeData }) {
   const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    ref.current?.focus();
-    ref.current?.select();
-  }, []);
+  const onBlur = useEditFocus(ref, (value) => data.onEdit(value));
   return (
     <input
       ref={ref}
@@ -37,7 +38,7 @@ function TextEditor({ data }: { data: LabelNodeData }) {
         if (e.key === 'Enter') data.onEdit(e.currentTarget.value);
         if (e.key === 'Escape') data.onEdit(null);
       }}
-      onBlur={(e) => data.onEdit(e.currentTarget.value)}
+      onBlur={onBlur}
     />
   );
 }
@@ -69,6 +70,7 @@ function AreaGrip({ data }: { data: LabelNodeData }) {
 }
 
 export function LabelNode({ data, selected }: NodeProps<LabelNodeType>) {
+  if (data.form === 'note') return <NoteCard text={data.text} author={data.author} editing={data.editing} selected={selected === true} onEdit={data.onEdit} />;
   const edit = data.editing ? <TextEditor data={data} /> : null;
   if (data.form === 'area') {
     return (

@@ -109,6 +109,9 @@ impl DetectorSet {
     pub const LONG_HEX: u8 = 8;
     pub const BASE64: u8 = 16;
     pub const LEAF_NAME: u8 = 32;
+    /// #104: destroyed because broken or unclosed quoting next to a destroyed secret
+    /// leaves the secret's extent unknown, not because the text itself tripped anything.
+    pub const QUOTE_WRAP: u8 = 64;
 }
 
 /// 14 §9.4's secret-word list, case-folded, hyphens = underscores.
@@ -326,6 +329,7 @@ pub(crate) fn gate(
     for line in noise {
         gate_unshaped(capture, dict, line, &mut edits);
     }
+    gate_wrapped_tails(capture, dict, outcomes, unshaped, noise, &mut edits);
 
     // Deterministic, non-overlapping edit order. A bracket list expands into
     // several statements sharing their head tokens, so the same position can
@@ -417,6 +421,66 @@ pub(crate) fn gate(
     }
 }
 
+/// #104 item 1: the tail of a quoted value a terminal wrapped onto its own line.
+///
+/// `... pre-shared-secret 'Correct-Horse` then `battery-staple'`: the first line has an
+/// unterminated quote and is gated on its own, and the second is a bare word that trips
+/// no detector, so half the secret was stored. The framer rightly does not join lines
+/// inside a quote (a backslash before the break included), so the gate does it here:
+/// every line straight after an unterminated quote that does not start with a verb is
+/// quarantined, and so is the next one, until a line carries a quote character (the
+/// likely close) or a verb, blank or noise line ends the run. It costs residue text,
+/// never a bound fact: these lines never shape.
+fn gate_wrapped_tails(
+    capture: &str,
+    dict: &Dictionary,
+    outcomes: &[Outcome],
+    unshaped: &[UnshapedLine],
+    noise: &[UnshapedLine],
+    edits: &mut Vec<Edit>,
+) {
+    let is_quote = |c: char| c == lex::JUNOS_SET.quote || Some(c) == lex::JUNOS_SET.alt_quote;
+    let mut open = false;
+    for (idx, o) in outcomes.iter().enumerate() {
+        let LineOutcome::Unshaped { reason } = o.outcome else {
+            open = false;
+            continue;
+        };
+        let line = unshaped
+            .iter()
+            .chain(noise)
+            .find(|l| l.line.0 as usize == idx);
+        let verb_initial = line
+            .and_then(|l| l.tokens.first())
+            .is_some_and(|t| shape::VERBS.contains(&lex::token_text(capture, t)));
+        let unterminated = reason == crate::frame::ShapeError::UnterminatedQuote;
+        match line {
+            Some(line) if open && !verb_initial => {
+                let texts: Vec<String> = line
+                    .tokens
+                    .iter()
+                    .map(|t| lex::interned_text(capture, t, &lex::JUNOS_SET))
+                    .collect();
+                edits.push(Edit {
+                    start: line.span.start,
+                    end: line.span.end,
+                    text: sketch(capture, dict, &line.tokens, &texts),
+                    ordinal: line.line,
+                    label: RedactLabel::Unknown,
+                    detectors: DetectorSet::QUOTE_WRAP,
+                    node: None,
+                    quarantine: true,
+                });
+                // A quote on the tail most likely closes the value; a tail that is
+                // itself unterminated (`staple"` lexes as a word then an open quote)
+                // still closes it. Either way the run ends here.
+                open = !unterminated && !crate::frame::slice(capture, line.span).contains(is_quote);
+            }
+            _ => open = unterminated,
+        }
+    }
+}
+
 /// Old offset -> new offset. `kept` is sorted and non-overlapping, so the
 /// shift at `pos` is the sum of the length changes strictly before it.
 fn remap(pos: u32, kept: &[Edit]) -> u32 {
@@ -481,6 +545,8 @@ fn gate_statement(
         None => args.extend(m.known_prefix..segs.len()),
     }
     let secret_pos = entry.and_then(|e| e.secret.and_then(|_| e.secret_pos()));
+    let mut first_hit: Option<usize> = None;
+    let mut hit: BTreeSet<usize> = BTreeSet::new();
 
     for at in args {
         let text = match segs.get(at) {
@@ -638,6 +704,8 @@ fn gate_statement(
             Some(t) => *t,
             None => continue,
         };
+        first_hit.get_or_insert(at);
+        hit.insert(at);
         edits.push(Edit {
             start: token.span.start,
             end: token.span.end,
@@ -648,6 +716,76 @@ fn gate_statement(
             node: stmt.path.get(at).copied(),
             quarantine: false,
         });
+    }
+
+    // #104 items 2 and 3: a destroyed value followed by broken quoting. The lexer's
+    // token boundaries are only as good as the quoting, and a value like
+    // `'it's  horse  staple'` lexes as `'it's`, `horse`, `staple'`: the first two sit
+    // within the leaf-name walk's two-token reach and the third does not. Where any
+    // token from the first destroyed one onward has a quote that does not open and
+    // close it cleanly, where the secret ends is unknown, so everything after it on the
+    // line goes too. Destruction is §9.7's direction of error, and this only fires on a
+    // line that already lost a secret.
+    let Some(first) = first_hit else {
+        return;
+    };
+    let broken = stmt
+        .tokens
+        .iter()
+        .skip(first)
+        .any(|t| quoting_is_broken(capture, t));
+    if !broken {
+        return;
+    }
+    for at in first + 1..segs.len() {
+        if hit.contains(&at) {
+            continue;
+        }
+        let Some(token) = stmt.tokens.get(at) else {
+            continue;
+        };
+        edits.push(Edit {
+            start: token.span.start,
+            end: token.span.end,
+            text: marker(RedactLabel::Unknown),
+            ordinal: stmt.line,
+            label: RedactLabel::Unknown,
+            detectors: DetectorSet::QUOTE_WRAP,
+            node: stmt.path.get(at).copied(),
+            quarantine: false,
+        });
+    }
+}
+
+/// Does this token's quoting leave its extent in doubt? A quoted token that is not
+/// exactly one quote, its content and the same quote (`'a'b`, `'it's`), or a bare token
+/// carrying a quote character (`staple'`).
+fn quoting_is_broken(capture: &str, token: &lex::Token) -> bool {
+    let raw = lex::token_text(capture, token);
+    let is_quote = |c: char| c == lex::JUNOS_SET.quote || Some(c) == lex::JUNOS_SET.alt_quote;
+    match token.kind {
+        lex::TokenKind::Quoted => {
+            let Some(q) = raw.chars().next() else {
+                return false;
+            };
+            let Some(inner) = raw.strip_prefix(q).and_then(|t| t.strip_suffix(q)) else {
+                return true;
+            };
+            // An unescaped quote of either kind inside means pieces were glued.
+            let mut escaped = false;
+            for c in inner.chars() {
+                if escaped {
+                    escaped = false;
+                } else if c == lex::JUNOS_SET.escape {
+                    escaped = true;
+                } else if is_quote(c) {
+                    return true;
+                }
+            }
+            false
+        }
+        lex::TokenKind::Bare => raw.chars().any(is_quote),
+        _ => false,
     }
 }
 
