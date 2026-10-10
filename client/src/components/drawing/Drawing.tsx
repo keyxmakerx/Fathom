@@ -34,6 +34,7 @@ import { mediaCandidates } from '../checks/checksModel';
 import { useChecksApi } from '../checks/checksStore';
 import { PlanGhostEdge } from './PlanGhostEdge';
 import { PlansCanvasBridge, usePlansFade } from './plansFade';
+import { useSuggestGhosts } from './suggestGhosts';
 import { TroubleCanvasBridge, useTroubleFade } from './troubleFade';
 import type { PortTarget } from './plansMarks';
 import { Callout } from './Callout';
@@ -279,6 +280,8 @@ export interface DrawingProps extends DrawingActions {
   firmwareNeedsVersion?: (chassisId: string) => boolean;
   /** Right-click "It's down" on a device (ADR-0061 troubleshooting). Absent, or a reader: no menu item. */
   onItsDown?: (elementId: string) => void;
+  /** Right-click "Suggest cables from its neighbours (LLDP)"; null from the empty canvas. Absent for a reader. */
+  onSuggestCables?: (chassisId: string | null) => void;
   /** Bump to fit every rack into view (a counter, so a repeat press fires). */
   fitRequest?: number;
   /** Remounted by a Rack/Diagram switch: no focus is pending, so fit even with a selection. */
@@ -435,6 +438,7 @@ function DrawingInner({
   onPlanFirmware,
   firmwareNeedsVersion,
   onItsDown,
+  onSuggestCables,
   onOpenDevice,
   onResizeShelf,
   onAddFreeBox,
@@ -577,7 +581,7 @@ function DrawingInner({
     onRemoveFree,
   };
   const menuActions: MenuActions = canDraw
-    ? { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, ...freeMenuActions }
+    ? { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, onSuggestCables, ...freeMenuActions }
     : { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom };
   const menuActionsRef = useRef(menuActions);
   useLayoutEffect(() => {
@@ -1761,7 +1765,9 @@ function DrawingInner({
   const allEdges = useMemo(() => [...edges, ...free.edges], [edges, free.edges]);
   // An open plan's marks and focus first; a Checks Show then fades on top and wins, and a trace on top of both.
   const planned = usePlansFade(allNodes, allEdges, resolvePlanPort);
-  const troubled = useTroubleFade(planned.nodes, planned.edges);
+  // An open suggestions card's ticked cables, dashed, under the same fades as everything else.
+  const suggestedEdges = useSuggestGhosts(planned.nodes, planned.edges, resolvePlanPort);
+  const troubled = useTroubleFade(planned.nodes, suggestedEdges);
   const faded = useChecksFade(troubled.nodes, troubled.edges);
   const shown = useTraceFade(faded.nodes, faded.edges);
   // A name on the canvas edits in place only for someone who may edit.
