@@ -18,6 +18,7 @@ import {
   resizeShelf,
 } from '../../document/commands';
 import { disconnect, setCableField } from '../../document/cables';
+import { addCableRun, addCableTie, moveCableTie, removeCableRun, removeCableTie } from '../../document/cableRuns';
 import { removeFree, setLabel, setLineLabel } from '../../document/freeform';
 import { FieldValueError, setChassisField, setDeviceField, setPassiveNodeField, setRackField, setRackHeight } from '../../document/edit';
 import { edgesIn, findNode, readDeviceFields, type Document } from '../../document/model';
@@ -147,6 +148,16 @@ export function applyEditorChange(
     next = removeFree(doc, [change.id], opts);
   } else if (change.kind === 'shelf-size') {
     next = resizeShelf(doc, change.id, { heightU: change.heightU, slots: change.slots }, { catalogue, ...opts });
+  } else if (change.kind === 'cable-run-add') {
+    next = addCableRun(doc, change.hostId, { form: change.form, side: change.side, ...opts });
+  } else if (change.kind === 'cable-run-remove') {
+    next = removeCableRun(doc, change.id, opts);
+  } else if (change.kind === 'cable-tie-add') {
+    next = addCableTie(doc, change.runId, { at: change.at, cableIds: change.cableIds, ...opts });
+  } else if (change.kind === 'cable-tie-move') {
+    next = moveCableTie(doc, change.id, change.at, opts);
+  } else if (change.kind === 'cable-tie-remove') {
+    next = removeCableTie(doc, change.id, opts);
   } else {
     if (!isSurfaceForm(change.form)) {
       throw new FieldValueError('Surface.form', change.form, `is not one of: ${SURFACE_FORMS.join(', ')}`);

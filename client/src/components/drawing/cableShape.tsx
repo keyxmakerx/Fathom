@@ -11,9 +11,11 @@ import {
   swayAt,
   swayKick,
   SWAY_SETTLE_MS,
+  throughTies,
   tiedPoints,
   type Pt,
   type TiedRoute,
+  type Waypoint,
 } from './cableRoute';
 import type { CableStyle } from './cableStyle';
 import type { CableKind } from './contract';
@@ -69,6 +71,8 @@ export interface CableShapeInput {
   source: Pt;
   target: Pt;
   tied?: TiedRoute;
+  /** Cable-tied: real ties on runs this cable passes through, in order. */
+  waypoints?: readonly Waypoint[];
   sway?: Pt;
 }
 
@@ -79,7 +83,7 @@ export interface CableShapeResult {
 }
 
 /** The line one cable (or band) draws in this person's style. */
-export function cableShape({ style, id, kind, ends, source, target, tied, sway }: CableShapeInput): CableShapeResult {
+export function cableShape({ style, id, kind, ends, source, target, tied, waypoints, sway }: CableShapeInput): CableShapeResult {
   const leads = ends != null && (ends[0] != null || ends[1] != null) ? leadsFor(ends[0], ends[1], source, target) : null;
   if (style === 'physics') {
     const base = leads != null ? cableLeadCubic(leads, kind) : cableSagCubic(source.x, source.y, target.x, target.y, kind);
@@ -87,7 +91,12 @@ export function cableShape({ style, id, kind, ends, source, target, tied, sway }
     return { d: cubicPath(c), points: cubicPoints(c), leads };
   }
   const square = leads ?? leadsFor(null, null, source, target);
-  const points = style === 'tied' && tied != null ? tiedPoints(square, tied) : squarePoints(square, laneOffsetPx(id, kind));
+  const points =
+    style === 'tied' && waypoints != null && waypoints.length > 0
+      ? throughTies(square, waypoints)
+      : style === 'tied' && tied != null
+        ? tiedPoints(square, tied)
+        : squarePoints(square, laneOffsetPx(id, kind));
   return { d: polylinePath(points), points, leads };
 }
 

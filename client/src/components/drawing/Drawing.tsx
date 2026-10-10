@@ -66,7 +66,11 @@ import { ChassisNode, INLET_ANCHOR_HANDLE_ID, type ChassisNodeData, type Chassis
 import { BundleEdge, type BundleEdgeData, type BundleEdgeType } from './BundleEdge';
 import { CableEdge, type CableEdgeData, type CableEdgeType } from './CableEdge';
 import { CableCrossingKeys, CableOverlayEdge, CABLE_OVERLAY_EDGE_ID, type CableOverlayEdgeType } from './CableOverlayEdge';
-import { planTies, type TieInput } from './cableRoute';
+import { planTies, type TieInput, type Waypoint } from './cableRoute';
+import { CableRunActionsContext, type CableRunActions } from './CableRunMarks';
+import { pointOnRun, rackRunLine, runUnder, type RackBox, type RunSegment } from './runGeometry';
+import type { CableRunView } from '../../document/cableRuns';
+import type { EditorChange } from './contract';
 import { DEFAULT_CABLE_STYLE, type CableStyle } from './cableStyle';
 import { ColourPicker } from './ColourPicker';
 import { ContextMenu } from './ContextMenu';
@@ -77,11 +81,11 @@ import { FREE_EDGE_TYPES, FREE_NODE_TYPES, useFreeLayer } from './useFreeLayer';
 import { menuItemsFor, type MenuActions, type MenuTarget } from './contextMenuItems';
 import { createLiveStore, EMPTY_STRING_SET, LiveStoreProvider, useLive, type LiveStore } from './liveStore';
 import { portSheathEqual } from './nodeEquality';
-import { RACK_NODE_WIDTH, RackNode, rackNodeHeight, type RackNodeType } from './RackNode';
+import { RACK_NODE_WIDTH, RackNode, rackNodeHeight, type RackNodeData, type RackNodeType } from './RackNode';
 import { PortalTrayNode, type PortalTrayNodeType } from './PortalTrayNode';
 import { RowLabelNode, type RowLabelNodeType } from './RowLabelNode';
 import { ShelfPlate, type ShelfPlateNodeType } from './ShelfPlate';
-import { SurfaceNode, type SurfaceNodeType } from './SurfaceNode';
+import { SURFACE_HEADER_PX, SurfaceNode, type SurfaceNodeData, type SurfaceNodeType } from './SurfaceNode';
 import { chassisNodeId, parseNodeId, rackNodeId, shelfNodeId, surfaceNodeId, trayNodeId } from './nodeId';
 import { findAnyPort, findFixture, findOccupant, locatePort, resolvePlaceNode } from './lookup';
 import { liveTargetPortIds } from './liveTargets';
@@ -354,6 +358,8 @@ export interface DrawingProps extends DrawingActions {
   minimap?: boolean;
   /** This person's cable style (`cableStyle.ts`); physics when absent. */
   cableStyle?: CableStyle;
+  /** Edits the drawing makes itself: cable runs and ties (schema 0.21). Absent for a reader. */
+  onEdit?: (change: EditorChange) => { refused: string } | void;
 }
 
 type AnyRackNode = RackNodeType;
@@ -470,6 +476,7 @@ function DrawingInner({
   keyCableIds,
   minimap,
   cableStyle = DEFAULT_CABLE_STYLE,
+  onEdit,
 }: DrawingProps) {
   const rf = useReactFlow<FlowNode>();
 
@@ -575,6 +582,15 @@ function DrawingInner({
     [onSelect, onOpenDevice, rf],
   );
   const onOpenInside = renderInsideStop ? (id: string) => openChassis(id, 'inside') : undefined;
+  // Cable runs (schema 0.21) from a rack's own right-click.
+  const cableRunMenuActions: Partial<MenuActions> =
+    onEdit != null
+      ? {
+          onAddCableRun: (hostId, form, side) => void onEdit({ kind: 'cable-run-add', hostId, form, side }),
+          onRemoveCableRun: (id) => void onEdit({ kind: 'cable-run-remove', id }),
+          cableRunsOn: (hostId) => (view.racks.find((r) => r.id === hostId) ?? view.surfaces.find((s) => s.id === hostId))?.cableRuns ?? [],
+        }
+      : {};
   const freeMenuActions: Partial<MenuActions> = {
     onAddInRack: onAddDeviceAt ? (rackId, u, at) => free.openAdd(at.screen, at.flow, { rackId, positionU: u }) : undefined,
     onAddBoxHere: onAddFreeBox ? (at) => free.openAdd(at.screen, at.flow) : undefined,
@@ -583,7 +599,7 @@ function DrawingInner({
     onRemoveFree,
   };
   const menuActions: MenuActions = canDraw
-    ? { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, ...freeMenuActions }
+    ? { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, ...freeMenuActions, ...cableRunMenuActions }
     : { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom };
   const menuActionsRef = useRef(menuActions);
   useLayoutEffect(() => {
@@ -625,6 +641,8 @@ function DrawingInner({
         return openMenu(event, { kind: 'rack', id: rackNode.id });
       }
       if (parsedFree) return openMenu(event, { kind: parsedFree.kind === 'box' ? 'free' : 'label', id: parsedFree.id });
+      // A wall: its own menu offers cable runs (schema 0.21).
+      if (node.id.startsWith('surface:')) return openMenu(event, { kind: 'surface', id: node.id.slice('surface:'.length) });
       openMenu(event, parseNodeId(node.id) ?? paneTarget(event));
     },
     [openMenu, paneTarget, view.racks, rackPositions],
@@ -1288,6 +1306,47 @@ function DrawingInner({
   // member hidden or filtered out is a bundle nobody should see either.
   const bundles = useMemo(() => groupBundles(drawnCables), [drawnCables]);
 
+  // Cable runs (schema 0.21): each tray or lacing bar beside its rack, in flow space, and every
+  // real tie on them as a point the cables it holds pass through.
+  const runSegments: RunSegment[] = [];
+  const waypointsByCable = new Map<string, Waypoint[]>();
+  for (const n of nodes) {
+    let host: { id: string; runs: readonly CableRunView[]; box: RackBox } | null = null;
+    if (n.type === 'rack') {
+      const rack = (n.data as RackNodeData).rack;
+      host = { id: rack.id, runs: rack.cableRuns ?? [], box: { x: n.position.x, y: n.position.y, width: RACK_NODE_WIDTH, headerPx: RACK_HEADER_PX, frameHeight: rack.heightU * U_PX } };
+    } else if (n.type === 'surface') {
+      const placement = (n.data as SurfaceNodeData).placement;
+      host = {
+        id: placement.surface.id,
+        runs: placement.surface.cableRuns ?? [],
+        box: { x: n.position.x, y: n.position.y, width: placement.widthPx, headerPx: SURFACE_HEADER_PX, frameHeight: Math.max(0, placement.heightPx - SURFACE_HEADER_PX) },
+      };
+    }
+    if (host == null) continue;
+    for (const run of host.runs) {
+      const line = rackRunLine(host.box, run.side);
+      runSegments.push({ runId: run.id, hostId: host.id, ...line });
+      for (const tie of run.ties) {
+        const p = pointOnRun(line, tie.at);
+        for (const id of tie.cableIds) {
+          const list = waypointsByCable.get(id) ?? [];
+          list.push({ ...p, vertical: line.vertical });
+          waypointsByCable.set(id, list);
+        }
+      }
+    }
+  }
+  const handleClipTie =
+    canDraw && onEdit != null
+      ? (p: { x: number; y: number }, cableIds: readonly string[]): boolean => {
+          const hit = runUnder(runSegments, p);
+          if (hit == null) return false;
+          onEdit({ kind: 'cable-tie-add', runId: hit.run.runId, at: hit.at, cableIds });
+          return true;
+        }
+      : undefined;
+
   // Cable-tied: cables leaving one device toward the same side gather into bundles with ties
   // (`cableRoute.ts`). Only cables drawn whole between two port boxes take part.
   const tiePlan = (() => {
@@ -1298,7 +1357,7 @@ function DrawingInner({
       if (real.length !== 2) continue;
       const a = portBox(real[0]!);
       const b = portBox(real[1]!);
-      if (a == null || b == null || stubFor(cable.id, real[0]!, real[1]!, a, b) != null) continue;
+      if (a == null || b == null || waypointsByCable.has(cable.id) || stubFor(cable.id, real[0]!, real[1]!, a, b) != null) continue;
       inputs.push({ id: cable.id, chassis: [real[0]!.chassisId, real[1]!.chassisId], leads: leadsFor(a, b, { x: 0, y: 0 }, { x: 0, y: 0 }) });
     }
     return planTies(inputs);
@@ -1335,6 +1394,8 @@ function DrawingInner({
       dashed: dashedCableIds?.has(cable.id) ?? false,
       tied: tiePlan?.routes.get(cable.id),
       ties: tiePlan?.ties.get(cable.id),
+      waypoints: orderedWaypoints(waypointsByCable.get(cable.id), boxes[0]),
+      onClipTie: handleClipTie,
     };
     return {
       id: cable.id,
@@ -1808,9 +1869,18 @@ function DrawingInner({
   const shown = useTraceFade(faded.nodes, faded.edges);
   // A name on the canvas edits in place only for someone who may edit.
   const nameEdit = useMemo<NameEditApi | null>(() => (canDraw && onRename ? { rename: onRename } : null), [canDraw, onRename]);
+  // A tie on a run slides along it, or comes off when dragged clear (`CableRunMarks.tsx`).
+  const cableRunActions = useMemo<CableRunActions | null>(
+    () =>
+      canDraw && onEdit != null
+        ? { moveTie: (id, at) => void onEdit({ kind: 'cable-tie-move', id, at }), removeTie: (id) => void onEdit({ kind: 'cable-tie-remove', id }) }
+        : null,
+    [canDraw, onEdit],
+  );
 
   return (
     <LiveStoreProvider value={liveStore}>
+      <CableRunActionsContext.Provider value={cableRunActions}>
       <NameEditContext.Provider value={nameEdit}>
     <LiveLitPath view={view} portalGroups={portalGroups} selected={selected} liveStore={liveStore} drawnCableIds={drawnCableIds} />
     <div
@@ -1963,6 +2033,7 @@ function DrawingInner({
       )}
     </div>
       </NameEditContext.Provider>
+      </CableRunActionsContext.Provider>
     </LiveStoreProvider>
   );
 }
@@ -1977,4 +2048,12 @@ export function Drawing(props: DrawingProps) {
       <DrawingInner {...props} />
     </ReactFlowProvider>
   );
+}
+
+/** A cable's real ties in the order it meets them, nearest its first port first. */
+function orderedWaypoints(list: readonly Waypoint[] | undefined, from: PortPoint | null): Waypoint[] | undefined {
+  if (list == null || list.length === 0) return undefined;
+  if (from == null) return [...list];
+  const d = (w: Waypoint) => Math.hypot(w.x - from.x, w.y - from.y);
+  return [...list].sort((a, b) => d(a) - d(b));
 }

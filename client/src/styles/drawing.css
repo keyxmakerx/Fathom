@@ -828,6 +828,41 @@
   stroke-linecap: butt;
 }
 
+.drawing-cable__tie-grab {
+  cursor: grab;
+}
+
+.drawing-cable__tie--dragging {
+  opacity: 0.7;
+}
+
+/* Cable runs (schema 0.21): a tray or lacing bar just outside the rack frame, hairline and
+   muted so it reads as furniture, never as a cable; its ties are ink, as a bundle's are. */
+.drawing-run {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--muted);
+  background: var(--surface-2, var(--page));
+}
+
+.drawing-run--lacing_bar {
+  background-image: repeating-linear-gradient(0deg, transparent 0 6px, var(--hairline) 6px 7px);
+}
+
+.drawing-run__tie {
+  position: absolute;
+  background: var(--ink);
+}
+
+.drawing-run__tie--movable {
+  cursor: grab;
+  touch-action: none;
+}
+
+.drawing-run__tie--off {
+  opacity: 0.4;
+}
+
 /* Where cables cross under the pointer: how many, which one is lit, and the key that moves on. */
 .drawing-cable-crossing {
   position: absolute;

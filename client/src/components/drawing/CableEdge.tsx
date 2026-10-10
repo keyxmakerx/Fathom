@@ -5,7 +5,7 @@ import { EdgeLabelRenderer, useReactFlow, type Edge, type EdgeProps } from '@xyf
 import { CableCheckBadge } from '../checks/CheckBadge';
 import type { PlacedLabel, PortPoint } from './cableEnds';
 import { cableShapes, hoverCablesAt, shapeOf } from './cableHover';
-import { pointAlong, polylineLength, type Tie, type TiedRoute } from './cableRoute';
+import { pointAlong, polylineLength, type Pt, type Tie, type TiedRoute, type Waypoint } from './cableRoute';
 import { cableShape, FadedTips, useCableSway } from './cableShape';
 import type { CableView } from './contract';
 import { FRESH_PLAY_MS, isFreshCable, markCablePlayed } from './cableMotion';
@@ -52,6 +52,11 @@ export interface CableEdgeData extends Record<string, unknown> {
   tied?: TiedRoute;
   /** Cable-tied: the bundle's ties, drawn by its first cable. */
   ties?: readonly Tie[];
+  /** Cable-tied: real ties on runs (schema 0.21) this cable passes through, in order. */
+  waypoints?: readonly Waypoint[];
+  /** A bundle's tie dropped at `p`: clips it onto the run there, holding `cableIds`. False when
+   * no run was close enough. Absent for a reader. */
+  onClipTie?: (p: Pt, cableIds: readonly string[]) => boolean;
 }
 
 export type CableEdgeType = Edge<CableEdgeData, 'cable'>;
@@ -92,6 +97,8 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   const offKey = useLive((s) => (data != null && s.keyCableIds != null ? !s.keyCableIds.has(data.cable.id) : false));
   // A cable this person has just made pulls tight and pulses once (`cableMotion.ts`); never a teammate's, never on load.
   const cableId = data?.cable.id ?? '';
+  // A bundle's tie being dragged toward a run: where it is now, and the cables it goes round.
+  const [tieDrag, setTieDrag] = useState<{ p: Pt; cableIds: readonly string[] } | null>(null);
   const [playing, setPlaying] = useState(
     () => data != null && !prefersReducedMotion() && isFreshCable(cableId, data.cable.ends.flatMap((e) => ('portId' in e ? [e.portId] : []))),
   );
@@ -106,7 +113,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   );
   const shape =
     data != null
-      ? cableShape({ style, id: cableId, kind: data.cable.kind, ends: data.ends, source: { x: sourceX, y: sourceY }, target: { x: targetX, y: targetY }, tied: data.tied, sway })
+      ? cableShape({ style, id: cableId, kind: data.cable.kind, ends: data.ends, source: { x: sourceX, y: sourceY }, target: { x: targetX, y: targetY }, tied: data.tied, waypoints: data.waypoints, sway })
       : null;
   // Register this line so the pointer can pick the nearest of several crossing cables (`cableHover.ts`).
   const drawnWhole = data != null && data.stub == null;
@@ -239,6 +246,42 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
         onMouseMove={handlePointer}
         onMouseLeave={handlePointer}
       />
+      {/* A bundle's ties can be picked up and dropped onto a tray or lacing bar, where they clip on. */}
+      {style === 'tied' &&
+        data.onClipTie != null &&
+        data.ties?.map((t, i) => (
+          <line
+            key={`grab-${i}`}
+            x1={t.x1}
+            y1={t.y1}
+            x2={t.x2}
+            y2={t.y2}
+            stroke="transparent"
+            strokeWidth={10}
+            pointerEvents="stroke"
+            className="drawing-cable__tie-grab nodrag nopan"
+            data-testid="cable-tie-grab"
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              event.stopPropagation();
+              (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
+              setTieDrag({ p: rf.screenToFlowPosition({ x: event.clientX, y: event.clientY }), cableIds: t.cableIds ?? [cable.id] });
+            }}
+            onPointerMove={(event) => {
+              if (tieDrag == null) return;
+              setTieDrag({ ...tieDrag, p: rf.screenToFlowPosition({ x: event.clientX, y: event.clientY }) });
+            }}
+            onPointerUp={() => {
+              if (tieDrag != null) data.onClipTie?.(tieDrag.p, tieDrag.cableIds);
+              setTieDrag(null);
+            }}
+            onPointerCancel={() => setTieDrag(null)}
+            onClick={(event) => event.stopPropagation()}
+          />
+        ))}
+      {tieDrag != null && (
+        <line x1={tieDrag.p.x - 7} y1={tieDrag.p.y} x2={tieDrag.p.x + 7} y2={tieDrag.p.y} className="drawing-cable__tie drawing-cable__tie--dragging" pointerEvents="none" />
+      )}
       {data.planMark != null && data.planMark.dashed && (
         <path d={d} fill="none" stroke={TONE_COLOUR[data.planMark.tone]} className="plan-mark__dash" strokeDasharray="5 3" strokeLinecap="round" pointerEvents="none" />
       )}

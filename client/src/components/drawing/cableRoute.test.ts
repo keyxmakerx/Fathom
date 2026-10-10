@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Leads } from './cableEnds';
+import { distanceTo, shapeOf } from './cableHover';
 import {
   FADE_STUB_PX,
   fadeTips,
@@ -15,6 +16,7 @@ import {
   swayKick,
   SWAY_MAX_PX,
   SWAY_SETTLE_MS,
+  throughTies,
   tiedPoints,
   type Pt,
 } from './cableRoute';
@@ -143,5 +145,25 @@ describe('physics sway', () => {
   });
   it('never throws a cable across the drawing, however far the drag', () => {
     expect(Math.abs(swayKick({ x: 0, y: 0 }, { x: 5000, y: -5000 }).x)).toBe(SWAY_MAX_PX);
+  });
+});
+
+describe('through real ties', () => {
+  it('runs along a lacing bar through its tie, square all the way', () => {
+    const l = leads(100, 0, 1, 300, 200, -1);
+    const pts = throughTies(l, [{ x: 20, y: 100, vertical: true }]);
+    onlySquareCorners(pts);
+    expect(distanceTo({ x: 20, y: 100 }, shapeOf(pts))).toBe(0);
+    expect(pts[0]).toEqual({ x: 100, y: 0 });
+    expect(pts[pts.length - 1]).toEqual({ x: 300, y: 200 });
+  });
+  it('drops to a tray and runs along it', () => {
+    const pts = throughTies(leads(100, 50, -1, 300, 50, -1), [{ x: 200, y: -10, vertical: false }]);
+    onlySquareCorners(pts);
+    expect(distanceTo({ x: 200, y: -10 }, shapeOf(pts))).toBe(0);
+  });
+  it('without a tie is plain right-angle', () => {
+    const l = leads(0, 0, 1, 50, 100, -1);
+    expect(throughTies(l, [])).toEqual(squarePoints(l));
   });
 });

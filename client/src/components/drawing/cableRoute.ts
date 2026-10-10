@@ -91,6 +91,8 @@ export interface Tie {
   y1: number;
   x2: number;
   y2: number;
+  /** The cables it goes round; dragged onto a run, it clips there holding these. */
+  cableIds?: readonly string[];
 }
 
 export interface TieInput {
@@ -180,7 +182,8 @@ export function planTies(cables: readonly TieInput[]): TiePlan {
       const x = (trunkLo + trunkHi) / 2;
       groupTies.push({ x1: x, y1: Math.min(...ys) - TIE_OVERHANG_PX, x2: x, y2: Math.max(...ys) + TIE_OVERHANG_PX });
     }
-    if (groupTies.length > 0) ties.set(members[0]!.id, groupTies);
+    const held = members.map((m) => m.id);
+    if (groupTies.length > 0) ties.set(members[0]!.id, groupTies.map((t) => ({ ...t, cableIds: held })));
   }
   return { routes, ties };
 }
@@ -263,4 +266,28 @@ export function offsetCubic(c: Cubic, off: Pt): Cubic {
     c2: { x: c.c2.x + off.x * 0.7, y: c.c2.y + off.y * 0.7 },
     p3: c.p3,
   };
+}
+
+/** A point a tied cable must pass through: a tie on a run, and which way that run goes. */
+export interface Waypoint extends Pt {
+  vertical: boolean;
+}
+
+/** Cable-tied, through real ties clipped onto runs: square corners all the way, running along
+ * each run through its tie, in order. */
+export function throughTies(l: Leads, waypoints: readonly Waypoint[]): Pt[] {
+  if (waypoints.length === 0) return squarePoints(l);
+  const { a, b } = l;
+  const out: Pt[] = [a, { x: a.x, y: a.y + a.dir * SQUARE_LEAD_PX }];
+  for (const w of waypoints) {
+    const last = out[out.length - 1]!;
+    // Along a vertical run the cable arrives across it and turns up or down it; along a
+    // horizontal one it drops or climbs to it and turns along it.
+    out.push(w.vertical ? { x: w.x, y: last.y } : { x: last.x, y: w.y }, { x: w.x, y: w.y });
+  }
+  const last = waypoints[waypoints.length - 1]!;
+  const yb = b.y + b.dir * SQUARE_LEAD_PX;
+  if (last.vertical) out.push({ x: last.x, y: yb }, { x: b.x, y: yb }, b);
+  else out.push({ x: b.x, y: last.y }, b);
+  return dedupe(out);
 }

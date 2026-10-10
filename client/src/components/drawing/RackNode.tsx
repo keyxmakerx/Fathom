@@ -6,6 +6,7 @@ import type { RackView } from './contract';
 import { RACK_HEADER_PX, RACK_INNER_PX, RAIL_PX, U_PX, sortFreeRuns } from './geometry';
 import { useLive } from './liveStore';
 import { EditableName } from './NameEdit';
+import { CableRunMarks } from './CableRunMarks';
 
 /** The C14 glyph's true (`scale` 1) box is 22×16 (`components/ports/C14.tsx`'s
  * `frame(22, 16)`) — UI-SPEC "Power": "the C14 glyph... at rail scale," read
@@ -218,6 +219,9 @@ export function RackNode({ data }: NodeProps<RackNodeType>) {
           )}
         </div>
       </div>
+      {rack.cableRuns != null && rack.cableRuns.length > 0 && (
+        <CableRunMarks runs={rack.cableRuns} box={{ x: 0, y: 0, width, headerPx: RACK_HEADER_PX, frameHeight }} />
+      )}
     </div>
   );
 }

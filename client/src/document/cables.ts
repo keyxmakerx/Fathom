@@ -288,14 +288,15 @@ export function connectPorts(
 
 // ---------------------------------------------------------------------------
 
-/** Tombstones the `Cable` and its live `Terminates` edges. Leaves any far-end
+/** Tombstones the `Cable`, its live `Terminates` edges and any `Ties` edge holding it. Leaves any far-end
  * `ExternalPeer` node alone — it is a fact about the world, not about this
  * one cable. */
 export function disconnect(doc: Document, cableId: string, opts?: Actor): Document {
   const node = findNode(doc, cableId);
   if (!node || node.absentSince !== undefined) throw new UnknownReferenceError(cableId, 'Cable');
 
-  const terms = edgesOut(doc, cableId, 'Terminates');
+  // A tie that held this cable (schema 0.21) lets go of it; the tie stays.
+  const terms = [...edgesOut(doc, cableId, 'Terminates'), ...edgesIn(doc, cableId, 'Ties').filter((e) => e.absentSince === undefined)];
   const { actor, now } = resolve(opts);
 
   const working: Document = {

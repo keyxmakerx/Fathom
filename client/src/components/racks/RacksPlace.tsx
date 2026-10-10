@@ -1706,6 +1706,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           keyCableIds={keyOn ? keyCableIds : null}
           minimap={canvasAids.prefs.minimap}
           cableStyle={cableStyle}
+          onEdit={canDraw ? handleEdit : undefined}
           initialViewport={resumeView.initialViewport}
           onViewportSettled={resumeView.onViewportSettled}
           onPlace={handlePlace}

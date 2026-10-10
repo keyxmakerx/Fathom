@@ -1,3 +1,4 @@
+import type { CableRunSide, CableRunView } from '../../document/cableRuns';
 import type { Selection } from './contract';
 
 /** What a right-click landed on (ADR-0060 decision 4). */
@@ -6,6 +7,8 @@ export type MenuTarget =
   /** `freeU` is the free unit the click landed on, with the click's pane and flow position. */
   | { kind: 'rack'; id: string; freeU?: { u: number; screen: Point; flow: Point } }
   | { kind: 'cable'; id: string }
+  /** A wall, desk or ceiling panel. */
+  | { kind: 'surface'; id: string }
   | { kind: 'free'; id: string }
   | { kind: 'label'; id: string }
   | { kind: 'line'; id: string }
@@ -51,10 +54,38 @@ export interface MenuActions {
   onAddLabelHere?(form: 'text' | 'area' | 'note', flow: Point): void;
   onDuplicateFree?(ids: string[]): void;
   onRemoveFree?(ids: string[]): void;
+  /** Cable runs (schema 0.21): a lacing bar on a rack's side, or a tray along its top. */
+  onAddCableRun?(hostId: string, form: 'tray' | 'lacing_bar', side: CableRunSide): void;
+  onRemoveCableRun?(runId: string): void;
+  /** The runs already on a rack, so the menu offers only free sides and names what it removes. */
+  cableRunsOn?(rackId: string): readonly CableRunView[];
 }
+
+const RUN_OFFERS: readonly { form: 'tray' | 'lacing_bar'; side: CableRunSide; add: string; remove: string }[] = [
+  { form: 'lacing_bar', side: 'left', add: 'Add a lacing bar on the left', remove: 'Remove the left lacing bar' },
+  { form: 'lacing_bar', side: 'right', add: 'Add a lacing bar on the right', remove: 'Remove the right lacing bar' },
+  { form: 'tray', side: 'top', add: 'Add a cable tray on top', remove: 'Remove the cable tray on top' },
+];
 
 /** The rack sizes the empty canvas's menu offers (ADR-0060 decision 5). */
 const RACK_SIZES = [42, 24, 12] as const;
+
+/** A rack's or wall's cable runs: one on each free side, and removal of each run there. */
+function pushRunItems(items: MenuItem[], hostId: string, actions: MenuActions): void {
+  const runs = actions.cableRunsOn?.(hostId) ?? [];
+  if (actions.onAddCableRun) {
+    for (const o of RUN_OFFERS) {
+      if (!runs.some((r) => r.side === o.side)) items.push({ label: o.add, onSelect: () => actions.onAddCableRun?.(hostId, o.form, o.side) });
+    }
+  }
+  if (actions.onRemoveCableRun) {
+    for (const r of runs) {
+      const offer = RUN_OFFERS.find((o) => o.side === r.side);
+      const label = offer?.remove ?? `Remove the ${r.side} cable run`;
+      items.push({ label, onSelect: () => actions.onRemoveCableRun?.(r.id), danger: true });
+    }
+  }
+}
 
 /** Pure: the items a right-click on `target` offers, in order. */
 export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem[] {
@@ -84,6 +115,11 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
       if (actions.onAddDevice) items.push({ label: 'Add a device', onSelect: () => actions.onAddDevice?.(id) });
       // A note sits on the canvas at the spot, over the rack; it does not follow the rack if it moves.
       if (free && actions.onAddLabelHere) items.push({ label: 'Add a note here', onSelect: () => actions.onAddLabelHere?.('note', free.flow) });
+      pushRunItems(items, id, actions);
+      break;
+    }
+    case 'surface': {
+      pushRunItems(items, target.id, actions);
       break;
     }
     case 'cable': {
