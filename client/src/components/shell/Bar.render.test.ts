@@ -102,7 +102,7 @@ describe('Bar — the search box', () => {
 
   it('is a live button with its shortcut when a search is offered', () => {
     const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, search: { run: () => [], choose: () => {} } }));
-    expect(markup).toContain('<button type="button" class="shell-search" aria-label="Search">');
+    expect(markup).toContain('<button type="button" class="shell-search" aria-label="Search"');
     expect(markup).toContain('Ctrl K');
   });
 });

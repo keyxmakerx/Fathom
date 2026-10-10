@@ -2,8 +2,6 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { signOut } from '../../api/auth';
-import { applyTheme, getStoredTheme } from '../../theme';
-import type { Theme } from '../../theme';
 import { nextFoldLevel } from './layout';
 import { DIAGRAM_STYLES, DIAGRAM_STYLE_LABEL, type DiagramStyle } from '../drawing/diagramStyle';
 import { LAYERS, type LayerId, type LayerSet } from '../drawing/layers';
@@ -14,23 +12,12 @@ import { Popover, PopoverRow } from './Popover';
 import { pathToItems } from './path';
 import type { PathItem, PathPart } from './path';
 import { SearchBox } from './SearchBox';
-import type { AccountInfo, Place, PresenceUser, ShellSearch } from './types';
+import { ThemeMenu } from './ThemeMenu';
+import type { AccountInfo, Place, PresenceUser, ShellSearch, ShowAids } from './types';
 
 // The bar's own `gap` and side padding, counted when measuring its row.
 const BAR_GAP = 12;
 const BAR_PAD = 16;
-
-const THEME_LABEL: Record<'system' | Theme, string> = {
-  system: 'Theme: system',
-  light: 'Theme: light',
-  dark: 'Theme: dark',
-};
-
-const THEME_NEXT: Record<'system' | Theme, 'system' | Theme> = {
-  system: 'light',
-  light: 'dark',
-  dark: 'system',
-};
 
 export interface BarProps {
   place: Place | null;
@@ -42,7 +29,10 @@ export interface BarProps {
   /** The Rack | Diagram switch; omitted where the look does not apply. */
   look?: { value: Look; onChange: (look: Look) => void };
   /** The Show ▾ menu of canvas layers; omitted where there is no canvas. */
-  layers?: { value: LayerSet; onToggle: (id: LayerId) => void; style?: { value: DiagramStyle; onChange: (style: DiagramStyle) => void } };
+  views?: ReactNode;
+  /** The saved views as rows for the View ▾ menu, shown once the bar folds the views group away. */
+  viewsFolded?: ReactNode;
+  layers?: { value: LayerSet; onToggle: (id: LayerId) => void; style?: { value: DiagramStyle; onChange: (style: DiagramStyle) => void }; aids?: ShowAids };
   presence: PresenceUser[];
   zoom: number;
   onZoomIn: () => void;
@@ -104,6 +94,8 @@ export function Bar({
   onLensChange,
   look,
   layers,
+  views,
+  viewsFolded,
   presence,
   zoom,
   onZoomIn,
@@ -133,7 +125,6 @@ export function Bar({
   const containerRef = useRef<HTMLDivElement>(null);
   const leadingRef = useRef<HTMLDivElement>(null);
   const trailingRef = useRef<HTMLDivElement>(null);
-  const [themeMode, setThemeMode] = useState<'system' | Theme>(() => getStoredTheme() ?? 'system');
 
   // BRIEF.md "The bar": search folds to the magnifier before anything else
   // gives; past that the action chips fold into More, the path to its last
@@ -171,12 +162,6 @@ export function Bar({
   const pathFolded = fold >= 3;
   const lensesFolded = fold >= 4;
   const editsFolded = fold >= 5;
-
-  function cycleTheme() {
-    const next = THEME_NEXT[themeMode];
-    setThemeMode(next);
-    applyTheme(next === 'system' ? null : next);
-  }
 
   async function handleSignOut() {
     await signOut();
@@ -300,6 +285,7 @@ export function Bar({
                       ))}
                     </>
                   )}
+                  {layers != null && viewsFolded}
                 </div>
               </Popover>
             ) : (
@@ -421,6 +407,21 @@ export function Bar({
                       {l.onByDefault && <span className="shell-show__note">on by default</span>}
                     </button>
                   ))}
+                  {layers.aids?.items.map((a) => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      role="menuitemcheckbox"
+                      aria-checked={a.on}
+                      className="shell-show__row"
+                      data-testid={`show-${a.id}`}
+                      onClick={() => layers.aids!.onToggle(a.id)}
+                    >
+                      <span aria-hidden="true">{a.on ? '☑' : '☐'}</span>
+                      <span>{a.label}</span>
+                      {a.note != null && <span className="shell-show__note">{a.note}</span>}
+                    </button>
+                  ))}
                   {look?.value === 'rack' && <p className="shell-show__hint">The words and icons are drawn in the Diagram look.</p>}
                   <p className="shell-show__hint">Each layer adds words in ink, placed so they never overlap. Yours, per browser.</p>
                   {layers.style != null && (
@@ -443,9 +444,12 @@ export function Bar({
                       </span>
                     </div>
                   )}
+                  {/* Saved views give way before the lenses do: once the action chips fold, they sit in here. */}
+                  {layers != null && actionsFolded && viewsFolded}
                 </div>
               </Popover>
             )}
+            {layers != null && !actionsFolded && views}
           </>
         )}
       </div>
@@ -604,6 +608,7 @@ export function Bar({
           ))}
         <Popover
           align="right"
+          className="shell-popover--frosted"
           renderTrigger={({ toggle, triggerRef, triggerProps }) => (
             <button
               type="button"
@@ -623,7 +628,7 @@ export function Bar({
           )}
         >
           {menu}
-          <PopoverRow onSelect={cycleTheme}>{THEME_LABEL[themeMode]}</PopoverRow>
+          <ThemeMenu />
           <PopoverRow onSelect={handleSignOut}>Sign out</PopoverRow>
         </Popover>
       </div>

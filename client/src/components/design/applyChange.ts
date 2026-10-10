@@ -20,7 +20,8 @@ import {
 import { disconnect, setCableField } from '../../document/cables';
 import { removeFree, setLabel, setLineLabel } from '../../document/freeform';
 import { FieldValueError, setChassisField, setDeviceField, setPassiveNodeField, setRackField, setRackHeight } from '../../document/edit';
-import type { Document } from '../../document/model';
+import { edgesIn, findNode, readDeviceFields, type Document } from '../../document/model';
+import { copyName, hostnamesOf } from '../racks/pick';
 import { fitSupply, removeSupply, setSupplyField } from '../../document/supplies';
 
 /** Throws the same errors the document commands throw; `refusalFor` words them. `notice` is set
@@ -118,7 +119,15 @@ export function applyEditorChange(
       opts,
     );
   } else if (change.kind === 'duplicate-device') {
-    const result = duplicateDevice(doc, change.chassisId, { catalogue, ...opts });
+    // The copy is named the next in sequence after its source (sw-02 gives sw-03).
+    const sourceDevice = edgesIn(doc, change.chassisId, 'HasChassis')[0];
+    const sourceNode = sourceDevice ? findNode(doc, sourceDevice.from) : undefined;
+    const sourceName = sourceNode ? readDeviceFields(sourceNode).hostname : undefined;
+    const sourceRole = sourceNode?.fields['Device.role'];
+    const hostname = sourceName
+      ? copyName(hostnamesOf(doc), sourceName, sourceRole?.presence === 'set' && typeof sourceRole.value === 'string' ? sourceRole.value : null)
+      : undefined;
+    const result = duplicateDevice(doc, change.chassisId, { catalogue, ...opts, ...(hostname !== undefined ? { hostname } : {}), ...(change.intoRackId !== undefined ? { intoRackId: change.intoRackId } : {}) });
     next = result.doc;
     if (!result.placed) {
       notice = 'Duplicated — no free position in this rack, so the copy is unplaced.';

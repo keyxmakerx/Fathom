@@ -504,3 +504,6 @@ fields:
   FirmwareTarget.image_sha256: 409
   FirmwareTarget.note: 410
   Device.firmware_hold: 411
+  # The owner's ticked ideas (schema 0.20, 2026-10-10). Appended after 0.19's 411; 384-389 stay held elsewhere.
+  PhysicalPort.plate_x: 412
+  PhysicalPort.plate_y: 413

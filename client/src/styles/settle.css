@@ -1,0 +1,31 @@
+/* A device landing in the rack: it drops a couple of pixels and eases into
+   place, with a faint shadow that fades out. One play, never a loop. The
+   wrapper is used because React never rewrites its class list. */
+:root {
+  --m-settle: 250ms;
+}
+
+@keyframes drawing-settle {
+  0% {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.28);
+  }
+  60% {
+    transform: translateY(1px);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.14);
+  }
+  100% {
+    transform: translateY(0);
+    box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+  }
+}
+
+.drawing-chassis-wrap--settle {
+  animation: drawing-settle var(--m-settle) var(--m-ease, cubic-bezier(0.2, 0.8, 0.2, 1));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawing-chassis-wrap--settle {
+    animation: none;
+  }
+}

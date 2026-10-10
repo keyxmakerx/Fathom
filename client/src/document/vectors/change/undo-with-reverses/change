@@ -1,4 +1,4 @@
 fathom-change 1
-schema 0.19
+schema 0.20
 
 {"batch":{"comment":"put it back","id":"01HF7YAT00000000000001X141","label":"undo relabel","ops":[{"set_field":{"element":"rack:01HF7YAT000000000000000003","key":"Rack.label","presence":"set","prov":"01HF7YAT00000000000000YGPQ"}}],"reverses":"01HF7YAT00000000000001X15J"},"provenance":[{"asserted_at":1700000000151,"asserted_by":{"user":"01HF7YAT000000000000000007"},"confidence":"asserted","id":"01HF7YAT00000000000000YGPQ","origin":"hand"}],"values":["R1"]}
