@@ -1638,11 +1638,12 @@ export function FieldsSection({ ownerId, actions }: { ownerId: string; actions: 
             <div style={TYPED_NOTE_STYLE}>Every one of this kind gets the field, in every design of the organisation.</div>
             {refusal ? <div style={CAUTION_STYLE}>{refusal}</div> : null}
           </div>
-        ) : (
+        ) : rows.length > 0 ? (
+          // With no fields yet, the empty state above carries the button.
           <button type="button" onClick={() => setAdding(true)}>
             + Add a field
           </button>
-        )
+        ) : null
       ) : null}
     </>
   );
@@ -2390,8 +2391,7 @@ function panelFor(
             surface fixture — `port.id` is the same `PhysicalPort` node id
             either way, `locatePort`'s own contract). */}
         <FieldsSection ownerId={port.id} actions={actions} />
-        <FieldsSection ownerId={port.id} actions={actions} />
-      <NotesSection ownerId={port.id} actions={actions} />
+        <NotesSection ownerId={port.id} actions={actions} />
         <TagsSection ownerId={port.id} actions={actions} />
         <DocsSection ownerId={port.id} />
       </div>
@@ -2410,8 +2410,7 @@ function panelFor(
         <Field label="Shelf" value={`${shelf.label || shelf.id} · ${rack.label}`} />
         <PortCableSection view={view} port={port} actions={actions} />
         <FieldsSection ownerId={port.id} actions={actions} />
-        <FieldsSection ownerId={port.id} actions={actions} />
-      <NotesSection ownerId={port.id} actions={actions} />
+        <NotesSection ownerId={port.id} actions={actions} />
         <TagsSection ownerId={port.id} actions={actions} />
         <DocsSection ownerId={port.id} />
       </div>

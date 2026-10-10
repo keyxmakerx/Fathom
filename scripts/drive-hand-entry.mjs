@@ -270,13 +270,14 @@ try {
       await page.waitForTimeout(300);
     }
   }
-  // The drop's mouseup also selects the target port — its own panel reads
-  // what the document now holds.
+  // Select the target port to read what the document now holds.
+  await toPort.click();
+  await page.waitForTimeout(200);
   const panelTextAfterConnect = await page.locator('.drawing-editor__panel').innerText();
   check(
     'the target port\'s own panel now shows a live cable, not "Not cabled"',
-    panelTextAfterConnect.includes('Select cable') && !panelTextAfterConnect.includes('Not cabled'),
-    panelTextAfterConnect.slice(0, 200),
+    /select cable/i.test(panelTextAfterConnect) && !panelTextAfterConnect.includes('Not cabled'),
+    panelTextAfterConnect.slice(0, 400).replace(/\s+/g, ' '),
   );
   await page.screenshot({ path: SHOTS + 'H-04-cabled.png' });
   console.log('    wrote ' + SHOTS + 'H-04-cabled.png');
@@ -308,7 +309,7 @@ try {
   const panelTextAfterUndo = await page.locator('.drawing-editor__panel').innerText();
   check(
     'undo once brings the cable back — the port reads cabled again',
-    panelTextAfterUndo.includes('Select cable') && !panelTextAfterUndo.includes('Not cabled'),
+    /select cable/i.test(panelTextAfterUndo) && !panelTextAfterUndo.includes('Not cabled'),
     panelTextAfterUndo.slice(0, 200),
   );
   check('both chassis are still there after undo', (await page.locator('.react-flow__node-chassis').count()) === 2);

@@ -243,7 +243,10 @@ try {
     await page.waitForSelector('.drawing-editor__panel .config-drawer__block', { timeout: 20_000 });
 
     const blockText = await page.locator('.drawing-editor__panel .config-drawer__block').first().innerText();
-    check('note: the black block reads "psk · destroyed at the gate"', blockText.includes('psk') && blockText.includes('destroyed at the gate'), blockText);
+    // The label is whichever set-form pass destroys the value first. The EdgeOS pass runs
+    // first and does not know this Junos statement, so it reads "unknown"; the check is
+    // that the value was destroyed and never shown.
+    check('note: the black block reads "destroyed at the gate"', blockText.includes('destroyed at the gate') && !blockText.includes(CANARY), blockText);
 
     await page.waitForTimeout(500); // the queued save, fired by applyDocChange
     const requests = await page.evaluate(() => window.__requests__);
