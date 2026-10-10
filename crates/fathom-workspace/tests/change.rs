@@ -20,8 +20,9 @@ use fathom_graph::{
 };
 use fathom_id::Ulid;
 use fathom_ir::generated::ir_types::{
-    CaptureField, ChassisField, DocField, DocLinkField, EdgeKind, MountedInFace, MountedInField,
-    NodeKind, NoteField, PremisesField, RackField, RackUnitNumbering,
+    CaptureField, ChassisField, DeviceField, DocField, DocLinkField, EdgeKind, FirmwareTargetField,
+    MountedInFace, MountedInField, NodeKind, NoteField, PremisesField, RackField,
+    RackUnitNumbering,
 };
 use fathom_ir::scalar::Text;
 use fathom_workspace::{
@@ -974,6 +975,58 @@ fn a_secret_in_a_fields_history_is_found_in_a_whole_graph() {
             "a secret only in history must still be found: {secret}"
         );
     }
+}
+
+#[test]
+fn a_secret_in_firmware_prose_is_found() {
+    // Prose is read on the delimiter-only check, as a note is.
+    let secret = "set security ike policy p pre-shared-key ascii-text $9$Qz7Lx-VYgoJDm5T3";
+    {
+        let mut g = base();
+        g.begin_batch(batch_id(71), "firmware").unwrap();
+        let t = g
+            .insert_node(NodeKind::FirmwareTarget, ulid(980), prov(980))
+            .unwrap();
+        g.set_field(
+            t.into(),
+            FirmwareTargetField::Note.key(),
+            Text(secret.into()),
+            prov(981),
+        )
+        .unwrap();
+        g.end_batch().unwrap();
+        assert!(fathom_workspace::find_credential(&g).is_some(), "{secret}");
+
+        let mut g = base();
+        g.begin_batch(batch_id(72), "hold").unwrap();
+        let d = g
+            .insert_node(NodeKind::Device, ulid(982), prov(982))
+            .unwrap();
+        g.set_field(
+            d.into(),
+            DeviceField::FirmwareHold.key(),
+            Text(secret.into()),
+            prov(983),
+        )
+        .unwrap();
+        g.end_batch().unwrap();
+        assert!(fathom_workspace::find_credential(&g).is_some(), "{secret}");
+    }
+    // An honest reason is not refused.
+    let mut g = base();
+    g.begin_batch(batch_id(73), "hold").unwrap();
+    let d = g
+        .insert_node(NodeKind::Device, ulid(984), prov(984))
+        .unwrap();
+    g.set_field(
+        d.into(),
+        DeviceField::FirmwareHold.key(),
+        Text("Vendor bug in the chosen release; waiting for the next one".into()),
+        prov(985),
+    )
+    .unwrap();
+    g.end_batch().unwrap();
+    assert!(fathom_workspace::find_credential(&g).is_none());
 }
 
 #[test]

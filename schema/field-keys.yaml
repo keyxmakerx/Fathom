@@ -496,3 +496,11 @@ fields:
   IssueStep.answer: 402
   IssueStep.note: 403
   IssueStep.answered_at: 404
+  # Firmware targets (schema 0.19, 2026-10-10). Appended after 0.18's 404.
+  FirmwareTarget.model: 405
+  FirmwareTarget.version: 406
+  FirmwareTarget.platform: 407
+  FirmwareTarget.image: 408
+  FirmwareTarget.image_sha256: 409
+  FirmwareTarget.note: 410
+  Device.firmware_hold: 411

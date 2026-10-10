@@ -35,6 +35,16 @@ fn bind<W: World>(b: &BindPlan, a: W::Node, w: &W) -> Result<Bound<W::Node>, Str
     let mut cur = vec![a];
     let mut visits = 0usize;
     let mut tmp = Vec::new();
+    if b.all {
+        cur.clear();
+        w.nodes(b.kind, &mut cur);
+        if cur.len() > MAX_VISITS {
+            return Err(format!(
+                "binding `{}` visited more than {MAX_VISITS} nodes",
+                b.name
+            ));
+        }
+    }
     for h in &b.hops {
         let mut next: Vec<W::Node> = Vec::new();
         for n in &cur {

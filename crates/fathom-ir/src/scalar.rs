@@ -241,7 +241,8 @@ pub struct InterfaceName(pub String);
 /// type is storable and deterministically sortable (invariant 9), and it is
 /// not a comparator for version predicates. 11 §4.7's per-family comparator
 /// arrives with the platform registry; until then no code may read this
-/// ordering as "newer than" (WO-01 §12 item 3).
+/// ordering as "newer than" (WO-01 §12 item 3). The one comparator that exists is
+/// `fathom_rules::version::older`, for four schemes.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct OsVersion(pub String);
 

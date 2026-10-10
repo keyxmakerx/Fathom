@@ -94,6 +94,8 @@ pub struct HopPlan {
 #[derive(Debug, Clone)]
 pub struct BindPlan {
     pub name: String,
+    /// `all: Kind` binds every live node of the kind instead of walking from the anchor.
+    pub all: bool,
     pub hops: Vec<HopPlan>,
     pub card: Card,
     pub kind: KindId,
@@ -427,9 +429,34 @@ fn plan_bind(
             ))
         }
     };
+    if let Some(all) = spec.get("all") {
+        let kind_name = all.scalar_display();
+        let kind = schema.kind(&kind_name).ok_or_else(|| {
+            lerr(
+                file,
+                all.line,
+                format!("`{kind_name}` is not a kind in schema/"),
+            )
+        })?;
+        if spec.get("via").is_some() || card != Card::Many {
+            return Err(lerr(
+                file,
+                spec.line,
+                "`all` takes no `via` and is card many",
+            ));
+        }
+        reads.kinds.insert(kind);
+        return Ok(BindPlan {
+            name: name.to_owned(),
+            all: true,
+            hops: Vec::new(),
+            card,
+            kind,
+        });
+    }
     let via = spec
         .get("via")
-        .ok_or_else(|| lerr(file, spec.line, "a binding needs `via`"))?;
+        .ok_or_else(|| lerr(file, spec.line, "a binding needs `via` or `all`"))?;
     let hops_src: Vec<&Node> = match &via.value {
         Value::Seq(items) => items.iter().collect(),
         _ => vec![via],
@@ -568,6 +595,7 @@ fn plan_bind(
     };
     Ok(BindPlan {
         name: name.to_owned(),
+        all: false,
         hops,
         card,
         kind,

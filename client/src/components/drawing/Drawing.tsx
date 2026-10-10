@@ -255,6 +255,9 @@ export interface DrawingProps extends DrawingActions {
   onZoomChange: (zoom: number) => void;
   /** Right-click "Plan a change" on a device (ADR-0061 round 7). Absent, or a reader: no menu item. */
   onPlanChange?: (elementId: string) => void;
+  /** Right-click "Plan a firmware upgrade" on a device; absent for a reader. */
+  onPlanFirmware?: (chassisId: string) => void;
+  firmwareNeedsVersion?: (chassisId: string) => boolean;
   /** Right-click "It's down" on a device (ADR-0061 troubleshooting). Absent, or a reader: no menu item. */
   onItsDown?: (elementId: string) => void;
   /** Bump to fit every rack into view (a counter, so a repeat press fires). */
@@ -390,6 +393,8 @@ function DrawingInner({
   onAddWall,
   onPasteConfig,
   onPlanChange,
+  onPlanFirmware,
+  firmwareNeedsVersion,
   onItsDown,
   onOpenDevice,
   onResizeShelf,
@@ -508,7 +513,7 @@ function DrawingInner({
     onRemoveFree,
   };
   const menuActions: MenuActions = canDraw
-    ? { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, onPasteConfig, onPlanChange, onItsDown, ...freeMenuActions }
+    ? { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, ...freeMenuActions }
     : { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom };
   const menuActionsRef = useRef(menuActions);
   useLayoutEffect(() => {

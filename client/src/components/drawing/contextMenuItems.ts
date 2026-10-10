@@ -34,6 +34,10 @@ export interface MenuActions {
   onDuplicateDevice?(chassisId: string): void;
   /** Opens a maintenance plan on a device (ADR-0061 round 7). */
   onPlanChange?(elementId: string): void;
+  /** Plans a firmware upgrade for a device (firmware). Absent for a reader or where firmware is not open. */
+  onPlanFirmware?(chassisId: string): void;
+  /** True when the device's model has no chosen version yet, so the item says so and goes to the model's page. */
+  firmwareNeedsVersion?(chassisId: string): boolean;
   /** Opens the "It's down" checklist on a device (ADR-0061 troubleshooting). */
   onItsDown?(elementId: string): void;
   onRemoveDevice?(chassisId: string): void;
@@ -64,6 +68,10 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
       items.push({ label: 'Details', onSelect: () => actions.onSelect({ kind: 'chassis', id }) });
       if (actions.onItsDown) items.push({ label: "It's down", onSelect: () => actions.onItsDown?.(id) });
       if (actions.onPlanChange) items.push({ label: 'Plan a change', onSelect: () => actions.onPlanChange?.(id) });
+      if (actions.onPlanFirmware) {
+        const label = actions.firmwareNeedsVersion?.(id) ? 'Plan a firmware upgrade (choose a version first)' : 'Plan a firmware upgrade';
+        items.push({ label, onSelect: () => actions.onPlanFirmware?.(id) });
+      }
       if (actions.onDuplicateDevice) items.push({ label: 'Duplicate', onSelect: () => actions.onDuplicateDevice?.(id) });
       if (actions.onRemoveDevice) items.push({ label: 'Remove', onSelect: () => actions.onRemoveDevice?.(id), danger: true });
       break;

@@ -57,11 +57,11 @@ use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{EdgeKind, NodeKind, FIELD_KEYS, SCHEMA_VERSION};
 use fathom_ir::scalar::Text;
 
-/// Every 0.10-to-0.18 move is additive, so a payload declared at an older
+/// Every 0.10-to-0.19 move is additive, so a payload declared at an older
 /// version reads exactly like a current one — nothing renamed, retyped or
 /// removed. Every older version this crate still opens, and no other.
 pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &[
-    "0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17",
+    "0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17", "0.18",
 ];
 
 /// Node kinds `0.11` (ADR-0058) added. A payload declared at `0.10` cannot
@@ -118,15 +118,19 @@ const EDGE_KINDS_SINCE_0_16: &[EdgeKind] = &[EdgeKind::HasFieldValue];
 const NODE_KINDS_SINCE_0_18: &[NodeKind] = &[NodeKind::Issue, NodeKind::IssueStep];
 const EDGE_KINDS_SINCE_0_18: &[EdgeKind] = &[EdgeKind::HasIssue, EdgeKind::HasIssueStep];
 
+/// Kinds `0.19` (firmware targets) added; every accepted older header is too old for them.
+const NODE_KINDS_SINCE_0_19: &[NodeKind] = &[NodeKind::FirmwareTarget];
+const EDGE_KINDS_SINCE_0_19: &[EdgeKind] = &[EdgeKind::HasFirmwareTarget];
+
 /// Refuse a payload declared at `declared` that holds a kind newer than that
 /// version — decision 6's (ADR-0058) and decision 9's (ADR-0059) second
 /// halves, checked once per accepted older version: `0.10` cannot hold
-/// anything `0.11` to `0.18` added, and so on up the chain.
+/// anything `0.11` to `0.19` added, and so on up the chain.
 fn reject_kinds_too_new_for_declared_version(
     declared: &str,
     snapshot: &Snapshot,
 ) -> Result<(), PlainError> {
-    // Nothing to check for the current version (`0.18`, everything is
+    // Nothing to check for the current version (`0.19`, everything is
     // legitimate there) or any value `SchemaVersionMismatch` already
     // refused above this call — only the accepted older headers name a
     // kind set their own editor could never have written.
@@ -138,7 +142,7 @@ fn reject_kinds_too_new_for_declared_version(
         .strip_prefix("0.")
         .and_then(|m| m.parse().ok())
         .unwrap_or(0);
-    let nodes_since: [(u32, &[NodeKind]); 7] = [
+    let nodes_since: [(u32, &[NodeKind]); 8] = [
         (11, NODE_KINDS_SINCE_0_11),
         (12, NODE_KINDS_SINCE_0_12),
         (13, NODE_KINDS_SINCE_0_13),
@@ -146,8 +150,9 @@ fn reject_kinds_too_new_for_declared_version(
         (15, NODE_KINDS_SINCE_0_15),
         (16, NODE_KINDS_SINCE_0_16),
         (18, NODE_KINDS_SINCE_0_18),
+        (19, NODE_KINDS_SINCE_0_19),
     ];
-    let edges_since: [(u32, &[EdgeKind]); 7] = [
+    let edges_since: [(u32, &[EdgeKind]); 8] = [
         (11, EDGE_KINDS_SINCE_0_11),
         (12, EDGE_KINDS_SINCE_0_12),
         (13, EDGE_KINDS_SINCE_0_13),
@@ -155,6 +160,7 @@ fn reject_kinds_too_new_for_declared_version(
         (15, EDGE_KINDS_SINCE_0_15),
         (16, EDGE_KINDS_SINCE_0_16),
         (18, EDGE_KINDS_SINCE_0_18),
+        (19, EDGE_KINDS_SINCE_0_19),
     ];
     for n in &snapshot.nodes {
         let k = n.id.kind;

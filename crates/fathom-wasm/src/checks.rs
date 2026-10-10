@@ -16,6 +16,10 @@ use fathom_rules::value::FieldId;
 /// directory, so a rule added there and not here fails loudly.
 pub const RULES: &[(&str, &str)] = &[
     (
+        "fw.device.behind-chosen-version",
+        include_str!("../../../corpus/rules/fw.device.behind-chosen-version/rule.yaml"),
+    ),
+    (
         "ip.address.different-subnet-on-link",
         include_str!("../../../corpus/rules/ip.address.different-subnet-on-link/rule.yaml"),
     ),

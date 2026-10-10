@@ -1,0 +1,8 @@
+# Runs 21.4R3-S1; the chosen version for its model is 21.4R3-S5.
+nodes:
+  - { id: d1, kind: Device, set: { hostname: edge-sw-01, platform: junos-ex, role: switch, os_version: "21.4R3-S1" } }
+  - { id: d1_ch, kind: Chassis, set: { member_index: 0, model: ex4300-48t } }
+  - { id: t1, kind: FirmwareTarget, set: { model: ex4300-48t, version: "21.4R3-S5" } }
+edges:
+  - { kind: HasChassis, from: d1, to: d1_ch }
+anchor: d1

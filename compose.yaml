@@ -37,7 +37,9 @@
 #                        BOOTSTRAP TOKEN VOLUME below. This line said "the
 #                        server writes nothing" until 2026-09-14, which was
 #                        true when it was written and stopped being true when
-#                        the operator console landed.
+#                        the operator console landed. Since 2026-10-10 there
+#                        is a second, the `firmware` volume, used only when
+#                        firmware is turned on (see the server's environment).
 #   cap_drop: [ALL]      it binds a port above 1024 and opens a socket. Nothing
 #                        else.
 #   no-new-privileges    a setuid binary in the image could not gain anything;
@@ -379,6 +381,15 @@ services:
       # `.env`.
       FATHOM_ADMIN_HOSTS: ${FATHOM_ADMIN_HOSTS:-}
       FATHOM_ADMIN_SOURCES: ${FATHOM_ADMIN_SOURCES:-}
+      # Firmware (ADR-0045): on once FATHOM_FIRMWARE_FETCH_BASE_URL is set in
+      # `.env` -- the address your SWITCHES can reach this server on, which the
+      # server cannot work out for itself. The `:+` form sets the directory only
+      # when that is set (docs.docker.com/reference/compose-file/interpolation/,
+      # "Alternative value", read 2026-10-10), so an install without it starts
+      # as before, with firmware off.
+      FATHOM_FIRMWARE_FETCH_BASE_URL: ${FATHOM_FIRMWARE_FETCH_BASE_URL:-}
+      FATHOM_FIRMWARE_DIR: ${FATHOM_FIRMWARE_FETCH_BASE_URL:+/var/lib/fathom/firmware}
+      FATHOM_FIRMWARE_MAX_BYTES: ${FATHOM_FIRMWARE_MAX_BYTES:-}
     volumes:
       # Read-only: the server reads the generated database password and, later,
       # the master key. It writes neither. **Unchanged, and deliberately so** --
@@ -392,6 +403,8 @@ services:
       # whose mount point does not exist in the image is created root-owned,
       # and this container does not run as root.
       - bootstrap:/var/lib/fathom/bootstrap
+      # Writable: staged firmware images, one to two gigabytes each.
+      - firmware:/var/lib/fathom/firmware
     tmpfs:
       - /tmp:size=64m,mode=1777,noexec,nosuid,nodev
     healthcheck:
@@ -537,3 +550,6 @@ volumes:
   # the server has to WRITE, and the key volume is read-only to the server by
   # design. Two volumes is what keeps both of those true at once.
   bootstrap:
+  # Staged firmware images (ADR-0045). Back it up if you want images to
+  # survive a lost disk; the database only records their hashes.
+  firmware:

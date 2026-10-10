@@ -148,7 +148,9 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // adds (FieldValue, LayoutPin) through `HasLayoutPin` -- +1.
     // 136 -> 139 (ADR-0061 troubleshooting, schema 0.18): `HasIssue` reads `from: [root]`, +0;
     // `HasIssueStep`, +1; `Issue` and `IssueStep` join `Placeable`, +2 (their pins).
-    assert_eq!(resolved, 139, "the containment pair set moved");
+    // 139 -> 140 (firmware targets, schema 0.19): `HasFirmwareTarget` reads `from: [root]`, +0;
+    // `FirmwareTarget` joins `Placeable`, +1 (its pin).
+    assert_eq!(resolved, 140, "the containment pair set moved");
 
     // The 43 containment kinds are all still containment kinds, and every
     // kind but `LearnedRoute` and `Site` is somebody's containment child.
@@ -180,7 +182,8 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // 59 (plans, schema 0.15): `HasPlan` (root -> MaintenancePlan), `HasStep` (plan -> step).
     // 60 (custom-field values, schema 0.16): `HasFieldValue` (Fieldable -> FieldValue).
     // 62 (troubleshooting, schema 0.18): `HasIssue` (root -> Issue), `HasIssueStep` (issue -> step).
-    assert_eq!(containment, 62);
+    // 63 (firmware targets, schema 0.19): `HasFirmwareTarget` (root -> FirmwareTarget).
+    assert_eq!(containment, 63);
     let orphans: Vec<&str> = NodeKind::ALL
         .into_iter()
         .filter(|child| {
@@ -213,7 +216,9 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
             // schema 0.15: `HasPlan` reads `from: [root]`.
             "MaintenancePlan",
             // schema 0.18: `HasIssue` reads `from: [root]`.
-            "Issue"
+            "Issue",
+            // schema 0.19: `HasFirmwareTarget` reads `from: [root]`.
+            "FirmwareTarget"
         ],
         "the set of kinds no node kind contains moved"
     );

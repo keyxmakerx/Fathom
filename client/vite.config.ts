@@ -69,6 +69,9 @@ export default defineConfig({
       // dev server answers its own 404 and the failure looks like a missing
       // route on the server.
       '/credentials': { target: apiTarget, changeOrigin: true },
+      // ADR-0045: the firmware image upload (`POST /firmware/uploads/{image}`, unsigned, a
+      // single-use token) is not under `/organisations`, so it needs its own entry here.
+      '/firmware': { target: apiTarget, changeOrigin: true },
     },
   },
 })

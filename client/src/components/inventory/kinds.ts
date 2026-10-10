@@ -12,6 +12,7 @@ import { DEVICE_ROLES } from '../../document/edit';
 import { FIELD_TYPE_LABEL, fieldsOf, listFieldDefs, setFieldValues, type FieldDefView, type FieldFor, type FieldSet, type FieldType } from '../../document/fields';
 import { edgesIn, findNode, parseNodeId, readChassisFields, readDeviceFields, type Document } from '../../document/model';
 import { tagObject, tagsOf, untagObject } from '../../document/tags';
+import { STATE_WORD, deviceFirmware, listTargets, stateOf } from '../../document/firmware';
 import type { SubnetRow } from '../../document/networks-derive';
 import { vlanLabel, type PrefixRow, type VlanKindRow } from '../../document/ipam';
 import type { CableEnd, ClosetView, Selection } from '../drawing/contract';
@@ -21,7 +22,7 @@ import { formatLastChange, groupDeviceRows, whereText, type DeviceRow } from './
 import type { Place, PlaceIndex } from './placeIndex';
 import type { FacetSpec } from './rowQuery';
 
-export type Kind = 'devices' | 'ports' | 'racks' | 'cables' | 'networks' | 'prefixes' | 'vlans' | 'addresses' | 'issues';
+export type Kind = 'devices' | 'ports' | 'racks' | 'cables' | 'networks' | 'prefixes' | 'vlans' | 'addresses' | 'models' | 'firmware' | 'issues';
 /** The side list's kinds in quiet groups. Docs and Maintenance are not built, so not listed. Issues has its own body. */
 export const KIND_GROUPS: ReadonlyArray<ReadonlyArray<{ key: Kind; label: string }>> = [
   [
@@ -29,6 +30,7 @@ export const KIND_GROUPS: ReadonlyArray<ReadonlyArray<{ key: Kind; label: string
     { key: 'ports', label: 'Ports' },
     { key: 'racks', label: 'Racks' },
     { key: 'cables', label: 'Cables' },
+    { key: 'models', label: 'Models' },
   ],
   [
     { key: 'networks', label: 'Networks' },
@@ -36,7 +38,10 @@ export const KIND_GROUPS: ReadonlyArray<ReadonlyArray<{ key: Kind; label: string
     { key: 'vlans', label: 'VLANs' },
     { key: 'addresses', label: 'Addresses' },
   ],
-  [{ key: 'issues', label: 'Issues' }],
+  [
+    { key: 'firmware', label: 'Firmware' },
+    { key: 'issues', label: 'Issues' },
+  ],
 ];
 export const KINDS: ReadonlyArray<{ key: Kind; label: string }> = KIND_GROUPS.flat();
 export const isKind = (s: string): s is Kind => KINDS.some((k) => k.key === s);
@@ -159,6 +164,8 @@ const CORE_COLUMNS: Record<Kind, readonly Column[]> = {
     core('role', 'Role', 110, { editable: true, type: 'select', options: DEVICE_ROLES }),
     core('mgmt', 'Mgmt address', 130, { editable: true }),
     core('serial', 'Serial', 110, { editable: true }),
+    core('version', 'Running', 110),
+    core('firmware', 'Firmware', 130),
     core('where', 'Where', 150),
     core('ports', 'Ports', 80),
     core('power', 'Power', 90),
@@ -196,6 +203,15 @@ const CORE_COLUMNS: Record<Kind, readonly Column[]> = {
   ],
   networks: [],
   issues: [],
+  firmware: [],
+  models: [
+    core('model', 'Model', 170),
+    core('platform', 'Platform', 110),
+    core('version', 'Chosen version', 160),
+    core('devices', 'Devices', 100),
+    core('behind', 'Behind', 100),
+    core('held', 'Held', 90),
+  ],
   prefixes: [
     core('prefix', 'Prefix', 150),
     core('vlan', 'VLAN', 130),
@@ -231,13 +247,14 @@ export function defaultColumnKeys(kind: Kind, lens: Lens): string[] {
   if (kind === 'addresses') return ['address', 'interface', 'device', 'subnet'];
   if (kind === 'prefixes') return ['prefix', 'vlan', 'site', 'used', 'gateway'];
   if (kind === 'vlans') return ['vlan', 'label', 'prefixes', 'site', 'devices', 'members'];
+  if (kind === 'models') return ['model', 'platform', 'version', 'devices', 'behind', 'held'];
   return [];
 }
 
 /** Every column the kind can show: core, tags, then one per custom field. */
 export function allColumns(kind: Kind, defs: readonly FieldDefView[]): Column[] {
   const cols: Column[] = [...CORE_COLUMNS[kind]];
-  if (kind === 'addresses' || kind === 'networks' || kind === 'prefixes' || kind === 'vlans') return cols;
+  if (kind === 'addresses' || kind === 'networks' || kind === 'prefixes' || kind === 'vlans' || kind === 'models' || kind === 'firmware') return cols;
   cols.push(TAGS_COLUMN);
   const fieldFor = FIELD_FOR_KIND[kind];
   if (fieldFor) {
@@ -297,17 +314,22 @@ function deviceInfo(doc: Document, chassisId: string): { deviceId: string; hostn
 
 export function deviceRows(doc: Document, view: ClosetView, defs: readonly FieldDefView[] = [], idx?: PlaceIndex): InvRow[] {
   const out: InvRow[] = [];
+  const targets = listTargets(doc);
   for (const group of groupDeviceRows(view, doc)) {
     for (const r of group.rows as DeviceRow[]) {
       const chassisId = r.selection.id;
       const info = deviceInfo(doc, chassisId);
       const ownerId = info.deviceId || null;
+      const fw = info.deviceId ? deviceFirmware(doc, info.deviceId) : null;
+      const fwTarget = fw ? (fw.models.map((m) => targets.find((t) => t.model === m)).find((t) => t !== undefined) ?? null) : null;
       const cells: Record<string, string> = {
         name: info.hostname,
         model: r.model === ABSENT ? '' : r.model,
         role: info.role,
         mgmt: info.mgmt,
         serial: info.serial,
+        version: fw?.osVersion ?? '',
+        firmware: fw && fw.models.length > 0 ? STATE_WORD[stateOf(fw, fwTarget)] : '',
         where: r.where === ABSENT ? '' : r.where,
         ports: r.ports === ABSENT ? '' : r.ports,
         power: r.power === ABSENT ? '' : r.power,

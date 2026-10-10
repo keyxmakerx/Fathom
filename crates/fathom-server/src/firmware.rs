@@ -73,7 +73,7 @@ use axum::body::{Body, Bytes, HttpBody};
 use axum::extract::{FromRequest, Path as PathExtractor, Request, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::Router;
 use deadpool_postgres::Transaction;
 use sha2::{Digest, Sha256};
@@ -85,6 +85,7 @@ use crate::authority::Capability;
 use crate::chain::EntryType;
 use crate::chains::{self, ChainStoreError};
 use crate::crypto::{self, CryptoError};
+use crate::firmware_commands::commands;
 use crate::grants::{self, Authority, EpochWatch};
 use crate::keys::{self, KeyRing, KeyStoreError};
 use crate::repo::{self, FirmwareImageId, OrganisationId, RepoError, ScopeId};
@@ -132,10 +133,6 @@ const FETCH_CHUNK: usize = 256 * 1024;
 /// The domain separator for a firmware token's stored hash; a new use of a hash
 /// gets its own label, as `sessions::token_hash`'s does.
 const TAG_FIRMWARE_TOKEN: &[u8] = b"fathom/firmware/token/v1";
-
-/// Where an image lands on a Junos device. `docs/UPGRADING-A-JUNIPER.md` step 3
-/// uses `/var/tmp/`; §6's trap 4 is that `/var` is what fills.
-const DEVICE_STAGING_DIRECTORY: &str = "/var/tmp/";
 
 // ---- State ----
 
@@ -281,6 +278,10 @@ pub fn router(state: FirmwareState) -> Router {
         .route(
             "/organisations/{organisation}/firmware/{image}/fetch-urls",
             post(issue_fetch_url_handler),
+        )
+        .route(
+            "/organisations/{organisation}/firmware/{image}/models",
+            put(models_handler),
         )
         .route("/firmware/fetch/{token}", get(fetch_handler))
         .with_state(state)
@@ -769,10 +770,14 @@ fn parse_image(text: &str) -> Result<FirmwareImageId, FirmwareError> {
 /// `POST /organisations/{organisation}/scopes/{scope}/firmware`: declare an image
 /// and take a one-time upload token. **Requires `steward`.**
 ///
-/// Body (length-prefixed): `LP(filename) ‖ LP(byte_length, 8 bytes LE) ‖ LP(sha256)`
+/// Body (length-prefixed): `LP(filename) ‖ LP(byte_length, 8 bytes LE) ‖ LP(sha256)
+/// [‖ LP(platform) [‖ LP(version) [‖ LP(models)]]]`. The last three are optional and
+/// an empty one means "not given"; `models` is catalogue model ids joined by commas.
+/// A three-field body is exactly what it was before `0038`.
 ///
-/// Answers canonical JSON: image id, where to send the bytes, the token, and its
-/// expiry. **The declared hash is not echoed**: it is a claim.
+/// Answers canonical JSON: image id, platform, version and models (null, null, []
+/// when not given), where to send the bytes, the token, and its expiry. **The
+/// declared hash is not echoed**: it is a claim.
 async fn declare_handler(
     State(state): State<FirmwareState>,
     PathExtractor((organisation, scope)): PathExtractor<(String, String)>,
@@ -781,9 +786,22 @@ async fn declare_handler(
     let tenant = parse_organisation(&organisation)?;
     let scope_id = parse_scope(&scope)?;
 
-    let (filename, byte_length, declared) = parse_declaration(&signed.body)?;
+    let Declaration {
+        filename,
+        byte_length,
+        sha256: declared,
+        platform,
+        version,
+        models,
+    } = parse_declaration(&signed.body)?;
     if !safe_filename(&filename) {
         return Err(FirmwareError::UnsafeFilename);
+    }
+    if platform.as_deref().is_some_and(|p| !safe_platform(p)) {
+        return Err(FirmwareError::Malformed(PLATFORM_SHAPE));
+    }
+    if version.as_deref().is_some_and(|v| !safe_version(v)) {
+        return Err(FirmwareError::Malformed(VERSION_SHAPE));
     }
     if byte_length == 0 || byte_length > state.store.max_image_bytes {
         return Err(FirmwareError::TooLarge {
@@ -813,8 +831,8 @@ async fn declare_handler(
         .execute(
             "INSERT INTO firmware_images \
                  (id, organisation_id, scope_id, filename, byte_length, declared_sha256, \
-                  state, created_by) \
-             SELECT $1, $2, $3, $4, $5, $6, 'declared', $7 WHERE EXISTS \
+                  state, created_by, platform, version, models) \
+             SELECT $1, $2, $3, $4, $5, $6, 'declared', $7, $8, $9, $10 WHERE EXISTS \
                  (SELECT 1 FROM scopes WHERE id = $3 AND organisation_id = $2)",
             &[
                 &image.to_string(),
@@ -824,6 +842,9 @@ async fn declare_handler(
                 &(byte_length as i64),
                 &declared.to_vec(),
                 &ctx.actor().to_string(),
+                &platform,
+                &version,
+                &models,
             ],
         )
         .await?;
@@ -855,6 +876,9 @@ async fn declare_handler(
     map.insert("image_id".to_string(), Json::Str(image.to_string()));
     map.insert("filename".to_string(), Json::Str(filename));
     map.insert("byte_length".to_string(), Json::Int(byte_length as i64));
+    map.insert("platform".to_string(), opt_str(platform));
+    map.insert("version".to_string(), opt_str(version));
+    map.insert("models".to_string(), strings(&models));
     map.insert(
         "upload_path".to_string(),
         Json::Str(format!("/firmware/uploads/{image}")),
@@ -871,16 +895,44 @@ async fn declare_handler(
     Ok(json_response(Json::Obj(map)))
 }
 
-fn parse_declaration(body: &[u8]) -> Result<(String, u64, [u8; 32]), FirmwareError> {
-    let (filename, rest) =
-        crypto::read_lp(body).ok_or(FirmwareError::Malformed("declaration body"))?;
-    let (length, rest) =
-        crypto::read_lp(rest).ok_or(FirmwareError::Malformed("declaration body"))?;
-    let (digest, rest) =
-        crypto::read_lp(rest).ok_or(FirmwareError::Malformed("declaration body"))?;
-    if !rest.is_empty() {
-        return Err(FirmwareError::Malformed("declaration body"));
+/// What a declaration said. `platform` and `version` are `None` when absent or
+/// sent empty; they are checked by [`safe_platform`] / [`safe_version`] by the caller.
+struct Declaration {
+    filename: String,
+    byte_length: u64,
+    sha256: [u8; 32],
+    platform: Option<String>,
+    version: Option<String>,
+    models: Vec<String>,
+}
+
+/// Three fields as before, then optionally `LP(platform)`, `LP(version)` and
+/// `LP(models)`. A three-field body (every client before 0038) parses exactly as it
+/// did; an empty field means "not given", so a version can be sent without a platform.
+fn parse_declaration(body: &[u8]) -> Result<Declaration, FirmwareError> {
+    let bad = || FirmwareError::Malformed("declaration body");
+    let (filename, rest) = crypto::read_lp(body).ok_or_else(bad)?;
+    let (length, rest) = crypto::read_lp(rest).ok_or_else(bad)?;
+    let (digest, mut rest) = crypto::read_lp(rest).ok_or_else(bad)?;
+    let mut optional = [None, None, None];
+    for slot in &mut optional {
+        if rest.is_empty() {
+            break;
+        }
+        let (field, tail) = crypto::read_lp(rest).ok_or_else(bad)?;
+        rest = tail;
+        if !field.is_empty() {
+            *slot = Some(String::from_utf8(field.to_vec()).map_err(|_| bad())?);
+        }
     }
+    if !rest.is_empty() {
+        return Err(bad());
+    }
+    let [platform, version, models] = optional;
+    let models = match models {
+        None => Vec::new(),
+        Some(text) => split_models(&text).ok_or(FirmwareError::Malformed(MODELS_SHAPE))?,
+    };
     let filename =
         String::from_utf8(filename.to_vec()).map_err(|_| FirmwareError::UnsafeFilename)?;
     let length: [u8; 8] = length
@@ -889,7 +941,80 @@ fn parse_declaration(body: &[u8]) -> Result<(String, u64, [u8; 32]), FirmwareErr
     let digest: [u8; 32] = digest
         .try_into()
         .map_err(|_| FirmwareError::Malformed("declared sha256"))?;
-    Ok((filename, u64::from_le_bytes(length), digest))
+    Ok(Declaration {
+        filename,
+        byte_length: u64::from_le_bytes(length),
+        sha256: digest,
+        platform,
+        version,
+        models,
+    })
+}
+
+const MODELS_SHAPE: &str = "models (at most 16 distinct catalogue model ids, each 1 to 64 \
+                            characters of letters, digits and - _ . / +)";
+
+/// Most model ids one image may name.
+pub const MAX_MODELS: usize = 16;
+
+/// A catalogue model id: 1 to 64 bytes of letters, digits and `- _ . / +`, the same
+/// rule as `0038`'s `firmware_models_ok`.
+pub fn safe_model(model: &str) -> bool {
+    (1..=64).contains(&model.len())
+        && model
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_./+".contains(&b))
+}
+
+/// A whole list: at most [`MAX_MODELS`], each [`safe_model`], no duplicates.
+pub fn safe_models(models: &[String]) -> bool {
+    models.len() <= MAX_MODELS
+        && models.iter().all(|m| safe_model(m))
+        && models
+            .iter()
+            .enumerate()
+            .all(|(i, m)| !models[..i].contains(m))
+}
+
+/// The declare field's comma-joined list, checked. `None` if it is not a valid list
+/// (a comma is not in a model id, so the split is unambiguous; `a,,b` is refused).
+fn split_models(text: &str) -> Option<Vec<String>> {
+    let models: Vec<String> = text.split(',').map(str::to_string).collect();
+    safe_models(&models).then_some(models)
+}
+
+fn strings(items: &[String]) -> Json {
+    Json::Arr(items.iter().cloned().map(Json::Str).collect())
+}
+
+const PLATFORM_SHAPE: &str =
+    "platform (a short slug: lower-case letters, digits and dash, 1 to 32 characters)";
+const VERSION_SHAPE: &str = "version (letters, digits and . ( ) - _ only, 1 to 64 characters)";
+
+/// A platform slug such as `junos`, `ios-xe`, `nx-os`, `eos`: `^[a-z0-9-]{1,32}$`,
+/// the same rule as `0038`'s `CHECK`. It selects which vendor's steps are rendered
+/// and is echoed back, so it is kept to what cannot become part of a command.
+pub fn safe_platform(platform: &str) -> bool {
+    (1..=32).contains(&platform.len())
+        && platform
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+/// A release string as vendors write it (`21.4R3-S5.5`, `17.09.04a`, `10.3(4a)`):
+/// letters, digits and `. ( ) - _`, 1 to 64 bytes, the same rule as `0038`'s `CHECK`.
+pub fn safe_version(version: &str) -> bool {
+    (1..=64).contains(&version.len())
+        && version
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b".()-_".contains(&b))
+}
+
+fn opt_str(value: Option<String>) -> Json {
+    match value {
+        Some(text) => Json::Str(text),
+        None => Json::Null,
+    }
 }
 
 // ---- 2. The bytes ----
@@ -935,7 +1060,8 @@ async fn upload_handler(
 
     let row = tx
         .query_opt(
-            "SELECT byte_length, declared_sha256, state, created_by, scope_id, filename \
+            "SELECT byte_length, declared_sha256, state, created_by, scope_id, filename, \
+                    platform, version, models \
              FROM firmware_images WHERE id = $1 AND organisation_id = $2",
             &[&image.to_string(), &organisation],
         )
@@ -947,6 +1073,9 @@ async fn upload_handler(
     let created_by: String = row.get(3);
     let scope_id: String = row.get(4);
     let filename: String = row.get(5);
+    let platform: Option<String> = row.get(6);
+    let version: Option<String> = row.get(7);
+    let models: Vec<String> = row.get(8);
     if state_text != "declared" {
         return Err(FirmwareError::AlreadyUploaded);
     }
@@ -995,13 +1124,26 @@ async fn upload_handler(
         &organisation,
         image,
         &scope_id,
-        &filename,
+        Labels {
+            filename: &filename,
+            platform: platform.as_deref(),
+            version: version.as_deref(),
+            models: &models,
+        },
         &created_by,
         received,
         computed,
         &partial,
     )
     .await
+}
+
+/// The operator's labels for an image, as sealed when it is staged.
+struct Labels<'a> {
+    filename: &'a str,
+    platform: Option<&'a str>,
+    version: Option<&'a str>,
+    models: &'a [String],
 }
 
 /// Read the body frame by frame, write through a bounded buffer, hash on the way.
@@ -1138,7 +1280,7 @@ async fn finish_upload(
     organisation: &str,
     image: FirmwareImageId,
     scope_id: &str,
-    filename: &str,
+    labels: Labels<'_>,
     created_by: &str,
     received: u64,
     computed: [u8; 32],
@@ -1161,7 +1303,7 @@ async fn finish_upload(
         created_by,
         image,
         scope_id,
-        filename,
+        &labels,
         received,
         &computed,
     );
@@ -1239,7 +1381,7 @@ async fn issue_fetch_url_handler(
 
     let row = tx
         .query_opt(
-            "SELECT filename, byte_length, computed_sha256, state \
+            "SELECT filename, byte_length, computed_sha256, state, platform, version, models \
              FROM firmware_images WHERE id = $1 AND organisation_id = $2",
             &[&image.to_string(), &ctx.tenant().to_string()],
         )
@@ -1249,6 +1391,9 @@ async fn issue_fetch_url_handler(
     let byte_length: i64 = row.get(1);
     let computed: Option<Vec<u8>> = row.get(2);
     let state_text: String = row.get(3);
+    let platform: Option<String> = row.get(4);
+    let version: Option<String> = row.get(5);
+    let models: Vec<String> = row.get(6);
     if state_text != "staged" {
         return Err(FirmwareError::NotStaged);
     }
@@ -1312,6 +1457,9 @@ async fn issue_fetch_url_handler(
     map.insert("image_id".to_string(), Json::Str(image.to_string()));
     map.insert("filename".to_string(), Json::Str(filename.clone()));
     map.insert("byte_length".to_string(), Json::Int(byte_length));
+    map.insert("platform".to_string(), opt_str(platform.clone()));
+    map.insert("version".to_string(), opt_str(version));
+    map.insert("models".to_string(), strings(&models));
     map.insert("sha256".to_string(), Json::Str(sha256.clone()));
     map.insert("fetch_url".to_string(), Json::Str(url.clone()));
     map.insert(
@@ -1322,7 +1470,7 @@ async fn issue_fetch_url_handler(
     map.insert("issued_seq".to_string(), Json::Int(appended.seq));
     map.insert(
         "commands".to_string(),
-        commands(&filename, &sha256, Some(&url)),
+        commands(platform.as_deref(), &filename, &sha256, Some(&url)),
     );
     Ok(json_response(Json::Obj(map)))
 }
@@ -1582,7 +1730,7 @@ async fn list_handler(
         .query(
             "SELECT id, filename, byte_length, computed_sha256, state, failed_reason, \
                     extract(epoch FROM created_at)::bigint, \
-                    extract(epoch FROM staged_at)::bigint, staged_seq \
+                    extract(epoch FROM staged_at)::bigint, staged_seq, platform, version, models \
              FROM firmware_images \
              WHERE organisation_id = $1 AND scope_id = $2 \
              ORDER BY created_at",
@@ -1602,12 +1750,18 @@ async fn list_handler(
         let created_at: i64 = row.get(6);
         let staged_at: Option<i64> = row.get(7);
         let staged_seq: Option<i64> = row.get(8);
+        let platform: Option<String> = row.get(9);
+        let version: Option<String> = row.get(10);
+        let models: Vec<String> = row.get(11);
 
         let mut map = BTreeMap::new();
         map.insert("image_id".to_string(), Json::Str(id));
         map.insert("scope_id".to_string(), Json::Str(scope_id.to_string()));
         map.insert("filename".to_string(), Json::Str(filename.clone()));
         map.insert("byte_length".to_string(), Json::Int(byte_length));
+        map.insert("platform".to_string(), opt_str(platform.clone()));
+        map.insert("version".to_string(), opt_str(version));
+        map.insert("models".to_string(), strings(&models));
         map.insert("state".to_string(), Json::Str(state_text));
         map.insert(
             "failed_reason".to_string(),
@@ -1637,7 +1791,10 @@ async fn list_handler(
             Some(digest) => {
                 let sha256 = hex(digest);
                 map.insert("sha256".to_string(), Json::Str(sha256.clone()));
-                map.insert("commands".to_string(), commands(&filename, &sha256, None));
+                map.insert(
+                    "commands".to_string(),
+                    commands(platform.as_deref(), &filename, &sha256, None),
+                );
             }
             None => {
                 map.insert("sha256".to_string(), Json::Null);
@@ -1650,126 +1807,146 @@ async fn list_handler(
     Ok(json_response(Json::Arr(out)))
 }
 
-// ---- The commands an operator actually runs ----
+// ---- 6. Replace an image's models ----
 
-/// `docs/UPGRADING-A-JUNIPER.md` steps 2 to 7 and ADR-0045 §6's traps, with this
-/// image's filename, hash and (when there is one) fetch URL substituted in.
+/// `PUT /organisations/{organisation}/firmware/{image}/models`: replace the list of
+/// catalogue models an image is for. **Requires `steward`**, and a change is sealed
+/// as `firmware_models_changed` (the image, the old list and the new one).
 ///
-/// **The order is a control, not a listing.** Trap 1: `request system storage
-/// cleanup` deletes the image just copied, so cleanup comes before the copy. Trap
-/// 5 is the second snapshot, so there are two.
-///
-/// **Fathom runs none of these** (ADR-0045 §4.4); `note` says so where it matters,
-/// since a command list with no warning on the install step is how a list becomes a
-/// tool that installs.
-///
-/// These are a *summary* of Juniper's documentation, not a verbatim read, so the
-/// answer carries `"sourced": "summary"` and says where to check (ADR-0034).
-fn commands(filename: &str, sha256: &str, url: Option<&str>) -> Json {
-    let device_path = format!("{DEVICE_STAGING_DIRECTORY}{filename}");
-    let copy_source = match url {
-        Some(url) => url.to_string(),
-        None => "<the fetch URL, from POST .../fetch-urls — Fathom keeps only its hash and \
-                 cannot show you one it already issued>"
-            .to_string(),
-    };
+/// Body (canonical JSON, as the other JSON routes take): `{"models":["EX2300-24P"]}`
+/// plus a final newline. The list is the whole new list, not a delta; `[]` clears it.
+/// Answers `{"image_id", "models", "changed", "changed_seq"}`; a list equal to the
+/// current one changes nothing and seals nothing (`changed: false`, `changed_seq:
+/// null`). The image may be in any state: models are a label, not the bytes.
+async fn models_handler(
+    State(state): State<FirmwareState>,
+    PathExtractor((organisation, image)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, FirmwareError> {
+    let tenant = parse_organisation(&organisation)?;
+    let image = parse_image(&image)?;
+    let models = parse_models_body(&signed.body)?;
 
-    let steps: Vec<(&str, String, &str)> = vec![
-        (
-            "check space first",
-            "show system storage".to_string(),
-            "/var is the partition that fills. On Junos OS Evolved, 90% or more on /soft, /var \
-             or /data means there is not enough room to install.",
-        ),
-        (
-            "make room BEFORE the copy",
-            "request system storage cleanup".to_string(),
-            "TRAP 1: cleanup can delete the image you just copied. Run it before the copy, \
-             never after. `request system storage cleanup dry-run` shows what it would remove.",
-        ),
-        (
-            "take the first snapshot",
-            "request system snapshot".to_string(),
-            "Copies the running system to alternate media. `request system configuration rescue \
-             save` gives `rollback rescue` a known-good configuration to return to.",
-        ),
-        (
-            "have the device pull the image",
-            format!("file copy {copy_source} {DEVICE_STAGING_DIRECTORY}"),
-            "The device uses its own transfer stack, so the SCP-versus-SFTP question does not \
-             arise. Whether Junos verifies TLS certificates on an https:// source could not be \
-             established, so nothing here leans on the transport: the next two steps are what \
-             establish that the right bytes arrived.",
-        ),
-        (
-            "prove the whole file arrived",
-            format!("file checksum sha-256 {device_path}"),
-            "TRAP 2, and the reason this feature exists. The answer must equal the `expected_sha256` \
-             in this response, which Fathom computed over the bytes it holds. If they differ, \
-             delete the file and copy it again.",
-        ),
-        (
-            "prove Juniper made it",
-            format!("request system software validate {device_path}"),
-            "Checks the vendor signature against a Juniper root certificate. THIS is the \
-             authenticity control -- not the published MD5 or SHA-1, which catch a truncated \
-             download and not a substituted image. It does not answer 'is this the release I \
-             meant', which is yours to check.",
-        ),
-        (
-            "install -- yours to run, not Fathom's",
-            format!("request system software add {device_path}"),
-            "ADR-0045 §4.4: Fathom stages and verifies and never installs. This line is here so \
-             you can copy it, not so that anything runs it.",
-        ),
-        (
-            "and the second snapshot, after it comes back",
-            "request system snapshot".to_string(),
-            "TRAP 5: skip this and the alternate boot media stays out of step with the primary. \
-             `request system software rollback` reverts the last install if the upgrade went \
-             wrong.",
-        ),
-    ];
+    let mut client = state.sessions.pool().get().await?;
+    let tx = client.transaction().await?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    // Authorised against the image's own scope when it exists, else the
+    // organisation's, as in `issue_fetch_url_handler`.
+    let scope = image_scope(&tx, tenant, image).await?;
+    let ctx = authorise_in(&tx, &state, &session, tenant, scope, Capability::Steward).await?;
 
-    let mut out = Vec::with_capacity(steps.len() + 1);
-    for (order, (step, command, note)) in steps.into_iter().enumerate() {
-        let mut map = BTreeMap::new();
-        map.insert("order".to_string(), Json::Int(order as i64 + 1));
-        map.insert("step".to_string(), Json::Str(step.to_string()));
-        map.insert("command".to_string(), Json::Str(command));
-        map.insert("note".to_string(), Json::Str(note.to_string()));
-        map.insert("run_by".to_string(), Json::Str("operator".to_string()));
-        out.push(Json::Obj(map));
+    let current: Vec<String> = tx
+        .query_opt(
+            "SELECT models FROM firmware_images WHERE id = $1 AND organisation_id = $2 \
+             FOR UPDATE",
+            &[&image.to_string(), &ctx.tenant().to_string()],
+        )
+        .await?
+        .ok_or(FirmwareError::NoSuchImage)?
+        .get(0);
+
+    let mut map = BTreeMap::new();
+    map.insert("image_id".to_string(), Json::Str(image.to_string()));
+    map.insert("models".to_string(), strings(&models));
+
+    if current == models {
+        tx.commit().await?;
+        map.insert("changed".to_string(), Json::Bool(false));
+        map.insert("changed_seq".to_string(), Json::Null);
+        return Ok(json_response(Json::Obj(map)));
     }
 
-    let mut envelope = BTreeMap::new();
-    envelope.insert("expected_sha256".to_string(), Json::Str(sha256.to_string()));
-    envelope.insert("device_path".to_string(), Json::Str(device_path));
-    envelope.insert("steps".to_string(), Json::Arr(out));
-    envelope.insert("sourced".to_string(), Json::Str("summary".to_string()));
-    envelope.insert(
-        "sourced_note".to_string(),
-        Json::Str(
-            "juniper.net was unreachable when these were researched (2026-09-14), so these are \
-             search summaries describing Juniper's documentation rather than verbatim reads of \
-             it. Check them against the hardware guide for your platform and release before a \
-             maintenance window you care about. docs/UPGRADING-A-JUNIPER.md carries the same \
-             warning and the per-step marking."
-                .to_string(),
-        ),
+    let tenant_key = keys::tenant_key(&tx, &state.ring, &ctx).await?;
+    let metadata = models_changed_metadata(
+        &ctx.tenant().to_string(),
+        &ctx.actor().to_string(),
+        image,
+        &current,
+        &models,
     );
-    envelope.insert("fathom_runs_none_of_these".to_string(), Json::Bool(true));
-    Json::Obj(envelope)
+    let appended = chains::append_org(
+        &tx,
+        &state.ring,
+        &ctx,
+        &tenant_key,
+        EntryType::FirmwareModelsChanged,
+        &metadata,
+    )
+    .await?;
+    let updated = tx
+        .execute(
+            "UPDATE firmware_images SET models = $3 WHERE id = $1 AND organisation_id = $2",
+            &[&image.to_string(), &ctx.tenant().to_string(), &models],
+        )
+        .await?;
+    if updated != 1 {
+        return Err(FirmwareError::NoSuchImage);
+    }
+    tx.commit().await?;
+
+    tracing::info!(image = %image, models = models.len(), "firmware image models replaced");
+    map.insert("changed".to_string(), Json::Bool(true));
+    map.insert("changed_seq".to_string(), Json::Int(appended.seq));
+    Ok(json_response(Json::Obj(map)))
+}
+
+/// `{"models":[...]}` and nothing else: one key, an array of strings, each a
+/// [`safe_model`], at most [`MAX_MODELS`], no duplicates.
+fn parse_models_body(body: &[u8]) -> Result<Vec<String>, FirmwareError> {
+    let bad = || FirmwareError::Malformed(MODELS_SHAPE);
+    let Ok(Json::Obj(mut object)) = Json::parse_canonical(body) else {
+        return Err(bad());
+    };
+    let Some(Json::Arr(items)) = object.remove("models") else {
+        return Err(bad());
+    };
+    if !object.is_empty() {
+        return Err(bad());
+    }
+    let models = items
+        .into_iter()
+        .map(|item| match item {
+            Json::Str(s) => Ok(s),
+            _ => Err(bad()),
+        })
+        .collect::<Result<Vec<String>, _>>()?;
+    if !safe_models(&models) {
+        return Err(bad());
+    }
+    Ok(models)
 }
 
 // ---- Sealed metadata ----
+
+fn models_changed_metadata(
+    organisation: &str,
+    actor: &str,
+    image: FirmwareImageId,
+    before: &[String],
+    after: &[String],
+) -> Vec<u8> {
+    let mut map = BTreeMap::new();
+    map.insert("actor".to_string(), Json::Str(actor.to_string()));
+    map.insert(
+        "entry_type".to_string(),
+        Json::Str(EntryType::FirmwareModelsChanged.as_str().to_string()),
+    );
+    map.insert("image".to_string(), Json::Str(image.to_string()));
+    map.insert("models_after".to_string(), strings(after));
+    map.insert("models_before".to_string(), strings(before));
+    map.insert(
+        "organisation".to_string(),
+        Json::Str(organisation.to_string()),
+    );
+    Json::Obj(map).to_canonical_bytes()
+}
 
 fn staged_metadata(
     organisation: &str,
     actor: &str,
     image: FirmwareImageId,
     scope: &str,
-    filename: &str,
+    labels: &Labels<'_>,
     byte_length: u64,
     sha256: &[u8; 32],
 ) -> Vec<u8> {
@@ -1780,7 +1957,21 @@ fn staged_metadata(
         "entry_type".to_string(),
         Json::Str(EntryType::FirmwareStaged.as_str().to_string()),
     );
-    map.insert("filename".to_string(), Json::Str(filename.to_string()));
+    map.insert(
+        "filename".to_string(),
+        Json::Str(labels.filename.to_string()),
+    );
+    // Sealed only when given, so an image without them seals the bytes it always did
+    // and every entry written before `0038` still verifies unchanged.
+    if let Some(platform) = labels.platform {
+        map.insert("platform".to_string(), Json::Str(platform.to_string()));
+    }
+    if let Some(version) = labels.version {
+        map.insert("version".to_string(), Json::Str(version.to_string()));
+    }
+    if !labels.models.is_empty() {
+        map.insert("models".to_string(), strings(labels.models));
+    }
     map.insert("image".to_string(), Json::Str(image.to_string()));
     map.insert(
         "organisation".to_string(),
@@ -1989,10 +2180,11 @@ mod tests {
         crypto::lp(&mut body, b"junos-install-21.4R3.tgz");
         crypto::lp(&mut body, &1_234_567_890u64.to_le_bytes());
         crypto::lp(&mut body, &[7u8; 32]);
-        let (name, length, digest) = parse_declaration(&body).expect("a well-formed declaration");
-        assert_eq!(name, "junos-install-21.4R3.tgz");
-        assert_eq!(length, 1_234_567_890);
-        assert_eq!(digest, [7u8; 32]);
+        let d = parse_declaration(&body).expect("a well-formed declaration");
+        assert_eq!(d.filename, "junos-install-21.4R3.tgz");
+        assert_eq!(d.byte_length, 1_234_567_890);
+        assert_eq!(d.sha256, [7u8; 32]);
+        assert_eq!((d.platform, d.version), (None, None));
 
         assert!(parse_declaration(b"").is_err());
         assert!(parse_declaration(&body[..body.len() - 1]).is_err());
@@ -2004,12 +2196,158 @@ mod tests {
         );
     }
 
+    /// `0038`: the platform and version ride as optional trailing fields, and an
+    /// empty one means "not given".
+    #[test]
+    fn the_optional_platform_and_version_fields_parse_and_empty_means_absent() {
+        let mut base = Vec::new();
+        crypto::lp(&mut base, b"a.bin");
+        crypto::lp(&mut base, &9u64.to_le_bytes());
+        crypto::lp(&mut base, &[1u8; 32]);
+
+        let mut both = base.clone();
+        crypto::lp(&mut both, b"ios-xe");
+        crypto::lp(&mut both, b"17.09.04a");
+        let d = parse_declaration(&both).expect("both fields");
+        assert_eq!(d.platform.as_deref(), Some("ios-xe"));
+        assert_eq!(d.version.as_deref(), Some("17.09.04a"));
+
+        let mut only_version = base.clone();
+        crypto::lp(&mut only_version, b"");
+        crypto::lp(&mut only_version, b"4.32.2F");
+        let d = parse_declaration(&only_version).expect("version alone");
+        assert_eq!(d.platform, None);
+        assert_eq!(d.version.as_deref(), Some("4.32.2F"));
+
+        let mut only_platform = base.clone();
+        crypto::lp(&mut only_platform, b"eos");
+        let d = parse_declaration(&only_platform).expect("platform alone");
+        assert_eq!(d.platform.as_deref(), Some("eos"));
+        assert_eq!(d.version, None);
+
+        let mut extra = both.clone();
+        crypto::lp(&mut extra, b"a sixth field");
+        assert!(parse_declaration(&extra).is_err());
+        let mut not_utf8 = base;
+        crypto::lp(&mut not_utf8, &[0xff, 0xfe]);
+        assert!(parse_declaration(&not_utf8).is_err());
+    }
+
+    /// Model ids: the declare field and the replace body share one rule.
+    #[test]
+    fn models_are_limited_in_count_shape_and_duplicates() {
+        let mut prefix = Vec::new();
+        crypto::lp(&mut prefix, b"a.bin");
+        crypto::lp(&mut prefix, &9u64.to_le_bytes());
+        crypto::lp(&mut prefix, &[1u8; 32]);
+        crypto::lp(&mut prefix, b"junos");
+        crypto::lp(&mut prefix, b"");
+        let with = |models: &str| {
+            let mut b = prefix.clone();
+            crypto::lp(&mut b, models.as_bytes());
+            parse_declaration(&b)
+        };
+        let d = with("EX2300-24P,EX2300-48P,C9300-24T/1+x_y.z").expect("three labels");
+        assert_eq!(
+            d.models,
+            vec!["EX2300-24P", "EX2300-48P", "C9300-24T/1+x_y.z"]
+        );
+        assert!(with("A,B").is_ok());
+        for bad in [
+            "A,,B",
+            "A,",
+            ",A",
+            "A,A",
+            "A B",
+            "A;B",
+            "é",
+            &"x".repeat(65),
+        ] {
+            assert!(with(bad).is_err(), "{bad:?}");
+        }
+        let sixteen: Vec<String> = (0..16).map(|i| format!("M{i}")).collect();
+        assert!(with(&sixteen.join(",")).is_ok());
+        let seventeen: Vec<String> = (0..17).map(|i| format!("M{i}")).collect();
+        assert!(with(&seventeen.join(",")).is_err());
+
+        let body = |json: &str| format!("{json}\n").into_bytes();
+        assert_eq!(
+            parse_models_body(&body(r#"{"models":[]}"#)).unwrap().len(),
+            0
+        );
+        assert!(parse_models_body(&body(r#"{"models":["A","B"]}"#)).is_ok());
+        for bad in [
+            r#"{"models":["A","A"]}"#,
+            r#"{"models":[1]}"#,
+            r#"{"models":"A"}"#,
+            r#"{"models":["A"],"x":1}"#,
+            r#"{"other":[]}"#,
+            r#"[]"#,
+        ] {
+            assert!(parse_models_body(&body(bad)).is_err(), "{bad}");
+        }
+        assert!(
+            parse_models_body(br#"{"models":[]}"#).is_err(),
+            "no final newline"
+        );
+    }
+
+    /// Real platform slugs and release strings pass; anything that could become a
+    /// second command, a path or a long string does not (CLAUDE.md rule 2).
+    #[test]
+    fn platform_and_version_accept_what_vendors_write_and_nothing_else() {
+        for ok in [
+            "junos",
+            "junos-evo",
+            "ios-xe",
+            "nx-os",
+            "eos",
+            &"a".repeat(32),
+        ] {
+            assert!(safe_platform(ok), "{ok}");
+        }
+        for bad in [
+            "",
+            "Junos",
+            "ios xe",
+            "eos;reload",
+            "a/b",
+            "ios_xe",
+            &"a".repeat(33),
+        ] {
+            assert!(!safe_platform(bad), "{bad:?}");
+        }
+        for ok in [
+            "21.4R3-S5.5",
+            "17.09.04a",
+            "10.3(4a)",
+            "4.32.2F",
+            "9.3(10)",
+            "22.4R2-S2.6_x",
+            &"1".repeat(64),
+        ] {
+            assert!(safe_version(ok), "{ok}");
+        }
+        for bad in [
+            "",
+            "21.4 R3",
+            "1;reload",
+            "1\nreload",
+            "$(id)",
+            "a/b",
+            "v1.0+x",
+            &"1".repeat(65),
+        ] {
+            assert!(!safe_version(bad), "{bad:?}");
+        }
+    }
+
     /// The one-hash rule: a caller reads back the computed hash under the name
     /// `sha256`, and the declaration appears under no name in any answer.
     #[test]
     fn the_commands_carry_the_hash_they_were_given_and_the_traps_are_in_order() {
         let sha = "a".repeat(64);
-        let text = json_text(&commands("junos-install-21.4R3.tgz", &sha, None));
+        let text = json_text(&commands(None, "junos-install-21.4R3.tgz", &sha, None));
         assert!(text.contains(&sha), "{text}");
         assert!(
             text.contains("file checksum sha-256 /var/tmp/junos-install-21.4R3.tgz"),
@@ -2036,6 +2374,7 @@ mod tests {
     fn the_copy_line_holds_the_real_url_when_there_is_one_and_never_a_fake_one() {
         let sha = "b".repeat(64);
         let with = json_text(&commands(
+            None,
             "junos.tgz",
             &sha,
             Some("https://fathom.example.net/firmware/fetch/deadbeef"),
@@ -2045,7 +2384,7 @@ mod tests {
             "{with}"
         );
 
-        let without = json_text(&commands("junos.tgz", &sha, None));
+        let without = json_text(&commands(None, "junos.tgz", &sha, None));
         assert!(!without.contains("/firmware/fetch/"), "{without}");
         assert!(without.contains("cannot show you one"), "{without}");
     }

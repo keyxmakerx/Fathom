@@ -60,8 +60,12 @@ export function stateText(step: PlanStep, current: PlanStep | null): string {
 export function stepHead(step: Pick<PlanStep, 'kind' | 'change'>): { badge: string | null; text: string } {
   const word = KIND_WORD[step.kind];
   const opens = step.change.toLowerCase().startsWith(word.toLowerCase()) && !/^[\p{L}\p{N}]/u.test(step.change.charAt(word.length));
-  return { badge: opens ? null : word, text: step.change };
+  return { badge: opens ? null : word, text: firstLine(step.change) };
 }
+
+/** A step may carry a muted second line after a line break (the firmware plans do). */
+export const firstLine = (change: string): string => change.split('\n', 1)[0] ?? '';
+export const secondLine = (change: string): string => change.split('\n').slice(1).join(' ').trim();
 
 /** The live cable that joins two ports, if the design has one. */
 function cableBetween(doc: Document, a: string, b: string): string | null {

@@ -23,6 +23,8 @@ import { addSubnet, addVlan } from './document/networks';
 import { setFieldValue, type FieldDefView } from './document/fields';
 import { bulkEstate } from './components/inventory/bulkEstate';
 import { tagObject } from './document/tags';
+import { begin, finish, setNodeField } from './document/freeform';
+import { setFirmwareHold, setTarget } from './document/firmware';
 import { newUlid } from './document/ulid';
 import { naturalLabelCompare, viewOf } from './document/view';
 
@@ -924,4 +926,61 @@ export function seedHistoryVersions(catalogue: CatalogueModel[], me: string, col
   const v3 = connectPorts(v2, a.portId, b.portId, { sheath: 'blue' as Sheath }, { actor: me });
   const v4 = setDeviceField(v3, a.deviceId, 'hostname', 'core-02', { actor: me });
   return [v1, v2, v3, v4];
+}
+
+/** The firmware drive's image ids: real-looking ulids the stubbed server and the chosen versions agree on. */
+export const fwImageId = (n: number): string => `01K8FW${String(n).padStart(20, '0')}`;
+
+/** The hashes the stubbed server reports (64 lowercase hex), by image number. */
+export const FW_SHA: Record<number, string> = {
+  1: '9f2c4b7d1e8a3055c6d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3a41e',
+  2: '17be6a02c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c03d9',
+  3: '44d1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3b2f0',
+  4: 'e83a5f4e3d2c1b0a99887766554433221100ffeeddccbbaa99887766554f5c6b',
+  5: '2b70c9d8e7f6a5b4c3d2e1f0091827364554637281900a1b2c3d4e5f6a7b91aa',
+};
+
+/**
+ * ADR-0064's drive: one rack of captured switches. EX2300-24P: switch-2 on the chosen 23.4R2, switch-1/3/4 behind on
+ * 21.4R3-S5, switch-5 held (also 21.4R3-S5), switch-6 never read. An EX2300-48P on the chosen version, two C9300-48P
+ * (IOS XE 17.9.4 chosen, one still on 17.9.3) and a DCS-7050SX3-48YC8 (EOS 4.30.2F, chosen). NX-OS has an image and no device.
+ */
+export function seedFirmwareScene(catalogue: CatalogueModel[], me: string): Document {
+  const { doc, rackId } = oneRack(catalogue, me, 24);
+  const find = (model: string) => {
+    const m = catalogue.find((c) => c.model === model);
+    if (!m) throw new Error(`the drive catalogue fixture has no ${model}`);
+    return m;
+  };
+  let working = doc;
+  let u = 2;
+  const add = (model: string, hostname: string, platform: string, osVersion: string) => {
+    working = place(working, catalogue, rackId, find(model), u, hostname, me);
+    u += 1;
+    const dev = firstRack(working, catalogue).chassis.find((c) => c.hostname === hostname)!.deviceId;
+    const b = begin(working, { actor: me });
+    if (platform) setNodeField(b, dev, 'Device.platform', platform);
+    if (osVersion) setNodeField(b, dev, 'Device.os_version', osVersion);
+    working = finish(b, 'drive: captured');
+    return dev;
+  };
+  add('EX2300-24P', 'switch-1', 'junos-ex', '21.4R3-S5');
+  add('EX2300-24P', 'switch-2', 'junos-ex', '23.4R2');
+  add('EX2300-24P', 'switch-3', 'junos-ex', '21.4R3-S5');
+  add('EX2300-24P', 'switch-4', 'junos-ex', '21.4R3-S5');
+  const held = add('EX2300-24P', 'switch-5', 'junos-ex', '21.4R3-S5');
+  add('EX2300-24P', 'switch-6', 'junos-ex', '');
+  add('EX2300-48P', 'switch-7', 'junos-ex', '23.4R2');
+  add('C9300-48P', 'dist-1', 'ios-xe', '17.9.3');
+  add('C9300-48P', 'dist-2', 'ios-xe', '17.9.4');
+  add('DCS-7050SX3-48YC8', 'leaf-1', 'eos', '4.30.2F');
+  const choose = (model: string, version: string, platform: string, n: number) => {
+    working = setTarget(working, model, { version, platform, image: fwImageId(n), imageSha256: FW_SHA[n]! }, { actor: me });
+  };
+  choose('EX2300-24P', '23.4R2', 'junos-ex', 1);
+  choose('EX2300-48P', '23.4R2', 'junos-ex', 1);
+  choose('C9300-48P', '17.9.4', 'ios-xe', 3);
+  choose('DCS-7050SX3-48YC8', '4.30.2F', 'eos', 5);
+  working = setFirmwareHold(working, held, 'Lab rig, kept on old version for a class', { actor: me });
+  return working;
 }

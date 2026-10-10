@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.18"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.19"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -262,6 +262,12 @@ schema:
                     # Issue and IssueStep (joining Placeable), two edge kinds, HasIssue (root
                     # containment, HasPlan's shape) and HasIssueStep, fifteen field keys (390-404).
                     # Whole change = MINOR. The reader still opens 0.10 to 0.17.
+                    #
+                    # 0.19 is firmware targets (2026-10-10), all additive: one node kind,
+                    # FirmwareTarget (joining Placeable as Tag does), one edge kind,
+                    # HasFirmwareTarget (root containment, HasTag's shape), one Device field,
+                    # firmware_hold; seven field keys (405-411). Whole change = MINOR. The
+                    # reader still opens 0.10 to 0.18.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -489,6 +495,8 @@ classes:
       # ADR-0061 troubleshooting: an issue and its steps are drawn by the issue views.
       - Issue
       - IssueStep
+      # Firmware targets (0.19): joins Placeable as Tag does; the client draws no box.
+      - FirmwareTarget
       # Custom-field values (0.16): joins Placeable as Tag does; the client draws no box.
       - FieldValue
     doc: |
@@ -635,6 +643,7 @@ kinds:
           VERIFY: the derive fn name and the full depends_on (19 §8.3 says it includes the
           traversal to Premises via Site) are not stated as declarations anywhere; the read
           set above is the minimum the prose names and is certainly incomplete.
+      - { name: firmware_hold, type: Text, card: "0..1", emit: "—", doc: "Set: held at its current firmware on purpose; the value is why." }
     # The root of re-identification. `11` §10.4's algorithm takes a capture that
     # already names its device — it maps a re-parse onto the objects *inside* a
     # known box. Which box a fresh paste belongs to was the one question that
@@ -2051,6 +2060,25 @@ kinds:
       - { name: note, type: Text, card: "0..1", emit: "—", doc: "What the person saw, typed." }
       - { name: answered_at, type: Text, card: "0..1", emit: "—", doc: "When it was answered, as an ISO time." }
     identity: []
+
+  # Firmware targets (2026-10-10). Appended at the tail (62 §13).
+  - kind: FirmwareTarget
+    layer: physical
+    emits: false
+    doc: |
+      The firmware version chosen for one catalogue model (matched against Chassis.model).
+      Hangs off the design root as Tag does; the image stays on the server and `image` names
+      it by id. One target per model: the editor keeps that, as for Tag names; a payload
+      holding two still opens and the rule reads each.
+    fields:
+      - { name: model, type: Identifier, card: "1", emit: "—", doc: "Catalogue model id, matched against Chassis.model." }
+      - { name: version, type: OsVersion, card: "1", emit: "—", doc: The chosen version for that model. }
+      - { name: platform, type: PlatformId, card: "0..1", emit: "—", doc: "Which version scheme applies, when a device lacks one." }
+      - { name: image, type: Identifier, card: "0..1", emit: "—", doc: "Server firmware image id (26-character ULID)." }
+      - { name: image_sha256, type: Text, card: "0..1", emit: "—", doc: SHA-256 Fathom computed for that image. }
+      - { name: note, type: Text, card: "0..1", emit: "—", doc: Free text. }
+    identity:
+      - [ model ]
 
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
@@ -3584,6 +3612,19 @@ edges:
     fields: []
     emit_dict: null
     doc: A value hangs off whichever Fieldable object it is on, HasNote's own shape.
+
+  # Firmware targets (2026-10-10). Appended at the tail (62 §13).
+  - edge: HasFirmwareTarget
+    class: containment
+    from: [root]
+    to: [FirmwareTarget]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: Firmware targets hang off the design root as Tag does.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load
