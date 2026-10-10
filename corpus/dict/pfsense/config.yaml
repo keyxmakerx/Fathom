@@ -1,0 +1,100 @@
+# corpus/dict/pfsense/config.yaml -- pfSense `config.xml`.
+# Path shape: the element path below <pfsense>, a repeating record's identity
+# leaf spliced in after its tag, then the leaf and its text, all real bytes of
+# the file (crates/fathom-ingest/src/xml.rs).
+#
+# THIS DICTIONARY IS AN ALLOWLIST. The front end destroys every value no entry
+# here describes, because pfSense hides secrets where no detector sees them
+# (README-pfsense.md). An entry that only re-asserts a name exists to keep a
+# value that is not secret readable in the stored capture.
+platform: pfsense
+source: { cite: "pfsense/pfsense source (master 9363ac5, 2026-03-31; RELENG_2_7_0 conf.default/config.xml) and pfsensible/core test fixtures; see corpus/dict/README-pfsense.md", read_on: "2026-10-10" }
+reviewed_by: <named human>
+entries:
+  - id: pfsense/system.hostname
+    path: [system, hostname, "$h"]
+    binds:
+      nodes:
+        - { as: n0, kind: Device, fields: [ { field: hostname, from: "$h", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `<interfaces><lan><if>igb1</if>…`: the assignment (`lan`, `wan`, `opt1`) is
+  # the tag, the port is `if`.
+  - id: pfsense/interfaces.if
+    path: [interfaces, "$role", if, "$i"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: pfsense/interfaces.descr
+    path: [interfaces, "$role", if, "$i", descr, "$d"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName }, { field: description, from: "$d", scalar: Text } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: pfsense/interfaces.enable
+    path: [interfaces, "$role", if, "$i", enable]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName }, { field: admin_up, const_bool: true } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # Kept readable, not yet bound: the address and its prefix length are two
+  # elements, and an Address needs them as one value (README, "Not bound").
+  - id: pfsense/interfaces.ipaddr
+    path: [interfaces, "$role", if, "$i", ipaddr, "$a"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: pfsense/interfaces.subnet
+    path: [interfaces, "$role", if, "$i", subnet, "$p"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `<vlans><vlan><if>igb1</if><tag>10</tag><descr/><vlanif>igb1.10</vlanif>`
+  - id: pfsense/vlans.vlan
+    path: [vlans, vlan, vlanif, "$v"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$v", fields: [ { field: name, from: "$v", scalar: InterfaceName } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: pfsense/vlans.vlan.tag
+    path: [vlans, vlan, vlanif, "$v", tag, "$t"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$v", fields: [ { field: name, from: "$v", scalar: InterfaceName } ] }
+        - { as: n1, kind: Vlan, key: "$v", fields: [ { field: name, from: "$v", scalar: Identifier }, { field: vlan_id, from: "$t", scalar: VlanId } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: pfsense/vlans.vlan.if
+    path: [vlans, vlan, vlanif, "$v", if, "$p"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$p", fields: [ { field: name, from: "$p", scalar: InterfaceName } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: pfsense/vlans.vlan.descr
+    path: [vlans, vlan, vlanif, "$v", descr, "$d"]
+    binds:
+      nodes:
+        - { as: n1, kind: Vlan, key: "$v", fields: [ { field: name, from: "$v", scalar: Identifier }, { field: description, from: "$d", scalar: Text } ] }
+    versions: "*"
+    reviewed_by: <named human>
