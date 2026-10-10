@@ -132,6 +132,26 @@ impl Shard {
         }
     }
 
+    /// `ticket`'s pending copy becomes the head at `version`, `tip`.
+    fn commit(&mut self, design: &str, ticket: u64, version: i64, tip: Vec<u8>) {
+        if self.pending.get(design).is_none_or(|p| p.0 != ticket) {
+            return;
+        }
+        if let Some((_, graph, cost)) = self.pending.remove(design) {
+            self.bytes = self.bytes.saturating_sub(cost);
+            self.insert(
+                design,
+                Head {
+                    graph,
+                    version,
+                    tip,
+                    cost,
+                    used: 0,
+                },
+            );
+        }
+    }
+
     /// The head at `key`, or build it from `rebuild`.
     fn head_at(&mut self, key: &HeadKey, rebuild: Option<&Rebuild>) -> Result<(), HeadError> {
         let hit = self
@@ -196,11 +216,20 @@ impl Shard {
             None
         };
         let cost = head.cost.saturating_add(change.len() * COST_FACTOR);
+        let ticket = self.stage(&key.design, next, cost);
+        Ok(Applied { ticket, plain })
+    }
+
+    /// Hold `next` as `design`'s pending copy until its change commits. It is
+    /// counted while it waits, so the commit that takes it away (or a later
+    /// copy that replaces it) takes away bytes that were added.
+    fn stage(&mut self, design: &str, next: Graph, cost: usize) -> u64 {
         self.next_ticket += 1;
         let ticket = self.next_ticket;
-        self.pending
-            .insert(key.design.clone(), (ticket, next, cost));
-        Ok(Applied { ticket, plain })
+        self.drop_pending(design);
+        self.bytes += cost;
+        self.pending.insert(design.to_owned(), (ticket, next, cost));
+        ticket
     }
 }
 
@@ -298,23 +327,7 @@ impl HeadStore {
     pub fn commit(&self, design: &str, ticket: u64, version: i64, tip: Vec<u8>) {
         let shard = self.shard_of(design);
         let design = design.to_owned();
-        let job: Job = Box::new(move |shard| {
-            if shard.pending.get(&design).is_some_and(|p| p.0 == ticket) {
-                if let Some((_, graph, cost)) = shard.pending.remove(&design) {
-                    shard.bytes = shard.bytes.saturating_sub(cost);
-                    shard.insert(
-                        &design,
-                        Head {
-                            graph,
-                            version,
-                            tip,
-                            cost,
-                            used: 0,
-                        },
-                    );
-                }
-            }
-        });
+        let job: Job = Box::new(move |shard| shard.commit(&design, ticket, version, tip));
         let _ = shard.send(job);
     }
 
@@ -375,6 +388,30 @@ mod tests {
         ));
         assert!(shard.pending.is_empty());
         assert_eq!(shard.bytes, 100);
+    }
+
+    #[test]
+    fn changes_one_after_another_keep_the_byte_count_true() {
+        // The count once fell below the heads it held: a pending copy was
+        // never counted but its commit took its bytes away, so the next
+        // commit's replaced head took away more than was left (a panic in a
+        // debug build, a wrapped count in release).
+        let mut shard = Shard {
+            cap: 1 << 20,
+            ..Shard::default()
+        };
+        shard.head(Graph::new(), key(1), 100);
+        for v in 1..4_i64 {
+            let cost = 100 + v as usize * 10;
+            // A copy replaced before it commits is no longer counted.
+            shard.stage("d", Graph::new(), 1);
+            let ticket = shard.stage("d", Graph::new(), cost);
+            assert_eq!(shard.bytes, shard.heads["d"].cost + cost);
+            let next = key(v + 1);
+            shard.commit("d", ticket, next.version, next.tip);
+            assert_eq!(shard.bytes, cost);
+            assert!(shard.pending.is_empty());
+        }
     }
 
     impl Shard {
