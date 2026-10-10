@@ -206,11 +206,11 @@ const CORE_COLUMNS: Record<Kind, readonly Column[]> = {
   firmware: [],
   models: [
     core('model', 'Model', 170),
-    core('platform', 'Platform', 100),
-    core('version', 'Chosen version', 130),
-    core('devices', 'Devices', 80),
-    core('behind', 'Behind', 80),
-    core('held', 'Held', 70),
+    core('platform', 'Platform', 110),
+    core('version', 'Chosen version', 160),
+    core('devices', 'Devices', 100),
+    core('behind', 'Behind', 100),
+    core('held', 'Held', 90),
   ],
   prefixes: [
     core('prefix', 'Prefix', 150),

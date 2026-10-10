@@ -50,6 +50,14 @@ const I_OLD = image('01JQZ00000000000000000000B', '21.4R3-S5', ['EX2300-24P']);
 const I_NONE = image('01JQZ00000000000000000000C', '10.4.3', [], { platform: 'nx-os' });
 
 describe('imageRows', () => {
+  it('groups the rows Juniper, then Cisco, then Arista, the chosen version first within a model', () => {
+    const { doc } = estate();
+    const eos = image('01JQZ00000000000000000000D', '4.30.2F', ['DCS-7050SX3-48YC8'], { platform: 'eos' });
+    const d = setTarget(doc, 'EX2300-24P', { version: '23.4R2', platform: 'junos-ex', image: I_NEW.imageId }, { now: NOW + 1 });
+    const rows = imageRows({ doc: d, images: [eos, I_NONE, I_OLD, I_NEW] });
+    expect(rows.map((r) => r.version)).toEqual(['23.4R2', '21.4R3-S5', '10.4.3', '4.30.2F']);
+  });
+
   it('one row per image: running, behind, plans and a badge', () => {
     const { doc, ids } = estate();
     let d = setTarget(doc, 'EX2300-24P', { version: '23.4R2', platform: 'junos-ex', image: I_NEW.imageId, imageSha256: I_NEW.sha256 }, { now: NOW + 1 });

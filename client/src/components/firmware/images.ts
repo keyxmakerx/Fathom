@@ -19,6 +19,8 @@ export const VENDOR_TABS: ReadonlyArray<{ key: Vendor | 'all'; label: string }> 
   { key: 'arista', label: 'Arista' },
 ];
 
+const VENDOR_ORDER: readonly Vendor[] = ['juniper', 'cisco', 'arista'];
+
 export function vendorOf(platform: string): Vendor | null {
   if (platform.startsWith('junos')) return 'juniper';
   if (platform === 'ios-xe' || platform === 'nx-os') return 'cisco';
@@ -132,7 +134,16 @@ export function imageRows({ doc, images }: Input): FwImageRow[] {
     rows.push(build(rowKeyOfVersion(version), null, version, ts.map((t) => t.model), ts, ts[0]?.imageSha256 ?? '', '', ts[0]?.platform ?? ''));
   }
 
-  return rows.sort((a, b) => (a.models[0] ?? '~').localeCompare(b.models[0] ?? '~') || Number(b.badge === 'chosen') - Number(a.badge === 'chosen') || b.version.localeCompare(a.version));
+  // Grouped as the mockup draws it: Juniper, then Cisco, then Arista, then anything else; within a vendor by model, the chosen
+  // version first, then newer before older.
+  const vendorRank = (r: FwImageRow): number => (r.vendor === null ? VENDOR_ORDER.length : VENDOR_ORDER.indexOf(r.vendor));
+  return rows.sort(
+    (a, b) =>
+      vendorRank(a) - vendorRank(b) ||
+      (a.models[0] ?? '~').localeCompare(b.models[0] ?? '~') ||
+      Number(b.badge === 'chosen') - Number(a.badge === 'chosen') ||
+      b.version.localeCompare(a.version, undefined, { numeric: true }),
+  );
 }
 
 /** For the footer: each model with devices behind its chosen version. */

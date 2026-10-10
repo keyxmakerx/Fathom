@@ -128,7 +128,7 @@ export function FirmwarePlanExtras({ plan }: { plan: Plan }) {
               </div>
               <p className="plans-note">Works once, then expires: 15 minutes. Fathom never logs in to the device.</p>
               <p className="plans-note">
-                Expected SHA-256 <span className="plans-mono">{scope.link.sha256}</span>
+                Expected SHA-256 <span className="plans-mono fw-hash">{scope.link.sha256}</span>
               </p>
             </div>
           ) : (

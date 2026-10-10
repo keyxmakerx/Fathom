@@ -26,6 +26,7 @@ import {
   seedDockerScene,
   seedEmptyDesign,
   seedFreestanding,
+  seedFirmwareScene,
   COST_CENTRE,
   seedInventoryScene,
   seedIpamScene,
@@ -165,6 +166,7 @@ async function main() {
   else if (scene === 'conflict') doc = seedConflictingChange(catalogue, ME, COLLEAGUE);
   else if (scene === 'note' || scene === 'typed') doc = seedSingleDevice(catalogue, ME);
   else if (scene === 'freestanding') doc = seedFreestanding(catalogue, ME);
+  else if (scene === 'firmware') doc = seedFirmwareScene(catalogue, ME);
   else if (scene === 'networks' || scene === 'networks-010') doc = seedNetworksScene(catalogue, ME);
   else if (scene === 'tags') doc = seedTagsScene(catalogue, ME);
   else if (scene === 'inventory') doc = seedInventoryScene(catalogue, ME);

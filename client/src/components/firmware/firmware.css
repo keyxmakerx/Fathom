@@ -119,6 +119,15 @@
   font-size: var(--t-body);
 }
 
+/* The global `appearance: none` leaves a select with no arrow, so nothing says it opens: draw one. */
+select.fw-input {
+  padding-right: 28px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 12px, calc(100% - 10px) 12px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
 .fw-input--mono {
   font-family: var(--mono);
   font-size: var(--t-mono);
@@ -134,6 +143,20 @@
   text-underline-offset: 2px;
   cursor: pointer;
   text-align: left;
+}
+
+.fw-link.fw-mono {
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+}
+
+/* In the tables a link reads as the cell's own text (the mockups draw no underline); hover says it is one. */
+.fw-table .fw-link {
+  text-decoration: none;
+}
+
+.fw-table .fw-link:hover {
+  text-decoration: underline;
 }
 
 .fw-link--num {
@@ -234,7 +257,8 @@
   font-variant-numeric: tabular-nums;
 }
 
-.fw-amber {
+.fw-amber,
+.fw-amber .fw-link {
   color: var(--caution);
   font-weight: 700;
 }
@@ -369,6 +393,16 @@
   gap: var(--s1) var(--s4);
 }
 
+/* The global `input { appearance: none }` collapses a checkbox to nothing; restored to the plain native control. */
+.fw-checks input[type='checkbox'] {
+  appearance: auto;
+  accent-color: var(--ink);
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex-shrink: 0;
+}
+
 .fw-checks label {
   display: inline-flex;
   align-items: center;
@@ -421,6 +455,60 @@
   margin-top: var(--s2);
 }
 
+.fw-section__actions + div {
+  margin-top: var(--s2);
+}
+
+/* `.shell-editor button` and `.shell-editor input` out-rank a single class, so the editor's group restates its own controls. */
+.fw-section .fw-btn,
+.fw-section .fw-tab {
+  box-sizing: border-box;
+  height: 28px;
+  padding: 0 var(--s3);
+  border: var(--rule-hair) solid var(--ink);
+  background: var(--page);
+  color: var(--ink);
+  font-size: var(--t-tab);
+}
+
+/* Beside a plain value a ghost button reads as more label, so in the editor the quiet ones keep a hairline box. */
+.fw-section .fw-btn--quiet {
+  height: 24px;
+  padding: 0 var(--s2);
+  border-color: var(--hairline);
+  background: none;
+  color: var(--ink);
+}
+
+.fw-section .fw-btn--quiet:hover {
+  border-color: var(--ink);
+}
+
+.fw-section .fw-btn:disabled {
+  color: var(--muted);
+  border-color: var(--hairline);
+}
+
+.fw-section .fw-input {
+  height: 28px;
+  padding: 0 var(--s2);
+  border: var(--rule-hair) solid var(--ink);
+  font-size: var(--t-body);
+}
+
+.fw-section .fw-hold-form {
+  flex-wrap: wrap;
+}
+
+.fw-section .fw-hold-form .fw-input {
+  flex: 1 1 100%;
+}
+
+.fw-hash {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
 /* ---- The one-time link ---------------------------------------------------------------------- */
 
 .fw-link-box {
@@ -428,6 +516,10 @@
   flex-direction: column;
   gap: var(--s2);
   margin-top: var(--s2);
+}
+
+.fw-link-box p {
+  margin: 0;
 }
 
 .fw-link-box__url {
@@ -481,4 +573,137 @@
 .fw-not-established {
   margin: var(--s1) 0 0;
   font-size: var(--t-small);
+}
+
+/* ---- Phone width: rows become small cards, forms stack -------------------------------------- */
+
+@media (max-width: 760px) {
+  .fw-page {
+    padding: var(--s3);
+  }
+
+  .fw-toolbar__filter {
+    width: 100%;
+  }
+
+  .fw-form,
+  .fw-facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s1) 0;
+  }
+
+  .fw-form__full {
+    grid-column: 1;
+  }
+
+  .fw-form .fw-label {
+    margin-top: var(--s2);
+  }
+
+  .fw-facts dd {
+    margin-bottom: var(--s2);
+  }
+
+  .fw-table .fw-row--head {
+    display: none;
+  }
+
+  .fw-row {
+    padding: var(--s3) var(--s1);
+    row-gap: var(--s1);
+  }
+
+  /* The image list: version and badge, models, hash, then the three counts with their names. */
+  .fw-table:not(.fw-device-table) .fw-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .fw-table:not(.fw-device-table) .fw-row > :nth-child(1) {
+    grid-column: 1 / span 2;
+    grid-row: 1;
+  }
+
+  .fw-table:not(.fw-device-table) .fw-row > :nth-child(7) {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .fw-table:not(.fw-device-table) .fw-row > :nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .fw-table:not(.fw-device-table) .fw-row > :nth-child(3) {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+
+  .fw-table:not(.fw-device-table) .fw-row > :nth-child(n + 4):nth-child(-n + 6) {
+    grid-row: 4;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .fw-table:not(.fw-device-table) .fw-row > :nth-child(n + 4):nth-child(-n + 6)::before {
+    color: var(--muted);
+    font-size: var(--t-micro);
+    letter-spacing: var(--track-label);
+    text-transform: uppercase;
+  }
+
+  .fw-table:not(.fw-device-table) .fw-row > :nth-child(4)::before {
+    content: 'Running';
+  }
+
+  .fw-table:not(.fw-device-table) .fw-row > :nth-child(5)::before {
+    content: 'Behind';
+  }
+
+  .fw-table:not(.fw-device-table) .fw-row > :nth-child(6)::before {
+    content: 'Plans';
+  }
+
+  /* A model's devices: name and its action, then running and status, then the note. */
+  .fw-device-table .fw-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .fw-device-table .fw-row > :nth-child(1) {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .fw-device-table .fw-row > :nth-child(5) {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .fw-device-table .fw-row > :nth-child(2) {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .fw-device-table .fw-row > :nth-child(3) {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .fw-device-table .fw-row > :nth-child(4) {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+
+  .fw-device-table .fw-row > :nth-child(4):empty {
+    display: none;
+  }
+
+  .fw-hold-form {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    flex-wrap: wrap;
+  }
+
+  .fw-foot {
+    flex-wrap: wrap;
+  }
 }

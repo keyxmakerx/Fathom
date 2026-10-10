@@ -112,10 +112,10 @@ export function LinkView({ link, detail }: { link: FetchLink; detail?: string })
         {left > 0 ? `Works once, then expires: 15 minutes, until ${ends}.` : 'This link has expired. Get another.'} Fathom never logs in to the device.
       </p>
       <p className="fw-muted">
-        Expected SHA-256 <span className="fw-mono">{link.sha256}</span> <CopyButton text={link.sha256} label="Copy" className="fw-btn fw-btn--quiet" />
+        Expected SHA-256 <span className="fw-mono fw-hash">{link.sha256}</span> <CopyButton text={link.sha256} label="Copy" className="fw-btn fw-btn--quiet" />
       </p>
       {steps.length > 0 ? (
-        <pre className="fw-link-box__cmd">{steps.map((s) => `${s.step}\n  ${commandWithLink(s.command, link.url)}`).join('\n')}</pre>
+        <pre className="fw-link-box__cmd">{steps.map((s) => `${s.step}\n  ${commandWithLink(s.command, link.url).split(link.url).join(maskedLink(link.url))}`).join('\n')}</pre>
       ) : null}
       <CommandNotes commands={link.commands} />
     </div>
