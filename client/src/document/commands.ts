@@ -1535,6 +1535,12 @@ export interface DuplicateDeviceOptions extends Actor {
   /** Consulted only for a catalogued source chassis — the same list
    * `RacksPlace.tsx`'s palette is built from. */
   catalogue?: readonly CatalogueModel[];
+  /** The copy's name. Never taken from the source: a caller that wants one picks it (the next in sequence). */
+  hostname?: string;
+  /** Copy a source that is not in a rack (a free box); the copy is left unplaced for the caller to pin. */
+  unplaced?: boolean;
+  /** Put the copy in this rack (the source's height), not the source's own. */
+  intoRackId?: string;
 }
 
 export interface DuplicateDeviceResult {
@@ -1559,10 +1565,10 @@ export function duplicateDevice(doc: Document, sourceChassisId: string, opts: Du
   const sourceNode = requireLiveItem(doc, sourceChassisId, 'Chassis');
   if (parseNodeId(sourceChassisId).kind !== 'Chassis') throw new UnknownReferenceError(sourceChassisId, 'Chassis');
   const mounted = edgesOut(doc, sourceChassisId, 'MountedIn')[0];
-  if (!mounted) throw new UnknownReferenceError(sourceChassisId, 'a rack-mounted Chassis');
-  const rackId = mounted.to;
-  const heightU = readNumber(mounted.fields['MountedIn.height_u']) ?? 1;
-  const face = readMountedInFields(mounted).face === 'rear' ? 'rear' : 'front';
+  if (!mounted && opts.unplaced !== true) throw new UnknownReferenceError(sourceChassisId, 'a rack-mounted Chassis');
+  const rackId = opts.intoRackId ?? mounted?.to;
+  const heightU = (mounted ? readNumber(mounted.fields['MountedIn.height_u']) : undefined) ?? 1;
+  const face = mounted && readMountedInFields(mounted).face === 'rear' ? 'rear' : 'front';
   const sourceFields = readChassisFields(sourceNode);
 
   const { actor, now } = resolve(opts);
@@ -1572,9 +1578,25 @@ export function duplicateDevice(doc: Document, sourceChassisId: string, opts: Du
   const deviceExistence = assertHand(working, { assertedAt: now, assertedBy: actor });
   working = deviceExistence.doc;
   const deviceId = formatNodeId('Device', newUlid(now));
-  // No `Device.hostname` — never copies an identifying field.
-  working = withNode(working, { id: deviceId, existence: deviceExistence.id, fields: {} });
-  ops.push({ type: 'add_node', node: deviceId, prov: deviceExistence.id });
+  // The source's hostname is never copied, only a name the caller chose; its role is a setting, so it is.
+  const deviceFields: Record<string, FieldEntry> = {};
+  const deviceFieldOps: Op[] = [];
+  const sourceDevice = edgesIn(doc, sourceChassisId, 'HasChassis')[0];
+  const sourceRole = sourceDevice ? findNode(doc, sourceDevice.from)?.fields['Device.role'] : undefined;
+  if (opts.hostname !== undefined) {
+    const named = setField(working, now, actor, deviceId, undefined, 'Device.hostname', identifier(opts.hostname));
+    working = named.doc;
+    deviceFields['Device.hostname'] = named.entry;
+    deviceFieldOps.push(named.op);
+  }
+  if (sourceRole?.presence === 'set' && typeof sourceRole.value === 'string') {
+    const roled = setField(working, now, actor, deviceId, undefined, 'Device.role', token(sourceRole.value));
+    working = roled.doc;
+    deviceFields['Device.role'] = roled.entry;
+    deviceFieldOps.push(roled.op);
+  }
+  working = withNode(working, { id: deviceId, existence: deviceExistence.id, fields: deviceFields });
+  ops.push({ type: 'add_node', node: deviceId, prov: deviceExistence.id }, ...deviceFieldOps);
 
   const chassisExistence = assertHand(working, { assertedAt: now, assertedBy: actor });
   working = chassisExistence.doc;
@@ -1633,6 +1655,15 @@ export function duplicateDevice(doc: Document, sourceChassisId: string, opts: Du
         newPortFields['PhysicalPort.service'] = serviceField.entry;
         portFieldOps.push(serviceField.op);
       }
+      // Schema 0.19: a copy keeps where each hand-typed port was dragged on the plate.
+      if (portFields.plateX !== undefined && portFields.plateY !== undefined) {
+        for (const [key, value] of [['PhysicalPort.plate_x', portFields.plateX], ['PhysicalPort.plate_y', portFields.plateY]] as const) {
+          const plateField = setField(working, now, actor, portId, undefined, key, uint(value, 16));
+          working = plateField.doc;
+          newPortFields[key] = plateField.entry;
+          portFieldOps.push(plateField.op);
+        }
+      }
       working = withNode(working, { id: portId, existence: portExistence.id, fields: newPortFields });
       ops.push({ type: 'add_node', node: portId, prov: portExistence.id }, ...portFieldOps);
 
@@ -1644,10 +1675,9 @@ export function duplicateDevice(doc: Document, sourceChassisId: string, opts: Du
     }
   }
 
-  const rackHeight = rackHeightU(working, rackId);
-  const positionU = findFreeRun(working, rackId, rackHeight, heightU);
+  const positionU = rackId === undefined ? undefined : findFreeRun(working, rackId, rackHeightU(working, rackId), heightU);
   let placed = false;
-  if (positionU !== undefined) {
+  if (rackId !== undefined && positionU !== undefined) {
     const mountedProv = assertHand(working, { assertedAt: now, assertedBy: actor });
     working = mountedProv.doc;
     const mountedId = formatEdgeId('MountedIn', newUlid(now));

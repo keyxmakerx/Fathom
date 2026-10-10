@@ -25,10 +25,13 @@ import type { DiagramStyle } from './diagramStyle';
 import { CableCheckBadge, CheckBadge } from '../checks/CheckBadge';
 import { StubTags } from './StubTags';
 import { cableCandidates, placeLabels, type LayerWords } from './layerLabels';
+import { CollabLayer } from '../collab/CollabLayer';
 import { CanvasTools } from './CanvasTools';
 import { useWheelMode } from './canvasPrefs';
 import { useSettledView } from './settledView';
 import { endOffScreen, stubTagText, type StubEnd } from './stubs';
+import { useCameraHub, type CameraHub } from './camera';
+import { CanvasMiniMap } from './CanvasMiniMap';
 
 /** The Diagram look: plain labelled boxes joined by square-cornered lines in the
  * sheath colour. It shows the same document as the Rack look; devices are added,
@@ -133,9 +136,13 @@ export interface DiagramDrawingProps {
   words?: LayerWords;
   /** Boxes (default) or Icons; the same boxes, the same lines. */
   style?: DiagramStyle;
+  /** The place's handle on the camera, for the Views menu. */
+  cameraHub?: CameraHub;
+  /** The mini-map may show (it still appears only on big drawings). */
+  minimap?: boolean;
 }
 
-function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest, drawnCableIds, dashedCableIds, words, style = 'boxes' }: DiagramDrawingProps) {
+function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest, drawnCableIds, dashedCableIds, words, style = 'boxes', cameraHub, minimap }: DiagramDrawingProps) {
   const rf = useReactFlow();
   const settled = useSettledView();
   const stubbedRef = useRef(new Set<string>());
@@ -244,6 +251,7 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
     if (Math.round(rf.getZoom() * 100) === zoom) return;
     void rf.zoomTo(zoom / 100);
   }, [zoom, rf]);
+  useCameraHub(cameraHub);
 
   const [wheel, setWheel] = useWheelMode('zoom');
   const handleMove: OnMove = useCallback((_e, vp) => setBand(zoomBandAt(Math.round(vp.zoom * 1000) / 10)), []);
@@ -279,6 +287,7 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={U_PX} size={1} />
+        <CanvasMiniMap enabled={minimap === true} />
         {labels.length > 0 && (
           <ViewportPortal>
             {labels.map((l) => (
@@ -295,6 +304,7 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         )}
       </ReactFlow>
       <CanvasTools wheel={wheel} onWheel={setWheel} />
+      <CollabLayer />
     </div>
   );
 }

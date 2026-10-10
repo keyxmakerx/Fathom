@@ -1,4 +1,4 @@
-import { cloneElement, createContext, isValidElement, useContext, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { cloneElement, createContext, isValidElement, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 
 import '../../styles/drawing.css';
 // ADR-0053 §6 — "the black block reused from the drawer where a value was
@@ -42,6 +42,7 @@ import {
 } from './contract';
 import { findChassis, findFixture, findOccupant, findRack, findShelf, findUnplacedChassis, locatePort } from './lookup';
 import { connectorName, describePorts, faceplateLayoutFor } from './faceplate';
+import { EmptyState } from '../ui/EmptyState';
 
 // `DEVICE_ROLES` is `Device.role`'s own enum vocabulary (`schema/schema.yaml`,
 // mirrored once in `document/edit.ts` rather than guessed here — CLAUDE.md
@@ -1022,6 +1023,19 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
   const [service, setService] = useState('');
   const [face, setFace] = useState<'front' | 'rear'>('front');
   const [refusal, setRefusal] = useState<string | null>(null);
+  const labelRef = useRef<HTMLInputElement>(null);
+
+  // The command palette's "Add port" opens this form for the selected device.
+  useEffect(() => {
+    function onRequest(event: Event) {
+      if ((event as CustomEvent<{ chassisId: string }>).detail.chassisId !== chassisId) return;
+      setMode('single');
+      setIsOpen(true);
+      window.requestAnimationFrame(() => labelRef.current?.focus());
+    }
+    window.addEventListener('fathom:add-port', onRequest);
+    return () => window.removeEventListener('fathom:add-port', onRequest);
+  }, [chassisId]);
 
   const onEdit = actions.onEdit;
   // ADR-0052 §5: no `EditorActions.onEdit` — no add control at all, not
@@ -1086,7 +1100,7 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
       {mode === 'single' ? (
         <label className="drawing-ports__cell drawing-ports__cell--wide">
           <span>Label</span>
-          <input placeholder="e.g. ge-0/0/1" value={label} onChange={(e) => setLabel(e.target.value)} />
+          <input ref={labelRef} placeholder="e.g. ge-0/0/1" value={label} onChange={(e) => setLabel(e.target.value)} />
         </label>
       ) : (
         <>
@@ -1471,7 +1485,15 @@ export function FieldsSection({ ownerId, actions }: { ownerId: string; actions: 
   return (
     <>
       <div className="drawing-editor__group">Your fields</div>
-      {rows.length === 0 ? <div style={TYPED_NOTE_STYLE}>No fields yet.</div> : null}
+      {rows.length === 0 ? (
+        <EmptyState
+          title="No fields yet."
+          compact
+          action={actions.onAddFieldDef && !adding ? { label: 'Add a field', onClick: () => setAdding(true) } : undefined}
+        >
+          Fields are your own details for this thing, like a warranty date.
+        </EmptyState>
+      ) : null}
       {rows.map(({ def, value, removed }) => (
         <div key={def.id} className="drawing-editor__field" style={removed ? { color: 'var(--muted)' } : undefined}>
           <div className="drawing-editor__field-label">
@@ -1718,7 +1740,7 @@ function panelFor(
     const area = label.form === 'area';
     return (
       <div className="drawing-editor__panel">
-        <div className="drawing-editor__title">{area ? 'Area' : 'Label'}</div>
+        <div className="drawing-editor__title">{area ? 'Area' : label.form === 'note' ? 'Note' : 'Label'}</div>
         <div className="drawing-editor__field">
           <div className="drawing-editor__field-label">Text</div>
           <EditableValue
@@ -1734,7 +1756,7 @@ function panelFor(
             <NumberField label="Height" value={Math.round(label.h)} onCommit={actions.onEdit ? (n) => actions.onEdit!({ kind: 'area-size', id: label.id, w: label.w, h: n }) : undefined} />
           </>
         )}
-        <SupplyAction label={area ? 'Remove area' : 'Remove label'} onCommit={actions.onEdit ? () => actions.onEdit!({ kind: 'free-remove', id: label.id }) : undefined} />
+        <SupplyAction label={area ? 'Remove area' : label.form === 'note' ? 'Remove note' : 'Remove label'}onCommit={actions.onEdit ? () => actions.onEdit!({ kind: 'free-remove', id: label.id }) : undefined} />
       </div>
     );
   }

@@ -1,16 +1,20 @@
+import { useEffect, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { EdgeLabelRenderer, type Edge, type EdgeProps } from '@xyflow/react';
 
 import { CableCheckBadge } from '../checks/CheckBadge';
 import { cableLeadPath, leadsFor, type PlacedLabel, type PortPoint } from './cableEnds';
 import type { CableView } from './contract';
+import { FRESH_PLAY_MS, isFreshCable, markCablePlayed } from './cableMotion';
 import { cableSagPath } from './geometry';
 import { useLive } from './liveStore';
 import { PlanEdgeTag } from './PlanGhostEdge';
 import { TONE_COLOUR, type PlanEdgeMark } from './plansMarks';
 import { StubTags } from './StubTags';
 import type { StubEnd } from './stubs';
+import { prefersReducedMotion } from './motion';
 import { needsHairlineOutline, SHEATH_VAR } from './sheath';
+import '../../styles/cable-motion.css';
 
 export interface CableEdgeData extends Record<string, unknown> {
   /** Set by Checks' Show on an edge it fades. */
@@ -74,17 +78,32 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   // cable's edge — ahead of the `!data` guard below so these hooks always run.
   const litCableId = useLive((s) => s.litCableId);
   const litByHover = useLive((s) => (data ? s.litCableIdSet.has(data.cable.id) : false));
+  // The colour key lights one colour's cables; the rest dim.
+  const offKey = useLive((s) => (data != null && s.keyCableIds != null ? !s.keyCableIds.has(data.cable.id) : false));
+  // A cable this person has just made pulls tight and pulses once (`cableMotion.ts`); never a teammate's, never on load.
+  const cableId = data?.cable.id ?? '';
+  const [playing, setPlaying] = useState(
+    () => data != null && !prefersReducedMotion() && isFreshCable(cableId, data.cable.ends.flatMap((e) => ('portId' in e ? [e.portId] : []))),
+  );
+  useEffect(() => {
+    if (!playing) return undefined;
+    markCablePlayed(cableId);
+    const t = setTimeout(() => setPlaying(false), FRESH_PLAY_MS + 80);
+    return () => clearTimeout(t);
+  }, [playing, cableId]);
   if (!data) return null;
   const lit = litByHover || data.troubleLit === true;
   const { cable, onSelect, onHoverChange, portPairLabel, ends, endLabels, stub, onPanTo, dashed } = data;
   // Checks' Show fades the whole edge already: do not dim it a second time.
-  const dimmed = data.checksFaded !== true && litCableId != null && !lit;
+  const dimmed = data.checksFaded !== true && ((litCableId != null && !lit) || offKey);
   const sheath = cable.sheath ?? 'grey';
   const colour = data.troubleInk === true ? 'var(--ink)' : SHEATH_VAR[sheath];
   const strokeWidth = STROKE_WIDTH_VAR[cable.kind];
   const leads = ends != null ? leadsFor(ends[0], ends[1], { x: sourceX, y: sourceY }, { x: targetX, y: targetY }) : null;
   const d = leads != null ? cableLeadPath(leads, cable.kind) : cableSagPath(sourceX, sourceY, targetX, targetY, cable.kind);
   const opacity = dimmed ? 'var(--phantom)' : 1;
+  // The pull is a draw-in along the line, so it needs a normalised length; a dashed cable keeps its own dashes and only pulses.
+  const pull = playing && !dashed ? { pathLength: 1, className: 'drawing-cable__pull' } : {};
   const dashArray = dashed ? 'var(--cable-dash)' : undefined;
   const midX = (sourceX + targetX) / 2;
   const midY = (sourceY + targetY) / 2;
@@ -118,7 +137,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
 
   return (
     <g
-      className="drawing-cable"
+      className={playing ? 'drawing-cable drawing-cable--fresh' : 'drawing-cable'}
       data-cable-id={cable.id}
       style={{ opacity, cursor: 'pointer' }}
       onClick={handleClick}
@@ -149,12 +168,13 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
       )}
       {cable.kind === 'fibre' ? (
         <>
-          <path d={d} fill="none" stroke={colour} strokeWidth={strokeWidth} strokeLinecap="round" strokeDasharray={dashArray} />
-          <path d={d} fill="none" stroke="var(--fibre-core)" strokeWidth="var(--fibre-core-w)" strokeLinecap="round" strokeDasharray={dashArray} />
+          <path d={d} fill="none" stroke={colour} strokeWidth={strokeWidth} strokeLinecap="round" strokeDasharray={dashArray} {...pull} />
+          <path d={d} fill="none" stroke="var(--fibre-core)" strokeWidth="var(--fibre-core-w)" strokeLinecap="round" strokeDasharray={dashArray} {...pull} />
         </>
       ) : (
-        <path d={d} fill="none" stroke={colour} strokeWidth={strokeWidth} strokeLinecap="round" strokeDasharray={dashArray} />
+        <path d={d} fill="none" stroke={colour} strokeWidth={strokeWidth} strokeLinecap="round" strokeDasharray={dashArray} {...pull} />
       )}
+      {playing && <path d={d} fill="none" pathLength={1} strokeWidth={strokeWidth} strokeLinecap="round" className="drawing-cable__pulse" pointerEvents="none" />}
       {/* A fatter, invisible stroke widens the click/hover target beyond the
           cable's own thin line — the same reasoning UI-SPEC gives a port
           glyph ("ports fade in as they become big enough to hit"), applied

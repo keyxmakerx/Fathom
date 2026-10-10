@@ -20,7 +20,9 @@ function portFieldsEqual(a: PortView, b: PortView): boolean {
     a.role !== b.role ||
     a.face !== b.face ||
     a.passThroughId !== b.passThroughId ||
-    (a.service ?? null) !== (b.service ?? null)
+    (a.service ?? null) !== (b.service ?? null) ||
+    (a.plate?.x ?? null) !== (b.plate?.x ?? null) ||
+    (a.plate?.y ?? null) !== (b.plate?.y ?? null)
   ) {
     return false;
   }

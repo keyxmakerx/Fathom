@@ -7,6 +7,7 @@ import type { Document } from '../../document/model';
 import { cablePath, lastTracedOf, pluggedInto, selectionOfHost, stationPlace, type Station } from './cablePath';
 import { placeText, type PlaceIndex, type Where } from './placeIndex';
 import { SheathWord } from './Swatch';
+import { EmptyState } from '../ui/EmptyState';
 
 const ABSENT = '—';
 
@@ -87,7 +88,9 @@ export function PluggedInto(props: { view: ClosetView; idx: PlaceIndex; hostId: 
     <section className="inv-plug" aria-label="Plugged into">
       <h3 className="inv-path__head">Plugged into</h3>
       {list.length === 0 ? (
-        <p className="inv-page__muted">Nothing is cabled to this yet.</p>
+        <EmptyState title="Nothing is cabled to this yet." compact>
+          Draw a cable from one of its ports on the canvas and it is listed here.
+        </EmptyState>
       ) : (
         <ul className="inv-page__list inv-page__list--plug">
           {list.map((l) => (

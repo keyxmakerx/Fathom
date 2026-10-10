@@ -8,6 +8,7 @@ import { setDeviceField, setRackField } from '../../document/edit';
 import { PUT_BACK_LABEL, putMineBack } from '../../document/liveDoc';
 import { edgesIn, emptyDocument, findNode, formatNodeId, type Document } from '../../document/model';
 import { newUlid } from '../../document/ulid';
+import type { PointerInfo } from '../collab/pointers';
 import { LiveEditing, presenceViewOf, type FeedLike, type LiveDeps, type LiveView } from './liveSession';
 
 const T0 = 1_700_000_000_000;
@@ -41,6 +42,8 @@ interface Rig {
   posts: Array<{ batch: string; after: number }>;
   saves: Document[];
   viewPosts: Array<{ view: string; selected: string | null }>;
+  pointerPosts: Array<{ x: number; y: number } | null>;
+  pointersHeard: PointerInfo[][];
   feed: { restarts: number; stops: number };
   post: ReturnType<typeof vi.fn>;
   reopen: ReturnType<typeof vi.fn>;
@@ -52,6 +55,8 @@ function rig(base: Document, over: Partial<LiveDeps> = {}): Rig {
   const posts: Rig['posts'] = [];
   const saves: Document[] = [];
   const viewPosts: Array<{ view: string; selected: string | null }> = [];
+  const pointerPosts: Rig['pointerPosts'] = [];
+  const pointersHeard: PointerInfo[][] = [];
   const feed = { restarts: 0, stops: 0 };
   const post = vi.fn(async (c: Change, after: number) => {
     posts.push({ batch: c.batch.id, after });
@@ -65,6 +70,8 @@ function rig(base: Document, over: Partial<LiveDeps> = {}): Rig {
       reopen,
       post,
       postView: async (v) => void viewPosts.push(v),
+      postPointer: async (p) => void pointerPosts.push(p),
+      onPointers: (list) => void pointersHeard.push(list),
       makeFeed: (_since, e): FeedLike => {
         events = e;
         return { start() {}, stop: () => void feed.stops++, restart: () => (feed.restarts++, true) };
@@ -78,7 +85,7 @@ function rig(base: Document, over: Partial<LiveDeps> = {}): Rig {
     10,
   );
   live.start();
-  return { live, views, events: () => events, posts, saves, viewPosts, feed, post, reopen };
+  return { live, views, events: () => events, posts, saves, viewPosts, pointerPosts, pointersHeard, feed, post, reopen };
 }
 
 const last = (r: Rig) => r.views[r.views.length - 1];
@@ -439,5 +446,103 @@ describe('presence', () => {
     r.live.setPresence('inventory', 'chassis:b');
     await vi.advanceTimersByTimeAsync(1000);
     expect(r.viewPosts).toHaveLength(2);
+  });
+
+  describe('pointers', () => {
+    const them = (pointer?: { x: number; y: number }) => ({ account: THEM, initials: 'SK', name: 'Sam Kerr', selected: null, ...(pointer ? { pointer } : {}) });
+    const presence = (others: object[]) => frame(FRAME_PRESENCE, 0, new TextEncoder().encode(JSON.stringify({ self: null, others })));
+
+    function ready() {
+      const { base } = world();
+      const r = rig(base);
+      r.live.setPresence('canvas', null);
+      r.events().status('up');
+      return r;
+    }
+
+    it('sends nothing while alone, and not off the canvas, then sends once someone else is here', async () => {
+      const r = ready();
+      r.live.setPointer({ x: 1, y: 2 });
+      expect(r.pointerPosts).toEqual([]);
+      r.events().frame({ ...presence([them()]), view: 'canvas' });
+      r.live.setPointer({ x: 3, y: 4 });
+      expect(r.pointerPosts).toEqual([{ x: 3, y: 4 }]);
+      r.live.setPresence('inventory', null);
+      await vi.advanceTimersByTimeAsync(1000);
+      r.live.setPointer({ x: 5, y: 6 });
+      expect(r.pointerPosts).toHaveLength(1);
+    });
+
+    it('holds moves to eight a second and says when the pointer leaves', async () => {
+      const r = ready();
+      r.events().frame({ ...presence([them()]), view: 'canvas' });
+      for (let i = 0; i < 100; i += 1) {
+        r.live.setPointer({ x: i, y: 0 });
+        await vi.advanceTimersByTimeAsync(10);
+      }
+      expect(r.pointerPosts.length).toBeLessThanOrEqual(9);
+      r.live.setPointer(null);
+      expect(r.pointerPosts[r.pointerPosts.length - 1]).toBeNull();
+    });
+
+    it('has one pointer post in flight at a time, and what came meanwhile is the latest only, a clear last', async () => {
+      const { base } = world();
+      const released: Array<() => void> = [];
+      const posted: Array<{ x: number; y: number } | null> = [];
+      const r = rig(base, {
+        postPointer: (p) => {
+          posted.push(p);
+          return new Promise<void>((resolve) => released.push(resolve));
+        },
+      });
+      r.live.setPresence('canvas', null);
+      r.events().status('up');
+      r.events().frame({ ...presence([them()]), view: 'canvas' });
+      r.live.setPointer({ x: 1, y: 1 });
+      for (let i = 2; i < 6; i += 1) {
+        await vi.advanceTimersByTimeAsync(130);
+        r.live.setPointer({ x: i, y: i });
+      }
+      r.live.setPointer(null);
+      expect(posted).toEqual([{ x: 1, y: 1 }]); // the rest wait for it to land
+      released.shift()!();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(posted).toEqual([{ x: 1, y: 1 }, null]); // the moves in between are dropped, the clear is not
+    });
+
+    it('waits longer between sends when the design is crowded', async () => {
+      const r = ready();
+      const crowd = Array.from({ length: 6 }, (_, i) => ({ account: `0${i}`, initials: 'XX', name: `Person ${i}`, selected: null }));
+      r.events().frame({ ...presence(crowd), view: 'canvas' });
+      r.live.setPointer({ x: 1, y: 1 });
+      await vi.advanceTimersByTimeAsync(0);
+      r.live.setPointer({ x: 2, y: 2 });
+      await vi.advanceTimersByTimeAsync(130);
+      expect(r.pointerPosts).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(130);
+      expect(r.pointerPosts).toEqual([{ x: 1, y: 1 }, { x: 2, y: 2 }]);
+    });
+
+    it('sends nothing before the stream is up', () => {
+      const { base } = world();
+      const r = rig(base);
+      r.live.setPresence('canvas', null);
+      r.live.setPointer({ x: 1, y: 1 });
+      expect(r.pointerPosts).toEqual([]);
+    });
+
+    it('hands the pointers of others on, and a pointer that only moved does not re-render the page', () => {
+      const r = ready();
+      r.events().frame({ ...presence([them({ x: 1, y: 2 })]), view: 'canvas' });
+      const renders = r.views.length;
+      expect(r.pointersHeard[r.pointersHeard.length - 1]).toEqual([{ account: THEM, name: 'Sam Kerr', initials: 'SK', x: 1, y: 2 }]);
+      r.events().frame({ ...presence([them({ x: 9, y: 9 })]), view: 'canvas' });
+      expect(r.pointersHeard[r.pointersHeard.length - 1]).toEqual([{ account: THEM, name: 'Sam Kerr', initials: 'SK', x: 9, y: 9 }]);
+      expect(r.views.length).toBe(renders);
+      r.events().frame({ ...presence([them()]), view: 'canvas' });
+      expect(r.pointersHeard[r.pointersHeard.length - 1]).toEqual([]);
+      r.events().frame({ ...presence([{ ...them(), selected: 'chassis:a' }]), view: 'canvas' });
+      expect(r.views.length).toBeGreaterThan(renders);
+    });
   });
 });

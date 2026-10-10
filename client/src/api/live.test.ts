@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { setSession, type ActiveSession } from '../state/sessionState';
 import { ApiRefusal } from './errors';
-import { FRAME_CHANGE, FRAME_HEARTBEAT, FRAME_PRESENCE, FrameReader, LiveFeed, isRefusal, liveChannelName, parseAuthor, parsePresence, presenceInView, whyDown, type FeedStatus, type LiveFrame } from './live';
+import { FRAME_CHANGE, FRAME_HEARTBEAT, FRAME_PRESENCE, FrameReader, LiveFeed, isRefusal, liveChannelName, parseAuthor, parsePresence, pointerBody, presenceInView, whyDown, type FeedStatus, type LiveFrame } from './live';
 
 function frame(type: number, version: number, body: Uint8Array): Uint8Array {
   const out = new Uint8Array(13 + body.length);
@@ -61,6 +61,23 @@ describe('parsePresence', () => {
     expect(parsePresence(text('[{"account":"01A","initials":"KM"}]'))).toEqual({ self: null, others: [] });
     expect(parsePresence(text('{"others":["SK",{"initials":"SK"},null]}'))).toEqual({ self: null, others: [] });
     expect(parsePresence(text('not json'))).toEqual({ self: null, others: [] });
+  });
+});
+
+describe('pointers in presence', () => {
+  it('reads a pointer on others and drops one that is not two finite numbers', () => {
+    const there = { ...bob, pointer: { x: 120.5, y: -40 } };
+    expect(parsePresence(text(JSON.stringify({ self: ann, others: [there] }))).others).toEqual([there]);
+    for (const bad of [null, {}, { x: 1 }, { x: '1', y: 2 }, 'here', [1, 2]]) {
+      expect(parsePresence(text(JSON.stringify({ self: ann, others: [{ ...bob, pointer: bad }] }))).others).toEqual([bob]);
+    }
+  });
+
+  it('writes the body the server accepts: plain decimals to a tenth, or null', () => {
+    expect(pointerBody({ x: 12.34, y: -5 })).toBe('{"pointer":{"x":12.3,"y":-5.0}}');
+    expect(pointerBody({ x: -0.04, y: 1e21 / 1e21 })).toBe('{"pointer":{"x":0.0,"y":1.0}}');
+    expect(pointerBody(null)).toBe('{"pointer":null}');
+    expect(new TextEncoder().encode(pointerBody({ x: -9999999.9, y: -9999999.9 })).length).toBeLessThanOrEqual(128);
   });
 });
 

@@ -684,60 +684,6 @@ button.shell-admin-pill {
   position: relative;
 }
 
-.shell-strip-wrap {
-  display: flex;
-  flex-shrink: 0;
-}
-
-.shell-strip {
-  width: 28px;
-  border-right: var(--rule-hair) solid var(--hairline);
-  background: var(--surface);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding-top: 6px;
-  gap: var(--s3);
-  flex-shrink: 0;
-}
-
-.shell-strip__handle {
-  background: none;
-  border: none;
-  padding: 0;
-  font-size: var(--t-tab);
-  line-height: 16px;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.shell-strip__handle:hover {
-  color: var(--ink);
-}
-
-/* The equipment list's strip: the whole strip is the button, like the trail's. */
-.shell-strip--rail {
-  margin: 0;
-  padding: 6px 0 0;
-  border: none;
-  border-right: var(--rule-hair) solid var(--hairline);
-  border-radius: 0;
-  font: inherit;
-  color: var(--muted);
-  cursor: pointer;
-  box-shadow: none;
-}
-
-.shell-strip--rail:hover,
-.shell-strip--rail:hover .shell-strip__handle {
-  color: var(--ink);
-}
-
-.shell-strip--rail:focus-visible {
-  outline: var(--rule-hair) solid var(--ink);
-  outline-offset: -2px;
-}
-
 .shell-rail {
   width: 240px;
   border-right: var(--rule-hair) solid var(--hairline);

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 import type { Lens } from './lens';
 import type { PathPart } from './path';
+import type { PaletteAction } from './palette';
 import type { SearchHit } from './search';
 
 export type { Lens } from './lens';
@@ -13,10 +14,18 @@ export { pathToItems } from './path';
  * is Home — neither tab is marked current there. */
 export type Place = 'racks' | 'inventory';
 
+/** The Show ▾ menu's rows for the small aids on the canvas (mini-map, cable colour key), kept in this browser. */
+export interface ShowAids {
+  items: ReadonlyArray<{ id: 'minimap' | 'colourKey'; label: string; on: boolean; note?: string }>;
+  onToggle: (id: 'minimap' | 'colourKey') => void;
+}
+
 /** Quick search: what a query finds, and what choosing a hit does. */
 export interface ShellSearch {
   run: (query: string) => SearchHit[];
   choose: (selection: SearchHit['selection']) => void;
+  /** The command palette's actions, asked for each time it opens so they follow what is selected now. */
+  actions?: () => PaletteAction[];
 }
 
 /** One person in "who else is here", drawn as an initials dot. */
@@ -58,7 +67,11 @@ export interface ShellProps {
   onLensChange: (lens: Lens) => void;
 
   /** The Show ▾ menu of canvas layers (Racks place only). */
-  layers?: { value: import('../drawing/layers').LayerSet; onToggle: (id: import('../drawing/layers').LayerId) => void; style?: { value: import('../drawing/diagramStyle').DiagramStyle; onChange: (style: import('../drawing/diagramStyle').DiagramStyle) => void } };
+  layers?: { value: import('../drawing/layers').LayerSet; onToggle: (id: import('../drawing/layers').LayerId) => void; style?: { value: import('../drawing/diagramStyle').DiagramStyle; onChange: (style: import('../drawing/diagramStyle').DiagramStyle) => void }; aids?: ShowAids };
+  /** The Views menu, drawn beside Show: named camera positions with their layers (Racks place only). */
+  views?: ReactNode;
+  /** The same views as rows, for the View ▾ menu the bar folds into when it is narrow. */
+  viewsFolded?: ReactNode;
   /** The Rack | Diagram switch (Racks place only); absent where the look does not apply. */
   look?: { value: import('../drawing/look').Look; onChange: (look: import('../drawing/look').Look) => void };
 
@@ -136,10 +149,15 @@ export interface ShellProps {
   /** The selection's editor surface. `null` when nothing is selected — the
    * editor is then absent from the DOM, not an empty panel. */
   editor: ReactNode | null;
+  /** The History panel's content while History is open (the right-hand History tab). */
+  history?: ReactNode;
+  /** A key for what is selected; selecting something new shows its Details tab. */
+  selectionKey?: string | null;
+  /** Which design this is, for remembering the open panels per person in this browser. */
+  resume?: { accountId: string | null; designId: string };
 
-  /** Content for the folded rail's open state (`Strip`'s `nav`) — the
-   * palette, for the Racks place. Omitted or `null` falls back to `Strip`'s
-   * own honest empty state rather than inventing rail content. */
+  /** The Equipment tab's content in the right dock — the palette, for the
+   * Racks place. Omitted or `null` draws no Equipment tab. */
   rail?: ReactNode;
 
   /** The design's trail (ADR-0053 §4), folded to a strip on the right edge.

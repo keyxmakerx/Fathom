@@ -6,6 +6,8 @@ import type { TraceResult } from '../../engine/engine';
 
 export interface TraceState {
   result: TraceResult | null;
+  /** While the trace plays: how many hops are lit so far. Absent or null once it has settled. */
+  revealed?: number | null;
 }
 
 export interface TraceStore {
@@ -38,5 +40,12 @@ const NO_SUBSCRIBE = (): (() => void) => () => {};
 export function useTraceResult(): TraceResult | null {
   const store = useContext(TraceContext);
   const get = (): TraceResult | null => store?.get().result ?? null;
+  return useSyncExternalStore(store?.subscribe ?? NO_SUBSCRIBE, get, get);
+}
+
+/** How many hops are lit while the trace plays, or null when it has settled (or none is open). */
+export function useTraceRevealed(): number | null {
+  const store = useContext(TraceContext);
+  const get = (): number | null => store?.get().revealed ?? null;
   return useSyncExternalStore(store?.subscribe ?? NO_SUBSCRIBE, get, get);
 }

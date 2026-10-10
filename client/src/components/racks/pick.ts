@@ -37,6 +37,24 @@ export function nextHostname(taken: ReadonlySet<string>, role: string): string {
   return `${prefix}-${n}`;
 }
 
+/** Pure: the next name in a numbered sequence. A name ending in a number counts up from it, keeping
+ * its zero padding, to the first one not taken (sw-02 gives sw-03; sw-9 gives sw-10). A name with no
+ * number at the end gets today's first free role name (router-1). */
+export function copyName(taken: ReadonlySet<string>, name: string, role: string | null): string {
+  const m = /^(.*?)(\d+)$/.exec(name);
+  if (m === null) return nextHostname(taken, role ?? 'device');
+  const prefix = m[1]!;
+  const digits = m[2]!;
+  let n = Number(digits);
+  if (!Number.isSafeInteger(n)) return nextHostname(taken, role ?? 'device');
+  let next: string;
+  do {
+    n += 1;
+    next = `${prefix}${String(n).padStart(digits.length, '0')}`;
+  } while (taken.has(next));
+  return next;
+}
+
 /** Every device name already in `doc`, so a new common device gets a fresh one. */
 export function hostnamesOf(doc: Document): Set<string> {
   const names = new Set<string>();

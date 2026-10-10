@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 import type { Scope } from '../../api/scopes';
 import { canStewardFor } from '../home/capabilities';
+import { EmptyState } from '../ui/EmptyState';
 
 /** The interface's names for the server's scope kinds (the owner, 2026-09-23). */
 const LEVEL: Record<string, string> = { network: 'Site', building: 'Building', rack: 'Closet' };
@@ -33,7 +34,15 @@ export function FoldersPanel({ organisationName, scopes, onCreateScope, scopeFor
       {scopeForm}
       {scopes.status === 'loading' && <p className="home__muted">Loading…</p>}
       {scopes.status === 'error' && <p className="home__error">{scopes.message}</p>}
-      {scopes.status === 'ready' && scopes.value.length === 0 && <p className="home__muted">No folders yet.</p>}
+      {scopes.status === 'ready' && scopes.value.length === 0 && (
+        <EmptyState
+          title="No folders yet."
+          compact
+          action={{ label: 'New site', onClick: () => onCreateScope(null, organisationName, 'site') }}
+        >
+          A site is the first folder. Buildings and closets go inside it.
+        </EmptyState>
+      )}
       {scopes.status === 'ready' && scopes.value.length > 0 && (
         <ul className="home-folders">
           {scopes.value.map((scope) => {

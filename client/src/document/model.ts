@@ -773,6 +773,10 @@ export interface PhysicalPortFields {
    * to the catalogue's own faceplate, or `'front'` — `view.ts`'s own rule. */
   face?: string;
   service?: string;
+  /** Schema 0.19 — where a hand-typed port was dragged to, in thousandths of
+   * the plate's width and height to its centre. Absent: the computed layout. */
+  plateX?: number;
+  plateY?: number;
 }
 
 export function readPhysicalPortFields(node: GraphNode): PhysicalPortFields {
@@ -781,6 +785,8 @@ export function readPhysicalPortFields(node: GraphNode): PhysicalPortFields {
     connector: asString(fieldValue(node.fields, 'PhysicalPort.connector')),
     face: asString(fieldValue(node.fields, 'PhysicalPort.face')),
     service: asString(fieldValue(node.fields, 'PhysicalPort.service')),
+    plateX: asNumber(fieldValue(node.fields, 'PhysicalPort.plate_x')),
+    plateY: asNumber(fieldValue(node.fields, 'PhysicalPort.plate_y')),
   };
 }
 

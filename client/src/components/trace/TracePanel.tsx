@@ -1,11 +1,14 @@
 // The path panel (mockups/r4-path-a.png): from -> to, the flow, then the hops numbered, a firewall hop listing
 // every policy it reads in order with this flow's match state. Ink only; a row that could affect the flow takes
 // a heavier rule and the words "could affect". Never a verdict.
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
 
 import type { TraceHop, TracePolicy } from '../../engine/engine';
 import { endLine, hiddenCount, readingAs, untiedStop, visiblePolicies } from './traceModel';
+import { hopPhase } from './tracePlayback';
+import { useTraceRevealed } from './traceStore';
+import { prefersReducedMotion } from '../drawing/motion';
 import type { TraceController } from './useTraceController';
 import './trace.css';
 
@@ -41,13 +44,18 @@ function PolicyRow({ p }: { p: TracePolicy }): JSX.Element {
   );
 }
 
-function Hop({ hop, only }: { hop: TraceHop; only: boolean }): JSX.Element {
+function Hop({ hop, only, phase }: { hop: TraceHop; only: boolean; phase: 'done' | 'now' | 'later' | null }): JSX.Element {
   const [why, setWhy] = useState(false);
+  const row = useRef<HTMLLIElement>(null);
+  // The row being played scrolls into view if the list is longer than the panel.
+  useEffect(() => {
+    if (phase === 'now') row.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [phase]);
   const placed = visiblePolicies(hop.policies, only);
   const unplaced = visiblePolicies(hop.unplaced, only);
   const hidden = hiddenCount(hop, only);
   return (
-    <li className={`trace-hop trace-hop--${hop.kind}`} data-testid="trace-hop" data-kind={hop.kind}>
+    <li ref={row} className={`trace-hop trace-hop--${hop.kind}${phase != null ? ` trace-hop--${phase}` : ''}`} data-testid="trace-hop" data-kind={hop.kind}>
       <div className="trace-hop__head">
         {hop.kind !== 'stop' && <span className="trace-hop__n">{hop.n}</span>}
         <span className="trace-hop__title">{hop.title}</span>
@@ -91,6 +99,7 @@ function Hop({ hop, only }: { hop: TraceHop; only: boolean }): JSX.Element {
 export function TracePanel({ controller, onTie }: { controller: TraceController; onTie?: (deviceId: string) => void }): JSX.Element | null {
   const [only, setOnly] = useState(false);
   const { from, result, query, target } = controller;
+  const revealed = useTraceRevealed();
   if (from == null) return null;
   const untied = result != null && onTie != null ? untiedStop(result) : null;
   const reading = readingAs(query, target?.label ?? null);
@@ -171,9 +180,14 @@ export function TracePanel({ controller, onTie }: { controller: TraceController;
           <label className="trace-only">
             <input type="checkbox" checked={only} onChange={(e) => setOnly(e.target.checked)} data-testid="trace-only" /> Only what could affect this
           </label>
+          {result.hops.length > 1 && !prefersReducedMotion() && (
+            <button type="button" className="trace-link trace-replay" onClick={controller.replay} data-testid="trace-replay">
+              Play again
+            </button>
+          )}
           <ol className="trace-hops" data-testid="trace-hops">
-            {result.hops.map((h) => (
-              <Hop key={h.n} hop={h} only={only} />
+            {result.hops.map((h, i) => (
+              <Hop key={h.n} hop={h} only={only} phase={hopPhase(i, revealed)} />
             ))}
           </ol>
           {result.stopped === '' && <p className="trace-end">{endLine(result)}</p>}
