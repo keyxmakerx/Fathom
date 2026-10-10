@@ -1,0 +1,28 @@
+# MikroTik RB5009UG+S+IN: desktop home-lab router, 7 x 1G + 1 x 2.5G RJ45 and
+# one 10G SFP+ cage. rack_units: 1 is NOMINAL (220x125x22 mm desktop box; the
+# page says four can be mounted "in a single 1U rackmount space" with
+# accessories, no rack ears are listed in the page text read).
+# Read 2026-10-10: https://mikrotik.com/product/rb5009ug_s_in ("10/100/1000
+# Ethernet ports 7", "Number of 2.5G Ethernet ports 1", "SFP+ ports 1",
+# "PoE-in from Ethernet port #1", "USB 3.0 type A"; no console port listed).
+# Ports recorded: 8 x RJ45 (numbers 1..8; speeds mixed) + 1 x SFP+ (number 1).
+# Not confirmed: the page does not say WHICH RJ45 is the 2.5G one, names no
+# WAN port, and gives no port order, so all are role access, single_row, front.
+# `reviewed_by: <named human>` is a placeholder, not a name.
+vendor: mikrotik
+model: RB5009UG+S+IN
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    MikroTik, "RB5009UG+S+IN" product page
+    (https://mikrotik.com/product/rb5009ug_s_in), read 2026-10-10. 7 x 1G +
+    1 x 2.5G Ethernet, 1 x 10G SFP+ cage, 1 x USB 3.0, PoE-in on port #1.
+    Which port is 2.5G, roles, face and layout are not stated; see header.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 9
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 8, start_number: 1 }
+      - { kind: "SFP+", role: access, layout: single_row, count: 1, start_number: 1 }

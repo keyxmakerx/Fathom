@@ -1,0 +1,28 @@
+# MikroTik CRS305-1G-4S+IN: five-port desktop switch, 1 x 1G RJ45 + 4 x SFP+.
+# rack_units: 1 is NOMINAL (141x115x28 mm desktop box; no rack mounting stated).
+# Read 2026-10-10: https://mikrotik.com/product/crs305_1g_4s_in ("10/100/1000
+# Ethernet ports 1", "SFP+ ports 4", "a 1 Gbit copper ethernet port for
+# management access or regular traffic forwarding"; no console port listed).
+# Ports recorded: ether1 as a named management port (the vendor's own
+# description, which also allows traffic forwarding) + 4 x SFP+ (1..4, access).
+# Not confirmed: left-to-right order, face (front) and single_row layout are
+# conventions, not photo-confirmed. The management port is listed first.
+# `reviewed_by: <named human>` is a placeholder, not a name.
+vendor: mikrotik
+model: CRS305-1G-4S+IN
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    MikroTik, "CRS305-1G-4S+IN" product page
+    (https://mikrotik.com/product/crs305_1g_4s_in), read 2026-10-10. 1 x 1G
+    copper port "for management access or regular traffic forwarding", 4 x
+    SFP+ (10G), five-port desktop switch, 141x115x28 mm. Order, face and
+    layout are conventions; see the file header.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 5
+    port_groups:
+      - { kind: "RJ45", role: management, layout: single_row, names: ["ether1"] }
+      - { kind: "SFP+", role: access, layout: single_row, count: 4, start_number: 1 }

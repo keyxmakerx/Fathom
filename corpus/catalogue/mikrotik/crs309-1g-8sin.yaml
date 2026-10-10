@@ -1,0 +1,30 @@
+# MikroTik CRS309-1G-8S+IN: desktop switch, 1 x 1G RJ45 + 8 x SFP+.
+# rack_units: 1 is NOMINAL-ish: 272x191x44 mm (44 mm is 1U high) and the page
+# lists "Ears" among included parts, but calls it a "Desktop switch" and does
+# not say it is rack-mountable.
+# Read 2026-10-10: https://mikrotik.com/product/crs309_1g_8s_in ("10/100/1000
+# Ethernet ports 1", "SFP+ ports 8", "a management Ethernet port with PoE power
+# input", "Serial console port RS232").
+# Ports recorded: ether1 as a named management port (the page does not name
+# which port; only one copper port exists) + 8 x SFP+ (1..8, access).
+# NOT recorded: the RS232 serial console, because the page does not give its
+# connector type. Face (front), order and single_row layout are conventions.
+# `reviewed_by: <named human>` is a placeholder, not a name.
+vendor: mikrotik
+model: CRS309-1G-8S+IN
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    MikroTik, "CRS309-1G-8S+IN" product page
+    (https://mikrotik.com/product/crs309_1g_8s_in), read 2026-10-10. 1 x 1G
+    Ethernet ("management Ethernet port with PoE power input"), 8 x SFP+,
+    RS232 serial console (connector unstated, not recorded), 272x191x44 mm.
+    Order, face and layout are conventions; see the file header.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 9
+    port_groups:
+      - { kind: "RJ45", role: management, layout: single_row, names: ["ether1"] }
+      - { kind: "SFP+", role: access, layout: single_row, count: 8, start_number: 1 }
