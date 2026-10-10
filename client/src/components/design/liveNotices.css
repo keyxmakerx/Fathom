@@ -12,11 +12,7 @@
   flex-direction: column;
   gap: var(--s1);
   border: var(--rule-hair) solid var(--hairline);
-  background: var(--pop-bg);
-  backdrop-filter: var(--pop-blur);
-  -webkit-backdrop-filter: var(--pop-blur);
-  border-radius: var(--radius-pop);
-  box-shadow: var(--shadow-pop);
+  background: var(--page);
   animation: fathom-pop-in var(--m-pop) var(--m-ease);
   padding: var(--s2);
 }

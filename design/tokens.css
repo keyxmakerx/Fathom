@@ -78,6 +78,7 @@
   --rule-hair:   1px;      /* [E] */
   --rule-mast:   3px;      /* [E] */
   --rule-accent: 4px;      /* [E] 3pt in the source PDF */
+  --rule-sel:    2px;      /* the line beside or under a selected item, UI-SPEC "Look" */
   --rule-style-deterministic: solid;
   --rule-style-proposed:      dashed;
   --rule-style-pending:       dotted;

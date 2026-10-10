@@ -277,6 +277,7 @@ function SupplyAction({
     <>
       <button
         type="button"
+        className={label.startsWith('Remove') ? 'btn-danger' : undefined}
         onClick={() => {
           const result = onCommit();
           setRefusal(result?.refused ?? null);

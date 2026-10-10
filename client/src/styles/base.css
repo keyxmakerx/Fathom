@@ -71,11 +71,10 @@
   border-color: var(--control-line);
 }
 
-/* A destructive action shows its colour when pointed at. */
-:where(button.btn-danger:not(:disabled):hover) {
+/* A destructive action: red text and line, never a red fill. */
+:where(button.btn-danger) {
   color: var(--danger);
   border-color: var(--danger);
-  background: var(--danger-wash);
 }
 
 /* Buttons that belong together share one frame with dividers; the lit one

@@ -216,9 +216,9 @@ spaced capitals (`--control-track`). A link, a list row or a menu row keeps its 
 action of a view is solid ink; a quiet action has no box until pointed at; a destructive one shows
 the danger colour on hover; a switched-off one fades. **Buttons that belong together share one frame
 with dividers** (the lenses, Rack/Diagram, Plans/Checks, Undo/Redo, zoom, One port/A range,
-Boxes/Icons, Rack/Shelf/Surface): the lit part takes a faint fill and a 2px ink underline. **A
-selection on the drawing is four corner ticks**, not an outline. Only floating things lift: pop-overs,
-menus and notices are frosted glass (`--pop-bg`, `--pop-blur`) on one soft shadow (`--shadow-pop`).
+Boxes/Icons, Rack/Shelf/Surface): the lit part takes a faint fill and a 2px ink underline. A selected tab, row or list item gets the same 2px ink line under or beside it (`--rule-sel`). A destructive action is red text with a red line, never a red fill. **A
+selection on the drawing is four corner ticks**, not an outline. Only floating things lift: menus, pop-overs
+and dialogs are frosted glass (`--pop-bg`, `--pop-blur`) on one soft shadow (`--shadow-pop`).
 Panels and buttons cast none, and the drawing stays flat (`--radius: 0`, `--shadow: none`).
 
 Motion for controls is two more tokens beside Motion above: `--m-hover` (120 ms) for a change under

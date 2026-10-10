@@ -1706,12 +1706,9 @@
   align-items: center;
   gap: 2px;
   padding: 2px;
-  background: var(--pop-bg);
-  backdrop-filter: var(--pop-blur);
-  -webkit-backdrop-filter: var(--pop-blur);
+  background: var(--page);
   border: var(--rule-hair) solid var(--control-line);
   border-radius: var(--radius-pop);
-  box-shadow: var(--shadow-pop);
 }
 .canvas-tool {
   width: var(--control-h);

@@ -266,7 +266,7 @@
   color: var(--muted);
   background: none;
   border: none;
-  border-bottom: var(--rule-accent) solid transparent;
+  border-bottom: var(--rule-sel) solid transparent;
   margin-bottom: calc(-1 * var(--rule-hair));
   cursor: pointer;
   box-shadow: none;

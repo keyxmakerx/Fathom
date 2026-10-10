@@ -83,8 +83,8 @@
 
 .inventory-place__kind--active {
   background: var(--page);
-  border-left: var(--rule-accent) solid var(--ink);
-  padding-left: calc(var(--s3) - var(--rule-accent));
+  border-left: var(--rule-sel) solid var(--ink);
+  padding-left: calc(var(--s3) - var(--rule-sel));
   font-weight: 700;
 }
 
@@ -177,7 +177,7 @@
 .inventory-place__grid th {
   text-align: left;
   padding: var(--s1) var(--s2);
-  border-bottom: var(--rule-mast) solid var(--ink);
+  border-bottom: var(--rule-hair) solid var(--control-line-hover);
   font-family: var(--sans);
   font-size: var(--t-micro);
   letter-spacing: var(--track-label);
@@ -217,7 +217,7 @@
 }
 
 .inventory-place__row--selected td:first-child {
-  border-left: var(--rule-accent) solid var(--ink);
+  border-left: var(--rule-sel) solid var(--ink);
 }
 
 /* ---- gaps ---------------------------------------------------------- */
@@ -393,7 +393,7 @@
   z-index: 2;
   display: flex;
   background: var(--page);
-  border-bottom: var(--rule-mast) solid var(--ink);
+  border-bottom: var(--rule-hair) solid var(--control-line-hover);
 }
 
 .inv-table__th {
@@ -609,7 +609,7 @@
 }
 
 .inv-table__row--open .inv-table__check {
-  border-left: var(--rule-accent) solid var(--ink);
+  border-left: var(--rule-sel) solid var(--ink);
 }
 
 .inv-table__row--checked {
@@ -724,6 +724,9 @@
   color: var(--muted);
   padding: var(--s1) var(--s2);
   box-shadow: none;
+  font-size: var(--t-tab);
+  letter-spacing: var(--control-track);
+  text-transform: uppercase;
 }
 
 .inv-page .inv-page__tab--on {
@@ -1091,7 +1094,7 @@
   margin: 0;
   color: var(--ink);
   font-size: var(--t-small);
-  border-left: var(--rule-accent) solid var(--ink);
+  border-left: var(--rule-sel) solid var(--ink);
   padding-left: var(--s2);
 }
 
@@ -1188,8 +1191,8 @@
 
 .inventory-place__view--active {
   background: var(--page);
-  border-left: var(--rule-accent) solid var(--ink);
-  padding-left: calc(var(--s5) - var(--rule-accent));
+  border-left: var(--rule-sel) solid var(--ink);
+  padding-left: calc(var(--s5) - var(--rule-sel));
   font-weight: 700;
 }
 
@@ -1495,7 +1498,7 @@
 
 .inv-fq__errors {
   color: var(--ink);
-  border-left: var(--rule-accent) solid var(--ink);
+  border-left: var(--rule-sel) solid var(--ink);
   padding-left: var(--s2);
 }
 
