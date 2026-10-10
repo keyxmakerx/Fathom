@@ -40,8 +40,6 @@
 
 .cable-groups-pop__fchip {
   appearance: none;
-  border: var(--rule-hair) solid var(--ink);
-  background: var(--page);
   color: var(--muted);
   padding: 2px var(--s3);
   font-size: var(--t-tab);
@@ -142,6 +140,7 @@
   cursor: pointer;
   padding: 0;
   opacity: 0;
+  box-shadow: none;
 }
 
 .cable-groups-pop__row:hover .cable-groups-pop__remove,
@@ -162,6 +161,7 @@
   color: var(--ink);
   cursor: pointer;
   text-align: left;
+  box-shadow: none;
 }
 
 .cable-groups-pop__add-plus {
@@ -193,6 +193,7 @@
   color: var(--ink);
   text-decoration: underline;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .cable-groups-pop__footer {
@@ -211,6 +212,7 @@
   font-size: var(--t-micro);
   cursor: pointer;
   padding: 0;
+  box-shadow: none;
 }
 
 .cable-groups-pop__search {
@@ -245,6 +247,7 @@
   cursor: pointer;
   text-align: left;
   color: var(--ink);
+  box-shadow: none;
 }
 
 .cable-groups-pop__pick-row:hover,

@@ -78,6 +78,7 @@
   color: var(--ink);
   cursor: pointer;
   text-align: left;
+  box-shadow: none;
 }
 
 .inventory-place__kind--active {
@@ -414,6 +415,7 @@
   background: none;
   border: none;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .inv-table__sort {
@@ -721,6 +723,7 @@
   background: none;
   color: var(--muted);
   padding: var(--s1) var(--s2);
+  box-shadow: none;
 }
 
 .inv-page .inv-page__tab--on {
@@ -1122,10 +1125,6 @@
 .inv-pageframe__back {
   font: inherit;
   font-size: var(--t-small);
-  color: var(--ink);
-  background: var(--page);
-  border: var(--rule-hair) solid var(--ink);
-  border-radius: 0;
   padding: 2px var(--s2);
   cursor: pointer;
 }
@@ -1184,6 +1183,7 @@
   color: var(--ink);
   cursor: pointer;
   text-align: left;
+  box-shadow: none;
 }
 
 .inventory-place__view--active {
@@ -1208,6 +1208,7 @@
   color: var(--muted);
   cursor: pointer;
   padding: 0 var(--s2);
+  box-shadow: none;
 }
 
 .inventory-place__mobile-nav {
@@ -1412,6 +1413,7 @@
   background: none;
   border: none;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .inv-fq__x {
@@ -1581,6 +1583,7 @@
   text-decoration: underline;
   text-decoration-color: var(--hairline);
   padding: 0;
+  box-shadow: none;
 }
 
 .inv-fp__head {
@@ -1723,6 +1726,7 @@
   font-size: var(--t-mono);
   text-decoration: underline;
   text-decoration-color: var(--hairline);
+  box-shadow: none;
 }
 
 .inv-fht__op {
@@ -1801,6 +1805,7 @@
   color: var(--muted);
   cursor: pointer;
   padding: 0 var(--s1);
+  box-shadow: none;
 }
 
 .inv-find__x:hover,
@@ -1833,8 +1838,13 @@
   width: min(720px, calc(100% - 2 * var(--s3)));
   max-height: 70vh;
   overflow: auto;
-  background: var(--page);
-  border: var(--rule-hair) solid var(--ink);
+  border: var(--rule-hair) solid var(--control-line);
+  border-radius: var(--radius-pop);
+  background: var(--pop-bg);
+  backdrop-filter: var(--pop-blur);
+  -webkit-backdrop-filter: var(--pop-blur);
+  box-shadow: var(--shadow-pop);
+  animation: fathom-pop-in var(--m-pop) var(--m-ease);
 }
 
 .inv-find__reading {
@@ -1876,6 +1886,7 @@
   padding: var(--s1) var(--s3);
   cursor: pointer;
   color: var(--ink);
+  box-shadow: none;
 }
 
 .inv-find__hit--at,
@@ -2055,6 +2066,7 @@ button.inv-path__host,
   color: var(--ink);
   text-decoration: underline;
   cursor: pointer;
+  box-shadow: none;
 }
 
 button.inv-path__host {
@@ -2248,8 +2260,13 @@ button.inv-path__host {
   text-decoration: underline;
   cursor: pointer;
   justify-self: start;
+  box-shadow: none;
 }
 
 .inv-corr--page {
   padding: var(--s3) var(--s4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inv-find__panel { animation: none; }
 }

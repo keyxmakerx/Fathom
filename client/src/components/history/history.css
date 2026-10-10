@@ -26,6 +26,7 @@
   cursor: pointer;
   font: inherit;
   text-decoration: underline;
+  box-shadow: none;
 }
 .shell-editor .history__older {
   align-self: flex-start;
@@ -58,6 +59,7 @@
   font: inherit;
   color: var(--ink);
   cursor: pointer;
+  box-shadow: none;
 }
 .shell-editor .history__row--on {
   border-left-color: var(--ink);
@@ -81,10 +83,12 @@
   background: transparent;
   color: var(--ink);
   cursor: pointer;
+  box-shadow: none;
 }
 .shell-editor .history__btn--primary {
   background: var(--ink);
   color: var(--page);
+  box-shadow: none;
 }
 .shell-editor .history__confirm {
   display: flex;

@@ -84,10 +84,6 @@
 
 .trouble-btn {
   padding: 2px var(--s3);
-  border: var(--rule-hair) solid var(--ink);
-  border-radius: var(--radius);
-  background: var(--page);
-  color: var(--ink);
   font: inherit;
   cursor: pointer;
 }
@@ -95,6 +91,7 @@
 .trouble-btn--ink {
   background: var(--ink);
   color: var(--page);
+  box-shadow: none;
 }
 
 .trouble-btn--quiet {
@@ -134,6 +131,7 @@
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .trouble-label {
@@ -203,6 +201,7 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .trouble-step__head--read {

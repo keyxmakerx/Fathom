@@ -40,8 +40,8 @@
   min-width: 0;
 }
 .jot__bar button[aria-pressed='true'] {
-  background: var(--ink);
-  color: var(--page);
+  background: var(--control-on);
+  box-shadow: var(--control-on-mark);
 }
 .jot__field {
   position: relative;
@@ -112,6 +112,7 @@
   background: none;
   cursor: crosshair;
   touch-action: none;
+  box-shadow: none;
 }
 .jot-port--lit {
   outline: 2px solid var(--ink);

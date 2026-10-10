@@ -59,9 +59,6 @@
 }
 
 .networks-panel__add {
-  border: var(--rule-hair) solid var(--ink);
-  background: var(--page);
-  color: var(--ink);
   padding: 3px var(--s2);
   font-size: var(--t-tab);
   cursor: pointer;
@@ -86,6 +83,7 @@
   line-height: 16px;
   color: var(--ink);
   cursor: pointer;
+  box-shadow: none;
 }
 
 .networks-panel__fchip--off {
@@ -254,6 +252,7 @@
   font-size: var(--t-tab);
   text-decoration: underline;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .networks-panel__muted {
@@ -363,6 +362,7 @@
   border-bottom: none;
   text-align: left;
   width: calc(100% - 2 * var(--s3));
+  box-shadow: none;
 }
 
 .networks-editor__actions {
@@ -382,13 +382,11 @@
   text-align: center;
   font-size: var(--t-small);
   cursor: pointer;
+  box-shadow: none;
 }
 
 .networks-editor__cancel {
   width: 90px;
-  border: var(--rule-hair) solid var(--ink);
-  background: var(--page);
-  color: var(--ink);
   padding: var(--s1) 0;
   text-align: center;
   font-size: var(--t-small);

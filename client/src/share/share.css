@@ -5,8 +5,13 @@
   width: 380px;
   max-height: calc(100vh - 72px);
   overflow-y: auto;
-  background: var(--page);
-  border: 1px solid var(--ink);
+  border: var(--rule-hair) solid var(--control-line);
+  border-radius: var(--radius-pop);
+  background: var(--pop-bg);
+  backdrop-filter: var(--pop-blur);
+  -webkit-backdrop-filter: var(--pop-blur);
+  box-shadow: var(--shadow-pop);
+  animation: fathom-pop-in var(--m-pop) var(--m-ease);
   z-index: 60;
   font-size: 12px;
 }
@@ -30,6 +35,7 @@
   line-height: 1;
   cursor: pointer;
   color: inherit;
+  box-shadow: none;
 }
 
 .share-panel__table {
@@ -69,4 +75,8 @@
 .share-panel__problem {
   color: var(--ink);
   font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .share-panel { animation: none; }
 }

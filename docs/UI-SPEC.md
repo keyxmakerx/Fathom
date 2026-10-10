@@ -35,7 +35,7 @@ three live on the port. The retired client's six-tab strip does not come back.
 | **The bar** | One row, 44px, the 3px rule beneath, nothing else above the drawing: Fathom · Canvas · Inventory · the path (opens the tree) · the lens (five words, one lit) · search · who else is here · Undo · Redo · zoom · you. ADR-0060 decision 7 moves People and permissions and Site to the Home tabs; the menu keeps only personal things and sign out. |
 | **The drawing** | The whole width beneath the bar. ADR-0060 replaces the rail folded to a 28px strip of unlabelled marks with a labelled side panel. |
 | **The editor** | A surface that slides in on the right when something is selected and goes when you click away. The same component as the inventory page. |
-| **Pop-overs** | One kind: a flat hairline box, square, no shadow, opened by a click, closed by clicking away or Esc, never more than one level. The tree, the account menu, the pickers, right-click on anything. ADR-0060 adds hover names on controls (this spec had hover show a label only after a pause). |
+| **Pop-overs** | One kind: a square hairline box of frosted glass on one soft shadow, fading and dropping into place (see Look), opened by a click, closed by clicking away or Esc, never more than one level. The tree, the account menu, the pickers, right-click on anything. ADR-0060 adds hover names on controls (this spec had hover show a label only after a pause). |
 
 A lens is both the cable-kind toggle and the port-colour control; the old masthead's separate toggles
 are gone (ADR-0047). Four kinds of thing make every screen (places, stops, lenses, surfaces); nothing
@@ -205,9 +205,25 @@ Each tied to a real event. Nothing moves to look alive.
 
 ## Look
 
-`design/tokens.css`: zero radius, no shadows, 1px hairlines, small type ramp, tabular numerals,
-`--sheath-*` and `--cable-*`. The three risk colours stay reserved, kept apart from the sheath palette
-by form.
+`design/tokens.css`: 1px hairlines, small type ramp, tabular numerals, `--sheath-*` and `--cable-*`.
+The three risk colours stay reserved, kept apart from the sheath palette by form.
+
+**Controls, menus and panels (decided 2026-10-10: the owner picked "Hairline" on the sign-off page,
+asked for it to look more modern, then picked its "Blueprint" finish).** Square and flat, like a
+technical drawing, on one 8px grid. One button: 28px tall in the bar and forms (`--control-h`; 24px
+in dense rows), a thin border a step lighter than ink, no fill until pointed at, its label in small
+spaced capitals (`--control-track`). A link, a list row or a menu row keeps its own case. The main
+action of a view is solid ink; a quiet action has no box until pointed at; a destructive one shows
+the danger colour on hover; a switched-off one fades. **Buttons that belong together share one frame
+with dividers** (the lenses, Rack/Diagram, Plans/Checks, Undo/Redo, zoom, One port/A range,
+Boxes/Icons, Rack/Shelf/Surface): the lit part takes a faint fill and a 2px ink underline. **A
+selection on the drawing is four corner ticks**, not an outline. Only floating things lift: pop-overs,
+menus and notices are frosted glass (`--pop-bg`, `--pop-blur`) on one soft shadow (`--shadow-pop`).
+Panels and buttons cast none, and the drawing stays flat (`--radius: 0`, `--shadow: none`).
+
+Motion for controls is two more tokens beside Motion above: `--m-hover` (120 ms) for a change under
+the pointer and `--m-pop` (160 ms) for a pop-over fading and dropping 4px into place; side panels
+slide in by `--m-pane`. All are off when the computer asks for reduced motion.
 
 **Colour is "look here".** The interface is black and white. Colour appears only where the eye should
 go, and subtly: a hairline ring around a button, a bordered wash with words, a notice in the top right

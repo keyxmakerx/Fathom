@@ -26,6 +26,7 @@
   font-size: var(--t-body);
   color: var(--ink);
   cursor: pointer;
+  box-shadow: none;
 }
 
 .org-rail__item--on {
@@ -50,9 +51,6 @@
 }
 
 .org-btn {
-  border: var(--rule-hair) solid var(--ink);
-  background: var(--page);
-  color: var(--ink);
   padding: var(--s1) var(--s3);
   font-size: var(--t-small);
   cursor: pointer;
@@ -61,6 +59,7 @@
 .org-btn--primary {
   background: var(--ink);
   color: var(--page);
+  box-shadow: none;
 }
 
 .org-btn:disabled {
@@ -77,6 +76,7 @@
   color: var(--ink);
   text-decoration: underline;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .org-tag {

@@ -73,6 +73,7 @@
   font-size: var(--t-small);
   color: var(--ink);
   cursor: pointer;
+  box-shadow: none;
 }
 
 .home__org-row--current {
@@ -234,9 +235,6 @@
 /* --- shared controls ---------------------------------------------------- */
 
 .home__btn {
-  border: var(--rule-hair) solid var(--ink);
-  background: var(--page);
-  color: var(--ink);
   padding: var(--s1) var(--s3);
   font-size: var(--t-small);
   cursor: pointer;
@@ -271,6 +269,7 @@
   border-bottom: var(--rule-accent) solid transparent;
   margin-bottom: calc(-1 * var(--rule-hair));
   cursor: pointer;
+  box-shadow: none;
 }
 
 .home-tabs__tab:hover {

@@ -77,15 +77,9 @@
 
 .config-drawer__paste-button {
   align-self: flex-start;
-  border: var(--rule-hair) solid var(--ink);
-  background: var(--page);
-  color: var(--ink);
   padding: var(--s1) var(--s3);
   font-size: var(--t-small);
   cursor: pointer;
-}
-.config-drawer__paste-button:hover {
-  background: var(--surface);
 }
 
 /* An error — UI-SPEC "Look"'s four uses, and no others. */
