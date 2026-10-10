@@ -14,6 +14,12 @@ export { pathToItems } from './path';
  * is Home — neither tab is marked current there. */
 export type Place = 'racks' | 'inventory';
 
+/** The Show ▾ menu's rows for the small aids on the canvas (mini-map, cable colour key), kept in this browser. */
+export interface ShowAids {
+  items: ReadonlyArray<{ id: 'minimap' | 'colourKey'; label: string; on: boolean; note?: string }>;
+  onToggle: (id: 'minimap' | 'colourKey') => void;
+}
+
 /** Quick search: what a query finds, and what choosing a hit does. */
 export interface ShellSearch {
   run: (query: string) => SearchHit[];
@@ -61,7 +67,7 @@ export interface ShellProps {
   onLensChange: (lens: Lens) => void;
 
   /** The Show ▾ menu of canvas layers (Racks place only). */
-  layers?: { value: import('../drawing/layers').LayerSet; onToggle: (id: import('../drawing/layers').LayerId) => void; style?: { value: import('../drawing/diagramStyle').DiagramStyle; onChange: (style: import('../drawing/diagramStyle').DiagramStyle) => void } };
+  layers?: { value: import('../drawing/layers').LayerSet; onToggle: (id: import('../drawing/layers').LayerId) => void; style?: { value: import('../drawing/diagramStyle').DiagramStyle; onChange: (style: import('../drawing/diagramStyle').DiagramStyle) => void }; aids?: ShowAids };
   /** The Views menu, drawn beside Show: named camera positions with their layers (Racks place only). */
   views?: ReactNode;
   /** The same views as rows, for the View ▾ menu the bar folds into when it is narrow. */

@@ -78,6 +78,8 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   // cable's edge — ahead of the `!data` guard below so these hooks always run.
   const litCableId = useLive((s) => s.litCableId);
   const litByHover = useLive((s) => (data ? s.litCableIdSet.has(data.cable.id) : false));
+  // The colour key lights one colour's cables; the rest dim.
+  const offKey = useLive((s) => (data != null && s.keyCableIds != null ? !s.keyCableIds.has(data.cable.id) : false));
   // A cable this person has just made pulls tight and pulses once (`cableMotion.ts`); never a teammate's, never on load.
   const cableId = data?.cable.id ?? '';
   const [playing, setPlaying] = useState(
@@ -93,7 +95,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   const lit = litByHover || data.troubleLit === true;
   const { cable, onSelect, onHoverChange, portPairLabel, ends, endLabels, stub, onPanTo, dashed } = data;
   // Checks' Show fades the whole edge already: do not dim it a second time.
-  const dimmed = data.checksFaded !== true && litCableId != null && !lit;
+  const dimmed = data.checksFaded !== true && ((litCableId != null && !lit) || offKey);
   const sheath = cable.sheath ?? 'grey';
   const colour = data.troubleInk === true ? 'var(--ink)' : SHEATH_VAR[sheath];
   const strokeWidth = STROKE_WIDTH_VAR[cable.kind];

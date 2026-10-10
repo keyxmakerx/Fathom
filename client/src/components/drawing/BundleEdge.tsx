@@ -51,7 +51,12 @@ const BAND_WIDTH_PER_MEMBER_PX = 1.4;
 export function BundleEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProps<BundleEdgeType>) {
   // Read live rather than through `data`, so a hover elsewhere never
   // rebuilds this bundle's edge — ahead of the `!data` guard so the hook always runs.
-  const dimmed = useLive((s) => (data ? s.litCableId != null && !data.bundle.members.some((m) => s.litCableIdSet.has(m.id)) : false));
+  const dimmed = useLive((s) =>
+    data
+      ? (s.litCableId != null && !data.bundle.members.some((m) => s.litCableIdSet.has(m.id))) ||
+        (s.keyCableIds != null && !data.bundle.members.some((m) => s.keyCableIds!.has(m.id)))
+      : false,
+  );
   if (!data) return null;
   const { bundle, fanned, onFan } = data;
   const leads = data.ends != null && (data.ends[0] != null || data.ends[1] != null) ? leadsFor(data.ends[0], data.ends[1], { x: sourceX, y: sourceY }, { x: targetX, y: targetY }) : null;

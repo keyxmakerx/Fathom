@@ -21,6 +21,7 @@ export function useSavedViews({
   applyLayers,
   changeLook,
   setRackCamera,
+  onWillGo,
 }: {
   accountId: string | null;
   designId: string;
@@ -31,6 +32,8 @@ export function useSavedViews({
   changeLook: (look: Look) => void;
   /** Where the rack drawing starts the next time it mounts. */
   setRackCamera: (camera: ViewCamera) => void;
+  /** Called with the view's name just before going to it in the same look (Jump back makes it a step). */
+  onWillGo?: (name: string) => void;
 }) {
   const [views, setViews] = useState<SavedView[]>(() => loadViews(accountId, designId));
   useEffect(() => setViews(loadViews(accountId, designId)), [accountId, designId]);
@@ -76,6 +79,7 @@ export function useSavedViews({
   };
 
   const onGo = (view: SavedView) => {
+    if (view.look === look) onWillGo?.(view.name);
     recheck(GLIDE_MS + 150);
     applyLayers(view.layers);
     if (view.look !== look) {

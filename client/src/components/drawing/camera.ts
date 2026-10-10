@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useReactFlow, type Viewport } from '@xyflow/react';
+import { useOnViewportChange, useReactFlow, type Viewport } from '@xyflow/react';
 
 /** The camera as the bar's Views menu sees it: read it, and move it. */
 export interface CameraControl {
@@ -13,6 +13,8 @@ export interface CameraControl {
 export interface CameraHub {
   control: CameraControl | null;
   pending: Viewport | null;
+  /** Called with the camera whenever a pan or zoom comes to rest, in either look (Jump back keeps it). */
+  onSettled?: ((viewport: Viewport) => void) | null;
 }
 
 export const GLIDE_MS = 300;
@@ -24,6 +26,7 @@ export function reducedMotion(): boolean {
 /** Registers the surrounding React Flow's camera with the hub for as long as this is mounted. */
 export function useCameraHub(hub: CameraHub | undefined): void {
   const rf = useReactFlow();
+  useOnViewportChange({ onEnd: (viewport) => hub?.onSettled?.(viewport) });
   useEffect(() => {
     if (hub == null) return undefined;
     hub.control = {

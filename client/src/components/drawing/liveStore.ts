@@ -36,6 +36,8 @@ export interface LiveState {
   showPortGlyphs: boolean;
   /** Close in, a bundle is drawn as its separate cables. */
   splitBundles: boolean;
+  /** The cables the colour key is lighting; every other cable dims. `null` lights nothing in particular. */
+  keyCableIds: ReadonlySet<string> | null;
 }
 
 export const EMPTY_STRING_SET: ReadonlySet<string> = new Set();
@@ -54,6 +56,7 @@ export const INITIAL_LIVE_STATE: LiveState = {
   cameraStop: 'rack',
   showPortGlyphs: false,
   splitBundles: false,
+  keyCableIds: null,
 };
 
 export interface LiveStore {

@@ -13,7 +13,7 @@ import { pathToItems } from './path';
 import type { PathItem, PathPart } from './path';
 import { SearchBox } from './SearchBox';
 import { ThemeMenu } from './ThemeMenu';
-import type { AccountInfo, Place, PresenceUser, ShellSearch } from './types';
+import type { AccountInfo, Place, PresenceUser, ShellSearch, ShowAids } from './types';
 
 // The bar's own `gap` and side padding, counted when measuring its row.
 const BAR_GAP = 12;
@@ -32,7 +32,7 @@ export interface BarProps {
   views?: ReactNode;
   /** The saved views as rows for the View ▾ menu, shown once the bar folds the views group away. */
   viewsFolded?: ReactNode;
-  layers?: { value: LayerSet; onToggle: (id: LayerId) => void; style?: { value: DiagramStyle; onChange: (style: DiagramStyle) => void } };
+  layers?: { value: LayerSet; onToggle: (id: LayerId) => void; style?: { value: DiagramStyle; onChange: (style: DiagramStyle) => void }; aids?: ShowAids };
   presence: PresenceUser[];
   zoom: number;
   onZoomIn: () => void;
@@ -401,6 +401,21 @@ export function Bar({
                       <span aria-hidden="true">{layers.value[l.id] ? '☑' : '☐'}</span>
                       <span>{l.label}</span>
                       {l.onByDefault && <span className="shell-show__note">on by default</span>}
+                    </button>
+                  ))}
+                  {layers.aids?.items.map((a) => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      role="menuitemcheckbox"
+                      aria-checked={a.on}
+                      className="shell-show__row"
+                      data-testid={`show-${a.id}`}
+                      onClick={() => layers.aids!.onToggle(a.id)}
+                    >
+                      <span aria-hidden="true">{a.on ? '☑' : '☐'}</span>
+                      <span>{a.label}</span>
+                      {a.note != null && <span className="shell-show__note">{a.note}</span>}
                     </button>
                   ))}
                   {look?.value === 'rack' && <p className="shell-show__hint">The words and icons are drawn in the Diagram look.</p>}

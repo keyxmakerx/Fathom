@@ -105,6 +105,7 @@ import { easeOut, glideOptions } from './motion';
 import { useSettle } from './useSettle';
 import { liveSagPath, markFreshCable } from './cableMotion';
 import { useCameraHub, type CameraHub } from './camera';
+import { CanvasMiniMap } from './CanvasMiniMap';
 
 const NODE_TYPES = {
   rack: RackNode,
@@ -340,6 +341,10 @@ export interface DrawingProps extends DrawingActions {
   onViewportSettled?: (vp: Viewport) => void;
   /** The place's handle on the camera, for the Views menu. */
   cameraHub?: CameraHub;
+  /** The cables the colour key is lighting (the rest dim), or null/absent for none. */
+  keyCableIds?: ReadonlySet<string> | null;
+  /** The mini-map may show (it still appears only on big drawings). */
+  minimap?: boolean;
 }
 
 type AnyRackNode = RackNodeType;
@@ -451,6 +456,8 @@ function DrawingInner({
   groupClearRequest,
   drawnCableIds,
   dashedCableIds,
+  keyCableIds,
+  minimap,
 }: DrawingProps) {
   const rf = useReactFlow<FlowNode>();
 
@@ -1724,8 +1731,9 @@ function DrawingInner({
       cameraStop,
       showPortGlyphs,
       splitBundles,
+      keyCableIds: keyCableIds ?? null,
     });
-  }, [liveStore, selected, dragFromPortId, livePortIds, dropPreview, shakingId, dimmedChassisId, cameraStop, showPortGlyphs, splitBundles]);
+  }, [liveStore, selected, dragFromPortId, livePortIds, dropPreview, shakingId, dimmedChassisId, cameraStop, showPortGlyphs, splitBundles, keyCableIds]);
 
   const allNodes = useMemo(() => [...nodes, ...free.nodes], [nodes, free.nodes]);
   const marks = useMemo(
@@ -1815,6 +1823,7 @@ function DrawingInner({
         deleteKeyCode={null}
       >
         <Background gap={U_PX} size={1} />
+        <CanvasMiniMap enabled={minimap === true} />
         {free.portal}
         {marks.length > 0 && (
           <ViewportPortal>
