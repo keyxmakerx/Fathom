@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { EdgeLabelRenderer, type Edge, type EdgeProps } from '@xyflow/react';
+import { EdgeLabelRenderer, useReactFlow, type Edge, type EdgeProps } from '@xyflow/react';
 
 import { CableCheckBadge } from '../checks/CheckBadge';
-import { cableLeadPath, leadsFor, type PlacedLabel, type PortPoint } from './cableEnds';
+import type { PlacedLabel, PortPoint } from './cableEnds';
+import { cableShapes, hoverCablesAt, shapeOf } from './cableHover';
+import { pointAlong, polylineLength, type Pt, type Tie, type TiedRoute, type Waypoint } from './cableRoute';
+import { cableShape, FadedTips, useCableSway } from './cableShape';
 import type { CableView } from './contract';
 import { FRESH_PLAY_MS, isFreshCable, markCablePlayed } from './cableMotion';
-import { cableSagPath } from './geometry';
-import { useLive } from './liveStore';
+import { useLive, useLiveStore } from './liveStore';
 import { PlanEdgeTag } from './PlanGhostEdge';
 import { TONE_COLOUR, type PlanEdgeMark } from './plansMarks';
 import { StubTags } from './StubTags';
@@ -46,6 +48,15 @@ export interface CableEdgeData extends Record<string, unknown> {
    * (`cableGroups.ts`'s own `computeCableDraw`); drawn here as a stroke,
    * never a colour (UI-SPEC "Plastic is a line"). */
   dashed?: boolean;
+  /** Cable-tied: this cable's place in its bundle (`cableRoute.ts`'s `planTies`). */
+  tied?: TiedRoute;
+  /** Cable-tied: the bundle's ties, drawn by its first cable. */
+  ties?: readonly Tie[];
+  /** Cable-tied: real ties on runs (schema 0.21) this cable passes through, in order. */
+  waypoints?: readonly Waypoint[];
+  /** A bundle's tie dropped at `p`: clips it onto the run there, holding `cableIds`. False when
+   * no run was close enough. Absent for a reader. */
+  onClipTie?: (p: Pt, cableIds: readonly string[]) => boolean;
 }
 
 export type CableEdgeType = Edge<CableEdgeData, 'cable'>;
@@ -77,36 +88,69 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   // Read straight from `liveStore.ts`, so a hover never rebuilds every
   // cable's edge — ahead of the `!data` guard below so these hooks always run.
   const litCableId = useLive((s) => s.litCableId);
+  const style = useLive((s) => s.cableStyle);
+  const hovered = useLive((s) => (data ? s.hoveredCableId === data.cable.id : false));
+  const store = useLiveStore();
+  const rf = useReactFlow();
   const litByHover = useLive((s) => (data ? s.litCableIdSet.has(data.cable.id) : false));
   // The colour key lights one colour's cables; the rest dim.
   const offKey = useLive((s) => (data != null && s.keyCableIds != null ? !s.keyCableIds.has(data.cable.id) : false));
   // A cable this person has just made pulls tight and pulses once (`cableMotion.ts`); never a teammate's, never on load.
   const cableId = data?.cable.id ?? '';
+  // A bundle's tie being dragged toward a run: where it is now, and the cables it goes round.
+  const [tieDrag, setTieDrag] = useState<{ p: Pt; cableIds: readonly string[] } | null>(null);
   const [playing, setPlaying] = useState(
     () => data != null && !prefersReducedMotion() && isFreshCable(cableId, data.cable.ends.flatMap((e) => ('portId' in e ? [e.portId] : []))),
   );
+  const leadA = data?.ends?.[0];
+  const leadB = data?.ends?.[1];
+  const sway = useCableSway(
+    style === 'physics' && data != null,
+    leadA != null ? leadA.x + leadA.w / 2 : sourceX,
+    leadA != null ? leadA.y : sourceY,
+    leadB != null ? leadB.x + leadB.w / 2 : targetX,
+    leadB != null ? leadB.y : targetY,
+  );
+  const shape =
+    data != null
+      ? cableShape({ style, id: cableId, kind: data.cable.kind, ends: data.ends, source: { x: sourceX, y: sourceY }, target: { x: targetX, y: targetY }, tied: data.tied, waypoints: data.waypoints, sway })
+      : null;
+  // Register this line so the pointer can pick the nearest of several crossing cables (`cableHover.ts`).
+  const drawnWhole = data != null && data.stub == null;
+  useLayoutEffect(() => {
+    if (shape == null || !drawnWhole) return undefined;
+    const shapes = cableShapes(store);
+    shapes.set(cableId, shapeOf(shape.points));
+    return () => {
+      shapes.delete(cableId);
+    };
+  }, [store, cableId, shape?.d, drawnWhole]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!playing) return undefined;
     markCablePlayed(cableId);
     const t = setTimeout(() => setPlaying(false), FRESH_PLAY_MS + 80);
     return () => clearTimeout(t);
   }, [playing, cableId]);
-  if (!data) return null;
+  if (!data || shape == null) return null;
   const lit = litByHover || data.troubleLit === true;
-  const { cable, onSelect, onHoverChange, portPairLabel, ends, endLabels, stub, onPanTo, dashed } = data;
+  const { cable, onSelect, onHoverChange, portPairLabel, endLabels, stub, onPanTo, dashed } = data;
   // Checks' Show fades the whole edge already: do not dim it a second time.
-  const dimmed = data.checksFaded !== true && ((litCableId != null && !lit) || offKey);
+  // The cable under the pointer never dims, even beside a selected one: it draws on top instead.
+  const dimmed = data.checksFaded !== true && ((litCableId != null && !lit && !hovered) || offKey);
   const sheath = cable.sheath ?? 'grey';
   const colour = data.troubleInk === true ? 'var(--ink)' : SHEATH_VAR[sheath];
   const strokeWidth = STROKE_WIDTH_VAR[cable.kind];
-  const leads = ends != null ? leadsFor(ends[0], ends[1], { x: sourceX, y: sourceY }, { x: targetX, y: targetY }) : null;
-  const d = leads != null ? cableLeadPath(leads, cable.kind) : cableSagPath(sourceX, sourceY, targetX, targetY, cable.kind);
+  const { d, leads } = shape;
+  // Faded: only the tips show until the cable is pointed at or selected; then all of it, at once.
+  const faded = style === 'faded' && !lit && !hovered && data.troubleLit !== true;
   const opacity = dimmed ? 'var(--phantom)' : 1;
   // The pull is a draw-in along the line, so it needs a normalised length; a dashed cable keeps its own dashes and only pulses.
   const pull = playing && !dashed ? { pathLength: 1, className: 'drawing-cable__pull' } : {};
   const dashArray = dashed ? 'var(--cable-dash)' : undefined;
-  const midX = (sourceX + targetX) / 2;
-  const midY = (sourceY + targetY) / 2;
+  // Badges and tags sit halfway along the line as drawn, whatever its style.
+  const mid = pointAlong(shape.points, polylineLength(shape.points) / 2);
+  const midX = mid.x;
+  const midY = mid.y;
 
   // Off screen at the far end: stubs; while lit (selected, or its tag hovered) the whole cable draws too.
   const stubTags =
@@ -132,18 +176,25 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
 
   function handleClick(event: ReactMouseEvent) {
     event.stopPropagation();
-    onSelect(cable.id);
+    // Where cables cross, the click selects the one the pointer picked (nearest, or Tabbed to).
+    const picked = store.getState().hoveredCableId;
+    onSelect(picked != null && store.getState().hoverStack.includes(picked) ? picked : cable.id);
+  }
+  function handlePointer(event: ReactMouseEvent) {
+    hoverCablesAt(store, rf.screenToFlowPosition({ x: event.clientX, y: event.clientY }));
   }
 
   return (
     <g
-      className={playing ? 'drawing-cable drawing-cable--fresh' : 'drawing-cable'}
+      className={['drawing-cable', playing ? 'drawing-cable--fresh' : '', style === 'faded' ? 'drawing-cable--faded' : ''].filter(Boolean).join(' ')}
       data-cable-id={cable.id}
+      data-cable-style={style}
       style={{ opacity, cursor: 'pointer' }}
       onClick={handleClick}
-      onMouseEnter={() => onHoverChange(cable.id)}
-      onMouseLeave={() => onHoverChange(null)}
     >
+      {/* Everything that draws the cable sits in one group the top layer can repeat
+          (`CableOverlayEdge.tsx`), so the cable being pointed at draws over the others. */}
+      <g id={visualGroupId(cable.id)}>
       {lit && (
         <path
           d={d}
@@ -157,7 +208,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
       {data.planMark != null && (
         <path d={d} fill="none" stroke={TONE_COLOUR[data.planMark.tone]} className="plan-mark__wash" strokeLinecap="round" />
       )}
-      {needsHairlineOutline(sheath) && data.troubleInk !== true && (
+      {needsHairlineOutline(sheath) && data.troubleInk !== true && !faded && (
         <path
           d={d}
           fill="none"
@@ -166,7 +217,9 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
           strokeLinecap="round"
         />
       )}
-      {cable.kind === 'fibre' ? (
+      {faded ? (
+        <FadedTips id={cable.id} d={d} points={shape.points} colour={colour} width={strokeWidth} />
+      ) : cable.kind === 'fibre' ? (
         <>
           <path d={d} fill="none" stroke={colour} strokeWidth={strokeWidth} strokeLinecap="round" strokeDasharray={dashArray} {...pull} />
           <path d={d} fill="none" stroke="var(--fibre-core)" strokeWidth="var(--fibre-core-w)" strokeLinecap="round" strokeDasharray={dashArray} {...pull} />
@@ -174,12 +227,61 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
       ) : (
         <path d={d} fill="none" stroke={colour} strokeWidth={strokeWidth} strokeLinecap="round" strokeDasharray={dashArray} {...pull} />
       )}
+      {style === 'tied' && data.ties?.map((t, i) => (
+        <line key={i} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} className="drawing-cable__tie" />
+      ))}
       {playing && <path d={d} fill="none" pathLength={1} strokeWidth={strokeWidth} strokeLinecap="round" className="drawing-cable__pulse" pointerEvents="none" />}
+      </g>
       {/* A fatter, invisible stroke widens the click/hover target beyond the
           cable's own thin line — the same reasoning UI-SPEC gives a port
           glyph ("ports fade in as they become big enough to hit"), applied
           to a line rather than a box. */}
-      <path d={d} fill="none" stroke="transparent" strokeWidth={12} pointerEvents="stroke" />
+      <path
+        d={d}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={12}
+        pointerEvents="stroke"
+        onMouseEnter={handlePointer}
+        onMouseMove={handlePointer}
+        onMouseLeave={handlePointer}
+      />
+      {/* A bundle's ties can be picked up and dropped onto a tray or lacing bar, where they clip on. */}
+      {style === 'tied' &&
+        data.onClipTie != null &&
+        data.ties?.map((t, i) => (
+          <line
+            key={`grab-${i}`}
+            x1={t.x1}
+            y1={t.y1}
+            x2={t.x2}
+            y2={t.y2}
+            stroke="transparent"
+            strokeWidth={10}
+            pointerEvents="stroke"
+            className="drawing-cable__tie-grab nodrag nopan"
+            data-testid="cable-tie-grab"
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              event.stopPropagation();
+              (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
+              setTieDrag({ p: rf.screenToFlowPosition({ x: event.clientX, y: event.clientY }), cableIds: t.cableIds ?? [cable.id] });
+            }}
+            onPointerMove={(event) => {
+              if (tieDrag == null) return;
+              setTieDrag({ ...tieDrag, p: rf.screenToFlowPosition({ x: event.clientX, y: event.clientY }) });
+            }}
+            onPointerUp={() => {
+              if (tieDrag != null) data.onClipTie?.(tieDrag.p, tieDrag.cableIds);
+              setTieDrag(null);
+            }}
+            onPointerCancel={() => setTieDrag(null)}
+            onClick={(event) => event.stopPropagation()}
+          />
+        ))}
+      {tieDrag != null && (
+        <line x1={tieDrag.p.x - 7} y1={tieDrag.p.y} x2={tieDrag.p.x + 7} y2={tieDrag.p.y} className="drawing-cable__tie drawing-cable__tie--dragging" pointerEvents="none" />
+      )}
       {data.planMark != null && data.planMark.dashed && (
         <path d={d} fill="none" stroke={TONE_COLOUR[data.planMark.tone]} className="plan-mark__dash" strokeDasharray="5 3" strokeLinecap="round" pointerEvents="none" />
       )}
@@ -209,4 +311,9 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
       )}
     </g>
   );
+}
+
+/** The id of the group holding everything a cable draws, for the top layer to repeat. */
+export function visualGroupId(cableId: string): string {
+  return `cable-v-${cableId}`;
 }

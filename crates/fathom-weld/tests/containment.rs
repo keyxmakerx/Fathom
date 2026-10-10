@@ -150,7 +150,9 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // `HasIssueStep`, +1; `Issue` and `IssueStep` join `Placeable`, +2 (their pins).
     // 139 -> 140 (firmware targets, schema 0.19): `HasFirmwareTarget` reads `from: [root]`, +0;
     // `FirmwareTarget` joins `Placeable`, +1 (its pin).
-    assert_eq!(resolved, 140, "the containment pair set moved");
+    // 140 -> 145 (cable runs and ties, schema 0.21): `HasCableRun` (Rack, CableRun) and
+    // (Surface, CableRun), +2; `HasCableTie` (CableRun, CableTie), +1; both join `Placeable`, +2.
+    assert_eq!(resolved, 145, "the containment pair set moved");
 
     // The 43 containment kinds are all still containment kinds, and every
     // kind but `LearnedRoute` and `Site` is somebody's containment child.
@@ -183,7 +185,9 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // 60 (custom-field values, schema 0.16): `HasFieldValue` (Fieldable -> FieldValue).
     // 62 (troubleshooting, schema 0.18): `HasIssue` (root -> Issue), `HasIssueStep` (issue -> step).
     // 63 (firmware targets, schema 0.19): `HasFirmwareTarget` (root -> FirmwareTarget).
-    assert_eq!(containment, 63);
+    // 65 (cable runs and ties, schema 0.21): `HasCableRun` (Rack/Surface -> CableRun),
+    // `HasCableTie` (CableRun -> CableTie). `Ties` is REFERENCE and does not count here.
+    assert_eq!(containment, 65);
     let orphans: Vec<&str> = NodeKind::ALL
         .into_iter()
         .filter(|child| {

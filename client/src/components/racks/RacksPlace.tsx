@@ -61,6 +61,7 @@ import { DiagramDrawing } from '../drawing/DiagramDrawing';
 import { layerWords } from '../drawing/layerLabels';
 import { layerOn, loadLayers, saveLayers, type LayerId, type LayerSet } from '../drawing/layers';
 import { loadDiagramStyle, saveDiagramStyle, type DiagramStyle } from '../drawing/diagramStyle';
+import { loadCableStyle, saveCableStyle, type CableStyle } from '../drawing/cableStyle';
 import { loadLook, saveLook, type Look } from '../drawing/look';
 import { InsideStop } from '../inside/InsideStop';
 import { ChecksBarChip, ChecksSurface } from '../checks/ChecksPanel';
@@ -350,6 +351,16 @@ export function RacksPlace(props: RacksPlaceProps) {
   // Boxes or Icons in the Diagram look: this person's choice, kept in this browser.
   const [diagramStyle, setDiagramStyleState] = useState<DiagramStyle>(() => loadDiagramStyle(accountId, session.designId));
   useEffect(() => setDiagramStyleState(loadDiagramStyle(accountId, session.designId)), [accountId, session.designId]);
+  // The cable style is this person's own, across designs (round 15).
+  const [cableStyle, setCableStyleState] = useState<CableStyle>(() => loadCableStyle(accountId));
+  useEffect(() => setCableStyleState(loadCableStyle(accountId)), [accountId]);
+  const changeCableStyle = useCallback(
+    (next: CableStyle) => {
+      setCableStyleState(next);
+      saveCableStyle(accountId, next);
+    },
+    [accountId],
+  );
   const changeDiagramStyle = useCallback(
     (next: DiagramStyle) => {
       setDiagramStyleState(next);
@@ -1644,7 +1655,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
-    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, aids: showAids }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, cables: look === 'diagram' ? undefined : { value: cableStyle, onChange: changeCableStyle }, aids: showAids }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
         doc != null ? (
           <div className="shell-bar__undoredo">
             <PlansBarChip controller={plans} />
@@ -1694,6 +1705,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           cameraHub={cameraHub}
           keyCableIds={keyOn ? keyCableIds : null}
           minimap={canvasAids.prefs.minimap}
+          cableStyle={cableStyle}
+          onEdit={canDraw ? handleEdit : undefined}
           initialViewport={resumeView.initialViewport}
           onViewportSettled={resumeView.onViewportSettled}
           onPlace={handlePlace}

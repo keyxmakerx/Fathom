@@ -1,6 +1,7 @@
 /** Field-by-field equality for what each drawing node renders from, so a
  * rebuilt view object counts as changed only where a node draws differently. */
 
+import type { CableRunView } from '../../document/cableRuns';
 import type { ChassisView, InletView, PortView, Sheath } from './contract';
 import type { FixtureView, OccupantView, ShelfView } from '../../document/view';
 import type { FaceplateItem } from './elevation';
@@ -137,7 +138,7 @@ export function placementEqual(a: SurfacePlacement, b: SurfacePlacement): boolea
   const sa = a.surface;
   const sb = b.surface;
   if (sa.id !== sb.id || sa.label !== sb.label || sa.form !== sb.form || sa.widthMm !== sb.widthMm || sa.heightMm !== sb.heightMm) return false;
-  return fixturesEqual(sa.fixtures, sb.fixtures);
+  return fixturesEqual(sa.fixtures, sb.fixtures) && cableRunsEqual(sa.cableRuns, sb.cableRuns);
 }
 
 export function portalGroupEqual(a: PortalGroup, b: PortalGroup): boolean {
@@ -163,10 +164,31 @@ export interface RackSnapshot {
   label: string;
   heightU: number;
   freeRuns: readonly { fromU: number; toU: number }[];
+  /** Schema 0.21: the rack's trays and lacing bars, with their ties. */
+  cableRuns?: readonly CableRunView[];
 }
 
 export function rackSnapshotEqual(a: RackSnapshot, b: RackSnapshot): boolean {
-  return a.label === b.label && a.heightU === b.heightU && freeRunsEqual(a.freeRuns, b.freeRuns);
+  return a.label === b.label && a.heightU === b.heightU && freeRunsEqual(a.freeRuns, b.freeRuns) && cableRunsEqual(a.cableRuns, b.cableRuns);
+}
+
+function cableRunsEqual(a: readonly CableRunView[] | undefined, b: readonly CableRunView[] | undefined): boolean {
+  const x = a ?? [];
+  const y = b ?? [];
+  return (
+    x.length === y.length &&
+    x.every((r, i) => {
+      const s = y[i]!;
+      return (
+        r.id === s.id &&
+        r.form === s.form &&
+        r.side === s.side &&
+        r.label === s.label &&
+        r.ties.length === s.ties.length &&
+        r.ties.every((t, j) => t.id === s.ties[j]!.id && t.at === s.ties[j]!.at && t.cableIds.join() === s.ties[j]!.cableIds.join())
+      );
+    })
+  );
 }
 
 function faceplateItemEqual(a: FaceplateItem, b: FaceplateItem): boolean {

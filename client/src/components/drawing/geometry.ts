@@ -352,13 +352,31 @@ export function cableSagPath(
   y2: number,
   kind: CableKind = 'copper',
 ): string {
+  return cubicPath(cableSagCubic(x1, y1, x2, y2, kind));
+}
+
+/** A cubic Bézier: its two ends and two control points. */
+export interface Cubic {
+  p0: { x: number; y: number };
+  c1: { x: number; y: number };
+  c2: { x: number; y: number };
+  p3: { x: number; y: number };
+}
+
+export function cubicPath(c: Cubic): string {
+  return `M ${c.p0.x} ${c.p0.y} C ${c.c1.x} ${c.c1.y}, ${c.c2.x} ${c.c2.y}, ${c.p3.x} ${c.p3.y}`;
+}
+
+/** `cableSagPath`'s curve as points, so a cable style can move its control points (the physics sway). */
+export function cableSagCubic(x1: number, y1: number, x2: number, y2: number, kind: CableKind = 'copper'): Cubic {
   const sag = cableSagPx(y2 - y1);
   const bias = laneBiasPx(kind);
-  const c1x = x1 + sag + bias;
-  const c1y = y1 + sag * 0.6;
-  const c2x = x2 + sag * 0.35 + bias;
-  const c2y = y2 - sag * 0.5;
-  return `M ${x1} ${y1} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${x2} ${y2}`;
+  return {
+    p0: { x: x1, y: y1 },
+    c1: { x: x1 + sag + bias, y: y1 + sag * 0.6 },
+    c2: { x: x2 + sag * 0.35 + bias, y: y2 - sag * 0.5 },
+    p3: { x: x2, y: y2 },
+  };
 }
 
 /**

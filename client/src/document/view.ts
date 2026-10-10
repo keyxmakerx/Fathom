@@ -13,6 +13,7 @@
 // `SitsOn` / `FixedTo` is live for it — `commands.ts`'s `movePlacement` is
 // this module's write-side mirror: exactly one of the three survives.
 
+import { cableRunsOf, type CableRunView } from './cableRuns';
 import { connectorTokenOf } from './compat';
 import { labelView, lineEnds, lineLabelOf, liveLabelNodes, liveLineNodes, pinOf } from './freeform';
 import type {
@@ -228,6 +229,9 @@ export interface RackView {
    * yet). */
   row: string | null;
   bay: number | null;
+  /** Schema 0.21: the trays and lacing bars on this rack, each with its ties. Absent in views
+   * built by hand before runs existed; read as none. */
+  cableRuns?: CableRunView[];
 }
 
 /** ADR-0051 §1 — one item `SitsOn` a shelf: a mini PC, a desktop switch, an
@@ -296,6 +300,8 @@ export interface SurfaceView {
   widthMm: number | null;
   heightMm: number | null;
   fixtures: FixtureView[];
+  /** Schema 0.21: the trays and lacing bars on this wall, each with its ties. */
+  cableRuns?: CableRunView[];
 }
 
 /** One row of the closet, as seen from the front (ADR-0050 §2): racks by
@@ -1016,6 +1022,7 @@ function surfaceView(
     widthMm: fields.widthMm ?? null,
     heightMm: fields.heightMm ?? null,
     fixtures,
+    cableRuns: cableRunsOf(doc, surfaceId),
   };
 }
 
@@ -1081,6 +1088,7 @@ function rackView(
     freeRuns: freeRuns(heightU, occupied),
     row: fields.row ?? null,
     bay: fields.bay ?? null,
+    cableRuns: cableRunsOf(doc, rackId),
   };
 }
 

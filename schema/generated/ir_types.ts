@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.20";
+export const SCHEMA_VERSION = "0.21";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -76,7 +76,9 @@ export type NodeKind =
   | "FieldValue"
   | "Issue"
   | "IssueStep"
-  | "FirmwareTarget";
+  | "FirmwareTarget"
+  | "CableRun"
+  | "CableTie";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -148,6 +150,8 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "Issue",
   "IssueStep",
   "FirmwareTarget",
+  "CableRun",
+  "CableTie",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -264,7 +268,10 @@ export type EdgeKind =
   | "HasDocLink"
   | "HasDocFile"
   | "HasFieldValue"
-  | "HasFirmwareTarget";
+  | "HasFirmwareTarget"
+  | "HasCableRun"
+  | "HasCableTie"
+  | "Ties";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -379,6 +386,9 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDocFile",
   "HasFieldValue",
   "HasFirmwareTarget",
+  "HasCableRun",
+  "HasCableTie",
+  "Ties",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -532,6 +542,8 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Issue: ["title", "device", "author", "opened_at", "stage", "outcome", "plan"],
   IssueStep: ["ordinal", "topic", "question", "detail", "targets", "answer", "note", "answered_at"],
   FirmwareTarget: ["model", "version", "platform", "image", "image_sha256", "note"],
+  CableRun: ["form", "side", "label"],
+  CableTie: ["at"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -943,4 +955,8 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "Device.firmware_hold": 411,
   "PhysicalPort.plate_x": 412,
   "PhysicalPort.plate_y": 413,
+  "CableRun.form": 414,
+  "CableRun.side": 415,
+  "CableRun.label": 416,
+  "CableTie.at": 417,
 };

@@ -2087,6 +2087,32 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(410))
         }
     }
+    /// Typed reads for `CableRun` fields.
+    pub mod cable_run {
+        /// `CableRun.form` — `enum { tray, lacing_bar }`, card `1`, emit `—`.
+        /// A tray carries cables across; a lacing bar holds them up a rack's rails.
+        pub fn form<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::CableRunForm, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(414))
+        }
+        /// `CableRun.side` — `enum { left, right, top, bottom }`, card `1`, emit `—`.
+        /// Which side of its rack or wall it runs along, whole length.
+        pub fn side<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::CableRunSide, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(415))
+        }
+        /// `CableRun.label` — `Text`, card `0..1`, emit `—`.
+        /// Words for it.
+        pub fn label<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(416))
+        }
+    }
+    /// Typed reads for `CableTie` fields.
+    pub mod cable_tie {
+        /// `CableTie.at` — `u16`, card `1`, emit `—`.
+        /// Where along its run, in thousandths of the run's length from its top or left end (0-1000).
+        pub fn at<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u16, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(417))
+        }
+    }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
     /// path the read accessors use, for every entry in the field-key registry,
     /// node and edge fields alike. `None` for a key this schema version does
@@ -2500,6 +2526,10 @@ mod body {
             411 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             412 => Some((core::any::TypeId::of::<u16>(), "u16")),
             413 => Some((core::any::TypeId::of::<u16>(), "u16")),
+            414 => Some((core::any::TypeId::of::<crate::generated::ir_types::CableRunForm>(), "crate::generated::ir_types::CableRunForm")),
+            415 => Some((core::any::TypeId::of::<crate::generated::ir_types::CableRunSide>(), "crate::generated::ir_types::CableRunSide")),
+            416 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            417 => Some((core::any::TypeId::of::<u16>(), "u16")),
             _ => None,
         }
     }
@@ -2915,6 +2945,10 @@ mod body {
             411 => crate::canon::slot_to::<crate::scalar::Text>(411, "crate::scalar::Text", value),
             412 => crate::canon::slot_to::<u16>(412, "u16", value),
             413 => crate::canon::slot_to::<u16>(413, "u16", value),
+            414 => crate::canon::slot_to::<crate::generated::ir_types::CableRunForm>(414, "crate::generated::ir_types::CableRunForm", value),
+            415 => crate::canon::slot_to::<crate::generated::ir_types::CableRunSide>(415, "crate::generated::ir_types::CableRunSide", value),
+            416 => crate::canon::slot_to::<crate::scalar::Text>(416, "crate::scalar::Text", value),
+            417 => crate::canon::slot_to::<u16>(417, "u16", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -3328,6 +3362,10 @@ mod body {
             411 => crate::canon::slot_from::<crate::scalar::Text>(j),
             412 => crate::canon::slot_from::<u16>(j),
             413 => crate::canon::slot_from::<u16>(j),
+            414 => crate::canon::slot_from::<crate::generated::ir_types::CableRunForm>(j),
+            415 => crate::canon::slot_from::<crate::generated::ir_types::CableRunSide>(j),
+            416 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            417 => crate::canon::slot_from::<u16>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

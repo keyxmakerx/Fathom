@@ -172,7 +172,7 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
 
       const rackSnapshot = caches.rackSnapshotRef.get(
         rack.id,
-        { label: rack.label, heightU: rack.heightU, freeRuns: sortFreeRuns(rack.freeRuns) },
+        { label: rack.label, heightU: rack.heightU, freeRuns: sortFreeRuns(rack.freeRuns), cableRuns: rack.cableRuns },
         rackSnapshotEqual,
       );
       nodes.push(

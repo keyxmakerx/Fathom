@@ -67,7 +67,7 @@ export interface ShellProps {
   onLensChange: (lens: Lens) => void;
 
   /** The Show ▾ menu of canvas layers (Racks place only). */
-  layers?: { value: import('../drawing/layers').LayerSet; onToggle: (id: import('../drawing/layers').LayerId) => void; style?: { value: import('../drawing/diagramStyle').DiagramStyle; onChange: (style: import('../drawing/diagramStyle').DiagramStyle) => void }; aids?: ShowAids };
+  layers?: { value: import('../drawing/layers').LayerSet; onToggle: (id: import('../drawing/layers').LayerId) => void; style?: { value: import('../drawing/diagramStyle').DiagramStyle; onChange: (style: import('../drawing/diagramStyle').DiagramStyle) => void }; cables?: { value: import('../drawing/cableStyle').CableStyle; onChange: (style: import('../drawing/cableStyle').CableStyle) => void }; aids?: ShowAids };
   /** The Views menu, drawn beside Show: named camera positions with their layers (Racks place only). */
   views?: ReactNode;
   /** The same views as rows, for the View ▾ menu the bar folds into when it is narrow. */

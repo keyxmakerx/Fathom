@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.20"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.21"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -277,6 +277,14 @@ schema:
                     # `note`, on Label.form: a sticky note pinned to the canvas. 62 §16.2: "New
                     # optional field" is minor, twice; "New enum variant" is minor. No kind, edge
                     # or key moved. Whole change = MINOR. The reader still opens 0.10 to 0.19.
+                    #
+                    # 0.21 is cable runs and ties (round 15 cable styles, 2026-10-10), all
+                    # additive: two node kinds, CableRun (a tray or lacing bar along one side of a
+                    # rack or wall) and CableTie (a tie clipped somewhere along a run); three edge
+                    # kinds, HasCableRun (containment from Rack or Surface), HasCableTie
+                    # (containment from CableRun) and Ties (reference, CableTie to the Cables it
+                    # holds); four field keys (414-417). 62 §16.2: new kinds and edges are minor.
+                    # Whole change = MINOR. The reader still opens 0.10 to 0.20.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -506,6 +514,9 @@ classes:
       - IssueStep
       # Firmware targets (0.19): joins Placeable as Tag does; the client draws no box.
       - FirmwareTarget
+      # Cable runs and ties (0.21): join Placeable as Tag does; drawn on their rack or wall.
+      - CableRun
+      - CableTie
       # Custom-field values (0.16): joins Placeable as Tag does; the client draws no box.
       - FieldValue
     doc: |
@@ -2091,6 +2102,30 @@ kinds:
     identity:
       - [ model ]
 
+  # Cable runs and ties (round 15 cable styles, 2026-10-10). Appended at the tail (62 §13).
+  - kind: CableRun
+    layer: physical
+    emits: false
+    doc: |
+      Somewhere cables are dressed along: a tray, or a lacing bar on a rack's rails. An
+      optional attachment to a rack or a wall (Surface), running the length of one of its
+      sides. Ties clip onto it. NOTHING PARSES A RUN, as nothing parses a rack.
+    fields:
+      - { name: form, type: "enum { tray, lacing_bar }", card: "1", emit: "—", doc: "A tray carries cables across; a lacing bar holds them up a rack's rails." }
+      - { name: side, type: "enum { left, right, top, bottom }", card: "1", emit: "—", doc: "Which side of its rack or wall it runs along, whole length." }
+      - { name: label, type: Text, card: "0..1", emit: "—", doc: Words for it. }
+    identity: []
+
+  - kind: CableTie
+    layer: physical
+    emits: false
+    doc: |
+      A cable tie clipped onto a run, holding the cables that pass through it (the Ties edges).
+      Moving it along the run changes `at`; the cables held follow it in the cable-tied style.
+    fields:
+      - { name: at, type: u16, card: "1", emit: "—", doc: "Where along its run, in thousandths of the run's length from its top or left end (0-1000)." }
+    identity: []
+
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
   # require reverse adjacency, and ADR-0007's reverse index already guarantees it (11 §14.3).
@@ -3636,6 +3671,41 @@ edges:
     fields: []
     emit_dict: null
     doc: Firmware targets hang off the design root as Tag does.
+
+  # Cable runs and ties (round 15 cable styles, 2026-10-10). Appended at the tail (62 §13).
+  - edge: HasCableRun
+    class: containment
+    from: [Rack, Surface]
+    to: [CableRun]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: A run is part of the rack or wall it is fixed to; removing that takes the run and its ties.
+  - edge: HasCableTie
+    class: containment
+    from: [CableRun]
+    to: [CableTie]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: A tie is clipped onto one run; removing the run takes its ties.
+  - edge: Ties
+    class: reference
+    from: [CableTie]
+    to: [Cable]
+    out: "0..n"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: The cables a tie holds. Removing a cable drops it from the tie; the tie stays.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load

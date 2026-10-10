@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { menuItemsFor, type MenuActions } from './contextMenuItems';
 
-function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'onPlanFirmware' | 'firmwareNeedsVersion'>> {
+function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'onPlanFirmware' | 'firmwareNeedsVersion' | 'onAddCableRun' | 'onRemoveCableRun' | 'cableRunsOn'>> {
   return {
     onSelect: vi.fn(),
     onOpen: vi.fn(),
@@ -24,6 +24,31 @@ function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'o
 }
 
 describe('menuItemsFor', () => {
+  it('offers cable runs on a wall too', () => {
+    const add = vi.fn();
+    const items = menuItemsFor({ kind: 'surface', id: 'w1' }, { ...actions(), onAddCableRun: add, onRemoveCableRun: vi.fn(), cableRunsOn: () => [] });
+    expect(items.map((i) => i.label)).toEqual(['Add a lacing bar on the left', 'Add a lacing bar on the right', 'Add a cable tray on top']);
+    expect(menuItemsFor({ kind: 'surface', id: 'w1' }, actions())).toEqual([]);
+  });
+
+  it('offers a lacing bar or tray on each free side of a rack, and removal of each run there', () => {
+    const add = vi.fn();
+    const remove = vi.fn();
+    const run = { id: 'run1', hostId: 'r1', form: 'lacing_bar' as const, side: 'left' as const, label: null, ties: [] };
+    const items = menuItemsFor({ kind: 'rack', id: 'r1' }, { ...actions(), onAddCableRun: add, onRemoveCableRun: remove, cableRunsOn: () => [run] });
+    const labels = items.map((i) => i.label);
+    expect(labels).not.toContain('Add a lacing bar on the left');
+    expect(labels).toContain('Add a lacing bar on the right');
+    expect(labels).toContain('Add a cable tray on top');
+    items.find((i) => i.label === 'Add a cable tray on top')!.onSelect();
+    expect(add).toHaveBeenCalledWith('r1', 'tray', 'top');
+    const off = items.find((i) => i.label === 'Remove the left lacing bar')!;
+    expect(off.danger).toBe(true);
+    off.onSelect();
+    expect(remove).toHaveBeenCalledWith('run1');
+  });
+
+
   it('offers Plan a firmware upgrade beside Plan a change, and says when a version must be chosen first', () => {
     const go = vi.fn();
     const base = { ...actions(), onPlanChange: vi.fn(), onPlanFirmware: go };

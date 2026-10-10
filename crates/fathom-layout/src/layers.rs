@@ -391,6 +391,9 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         | NodeKind::IssueStep
         //     Firmware targets (0.19): listed by the client, never laid out.
         | NodeKind::FirmwareTarget
+        //     Cable runs and ties (0.21): drawn on their rack or wall, never as a box.
+        | NodeKind::CableRun
+        | NodeKind::CableTie
         //     Custom fields (0.16): a value is text with no geometry,
         //     UNTABLED like `Tag`.
         | NodeKind::FieldValue

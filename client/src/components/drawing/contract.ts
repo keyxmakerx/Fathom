@@ -236,7 +236,14 @@ export type EditorChange =
   | { kind: 'line'; id: string; field: 'label'; value: string | null }
   | { kind: 'free-remove'; id: string }
   /** A shelf's height in units or its slot count, from the details panel. */
-  | { kind: 'shelf-size'; id: string; heightU?: number; slots?: number };
+  | { kind: 'shelf-size'; id: string; heightU?: number; slots?: number }
+  /** Cable runs and ties (schema 0.21): a tray or lacing bar on one side of a rack or wall, and
+   * the ties clipped onto it (`document/cableRuns.ts`). */
+  | { kind: 'cable-run-add'; hostId: string; form: 'tray' | 'lacing_bar'; side: 'left' | 'right' | 'top' | 'bottom' }
+  | { kind: 'cable-run-remove'; id: string }
+  | { kind: 'cable-tie-add'; runId: string; at: number; cableIds: readonly string[] }
+  | { kind: 'cable-tie-move'; id: string; at: number }
+  | { kind: 'cable-tie-remove'; id: string };
 
 /** What the editor raises. Like `DrawingActions`, it never acts on the graph
  * itself — the caller turns a change into a real edit through

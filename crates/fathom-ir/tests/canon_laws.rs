@@ -188,7 +188,10 @@ fn schema_version_is_the_trees() {
     //
     // 0.19 -> 0.20: the owner's ticked ideas. Two optional fields, `PhysicalPort.plate_x` and
     // `.plate_y` (412-413), and a `note` variant on `Label.form`; all MINOR.
-    assert_eq!(SCHEMA_VERSION, "0.20");
+    //
+    // 0.20 -> 0.21: cable runs and ties. Two node kinds (`CableRun`, `CableTie`), three edge kinds
+    // (`HasCableRun`, `HasCableTie`, `Ties`), four field keys (414-417); all MINOR.
+    assert_eq!(SCHEMA_VERSION, "0.21");
 }
 
 #[test]
@@ -715,7 +718,8 @@ fn dispatch_names_every_registry_key() {
     //
     // 404 -> 411: firmware targets' seven keys (405-411).
     // 411 -> 413: the ticked ideas' `PhysicalPort.plate_x` and `.plate_y` (412-413).
-    assert_eq!(FIELD_KEYS.len(), 407, "the registry grew or shrank");
+    // 413 -> 417: cable runs and ties (414-417).
+    assert_eq!(FIELD_KEYS.len(), 411, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.
