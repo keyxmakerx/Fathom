@@ -37,7 +37,7 @@ describe('recent', () => {
     let r = EMPTY_RECENT;
     for (let i = 0; i < 9; i++) r = withDesign(r, { organisationId: 'o', designId: `d${i}`, at: i });
     r = withDesign(r, { organisationId: 'o', designId: 'gone', at: 100 });
-    r = withDesign(r, { organisationId: 'other', designId: 'd3', at: 101 });
+    r = withDesign(r, { organisationId: 'other', designId: 'd99', at: 101 });
     const listed = Array.from({ length: 9 }, (_, i) => design(`d${i}`));
     const view = visibleRecent(r, 'o', listed);
     expect(view.designs.map((d) => d.design.designId)).toEqual(['d8', 'd7', 'd6', 'd5', 'd4', 'd3']);
