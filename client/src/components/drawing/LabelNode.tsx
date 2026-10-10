@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import type { Node, NodeProps } from '@xyflow/react';
 
 import { AREA_MIN_H, AREA_MIN_W } from '../../document/freeform';
 import { NoteCard } from './NoteCard';
+import { useEditFocus } from './useEditFocus';
 import { useGripDrag, type GripDrag } from './useGripDrag';
 
 /** A text label, an area (a labelled rectangle that groups things by meaning), or a note pinned to the canvas. */
@@ -24,10 +25,7 @@ export type LabelNodeType = Node<LabelNodeData, 'label'>;
 
 function TextEditor({ data }: { data: LabelNodeData }) {
   const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    ref.current?.focus();
-    ref.current?.select();
-  }, []);
+  const onBlur = useEditFocus(ref, (value) => data.onEdit(value));
   return (
     <input
       ref={ref}
@@ -40,7 +38,7 @@ function TextEditor({ data }: { data: LabelNodeData }) {
         if (e.key === 'Enter') data.onEdit(e.currentTarget.value);
         if (e.key === 'Escape') data.onEdit(null);
       }}
-      onBlur={(e) => data.onEdit(e.currentTarget.value)}
+      onBlur={onBlur}
     />
   );
 }

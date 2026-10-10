@@ -389,6 +389,13 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
 
   const nodes = useMemo<RFNode[]>(() => {
     const out: RFNode[] = [];
+    // React Flow hides a node it has no size for, and this layer rebuilds its nodes on every change
+    // without being told the sizes back, so each rebuild would hide every box for a frame (and drop
+    // the focus of a note being typed into). Hand back the size React Flow already measured.
+    const sizeKnown = (id: string): { measured?: { width: number; height: number } } => {
+      const m = rf.getInternalNode(id)?.measured;
+      return m?.width != null && m.height != null ? { measured: { width: m.width, height: m.height } } : {};
+    };
     for (const l of labels) {
       const id = labelNodeId(l.id);
       const size = sizeOf(id);
@@ -419,6 +426,7 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
         selected: selSet.has(id),
         draggable: canDraw && editing !== l.id,
         zIndex: l.form === 'area' ? 0 : 3,
+        ...sizeKnown(id),
       } satisfies RFNode);
     }
     for (const b of boxes) {
@@ -431,10 +439,10 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
         onSquare: (side, drag, cancelled) => squareEnd(b.id, side, drag, cancelled),
         onSquareMove: (side, drag) => squareMove(b.id, side, drag),
       };
-      out.push({ id, type: 'freeBox', position: posOf(id), data, selected: selSet.has(id), draggable: canDraw, zIndex: 2 } satisfies RFNode);
+      out.push({ id, type: 'freeBox', position: posOf(id), data, selected: selSet.has(id), draggable: canDraw, zIndex: 2, ...sizeKnown(id) } satisfies RFNode);
     }
     return out;
-  }, [labels, boxes, editing, canDraw, selSet, posOf, sizeOf, squares, squareEnd, squareMove, actions]);
+  }, [labels, boxes, editing, canDraw, selSet, posOf, sizeOf, squares, squareEnd, squareMove, actions, rf]);
 
   const edges = useMemo<RFEdge[]>(
     () =>

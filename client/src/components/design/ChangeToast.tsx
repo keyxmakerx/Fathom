@@ -112,13 +112,15 @@ export function ChangeToast({ doc, accountId, undoBatchId, redoBatchId, onUndo, 
           ? ('Undo' as const)
           : null;
   const stale = shown != null && action == null;
+  const staleKey = stale ? shown.key : null;
   useEffect(() => {
-    if (stale) {
-      clearTimers();
-      setShown(null);
-      setLeaving(false);
-    }
-  }, [stale, clearTimers]);
+    if (staleKey == null) return;
+    // Only the note that went stale: a fresh change in the same render has already replaced it.
+    if (keyRef.current !== staleKey) return;
+    clearTimers();
+    setShown((s) => (s?.key === staleKey ? null : s));
+    setLeaving(false);
+  }, [staleKey, clearTimers]);
 
   const hold = useCallback(() => {
     heldRef.current = true;
