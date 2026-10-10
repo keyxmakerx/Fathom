@@ -5,12 +5,14 @@ import { Editor, type EditorProps } from './Editor';
 import type { PanelId } from './panelSizing';
 import type { RightTab } from './useRightTab';
 
-const PANEL_OF: Record<RightTab, PanelId> = { details: 'details', history: 'history', trail: 'trail' };
-const NAME_OF: Record<RightTab, string> = { details: 'Details', history: 'History', trail: 'Trail' };
+/** The width each tab remembers; the Equipment list keeps the width it had on the left. */
+export const PANEL_OF: Record<RightTab, PanelId> = { equipment: 'rail', details: 'details', history: 'history', trail: 'trail' };
+const NAME_OF: Record<RightTab, string> = { equipment: 'Equipment', details: 'Details', history: 'History', trail: 'Trail' };
 
 export interface RightDockProps {
   shown: RightTab | null;
   /** What each tab holds; a tab with nothing behind it is not drawn. */
+  equipment?: ReactNode | null;
   details: ReactNode | null;
   history: ReactNode | null;
   trail: ReactNode | null;
@@ -29,11 +31,12 @@ export interface RightDockProps {
 }
 
 /**
- * The right-hand edge: one slot whose tabs are the selection's Details, History and the Trail.
+ * The right-hand edge: one slot whose tabs are Equipment, the selection's Details, History and the Trail.
  * Folded, it is a slim strip of labelled tabs; open, one panel slides out beside the strip.
  */
 export function RightDock({
   shown,
+  equipment = null,
   details,
   history,
   trail,
@@ -51,11 +54,16 @@ export function RightDock({
   const last = useRef<RightTab>('details');
   if (shown != null) last.current = shown;
   const tab = shown ?? last.current;
+  const hasEquipment = equipment != null;
   const hasDetails = details != null;
   const hasTrail = trail != null;
   const press = (t: RightTab) => (shown === t ? onFold(t) : onChoose(t));
   const content =
-    shown === 'details' ? (
+    shown === 'equipment' ? (
+      <nav className="shell-rail" aria-label="Equipment">
+        {equipment}
+      </nav>
+    ) : shown === 'details' ? (
       <Editor {...editorProps}>{details}</Editor>
     ) : shown === 'history' ? (
       <aside className="shell-editor" aria-label="History">
@@ -67,7 +75,7 @@ export function RightDock({
       </aside>
     ) : null;
 
-  if (!hasDetails && !canOpenHistory && !hasTrail) return null;
+  if (!hasEquipment && !hasDetails && !canOpenHistory && !hasTrail) return null;
   return (
     <div className="dock-right">
       <DockSlot
@@ -84,6 +92,15 @@ export function RightDock({
         {content}
       </DockSlot>
       <div className="dock-strip dock-strip--right" role="group" aria-label="Side panels">
+        {hasEquipment && (
+          <DockTab
+            label="Equipment"
+            name={shown === 'equipment' ? 'Close the equipment list' : 'Open the equipment list'}
+            open={shown === 'equipment'}
+            testId="dock-equipment"
+            onClick={() => press('equipment')}
+          />
+        )}
         {hasDetails && <DockTab label="Details" name={shown === 'details' ? 'Close the details' : 'Open the details'} open={shown === 'details'} testId="dock-details" onClick={() => press('details')} />}
         {canOpenHistory && (
           <DockTab

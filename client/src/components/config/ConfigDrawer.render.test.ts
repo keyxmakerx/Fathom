@@ -108,7 +108,14 @@ describe('ConfigDrawer (render-to-string)', () => {
 
   it('shows the empty state when there is no capture yet', () => {
     const markup = render(baseProps({ capture: null }));
-    expect(markup).toContain('No config captured for this device yet.');
+    expect(markup).toContain('No configs yet');
+  });
+
+  it('tells a writer to paste, and that credentials are removed before saving, with the one button', () => {
+    const markup = render(baseProps({ capture: null, canDraw: true }));
+    expect(markup).toContain('Paste or drop a running config. Credentials are removed before anything is saved.');
+    expect(markup).toContain('class="empty-state__action"');
+    expect(markup).toContain('>Paste a config</button>');
   });
 
   it('shows the refusal as a wash when the engine refuses, only alongside the paste box', () => {

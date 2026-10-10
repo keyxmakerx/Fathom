@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { defaultLayers } from './layers';
-import { addView, layersSummary, MAX_NAME, MAX_VIEWS, parseViews, removeView, renameView, tidyName, viewsKey, type SavedView } from './savedViews';
+import { addView, layersSummary, MAX_NAME, MAX_VIEWS, parseViews, removeView, renameView, tidyName, viewIsCurrent, viewsKey, type SavedView } from './savedViews';
 
 const view = (id: string, name: string): SavedView => ({ id, name, look: 'rack', camera: { x: 1, y: 2, zoom: 1 }, layers: { ...defaultLayers(), vlans: true } });
 
@@ -47,5 +47,21 @@ describe('saved views', () => {
   it('say which layers a view turns on', () => {
     expect(layersSummary({ ...defaultLayers(), checks: false, vlans: true, tags: true }, { vlans: 'VLANs', tags: 'Tags' })).toBe('VLANs, Tags');
     expect(layersSummary({ ...defaultLayers(), checks: false }, {})).toBe('no layers');
+  });
+});
+
+describe('which saved view is showing', () => {
+  const v = view('a', 'Wall 1');
+  const now = { look: 'rack' as const, layers: v.layers, camera: { x: 1, y: 2, zoom: 1 } };
+  it('is the one with the same look, layers and camera', () => {
+    expect(viewIsCurrent(v, now)).toBe(true);
+    expect(viewIsCurrent(v, { ...now, camera: { x: 3, y: 4, zoom: 1.005 } })).toBe(true);
+  });
+  it('is none once the camera, layers or look move on', () => {
+    expect(viewIsCurrent(v, { ...now, camera: { x: 40, y: 2, zoom: 1 } })).toBe(false);
+    expect(viewIsCurrent(v, { ...now, camera: { x: 1, y: 2, zoom: 1.5 } })).toBe(false);
+    expect(viewIsCurrent(v, { ...now, layers: defaultLayers() })).toBe(false);
+    expect(viewIsCurrent(v, { ...now, look: 'diagram' })).toBe(false);
+    expect(viewIsCurrent(v, { ...now, camera: null })).toBe(false);
   });
 });

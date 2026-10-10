@@ -64,6 +64,8 @@ export interface ShellProps {
   layers?: { value: import('../drawing/layers').LayerSet; onToggle: (id: import('../drawing/layers').LayerId) => void; style?: { value: import('../drawing/diagramStyle').DiagramStyle; onChange: (style: import('../drawing/diagramStyle').DiagramStyle) => void } };
   /** The Views menu, drawn beside Show: named camera positions with their layers (Racks place only). */
   views?: ReactNode;
+  /** The same views as rows, for the View ▾ menu the bar folds into when it is narrow. */
+  viewsFolded?: ReactNode;
   /** The Rack | Diagram switch (Racks place only); absent where the look does not apply. */
   look?: { value: import('../drawing/look').Look; onChange: (look: import('../drawing/look').Look) => void };
 
@@ -148,9 +150,8 @@ export interface ShellProps {
   /** Which design this is, for remembering the open panels per person in this browser. */
   resume?: { accountId: string | null; designId: string };
 
-  /** Content for the folded rail's open state (`Strip`'s `nav`) — the
-   * palette, for the Racks place. Omitted or `null` falls back to `Strip`'s
-   * own honest empty state rather than inventing rail content. */
+  /** The Equipment tab's content in the right dock — the palette, for the
+   * Racks place. Omitted or `null` draws no Equipment tab. */
   rail?: ReactNode;
 
   /** The design's trail (ADR-0053 §4), folded to a strip on the right edge.

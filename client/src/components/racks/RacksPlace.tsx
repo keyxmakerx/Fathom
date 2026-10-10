@@ -1364,10 +1364,15 @@ export function RacksPlace(props: RacksPlaceProps) {
     const racked = chassisId !== null ? realView.racks.flatMap((r) => r.chassis).find((c) => c.id === chassisId) : undefined;
     const isFree = chassisId !== null && realView.free.some((f) => f.id === chassisId);
     const needDevice = 'Select a device first';
+    // Each action names its object ("Duplicate switch-1") once something is selected.
+    const freeBox = chassisId !== null ? realView.free.find((f) => f.id === chassisId) : undefined;
+    const deviceName = racked?.hostname || racked?.model || freeBox?.hostname || '';
+    const rackName = selection?.kind === 'rack' ? realView.racks.find((r) => r.id === selection.id)?.label ?? '' : '';
+    const named = (verb: string, name: string) => (name === '' ? verb : `${verb} ${name}`);
     const out: PaletteAction[] = [
       {
         id: 'trace',
-        label: 'Trace from here',
+        label: deviceName === '' ? 'Trace a path from a device' : `Trace a path from ${deviceName}`,
         keywords: ['path', 'follow', 'cable'],
         disabled: chassisId === null ? needDevice : undefined,
         run: () => chassisId !== null && trace.openFrom(chassisId),
@@ -1378,7 +1383,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     out.unshift(
       {
         id: 'add-port',
-        label: 'Add port',
+        label: deviceName === '' ? 'Add a port to a device' : `Add a port to ${deviceName}`,
         keywords: ['connector', 'interface'],
         disabled: chassisId === null ? needDevice : racked !== undefined && racked.model !== '' ? "This device's ports come from its model" : undefined,
         run: () => {
@@ -1390,14 +1395,14 @@ export function RacksPlace(props: RacksPlaceProps) {
       },
       {
         id: 'rename',
-        label: 'Rename',
+        label: named('Rename', deviceName || rackName),
         keywords: ['name', 'hostname', 'label'],
         disabled: renameTarget === null ? 'Select a device or rack first' : look === 'diagram' ? 'Switch to the Rack look to rename on the canvas' : undefined,
         run: () => renameTarget !== null && requestRename(renameTarget),
       },
       {
         id: 'duplicate',
-        label: 'Duplicate',
+        label: named('Duplicate', deviceName),
         hint: shortcutText('duplicate'),
         keywords: ['copy', 'clone'],
         disabled: racked === undefined && !isFree ? 'Select a device first' : undefined,
@@ -1409,7 +1414,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       },
       {
         id: 'delete',
-        label: selection?.kind === 'cable' ? 'Delete cable' : 'Delete',
+        label: selection?.kind === 'cable' ? 'Delete cable' : named('Delete', deviceName),
         hint: shortcutText('delete'),
         keywords: ['remove'],
         disabled: chassisId === null && selection?.kind !== 'cable' ? 'Select a device or cable first' : undefined,
@@ -1518,7 +1523,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
-    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle } }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle } }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
         doc != null ? (
           <>
             <PlansBarChip controller={plans} />

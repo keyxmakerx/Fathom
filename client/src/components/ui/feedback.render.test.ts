@@ -15,6 +15,15 @@ describe('EmptyState', () => {
     expect(html).toContain('>Add doc</button>');
   });
 
+  it('is the dashed box with a title, a sentence and one button', () => {
+    const html = renderToStaticMarkup(
+      createElement(EmptyState, { title: 'No configs yet', action: { label: 'Paste a config', onClick: () => {} } }, 'Paste or drop a running config. Credentials are removed before anything is saved.'),
+    );
+    expect(html).toContain('<div class="empty-state__title">No configs yet</div>');
+    expect(html).toContain('Credentials are removed before anything is saved.');
+    expect(html.match(/<button/g)).toHaveLength(1);
+  });
+
   it('draws no button where nothing fits, and keeps the caller\'s class', () => {
     const html = renderToStaticMarkup(createElement(EmptyState, { title: 'No changes yet.', className: 'racks-trail__empty' }, 'Edits are recorded here.'));
     expect(html).not.toContain('<button');

@@ -1,12 +1,10 @@
 import { useState } from 'react';
 
-import { getThemeChoice, setThemeChoice, THEME_CHOICES, type ThemeChoice } from '../theme';
+import { getThemeChoice, setThemeChoice, THEME_NAME, THEME_ORDER, type ThemeChoice } from '../theme';
 import '../styles/appearance.css';
 
-const LABEL: Record<ThemeChoice, string> = { system: 'System', light: 'Light', dark: 'Dark' };
-
-/** The Appearance section of the account screen: System, Light or Dark. The same choice the
- * account menu's theme row cycles through; both read and write `theme.ts`. */
+/** The Appearance section of the account screen: Dark, Light or Follow my system. The same choice
+ * the account menu's Theme list makes; both read and write `theme.ts`. */
 export function Appearance() {
   const [choice, setChoice] = useState<ThemeChoice>(() => getThemeChoice());
   const pick = (next: ThemeChoice) => {
@@ -20,7 +18,7 @@ export function Appearance() {
         Appearance
       </h2>
       <div className="appearance__segments" role="radiogroup" aria-labelledby="account-appearance">
-        {THEME_CHOICES.map((value) => (
+        {THEME_ORDER.map((value) => (
           <label key={value} className={`appearance__segment${choice === value ? ' appearance__segment--on' : ''}`}>
             <input
               type="radio"
@@ -29,11 +27,11 @@ export function Appearance() {
               checked={choice === value}
               onChange={() => pick(value)}
             />
-            <span>{LABEL[value]}</span>
+            <span>{THEME_NAME[value]}</span>
           </label>
         ))}
       </div>
-      <p className="appearance__note">System follows your device. The choice is kept in this browser.</p>
+      <p className="appearance__note">Follow my system uses your device's setting. The choice is kept in this browser.</p>
     </section>
   );
 }

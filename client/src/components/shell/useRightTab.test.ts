@@ -16,6 +16,16 @@ describe('visibleTab', () => {
   });
 });
 
+describe('the Equipment tab', () => {
+  it('is shown when chosen and the list exists, and only then', () => {
+    expect(visibleTab('equipment', { ...have, hasEquipment: true })).toBe('equipment');
+    expect(visibleTab('equipment', have)).toBeNull();
+  });
+  it('is a place to return to by the Equipment flag, not by the tab memory', () => {
+    expect(rememberedTab('equipment')).toBeNull();
+  });
+});
+
 describe('rememberedTab', () => {
   it('does not bring History back, since it is a mode', () => {
     expect(rememberedTab('history')).toBeNull();

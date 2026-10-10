@@ -6,10 +6,10 @@ import { Account } from './Account';
 import { Appearance } from './Appearance';
 
 describe('Appearance', () => {
-  it('offers System, Light and Dark, with System chosen when nothing is stored', () => {
+  it('offers Dark, Light and Follow my system, with Follow my system chosen when nothing is stored', () => {
     const html = renderToStaticMarkup(createElement(Appearance));
     expect(html).toContain('Appearance');
-    for (const word of ['System', 'Light', 'Dark']) expect(html).toContain(`<span>${word}</span>`);
+    for (const word of ['Dark', 'Light', 'Follow my system']) expect(html).toContain(`<span>${word}</span>`);
     expect(html.match(/checked=""/g)).toHaveLength(1);
     expect(html).toContain('appearance__segment--on"><input type="radio" name="account-theme" checked="" value="system"');
   });

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 
 import { LAYERS } from '../drawing/layers';
-import { layersSummary, MAX_NAME, type SavedView } from '../drawing/savedViews';
+import { BAR_VIEWS, layersSummary, MAX_NAME, type SavedView } from '../drawing/savedViews';
 import { Popover, usePopoverClose } from './Popover';
 import '../../styles/views.css';
 
@@ -9,6 +9,8 @@ const LAYER_LABELS: Record<string, string> = Object.fromEntries(LAYERS.map((l) =
 
 export interface SavedViewsMenuProps {
   views: readonly SavedView[];
+  /** The saved view the drawing is showing right now, if it is showing one. */
+  currentId?: string | null;
   /** Keeps the camera and Show layers as they are now under a name; a sentence if refused. */
   onSave: (name: string) => string | null;
   /** Goes to a saved view: glides the camera and sets its layers. */
@@ -17,31 +19,108 @@ export interface SavedViewsMenuProps {
   onDelete: (id: string) => void;
 }
 
-/** The "Views" control beside Show: save the camera with its Show layers under a name, and come
- * back to it in one click. Yours, in this browser. */
+/** The Views group in the bar, one segmented row: the Views button (the manage menu), a button for
+ * each of the first few saved views, and "+" to keep the current view under a name. Yours, in this
+ * browser. */
 export function SavedViewsMenu(props: SavedViewsMenuProps) {
+  const { views, currentId = null, onSave, onGo } = props;
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState('');
+  const [note, setNote] = useState<string | null>(null);
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const refused = onSave(name);
+    setNote(refused);
+    if (refused == null) {
+      setName('');
+      setAdding(false);
+    }
+  };
+  const cancel = () => {
+    setAdding(false);
+    setName('');
+    setNote(null);
+  };
+
   return (
-    <Popover
-      renderTrigger={({ open, triggerProps, triggerRef }) => (
+    <div className="vgroup" role="group" aria-label="Saved views">
+      <Popover
+        renderTrigger={({ open, triggerProps, triggerRef }) => (
+          <button
+            type="button"
+            className={open ? 'vgroup__btn vgroup__btn--on' : 'vgroup__btn'}
+            data-testid="shell-views"
+            ref={(el) => {
+              triggerRef.current = el;
+            }}
+            {...triggerProps}
+          >
+            <svg className="vgroup__eye" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+              <path d="M1 8s2.6-4.5 7-4.5S15 8 15 8s-2.6 4.5-7 4.5S1 8 1 8z" />
+              <circle cx="8" cy="8" r="2" />
+            </svg>
+            Views
+          </button>
+        )}
+      >
+        <ViewsBody {...props} />
+      </Popover>
+      {views.slice(0, BAR_VIEWS).map((v) => (
         <button
+          key={v.id}
           type="button"
-          className={open ? 'shell-lens shell-lens--on' : 'shell-lens'}
-          data-testid="shell-views"
-          ref={(el) => {
-            triggerRef.current = el;
-          }}
-          {...triggerProps}
+          className={v.id === currentId ? 'vgroup__btn vgroup__btn--view vgroup__btn--current' : 'vgroup__btn vgroup__btn--view'}
+          aria-pressed={v.id === currentId}
+          data-testid="views-bar-go"
+          title={`Go to ${v.name}`}
+          onClick={() => onGo(v)}
         >
-          Views ▾
+          {v.name}
+        </button>
+      ))}
+      {adding ? (
+        <form className="vgroup__add" onSubmit={submit}>
+          <input
+            autoFocus
+            aria-label="Name this view"
+            placeholder="Name this view"
+            value={name}
+            maxLength={MAX_NAME}
+            data-testid="views-add-name"
+            onChange={(e) => {
+              setName(e.currentTarget.value);
+              setNote(null);
+            }}
+            onBlur={() => name.trim() === '' && cancel()}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.stopPropagation();
+                cancel();
+              }
+            }}
+          />
+          {note != null && (
+            <p className="vgroup__note" role="alert">
+              {note}
+            </p>
+          )}
+        </form>
+      ) : (
+        <button type="button" className="vgroup__btn vgroup__btn--plus" aria-label="Save this view" title="Save this view" data-testid="views-add" onClick={() => setAdding(true)}>
+          +
         </button>
       )}
-    >
-      <ViewsBody {...props} />
-    </Popover>
+    </div>
   );
 }
 
-function ViewsBody({ views, onSave, onGo, onRename, onDelete }: SavedViewsMenuProps) {
+/** The same manage list, for the bar's View menu when the bar is too narrow for the group. */
+export function SavedViewsFolded(props: SavedViewsMenuProps) {
+  return <ViewsBody {...props} />;
+}
+
+function ViewsBody({ views, currentId = null, onSave, onGo, onRename, onDelete }: SavedViewsMenuProps) {
   const close = usePopoverClose();
   const [name, setName] = useState('');
   const [note, setNote] = useState<string | null>(null);
@@ -96,7 +175,7 @@ function ViewsBody({ views, onSave, onGo, onRename, onDelete }: SavedViewsMenuPr
                 <button
                   type="button"
                   role="menuitem"
-                  className="views__go"
+                  className={v.id === currentId ? 'views__go views__go--current' : 'views__go'}
                   data-testid="views-go"
                   title={`Go to ${v.name}`}
                   onClick={() => {

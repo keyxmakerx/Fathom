@@ -108,9 +108,10 @@
 }
 
 .palette__group {
-  padding: var(--s2) var(--s4) 2px;
+  padding: var(--s3) var(--s4) 2px;
   font-size: var(--t-micro);
-  letter-spacing: var(--track-label);
+  font-weight: 700;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--muted);
 }
@@ -133,7 +134,7 @@
 }
 
 .palette__row--on {
-  background: var(--control-bg-hover, var(--surface));
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
 .palette__row--on::before {
@@ -142,7 +143,7 @@
   left: 0;
   top: 0;
   bottom: 0;
-  width: var(--rule-accent);
+  width: 2px;
   background: var(--ink);
   animation: float-mark-in var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1)) both;
 }
@@ -185,6 +186,31 @@
   text-transform: uppercase;
 }
 
+/* The letters that were typed, underlined in each match. */
+.palette__hit {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.palette__esc {
+  flex: none;
+  padding: 1px 6px;
+  border: var(--rule-hair) solid var(--control-line, var(--hairline));
+  border-radius: var(--radius-control, 0);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  color: var(--muted);
+}
+
+.palette__enter {
+  flex: none;
+  margin-left: auto;
+  font-size: var(--t-micro);
+  color: var(--muted);
+  animation: float-mark-in var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1)) both;
+}
+
 .palette__none {
   padding: var(--s3) var(--s4);
   font-size: var(--t-small);
@@ -193,11 +219,32 @@
 
 .palette__foot {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--s4);
   padding: var(--s2) var(--s4);
   border-top: var(--rule-hair) solid var(--hairline);
   font-size: var(--t-micro);
   color: var(--muted);
+}
+
+.palette__keys {
+  display: flex;
+  gap: var(--s4);
+}
+
+.palette__more {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  transition: color var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.palette__more:hover {
+  color: var(--ink);
 }
 
 /* The shortcuts list */
@@ -288,7 +335,11 @@
     animation: none;
   }
   .palette__row,
+  .palette__more,
   .float-sheet__close {
     transition: none;
+  }
+  .palette__enter {
+    animation: none;
   }
 }

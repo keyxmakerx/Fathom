@@ -2,10 +2,10 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { firstEnabled, matchActions, moveActive, type PaletteAction } from './palette';
+import { cycleGroup, firstEnabled, highlightParts, matchActions, matchRanges, moveActive, noteOf, type PaletteAction } from './palette';
 import { ShortcutsSheet } from './ShortcutsSheet';
 import { SHORTCUTS } from './shortcuts';
-import { mergeHits } from './thingsSearch';
+import { fuzzyHits, mergeHits } from './thingsSearch';
 import type { SearchHit } from './search';
 import { EditableName, renamedValue } from '../drawing/NameEdit';
 
@@ -24,6 +24,63 @@ describe('matchActions', () => {
   it('puts a label that starts with the word before one that only contains it', () => {
     expect(matchActions(ACTIONS, 'ra').map((a) => a.id)).toEqual(['trace']);
     expect(matchActions(ACTIONS, 'd').map((a) => a.id)).toEqual(['delete', 'add-port', 'undo']);
+  });
+});
+
+describe('which letters were typed', () => {
+  it('picks the letters in order: "sw1" underlines the s, w and 1 of switch-1', () => {
+    expect(matchRanges('switch-1', 'sw1')).toEqual([0, 1, 7]);
+    expect(highlightParts('switch-1', 'sw1')).toEqual([
+      { text: 'sw', hit: true },
+      { text: 'itch-', hit: false },
+      { text: '1', hit: true },
+    ]);
+  });
+  it('prefers the whole query as one run, ignoring case; spaces in the query are skipped', () => {
+    expect(matchRanges('Core switch-1', 'SWITCH')).toEqual([5, 6, 7, 8, 9, 10]);
+    expect(matchRanges('Add a port to sw-1', 'add port')).toEqual([0, 1, 2, 6, 7, 8, 9]);
+  });
+  it('says no match, and marks nothing for an empty query', () => {
+    expect(matchRanges('switch-1', 'zz')).toBeNull();
+    expect(matchRanges('switch-1', '  ')).toBeNull();
+    expect(highlightParts('switch-1', 'zz')).toEqual([{ text: 'switch-1', hit: false }]);
+  });
+  it('lets actions be found by their letters in order, after plain matches', () => {
+    const list = [act('trace', 'Trace a path from switch-1'), act('dup', 'Duplicate switch-1'), act('undo', 'Undo')];
+    expect(matchActions(list, 'dsw1').map((a) => a.id)).toEqual(['dup']);
+    expect(matchActions(list, 'switch').map((a) => a.id)).toEqual(['trace', 'dup']);
+    expect(matchActions(list, 'q')).toEqual([]);
+  });
+});
+
+describe('Tab narrowing', () => {
+  const groups = ['Devices', 'Do', 'Go to'];
+  it('steps through the groups and back to all', () => {
+    expect(cycleGroup(groups, null, 1)).toBe('Devices');
+    expect(cycleGroup(groups, 'Devices', 1)).toBe('Do');
+    expect(cycleGroup(groups, 'Go to', 1)).toBeNull();
+  });
+  it('goes the other way with Shift+Tab', () => {
+    expect(cycleGroup(groups, null, -1)).toBe('Go to');
+    expect(cycleGroup(groups, 'Do', -1)).toBe('Devices');
+    expect(cycleGroup(groups, 'Devices', -1)).toBeNull();
+    expect(cycleGroup([], null, 1)).toBeNull();
+  });
+});
+
+describe('a found thing\'s muted words', () => {
+  const hit = (over: Partial<SearchHit>): SearchHit => ({ group: 'Devices', name: 'switch-1', why: 'EX4300 · R1 U40', selection: { kind: 'chassis', id: 'c' }, ...over });
+  it('shows where it is, rack then unit, and keeps a tag it was found by', () => {
+    expect(noteOf(hit({ where: 'R1 · U40' }))).toBe('R1 · U40');
+    expect(noteOf(hit({ where: 'R1 · U40', why: 'tag: core' }))).toBe('R1 · U40 · tag: core');
+    expect(noteOf(hit({}))).toBe('EX4300 · R1 U40');
+  });
+  it('finds devices by their letters in order, with their place', () => {
+    const view = { racks: [{ id: 'r', label: 'R1', heightU: 42, chassis: [{ id: 'c1', hostname: 'switch-1', model: 'EX', positionU: 40 }, { id: 'c2', hostname: 'router', model: 'MX', positionU: 3 }] }] };
+    const hits = fuzzyHits(view as never, 'sw1');
+    expect(hits.map((h) => h.name)).toEqual(['switch-1']);
+    expect(hits[0]!.where).toBe('R1 · U40');
+    expect(fuzzyHits(view as never, 's')).toEqual([]);
   });
 });
 

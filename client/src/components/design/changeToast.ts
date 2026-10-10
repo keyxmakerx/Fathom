@@ -2,6 +2,7 @@
 // Pure: which of the document's batches is a fresh one of yours, and how a batch's
 // working label reads in plain words. The component is `ChangeToast.tsx`.
 
+import { findEdge, findNode, parseEdgeId, parseNodeId, readChassisFields, readDeviceFields, readRackFields } from '../../document/model';
 import type { Batch, Document } from '../../document/model';
 import { batchActor } from '../../document/undo';
 
@@ -109,6 +110,88 @@ export function toastWords(label: string): string {
   return `${m[1] === 'undo' ? 'Undone' : 'Redone'}: ${lowerFirst(plainWords(root))}`;
 }
 
+function elementsOf(batch: Batch): string[] {
+  return batch.ops.flatMap((op) => (op.type === 'add_node' ? [op.node] : op.type === 'add_edge' ? [op.edge] : [op.element]));
+}
+
+const edgeKind = (id: string): string | null => {
+  try {
+    return parseEdgeId(id).kind;
+  } catch {
+    return null;
+  }
+};
+
+const nodeKind = (id: string): string | null => {
+  try {
+    return parseNodeId(id).kind;
+  } catch {
+    return null;
+  }
+};
+
+/** The device a batch is about and the rack it is in, read from the batch's own elements (a removed
+ * device is still in the document, marked absent). Null for either when the batch does not say. */
+export function batchSubject(doc: Document, batch: Batch): { name: string | null; rack: string | null } {
+  let chassisId: string | null = null;
+  let rackId: string | null = null;
+  let deviceId: string | null = null;
+  for (const id of elementsOf(batch)) {
+    const nk = nodeKind(id);
+    if (nk === 'Chassis' && chassisId === null) chassisId = id;
+    if (nk === 'Device' && deviceId === null) deviceId = id;
+    const ek = edgeKind(id);
+    const edge = ek === null ? undefined : findEdge(doc, id);
+    if (edge === undefined) continue;
+    if (ek === 'MountedIn') {
+      chassisId ??= edge.from;
+      // A move rewrites the edge's fields; a place or remove names the rack it joined or left.
+      if (nodeKind(edge.to) === 'Rack') rackId ??= edge.to;
+    } else if (ek === 'HasChassis') {
+      deviceId ??= edge.from;
+      chassisId ??= edge.to;
+    } else if (ek === 'HasPort') {
+      chassisId ??= edge.from;
+    }
+  }
+  if (chassisId !== null && deviceId === null) {
+    const owner = doc.edges.find((e) => e.to === chassisId && edgeKind(e.id) === 'HasChassis');
+    deviceId = owner?.from ?? null;
+  }
+  const device = deviceId === null ? undefined : findNode(doc, deviceId);
+  const chassis = chassisId === null ? undefined : findNode(doc, chassisId);
+  const name = (device ? readDeviceFields(device).hostname : undefined) || (chassis ? readChassisFields(chassis).model : undefined) || null;
+  const rackNode = rackId === null ? undefined : findNode(doc, rackId);
+  const rack = (rackNode ? readRackFields(rackNode).label : undefined) || null;
+  return { name, rack };
+}
+
+/** The note's words for a plain change, naming the device and rack where the batch says them
+ * ("Removed switch-1 from R1"); otherwise the generic words for the label. */
+export function namedWords(doc: Document, batch: Batch): string {
+  const generic = toastWords(batch.label);
+  if (!['remove chassis', 'place chassis', 'duplicate device', 'create sketch device', 'move chassis', 'move placement', 'add sketch port', 'remove sketch port'].includes(batch.label)) return generic;
+  const { name, rack } = batchSubject(doc, batch);
+  if (name === null) return generic;
+  switch (batch.label) {
+    case 'remove chassis':
+      return rack === null ? `Removed ${name}` : `Removed ${name} from ${rack}`;
+    case 'place chassis':
+      return rack === null ? `Added ${name}` : `Added ${name} to ${rack}`;
+    case 'duplicate device':
+      return rack === null ? `Copied ${name}` : `Copied ${name} to ${rack}`;
+    case 'create sketch device':
+      return `Added ${name}`;
+    case 'move chassis':
+    case 'move placement':
+      return rack === null ? `Moved ${name}` : `Moved ${name} in ${rack}`;
+    case 'add sketch port':
+      return `Port added to ${name}`;
+    default:
+      return `Port removed from ${name}`;
+  }
+}
+
 export interface FreshChange {
   batchId: string;
   words: string;
@@ -134,7 +217,7 @@ export function freshOwnChange(prev: Document | null, next: Document, accountId:
     if (batchActor(next, batch) !== accountId) continue;
     const reversal = /^(undo|redo) of /.exec(batch.label);
     const kind = batch.reverses === undefined ? 'change' : reversal?.[1] === 'redo' ? 'redo' : 'undo';
-    return { batchId: batch.id, words: toastWords(batch.label), kind };
+    return { batchId: batch.id, words: kind === 'change' ? namedWords(next, batch) : toastWords(batch.label), kind };
   }
   return null;
 }

@@ -4,8 +4,7 @@ import '../styles/shell.css';
 import { Bar } from './shell/Bar';
 import { useElementWidth, useWindowWidth } from './shell/Dock';
 import { fitPanels, loadPanelWidth, panelMax, savePanelWidth, PANEL_DEFAULT, type PanelId } from './shell/panelSizing';
-import { RightDock } from './shell/RightDock';
-import { Strip } from './shell/Strip';
+import { PANEL_OF, RightDock } from './shell/RightDock';
 import { rememberedTab, useRightTab, type RightTab } from './shell/useRightTab';
 import { loadResume, patchResume } from './design/resume';
 import type { ShellProps } from './shell/types';
@@ -38,6 +37,7 @@ export function Shell({
   look,
   layers,
   views,
+  viewsFolded,
   presence,
   zoom,
   onZoomIn,
@@ -82,26 +82,20 @@ export function Shell({
   const [anchored, setAnchored] = useState(false);
   const inEditor = editor != null && anchored;
 
-  // The side panels: Equipment on the left; Details, History and Trail share one slot on the right.
-  // Each folds to a labelled strip, slides, and is resized by its handle, and the canvas keeps its width.
+  // The side panels: Equipment, Details, History and Trail share one slot on the right, one open at a time.
+  // It folds to a strip of labelled tabs, slides, and is resized by its handle, and the canvas keeps its width.
   const accountId = resume?.accountId ?? null;
   const designId = resume?.designId;
   const [stored] = useState(() => (designId != null ? loadResume(accountId, designId) : null));
-  const [railOpen, setRailOpen] = useState(() => stored?.equipmentOpen ?? false);
-  const changeRail = useCallback(
-    (open: boolean) => {
-      setRailOpen(open);
-      if (designId != null) patchResume(accountId, designId, { equipmentOpen: open });
-    },
-    [accountId, designId],
-  );
   const rememberPick = useCallback(
     (pick: RightTab | null) => {
-      if (designId != null) patchResume(accountId, designId, { tab: rememberedTab(pick) });
+      if (designId != null) patchResume(accountId, designId, { tab: rememberedTab(pick), equipmentOpen: pick === 'equipment' });
     },
     [accountId, designId],
   );
   const { shown, choose, fold } = useRightTab({
+    hasEquipment: rail != null,
+    initialEquipment: stored?.equipmentOpen ?? false,
     hasDetails: editor != null,
     historyOpen: historyOpen ?? false,
     trailOpen: trailOpen ?? false,
@@ -130,27 +124,24 @@ export function Shell({
   const [resizing, setResizing] = useState(false);
   const windowWidth = useWindowWidth();
   const [bodyRef, bodyWidth] = useElementWidth<HTMLDivElement>();
-  const lastRight = useRef<RightTab>('details');
+  const lastRight = useRef<RightTab>(rail != null ? 'equipment' : 'details');
   if (shown != null) lastRight.current = shown;
-  const rightPresent = editor != null || onHistory != null || trail != null;
-  const stripsWidth = (rail != null ? 28 : 0) + (rightPresent ? 28 : 0);
+  const rightPresent = rail != null || editor != null || onHistory != null || trail != null;
+  const stripsWidth = rightPresent ? 28 : 0;
   const fit = fitPanels({
     bodyWidth,
     windowWidth,
     stripsWidth,
-    left: rail != null && railOpen ? wants.rail : null,
-    right: shown != null ? wants[shown] : null,
+    left: null,
+    right: shown != null ? wants[PANEL_OF[shown]] : null,
   });
   // While a panel slides shut its slot still needs a width to shrink from.
-  const lastWidths = useRef({ left: wants.rail, right: wants[lastRight.current] });
+  const lastWidths = useRef({ right: wants[PANEL_OF[lastRight.current]] });
   useEffect(() => {
-    if (fit.left > 0) lastWidths.current.left = fit.left;
     if (fit.right > 0) lastWidths.current.right = fit.right;
   });
-  const leftWidth = fit.left > 0 ? fit.left : lastWidths.current.left;
-  const rightWidth = fit.right > 0 ? fit.right : Math.min(lastWidths.current.right, wants[lastRight.current]);
-  const leftMax = panelMax(windowWidth, bodyWidth, stripsWidth, fit.right);
-  const rightMax = panelMax(windowWidth, bodyWidth, stripsWidth, fit.left);
+  const rightWidth = fit.right > 0 ? fit.right : Math.min(lastWidths.current.right, wants[PANEL_OF[lastRight.current]]);
+  const rightMax = panelMax(windowWidth, bodyWidth, stripsWidth, 0);
   return (
     <div className="shell">
       {announce !== undefined && (
@@ -168,6 +159,7 @@ export function Shell({
         look={look}
         layers={layers}
         views={views}
+        viewsFolded={viewsFolded}
         presence={presence}
         zoom={zoom}
         onZoomIn={onZoomIn}
@@ -196,27 +188,14 @@ export function Shell({
       />
       {band}
       <div className="shell__body" ref={bodyRef} data-resizing={resizing ? '' : undefined}>
-        {/* The folded rail exists where it has something to open (the Racks
-            palette); Home, Site and Inventory carry their own rails. */}
-        {rail != null && (
-          <Strip
-            rail={rail}
-            open={railOpen}
-            onOpenChange={changeRail}
-            width={leftWidth}
-            max={leftMax}
-            onResize={resizePanel}
-            onReset={resetPanel}
-            onDragging={setResizing}
-          />
-        )}
         <main className="shell__drawing" aria-label="Drawing">
           {children}
           {!inEditor && notices != null && <div className="shell__notices-corner">{notices}</div>}
         </main>
-        {/* One right-hand slot: Details, History and the Trail are its tabs; one is open at a time. */}
+        {/* One right-hand slot: Equipment, Details, History and the Trail are its tabs; one is open at a time. */}
         <RightDock
           shown={shown}
+          equipment={rail ?? null}
           details={editor}
           history={history ?? null}
           trail={trail ?? null}
