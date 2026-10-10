@@ -96,6 +96,10 @@ export interface DrawingActions {
    * and an absent one leaves its item out of the menu, so a reader's menu
    * offers only Details. */
   onDuplicateDevice?(chassisId: string): void;
+  /** Ctrl+V: a copy of `chassisId` in the next free units of `rackId`. */
+  onPasteDevice?(chassisId: string, rackId: string): void;
+  /** A name double-clicked on the canvas and typed over: a device or box (by chassis id) or a rack. Blank clears a device's name. */
+  onRename?(target: { kind: 'chassis' | 'rack'; id: string }, value: string): void;
   /** Adds a sketch device at the highest free unit of `rackId`. */
   onAddDevice?(rackId: string): void;
   onAddRack?(heightU: number): void;
@@ -127,7 +131,9 @@ export interface DrawingActions {
   onMoveFree?(moves: readonly { id: string; x: number; y: number }[]): void;
   onConnectBoxes?(aChassisId: string, bChassisId: string): void;
   /** Returns the new label's id. */
-  onAddLabel?(form: 'text' | 'area', text: string, x: number, y: number, w?: number, h?: number): string | void;
+  onAddLabel?(form: 'text' | 'area' | 'note', text: string, x: number, y: number, w?: number, h?: number): string | void;
+  /** A new hand-typed box that starts from a saved faceplate template (one undo step). Returns the new chassis's id. */
+  onAddFreeBoxFromTemplate?(templateId: string, x: number, y: number, fromBoxId?: string): string | void;
   onSetLabel?(labelId: string, patch: { text?: string; w?: number; h?: number }): void;
   /** Removes boxes, labels, areas and lines together. */
   onRemoveFree?(ids: readonly string[]): void;
@@ -188,7 +194,7 @@ export type EditorChange =
     }
   /** ADR-0051 §1 — "Duplicate a device" (`commands.ts`'s `duplicateDevice`).
    * Shown only on a rack-mounted chassis's own panel. */
-  | { kind: 'duplicate-device'; chassisId: string }
+  | { kind: 'duplicate-device'; chassisId: string; /** Paste: put the copy in this rack's next free units. */ intoRackId?: string }
   /** ADR-0051 §1 — a rack's "+ add a shelf" (`commands.ts`'s `createShelf`);
    * `label` is required (`PassiveNode.label`, schema card "1" — this
    * session's brief item 1); `model` names a catalogue entry from the

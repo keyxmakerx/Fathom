@@ -8,6 +8,7 @@ import type { Facing } from './elevation';
 import { connectorName, faceplateLayoutFor, plateItems, portWhere, type PortBox } from './faceplate';
 import { RAIL_PX, U_PX } from './geometry';
 import { useLive } from './liveStore';
+import { EditableName } from './NameEdit';
 import { isPanel } from './paths';
 import { pduUsage, pduUsageLabel } from './power';
 import { SHEATH_VAR } from './sheath';
@@ -225,13 +226,15 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
   const nameBlock = (
     <>
       {!passive && <span className="drawing-chassis__bullet" aria-hidden="true" />}
-      <span
+      <EditableName
+        target={{ kind: 'chassis', id: chassis.id }}
+        text={chassis.hostname}
         className={
           hasHostname ? 'drawing-chassis__hostname' : 'drawing-chassis__hostname drawing-chassis__hostname--placeholder'
         }
       >
         {shownName}
-      </span>
+      </EditableName>
     </>
   );
 

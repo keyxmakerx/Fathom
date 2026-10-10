@@ -1,0 +1,39 @@
+/* A cable the person has just made: it draws in tight along its length
+   (about 200ms), then one light pulse runs end to end (about 400ms). One play. */
+:root {
+  --m-pull: 200ms;
+  --m-pulse: 400ms;
+}
+
+@keyframes drawing-cable-pull {
+  from { stroke-dasharray: 1 1; stroke-dashoffset: 1; }
+  to { stroke-dasharray: 1 1; stroke-dashoffset: 0; }
+}
+
+@keyframes drawing-cable-pulse {
+  0% { stroke-dashoffset: 0.12; opacity: 0.9; }
+  90% { opacity: 0.9; }
+  100% { stroke-dashoffset: -1; opacity: 0; }
+}
+
+.drawing-cable__pull {
+  animation: drawing-cable-pull var(--m-pull) var(--m-ease, cubic-bezier(0.2, 0.8, 0.2, 1)) both;
+}
+
+.drawing-cable__pulse {
+  stroke: white;
+  stroke-dasharray: 0.12 2;
+  stroke-dashoffset: 0.12;
+  opacity: 0;
+  animation: drawing-cable-pulse var(--m-pulse) var(--m-pull) ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawing-cable__pull,
+  .drawing-cable__pulse {
+    animation: none;
+  }
+  .drawing-cable__pulse {
+    display: none;
+  }
+}

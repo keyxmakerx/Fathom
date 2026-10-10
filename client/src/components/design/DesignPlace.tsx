@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { DesignCapability } from '../../api/designs';
 import { addNote, notesOf as notesOfDoc, removeNote, type NoteHow } from '../../document/notes';
 import { fieldForOwner, fieldsOf as fieldsOfDoc, setFieldValue, type FieldType } from '../../document/fields';
 import { useFieldDefinitions } from './useFieldDefinitions';
-import type { Document } from '../../document/model';
+import { findNode, type Document } from '../../document/model';
 import { listTags, renameTag, tagObject, tagsOf as tagsOfDoc, untagObject } from '../../document/tags';
 import { skippedSentence } from '../../document/liveDoc';
 import { redo as redoBatch, redoSkipping, undo as undoBatch, undoSkipping, undoable } from '../../document/undo';
@@ -34,10 +34,20 @@ import { InventoryPlace } from '../inventory/InventoryPlace';
 import { RacksPlace } from '../racks/RacksPlace';
 import { Trail } from '../racks/Trail';
 import { redoable } from '../racks/trail';
-import { searchDesign } from '../shell/search';
+import type { PaletteAction } from '../shell/palette';
+import { PaletteRegistryContext, createPaletteRegistry } from '../shell/paletteRegistry';
+import { ShortcutsSheet } from '../shell/ShortcutsSheet';
+import { isTypingTarget, matches, shortcutText } from '../shell/shortcuts';
+import { createThingsFinder } from '../shell/thingsSearch';
+import { applyTheme, getStoredTheme } from '../../theme';
 import type { Place, ShellProps } from '../shell/types';
+import { CollabContext, type CollabApi } from '../collab/CollabContext';
+import { useChangesSince } from '../collab/useChangesSince';
+import { ChangeToast } from './ChangeToast';
 import { LiveNotices, announcement, hasLiveNotices } from './LiveNotices';
 import { presenceViewOf } from './liveSession';
+import { recordDesignOpen, recordDeviceOpen } from '../home/recent';
+import { loadResume } from './resume';
 import { useDesignSession } from './useDesignSession';
 
 /** A download with no server round trip. The object URL is revoked a few
@@ -62,6 +72,8 @@ export interface DesignPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | '
   /** The design's scope: what the Share panel shares. */
   scopeId: string;
   onZoomChange: (zoom: number) => void;
+  /** A device to open on arrival (Home's Recent row). */
+  openDevice?: string;
 }
 
 /**
@@ -94,13 +106,31 @@ export interface DesignPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | '
 const SEAL_SETTLE_MS = 1_500;
 
 export function DesignPlace(props: DesignPlaceProps) {
-  const { organisationId, designId, capability, scopeId, onZoomChange, onPlaceChange, ...shellProps } = props;
+  const { organisationId, designId, capability, scopeId, onZoomChange, onPlaceChange, openDevice, ...shellProps } = props;
   const session = useDesignSession(organisationId, designId, capability);
   const [focus, setFocus] = useState<Selection | null>(null);
+  // Selecting a thing from outside the drawing (stepping through what changed) without opening it.
+  const [selectRequest, setSelectRequest] = useState<{ selection: Selection } | null>(null);
   const [issueRequest, setIssueRequest] = useState<{ id: string } | null>(null);
 
   const accountId = getSession()?.accountId ?? null;
   const accountAddress = getSession()?.address ?? null;
+
+  // Home's Recent row remembers which designs this person opened, and opens a recent device on arrival.
+  useEffect(() => {
+    recordDesignOpen(accountId, organisationId, designId);
+  }, [accountId, organisationId, designId]);
+  const openedDevice = useRef(false);
+  const arrivedDoc = session.doc;
+  useEffect(() => {
+    if (openDevice == null || openedDevice.current || arrivedDoc == null) return;
+    openedDevice.current = true;
+    if (findNode(arrivedDoc, openDevice) != null) setFocus({ kind: 'chassis', id: openDevice });
+  }, [openDevice, arrivedDoc]);
+  const noteDeviceOpened = useCallback(
+    (chassisId: string, name: string) => recordDeviceOpen(accountId, organisationId, designId, chassisId, name),
+    [accountId, organisationId, designId],
+  );
 
   // ------------------------------------------------------------------
   // Print. `activeRackId` is RacksPlace's own report of what the current
@@ -170,6 +200,18 @@ export function DesignPlace(props: DesignPlaceProps) {
     document.addEventListener('keydown', onKeyDown, true);
     return () => document.removeEventListener('keydown', onKeyDown, true);
   }, [printMode, openPrintPanel]);
+
+  // "?" opens the list of keyboard shortcuts, anywhere but in a field.
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (!matches(event, 'shortcuts') || isTypingTarget(event.target)) return;
+      event.preventDefault();
+      setShortcutsOpen((open) => !open);
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   // The whole pack for the ticked rows, built from the document as it is now.
   // `viewPng` is the canvas picture; `''` means "count it, don't draw it".
@@ -276,7 +318,7 @@ export function DesignPlace(props: DesignPlaceProps) {
   const redoCandidate = doc != null && accountId != null ? redoable(doc, accountId) : undefined;
   const [undoRefusal, setUndoRefusal] = useState<string | null>(null);
   // The trail starts folded; a refused undo or redo opens it so the refusal is seen.
-  const [trailOpen, setTrailOpen] = useState(false);
+  const [trailOpen, setTrailOpen] = useState(() => loadResume(accountId, designId).tab === 'trail');
 
   const handleUndo = useCallback(() => {
     if (!session.canDraw) return; // ADR-0052 §5: a reader undoes nothing, even via a stray Ctrl+Z
@@ -532,9 +574,58 @@ export function DesignPlace(props: DesignPlaceProps) {
   // silently rather than writing a batch nobody with read-only access is
   // allowed to write.
   // Quick search (the owner's option A): the open design; a choice shows it on the rack.
+  // The view and the Find index are kept between keystrokes; they are rebuilt only when the design changes.
+  const paletteRegistry = useMemo(createPaletteRegistry, []);
+  const thingsFinder = useMemo(createThingsFinder, []);
+  const paletteViewRef = useRef<{ doc: Document; catalogue: typeof session.catalogue; view: ReturnType<typeof viewOf> } | null>(null);
+  const paletteView = (d: Document) => {
+    const kept = paletteViewRef.current;
+    if (kept != null && kept.doc === d && kept.catalogue === session.catalogue) return kept.view;
+    const view = viewOf(d, session.catalogue);
+    paletteViewRef.current = { doc: d, catalogue: session.catalogue, view };
+    return view;
+  };
   const search = {
-    run: (query: string) => (session.doc ? searchDesign(viewOf(session.doc, session.catalogue), query, session.doc) : []),
+    run: (query: string) => (session.doc ? thingsFinder(session.doc, paletteView(session.doc), query) : []),
     choose: (selection: Selection) => showOnRack(selection),
+    actions: (): PaletteAction[] => [
+      ...paletteRegistry.all(),
+      ...(session.canDraw
+        ? [
+            {
+              id: 'undo',
+              label: 'Undo',
+              hint: shortcutText('undo'),
+              keywords: ['back', 'revert'],
+              disabled: undoCandidates.length === 0 || historyOpen ? 'Nothing to undo' : undefined,
+              run: handleUndo,
+            },
+            {
+              id: 'redo',
+              label: 'Redo',
+              hint: shortcutText('redo'),
+              disabled: redoCandidate == null || historyOpen ? 'Nothing to redo' : undefined,
+              run: handleRedo,
+            },
+          ]
+        : []),
+      ...(doc != null ? [{ id: 'print', label: 'Print', hint: shortcutText('print'), keywords: ['export', 'pdf', 'cut sheet'], run: openPrintPanel }] : []),
+      ...(doc != null ? [{ id: 'history', label: historyOpen ? 'Close History' : 'Open History', keywords: ['saves', 'restore', 'past'], run: () => toggleHistory() }] : []),
+      ...(doc != null && pickedSave == null ? [{ id: 'docs', label: 'Open Docs', keywords: ['documentation', 'notes'], run: () => docs.setView({ kind: 'list' }) }] : []),
+      { id: 'racks', label: 'Show Racks', keywords: ['canvas', 'drawing'], disabled: props.place === 'racks' ? 'Already showing' : undefined, run: () => onPlaceChange('racks') },
+      { id: 'inventory', label: 'Show Inventory', keywords: ['list', 'table'], disabled: props.place === 'inventory' ? 'Already showing' : undefined, run: () => onPlaceChange('inventory') },
+      { id: 'shortcuts', label: 'Show keyboard shortcuts', hint: shortcutText('shortcuts'), keywords: ['keys', 'help'], run: () => setShortcutsOpen(true) },
+      {
+        id: 'theme',
+        label: 'Toggle theme',
+        keywords: ['dark', 'light', 'mode'],
+        run: () => {
+          const stored = getStoredTheme();
+          const dark = stored != null ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+          applyTheme(dark ? 'light' : 'dark');
+        },
+      },
+    ],
   };
 
   // One trail for the design, the same in Racks and Inventory.
@@ -553,6 +644,14 @@ export function DesignPlace(props: DesignPlaceProps) {
 
   // Who else is in this view: initials only, shown as dots in the bar.
   const presence = session.live.people.map((p) => ({ id: p.account, initials: p.initials, name: p.name }));
+
+  // On the canvas: other people's pointers, and what they changed since this person was last here.
+  const changesShown = useChangesSince(doc, accountId, designId, session.live.people);
+  const { setPointer, subscribePointers } = session;
+  const collab = useMemo<CollabApi>(
+    () => ({ setPointer, subscribePointers, changes: changesShown, select: (selection) => setSelectRequest({ selection }) }),
+    [setPointer, subscribePointers, changesShown],
+  );
 
   // Presence: which view this person is in (ADR-0063 §12).
   const { setPresence } = session;
@@ -585,6 +684,8 @@ export function DesignPlace(props: DesignPlaceProps) {
     ) : null,
     search,
     trail,
+    selectionKey: selectedId,
+    resume: { accountId, designId },
     trailOpen,
     onTrailOpenChange: setTrailOpen,
     canUndo: session.canDraw && undoCandidates.length > 0 && !historyOpen,
@@ -660,6 +761,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         session={racksSession}
         onZoomChange={onZoomChange}
         initialFocus={focus}
+        selectRequest={selectRequest}
         initialIssue={issueRequest}
         onOpenInventory={openInInventory}
         accountId={accountId}
@@ -670,6 +772,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         onShownCablesChange={setShownCableIds}
         designId={designId}
         onSelectedChange={setSelectedId}
+        onDeviceOpened={noteDeviceOpened}
       />
     ) : (
       <InventoryPlace
@@ -696,7 +799,11 @@ export function DesignPlace(props: DesignPlaceProps) {
   return (
     <>
       <div className="print-hide-under-preview" inert={printMode === 'preview' || docs.view != null}>
-        <DocsContext.Provider value={docs.api}>{place}</DocsContext.Provider>
+        <PaletteRegistryContext.Provider value={paletteRegistry}>
+          <DocsContext.Provider value={docs.api}>
+            <CollabContext.Provider value={collab}>{place}</CollabContext.Provider>
+          </DocsContext.Provider>
+        </PaletteRegistryContext.Provider>
       </div>
       {docs.view != null && printMode === 'closed' && (
         <DocsContext.Provider value={docs.api}>
@@ -720,6 +827,16 @@ export function DesignPlace(props: DesignPlaceProps) {
         />
       )}
       {printMode === 'preview' && printJob && <PrintPreview job={printJob} onClose={closePrint} />}
+      {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
+      <ChangeToast
+        doc={doc}
+        accountId={accountId}
+        undoBatchId={undoCandidates[0]?.id ?? null}
+        redoBatchId={redoCandidate?.id ?? null}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        suppressed={historyOpen || !session.canDraw}
+      />
       {sharing && (
         <SharePanel organisationId={organisationId} scopeId={scopeId} title={designLabel} onClose={() => setSharing(false)} />
       )}

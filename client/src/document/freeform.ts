@@ -212,7 +212,8 @@ export function foldFrom(doc: Document, from: number): Document {
 // ---------------------------------------------------------------------------
 // Labels and areas
 
-export type LabelForm = 'text' | 'area';
+/** `note` (schema 0.19): a sticky note pinned to the canvas, for teammates and for later. */
+export type LabelForm = 'text' | 'area' | 'note';
 
 export interface CreateLabelOptions extends Actor {
   text: string;
@@ -232,7 +233,7 @@ export function createLabel(doc: Document, opts: CreateLabelOptions): { doc: Doc
   }
   const id = addNode(b, 'Label', fields);
   pinInto(b, id, opts.x, opts.y);
-  return { doc: finish(b, opts.form === 'area' ? 'add area' : 'add label'), id };
+  return { doc: finish(b, opts.form === 'area' ? 'add area' : opts.form === 'note' ? 'add note' : 'add label'), id };
 }
 
 export function setLabel(doc: Document, id: string, patch: { text?: string; w?: number; h?: number }, opts?: Actor): Document {
@@ -364,12 +365,30 @@ export function liveLineNodes(doc: Document): GraphNode[] {
   return doc.nodes.filter((n) => n.absentSince === undefined && parseNodeId(n.id).kind === 'Line');
 }
 
-export function labelView(doc: Document, node: GraphNode): { id: string; text: string; form: LabelForm; x: number; y: number; w: number; h: number } | null {
+export function labelView(
+  doc: Document,
+  node: GraphNode,
+): { id: string; text: string; form: LabelForm; x: number; y: number; w: number; h: number; author?: NoteAuthor } | null {
   const pin = pinOf(doc, node.id);
   const f = readLabelFields(node);
   if (!pin || f.text === undefined) return null;
-  const form: LabelForm = f.form === 'area' ? 'area' : 'text';
-  return { id: node.id, text: f.text, form, x: pin.x, y: pin.y, w: f.w ?? AREA_DEFAULT_W, h: f.h ?? AREA_DEFAULT_H };
+  const form: LabelForm = f.form === 'area' ? 'area' : f.form === 'note' ? 'note' : 'text';
+  const out = { id: node.id, text: f.text, form, x: pin.x, y: pin.y, w: f.w ?? AREA_DEFAULT_W, h: f.h ?? AREA_DEFAULT_H };
+  const author = form === 'note' ? noteAuthor(doc, node) : undefined;
+  return author ? { ...out, author } : out;
+}
+
+/** Who pinned a note and when: the provenance of the batch that made it. */
+export interface NoteAuthor {
+  actor: string;
+  at: number;
+}
+
+/** The note's own existence record says who added it and when; `undefined` when nobody is on record. */
+export function noteAuthor(doc: Document, node: GraphNode): NoteAuthor | undefined {
+  const prov = doc.provenance.find((p) => p.id === node.existence);
+  if (!prov || prov.assertedBy === LOCAL_ACTOR || !Number.isFinite(prov.assertedAt) || prov.assertedAt <= 0) return undefined;
+  return { actor: prov.assertedBy, at: prov.assertedAt };
 }
 
 export function lineLabelOf(doc: Document, lineId: string): string | null {

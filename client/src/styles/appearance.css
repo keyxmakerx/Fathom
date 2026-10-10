@@ -1,0 +1,67 @@
+/* The Appearance section: a three-way segmented control, ink on hairline, square. */
+.appearance__segments {
+  display: inline-flex;
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--surface-2);
+}
+
+.appearance__segment {
+  position: relative;
+  min-width: 88px;
+  height: var(--control-h, 28px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--s3);
+  font-size: var(--t-small);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    color var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1)),
+    background var(--m-hover, 120ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.appearance__segment + .appearance__segment {
+  border-left: var(--rule-hair) solid var(--hairline);
+}
+
+.appearance__segment:hover {
+  color: var(--ink);
+}
+
+.appearance__segment--on {
+  color: var(--page);
+  background: var(--ink);
+}
+
+.appearance__segment--on:hover {
+  color: var(--page);
+}
+
+/* The radio itself is hidden but stays focusable; the focus ring goes on the segment. */
+.appearance__segment input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.appearance__segment:has(input:focus-visible) {
+  outline: var(--focus-width) solid var(--focus-colour);
+  outline-offset: -2px;
+}
+
+.appearance__note {
+  margin: var(--s2) 0 0;
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .appearance__segment {
+    transition: none;
+  }
+}

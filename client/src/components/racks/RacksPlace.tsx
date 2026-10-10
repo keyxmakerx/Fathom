@@ -17,8 +17,14 @@ import {
   resizeShelf,
 } from '../../document/commands';
 import { nextFreeSpot } from '../drawing/freeLayout';
+import { requestRename } from '../drawing/NameEdit';
+import type { PaletteAction } from '../shell/palette';
+import { usePaletteActions } from '../shell/paletteRegistry';
+import { shortcutText } from '../shell/shortcuts';
 import { BOX_H, BOX_W, createLabel, createLine, moveFree, removeFree, setLabel } from '../../document/freeform';
 import { FieldValueError, isDeviceRole, setDeviceField } from '../../document/edit';
+import { useResumeView } from './useResumeView';
+import type { CameraHub } from '../drawing/camera';
 import { edgesIn, parseNodeId, type Document } from '../../document/model';
 import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
 import { Engine, EngineTrap } from '../../engine/engine';
@@ -30,6 +36,7 @@ import type { PastePlatform } from '../../engine/frames';
 import { devicePlatform, platformChoices, previewPaste, worthReading } from '../paste/pasteConfig';
 import { ConfigDrawer } from '../config/ConfigDrawer';
 import { canDrawFor, refusalFor, type DesignSession } from '../design/useDesignSession';
+import { MultiDevicePanel } from '../drawing/MultiDevicePanel';
 import { Drawing, EditorFor, Palette, type NotesActions, type Selection, type TagsActions, type FieldsActions } from '../drawing';
 import {
   cableGroupsStorageKey,
@@ -73,11 +80,26 @@ import { useTroubleController } from '../troubleshoot/useTroubleController';
 import type { PathPart, ShellProps } from '../shell/types';
 import { Shell } from '../Shell';
 import { addFreeBoxDoc, addSurfaceDeviceDoc, duplicateFreeDoc } from './freeActions';
+import { addFreeBoxFromTemplateDoc } from './freeActions';
+import { addTemplatePorts, placePorts, resetPortPlaces, type PortPlace, type TemplatePort } from '../../document/plate';
+import { useFaceplateTemplates } from '../jot/faceplateTemplates';
+import { NoteAuthorsContext } from '../drawing/noteByline';
 import { addRack, createPremises, ensureRackToPlaceInto, nextName } from './emptyDesign';
 import type { PaletteItem } from '../drawing/contract';
 import { DEFAULT_FACEPLATES, SKETCH_DEVICE_PALETTE_ITEM, isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
 import { highestFreeU, hostnamesOf, nextHostname, racksInPickOrder } from './pick';
 import './racks.css';
+import { SkeletonRacks } from '../ui/Skeleton';
+import { useSavedViews } from './useSavedViews';
+import { findEdge, findNode } from '../../document/model';
+import { colourKeyShown, useCanvasAids } from '../drawing/canvasAids';
+import { colourKeyRows } from '../drawing/colourKey';
+import { ColourKey } from '../drawing/ColourKey';
+import { PortPeek } from '../drawing/PortPeek';
+import { JumpTrail } from './JumpTrail';
+import { showAidsFor } from './showAids';
+import { selectionName } from './selectionName';
+import { useJumpBack } from './useJumpBack';
 
 // `canDrawFor`/`refusalFor` now live in `components/design/useDesignSession.ts`,
 // re-exported here unchanged, so the two
@@ -134,7 +156,7 @@ const PENDING_RACK_VIEW: ClosetView['racks'][number] = {
 
 /** What an empty design says (ADR-0060 decision 4). */
 const EMPTY_HINT =
-  'An empty design. Open Equipment on the left and drag a device onto the rack, or right-click the canvas to add a rack or a wall.';
+  'An empty design. Open Equipment on the right and drag a device onto the rack, or right-click the canvas to add a rack or a wall.';
 
 /**
  * ADR-0051 §1 — "+ add a surface". There is no
@@ -212,6 +234,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
    * already uses (`Drawing.tsx`'s Motion #10). Absent on every ordinary
    * open — nothing is pre-selected just because a design loaded. */
   initialFocus?: Selection | null;
+  /** Select a thing as if it were clicked, without opening it; a fresh object per ask. */
+  selectRequest?: { selection: Selection } | null;
   /** A saved issue to open on arrival ("Show on canvas" on an Inventory issue page); a fresh object per ask. */
   initialIssue?: { id: string } | null;
   /** This session's brief item 5's reverse — "Open in inventory," rendered
@@ -243,6 +267,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   designId: string;
   /** What is selected, by element id, for presence (ADR-0063 §12). */
   onSelectedChange?: (id: string | null) => void;
+  /** A device was opened (double-click): Home's Recent row remembers it. */
+  onDeviceOpened?: (chassisId: string, name: string) => void;
 }
 
 /**
@@ -267,6 +293,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     session,
     onZoomChange,
     initialFocus,
+    selectRequest,
     initialIssue,
     onOpenInventory,
     accountId,
@@ -278,14 +305,19 @@ export function RacksPlace(props: RacksPlaceProps) {
     onShownCablesChange,
     designId,
     onSelectedChange,
+    onDeviceOpened,
     ...shellProps
   } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign } = session;
   const [selection, setSelection] = useState<Selection | null>(initialFocus ?? null);
   const selectedId = selection?.id ?? null;
+  // Several devices picked together on the canvas (Shift+click or a marquee), edited from one panel.
+  const [groupIds, setGroupIds] = useState<string[]>([]);
+  const [groupClear, setGroupClear] = useState(0);
   useEffect(() => {
     onSelectedChange?.(selectedId);
   }, [onSelectedChange, selectedId]);
+  const resumeView = useResumeView({ accountId, designId, doc, hasFocus: initialFocus != null, selection, setSelection });
   // A device whose callout is showing keeps the details panel closed; the callout's Details opens it.
   const [calloutId, setCalloutId] = useState<string | null>(null);
   // Rack or Diagram: this person's choice for this design, kept in this browser.
@@ -324,6 +356,18 @@ export function RacksPlace(props: RacksPlaceProps) {
       }),
     [accountId, session.designId],
   );
+  // The Views menu: named camera + Show layers, per person and design, kept in this browser.
+  const cameraHub = useRef<CameraHub>({ control: null, pending: null }).current;
+  const applyLayers = useCallback(
+    (next: LayerSet) => {
+      setLayers(next);
+      saveLayers(accountId, session.designId, next);
+    },
+    [accountId, session.designId],
+  );
+  // Opening a saved view is a step in Jump back's trail; the trail is built further down.
+  const jumpMarkView = useRef<(name: string) => void>(() => {});
+  const viewsMenu = useSavedViews({ accountId, designId, hub: cameraHub, look, layers, applyLayers, changeLook, setRackCamera: resumeView.setCamera, onWillGo: (name) => jumpMarkView.current(name) });
   // Bumped by the bar's percentage button; the drawing fits every rack.
   const [fitRequest, setFitRequest] = useState(0);
   // A short-lived note over the canvas for a menu action that did nothing
@@ -354,6 +398,9 @@ export function RacksPlace(props: RacksPlaceProps) {
     // on the `initialFocus` object identity and `doc` becoming available;
     // `onZoomChange` is a stable setter from `App.tsx`.
   }, [initialFocus, doc]);
+  useEffect(() => {
+    if (selectRequest != null) setSelection(selectRequest.selection);
+  }, [selectRequest]);
 
   // ADR-0052 §1/§4 — the config drawer's
   // engine. `Engine.init()` fetches and boots the wasm module
@@ -955,11 +1002,68 @@ export function RacksPlace(props: RacksPlaceProps) {
   // ADR-0060 decision 10: Open goes into a device ("jot mode"). Drawing stays mounted beneath, so its camera is
   // where it was on the way back; the way out is Esc, the bar's path, or the Back button.
   const [jot, setJot] = useState<{ id: string; origin: { x: number; y: number } | null; inside: boolean } | null>(null);
+  const realViewRef = useRef(realView);
+  realViewRef.current = realView;
+  const onDeviceOpenedRef = useRef(onDeviceOpened);
+  onDeviceOpenedRef.current = onDeviceOpened;
   const handleOpenDevice = useCallback((id: string, inside: boolean, at: { x: number; y: number } | null) => {
     setSelection({ kind: 'chassis', id });
     setJot({ id, origin: at, inside });
+    onDeviceOpenedRef.current?.(id, deviceChassis(realViewRef.current, id)?.hostname ?? '');
   }, []);
   const leaveJot = useCallback(() => setJot(null), []);
+
+  // Small aids over the canvas: the mini-map and cable colour key (both switched in the Show menu), the port
+  // peek, and the trail of where you have been with Alt+Left and Alt+Right.
+  const canvasAids = useCanvasAids(accountId);
+  const keyRows = useMemo(() => (look === 'rack' ? colourKeyRows(doc, realView) : []), [doc, realView, look]);
+  const keyOn = colourKeyShown(canvasAids.prefs.colourKey, keyRows.length);
+  const [keyCableIds, setKeyCableIds] = useState<ReadonlySet<string> | null>(null);
+  const showAids = useMemo(
+    () => showAidsFor(canvasAids.prefs, { rack: look === 'rack', colours: keyRows.length }, (id) => canvasAids.toggle(id, keyOn)),
+    [canvasAids, look, keyRows.length, keyOn],
+  );
+  const jumpExists = useCallback(
+    (spot: { selection: { id: string } | null; jotId: string | null }) => {
+      if (doc == null) return false;
+      const live = (id: string) => {
+        const thing = findNode(doc, id) ?? findEdge(doc, id);
+        return thing != null && thing.absentSince === undefined;
+      };
+      return (spot.selection == null || live(spot.selection.id)) && (spot.jotId == null || live(spot.jotId));
+    },
+    [doc],
+  );
+  const jumpGo = useCallback(
+    (spot: { look: Look; selection: { kind: string; id: string } | null; jotId: string | null }, camera: { x: number; y: number; zoom: number } | null) => {
+      if (spot.look !== look) {
+        if (camera != null) {
+          if (spot.look === 'rack') resumeView.setCamera(camera);
+          else cameraHub.pending = camera;
+        }
+        changeLook(spot.look);
+      } else if (camera != null) {
+        cameraHub.control?.set(camera, true);
+      }
+      setCalloutId(null);
+      setSelection(spot.selection as Selection | null);
+      setJot(spot.jotId != null ? { id: spot.jotId, origin: null, inside: false } : null);
+    },
+    [look, changeLook, resumeView, cameraHub],
+  );
+  const overviewName = shellProps.path[shellProps.path.length - 1]?.label ?? '';
+  const jump = useJumpBack({
+    enabled: doc != null,
+    look,
+    selection,
+    jotId: jot?.id ?? null,
+    zoomPct: shellProps.zoom,
+    nameOf: (sel) => (sel == null ? overviewName : selectionName(realView, sel)),
+    exists: jumpExists,
+    hub: cameraHub,
+    go: jumpGo,
+  });
+  jumpMarkView.current = jump.markView;
 
   // ADR-0061 §7: a config pasted anywhere on the canvas. The gate runs in the module (`previewPaste`)
   // before the card shows; the card's choice is the only thing that writes. The raw text is never kept.
@@ -1066,6 +1170,38 @@ export function RacksPlace(props: RacksPlaceProps) {
       void freeWrite((d, o) => ({ doc: addSketchPort(d, chassisId, { label: String(n), connector, face: 'front' }, o), out: null }));
     },
     [realView, freeWrite],
+  );
+
+  // The owner's ticked ideas (schema 0.19): drag hand-typed ports on their plate, and faceplate
+  // templates kept in this browser per account. Every write is one undo step through `freeWrite`.
+  const faceplateTemplates = useFaceplateTemplates(accountId);
+  // A pinned note's byline names whoever this client can name: you, and the people here live.
+  const ownInitials = shellProps.account?.initials;
+  const livePeople = session.live.people;
+  const noteAuthors = useMemo(() => {
+    const m = new Map<string, string>(livePeople.map((p) => [p.account, p.initials]));
+    if (accountId != null && ownInitials) m.set(accountId, ownInitials);
+    return m;
+  }, [livePeople, accountId, ownInitials]);
+  const handlePlacePorts = useCallback(
+    (chassisId: string, places: PortPlace[]) => void freeWrite((d, o) => ({ doc: placePorts(d, chassisId, places, o), out: null })),
+    [freeWrite],
+  );
+  const handleResetPorts = useCallback((chassisId: string) => void freeWrite((d, o) => ({ doc: resetPortPlaces(d, chassisId, o), out: null })), [freeWrite]);
+  const handleApplyTemplate = useCallback(
+    (chassisId: string, ports: readonly TemplatePort[]) => void freeWrite((d, o) => ({ doc: addTemplatePorts(d, chassisId, ports, o), out: null })),
+    [freeWrite],
+  );
+  const handleAddFreeBoxFromTemplate = useCallback(
+    (templateId: string, x: number, y: number, fromBoxId?: string) => {
+      const template = faceplateTemplates.templates.find((t) => t.id === templateId);
+      if (!template) return undefined;
+      return freeWrite((d, o) => {
+        const r = addFreeBoxFromTemplateDoc(d, template, x, y, fromBoxId, o);
+        return { doc: r.doc, out: r.chassisId };
+      });
+    },
+    [faceplateTemplates.templates, freeWrite],
   );
 
   // ADR-0060 decision 4: a click in the equipment list adds the item where there
@@ -1222,6 +1358,14 @@ export function RacksPlace(props: RacksPlaceProps) {
     [handleEdit],
   );
 
+  const handlePasteDevice = useCallback(
+    (chassisId: string, rackId: string) => {
+      const result = handleEdit({ kind: 'duplicate-device', chassisId, intoRackId: rackId });
+      if (result != null && 'refused' in result) setCanvasNotice(result.refused);
+    },
+    [handleEdit],
+  );
+
   const handleAddDeviceAt = useCallback(
     (rackId: string, positionU: number, role: string | null) => handlePlace(rackId, role !== null ? { ...SKETCH_DEVICE_PALETTE_ITEM, role } : SKETCH_DEVICE_PALETTE_ITEM, positionU),
     [handlePlace],
@@ -1229,7 +1373,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   const handleMoveFree = useCallback((moves: readonly { id: string; x: number; y: number }[]) => void freeWrite((d, o) => ({ doc: moveFree(d, moves, o), out: null })), [freeWrite]);
   const handleConnectBoxes = useCallback((a: string, b: string) => void freeWrite((d, o) => ({ doc: createLine(d, a, b, o).doc, out: null })), [freeWrite]);
   const handleAddLabel = useCallback(
-    (form: 'text' | 'area', text: string, x: number, y: number, w?: number, h?: number) =>
+    (form: 'text' | 'area' | 'note', text: string, x: number, y: number, w?: number, h?: number) =>
       freeWrite((d, o) => {
         const r = createLabel(d, { ...o, text, form, x, y, ...(w !== undefined ? { w } : {}), ...(h !== undefined ? { h } : {}) });
         return { doc: r.doc, out: r.id };
@@ -1241,10 +1385,10 @@ export function RacksPlace(props: RacksPlaceProps) {
   const handleDuplicateFree = useCallback(
     (ids: readonly string[], dx: number, dy: number) =>
       freeWrite((d, o) => {
-        const r = duplicateFreeDoc(d, realView, ids, dx, dy, o);
+        const r = duplicateFreeDoc(d, realView, ids, dx, dy, { ...o, catalogue });
         return { doc: r.doc, out: r.ids };
       }),
-    [freeWrite, realView],
+    [freeWrite, realView, catalogue],
   );
   const handleResizeShelf = useCallback(
     (shelfId: string, change: { heightU?: number; slots?: number }, preview: boolean) => {
@@ -1263,6 +1407,94 @@ export function RacksPlace(props: RacksPlaceProps) {
     },
     [handleEdit, doc, catalogue, accountId],
   );
+
+  // A name double-clicked on the canvas and typed over: the same field edits the details panel makes.
+  const handleRename = useCallback(
+    (target: { kind: 'chassis' | 'rack'; id: string }, value: string) => {
+      if (doc == null) return;
+      let result: { refused: string } | void;
+      if (target.kind === 'rack') {
+        if (value === '') return; // a rack always has a name
+        result = handleEdit({ kind: 'rack', id: target.id, field: 'label', value });
+      } else {
+        const deviceId = edgesIn(doc, target.id, 'HasChassis')[0]?.from;
+        if (deviceId === undefined) return;
+        result = handleEdit({ kind: 'device', id: deviceId, field: 'hostname', value: value === '' ? null : value });
+      }
+      if (result != null && 'refused' in result) setCanvasNotice(result.refused);
+    },
+    [doc, handleEdit],
+  );
+
+  // What the command palette (Ctrl+K) can do with the selection. Asked for each time it opens.
+  usePaletteActions('racks', (): PaletteAction[] => {
+    if (!canDraw && selection?.kind !== 'chassis') return [];
+    const chassisId = selection?.kind === 'chassis' ? selection.id : null;
+    const racked = chassisId !== null ? realView.racks.flatMap((r) => r.chassis).find((c) => c.id === chassisId) : undefined;
+    const isFree = chassisId !== null && realView.free.some((f) => f.id === chassisId);
+    const needDevice = 'Select a device first';
+    // Each action names its object ("Duplicate switch-1") once something is selected.
+    const freeBox = chassisId !== null ? realView.free.find((f) => f.id === chassisId) : undefined;
+    const deviceName = racked?.hostname || racked?.model || freeBox?.hostname || '';
+    const rackName = selection?.kind === 'rack' ? realView.racks.find((r) => r.id === selection.id)?.label ?? '' : '';
+    const named = (verb: string, name: string) => (name === '' ? verb : `${verb} ${name}`);
+    const out: PaletteAction[] = [
+      {
+        id: 'trace',
+        label: deviceName === '' ? 'Trace a path from a device' : `Trace a path from ${deviceName}`,
+        keywords: ['path', 'follow', 'cable'],
+        disabled: chassisId === null ? needDevice : undefined,
+        run: () => chassisId !== null && trace.openFrom(chassisId),
+      },
+    ];
+    if (!canDraw) return out;
+    const renameTarget = chassisId !== null ? { kind: 'chassis' as const, id: chassisId } : selection?.kind === 'rack' ? { kind: 'rack' as const, id: selection.id } : null;
+    out.unshift(
+      {
+        id: 'add-port',
+        label: deviceName === '' ? 'Add a port to a device' : `Add a port to ${deviceName}`,
+        keywords: ['connector', 'interface'],
+        disabled: chassisId === null ? needDevice : racked !== undefined && racked.model !== '' ? "This device's ports come from its model" : undefined,
+        run: () => {
+          if (chassisId === null) return;
+          // The details panel holds the form; a second later it is there to open.
+          setSelection({ kind: 'chassis', id: chassisId });
+          window.setTimeout(() => window.dispatchEvent(new CustomEvent('fathom:add-port', { detail: { chassisId } })), 80);
+        },
+      },
+      {
+        id: 'rename',
+        label: named('Rename', deviceName || rackName),
+        keywords: ['name', 'hostname', 'label'],
+        disabled: renameTarget === null ? 'Select a device or rack first' : look === 'diagram' ? 'Switch to the Rack look to rename on the canvas' : undefined,
+        run: () => renameTarget !== null && requestRename(renameTarget),
+      },
+      {
+        id: 'duplicate',
+        label: named('Duplicate', deviceName),
+        hint: shortcutText('duplicate'),
+        keywords: ['copy', 'clone'],
+        disabled: racked === undefined && !isFree ? 'Select a device first' : undefined,
+        run: () => {
+          if (chassisId === null) return;
+          if (racked !== undefined) handleDuplicateDevice(chassisId);
+          else handleDuplicateFree([chassisId], 24, 24);
+        },
+      },
+      {
+        id: 'delete',
+        label: selection?.kind === 'cable' ? 'Delete cable' : named('Delete', deviceName),
+        hint: shortcutText('delete'),
+        keywords: ['remove'],
+        disabled: chassisId === null && selection?.kind !== 'cable' ? 'Select a device or cable first' : undefined,
+        run: () => {
+          if (chassisId !== null) handleRemoveDevice(chassisId);
+          else if (selection?.kind === 'cable') handleDisconnect(selection.id);
+        },
+      },
+    );
+    return out;
+  });
 
   // `handleEdit` (ADR-0046 §2's one editor) now lives in
   // `useDesignSession`, so the exact same
@@ -1302,7 +1534,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           paletteFromCatalogue(catalogue),
         )
       : null;
-  const editor = historyView != null ? historyView.panel : saveRefusal != null ? (
+  const editor = saveRefusal != null ? (
       <div className="racks-place__refusal">
         {saveRefusal}
         {/* ADR-0054 §1's refusal wash "offers reload". */}
@@ -1310,6 +1542,16 @@ export function RacksPlace(props: RacksPlaceProps) {
           Reload
         </button>
       </div>
+    ) : doc != null && selection == null && groupIds.length >= 2 ? (
+      <MultiDevicePanel
+        ids={groupIds}
+        view={displayView}
+        doc={doc}
+        apply={applyDocChange}
+        actor={actorOpts(accountId)}
+        canDraw={canDraw}
+        onClear={() => setGroupClear((n) => n + 1)}
+      />
     ) : selectedPanel != null ? (
       <>
         {selectedPanel}
@@ -1350,7 +1592,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
-    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle } }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} rail={rail} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, aids: showAids }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
         doc != null ? (
           <div className="shell-bar__undoredo">
             <PlansBarChip controller={plans} />
@@ -1361,6 +1603,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       band={doc != null && plans.bandOpen ? <PlanBand controller={plans} /> : undefined}
     >
       <ChecksContext.Provider value={checks.api}>
+      <NoteAuthorsContext.Provider value={noteAuthors}>
       {historyView?.banner != null ? (
         <div className="history-banner" role="status" data-testid="history-banner">
           {historyView.banner}
@@ -1371,7 +1614,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       <TroubleContext.Provider value={trouble.store}>
       <TraceContext.Provider value={trace.store}>
       {doc == null ? (
-        <div className="racks-place__loading">{loadError ?? 'Opening the design…'}</div>
+        <div className="racks-place__loading">{loadError ?? <SkeletonRacks label="Opening the design…" />}</div>
       ) : look === 'diagram' ? (
         <DiagramDrawing
           view={displayView}
@@ -1384,6 +1627,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           dashedCableIds={cableDraw.dashedIds}
           words={words}
           style={diagramStyle}
+          cameraHub={cameraHub}
+          minimap={canvasAids.prefs.minimap}
         />
       ) : (
         <Drawing
@@ -1394,12 +1639,19 @@ export function RacksPlace(props: RacksPlaceProps) {
           onZoomChange={onZoomChange}
           fitRequest={fitRequest}
           lookSwitched={lookSwitched}
+          cameraHub={cameraHub}
+          keyCableIds={keyOn ? keyCableIds : null}
+          minimap={canvasAids.prefs.minimap}
+          initialViewport={resumeView.initialViewport}
+          onViewportSettled={resumeView.onViewportSettled}
           onPlace={handlePlace}
           onMove={handleMove}
           onConnect={handleConnect}
           onDisconnect={handleDisconnect}
           onRemoveDevice={handleRemoveDevice}
           onDuplicateDevice={canDraw ? handleDuplicateDevice : undefined}
+          onPasteDevice={canDraw ? handlePasteDevice : undefined}
+          onRename={canDraw ? handleRename : undefined}
           onAddDevice={canDraw ? handleAddDevice : undefined}
           onAddRack={canDraw ? handleAddRack : undefined}
           onAddWall={canDraw ? handleAddWall : undefined}
@@ -1414,11 +1666,15 @@ export function RacksPlace(props: RacksPlaceProps) {
           onSetLabel={canDraw ? handleSetLabel : undefined}
           onRemoveFree={canDraw ? handleRemoveFree : undefined}
           onDuplicateFree={canDraw ? handleDuplicateFree : undefined}
+          onAddFreeBoxFromTemplate={canDraw ? handleAddFreeBoxFromTemplate : undefined}
+          faceplateTemplates={faceplateTemplates.templates}
           onResizeShelf={canDraw ? handleResizeShelf : undefined}
           onSelect={setSelection}
           onPlanChange={canDraw ? plans.planChange : undefined}
           onItsDown={canDraw ? trouble.start : undefined}
           onCalloutChange={setCalloutId}
+          onGroupChange={setGroupIds}
+          groupClearRequest={groupClear}
           canDraw={canDraw && jot === null}
           openRequest={openRequest}
           renderConfigDrawer={renderConfigDrawer}
@@ -1458,8 +1714,15 @@ export function RacksPlace(props: RacksPlaceProps) {
           paused={pasteState != null}
           renderConfigDrawer={renderConfigDrawer}
           renderInsideStop={renderInsideStop}
+          onPlacePorts={canDraw ? handlePlacePorts : undefined}
+          onResetPorts={canDraw ? handleResetPorts : undefined}
+          templateOwner={accountId}
+          onApplyTemplate={canDraw ? handleApplyTemplate : undefined}
         />
       ) : null}
+      {doc != null && look === 'rack' && keyOn && keyRows.length > 0 ? <ColourKey rows={keyRows} onHighlight={setKeyCableIds} /> : null}
+      {doc != null ? <JumpTrail trail={jump.trail} backLabel={jump.backLabel} onBack={jump.goBack} onForward={jump.goForward} onGoTo={jump.goTo} /> : null}
+      {doc != null ? <PortPeek doc={doc} view={displayView} /> : null}
       {drawerAsk != null && pasteState == null ? (
         <PasteCard
           state={{ kind: 'which', candidates: drawerAsk.candidates }}
@@ -1497,6 +1760,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       </TroubleContext.Provider>
       </PlansContext.Provider>
       </CheckMarksContext.Provider>
+      </NoteAuthorsContext.Provider>
       </ChecksContext.Provider>
     </Shell>
   );

@@ -44,7 +44,7 @@ export interface MenuActions {
   onPasteConfig?(): void;
   onAddInRack?(rackId: string, u: number, at: { screen: Point; flow: Point }): void;
   onAddBoxHere?(at: { screen: Point; flow: Point }): void;
-  onAddLabelHere?(form: 'text' | 'area', flow: Point): void;
+  onAddLabelHere?(form: 'text' | 'area' | 'note', flow: Point): void;
   onDuplicateFree?(ids: string[]): void;
   onRemoveFree?(ids: string[]): void;
 }
@@ -74,6 +74,8 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
       const free = target.freeU;
       if (free && actions.onAddInRack) items.push({ label: `Add here (U${free.u})`, onSelect: () => actions.onAddInRack?.(id, free.u, free) });
       if (actions.onAddDevice) items.push({ label: 'Add a device', onSelect: () => actions.onAddDevice?.(id) });
+      // A note sits on the canvas at the spot, over the rack; it does not follow the rack if it moves.
+      if (free && actions.onAddLabelHere) items.push({ label: 'Add a note here', onSelect: () => actions.onAddLabelHere?.('note', free.flow) });
       break;
     }
     case 'cable': {
@@ -107,6 +109,7 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
       if (at && actions.onAddLabelHere) {
         items.push({ label: 'Add a label here', onSelect: () => actions.onAddLabelHere?.('text', at.flow) });
         items.push({ label: 'Add an area here', onSelect: () => actions.onAddLabelHere?.('area', at.flow) });
+        items.push({ label: 'Add a note here', onSelect: () => actions.onAddLabelHere?.('note', at.flow) });
       }
       if (actions.onAddRack) {
         for (const u of RACK_SIZES) items.push({ label: `Add a ${u}U rack`, onSelect: () => actions.onAddRack?.(u) });

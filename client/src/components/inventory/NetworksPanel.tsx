@@ -71,6 +71,7 @@ import { getSession } from '../../state/sessionState';
 import { TagChips } from '../TagChips';
 import { formatLastChange } from './rows';
 import './networks.css';
+import { EmptyState } from '../ui/EmptyState';
 
 /** `TagChips`'s own `onAdd`/`onRemove` contract, built once per row from
  * whichever of `tagObject`/`tagVlanRow` (and their untag reverse) the
@@ -848,7 +849,11 @@ function VlanRowGroup(props: {
               </div>
             </div>
           ))}
-          {row.members.length === 0 ? <div className="networks-editor__empty">No members yet.</div> : null}
+          {row.members.length === 0 ? (
+            <EmptyState className="networks-editor__empty" title="No members yet." compact>
+              Ports join a VLAN from the port's own panel.
+            </EmptyState>
+          ) : null}
           {/* ADR-0059 decision 6 — a VLAN row is tagged through its members;
               the chips shown are the union of every member's tags. */}
           <div className="networks-grid__tags">
@@ -1247,7 +1252,11 @@ function DockerNetworkRowGroup(props: {
           {row.containers.map((c) => (
             <DockerMemberRow key={c.containerId} container={c} hostnameOf={hostnameOf} doc={doc} applyDocChange={applyDocChange} canDraw={canDraw} />
           ))}
-          {row.containers.length === 0 ? <div className="networks-editor__empty">No containers yet.</div> : null}
+          {row.containers.length === 0 ? (
+            <EmptyState className="networks-editor__empty" title="No containers yet." compact>
+              Containers on this network are read from the host's captured config.
+            </EmptyState>
+          ) : null}
           {/* ADR-0059 decision 2 — a Docker network takes its tag directly. */}
           <div className="networks-grid__tags">
             <TagChips

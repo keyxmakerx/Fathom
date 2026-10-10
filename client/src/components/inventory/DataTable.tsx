@@ -36,6 +36,8 @@ export interface DataTableProps {
   /** The ▾ menu's content for a column; omit it and headings have no ▾. */
   columnMenu?: (col: Column, close: () => void) => ReactNode;
   emptyText: string;
+  /** Shown instead of `emptyText` when there is no row: a title, a sentence and the button that adds one. */
+  empty?: ReactNode;
   /** Where the list was scrolled to when it was last left. */
   initialScrollTop?: number;
   onScrollTop?: (top: number) => void;
@@ -55,7 +57,7 @@ function inputType(col: Column): string {
 }
 
 export function DataTable(props: DataTableProps) {
-  const { columns, rows, openKey, checked, sorts, canEdit, onCommit, onFilterTag, onOpen, onToggleChecked, onToggleAll, onSort, columnMenu, emptyText, initialScrollTop = 0, onScrollTop } = props;
+  const { columns, rows, openKey, checked, sorts, canEdit, onCommit, onFilterTag, onOpen, onToggleChecked, onToggleAll, onSort, columnMenu, emptyText, empty, initialScrollTop = 0, onScrollTop } = props;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(initialScrollTop);
   const [viewHeight, setViewHeight] = useState(600);
@@ -327,7 +329,7 @@ export function DataTable(props: DataTableProps) {
               );
             })}
           </div>
-          {rows.length === 0 ? <div className="inv-table__empty">{emptyText}</div> : null}
+          {rows.length === 0 ? <div className="inv-table__empty">{empty ?? emptyText}</div> : null}
           <div style={{ height: rows.length * ROW_HEIGHT, position: 'relative' }}>
             {visible.map((row, i) => {
               const index = first + i;

@@ -498,11 +498,11 @@ fn a_plain_face_payload(seed: u128) -> Vec<u8> {
 }
 
 /// ADR-0049 #4's wire number for the schema version currently declared on
-/// line 3 of every payload [`a_plain_face_payload`] writes -- `"0.18"` at time
+/// line 3 of every payload [`a_plain_face_payload`] writes -- `"0.19"` at time
 /// of writing, whose minor component this is. Kept as its own named constant
 /// rather than a bare `14` at each call site so a future schema bump has one
 /// place to change.
-const CURRENT_SCHEMA_WIRE_VERSION: u32 = 18;
+const CURRENT_SCHEMA_WIRE_VERSION: u32 = 19;
 
 fn save_body(schema_version: u32, payload: &[u8]) -> Vec<u8> {
     let mut out = schema_version.to_le_bytes().to_vec();
@@ -5057,6 +5057,131 @@ mod live {
         )
         .await;
         assert_eq!(status, "200");
+    }
+
+    /// The next presence frame on `feed` that satisfies `want`, within a few frames.
+    async fn presence_where(feed: &mut Feed, want: impl Fn(&str) -> bool) -> Option<String> {
+        for _ in 0..12 {
+            match feed.next(Duration::from_secs(3)).await {
+                Next::Frame(3, _, json) => {
+                    let json = String::from_utf8_lossy(&json).into_owned();
+                    if want(&json) {
+                        return Some(json);
+                    }
+                }
+                Next::Frame(..) => {}
+                Next::Quiet | Next::Closed => return None,
+            }
+        }
+        None
+    }
+
+    #[tokio::test]
+    async fn a_pointer_is_relayed_to_others_on_the_canvas_and_to_nobody_else() {
+        let _site = support::lock_the_site_chain().await;
+        let w = world().await;
+        let drawer = a_member_with(
+            &w.pool,
+            &w.ring,
+            &w.estate,
+            "drawer",
+            Some(Capability::Draw),
+        )
+        .await;
+        let reader = a_member_with(
+            &w.pool,
+            &w.ring,
+            &w.estate,
+            "reader",
+            Some(Capability::Read),
+        )
+        .await;
+
+        let mut steward_feed = open_feed(&w, &w.estate.steward, 1).await;
+        let mut drawer_feed = open_feed(&w, &drawer, 1).await;
+        let mut reader_feed = open_feed(&w, &reader, 1).await;
+        for (who, view) in [
+            (&w.estate.steward, "canvas"),
+            (&drawer, "canvas"),
+            (&reader, "inventory"),
+        ] {
+            let body = presence_body(view, None);
+            let (status, _) = call(w.addr, who, "POST", &w.path("presence"), &body).await;
+            assert_eq!(status, "200");
+        }
+        let point = br#"{"pointer":{"x":120.5,"y":-40}}"#;
+        let (status, answer) = call(w.addr, &drawer, "POST", &w.path("pointer"), point).await;
+        assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
+
+        let told = presence_where(&mut steward_feed, |j| j.contains("\"pointer\"")).await;
+        let told = told.expect("the steward is told of the drawer's pointer");
+        assert!(
+            told.contains(
+                "\"name\":\"drawer\",\"selected\":null,\"pointer\":{\"x\":120.5,\"y\":-40.0}}"
+            ),
+            "{told}"
+        );
+        // Not the person's own, and not another view.
+        assert!(
+            presence_where(&mut drawer_feed, |j| j.contains("\"pointer\""))
+                .await
+                .is_none()
+        );
+        assert!(
+            presence_where(&mut reader_feed, |j| j.contains("\"pointer\""))
+                .await
+                .is_none()
+        );
+
+        // It leaves when the person says so.
+        let gone = br#"{"pointer":null}"#;
+        let (status, _) = call(w.addr, &drawer, "POST", &w.path("pointer"), gone).await;
+        assert_eq!(status, "200");
+        let told = presence_where(&mut steward_feed, |j| {
+            j.contains("\"name\":\"drawer\"") && !j.contains("\"pointer\"")
+        })
+        .await;
+        assert!(told.is_some(), "the pointer was cleared for the steward");
+    }
+
+    #[tokio::test]
+    async fn a_pointer_that_is_not_the_shape_or_not_allowed_is_refused() {
+        let _site = support::lock_the_site_chain().await;
+        let w = world().await;
+        let reader = a_member_with(
+            &w.pool,
+            &w.ring,
+            &w.estate,
+            "reader",
+            Some(Capability::Read),
+        )
+        .await;
+        let outsider = a_member_with(&w.pool, &w.ring, &w.estate, "outsider", None).await;
+        let long = format!(
+            "{{\"pointer\":{{\"x\":1,\"y\":2}},\"pad\":\"{}\"}}",
+            "x".repeat(200)
+        );
+        let bad: [&[u8]; 9] = [
+            b"",
+            b"{}",
+            br#"{"pointer":{"x":1}}"#,
+            br#"{"pointer":{"x":1,"y":2,"z":3}}"#,
+            br#"{"pointer":{"x":1e9,"y":2}}"#,
+            br#"{"pointer":{"x":99999999,"y":2}}"#,
+            br#"{"pointer":{"x":"1","y":2}}"#,
+            br#"{"view":"canvas","pointer":{"x":1,"y":2}}"#,
+            long.as_bytes(),
+        ];
+        for body in bad {
+            let (status, _) = call(w.addr, &reader, "POST", &w.path("pointer"), body).await;
+            assert_eq!(status, "400", "{}", String::from_utf8_lossy(body));
+        }
+        let good = br#"{"pointer":{"x":1,"y":2}}"#;
+        let (status, _) = call(w.addr, &reader, "POST", &w.path("pointer"), good).await;
+        assert_eq!(status, "200", "a reader may point");
+        // Someone with no access to the design is refused like any other call.
+        let (status, _) = call(w.addr, &outsider, "POST", &w.path("pointer"), good).await;
+        assert_eq!(status, "403");
     }
 
     /// Rows of `table` for the design, as `(version, key_epoch)`, read in a

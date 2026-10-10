@@ -12,6 +12,7 @@ import { ApiRefusal } from '../api/errors';
 import { endOtherSessions, endSession, listSessions, type SessionSummary } from '../api/sessions';
 import { formatLastChange } from './inventory/rows';
 import { QrCode } from '../qr';
+import { Appearance } from './Appearance';
 import { describeAppCodeRefusal } from './appCodeRefusal';
 import '../styles/signin.css';
 import '../styles/authenticator.css';
@@ -89,6 +90,8 @@ export function Account({ address, purpose = 'settings', onDone, onClose, focus 
             ? 'This account holds the operator custody, so it needs an authenticator app before anything else.'
             : `Your credentials, ${address}.`}
         </p>
+
+        {purpose === 'settings' && <Appearance />}
 
         {purpose === 'settings' && <PasswordForm address={address} />}
 

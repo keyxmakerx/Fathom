@@ -241,6 +241,10 @@ pub fn router(state: DesignApiState) -> Router {
             post(presence_handler),
         )
         .route(
+            "/organisations/{organisation}/designs/{design}/pointer",
+            post(pointer_handler),
+        )
+        .route(
             "/organisations/{organisation}/designs/{design}/history",
             get(history_handler),
         )
@@ -381,7 +385,9 @@ fn is_background_route(method: &str, path: &str) -> bool {
     let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
     match segments.as_slice() {
         ["organisations", _organisation, "designs", _design, "live"] => method == "GET",
-        ["organisations", _organisation, "designs", _design, "presence"] => method == "POST",
+        ["organisations", _organisation, "designs", _design, "presence" | "pointer"] => {
+            method == "POST"
+        }
         _ => false,
     }
 }
@@ -2951,6 +2957,48 @@ async fn presence_handler(
         .live
         .hub
         .set_presence(&design_text, &account, view, selected);
+
+    Ok((
+        StatusCode::OK,
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        "ok\n",
+    )
+        .into_response())
+}
+
+/// `POST /organisations/{organisation}/designs/{design}/pointer`: where the
+/// signed-in person's pointer is on the canvas, in canvas coordinates. Needs
+/// `read`. Body: `{"pointer": {"x": n, "y": n}}` or `{"pointer": null}`, at
+/// most 128 bytes ([`live::parse_pointer`]). Relayed to the others on the
+/// canvas through the live stream, held in memory and never stored; its own
+/// rate limit, apart from presence.
+async fn pointer_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, design)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let design_id = parse_design(&design)?;
+    let pointer =
+        live::parse_pointer(&signed.body).ok_or(SessionError::Malformed("pointer body"))?;
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx =
+        authorise_on_design(&tx, &state, &session, tenant, design_id, Capability::Read).await?;
+    let account = ctx.actor().to_string();
+    let design_text = design_id.to_string();
+    if !state.live.hub.allow_pointer(&account, &design_text) {
+        return Err(RouteError::Limited("too many pointer updates; slow down"));
+    }
+    tx.commit().await.map_err(SessionError::Db)?;
+    state.live.hub.set_pointer(&design_text, &account, pointer);
 
     Ok((
         StatusCode::OK,
