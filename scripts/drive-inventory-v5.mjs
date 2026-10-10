@@ -508,7 +508,7 @@ try {
   // A save writes the whole estate through the real engine: proof the made-up document is a real one.
   if (WRITES) {
     await page.getByLabel(/Name of the new/).fill('v5-added');
-    await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await page.getByRole('button', { name: '+ Device', exact: true }).click();
     await page.waitForSelector('.inv-page', { timeout: 30_000 });
     await page.waitForFunction(() => (window.__saveCount__ ?? 0) > 0, null, { timeout: 60_000 });
   }

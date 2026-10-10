@@ -152,6 +152,7 @@ try {
   // 1 - a device's panel has a Docs line with "+ Add doc".
   await page.locator('.react-flow__node-chassis', { hasText: 'core-01' }).click();
   await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
+  await page.getByRole('tab', { name: 'Notes' }).click();
   check('core-01 has a Docs line and "+ Add doc"', (await page.locator('[data-testid="docs-section"]').count()) === 1 && (await page.getByText('+ Add doc').count()) === 1);
 
   // 2 - a doc on the model, typed, with Markdown and a hostile line.
