@@ -1,6 +1,10 @@
 /* A device landing in the rack: it drops a couple of pixels and eases into
    place, with a faint shadow that fades out. One play, never a loop. The
    wrapper is used because React never rewrites its class list. */
+:root {
+  --m-settle: 250ms;
+}
+
 @keyframes drawing-settle {
   0% {
     transform: translateY(-3px);
@@ -17,7 +21,7 @@
 }
 
 .drawing-chassis-wrap--settle {
-  animation: drawing-settle 250ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: drawing-settle var(--m-settle) var(--m-ease, cubic-bezier(0.2, 0.8, 0.2, 1));
 }
 
 @media (prefers-reduced-motion: reduce) {
