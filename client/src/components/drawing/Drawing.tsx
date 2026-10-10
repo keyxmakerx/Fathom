@@ -26,6 +26,7 @@ import './plans-canvas.css';
 
 import { compatible } from '../../document/compat';
 import { ChecksCanvasBridge, useChecksFade } from '../checks/fade';
+import { CollabLayer } from '../collab/CollabLayer';
 import { TraceBadges, useTraceFade } from '../trace/fade';
 import { rackDeviceKey } from './rackKeys';
 import { NameEditContext, type NameEditApi } from './NameEdit';
@@ -1855,6 +1856,7 @@ function DrawingInner({
       <ChecksCanvasBridge />
       <TraceBadges />
       <PlansCanvasBridge />
+      <CollabLayer />
       <TroubleCanvasBridge />
       {selectedChassis != null && callout?.id === selectedChassis.id && opened == null && calloutRack != null ? (
         <Callout

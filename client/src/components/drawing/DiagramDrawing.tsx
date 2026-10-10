@@ -25,6 +25,7 @@ import type { DiagramStyle } from './diagramStyle';
 import { CableCheckBadge, CheckBadge } from '../checks/CheckBadge';
 import { StubTags } from './StubTags';
 import { cableCandidates, placeLabels, type LayerWords } from './layerLabels';
+import { CollabLayer } from '../collab/CollabLayer';
 import { CanvasTools } from './CanvasTools';
 import { useWheelMode } from './canvasPrefs';
 import { useSettledView } from './settledView';
@@ -303,6 +304,7 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         )}
       </ReactFlow>
       <CanvasTools wheel={wheel} onWheel={setWheel} />
+      <CollabLayer />
     </div>
   );
 }
