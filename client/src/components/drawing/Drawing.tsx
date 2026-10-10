@@ -99,6 +99,7 @@ import type { Person } from '../../api/live';
 import { buildDrawingNodes, ownerNodeIdForPort } from './buildDrawingNodes';
 import { PEER_DOT_PX, peerMarks } from './peerMarks';
 import { useDrawingNodeCaches } from './useDrawingNodeCaches';
+import { useCameraHub, type CameraHub } from './camera';
 
 const NODE_TYPES = {
   rack: RackNode,
@@ -294,6 +295,8 @@ export interface DrawingProps extends DrawingActions {
   initialViewport?: Viewport | null;
   /** Called with the camera when a pan or zoom ends. */
   onViewportSettled?: (vp: Viewport) => void;
+  /** The place's handle on the camera, for the Views menu. */
+  cameraHub?: CameraHub;
 }
 
 type AnyRackNode = RackNodeType;
@@ -361,6 +364,7 @@ function DrawingInner({
   fitRequest,
   initialViewport,
   onViewportSettled,
+  cameraHub,
   onPlace,
   onMove,
   onSelect,
@@ -430,6 +434,7 @@ function DrawingInner({
   const startPct = initialViewport != null ? Math.round(initialViewport.zoom * 100) : Math.max(zoom, 1);
   const [cameraStop, setCameraStop] = useState<CameraStop>(() => cameraStopAt(startPct));
   const [zoomBand, setZoomBand] = useState<ZoomBand>(() => zoomBandAt(startPct));
+  useCameraHub(cameraHub);
   // Whether the restored camera is still in use: true until the first fit decides it shows nothing.
   const restoredCameraRef = useRef(initialViewport != null);
   const shakeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);

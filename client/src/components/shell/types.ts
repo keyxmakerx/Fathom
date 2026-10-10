@@ -59,6 +59,8 @@ export interface ShellProps {
 
   /** The Show ▾ menu of canvas layers (Racks place only). */
   layers?: { value: import('../drawing/layers').LayerSet; onToggle: (id: import('../drawing/layers').LayerId) => void; style?: { value: import('../drawing/diagramStyle').DiagramStyle; onChange: (style: import('../drawing/diagramStyle').DiagramStyle) => void } };
+  /** The Views menu, drawn beside Show: named camera positions with their layers (Racks place only). */
+  views?: ReactNode;
   /** The Rack | Diagram switch (Racks place only); absent where the look does not apply. */
   look?: { value: import('../drawing/look').Look; onChange: (look: import('../drawing/look').Look) => void };
 

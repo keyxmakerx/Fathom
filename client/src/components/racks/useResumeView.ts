@@ -77,5 +77,10 @@ export function useResumeView({
     [flush],
   );
 
-  return { initialViewport: camera.current, onViewportSettled };
+  /** A place the rack drawing should start at the next time it mounts (a saved view from the other look). */
+  const setCamera = useCallback((next: ResumeCamera) => {
+    camera.current = next;
+  }, []);
+
+  return { initialViewport: camera.current, onViewportSettled, setCamera };
 }

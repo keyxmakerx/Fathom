@@ -37,6 +37,7 @@ export function Shell({
   onLensChange,
   look,
   layers,
+  views,
   presence,
   zoom,
   onZoomIn,
@@ -166,6 +167,7 @@ export function Shell({
         onLensChange={onLensChange}
         look={look}
         layers={layers}
+        views={views}
         presence={presence}
         zoom={zoom}
         onZoomIn={onZoomIn}

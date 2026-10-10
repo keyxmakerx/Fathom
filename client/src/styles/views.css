@@ -1,0 +1,155 @@
+/* The Views menu beside Show: named camera + layers. Blueprint: square, hairline, 28px controls. */
+.views {
+  width: 320px;
+  padding: 0 var(--s3) var(--s3);
+  font-size: var(--t-small);
+}
+
+.views__head {
+  padding: var(--s2) 0;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.views__empty,
+.views__hint {
+  margin: 0 0 var(--s2);
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.views__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.views__row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--s1);
+  border-top: var(--rule-hair) solid var(--hairline);
+  animation: views-row-in var(--m-pop, 160ms) var(--m-ease, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.views__go {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: var(--s2) 0;
+  background: none;
+  border: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.views__go:hover .views__name {
+  text-decoration: underline;
+}
+
+.views__name {
+  font-weight: 700;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.views__what {
+  color: var(--muted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.views__small {
+  align-self: center;
+  height: var(--control-h-sm, 24px);
+  padding: 0 var(--s2);
+  background: none;
+  border: var(--rule-hair) solid transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.views__small:hover {
+  color: var(--ink);
+  border-color: var(--hairline);
+}
+
+.views__rename,
+.views__save {
+  display: flex;
+  gap: var(--s1);
+  width: 100%;
+  padding: var(--s2) 0;
+}
+
+.views__save {
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+
+.views input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: var(--control-h, 28px);
+  padding: 0 var(--s2);
+  color: var(--ink);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--hairline);
+  border-radius: var(--radius-control, 0);
+  font: inherit;
+}
+
+.views input:focus-visible {
+  outline: var(--focus-width) solid var(--focus-colour);
+  outline-offset: -1px;
+}
+
+.views__save button,
+.views__rename button {
+  height: var(--control-h, 28px);
+  padding: 0 var(--s3);
+  color: var(--ink);
+  background: var(--control-bg, var(--page));
+  border: var(--rule-hair) solid var(--control-line, var(--ink));
+  border-radius: var(--radius-control, 0);
+  font: inherit;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.views__save button:hover,
+.views__rename button:hover {
+  background: var(--control-bg-hover, var(--surface));
+}
+
+.views__note {
+  margin: 0 0 var(--s2);
+  color: var(--danger);
+}
+
+@keyframes views-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .views__row {
+    animation: none;
+  }
+}

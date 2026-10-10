@@ -20,6 +20,7 @@ import { nextFreeSpot } from '../drawing/freeLayout';
 import { BOX_H, BOX_W, createLabel, createLine, moveFree, removeFree, setLabel } from '../../document/freeform';
 import { FieldValueError, isDeviceRole, setDeviceField } from '../../document/edit';
 import { useResumeView } from './useResumeView';
+import type { CameraHub } from '../drawing/camera';
 import { edgesIn, parseNodeId, type Document } from '../../document/model';
 import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
 import { Engine, EngineTrap } from '../../engine/engine';
@@ -80,6 +81,7 @@ import { DEFAULT_FACEPLATES, SKETCH_DEVICE_PALETTE_ITEM, isBoardPaletteItem, isS
 import { highestFreeU, hostnamesOf, nextHostname, racksInPickOrder } from './pick';
 import './racks.css';
 import { SkeletonRacks } from '../ui/Skeleton';
+import { useSavedViews } from './useSavedViews';
 
 // `canDrawFor`/`refusalFor` now live in `components/design/useDesignSession.ts`,
 // re-exported here unchanged, so the two
@@ -327,6 +329,16 @@ export function RacksPlace(props: RacksPlaceProps) {
       }),
     [accountId, session.designId],
   );
+  // The Views menu: named camera + Show layers, per person and design, kept in this browser.
+  const cameraHub = useRef<CameraHub>({ control: null, pending: null }).current;
+  const applyLayers = useCallback(
+    (next: LayerSet) => {
+      setLayers(next);
+      saveLayers(accountId, session.designId, next);
+    },
+    [accountId, session.designId],
+  );
+  const viewsMenu = useSavedViews({ accountId, designId, hub: cameraHub, look, layers, applyLayers, changeLook, setRackCamera: resumeView.setCamera });
   // Bumped by the bar's percentage button; the drawing fits every rack.
   const [fitRequest, setFitRequest] = useState(0);
   // A short-lived note over the canvas for a menu action that did nothing
@@ -1344,7 +1356,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
-    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle } }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle } }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
         doc != null ? (
           <>
             <PlansBarChip controller={plans} />
@@ -1378,6 +1390,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           dashedCableIds={cableDraw.dashedIds}
           words={words}
           style={diagramStyle}
+          cameraHub={cameraHub}
         />
       ) : (
         <Drawing
@@ -1387,6 +1400,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           zoom={shellProps.zoom}
           onZoomChange={onZoomChange}
           fitRequest={fitRequest}
+          cameraHub={cameraHub}
           initialViewport={resumeView.initialViewport}
           onViewportSettled={resumeView.onViewportSettled}
           onPlace={handlePlace}
