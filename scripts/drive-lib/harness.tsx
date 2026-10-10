@@ -17,6 +17,7 @@ import { setSession } from './state/sessionState';
 import {
   catalogueFrom,
   seedCanvasScene,
+  seedSuggestScene,
   seedLookScene,
   seedCableGroupsScene,
   seedCableGroupsSpeedScene,
@@ -161,6 +162,7 @@ async function main() {
   let doc;
   if (scene === 'trail') doc = seedConnectedDevices(catalogue, ME);
   else if (scene === 'canvas') doc = seedCanvasScene(catalogue, ME);
+  else if (scene === 'suggest') doc = seedSuggestScene(ME);
   else if (scene === 'look') doc = seedLookScene(catalogue, ME);
   else if (scene === 'show') doc = seedShowScene(catalogue, ME);
   else if (scene === 'conflict') doc = seedConflictingChange(catalogue, ME, COLLEAGUE);
@@ -215,8 +217,9 @@ async function main() {
   // plain `version`/`bytes` locals; `designs` below is that same pair,
   // generalised to a map so the two id-addressed routes further down can
   // serve either design by id rather than only ever `DESIGN_ID`.
-  const designs = new Map<string, { version: number; bytes: Uint8Array }>();
-  designs.set(DESIGN_ID, { version: log.length, bytes });
+  const designs = new Map<string, { version: number; bytes: Uint8Array; name?: string }>();
+  // `home`: no design yet, so Home stays up (r15-start's sample card and first steps) instead of landing in one.
+  if (scene !== 'home') designs.set(DESIGN_ID, { version: log.length, bytes });
   if (scene === 'cable-groups') {
     designs.set(DESIGN_ID_2, { version: 1, bytes: writePlain(seedEmptyDesign()) });
   }
@@ -313,6 +316,7 @@ async function main() {
           created_by: ME,
           capability,
           latest_version: entry.version,
+          name: entry.name ?? null,
         })),
       );
     }
@@ -329,6 +333,19 @@ async function main() {
         status: 200,
         headers: { 'fathom-design-version': u.searchParams.get('version')!, 'fathom-payload-schema-version': String(minor) },
       });
+    }
+    // A new design (Home's New design, or the sample): kept in memory beside the seeded one.
+    if (method === 'POST' && p === `${org}/scopes/${SCOPE_ID}/designs`) {
+      const id = `design-${newUlid()}`;
+      designs.set(id, { version: 1, bytes: requestBody.slice(4) });
+      return json({ design_id: id, scope_id: SCOPE_ID, created_at_unix: Math.floor(Date.now() / 1000), created_by: ME, capability, latest_version: 1, name: null });
+    }
+    const nameMatch = /^\/organisations\/[^/]+\/designs\/([^/]+)\/name$/.exec(p);
+    if (method === 'POST' && nameMatch) {
+      const entry = designs.get(nameMatch[1]);
+      if (!entry) return new Response('no such design\n', { status: 404 });
+      entry.name = new TextDecoder().decode(requestBody) || undefined;
+      return new Response('', { status: 200 });
     }
     const designMatch = /^\/organisations\/[^/]+\/designs\/([^/]+)$/.exec(p);
     if (method === 'GET' && designMatch) {

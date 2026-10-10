@@ -1,0 +1,27 @@
+# corpus/catalogue/lenovo/m920q.yaml -- Lenovo ThinkCentre M920q Tiny (1L mini PC).
+# `reviewed_by: <named human>` is a placeholder (invariant 10). rack_units: 1 is NOMINAL (desktop;
+# 179 x 183 x 34.5 mm).
+# Read 2026-10-10: Lenovo PSREF "ThinkCentre M920 Tiny" spec (psref.lenovo.com/syspool/Sys/PDF/ThinkCentre/
+# ThinkCentre_M920_Tiny/ThinkCentre_M920_Tiny_Spec.html): Ethernet "Gigabit Ethernet, Intel Ethernet
+# Connection I219-LM, 1x RJ-45"; Rear Ports list "1x Ethernet (RJ-45)"; front ports have none.
+# Recorded, rear: 1x RJ-45 1GbE. NOT RECORDED (expansion slots are not recorded): the optional PCIe x4
+# Intel I350-T4 4-port adapter, the optional serial/VGA/DP/HDMI/USB-C port, and USB/video ports.
+# The format requires a `front` faceplate; an empty one is declared.
+vendor: lenovo
+model: ThinkCentre M920q Tiny
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Lenovo, "ThinkCentre M920 Tiny" PSREF specification,
+    psref.lenovo.com/syspool/Sys/PDF/ThinkCentre/ThinkCentre_M920_Tiny/ThinkCentre_M920_Tiny_Spec.html,
+    read 2026-10-10. 1x RJ-45 Gigabit Ethernet on the rear; optional I350-T4 not recorded.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 0
+    port_groups: []
+  - face: rear
+    port_count: 1
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 1, start_number: 1 }

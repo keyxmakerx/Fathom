@@ -308,3 +308,143 @@
   margin: var(--s3) 0;
   align-self: flex-start;
 }
+
+/* --- r15-start: the sample card and the five first steps ------------- */
+
+.home-sample {
+  display: flex;
+  align-items: center;
+  gap: var(--s5);
+  margin-top: var(--s4);
+  padding: var(--s4) var(--s5);
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--surface-2);
+}
+
+.home-sample__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.home-sample__kicker {
+  border-bottom: 0;
+  padding-bottom: var(--s1);
+}
+
+.home-sample__title {
+  margin: 0 0 var(--s2);
+  font-size: var(--t-mast);
+  font-weight: 600;
+}
+
+.home-sample__body {
+  margin: 0 0 var(--s3);
+  color: var(--muted);
+  font-size: var(--t-body);
+  max-width: 40ch;
+}
+
+.home-sample__picture {
+  width: 160px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+
+@media (max-width: 720px) {
+  .home-sample__picture {
+    display: none;
+  }
+}
+
+.first-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  margin-bottom: var(--s4);
+}
+
+.first-steps__bar {
+  height: var(--s1);
+  background: var(--hairline);
+}
+
+.first-steps__bar span {
+  display: block;
+  height: 100%;
+  background: var(--ink);
+}
+
+.first-steps__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.first-steps__step {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  padding: var(--s2) 0;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  font-size: var(--t-body);
+}
+
+.first-steps__n {
+  display: inline-flex;
+  justify-content: center;
+  min-width: 1.6em;
+  border: var(--rule-hair) solid var(--hairline);
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.first-steps__step--done .first-steps__n {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--page);
+}
+
+.first-steps__step--done .first-steps__label {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.first-steps__label {
+  flex: 1;
+}
+
+.first-steps__note {
+  color: var(--muted);
+  font-size: var(--t-micro);
+}
+
+.first-steps__foot {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.first-steps__hide {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.first-steps__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.home__help {
+  margin-top: var(--s4);
+}

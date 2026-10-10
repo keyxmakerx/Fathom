@@ -1,0 +1,28 @@
+# MikroTik hEX S (RB760iGS): desktop five-port Gigabit router with one SFP cage.
+# rack_units: 1 is NOMINAL (113x89x28 mm desktop box; no rack mounting stated).
+# Read 2026-10-10: https://mikrotik.com/product/hex_s ("10/100/1000 Ethernet
+# ports 5", "SFP ports 1", "a 1.25Gbit/s SFP cage", "PoE-out ports Ether5",
+# "PoE in 802.3af/at", "Number of USB ports 1"; no console port listed).
+# Ports recorded: 5 x RJ45 1G (ether1..5) + 1 x SFP (1G cage, sfp1).
+# Not confirmed: the page names no WAN or uplink port, so all ports are role
+# access (the manual only says ether1 is "typically" the WAN). Face (front) and
+# single_row layout are conventions, not photo-confirmed. The SFP's printed
+# label ("sfp1" in RouterOS) is recorded as number 1.
+# `reviewed_by: <named human>` is a placeholder, not a name.
+vendor: mikrotik
+model: RB760iGS
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    MikroTik, "hEX S" product page (https://mikrotik.com/product/hex_s), read
+    2026-10-10. 5 x 10/100/1000 Ethernet (PoE-out on port 5), 1 x 1.25 Gbit/s
+    SFP cage, 1 x USB, 113x89x28 mm. Roles, face and layout are conventions,
+    not vendor-stated; see the file header.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 6
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 5, start_number: 1 }
+      - { kind: "SFP", role: access, layout: single_row, count: 1, start_number: 1 }

@@ -1,0 +1,147 @@
+# corpus/dict/routeros/interfaces.yaml -- MikroTik RouterOS `/export`.
+# Path shape: [ <menu words>, <identity key>, <identity value>, <key>, <value> ]
+# as crates/fathom-ingest/src/routeros.rs synthesises it from real bytes of the
+# paste. Sources and the full trail: corpus/dict/README-routeros.md.
+#
+# An address is bound under a keyless LogicalUnit with index 0: RouterOS puts
+# an address on the interface itself and has no unit number, and the schema
+# owns Address by LogicalUnit. Index 0 is a stated constant, not a read value
+# (README-routeros.md, "Units").
+platform: routeros
+source: { cite: "MikroTik RouterOS manual (help.mikrotik.com) and real /export captures; see corpus/dict/README-routeros.md", read_on: "2026-10-10" }
+reviewed_by: <named human>
+entries:
+  # `/interface ethernet set [ find default-name=ether1 ] name=wan` -- the row
+  # is the renamed port; an unrenamed one is named by its default name.
+  - id: routeros/interface.ethernet.name
+    path: [interface, ethernet, name, "$n"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$n", fields: [ { field: name, from: "$n", scalar: InterfaceName } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: routeros/interface.ethernet.default-name
+    path: [interface, ethernet, default-name, "$n"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$n", fields: [ { field: name, from: "$n", scalar: InterfaceName } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: routeros/interface.ethernet.name.comment
+    path: [interface, ethernet, name, "$n", comment, "$c"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$n", fields: [ { field: name, from: "$n", scalar: InterfaceName }, { field: description, from: "$c", scalar: Text } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: routeros/interface.ethernet.default-name.comment
+    path: [interface, ethernet, default-name, "$n", comment, "$c"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$n", fields: [ { field: name, from: "$n", scalar: InterfaceName }, { field: description, from: "$c", scalar: Text } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: routeros/interface.ethernet.name.disabled
+    path: [interface, ethernet, name, "$n", disabled, "yes"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$n", fields: [ { field: name, from: "$n", scalar: InterfaceName }, { field: admin_up, const_bool: false } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: routeros/interface.ethernet.default-name.disabled
+    path: [interface, ethernet, default-name, "$n", disabled, "yes"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$n", fields: [ { field: name, from: "$n", scalar: InterfaceName }, { field: admin_up, const_bool: false } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: routeros/interface.ethernet.mtu
+    path: [interface, ethernet, name, "$n", mtu, "$m"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$n", fields: [ { field: name, from: "$n", scalar: InterfaceName }, { field: mtu, from: "$m", scalar: u32 } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: routeros/interface.bridge.name
+    path: [interface, bridge, name, "$n"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$n", fields: [ { field: name, from: "$n", scalar: InterfaceName } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: routeros/interface.bridge.comment
+    path: [interface, bridge, name, "$n", comment, "$c"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$n", fields: [ { field: name, from: "$n", scalar: InterfaceName }, { field: description, from: "$c", scalar: Text } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `/interface bridge port add bridge=bridge1 interface=ether2`: the member
+  # port exists. Membership itself has no schema field yet (README, "Not bound").
+  - id: routeros/interface.bridge.port
+    path: [interface, bridge, port, interface, "$i"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `/interface vlan add interface=bridge1 name=iot vlan-id=30`: an interface
+  # of its own name, and the VLAN it carries.
+  - id: routeros/interface.vlan.name
+    path: [interface, vlan, name, "$n"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$n", fields: [ { field: name, from: "$n", scalar: InterfaceName } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: routeros/interface.vlan.vlan-id
+    path: [interface, vlan, name, "$n", vlan-id, "$v"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$n", fields: [ { field: name, from: "$n", scalar: InterfaceName } ] }
+        - { as: n1, kind: Vlan, key: "$n", fields: [ { field: name, from: "$n", scalar: Identifier }, { field: vlan_id, from: "$v", scalar: VlanId } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: routeros/interface.vlan.comment
+    path: [interface, vlan, name, "$n", comment, "$c"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$n", fields: [ { field: name, from: "$n", scalar: InterfaceName }, { field: description, from: "$c", scalar: Text } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: routeros/interface.wireguard.name
+    path: [interface, wireguard, name, "$n"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$n", fields: [ { field: name, from: "$n", scalar: InterfaceName } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: routeros/ip.address
+    path: [ip, address, interface, "$i", address, "$a"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName } ] }
+        - { as: n1, kind: LogicalUnit, owner: n0, fields: [ { field: index, const_enum: "u32.0" } ] }
+        - { as: n2, kind: Address, owner: n1, key: "$a", fields: [ { field: value, from: "$a", scalar: InterfaceAddress } ] }
+    versions: "*"
+    reviewed_by: <named human>

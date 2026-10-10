@@ -1,0 +1,28 @@
+# MikroTik hAP ax3 (C53UiG+5HPaxD2HPaxD): AX1800 Wi-Fi 6 home access point /
+# router. rack_units: 1 is NOMINAL (wall/desktop unit; the page lists a "K-47
+# wall mount set"; its dimensions are only in a linked PDF, not read).
+# Read 2026-10-10: https://mikrotik.com/product/hap_ax3 ("10/100/1000 Ethernet
+# ports 4", "Number of 2.5G Ethernet ports 1", "2.5G ethernet PoE
+# Input/Output", "PoE-out ports Ether 1", "USB 3.0 type A"; no SFP or console).
+# Ports recorded: 5 x RJ45 (numbers 1..5; one is 2.5G, four are 1G), all role
+# access. Wi-Fi radios are not ports and are not recorded.
+# Not confirmed: the page does not say which port is the 2.5G one (it lists
+# "Ether 1" as the PoE-out port), names no WAN port, and does not say which
+# side of the box the ports are on. Placed on front, single_row, by convention.
+# `reviewed_by: <named human>` is a placeholder, not a name.
+vendor: mikrotik
+model: C53UiG+5HPaxD2HPaxD
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    MikroTik, "hAP ax3" product page (https://mikrotik.com/product/hap_ax3),
+    read 2026-10-10. 4 x 1G + 1 x 2.5G Ethernet (PoE in/out), 1 x USB 3.0,
+    dual-band AX1800, K-47 wall mount set. Which port is 2.5G, roles, face
+    and layout are not stated; see the file header.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 5
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 5, start_number: 1 }

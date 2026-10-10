@@ -1,0 +1,24 @@
+# corpus/catalogue/ubiquiti/usw-lite-8-poe.yaml — UniFi Switch Lite 8 PoE, a
+# compact desktop/wall switch. rack_units: 1 is NOMINAL (desktop gear).
+# Read 2026-10-10: https://techspecs.ui.com/unifi/switching/usw-lite-8-poe
+# Port list as read: "1 GbE RJ45" 8 (4 PoE+) (1G/100M/10M); PoE+ 30W per port,
+# 52W total; page lists no SFP or console port; power is an external 60W
+# adapter (no psu_slots).
+# NOT CONFIRMED: which 4 ports are PoE+, face, and layout (no photo); one row on
+# the front is the reading for a small 8-port desktop unit.
+vendor: ubiquiti
+model: USW-Lite-8-PoE
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Ubiquiti, UniFi Switch Lite 8 PoE tech specs
+    (https://techspecs.ui.com/unifi/switching/usw-lite-8-poe), read 2026-10-10.
+    8x GbE RJ45 (4 PoE+, 52W budget); compact desktop/wall. Face and layout not
+    confirmed by a photo.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 8
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 8, start_number: 1 }

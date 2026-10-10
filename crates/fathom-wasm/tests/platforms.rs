@@ -391,3 +391,67 @@ fn odd_quoting_never_leaves_a_secret() {
         }
     }
 }
+
+// RouterOS: its own front end, detected by an exact sniff, and gated before storage.
+const ROS_WG: &str = "yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=";
+const ROS_USER: &str = "Correct-Horse-Admin-26";
+const ROS_SNMP: &str = "R3adOnlyHome";
+const ROS_WIFI: &str = "Correct Horse Battery 2026";
+
+fn ros_config() -> String {
+    format!(
+        "# 2026-10-01 09:12:44 by RouterOS 7.15.3\n\
+         /interface bridge\n\
+         add name=bridge1 vlan-filtering=yes\n\
+         /interface wireguard\n\
+         add listen-port=13231 name=wg0 private-key=\"{ROS_WG}\"\n\
+         /interface vlan\n\
+         add interface=bridge1 name=staff vlan-id=20\n\
+         /interface wifi security\n\
+         add name=home passphrase=\"{ROS_WIFI}\"\n\
+         /snmp community\n\
+         add addresses=10.0.20.0/24 name={ROS_SNMP}\n\
+         /ip address\n\
+         add address=10.0.20.1/24 interface=staff\n\
+         /system identity\n\
+         set name=R1\n\
+         /user\n\
+         add group=full name=admin password={ROS_USER}\n"
+    )
+}
+
+#[test]
+fn a_routeros_export_is_detected_and_no_secret_survives() {
+    let secrets = [ROS_WG, ROS_USER, ROS_SNMP, ROS_WIFI];
+    let mut shell = common::all_booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(0, &ros_config()));
+    assert_eq!(platform_of(&reply), "routeros");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    for s in secrets {
+        assert!(!contains(&reply, s), "reply leaks {s}");
+        assert!(!contains(&stored, s), "stored design leaks {s}");
+    }
+
+    let mut shell = common::all_booted_shell();
+    let display = place(&mut shell, "routeros");
+    let reply = shell.handle(OP_PASTE_INTO, &into_frame(0, &display, &ros_config()));
+    assert_eq!(platform_of(&reply), "routeros");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    assert!(
+        contains(&stored, "REDACTED"),
+        "the capture is stored, gated"
+    );
+    for s in secrets {
+        assert!(!contains(&reply, s), "paste-into reply leaks {s}");
+        assert!(!contains(&stored, s), "paste-into stored capture leaks {s}");
+    }
+}
+
+#[test]
+fn set_form_detection_never_reads_a_routeros_export() {
+    // Booting RouterOS leaves every set-form platform detected as before.
+    for (text, want) in [(srx_config(), "junos-srx"), (edge_config(), "edgeos")] {
+        let mut shell = common::all_booted_shell();
+        assert_eq!(platform_of(&shell.handle(OP_PASTE, &frame(0, &text))), want);
+    }
+}

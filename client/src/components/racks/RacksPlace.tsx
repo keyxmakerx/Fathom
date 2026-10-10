@@ -25,7 +25,7 @@ import { BOX_H, BOX_W, createLabel, createLine, moveFree, removeFree, setLabel }
 import { FieldValueError, isDeviceRole, setDeviceField } from '../../document/edit';
 import { useResumeView } from './useResumeView';
 import type { CameraHub } from '../drawing/camera';
-import { edgesIn, parseNodeId, type Document } from '../../document/model';
+import { edgesIn, edgesOut, parseNodeId, type Document } from '../../document/model';
 import { tiePlan } from '../../document/portTies';
 import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
 import { Engine, EngineTrap } from '../../engine/engine';
@@ -33,6 +33,9 @@ import { Mirror, refusalSentence } from '../../engine/mirror';
 import { JotView } from '../jot/JotView';
 import { deviceChassis, jotPlates, jotSpot, originOf } from '../jot/jotLayout';
 import { PasteCard, type PasteState } from '../paste/PasteCard';
+import { SuggestCard } from '../suggest/SuggestCard';
+import { createSuggestStore, SuggestContext } from '../suggest/suggestStore';
+import { looksLikeNeighbours } from '../../document/neighbours';
 import type { PastePlatform } from '../../engine/frames';
 import { devicePlatform, platformChoices, previewPaste, worthReading } from '../paste/pasteConfig';
 import { ConfigDrawer } from '../config/ConfigDrawer';
@@ -71,12 +74,13 @@ import { useChecksController } from '../checks/useChecksController';
 import { TracePanel } from '../trace/TracePanel';
 import { TraceContext } from '../trace/traceStore';
 import { useTraceController } from '../trace/useTraceController';
+import { recordFirstSteps } from '../home/firstSteps';
 import { TieCard } from '../ties/TieCard';
 import { PlanBand, PlansBarChip } from '../plans/PlanBand';
 import { PlansSurface } from '../plans/PlansSurface';
 import { PlansContext } from '../plans/plansStore';
 import { usePlansController } from '../plans/usePlansController';
-import { DeviceIssues } from '../troubleshoot/DeviceIssues';
+import { DeviceIssues, ItsDownButton } from '../troubleshoot/DeviceIssues';
 import { TroublePanel } from '../troubleshoot/TroublePanel';
 import { TroubleContext } from '../troubleshoot/troubleStore';
 import { useTroubleController } from '../troubleshoot/useTroubleController';
@@ -898,6 +902,12 @@ export function RacksPlace(props: RacksPlaceProps) {
   // Path trace (ADR-0061 item 9): the same module; opened from a device's right-click.
   const trace = useTraceController({ doc, view: realView, boot: ensureMirror, mirrorNow });
 
+  // Getting started (r15-start): Home's five first steps tick from what the person does here.
+  const traced = trace.result != null && trace.result.hops.length > 0;
+  useEffect(() => {
+    recordFirstSteps(accountId, designId, doc, traced);
+  }, [accountId, designId, doc, traced]);
+
   // Resolves the current selection to a rack id, however it was reached;
   // anything not rack-shaped reports `null`.
   useEffect(() => {
@@ -1135,10 +1145,20 @@ export function RacksPlace(props: RacksPlaceProps) {
   }, [realView.free, realView.labels]);
   // Held only while the card asks "which device is this from?"; cleared on every other outcome.
   const pendingPasteRef = useRef<string | null>(null);
+  // Cable suggestions (r15-cables): the device the neighbour list was read on (null asks), and text already pasted.
+  const [suggest, setSuggest] = useState<{ deviceId: string | null; text?: string } | null>(null);
+  const suggestStore = useMemo(createSuggestStore, []);
+  const selectedChassis = selection?.kind === 'chassis' ? selection.id : null;
   const startPaste = useCallback(
     (text: string, platform?: PastePlatform) => {
       if (doc == null || !canDraw) return;
       pendingPasteRef.current = null;
+      // A neighbour list is not a config: it opens the suggestions, for the selected device if there is one.
+      if (looksLikeNeighbours(text)) {
+        setPasteState(null);
+        setSuggest({ deviceId: selectedChassis, text });
+        return;
+      }
       setPasteState({ kind: 'reading' });
       withMirror()
         .then((mirror) => {
@@ -1159,7 +1179,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           setPasteState({ kind: 'refused', message: tidySentence(refusalFor(error)?.refused ?? refusalSentence(error)) });
         });
     },
-    [doc, canDraw, withMirror, openSpot, accountId],
+    [doc, canDraw, withMirror, openSpot, accountId, selectedChassis],
   );
   const handlePasteConfig = useCallback(() => {
     // A right-click is a gesture, so the browser may let the page read the clipboard; if not, the card has a box.
@@ -1514,6 +1534,12 @@ export function RacksPlace(props: RacksPlaceProps) {
     const renameTarget = chassisId !== null ? { kind: 'chassis' as const, id: chassisId } : selection?.kind === 'rack' ? { kind: 'rack' as const, id: selection.id } : null;
     out.unshift(
       {
+        id: 'suggest-cables',
+        label: deviceName === '' ? 'Suggest cables from a neighbour list (LLDP)' : `Suggest cables from ${deviceName}'s neighbours (LLDP)`,
+        keywords: ['lldp', 'neighbours', 'neighbors', 'cables', 'discover'],
+        run: () => setSuggest({ deviceId: chassisId }),
+      },
+      {
         id: 'add-port',
         label: deviceName === '' ? 'Add a port to a device' : `Add a port to ${deviceName}`,
         keywords: ['connector', 'interface'],
@@ -1595,6 +1621,16 @@ export function RacksPlace(props: RacksPlaceProps) {
             onToggleCableHidden: handleToggleCableHidden,
           },
           paletteFromCatalogue(catalogue),
+          selection?.kind === 'chassis' ? (
+            <>
+              {onOpenInventory ? (
+                <button type="button" className="btn-quiet racks-place__open-inventory" onClick={() => onOpenInventory(selection.id)}>
+                  Open in inventory
+                </button>
+              ) : null}
+              <ItsDownButton controller={trouble} chassisId={selection.id} />
+            </>
+          ) : undefined,
         )
       : null;
   const editor = saveRefusal != null ? (
@@ -1618,12 +1654,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     ) : selectedPanel != null ? (
       <>
         {selectedPanel}
-        {selection?.kind === 'chassis' && doc != null ? <DeviceIssues controller={trouble} chassisId={selection.id} deviceId={edgesIn(doc, selection.id, 'HasChassis')[0]?.from ?? ''} /> : null}
-        {selection?.kind === 'chassis' && onOpenInventory ? (
-          <button type="button" className="racks-place__open-inventory" onClick={() => onOpenInventory(selection.id)}>
-            Open in inventory
-          </button>
-        ) : null}
+        {selection?.kind === 'chassis' && doc != null ? <DeviceIssues controller={trouble} chassisId={selection.id} deviceId={edgesIn(doc, selection.id, 'HasChassis')[0]?.from ?? ''} withButton={false} /> : null}
       </>
     ) : null;
 
@@ -1674,6 +1705,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       ) : null}
       <CheckMarksContext.Provider value={layerOn(layers, 'checks')}>
       <PlansContext.Provider value={plans.store}>
+      <SuggestContext.Provider value={suggestStore}>
       <TroubleContext.Provider value={trouble.store}>
       <TraceContext.Provider value={trace.store}>
       {doc == null ? (
@@ -1739,6 +1771,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           onPlanFirmware={canDraw && firmware ? planFirmwareFor : undefined}
           firmwareNeedsVersion={firmwareNeedsVersion}
           onItsDown={canDraw ? trouble.start : undefined}
+          onSuggestCables={canDraw ? (chassisId) => setSuggest({ deviceId: chassisId ?? selectedChassis }) : undefined}
           onCalloutChange={setCalloutId}
           onGroupChange={setGroupIds}
           groupClearRequest={groupClear}
@@ -1814,6 +1847,14 @@ export function RacksPlace(props: RacksPlaceProps) {
           }}
         />
       ) : null}
+      {suggest != null && doc != null && canDraw && pasteState == null ? (
+        <SuggestCard key={suggest.text ?? suggest.deviceId ?? 'any'} doc={doc} deviceId={suggest.deviceId} text={suggest.text} actor={accountId ?? undefined} onApply={(next, deviceId) => {
+            applyDocChange(next);
+            // The switch's details say how many of its ports are now cabled: the added cables, in words.
+            const chassisId = edgesOut(next, deviceId, 'HasChassis')[0]?.to;
+            if (chassisId !== undefined) setSelection({ kind: 'chassis', id: chassisId });
+          }} onClose={() => setSuggest(null)} />
+      ) : null}
       {tieFor != null && doc != null && canDraw && pasteState == null ? (
         <TieCard doc={doc} deviceId={tieFor} actor={accountId ?? undefined} onApply={applyDocChange} onClose={() => setTieFor(null)} />
       ) : null}
@@ -1828,6 +1869,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       {doc != null && jot == null ? <TracePanel controller={trace} onTie={canDraw ? setTieFor : undefined} /> : null}
       </TraceContext.Provider>
       </TroubleContext.Provider>
+      </SuggestContext.Provider>
       </PlansContext.Provider>
       </CheckMarksContext.Provider>
       </NoteAuthorsContext.Provider>

@@ -1,7 +1,7 @@
 // The strip above the Inventory table (ADR-0062): add by name, filters, column choice, paste, and
 // the bulk-edit bar that replaces nothing — it appears when rows are ticked.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { PROGRESS_FROM, planFor, type BulkPlan, type BulkSpec } from './bulk';
 import type { Column, InvRow } from './kinds';
@@ -19,6 +19,8 @@ export interface ListToolbarProps {
   onPaste?: () => void;
   /** Opens the file importer (round 9). */
   onImport?: () => void;
+  /** One-click narrowing by what a row is (r14 A1): All, then the commonest values. */
+  kindFilter?: KindFilter;
   checkedRows: readonly InvRow[];
   bulkColumns: readonly Column[];
   /** Writes a previewed change; returns a sentence when it cannot. */
@@ -36,16 +38,29 @@ export interface ListToolbarProps {
   undo?: { run: () => void } | null;
 }
 
+export interface KindFilter {
+  label: string;
+  options: readonly { value: string; label: string; count: number }[];
+  /** The value picked, or null for All. */
+  current: string | null;
+  onPick: (value: string | null) => void;
+}
+
 export function ListToolbar(props: ListToolbarProps) {
-  const { kindLabel, columnsAll, columns, onColumns, canAdd, addHint, onAdd, addAction, onPaste, onImport, checkedRows, bulkColumns, onBulkApply, bulkCheck, matching, onSelectAllMatching, onClearChecked, notice, undo, progress } = props;
+  const { kindLabel, columnsAll, columns, onColumns, canAdd, addHint, onAdd, addAction, onPaste, onImport, kindFilter, checkedRows, bulkColumns, onBulkApply, bulkCheck, matching, onSelectAllMatching, onClearChecked, notice, undo, progress } = props;
   const [name, setName] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
+  const nameBox = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState<'columns' | null>(null);
   const [bulkCol, setBulkCol] = useState('');
   const [bulkValue, setBulkValue] = useState('');
   const [bulkError, setBulkError] = useState<string | null>(null);
 
   const submitAdd = () => {
+    if (name.trim() === '') {
+      nameBox.current?.focus();
+      return;
+    }
     const refused = onAdd(name);
     if (typeof refused === 'string') setAddError(refused);
     else {
@@ -86,6 +101,38 @@ export function ListToolbar(props: ListToolbarProps) {
   return (
     <div className="inv-toolbar">
       <div className="inv-toolbar__row">
+        {kindFilter && kindFilter.options.length > 0 ? (
+          <div className="btn-group inv-toolbar__kinds" role="group" aria-label={kindFilter.label}>
+            <button type="button" aria-pressed={kindFilter.current === null} onClick={() => kindFilter.onPick(null)}>
+              All
+            </button>
+            {kindFilter.options.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                aria-pressed={kindFilter.current === o.value}
+                title={`${o.count.toLocaleString('en-GB')} ${o.label.toLowerCase()}`}
+                onClick={() => kindFilter.onPick(kindFilter.current === o.value ? null : o.value)}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        <span className="inv-toolbar__grow" />
+        {onImport ? (
+          <button type="button" className="btn-quiet" onClick={onImport}>
+            Import file
+          </button>
+        ) : null}
+        {onPaste ? (
+          <button type="button" className="btn-quiet" onClick={onPaste}>
+            Paste rows
+          </button>
+        ) : null}
+        <button type="button" className="btn-quiet" aria-expanded={open === 'columns'} onClick={() => setOpen(open === 'columns' ? null : 'columns')}>
+          Columns
+        </button>
         {canAdd ? (
           <form
             className="inv-toolbar__add"
@@ -95,36 +142,23 @@ export function ListToolbar(props: ListToolbarProps) {
             }}
           >
             <input
+              ref={nameBox}
               aria-label={`Name of the new ${kindLabel.toLowerCase().replace(/s$/, '')}`}
-              placeholder="+ Add by name"
+              placeholder="Name"
               value={name}
               onChange={(e) => setName(e.currentTarget.value)}
             />
-            <button type="submit" disabled={name.trim() === ''}>
-              Add
+            <button type="submit" className="btn-main">
+              + {kindLabel.replace(/s$/, '')}
             </button>
           </form>
         ) : addAction ? (
-          <button type="button" onClick={addAction.onClick}>
+          <button type="button" className="btn-main" onClick={addAction.onClick}>
             {addAction.label}
           </button>
         ) : addHint ? (
           <span className="inv-toolbar__hint">{addHint}</span>
         ) : null}
-        <span className="inv-toolbar__grow" />
-        {onImport ? (
-          <button type="button" onClick={onImport}>
-            Import file
-          </button>
-        ) : null}
-        {onPaste ? (
-          <button type="button" onClick={onPaste}>
-            Paste rows
-          </button>
-        ) : null}
-        <button type="button" aria-expanded={open === 'columns'} onClick={() => setOpen(open === 'columns' ? null : 'columns')}>
-          Columns
-        </button>
       </div>
       {open === 'columns' ? (
         <div className="inv-toolbar__pop inv-toolbar__pop--columns" role="group" aria-label="Columns">

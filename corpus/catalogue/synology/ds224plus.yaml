@@ -1,0 +1,27 @@
+# corpus/catalogue/synology/ds224plus.yaml -- Synology DiskStation DS224+ 2-bay desktop NAS.
+# `reviewed_by: <named human>` is a placeholder (invariant 10). rack_units: 1 is NOMINAL (desktop NAS).
+# Read 2026-10-10: synology.com/en-us/products/DS224+ (Hardware Specifications, External Ports:
+# "RJ-45 1GbE LAN Port | 2"); cross-checked against the DS224+ Product Manual (Synology, dated
+# Mar 27, 2023, via inquirecontent2.ingrammicro.com/User-Manual/1077902395.pdf): "LAN Port 1GbE
+# (RJ-45) x 2", LAN Port in the rear parts list, LED table says "Rear 1GbE LAN".
+# Recorded, rear: 2x RJ-45 1GbE. NOT RECORDED: USB 3.2 ports. No expansion slot on this model.
+# The format requires a `front` faceplate; an empty one (port_count: 0) is declared.
+# NOT CONFIRMED: left-to-right order and layout (no photo read), so single_row.
+vendor: synology
+model: DS224+
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Synology, "DiskStation DS224+ | Synology Inc.",
+    synology.com/en-us/products/DS224+, and DS224+ Product Manual (Mar 27, 2023),
+    read 2026-10-10. 2x RJ-45 1GbE LAN on the rear panel.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 0
+    port_groups: []
+  - face: rear
+    port_count: 2
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 2, start_number: 1 }

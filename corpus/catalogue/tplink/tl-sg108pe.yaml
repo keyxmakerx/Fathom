@@ -1,0 +1,26 @@
+# corpus/catalogue/tplink/tl-sg108pe.yaml — TP-Link TL-SG108PE, 8-port Easy Smart PoE switch,
+# hardware version V5 (the version the vendor page shows).
+# Read 2026-10-10: https://www.tp-link.com/us/business-networking/easy-smart-switch/tl-sg108pe/
+# Ports as read: "Eight 10/100/1000Mbps RJ45 Ports"; "PoE Ports: Port 1- Port 4", 802.3af/at,
+# 64 W budget (PoE is not recorded by this format). External 53.5 VDC/1.31 A adapter; desktop
+# or wall-mount; 158 x 101 x 25 mm.
+# Desktop gear: rack_units: 1 is nominal (field is required), not a vendor U height.
+# Not confirmed: no photo read, so single_row is the catalogue's convention. No uplink or
+# console port is listed, so all 8 are access.
+# reviewed_by: <named human> is a placeholder (invariant 10).
+vendor: tplink
+model: TL-SG108PE
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    TP-Link, "TL-SG108PE V5" product page,
+    https://www.tp-link.com/us/business-networking/easy-smart-switch/tl-sg108pe/,
+    read 2026-10-10. 8x 10/100/1000 RJ45 (ports 1-4 PoE); external 53.5 VDC adapter.
+    Layout is the catalogue's convention, not photo-confirmed. rack_units nominal.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 8
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 8, start_number: 1 }

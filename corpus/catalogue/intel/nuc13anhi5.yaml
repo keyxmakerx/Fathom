@@ -1,0 +1,27 @@
+# corpus/catalogue/intel/nuc13anhi5.yaml -- Intel NUC 13 Pro Kit NUC13ANHi5 (Arena Canyon, TALL chassis).
+# `reviewed_by: <named human>` is a placeholder (invariant 10). rack_units: 1 is NOMINAL (desktop mini PC).
+# Read 2026-10-10: Intel "NUC13AN TechProdSpec" (intel.com/content/dam/support/us/en/documents/intel-nuc/NUC13AN_TechProdSpec.pdf):
+# "Single-port integrated multi-gigabit (up to 2.5G)", "LAN Connector" (RJ-45) listed under back
+# panel connectors (Section 2.1.4); the front panel has only USB, headset jack and power button.
+# dcs.dk listing for NUC13ANHi5 agrees ("1 x LAN (2.5Gigabit Ethernet) - RJ-45"). Intel's ark page
+# for 233098 did not load. The spec says the Tall chassis differs only by a back-panel expansion bay
+# (optional DB9, not network). Ethernet is on the REAR edge. Recorded, rear: 1x RJ-45 2.5G.
+# NOT RECORDED: Thunderbolt 4, HDMI, USB. The format requires a `front` faceplate; an empty one is declared.
+vendor: intel
+model: NUC13ANHi5
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Intel, "Intel NUC 13 Pro Kit/Board/Mini-PC" Technical Product Specification
+    (NUC13AN_TechProdSpec.pdf), intel.com/content/dam/support/us/en/documents/intel-nuc/,
+    and dcs.dk listing for NUC13ANHi5, read 2026-10-10. 1x RJ-45 2.5GbE, back panel.
+  read_on: "2026-10-10"
+faceplates:
+  - face: front
+    port_count: 0
+    port_groups: []
+  - face: rear
+    port_count: 1
+    port_groups:
+      - { kind: "RJ45", role: access, layout: single_row, count: 1, start_number: 1 }
