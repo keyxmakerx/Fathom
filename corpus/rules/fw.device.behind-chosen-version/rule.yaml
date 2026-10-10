@@ -1,0 +1,24 @@
+id: fw.device.behind-chosen-version
+rule_version: 1.0.0
+status: active
+severity: warn
+category: operability
+title: "This device runs older firmware than its model's chosen version"
+why: >
+  The design records a chosen firmware version for this device's model, and the version recorded for this device is older. Devices of one model on different firmware behave differently, and the older one may lack fixes the chosen version has.
+fix: >
+  Plan a firmware upgrade to the chosen version, or hold this device at its current version if it stays back on purpose and record why.
+concept: check.firmware.chosen-version
+acceptable_when: >
+  The device is held back on purpose (set its firmware hold), or a maintenance window for the upgrade is already planned.
+reviewed_by: "pending: Key Maker"
+reviewed_on: 2026-10-10
+sources_note: >
+  The design's own record: the chosen version is what the people who keep this design decided, not a vendor claim. How versions order is each vendor's release numbering, read for the version_older function (crates/fathom-rules/src/version.rs); a version it cannot read is not flagged.
+applies_to:
+  kind: Device
+  with:
+    chassis: { via: HasChassis, card: many }
+    targets: { all: FirmwareTarget, card: many }
+condition: >
+  !has(firmware_hold) && has(os_version) && chassis.exists(c, has(c.model) && targets.exists(t, c.model == t.model && version_older(platform, os_version, t.version)))

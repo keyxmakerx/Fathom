@@ -147,6 +147,11 @@ mod body {
         pub fn name_conformance<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::value::NameConformance, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(17))
         }
+        /// `Device.firmware_hold` — `Text`, card `0..1`, emit `—`.
+        /// Set: held at its current firmware on purpose; the value is why.
+        pub fn firmware_hold<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(411))
+        }
     }
     /// Typed reads for `Chassis` fields.
     pub mod chassis {
@@ -2039,6 +2044,39 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(404))
         }
     }
+    /// Typed reads for `FirmwareTarget` fields.
+    pub mod firmware_target {
+        /// `FirmwareTarget.model` — `Identifier`, card `1`, emit `—`.
+        /// Catalogue model id, matched against Chassis.model.
+        pub fn model<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(405))
+        }
+        /// `FirmwareTarget.version` — `OsVersion`, card `1`, emit `—`.
+        /// The chosen version for that model.
+        pub fn version<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::OsVersion, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(406))
+        }
+        /// `FirmwareTarget.platform` — `PlatformId`, card `0..1`, emit `—`.
+        /// Which version scheme applies, when a device lacks one.
+        pub fn platform<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::PlatformId, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(407))
+        }
+        /// `FirmwareTarget.image` — `Identifier`, card `0..1`, emit `—`.
+        /// Server firmware image id (26-character ULID).
+        pub fn image<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(408))
+        }
+        /// `FirmwareTarget.image_sha256` — `Text`, card `0..1`, emit `—`.
+        /// SHA-256 Fathom computed for that image.
+        pub fn image_sha256<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(409))
+        }
+        /// `FirmwareTarget.note` — `Text`, card `0..1`, emit `—`.
+        /// Free text.
+        pub fn note<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(410))
+        }
+    }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
     /// path the read accessors use, for every entry in the field-key registry,
     /// node and edge fields alike. `None` for a key this schema version does
@@ -2443,6 +2481,13 @@ mod body {
             402 => Some((core::any::TypeId::of::<crate::generated::ir_types::IssueStepAnswer>(), "crate::generated::ir_types::IssueStepAnswer")),
             403 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             404 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            405 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            406 => Some((core::any::TypeId::of::<crate::scalar::OsVersion>(), "crate::scalar::OsVersion")),
+            407 => Some((core::any::TypeId::of::<crate::scalar::PlatformId>(), "crate::scalar::PlatformId")),
+            408 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            409 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            410 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            411 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             _ => None,
         }
     }
@@ -2849,6 +2894,13 @@ mod body {
             402 => crate::canon::slot_to::<crate::generated::ir_types::IssueStepAnswer>(402, "crate::generated::ir_types::IssueStepAnswer", value),
             403 => crate::canon::slot_to::<crate::scalar::Text>(403, "crate::scalar::Text", value),
             404 => crate::canon::slot_to::<crate::scalar::Text>(404, "crate::scalar::Text", value),
+            405 => crate::canon::slot_to::<crate::scalar::Identifier>(405, "crate::scalar::Identifier", value),
+            406 => crate::canon::slot_to::<crate::scalar::OsVersion>(406, "crate::scalar::OsVersion", value),
+            407 => crate::canon::slot_to::<crate::scalar::PlatformId>(407, "crate::scalar::PlatformId", value),
+            408 => crate::canon::slot_to::<crate::scalar::Identifier>(408, "crate::scalar::Identifier", value),
+            409 => crate::canon::slot_to::<crate::scalar::Text>(409, "crate::scalar::Text", value),
+            410 => crate::canon::slot_to::<crate::scalar::Text>(410, "crate::scalar::Text", value),
+            411 => crate::canon::slot_to::<crate::scalar::Text>(411, "crate::scalar::Text", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -3253,6 +3305,13 @@ mod body {
             402 => crate::canon::slot_from::<crate::generated::ir_types::IssueStepAnswer>(j),
             403 => crate::canon::slot_from::<crate::scalar::Text>(j),
             404 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            405 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            406 => crate::canon::slot_from::<crate::scalar::OsVersion>(j),
+            407 => crate::canon::slot_from::<crate::scalar::PlatformId>(j),
+            408 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            409 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            410 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            411 => crate::canon::slot_from::<crate::scalar::Text>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

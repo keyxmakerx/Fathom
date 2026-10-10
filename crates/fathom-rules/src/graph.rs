@@ -408,7 +408,8 @@ pub fn box_from_text(key: FieldKey, text: &str) -> Result<Box<dyn Any>, String> 
         scalar::InterfaceAddress,
         scalar::IpAddr,
         scalar::IpPrefix,
-        scalar::PlatformId
+        scalar::PlatformId,
+        scalar::OsVersion
     );
     if let Some(row) = enum_table().iter().find(|e| e.tid == tid) {
         if !row.tokens.contains(&text) {

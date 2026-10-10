@@ -76,6 +76,7 @@ pub enum Builtin {
     NetOf,
     IsNetworkAddress,
     IsBroadcastAddress,
+    VersionOlder,
 }
 
 impl Builtin {
@@ -661,6 +662,22 @@ impl C<'_> {
                 };
                 self.emit(Op::Call(b), pos)?;
                 Ok(t)
+            }
+            "version_older" => {
+                arity(3)?;
+                for a in args {
+                    let t = self.expr(a)?;
+                    if t != Ty::Str {
+                        return Err(err(
+                            a.pos,
+                            "`version_older(platform, have, want)` takes three strings",
+                        ));
+                    }
+                }
+                self.emit(Op::Call(Builtin::VersionOlder), pos)?;
+                // True or false, or null when a version does not parse. Do not negate it:
+                // `!` turns null into true.
+                Ok(Ty::Bool)
             }
             _ => Err(err(pos, format!("`{name}` is not a fex function"))),
         }

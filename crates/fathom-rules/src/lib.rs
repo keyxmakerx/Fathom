@@ -12,6 +12,8 @@
 //!   physical layer needs cable → port → interface → unit → address. Bindings are bounded
 //!   instead by a per-binding visit cap (`eval::MAX_VISITS`);
 //! - the builtin table is the first rule set's (`compile::Builtin`), and grows with rules;
+//! - a binding may be `all: Kind`, every live node of a kind (card many), for facts held
+//!   once per design rather than reached by an edge, such as a firmware target;
 //! - invalidation is per rule, by read set (`engine`), not per instance.
 
 #![forbid(unsafe_code)]
@@ -28,4 +30,5 @@ pub mod parse;
 pub mod rule;
 pub mod schema;
 pub mod value;
+pub mod version;
 pub mod vm;

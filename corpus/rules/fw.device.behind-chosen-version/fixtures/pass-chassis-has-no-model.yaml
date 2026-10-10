@@ -1,0 +1,7 @@
+# The chassis model is not recorded, so no target applies.
+nodes:
+  - { id: d1, kind: Device, set: { hostname: edge-sw-01, platform: junos-ex, role: switch, os_version: "20.4R3-S2" } }
+  - { id: d1_ch, kind: Chassis, set: { member_index: 0 } }
+  - { id: t1, kind: FirmwareTarget, set: { model: ex4300-48t, version: "21.4R3-S5" } }
+edges:
+  - { kind: HasChassis, from: d1, to: d1_ch }

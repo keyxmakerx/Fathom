@@ -24,7 +24,8 @@ use fathom_graph::{
 use fathom_ir::canon::CanonError;
 use fathom_ir::generated::accessors::slot_from_canon;
 use fathom_ir::generated::ir_types::{
-    CaptureField, DocField, DocLinkField, NodeKind, NoteField, SCHEMA_VERSION,
+    CaptureField, DeviceField, DocField, DocLinkField, FirmwareTargetField, NodeKind, NoteField,
+    SCHEMA_VERSION,
 };
 use fathom_ir::scalar::Text;
 
@@ -509,6 +510,19 @@ fn gated_fields() -> Vec<(NodeKind, fathom_ir::bag::FieldKey, &'static str, Read
         IS::Targets.key(),
         "IssueStep",
         Read::Targets,
+    ));
+    // Firmware (0.19): the reason a device is held, and a target's note, are typed prose.
+    v.push((
+        NodeKind::Device,
+        DeviceField::FirmwareHold.key(),
+        "Device",
+        prose,
+    ));
+    v.push((
+        NodeKind::FirmwareTarget,
+        FirmwareTargetField::Note.key(),
+        "FirmwareTarget",
+        prose,
     ));
     v
 }

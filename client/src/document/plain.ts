@@ -43,11 +43,11 @@ export const PLAIN_WARNING =
   'THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.';
 export { SCHEMA_VERSION };
 
-// Every 0.10-to-0.18 move is additive, so a payload declared at an older
+// Every 0.10-to-0.19 move is additive, so a payload declared at an older
 // version reads exactly like a current one. Every older version this reader
 // still opens, and no other -- byte-identical to
 // `fathom_workspace::ACCEPTED_OLDER_SCHEMA_VERSIONS`.
-export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12', '0.13', '0.14', '0.15', '0.16', '0.17'];
+export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12', '0.13', '0.14', '0.15', '0.16', '0.17', '0.18'];
 
 // Kinds 0.11 (ADR-0058) added. A payload declared at 0.10 cannot
 // legitimately hold one -- its editor never had the kind -- so finding one
@@ -88,6 +88,10 @@ const EDGE_KINDS_SINCE_0_16: ReadonlySet<EdgeKind> = new Set(['HasFieldValue']);
 const NODE_KINDS_SINCE_0_18: ReadonlySet<NodeKind> = new Set(['Issue', 'IssueStep']);
 const EDGE_KINDS_SINCE_0_18: ReadonlySet<EdgeKind> = new Set(['HasIssue', 'HasIssueStep']);
 
+// Kinds 0.19 (firmware targets) added; every accepted older header is too old for them.
+const NODE_KINDS_SINCE_0_19: ReadonlySet<NodeKind> = new Set(['FirmwareTarget']);
+const EDGE_KINDS_SINCE_0_19: ReadonlySet<EdgeKind> = new Set(['HasFirmwareTarget']);
+
 // A kind first added at minor `m` is too new for any header below `m`. Mirrors the Rust table.
 const NODES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<NodeKind>]> = [
   [11, NODE_KINDS_SINCE_0_11],
@@ -97,6 +101,7 @@ const NODES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<NodeKind>]> = [
   [15, NODE_KINDS_SINCE_0_15],
   [16, NODE_KINDS_SINCE_0_16],
   [18, NODE_KINDS_SINCE_0_18],
+  [19, NODE_KINDS_SINCE_0_19],
 ];
 const EDGES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<EdgeKind>]> = [
   [11, EDGE_KINDS_SINCE_0_11],
@@ -106,6 +111,7 @@ const EDGES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<EdgeKind>]> = [
   [15, EDGE_KINDS_SINCE_0_15],
   [16, EDGE_KINDS_SINCE_0_16],
   [18, EDGE_KINDS_SINCE_0_18],
+  [19, EDGE_KINDS_SINCE_0_19],
 ];
 
 function rejectKindsTooNewForDeclaredVersion(declared: string, doc: Document): void {
