@@ -1,0 +1,7 @@
+# Behind, but held on purpose with a reason.
+nodes:
+  - { id: d1, kind: Device, set: { hostname: edge-sw-01, platform: junos-ex, role: switch, os_version: "20.4R3-S2", firmware_hold: "Vendor bug in the chosen release; waiting for the next one" } }
+  - { id: d1_ch, kind: Chassis, set: { member_index: 0, model: ex4300-48t } }
+  - { id: t1, kind: FirmwareTarget, set: { model: ex4300-48t, version: "21.4R3-S5" } }
+edges:
+  - { kind: HasChassis, from: d1, to: d1_ch }

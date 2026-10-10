@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.18";
+    pub const SCHEMA_VERSION: &str = "0.19";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -416,12 +416,17 @@ mod body {
         /// One check of an issue, in `ordinal` order, with the answer given. `targets` names what it
         /// lights, one design id per line, as for `PlanStep`.
         IssueStep,
+        /// The firmware version chosen for one catalogue model (matched against Chassis.model).
+        /// Hangs off the design root as Tag does; the image stays on the server and `image` names
+        /// it by id. One target per model: the editor keeps that, as for Tag names; a payload
+        /// holding two still opens and the rule reads each.
+        FirmwareTarget,
     }
 
     impl NodeKind {
-        pub const COUNT: usize = 69;
+        pub const COUNT: usize = 70;
         /// Every kind, declaration order.
-        pub const ALL: [NodeKind; 69] = [
+        pub const ALL: [NodeKind; 70] = [
             NodeKind::Site,
             NodeKind::Device,
             NodeKind::Chassis,
@@ -491,6 +496,7 @@ mod body {
             NodeKind::FieldValue,
             NodeKind::Issue,
             NodeKind::IssueStep,
+            NodeKind::FirmwareTarget,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -566,6 +572,7 @@ mod body {
                 NodeKind::FieldValue => "FieldValue",
                 NodeKind::Issue => "Issue",
                 NodeKind::IssueStep => "IssueStep",
+                NodeKind::FirmwareTarget => "FirmwareTarget",
             }
         }
         pub fn from_name(name: &str) -> Option<NodeKind> {
@@ -639,6 +646,7 @@ mod body {
                 "FieldValue" => Some(NodeKind::FieldValue),
                 "Issue" => Some(NodeKind::Issue),
                 "IssueStep" => Some(NodeKind::IssueStep),
+                "FirmwareTarget" => Some(NodeKind::FirmwareTarget),
                 _ => None,
             }
         }
@@ -718,6 +726,7 @@ mod body {
                 NodeKind::FieldValue => &[&["owner(Fieldable)", "definition"]],
                 NodeKind::Issue => &[],
                 NodeKind::IssueStep => &[],
+                NodeKind::FirmwareTarget => &[&["model"]],
             }
         }
         /// The kind's layer (62 §4.2).
@@ -792,6 +801,7 @@ mod body {
                 NodeKind::FieldValue => Layer::Physical,
                 NodeKind::Issue => Layer::Physical,
                 NodeKind::IssueStep => Layer::Physical,
+                NodeKind::FirmwareTarget => Layer::Physical,
             }
         }
         /// Whether the kind participates in emit at all (62 §4.2); `false`
@@ -867,6 +877,7 @@ mod body {
                 NodeKind::FieldValue => false,
                 NodeKind::Issue => false,
                 NodeKind::IssueStep => false,
+                NodeKind::FirmwareTarget => false,
             }
         }
         /// The kind's declared field keys, declaration order (62 §4.3). A key
@@ -875,7 +886,7 @@ mod body {
         pub const fn fields(self) -> &'static [crate::bag::FieldKey] {
             match self {
                 NodeKind::Site => &[crate::bag::FieldKey(1), crate::bag::FieldKey(2), crate::bag::FieldKey(3), crate::bag::FieldKey(4), crate::bag::FieldKey(5)],
-                NodeKind::Device => &[crate::bag::FieldKey(6), crate::bag::FieldKey(7), crate::bag::FieldKey(8), crate::bag::FieldKey(9), crate::bag::FieldKey(10), crate::bag::FieldKey(11), crate::bag::FieldKey(12), crate::bag::FieldKey(13), crate::bag::FieldKey(14), crate::bag::FieldKey(15), crate::bag::FieldKey(16), crate::bag::FieldKey(17)],
+                NodeKind::Device => &[crate::bag::FieldKey(6), crate::bag::FieldKey(7), crate::bag::FieldKey(8), crate::bag::FieldKey(9), crate::bag::FieldKey(10), crate::bag::FieldKey(11), crate::bag::FieldKey(12), crate::bag::FieldKey(13), crate::bag::FieldKey(14), crate::bag::FieldKey(15), crate::bag::FieldKey(16), crate::bag::FieldKey(17), crate::bag::FieldKey(411)],
                 NodeKind::Chassis => &[crate::bag::FieldKey(18), crate::bag::FieldKey(19), crate::bag::FieldKey(20), crate::bag::FieldKey(21)],
                 NodeKind::RedundancyGroup => &[crate::bag::FieldKey(22), crate::bag::FieldKey(23), crate::bag::FieldKey(24), crate::bag::FieldKey(25), crate::bag::FieldKey(26)],
                 NodeKind::ExternalPeer => &[crate::bag::FieldKey(27), crate::bag::FieldKey(28), crate::bag::FieldKey(29), crate::bag::FieldKey(30), crate::bag::FieldKey(31)],
@@ -943,6 +954,7 @@ mod body {
                 NodeKind::FieldValue => &[crate::bag::FieldKey(382), crate::bag::FieldKey(381)],
                 NodeKind::Issue => &[crate::bag::FieldKey(390), crate::bag::FieldKey(391), crate::bag::FieldKey(392), crate::bag::FieldKey(393), crate::bag::FieldKey(394), crate::bag::FieldKey(395), crate::bag::FieldKey(396)],
                 NodeKind::IssueStep => &[crate::bag::FieldKey(397), crate::bag::FieldKey(398), crate::bag::FieldKey(399), crate::bag::FieldKey(400), crate::bag::FieldKey(401), crate::bag::FieldKey(402), crate::bag::FieldKey(403), crate::bag::FieldKey(404)],
+                NodeKind::FirmwareTarget => &[crate::bag::FieldKey(405), crate::bag::FieldKey(406), crate::bag::FieldKey(407), crate::bag::FieldKey(408), crate::bag::FieldKey(409), crate::bag::FieldKey(410)],
             }
         }
     }
@@ -1310,12 +1322,14 @@ mod body {
         HasDocFile,
         /// A value hangs off whichever Fieldable object it is on, HasNote's own shape.
         HasFieldValue,
+        /// Firmware targets hang off the design root as Tag does.
+        HasFirmwareTarget,
     }
 
     impl EdgeKind {
-        pub const COUNT: usize = 112;
+        pub const COUNT: usize = 113;
         /// Every kind, declaration order.
-        pub const ALL: [EdgeKind; 112] = [
+        pub const ALL: [EdgeKind; 113] = [
             EdgeKind::HasDevice,
             EdgeKind::HasChassis,
             EdgeKind::HasRedundancyGroup,
@@ -1428,6 +1442,7 @@ mod body {
             EdgeKind::HasDocLink,
             EdgeKind::HasDocFile,
             EdgeKind::HasFieldValue,
+            EdgeKind::HasFirmwareTarget,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -1546,6 +1561,7 @@ mod body {
                 EdgeKind::HasDocLink => "HasDocLink",
                 EdgeKind::HasDocFile => "HasDocFile",
                 EdgeKind::HasFieldValue => "HasFieldValue",
+                EdgeKind::HasFirmwareTarget => "HasFirmwareTarget",
             }
         }
         pub fn from_name(name: &str) -> Option<EdgeKind> {
@@ -1662,6 +1678,7 @@ mod body {
                 "HasDocLink" => Some(EdgeKind::HasDocLink),
                 "HasDocFile" => Some(EdgeKind::HasDocFile),
                 "HasFieldValue" => Some(EdgeKind::HasFieldValue),
+                "HasFirmwareTarget" => Some(EdgeKind::HasFirmwareTarget),
                 _ => None,
             }
         }
@@ -1780,6 +1797,7 @@ mod body {
                 EdgeKind::HasDocLink => EdgeClass::Containment,
                 EdgeKind::HasDocFile => EdgeClass::Containment,
                 EdgeKind::HasFieldValue => EdgeClass::Containment,
+                EdgeKind::HasFirmwareTarget => EdgeClass::Containment,
             }
         }
     }
@@ -1957,7 +1975,7 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PathSegment],
                 EdgeKind::ExitsAt => &[NodeKind::PathSegment],
                 EdgeKind::MustTraverse => &[NodeKind::PathSegment],
-                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::Label, NodeKind::Line, NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile, NodeKind::MaintenancePlan, NodeKind::PlanStep, NodeKind::Issue, NodeKind::IssueStep, NodeKind::FieldValue],
+                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::Label, NodeKind::Line, NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile, NodeKind::MaintenancePlan, NodeKind::PlanStep, NodeKind::Issue, NodeKind::IssueStep, NodeKind::FirmwareTarget, NodeKind::FieldValue],
                 EdgeKind::HasRack => &[NodeKind::Premises],
                 EdgeKind::MountedIn => &[NodeKind::Chassis, NodeKind::PassiveNode],
                 EdgeKind::HasDhcpRelay => &[NodeKind::Device],
@@ -1988,6 +2006,7 @@ mod body {
                 EdgeKind::HasDocLink => &[NodeKind::Doc],
                 EdgeKind::HasDocFile => &[NodeKind::Doc],
                 EdgeKind::HasFieldValue => &[NodeKind::Device, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::Rack, NodeKind::Vlan, NodeKind::ContainerNetwork],
+                EdgeKind::HasFirmwareTarget => &[],
             }
         }
         /// The declared `to:` kind set, class names expanded (62 §6.2).
@@ -2105,6 +2124,7 @@ mod body {
                 EdgeKind::HasDocLink => &[NodeKind::DocLink],
                 EdgeKind::HasDocFile => &[NodeKind::DocFile],
                 EdgeKind::HasFieldValue => &[NodeKind::FieldValue],
+                EdgeKind::HasFirmwareTarget => &[NodeKind::FirmwareTarget],
             }
         }
         /// The `out:` bound at L0 — edges leaving a `from` node (11 §7.1).
@@ -2222,6 +2242,7 @@ mod body {
                 EdgeKind::HasDocLink => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasDocFile => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasFieldValue => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasFirmwareTarget => EdgeCardBound { min: 0, max: None },
             }
         }
         /// The `in:` bound at L0 — edges arriving at a `to` node (11 §7.1).
@@ -2339,6 +2360,7 @@ mod body {
                 EdgeKind::HasDocLink => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::HasDocFile => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::HasFieldValue => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::HasFirmwareTarget => EdgeCardBound { min: 1, max: Some(1) },
             }
         }
         /// `true` means `(a,b)` and `(b,a)` are the same edge: one stored
@@ -2457,6 +2479,7 @@ mod body {
                 EdgeKind::HasDocLink => false,
                 EdgeKind::HasDocFile => false,
                 EdgeKind::HasFieldValue => false,
+                EdgeKind::HasFirmwareTarget => false,
             }
         }
         /// `from: [root]` — containment by the workspace root (11 §7.2).
@@ -2574,6 +2597,7 @@ mod body {
                 EdgeKind::HasDocLink => false,
                 EdgeKind::HasDocFile => false,
                 EdgeKind::HasFieldValue => false,
+                EdgeKind::HasFirmwareTarget => true,
             }
         }
         /// The edge's declared field keys, declaration order (62 §6.2).
@@ -2691,6 +2715,7 @@ mod body {
                 EdgeKind::HasDocLink => &[],
                 EdgeKind::HasDocFile => &[],
                 EdgeKind::HasFieldValue => &[],
+                EdgeKind::HasFirmwareTarget => &[],
             }
         }
     }
@@ -6222,12 +6247,13 @@ mod body {
         AggregateDeviceCount,
         RethCount,
         NameConformance,
+        FirmwareHold,
     }
 
     impl DeviceField {
-        pub const COUNT: usize = 12;
+        pub const COUNT: usize = 13;
         /// Every field, declaration order.
-        pub const ALL: [DeviceField; 12] = [
+        pub const ALL: [DeviceField; 13] = [
             DeviceField::Hostname,
             DeviceField::Platform,
             DeviceField::OsVersion,
@@ -6240,6 +6266,7 @@ mod body {
             DeviceField::AggregateDeviceCount,
             DeviceField::RethCount,
             DeviceField::NameConformance,
+            DeviceField::FirmwareHold,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -6258,6 +6285,7 @@ mod body {
                 DeviceField::AggregateDeviceCount => "aggregate_device_count",
                 DeviceField::RethCount => "reth_count",
                 DeviceField::NameConformance => "name_conformance",
+                DeviceField::FirmwareHold => "firmware_hold",
             }
         }
         /// The stable wire key (`schema/field-keys.yaml`).
@@ -6275,6 +6303,7 @@ mod body {
                 DeviceField::AggregateDeviceCount => crate::bag::FieldKey(15),
                 DeviceField::RethCount => crate::bag::FieldKey(16),
                 DeviceField::NameConformance => crate::bag::FieldKey(17),
+                DeviceField::FirmwareHold => crate::bag::FieldKey(411),
             }
         }
     }
@@ -9303,6 +9332,54 @@ mod body {
         }
     }
 
+    /// Fields of kind `FirmwareTarget`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum FirmwareTargetField {
+        Model,
+        Version,
+        Platform,
+        Image,
+        ImageSha256,
+        Note,
+    }
+
+    impl FirmwareTargetField {
+        pub const COUNT: usize = 6;
+        /// Every field, declaration order.
+        pub const ALL: [FirmwareTargetField; 6] = [
+            FirmwareTargetField::Model,
+            FirmwareTargetField::Version,
+            FirmwareTargetField::Platform,
+            FirmwareTargetField::Image,
+            FirmwareTargetField::ImageSha256,
+            FirmwareTargetField::Note,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                FirmwareTargetField::Model => "model",
+                FirmwareTargetField::Version => "version",
+                FirmwareTargetField::Platform => "platform",
+                FirmwareTargetField::Image => "image",
+                FirmwareTargetField::ImageSha256 => "image_sha256",
+                FirmwareTargetField::Note => "note",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                FirmwareTargetField::Model => crate::bag::FieldKey(405),
+                FirmwareTargetField::Version => crate::bag::FieldKey(406),
+                FirmwareTargetField::Platform => crate::bag::FieldKey(407),
+                FirmwareTargetField::Image => crate::bag::FieldKey(408),
+                FirmwareTargetField::ImageSha256 => crate::bag::FieldKey(409),
+                FirmwareTargetField::Note => crate::bag::FieldKey(410),
+            }
+        }
+    }
+
     /// Fields of edge `UsesProposal`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum UsesProposalField {
@@ -9822,7 +9899,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 398] = [
+    pub const FIELD_KEYS: [(&str, u32); 405] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -10221,16 +10298,23 @@ mod body {
         ("IssueStep.answer", 402),
         ("IssueStep.note", 403),
         ("IssueStep.answered_at", 404),
+        ("FirmwareTarget.model", 405),
+        ("FirmwareTarget.version", 406),
+        ("FirmwareTarget.platform", 407),
+        ("FirmwareTarget.image", 408),
+        ("FirmwareTarget.image_sha256", 409),
+        ("FirmwareTarget.note", 410),
+        ("Device.firmware_hold", 411),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
     /// per key, least-significant bit first. Read it through [`field_required`];
     /// the array is public only so a test can pin its length.
-    pub const FIELD_REQUIRED_BITS: [u8; 51] = [
+    pub const FIELD_REQUIRED_BITS: [u8; 52] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
         0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0xa3, 0xfb, 0x1d, 0x59, 0x64,
-        0xc0, 0xe6, 0x04,
+        0xc0, 0xe6, 0x64, 0x00,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

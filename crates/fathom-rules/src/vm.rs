@@ -339,6 +339,20 @@ fn builtin<N: Clone>(b: Builtin, st: &mut Vec<Val<N>>) -> Result<Val<N>, EvalErr
                 _ => Val::Bool(false),
             }
         }
+        Builtin::VersionOlder => {
+            let want = pop()?;
+            let have = pop()?;
+            let platform = pop()?;
+            match (platform, have, want) {
+                (Val::Str(p), Val::Str(h), Val::Str(w)) => {
+                    match crate::version::older(&p, &h, &w) {
+                        Some(r) => Val::Bool(r),
+                        None => Val::Null,
+                    }
+                }
+                _ => Val::Null,
+            }
+        }
         Builtin::PrefixLen => match pop()? {
             Val::Prefix(_, l) | Val::Iface(_, l) => Val::Int(i64::from(l)),
             _ => Val::Null,

@@ -389,6 +389,8 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     ADR-0061 troubleshooting: issues are drawn by the issue views, never as a box.
         | NodeKind::Issue
         | NodeKind::IssueStep
+        //     Firmware targets (0.19): listed by the client, never laid out.
+        | NodeKind::FirmwareTarget
         //     Custom fields (0.16): a value is text with no geometry,
         //     UNTABLED like `Tag`.
         | NodeKind::FieldValue

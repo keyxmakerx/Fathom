@@ -1,4 +1,4 @@
 fathom-change 1
-schema 0.18
+schema 0.19
 
 {"batch":{"id":"01HF7YAT00000000000001X141","label":"mount chassis","ops":[{"add_edge":{"edge":"mounted-in:01HF7YAT00000000000000003E","from":"chassis:01HF7YAT00000000000000000C","prov":"01HF7YAT00000000000000YGNE","to":"rack:01HF7YAT000000000000000003"}},{"set_field":{"element":"mounted-in:01HF7YAT00000000000000003E","key":"MountedIn.position_u","presence":"set","prov":"01HF7YAT00000000000000YGNF"}},{"set_field":{"element":"mounted-in:01HF7YAT00000000000000003E","key":"MountedIn.face","presence":"set","prov":"01HF7YAT00000000000000YGNG"}}]},"provenance":[{"asserted_at":1700000000110,"asserted_by":{"user":"01HF7YAT000000000000000007"},"confidence":"asserted","id":"01HF7YAT00000000000000YGNE","origin":"hand"},{"asserted_at":1700000000111,"asserted_by":{"user":"01HF7YAT000000000000000007"},"confidence":"asserted","id":"01HF7YAT00000000000000YGNF","origin":"hand"},{"asserted_at":1700000000112,"asserted_by":{"user":"01HF7YAT000000000000000007"},"confidence":"asserted","id":"01HF7YAT00000000000000YGNG","origin":"hand"}],"values":[10,"front"]}
