@@ -77,3 +77,11 @@ export function endLine(result: TraceResult): string {
   if (result.stopped !== '') return `Could not establish: ${result.stopped}`;
   return result.hops.length > 0 ? `The walk ends at ${result.to}. The rows above are what the devices read.` : '';
 }
+
+/** The device to tie ports on when the walk stopped at an interface not tied to a port, else null. The engine's
+ * stop sentence is the signal; the device is the hop just before it. */
+export function untiedStop(result: TraceResult): string | null {
+  if (!result.stopped.includes('is not tied to a port')) return null;
+  const last = [...result.hops].reverse().find((h) => h.kind === 'device');
+  return last?.nodes[0] ?? null;
+}

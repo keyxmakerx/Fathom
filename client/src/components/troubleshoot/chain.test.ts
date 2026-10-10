@@ -73,6 +73,17 @@ describe('buildChain', () => {
     expect(port.detail).toContain('no VLAN');
   });
 
+  it("offers Tie ports at the port step when the switch's pasted interfaces are not tied", () => {
+    const l = lab({ network: false });
+    expect(buildChain(l.doc, l.nas.device).steps.find((s) => s.topic === 'port')!.tie).toBeUndefined();
+    const b = begin(l.doc, tick());
+    const iface = addNode(b, 'Interface', { 'Interface.name': text('ge-0/0/22'), 'Interface.form': token('ethernet') });
+    addEdge(b, 'HasInterface', l.sw.device, iface);
+    const port = buildChain(finish(b, 'paste'), l.nas.device).steps.find((s) => s.topic === 'port')!;
+    expect(port.tie).toBe(l.sw.device);
+    expect(port.detail).toContain("sw-02's pasted interfaces are not tied to a port.");
+  });
+
   it('reads a management address when no subnet holds the device', () => {
     const l = lab({ network: false });
     const doc = setDeviceField(l.doc, l.nas.device, 'management_address', '10.0.20.15', tick());

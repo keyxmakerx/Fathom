@@ -1,9 +1,10 @@
 // The page beside the list (ADR-0062, ADR-0046): the canvas details panel's own editor under a
 // title and tabs. Overview is `EditorFor` itself, so an edit here is the edit the canvas makes.
 
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import type { Document } from '../../document/model';
+import { addPortsFromConfig, tiePlan, tiePorts, tiedPairs, untie } from '../../document/portTies';
 import { type ClosetView, type EditorActions, type PaletteItem, type PortView, type Selection } from '../drawing/contract';
 import { EditorFor, NotesSection, TypedNoteMode } from '../drawing/Editor';
 import { findChassis, findFixture, findOccupant } from '../drawing/lookup';
@@ -13,6 +14,8 @@ import { historyOf } from './kinds';
 import { PanelMap, PathStrip, PluggedInto, RackContents } from './PageParts';
 import type { PlaceIndex, Where } from './placeIndex';
 import { PortsList } from './PortsList';
+import { tieAttempt } from '../ties/TieCard';
+import { TieList } from '../ties/TieList';
 
 type TabKey = 'overview' | 'ports' | 'notes' | 'history';
 
@@ -36,6 +39,58 @@ export interface ItemPageProps {
   onTab: (tab: string) => void;
   /** Corrections from the floor (a cable page sends or settles them). Absent: none shown. */
   corrections?: CorrectionsApi;
+  /** Writes a document change (the Ports tab's "Tie interfaces"). Absent: read only, no tie list. */
+  onApply?: (next: Document) => void;
+  actor?: string;
+}
+
+/** The Ports tab's ties: which interface sits on which port, each with Untie, and "Tie interfaces" for the rest. */
+function TieSection({ doc, hostId, onApply, actor }: { doc: Document; hostId: string; onApply: (next: Document) => void; actor?: string }) {
+  const [open, setOpen] = useState(false);
+  const [refusal, setRefusal] = useState('');
+  const plan = tiePlan(doc, hostId);
+  const tied = tiedPairs(doc, hostId);
+  const opts = actor !== undefined ? { actor } : undefined;
+  const done = (next: Document) => {
+    onApply(next);
+    setOpen(false);
+  };
+  const untied = plan?.rows.length ?? 0;
+  const list =
+    tied.length > 0 ? (
+      <ul className="inv-page__list" aria-label="Interfaces on ports" data-testid="tied-list">
+        {tied.map((t) => (
+          <li key={t.interfaceId}>
+            <span className="inv-page__mono">{t.name}</span> on {t.port}{' '}
+            <button type="button" className="inv-page__link" onClick={() => setRefusal(tieAttempt(() => untie(doc, t.interfaceId, opts), onApply) ?? '')}>
+              Untie
+            </button>
+          </li>
+        ))}
+      </ul>
+    ) : null;
+  if (plan === null || (untied === 0 && tied.length === 0)) return null;
+  if (!open || untied === 0) {
+    return (
+      <>
+        {list}
+        {refusal !== '' && <p role="alert">{refusal}</p>}
+        {untied > 0 && (
+          <button type="button" className="inv-page__link" onClick={() => setOpen(true)} data-testid="tie-open">
+            Tie interfaces ({untied} not on a port)
+          </button>
+        )}
+      </>
+    );
+  }
+  return (
+    <TieList
+      plan={plan}
+      onTie={(pairs) => tieAttempt(() => tiePorts(doc, hostId, pairs, opts), done)}
+      onAddPorts={() => tieAttempt(() => addPortsFromConfig(doc, hostId, opts), done)}
+      onSkip={() => setOpen(false)}
+    />
+  );
 }
 
 function portsOf(view: ClosetView, selection: Selection): PortView[] {
@@ -46,7 +101,7 @@ function portsOf(view: ClosetView, selection: Selection): PortView[] {
 }
 
 export function ItemPage(props: ItemPageProps) {
-  const { doc, view, selection, ownerId, title, actions, palette, accountId, onShowOnCanvas, tab: tabText, onTab, idx, onSetWhere, corrections } = props;
+  const { doc, view, selection, ownerId, title, actions, palette, accountId, onShowOnCanvas, tab: tabText, onTab, idx, onSetWhere, corrections, onApply, actor } = props;
   const tab: TabKey = tabText === 'ports' || tabText === 'notes' || tabText === 'history' ? tabText : 'overview';
   const setTab = (t: TabKey) => onTab(t === 'overview' ? '' : t);
   const isDevice = selection.kind === 'chassis' || selection.kind === 'occupant' || selection.kind === 'fixture';
@@ -83,6 +138,7 @@ export function ItemPage(props: ItemPageProps) {
   } else if (active === 'ports') {
     body = (
       <>
+        {onApply ? <TieSection doc={doc} hostId={selection.id} onApply={onApply} actor={actor} /> : null}
         {ports.some((p) => p.passThroughId) ? <PanelMap view={view} ports={ports} actions={actions} /> : null}
         <PortsList view={view} ports={ports} actions={actions} />
       </>

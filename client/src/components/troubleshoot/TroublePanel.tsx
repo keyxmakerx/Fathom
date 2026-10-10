@@ -131,7 +131,7 @@ function Note({ step, index, controller }: { step: DraftStepState; index: number
   );
 }
 
-function Step({ step, index, controller }: { step: DraftStepState; index: number; controller: TroubleController }) {
+function Step({ step, index, controller, onTie }: { step: DraftStepState; index: number; controller: TroubleController; onTie?: (deviceId: string) => void }) {
   const current = controller.focus === index;
   const li = useRef<HTMLLIElement>(null);
   const wasCurrent = useRef(current);
@@ -166,6 +166,14 @@ function Step({ step, index, controller }: { step: DraftStepState; index: number
             </button>
           </p>
           {step.detail !== '' && <p className="trouble-step__detail">{step.detail}</p>}
+          {step.tie !== undefined && onTie && (
+            <p className="trouble-step__detail">
+              Not tied to a port ·{' '}
+              <button type="button" className="trouble-link" onClick={() => onTie(step.tie!)} data-testid="trouble-tie">
+                Tie ports
+              </button>
+            </p>
+          )}
           {whyOpen && <WhyCard step={step} onClose={controller.closeWhy} />}
           <AnswerButtons step={step} index={index} controller={controller} />
           <Note step={step} index={index} controller={controller} />
@@ -254,12 +262,12 @@ function Footer({ draft, controller }: { draft: Draft; controller: TroubleContro
   );
 }
 
-function DraftBody({ draft, controller }: { draft: Draft; controller: TroubleController }) {
+function DraftBody({ draft, controller, onTie }: { draft: Draft; controller: TroubleController; onTie?: (deviceId: string) => void }) {
   return (
     <>
       <ol className="trouble-steps" data-testid="trouble-steps">
         {draft.steps.map((s, i) => (
-          <Step key={`${draft.openedAt}|${i}`} step={s} index={i} controller={controller} />
+          <Step key={`${draft.openedAt}|${i}`} step={s} index={i} controller={controller} onTie={onTie} />
         ))}
       </ol>
       <PointBlock draft={draft} />
@@ -311,7 +319,17 @@ function SavedBody({ issue, controller }: { issue: Issue; controller: TroubleCon
   );
 }
 
-export function TroublePanel({ controller, besideChecks, besidePlans = false }: { controller: TroubleController; besideChecks: boolean; besidePlans?: boolean }) {
+export function TroublePanel({
+  controller,
+  besideChecks,
+  besidePlans = false,
+  onTie,
+}: {
+  controller: TroubleController;
+  besideChecks: boolean;
+  besidePlans?: boolean;
+  onTie?: (deviceId: string) => void;
+}) {
   const { draft, viewing } = controller;
   const body = useRef<HTMLDivElement>(null);
   const first = useRef(true);
@@ -387,7 +405,7 @@ export function TroublePanel({ controller, besideChecks, besidePlans = false }: 
             </button>
           </p>
         )}
-        {draft != null && <DraftBody draft={draft} controller={controller} />}
+        {draft != null && <DraftBody draft={draft} controller={controller} onTie={onTie} />}
         {draft == null && viewing != null && <SavedBody issue={viewing} controller={controller} />}
       </div>
     </aside>

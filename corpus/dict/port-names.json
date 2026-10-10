@@ -1,0 +1,23 @@
+{
+  "about": "Interface name to PortPosition { slot, subslot, index }, per paste platform, read by client/src/document/portTies.ts to suggest port ties. A rule suggests only when source names a vendor page with the date it was read (ADR-0034's rule). A rule with source null never suggests; its wanted line is the page the owner is asked for. Numbers are capture groups of pattern. No fuzzy matching and no first-free-port: a name no cited rule reads stays untied.",
+  "rules": [
+    {
+      "id": "junos.type-fpc-pic-port",
+      "platforms": ["junos-ex", "junos-srx"],
+      "pattern": "^(?:ge|xe|et|mge)-(\\d+)/(\\d+)/(\\d+)$",
+      "slot": 1,
+      "subslot": 2,
+      "index": 3,
+      "source": null,
+      "wanted": "Juniper's Junos interface naming page, stating that type-fpc/pic/port names the FPC slot, the PIC slot and the port on that PIC, and how a fixed switch numbers its built-in and uplink PICs."
+    },
+    {
+      "id": "edgeos.eth",
+      "platforms": ["edgeos"],
+      "pattern": "^eth(\\d+)$",
+      "index": 1,
+      "source": null,
+      "wanted": "A Ubiquiti EdgeRouter page stating that interface ethN is the port marked N on the faceplate."
+    }
+  ]
+}
