@@ -41,6 +41,8 @@ import { isTypingTarget, matches, shortcutText } from '../shell/shortcuts';
 import { createThingsFinder } from '../shell/thingsSearch';
 import { applyTheme, getStoredTheme } from '../../theme';
 import type { Place, ShellProps } from '../shell/types';
+import { CollabContext, type CollabApi } from '../collab/CollabContext';
+import { useChangesSince } from '../collab/useChangesSince';
 import { ChangeToast } from './ChangeToast';
 import { LiveNotices, announcement, hasLiveNotices } from './LiveNotices';
 import { presenceViewOf } from './liveSession';
@@ -107,6 +109,8 @@ export function DesignPlace(props: DesignPlaceProps) {
   const { organisationId, designId, capability, scopeId, onZoomChange, onPlaceChange, openDevice, ...shellProps } = props;
   const session = useDesignSession(organisationId, designId, capability);
   const [focus, setFocus] = useState<Selection | null>(null);
+  // Selecting a thing from outside the drawing (stepping through what changed) without opening it.
+  const [selectRequest, setSelectRequest] = useState<{ selection: Selection } | null>(null);
   const [issueRequest, setIssueRequest] = useState<{ id: string } | null>(null);
 
   const accountId = getSession()?.accountId ?? null;
@@ -641,6 +645,14 @@ export function DesignPlace(props: DesignPlaceProps) {
   // Who else is in this view: initials only, shown as dots in the bar.
   const presence = session.live.people.map((p) => ({ id: p.account, initials: p.initials, name: p.name }));
 
+  // On the canvas: other people's pointers, and what they changed since this person was last here.
+  const changesShown = useChangesSince(doc, accountId, designId, session.live.people);
+  const { setPointer, subscribePointers } = session;
+  const collab = useMemo<CollabApi>(
+    () => ({ setPointer, subscribePointers, changes: changesShown, select: (selection) => setSelectRequest({ selection }) }),
+    [setPointer, subscribePointers, changesShown],
+  );
+
   // Presence: which view this person is in (ADR-0063 §12).
   const { setPresence } = session;
   const viewId = presenceViewOf(props.place);
@@ -749,6 +761,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         session={racksSession}
         onZoomChange={onZoomChange}
         initialFocus={focus}
+        selectRequest={selectRequest}
         initialIssue={issueRequest}
         onOpenInventory={openInInventory}
         accountId={accountId}
@@ -787,7 +800,9 @@ export function DesignPlace(props: DesignPlaceProps) {
     <>
       <div className="print-hide-under-preview" inert={printMode === 'preview' || docs.view != null}>
         <PaletteRegistryContext.Provider value={paletteRegistry}>
-          <DocsContext.Provider value={docs.api}>{place}</DocsContext.Provider>
+          <DocsContext.Provider value={docs.api}>
+            <CollabContext.Provider value={collab}>{place}</CollabContext.Provider>
+          </DocsContext.Provider>
         </PaletteRegistryContext.Provider>
       </div>
       {docs.view != null && printMode === 'closed' && (

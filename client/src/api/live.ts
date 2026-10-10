@@ -64,15 +64,21 @@ export interface Person {
   name: string;
   /** The element this person has selected (others only). */
   selected?: string | null;
+  /** Where this person's pointer is, in canvas coordinates (others only; absent when it is not on the canvas). */
+  pointer?: { x: number; y: number };
 }
 
 function personFrom(item: unknown): Person | null {
-  const o = item as { account?: unknown; initials?: unknown; name?: unknown; selected?: unknown } | null;
+  const o = item as { account?: unknown; initials?: unknown; name?: unknown; selected?: unknown; pointer?: unknown } | null;
   if (o === null || typeof o !== 'object') return null;
   if (typeof o.account !== 'string' || typeof o.initials !== 'string' || typeof o.name !== 'string') return null;
   const person: Person = { account: o.account, initials: o.initials.slice(0, 3), name: o.name };
   if (typeof o.selected === 'string') person.selected = o.selected;
   else if (o.selected === null) person.selected = null;
+  const at = o.pointer as { x?: unknown; y?: unknown } | null | undefined;
+  if (at != null && typeof at === 'object' && typeof at.x === 'number' && typeof at.y === 'number' && Number.isFinite(at.x) && Number.isFinite(at.y)) {
+    person.pointer = { x: at.x, y: at.y };
+  }
   return person;
 }
 
@@ -128,6 +134,18 @@ export async function postPresence(organisationId: string, designId: string, bod
   let bytes = new TextEncoder().encode(JSON.stringify({ view: body.view, selected: body.selected }));
   if (bytes.length > 256) bytes = new TextEncoder().encode(JSON.stringify({ view: body.view, selected: null }));
   await signedFetchWithHeaders('POST', `${base(organisationId, designId)}/presence`, bytes, true);
+}
+
+/** `POST …/pointer`: where the pointer is on the canvas (canvas coordinates), or `null` once it has left. */
+export async function postPointer(organisationId: string, designId: string, pointer: { x: number; y: number } | null): Promise<void> {
+  await signedFetchWithHeaders('POST', `${base(organisationId, designId)}/pointer`, new TextEncoder().encode(pointerBody(pointer)), true);
+}
+
+/** The body the server reads: coordinates to a tenth, plain decimals, nothing else. */
+export function pointerBody(pointer: { x: number; y: number } | null): string {
+  if (pointer === null) return '{"pointer":null}';
+  const tenth = (v: number) => (Math.round(v * 10) / 10 + 0).toFixed(1);
+  return `{"pointer":{"x":${tenth(pointer.x)},"y":${tenth(pointer.y)}}}`;
 }
 
 /** Whether a failed change was refused (drop it) rather than not delivered (send it again). */

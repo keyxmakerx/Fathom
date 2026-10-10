@@ -221,6 +221,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
    * already uses (`Drawing.tsx`'s Motion #10). Absent on every ordinary
    * open — nothing is pre-selected just because a design loaded. */
   initialFocus?: Selection | null;
+  /** Select a thing as if it were clicked, without opening it; a fresh object per ask. */
+  selectRequest?: { selection: Selection } | null;
   /** A saved issue to open on arrival ("Show on canvas" on an Inventory issue page); a fresh object per ask. */
   initialIssue?: { id: string } | null;
   /** This session's brief item 5's reverse — "Open in inventory," rendered
@@ -278,6 +280,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     session,
     onZoomChange,
     initialFocus,
+    selectRequest,
     initialIssue,
     onOpenInventory,
     accountId,
@@ -380,6 +383,9 @@ export function RacksPlace(props: RacksPlaceProps) {
     // on the `initialFocus` object identity and `doc` becoming available;
     // `onZoomChange` is a stable setter from `App.tsx`.
   }, [initialFocus, doc]);
+  useEffect(() => {
+    if (selectRequest != null) setSelection(selectRequest.selection);
+  }, [selectRequest]);
 
   // ADR-0052 §1/§4 — the config drawer's
   // engine. `Engine.init()` fetches and boots the wasm module
