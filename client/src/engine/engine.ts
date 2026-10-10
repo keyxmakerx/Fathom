@@ -10,7 +10,7 @@ import { type ByteLoader, type EngineWasm, fetchLoader, loadWasm } from './wasm'
 /** The `corpus/dict/` directories this client boots a dictionary for. `shell.rs`
  * holds them all at once, keyed by platform, and picks one per paste (named in the
  * frame, else detected; see `ERR_PLATFORM_CHOICE`). */
-export const DICT_PLATFORMS = ['junos-srx', 'opnsense', 'junos-ex', 'edgeos'] as const;
+export const DICT_PLATFORMS = ['junos-srx', 'opnsense', 'junos-ex', 'edgeos', 'routeros'] as const;
 
 /** `corpus/dict/` directories this client deliberately does not boot a
  * dictionary for, and why — read by the coverage test below so an

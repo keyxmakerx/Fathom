@@ -32,6 +32,7 @@ pub mod frame;
 pub mod hosted;
 pub mod lex;
 pub mod redact;
+pub mod routeros;
 pub mod shape;
 
 /// 14 §11.4's refusal caps: refuse before processing, never OOM mid-way.
