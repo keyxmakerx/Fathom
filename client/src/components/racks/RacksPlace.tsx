@@ -87,6 +87,15 @@ import { highestFreeU, hostnamesOf, nextHostname, racksInPickOrder } from './pic
 import './racks.css';
 import { SkeletonRacks } from '../ui/Skeleton';
 import { useSavedViews } from './useSavedViews';
+import { findEdge, findNode } from '../../document/model';
+import { colourKeyShown, useCanvasAids } from '../drawing/canvasAids';
+import { colourKeyRows } from '../drawing/colourKey';
+import { ColourKey } from '../drawing/ColourKey';
+import { PortPeek } from '../drawing/PortPeek';
+import { JumpTrail } from './JumpTrail';
+import { showAidsFor } from './showAids';
+import { selectionName } from './selectionName';
+import { useJumpBack } from './useJumpBack';
 
 // `canDrawFor`/`refusalFor` now live in `components/design/useDesignSession.ts`,
 // re-exported here unchanged, so the two
@@ -349,7 +358,9 @@ export function RacksPlace(props: RacksPlaceProps) {
     },
     [accountId, session.designId],
   );
-  const viewsMenu = useSavedViews({ accountId, designId, hub: cameraHub, look, layers, applyLayers, changeLook, setRackCamera: resumeView.setCamera });
+  // Opening a saved view is a step in Jump back's trail; the trail is built further down.
+  const jumpMarkView = useRef<(name: string) => void>(() => {});
+  const viewsMenu = useSavedViews({ accountId, designId, hub: cameraHub, look, layers, applyLayers, changeLook, setRackCamera: resumeView.setCamera, onWillGo: (name) => jumpMarkView.current(name) });
   // Bumped by the bar's percentage button; the drawing fits every rack.
   const [fitRequest, setFitRequest] = useState(0);
   // A short-lived note over the canvas for a menu action that did nothing
@@ -992,6 +1003,58 @@ export function RacksPlace(props: RacksPlaceProps) {
   }, []);
   const leaveJot = useCallback(() => setJot(null), []);
 
+  // Small aids over the canvas: the mini-map and cable colour key (both switched in the Show menu), the port
+  // peek, and the trail of where you have been with Alt+Left and Alt+Right.
+  const canvasAids = useCanvasAids(accountId);
+  const keyRows = useMemo(() => (look === 'rack' ? colourKeyRows(doc, realView) : []), [doc, realView, look]);
+  const keyOn = colourKeyShown(canvasAids.prefs.colourKey, keyRows.length);
+  const [keyCableIds, setKeyCableIds] = useState<ReadonlySet<string> | null>(null);
+  const showAids = useMemo(
+    () => showAidsFor(canvasAids.prefs, { rack: look === 'rack', colours: keyRows.length }, (id) => canvasAids.toggle(id, keyOn)),
+    [canvasAids, look, keyRows.length, keyOn],
+  );
+  const jumpExists = useCallback(
+    (spot: { selection: { id: string } | null; jotId: string | null }) => {
+      if (doc == null) return false;
+      const live = (id: string) => {
+        const thing = findNode(doc, id) ?? findEdge(doc, id);
+        return thing != null && thing.absentSince === undefined;
+      };
+      return (spot.selection == null || live(spot.selection.id)) && (spot.jotId == null || live(spot.jotId));
+    },
+    [doc],
+  );
+  const jumpGo = useCallback(
+    (spot: { look: Look; selection: { kind: string; id: string } | null; jotId: string | null }, camera: { x: number; y: number; zoom: number } | null) => {
+      if (spot.look !== look) {
+        if (camera != null) {
+          if (spot.look === 'rack') resumeView.setCamera(camera);
+          else cameraHub.pending = camera;
+        }
+        changeLook(spot.look);
+      } else if (camera != null) {
+        cameraHub.control?.set(camera, true);
+      }
+      setCalloutId(null);
+      setSelection(spot.selection as Selection | null);
+      setJot(spot.jotId != null ? { id: spot.jotId, origin: null, inside: false } : null);
+    },
+    [look, changeLook, resumeView, cameraHub],
+  );
+  const overviewName = shellProps.path[shellProps.path.length - 1]?.label ?? '';
+  const jump = useJumpBack({
+    enabled: doc != null,
+    look,
+    selection,
+    jotId: jot?.id ?? null,
+    zoomPct: shellProps.zoom,
+    nameOf: (sel) => (sel == null ? overviewName : selectionName(realView, sel)),
+    exists: jumpExists,
+    hub: cameraHub,
+    go: jumpGo,
+  });
+  jumpMarkView.current = jump.markView;
+
   // ADR-0061 §7: a config pasted anywhere on the canvas. The gate runs in the module (`previewPaste`)
   // before the card shows; the card's choice is the only thing that writes. The raw text is never kept.
   const [pasteState, setPasteState] = useState<PasteState | null>(null);
@@ -1482,7 +1545,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
-    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle } }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, aids: showAids }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
         doc != null ? (
           <>
             <PlansBarChip controller={plans} />
@@ -1517,6 +1580,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           words={words}
           style={diagramStyle}
           cameraHub={cameraHub}
+          minimap={canvasAids.prefs.minimap}
         />
       ) : (
         <Drawing
@@ -1528,6 +1592,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           fitRequest={fitRequest}
           lookSwitched={lookSwitched}
           cameraHub={cameraHub}
+          keyCableIds={keyOn ? keyCableIds : null}
+          minimap={canvasAids.prefs.minimap}
           initialViewport={resumeView.initialViewport}
           onViewportSettled={resumeView.onViewportSettled}
           onPlace={handlePlace}
@@ -1600,6 +1666,9 @@ export function RacksPlace(props: RacksPlaceProps) {
           renderInsideStop={renderInsideStop}
         />
       ) : null}
+      {doc != null && look === 'rack' && keyOn && keyRows.length > 0 ? <ColourKey rows={keyRows} onHighlight={setKeyCableIds} /> : null}
+      {doc != null ? <JumpTrail trail={jump.trail} backLabel={jump.backLabel} onBack={jump.goBack} onForward={jump.goForward} onGoTo={jump.goTo} /> : null}
+      {doc != null ? <PortPeek doc={doc} view={displayView} /> : null}
       {drawerAsk != null && pasteState == null ? (
         <PasteCard
           state={{ kind: 'which', candidates: drawerAsk.candidates }}

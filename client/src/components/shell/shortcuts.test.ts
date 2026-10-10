@@ -25,6 +25,16 @@ describe('the shortcuts table', () => {
     expect(matches(key('d', { ctrlKey: true, altKey: true }), 'duplicate')).toBe(false);
   });
 
+  it('Alt+Left goes back and Alt+Right goes forward, and only with Alt held', () => {
+    expect(matches(key('ArrowLeft', { altKey: true }), 'go-back')).toBe(true);
+    expect(matches(key('ArrowRight', { altKey: true }), 'go-forward')).toBe(true);
+    expect(matches(key('ArrowLeft'), 'go-back')).toBe(false);
+    expect(matches(key('ArrowLeft', { altKey: true }), 'go-forward')).toBe(false);
+    // The arrow keys' other jobs ignore Alt.
+    expect(matches(key('ArrowLeft', { altKey: true }), 'nudge-left')).toBe(false);
+    expect(shortcutText('go-back', false)).toBe('Alt+Left');
+  });
+
   it('a gesture has no key to match', () => {
     expect(matches(key('Enter'), 'rename')).toBe(false);
   });

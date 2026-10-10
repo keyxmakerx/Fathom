@@ -11,6 +11,8 @@ export interface KeySpec {
   key: string;
   mod?: boolean;
   shift?: boolean;
+  /** Alt (Option on a Mac) held. Shortcuts that do not name it are not triggered with it held. */
+  alt?: boolean;
 }
 
 export interface Shortcut {
@@ -27,6 +29,8 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'tool-select', group: 'Canvas', keys: ['V'], what: 'Select tool: drag to box-select', spec: { key: 'v' } },
   { id: 'tool-pan', group: 'Canvas', keys: ['H'], what: 'Pan tool: drag to move the view', spec: { key: 'h' } },
   { id: 'print', group: 'Canvas', keys: ['Ctrl', 'P'], what: 'Print or export', spec: { key: 'p', mod: true } },
+  { id: 'go-back', group: 'Canvas', keys: ['Alt', 'Left'], what: 'Go back to where you were, like a browser', spec: { key: 'ArrowLeft', alt: true } },
+  { id: 'go-forward', group: 'Canvas', keys: ['Alt', 'Right'], what: 'Go forward again', spec: { key: 'ArrowRight', alt: true } },
   { id: 'shortcuts', group: 'Canvas', keys: ['?'], what: 'Show this list of shortcuts', spec: { key: '?' } },
 
   { id: 'clear', group: 'Selection', keys: ['Esc'], what: 'Clear the selection or close what is open', spec: { key: 'Escape' } },
@@ -56,7 +60,7 @@ export function shortcutById(id: string): Shortcut {
 /** Does this key press match the shortcut called `id`? A shortcut with no key (a gesture) never does. */
 export function matches(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>, id: string): boolean {
   const spec = shortcutById(id).spec;
-  if (spec === undefined || event.altKey) return false;
+  if (spec === undefined || (spec.alt ?? false) !== event.altKey) return false;
   const mod = event.ctrlKey || event.metaKey;
   if ((spec.mod ?? false) !== mod) return false;
   // `?` is itself typed with Shift, and a letter's shift is only asked about where it matters (redo).
@@ -71,9 +75,9 @@ export function isTypingTarget(target: EventTarget | null): boolean {
   return el != null && (el.isContentEditable === true || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName ?? ''));
 }
 
-/** Key caps for the platform: Cmd for Ctrl on a Mac. */
+/** Key caps for the platform: Cmd for Ctrl, and Option for Alt, on a Mac. */
 export function capsFor(keys: readonly string[], mac: boolean): string[] {
-  return keys.map((k) => (mac && k === 'Ctrl' ? 'Cmd' : k));
+  return keys.map((k) => (mac && k === 'Ctrl' ? 'Cmd' : mac && k === 'Alt' ? 'Option' : k));
 }
 
 export function isMac(): boolean {

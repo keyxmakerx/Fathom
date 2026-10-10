@@ -1,0 +1,342 @@
+/* Small aids over the canvas: the port peek card, the mini-map, the cable colour key and the trail of
+   where you have been. Blueprint look: square corners, one hairline, frosted floating surfaces. */
+
+:root {
+  --aid-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes aid-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes aid-drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* One frosted surface for all four. */
+.port-peek,
+.colour-key,
+.jump-trail__bar,
+.react-flow__minimap.canvas-minimap {
+  border: var(--rule-hair, 1px) solid var(--hairline);
+  border-radius: var(--radius-pop, 0);
+  background: var(--pop-bg, color-mix(in srgb, var(--surface) 88%, transparent));
+  backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
+  -webkit-backdrop-filter: var(--pop-blur, blur(10px) saturate(1.2));
+  box-shadow: var(--shadow-pop, 0 16px 40px rgba(0, 0, 0, 0.28));
+  color: var(--ink);
+}
+
+/* ---- Port peek ---------------------------------------------------------------------------------------- */
+
+.port-peek {
+  position: fixed;
+  z-index: calc(var(--z-modal, 20) + 3);
+  box-sizing: border-box;
+  min-width: 176px;
+  max-width: 296px;
+  padding: var(--s2) var(--s3);
+  font-size: var(--t-small);
+  line-height: 16px;
+  /* Never takes a click: the port under it stays clickable. */
+  pointer-events: none;
+  animation: aid-in var(--m-pop, 160ms) var(--aid-ease) both;
+}
+
+.port-peek__title {
+  font-weight: 700;
+  padding-bottom: var(--s1);
+  overflow-wrap: anywhere;
+}
+
+.port-peek__rows {
+  margin: 0;
+}
+
+.port-peek__row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: var(--s2);
+  padding: var(--s1) 0;
+  border-top: var(--rule-hair, 1px) solid var(--hairline);
+}
+
+.port-peek__row dt {
+  color: var(--muted);
+}
+
+.port-peek__value {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.port-peek__value--empty {
+  color: var(--muted);
+}
+
+/* While the card is up the glyph's own tooltip stays quiet. */
+[data-peeking] svg {
+  pointer-events: none;
+}
+
+/* ---- Mini-map ----------------------------------------------------------------------------------------- */
+
+.react-flow__minimap.canvas-minimap {
+  margin: var(--s2);
+  overflow: hidden;
+  --xy-minimap-background-color-props: transparent;
+  --xy-minimap-node-background-color-props: color-mix(in srgb, var(--muted) 55%, transparent);
+  --xy-minimap-mask-background-color-props: color-mix(in srgb, var(--page) 62%, transparent);
+  --xy-minimap-mask-stroke-color-props: var(--ink);
+  animation: aid-in var(--m-pop, 160ms) var(--aid-ease) both;
+}
+
+.react-flow__minimap.canvas-minimap .react-flow__minimap-mask {
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.react-flow__minimap.canvas-minimap svg {
+  cursor: grab;
+}
+
+.react-flow__minimap.canvas-minimap svg:active {
+  cursor: grabbing;
+}
+
+/* Steps left of whatever panel is open on the right (Checks, Plans, It's down, Trace), so neither hides the other. */
+.shell__drawing:has(.checks-panel, .plans-panel, .trouble-panel, .trace-panel) .react-flow__minimap.canvas-minimap {
+  margin-right: 336px;
+}
+
+/* ---- Cable colour key --------------------------------------------------------------------------------- */
+
+.colour-key {
+  position: absolute;
+  left: var(--s2);
+  bottom: var(--s2);
+  z-index: 6;
+  box-sizing: border-box;
+  min-width: 184px;
+  max-width: 296px;
+  padding: var(--s2);
+  font-size: var(--t-small);
+  animation: aid-in var(--m-pop, 160ms) var(--aid-ease) both;
+}
+
+.colour-key__head {
+  padding: 0 var(--s2) var(--s1);
+  color: var(--muted);
+  font-size: var(--t-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.colour-key__list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.colour-key__row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s2);
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--control-h-sm, 24px);
+  padding: 0 var(--s2);
+  border: var(--rule-hair, 1px) solid transparent;
+  border-radius: var(--radius-control, 0);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  transition:
+    background-color var(--m-hover, 120ms) var(--m-ease, ease),
+    border-color var(--m-hover, 120ms) var(--m-ease, ease);
+}
+
+.colour-key__row:hover {
+  background: var(--control-bg-hover, color-mix(in srgb, var(--ink) 6%, transparent));
+}
+
+.colour-key__row[aria-pressed='true'] {
+  border-color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.colour-key__swatch {
+  display: block;
+  height: 3px;
+  box-sizing: border-box;
+}
+
+/* A white or black sheath sits within a hairline of the page, so it gets an outline. */
+.colour-key__swatch--outlined {
+  box-shadow: 0 0 0 1px var(--hairline);
+}
+
+.colour-key__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.colour-key__count {
+  color: var(--muted);
+  font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The cables the key dims ease down rather than blink. */
+.drawing .drawing-cable,
+.drawing .drawing-bundle {
+  transition: opacity var(--m-pane, 150ms) var(--m-ease, ease);
+}
+
+/* ---- Trail of where you have been --------------------------------------------------------------------- */
+
+/* Kept clear of the tool strip on the left and the notices on the right. */
+.jump-trail {
+  position: absolute;
+  top: var(--s2);
+  left: 120px;
+  right: 304px;
+  z-index: 6;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.jump-trail__bar {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px;
+  animation: aid-drop-in var(--m-pop, 160ms) var(--aid-ease) both;
+}
+
+.jump-trail__nav {
+  flex: none;
+  height: var(--control-h, 28px);
+  padding: 0 var(--s3);
+  border-radius: var(--radius-control, 0);
+  font-size: var(--t-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jump-trail__chips {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  padding: 0 var(--s1);
+  list-style: none;
+  overflow: hidden;
+}
+
+.jump-trail__item {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  animation: aid-in var(--m-pop, 160ms) var(--aid-ease) both;
+}
+
+.jump-trail__item + .jump-trail__item::before {
+  content: '›';
+  padding: 0 var(--s1);
+  color: var(--muted);
+}
+
+.jump-trail__more {
+  padding: 0 var(--s1);
+  color: var(--muted);
+}
+
+.jump-chip {
+  height: var(--control-h-sm, 24px);
+  max-width: 168px;
+  padding: 0 var(--s2);
+  overflow: hidden;
+  border: var(--rule-hair, 1px) solid transparent;
+  border-radius: var(--radius-control, 0);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-micro);
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition:
+    color var(--m-hover, 120ms) var(--m-ease, ease),
+    border-color var(--m-hover, 120ms) var(--m-ease, ease);
+}
+
+.jump-chip:hover {
+  color: var(--ink);
+  border-color: var(--hairline);
+}
+
+.jump-chip--current {
+  color: var(--ink);
+  border-color: var(--ink);
+  font-weight: 700;
+}
+
+@media (max-width: 960px) {
+  .jump-trail__chips {
+    display: none;
+  }
+}
+
+/* ---- Motion off, and off paper ------------------------------------------------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  .port-peek,
+  .react-flow__minimap.canvas-minimap,
+  .colour-key,
+  .jump-trail__bar,
+  .jump-trail__item {
+    animation: none;
+  }
+  .colour-key__row,
+  .jump-chip,
+  .drawing .drawing-cable,
+  .drawing .drawing-bundle {
+    transition: none;
+  }
+}
+
+@media print {
+  .port-peek,
+  .react-flow__minimap.canvas-minimap,
+  .colour-key,
+  .jump-trail {
+    display: none !important;
+  }
+}
