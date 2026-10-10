@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getSession } from '../../state/sessionState';
 import { viewOfAll, type ClosetView } from '../../document/view';
@@ -23,6 +23,14 @@ import { ListToolbar } from './ListToolbar';
 import { isKind } from './kinds';
 import { listIssues } from '../../document/issues';
 import { IssuesList } from '../troubleshoot/IssuesList';
+import { modelRows } from '../../document/firmware';
+import { FirmwareContext } from '../firmware/context';
+import { FirmwareList, FIRMWARE_OFF_WORDS } from '../firmware/FirmwareList';
+import { ImagePage } from '../firmware/ImagePage';
+import { ModelPage } from '../firmware/ModelPage';
+import { UploadForm } from '../firmware/UploadForm';
+import { imageRows } from '../firmware/images';
+import { modelKey, modelOfKey, modelTableRows } from '../firmware/rows';
 import { nextSorts, setSort, sortRows } from './sorting';
 import { ColumnMenu } from './ColumnMenu';
 import { ListFoot } from './ListFoot';
@@ -173,12 +181,13 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const importBase = useRef<typeof doc>(null);
   const liveDoc = useRef(doc);
   liveDoc.current = doc;
-  const [addingRaw, setAdding] = useState<'prefix' | 'vlan' | 'waiting' | null>(null);
+  const [addingRaw, setAdding] = useState<'prefix' | 'vlan' | 'waiting' | 'upload' | null>(null);
   // Opening a page (a link, Back, a pasted address) puts away the form or list that was shown in its place.
   const adding = openKey ? null : addingRaw;
   const [mine, setMine] = useState<SavedView[]>(loadMine);
 
   const corrections = useCorrections(organisationId, session.designId);
+  const firmware = useContext(FirmwareContext);
 
   const view = useMemo<ClosetView>(() => (doc ? viewOfAll(doc, catalogue) : EMPTY_VIEW), [doc, catalogue]);
   const placeIdx = useMemo(() => buildPlaceIndex(doc, view), [doc, view]);
@@ -251,6 +260,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     }
     if (kind === 'prefixes') return prefixRows(ipam.prefixes).filter((r) => inWhere(r.places, where));
     if (kind === 'vlans') return vlanKindRows(ipam.vlans).filter((r) => inWhere(r.places, where));
+    if (kind === 'models') return modelTableRows(modelRows(doc));
     return scoped[kind] ?? [];
   }, [doc, kind, rowsByKind, scoped, networksDerived, ipam, where]);
 
@@ -279,6 +289,8 @@ export function InventoryPlace(props: InventoryPlaceProps) {
 
   const scopedCount = (rows: readonly InvRow[] | undefined): number | null => (rows ? rows.filter((r) => inWhere(r.places, where)).length : null);
 
+  const modelCount = useMemo(() => (doc ? modelRows(doc).length : 0), [doc]);
+  const firmwareCount = useMemo(() => (doc ? imageRows({ doc, images: firmware?.server.images ?? [] }).length : 0), [doc, firmware?.server.images]);
   const counts: Record<Kind, number | null> = {
     devices: scoped.devices?.length ?? 0,
     racks: scoped.racks?.length ?? 0,
@@ -289,6 +301,8 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     vlans: kind === 'vlans' ? baseRows.length : scopedCount(background?.vlans),
     addresses: kind === 'addresses' ? baseRows.length : (background?.addresses ?? null),
     issues: doc ? listIssues(doc).length : 0,
+    models: modelCount,
+    firmware: firmwareCount,
   };
 
   // Find anything reads the whole design, Where applied afterwards so it can say what it hid.
@@ -370,7 +384,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
 
   useEffect(() => {
     if (!onPrintableChange) return undefined;
-    if (doc == null || kind === 'networks' || kind === 'issues') {
+    if (doc == null || kind === 'networks' || kind === 'issues' || kind === 'firmware') {
       onPrintableChange(null);
       return undefined;
     }
@@ -578,6 +592,11 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     setNotice(null);
     if (openNext) push({ open: openNext, tab: '' }, { lastOpened: openNext });
   };
+  const openModelPage = (model: string) => push({ kind: 'models', q: '', sorts: [], view: '', open: modelKey(model), tab: '' });
+  const openDevicePage = (chassisId: string) => {
+    const t = linkTarget({ kind: 'chassis', id: chassisId });
+    if (t) push({ kind: t.kind, q: '', sorts: [], view: '', open: t.open, tab: '' });
+  };
   const ipamPage = (() => {
     if (!doc) return null;
     if (adding === 'prefix') return <AddPrefixForm doc={doc} actor={actorOpts} onDone={(next, key) => afterIpamWrite(next, key)} onCancel={() => setAdding(null)} />;
@@ -593,6 +612,21 @@ export function InventoryPlace(props: InventoryPlaceProps) {
           }}
         />
       );
+    if (adding === 'upload' && firmware)
+      return (
+        <UploadForm
+          api={firmware}
+          onCancel={() => setAdding(null)}
+          onDone={() => {
+            setAdding(null);
+            setNotice(null);
+          }}
+        />
+      );
+    if (firmware && kind === 'firmware' && openKey) return <ImagePage key={openKey} api={firmware} rowKey={openKey} onOpenModel={openModelPage} />;
+    if (firmware && kind === 'models' && openKey && modelOfKey(openKey) !== null) {
+      return <ModelPage key={openKey} api={firmware} model={modelOfKey(openKey)!} onOpenDevice={openDevicePage} />;
+    }
     if (adding === 'vlan') return <AddVlanForm doc={doc} actor={actorOpts} onDone={(next) => afterIpamWrite(next)} onCancel={() => setAdding(null)} />;
     if (!openRow) return null;
     const prefix = kind === 'prefixes' ? ipam.prefixes.find((p) => p.key === openRow.key) : undefined;
@@ -690,6 +724,20 @@ export function InventoryPlace(props: InventoryPlaceProps) {
             <div className="inventory-place__main">
               <IssuesList doc={doc} onShowOnCanvas={onShowIssue} />
             </div>
+          ) : kind === 'firmware' && !adding && !openKey ? (
+            <div className="inventory-place__main">
+              {firmware ? (
+                <FirmwareList
+                  api={firmware}
+                  onOpenImage={(key) => push({ open: key, tab: '' })}
+                  onOpenModel={openModelPage}
+                  onOpenDevices={(query) => push({ kind: 'devices', q: query, sorts: [], view: '', open: '', tab: '' })}
+                  onUpload={() => setAdding('upload')}
+                />
+              ) : (
+                <p className="inventory-place__muted">{FIRMWARE_OFF_WORDS}</p>
+              )}
+            </div>
           ) : adding || (openKey && (ipamPage || page || (kind === 'addresses' && openRow))) ? (
             <div className="inv-pageframe">
               {refusal}
@@ -697,7 +745,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                 <button type="button" className="inv-pageframe__back" onClick={closePage}>
                   ← Back to {adding || backLabel === undefined || backLabel === '' ? kindLabel : backLabel}
                 </button>
-                {adding ? <span className="inv-pageframe__crumb">{adding === 'prefix' ? 'New prefix' : adding === 'vlan' ? 'New VLAN' : 'Corrections waiting'}</span> : null}
+                {adding ? <span className="inv-pageframe__crumb">{adding === 'prefix' ? 'New prefix' : adding === 'vlan' ? 'New VLAN' : adding === 'upload' ? 'Upload image' : 'Corrections waiting'}</span> : null}
               </div>
               <div className="inv-pageframe__body">{kind === 'addresses' ? <AddressNote row={openRow} onOpenDevice={() => switchKind('devices')} /> : (ipamPage ?? page)}</div>
             </div>

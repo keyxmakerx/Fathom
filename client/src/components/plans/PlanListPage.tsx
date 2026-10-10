@@ -83,7 +83,7 @@ export function PlanListPage({ controller, plan }: { controller: PlansController
                 <span className="plans-sr">{s.ordinal + 1}</span>
               </td>
               <td data-label="Kind">{KIND_WORD[s.kind]}</td>
-              <td data-label="Change">{s.change}</td>
+              <td data-label="Change">{s.change.replace(/\n/g, " — ")}</td>
               <td data-label="Before" className="plans-mono">
                 {s.before}
               </td>

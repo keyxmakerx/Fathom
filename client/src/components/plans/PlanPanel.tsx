@@ -7,7 +7,8 @@ import { OUTCOMES, currentStep, type Plan, type PlanOutcome, type PlanStep } fro
 import { clampOffset } from '../checks/checksModel';
 import { AddStepForm } from './AddStepForm';
 import { Touches, TypedSentence, WhySlot, usePasteMark } from './PlanParts';
-import { OUTCOME_WORD, outcomeSentence, progress, stepHead, stepIsLive, touchedDevices } from './plansModel';
+import { FirmwarePlanExtras, StepCopy, UpgradeLinkScope } from '../firmware/PlanExtras';
+import { OUTCOME_WORD, firstLine, outcomeSentence, progress, secondLine, stepHead, stepIsLive, touchedDevices } from './plansModel';
 import type { PlansController } from './usePlansController';
 import './plans.css';
 
@@ -26,9 +27,11 @@ function BeforeAfter({ step }: { step: PlanStep }) {
 /** The kind as a badge, unless the change already opens with it. */
 function StepHead({ step }: { step: PlanStep }) {
   const { badge, text } = stepHead(step);
+  const sub = secondLine(step.change);
   return (
     <>
       {badge != null && <strong>{badge}</strong>} {text}
+      {sub !== '' && <span className="plans-step__sub">{sub}</span>}
     </>
   );
 }
@@ -147,7 +150,7 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
     return (
       <li className="plans-step plans-step--marked" data-testid="plans-step" data-state={step.state}>
         <p className="plans-step__head">
-          {step.state === 'done' ? '✓' : '≠'} {step.ordinal + 1} · {step.change}
+          {step.state === 'done' ? '✓' : '≠'} {step.ordinal + 1} · {firstLine(step.change)}
         </p>
         {step.note !== '' && <p className="plans-step__note">{step.note}</p>}
       </li>
@@ -157,15 +160,17 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
     return (
       <li className="plans-step plans-step--later" data-testid="plans-step" data-state="later">
         <p className="plans-step__head">
-          … {step.ordinal + 1} · {step.change}
+          … {step.ordinal + 1} · {firstLine(step.change)}
         </p>
       </li>
     );
   }
   return (
     <li ref={ref} tabIndex={-1} className="plans-step plans-step--current" data-testid="plans-step" data-state="current" aria-current="step">
-      <p className="plans-step__title">{step.change}</p>
+      <p className="plans-step__title">{firstLine(step.change)}</p>
+      {secondLine(step.change) !== '' && <p className="plans-step__sub plans-step__sub--block">{secondLine(step.change)}</p>}
       <BeforeAfter step={step} />
+      <StepCopy step={step} />
       <Touches controller={controller} plan={plan} stepId={step.id} />
       {refused != null && (
         <div className="plans-refused" role="alert" data-testid="plans-refused">
@@ -316,7 +321,7 @@ function RecordMode({ controller, plan }: { controller: PlansController; plan: P
         {plan.steps.map((s) => (
           <li key={s.id} className="plans-step plans-step--recorded" data-state={s.state}>
             <p className="plans-step__head">
-              {s.state === 'done' ? '✓' : '≠'} {s.ordinal + 1} · {s.change}
+              {s.state === 'done' ? '✓' : '≠'} {s.ordinal + 1} · {firstLine(s.change)}
             </p>
             {s.note !== '' && <p className="plans-step__note">{s.note}</p>}
           </li>
@@ -437,9 +442,12 @@ export function PlanPanel({ controller, plan, besideChecks }: { controller: Plan
       <div ref={body} tabIndex={-1} className="plans-panel__body">
         <Notice controller={controller} />
         <WhySlot controller={controller} />
-        {mode === 'plan' && <PlanMode controller={controller} plan={plan} />}
-        {mode === 'do' && <DoMode controller={controller} plan={plan} />}
-        {mode === 'record' && <RecordMode key={plan.stage} controller={controller} plan={plan} />}
+        <UpgradeLinkScope plan={plan}>
+          {mode === 'plan' && <PlanMode controller={controller} plan={plan} />}
+          {mode === 'do' && <DoMode controller={controller} plan={plan} />}
+          {mode === 'record' && <RecordMode key={plan.stage} controller={controller} plan={plan} />}
+          {mode !== 'record' && <FirmwarePlanExtras plan={plan} />}
+        </UpgradeLinkScope>
       </div>
     </aside>
   );

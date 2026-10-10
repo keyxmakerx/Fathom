@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { captureOf } from '../../document/capture';
 import { connectPorts, disconnect, IncompatibleConnectorError, PortAlreadyTerminatedError, type Sheath } from '../../document/cables';
@@ -77,6 +77,9 @@ import { addRack, createPremises, ensureRackToPlaceInto, nextName } from './empt
 import type { PaletteItem } from '../drawing/contract';
 import { DEFAULT_FACEPLATES, SKETCH_DEVICE_PALETTE_ITEM, isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
 import { highestFreeU, hostnamesOf, nextHostname, racksInPickOrder } from './pick';
+import { FirmwareContext } from '../firmware/context';
+import type { UpgradeTemplate } from '../firmware/upgradePlan';
+import { deviceFirmware, deviceOfChassis, targetOfDevice } from '../../document/firmware';
 import './racks.css';
 
 // `canDrawFor`/`refusalFor` now live in `components/design/useDesignSession.ts`,
@@ -214,6 +217,11 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   initialFocus?: Selection | null;
   /** A saved issue to open on arrival ("Show on canvas" on an Inventory issue page); a fresh object per ask. */
   initialIssue?: { id: string } | null;
+  /** A firmware upgrade plan to make on arrival (a Firmware page asked); cleared by `onRequestsHandled` once made. */
+  initialUpgrade?: { template: UpgradeTemplate } | null;
+  /** A plan to open on arrival (a link on the Firmware pages). */
+  initialPlan?: { id: string } | null;
+  onRequestsHandled?: () => void;
   /** This session's brief item 5's reverse — "Open in inventory," rendered
    * beside the editor for a selected chassis. Omitted (no button at all)
    * where no caller supplies it, the same "no action, not a disabled one"
@@ -268,6 +276,9 @@ export function RacksPlace(props: RacksPlaceProps) {
     onZoomChange,
     initialFocus,
     initialIssue,
+    initialUpgrade,
+    initialPlan,
+    onRequestsHandled,
     onOpenInventory,
     accountId,
     notesActions,
@@ -480,6 +491,40 @@ export function RacksPlace(props: RacksPlaceProps) {
     trouble.openIssue(initialIssue.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per ask: the object's identity is the signal
   }, [initialIssue, doc]);
+
+  // Firmware asks (the Firmware pages, or a device's firmware row): make or open the plan once, then say so.
+  const firmware = useContext(FirmwareContext);
+  const upgradeHandled = useRef<unknown>(null);
+  useEffect(() => {
+    if (initialUpgrade == null || doc == null || upgradeHandled.current === initialUpgrade) return;
+    upgradeHandled.current = initialUpgrade;
+    void plans.planFirmware(initialUpgrade.template).then(() => onRequestsHandled?.());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per ask: the object's identity is the signal
+  }, [initialUpgrade, doc]);
+  const planHandled = useRef<unknown>(null);
+  useEffect(() => {
+    if (initialPlan == null || doc == null || planHandled.current === initialPlan) return;
+    planHandled.current = initialPlan;
+    plans.openPlan(initialPlan.id);
+    plans.setPanelOpen(true);
+    onRequestsHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per ask: the object's identity is the signal
+  }, [initialPlan, doc]);
+  const planFirmwareFor = useCallback(
+    (chassisId: string) => {
+      const dev = doc ? deviceOfChassis(doc, chassisId) : null;
+      if (dev) firmware?.planUpgrade([dev]);
+    },
+    [doc, firmware],
+  );
+  const firmwareNeedsVersion = useCallback(
+    (chassisId: string) => {
+      const dev = doc ? deviceOfChassis(doc, chassisId) : null;
+      const d = doc && dev ? deviceFirmware(doc, dev) : null;
+      return d === null || doc === null || targetOfDevice(doc, d) === null;
+    },
+    [doc],
+  );
 
   const selectedChassisId = selection?.kind === 'chassis' ? selection.id : null;
 
@@ -1398,6 +1443,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           onResizeShelf={canDraw ? handleResizeShelf : undefined}
           onSelect={setSelection}
           onPlanChange={canDraw ? plans.planChange : undefined}
+          onPlanFirmware={canDraw && firmware ? planFirmwareFor : undefined}
+          firmwareNeedsVersion={firmwareNeedsVersion}
           onItsDown={canDraw ? trouble.start : undefined}
           onCalloutChange={setCalloutId}
           canDraw={canDraw && jot === null}

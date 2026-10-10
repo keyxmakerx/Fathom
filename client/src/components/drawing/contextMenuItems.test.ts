@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { menuItemsFor, type MenuActions } from './contextMenuItems';
 
-function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown'>> {
+function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'onPlanFirmware' | 'firmwareNeedsVersion'>> {
   return {
     onSelect: vi.fn(),
     onOpen: vi.fn(),
@@ -24,6 +24,18 @@ function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown'>> {
 }
 
 describe('menuItemsFor', () => {
+  it('offers Plan a firmware upgrade beside Plan a change, and says when a version must be chosen first', () => {
+    const go = vi.fn();
+    const base = { ...actions(), onPlanChange: vi.fn(), onPlanFirmware: go };
+    const labels = (needs: boolean) => menuItemsFor({ kind: 'chassis', id: 'c1' }, { ...base, firmwareNeedsVersion: () => needs }).map((i) => i.label);
+    expect(labels(false)).toContain('Plan a firmware upgrade');
+    expect(labels(false).indexOf('Plan a firmware upgrade')).toBe(labels(false).indexOf('Plan a change') + 1);
+    expect(labels(true)).toContain('Plan a firmware upgrade (choose a version first)');
+    menuItemsFor({ kind: 'chassis', id: 'c1' }, base).find((i) => i.label === 'Plan a firmware upgrade')!.onSelect();
+    expect(go).toHaveBeenCalledWith('c1');
+    expect(menuItemsFor({ kind: 'chassis', id: 'c1' }, actions()).map((i) => i.label)).not.toContain('Plan a firmware upgrade');
+  });
+
   it('offers a device Open, Inside, a trace, details, a duplicate and removal, removal marked', () => {
     const a = actions();
     const items = menuItemsFor({ kind: 'chassis', id: 'c1' }, a);

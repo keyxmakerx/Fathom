@@ -311,6 +311,21 @@
   font-weight: 700;
 }
 
+.plans-step__sub {
+  display: block;
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.plans-step__sub--block {
+  margin: 0;
+}
+
+.plans-step__change .plans-mono {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .plans-step__note {
   color: var(--muted);
   font-style: italic;

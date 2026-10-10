@@ -24,6 +24,7 @@ import type { FixtureView, Placement, RackView } from '../../document/view';
 import { FIELD_TYPES, FIELD_TYPE_LABEL, type FieldType } from '../../document/fields';
 import { TagChips } from '../TagChips';
 import { DocsSection } from '../docs/DocsSection';
+import { FirmwareSection } from '../firmware/FirmwareSection';
 import {
   ABSENT,
   UNNAMED_HOSTNAME,
@@ -1960,6 +1961,8 @@ function panelFor(
             {chassis.oneFitted ? <div style={CAUTION_STYLE}>One fitted: a slot is empty.</div> : null}
           </div>
         ) : null}
+
+        <FirmwareSection deviceId={chassis.deviceId} />
 
         <FieldsSection ownerId={chassis.deviceId} actions={actions} />
 

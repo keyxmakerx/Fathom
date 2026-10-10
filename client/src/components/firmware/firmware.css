@@ -1,0 +1,472 @@
+/* Firmware: the image list, a model's chosen version, the upload form, a device's firmware row and
+   the plan panel's link (mockups r14-b1 to b3). Square, flat, small spaced capitals on buttons and
+   column heads, a 2px ink line under the chosen tab. Tokens only. */
+
+.fw-page {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s4);
+  overflow: auto;
+}
+
+.fw-page--narrow {
+  max-width: 880px;
+}
+
+.fw-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  margin: 0;
+  font-size: var(--t-mast);
+}
+
+.fw-title__sub {
+  color: var(--muted);
+  font-size: var(--t-body);
+  font-weight: 400;
+}
+
+.fw-muted {
+  color: var(--muted);
+}
+
+.fw-mono {
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+}
+
+.fw-note {
+  margin: 0;
+  color: var(--ink);
+  border-left: var(--rule-accent) solid var(--ink);
+  padding: var(--s1) var(--s2);
+  font-size: var(--t-small);
+}
+
+.fw-error {
+  margin: 0;
+  color: var(--danger);
+  border-left: var(--rule-accent) solid var(--danger);
+  padding: var(--s1) var(--s2);
+  font-size: var(--t-small);
+}
+
+/* ---- Controls: 28px, square, flat ---------------------------------------------------------- */
+
+.fw-btn,
+.fw-tab {
+  box-sizing: border-box;
+  height: 28px;
+  padding: 0 var(--s3);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-tab);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.fw-btn--solid {
+  background: var(--ink);
+  color: var(--page);
+}
+
+.fw-btn--quiet {
+  border-color: transparent;
+  background: none;
+  padding: 0 var(--s1);
+  color: var(--muted);
+  height: auto;
+}
+
+.fw-btn--quiet:hover {
+  color: var(--ink);
+}
+
+.fw-btn:disabled,
+.fw-tab:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.fw-btn:focus-visible,
+.fw-tab:focus-visible,
+.fw-link:focus-visible,
+.fw-input:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.fw-input {
+  box-sizing: border-box;
+  height: 28px;
+  min-width: 0;
+  padding: 0 var(--s2);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-body);
+}
+
+.fw-input--mono {
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+}
+
+.fw-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--ink);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.fw-link--num {
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.fw-link--num:hover {
+  text-decoration: underline;
+}
+
+.fw-label {
+  font-size: var(--t-tab);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ---- Toolbar and tabs ---------------------------------------------------------------------- */
+
+.fw-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+
+.fw-toolbar__filter {
+  width: 260px;
+}
+
+.fw-toolbar__grow {
+  flex: 1 1 auto;
+}
+
+.fw-tabs {
+  display: inline-flex;
+}
+
+.fw-tab {
+  border-color: var(--hairline);
+  margin-left: -1px;
+  color: var(--muted);
+}
+
+.fw-tab:first-child {
+  margin-left: 0;
+}
+
+.fw-tab[aria-pressed='true'] {
+  color: var(--ink);
+  border-bottom: 2px solid var(--ink);
+}
+
+/* ---- The list: one grid, so every row lines up ---------------------------------------------- */
+
+.fw-table {
+  --fw-cols: 120px minmax(160px, 1.4fr) 130px 80px 80px 70px 90px;
+  display: flex;
+  flex-direction: column;
+}
+
+.fw-row {
+  display: grid;
+  grid-template-columns: var(--fw-cols);
+  align-items: center;
+  gap: var(--s3);
+  min-height: 44px;
+  padding: 0 var(--s2);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  position: relative;
+}
+
+.fw-row--head {
+  min-height: 32px;
+  font-size: var(--t-tab);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.fw-row--open,
+.fw-row:not(.fw-row--head):hover {
+  background: var(--surface);
+}
+
+.fw-row--open::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--ink);
+}
+
+.fw-cell--num {
+  font-variant-numeric: tabular-nums;
+}
+
+.fw-amber {
+  color: var(--caution);
+  font-weight: 700;
+}
+
+.fw-dash {
+  color: var(--muted);
+}
+
+.fw-models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--s1);
+  min-width: 0;
+}
+
+.fw-badge {
+  justify-self: end;
+  padding: 1px var(--s2);
+  border: var(--rule-hair) solid var(--hairline);
+  color: var(--muted);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.fw-badge--chosen {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.fw-empty {
+  margin: var(--s5) 0;
+  color: var(--muted);
+}
+
+.fw-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin-top: auto;
+  padding-top: var(--s3);
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.fw-pop {
+  position: absolute;
+  z-index: var(--z-egress);
+  margin: 0;
+  padding: var(--s1) 0;
+  list-style: none;
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);
+  min-width: 220px;
+}
+
+.fw-pop li {
+  padding: var(--s1) var(--s3);
+}
+
+.fw-foot .fw-pop {
+  right: 0;
+  bottom: 36px;
+}
+
+/* ---- A model's page ------------------------------------------------------------------------- */
+
+.fw-chosen {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+
+.fw-device-table {
+  --fw-cols: minmax(110px, 1fr) 130px 150px minmax(160px, 2fr) 90px;
+}
+
+.fw-square {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: var(--s2);
+  border: var(--rule-hair) solid var(--muted);
+  box-sizing: border-box;
+  vertical-align: baseline;
+}
+
+.fw-square--current {
+  background: var(--safe);
+  border-color: var(--safe);
+}
+
+.fw-square--behind {
+  background: var(--caution);
+  border-color: var(--caution);
+}
+
+.fw-hold-form {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+  grid-column: 4 / -1;
+}
+
+.fw-hold-form .fw-input {
+  flex: 1 1 auto;
+}
+
+.fw-act {
+  justify-self: end;
+}
+
+/* ---- Forms: label column, control column, aligned ------------------------------------------- */
+
+.fw-form {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: var(--s3) var(--s4);
+  align-items: center;
+  max-width: 720px;
+}
+
+.fw-form__full {
+  grid-column: 2;
+}
+
+.fw-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s4);
+}
+
+.fw-checks label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  font-size: var(--t-body);
+}
+
+.fw-bar {
+  height: 10px;
+  border: var(--rule-hair) solid var(--ink);
+  background: var(--page);
+}
+
+.fw-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--ink);
+}
+
+.fw-facts {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: var(--s2) var(--s4);
+  margin: 0;
+}
+
+.fw-facts dt {
+  color: var(--muted);
+}
+
+.fw-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ---- A device's firmware row, in the editor ------------------------------------------------- */
+
+.fw-section__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s1) 0;
+}
+
+.fw-section__actions {
+  display: flex;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  margin-top: var(--s2);
+}
+
+/* ---- The one-time link ---------------------------------------------------------------------- */
+
+.fw-link-box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  margin-top: var(--s2);
+}
+
+.fw-link-box__url {
+  padding: var(--s2) var(--s3);
+  border: var(--rule-hair) solid var(--ink);
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+  overflow-wrap: anywhere;
+}
+
+.fw-link-box__cmd {
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.fw-link-box__row {
+  display: flex;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* ---- The plan panel's devices ---------------------------------------------------------------- */
+
+.fw-plan__devices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.fw-plan__devices li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s1) 0;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}

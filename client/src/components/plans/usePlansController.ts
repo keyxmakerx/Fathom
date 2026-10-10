@@ -28,6 +28,7 @@ import {
 } from '../../document/plans';
 import type { CheckFinding, PlanStepPreview } from '../../engine/engine';
 import type { Mirror } from '../../engine/mirror';
+import type { UpgradeTemplate } from '../firmware/upgradePlan';
 import { buildCanon, CHECKS_DEBOUNCE_MS, isTypingTarget, standingDelay, type Canon } from '../checks/checksModel';
 import { buildMarks, buildStep, changedMarks, EMPTY_FORM, focusKeys, planEscTarget, prefillFor, stepCheck, titleFor, type StepForm } from './plansModel';
 import { createPlansStore, type PlansStore } from './plansStore';
@@ -117,6 +118,8 @@ export interface PlansController {
   /** Form values the right-click set; the add-step form starts from them. */
   prefill: { token: number; form: StepForm } | null;
   planChange(elementId: string): void;
+  /** One plan for the devices of a firmware upgrade (firmware): its steps are Fathom's own words, stored as given. */
+  planFirmware(template: UpgradeTemplate): Promise<boolean>;
   // `pasted`: a real paste reached that form (see `PasteMark`); its text goes through the redaction gate.
   create(input: { title: string; windowStart?: string; windowEnd?: string }, pasted?: boolean): Promise<boolean>;
   rename(title: string, pasted?: boolean): Promise<boolean>;
@@ -407,6 +410,20 @@ export function usePlansController({ doc, boot, mirrorNow, loadCostMs, redact, a
         return made.doc;
       });
     },
+    planFirmware: (t) =>
+      run((doc0, gate) => {
+        const made = createPlan(doc0, { title: t.title, author: latest.current.authorName, gate, ...stamp() });
+        let next = made.doc;
+        for (const s of t.steps) {
+          next = addStep(next, made.id, { kind: s.kind, change: s.change, ...(s.after !== undefined ? { after: s.after } : {}), targets: t.deviceIds, gate, ...stamp() }).doc;
+        }
+        setOpenId(made.id);
+        setBandShown(true);
+        setListMode(false);
+        setPrefill(null);
+        update({ open: true });
+        return next;
+      }),
     create: ({ title, windowStart, windowEnd }, pasted = false) =>
       run((doc0, gate) => {
         const made = createPlan(doc0, { title, windowStart, windowEnd, author: latest.current.authorName, gate, ...stamp() });

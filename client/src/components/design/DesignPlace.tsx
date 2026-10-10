@@ -30,6 +30,11 @@ import { DocsOverlay } from '../docs/DocsOverlay';
 import { DocsContext, useDocsApi } from '../docs/useDocsApi';
 import { HistoryPanel, whenLabel } from '../history/HistoryPanel';
 import { useHistory } from '../history/useHistory';
+import { FirmwareContext } from '../firmware/context';
+import { useFirmwareApi } from '../firmware/useFirmware';
+import type { UpgradeTemplate } from '../firmware/upgradePlan';
+import { modelKey } from '../firmware/rows';
+import { EMPTY_STATE, formatHash } from '../inventory/listState';
 import { InventoryPlace } from '../inventory/InventoryPlace';
 import { RacksPlace } from '../racks/RacksPlace';
 import { Trail } from '../racks/Trail';
@@ -98,6 +103,9 @@ export function DesignPlace(props: DesignPlaceProps) {
   const session = useDesignSession(organisationId, designId, capability);
   const [focus, setFocus] = useState<Selection | null>(null);
   const [issueRequest, setIssueRequest] = useState<{ id: string } | null>(null);
+  // Firmware asks that the canvas must carry out (it holds the plans): a fresh object per ask.
+  const [upgradeRequest, setUpgradeRequest] = useState<{ template: UpgradeTemplate } | null>(null);
+  const [planRequest, setPlanRequest] = useState<{ id: string } | null>(null);
 
   const accountId = getSession()?.accountId ?? null;
   const accountAddress = getSession()?.address ?? null;
@@ -512,6 +520,45 @@ export function DesignPlace(props: DesignPlaceProps) {
     [onPlaceChange],
   );
 
+  // The Firmware pages are Inventory's: write where to land into the address, then go there (or tell
+  // the Inventory that is already open, which reads the address on a popstate).
+  const placeNow = props.place;
+  const openFirmwareModel = useCallback(
+    (model: string) => {
+      const hash = formatHash({ ...EMPTY_STATE, kind: model === '' ? 'firmware' : 'models', open: model === '' ? '' : modelKey(model) });
+      window.history.pushState(null, '', hash);
+      if (placeNow === 'inventory') window.dispatchEvent(new PopStateEvent('popstate'));
+      else onPlaceChange('inventory');
+    },
+    [placeNow, onPlaceChange],
+  );
+  const requestUpgrade = useCallback(
+    (template: UpgradeTemplate) => {
+      setUpgradeRequest({ template });
+      onPlaceChange('racks');
+    },
+    [onPlaceChange],
+  );
+  const requestPlan = useCallback(
+    (id: string) => {
+      setPlanRequest({ id });
+      onPlaceChange('racks');
+    },
+    [onPlaceChange],
+  );
+  const firmwareApi = useFirmwareApi({
+    organisationId,
+    scopeId,
+    doc: session.doc,
+    canDraw: session.canDraw,
+    isSteward: capability === 'steward',
+    applyDocChange: session.applyDocChange,
+    actor: accountId ?? undefined,
+    requestUpgrade,
+    openModel: openFirmwareModel,
+    openPlan: requestPlan,
+  });
+
   const openInInventory = useCallback(
     (chassisId: string) => {
       // The reverse trip carries no focus today — `InventoryPlace` has no
@@ -661,6 +708,12 @@ export function DesignPlace(props: DesignPlaceProps) {
         onZoomChange={onZoomChange}
         initialFocus={focus}
         initialIssue={issueRequest}
+        initialUpgrade={upgradeRequest}
+        initialPlan={planRequest}
+        onRequestsHandled={() => {
+          setUpgradeRequest(null);
+          setPlanRequest(null);
+        }}
         onOpenInventory={openInInventory}
         accountId={accountId}
         notesActions={notesActions}
@@ -696,7 +749,9 @@ export function DesignPlace(props: DesignPlaceProps) {
   return (
     <>
       <div className="print-hide-under-preview" inert={printMode === 'preview' || docs.view != null}>
-        <DocsContext.Provider value={docs.api}>{place}</DocsContext.Provider>
+        <FirmwareContext.Provider value={firmwareApi}>
+          <DocsContext.Provider value={docs.api}>{place}</DocsContext.Provider>
+        </FirmwareContext.Provider>
       </div>
       {docs.view != null && printMode === 'closed' && (
         <DocsContext.Provider value={docs.api}>
