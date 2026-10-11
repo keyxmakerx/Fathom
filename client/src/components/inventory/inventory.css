@@ -509,8 +509,8 @@
 }
 
 .inv-cm button[aria-pressed='true'] {
-  border-color: var(--ink);
-  font-weight: 600;
+  background: var(--control-on);
+  box-shadow: var(--control-on-mark);
 }
 
 .inv-cm button:disabled {
