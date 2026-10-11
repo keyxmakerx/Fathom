@@ -139,29 +139,12 @@ export function jumpTo(trail: Trail, index: number): Move | null {
   return { trail: { ...trail, index }, step };
 }
 
-export interface ChipView {
-  index: number;
-  label: string;
-  current: boolean;
-}
-
-/** The chips to draw: at most `max` steps around the current one, and how many are left out each side. */
-export function chipWindow(trail: Trail, max = 5): { chips: ChipView[]; before: number; after: number } {
-  const n = trail.steps.length;
-  if (n === 0) return { chips: [], before: 0, after: 0 };
-  const size = Math.min(max, n);
-  // Keep the current chip in view, nearer the right end so the way back stays visible.
-  const start = Math.max(0, Math.min(trail.index - (size - 2), n - size));
-  const from = Math.max(0, start);
-  const chips = trail.steps.slice(from, from + size).map((s, i) => ({ index: from + i, label: s.label, current: from + i === trail.index }));
-  return { chips, before: from, after: n - (from + size) };
-}
-
-/** The words for a step, in capitals: "SWITCH-1 · FACEPLATE". `name` is what is selected, or the design's own name. */
-export function stepLabel(input: { name: string; look: Look; jot: boolean; stop: CameraStop }): string {
+/** The words for a step, in capitals: "SWITCH-1 · FACEPLATE". `name` is what is selected, or the design's own name.
+ * The level is named only when something is chosen: "UNTITLED DESIGN · FACEPLATE" names nothing you could go back to. */
+export function stepLabel(input: { name: string; look: Look; jot: boolean; stop: CameraStop; chosen?: boolean }): string {
   const parts = [input.name.trim() === '' ? 'Overview' : input.name.trim()];
   if (input.jot) parts.push('open');
-  else if (levelOf(input.stop) !== 'room') parts.push(levelOf(input.stop));
+  else if (input.chosen !== false && levelOf(input.stop) !== 'room') parts.push(levelOf(input.stop));
   else if (input.look === 'diagram') parts.push('diagram');
   return parts.join(' · ').toUpperCase();
 }

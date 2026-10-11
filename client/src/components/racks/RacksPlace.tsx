@@ -1808,7 +1808,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         />
       ) : null}
       {doc != null && look === 'rack' && keyOn && keyRows.length > 0 ? <ColourKey rows={keyRows} onHighlight={setKeyCableIds} /> : null}
-      {doc != null ? <JumpTrail trail={jump.trail} backLabel={jump.backLabel} onBack={jump.goBack} onForward={jump.goForward} onGoTo={jump.goTo} /> : null}
+      {doc != null ? <JumpTrail trail={jump.trail} backLabel={jump.backLabel} onBack={jump.goBack} onForward={jump.goForward} /> : null}
       {doc != null ? <PortPeek doc={doc} view={displayView} /> : null}
       {drawerAsk != null && pasteState == null ? (
         <PasteCard

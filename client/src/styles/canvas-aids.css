@@ -213,7 +213,7 @@
 
 /* ---- Trail of where you have been --------------------------------------------------------------------- */
 
-/* Kept clear of the tool strip on the left and the notices on the right. */
+/* Top left, kept clear of the tool strip on the left and the notices on the right. */
 .jump-trail {
   position: absolute;
   top: var(--s2);
@@ -221,7 +221,7 @@
   right: 304px;
   z-index: 6;
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   pointer-events: none;
 }
 
@@ -250,68 +250,8 @@
   text-overflow: ellipsis;
 }
 
-.jump-trail__chips {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  margin: 0;
-  padding: 0 var(--s1);
-  list-style: none;
-  overflow: hidden;
-}
-
-.jump-trail__item {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  animation: aid-in var(--m-pop, 160ms) var(--aid-ease) both;
-}
-
-.jump-trail__item + .jump-trail__item::before {
-  content: '›';
-  padding: 0 var(--s1);
-  color: var(--muted);
-}
-
-.jump-trail__more {
-  padding: 0 var(--s1);
-  color: var(--muted);
-}
-
-.jump-chip {
-  height: var(--control-h-sm, 24px);
-  max-width: 168px;
+.jump-trail__nav--icon {
   padding: 0 var(--s2);
-  overflow: hidden;
-  border: var(--rule-hair, 1px) solid transparent;
-  border-radius: var(--radius-control, 0);
-  background: transparent;
-  color: var(--muted);
-  font-size: var(--t-micro);
-  letter-spacing: 0.06em;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-  transition:
-    color var(--m-hover, 120ms) var(--m-ease, ease),
-    border-color var(--m-hover, 120ms) var(--m-ease, ease);
-}
-
-.jump-chip:hover {
-  color: var(--ink);
-  border-color: var(--hairline);
-}
-
-.jump-chip--current {
-  color: var(--ink);
-  border-color: var(--ink);
-  font-weight: 700;
-}
-
-@media (max-width: 960px) {
-  .jump-trail__chips {
-    display: none;
-  }
 }
 
 /* ---- Motion off, and off paper ------------------------------------------------------------------------ */
@@ -320,12 +260,10 @@
   .port-peek,
   .react-flow__minimap.canvas-minimap,
   .colour-key,
-  .jump-trail__bar,
-  .jump-trail__item {
+  .jump-trail__bar {
     animation: none;
   }
   .colour-key__row,
-  .jump-chip,
   .drawing .drawing-cable,
   .drawing .drawing-bundle {
     transition: none;

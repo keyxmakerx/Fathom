@@ -8,7 +8,6 @@ import {
   back,
   canGoBack,
   canGoForward,
-  chipWindow,
   forward,
   jumpTo,
   spotKey,
@@ -185,33 +184,16 @@ describe('camera and saved views', () => {
   });
 });
 
-describe('chips', () => {
-  it('shows the whole trail when it is short, with the current one marked', () => {
-    const t = walkTo([spot(), spot({ selection: sel('a') }), spot({ selection: sel('b') })]);
-    const w = chipWindow(t);
-    expect(w.chips.map((c) => c.label)).toEqual(['S0', 'S1', 'S2']);
-    expect(w.chips.map((c) => c.current)).toEqual([false, false, true]);
-    expect(w.before).toBe(0);
-    expect(w.after).toBe(0);
-  });
-
-  it('shows five around the current one in a long trail, and counts the rest', () => {
-    const t0 = walkTo(Array.from({ length: 10 }, (_, i) => spot({ selection: sel(`r${i}`) })));
-    const w = chipWindow(t0);
-    expect(w.chips).toHaveLength(5);
-    expect(w.chips.at(-1)!.current).toBe(true);
-    expect(w.before).toBe(5);
-    expect(w.after).toBe(0);
-    const mid = chipWindow({ ...t0, index: 4 });
-    expect(mid.chips.some((c) => c.current && c.index === 4)).toBe(true);
-    expect(mid.before + mid.chips.length + mid.after).toBe(10);
-  });
-
+describe('labels', () => {
   it('writes the words in capitals', () => {
     expect(stepLabel({ name: 'switch-1', look: 'rack', jot: false, stop: 'faceplate' })).toBe('SWITCH-1 · FACEPLATE');
     expect(stepLabel({ name: 'R1', look: 'rack', jot: false, stop: 'rack' })).toBe('R1');
     expect(stepLabel({ name: '', look: 'rack', jot: false, stop: 'closet' })).toBe('OVERVIEW');
     expect(stepLabel({ name: 'R1', look: 'diagram', jot: false, stop: 'rack' })).toBe('R1 · DIAGRAM');
     expect(stepLabel({ name: 'sw', look: 'rack', jot: true, stop: 'inside' })).toBe('SW · OPEN');
+  });
+
+  it('leaves the level off when nothing is chosen', () => {
+    expect(stepLabel({ name: 'Untitled design', look: 'rack', jot: false, stop: 'faceplate', chosen: false })).toBe('UNTITLED DESIGN');
   });
 });

@@ -13,28 +13,26 @@ const noop = () => {};
 describe('JumpTrail', () => {
   it('shows nothing until there is somewhere to go back to', () => {
     const one = visit(EMPTY_TRAIL, spot(null), 'HQ', null, 0);
-    expect(renderToStaticMarkup(createElement(JumpTrail, { trail: one, backLabel: null, onBack: noop, onForward: noop, onGoTo: noop }))).toBe('');
+    expect(renderToStaticMarkup(createElement(JumpTrail, { trail: one, backLabel: null, onBack: noop, onForward: noop }))).toBe('');
   });
 
-  it('draws the steps as chips with the current one marked, and a button back to the one before', () => {
+  it('names where Back goes, and shows no chips and no Forward until there is one', () => {
     let t = visit(EMPTY_TRAIL, spot(null), 'HQ', null, 0);
     t = visit(t, spot('r1'), 'R1', null, 10_000);
     t = visit(t, spot('r1', 'faceplate'), 'R1 · FACEPLATE', null, 20_000);
-    const html = renderToStaticMarkup(createElement(JumpTrail, { trail: t, backLabel: 'R1', onBack: noop, onForward: noop, onGoTo: noop }));
-    expect(html).toContain('>HQ<');
-    expect(html).toContain('aria-current="step"');
+    const html = renderToStaticMarkup(createElement(JumpTrail, { trail: t, backLabel: 'R1', onBack: noop, onForward: noop }));
     expect(html).toContain('Back to R1');
-    // Nowhere forward yet.
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*data-testid="jump-forward"/);
+    expect(html).not.toContain('>HQ<');
+    expect(html).not.toContain('data-testid="jump-forward"');
   });
 
-  it('turns Forward on after going back', () => {
+  it('shows Forward after going back, and hides Back at the start', () => {
     let t = visit(EMPTY_TRAIL, spot(null), 'HQ', null, 0);
     t = visit(t, spot('r1'), 'R1', null, 10_000);
     t = back(t)!.trail;
-    const html = renderToStaticMarkup(createElement(JumpTrail, { trail: t, backLabel: null, onBack: noop, onForward: noop, onGoTo: noop }));
-    expect(html).not.toMatch(/disabled=""[^>]*data-testid="jump-forward"/);
-    expect(html).toMatch(/disabled=""[^>]*data-testid="jump-back"/);
+    const html = renderToStaticMarkup(createElement(JumpTrail, { trail: t, backLabel: null, onBack: noop, onForward: noop }));
+    expect(html).toContain('aria-label="Forward to R1"');
+    expect(html).not.toContain('data-testid="jump-back"');
   });
 });
 

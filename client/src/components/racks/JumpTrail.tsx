@@ -1,57 +1,43 @@
-// The trail of where you have been, over the top of the canvas: "← BACK TO R1", the steps as small caps
-// chips with the current one outlined, and "FORWARD →". Click a chip to go straight there. It stays out of
-// the way: nothing shows until there is somewhere to go back to.
+// Back and Forward over the canvas, like a browser's: "← BACK TO R1" says where Back goes, and a small
+// arrow goes forward again. It stays out of the way: nothing shows until there is somewhere to go.
 
 import '../../styles/canvas-aids.css';
 
 import { shortcutText } from '../shell/shortcuts';
-import { canGoForward, chipWindow, type Trail } from './jumpBack';
+import { canGoBack, canGoForward, type Trail } from './jumpBack';
 
 export interface JumpTrailProps {
   trail: Trail;
   backLabel: string | null;
   onBack: () => void;
   onForward: () => void;
-  onGoTo: (index: number) => void;
 }
 
-export function JumpTrail({ trail, backLabel, onBack, onForward, onGoTo }: JumpTrailProps) {
-  if (trail.steps.length < 2) return null;
-  const { chips, before, after } = chipWindow(trail);
+export function JumpTrail({ trail, backLabel, onBack, onForward }: JumpTrailProps) {
+  const canBack = canGoBack(trail) && backLabel != null;
   const canForward = canGoForward(trail);
+  if (!canBack && !canForward) return null;
+  const forwardLabel = canForward ? trail.steps[trail.index + 1]!.label : null;
   return (
-    <nav className="jump-trail" aria-label="Where you have been" data-print-omit="">
+    <nav className="jump-trail" aria-label="Back and forward" data-print-omit="">
       <div className="jump-trail__bar">
-        <button type="button" className="jump-trail__nav" disabled={backLabel == null} onClick={onBack} title={`Go back (${shortcutText('go-back')})`} data-testid="jump-back">
-          <span aria-hidden="true">←</span> Back{backLabel != null ? ` to ${backLabel}` : ''}
-        </button>
-        <ol className="jump-trail__chips">
-          {before > 0 && (
-            <li className="jump-trail__more" aria-hidden="true">
-              …
-            </li>
-          )}
-          {chips.map((c) => (
-            <li key={c.index} className="jump-trail__item">
-              <button
-                type="button"
-                className={c.current ? 'jump-chip jump-chip--current' : 'jump-chip'}
-                aria-current={c.current ? 'step' : undefined}
-                onClick={() => !c.current && onGoTo(c.index)}
-              >
-                {c.label}
-              </button>
-            </li>
-          ))}
-          {after > 0 && (
-            <li className="jump-trail__more" aria-hidden="true">
-              …
-            </li>
-          )}
-        </ol>
-        <button type="button" className="jump-trail__nav" disabled={!canForward} onClick={onForward} title={`Go forward (${shortcutText('go-forward')})`} data-testid="jump-forward">
-          Forward <span aria-hidden="true">→</span>
-        </button>
+        {canBack && (
+          <button type="button" className="jump-trail__nav" onClick={onBack} title={`Go back (${shortcutText('go-back')})`} data-testid="jump-back">
+            <span aria-hidden="true">←</span> Back to {backLabel}
+          </button>
+        )}
+        {forwardLabel != null && (
+          <button
+            type="button"
+            className="jump-trail__nav jump-trail__nav--icon"
+            onClick={onForward}
+            aria-label={`Forward to ${forwardLabel}`}
+            title={`Forward to ${forwardLabel} (${shortcutText('go-forward')})`}
+            data-testid="jump-forward"
+          >
+            <span aria-hidden="true">→</span>
+          </button>
+        )}
       </div>
     </nav>
   );
