@@ -138,7 +138,7 @@ export interface DiagramDrawingProps {
   style?: DiagramStyle;
   /** The place's handle on the camera, for the Views menu. */
   cameraHub?: CameraHub;
-  /** The mini-map may show (it still appears only on big drawings). */
+  /** The mini-map shows in the corner of the canvas. */
   minimap?: boolean;
 }
 

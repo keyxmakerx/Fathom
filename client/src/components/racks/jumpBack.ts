@@ -69,9 +69,10 @@ function cap(steps: readonly Step[], index: number): Trail {
 /**
  * The person is now at `spot`. Same place as the current step: nothing new (a changed label is kept).
  * Somewhere new: a step is added after the current one and anything that was ahead of it is dropped, as in
- * a browser. Two exceptions. A change of stop alone, soon after the step was made, moves that step on
- * instead of adding one, so one wheel gesture through three stops is one step. And with `quiet` (the camera
- * is gliding to a step just restored) a change of stop alone is absorbed into the current step.
+ * a browser. Three exceptions. A change of stop alone, soon after the step was made, moves that step on
+ * instead of adding one, so one wheel gesture through three stops is one step. A change of stop alone with
+ * nothing selected or opened is absorbed into the current step: plain zooming is not a place. And with
+ * `quiet` (the camera is gliding to a step just restored) a change of stop alone is absorbed likewise.
  */
 export function visit(trail: Trail, spot: Spot, label: string, camera: Camera | null, now: number, options: { quiet?: boolean } = {}): Trail {
   const cur = trail.steps[trail.index];
@@ -81,8 +82,11 @@ export function visit(trail: Trail, spot: Spot, label: string, camera: Camera | 
     return { ...trail, steps: trail.steps.map((s, i) => (i === trail.index ? { ...s, label } : s)) };
   }
   const stopOnly = sameButStop(cur.spot, spot);
-  // Absorbed in place: the steps ahead (which Forward still needs) stay.
-  if (stopOnly && options.quiet === true) {
+  // Absorbed in place: the steps ahead (which Forward still needs) stay. Zooming with nothing chosen or
+  // opened goes nowhere with a name, so it is absorbed too: otherwise wheeling in and out of an empty
+  // canvas piles up chips that all read "UNTITLED DESIGN".
+  const nothingChosen = spot.selection == null && spot.jotId == null;
+  if (stopOnly && (options.quiet === true || nothingChosen)) {
     return { ...trail, steps: trail.steps.map((s, i) => (i === trail.index ? { ...cur, spot, label } : s)) };
   }
   const keep = trail.steps.slice(0, trail.index + 1);

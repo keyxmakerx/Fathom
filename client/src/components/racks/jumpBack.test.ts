@@ -89,9 +89,20 @@ describe('coalesce', () => {
   });
 
   it('never folds into the very first step', () => {
-    let t = visit(EMPTY_TRAIL, spot(), 'HQ', null, 0);
-    t = visit(t, spot({ stop: 'faceplate' }), 'HQ FACEPLATE', null, 100);
+    let t = visit(EMPTY_TRAIL, spot({ selection: sel('r1') }), 'R1', null, 0);
+    t = visit(t, spot({ selection: sel('r1'), stop: 'faceplate' }), 'R1 FACEPLATE', null, 100);
     expect(t.steps).toHaveLength(2);
+  });
+
+  it('zooming with nothing chosen makes no steps, however slow', () => {
+    let t = visit(EMPTY_TRAIL, spot(), 'HQ', null, 0);
+    t = visit(t, spot({ stop: 'faceplate' }), 'HQ · FACEPLATE', null, 10_000);
+    t = visit(t, spot(), 'HQ', null, 20_000);
+    t = visit(t, spot({ stop: 'inside' }), 'HQ · INSIDE', null, 30_000);
+    expect(t.steps.map((s) => s.label)).toEqual(['HQ · INSIDE']);
+    // Choosing something after it is still a step, and Back returns to the design at the level it was left.
+    t = visit(t, spot({ selection: sel('r1'), stop: 'inside' }), 'R1', null, 40_000);
+    expect(t.steps.map((s) => s.label)).toEqual(['HQ · INSIDE', 'R1']);
   });
 
   it('choosing a different thing is always a step, however quick', () => {
