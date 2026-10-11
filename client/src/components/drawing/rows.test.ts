@@ -4,6 +4,8 @@ import type { RackView, RowView } from './contract';
 import type { SurfaceView } from '../../document/view';
 import {
   DEFAULT_PANEL_WIDTH_PX,
+  RACK_GAP_PX,
+  closetRightPx,
   FLOOR_BAND_HEIGHT_PX,
   SURFACE_GAP_PX,
   layoutRow,
@@ -207,5 +209,23 @@ describe('mmRailTicks', () => {
 
   it('a custom step is honoured', () => {
     expect(mmRailTicks(mmToPx(1000, U_PX), U_PX, 500)).toEqual([0, 500, 1000]);
+  });
+});
+
+describe('closetRightPx', () => {
+  const W = 100;
+
+  it('is the widest row when there are no surfaces', () => {
+    const view = { rows: [], racks: [{ ...rack('a', 1), row: 'A' }, { ...rack('b', 2), row: 'A' }, { ...rack('c', 1), row: 'B' }] };
+    expect(closetRightPx(view, W, 16)).toBe(2 * W + RACK_GAP_PX);
+  });
+
+  it('reaches past a wall drawn to the right of the racks', () => {
+    const view = { rows: [], racks: [rack('a', 1)], surfaces: [surface('w', 'wall')] };
+    expect(closetRightPx(view, W, 16)).toBe(W + SURFACE_GAP_PX + DEFAULT_PANEL_WIDTH_PX);
+  });
+
+  it('is zero for an empty closet', () => {
+    expect(closetRightPx({ rows: [], racks: [] }, W, 16)).toBe(0);
   });
 });

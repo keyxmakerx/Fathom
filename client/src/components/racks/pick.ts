@@ -29,6 +29,21 @@ export function racksInPickOrder<R extends Pick<RackView, 'id' | 'chassis'>>(
   return inUse ? [inUse, ...racks.filter((r) => r !== inUse)] : [...racks];
 }
 
+/** Pure: where a clicked item of `units` height goes, the rack in use first,
+ * or null when no rack has room; the caller then puts it on the canvas
+ * instead, so a click always adds something. */
+export function rackSpotForPick<R extends Pick<RackView, 'id' | 'chassis' | 'heightU' | 'shelves'>>(
+  racks: readonly R[],
+  selection: { kind: string; id: string } | null,
+  units: number,
+): { rackId: string; positionU: number } | null {
+  for (const rack of racksInPickOrder(racks, selection)) {
+    const positionU = highestFreeU(rack, units);
+    if (positionU !== null) return { rackId: rack.id, positionU };
+  }
+  return null;
+}
+
 /** Pure: the first free name like router-1 for a common device of `role`. */
 export function nextHostname(taken: ReadonlySet<string>, role: string): string {
   const prefix = role.replace(/_/g, '-');

@@ -16,7 +16,7 @@ import type { RowView } from './contract';
 // `elevation.ts`'s and `lookup.ts`'s own file headers give: `./contract.ts`
 // (off limits this session) has not widened its re-export list to carry it
 // yet.
-import type { SurfaceView } from '../../document/view';
+import type { ClosetView, RackView, SurfaceView } from '../../document/view';
 
 export interface RowLayout {
   label: string | null;
@@ -33,6 +33,27 @@ export interface RowLayout {
 export function layoutRow(row: RowView, elevation: Facing): RowLayout {
   const racks = elevation === 'rear' ? [...row.racks].reverse() : row.racks;
   return { label: row.label, elevation, racks };
+}
+
+/** ADR-0050 §2: "a rack with no row is its own row." `view.rows` is the
+ * document builder's own logic (`document/view.ts`'s session note) and may
+ * not be populated yet; this falls back to grouping `view.racks` by each
+ * rack's own `row` field (preserving arrival order as the bay order) so the
+ * drawing still has *something* to lay out by — every rack still draws,
+ * simply one to a row until the document side fills `row`/`bay` in. */
+export function rowsOf(view: Pick<ClosetView, 'rows' | 'racks'>): RowView[] {
+  if (view.rows.length > 0) return view.rows;
+  const byRow = new Map<string, RackView[]>();
+  const order: string[] = [];
+  for (const rack of view.racks) {
+    const key = rack.row ?? `__no-row-${rack.id}__`;
+    if (!byRow.has(key)) {
+      byRow.set(key, []);
+      order.push(key);
+    }
+    byRow.get(key)!.push(rack);
+  }
+  return order.map((key) => ({ label: byRow.get(key)![0]!.row, racks: byRow.get(key)! }));
 }
 
 /** A stable key for a row's own flip state, session-only like `Drawing.tsx`'s
@@ -224,4 +245,15 @@ export function mmRailTicks(heightPx: number, uPx: number, stepMm: number = 300)
   const ticks: number[] = [];
   for (let mm = 0; mm <= totalMm + 1e-6; mm += stepMm) ticks.push(Math.round(mm));
   return ticks;
+}
+
+/** How far right the closet's racks and surfaces reach in flow pixels, as
+ * `Drawing.tsx` first lays them out (a rack dragged this session aside):
+ * the widest row, then the wall/desk/ceiling panels to its right, then the
+ * floor band under both. Pure; `rackWidthPx` and `uPx` are `RackNode.tsx`'s
+ * and `geometry.ts`'s own. */
+export function closetRightPx(view: Pick<ClosetView, 'rows' | 'racks'> & { surfaces?: readonly SurfaceView[] }, rackWidthPx: number, uPx: number): number {
+  const rowsWidthPx = Math.max(0, ...rowsOf(view).map((row) => (row.racks.length > 0 ? row.racks.length * (rackWidthPx + RACK_GAP_PX) - RACK_GAP_PX : 0)));
+  const { panels, floor } = layoutSurfaces(view.surfaces ?? [], rowsWidthPx, 0, 0, uPx);
+  return Math.max(rowsWidthPx, ...panels.map((p) => p.x + p.widthPx), floor != null ? floor.x + floor.widthPx : 0);
 }

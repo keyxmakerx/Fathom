@@ -17,6 +17,8 @@ import {
   resizeShelf,
 } from '../../document/commands';
 import { nextFreeSpot } from '../drawing/freeLayout';
+import { closetRightPx } from '../drawing/rows';
+import { RACK_NODE_WIDTH } from '../drawing/RackNode';
 import { requestRename } from '../drawing/NameEdit';
 import type { PaletteAction } from '../shell/palette';
 import { usePaletteActions } from '../shell/paletteRegistry';
@@ -59,7 +61,7 @@ import {
   type StoredCableGroupsState,
 } from '../drawing/cableGroups';
 import { CableGroupsPopover } from '../drawing/CableGroupsPopover';
-import { CAMERA_STOPS } from '../drawing/geometry';
+import { CAMERA_STOPS, U_PX } from '../drawing/geometry';
 import { DiagramDrawing } from '../drawing/DiagramDrawing';
 import { layerWords } from '../drawing/layerLabels';
 import { layerOn, loadLayers, saveLayers, type LayerId, type LayerSet } from '../drawing/layers';
@@ -93,7 +95,7 @@ import { NoteAuthorsContext } from '../drawing/noteByline';
 import { addRack, createPremises, ensureRackToPlaceInto, nextName } from './emptyDesign';
 import type { PaletteItem } from '../drawing/contract';
 import { DEFAULT_FACEPLATES, SKETCH_DEVICE_PALETTE_ITEM, isBoardPaletteItem, isSketchDevicePaletteItem, paletteFromCatalogue, paletteRows } from './palette';
-import { highestFreeU, hostnamesOf, nextHostname, racksInPickOrder } from './pick';
+import { highestFreeU, hostnamesOf, nextHostname, rackSpotForPick } from './pick';
 import { FirmwareContext } from '../firmware/context';
 import type { UpgradeTemplate } from '../firmware/upgradePlan';
 import { deviceFirmware, deviceOfChassis, targetOfDevice } from '../../document/firmware';
@@ -1130,8 +1132,10 @@ export function RacksPlace(props: RacksPlaceProps) {
   const [pasteState, setPasteState] = useState<PasteState | null>(null);
   const openSpot = useCallback(() => {
     const taken = [...realView.free.map((f) => ({ x: f.x, y: f.y, w: BOX_W, h: BOX_H })), ...realView.labels.map((l) => ({ x: l.x, y: l.y, w: l.form === 'area' ? l.w : 64, h: l.form === 'area' ? l.h : 22 }))];
-    return nextFreeSpot(taken);
-  }, [realView.free, realView.labels]);
+    // With racks or surfaces drawn, the grid starts to their right so a new box never lands on top of them.
+    const right = realView.racks.length > 0 || realView.surfaces.length > 0 ? closetRightPx(realView, RACK_NODE_WIDTH, U_PX) : 0;
+    return right > 0 ? nextFreeSpot(taken, undefined, undefined, { x: right + 96, y: 0 }) : nextFreeSpot(taken);
+  }, [realView]);
   // Held only while the card asks "which device is this from?"; cleared on every other outcome.
   const pendingPasteRef = useRef<string | null>(null);
   // Cable suggestions (r15-cables): the device the neighbour list was read on (null asks), and text already pasted.
@@ -1277,7 +1281,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   );
 
   // ADR-0060 decision 4: a click in the equipment list adds the item where there
-  // is room, the rack in use first; a backboard goes on the first wall.
+  // is room, the rack in use first, else on the canvas; a backboard goes on the first wall.
   const handlePick = useCallback(
     (item: PaletteItem) => {
       if (doc == null) return;
@@ -1296,19 +1300,15 @@ export function RacksPlace(props: RacksPlaceProps) {
         handleAddFreeBox(item.role ?? null, jotOrigin.x + at.x, jotOrigin.y + at.y, undefined, item.role === undefined ? item : undefined);
         return;
       }
-      if (displayView.racks.length === 0) {
-        // Only free boxes so far: the pick lands on the next open spot of the canvas.
-        const at = openSpot();
-        handleAddFreeBox(item.role ?? null, at.x, at.y, undefined, item.role === undefined ? item : undefined);
+      const spot = rackSpotForPick(displayView.racks, selection, item.rackUnits);
+      if (spot !== null) {
+        handlePlace(spot.rackId, item, spot.positionU);
         return;
       }
-      for (const rack of racksInPickOrder(displayView.racks, selection)) {
-        const positionU = highestFreeU(rack, item.rackUnits);
-        if (positionU !== null) {
-          handlePlace(rack.id, item, positionU);
-          return;
-        }
-      }
+      // No rack, or no rack with room: the pick lands on the next open spot of the canvas
+      // rather than doing nothing.
+      const at = openSpot();
+      handleAddFreeBox(item.role ?? null, at.x, at.y, undefined, item.role === undefined ? item : undefined);
     },
     [doc, realView.surfaces, openSpot, displayView.racks, selection, handlePlace, handleAddFreeBox, applyDocChange, accountId, jot, jotPlateList, jotOrigin],
   );
