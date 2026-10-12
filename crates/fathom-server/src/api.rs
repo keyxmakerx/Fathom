@@ -154,6 +154,9 @@ async fn verify_and_commit<'a>(
 
 /// The five headers a signed request carries; one list for client library and
 /// server.
+/// The answer when a signing key a request needs is not live: the one this
+/// browser named as its own, or the other person's.
+pub const NO_SIGNING_KEY_HERE: &str = "no signing key\n";
 pub const HEADER_SESSION: &str = "fathom-session";
 pub const HEADER_TOKEN: &str = "fathom-session-token";
 pub const HEADER_NONCE: &str = "fathom-nonce";
@@ -1685,6 +1688,13 @@ impl IntoResponse for Refusal {
             | SessionError::Repo(_) => {
                 tracing::info!(reason = %self.0, "not authorised");
                 (StatusCode::FORBIDDEN, "not authorised\n")
+            }
+            // A key the act needs is not live: the one this browser named as the
+            // caller's (retired, or never registered), or the other person's.
+            // Theirs to fix, not an integrity alarm.
+            SessionError::Authority(AuthorityError::NoSigningKey) => {
+                tracing::info!(reason = %self.0, "no live signing key named");
+                (StatusCode::CONFLICT, NO_SIGNING_KEY_HERE)
             }
             // An integrity alarm is NOT a permission error (§3.4 step 2). A 500, because
             // something in the store is not truthful about itself; the log line is the

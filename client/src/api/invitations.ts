@@ -256,10 +256,16 @@ export function orderedRows(rows: readonly ConfirmRow[]): ConfirmRow[] {
   return sorted;
 }
 
-/** Body: `LP(n) n x [LP(invitation) LP(capability) LP(scope or "")]`, and for one
- * steward request `LP(expires_at or "")` once at the end. */
-export function buildProposeBody(rows: readonly ConfirmRow[], expiresAtUnix: number | null): Uint8Array {
-  const parts: Uint8Array[] = [lp(utf8(String(rows.length)))];
+/** Body: `LP(granter key fingerprint hex) LP(n) n x [LP(invitation) LP(capability)
+ * LP(scope or "")]`, and for one steward request `LP(expires_at or "")` once at the
+ * end. The fingerprint is this browser's own key: someone signed in on two browsers
+ * has a key in each, and the server proposes with the one named. */
+export function buildProposeBody(
+  granterKeyFpr: Uint8Array,
+  rows: readonly ConfirmRow[],
+  expiresAtUnix: number | null,
+): Uint8Array {
+  const parts: Uint8Array[] = [lp(utf8(toHex(granterKeyFpr))), lp(utf8(String(rows.length)))];
   for (const r of rows) parts.push(lp(utf8(r.invitation)), lp(utf8(r.capability)), lp(utf8(r.scopeId ?? '')));
   if (rows.length === 1 && rows[0].capability === 'steward') {
     parts.push(lp(utf8(expiresAtUnix === null ? '' : String(expiresAtUnix))));
@@ -362,7 +368,7 @@ export async function proposeConfirm(
   if (!granter) throw new NoSigningKeyHere();
   const granterKeyFpr = await ownKeyFingerprint();
   const proposal = parseProposal(
-    await signedFetch('POST', `${base(organisation)}/confirm/propose`, buildProposeBody(ordered, expiresAtUnix)),
+    await signedFetch('POST', `${base(organisation)}/confirm/propose`, buildProposeBody(granterKeyFpr, ordered, expiresAtUnix)),
   );
   return checkProposal(organisation, granter, granterKeyFpr, ordered, proposal, Math.floor(Date.now() / 1000), expiresAtUnix);
 }
@@ -459,6 +465,9 @@ export function describeError(error: unknown): string {
       }
     }
     if (error.status === 403) return 'Only a steward can do that here. The server refused.';
+    if (error.status === 409 && error.message.trim() === 'no signing key') {
+      return 'This browser’s signing key is no longer one of yours in service, so nothing was signed.';
+    }
     if (error.status === 429) {
       return error.retryAfterSeconds != null
         ? `Too many invitations just now. Try again in ${Math.ceil(error.retryAfterSeconds / 60)} minutes.`

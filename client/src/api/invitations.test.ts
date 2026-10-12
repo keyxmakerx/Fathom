@@ -207,10 +207,13 @@ describe('the rows to confirm', () => {
   });
 
   it('frame the propose body, with the expiry only on one steward request', () => {
-    const two = buildProposeBody([row(1), row(2)], null);
-    const count = readLp(two);
+    const key = new Uint8Array(32).fill(0xab);
+    const two = buildProposeBody(key, [row(1), row(2)], null);
+    const named = readLp(two);
+    expect(new TextDecoder().decode(named.value)).toBe('ab'.repeat(32));
+    const count = readLp(named.rest);
     expect(new TextDecoder().decode(count.value)).toBe('2');
-    const one = buildProposeBody([row(1, { capability: 'steward', scopeId: null })], 123);
+    const one = buildProposeBody(key, [row(1, { capability: 'steward', scopeId: null })], 123);
     const fields: string[] = [];
     let rest = one;
     while (rest.length) {
@@ -218,7 +221,7 @@ describe('the rows to confirm', () => {
       fields.push(new TextDecoder().decode(f.value));
       rest = f.rest;
     }
-    expect(fields).toEqual(['1', ULID(1), 'steward', '', '123']);
+    expect(fields).toEqual(['ab'.repeat(32), '1', ULID(1), 'steward', '', '123']);
   });
 });
 
@@ -390,6 +393,7 @@ describe('words for refusals', () => {
     const stale = new ApiRefusal(409, JSON.stringify({ error: 'batch_refused', index: 2, reason: 'stale' }), null);
     expect(describeError(stale)).toMatch(/confirm again/);
     expect(describeError(new ApiRefusal(409, JSON.stringify({ error: 'batch_refused', index: 0, reason: 'key_changed' }), null))).toMatch(/keys changed/);
+    expect(describeError(new ApiRefusal(409, 'no signing key\n', null))).toMatch(/no longer one of yours/);
   });
 
   it('says plainly that a non-steward was refused, and names the invitation caps', () => {

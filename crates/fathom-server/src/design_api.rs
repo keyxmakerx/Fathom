@@ -867,6 +867,10 @@ fn authority_refusal_response(e: &grants::AuthorityError) -> Response {
             tracing::info!(reason = %e, "stale proposal");
             (StatusCode::CONFLICT, "changed since it was proposed\n").into_response()
         }
+        grants::AuthorityError::NoSigningKey => {
+            tracing::info!(reason = %e, "no live signing key named");
+            (StatusCode::CONFLICT, crate::api::NO_SIGNING_KEY_HERE).into_response()
+        }
         _ => {
             tracing::error!(reason = %e, "integrity check failed");
             (StatusCode::INTERNAL_SERVER_ERROR, "refused\n").into_response()
@@ -1564,8 +1568,10 @@ async fn access_handler(
     Ok(json_response(Json::Obj(map)))
 }
 
-/// `POST .../scopes/{scope}/grants/propose`: body `LP(account) ‖ LP(capability)`.
-/// Answers the fields of the proposal and the `bytes` to sign, hex.
+/// `POST .../scopes/{scope}/grants/propose`: body `LP(granter_key_fpr hex) ‖
+/// LP(account) ‖ LP(capability)`, the first naming the caller's own live key this
+/// browser will sign with. Answers the fields of the proposal and the `bytes` to
+/// sign, hex.
 async fn propose_share_handler(
     State(state): State<DesignApiState>,
     PathExtractor((organisation, scope)): PathExtractor<(String, String)>,
@@ -1574,6 +1580,7 @@ async fn propose_share_handler(
     let tenant = parse_organisation(&organisation)?;
     let scope_id = parse_scope(&scope)?;
     let mut rest: &[u8] = &signed.body;
+    let granter_key_fpr = fixed32(lp_text(&mut rest, "key fingerprint")?, "key fingerprint")?;
     let subject = lp_text(&mut rest, "account id")?.to_string();
     let capability = shareable(lp_text(&mut rest, "capability")?)?;
 
@@ -1601,7 +1608,7 @@ async fn propose_share_handler(
         .await
         .map_err(SessionError::Authority)?;
     let subject = require_other_member(&tx, &ctx, &subject).await?;
-    let proposal = grants::propose_grant(
+    let proposal = grants::propose_grant_with_key(
         &tx,
         &auth,
         &grants::GrantRequest {
@@ -1612,6 +1619,7 @@ async fn propose_share_handler(
             capability,
             expires_at_unix: 0,
         },
+        &granter_key_fpr,
     )
     .await
     .map_err(SessionError::Authority)?;
@@ -2011,16 +2019,20 @@ async fn refuse_invitation_handler(
     .await
 }
 
-/// `POST .../invitations/confirm/propose`: body `LP(n) ‖ n×[LP(invitation_id) ‖
-/// LP(capability) ‖ LP(scope_id)]` (and `LP(expires_at or "")` for one steward
-/// request). Writes nothing; answers each grant's fields and the `bytes` to sign.
+/// `POST .../invitations/confirm/propose`: body `LP(granter_key_fpr hex) ‖ LP(n) ‖
+/// n×[LP(invitation_id) ‖ LP(capability) ‖ LP(scope_id)]` (and `LP(expires_at or
+/// "")` for one steward request). The first field names the caller's own live key
+/// this browser will sign with. Writes nothing; answers each grant's fields and
+/// the `bytes` to sign.
 async fn propose_confirm_handler(
     State(state): State<DesignApiState>,
     PathExtractor(organisation): PathExtractor<String>,
     signed: Signed,
 ) -> Result<Response, RouteError> {
     let tenant = parse_organisation(&organisation)?;
-    let items = invitations::parse_propose_body(&signed.body)?;
+    let mut rest: &[u8] = &signed.body;
+    let granter_key_fpr = fixed32(lp_text(&mut rest, "key fingerprint")?, "key fingerprint")?;
+    let items = invitations::parse_propose_body(rest)?;
 
     let mut client = state
         .sessions
@@ -2040,7 +2052,15 @@ async fn propose_confirm_handler(
         tenant_key: &tenant_key,
         watch: &state.watch,
     };
-    let proposed = invitations::propose(&tx, &state.ring, &auth, &items, unix_now()).await?;
+    let proposed = invitations::propose(
+        &tx,
+        &state.ring,
+        &auth,
+        &items,
+        &granter_key_fpr,
+        unix_now(),
+    )
+    .await?;
     tx.commit().await.map_err(SessionError::Db)?;
 
     let first_epoch = proposed

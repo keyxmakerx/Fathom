@@ -739,7 +739,11 @@ fn propose_body(items: &[(&str, &str, Option<ScopeId>)], expires: Option<&str>) 
     body
 }
 
+/// Ask to confirm, naming `by`'s own key as the one that will sign, as a browser does.
 async fn propose(addr: SocketAddr, estate: &Estate, by: &Person, body: &[u8]) -> (String, Vec<u8>) {
+    let mut named = Vec::new();
+    lp(&mut named, lowercase_hex(&by.key.fingerprint()).as_bytes());
+    named.extend_from_slice(body);
     call(
         addr,
         by,
@@ -748,7 +752,7 @@ async fn propose(addr: SocketAddr, estate: &Estate, by: &Person, body: &[u8]) ->
             "/organisations/{}/invitations/confirm/propose",
             estate.organisation
         ),
-        body,
+        &named,
     )
     .await
 }
@@ -1903,6 +1907,10 @@ async fn somebody_who_has_joined_but_not_been_confirmed_has_no_access_of_any_kin
 
     // Sharing to them is refused: they are not a member.
     let mut body = Vec::new();
+    lp(
+        &mut body,
+        lowercase_hex(&estate.stewards[0].key.fingerprint()).as_bytes(),
+    );
     lp(&mut body, invited.account.as_bytes());
     lp(&mut body, b"read");
     let (status, _) = call(
@@ -2251,6 +2259,83 @@ async fn one_bad_signature_leaves_nothing_changed_and_the_head_where_it_was() {
     let body = confirm_body(array(&proposal, "items"), &estate, steward, &|_, s| s);
     let (status, answer) = confirm(addr, &estate, steward, &body).await;
     assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
+}
+
+/// A steward signed in on two browsers has two live keys (ADR-0055 decision 6).
+/// The older browser must be offered grants naming ITS key, which it can sign,
+/// not the newest one: on 2026-10-12 a steward could not confirm anybody from
+/// the browser they had used first.
+#[tokio::test]
+async fn a_steward_on_two_browsers_confirms_from_the_older_one() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring, 1).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Limits::STANDARD).await).await;
+    let people = three_waiting(&pool, &ring, addr, &estate, None).await;
+    let first_browser = &estate.stewards[0];
+    let second_browser = Person {
+        account: first_browser.account,
+        address: first_browser.address.clone(),
+        key: SoftwareKey::random().expect("key"),
+    };
+    enrol(&pool, &ring, estate.organisation, &second_browser).await;
+
+    let mut ids: Vec<&str> = people.iter().map(|(i, _)| i.invitation.as_str()).collect();
+    ids.sort();
+    let items: Vec<(&str, &str, Option<ScopeId>)> =
+        ids.iter().map(|i| (*i, "read", None)).collect();
+    let (status, proposal) =
+        propose(addr, &estate, first_browser, &propose_body(&items, None)).await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&proposal));
+    let proposal = parse(&proposal);
+    for item in array(&proposal, "items") {
+        assert_eq!(
+            text(item, "granter_key_fpr"),
+            lowercase_hex(&first_browser.key.fingerprint()),
+            "the proposal names the asking browser's key, not the newest"
+        );
+    }
+    let body = confirm_body(array(&proposal, "items"), &estate, first_browser, &|_, s| s);
+    let (status, answer) = confirm(addr, &estate, first_browser, &body).await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
+    for (invited, _) in &people {
+        assert_eq!(grants_of(&su().await, &invited.account).await, 1);
+    }
+}
+
+/// A key that is not one of the caller's live keys is refused by name, and
+/// nothing is proposed with it.
+#[tokio::test]
+async fn a_propose_naming_a_key_that_is_not_the_callers_is_refused() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring, 1).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Limits::STANDARD).await).await;
+    let people = three_waiting(&pool, &ring, addr, &estate, None).await;
+    let steward = &estate.stewards[0];
+    let stranger = SoftwareKey::random().expect("key");
+    let mut ids: Vec<&str> = people.iter().map(|(i, _)| i.invitation.as_str()).collect();
+    ids.sort();
+    let items: Vec<(&str, &str, Option<ScopeId>)> =
+        ids.iter().map(|i| (*i, "read", None)).collect();
+    let mut body = Vec::new();
+    lp(&mut body, lowercase_hex(&stranger.fingerprint()).as_bytes());
+    body.extend_from_slice(&propose_body(&items, None));
+    let (status, answer) = call(
+        addr,
+        steward,
+        "POST",
+        &format!(
+            "/organisations/{}/invitations/confirm/propose",
+            estate.organisation
+        ),
+        &body,
+    )
+    .await;
+    assert_eq!(status, "409", "{}", String::from_utf8_lossy(&answer));
+    assert_eq!(answer, b"no signing key\n");
 }
 
 #[tokio::test]
@@ -3283,9 +3368,16 @@ async fn five_hundred_people_confirm_in_one_batch_inside_the_drift_budget() {
         watch: &watch,
     };
     let propose_started = std::time::Instant::now();
-    let proposed = invitations::propose(&tx, &ring, &auth, &items, now_unix())
-        .await
-        .expect("proposed");
+    let proposed = invitations::propose(
+        &tx,
+        &ring,
+        &auth,
+        &items,
+        &steward.key.fingerprint(),
+        now_unix(),
+    )
+    .await
+    .expect("proposed");
     let propose_took = propose_started.elapsed();
     tx.rollback().await.unwrap();
     assert_eq!(proposed.len(), 500);
