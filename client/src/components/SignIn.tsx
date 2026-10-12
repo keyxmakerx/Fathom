@@ -311,6 +311,7 @@ export function SignIn({ onForgotPassword, initialAddress, notice }: SignInProps
           </label>
           <input
             id="signin-address"
+            name="username"
             className="signin__input"
             type="text"
             autoComplete="username"
@@ -328,6 +329,7 @@ export function SignIn({ onForgotPassword, initialAddress, notice }: SignInProps
           </label>
           <input
             id="signin-password"
+            name="password"
             className="signin__input"
             type="password"
             autoComplete="current-password"
