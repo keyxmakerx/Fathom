@@ -5655,8 +5655,10 @@ fn share_path(estate: &Estate, scope: ScopeId, tail: &str) -> String {
     )
 }
 
-fn propose_body(person: &Person, capability: &str) -> Vec<u8> {
+/// A propose request from `by`, naming `by`'s own key as the one that will sign.
+fn propose_body(by: &Person, person: &Person, capability: &str) -> Vec<u8> {
     let mut body = Vec::new();
+    lp(&mut body, hex(by.key.fingerprint()).as_bytes());
     lp(&mut body, person.account.to_string().as_bytes());
     lp(&mut body, capability.as_bytes());
     body
@@ -5692,7 +5694,7 @@ async fn share(
         &estate.steward,
         "POST",
         &share_path(estate, scope, "grants/propose"),
-        &propose_body(person, cap),
+        &propose_body(&estate.steward, person, cap),
     )
     .await;
     assert_eq!(status, "200", "{}", String::from_utf8_lossy(&proposal));
@@ -5797,7 +5799,7 @@ async fn a_steward_shares_view_and_the_viewer_reads_but_every_write_route_refuse
         (
             "POST",
             share_path(&estate, scope, "grants/propose"),
-            propose_body(&viewer, "draw"),
+            propose_body(&viewer, &viewer, "draw"),
         ),
         (
             "POST",
@@ -5891,7 +5893,7 @@ async fn a_signed_share_cannot_be_replayed_onto_another_person_scope_or_capabili
         &estate.steward,
         "POST",
         &share_path(&estate, network, "grants/propose"),
-        &propose_body(&viewer, "read"),
+        &propose_body(&estate.steward, &viewer, "read"),
     )
     .await;
     assert_eq!(status, "200");
@@ -5991,7 +5993,7 @@ async fn only_a_steward_shares_and_only_with_a_member_who_is_not_themselves() {
         &drawer,
         "POST",
         &share_path(&estate, scope, "grants/propose"),
-        &propose_body(&drawer, "read"),
+        &propose_body(&drawer, &drawer, "read"),
     )
     .await;
     assert_eq!(status, "403", "a drawer cannot share");
@@ -6001,7 +6003,7 @@ async fn only_a_steward_shares_and_only_with_a_member_who_is_not_themselves() {
         &estate.steward,
         "POST",
         &share_path(&estate, scope, "grants/propose"),
-        &propose_body(&outsider, "read"),
+        &propose_body(&estate.steward, &outsider, "read"),
     )
     .await;
     assert_ne!(
@@ -6014,7 +6016,7 @@ async fn only_a_steward_shares_and_only_with_a_member_who_is_not_themselves() {
         &estate.steward,
         "POST",
         &share_path(&estate, scope, "grants/propose"),
-        &propose_body(&estate.steward, "read"),
+        &propose_body(&estate.steward, &estate.steward, "read"),
     )
     .await;
     assert_ne!(status, "200", "nobody shares with themselves");
@@ -6024,7 +6026,7 @@ async fn only_a_steward_shares_and_only_with_a_member_who_is_not_themselves() {
         &estate.steward,
         "POST",
         &share_path(&estate, scope, "grants/propose"),
-        &propose_body(&drawer, "steward"),
+        &propose_body(&estate.steward, &drawer, "steward"),
     )
     .await;
     assert_ne!(

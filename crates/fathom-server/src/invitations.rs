@@ -1729,11 +1729,14 @@ fn grant_expiry(capability: Capability, asked: Option<i64>, now: i64) -> Result<
 /// learns nothing about which invitations exist). The subject is the invitation's
 /// sealed account and the key is its sealed `enrolled_key_fpr`: the steward
 /// cannot read a non-member's keyring, so the proposal is built from the row.
+/// The granter's key is the one the caller's browser names, which must be one of
+/// the caller's live keys: a steward on two browsers has two.
 pub async fn propose(
     tx: &Transaction<'_>,
     ring: &KeyRing,
     auth: &Authority<'_>,
     items: &[ProposeItem],
+    granter_key_fpr: &[u8; 32],
     now: i64,
 ) -> Result<Vec<Proposed>, InviteError> {
     let organisation = auth.ctx.tenant().to_string();
@@ -1773,9 +1776,16 @@ pub async fn propose(
         rows.push(row);
     }
 
-    let proposals = grants::propose_grants_for_keys(tx, auth, &verified, &requests, now)
-        .await
-        .map_err(|e| batch_error_from(0, e))?;
+    let proposals =
+        grants::propose_grants_for_keys(tx, auth, &verified, &requests, granter_key_fpr, now)
+            .await
+            .map_err(|e| match e {
+                // Every subject key was given, so this is the caller's own: the key
+                // this browser named is not one of theirs in service. Not any one
+                // person's key changing.
+                AuthorityError::NoSigningKey => InviteError::Authority(e),
+                e => batch_error_from(0, e),
+            })?;
     Ok(rows
         .into_iter()
         .zip(proposals)

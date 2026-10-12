@@ -146,10 +146,20 @@ export async function shareWith(
   const key = await signingKey();
   const granter = getSession()?.accountId;
   if (!granter) throw new NoSigningKeyHere();
+  // Name this browser's own key: someone signed in on two browsers has a key in
+  // each, and only this one can sign here.
+  const granterKeyFpr = await ownKeyFingerprint();
   const proposal = parseJson(
-    await signedFetch('POST', `${base(organisation, scope)}/grants/propose`, concatBytes(lp(utf8(person)), lp(utf8(capability)))),
+    await signedFetch(
+      'POST',
+      `${base(organisation, scope)}/grants/propose`,
+      concatBytes(lp(utf8(toHex(granterKeyFpr))), lp(utf8(person)), lp(utf8(capability))),
+    ),
     'proposal',
   );
+  if (text(proposal, 'granter_key_fpr') !== toHex(granterKeyFpr)) {
+    throw new Error('The server proposed a grant signed by a key that is not this browser’s, so it was not signed.');
+  }
   const effectiveFromUnix = Number(text(proposal, 'effective_from_unix'));
   const authEpoch = Number(text(proposal, 'auth_epoch'));
   const local = shareGrantBytes({

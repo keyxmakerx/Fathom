@@ -16,16 +16,19 @@ vi.mock('../crypto/keys', async () => {
   const subtle = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
   return {
     getEnrolledKeyPair: async () => subtle,
+    exportPublicKeyRaw: async (key: CryptoKey) => new Uint8Array(await crypto.subtle.exportKey('raw', key)),
     signMessage: async () => new Uint8Array(64),
   };
 });
 vi.mock('../state/sessionState', () => ({ getSession: () => ({ kind: 'steward', address: 'a@b.c', accountId: 'ME' }) }));
 
-import { parseAccess, setShare, shareGrantBytes, type AccessPerson } from './share';
+import { ownKeyFingerprint, parseAccess, setShare, shareGrantBytes, type AccessPerson } from './share';
 
 const fpr = (n: number) => new Uint8Array(32).fill(n);
+/** This browser's own key fingerprint: what a proposal must name as the granter's. */
+let mine: Uint8Array = fpr(1);
 const grantFor = (capability: 'read' | 'draw', subject = 'P1') =>
-  toHex(shareGrantBytes({ organisation: 'O', rootPubkeyFpr: fpr(3), scope: 'S', subject, subjectKeyFpr: fpr(2), capability, granter: 'ME', granterKeyFpr: fpr(1), effectiveFromUnix: 100, authEpoch: 3 }));
+  toHex(shareGrantBytes({ organisation: 'O', rootPubkeyFpr: fpr(3), scope: 'S', subject, subjectKeyFpr: fpr(2), capability, granter: 'ME', granterKeyFpr: mine, effectiveFromUnix: 100, authEpoch: 3 }));
 const revokeFor = (grant: string, at: number) => toHex(concatBytes(lp(utf8('fathom/grant/revoke/v1')), lp(utf8('O')), lp(utf8(grant)), lp(fpr(9)), u64LE(at)));
 
 const person = (direct: AccessPerson['direct']): AccessPerson => ({
@@ -38,7 +41,8 @@ const person = (direct: AccessPerson['direct']): AccessPerson => ({
   direct,
 });
 
-beforeEach(() => {
+beforeEach(async () => {
+  mine = await ownKeyFingerprint();
   signed.length = 0;
   answers = {
     'POST /organisations/O/scopes/S/grants/propose': proposal('read'),
@@ -46,13 +50,13 @@ beforeEach(() => {
   };
 });
 
-function proposal(capability: 'read' | 'draw', bytes = grantFor(capability)) {
+function proposal(capability: 'read' | 'draw', bytes = grantFor(capability), granter = mine) {
   return {
     subject: 'P1',
     capability,
     effective_from_unix: 100,
     auth_epoch: 3,
-    granter_key_fpr: toHex(fpr(1)),
+    granter_key_fpr: toHex(granter),
     subject_key_fpr: toHex(fpr(2)),
     root_pubkey_fpr: toHex(fpr(3)),
     bytes,
@@ -95,7 +99,7 @@ describe('setShare', () => {
       fields.push(new TextDecoder().decode(f.value));
       rest = f.rest;
     }
-    expect(fields.slice(0, 7)).toEqual(['P1', 'read', '100', '3', toHex(fpr(1)), toHex(fpr(2)), toHex(fpr(3))]);
+    expect(fields.slice(0, 7)).toEqual(['P1', 'read', '100', '3', toHex(mine), toHex(fpr(2)), toHex(fpr(3))]);
     expect(fields[7]).toBe('00'.repeat(64));
   });
 
@@ -107,8 +111,9 @@ describe('setShare', () => {
       'POST grants/propose',
       'POST grants/sign',
     ]);
-    expect(readLp(signed[2].body!).value).toEqual(utf8('P1'));
-    
+    const named = readLp(signed[2].body!);
+    expect(named.value).toEqual(utf8(toHex(mine)));
+    expect(readLp(named.rest).value).toEqual(utf8('P1'));
   });
 
   it('does nothing when the choice is already what they have', async () => {
@@ -132,6 +137,13 @@ describe('what the key will sign', () => {
   it('refuses a proposal naming someone else', async () => {
     answers['POST /organisations/O/scopes/S/grants/propose'] = proposal('read', grantFor('read', 'SOMEONE_ELSE'));
     await expect(setShare('O', 'S', person([]), 'read')).rejects.toThrow(/not the one you chose/);
+  });
+
+  it('refuses a proposal naming a key that is not this browser’s', async () => {
+    // Someone signed in on two browsers has a key in each; this one cannot sign for the other.
+    answers['POST /organisations/O/scopes/S/grants/propose'] = proposal('read', grantFor('read'), fpr(7));
+    await expect(setShare('O', 'S', person([]), 'read')).rejects.toThrow(/not this browser’s/);
+    expect(signed.map((s) => s.path.split('/scopes/S/')[1])).toEqual(['grants/propose']);
   });
 
   it('refuses revoke bytes that are not a revocation of this grant at this time', async () => {

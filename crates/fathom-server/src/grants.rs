@@ -954,6 +954,31 @@ pub async fn live_signing_keys(
     Ok(out)
 }
 
+/// The key a grant names as its granter's: the live key with `fpr` when the
+/// caller names one, else the newest.
+///
+/// Naming it is how a browser gets bytes it can sign. Only a live key of this
+/// account is accepted; anything else is [`AuthorityError::NoSigningKey`], so
+/// a browser whose key was retired, or never registered, is told so rather
+/// than offered bytes no key of its own matches. `sign_grant` checks the
+/// signature against the named key either way.
+async fn granter_signing_key(
+    tx: &Transaction<'_>,
+    account: &str,
+    fpr: Option<&[u8; 32]>,
+) -> Result<AccountKey, AuthorityError> {
+    match fpr {
+        None => signing_key_of(tx, account)
+            .await?
+            .ok_or(AuthorityError::NoSigningKey),
+        Some(fpr) => live_signing_keys(tx, account)
+            .await?
+            .into_iter()
+            .find(|key| key.fpr == *fpr)
+            .ok_or(AuthorityError::NoSigningKey),
+    }
+}
+
 /// Verify `signature` over `message` against **any** of this account's live
 /// keys, and say which one verified.
 ///
@@ -1390,6 +1415,30 @@ pub async fn propose_grant(
     auth: &Authority<'_>,
     request: &GrantRequest,
 ) -> Result<GrantProposal, AuthorityError> {
+    propose_grant_inner(tx, auth, request, None).await
+}
+
+/// [`propose_grant`] for a granter who names the key they will sign with: one of
+/// their own live keys, by fingerprint.
+///
+/// A person signed in on two browsers has two live keys (ADR-0055 decision 6),
+/// and each browser can sign only with its own. Proposing with the newest key
+/// hands the other browser bytes it cannot sign, which its check rightly refuses.
+pub async fn propose_grant_with_key(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    request: &GrantRequest,
+    granter_key_fpr: &[u8; 32],
+) -> Result<GrantProposal, AuthorityError> {
+    propose_grant_inner(tx, auth, request, Some(granter_key_fpr)).await
+}
+
+async fn propose_grant_inner(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    request: &GrantRequest,
+    granter_key_fpr: Option<&[u8; 32]>,
+) -> Result<GrantProposal, AuthorityError> {
     let ring = auth.ring;
     let organisation = auth.organisation();
     let granter = auth.actor();
@@ -1397,9 +1446,7 @@ pub async fn propose_grant(
     // The granter's own authority, checked the same way a design read is.
     authorise_account(tx, auth, request.scope, Capability::Steward).await?;
 
-    let granter_key = signing_key_of(tx, &granter)
-        .await?
-        .ok_or(AuthorityError::NoSigningKey)?;
+    let granter_key = granter_signing_key(tx, &granter, granter_key_fpr).await?;
     let subject_key = signing_key_of(tx, &request.subject.to_string())
         .await?
         .ok_or(AuthorityError::NoSigningKey)?;
@@ -2693,13 +2740,12 @@ pub(crate) async fn propose_grants_for_keys(
     auth: &Authority<'_>,
     verified: &VerifiedAuthorityState,
     items: &[KeyedGrantRequest],
+    granter_key_fpr: &[u8; 32],
     now: i64,
 ) -> Result<Vec<GrantProposal>, AuthorityError> {
     let organisation = auth.organisation();
     let granter = auth.actor();
-    let granter_key = signing_key_of(tx, &granter)
-        .await?
-        .ok_or(AuthorityError::NoSigningKey)?;
+    let granter_key = granter_signing_key(tx, &granter, Some(granter_key_fpr)).await?;
     let base = next_epoch(tx, &organisation).await?;
 
     let mut out = Vec::with_capacity(items.len());
