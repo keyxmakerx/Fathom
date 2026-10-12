@@ -39,6 +39,8 @@ export interface Person {
   email: string | null;
   you: boolean;
   state: PersonState;
+  /** Added at once and has not used their link yet (ADR-0065). */
+  notSignedInYet: boolean;
   invitation: string | null;
   asked: { capability: Asked; scopeId: string | null; scopeLabel: string } | null;
   expired: boolean;
@@ -65,7 +67,10 @@ export function parsePeople(bytes: Uint8Array): People {
         name: str(p, 'name', what),
         email: optStr(p, 'email', what),
         you: bool(p, 'you', what),
-        state: oneOf(p, 'state', ['active', 'invited', 'waiting'] as const, what),
+        // `added` (ADR-0065) is a member whose link is not used yet: in, as far
+        // as access goes, so it reads as active with `notSignedInYet` set.
+        state: p.state === 'added' ? 'active' : oneOf(p, 'state', ['active', 'invited', 'waiting'] as const, what),
+        notSignedInYet: p.state === 'added',
         invitation: optStr(p, 'invitation', what),
         asked: asked && {
           capability: oneOf(asked, 'capability', CAPS, what),

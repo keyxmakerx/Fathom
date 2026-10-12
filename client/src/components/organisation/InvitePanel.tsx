@@ -17,7 +17,8 @@ export interface InviteFormProps {
 
 const CAPABILITIES: Asked[] = ['read', 'draw', 'steward'];
 
-/** Invite someone: who, what they can do, and where. Nothing is granted by this. */
+/** Add someone: who, what they can do, and where. Read and draw are granted as
+ * they are added (ADR-0065); a steward is still invited and confirmed. */
 export function InviteForm({ folders, organisationName, busy, error, onSubmit, onCancel }: InviteFormProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -31,7 +32,7 @@ export function InviteForm({ folders, organisationName, busy, error, onSubmit, o
 
   return (
     <form className="org-form" onSubmit={submit}>
-      <div className="org-form__title">Invite someone</div>
+      <div className="org-form__title">Add someone</div>
       <label className="org-field">
         <span className="org-field__label">Name</span>
         <input className="org-input" value={name} maxLength={100} required autoFocus onChange={(e) => setName(e.target.value)} />
@@ -71,7 +72,9 @@ export function InviteForm({ folders, organisationName, busy, error, onSubmit, o
         </span>
       </label>
       <p className="org-note">
-        This only makes an invitation. The person gets access after they join and you confirm them, under Waiting for you.
+        {capability === 'steward'
+          ? 'A steward is invited, not added: once they have joined, you confirm them under Waiting for you, and a second steward or a one-day wait makes it count.'
+          : 'They have this access as soon as you add them. You get a link to send them, which they open once to set up their sign-in.'}
       </p>
       {error && (
         <p className="home__error" role="alert">
@@ -80,7 +83,7 @@ export function InviteForm({ folders, organisationName, busy, error, onSubmit, o
       )}
       <div className="org-actions">
         <button type="submit" className="org-btn org-btn--primary" disabled={busy || name.trim() === ''}>
-          {busy ? 'Making the link…' : 'Make the link'}
+          {busy ? 'Adding…' : capability === 'steward' ? 'Make the link' : 'Add'}
         </button>
         <button type="button" className="org-btn" onClick={onCancel} disabled={busy}>
           Cancel
@@ -95,13 +98,17 @@ export interface LinkCardProps {
   /** What they were invited to, in words: `Draw · LON1`. */
   access: string;
   name: string;
+  /** Their access was signed as they were added, so the link is the last step. */
+  added: boolean;
+  /** Why it was not, when adding was tried and fell back to an invitation. */
+  notAddedBecause: string | null;
   origin: string;
   onDone: () => void;
   onAnother: () => void;
 }
 
 /** The one-time link. The server keeps no copy, so this is the only time it can be shown. */
-export function LinkCard({ invitation, access, name, origin, onDone, onAnother }: LinkCardProps) {
+export function LinkCard({ invitation, access, name, added, notAddedBecause, origin, onDone, onAnother }: LinkCardProps) {
   const [copied, setCopied] = useState<'link' | 'name' | null>(null);
   const link = invitationAddress(origin, invitation.token);
 
@@ -116,7 +123,13 @@ export function LinkCard({ invitation, access, name, origin, onDone, onAnother }
 
   return (
     <div className="org-form" data-testid="invite-link-card">
-      <div className="org-form__title">Send this to {name}</div>
+      <div className="org-form__title">{added ? `${name} is added. Send them this link` : `Send this to ${name}`}</div>
+      {notAddedBecause && (
+        <p className="home__error" role="alert" data-testid="invite-not-added">
+          {name} was invited but not added yet: {notAddedBecause} Once they have joined, confirm them under Waiting for
+          you.
+        </p>
+      )}
       <p className="org-note">
         <strong>Fathom does not email this.</strong> You send it yourself, by a message or a call you trust. Send the
         link and the sign-in name together.
@@ -141,7 +154,15 @@ export function LinkCard({ invitation, access, name, origin, onDone, onAnother }
       </div>
       <ul className="org-list">
         <li>
-          Asked for: <strong>{access}</strong>. Nothing is granted until they have joined and you have confirmed them.
+          {added ? (
+            <>
+              They can: <strong>{access}</strong>, from the moment they open the link.
+            </>
+          ) : (
+            <>
+              Asked for: <strong>{access}</strong>. Nothing is granted until they have joined and you have confirmed them.
+            </>
+          )}
         </li>
         <li>
           The link works once, and stops working on {dateLabel(invitation.expiresAtUnix)}. If it is lost or used by
@@ -157,7 +178,7 @@ export function LinkCard({ invitation, access, name, origin, onDone, onAnother }
           Done
         </button>
         <button type="button" className="org-btn" onClick={onAnother}>
-          Invite someone else
+          Add someone else
         </button>
       </div>
     </div>

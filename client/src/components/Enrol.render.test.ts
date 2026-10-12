@@ -44,22 +44,21 @@ describe('the page an invited person opens', () => {
   it('asks for the sign-in name that came with the link, and says it is not their email', () => {
     expect(html).toContain('Sign-in name');
     expect(html).toContain('It is not your email.');
-    expect(html).toContain('read a short code to the');
-    expect(html).toContain('until they do you have no');
+    expect(html).toContain('If you');
+    expect(html).toContain('were added, you are in as soon as this finishes');
   });
 
-  it('shows the key-check code to read out, and what happens until a steward confirms', () => {
+  it('leads with Continue, and keeps the key-check code for a confirm that still waits', () => {
     const joined = renderToStaticMarkup(createElement(JoinedCode, { code: 'QDMPW1FAVF' }));
+    expect(joined).toContain('Press Continue to open Fathom');
     expect(joined).toContain('QDMPW 1FAVF');
-    expect(joined).toContain('read this code to them');
-    expect(joined).toContain('you will see no organisation');
-    expect(joined).toContain('someone else may have used your link');
+    expect(joined).toContain('still has to confirm you');
   });
 
-  it('says what to do when the code could not be read, without inventing one', () => {
+  it('shows no code when none could be read, without inventing one', () => {
     const joined = renderToStaticMarkup(createElement(JoinedCode, { code: null }));
     expect(joined).not.toContain('enrol__code');
-    expect(joined).toContain('Until they confirm you');
+    expect(joined).toContain('Press Continue to open Fathom');
   });
 });
 

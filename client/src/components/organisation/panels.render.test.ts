@@ -16,18 +16,57 @@ import { applyEdits, splitRows } from './model';
 const noop = () => undefined;
 const html = (el: Parameters<typeof renderToStaticMarkup>[0]) => renderToStaticMarkup(el);
 
-describe('Invite someone', () => {
-  it('asks name, optional email, Read/Draw/Steward and a folder, and says nothing is granted yet', () => {
+describe('Add someone', () => {
+  it('asks name, optional email, Read/Draw/Steward and a folder, and says access starts when they are added', () => {
     const out = html(
       createElement(InviteForm, { folders: [folder('S1', 'LON1')], organisationName: 'Northwind', busy: false, error: null, onSubmit: noop, onCancel: noop }),
     );
-    expect(out).toContain('Invite someone');
+    expect(out).toContain('Add someone');
     expect(out).toContain('Email (optional)');
     for (const word of ['Read', 'Draw', 'Steward']) expect(out).toContain(`<strong>${word}</strong>`);
     expect(out).toContain('LON1');
     expect(out).toContain('Whole organisation (Northwind)');
     expect(out).toContain('Fathom does not send anything to it');
-    expect(out).toContain('This only makes an invitation');
+    expect(out).toContain('They have this access as soon as you add them');
+    expect(out).toContain('>Add<');
+  });
+
+  it('says a person who was added is in, from the moment they open the link', () => {
+    const token = `inv_${'a'.repeat(64)}`;
+    const out = html(
+      createElement(LinkCard, {
+        invitation: { invitation: 'I', account: 'A', signInName: 'jo-kim-abcd1234', token, linkPath: `/invite#${token}`, expiresAtUnix: 1_800_259_200 },
+        access: 'Draw · LON1',
+        name: 'Jo Kim',
+        added: true,
+        notAddedBecause: null,
+        origin: 'https://fathom.example',
+        onDone: noop,
+        onAnother: noop,
+      }),
+    );
+    expect(out).toContain('Jo Kim is added. Send them this link');
+    expect(out).toContain('from the moment they open the link');
+    expect(out).not.toContain('Nothing is granted until');
+  });
+
+  it('says why a person was only invited when signing their access failed', () => {
+    const token = `inv_${'a'.repeat(64)}`;
+    const out = html(
+      createElement(LinkCard, {
+        invitation: { invitation: 'I', account: 'A', signInName: 'jo-kim-abcd1234', token, linkPath: `/invite#${token}`, expiresAtUnix: 1_800_259_200 },
+        access: 'Draw · LON1',
+        name: 'Jo Kim',
+        added: false,
+        notAddedBecause: 'This browser holds no signing key.',
+        origin: 'https://fathom.example',
+        onDone: noop,
+        onAnother: noop,
+      }),
+    );
+    expect(out).toContain('data-testid="invite-not-added"');
+    expect(out).toContain('This browser holds no signing key.');
+    expect(out).toContain('Nothing is granted until');
   });
 
   it('shows the link once, with the sign-in name, and says Fathom does not email it', () => {
@@ -37,6 +76,8 @@ describe('Invite someone', () => {
         invitation: { invitation: 'I', account: 'A', signInName: 'jo-kim-abcd1234', token, linkPath: `/invite#${token}`, expiresAtUnix: 1_800_259_200 },
         access: 'Draw · LON1',
         name: 'Jo Kim',
+        added: false,
+        notAddedBecause: null,
         origin: 'https://fathom.example',
         onDone: noop,
         onAnother: noop,
@@ -70,7 +111,7 @@ describe('the Organisation rail', () => {
 describe('People', () => {
   const list = { waitingCount: 1, people: [person(), person({ account: 'P2', name: 'Ana Silva', state: 'invited', access: [], asked: { capability: 'read', scopeId: null, scopeLabel: 'Northwind' } })] };
 
-  it('lists name, what they can do, and their state, with the Waiting box and Invite someone', () => {
+  it('lists name, what they can do, and their state, with the Waiting box and Add someone', () => {
     const out = html(
       createElement(PeopleList, {
         people: list,
@@ -80,7 +121,7 @@ describe('People', () => {
         onOpenWaiting: noop,
       }),
     );
-    expect(out).toContain('Invite someone');
+    expect(out).toContain('Add someone');
     expect(out).toContain('Priya Rao');
     expect(out).toContain('priya@example.test');
     expect(out).toContain('Draw · LON1; Read · whole organisation');

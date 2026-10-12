@@ -236,6 +236,8 @@ impl From<KeyStoreError> for InviteError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
     Asked,
+    /// Signed and a member, link not yet used (ADR-0065, `0039`).
+    Added,
     Joined,
     Confirmed,
     Refused,
@@ -246,6 +248,7 @@ impl State {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Asked => "asked",
+            Self::Added => "added",
             Self::Joined => "joined",
             Self::Confirmed => "confirmed",
             Self::Refused => "refused",
@@ -256,6 +259,7 @@ impl State {
     fn parse(text: &str) -> Option<Self> {
         match text {
             "asked" => Some(Self::Asked),
+            "added" => Some(Self::Added),
             "joined" => Some(Self::Joined),
             "confirmed" => Some(Self::Confirmed),
             "refused" => Some(Self::Refused),
@@ -461,7 +465,7 @@ fn joined_window_open(row: &InvitationRow, now: i64) -> bool {
 /// while the link is unused, the joined window afterwards.
 fn window_ends_at(row: &InvitationRow) -> i64 {
     match row.state {
-        State::Asked => row.asked_expires_at_unix,
+        State::Asked | State::Added => row.asked_expires_at_unix,
         _ => row.joined_at_unix + JOINED_WINDOW_SECONDS,
     }
 }
@@ -946,7 +950,10 @@ pub(crate) async fn check_open_for_join(
     if !row_verifies(ring, &row) {
         return Err(OperatorError::Unverifiable("invitation row seal"));
     }
-    if row.state != State::Asked || row.asked_expires_at_unix <= now_unix() {
+    // Asked: joining makes a request a steward confirms. Added: the steward
+    // already signed, and joining is the last step in (ADR-0065).
+    if !matches!(row.state, State::Asked | State::Added) || row.asked_expires_at_unix <= now_unix()
+    {
         return Ok(JoinCheck::Refused("invitation_not_open"));
     }
     Ok(JoinCheck::Open(Box::new(row)))
@@ -975,7 +982,12 @@ pub(crate) async fn mark_joined(
 ) -> Result<(), OperatorError> {
     let read_version = open.row_version;
     let mut row = *open;
-    row.state = State::Joined;
+    // An added person is in once their key lands; a request waits for a steward.
+    row.state = if row.state == State::Added {
+        State::Confirmed
+    } else {
+        State::Joined
+    };
     row.joined_at_unix = now_unix();
     row.joined_seq = Some(joined_seq);
     row.enrolled_key_id = Some(key.id.clone());
@@ -1191,6 +1203,15 @@ pub async fn people(
     let ids: BTreeSet<String> = members.iter().map(|r| r.get(0)).collect();
     let lines = grants::access_lines(tx, auth, &verified, &ids, &mut check).await?;
 
+    // Added at once and link not yet used (ADR-0065): already a member, so they
+    // are listed once, as a member, with a state that says they have not been in.
+    let (views, waiting_count) = open_invitations(tx, ring, auth, &verified, &mut check).await?;
+    let added: BTreeSet<&str> = views
+        .iter()
+        .filter(|v| v.row.state == State::Added)
+        .map(|v| v.row.account_id.as_str())
+        .collect();
+
     let mut out = Vec::new();
     for m in &members {
         let id: String = m.get(0);
@@ -1203,7 +1224,17 @@ pub async fn people(
             ("name", Json::Str(m.get(2))),
             ("email", Json::Str(m.get(1))),
             ("you", Json::Bool(id == caller)),
-            ("state", Json::Str("active".to_string())),
+            (
+                "state",
+                Json::Str(
+                    if added.contains(id.as_str()) {
+                        "added"
+                    } else {
+                        "active"
+                    }
+                    .to_string(),
+                ),
+            ),
             ("invitation", Json::Null),
             ("asked", Json::Null),
             ("expired", Json::Bool(false)),
@@ -1211,9 +1242,8 @@ pub async fn people(
         ]));
     }
 
-    let (views, waiting_count) = open_invitations(tx, ring, auth, &verified, &mut check).await?;
     let now = now_unix();
-    for v in &views {
+    for v in views.iter().filter(|v| v.row.state != State::Added) {
         let r = &v.row;
         out.push(obj(vec![
             ("account", Json::Str(r.account_id.clone())),
@@ -1431,7 +1461,7 @@ impl InvitationView {
     }
 }
 
-/// The open (asked or joined) invitations in scopes the caller stewards, each
+/// The open (asked, added or joined) invitations in scopes the caller stewards, each
 /// seal checked, and how many of them can be confirmed right now.
 async fn open_invitations(
     tx: &Transaction<'_>,
@@ -1444,7 +1474,9 @@ async fn open_invitations(
         .query(
             &format!(
                 "SELECT {INVITATION_COLUMNS} FROM organisation_invitations \
-                  WHERE organisation_id = $1 AND state IN ('asked', 'joined') \
+                  WHERE organisation_id = $1 \
+                    AND (state IN ('asked', 'joined') \
+                      OR (state = 'added' AND asked_expires_at > now())) \
                   ORDER BY issued_at, id"
             ),
             &[&auth.ctx.tenant().to_string()],
@@ -1655,12 +1687,14 @@ pub struct Proposed {
 }
 
 /// Look at a waiting invitation for the caller: the row exists in this
-/// organisation, verifies, is joined, and its window is open. `index` is the
-/// item's place in a batch.
+/// organisation, verifies, and is either joined with its window open, or (for a
+/// read or draw item, ADR-0065) still asked with its link unexpired, which is
+/// how a person is added at once. `index` is the item's place in a batch.
 fn waiting_row(
     ring: &KeyRing,
     row: Option<InvitationRow>,
     organisation: &str,
+    capability: Capability,
     now: i64,
     index: usize,
 ) -> Result<InvitationRow, InviteError> {
@@ -1672,13 +1706,34 @@ fn waiting_row(
     if !row_verifies(ring, &row) {
         return Err(refuse(BatchReason::Unverifiable));
     }
-    if row.state != State::Joined {
-        return Err(refuse(BatchReason::NotWaiting));
-    }
-    if !joined_window_open(&row, now) {
-        return Err(refuse(BatchReason::WindowClosed));
+    match row.state {
+        State::Joined => {
+            if !joined_window_open(&row, now) {
+                return Err(refuse(BatchReason::WindowClosed));
+            }
+        }
+        // Added at once: the steward signs before the person holds a key, so
+        // only read and draw, and only while the link can still be used.
+        State::Asked if capability != Capability::Steward => {
+            if row.asked_expires_at_unix <= now {
+                return Err(refuse(BatchReason::WindowClosed));
+            }
+        }
+        _ => return Err(refuse(BatchReason::NotWaiting)),
     }
     Ok(row)
+}
+
+/// The subject key a grant for this row names: the key the person enrolled
+/// when they joined, or none yet for a person being added at once (ADR-0065).
+fn subject_key_for(row: &InvitationRow, index: usize) -> Result<[u8; 32], InviteError> {
+    match row.state {
+        State::Asked => Ok(grants::NO_SUBJECT_KEY),
+        _ => row.enrolled_key_fpr.ok_or(InviteError::Batch {
+            index,
+            reason: BatchReason::KeyChanged,
+        }),
+    }
 }
 
 /// Hide a row from a caller who does not steward the **invitation's own** scope
@@ -1761,11 +1816,8 @@ pub async fn propose(
             index,
         )
         .await?;
-        let row = waiting_row(ring, row, &organisation, now, index)?;
-        let fpr = row.enrolled_key_fpr.ok_or(InviteError::Batch {
-            index,
-            reason: BatchReason::KeyChanged,
-        })?;
+        let row = waiting_row(ring, row, &organisation, item.capability, now, index)?;
+        let fpr = subject_key_for(&row, index)?;
         requests.push(KeyedGrantRequest {
             scope: item.scope,
             subject: row.account_id.clone(),
@@ -1918,12 +1970,12 @@ pub async fn confirm(
             index,
         )
         .await?;
-        let row = waiting_row(ring, row, &organisation, now, index)?;
-        let enrolled = row
-            .enrolled_key_fpr
-            .ok_or(refuse(BatchReason::KeyChanged))?;
+        let row = waiting_row(ring, row, &organisation, item.capability, now, index)?;
+        let adding = row.state == State::Asked;
+        let enrolled = subject_key_for(&row, index)?;
         // The key the person enrolled, and nothing else: the request names it
-        // and it must match what the row sealed when they joined.
+        // and it must match what the row sealed when they joined. Added at
+        // once, there is no key yet and the request must say so.
         if item.subject_key_fpr != enrolled {
             return Err(refuse(BatchReason::KeyChanged));
         }
@@ -1947,7 +1999,12 @@ pub async fn confirm(
         let live = grants::live_signing_keys(tx, &row.account_id)
             .await
             .map_err(|e| batch_error_from(index, e))?;
-        if live.len() != 1 || live[0].fpr != enrolled {
+        let keys_as_expected = if adding {
+            live.is_empty()
+        } else {
+            live.len() == 1 && live[0].fpr == enrolled
+        };
+        if !keys_as_expected {
             return Err(refuse(BatchReason::KeyChanged));
         }
 
@@ -1983,7 +2040,11 @@ pub async fn confirm(
             ring,
             auth,
             row.clone(),
-            State::Confirmed,
+            if adding {
+                State::Added
+            } else {
+                State::Confirmed
+            },
             Some(&grant),
             Some((&batch_id, n)),
         )

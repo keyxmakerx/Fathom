@@ -3432,3 +3432,167 @@ async fn five_hundred_people_confirm_in_one_batch_inside_the_drift_budget() {
 
     ship_the_backlog(&spool).await;
 }
+
+// ===========================================================================
+// ADR-0065: a person added at once (`0039`)
+// ===========================================================================
+
+#[tokio::test]
+async fn a_person_added_at_once_is_a_member_before_they_join_and_in_when_they_do() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring, 1).await;
+    let scope = a_scope(&pool, &estate, None, ScopeKind::Network).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Limits::STANDARD).await).await;
+    let steward = &estate.stewards[0];
+    let superuser = su().await;
+
+    // Add: invite, then sign straight away, before the link is ever used.
+    let invited = invite(addr, &estate, steward, "Lori", "draw", Some(scope)).await;
+    let (status, answer) = confirm_all(
+        addr,
+        &estate,
+        steward,
+        &[invited.invitation.as_str()],
+        "draw",
+        Some(scope),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
+
+    // A member already, by a grant that names the account and no key.
+    assert_eq!(memberships_of(&superuser, &invited.account).await, 1);
+    let fpr: Vec<u8> = superuser
+        .query_one(
+            "SELECT subject_key_fpr FROM scope_grants WHERE subject_id = $1",
+            &[&invited.account],
+        )
+        .await
+        .expect("one grant")
+        .get(0);
+    assert_eq!(fpr, grants::NO_SUBJECT_KEY.to_vec());
+    let row = read_row(&pool, &ring, &estate, &invited.invitation).await;
+    assert_eq!(row.state, invitations::State::Added);
+    assert!(row.grant_id.is_some() && row.joined_at_unix == 0);
+    assert!(invitations::row_verifies(&ring, &row));
+
+    // People lists them once, as added; Waiting for you does not.
+    let people_path = format!("/organisations/{}/people", estate.organisation);
+    let listing = parse(&call(addr, steward, "GET", &people_path, b"").await.1);
+    let rows: Vec<&Json> = array(&listing, "people")
+        .iter()
+        .filter(|p| text(p, "account") == invited.account)
+        .collect();
+    assert_eq!(rows.len(), 1, "listed once");
+    assert_eq!(text(rows[0], "state"), "added");
+    assert_eq!(int(&listing, "waiting_count"), 0);
+
+    // They use the link, and they are in: no confirm, no code.
+    let person = join(&pool, &ring, &invited).await;
+    let row = read_row(&pool, &ring, &estate, &invited.invitation).await;
+    assert_eq!(row.state, invitations::State::Confirmed);
+    assert!(row.enrolled_key_fpr.is_some() && row.joined_at_unix > 0);
+    assert!(invitations::row_verifies(&ring, &row));
+
+    let mut client = pool.get().await.unwrap();
+    let (tx, ctx, tenant_key) =
+        tenant_tx(&mut client, &ring, estate.organisation, person.account).await;
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let held = grants::authorise_account(&tx, &auth, Some(scope), Capability::Draw)
+        .await
+        .expect("the added person can draw at the scope");
+    assert_eq!(held.via_grant, row.grant_id.clone().unwrap());
+    let denied = grants::authorise_account(&tx, &auth, Some(scope), Capability::Steward).await;
+    assert!(matches!(denied, Err(AuthorityError::NotAuthorised)));
+    tx.rollback().await.unwrap();
+
+    let listing = parse(&call(addr, steward, "GET", &people_path, b"").await.1);
+    let me = array(&listing, "people")
+        .iter()
+        .find(|p| text(p, "account") == invited.account)
+        .cloned()
+        .expect("listed");
+    assert_eq!(text(&me, "state"), "active");
+    the_chains_verify(&pool, &ring, &estate).await;
+}
+
+#[tokio::test]
+async fn a_steward_is_never_added_at_once() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring, 1).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Limits::STANDARD).await).await;
+    let steward = &estate.stewards[0];
+    let superuser = su().await;
+    let head_before = head_epoch(&superuser, &estate).await;
+
+    let invited = invite(addr, &estate, steward, "Would-be steward", "steward", None).await;
+    let (status, answer) = propose(
+        addr,
+        &estate,
+        steward,
+        &propose_body(&[(invited.invitation.as_str(), "steward", None)], Some("")),
+    )
+    .await;
+    assert_ne!(status, "200", "{}", String::from_utf8_lossy(&answer));
+    // Nothing was signed and nobody was made a member.
+    assert_eq!(memberships_of(&superuser, &invited.account).await, 0);
+    assert_eq!(head_epoch(&superuser, &estate).await, head_before);
+    let row = read_row(&pool, &ring, &estate, &invited.invitation).await;
+    assert_eq!(row.state, invitations::State::Asked);
+}
+
+#[tokio::test]
+async fn an_added_invitation_cannot_be_cancelled_rejoined_or_moved_back() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring, 1).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Limits::STANDARD).await).await;
+    let steward = &estate.stewards[0];
+    let invited = invite(addr, &estate, steward, "Added Ada", "read", None).await;
+    let (status, answer) = confirm_all(
+        addr,
+        &estate,
+        steward,
+        &[invited.invitation.as_str()],
+        "read",
+        None,
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
+    let superuser = su().await;
+
+    // Even the superuser's own UPDATE meets the trigger: the only way on from
+    // `added` is a redemption to `confirmed`.
+    for to in ["asked", "joined", "cancelled", "refused"] {
+        let moved = superuser
+            .execute(
+                "UPDATE organisation_invitations SET state = $1, row_version = row_version + 1 \
+                  WHERE id = $2",
+                &[&to, &invited.invitation],
+            )
+            .await;
+        assert!(moved.is_err(), "added -> {to} must be refused");
+    }
+
+    // A second redemption after the first is refused, as for any link.
+    let _person = join(&pool, &ring, &invited).await;
+    let again = operators(&pool, &ring)
+        .await
+        .redeem_account_enrolment(
+            &invited.token,
+            &invited.sign_in_name,
+            &SoftwareKey::random().unwrap().public_key(),
+        )
+        .await;
+    assert!(again.is_err());
+}

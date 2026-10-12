@@ -75,7 +75,7 @@ export async function issueInvitation(organisation: string, request: IssueReques
 export interface Invitation {
   id: string;
   account: string;
-  state: 'asked' | 'joined';
+  state: 'asked' | 'added' | 'joined';
   /** What the steward typed. Not attested by the person. */
   displayName: string;
   /** What the steward typed. Not attested by the person. */
@@ -122,7 +122,7 @@ export function parseInvitation(entry: unknown, i: number): Invitation {
   return {
     id: str(r, 'id', what),
     account: str(r, 'account', what),
-    state: oneOf(r, 'state', ['asked', 'joined'] as const, what),
+    state: oneOf(r, 'state', ['asked', 'added', 'joined'] as const, what),
     displayName: str(r, 'display_name', what),
     contactEmail: optStr(r, 'contact_email', what),
     signInName: str(r, 'sign_in_name', what),
@@ -188,8 +188,11 @@ export interface ConfirmRow {
   account: string;
   capability: Asked;
   scopeId: string | null;
-  /** The code shown on the row, from the joiner's key. */
+  /** The code shown on the row, from the joiner's key. Empty when `adding`. */
   keyCode: string;
+  /** Added at once (ADR-0065): the person holds no key yet, so the grant names
+   * none and there is no code to compare. Read and draw only. */
+  adding?: boolean;
 }
 
 export interface ProposedItem {
@@ -318,7 +321,12 @@ export function checkProposal(
     if (item.capability !== row.capability) refuse('different access');
     if (item.scopeId !== row.scopeId) refuse('a different folder');
     const subjectFpr = fromHexStrict(item.subjectKeyFpr, 'a key fingerprint');
-    if (keyCode(subjectFpr) !== row.keyCode || item.keyCode !== row.keyCode) refuse('a different key from the code you were shown');
+    if (row.adding) {
+      if (row.capability === 'steward') refuse('a steward added without their own key');
+      if (subjectFpr.length !== 32 || subjectFpr.some((b) => b !== 0)) refuse('a key for someone who has none yet');
+    } else if (keyCode(subjectFpr) !== row.keyCode || item.keyCode !== row.keyCode) {
+      refuse('a different key from the code you were shown');
+    }
     if (item.authEpoch !== proposal.headEpoch + 1 + i) refuse('epochs that are not consecutive');
     if (item.granterKeyFpr !== granterHex) refuse('a signing key that is not this browser’s');
     if (item.rootPubkeyFpr !== root) refuse('more than one organisation root');
@@ -435,6 +443,49 @@ export async function signAndConfirm(checked: CheckedProposal): Promise<ConfirmR
   const signed: { item: ProposedItem; signature: Uint8Array }[] = [];
   for (const c of checked.items) signed.push({ item: c.item, signature: await signMessage(key, c.bytes) });
   return parseConfirmResult(await signedFetch('POST', base(checked.organisation) + '/confirm', buildConfirmBody(signed)));
+}
+
+// ---- Add at once (ADR-0065) -------------------------------------------
+
+export interface AddedPerson {
+  issued: IssuedInvitation;
+  /** True when this browser signed their access as they were added, so they are
+   * in as soon as they use the link. False leaves an ordinary invitation, to be
+   * confirmed after they join, and `notAddedBecause` says why. */
+  added: boolean;
+  notAddedBecause: string | null;
+}
+
+/**
+ * Add a person: make the invitation, then sign their access with this
+ * browser's key at once, so they are a member before they ever open the link.
+ * The owner, 2026-10-12: "if i want to add another user, then i just can."
+ *
+ * A steward is still invited and confirmed (appointing one needs a second
+ * steward or the one-day wait), and if signing fails for any reason the
+ * invitation stands as an ordinary one: nothing is lost, the person just waits
+ * for a confirm.
+ */
+export async function addPerson(organisation: string, request: IssueRequest): Promise<AddedPerson> {
+  const issued = await issueInvitation(organisation, request);
+  if (request.capability === 'steward') return { issued, added: false, notAddedBecause: null };
+  try {
+    const checked = await proposeConfirm(organisation, [
+      {
+        invitation: issued.invitation,
+        account: issued.account,
+        capability: request.capability,
+        scopeId: request.scopeId,
+        keyCode: '',
+        adding: true,
+      },
+    ]);
+    await signAndConfirm(checked);
+    return { issued, added: true, notAddedBecause: null };
+  } catch (error) {
+    console.error(error);
+    return { issued, added: false, notAddedBecause: describeError(error) };
+  }
 }
 
 // ---- Words for what the server refused -------------------------------

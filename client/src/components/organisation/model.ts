@@ -32,6 +32,7 @@ export function startsLater(person: Person, nowMs: number): number | null {
 export function stateWords(person: Person, nowMs: number = Date.now()): string {
   if (person.state === 'active') {
     const starts = startsLater(person, nowMs);
+    if (person.notSignedInYet) return 'Added, has not signed in yet';
     return starts === null ? 'Active' : `Starts ${shortDateLabel(starts)}`;
   }
   if (person.state === 'waiting') return person.expired ? 'Joined, too late to confirm' : 'Waiting for you';
