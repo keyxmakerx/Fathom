@@ -221,3 +221,41 @@
   padding: var(--s2) var(--s6) 0;
   background: var(--page);
 }
+
+/* Section tabs (owner, 2026-10-12): the same row Home's tabs draw
+   (`home/home.css` .home-tabs), under the console's own names. */
+.console__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+  max-width: 64rem;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.console__tab {
+  padding: var(--s2) var(--s3);
+  font-size: var(--t-tab);
+  letter-spacing: var(--track-head);
+  text-transform: uppercase;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-bottom: var(--rule-accent) solid transparent;
+  margin-bottom: calc(-1 * var(--rule-hair));
+  cursor: pointer;
+}
+
+.console__tab:hover {
+  color: var(--ink);
+}
+
+.console__tab--on {
+  color: var(--ink);
+  font-weight: 700;
+  border-bottom-color: var(--ink);
+}
+
+/* The tab row already draws the rule above the first section. */
+.console__tabs + .console__section {
+  border-top: none;
+}

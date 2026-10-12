@@ -105,54 +105,6 @@
   color: var(--ink);
 }
 
-/* The identities this browser holds a key for: one row each, pressed to
-   sign in as it. The id in ink, the plane in the margin. */
-.signin__identities {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s1);
-  margin-bottom: var(--s4);
-}
-
-.signin__identity {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--s3);
-  width: 100%;
-  border: var(--rule-hair) solid var(--hairline);
-  background: var(--page);
-  color: var(--ink);
-  padding: var(--s2) var(--s3);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.signin__identity:hover:enabled,
-.signin__identity:focus-visible {
-  border-color: var(--ink);
-}
-
-.signin__identity:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.signin__identity-id {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.signin__identity-kind {
-  flex: none;
-  font-size: var(--t-small);
-  color: var(--muted);
-  letter-spacing: var(--track-label);
-  text-transform: uppercase;
-}
-
 /* ADR-0055 client (a) — the credential doors: setup, reset, the account
    screen and the console entry. Same card, same rules, no new tokens: a
    heading for the sections a screen now has more than one of, a hint under
@@ -218,8 +170,7 @@
   user-select: all;
 }
 
-/* ADR-0057 decision 8 — "Signed-in browsers": reuses `.signin__identity`'s
-   border-and-padding language, but as a plain row, never a button. */
+/* ADR-0057 decision 8 — "Signed-in browsers": a plain row with a hairline border, never a button. */
 .account__sessions {
   display: flex;
   flex-direction: column;

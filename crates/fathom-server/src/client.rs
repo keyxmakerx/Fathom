@@ -211,12 +211,15 @@ fn content_type(rel: &Path) -> &'static str {
 
 /// Vite names everything under `assets/` by content hash, so those may be
 /// cached for as long as a browser likes; `index.html` and the engine module
-/// keep their names across builds and must be re-checked.
+/// keep their names across builds and are never kept (`no-store`, owner,
+/// 2026-10-12: "make sure the admin console can't have cache
+/// vulnerabilities"; it was `no-cache`, which is safe against a stale page
+/// but still lets a cache hold the bytes).
 fn cache_control(rel: &Path) -> &'static str {
     if rel.starts_with("assets") {
         "public, max-age=31536000, immutable"
     } else {
-        "no-cache"
+        "no-store"
     }
 }
 
@@ -339,7 +342,38 @@ impl SecurityHeaders {
     }
 }
 
+/// `app` with [`security_headers`] over everything in it, including the
+/// fallback serving the client's files. One function so `main.rs` and the
+/// tests mount the same layer.
+pub fn with_security_headers(app: Router, policy: SecurityHeaders) -> Router {
+    app.layer(axum::middleware::from_fn_with_state(
+        policy,
+        security_headers,
+    ))
+}
+
 /// The layer `main.rs` mounts over the whole application.
+///
+/// **Every response is `Cache-Control: no-store` unless it already says
+/// something else, and the only "something else" a handler or the file
+/// server sets is the hashed client bundle's long-lived header.** Owner,
+/// 2026-10-12: "make sure the admin console can't have cache
+/// vulnerabilities". Most API routes already set `no-store` by hand
+/// (`api::bytes_response` and its twins), but a route that forgets, an error
+/// from an extractor, a 404 or a 405 would be answered with no caching
+/// header at all, and a browser or shared proxy is then free to keep it
+/// heuristically (RFC 9111 section 4.2.2). Doing it here, last, means a new
+/// route cannot be added without it. `Pragma: no-cache` rides along for the
+/// HTTP/1.0 caches that do not read `Cache-Control`.
+///
+/// What is left alone: a response that set its own `Cache-Control`. The one
+/// such header that is not `no-store` is `ClientRoot`'s `immutable` on
+/// content-hashed files under `assets/`, whose names change with their
+/// bytes. `index.html` and the engine module keep their names across builds,
+/// so they are `no-store` too (they carry no validator, so nothing was being
+/// saved by `no-cache`).
+///
+/// The CSP and HSTS below are unchanged by this.
 pub async fn security_headers(
     axum::extract::State(policy): axum::extract::State<SecurityHeaders>,
     request: axum::extract::Request<Body>,
@@ -348,6 +382,16 @@ pub async fn security_headers(
     let over_tls = policy.arrived_over_tls(request.headers(), request.extensions());
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
+    if !headers.contains_key(header::CACHE_CONTROL) {
+        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    }
+    let stores_nothing = headers
+        .get(header::CACHE_CONTROL)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.contains("no-store"));
+    if stores_nothing {
+        headers.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+    }
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
         HeaderValue::from_static(CONTENT_SECURITY_POLICY),
@@ -406,10 +450,10 @@ mod tests {
             cache_control(Path::new("assets/main-abc.js")),
             "public, max-age=31536000, immutable"
         );
-        assert_eq!(cache_control(Path::new("index.html")), "no-cache");
+        assert_eq!(cache_control(Path::new("index.html")), "no-store");
         assert_eq!(
             cache_control(Path::new("engine/fathom_wasm.wasm")),
-            "no-cache"
+            "no-store"
         );
     }
 }

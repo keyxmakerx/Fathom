@@ -19,6 +19,7 @@ import { formatToken } from '../../api/enrolment';
 import { describeConsoleError } from './describeConsoleError';
 import { InvitationHandover } from './InvitationHandover';
 import { NoticesBanner } from './NoticesBanner';
+import { ConsoleTabs, consoleSections, type ConsoleSection } from './ConsoleTabs';
 import { Operators } from './Operators';
 import { PlacementForm } from './PlacementForm';
 import { SmtpForm } from './SmtpForm';
@@ -64,6 +65,14 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
   const [operators, setOperators] = useState<Loaded<OperatorRow[]>>({ status: 'loading' });
   const [organisations, setOrganisations] = useState<Loaded<OrganisationRow[]>>({ status: 'loading' });
   const [minted, setMinted] = useState<Minted[]>([]);
+  // One section at a time, Accounts first (owner, 2026-10-12).
+  const [section, setSection] = useState<ConsoleSection>('accounts');
+  // A token is shown once and lives only under "Issued", so minting one takes
+  // the person there: left on the form's tab they would see nothing happen.
+  const onMinted = useCallback((m: Minted) => {
+    setMinted((rows) => [m, ...rows]);
+    setSection('issued');
+  }, []);
   // ADR-0055 decision 9: whether the console answers on the host this page
   // was served from. Read once per page load, before a control is rendered.
   const consoleHost = useConsoleHost();
@@ -172,82 +181,92 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
         host={host}
       />
 
-      <section className="console__section" aria-labelledby="console-accounts">
-        <h2 id="console-accounts" className="console__h2">
-          Accounts
-        </h2>
-        <p className="console__note">
-          An account is a shell until its person redeems an invitation, which puts a key in their browser. There is
-          nothing to email an invitation with in this build: read the token off this board and hand it over
-          yourself. Each token works once and expires.
-        </p>
-        <AccountForm onMinted={(m) => setMinted((rows) => [m, ...rows])} />
-        <ReissueForm onMinted={(m) => setMinted((rows) => [m, ...rows])} />
-        <DisableForm />
-      </section>
+      <ConsoleTabs sections={consoleSections(minted.length > 0)} current={section} onSelect={setSection} />
 
-      <section className="console__section" aria-labelledby="console-organisations">
-        <h2 id="console-organisations" className="console__h2">
-          Organisations
-        </h2>
-        <p className="console__note">
-          Names in the clear, everything below them opaque: no design, rack or cable is reachable from here.
-        </p>
-        <ListBlock
-          loaded={organisations}
-          empty="No organisation exists yet."
-          render={(rows) => (
-            <table className="console__table">
-              <thead>
-                <tr>
-                  <th>id</th>
-                  <th>name</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.id}>
-                    <td>
-                      <code>{row.id}</code>
-                    </td>
-                    <td>{row.displayName}</td>
+      {section === 'accounts' && (
+        <section className="console__section" aria-labelledby="console-accounts">
+          <h2 id="console-accounts" className="console__h2">
+            Accounts
+          </h2>
+          <p className="console__note">
+            An account is a shell until its person redeems an invitation, which puts a key in their browser. There is
+            nothing to email an invitation with in this build: read the token off this board and hand it over
+            yourself. Each token works once and expires.
+          </p>
+          <AccountForm onMinted={onMinted} />
+          <ReissueForm onMinted={onMinted} />
+          <DisableForm />
+        </section>
+      )}
+
+      {section === 'organisations' && (
+        <section className="console__section" aria-labelledby="console-organisations">
+          <h2 id="console-organisations" className="console__h2">
+            Organisations
+          </h2>
+          <p className="console__note">
+            Names in the clear, everything below them opaque: no design, rack or cable is reachable from here.
+          </p>
+          <ListBlock
+            loaded={organisations}
+            empty="No organisation exists yet."
+            render={(rows) => (
+              <table className="console__table">
+                <thead>
+                  <tr>
+                    <th>id</th>
+                    <th>name</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        />
-        <OrganisationForm onMinted={(m) => setMinted((rows) => [m, ...rows])} />
-      </section>
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr key={row.id}>
+                      <td>
+                        <code>{row.id}</code>
+                      </td>
+                      <td>{row.displayName}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          />
+          <OrganisationForm onMinted={onMinted} />
+        </section>
+      )}
 
-      <section className="console__section" aria-labelledby="console-operators">
-        <h2 id="console-operators" className="console__h2">
-          Operators
-        </h2>
-        <ListBlock
-          loaded={operators}
-          empty="No operator is registered, which cannot be: you are one."
-          render={(rows) => <Operators actingOperatorId={operatorId} rows={rows} onChanged={refresh} />}
-        />
-        <button type="button" className="console__btn console__btn--quiet" onClick={refresh}>
-          Refresh
-        </button>
-      </section>
+      {section === 'operators' && (
+        <section className="console__section" aria-labelledby="console-operators">
+          <h2 id="console-operators" className="console__h2">
+            Operators
+          </h2>
+          <ListBlock
+            loaded={operators}
+            empty="No operator is registered, which cannot be: you are one."
+            render={(rows) => <Operators actingOperatorId={operatorId} rows={rows} onChanged={refresh} />}
+          />
+          <button type="button" className="console__btn console__btn--quiet" onClick={refresh}>
+            Refresh
+          </button>
+        </section>
+      )}
 
-      <section className="console__section" aria-labelledby="console-settings">
-        <h2 id="console-settings" className="console__h2">
-          Settings
-        </h2>
-        <p className="console__note">
-          Two settings live here rather than in a file, on the owner's instruction: mail, because an install with
-          no mail path cannot tell anybody anything; and where this console answers, because moving it from a file
-          means a restart, and a restart in the middle of a move is how a lockout happens.
-        </p>
-        <SmtpForm actingOperatorId={operatorId} />
-        <PlacementForm actingOperatorId={operatorId} currentHost={host} />
-      </section>
+      {section === 'settings' && (
+        <section className="console__section" aria-labelledby="console-settings">
+          <h2 id="console-settings" className="console__h2">
+            Settings
+          </h2>
+          <p className="console__note">
+            Two settings live here rather than in a file, on the owner's instruction: mail, because an install with
+            no mail path cannot tell anybody anything; and where this console answers, because moving it from a file
+            means a restart, and a restart in the middle of a move is how a lockout happens.
+          </p>
+          <SmtpForm actingOperatorId={operatorId} />
+          <PlacementForm actingOperatorId={operatorId} currentHost={host} />
+        </section>
+      )}
 
-      {minted.length > 0 && (
+      {section === 'issued' && minted.length > 0 && (
         <section className="console__section" aria-labelledby="console-minted">
           <h2 id="console-minted" className="console__h2">
             Issued in this session
