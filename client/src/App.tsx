@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { FormEvent } from 'react';
 
-import { beginSignIn, completeSignIn, isSecondFactorNeeded, type SignInChallenge } from './api/auth';
+import { beginSignIn, completeSignIn, isSecondFactorNeeded, signOut, type SignInChallenge } from './api/auth';
 import { identityOfSlot, PRINCIPAL_KIND_OPERATOR } from './api/constants';
 import { appCodeEnrolmentRequired } from './api/credentials';
 import { ApiRefusal } from './api/errors';
@@ -21,6 +21,7 @@ import { ClaimOrganisation } from './components/claim';
 import { Console } from './components/console/Console';
 import { Enrol, invitationFromLocation } from './components/Enrol';
 import { FirstRun } from './components/FirstRun';
+import { InviteWhileSignedIn } from './components/InviteWhileSignedIn';
 import { Reset, tokenFromLocation } from './components/Reset';
 import { Home, HomeTabs, type HomeTab } from './components/home';
 import type { DirectEntry } from './components/home';
@@ -175,6 +176,18 @@ export default function App() {
     if (invitationToken === null || typeof window === 'undefined') return;
     window.history.replaceState(null, '', window.location.pathname);
   }, [invitationToken]);
+  // An invitation link opened by somebody already signed in (owner,
+  // 2026-10-12: "i got lost when i tried to accept her invite"). The enrol
+  // door only draws with no session, so without this the link landed on Home
+  // saying nothing. `enrolDoorShown` is what tells "was signed in when the
+  // link opened" from "has just redeemed it here": the door draws first in the
+  // second case, and its own `signIn` is what makes the session.
+  const [inviteDismissed, setInviteDismissed] = useState(false);
+  const [leavingForInvite, setLeavingForInvite] = useState(false);
+  const enrolDoorShown = useRef(false);
+  useEffect(() => {
+    if (!session && door === 'enrol' && invitationToken !== null) enrolDoorShown.current = true;
+  }, [session, door, invitationToken]);
   const [view, setView] = useState<View>({ kind: 'home' });
 
   // ADR-0055 client (a): what the sign-in door is told by whatever sent the
@@ -641,6 +654,28 @@ export default function App() {
     );
   }
 
+  // The invitation link, opened while signed in: say what it is, and let the
+  // person choose. Signing out is theirs to press, and then the door above
+  // takes the token.
+  if (invitationToken !== null && door === 'enrol' && !inviteDismissed && !enrolDoorShown.current) {
+    return (
+      <InviteWhileSignedIn
+        address={session.address}
+        busy={leavingForInvite}
+        onBack={() => setInviteDismissed(true)}
+        onSignOutAndUse={() => {
+          setLeavingForInvite(true);
+          // The same function the bar's "Sign out" uses. The session is gone
+          // either way (`signOut` clears it first and only then reports a
+          // failed network call), so the door above shows with the token.
+          void signOut()
+            .catch(console.error)
+            .finally(() => setLeavingForInvite(false));
+        }}
+      />
+    );
+  }
+
   // ADR-0055 client (a): the account's own credential screen, opened from
   // Home. **Placement is this stream's own call and the shell's owner may
   // move it**: ADR-0055 gives every signed-in person a password and an app
@@ -938,8 +973,7 @@ export default function App() {
  *
  * `crypto/keys.ts` files an operator's key under `operator:<id>`
  * (`api/constants.ts`'s `keySlot`), and IndexedDB is per origin, so the slots
- * this reads belong to this install and no other. `SignIn.tsx` reads the same
- * list to offer the identities this browser can prove.
+ * this reads belong to this install and no other.
  */
 async function operatorSlotHeldHere(): Promise<string | null> {
   try {

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 
 import {
   beginSignIn,
@@ -8,9 +8,7 @@ import {
   signIn,
   type SignInChallenge,
 } from '../api/auth';
-import { identityOfSlot, OPERATOR_PENDING_SLOT, type SlotIdentity } from '../api/constants';
 import { ApiRefusal } from '../api/errors';
-import { listKeySlots } from '../crypto/keys';
 import '../styles/signin.css';
 
 /** What step two says it is doing, and for whom. A function rather than
@@ -176,11 +174,15 @@ export interface SignInProps {
  * nothing on this screen mentions it, because a person signing in has nothing
  * to decide about it.
  *
- * **No choice of plane.** The identities below are the ones this browser
- * holds a key for; pressing one fills the address in (an operator id signs in
- * on the spot, since the operator plane is a key sign-in and carries no
- * password). The owner's rule, 2026-09-21: *"if they have access they have
- * access, it shouldn't be a selection"*.
+ * **No choice of plane, and nothing to click but the card.** There used to
+ * be a "Saved on this browser" list of the key slots this browser holds,
+ * one button each. It is gone (owner, 2026-10-12: *"There shouldn't be 3
+ * logins for me, instead there isn't even a clickable login, i login with my
+ * username and password"*): the person types an address and a password, and
+ * `signIn` finds whichever key this browser holds for that address. An
+ * operator types their operator id in the same field. The earlier rule
+ * stands, 2026-09-21: *"if they have access they have access, it shouldn't
+ * be a selection"*.
  *
  * **One field for two kinds of code.** Six digits from the authenticator app;
  * one of the ten recovery codes goes in the same box, and the server tries it
@@ -197,7 +199,6 @@ export interface SignInProps {
  * at the address it carries, not from here.
  */
 export function SignIn({ onForgotPassword, initialAddress, notice }: SignInProps) {
-  const [identities, setIdentities] = useState<SlotIdentity[] | null>(null);
   const [address, setAddress] = useState(initialAddress ?? '');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
@@ -209,39 +210,12 @@ export function SignIn({ onForgotPassword, initialAddress, notice }: SignInProps
   const [busy, setBusy] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    listKeySlots()
-      .then(({ enrolled, pending }) => {
-        if (cancelled) return;
-        // Enrolled first, then pending ones not already listed; never the
-        // operator sentinel, whose owner is unknown until they type the id.
-        const seen = new Set<string>();
-        const rows: SlotIdentity[] = [];
-        for (const slot of [...enrolled, ...pending]) {
-          if (slot === OPERATOR_PENDING_SLOT || seen.has(slot)) continue;
-          seen.add(slot);
-          rows.push(identityOfSlot(slot));
-        }
-        setIdentities(rows);
-      })
-      .catch(() => {
-        // Storage unavailable (a private window, cleared site data): the
-        // typed field below still works, and says so honestly when it
-        // finds nothing.
-        if (!cancelled) setIdentities([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   /** Step one: the address, the password, and no code. */
-  async function attempt(id: string, kind?: SlotIdentity['kind']) {
+  async function attempt(id: string) {
     setBusy(id);
     setRefusal(null);
     try {
-      const challenge = await beginSignIn(id, kind, { password });
+      const challenge = await beginSignIn(id, undefined, { password });
       try {
         await completeSignIn(challenge, { password });
       } catch (error) {
@@ -304,21 +278,6 @@ export function SignIn({ onForgotPassword, initialAddress, notice }: SignInProps
     await attempt(address.trim());
   }
 
-  /** An identity this browser holds a key for. An operator id is a key
-   * sign-in with no password (`../api/auth.ts`), so it is pressed and done;
-   * an account's address goes into the field above the password, because the
-   * password is still required whenever the account has one. */
-  function chooseIdentity(who: SlotIdentity) {
-    if (who.kind === 'operator') {
-      void attempt(who.id, who.kind);
-      return;
-    }
-    setAddress(who.id);
-    setRefusal(null);
-  }
-
-  const hasIdentities = identities !== null && identities.length > 0;
-
   if (secondFactor !== null) {
     return (
       <SecondFactorStep
@@ -345,29 +304,6 @@ export function SignIn({ onForgotPassword, initialAddress, notice }: SignInProps
         <p className="signin__subtitle">Sign in with your address and your password.</p>
 
         {notice && <p className="signin__notice">{notice}</p>}
-
-        {hasIdentities && (
-          <div className="signin__identities" role="group" aria-labelledby="signin-saved">
-            <p className="signin__identities-head" id="signin-saved">
-              Saved on this browser
-            </p>
-            <p className="signin__hint">Press one to use it, or type an address below.</p>
-            {identities.map((who) => (
-              <button
-                key={`${who.kind}:${who.id}`}
-                type="button"
-                className="signin__identity"
-                disabled={busy !== null}
-                onClick={() => chooseIdentity(who)}
-              >
-                <span className="signin__identity-id">{who.id}</span>
-                <span className="signin__identity-kind">
-                  {busy === who.id ? 'signing in…' : who.kind === 'operator' ? 'server operator' : 'account'}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
 
         <div className="signin__field">
           <label className="signin__label" htmlFor="signin-address">

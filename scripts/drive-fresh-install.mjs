@@ -285,6 +285,7 @@ async function runDrive(tab) {
   await tab.waitForSelector('.console__section', { timeout: 25000 });
   check('3. Site: the operator console opened', (await tab.locator('.console__title').count()) === 1);
 
+  await tab.click('[data-testid="console-tab-organisations"]');
   const orgName = 'Owner Networks';
   await tab.fill('#console-org-name', orgName);
   await tab.getByRole('button', { name: 'Create the shell and its claim' }).click();

@@ -180,7 +180,18 @@ pub const SESSION_LIFETIME: Duration = Duration::from_secs(12 * 60 * 60);
 
 /// ADR-0057 decision 2: how old the account session's own TOTP proof may be
 /// before an operator sign-in it endorses also needs a fresh code.
-pub const SECOND_FACTOR_FRESHNESS: Duration = Duration::from_secs(15 * 60);
+///
+/// **The account session's whole life, since 2026-10-12.** It was fifteen
+/// minutes, and the owner met the cost of that: he had typed his code to sign
+/// in and was asked for it again on pressing Admin ("you have 2 factor enabled
+/// ... there shouldn't be 3 logins for me"). The proof is now good for as long
+/// as the session that holds it ([`SESSION_LIFETIME`]), so one code per
+/// sign-in opens Admin whenever he wants it inside that day. What did not
+/// change is decision 6's grace token: the proof counts only beside the token
+/// that sign-in minted, which lives in one tab's memory, so a reload or a
+/// copied profile still needs a code. Note the operator plane's own
+/// [`OPERATOR_IDLE_LIMIT`] stays fifteen minutes; that is a different clock.
+pub const SECOND_FACTOR_FRESHNESS: Duration = SESSION_LIFETIME;
 
 /// ADR-0057 decision 4: how long an account-plane session may go without a
 /// verified request before it is treated as dead, even inside its absolute
@@ -191,9 +202,10 @@ pub const SECOND_FACTOR_FRESHNESS: Duration = Duration::from_secs(15 * 60);
 /// 5.0.0 7.1.1: *"document the reasoning"*).
 pub const ACCOUNT_IDLE_LIMIT: Duration = Duration::from_secs(60 * 60);
 
-/// ADR-0057 decision 4: the operator plane's idle limit — fifteen minutes,
-/// the same number [`SECOND_FACTOR_FRESHNESS`] uses, and inside NIST SP
-/// 800-63B-4's AAL3 idle figure. The console is the more sensitive plane,
+/// ADR-0057 decision 4: the operator plane's idle limit — fifteen minutes
+/// (it once matched the second-factor freshness window, which became the
+/// session's whole life on 2026-10-12; the idle limit did not move) and
+/// inside NIST SP 800-63B-4's AAL3 idle figure. The console is the more sensitive plane,
 /// so it gets the tighter of the two.
 pub const OPERATOR_IDLE_LIMIT: Duration = Duration::from_secs(15 * 60);
 
@@ -862,7 +874,7 @@ impl core::fmt::Debug for SignedIn {
     /// **Neither secret is printed**, by the rule `secret.rs` exists for:
     /// `{:?}` is reached for in a hurry and a `Debug` impl decides what ends up
     /// in a log line. The grace token is a bearer credential like the session
-    /// token, for the fifteen minutes it is good.
+    /// token, for as long as it is good ([`SECOND_FACTOR_FRESHNESS`]).
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SignedIn")
             .field("session_id", &self.session_id)

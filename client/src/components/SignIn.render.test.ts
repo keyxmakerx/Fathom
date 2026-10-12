@@ -18,8 +18,7 @@ import {
 // Render-to-string smoke tests, per `ConfigDrawer.render.test.ts`'s
 // precedent -- no DOM testing library is installed, so this checks the
 // markup the door produces, which is what a render-to-string pass can see.
-// Effects do not run here, so the identity list (IndexedDB) is absent and
-// the fields below are the whole of what a first paint shows. The second
+// The fields below are the whole of what a first paint shows. The second
 // step is reached only through an answer from a live server, so it is drawn
 // by a pure component this file renders with fixture props -- including the
 // props a wrong code leaves it in. ADR-0056 decisions 3, 4 and 6. 2026-09-22.
@@ -65,6 +64,18 @@ describe('the sign-in door, step one (ADR-0056 decision 3)', () => {
     );
     expect(html).toContain('value="owner@example.test"');
     expect(html).toContain('Password set.');
+  });
+
+  it('lists no saved identities to click (owner, 2026-10-12)', () => {
+    // "there isn't even a clickable login, i login with my username and
+    // password": the card is the address, the password and one button, and
+    // nothing else on it is a sign-in. The only buttons are Sign in and, when
+    // wired, Forgot your password.
+    const html = renderToStaticMarkup(createElement(SignIn, { onForgotPassword: () => {} }));
+    expect(html).not.toContain('signin__identit');
+    expect(html).not.toMatch(/this browser/i);
+    expect(html).not.toMatch(/operator/i);
+    expect((html.match(/<button/g) ?? []).length).toBe(2);
   });
 
   it('never says "app code" or "backup code"', () => {

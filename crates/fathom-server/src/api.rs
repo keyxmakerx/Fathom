@@ -433,11 +433,23 @@ async fn sign_out_handler(
         .map_err(|e| Refusal::from(SessionError::Db(e)))?;
     Ok((
         StatusCode::OK,
-        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        [
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+            // Owner, 2026-10-12: "make sure the admin console can't have
+            // cache vulnerabilities". Ending a session also asks the browser
+            // to drop whatever it cached for this origin, so nothing read
+            // while signed in can be replayed from disk after sign-out. The
+            // quotes are part of the header's syntax (W3C Clear-Site-Data).
+            (CLEAR_SITE_DATA, "\"cache\""),
+        ],
         "signed out\n",
     )
         .into_response())
 }
+
+/// `Clear-Site-Data`, answered on sign-out.
+const CLEAR_SITE_DATA: axum::http::HeaderName =
+    axum::http::HeaderName::from_static("clear-site-data");
 
 /// `GET /organisations/{organisation}/capability`: the demonstration route, at the
 /// organisation scope.

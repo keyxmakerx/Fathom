@@ -187,16 +187,17 @@ An idle session's row is deleted the moment a request is checked against it — 
 that deletion is not a recorded sign-out, the same way an expired one is not. NIST SP 800-63B-4
 (read 2026-09-25) gives AAL2 an idle bound of at most one hour and an absolute one of at most a day;
 the account plane sits at that idle bound and well inside the absolute one. The operator plane's
-fifteen minutes matches [`SECOND_FACTOR_FRESHNESS`](../crates/fathom-server/src/sessions.rs) — the
-same window decision 2 gives an account session's own second-factor proof — and sits inside NIST's
-AAL3 figures, because the console is the more sensitive plane. OWASP ASVS 5.0.0 7.1.1 asks that the
+fifteen minutes sits inside NIST's AAL3 figures, because the console is the more sensitive plane.
+(It once matched the freshness window of an account session's second-factor proof; that window is
+now the session's whole life, [`SECOND_FACTOR_FRESHNESS`](../crates/fathom-server/src/sessions.rs),
+so one code per sign-in opens Admin — owner, 2026-10-12.) OWASP ASVS 5.0.0 7.1.1 asks that the
 reasoning behind a number like this be written down; this is that writing.
 
 **A reload keeps the account session, never the operator one.** Decision 4's non-extractable
 session keypair survives a reload in `fathom-tab-sessions`, IndexedDB, one record per browser tab;
 decision 6 keeps the operator (Admin) session out of that database entirely; a reload of a tab that
 was in Admin always asks for a fresh verification code, however fresh the account session's own
-proof still is. The fifteen-minute grace decision 2 gives that proof is itself gated on a token this
+proof still is. The grace decision 2 gives that proof (the session's life, since 2026-10-12) is itself gated on a token this
 tab holds only in memory — never written anywhere — so a copied browser profile, which carries
 everything IndexedDB does, still cannot skip the code. Restoring tabs after a browser restart is
 the same reload, so a tab the browser brings back opens straight back into the account session it
