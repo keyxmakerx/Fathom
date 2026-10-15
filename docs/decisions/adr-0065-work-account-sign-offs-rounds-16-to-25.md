@@ -1,0 +1,83 @@
+# ADR-0065: Sign-off rounds 16 to 25: corporate mapping, circuits, Admin
+
+**Status:** accepted 2026-10-15 (owner answered the cards of rounds 16 to 25 on the sign-off page
+kept on the work account, 14 and 15 October). Design decisions only: nothing here is built yet.
+
+**Context.** The owner works on the corporate network at an ISP. The first use at work is the
+owner mapping datacenters, closets and UPS rooms; circuit design is the second group. Practise on the
+home lab: **no corporate data on the home server** until Fathom runs on a server at work and #104
+is closed.
+
+## Decided
+
+1. **Sign-in and people** (draft PR #163). Read and Draw members join at once, with no code compare;
+   stewards still confirm. Admin re-asks for the code once per sign-in. A browser approved for Admin
+   by email is trusted for 7 days by default, once mail exists.
+2. **Back button** (draft PR #161). One Back button naming where it goes, with a small ▾ beside it
+   that unfolds a tree of where you are inside the design. Past six levels, show the top two and
+   the last three and fold the middle. The top bar's path stays as it is (where the design lives).
+3. **Equipment panel.** Opens by itself on an empty design; an "Add equipment" button on the canvas;
+   the empty-design hint names the correct side (the code says right; an old card said left).
+4. **Engines.** An Engines page in Admin: version, what it reads, model count, who checked it and
+   when; add from a repository or an uploaded file, update, remove; only signed engines load
+   (ADR-0044). Vendor order: Adtran, Calix, Nokia, Juniper, Cisco, Arista. Some of that equipment
+   is configured only through a web interface: those engines are catalogue models plus import from
+   what their management systems export. Name no specific customer-premises model in the
+   repository until the catalogue lists several.
+5. **Admin rework, one bundle.** Left-hand section list: Health (the landing), Security, History,
+   Engines, Server, Mail. One-line tips behind a **?** button (works on phones). Keep all wording
+   short. **People and roles stay in Organisation**: operators cannot grant (admin §1, §3).
+   - **Health:** tiles for server, backups, key file, disk, save history, mail. Fathom cannot see
+     backups or the key-file copy, so those tiles show when the operator last ticked them off.
+     A tile needing attention turns amber, and so does the Admin pill.
+   - **Security:** a short fixed list of signals, each switchable (many failed sign-ins, Admin from a
+     new address, unusual hours, a new operator). It flags; a person decides. Never an automatic
+     lock-out, which could be used to lock out the stewards.
+   - **History:** a filterable timeline (who, kind, date range), grouped by day, with bursts folded
+     into one line. Exports to a logging server as syslog and JSON lines (#49). Admin shows sign-ins
+     and server events only; people's activity in designs is the stewards', under Organisation.
+6. **Sites: a third place** beside Canvas and Inventory, on the same live data. Quick view and quick
+   actions only (add a rack or device, rename, move a rack, photos, print labels); cabling stays on
+   Canvas, bulk edits in Inventory.
+   - A site lists its **rooms**: a fixed kind list (datacenter, closet, UPS room, meet-me room)
+     plus Other. Each room is a bold, foldable bar showing racks, free space and warnings; the room
+     used last starts open. Open, it shows a light floor layout.
+   - Racks sit by **row and position** fields first; many racks are grouped by row, with filters
+     (has free space, has warnings).
+   - Opening a rack shows its units and quick actions. **Canvas from a rack opens inside that
+     rack**; Canvas from a site opens on that site, zoomed to fit; Back returns to Sites.
+   - The floor plan is the canvas. An uploaded image or PDF as a backdrop comes first; drawing the
+     plan from the image automatically stays research (#45).
+   - Map racks, patch panels, links between rooms and buildings, UPS → PDU → device power, incoming
+     carrier circuits, and photos (an icon, collapsed by default).
+7. **Circuits** (design agreed; built after the mapping work). A circuit is its own record with an
+   ID, listed in Inventory and traceable.
+   - Templates are written by stewards and people they choose. On the canvas a template looks like a
+     **stack of cards**, folded until opened.
+   - Inventory gets a **Circuits** kind; a circuit's page lists its links as rows to type, paste or
+     copy. Build the rows first, the canvas template second. `*` when pasting means Planned, shown
+     as a Status column. A pasted write-up always lands as a plan that someone accepts.
+   - Connecting **always asks** which port, from the site you are in.
+   - **Open ends:** a link names its far device and leaves the port for install day. People who can
+     draw fill it; readers send it in like a cable correction (#125). The circuit stays "Waiting on
+     install" until filled. **How an open end looks is undecided:** the owner turned down a dotted
+     link, a loose plug, a flag and a blinking port.
+8. **Labels.** Fathom draws labels itself, QR code included (`client/src/qr`), and prints them from
+   the browser on a tape printer or on plain paper with cut lines. No label software, so it works on
+   Linux. Labels for racks, devices, both cable ends, patch panels and room doors. A scan needs
+   sign-in and opens a phone page: what the item connects to first, a collapsed photo, "Label wrong"
+   and "Not here". A public read-only scan view is a later idea: off by default, switched on per
+   organisation by a steward, chosen fields only, every view logged, and a security review first.
+9. **Order after the Admin rework:** cable groups (#54), then organisation-wide tags (#55) built
+   with sites and rooms.
+10. **Motion and polish.** Short, quiet motion that fits the flat look (unfold, fade, a small pop on
+    selection) and turns off under `prefers-reduced-motion`; one alignment pass across the app.
+
+## Inputs for later
+
+- **Sources at work:** NetBox (the importer reads it), Lucidchart (CSV export, untested), a tool
+  called NCS (export format unknown), and CLI on core gear (config paste, once those engines exist).
+  Mapping happens at a desk.
+- **Parked by the owner:** the Lab walkthrough and the reading and signing of vendor pages and
+  Checks rules (round 13).
+- **Draft PRs** #150, #153 to #156, #159 to #161 and #163: the owner decides later.

@@ -4,7 +4,7 @@
 work. It no longer says what to build: that lives in two places only.
 
 - **The plan:** `docs/decisions/adr-0060-one-canvas-detail-by-degrees.md`, step by step, with the
-  order the owner approved on 2026-10-02. Later rounds are in ADR-0061. The owner prefers related
+  order the owner approved on 2026-10-02. Later rounds are in ADR-0061 and ADR-0065 (corporate mapping, circuits, Admin). The owner prefers related
   work bundled into one PR.
 - **The backlog:** GitHub issues. A new ask becomes an issue. Issues labelled `later` wait until
   ADR-0060 is done.
