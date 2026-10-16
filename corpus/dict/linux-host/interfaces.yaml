@@ -1,24 +1,74 @@
-# corpus/dict/linux-host/interfaces.yaml — deliberately zero entries.
+# corpus/dict/linux-host/interfaces.yaml -- what a Linux host prints about its
+# own interfaces: `ip addr`, `ip -d link`, and their `-o` one-line forms.
+# Path shape: [ <interface name>, <attribute word>, <value> ] as
+# crates/fathom-ingest/src/iproute.rs synthesises it from real bytes of the
+# paste. Sources and the full trail: corpus/dict/README-linux-host.md.
 #
-# THE REASONING IS IN corpus/dict/README-linux-host.md, NOT IN THESE COMMENTS
-# (the same convention corpus/dict/opnsense/firewall-rules.yaml's header
-# states for itself): a comment here costs artifact bytes rather than module
-# bytes once this file is handed to the module over OP_DICT.
-#
-# One sentence of the reasoning anyway, because a reader who never opens the
-# README should not be able to mistake silence for an oversight: `ip -d link
-# show`, `ip -4 -6 addr show`, `ip route show` and `bridge vlan show` all
-# print numbered, indented multi-line records that fail
-# `shape::ShapeError::NotVerbInitial` on every line, so no `path:` this file
-# could declare would ever be reached by `crates/fathom-ingest/src/shape.rs`'s
-# unconditional verb check — this is a core front-end gap, not a missing
-# entry. This file exists so `platform: linux-host` is a real, loadable
-# dictionary (Dictionary::load_platform("linux-host")` succeeds, zero
-# entries, zero token maps) that the ingest test in
-# `crates/fathom-ingest/tests/linux_host.rs` can run the gate against, and so
-# the directory is ready the day the record-shaped front end
-# README-linux-host.md describes exists.
+# An address is bound under a keyless LogicalUnit with index 0, as RouterOS's
+# is: Linux puts an address on the interface itself and has no unit number,
+# and the schema owns Address by LogicalUnit (README-linux-host.md, "Units").
 platform: linux-host
-source: { cite: "corpus/dict/README-linux-host.md — why this platform binds nothing; no vendor documentation page applies (zero entries)", read_on: "2026-09-19" }
+source: { cite: "iproute2 manual pages ip-address(8), ip-link(8) (man7.org) and the kernel's operstates document (docs.kernel.org); see corpus/dict/README-linux-host.md", read_on: "2026-10-16" }
 reviewed_by: <named human>
-entries: []
+entries:
+  # `2: eth0: <…> …` -- the record header names the interface.
+  - id: linux-host/link
+    path: ["$i"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `<…,UP,…>`: IFF_UP, "Interface is admin up" (kernel operstates document).
+  # Its absence is not read as admin down: a header with no flags shown says
+  # nothing either way.
+  - id: linux-host/link.up
+    path: ["$i", UP]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName }, { field: admin_up, const_bool: true } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `vlan protocol 802.1Q id 10` under `ip -d link`: an interface of its own
+  # name, and the VLAN it carries.
+  - id: linux-host/link.vlan.id
+    path: ["$i", vlan, id, "$v"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName } ] }
+        - { as: n1, kind: Vlan, key: "$i", fields: [ { field: name, from: "$i", scalar: Identifier }, { field: vlan_id, from: "$v", scalar: VlanId } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: linux-host/addr.inet
+    path: ["$i", inet, "$a"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName } ] }
+        - { as: n1, kind: LogicalUnit, owner: n0, fields: [ { field: index, const_enum: "u32.0" } ] }
+        - { as: n2, kind: Address, owner: n1, key: "$a", fields: [ { field: value, from: "$a", scalar: InterfaceAddress } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: linux-host/addr.inet6
+    path: ["$i", inet6, "$a"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName } ] }
+        - { as: n1, kind: LogicalUnit, owner: n0, fields: [ { field: index, const_enum: "u32.0" } ] }
+        - { as: n2, kind: Address, owner: n1, key: "$a", fields: [ { field: value, from: "$a", scalar: InterfaceAddress } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `root@fw1:~# ip -d addr` -- a shell prompt pasted with the output names
+  # the host. iproute.rs only shapes a host that opens with a letter.
+  - id: linux-host/prompt.host
+    path: ["@", "$h"]
+    binds:
+      nodes:
+        - { as: n0, kind: Device, fields: [ { field: hostname, from: "$h", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>

@@ -117,6 +117,7 @@ pub fn all_booted_shell() -> Shell {
         "edgeos",
         "routeros",
         "pfsense",
+        "linux-host",
     ] {
         let reply = shell.handle(OP_DICT, &frame_of(&platform_sources(platform)));
         assert!(reply.is_empty(), "{platform} must boot");

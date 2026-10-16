@@ -177,6 +177,14 @@ impl Shell {
                 Some(p) => p == "pfsense",
                 None => fathom_ingest::xml::root_element(text) == Some("pfsense"),
             };
+        // `ip addr` / `ip link` output from a Linux host: numbered records.
+        let host = !table
+            && !export
+            && !backup
+            && match hint {
+                Some(p) => p == "linux-host",
+                None => fathom_ingest::iproute::looks_like_iproute(text),
+            };
         let (ingest, platform) = if table {
             let Some(dict) = self.dicts.get("opnsense") else {
                 return missing("table");
@@ -188,6 +196,12 @@ impl Shell {
                 return missing("pfSense");
             };
             let read = fathom_ingest::xml::ingest_xml(text, dict).map_err(refuse)?;
+            (read, dict.platform().to_owned())
+        } else if host {
+            let Some(dict) = self.dicts.get("linux-host") else {
+                return missing("Linux");
+            };
+            let read = fathom_ingest::iproute::ingest_iproute(text, dict).map_err(refuse)?;
             (read, dict.platform().to_owned())
         } else if export {
             let Some(dict) = self.dicts.get("routeros") else {
@@ -3151,7 +3165,7 @@ fn field_name(key: fathom_ir::bag::FieldKey) -> &'static str {
 /// never by the set-form shaper: detection, a named set-form platform and
 /// `OP_REDACT_TEXT` all skip them.
 fn is_own_front_end(platform: &str) -> bool {
-    platform == "opnsense" || platform == "routeros" || platform == "pfsense"
+    matches!(platform, "opnsense" | "routeros" | "pfsense" | "linux-host")
 }
 
 fn detector_names(d: fathom_ingest::redact::DetectorSet) -> String {

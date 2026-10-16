@@ -10,17 +10,14 @@ import { type ByteLoader, type EngineWasm, fetchLoader, loadWasm } from './wasm'
 /** The `corpus/dict/` directories this client boots a dictionary for. `shell.rs`
  * holds them all at once, keyed by platform, and picks one per paste (named in the
  * frame, else detected; see `ERR_PLATFORM_CHOICE`). */
-export const DICT_PLATFORMS = ['junos-srx', 'opnsense', 'junos-ex', 'edgeos', 'routeros', 'pfsense'] as const;
+export const DICT_PLATFORMS = ['junos-srx', 'opnsense', 'junos-ex', 'edgeos', 'routeros', 'pfsense', 'linux-host'] as const;
 
 /** `corpus/dict/` directories this client deliberately does not boot a
  * dictionary for, and why — read by the coverage test below so an
  * intentional exclusion never looks like an oversight, and so the day
  * `shell.rs` grows a real multi-platform dictionary store, whoever fixes it
  * has this list telling them exactly what to move into `DICT_PLATFORMS`. */
-export const DICT_PLATFORMS_EXCLUDED: Readonly<Record<string, string>> = {
-  'linux-host':
-    'zero-entry placeholder; corpus/dict/README-linux-host.md: no core front end shapes ip/bridge output yet, and no schema/platforms.yaml row exists for it',
-};
+export const DICT_PLATFORMS_EXCLUDED: Readonly<Record<string, string>> = {};
 
 const DEFAULT_MODULE_URL = '/engine/fathom_wasm.wasm';
 

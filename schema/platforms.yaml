@@ -102,16 +102,10 @@ vendors:
                          # manuals and pve-manager's source, not a config off a box.
 
   linux:     {}          # Added 2026-09-19 for corpus/dict/linux-host/ and
-                         # corpus/explainers/linux-*-basics.yaml. Vendor only, same
-                         # precedent as ciena/sodola above, but for a different reason
-                         # than either: a real capture WAS seen (synthetic `ip -d link
-                         # show` / `ip -4 -6 addr show` / `ip route show` / `bridge vlan
-                         # show` output, built against the iproute2 manual pages), but
-                         # `crates/fathom-ingest/src/shape.rs`'s unconditional
-                         # verb-initial check refuses every line of it before any
-                         # dictionary is consulted — a core front-end gap, not a missing
-                         # entry. No `linux-host` platform row exists because the "the
-                         # core can read it" half of the test still fails. Full finding:
+                         # corpus/explainers/linux-*-basics.yaml. The platform row
+                         # `linux-host` below followed on 2026-10-16, when
+                         # crates/fathom-ingest/src/iproute.rs gave the core a front
+                         # end for `ip addr` / `ip link` records. Full trail:
                          # corpus/dict/README-linux-host.md.
 
 # Cisco Meraki has NO vendor entry of its own and NO platform row, and that is the
@@ -163,3 +157,6 @@ platforms:
   # Added 2026-10-10. A `config.xml` backup, read by the XML front end
   # (crates/fathom-ingest/src/xml.rs).
   pfsense:   { vendor: netgate,   family: pfsense,  version_scheme: pfsense }
+  # Added 2026-10-16. `ip addr` / `ip link` output, read by the iproute2
+  # front end (crates/fathom-ingest/src/iproute.rs).
+  linux-host: { vendor: linux,    family: linux,    version_scheme: linux }

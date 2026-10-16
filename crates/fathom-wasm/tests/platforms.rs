@@ -510,3 +510,70 @@ fn an_encrypted_pfsense_backup_is_refused_and_stores_nothing() {
     assert_eq!(code, ERR_NOTHING_UNDERSTOOD);
     assert_eq!(shell.handle(OP_EXPORT_PLAIN, &[]), before);
 }
+
+/// `ip addr` output with an `ip xfrm state` SA pasted under it. The keys are
+/// `0x`-prefixed hex as `ip xfrm state` prints them (lists.strongswan.org
+/// users 2017-08 message 011358, read 2026-10-16), at their real 256-bit
+/// length.
+fn linux_paste() -> String {
+    "root@fw1:~# ip addr\n\
+     2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP group default qlen 1000\n\
+     \x20\x20\x20\x20link/ether 52:54:00:12:34:56 brd ff:ff:ff:ff:ff:ff\n\
+     \x20\x20\x20\x20inet 192.0.2.10/24 brd 192.0.2.255 scope global eth0\n\
+     \x20\x20\x20\x20\x20\x20\x20valid_lft forever preferred_lft forever\n\
+     \x20\x20\x20\x20auth-trunc hmac(sha256) 0x6f7a3562e5e18fafa95683bf589c6c98c2be237732a5403e22a3e48c65654314 128\n\
+     \x20\x20\x20\x20enc cbc(aes) 0x77bbcc462b7217af56052a6cb6c008af4052542a13d674e1d6136f6df9c8522e\n"
+        .to_owned()
+}
+
+const LINUX_KEYS: [&str; 2] = [
+    "6f7a3562e5e18fafa95683bf589c6c98c2be237732a5403e22a3e48c65654314",
+    "77bbcc462b7217af56052a6cb6c008af4052542a13d674e1d6136f6df9c8522e",
+];
+
+#[test]
+fn ip_output_from_a_linux_host_is_detected_and_no_key_survives() {
+    let mut shell = common::all_booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(0, &linux_paste()));
+    assert_eq!(platform_of(&reply), "linux-host");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    for k in LINUX_KEYS {
+        assert!(!contains(&reply, k), "reply leaks {k}");
+        assert!(!contains(&stored, k), "stored design leaks {k}");
+    }
+
+    let mut shell = common::all_booted_shell();
+    let display = place(&mut shell, "linux-host");
+    let reply = shell.handle(OP_PASTE_INTO, &into_frame(0, &display, &linux_paste()));
+    assert_eq!(platform_of(&reply), "linux-host");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    for k in LINUX_KEYS {
+        assert!(!contains(&reply, k), "paste-into reply leaks {k}");
+        assert!(!contains(&stored, k), "paste-into stored capture leaks {k}");
+    }
+}
+
+#[test]
+fn set_form_detection_never_reads_with_the_linux_dictionary() {
+    let mut shell = common::all_booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(0, &srx_config()));
+    assert_eq!(platform_of(&reply), "junos-srx");
+}
+
+/// An export that sets an MTU is read, not refused. The schema's
+/// `Interface.mtu` is a structured `Mtu` (`{bytes, layer}`, `11` §4.4) with
+/// no dictionary scalar yet, so a `u32` binding failed the whole paste at the
+/// weld with a slot-type error. Neither dictionary binds it now: a correct
+/// binding has to state the layer, and RouterOS's `mtu` is the L3 MTU, kept
+/// apart from `l2mtu` (forum.mikrotik.com thread 139661, read 2026-10-16).
+#[test]
+fn an_export_that_sets_an_mtu_is_read() {
+    let text = "/interface ethernet\nset [ find default-name=ether1 ] mtu=1500 name=wan\n/system identity\nset name=r1\n";
+    let mut shell = common::all_booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(0, text));
+    assert_eq!(platform_of(&reply), "routeros");
+    let linux = "2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 9000 qdisc mq state UP\n    inet 192.0.2.10/24 scope global eth0\n";
+    let mut shell = common::all_booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(0, linux));
+    assert_eq!(platform_of(&reply), "linux-host");
+}
