@@ -3,6 +3,7 @@
 // bar's path leads back out. Inside (virtual machines, zones) is one level further in.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 
+import { PORT_FACE_VALUES, faceWords } from '../../document/compat';
 import { snap } from '../../document/freeform';
 import type { ChassisView, ClosetView } from '../../document/view';
 import { PORT_GLYPHS } from '../ports';
@@ -11,7 +12,7 @@ import type { Selection } from '../drawing/contract';
 import { connectorName } from '../drawing/faceplate';
 import { decodePaletteDrag, PALETTE_DRAG_MIME } from '../drawing/dnd';
 import { SHEATH_VAR } from '../drawing/sheath';
-import { boundsOf, jotPlates, portCentre, type JotPlate } from './jotLayout';
+import { boundsOf, faceCaptions, jotPlates, portCentre, type JotPlate } from './jotLayout';
 import type { PortPlace, TemplatePort } from '../../document/plate';
 import type { PortBox } from '../drawing/faceplate';
 import { PlateTools } from './PlateTools';
@@ -458,7 +459,7 @@ function Plate(props: {
         {arrangeHere && plate.chassis.ports.length > 0 && (
           <span className="jot-plate__caption">
             {' · '}
-            {plate.chassis.ports.some((p) => p.face === 'front') ? 'front' : 'rear'} · drag a port to move it
+            {PORT_FACE_VALUES.filter((f) => plate.chassis.ports.some((p) => p.face === f)).map(faceWords).join(', ')} · drag a port to move it
           </span>
         )}
       </span>
@@ -482,12 +483,12 @@ function Plate(props: {
             key={box.id}
             type="button"
             data-jot-port={box.id}
-            title={moves ? `${port.label || 'Port'} · drag to move, or use the arrow keys` : `${port.label || 'Port'} · ${connectorName(port.connector)} · ${cabled ? 'cabled' : 'free'}`}
+            title={moves ? `${port.label || 'Port'} · drag to move, or use the arrow keys` : `${port.label || 'Port'} · ${connectorName(port.connector)}${port.face !== 'front' ? ` · ${faceWords(port.face)}` : ''} · ${cabled ? 'cabled' : 'free'}`}
             className={'jot-port' + (port.label === lit ? ' jot-port--lit' : '') + (moves ? ' jot-port--movable' : '') + (dragging ? ' jot-port--dragging' : '')}
             style={{ left, top, width: box.w, height: box.h }}
             onKeyDown={moves ? (e) => onNudgePort(e, plate, box) : undefined}
             onPointerDown={(e) => (moves ? onStartPortDrag(e, plate, box) : arrangeHere ? e.stopPropagation() : onStartWire(e, plate, box.id))}
-            onPointerEnter={() => onHoverPort(`${plate.chassis.hostname || 'unnamed'} · ${port.label || 'Port'} · ${connectorName(port.connector)} · ${cabled ? 'cabled' : 'free'}`)}
+            onPointerEnter={() => onHoverPort(`${plate.chassis.hostname || 'unnamed'} · ${port.label || 'Port'} · ${connectorName(port.connector)}${port.face !== 'front' ? ` · ${faceWords(port.face)}` : ''} · ${cabled ? 'cabled' : 'free'}`)}
             onPointerLeave={() => onHoverPort(null)}
             onPointerMove={onMoveWire}
             onPointerUp={onEndWire}
@@ -496,6 +497,11 @@ function Plate(props: {
           </button>
         );
       })}
+      {faceCaptions(plate).map((c) => (
+        <span key={c.face} className="jot-plate__face" style={{ left: c.x, width: c.w }}>
+          {faceWords(c.face)}
+        </span>
+      ))}
     </div>
   );
 }

@@ -191,7 +191,10 @@ fn schema_version_is_the_trees() {
     //
     // 0.20 -> 0.21: round 15's quality-of-life items. One optional field, `PhysicalPort.mac`
     // (462); MINOR.
-    assert_eq!(SCHEMA_VERSION, "0.21");
+    //
+    // 0.21 -> 0.22: the describe-a-model builder. Three variants on `PhysicalPort.face` (left,
+    // right, top); MINOR.
+    assert_eq!(SCHEMA_VERSION, "0.22");
 }
 
 #[test]

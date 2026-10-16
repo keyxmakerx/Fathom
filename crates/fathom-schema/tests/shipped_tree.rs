@@ -170,7 +170,10 @@ fn shipped_tree_declaration_counts_hold() {
     // `Label.form` variant; only the field-key count above moves.
     //
     // 0.20 -> 0.21 is round 15's quality-of-life items: one optional PhysicalPort field, `mac`.
-    assert_eq!(tree.version.as_deref(), Some("0.21"));
+    //
+    // 0.21 -> 0.22 is the describe-a-model builder: three `PhysicalPort.face` variants
+    // (left, right, top); none of the counts above moves.
+    assert_eq!(tree.version.as_deref(), Some("0.22"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

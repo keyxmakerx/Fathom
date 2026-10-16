@@ -3,12 +3,25 @@ import { Fragment, useState, type DragEvent, type KeyboardEvent } from 'react';
 import '../../styles/drawing.css';
 import type { PaletteItem } from './contract';
 import { PALETTE_DRAG_MIME, encodePaletteDrag, setDraggedUnits } from './dnd';
+import { DescribeModel, type DescribedModel } from '../describe/DescribeModel';
+
+/** A device someone described and kept (`describe/`), offered beside the catalogue. */
+export interface YourModel {
+  id: string;
+  name: string;
+  summary: string;
+}
 
 export interface PaletteProps {
   palette: PaletteItem[];
   /** Adds an item without dragging it (ADR-0060 decision 4). Absent, the rows
    * are drag sources only. */
   onPick?: (item: PaletteItem) => void;
+  /** Devices this person described and kept, listed first under "Your models". */
+  yours?: readonly YourModel[];
+  onPickYours?: (id: string) => void;
+  /** Absent, there is no "Not here? Describe it". */
+  onDescribe?: (model: DescribedModel) => void;
 }
 
 function nameOf(item: PaletteItem): string {
@@ -21,8 +34,9 @@ function nameOf(item: PaletteItem): string {
  * models. Every row can be dragged onto the canvas, and clicked (or Enter) to
  * add it where there is room.
  */
-export function Palette({ palette, onPick }: PaletteProps) {
+export function Palette({ palette, onPick, yours = [], onPickYours, onDescribe }: PaletteProps) {
   const [query, setQuery] = useState('');
+  const [describing, setDescribing] = useState(false);
 
   function handleDragStart(event: DragEvent<HTMLLIElement>, item: PaletteItem) {
     event.dataTransfer.effectAllowed = 'copy';
@@ -46,6 +60,28 @@ export function Palette({ palette, onPick }: PaletteProps) {
     q === ''
       ? palette
       : palette.filter((item) => `${item.vendor} ${nameOf(item)} ${item.model} ${item.summary}`.toLowerCase().includes(q));
+  const yoursShown = onPickYours ? yours.filter((m) => q === '' || `${m.name} ${m.summary}`.toLowerCase().includes(q)) : [];
+  const describeButton = onDescribe ? (
+    <button type="button" className="btn describe-open" onClick={() => setDescribing(true)} title="Draw a device the list does not have, from its ports">
+      Not here? Describe it
+    </button>
+  ) : null;
+
+  if (describing && onDescribe) {
+    return (
+      <div className="drawing-palette-wrap">
+        <DescribeModel
+          initialName={query.trim()}
+          onCancel={() => setDescribing(false)}
+          onUse={(model) => {
+            onDescribe(model);
+            setDescribing(false);
+            setQuery('');
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="drawing-palette-wrap">
@@ -57,9 +93,37 @@ export function Palette({ palette, onPick }: PaletteProps) {
         value={query}
         onChange={(event) => setQuery(event.target.value)}
       />
-      {shown.length === 0 ? (
+      {yoursShown.length > 0 ? (
+        <ul className="drawing-palette">
+          <li className="drawing-palette__group" role="presentation">
+            Your models
+          </li>
+          {yoursShown.map((m) => (
+            <li
+              key={m.id}
+              className="drawing-palette__item drawing-palette__item--yours"
+              role="button"
+              tabIndex={0}
+              title={`Click to add ${m.name}`}
+              onClick={() => onPickYours?.(m.id)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onPickYours?.(m.id);
+                }
+              }}
+            >
+              <div className="drawing-palette__item-head">
+                <span className="drawing-palette__model">{m.name}</span>
+              </div>
+              <div className="drawing-palette__summary">{m.summary}</div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {shown.length === 0 && yoursShown.length === 0 ? (
         <div className="drawing-palette drawing-palette--empty">Nothing matches "{query.trim()}".</div>
-      ) : (
+      ) : shown.length === 0 ? null : (
         <ul className="drawing-palette">
           {shown.map((item, i) => (
             <Fragment key={`${item.vendor}/${item.model}/${item.role ?? ''}`}>
@@ -90,6 +154,7 @@ export function Palette({ palette, onPick }: PaletteProps) {
           ))}
         </ul>
       )}
+      {describeButton}
     </div>
   );
 }

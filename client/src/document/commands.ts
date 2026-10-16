@@ -4,7 +4,7 @@
 // call so the op log stays a genuine record of what happened rather than a
 // diff reconstructed after the fact.
 
-import { connectorTokenOf, PORT_CONNECTOR_VALUES, PORT_SERVICE_VALUES } from './compat';
+import { connectorTokenOf, PORT_CONNECTOR_VALUES, PORT_SERVICE_VALUES, type PortFace } from './compat';
 import type { CatalogueModel } from '../api/catalogue';
 import { cascadeRemoval } from './cascade';
 import { FieldValueError } from './edit';
@@ -191,7 +191,7 @@ function buildCatalogueEquipment(
   const ops: Op[] = [];
   // One id per faceplate slot, kept by face — an outlet/panel model pairs
   // front-i to rear-i by index below.
-  const portIdsByFace: Record<'front' | 'rear', string[]> = { front: [], rear: [] };
+  const portIdsByFace: Record<PortFace, string[]> = { front: [], rear: [], left: [], right: [], top: [] };
 
   for (const faceplate of model.faceplates) {
     for (const port of faceplate.ports) {
@@ -1216,7 +1216,7 @@ export interface AddSketchPortFields {
   label: string;
   connector: string;
   service?: string;
-  face: 'front' | 'rear';
+  face: PortFace;
 }
 
 /**
@@ -1284,7 +1284,7 @@ export interface AddSketchPortRangeFields {
   last: number;
   connector: string;
   service?: string;
-  face: 'front' | 'rear';
+  face: PortFace;
 }
 
 export class InvalidPortRangeError extends Error {

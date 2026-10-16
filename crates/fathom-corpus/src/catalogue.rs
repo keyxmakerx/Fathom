@@ -266,6 +266,11 @@ impl Layout {
 pub enum Face {
     Front,
     Rear,
+    /// Left, right and top, each as you face the front (schema 0.22's
+    /// `PhysicalPort.face`): a mini PC or NAS with ports on a side or on top.
+    Left,
+    Right,
+    Top,
 }
 
 impl Face {
@@ -273,6 +278,9 @@ impl Face {
         match t {
             "front" => Some(Face::Front),
             "rear" => Some(Face::Rear),
+            "left" => Some(Face::Left),
+            "right" => Some(Face::Right),
+            "top" => Some(Face::Top),
             _ => None,
         }
     }
@@ -921,7 +929,7 @@ fn load_faceplates(file: &str, node: &Node) -> Result<Vec<Faceplate>, CatalogueE
                 file,
                 item.line,
                 CatalogueGate::FaceUnknown,
-                format!("`{face_tok}` is not `front` or `rear`"),
+                format!("`{face_tok}` is not `front`, `rear`, `left`, `right` or `top`"),
             )
         })?;
         if !seen_faces.insert(face) {
@@ -1248,7 +1256,7 @@ fn load_psu_slots(file: &str, node: &Node) -> Result<Vec<PsuSlot>, CatalogueErro
                 file,
                 item.line,
                 CatalogueGate::FaceUnknown,
-                format!("`{face_tok}` is not `front` or `rear`"),
+                format!("`{face_tok}` is not `front`, `rear`, `left`, `right` or `top`"),
             )
         })?;
         let position = load_slot_position(file, req(file, item, "position")?)?;
@@ -1347,6 +1355,29 @@ mod tests {
         assert_eq!(front.port_count, 14);
         assert_eq!(front.groups.len(), 2);
         assert_eq!(m.form, None, "a model with no `form:` key carries None");
+    }
+
+    #[test]
+    fn a_side_and_a_top_face_parse() {
+        // Schema 0.22: a mini PC with ports on its left side and on top, beside its front.
+        let text = format!(
+            "{}  \
+               - face: left\n    \
+                 port_count: 1\n    \
+                 port_groups:\n      \
+                   - {{ kind: \"RJ45\", role: access, layout: single_row, count: 1, start_number: 15 }}\n  \
+               - face: top\n    \
+                 port_count: 1\n    \
+                 port_groups:\n      \
+                   - {{ kind: \"RJ45\", role: access, layout: single_row, count: 1, start_number: 16 }}\n",
+            good_model_text("")
+        );
+        let cat = Catalogue::from_sources(&source(&text), "juniper", &juniper_vendors())
+            .expect("side and top faces load");
+        let m = cat.model("TEST-12P").expect("model");
+        assert_eq!(m.faceplate(Face::Left).expect("left face").port_count, 1);
+        assert_eq!(m.faceplate(Face::Top).expect("top face").port_count, 1);
+        assert!(m.faceplate(Face::Right).is_none());
     }
 
     #[test]
