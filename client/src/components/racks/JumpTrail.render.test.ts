@@ -6,33 +6,89 @@ import { ColourKey } from '../drawing/ColourKey';
 import { buildKey } from '../drawing/colourKey';
 import { JumpTrail } from './JumpTrail';
 import { EMPTY_TRAIL, back, visit, type Spot } from './jumpBack';
+import type { Level } from './jumpTree';
 
 const spot = (id: string | null, stop: Spot['stop'] = 'rack'): Spot => ({ look: 'rack', selection: id ? { kind: 'rack', id } : null, jotId: null, stop });
 const noop = () => {};
+const level = (name: string, kind: Level['kind'], i: number): Level => ({ key: `${kind}${i}`, name, kind, target: null });
+const only: Level[] = [level('HQ', 'design', 0)];
+const inRack: Level[] = [level('HQ', 'design', 0), level('R1', 'rack', 1), level('switch-1', 'device', 2)];
+const html = (props: Partial<Parameters<typeof JumpTrail>[0]> & Pick<Parameters<typeof JumpTrail>[0], 'trail'>) =>
+  renderToStaticMarkup(createElement(JumpTrail, { backLabel: null, onBack: noop, levels: only, onGo: noop, ...props }));
 
 describe('JumpTrail', () => {
-  it('shows nothing until there is somewhere to go back to', () => {
+  it('shows nothing until there is somewhere to go back to or a tree to show', () => {
     const one = visit(EMPTY_TRAIL, spot(null), 'HQ', null, 0);
-    expect(renderToStaticMarkup(createElement(JumpTrail, { trail: one, backLabel: null, onBack: noop, onForward: noop }))).toBe('');
+    expect(html({ trail: one })).toBe('');
   });
 
-  it('names where Back goes, and shows no chips and no Forward until there is one', () => {
+  it('names where Back goes, and shows no chips and no Forward button', () => {
     let t = visit(EMPTY_TRAIL, spot(null), 'HQ', null, 0);
     t = visit(t, spot('r1'), 'R1', null, 10_000);
     t = visit(t, spot('r1', 'faceplate'), 'R1 · FACEPLATE', null, 20_000);
-    const html = renderToStaticMarkup(createElement(JumpTrail, { trail: t, backLabel: 'R1', onBack: noop, onForward: noop }));
-    expect(html).toContain('Back to R1');
-    expect(html).not.toContain('>HQ<');
-    expect(html).not.toContain('data-testid="jump-forward"');
+    const out = html({ trail: t, backLabel: 'R1', levels: inRack });
+    expect(out).toContain('Back to R1');
+    expect(out).not.toContain('>HQ<');
+    expect(out).not.toContain('jump-forward');
+    expect(out).not.toContain('Forward');
+    expect(out).not.toContain('→');
   });
 
-  it('shows Forward after going back, and hides Back at the start', () => {
+  it('drops the Forward button even after going back; Back is hidden at the start', () => {
     let t = visit(EMPTY_TRAIL, spot(null), 'HQ', null, 0);
     t = visit(t, spot('r1'), 'R1', null, 10_000);
     t = back(t)!.trail;
-    const html = renderToStaticMarkup(createElement(JumpTrail, { trail: t, backLabel: null, onBack: noop, onForward: noop }));
-    expect(html).toContain('aria-label="Forward to R1"');
-    expect(html).not.toContain('data-testid="jump-back"');
+    const out = html({ trail: t, levels: inRack });
+    expect(out).not.toContain('jump-forward');
+    expect(out).not.toContain('aria-label="Forward');
+    expect(out).not.toContain('data-testid="jump-back"');
+  });
+
+  it('shows the fold-out arrow whenever there is a tree, even when Back has nowhere to go', () => {
+    const one = visit(EMPTY_TRAIL, spot('r1'), 'R1', null, 0);
+    const out = html({ trail: one, levels: inRack });
+    expect(out).toContain('data-testid="jump-tree-toggle"');
+    expect(out).toContain('aria-expanded="false"');
+    expect(out).toContain('aria-label="Where you are in this design"');
+    expect(out).not.toContain('data-testid="jump-back"');
+    expect(out).not.toContain('data-testid="jump-tree"');
+  });
+
+  it('has no arrow when the tree is only the design', () => {
+    let t = visit(EMPTY_TRAIL, spot(null), 'HQ', null, 0);
+    t = visit(t, spot('r1'), 'R1', null, 10_000);
+    const out = html({ trail: t, backLabel: 'HQ' });
+    expect(out).toContain('data-testid="jump-back"');
+    expect(out).not.toContain('jump-tree-toggle');
+  });
+
+  it('unfolds to a list: name and kind word on each line, the current one marked', () => {
+    const one = visit(EMPTY_TRAIL, spot('r1'), 'R1', null, 0);
+    const out = html({ trail: one, levels: inRack, defaultOpen: true });
+    expect(out).toContain('aria-expanded="true"');
+    expect(out).toContain('<ol');
+    expect((out.match(/data-testid="jump-tree-line"/g) ?? []).length).toBe(3);
+    expect(out).toContain('>HQ</span><span class="jump-tree__kind">DESIGN<');
+    expect(out).toContain('>R1</span><span class="jump-tree__kind">RACK<');
+    expect(out).toContain('>switch-1</span><span class="jump-tree__kind">DEVICE<');
+    expect((out.match(/aria-current="location"/g) ?? []).length).toBe(1);
+    expect(out).toMatch(/aria-current="location"[^>]*>(?:(?!<\/button>).)*switch-1(?:(?!<\/button>).)*you are here/);
+  });
+
+  it('folds a deep tree to the top two, "N more" and the last three', () => {
+    const deep = Array.from({ length: 9 }, (_, i) => level(`L${i}`, 'device', i));
+    const one = visit(EMPTY_TRAIL, spot('r1'), 'R1', null, 0);
+    const out = html({ trail: one, levels: deep, defaultOpen: true });
+    expect(out).toContain('4 more');
+    expect(out).toContain('data-testid="jump-tree-fold"');
+    for (const shown of ['L0', 'L1', 'L6', 'L7', 'L8']) expect(out).toContain(`>${shown}<`);
+    for (const hidden of ['L2', 'L3', 'L4', 'L5']) expect(out).not.toContain(`>${hidden}<`);
+  });
+
+  it('does not fold six or fewer levels', () => {
+    const six = Array.from({ length: 6 }, (_, i) => level(`L${i}`, 'device', i));
+    const one = visit(EMPTY_TRAIL, spot('r1'), 'R1', null, 0);
+    expect(html({ trail: one, levels: six, defaultOpen: true })).not.toContain('more');
   });
 });
 

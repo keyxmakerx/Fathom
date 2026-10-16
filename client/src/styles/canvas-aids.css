@@ -31,6 +31,7 @@
 .port-peek,
 .colour-key,
 .jump-trail__bar,
+.jump-tree,
 .react-flow__minimap.canvas-minimap {
   border: var(--rule-hair, 1px) solid var(--hairline);
   border-radius: var(--radius-pop, 0);
@@ -221,7 +222,9 @@
   right: 304px;
   z-index: 6;
   display: flex;
-  justify-content: flex-start;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s1);
   pointer-events: none;
 }
 
@@ -254,15 +257,101 @@
   padding: 0 var(--s2);
 }
 
+/* The tree under the Back button: where you are inside the design, outermost first, each line stepped in. */
+.jump-tree {
+  pointer-events: auto;
+  box-sizing: border-box;
+  min-width: 280px;
+  max-width: min(380px, 100%);
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: var(--s1);
+  list-style: none;
+  font-size: var(--t-small);
+  transform-origin: top left;
+  animation: aid-drop-in var(--m-pop, 160ms) var(--aid-ease) both;
+}
+
+.jump-tree__item {
+  padding-left: calc(var(--depth, 0) * var(--s3));
+}
+
+.jump-tree__line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--control-h-sm, 24px);
+  padding: 2px var(--s2);
+  border: var(--rule-hair, 1px) solid transparent;
+  border-radius: var(--radius-control, 0);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  transition:
+    background-color var(--m-hover, 120ms) var(--m-ease, ease),
+    border-color var(--m-hover, 120ms) var(--m-ease, ease);
+}
+
+.jump-tree__line:hover:not(:disabled) {
+  background: var(--control-bg-hover, color-mix(in srgb, var(--ink) 6%, transparent));
+}
+
+.jump-tree__line[aria-current='location'] {
+  border-color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.jump-tree__line:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.jump-tree__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jump-tree__kind,
+.jump-tree__here {
+  flex: none;
+  color: var(--muted);
+  font-size: var(--t-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.jump-tree__here {
+  order: 2;
+  color: var(--ink);
+}
+
+.jump-tree__kind {
+  order: 3;
+  min-width: 52px;
+  text-align: right;
+}
+
+.jump-tree__line--fold {
+  color: var(--muted);
+}
+
 /* ---- Motion off, and off paper ------------------------------------------------------------------------ */
 
 @media (prefers-reduced-motion: reduce) {
   .port-peek,
   .react-flow__minimap.canvas-minimap,
   .colour-key,
-  .jump-trail__bar {
+  .jump-trail__bar,
+  .jump-tree {
     animation: none;
   }
+  .jump-tree__line,
   .colour-key__row,
   .drawing .drawing-cable,
   .drawing .drawing-bundle {

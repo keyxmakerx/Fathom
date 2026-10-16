@@ -115,6 +115,8 @@ import { JumpTrail } from './JumpTrail';
 import { showAidsFor } from './showAids';
 import { selectionName } from './selectionName';
 import { useJumpBack } from './useJumpBack';
+import { levelsFor } from './jumpTree';
+import { cameraStopAt } from '../drawing/geometry';
 
 // `canDrawFor`/`refusalFor` now live in `components/design/useDesignSession.ts`,
 // re-exported here unchanged, so the two
@@ -1146,6 +1148,11 @@ export function RacksPlace(props: RacksPlaceProps) {
     go: jumpGo,
   });
   jumpMarkView.current = jump.markView;
+  // The tree under the Back button: where the selection or open device sits inside the design.
+  const jumpLevels = useMemo(
+    () => levelsFor(realView, { designName: overviewName, look, selection, jotId: jot?.id ?? null, stop: cameraStopAt(shellProps.zoom) }),
+    [realView, overviewName, look, selection, jot?.id, shellProps.zoom],
+  );
 
   // ADR-0061 §7: a config pasted anywhere on the canvas. The gate runs in the module (`previewPaste`)
   // before the card shows; the card's choice is the only thing that writes. The raw text is never kept.
@@ -1896,7 +1903,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         />
       ) : null}
       {doc != null && look === 'rack' && keyOn && keyRows.length > 0 ? <ColourKey rows={keyRows} onHighlight={setKeyCableIds} /> : null}
-      {doc != null ? <JumpTrail trail={jump.trail} backLabel={jump.backLabel} onBack={jump.goBack} onForward={jump.goForward} /> : null}
+      {doc != null ? <JumpTrail trail={jump.trail} backLabel={jump.backLabel} onBack={jump.goBack} levels={jumpLevels} onGo={(level) => level.target != null && jumpGo(level.target, null)} /> : null}
       {doc != null ? <PortPeek doc={doc} view={displayView} /> : null}
       {drawerAsk != null && pasteState == null ? (
         <PasteCard
