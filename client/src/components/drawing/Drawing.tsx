@@ -44,7 +44,7 @@ import { viewShowsAny } from '../design/resume';
 import type { Bundle } from './bundles';
 import { leadsFor, placeLabels, type LabelItem, type PortPoint } from './cableEnds';
 import { faceplateLayoutFor, plateItems } from './faceplate';
-import { UNNAMED_HOSTNAME, type CableKind, type CableView, type ChassisView, type ClosetView, type DrawingActions, type RackView, type RowView, type Selection, type Sheath } from './contract';
+import { UNNAMED_HOSTNAME, type CableKind, type CableView, type ChassisView, type ClosetView, type DrawingActions, type RackView, type Selection, type Sheath } from './contract';
 import { PORT_CLICK_DRAG_THRESHOLD_PX } from './connectThreshold';
 import { decodePaletteDrag, getDraggedUnits, PALETTE_DRAG_MIME } from './dnd';
 import {
@@ -97,6 +97,7 @@ import {
   pxPerMm,
   rowBandY as rowBandYOf,
   rowKey,
+  rowsOf,
   type RowLayout,
 } from './rows';
 import type { Person } from '../../api/live';
@@ -125,27 +126,6 @@ const MIDDLE_ONLY = [1];
 
 // React Flow's corner credit link is hidden; the About page credits the library (ADR-0060).
 const PRO_OPTIONS = { hideAttribution: true };
-
-/** ADR-0050 §2: "a rack with no row is its own row." `view.rows` is the
- * document builder's own logic (`document/view.ts`'s session note) and may
- * not be populated yet; this falls back to grouping `view.racks` by each
- * rack's own `row` field (preserving arrival order as the bay order) so the
- * drawing still has *something* to lay out by — every rack still draws,
- * simply one to a row until the document side fills `row`/`bay` in. */
-function rowsOf(view: Pick<ClosetView, 'rows' | 'racks'>): RowView[] {
-  if (view.rows.length > 0) return view.rows;
-  const byRow = new Map<string, RackView[]>();
-  const order: string[] = [];
-  for (const rack of view.racks) {
-    const key = rack.row ?? `__no-row-${rack.id}__`;
-    if (!byRow.has(key)) {
-      byRow.set(key, []);
-      order.push(key);
-    }
-    byRow.get(key)!.push(rack);
-  }
-  return order.map((key) => ({ label: byRow.get(key)![0]!.row, racks: byRow.get(key)! }));
-}
 
 /** The flow-space top of the `rowIndex`-th row's band — `rows.ts`'s own
  * `rowBandY`, fixed to this drawing's own rack height and row gap. */
