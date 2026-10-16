@@ -120,9 +120,10 @@ fn slot_type_covers_every_registry_key() {
     // 404 -> 411: firmware targets' seven keys (405-411).
     // 411 -> 413: `PhysicalPort.plate_x` and `.plate_y` (412-413, schema 0.20).
     // One more key: `PhysicalPort.mac` (462, schema 0.21; 414-461 held for the other round 15 threads).
+    // 413 -> 417: cable runs and ties (414-417, schema 0.23).
     assert_eq!(
         FIELD_KEYS.len(),
-        408,
+        412,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

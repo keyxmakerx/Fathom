@@ -81,8 +81,10 @@ fn shipped_tree_declaration_counts_hold() {
     // ADR-0061 troubleshooting (schema 0.18): +2 kinds (`Issue`, `IssueStep`), +2 edges (`HasIssue`,
     // `HasIssueStep`), +15 field keys (390-404).
     // Firmware targets (schema 0.19): +1 kind (`FirmwareTarget`), +1 edge (`HasFirmwareTarget`), +7 keys (405-411).
-    assert_eq!(tree.kinds.len(), 70, "kind count");
-    assert_eq!(tree.edges.len(), 121, "edge count (104 + 8 derived)");
+    // Cable runs and ties (schema 0.23): +2 kinds (`CableRun`, `CableTie`), +3 edges (`HasCableRun`,
+    // `HasCableTie`, `Ties`), +4 keys (414-417).
+    assert_eq!(tree.kinds.len(), 72, "kind count");
+    assert_eq!(tree.edges.len(), 124, "edge count (107 + 8 derived)");
     // Custom-field values (2026-10-02, schema 0.16): +1 kind (`FieldValue`), +1 edge
     // (`HasFieldValue`), +1 CLASS (`Fieldable`), +2 field keys (380 -> 382).
     assert_eq!(tree.scalars.len(), 61, "scalar count");
@@ -93,7 +95,8 @@ fn shipped_tree_declaration_counts_hold() {
     // The owner's ticked ideas (schema 0.20): +2 field keys (`PhysicalPort.plate_x`, `.plate_y`,
     // 412-413). No kind, edge or class moves.
     // Round 15 quality-of-life (schema 0.21): +1 field key (`PhysicalPort.mac`, 462; 414-461 are held for the other round 15 threads).
-    assert_eq!(fk.entries.len(), 408, "field-key registry entries");
+    // Cable runs and ties (schema 0.23): +4 field keys (414-417).
+    assert_eq!(fk.entries.len(), 412, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -173,7 +176,10 @@ fn shipped_tree_declaration_counts_hold() {
     //
     // 0.21 -> 0.22 is the describe-a-model builder: three `PhysicalPort.face` variants
     // (left, right, top); none of the counts above moves.
-    assert_eq!(tree.version.as_deref(), Some("0.22"));
+    //
+    // 0.22 -> 0.23 is cable runs and ties: two kinds, three edges, four field keys (414-417);
+    // the counts above already carry them.
+    assert_eq!(tree.version.as_deref(), Some("0.23"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

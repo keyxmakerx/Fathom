@@ -249,7 +249,14 @@ export type EditorChange =
   /** Round 15: slide everything in a rack up to close the gaps (`document/rackTidy.ts`). */
   | { kind: 'rack-close-gaps'; rackId: string }
   /** Round 15: a copy of a whole rack, its devices, shelves and the cables between them. */
-  | { kind: 'rack-copy'; rackId: string };
+  | { kind: 'rack-copy'; rackId: string }
+  /** Cable runs and ties (schema 0.23): a tray or lacing bar on one side of a rack or wall, and
+   * the ties clipped onto it (`document/cableRuns.ts`). */
+  | { kind: 'cable-run-add'; hostId: string; form: 'tray' | 'lacing_bar'; side: 'left' | 'right' | 'top' | 'bottom' }
+  | { kind: 'cable-run-remove'; id: string }
+  | { kind: 'cable-tie-add'; runId: string; at: number; cableIds: readonly string[] }
+  | { kind: 'cable-tie-move'; id: string; at: number }
+  | { kind: 'cable-tie-remove'; id: string };
 
 /** What the editor raises. Like `DrawingActions`, it never acts on the graph
  * itself — the caller turns a change into a real edit through
