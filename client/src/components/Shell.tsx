@@ -95,6 +95,9 @@ export function Shell({
     },
     [accountId, designId],
   );
+  const rememberEquipmentClosed = useCallback(() => {
+    if (designId != null) patchResume(accountId, designId, { equipmentClosedOnce: true });
+  }, [accountId, designId]);
   const { shown, choose, fold } = useRightTab({
     hasEquipment: rail != null,
     initialEquipment: stored?.equipmentOpen ?? false,
@@ -108,6 +111,8 @@ export function Shell({
     onHistory,
     onTrailOpenChange,
     onPick: rememberPick,
+    equipmentClosedOnce: stored?.equipmentClosedOnce ?? false,
+    onEquipmentClosed: rememberEquipmentClosed,
     autoEquipment,
     equipmentRequest,
   });

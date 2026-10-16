@@ -1,10 +1,10 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ColourKey } from '../drawing/ColourKey';
 import { buildKey } from '../drawing/colourKey';
-import { JumpTrail } from './JumpTrail';
+import { JumpTrail, isEmptyCanvas, swallowNextClick } from './JumpTrail';
 import { EMPTY_TRAIL, back, visit, type Spot } from './jumpBack';
 import type { Level } from './jumpTree';
 
@@ -111,5 +111,50 @@ describe('ColourKey', () => {
 
   it('draws nothing for a design with no cables', () => {
     expect(renderToStaticMarkup(createElement(ColourKey, { rows: [], onHighlight: noop }))).toBe('');
+  });
+});
+
+describe('a click on the empty canvas while the tree is open', () => {
+  afterEach(() => vi.useRealTimers());
+  const within = (matches: Record<string, boolean>): EventTarget => ({ closest: (sel: string) => (matches[sel] ? {} : null) }) as unknown as EventTarget;
+  const click = () => {
+    const e = new Event('click');
+    const stop = vi.spyOn(e, 'stopPropagation');
+    return { e, stop };
+  };
+
+  it('knows the empty canvas (the pane) from something drawn on it', () => {
+    expect(isEmptyCanvas(within({ '.react-flow__pane': true }))).toBe(true);
+    expect(isEmptyCanvas(within({ '.react-flow__pane': true, '.react-flow__node, .react-flow__edge': true }))).toBe(false);
+    expect(isEmptyCanvas(within({}))).toBe(false);
+    expect(isEmptyCanvas(null)).toBe(false);
+  });
+
+  it('only folds the tree: the click it ends in is stopped, so the selection stays', () => {
+    const doc = new EventTarget();
+    swallowNextClick(doc as unknown as Document);
+    const first = click();
+    doc.dispatchEvent(first.e);
+    expect(first.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('is only that one click: the next click on empty canvas behaves normally', () => {
+    const doc = new EventTarget();
+    swallowNextClick(doc as unknown as Document);
+    doc.dispatchEvent(click().e);
+    const next = click();
+    doc.dispatchEvent(next.e);
+    expect(next.stop).not.toHaveBeenCalled();
+  });
+
+  it('lets go when the press ended without a click (a drag)', () => {
+    vi.useFakeTimers();
+    const doc = new EventTarget();
+    swallowNextClick(doc as unknown as Document);
+    doc.dispatchEvent(new Event('pointerup'));
+    vi.runAllTimers();
+    const later = click();
+    doc.dispatchEvent(later.e);
+    expect(later.stop).not.toHaveBeenCalled();
   });
 });

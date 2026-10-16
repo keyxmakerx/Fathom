@@ -1,6 +1,8 @@
 // Drives ADR-0065 §2 and §3 end to end: the Back button's tree (where you are inside the design, a name and a
-// kind word per line, "you are here", Esc and an outside click fold it, no Forward button) and the Equipment
-// tab (opens by itself on an empty design, once; an Add equipment button on the empty canvas). Screenshots
+// kind word per line, "you are here", Esc and an outside click fold it, a click on the empty canvas only
+// folds it and leaves the selection, no Forward button) and the Equipment tab (opens by itself on an empty
+// design until it is closed once on that design, and stays shut when the design is opened again; an Add
+// equipment button on the empty canvas). Screenshots
 // land in FATHOM_SHOTS.
 
 // Overrides: FATHOM_ROOT, PW_CHROMIUM, PW_PLAYWRIGHT.
@@ -146,6 +148,12 @@ try {
     await page.waitForTimeout(1500);
     check('and it does not open again by itself', (await eq(page).getAttribute('aria-expanded')) === 'false');
     await shot(page, 'empty-design-equipment-closed');
+    // Opened again (the same browser, the same design), it stays shut: it was closed once.
+    await page.reload();
+    await page.waitForSelector('.react-flow__pane', { timeout: 15_000 });
+    await page.waitForTimeout(1500);
+    check('opening the design again leaves Equipment shut', (await eq(page).getAttribute('aria-expanded')) === 'false');
+    check('and the empty design still offers the Add equipment button', (await page.locator('[data-testid="add-equipment"]').count()) === 1);
     await page.locator('[data-testid="add-equipment"]').click();
     await page.waitForTimeout(500);
     check('Add equipment opens it', (await eq(page).getAttribute('aria-expanded')) === 'true' && (await page.locator('.drawing-palette__search').count()) === 1);
@@ -188,6 +196,30 @@ try {
     await page.mouse.click(760, 18);
     await page.waitForTimeout(300);
     check('a click outside folds it', (await page.locator('[data-testid="jump-tree"]').count()) === 0 && (await toggle.count()) === 1);
+
+    // A click on the empty canvas while it is open only folds it: the selection stays; the next such click clears it.
+    const emptySpot = await page.evaluate(() => {
+      for (let y = 120; y < 860; y += 20) {
+        for (let x = 40; x < 1000; x += 20) {
+          const t = document.elementFromPoint(x, y);
+          if (t?.closest('.react-flow__pane') && !t.closest('.react-flow__node, .react-flow__edge, .jump-trail')) return { x, y };
+        }
+      }
+      return null;
+    });
+    check('there is empty canvas to click', emptySpot != null);
+    await toggle.click();
+    await page.waitForTimeout(300);
+    check('the tree is open before the empty-canvas click', (await page.locator('[data-testid="jump-tree"]').count()) === 1);
+    await page.mouse.click(emptySpot.x, emptySpot.y);
+    await page.waitForTimeout(400);
+    check('one click on empty canvas folds the tree', (await page.locator('[data-testid="jump-tree"]').count()) === 0);
+    check('and leaves the selection as it was', (await toggle.count()) === 1);
+    await page.mouse.click(emptySpot.x, emptySpot.y);
+    await page.waitForTimeout(400);
+    check('the next click on empty canvas clears the selection as usual', (await page.locator('[data-testid="jump-tree-toggle"]').count()) === 0);
+    await page.locator('.react-flow__node-chassis').first().click();
+    await page.waitForTimeout(700);
 
     // Choosing the rack line goes there: the device is no longer the selection, the rack is.
     await toggle.click();

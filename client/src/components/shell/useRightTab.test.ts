@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { decideAutoEquipment, rememberedTab, visibleTab } from './useRightTab';
+import { decideAutoEquipment, equipmentClosed, rememberedTab, visibleTab } from './useRightTab';
 
 const have = { hasDetails: true, historyOpen: false, trailOpen: false, hasTrail: true };
 
@@ -54,5 +54,21 @@ describe('Equipment opening by itself on an empty design (ADR-0065 §3)', () => 
   });
   it('shows once chosen, only where the Equipment list exists (a reader has none)', () => {
     expect(visibleTab('equipment', { ...have, hasEquipment: false })).toBeNull();
+  });
+});
+
+describe('Equipment opening by itself only until it is closed once', () => {
+  it('does not open on an empty design where the person already closed it', () => {
+    expect(decideAutoEquipment(false, true, null, true)).toEqual({ decided: true, open: false });
+  });
+  it('still opens on an empty design where it was never closed', () => {
+    expect(decideAutoEquipment(false, true, null, false)).toEqual({ decided: true, open: true });
+  });
+  it('closing is Equipment going from open to anything else', () => {
+    expect(equipmentClosed('equipment', null)).toBe(true);
+    expect(equipmentClosed('equipment', 'details')).toBe(true);
+    expect(equipmentClosed('equipment', 'equipment')).toBe(false);
+    expect(equipmentClosed(null, 'equipment')).toBe(false);
+    expect(equipmentClosed('details', null)).toBe(false);
   });
 });

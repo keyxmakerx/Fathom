@@ -1,6 +1,7 @@
 /** "Pick up where you left off": per person, per design, kept in this browser (never a document
  * field), next to `drawing/layers.ts`'s key scheme. The camera, which right-hand tab was open,
- * whether Equipment was open, and the selected thing. */
+ * whether Equipment was open, whether the person has closed Equipment once (so an empty design stops
+ * opening it by itself), and the selected thing. */
 
 export type ResumeTab = 'details' | 'trail';
 
@@ -19,10 +20,12 @@ export interface Resume {
   camera: ResumeCamera | null;
   tab: ResumeTab | null;
   equipmentOpen: boolean;
+  /** Equipment was closed once on this design: it no longer opens by itself on the design when empty. */
+  equipmentClosedOnce: boolean;
   selection: ResumeSelection | null;
 }
 
-export const EMPTY_RESUME: Resume = { camera: null, tab: null, equipmentOpen: false, selection: null };
+export const EMPTY_RESUME: Resume = { camera: null, tab: null, equipmentOpen: false, equipmentClosedOnce: false, selection: null };
 
 /** The kinds a selection can be restored as. A port is left out on purpose: selecting one
  * glides the camera to it, which would undo the camera being restored. */
@@ -49,7 +52,7 @@ export function parseResume(raw: unknown): Resume {
   if (s != null && typeof s === 'object' && typeof s.kind === 'string' && typeof s.id === 'string' && s.id !== '') {
     if ((RESTORABLE_KINDS as readonly string[]).includes(s.kind)) selection = { kind: s.kind, id: s.id };
   }
-  return { camera, tab, equipmentOpen: r.equipmentOpen === true, selection };
+  return { camera, tab, equipmentOpen: r.equipmentOpen === true, equipmentClosedOnce: r.equipmentClosedOnce === true, selection };
 }
 
 export function loadResume(accountId: string | null, designId: string | undefined): Resume {
