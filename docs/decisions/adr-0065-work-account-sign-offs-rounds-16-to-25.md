@@ -1,6 +1,6 @@
 # ADR-0065: Sign-off rounds 16 to 25: corporate mapping, circuits, Admin
 
-**Status:** accepted 2026-10-15 (owner answered the cards of rounds 16 to 25 on the sign-off page
+**Status:** accepted 2026-10-15, round 26 added 2026-10-16 (owner answered the cards of rounds 16 to 25 on the sign-off page
 kept on the work account, 14 and 15 October). Design decisions only: nothing here is built yet.
 
 **Context.** The owner works on the corporate network at an ISP. The first use at work is the
@@ -81,3 +81,27 @@ is closed.
 - **Parked by the owner:** the Lab walkthrough and the reading and signing of vendor pages and
   Checks rules (round 13).
 - **Draft PRs** #150, #153 to #156, #159 to #161 and #163: the owner decides later.
+
+## Round 26 (16 October, home sign-off page)
+
+The owner answered the cards that closed the gaps between this record and the code.
+
+1. **This record goes on main as written** (merged as #164).
+2. **Back button:** the ▾ tree from point 2 is added, and the visible Forward arrow is dropped. The
+   go-forward shortcut and the mouse's forward button still work.
+3. **Admin gets an Accounts section**, second in the list after Health. It holds people on this
+   server, operators and links issued. Organisations moves under Server, and today's Settings tab
+   splits between Server and Mail. This adds to point 5's list. People and roles inside an
+   organisation still stay in Organisation.
+4. **Drafts:** #150, #153 to #156, #159, #160 and #163 are merged (as #165, schema 0.21 to 0.23).
+   #161 lands with the ▾ tree.
+5. **Order: mapping first.** This replaces point 9. The equipment panel fixes come first, then
+   Sites with rooms and tags (#55), then labels and the scan page, then cable groups (#54), then
+   the Admin rework, then Engines, then Circuits. Further decisions from the work account may
+   still reorder this; nothing past the equipment panel fixes starts until they are in.
+6. **Open ends (point 7) are still open.** The owner wants something that says plainly that a
+   piece is missing, leaning toward slanted construction-tape stripes in the gap and a bordered
+   **?** whose mark alone jingles. In place of a typed to-do, Fathom should find the missing links
+   itself and list them in Canvas, Sites and Inventory. A third mockup is on the sign-off page.
+7. **Three places.** Canvas, Sites and Inventory are the three views. Anything listed "everywhere"
+   (missing links, warnings) covers all three.
