@@ -122,6 +122,7 @@ The owner answered the cards that closed the gaps between this record and the co
 4. **Back tree:** with the ▾ tree open, a click on empty canvas folds the tree and keeps the
    selection.
 5. **Port ties suggest from cited pages.** Juniper EX from Juniper's EX naming page, Juniper SRX from
-   the SRX300/SRX550M interface-modules page, and every EdgeRouter from the ER-8 quick start guide,
-   each read 2026-10-16 and accepted by the owner (`corpus/dict/port-names.json`). The SRX on-board
-   ports and the other EdgeRouter guides are still to be read.
+   the SRX300 and SRX340 configuration pages (on-board ports 0/N are ge-0/0/N), and every EdgeRouter
+   from the quick start guides for the ER-8, ER-X, ER-X-SFP, ER-4, ERLite-3, ERPoe-5 and ER-12, all
+   read 2026-10-16 and accepted by the owner (`corpus/dict/port-names.json`). The ER-6P guide could
+   not be opened.

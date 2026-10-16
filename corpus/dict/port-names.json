@@ -26,8 +26,8 @@
       "subslot": 2,
       "index": 3,
       "source": {
-        "cite": "Juniper Networks, \"SRX300 Series and SRX550M Interface Modules Support\": type-slot/pim/port, pim equals 0. Covers plug-in Mini-PIM/GPIM slots; on-board ports as slot 0 not yet found on an official page. Owner accepted it as is on the sign-off page, round 27.",
-        "url": "https://juniper.net/documentation/us/en/hardware/srx300-srx550-hm/topics/topic-map/srx-branch-interface-modules-overview.html",
+        "cite": "Juniper Networks, \"SRX300, Configuring Junos OS\": \"The ge-0/0/0 and ge-0/0/7 interfaces (ports 0/0 and 0/7)\", ports 0/1 to 0/6 are ge-0/0/1 to ge-0/0/6; the SRX340 page maps ports 0/0 to 0/15 the same way (its MGMT port is fxp0, which this pattern does not read). Plug-in Mini-PIM slots: the SRX300/SRX550M interface-modules page, slot/pim/port with pim 0. Owner accepted on the sign-off page, round 27.",
+        "url": "https://juniper.net/documentation/us/en/hardware/srx300/topics/topic-map/srx300-configuring-junos.html",
         "read_on": "2026-10-16"
       }
     },
@@ -39,7 +39,7 @@
       "pattern": "^eth(\\d+)$",
       "index": 1,
       "source": {
-        "cite": "Ubiquiti, ER-8 Quick Start Guide: ports headed \"RJ45 (eth0 - eth7 Ports)\", \"the port labeled eth0\". Read for the ER-8 only; the owner accepted it for every EdgeRouter on the sign-off page, round 27.",
+        "cite": "Ubiquiti quick start guides, read 2026-10-16: ER-8 \"RJ45 (eth0 - eth7 Ports)\", \"the port labeled eth0\"; ER-X, ER-X-SFP (SFP is eth5), ER-4 (SFP is eth3), ERLite-3 and ERPoe-5 label ports eth0 upward the same way. ER-12 labels ports by number only (\"RJ45 (Ports 0 - 9)\") and its guide calls port 0 eth0. ER-6P's guide could not be opened. Owner accepted for every EdgeRouter, round 27.",
         "url": "https://dl.ubnt.com/qsg/ER-8/ER-8_EN.html",
         "read_on": "2026-10-16"
       }
