@@ -17,7 +17,7 @@ import {
   removeSketchPort,
   resizeShelf,
 } from '../../document/commands';
-import { disconnect, setCableField } from '../../document/cables';
+import { connectOneEnd, disconnect, setCableField, setCableNeedsFinishing } from '../../document/cables';
 import { addCableRun, addCableTie, moveCableTie, removeCableRun, removeCableTie } from '../../document/cableRuns';
 import { removeFree, setLabel, setLineLabel } from '../../document/freeform';
 import { FieldValueError, setChassisField, setPortMac, setDeviceField, setPassiveNodeField, setRackField, setRackHeight } from '../../document/edit';
@@ -89,6 +89,10 @@ export function applyEditorChange(
     }
   } else if (change.kind === 'cable-disconnect') {
     next = disconnect(doc, change.id, opts);
+  } else if (change.kind === 'cable-one-end') {
+    next = connectOneEnd(doc, change.portId, {}, opts);
+  } else if (change.kind === 'cable-needs-finishing') {
+    next = setCableNeedsFinishing(doc, change.id, change.on, opts);
   } else if (change.kind === 'device-remove') {
     next = removeChassis(doc, change.chassisId, opts);
   } else if (change.kind === 'move-placement') {

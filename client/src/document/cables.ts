@@ -31,6 +31,7 @@ import {
   LOCAL_ACTOR,
   archiveField,
   assertHand,
+  boolField,
   edgesIn,
   edgesOut,
   findNode,
@@ -470,5 +471,154 @@ export function connectToOutside(
   terminate(peerId, 'b');
 
   const batch: Batch = { id: newUlid(now), label: 'connect to outside', ops };
+  return withBatch(working, batch);
+}
+
+// ---------------------------------------------------------------------------
+// Missing links (schema 0.24; round 26 point 6, round 27 points 1-2). A cable
+// with only one `Terminates` is a loose end. Whether it is loose is never
+// stored: it is read off the drawing (`missingLinks.ts`). The one stored fact
+// is `Cable.needs_finishing`, a person's mark that the open end is planned or
+// unfinished work; without it the loose end is Unknown.
+
+export interface ConnectOneEndFields {
+  sheath?: Sheath;
+  label?: string;
+  /** Start as Needs finishing rather than Unknown. */
+  needsFinishing?: boolean;
+}
+
+/**
+ * A cable with only one end connected: the `Cable` node and a single
+ * `Terminates` (`end: 'a'`) at `fromPortId`. `Cable.media` is left unset for the
+ * reason `connectToOutside` gives (no second connector to derive it from);
+ * `completeCable` sets it when the second end arrives. It starts Unknown unless
+ * `needsFinishing` says otherwise.
+ */
+export function connectOneEnd(doc: Document, fromPortId: string, fields: ConnectOneEndFields = {}, opts?: Actor): Document {
+  requireLivePort(doc, fromPortId);
+  refuseIfTerminated(doc, fromPortId);
+  if (fields.sheath !== undefined && !isSheath(fields.sheath)) {
+    throw new FieldValueError('Cable.sheath', fields.sheath, `is not one of: ${SHEATH_VALUES.join(', ')}`);
+  }
+
+  const { actor, now } = resolve(opts);
+  let working = doc;
+  const ops: Op[] = [];
+
+  const cableExistence = assertHand(working, { assertedAt: now, assertedBy: actor });
+  working = cableExistence.doc;
+  const cableId = formatNodeId('Cable', newUlid(now));
+  const cableFields: Record<string, FieldEntry> = {};
+  const built: Op[] = [];
+  const put = (key: string, value: FieldEntry['value']): void => {
+    const f = setField(working, now, actor, cableId, undefined, key, value);
+    working = f.doc;
+    cableFields[key] = f.entry;
+    built.push(f.op);
+  };
+  if (fields.sheath !== undefined) put('Cable.sheath', token(fields.sheath));
+  if (fields.label !== undefined) put('Cable.label', text(fields.label));
+  if (fields.needsFinishing === true) put('Cable.needs_finishing', boolField(true));
+
+  working = withNode(working, { id: cableId, existence: cableExistence.id, fields: cableFields });
+  ops.push({ type: 'add_node', node: cableId, prov: cableExistence.id }, ...built);
+
+  const prov = assertHand(working, { assertedAt: now, assertedBy: actor });
+  working = prov.doc;
+  const edgeId = formatEdgeId('Terminates', newUlid(now));
+  const endField = setField(working, now, actor, edgeId, undefined, 'Terminates.end', token('a'));
+  working = endField.doc;
+  working = withEdge(working, {
+    id: edgeId,
+    from: cableId,
+    to: fromPortId,
+    prov: prov.id,
+    fields: { 'Terminates.end': endField.entry },
+  });
+  ops.push({ type: 'add_edge', edge: edgeId, from: cableId, to: fromPortId, prov: prov.id }, endField.op);
+
+  const batch: Batch = { id: newUlid(now), label: 'add cable, far end open', ops };
+  return withBatch(working, batch);
+}
+
+/** `Cable.needs_finishing` on one live `Cable`: on writes `true`, off clears it (absent).
+ * One undo step like every other edit. Offered only on a loose cable, but harmless elsewhere:
+ * a cable with both ends is never read as loose whatever this says. */
+export function setCableNeedsFinishing(doc: Document, cableId: string, on: boolean, opts?: Actor): Document {
+  const node = findNode(doc, cableId);
+  if (!node || node.absentSince !== undefined || parseNodeId(cableId).kind !== 'Cable') throw new UnknownReferenceError(cableId, 'Cable');
+  const wireKey = 'Cable.needs_finishing';
+  const { actor, now } = resolve(opts);
+  const built = setField(doc, now, actor, cableId, node.fields[wireKey], wireKey, on ? boolField(true) : undefined);
+  const working = replaceNode(built.doc, cableId, (n) => ({ ...n, fields: { ...n.fields, [wireKey]: built.entry } }));
+  const batch: Batch = { id: newUlid(now), label: on ? 'mark cable needs finishing' : 'clear cable needs finishing', ops: [built.op] };
+  return withBatch(working, batch);
+}
+
+/**
+ * Plugs the second end of a one-ended cable into `toPortId`: a second `Terminates`, `Cable.media`
+ * derived from the connector pair when the cable has none, and `Cable.needs_finishing` cleared,
+ * all as one batch. Refuses what `connectPorts` refuses (unknown port, port already cabled,
+ * incompatible connectors), a cable that does not have exactly one port end, and plugging a
+ * cable into the port it already sits in.
+ */
+export function completeCable(doc: Document, cableId: string, toPortId: string, opts?: Actor): Document {
+  const cable = findNode(doc, cableId);
+  if (!cable || cable.absentSince !== undefined || parseNodeId(cableId).kind !== 'Cable') throw new UnknownReferenceError(cableId, 'Cable');
+  const toNode = requireLivePort(doc, toPortId);
+  const live = edgesOut(doc, cableId, 'Terminates').filter((e) => e.absentSince === undefined);
+  const near = live.length === 1 ? live[0] : undefined;
+  if (near === undefined) throw new FieldValueError('Cable', cableId, 'must have exactly one end connected to finish it');
+  if (near.to === toPortId) throw new FieldValueError('Cable', cableId, 'is already plugged into that port');
+  const nearNode = findNode(doc, near.to);
+  if (nearNode === undefined || parseNodeId(near.to).kind !== 'PhysicalPort') {
+    throw new FieldValueError('Cable', cableId, 'must have a port at its connected end to finish it');
+  }
+  refuseIfTerminated(doc, toPortId);
+
+  const compat = compatible(readPhysicalPortFields(nearNode).connector ?? '', readPhysicalPortFields(toNode).connector ?? '');
+  if (!compat.ok) throw new IncompatibleConnectorError(near.to, toPortId, compat.reason);
+
+  const { actor, now } = resolve(opts);
+  let working = doc;
+  const ops: Op[] = [];
+  const nearEnd = near.fields['Terminates.end'];
+  const end: 'a' | 'b' = nearEnd?.presence === 'set' && nearEnd.value === 'b' ? 'a' : 'b';
+
+  const sets: Record<string, FieldEntry> = {};
+  if (cable.fields['Cable.media']?.presence !== 'set') {
+    if (!isCableMedia(compat.media)) throw new FieldValueError('Cable.media', compat.media, `is not one of: ${MEDIA_VALUES.join(', ')}`);
+    const f = setField(working, now, actor, cableId, cable.fields['Cable.media'], 'Cable.media', token(compat.media));
+    working = f.doc;
+    sets['Cable.media'] = f.entry;
+    ops.push(f.op);
+  }
+  const mark = cable.fields['Cable.needs_finishing'];
+  if (mark?.presence === 'set') {
+    const f = setField(working, now, actor, cableId, mark, 'Cable.needs_finishing', undefined);
+    working = f.doc;
+    sets['Cable.needs_finishing'] = f.entry;
+    ops.push(f.op);
+  }
+  if (Object.keys(sets).length > 0) {
+    working = replaceNode(working, cableId, (n) => ({ ...n, fields: { ...n.fields, ...sets } }));
+  }
+
+  const prov = assertHand(working, { assertedAt: now, assertedBy: actor });
+  working = prov.doc;
+  const edgeId = formatEdgeId('Terminates', newUlid(now));
+  const endField = setField(working, now, actor, edgeId, undefined, 'Terminates.end', token(end));
+  working = endField.doc;
+  working = withEdge(working, {
+    id: edgeId,
+    from: cableId,
+    to: toPortId,
+    prov: prov.id,
+    fields: { 'Terminates.end': endField.entry },
+  });
+  ops.push({ type: 'add_edge', edge: edgeId, from: cableId, to: toPortId, prov: prov.id }, endField.op);
+
+  const batch: Batch = { id: newUlid(now), label: 'finish cable', ops };
   return withBatch(working, batch);
 }

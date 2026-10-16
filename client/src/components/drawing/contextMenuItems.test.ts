@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { menuItemsFor, type MenuActions } from './contextMenuItems';
 
-function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'onPlanFirmware' | 'firmwareNeedsVersion' | 'onSuggestCables' | 'onAddCableRun' | 'onRemoveCableRun' | 'cableRunsOn'>> {
+function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'onPlanFirmware' | 'firmwareNeedsVersion' | 'onSuggestCables' | 'onAddCableRun' | 'onRemoveCableRun' | 'cableRunsOn' | 'looseState' | 'onSetNeedsFinishing'>> {
   return {
     onSelect: vi.fn(),
     onOpen: vi.fn(),
@@ -26,6 +26,21 @@ function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'o
 }
 
 describe('menuItemsFor', () => {
+  it('offers the Needs finishing toggle only on a cable with one end connected', () => {
+    const set = vi.fn();
+    const unknown = menuItemsFor({ kind: 'cable', id: 'c1' }, { ...actions(), looseState: () => 'unknown', onSetNeedsFinishing: set });
+    expect(unknown.map((i) => i.label)).toEqual(['Details', 'Needs finishing', 'Disconnect']);
+    unknown.find((i) => i.label === 'Needs finishing')!.onSelect();
+    expect(set).toHaveBeenLastCalledWith('c1', true);
+
+    const marked = menuItemsFor({ kind: 'cable', id: 'c1' }, { ...actions(), looseState: () => 'needs-finishing', onSetNeedsFinishing: set });
+    marked.find((i) => i.label === 'Clear "Needs finishing"')!.onSelect();
+    expect(set).toHaveBeenLastCalledWith('c1', false);
+
+    const whole = menuItemsFor({ kind: 'cable', id: 'c1' }, { ...actions(), looseState: () => null, onSetNeedsFinishing: set });
+    expect(whole.map((i) => i.label)).toEqual(['Details', 'Disconnect']);
+  });
+
   it('offers cable runs on a wall too', () => {
     const add = vi.fn();
     const items = menuItemsFor({ kind: 'surface', id: 'w1' }, { ...actions(), onAddCableRun: add, onRemoveCableRun: vi.fn(), cableRunsOn: () => [] });

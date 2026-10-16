@@ -72,6 +72,17 @@ describe('liveTargetPortIds', () => {
     expect(liveTargetPortIds(VIEW, 'nope').size).toBe(0);
   });
 
+  it("a one-ended cable's port stays live as a target only when the drawing can finish cables", () => {
+    const view = JSON.parse(JSON.stringify(VIEW)) as ClosetView;
+    const loose = view.racks[0]!.chassis[0]!.ports.find((p) => p.id === 'rj45-cabled')!;
+    loose.cable = { cableId: 'cable-open', farPortId: null, farChassisId: null, outsideCloset: false };
+    expect(liveTargetPortIds(view, 'rj45-free').has('rj45-cabled')).toBe(false);
+    expect(liveTargetPortIds(view, 'rj45-free', { finishLoose: true }).has('rj45-cabled')).toBe(true);
+    // A cable out of the closet, or to a port, is never a target.
+    loose.cable = { cableId: 'cable-out', farPortId: null, farChassisId: null, outsideCloset: true };
+    expect(liveTargetPortIds(view, 'rj45-free', { finishLoose: true }).has('rj45-cabled')).toBe(false);
+  });
+
   it('the origin port itself is never in its own live set', () => {
     expect(liveTargetPortIds(VIEW, 'rj45-free').has('rj45-free')).toBe(false);
   });

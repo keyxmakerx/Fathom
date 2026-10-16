@@ -8,12 +8,15 @@ import {
   PortAlreadyTerminatedError,
   SHEATH_VALUES,
   connectPorts,
+  completeCable,
+  connectOneEnd,
   connectToOutside,
   disconnect,
   isCableMedia,
   isCableOwnership,
   isSheath,
   setCableField,
+  setCableNeedsFinishing,
 } from './cables';
 import { compatible } from './compat';
 import { UnknownReferenceError, addSketchPort, createRack, createShelf, createSurface, fixTo, placeChassis, placeOnShelf } from './commands';
@@ -29,6 +32,7 @@ import {
   type Document,
 } from './model';
 import { readPlain, writePlain } from './plain';
+import { undo } from './undo';
 import { newUlid } from './ulid';
 import { viewOf } from './view';
 
@@ -601,5 +605,105 @@ describe('round trip', () => {
 
     // And the view built from the round-tripped document matches too.
     expect(viewOf(readBack, [PORT_MODEL])).toEqual(viewOf(working, [PORT_MODEL]));
+  });
+});
+
+describe('missing links: a cable with one end connected', () => {
+  const ACTOR = '00000000000000000000000001';
+
+  function oneEnded() {
+    const { doc, chassisA, chassisB } = twoChassis();
+    const portA = portByConnector(doc, chassisA, 'rj45');
+    const portB = portByConnector(doc, chassisB, 'rj45');
+    const next = connectOneEnd(doc, portA, { sheath: 'blue' }, { now: NOW, actor: ACTOR });
+    const cableId = edgesIn(next, portA, 'Terminates')[0].from;
+    return { doc: next, cableId, portA, portB, chassisA, chassisB };
+  }
+
+  it('holds one Terminates, no media guess, and reads as a loose end that is not marked', () => {
+    const { doc, cableId, portA } = oneEnded();
+    expect(edgesOut(doc, cableId, 'Terminates').map((e) => [e.to, e.fields['Terminates.end']?.value])).toEqual([[portA, 'a']]);
+    expect(findNode(doc, cableId)!.fields['Cable.media']).toBeUndefined();
+    const cable = viewOf(doc, [PORT_MODEL]).cables.find((c) => c.id === cableId)!;
+    expect(cable.looseEnd).toBe(true);
+    expect(cable.needsFinishing).toBe(false);
+    expect(cable.ends).toHaveLength(1);
+  });
+
+  it('refuses a port that already has a cable', () => {
+    const { doc, portA } = oneEnded();
+    expect(() => connectOneEnd(doc, portA, {}, { now: NOW })).toThrow(PortAlreadyTerminatedError);
+  });
+
+  it('marks and clears Needs finishing, each as one undo step that puts it back', () => {
+    const { doc, cableId } = oneEnded();
+    const marked = setCableNeedsFinishing(doc, cableId, true, { now: NOW + 1, actor: ACTOR });
+    expect(findNode(marked, cableId)!.fields['Cable.needs_finishing']).toMatchObject({ presence: 'set', value: true });
+    expect(viewOf(marked, [PORT_MODEL]).cables.find((c) => c.id === cableId)!.needsFinishing).toBe(true);
+
+    const markBatch = marked.batches[marked.batches.length - 1]!;
+    const undone = undo(marked, markBatch.id, { actor: ACTOR, now: NOW + 2 });
+    expect(viewOf(undone, [PORT_MODEL]).cables.find((c) => c.id === cableId)!.needsFinishing).toBe(false);
+
+    const cleared = setCableNeedsFinishing(marked, cableId, false, { now: NOW + 3, actor: ACTOR });
+    expect(findNode(cleared, cableId)!.fields['Cable.needs_finishing']).toMatchObject({ presence: 'absent' });
+    const clearBatch = cleared.batches[cleared.batches.length - 1]!;
+    const restored = undo(cleared, clearBatch.id, { actor: ACTOR, now: NOW + 4 });
+    expect(viewOf(restored, [PORT_MODEL]).cables.find((c) => c.id === cableId)!.needsFinishing).toBe(true);
+  });
+
+  it('refuses a cable that is not there', () => {
+    const { doc, cableId } = oneEnded();
+    const gone = disconnect(doc, cableId, { now: NOW + 1 });
+    expect(() => setCableNeedsFinishing(gone, cableId, true, { now: NOW + 2 })).toThrow(UnknownReferenceError);
+  });
+
+  it('is finished by plugging a free port into it: a second end, media from the pair, the mark cleared, one step', () => {
+    const { doc, cableId, portA, portB } = oneEnded();
+    const marked = setCableNeedsFinishing(doc, cableId, true, { now: NOW + 1, actor: ACTOR });
+    const done = completeCable(marked, cableId, portB, { now: NOW + 2, actor: ACTOR });
+    expect(edgesOut(done, cableId, 'Terminates').map((e) => [e.to, e.fields['Terminates.end']?.value])).toEqual([
+      [portA, 'a'],
+      [portB, 'b'],
+    ]);
+    const cable = viewOf(done, [PORT_MODEL]).cables.find((c) => c.id === cableId)!;
+    expect(cable.looseEnd).toBe(false);
+    expect(cable.needsFinishing).toBe(false);
+    expect(cable.media).toBe('cat6');
+    expect(cable.ends).toHaveLength(2);
+
+    const finishBatch = done.batches[done.batches.length - 1]!;
+    expect(finishBatch.label).toBe('finish cable');
+    const undone = undo(done, finishBatch.id, { actor: ACTOR, now: NOW + 3 });
+    const back = viewOf(undone, [PORT_MODEL]).cables.find((c) => c.id === cableId)!;
+    expect(back.looseEnd).toBe(true);
+    expect(back.needsFinishing).toBe(true);
+  });
+
+  it('refuses to finish into a cabled port, an incompatible port, its own port, or a cable with both ends', () => {
+    const { doc, cableId, portA, portB, chassisB } = oneEnded();
+    const lcPort = portByConnector(doc, chassisB, 'lc');
+    expect(() => completeCable(doc, cableId, lcPort, { now: NOW })).toThrow(IncompatibleConnectorError);
+    expect(() => completeCable(doc, cableId, portA, { now: NOW })).toThrow(FieldValueError);
+    const other = connectOneEnd(doc, portB, {}, { now: NOW });
+    expect(() => completeCable(other, cableId, portB, { now: NOW })).toThrow(PortAlreadyTerminatedError);
+    const whole = completeCable(doc, cableId, portB, { now: NOW });
+    const lc2 = portByConnector(whole, chassisB, 'lc');
+    expect(() => completeCable(whole, cableId, lc2, { now: NOW })).toThrow(FieldValueError);
+  });
+
+  it('does not read a cable with a far end that is outside, or both ends, as loose', () => {
+    const { doc, chassisA, chassisB } = twoChassis();
+    const a = portByConnector(doc, chassisA, 'rj45');
+    const b = portByConnector(doc, chassisB, 'rj45');
+    const whole = connectPorts(doc, a, b, {}, { now: NOW });
+    const outside = connectToOutside(whole, portByConnector(whole, chassisA, 'lc'), { label: 'Upstream' }, { now: NOW });
+    for (const cable of viewOf(outside, [PORT_MODEL]).cables) expect(cable.looseEnd).toBe(false);
+  });
+
+  it('survives the plain face', () => {
+    const { doc, cableId } = oneEnded();
+    const marked = setCableNeedsFinishing(doc, cableId, true, { now: NOW + 1 });
+    expect(readPlain(writePlain(marked))).toEqual(marked);
   });
 });

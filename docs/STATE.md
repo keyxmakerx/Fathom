@@ -356,6 +356,19 @@ cables** (R1 gives R2, names get -2; `document/rackTidy.ts`), one undo step each
 its **Photo**: the newest image on its own docs, added by drop or pick onto a "Photo" doc, shown as a
 `data:` image (the CSP allows no `blob:`), confirmed as showing no passwords first.
 
+**Missing links, for cables** (ADR-0065 rounds 26-27; schema 0.24, field key 478 `Cable.needs_finishing`).
+A cable with only one end connected draws as a column leaving its port (`LooseCableNode.tsx`), in one of two
+looks. **Unknown** (the default): the line fades out over its last ~110px, no motion, "Far end unknown" on
+hover, not counted. **Needs finishing** (a person marks it: the cable's panel toggle or its right-click; one undo
+step): that last stretch is slanted amber dashes crawling toward the far end, with a **?** in a circle that swings
+like a bell every 3.2s; both stop under `prefers-reduced-motion`. A free port gets **Add a cable, far end open**
+(starts Unknown); dropping a free port onto a one-ended cable's port plugs in its second end (`completeCable`;
+clears the mark; the Checks guard does not run on that drop). The bar's **Missing links · N** counts Needs
+finishing only and hides at 0; its list has a row per cable ("sw-01 3 → (no far end)") with **Go**, and a folded
+**Unknown (n)** below. Detection is pure (`drawing/missingLinks.ts`); circuits join by handing it loose ends.
+Not drawn yet: a one-ended cable on a shelf's or wall's port (listed and counted, no line); Sites and Inventory
+do not list them yet. Drive: `scripts/drive-missing-links.mjs`.
+
 **Open, not on main yet:** #136 port ties, #137 reconnecting, #138 History speed. #141 (ticked ideas:
 Ctrl+K, Undo note, saved views, folding panels, faceplate port dragging, pinned notes) merged into the
 UI sweep branch after that branch had merged, so it is not on main.

@@ -11,6 +11,7 @@ import { useLive, useLiveStore } from './liveStore';
 import { EditableName } from './NameEdit';
 import { isPanel } from './paths';
 import { pduUsage, pduUsageLabel } from './power';
+import { isLoosePort, portHandleFlags } from './missingLinks';
 import { SHEATH_VAR } from './sheath';
 
 /** Counts renders into `window.__cn` when a test harness has set it to a
@@ -144,7 +145,8 @@ function PlatePort({
       type="source"
       position={Position.Bottom}
       id={port.id}
-      isConnectable={inlet != null ? inlet.fitted && !cabled : !cabled}
+      isConnectable={inlet != null ? inlet.fitted && !cabled : true}
+      {...(inlet != null ? {} : portHandleFlags(cabled, isLoosePort(port)))}
       className="drawing-chassis__port-handle"
     />
   );

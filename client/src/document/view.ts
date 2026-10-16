@@ -352,6 +352,13 @@ export interface CableView {
    * type, the same reading `media` above already gives. Optional for the
    * same reason `lengthM` above is. */
   ownership?: string | null;
+  /** Missing links (schema 0.24): this cable has exactly one live `Terminates`, and it lands
+   * on a port, not on an outside peer. Read off the drawing, never stored. Optional like
+   * `lengthM`, so older literals still type-check; a missing one reads as `false`. */
+  looseEnd?: boolean;
+  /** `Cable.needs_finishing`: a person marked this cable's open end as planned or unfinished
+   * work. Meaningful only while `looseEnd` holds. A missing one reads as `false`. */
+  needsFinishing?: boolean;
   ends: CableEnd[];
 }
 
@@ -1195,9 +1202,12 @@ function cableView(doc: Document, node: GraphNode): CableView {
   const sheath = sheathRaw !== null && (SHEATH_VALUES as readonly string[]).includes(sheathRaw) ? (sheathRaw as Sheath) : null;
   const ownershipRaw = fieldString(node, 'Cable.ownership');
   const ownership = ownershipRaw !== null && (OWNERSHIP_VALUES as readonly string[]).includes(ownershipRaw) ? ownershipRaw : null;
-  const ends = edgesOut(doc, node.id, 'Terminates')
-    .map((e) => cableEnd(doc, e))
-    .filter((e): e is CableEnd => e !== undefined);
+  const terminates = edgesOut(doc, node.id, 'Terminates');
+  const ends = terminates.map((e) => cableEnd(doc, e)).filter((e): e is CableEnd => e !== undefined);
+  // Counted from the edges, not from `ends`: a cable whose far device is not on the canvas yet
+  // still has two ends, and is not a loose one.
+  const looseEnd = terminates.length === 1 && parseNodeId(terminates[0]!.to).kind === 'PhysicalPort';
+  const needsFinishing = node.fields['Cable.needs_finishing'];
   return {
     id: node.id,
     kind: cableKindOfMedia(media),
@@ -1206,6 +1216,8 @@ function cableView(doc: Document, node: GraphNode): CableView {
     label: fieldString(node, 'Cable.label'),
     lengthM: fieldNumber(node, 'Cable.length_m'),
     ownership,
+    looseEnd,
+    needsFinishing: needsFinishing?.presence === 'set' && needsFinishing.value === true,
     ends,
   };
 }
