@@ -79,6 +79,9 @@ vendors:
                          # Omada routers and an access point.
   netgear:    {}         # corpus/catalogue/netgear/: Plus desktop switches.
   netgate:    {}         # corpus/catalogue/netgate/: pfSense appliances.
+                         # Also the paste reader for `config.xml` (platform row
+                         # `pfsense` below; crates/fathom-ingest/src/xml.rs,
+                         # source trail corpus/dict/README-pfsense.md).
   protectli:  {}         # corpus/catalogue/protectli/: a fanless firewall box.
   synology:   {}         # corpus/catalogue/synology/: NAS units.
   qnap:       {}         # corpus/catalogue/qnap/: a NAS unit.
@@ -157,3 +160,6 @@ platforms:
   # Added 2026-10-10. `/export` output, read by its own front end
   # (crates/fathom-ingest/src/routeros.rs), not by the set-form shaper.
   routeros:  { vendor: mikrotik,  family: routeros, version_scheme: routeros }
+  # Added 2026-10-10. A `config.xml` backup, read by the XML front end
+  # (crates/fathom-ingest/src/xml.rs).
+  pfsense:   { vendor: netgate,   family: pfsense,  version_scheme: pfsense }
