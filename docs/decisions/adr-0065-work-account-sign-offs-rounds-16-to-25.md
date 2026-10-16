@@ -1,6 +1,6 @@
 # ADR-0065: Sign-off rounds 16 to 25: corporate mapping, circuits, Admin
 
-**Status:** accepted 2026-10-15, round 26 added 2026-10-16 (owner answered the cards of rounds 16 to 25 on the sign-off page
+**Status:** accepted 2026-10-15, rounds 26 and 27 added 2026-10-16 (owner answered the cards of rounds 16 to 25 on the sign-off page
 kept on the work account, 14 and 15 October). Design decisions only: nothing here is built yet.
 
 **Context.** The owner works on the corporate network at an ISP. The first use at work is the
@@ -99,9 +99,30 @@ The owner answered the cards that closed the gaps between this record and the co
    Sites with rooms and tags (#55), then labels and the scan page, then cable groups (#54), then
    the Admin rework, then Engines, then Circuits. Further decisions from the work account may
    still reorder this; nothing past the equipment panel fixes starts until they are in.
-6. **Open ends (point 7) are still open.** The owner wants something that says plainly that a
-   piece is missing, leaning toward slanted construction-tape stripes in the gap and a bordered
-   **?** whose mark alone jingles. In place of a typed to-do, Fathom should find the missing links
-   itself and list them in Canvas, Sites and Inventory. A third mockup is on the sign-off page.
+6. **Open ends (point 7), decided.** The missing stretch of the link is slanted amber dashes that
+   crawl toward the far device, with a **?** in a circle in the middle of the gap. The whole **?**
+   swings from its centre every few seconds; the circle stays still. Both stop under
+   `prefers-reduced-motion`. In place of a typed to-do, Fathom finds the missing links itself and
+   lists them in Canvas, Sites and Inventory: open ends on circuits and cables with only one end
+   plugged in, not patch-panel ports used on one face.
 7. **Three places.** Canvas, Sites and Inventory are the three views. Anything listed "everywhere"
    (missing links, warnings) covers all three.
+
+## Round 27 (16 October, home sign-off page)
+
+1. **Two kinds of missing.** A loose end is either **Needs finishing** (planned or unfinished work:
+   the look in round 26 point 6, counted in a **Missing links** count in the top bar) or **Unknown**
+   (a legacy drawing where nobody knows the far end: the line fades out, no motion, "Far end
+   unknown" on hover, not counted). A loose end starts as Unknown until someone marks it Needs
+   finishing; a circuit's open end always starts as Needs finishing. Unknown ends sit in a folded
+   section at the bottom of the Missing links list. The count hides when nothing needs finishing.
+   Every **?** that marks missing information is drawn at one size.
+2. **Missing links is built now, for cables.** Circuits join it when they are built.
+3. **Equipment** opens by itself on an empty design only until it is closed once on that design.
+4. **Back tree:** with the ▾ tree open, a click on empty canvas folds the tree and keeps the
+   selection.
+5. **Port ties suggest from cited pages.** Juniper EX from Juniper's EX naming page, Juniper SRX from
+   the SRX300 and SRX340 configuration pages (on-board ports 0/N are ge-0/0/N), and every EdgeRouter
+   from the quick start guides for the ER-8, ER-X, ER-X-SFP, ER-4, ERLite-3, ERPoe-5 and ER-12, all
+   read 2026-10-16 and accepted by the owner (`corpus/dict/port-names.json`). The ER-6P guide could
+   not be opened.

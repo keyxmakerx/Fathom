@@ -25,14 +25,24 @@ export interface RightTabInput {
    * first answer decides whether Equipment opens by itself; later answers never do (a person who closed it
    * is left alone). */
   autoEquipment?: boolean;
+  /** The person already closed Equipment once on this design (kept per browser): it does not open by itself again. */
+  equipmentClosedOnce?: boolean;
+  /** Equipment was closed (by the person, once per visit is enough to tell: the caller remembers it). */
+  onEquipmentClosed?: () => void;
   /** A counter: each bump asks for Equipment to open (the "Add equipment" button on the canvas). */
   equipmentRequest?: number;
 }
 
-/** Opens Equipment by itself, once, when the design is found empty on open and nothing else is open. */
-export function decideAutoEquipment(already: boolean, auto: boolean | undefined, pick: RightTab | null): { decided: boolean; open: boolean } {
+/** Opens Equipment by itself, once, when the design is found empty on open and nothing else is open, and only
+ * until the person has closed Equipment once on that design (`closedOnce`). */
+export function decideAutoEquipment(already: boolean, auto: boolean | undefined, pick: RightTab | null, closedOnce = false): { decided: boolean; open: boolean } {
   if (already || auto === undefined) return { decided: already, open: false };
-  return { decided: true, open: auto && pick === null };
+  return { decided: true, open: auto && pick === null && !closedOnce };
+}
+
+/** Equipment was open and now is not: the person closed it (or went to another tab). */
+export function equipmentClosed(before: RightTab | null, after: RightTab | null): boolean {
+  return before === 'equipment' && after !== 'equipment';
 }
 
 /** What is actually open: the chosen tab, unless there is nothing behind it. */
@@ -75,8 +85,11 @@ export function useRightTab(input: RightTabInput) {
   // ADR-0065 §3: Equipment opens by itself on a design found empty when it is opened, once only.
   const autoDecided = useRef(false);
   const { autoEquipment } = input;
+  const closedOnceRef = useRef(input.equipmentClosedOnce === true);
+  const closedRef = useRef(input.onEquipmentClosed);
+  closedRef.current = input.onEquipmentClosed;
   useEffect(() => {
-    const d = decideAutoEquipment(autoDecided.current, autoEquipment, pickNow.current);
+    const d = decideAutoEquipment(autoDecided.current, autoEquipment, pickNow.current, closedOnceRef.current);
     autoDecided.current = d.decided;
     if (d.open) setPick('equipment');
   }, [autoEquipment]);
@@ -122,7 +135,13 @@ export function useRightTab(input: RightTabInput) {
     if (trailRef.current != null) trailRef.current(false);
   }, [selectionKey, hasDetails]);
 
+  const lastPick = useRef<RightTab | null>(pick);
   useEffect(() => {
+    if (equipmentClosed(lastPick.current, pick)) {
+      closedOnceRef.current = true;
+      closedRef.current?.();
+    }
+    lastPick.current = pick;
     pickRef.current?.(pick);
   }, [pick]);
 

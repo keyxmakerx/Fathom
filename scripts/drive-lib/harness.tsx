@@ -57,7 +57,18 @@ const DESIGN_ID_2 = 'design-drive-2';
  * them as "mine". A real ulid, not a readable string: the wasm engine
  * parses every provenance `assertedBy` as one (`Id(Ulid(...))`) the moment a
  * chassis is selected and the document is loaded into it. */
-const ME = newUlid();
+const ME = (() => {
+  // Kept for the tab, so a page reload is the same person (what is remembered per account in the browser holds).
+  try {
+    const kept = sessionStorage.getItem('drive-me');
+    if (kept != null) return kept;
+    const made = newUlid();
+    sessionStorage.setItem('drive-me', made);
+    return made;
+  } catch {
+    return newUlid();
+  }
+})();
 /** ADR-0053 §3's "you undo your own changes": a second, real account whose
  * own batch can conflict with one of mine — also a real ulid, for the same
  * reason. */

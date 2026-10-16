@@ -23,6 +23,31 @@ export interface JumpTrailProps {
   defaultOpen?: boolean;
 }
 
+/** True when a press landed on the empty canvas itself (React Flow's pane), not on something drawn on it. */
+export function isEmptyCanvas(target: EventTarget | null): boolean {
+  const el = target as Element | null;
+  if (el == null || typeof el.closest !== 'function') return false;
+  return el.closest('.react-flow__pane') != null && el.closest('.react-flow__node, .react-flow__edge') == null;
+}
+
+/** Lets the press that is folding the tree do only that: the click it ends in is stopped before the canvas
+ * hears it, so the selection is left as it was. Only this one click; the listener is gone a moment after
+ * the button comes up whether or not a click followed (a drag does not make one). */
+export function swallowNextClick(doc: Pick<Document, 'addEventListener' | 'removeEventListener'> = document): void {
+  const stop = (e: Event) => e.stopPropagation();
+  const remove = () => {
+    doc.removeEventListener('click', stop, { capture: true });
+    doc.removeEventListener('pointerup', onUp, { capture: true });
+    doc.removeEventListener('pointercancel', onUp, { capture: true });
+  };
+  const onUp = () => {
+    globalThis.setTimeout(remove, 0);
+  };
+  doc.addEventListener('click', stop, { capture: true, once: true });
+  doc.addEventListener('pointerup', onUp, { capture: true });
+  doc.addEventListener('pointercancel', onUp, { capture: true });
+}
+
 export function JumpTrail({ trail, backLabel, onBack, levels, onGo, defaultOpen = false }: JumpTrailProps) {
   const canBack = canGoBack(trail) && backLabel != null;
   const hasTree = levels.length > 1;
@@ -40,12 +65,14 @@ export function JumpTrail({ trail, backLabel, onBack, levels, onGo, defaultOpen 
     if (refocus) toggleRef.current?.focus();
   }, []);
 
-  // Esc and a click anywhere outside fold it.
+  // Esc and a click anywhere outside fold it. A click on the empty canvas only folds it: the selection stays,
+  // and the next click there behaves as usual.
   useEffect(() => {
     if (!shown) return undefined;
     const onDown = (e: PointerEvent) => {
       if (e.target instanceof Node && rootRef.current?.contains(e.target)) return;
       close(false);
+      if (isEmptyCanvas(e.target)) swallowNextClick();
     };
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return;

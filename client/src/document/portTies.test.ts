@@ -11,7 +11,7 @@ const OPTS = { now: NOW, actor: 'test' };
 
 /** A cited copy of the file's Junos rule, so the matcher can be exercised before a real page is cited. */
 const JUNOS: PortNameRule = {
-  ...allPortNameRules().find((r) => r.id === 'junos.type-fpc-pic-port')!,
+  ...allPortNameRules().find((r) => r.id === 'junos-ex.type-fpc-pic-port')!,
   source: { cite: 'fixture', url: 'https://example.invalid/naming', read_on: '2026-10-09' },
 };
 
@@ -57,9 +57,9 @@ function device(platform: string, ports: Record<string, { slot: number; subslot:
 const at = (index: number) => ({ slot: 0, subslot: 0, index });
 
 describe('the rules file', () => {
-  it('ships no cited rule yet, so nothing suggests', () => {
+  it('cites a dated vendor page for every rule it ships (round 27)', () => {
     expect(allPortNameRules().length).toBeGreaterThan(0);
-    expect(citedPortNameRules()).toEqual([]);
+    expect(citedPortNameRules()).toEqual(allPortNameRules());
     for (const r of allPortNameRules()) {
       expect(r.source === null ? r.wanted : r.source.read_on).toBeTruthy();
       expect(() => new RegExp(r.pattern)).not.toThrow();
@@ -82,9 +82,11 @@ describe('suggestions', () => {
     ['junos-ex', 'ae0', null],
     ['junos-ex', 'irb', null],
     ['edgeos', 'ge-0/0/3', null],
+    ['edgeos', 'eth3', { index: 3 }],
+    ['junos-ex', 'eth3', null],
     ['opnsense', 'igb0', null],
   ])('%s %s reads as %j', (platform, name, want) => {
-    expect(positionOf(name, platform, [JUNOS])).toEqual(want === null ? null : { ...want });
+    expect(positionOf(name, platform, citedPortNameRules())).toEqual(want === null ? null : { ...want });
   });
 
   it('an uncited rule suggests nothing', () => {

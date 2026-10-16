@@ -2,22 +2,47 @@
   "about": "Interface name to PortPosition { slot, subslot, index }, per paste platform, read by client/src/document/portTies.ts to suggest port ties. A rule suggests only when source names a vendor page with the date it was read (ADR-0034's rule). A rule with source null never suggests; its wanted line is the page the owner is asked for. Numbers are capture groups of pattern. No fuzzy matching and no first-free-port: a name no cited rule reads stays untied.",
   "rules": [
     {
-      "id": "junos.type-fpc-pic-port",
-      "platforms": ["junos-ex", "junos-srx"],
+      "id": "junos-ex.type-fpc-pic-port",
+      "platforms": [
+        "junos-ex"
+      ],
       "pattern": "^(?:ge|xe|et|mge)-(\\d+)/(\\d+)/(\\d+)$",
       "slot": 1,
       "subslot": 2,
       "index": 3,
-      "source": null,
-      "wanted": "Juniper's Junos interface naming page, stating that type-fpc/pic/port names the FPC slot, the PIC slot and the port on that PIC, and how a fixed switch numbers its built-in and uplink PICs."
+      "source": {
+        "cite": "Juniper Networks, \"Understanding Interface Naming Conventions on EX Series Switches\" (Junos 13.2): type-fpc/pic/port, FPC 0 on a standalone switch, PIC 0 for built-in ports, top row even and bottom row odd. Accepted by the owner on the sign-off page, round 27.",
+        "url": "https://juniper.net/documentation/en_US/junos13.2/topics/concept/interfaces-naming-conventions.html",
+        "read_on": "2026-10-16"
+      }
+    },
+    {
+      "id": "junos-srx.type-slot-pim-port",
+      "platforms": [
+        "junos-srx"
+      ],
+      "pattern": "^(?:ge|xe|et|mge)-(\\d+)/(\\d+)/(\\d+)$",
+      "slot": 1,
+      "subslot": 2,
+      "index": 3,
+      "source": {
+        "cite": "Juniper Networks, \"SRX300, Configuring Junos OS\": \"The ge-0/0/0 and ge-0/0/7 interfaces (ports 0/0 and 0/7)\", ports 0/1 to 0/6 are ge-0/0/1 to ge-0/0/6; the SRX340 page maps ports 0/0 to 0/15 the same way (its MGMT port is fxp0, which this pattern does not read). Plug-in Mini-PIM slots: the SRX300/SRX550M interface-modules page, slot/pim/port with pim 0. Owner accepted on the sign-off page, round 27.",
+        "url": "https://juniper.net/documentation/us/en/hardware/srx300/topics/topic-map/srx300-configuring-junos.html",
+        "read_on": "2026-10-16"
+      }
     },
     {
       "id": "edgeos.eth",
-      "platforms": ["edgeos"],
+      "platforms": [
+        "edgeos"
+      ],
       "pattern": "^eth(\\d+)$",
       "index": 1,
-      "source": null,
-      "wanted": "A Ubiquiti EdgeRouter page stating that interface ethN is the port marked N on the faceplate."
+      "source": {
+        "cite": "Ubiquiti quick start guides, read 2026-10-16: ER-8 \"RJ45 (eth0 - eth7 Ports)\", \"the port labeled eth0\"; ER-X, ER-X-SFP (SFP is eth5), ER-4 (SFP is eth3), ERLite-3 and ERPoe-5 label ports eth0 upward the same way. ER-12 labels ports by number only (\"RJ45 (Ports 0 - 9)\") and its guide calls port 0 eth0. ER-6P's guide could not be opened. Owner accepted for every EdgeRouter, round 27.",
+        "url": "https://dl.ubnt.com/qsg/ER-8/ER-8_EN.html",
+        "read_on": "2026-10-16"
+      }
     }
   ]
 }
