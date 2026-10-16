@@ -72,5 +72,8 @@ interface, not a number read from the paste.
 
 ## Not bound yet
 
-The header's version and model (no `OsVersion` value type in `dict.rs` yet), bridge membership
+The header's version and model (no `OsVersion` value type in `dict.rs` yet), the MTU (the schema's
+`Interface.mtu` is a structured `Mtu` with a layer and `dict.rs` has no scalar for it; RouterOS's `mtu`
+is the L3 MTU, kept apart from `l2mtu`, per forum.mikrotik.com thread 139661, read 2026-10-16; an
+earlier `u32` binding failed the whole paste at the weld and was removed 2026-10-16), bridge membership
 and VLAN filtering (no schema field), DHCP, firewall rules, routes. They are residue, not lost.

@@ -1,10 +1,10 @@
-//! `corpus/dict/linux-host/` — proof of the finding recorded in
-//! `corpus/dict/README-linux-host.md`: a realistic synthetic capture of what
-//! a Linux host prints about its own network (`ip -d link show`, `ip -4 -6
-//! addr show`, `ip route show`, `bridge vlan show`) binds nothing today,
-//! because every line fails `shape::ShapeError::NotVerbInitial` before the
-//! dictionary is ever consulted — and that the redaction gate still runs
-//! regardless, destroying a pasted WireGuard private key on contact.
+//! `corpus/dict/linux-host/` through `crates/fathom-ingest/src/iproute.rs`: a
+//! realistic synthetic capture of what a Linux host prints about its own
+//! network (`ip -d link show`, `ip -4 -6 addr show`, `ip route show`, `bridge
+//! vlan show`) binds its interfaces, VLANs and addresses, and the redaction
+//! gate still destroys a pasted WireGuard private key or IPsec keys on contact.
+//! Through the set-form shaper (`fathom_ingest::ingest`) the same paste still
+//! binds nothing, which is why the front end exists (README-linux-host.md).
 //!
 //! CREDENTIAL SHAPE, CLAUDE.md rule 2 ("test a safety gate against what a
 //! real device accepts, not against what the detector needs"). A WireGuard
@@ -28,6 +28,7 @@ use std::path::{Path, PathBuf};
 
 use fathom_ingest::dict::Dictionary;
 use fathom_ingest::frame::{LineOutcome, ShapeError};
+use fathom_ingest::iproute::{ingest_iproute, looks_like_iproute};
 use fathom_ir::generated::ir_types::NodeKind;
 
 fn repo_root() -> PathBuf {
@@ -39,8 +40,7 @@ fn repo_root() -> PathBuf {
 }
 
 fn dict() -> Dictionary {
-    Dictionary::load_platform(&repo_root(), "linux-host")
-        .expect("the linux-host dictionary loads: zero entries is a valid dictionary")
+    Dictionary::load_platform(&repo_root(), "linux-host").expect("the linux-host dictionary loads")
 }
 
 /// `ip -d link show` — two bonds, three VLAN sub-interfaces on `bond0`, the
@@ -157,29 +157,15 @@ fn full_capture() -> String {
     s
 }
 
-/// The core finding `README-linux-host.md` records: every line of `ip
-/// -d link show`, `ip -4 -6 addr show`, `ip route show` and `bridge vlan
-/// show` fails the shaper's unconditional verb check, so nothing binds —
-/// not because the dictionary is thin, but because no dictionary entry can
-/// ever be reached for this input shape. This is the "built kinds and
-/// counts" the brief asks for: the count is zero, and this asserts why.
+/// The set-form shaper still reads none of it: every line fails its verb
+/// check. That is the finding README-linux-host.md records, and why
+/// `iproute.rs` exists rather than more dictionary entries.
 #[test]
-fn no_line_of_the_four_commands_is_verb_initial() {
+fn the_set_form_shaper_reads_no_line_of_it() {
     let d = dict();
     let out = fathom_ingest::ingest(full_capture().as_bytes(), &d).expect("within the caps");
-
-    // `bind::bind` always seeds `nodes[0]` as the implicit Device root
-    // (`bind.rs`'s own doc comment), independent of whether anything bound
-    // to it — so "nothing binds" is exactly one node, not zero.
-    assert_eq!(
-        out.fragment.nodes.len(),
-        1,
-        "zero dictionary entries exist to bind against, so only the implicit \
-         Device root may be present; got {}",
-        out.fragment.nodes.len()
-    );
+    assert_eq!(out.fragment.nodes.len(), 1, "only the implicit Device root");
     assert_eq!(out.fragment.nodes[0].kind, NodeKind::Device);
-
     let not_verb_initial = out
         .ledger
         .lines
@@ -193,46 +179,159 @@ fn no_line_of_the_four_commands_is_verb_initial() {
             )
         })
         .count();
-    // Every non-blank line of the four commands' output (ip link/addr/route,
-    // bridge vlan) fails the same way. The WireGuard snippet's `[Interface]`/
-    // `[Peer]` lines and `ListenPort =`/`AllowedIPs =` also fail it (no `=`
-    // prefixed by a recognised verb either), so the floor below is generous
-    // but the point — that the overwhelming majority of a real paste from
-    // this platform is `NotVerbInitial`, not silently dropped — holds either
-    // way.
-    assert!(
-        not_verb_initial > 40,
-        "expected the bulk of a ~60-line multi-command paste to fail \
-         NotVerbInitial; got {not_verb_initial}"
-    );
+    assert!(not_verb_initial > 40, "got {not_verb_initial}");
 }
 
-/// The floor this file exists to prove regardless of what binds: a WireGuard
-/// private key pasted alongside unshapeable `ip`/`bridge` output is still
-/// destroyed by the gate, because `redact::gate` sweeps `unshaped` and
-/// `noise` lines the same as bound statements (`14`'s governing rule).
+fn read(paste: &str) -> fathom_ingest::IngestOutput {
+    ingest_iproute(paste.as_bytes(), &dict()).expect("within the caps")
+}
+
+fn interfaces(out: &fathom_ingest::IngestOutput) -> Vec<String> {
+    let s = format!("{:?}", out.fragment);
+    let mut names: Vec<String> = [
+        "eth0", "bond0", "bond0.10", "bond0.20", "bond0.30", "br0", "veth11", "lo",
+    ]
+    .iter()
+    .filter(|n| s.contains(&format!("\"{n}\"")))
+    .map(|n| n.to_string())
+    .collect();
+    names.sort();
+    names
+}
+
 #[test]
-fn a_pasted_wireguard_private_key_is_destroyed_even_though_nothing_binds() {
-    let d = dict();
-    let out = fathom_ingest::ingest(full_capture().as_bytes(), &d).expect("within the caps");
+fn the_capture_is_sniffed_as_ip_output() {
+    assert!(looks_like_iproute(full_capture().as_bytes()));
+    assert!(looks_like_iproute(ip_addr_show().as_bytes()));
+    assert!(!looks_like_iproute(ip_route_show().as_bytes()));
+    assert!(!looks_like_iproute(bridge_vlan_show().as_bytes()));
+}
+
+#[test]
+fn interfaces_vlans_and_addresses_bind() {
+    let out = read(&full_capture());
+    let kinds: Vec<NodeKind> = out.fragment.nodes.iter().map(|n| n.kind).collect();
+    let count = |k: NodeKind| kinds.iter().filter(|x| **x == k).count();
+    // eth0..eth4, bond0, bond1, three VLAN sub-interfaces, br0, twelve veths.
+    assert_eq!(count(NodeKind::Interface), 23, "{kinds:?}");
+    assert_eq!(count(NodeKind::Vlan), 3);
+    // eth0 v4 and v6, bond0, and the three VLAN sub-interfaces.
+    assert_eq!(count(NodeKind::Address), 6);
+    let s = format!("{:?}", out.fragment);
+    assert!(s.contains("addr: 10.10.20.1,"));
+    assert!(s.contains("addr: 2001:db8::10,"));
+    // `bond0.10@bond0` is named `bond0.10`; `veth0@if100` is named `veth0`.
+    assert!(!s.contains("bond0.10@bond0"));
+    assert!(!s.contains("@if100"));
+    assert!(interfaces(&out).contains(&"veth11".to_owned()));
+}
+
+#[test]
+fn the_wireguard_key_is_destroyed_and_the_network_survives() {
+    let out = read(&full_capture());
     let text = out.capture.text();
-
-    assert!(
-        !text.contains("4iYvm1BObqDhNfcLJGZxkFpPRlfj4CVEerX2YhlkRh8="),
-        "the WireGuard private key must not survive into the stored capture"
-    );
-    assert!(
-        !out.drops.entries.is_empty(),
-        "the drop manifest must record at least one destruction"
-    );
-
-    // What is NOT a secret survives: interface names, addresses, the route
-    // table, the VLAN table. The public key on the [Peer] line is, by
-    // WireGuard's own model, not the secret (only the private key is) and is
-    // representative surrounding text that must not be swept up by an
-    // over-eager detector.
+    assert!(!text.contains("4iYvm1BObqDhNfcLJGZxkFpPRlfj4CVEerX2YhlkRh8="));
+    assert!(!out.drops.entries.is_empty());
     assert!(text.contains("bond0.10"));
     assert!(text.contains("192.0.2.10/24"));
-    assert!(text.contains("veth11"));
     assert!(text.contains("10.10.30.0/24"));
+}
+
+/// `ip xfrm state` prints an SA's keys as `0x`-prefixed hex, as a strongSwan
+/// user's output shows (lists.strongswan.org users, 2017-08, message 011358,
+/// read 2026-10-16): `auth-trunc hmac(sha256) 0x6f7a…4314 128` and
+/// `enc cbc(aes) 0x77bb…522e`. Pasted under an `ip addr` record, its indented
+/// lines must not be read as that interface's attributes, and the keys must
+/// not survive. Key lengths are the real ones: 256-bit HMAC and AES keys.
+#[test]
+fn ipsec_keys_pasted_under_a_record_are_destroyed() {
+    let paste = "2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP group default qlen 1000\n\
+    \x20\x20\x20\x20inet 192.0.2.10/24 brd 192.0.2.255 scope global eth0\n\
+    src 192.0.2.10 dst 203.0.113.7\n\
+    \tproto esp spi 0xc1a2b3c4 reqid 1 mode tunnel\n\
+    \treplay-window 0 flag af-unspec\n\
+    \tauth-trunc hmac(sha256) 0x6f7a3562e5e18fafa95683bf589c6c98c2be237732a5403e22a3e48c65654314 128\n\
+    \tenc cbc(aes) 0x77bbcc462b7217af56052a6cb6c008af4052542a13d674e1d6136f6df9c8522e\n\
+    3: eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP group default qlen 1000\n\
+    \tauth-trunc hmac(sha256) 0x37110356f80804e83ceb23ecb4e7be5508445a4fdd0eb4814dbdde00dffa6033 128\n";
+    let out = read(paste);
+    let text = out.capture.text();
+    for key in [
+        "6f7a3562e5e18fafa95683bf589c6c98c2be237732a5403e22a3e48c65654314",
+        "77bbcc462b7217af56052a6cb6c008af4052542a13d674e1d6136f6df9c8522e",
+        "37110356f80804e83ceb23ecb4e7be5508445a4fdd0eb4814dbdde00dffa6033",
+    ] {
+        assert!(!text.contains(key), "an SA key survived:\n{text}");
+        assert!(!format!("{:?}", out.fragment).contains(key));
+    }
+    assert!(text.contains("192.0.2.10/24"));
+}
+
+#[test]
+fn the_one_line_forms_bind_the_same() {
+    let paste = "1: lo    inet 127.0.0.1/8 scope host lo\\       valid_lft forever preferred_lft forever\n\
+    2: eth0    inet 192.0.2.10/24 brd 192.0.2.255 scope global eth0\\       valid_lft forever preferred_lft forever\n\
+    2: eth0    inet6 2001:db8::10/64 scope global \\       valid_lft forever preferred_lft forever\n\
+    9: bond0.10@bond0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 9000 qdisc noqueue state UP mode DEFAULT group default qlen 1000\\    link/ether 52:54:00:aa:bb:01 brd ff:ff:ff:ff:ff:ff\\    vlan protocol 802.1Q id 10 <REORDER_HDR> \n";
+    assert!(looks_like_iproute(paste.as_bytes()));
+    let out = read(paste);
+    let kinds: Vec<NodeKind> = out.fragment.nodes.iter().map(|n| n.kind).collect();
+    assert_eq!(
+        kinds.iter().filter(|k| **k == NodeKind::Address).count(),
+        3,
+        "{kinds:?}"
+    );
+    assert_eq!(kinds.iter().filter(|k| **k == NodeKind::Vlan).count(), 1);
+    let s = format!("{:?}", out.fragment);
+    assert!(s.contains("\"bond0.10\""));
+    assert!(s.contains("addr: 127.0.0.1,"));
+}
+
+#[test]
+fn a_prompt_names_the_device() {
+    let paste = format!("root@fw1:~# ip addr\n{}", ip_addr_show());
+    let out = read(&paste);
+    let s = format!("{:?}", out.fragment.nodes[0]);
+    assert!(s.contains("fw1"), "{s}");
+}
+
+/// A password typed on the command line of the prompt is swept like any
+/// other line. `sshpass -p` takes the password as an argument (sshpass(1)).
+#[test]
+fn a_secret_on_the_prompt_line_is_destroyed() {
+    let paste = format!(
+        "ops@jump:~$ sshpass -p 'Horse-Battery-77' ssh root@fw1 ip addr password=Horse-Battery-77\n{}",
+        ip_addr_show()
+    );
+    let out = read(&paste);
+    assert!(
+        !out.capture.text().contains("Horse-Battery-77"),
+        "{}",
+        out.capture.text()
+    );
+    assert!(!format!("{:?}", out.fragment).contains("Horse-Battery-77"));
+}
+
+#[test]
+fn the_ledger_names_every_line() {
+    let out = read(&full_capture());
+    let lines = full_capture().lines().count();
+    assert!(out.ledger.lines.len() >= lines);
+    let bound = out
+        .ledger
+        .lines
+        .iter()
+        .filter(|e| matches!(e.outcome, LineOutcome::Bound { .. }))
+        .count();
+    assert!(bound > 20, "got {bound}");
+    let route_unshaped = out
+        .ledger
+        .lines
+        .iter()
+        .filter(|e| matches!(e.outcome, LineOutcome::Unshaped { .. }))
+        .count();
+    assert!(
+        route_unshaped >= 6,
+        "route and table lines are residue: {route_unshaped}"
+    );
 }

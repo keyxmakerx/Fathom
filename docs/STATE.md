@@ -28,6 +28,12 @@ frame and the paste card's summary wait on the client.
 no entry describes is destroyed, because pfSense stores keys and passwords base64-encoded
 (`corpus/dict/README-pfsense.md`).
 
+**Paste: Linux host (engine, 2026-10-16).** `ip addr` and `ip -d link` output (and their `-o` forms) has its
+own front end, `fathom-ingest/src/iproute.rs`, picked by an exact sniff of the first record header. It binds
+interfaces, admin-up, VLANs and addresses, and the host from a pasted shell prompt; only known attribute words
+are shaped and every line is swept (`corpus/dict/README-linux-host.md`). Routes and `bridge vlan show` are
+residue. Naming `linux-host` in the paste frame waits on the client.
+
 **The server.** `crates/fathom-server` starts, answers a health check through a real PostgreSQL, shuts
 down cleanly, and runs as the one plain-HTTP published port of a composed stack, behind the operator's
 own TLS-terminating proxy. It stores identity and structure (accounts, organisations, memberships, the

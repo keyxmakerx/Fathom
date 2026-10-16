@@ -63,14 +63,6 @@ entries:
     versions: "*"
     reviewed_by: <named human>
 
-  - id: routeros/interface.ethernet.mtu
-    path: [interface, ethernet, name, "$n", mtu, "$m"]
-    binds:
-      nodes:
-        - { as: n0, kind: Interface, key: "$n", fields: [ { field: name, from: "$n", scalar: InterfaceName }, { field: mtu, from: "$m", scalar: u32 } ] }
-    versions: "*"
-    reviewed_by: <named human>
-
   - id: routeros/interface.bridge.name
     path: [interface, bridge, name, "$n"]
     partial: true
