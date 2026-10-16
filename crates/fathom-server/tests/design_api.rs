@@ -498,11 +498,11 @@ fn a_plain_face_payload(seed: u128) -> Vec<u8> {
 }
 
 /// ADR-0049 #4's wire number for the schema version currently declared on
-/// line 3 of every payload [`a_plain_face_payload`] writes -- `"0.20"` at time
+/// line 3 of every payload [`a_plain_face_payload`] writes -- `"0.23"` at time
 /// of writing, whose minor component this is. Kept as its own named constant
 /// rather than a bare `14` at each call site so a future schema bump has one
 /// place to change.
-const CURRENT_SCHEMA_WIRE_VERSION: u32 = 20;
+const CURRENT_SCHEMA_WIRE_VERSION: u32 = 23;
 
 fn save_body(schema_version: u32, payload: &[u8]) -> Vec<u8> {
     let mut out = schema_version.to_le_bytes().to_vec();
@@ -5348,8 +5348,14 @@ mod live {
         let feed = open_feed_on(&w, &reader, &session).await;
 
         let headers = sign_with(w.addr, &session, "DELETE", "/session", b"", 2).await;
-        let (status, _) = raw_request(w.addr, "DELETE", "/session", &headers, b"").await;
+        let (status, head, _) = raw_request_full(w.addr, "DELETE", "/session", &headers, b"").await;
         assert_eq!(status, "200", "sign-out");
+        // Owner, 2026-10-12: sign-out also clears the browser's cache.
+        assert!(
+            head.to_ascii_lowercase()
+                .contains("clear-site-data: \"cache\""),
+            "sign-out must answer Clear-Site-Data: \"cache\":\n{head}"
+        );
 
         assert_closed_before_delivery(&w, feed).await;
     }

@@ -1,3 +1,4 @@
+import { CableRunMarks } from './CableRunMarks';
 import { useMemo, type CSSProperties, type MouseEvent } from 'react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
@@ -86,6 +87,8 @@ function useSurfaceLiveData(myCableIds: ReadonlySet<string>) {
 }
 
 const HEADER_PX = 16;
+/** The panel's label row, for whatever draws beside a wall (its cable runs). */
+export const SURFACE_HEADER_PX = HEADER_PX;
 const RAIL_GUTTER_PX = 26;
 const FIXTURE_WIDTH_PX = 92;
 const FIXTURE_MIN_HEIGHT_PX = 34;
@@ -456,6 +459,9 @@ function Panel({ placement, uPx, onSelectPort, onSelectFixture, liveDrag, portSh
 
   return (
     <div className="drawing-surface drawing-surface--panel" style={{ width: placement.widthPx, height: placement.heightPx }}>
+      {surface.cableRuns != null && surface.cableRuns.length > 0 && (
+        <CableRunMarks runs={surface.cableRuns} box={{ x: 0, y: 0, width: placement.widthPx, headerPx: HEADER_PX, frameHeight: bodyHeightPx }} />
+      )}
       <div className="drawing-surface__header">
         <span className="drawing-surface__label">{surface.label}</span>
         <span className="drawing-surface__form">{surface.form.toUpperCase()}</span>

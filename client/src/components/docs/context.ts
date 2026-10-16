@@ -29,6 +29,13 @@ export interface DocsApi {
   /** Erases the stored bytes; the name, size and hash stay in the design's history. */
   deleteFileForGood(file: DocFileView): Promise<Refused | void>;
   open(view: DocsView): void;
+  /** Round 15, device photo: the picture shown on a thing's panel, or null. */
+  photoOf(ownerId: string): DocFileView | null;
+  /** The picture's bytes, checked against the design's hash, as a `data:` URL for an `<img>`. */
+  readImage(file: DocFileView): Promise<Refused | { url: string }>;
+  /** Uploads an image onto the thing's "Photo" doc, making the doc if it has none. An image
+   * cannot be checked for passwords, so the person confirms it shows none first. */
+  addPhoto(ownerId: string, file: File, confirmed?: boolean): Promise<Refused | { note: string } | { confirm: 'image' }>;
 }
 
 export type DocsView =

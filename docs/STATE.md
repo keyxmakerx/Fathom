@@ -23,6 +23,11 @@ device's platform; otherwise, when the engine cannot tell, the card asks "Which 
 name in every menu, script bodies whole (`corpus/dict/README-routeros.md`). Naming `routeros` in the paste
 frame and the paste card's summary wait on the client.
 
+**Paste: pfSense (engine, 2026-10-10).** A `config.xml` backup has its own front end,
+`fathom-ingest/src/xml.rs`, picked when the root is `<pfsense>`. Its dictionary is an allowlist: every value
+no entry describes is destroyed, because pfSense stores keys and passwords base64-encoded
+(`corpus/dict/README-pfsense.md`).
+
 **The server.** `crates/fathom-server` starts, answers a health check through a real PostgreSQL, shuts
 down cleanly, and runs as the one plain-HTTP published port of a composed stack, behind the operator's
 own TLS-terminating proxy. It stores identity and structure (accounts, organisations, memberships, the
@@ -220,6 +225,13 @@ breadcrumb does one thing.
   cable whose far end is off screen draws as stubs ending in a tag that pans to it (`drawing/stubs.ts`).
 - **Equipment list** (left "Equipment" button): search, headings Common / On a wall / Exact models; click
   or Enter adds where there is room. Common devices arrive named (router-1) with a role.
+  **Not here? Describe it** (r15-f1, `components/describe/`): rows of ports (copper, SFP, SFP+, SFP28,
+  QSFP28, console, power; how many; which face), the faceplate drawn per face as you go. Faces are
+  front, rear, left, right and top (schema 0.22, `PhysicalPort.face`; the catalogue format reads the
+  same five). Use this model adds the device named from its description (nuc-13-1) with hand-typed
+  ports, one undo step, and keeps it in this browser under **Your models** at the top of the list.
+  A side or top port draws in neither rack elevation; the opened device shows every face, captioned.
+  Not built: PoE marking (no schema field), a model kept on the server for the whole organisation.
 - **Right-click menus:** device (Details, Duplicate, Remove, Open, Inside, Paste config), rack (Details,
   Add a device), cable (Details, Disconnect), empty canvas (42U, 24U, 12U rack, wall). A reader gets Details.
 - **Open a device, paste a config anywhere** (ADR-0060 step 8). Right-click Open or double-click enters
@@ -319,6 +331,14 @@ wins, and the overwritten person can **Put mine back**. Others show as initials 
 **History panel** (#124, #128). The bar's **History** leads with the chain check in words ("Checked:
 every save is intact", "Broken at save N"), lists saves newest first, shows any save read-only with its
 changes outlined, and **Restore this version** (Draw) makes a new save.
+
+**Round 15 quality of life** (r15-qol; schema 0.21, field key 462). A sketch port's name field takes a
+pattern (`ge-0/0/{0-23}` is 24 ports, `document/portPattern.ts`). A port has a MAC (`PhysicalPort.mac`),
+edited on its panel or the Ports table; Find and Ctrl+K answer a MAC, or its start, with the port and
+where it is plugged. A rack's panel and right-click offer **Close gaps** and **Copy rack, with its
+cables** (R1 gives R2, names get -2; `document/rackTidy.ts`), one undo step each. A device panel shows
+its **Photo**: the newest image on its own docs, added by drop or pick onto a "Photo" doc, shown as a
+`data:` image (the CSP allows no `blob:`), confirmed as showing no passwords first.
 
 **Open, not on main yet:** #136 port ties, #137 reconnecting, #138 History speed. #141 (ticked ideas:
 Ctrl+K, Undo note, saved views, folding panels, faceplate port dragging, pinned notes) merged into the

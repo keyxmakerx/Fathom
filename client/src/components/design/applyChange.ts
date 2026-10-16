@@ -18,11 +18,14 @@ import {
   resizeShelf,
 } from '../../document/commands';
 import { disconnect, setCableField } from '../../document/cables';
+import { addCableRun, addCableTie, moveCableTie, removeCableRun, removeCableTie } from '../../document/cableRuns';
 import { removeFree, setLabel, setLineLabel } from '../../document/freeform';
-import { FieldValueError, setChassisField, setDeviceField, setPassiveNodeField, setRackField, setRackHeight } from '../../document/edit';
+import { FieldValueError, setChassisField, setPortMac, setDeviceField, setPassiveNodeField, setRackField, setRackHeight } from '../../document/edit';
 import { edgesIn, findNode, readDeviceFields, type Document } from '../../document/model';
 import { copyName, hostnamesOf } from '../racks/pick';
 import { fitSupply, removeSupply, setSupplyField } from '../../document/supplies';
+import { addTemplatePorts } from '../../document/plate';
+import { closeRackGaps, copyRack } from '../../document/rackTidy';
 
 /** Throws the same errors the document commands throw; `refusalFor` words them. `notice` is set
  * only by a duplicate whose copy landed unplaced. */
@@ -145,8 +148,35 @@ export function applyEditorChange(
     next = setLineLabel(doc, change.id, change.value, opts);
   } else if (change.kind === 'free-remove') {
     next = removeFree(doc, [change.id], opts);
+  } else if (change.kind === 'port') {
+    next = setPortMac(doc, change.id, change.value, opts);
+  } else if (change.kind === 'add-sketch-ports') {
+    next = addTemplatePorts(
+      doc,
+      change.chassisId,
+      change.labels.map((label) => ({ label, connector: change.connector, face: change.face, ...(change.service !== null ? { service: change.service } : {}) })),
+      opts,
+    );
+  } else if (change.kind === 'rack-close-gaps') {
+    const r = closeRackGaps(doc, change.rackId, opts);
+    next = r.doc;
+    notice = r.moved === 0 ? 'No gaps to close in this rack.' : `Closed the gaps: ${r.moved} moved up.`;
+  } else if (change.kind === 'rack-copy') {
+    const r = copyRack(doc, change.rackId, { catalogue, ...opts });
+    next = r.doc;
+    notice = `Copied to ${r.label}: ${r.devices} device${r.devices === 1 ? '' : 's'}, ${r.cables} cable${r.cables === 1 ? '' : 's'}.${r.skipped > 0 ? ` ${r.skipped} patch panel${r.skipped === 1 ? '' : 's'} or other passive${r.skipped === 1 ? ' was' : 's were'} left out.` : ''}`;
   } else if (change.kind === 'shelf-size') {
     next = resizeShelf(doc, change.id, { heightU: change.heightU, slots: change.slots }, { catalogue, ...opts });
+  } else if (change.kind === 'cable-run-add') {
+    next = addCableRun(doc, change.hostId, { form: change.form, side: change.side, ...opts });
+  } else if (change.kind === 'cable-run-remove') {
+    next = removeCableRun(doc, change.id, opts);
+  } else if (change.kind === 'cable-tie-add') {
+    next = addCableTie(doc, change.runId, { at: change.at, cableIds: change.cableIds, ...opts });
+  } else if (change.kind === 'cable-tie-move') {
+    next = moveCableTie(doc, change.id, change.at, opts);
+  } else if (change.kind === 'cable-tie-remove') {
+    next = removeCableTie(doc, change.id, opts);
   } else {
     if (!isSurfaceForm(change.form)) {
       throw new FieldValueError('Surface.form', change.form, `is not one of: ${SURFACE_FORMS.join(', ')}`);

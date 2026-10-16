@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { CatalogueModel } from '../api/catalogue';
 import { createRack, createShelf, placeChassis, UnknownReferenceError } from './commands';
-import { DEVICE_ROLES, FieldValueError, isIpAddr, setChassisField, setDeviceField, setPassiveNodeField, setRackField } from './edit';
+import { DEVICE_ROLES, FieldValueError, isIpAddr, setChassisField, setDeviceField, setPassiveNodeField, setPortMac, setRackField } from './edit';
 import { edgesIn, emptyDocument, findNode, formatNodeId, readPassiveNodeFields, readRackFields, type Document } from './model';
 import { newUlid } from './ulid';
 
@@ -297,5 +297,23 @@ describe('setDeviceField / setPassiveNodeField archive the replaced value', () =
     const { doc, deviceId } = docWithChassis();
     const next = setDeviceField(doc, deviceId, 'hostname', 'core-01', { now: NOW });
     expect(next.history.find((h) => h.element === deviceId)).toBeUndefined();
+  });
+});
+
+describe('setPortMac (schema 0.21)', () => {
+  it('stores any common spelling canonically, clears with null, and refuses a non-MAC', async () => {
+    const { addSketchPort, createSketchDevice } = await import('./commands');
+    const { readPhysicalPortFields: read, edgesOut: out, findNode: find } = await import('./model');
+    let doc = createSketchDevice(emptyDocument(), { now: 1 });
+    const chassisId = doc.nodes.find((n) => n.id.startsWith('chassis:'))!.id;
+    doc = addSketchPort(doc, chassisId, { label: 'eth0', connector: 'rj45', face: 'front' }, { now: 1 });
+    const portId = out(doc, chassisId, 'HasPort')[0]!.to;
+    for (const spelling of ['3C:22:FB:01:02:03', '3c-22-fb-01-02-03', '3c22.fb01.0203', '3c22fb010203']) {
+      expect(read(find(setPortMac(doc, portId, spelling), portId)!).mac).toBe('3c:22:fb:01:02:03');
+    }
+    const set = setPortMac(doc, portId, '3c22fb010203');
+    expect(read(find(setPortMac(set, portId, null), portId)!).mac).toBeUndefined();
+    expect(() => setPortMac(doc, portId, '3c:22:fb')).toThrow(FieldValueError);
+    expect(() => setPortMac(doc, portId, '3c:22-fb:01:02:03')).toThrow(FieldValueError);
   });
 });

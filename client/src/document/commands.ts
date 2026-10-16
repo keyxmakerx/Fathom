@@ -4,7 +4,7 @@
 // call so the op log stays a genuine record of what happened rather than a
 // diff reconstructed after the fact.
 
-import { connectorTokenOf, PORT_CONNECTOR_VALUES, PORT_SERVICE_VALUES } from './compat';
+import { connectorTokenOf, PORT_CONNECTOR_VALUES, PORT_SERVICE_VALUES, type PortFace } from './compat';
 import type { CatalogueModel } from '../api/catalogue';
 import { cascadeRemoval } from './cascade';
 import { FieldValueError } from './edit';
@@ -191,7 +191,7 @@ function buildCatalogueEquipment(
   const ops: Op[] = [];
   // One id per faceplate slot, kept by face — an outlet/panel model pairs
   // front-i to rear-i by index below.
-  const portIdsByFace: Record<'front' | 'rear', string[]> = { front: [], rear: [] };
+  const portIdsByFace: Record<PortFace, string[]> = { front: [], rear: [], left: [], right: [], top: [] };
 
   for (const faceplate of model.faceplates) {
     for (const port of faceplate.ports) {
@@ -1216,7 +1216,7 @@ export interface AddSketchPortFields {
   label: string;
   connector: string;
   service?: string;
-  face: 'front' | 'rear';
+  face: PortFace;
 }
 
 /**
@@ -1284,7 +1284,7 @@ export interface AddSketchPortRangeFields {
   last: number;
   connector: string;
   service?: string;
-  face: 'front' | 'rear';
+  face: PortFace;
 }
 
 export class InvalidPortRangeError extends Error {
@@ -1541,6 +1541,8 @@ export interface DuplicateDeviceOptions extends Actor {
   unplaced?: boolean;
   /** Put the copy in this rack (the source's height), not the source's own. */
   intoRackId?: string;
+  /** Mount the copy at this unit rather than the first free run (copying a whole rack keeps its layout). */
+  positionU?: number;
 }
 
 export interface DuplicateDeviceResult {
@@ -1675,7 +1677,11 @@ export function duplicateDevice(doc: Document, sourceChassisId: string, opts: Du
     }
   }
 
-  const positionU = rackId === undefined ? undefined : findFreeRun(working, rackId, rackHeightU(working, rackId), heightU);
+  let positionU = rackId === undefined ? undefined : findFreeRun(working, rackId, rackHeightU(working, rackId), heightU);
+  if (rackId !== undefined && opts.positionU !== undefined) {
+    checkPlacement(working, rackId, rackHeightU(working, rackId), opts.positionU, heightU);
+    positionU = opts.positionU;
+  }
   let placed = false;
   if (rackId !== undefined && positionU !== undefined) {
     const mountedProv = assertHand(working, { assertedAt: now, assertedBy: actor });

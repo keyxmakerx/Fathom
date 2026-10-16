@@ -170,11 +170,24 @@ impl Shell {
             ))
         };
 
+        // A pfSense backup: a `config.xml` whose root is `<pfsense>`.
+        let backup = !table
+            && !export
+            && match hint {
+                Some(p) => p == "pfsense",
+                None => fathom_ingest::xml::root_element(text) == Some("pfsense"),
+            };
         let (ingest, platform) = if table {
             let Some(dict) = self.dicts.get("opnsense") else {
                 return missing("table");
             };
             let read = fathom_ingest::csv::ingest_csv(text, dict).map_err(refuse)?;
+            (read, dict.platform().to_owned())
+        } else if backup {
+            let Some(dict) = self.dicts.get("pfsense") else {
+                return missing("pfSense");
+            };
+            let read = fathom_ingest::xml::ingest_xml(text, dict).map_err(refuse)?;
             (read, dict.platform().to_owned())
         } else if export {
             let Some(dict) = self.dicts.get("routeros") else {
@@ -3133,11 +3146,12 @@ fn field_name(key: fathom_ir::bag::FieldKey) -> &'static str {
 
 /// The comma-joined detectors that fired on one destroyed value (`14` §9.2:
 /// "redacted once and the manifest records both reasons").
-/// Platforms read by a front end of their own (the rules CSV, a RouterOS export),
+/// Platforms read by a front end of their own (the rules CSV, a RouterOS export,
+/// a pfSense backup),
 /// never by the set-form shaper: detection, a named set-form platform and
 /// `OP_REDACT_TEXT` all skip them.
 fn is_own_front_end(platform: &str) -> bool {
-    platform == "opnsense" || platform == "routeros"
+    platform == "opnsense" || platform == "routeros" || platform == "pfsense"
 }
 
 fn detector_names(d: fathom_ingest::redact::DetectorSet) -> String {

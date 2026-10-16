@@ -22,6 +22,7 @@ import {
   edgesIn,
   findNode,
   identifier,
+  macAddress,
   replaceNode,
   requireFieldName,
   text,
@@ -312,4 +313,25 @@ export function setPassiveNodeField(
   const { actor, now } = resolve(opts);
   const built = setFieldEntry(doc, now, actor, passiveNodeId, node.fields[wireKey], wireKey, encoded);
   return commitField(built.doc, now, passiveNodeId, wireKey, built.entry, built.op, `set ${wireKey}`);
+}
+
+/**
+ * `PhysicalPort.mac` (schema 0.21, `MacAddress`) on one port: any common spelling is stored as
+ * `aa:bb:cc:dd:ee:ff`; `value: null` clears it. One batch.
+ */
+export function setPortMac(doc: Document, portId: string, value: string | null, opts?: Actor): Document {
+  const node = findNode(doc, portId);
+  if (!node || node.absentSince !== undefined || !portId.startsWith('physical-port:')) throw new UnknownReferenceError(portId, 'PhysicalPort');
+  const wireKey = 'PhysicalPort.mac';
+  let encoded: FieldEntry['value'] | undefined;
+  if (value !== null) {
+    try {
+      encoded = macAddress(value);
+    } catch {
+      throw new FieldValueError(wireKey, value, 'is not a MAC address (write it like 3c:22:fb:01:02:03)');
+    }
+  }
+  const { actor, now } = resolve(opts);
+  const built = setFieldEntry(doc, now, actor, portId, node.fields[wireKey], wireKey, encoded);
+  return commitField(built.doc, now, portId, wireKey, built.entry, built.op, `set ${wireKey}`);
 }

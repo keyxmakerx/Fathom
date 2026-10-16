@@ -188,7 +188,16 @@ fn schema_version_is_the_trees() {
     //
     // 0.19 -> 0.20: the owner's ticked ideas. Two optional fields, `PhysicalPort.plate_x` and
     // `.plate_y` (412-413), and a `note` variant on `Label.form`; all MINOR.
-    assert_eq!(SCHEMA_VERSION, "0.20");
+    //
+    // 0.20 -> 0.21: round 15's quality-of-life items. One optional field, `PhysicalPort.mac`
+    // (462); MINOR.
+    //
+    // 0.21 -> 0.22: the describe-a-model builder. Three variants on `PhysicalPort.face` (left,
+    // right, top); MINOR.
+    //
+    // 0.22 -> 0.23: cable runs and ties. Two node kinds (`CableRun`, `CableTie`), three edge kinds
+    // (`HasCableRun`, `HasCableTie`, `Ties`), four field keys (414-417); all MINOR.
+    assert_eq!(SCHEMA_VERSION, "0.23");
 }
 
 #[test]
@@ -715,7 +724,9 @@ fn dispatch_names_every_registry_key() {
     //
     // 404 -> 411: firmware targets' seven keys (405-411).
     // 411 -> 413: the ticked ideas' `PhysicalPort.plate_x` and `.plate_y` (412-413).
-    assert_eq!(FIELD_KEYS.len(), 407, "the registry grew or shrank");
+    // One more: round 15's `PhysicalPort.mac` (462; 414-461 held for the other round 15 threads).
+    // 413 -> 417: cable runs and ties (414-417).
+    assert_eq!(FIELD_KEYS.len(), 412, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

@@ -13,7 +13,8 @@
 // `SitsOn` / `FixedTo` is live for it — `commands.ts`'s `movePlacement` is
 // this module's write-side mirror: exactly one of the three survives.
 
-import { connectorTokenOf } from './compat';
+import { cableRunsOf, type CableRunView } from './cableRuns';
+import { connectorTokenOf, isPortFace, type PortFace } from './compat';
 import { labelView, lineEnds, lineLabelOf, liveLabelNodes, liveLineNodes, pinOf } from './freeform';
 import type {
   CataloguePort,
@@ -114,7 +115,9 @@ export interface PortView {
    * entry at all. `uplink` above is derived from this when it is present
    * (`role === 'uplink'`), the catalogue's own `uplink` bit otherwise. */
   role: 'access' | 'uplink' | 'management' | 'console' | null;
-  face: 'front' | 'rear';
+  /** Schema 0.22 adds left, right and top (`PortFace`): a side or top port draws in neither
+   * rack elevation, only where the whole box shows (a free box, jot mode). */
+  face: PortFace;
   /** ADR-0051 §1 — the id of the live `PassThrough` edge this port carries
    * ("these two holes are the same hole", `schema/schema.yaml`'s own doc),
    * `null` when this port passes nothing through. Degree above one (a
@@ -137,6 +140,8 @@ export interface PortView {
    * thousandths of the plate's width and height to its centre. Absent or
    * `null`: the computed layout places it. Never set on a catalogue port. */
   plate?: { x: number; y: number } | null;
+  /** Schema 0.21 — the hardware address seen on this port, `aa:bb:cc:dd:ee:ff`. */
+  mac?: string;
 }
 
 /** One PSU slot (ADR-0050 §3/§4), joining the catalogue's own `psuSlots`
@@ -228,6 +233,9 @@ export interface RackView {
    * yet). */
   row: string | null;
   bay: number | null;
+  /** Schema 0.23: the trays and lacing bars on this rack, each with its ties. Absent in views
+   * built by hand before runs existed; read as none. */
+  cableRuns?: CableRunView[];
 }
 
 /** ADR-0051 §1 — one item `SitsOn` a shelf: a mini PC, a desktop switch, an
@@ -296,6 +304,8 @@ export interface SurfaceView {
   widthMm: number | null;
   heightMm: number | null;
   fixtures: FixtureView[];
+  /** Schema 0.23: the trays and lacing bars on this wall, each with its ties. */
+  cableRuns?: CableRunView[];
 }
 
 /** One row of the closet, as seen from the front (ADR-0050 §2): racks by
@@ -493,8 +503,8 @@ function roleAndUplinkOf(match: CataloguePort): { role: PortView['role']; uplink
   return { role: null, uplink: match.uplink };
 }
 
-function explicitFaceOf(face: string | undefined): 'front' | 'rear' | undefined {
-  return face === 'front' || face === 'rear' ? face : undefined;
+function explicitFaceOf(face: string | undefined): PortFace | undefined {
+  return isPortFace(face) ? face : undefined;
 }
 
 /** Natural, numeric-aware compare for a typed-by-hand port's own label —
@@ -571,6 +581,7 @@ function portView(
         passThroughId,
         cable,
         service: fields.service ?? null,
+        ...(fields.mac !== undefined ? { mac: fields.mac } : {}),
       };
     }
   }
@@ -588,6 +599,7 @@ function portView(
     cable,
     service: fields.service ?? null,
     ...(fields.plateX !== undefined && fields.plateY !== undefined ? { plate: { x: fields.plateX, y: fields.plateY } } : {}),
+    ...(fields.mac !== undefined ? { mac: fields.mac } : {}),
   };
 }
 
@@ -1016,6 +1028,7 @@ function surfaceView(
     widthMm: fields.widthMm ?? null,
     heightMm: fields.heightMm ?? null,
     fixtures,
+    cableRuns: cableRunsOf(doc, surfaceId),
   };
 }
 
@@ -1081,6 +1094,7 @@ function rackView(
     freeRuns: freeRuns(heightU, occupied),
     row: fields.row ?? null,
     bay: fields.bay ?? null,
+    cableRuns: cableRunsOf(doc, rackId),
   };
 }
 

@@ -860,7 +860,8 @@ async fn fresh_endorsing_session(
     // wait for the previous mint rather than stomp its password write.
     let mut guard = slot.lock().await;
     // A minute of margin inside the session's own lifetime and the
-    // fifteen-minute freshness window, so a slow test never straddles the edge.
+    // freshness window (the same length since 2026-10-12), so a slow test
+    // never straddles the edge.
     if let Some(cached) = guard.as_ref() {
         if now < cached.expires_at_unix - 60
             && now - cached.minted_at_unix < sessions::SECOND_FACTOR_FRESHNESS.as_secs() as i64 - 60

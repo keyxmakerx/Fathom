@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { menuItemsFor, type MenuActions } from './contextMenuItems';
 
-function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'onPlanFirmware' | 'firmwareNeedsVersion' | 'onSuggestCables'>> {
+function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'onPlanFirmware' | 'firmwareNeedsVersion' | 'onSuggestCables' | 'onAddCableRun' | 'onRemoveCableRun' | 'cableRunsOn'>> {
   return {
     onSelect: vi.fn(),
     onOpen: vi.fn(),
@@ -12,6 +12,8 @@ function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'o
     onRemoveDevice: vi.fn(),
     onDisconnect: vi.fn(),
     onAddDevice: vi.fn(),
+    onCloseRackGaps: vi.fn(),
+    onCopyRack: vi.fn(),
     onAddRack: vi.fn(),
     onAddWall: vi.fn(),
     onPasteConfig: vi.fn(),
@@ -24,6 +26,31 @@ function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'o
 }
 
 describe('menuItemsFor', () => {
+  it('offers cable runs on a wall too', () => {
+    const add = vi.fn();
+    const items = menuItemsFor({ kind: 'surface', id: 'w1' }, { ...actions(), onAddCableRun: add, onRemoveCableRun: vi.fn(), cableRunsOn: () => [] });
+    expect(items.map((i) => i.label)).toEqual(['Add a lacing bar on the left', 'Add a lacing bar on the right', 'Add a cable tray on top']);
+    expect(menuItemsFor({ kind: 'surface', id: 'w1' }, actions())).toEqual([]);
+  });
+
+  it('offers a lacing bar or tray on each free side of a rack, and removal of each run there', () => {
+    const add = vi.fn();
+    const remove = vi.fn();
+    const run = { id: 'run1', hostId: 'r1', form: 'lacing_bar' as const, side: 'left' as const, label: null, ties: [] };
+    const items = menuItemsFor({ kind: 'rack', id: 'r1' }, { ...actions(), onAddCableRun: add, onRemoveCableRun: remove, cableRunsOn: () => [run] });
+    const labels = items.map((i) => i.label);
+    expect(labels).not.toContain('Add a lacing bar on the left');
+    expect(labels).toContain('Add a lacing bar on the right');
+    expect(labels).toContain('Add a cable tray on top');
+    items.find((i) => i.label === 'Add a cable tray on top')!.onSelect();
+    expect(add).toHaveBeenCalledWith('r1', 'tray', 'top');
+    const off = items.find((i) => i.label === 'Remove the left lacing bar')!;
+    expect(off.danger).toBe(true);
+    off.onSelect();
+    expect(remove).toHaveBeenCalledWith('run1');
+  });
+
+
   it('offers Plan a firmware upgrade beside Plan a change, and says when a version must be chosen first', () => {
     const go = vi.fn();
     const base = { ...actions(), onPlanChange: vi.fn(), onPlanFirmware: go };
@@ -82,9 +109,13 @@ describe('menuItemsFor', () => {
   it('offers a rack its details and a new device', () => {
     const a = actions();
     const items = menuItemsFor({ kind: 'rack', id: 'r1' }, a);
-    expect(items.map((i) => i.label)).toEqual(['Details', 'Add a device']);
+    expect(items.map((i) => i.label)).toEqual(['Details', 'Add a device', 'Close gaps', 'Copy rack, with its cables']);
     items[1].onSelect();
     expect(a.onAddDevice).toHaveBeenCalledWith('r1');
+    items[2].onSelect();
+    expect(a.onCloseRackGaps).toHaveBeenCalledWith('r1');
+    items[3].onSelect();
+    expect(a.onCopyRack).toHaveBeenCalledWith('r1');
   });
 
   it('offers a cable its details and a disconnect', () => {
@@ -123,9 +154,9 @@ describe('menuItemsFor', () => {
   it('offers Add here only when the click landed on a free unit of a rack', () => {
     const a = actions();
     const at = { screen: { x: 1, y: 2 }, flow: { x: 3, y: 4 } };
-    expect(menuItemsFor({ kind: 'rack', id: 'r1' }, a).map((i) => i.label)).toEqual(['Details', 'Add a device']);
+    expect(menuItemsFor({ kind: 'rack', id: 'r1' }, a).map((i) => i.label)).toEqual(['Details', 'Add a device', 'Close gaps', 'Copy rack, with its cables']);
     const items = menuItemsFor({ kind: 'rack', id: 'r1', freeU: { u: 12, ...at } }, a);
-    expect(items.map((i) => i.label)).toEqual(['Details', 'Add here (U12)', 'Add a device', 'Add a note here']);
+    expect(items.map((i) => i.label)).toEqual(['Details', 'Add here (U12)', 'Add a device', 'Add a note here', 'Close gaps', 'Copy rack, with its cables']);
     items[1].onSelect();
     expect(a.onAddInRack).toHaveBeenCalledWith('r1', 12, expect.objectContaining({ screen: at.screen }));
   });

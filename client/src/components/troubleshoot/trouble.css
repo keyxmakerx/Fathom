@@ -83,13 +83,12 @@
 }
 
 .trouble-btn {
-  padding: 2px var(--s3);
-  font: inherit;
   cursor: pointer;
 }
 
 .trouble-btn--ink {
   background: var(--ink);
+  border-color: var(--ink);
   color: var(--page);
   box-shadow: none;
 }
@@ -100,8 +99,8 @@
 }
 
 .trouble-btn[aria-pressed='true'] {
-  font-weight: 700;
-  box-shadow: inset 0 0 0 var(--rule-hair) var(--ink);
+  background: var(--control-on);
+  box-shadow: var(--control-on-mark);
 }
 
 .trouble-btn:disabled {
@@ -264,12 +263,6 @@
   box-sizing: border-box;
   width: 100%;
   min-height: 48px;
-  padding: 2px var(--s2);
-  border: var(--rule-hair) solid var(--ink);
-  border-radius: var(--radius);
-  background: var(--page);
-  color: var(--ink);
-  font: inherit;
   resize: vertical;
 }
 

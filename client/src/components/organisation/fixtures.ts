@@ -59,6 +59,7 @@ export const person = (over: Partial<Person> = {}): Person => ({
   email: 'priya@example.test',
   you: false,
   state: 'active',
+  notSignedInYet: false,
   invitation: null,
   asked: null,
   expired: false,

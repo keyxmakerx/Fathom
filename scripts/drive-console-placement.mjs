@@ -549,6 +549,8 @@ async function main() {
     /independent/.test(bannerText) && /recover-operator/.test(bannerText),
     bannerText.slice(0, 120).replace(/\n/g, ' '),
   );
+  // Admin is one section at a time (owner, 2026-10-12): the register is under Operators.
+  await page.click('[data-testid="console-tab-operators"]');
   const registerText = await page.locator('.console__table').last().innerText().catch(() => '');
   check(
     "the register carries the operator's address of record",
@@ -697,6 +699,7 @@ async function main() {
   await shot('04d-duplicate-tab-refused');
 
   // ---- step 2: the SMTP form ----------------------------------------------
+  await page.click('[data-testid="console-tab-settings"]');
   await page.fill('#smtp-host', 'smtp.example.test');
   await page.fill('#smtp-port', '587');
   await page.selectOption('#smtp-tls', 'starttls');
@@ -857,6 +860,7 @@ async function main() {
   await page.click('[data-testid="console-entry"]');
   await page.waitForSelector('.console__section', { timeout: 20000 });
   await page.waitForTimeout(500);
+  await page.click('[data-testid="console-tab-settings"]');
   check(
     'and the real console renders there again',
     (await page.locator('#placement-hosts').count()) === 1,

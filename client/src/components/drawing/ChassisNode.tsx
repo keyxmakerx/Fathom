@@ -7,7 +7,7 @@ import { ABSENT, UNNAMED_HOSTNAME, type ChassisView, type InletView, type PortVi
 import type { Facing } from './elevation';
 import { connectorName, faceplateLayoutFor, plateItems, portWhere, type PortBox } from './faceplate';
 import { RAIL_PX, U_PX } from './geometry';
-import { useLive } from './liveStore';
+import { useLive, useLiveStore } from './liveStore';
 import { EditableName } from './NameEdit';
 import { isPanel } from './paths';
 import { pduUsage, pduUsageLabel } from './power';
@@ -118,6 +118,19 @@ function PlatePort({
 }) {
   const cable = port.cable ?? null;
   const cabled = cable != null;
+  const store = useLiveStore();
+  // Faded cables: pointing at a cabled port shows its whole cable, at once.
+  const reveal = cabled
+    ? {
+        onMouseEnter: () => {
+          if (store.getState().cableStyle === 'faded') store.setState({ hoveredCableId: cable.cableId, hoverStack: [] });
+        },
+        onMouseLeave: () => {
+          const s = store.getState();
+          if (s.cableStyle === 'faded' && s.hoveredCableId === cable.cableId) store.setState({ hoveredCableId: null });
+        },
+      }
+    : {};
   const isOrigin = liveDrag?.fromPortId === port.id;
   const isLive = isOrigin || (liveDrag != null && liveDrag.livePortIds.has(port.id));
   const dimmed = (liveDrag != null && !isLive) || (inlet != null && litCableId != null && cable?.cableId !== litCableId);
@@ -137,7 +150,7 @@ function PlatePort({
   );
   if (!glyphs) {
     return (
-      <div data-port-id={port.id} className="drawing-chassis__port drawing-chassis__port--bare" style={style}>
+      <div data-port-id={port.id} className="drawing-chassis__port drawing-chassis__port--bare" style={style} {...reveal}>
         {handle}
       </div>
     );
@@ -151,6 +164,7 @@ function PlatePort({
       title={tip}
       className={cabled ? 'drawing-chassis__port drawing-chassis__port--cabled nodrag' : 'drawing-chassis__port nodrag'}
       style={style}
+      {...reveal}
       onClick={(event: MouseEvent) => {
         event.stopPropagation();
         onSelectPort(port.id);

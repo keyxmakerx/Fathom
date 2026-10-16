@@ -34,6 +34,7 @@ pub mod lex;
 pub mod redact;
 pub mod routeros;
 pub mod shape;
+pub mod xml;
 
 /// 14 §11.4's refusal caps: refuse before processing, never OOM mid-way.
 pub const MAX_PASTE_BYTES: usize = 32 * 1024 * 1024;

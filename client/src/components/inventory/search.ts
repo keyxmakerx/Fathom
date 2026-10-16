@@ -172,7 +172,7 @@ export function buildSearchIndex(src: SearchSource): SearchIndex {
     for (const row of rows) {
       let hexes: string[] | null = null;
       for (const [k, v] of Object.entries(row.cells)) {
-        if (!k.startsWith('field:') || v.length < 12) continue;
+        if ((k !== 'mac' && !k.startsWith('field:')) || v.length < 12) continue;
         for (const m of v.matchAll(MAC_IN_TEXT)) (hexes ??= []).push(m[0].replace(/[^0-9a-f]/gi, '').toLowerCase());
       }
       if (hexes) macs.push({ row, hexes });
@@ -244,7 +244,9 @@ function macAddress(ix: SearchIndex, clue: string): Reading | null {
   for (const e of ix.macs) {
     if (m.full ? e.hexes.includes(m.hex) : e.hexes.some((h) => h.startsWith(m.hex))) {
       const kind: Kind = e.row.key.startsWith('port:') ? 'ports' : e.row.key.startsWith('rack:') ? 'racks' : e.row.key.startsWith('cable:') ? 'cables' : 'devices';
-      hits.push(hit(kind, e.row, m.full ? 'exact' : 'part', 'a MAC address in its fields'));
+      // A port says where it is plugged, so a MAC answers "which switch port is that NAS on?".
+      const plugged = kind === 'ports' && e.row.cells.cable ? `; plugged into ${e.row.cells.cable}` : '';
+      hits.push(hit(kind, e.row, m.full ? 'exact' : 'part', `${e.row.cells.mac?.replace(/:/g, '').startsWith(m.hex) ? 'its MAC' : 'a MAC address in its fields'}${plugged}`));
     }
   }
   return { text: m.full ? `a MAC address, ${prettyMac(m.hex)}` : `the start of a MAC address, ${prettyMac(m.hex)}`, hits };

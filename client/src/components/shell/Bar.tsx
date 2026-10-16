@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { signOut } from '../../api/auth';
 import { nextFoldLevel } from './layout';
 import { DIAGRAM_STYLES, DIAGRAM_STYLE_LABEL, type DiagramStyle } from '../drawing/diagramStyle';
+import { CABLE_STYLES, CABLE_STYLE_HINT, CABLE_STYLE_LABEL, type CableStyle } from '../drawing/cableStyle';
 import { LAYERS, type LayerId, type LayerSet } from '../drawing/layers';
 import { LOOKS, LOOK_LABEL, type Look } from '../drawing/look';
 import { LENSES_IN, LENS_LABEL } from './lens';
@@ -32,7 +33,7 @@ export interface BarProps {
   views?: ReactNode;
   /** The saved views as rows for the View ▾ menu, shown once the bar folds the views group away. */
   viewsFolded?: ReactNode;
-  layers?: { value: LayerSet; onToggle: (id: LayerId) => void; style?: { value: DiagramStyle; onChange: (style: DiagramStyle) => void }; aids?: ShowAids };
+  layers?: { value: LayerSet; onToggle: (id: LayerId) => void; style?: { value: DiagramStyle; onChange: (style: DiagramStyle) => void }; cables?: { value: CableStyle; onChange: (style: CableStyle) => void }; aids?: ShowAids };
   presence: PresenceUser[];
   zoom: number;
   onZoomIn: () => void;
@@ -442,6 +443,28 @@ export function Bar({
                         </button>
                       ))}
                       </span>
+                    </div>
+                  )}
+                  {layers.cables != null && (
+                    <div className="shell-show__style" role="group" aria-label="Cable style">
+                      <span className="shell-show__head">Cable style</span>
+                      <span className="btn-group">
+                      {CABLE_STYLES.map((st) => (
+                        <button
+                          key={st}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={layers.cables!.value === st}
+                          className={layers.cables!.value === st ? 'shell-lens shell-lens--on' : 'shell-lens'}
+                          data-testid={`cable-style-${st}`}
+                          title={CABLE_STYLE_HINT[st]}
+                          onClick={() => layers.cables!.onChange(st)}
+                        >
+                          {CABLE_STYLE_LABEL[st]}
+                        </button>
+                      ))}
+                      </span>
+                      <p className="shell-show__hint" data-testid="cable-style-hint">{CABLE_STYLE_HINT[layers.cables.value]}</p>
                     </div>
                   )}
                   {/* Saved views give way before the lenses do: once the action chips fold, they sit in here. */}

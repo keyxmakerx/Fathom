@@ -63,12 +63,14 @@ async function honest(rows: ConfirmRow[], head = 10): Promise<{ proposal: Propos
   const items = rows.map((r, i): ProposedItem => {
     const n = Number(r.invitation.slice(-3));
     const steward = r.capability === 'steward';
+    // Added at once (ADR-0065): no key yet, so the grant names none.
+    const fpr = r.adding ? new Uint8Array(32) : subjectFpr(n);
     const facts: GrantFacts = {
       organisation: 'ORG',
       rootPubkeyFpr: fill(9),
       scope: r.scopeId ?? '',
       subject: r.account,
-      subjectKeyFpr: subjectFpr(n),
+      subjectKeyFpr: fpr,
       capability: r.capability,
       granter: 'ME',
       granterKeyFpr: granterFpr,
@@ -80,8 +82,8 @@ async function honest(rows: ConfirmRow[], head = 10): Promise<{ proposal: Propos
     return {
       invitation: r.invitation,
       subject: r.account,
-      subjectKeyFpr: toHex(subjectFpr(n)),
-      keyCode: keyCode(subjectFpr(n)),
+      subjectKeyFpr: toHex(fpr),
+      keyCode: keyCode(fpr),
       capability: r.capability,
       scopeId: r.scopeId,
       effectiveFromUnix: NOW,
@@ -294,6 +296,29 @@ describe('checking a proposal against the rows', () => {
     expect(() => check(draw, { ...d.proposal, items: [{ ...d.proposal.items[0], expiresAtUnix: NOW + 5 * DAY_SECONDS }] }, d.granterFpr)).toThrow(
       /expiry on a read or draw/,
     );
+  });
+});
+
+describe('adding someone at once', () => {
+  const adding = (i: number, over: Partial<ConfirmRow> = {}) => row(i, { keyCode: '', adding: true, ...over });
+
+  it('accepts a grant that names no key, for a person who has none yet', async () => {
+    const rows = [adding(1)];
+    const { proposal, granterFpr } = await honest(rows);
+    expect(check(rows, proposal, granterFpr).items).toHaveLength(1);
+  });
+
+  it('refuses a proposal that slips a key in for someone being added', async () => {
+    const rows = [adding(1)];
+    const { proposal, granterFpr } = await honest(rows);
+    const keyed = { ...proposal, items: [{ ...proposal.items[0], subjectKeyFpr: toHex(fill(0xee)) }] };
+    expect(() => check(rows, keyed, granterFpr)).toThrow(/key for someone who has none yet/);
+  });
+
+  it('never adds a steward without their own key', async () => {
+    const rows = [adding(1, { capability: 'steward' })];
+    const { proposal, granterFpr } = await honest(rows);
+    expect(() => check(rows, proposal, granterFpr)).toThrow(/steward added without their own key/);
   });
 });
 

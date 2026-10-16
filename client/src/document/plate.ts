@@ -3,7 +3,7 @@
 // Catalogue ports are never moved: a chassis with a model refuses, as `addSketchPort` does.
 
 import { DuplicatePortLabelError, PortRangeTooLargeError, SketchOnCatalogueChassisError } from './commands';
-import { PORT_CONNECTOR_VALUES, PORT_SERVICE_VALUES } from './compat';
+import { PORT_CONNECTOR_VALUES, PORT_SERVICE_VALUES, type PortFace } from './compat';
 import { FieldValueError } from './edit';
 import { addEdge, addNode, begin, finish, setNodeField, type Build } from './freeform';
 import {
@@ -45,7 +45,7 @@ export interface TemplatePort {
   label: string;
   connector: string;
   service?: string;
-  face: 'front' | 'rear';
+  face: PortFace;
   plate?: { x: number; y: number };
 }
 

@@ -507,3 +507,10 @@ fields:
   # The owner's ticked ideas (schema 0.20, 2026-10-10). Appended after 0.19's 411; 384-389 stay held elsewhere.
   PhysicalPort.plate_x: 412
   PhysicalPort.plate_y: 413
+  # Cable runs and ties (schema 0.23, 2026-10-10). Keys 414-429 are reserved for this work.
+  CableRun.form: 414
+  CableRun.side: 415
+  CableRun.label: 416
+  CableTie.at: 417
+  # Round 15 quality-of-life items (schema 0.21, 2026-10-10). 414-461 are held for the other round 15 threads (414-417 are cable runs and ties, above); this range is 462-477.
+  PhysicalPort.mac: 462

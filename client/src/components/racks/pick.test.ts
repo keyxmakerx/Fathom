@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { copyName, highestFreeU, nextHostname, racksInPickOrder } from './pick';
+import { copyName, highestFreeU, nextHostname, rackSpotForPick, racksInPickOrder } from './pick';
 
 type Rack = Parameters<typeof highestFreeU>[0] & { id: string; chassis: Array<{ id: string; positionU: number; heightU: number }> };
 
@@ -28,6 +28,20 @@ describe('highestFreeU', () => {
   it('returns null when nothing that tall fits', () => {
     expect(highestFreeU(rack('a', 2, [[1, 1]]), 2)).toBeNull();
     expect(highestFreeU(rack('a', 1, []), 2)).toBeNull();
+  });
+});
+
+describe('rackSpotForPick', () => {
+  it('takes the rack in use first, then any other with room', () => {
+    const racks = [rack('a', 2, []), rack('b', 2, [[1, 1]])];
+    expect(rackSpotForPick(racks, { kind: 'rack', id: 'b' }, 1)).toEqual({ rackId: 'b', positionU: 2 });
+    expect(rackSpotForPick(racks, { kind: 'rack', id: 'b' }, 2)).toEqual({ rackId: 'a', positionU: 1 });
+  });
+
+  it('returns null when every rack is full, so the pick goes on the canvas', () => {
+    const racks = [rack('a', 1, [[1, 1]]), rack('b', 2, [[2, 1]])];
+    expect(rackSpotForPick(racks, null, 2)).toBeNull();
+    expect(rackSpotForPick([], null, 1)).toBeNull();
   });
 });
 

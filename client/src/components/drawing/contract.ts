@@ -52,6 +52,7 @@ import type { NoteHow, NoteView } from '../../document/notes';
 // precedent for re-exporting the one `document/` shape a caller needs.
 import type { TagChip, TagSummary } from '../../document/tags';
 import type { FieldFor, FieldRow, FieldType } from '../../document/fields';
+import type { PortFace } from '../../document/compat';
 
 export type {
   CableEnd,
@@ -102,6 +103,10 @@ export interface DrawingActions {
   onRename?(target: { kind: 'chassis' | 'rack'; id: string }, value: string): void;
   /** Adds a sketch device at the highest free unit of `rackId`. */
   onAddDevice?(rackId: string): void;
+  /** Round 15: slide everything in a rack up to close the gaps. */
+  onCloseRackGaps?(rackId: string): void;
+  /** Round 15: a copy of the whole rack with its cables. */
+  onCopyRack?(rackId: string): void;
   onAddRack?(heightU: number): void;
   onAddWall?(): void;
   /** ADR-0061 §7: read a device config from the clipboard (the card then asks what to do). */
@@ -176,7 +181,7 @@ export type EditorChange =
    * `addSketchPort`). `service` is the schema's own optional field on
    * `PhysicalPort`, `null` when left blank — never an empty string standing
    * in for unset (UI-SPEC "Absent is drawn as absent"). */
-  | { kind: 'add-sketch-port'; chassisId: string; label: string; connector: string; service: string | null; face: 'front' | 'rear' }
+  | { kind: 'add-sketch-port'; chassisId: string; label: string; connector: string; service: string | null; face: PortFace }
   /** ADR-0051 §1 — the reverse: `commands.ts`'s `removeSketchPort`. */
   | { kind: 'remove-sketch-port'; chassisId: string; portId: string }
   /** ADR-0051 §1 — a numbered range of sketch ports in one batch
@@ -190,7 +195,7 @@ export type EditorChange =
       last: number;
       connector: string;
       service: string | null;
-      face: 'front' | 'rear';
+      face: PortFace;
     }
   /** ADR-0051 §1 — "Duplicate a device" (`commands.ts`'s `duplicateDevice`).
    * Shown only on a rack-mounted chassis's own panel. */
@@ -236,7 +241,22 @@ export type EditorChange =
   | { kind: 'line'; id: string; field: 'label'; value: string | null }
   | { kind: 'free-remove'; id: string }
   /** A shelf's height in units or its slot count, from the details panel. */
-  | { kind: 'shelf-size'; id: string; heightU?: number; slots?: number };
+  | { kind: 'shelf-size'; id: string; heightU?: number; slots?: number }
+  /** Round 15: a port's MAC address (`document/edit.ts`'s `setPortMac`), any common spelling. */
+  | { kind: 'port'; id: string; field: 'mac'; value: string | null }
+  /** Round 15, ports by pattern: hand-typed ports by their labels, one batch (`plate.ts`'s `addTemplatePorts`). */
+  | { kind: 'add-sketch-ports'; chassisId: string; labels: string[]; connector: string; service: string | null; face: PortFace }
+  /** Round 15: slide everything in a rack up to close the gaps (`document/rackTidy.ts`). */
+  | { kind: 'rack-close-gaps'; rackId: string }
+  /** Round 15: a copy of a whole rack, its devices, shelves and the cables between them. */
+  | { kind: 'rack-copy'; rackId: string }
+  /** Cable runs and ties (schema 0.23): a tray or lacing bar on one side of a rack or wall, and
+   * the ties clipped onto it (`document/cableRuns.ts`). */
+  | { kind: 'cable-run-add'; hostId: string; form: 'tray' | 'lacing_bar'; side: 'left' | 'right' | 'top' | 'bottom' }
+  | { kind: 'cable-run-remove'; id: string }
+  | { kind: 'cable-tie-add'; runId: string; at: number; cableIds: readonly string[] }
+  | { kind: 'cable-tie-move'; id: string; at: number }
+  | { kind: 'cable-tie-remove'; id: string };
 
 /** What the editor raises. Like `DrawingActions`, it never acts on the graph
  * itself — the caller turns a change into a real edit through
