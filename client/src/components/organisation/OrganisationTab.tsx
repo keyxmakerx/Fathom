@@ -4,7 +4,7 @@ import {
   cancelInvitation,
   describeError,
   fetchWaiting,
-  issueInvitation,
+  addPerson,
   proposeConfirm,
   refuseInvitation,
   signAndConfirm,
@@ -24,7 +24,13 @@ import { PeopleList, PersonPage } from './PeoplePanel';
 import { WaitingPanel } from './WaitingPanel';
 import './organisation.css';
 
-type Page = { kind: 'people' } | { kind: 'person'; account: string } | { kind: 'invite' } | { kind: 'link'; issued: IssuedInvitation; name: string; access: string } | { kind: 'waiting' } | { kind: 'folders' };
+type Page =
+  | { kind: 'people' }
+  | { kind: 'person'; account: string }
+  | { kind: 'invite' }
+  | { kind: 'link'; issued: IssuedInvitation; name: string; access: string; added: boolean; notAddedBecause: string | null }
+  | { kind: 'waiting' }
+  | { kind: 'folders' };
 
 export interface OrganisationTabProps {
   organisation: Organisation;
@@ -138,9 +144,16 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
           onCancel={() => go({ kind: 'people' })}
           onSubmit={(request) =>
             void act(async () => {
-              const issued = await issueInvitation(org, request);
+              const { issued, added, notAddedBecause } = await addPerson(org, request);
               const label = request.scopeId === null ? organisation.displayName : (folders.find((f) => f.scopeId === request.scopeId)?.displayName ?? '');
-              setPage({ kind: 'link', issued, name: request.name, access: accessWords(request.capability as Asked, request.scopeId, label) });
+              setPage({
+                kind: 'link',
+                issued,
+                name: request.name,
+                access: accessWords(request.capability as Asked, request.scopeId, label),
+                added,
+                notAddedBecause,
+              });
               reload();
             })
           }
@@ -153,6 +166,8 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
           invitation={page.issued}
           name={page.name}
           access={page.access}
+          added={page.added}
+          notAddedBecause={page.notAddedBecause}
           origin={typeof window === 'undefined' ? '' : window.location.origin}
           onDone={() => go({ kind: 'people' })}
           onAnother={() => go({ kind: 'invite' })}

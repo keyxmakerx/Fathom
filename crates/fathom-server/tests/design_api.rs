@@ -5348,8 +5348,14 @@ mod live {
         let feed = open_feed_on(&w, &reader, &session).await;
 
         let headers = sign_with(w.addr, &session, "DELETE", "/session", b"", 2).await;
-        let (status, _) = raw_request(w.addr, "DELETE", "/session", &headers, b"").await;
+        let (status, head, _) = raw_request_full(w.addr, "DELETE", "/session", &headers, b"").await;
         assert_eq!(status, "200", "sign-out");
+        // Owner, 2026-10-12: sign-out also clears the browser's cache.
+        assert!(
+            head.to_ascii_lowercase()
+                .contains("clear-site-data: \"cache\""),
+            "sign-out must answer Clear-Site-Data: \"cache\":\n{head}"
+        );
 
         assert_closed_before_delivery(&w, feed).await;
     }

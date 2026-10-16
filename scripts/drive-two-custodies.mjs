@@ -643,6 +643,7 @@ async function main() {
   // field in it, its button by `type=submit`, and its outcome by the class the
   // pending change is drawn in with the change id in a `<code>` -- not by the
   // sentence around them, which is copy.
+  await page.click('[data-testid="console-tab-operators"]');
   const colleagueForm = page.locator('form:has(#console-operator-name)');
   await page.fill('#console-operator-name', COLLEAGUE.name);
   await page.fill('#console-operator-address', COLLEAGUE.address);
@@ -675,6 +676,7 @@ async function main() {
   );
 
   // ---- 5. the SMTP form ---------------------------------------------------
+  await page.click('[data-testid="console-tab-settings"]');
   await page.fill('#smtp-host', 'smtp.example.test');
   await page.fill('#smtp-port', '587');
   await page.selectOption('#smtp-tls', 'starttls');
@@ -795,6 +797,7 @@ async function main() {
   // The register, read after all of it: two rows once the colleague's
   // request has applied, one until then. Reported, not asserted either way --
   // the delay is 24 hours and this drive does not wait it out.
+  await page.click('[data-testid="console-tab-operators"]');
   const register = await page.locator('.console__table').last().innerText();
   check("the register carries the operator's address of record", register.includes(ADDRESS));
   await shot('the-console-before-signing-out');

@@ -876,6 +876,40 @@ async fn read_account_key(
     }))
 }
 
+/// The subject key fingerprint of a grant signed as a person is added, before
+/// they hold any key (ADR-0065). Not a fingerprint any key can have: it would
+/// need a SHA-256 preimage of 32 zero bytes.
+pub const NO_SUBJECT_KEY: [u8; 32] = [0u8; 32];
+
+/// Refuses unless `account` is a member of `organisation` that has never held a
+/// key. Membership first, because a steward reads a keyring only through it
+/// (F2): an unreadable keyring would otherwise look like an empty one.
+async fn account_has_no_key_yet(
+    tx: &Transaction<'_>,
+    organisation: &str,
+    account: &str,
+) -> Result<(), AuthorityError> {
+    let member = tx
+        .query_opt(
+            "SELECT 1 FROM memberships WHERE account_id = $1 AND organisation_id = $2",
+            &[&account, &organisation],
+        )
+        .await?;
+    if member.is_none() {
+        return Err(AuthorityError::Stale("the person is not a member yet"));
+    }
+    let any_key = tx
+        .query_opt(
+            "SELECT 1 FROM account_keys WHERE account_id = $1 LIMIT 1",
+            &[&account],
+        )
+        .await?;
+    if any_key.is_some() {
+        return Err(AuthorityError::Stale("the person already holds a key"));
+    }
+    Ok(())
+}
+
 /// The key an account signs with today: the one that is neither superseded nor
 /// retired.
 pub async fn signing_key_of(
@@ -1640,11 +1674,23 @@ pub(crate) async fn sign_grant_at(
     if organisation_root_fpr(tx, ring, &organisation).await? != proposal.root_pubkey_fpr {
         return Err(AuthorityError::Stale("the organisation root has moved"));
     }
-    let subject_key = signing_key_of(tx, &proposal.subject)
-        .await?
-        .ok_or(AuthorityError::NoSigningKey)?;
-    if subject_key.fpr != proposal.subject_key_fpr {
-        return Err(AuthorityError::Stale("the subject's signing key has moved"));
+    if proposal.subject_key_fpr == NO_SUBJECT_KEY {
+        // ADR-0065: a grant signed as a person is added, before they hold any key.
+        // Only read and draw, and only while the account has never held a key:
+        // the moment it has one, the grant must name it.
+        if proposal.capability == Capability::Steward {
+            return Err(AuthorityError::Stale(
+                "a steward grant names the steward's own key",
+            ));
+        }
+        account_has_no_key_yet(tx, &organisation, &proposal.subject).await?;
+    } else {
+        let subject_key = signing_key_of(tx, &proposal.subject)
+            .await?
+            .ok_or(AuthorityError::NoSigningKey)?;
+        if subject_key.fpr != proposal.subject_key_fpr {
+            return Err(AuthorityError::Stale("the subject's signing key has moved"));
+        }
     }
 
     let granter_key = key_by_fingerprint(
@@ -3608,10 +3654,22 @@ async fn verify_grant_row(
     // The subject's key, resolved as of the grant's `effective_from` (§3.3; the
     // keyring row seal is verified inside `key_by_fingerprint`), and bound to the
     // row's subject.
-    let subject_key =
-        key_by_fingerprint(tx, ring, &grant.subject_key_fpr, grant.effective_from_unix).await?;
-    if subject_key.account_id != grant.subject_id {
-        return Err(AuthorityError::Unverifiable("subject key binding"));
+    //
+    // **A grant made as a person was added names no key** (ADR-0065): the
+    // granter signed [`NO_SUBJECT_KEY`] and the account, and the signature below
+    // covers both, so the row binds the account alone. Authorisation matches the
+    // account, never the key, so nothing downstream reads this binding. A steward
+    // grant never takes this branch: `sign_grant_at` refuses to write one.
+    if grant.subject_key_fpr != NO_SUBJECT_KEY {
+        let subject_key =
+            key_by_fingerprint(tx, ring, &grant.subject_key_fpr, grant.effective_from_unix).await?;
+        if subject_key.account_id != grant.subject_id {
+            return Err(AuthorityError::Unverifiable("subject key binding"));
+        }
+    } else if grant.capability == Capability::Steward {
+        return Err(AuthorityError::Unverifiable(
+            "steward grant with no subject key",
+        ));
     }
 
     let message = authority::grant_bytes(&GrantFacts {

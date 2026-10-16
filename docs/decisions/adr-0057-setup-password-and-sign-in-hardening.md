@@ -98,3 +98,12 @@ A: the setup password (server, client Welcome, `scripts/ci/first-operator-signin
 `docs/RUNNING-IT.md`, `docs/OPERATING.md`). B: Site behind the account, and factor changes. C: the
 reload, the timeouts and decisions 6 and 7; then decision 8's own list. D: the claim route and the
 recovery key. A checker attacks each stream before it is merged.
+
+## Amendment, 2026-10-12: the second-factor proof lasts the session
+
+The owner, after typing his code to sign in and being asked again on pressing Admin: "There
+shouldn't be 3 logins for me ... you have 2 factor enabled." Decision 2's fifteen minutes is now the
+account session's absolute life (12 hours): one code per sign-in opens Admin. Decision 6 is
+unchanged: the proof counts only beside the grace token held in the tab's memory, so a reload or a
+copied profile still needs a code. The operator plane's own 15-minute idle limit (decision 4) is
+unchanged.

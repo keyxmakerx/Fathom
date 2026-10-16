@@ -399,9 +399,10 @@ export function Enrol({ onUseExistingKey, initialToken }: EnrolProps = {}) {
               'its operator and works once.'
             : typedKind === 'steward'
               ? 'The sign-in name came with the link you were sent. It is not your email. The link works once. ' +
-                'Opening it asks for no password: this browser makes a key, and you then read a short code to the ' +
-                'person who invited you, so they can check it is you. They confirm you; until they do you have no ' +
-                'access. A password and an authenticator app are set afterwards, on your own account screen.'
+                'Opening it asks for no password: this browser makes a key that proves the account is yours. If you ' +
+                'were added, you are in as soon as this finishes; if you were invited as a steward, the person who ' +
+                'invited you confirms you first. A password and an authenticator app are set afterwards, on your ' +
+                'own account screen.'
               : 'An invitation is redeemed with the address it was sent to. Every token works once. Redeeming one ' +
               'asks for no password: the key this browser generates is what proves the account is yours. A ' +
               'password and an authenticator app are set afterwards, on your own account screen.'}
@@ -417,23 +418,29 @@ export function Enrol({ onUseExistingKey, initialToken }: EnrolProps = {}) {
   );
 }
 
-/** What a person who has just joined needs to know, and the code to read out. */
+/**
+ * What a person who has just joined needs to know. Most people were added
+ * (ADR-0065) and are already in, so Continue is the whole of it; the code is
+ * for the one case that still waits on a confirm, a steward invitation, and
+ * is shown smaller, for when the person who invited them asks.
+ */
 export function JoinedCode({ code }: { code: string | null }) {
   return (
     <>
       <p className="enrol__body">
-        If someone invited you to an organisation, read this code to them. They compare it with the one on their
-        screen, and only then confirm you.
+        Press Continue to open Fathom. If you were added to an organisation, it is waiting for you there.
       </p>
       {code !== null && (
-        <p className="enrol__code" data-testid="enrol-key-code">
-          {spacedCode(code)}
-        </p>
+        <>
+          <p className="enrol__body">
+            If the person who invited you still has to confirm you, they will ask for this code and compare it with
+            the one on their screen:
+          </p>
+          <p className="enrol__code" data-testid="enrol-key-code">
+            {spacedCode(code)}
+          </p>
+        </>
       )}
-      <p className="enrol__body">
-        Until they confirm you, you can sign in but you will see no organisation. If the code on their screen is
-        different, tell them: someone else may have used your link.
-      </p>
     </>
   );
 }

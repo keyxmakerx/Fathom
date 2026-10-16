@@ -22,7 +22,7 @@ export function PeopleList({ people, needsYou, onOpenPerson, onInvite, onOpenWai
       <div className="home__section-head">
         <div className="org-page__title">People</div>
         <button type="button" className="org-btn org-btn--primary" onClick={onInvite}>
-          Invite someone
+          Add someone
         </button>
       </div>
 
@@ -48,7 +48,7 @@ export function PeopleList({ people, needsYou, onOpenPerson, onInvite, onOpenWai
       )}
 
       {people.people.length === 0 ? (
-        <p className="home__muted">Nobody yet. Invite someone to start.</p>
+        <p className="home__muted">Nobody yet. Add someone to start.</p>
       ) : (
         <table className="org-table">
           <thead>

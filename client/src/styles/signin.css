@@ -59,7 +59,6 @@
   padding: var(--s2) var(--s3);
   font-size: var(--t-body);
   cursor: pointer;
-  box-shadow: none;
 }
 
 .signin__submit:disabled {
@@ -100,64 +99,10 @@
   text-align: left;
   text-decoration: underline;
   cursor: pointer;
-  box-shadow: none;
 }
 
 .signin__switch:hover {
   color: var(--ink);
-}
-
-/* The identities this browser holds a key for: one row each, pressed to
-   sign in as it. The id in ink, the plane in the margin. */
-.signin__identities {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s1);
-  margin-bottom: var(--s4);
-}
-
-.signin__identities-head {
-  margin: 0;
-  font-size: var(--t-tab);
-  letter-spacing: var(--track-head);
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.signin__identities .signin__hint {
-  margin: 0 0 var(--s1) 0;
-}
-
-.signin__identity {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--s3);
-  width: 100%;
-  padding: var(--s2) var(--s3);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-
-.signin__identity:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.signin__identity-id {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.signin__identity-kind {
-  flex: none;
-  font-size: var(--t-small);
-  color: var(--muted);
-  letter-spacing: var(--track-label);
-  text-transform: uppercase;
 }
 
 /* ADR-0055 client (a) — the credential doors: setup, reset, the account
@@ -225,8 +170,7 @@
   user-select: all;
 }
 
-/* ADR-0057 decision 8 — "Signed-in browsers": reuses `.signin__identity`'s
-   border-and-padding language, but as a plain row, never a button. */
+/* ADR-0057 decision 8 — "Signed-in browsers": a plain row with a hairline border, never a button. */
 .account__sessions {
   display: flex;
   flex-direction: column;
@@ -299,6 +243,9 @@
   gap: var(--s2);
   width: 100%;
   margin: var(--s4) 0;
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--page);
+  color: var(--ink);
   padding: var(--s2) var(--s3);
   font: inherit;
   font-size: var(--t-small);

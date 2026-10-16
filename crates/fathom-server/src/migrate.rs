@@ -240,6 +240,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0038_firmware_platform_version.sql",
         sql: include_str!("../migrations/0038_firmware_platform_version.sql"),
     },
+    // A steward adds a person and they are in at once (ADR-0065).
+    Migration {
+        version: 39,
+        name: "0039_added_at_once.sql",
+        sql: include_str!("../migrations/0039_added_at_once.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

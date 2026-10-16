@@ -65,7 +65,7 @@ async fn the_client_is_served_and_the_api_wins() {
         "{head}"
     );
     assert!(lower.contains("x-content-type-options: nosniff"), "{head}");
-    assert!(lower.contains("cache-control: no-cache"), "{head}");
+    assert!(lower.contains("cache-control: no-store"), "{head}");
     assert_eq!(body, "<!doctype html><title>Fathom</title>");
 
     let (head, body) = raw_http_request(addr, "GET", "/assets/main-abc123.js").await;
@@ -128,6 +128,77 @@ async fn nothing_outside_the_built_client_is_reachable() {
     assert!(status(&head).starts_with("HTTP/1.1 404"), "{head}");
     let (head, _) = raw_http_request(addr, "DELETE", "/").await;
     assert!(status(&head).starts_with("HTTP/1.1 404"), "{head}");
+}
+
+/// **No answer is cacheable unless it is a content-hashed asset** (owner,
+/// 2026-10-12: "make sure the admin console can't have cache
+/// vulnerabilities"). The routes here deliberately forget to set any cache
+/// header, standing for the admin and sign-in routes of the real server and
+/// for the day somebody adds one that forgets: the layer `main.rs` mounts
+/// (`client::with_security_headers`) must supply `no-store`. `/admin/...` and
+/// `/session/challenge` are the real route paths.
+#[tokio::test]
+async fn every_answer_is_no_store_except_the_hashed_assets() {
+    use axum::routing::post;
+    use fathom_server::client::{with_security_headers, SecurityHeaders, CONTENT_SECURITY_POLICY};
+
+    let dir = a_built_client();
+    let root = ClientRoot::open(&dir).expect("a built client");
+    let api = Router::new()
+        .route("/admin/operators", get(|| async { "operators\n" }))
+        .route("/session/challenge", post(|| async { "challenge\n" }));
+    let app = with_security_headers(
+        root.attach(api),
+        SecurityHeaders::new(fathom_server::client_address::ClientAddress::default()),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind an ephemeral loopback port");
+    let addr = listener.local_addr().expect("local addr");
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+
+    for (method, path) in [
+        ("GET", "/admin/operators"),
+        ("POST", "/session/challenge"),
+        // The page itself: never kept, so a signed-out browser cannot be
+        // shown yesterday's shell from disk.
+        ("GET", "/"),
+        ("GET", "/engine/fathom_wasm.wasm"),
+        // An answer no handler wrote: a miss, a wrong method.
+        ("GET", "/no-such-file.html"),
+        ("POST", "/admin/operators"),
+    ] {
+        let (head, _) = raw_http_request(addr, method, path).await;
+        let lower = head.to_ascii_lowercase();
+        assert!(
+            lower.contains("cache-control: no-store"),
+            "{method} {path} must say no-store:\n{head}"
+        );
+        assert!(
+            lower.contains("pragma: no-cache"),
+            "{method} {path} must say Pragma: no-cache:\n{head}"
+        );
+        // The content security policy is on the same answers and is the
+        // constant `client.rs` carries, untouched by the cache work.
+        assert!(
+            lower.contains(&format!(
+                "content-security-policy: {}",
+                CONTENT_SECURITY_POLICY.to_ascii_lowercase()
+            )),
+            "{method} {path} must carry the unchanged CSP:\n{head}"
+        );
+    }
+
+    // The one thing that may be kept: a file whose name is its content hash.
+    let (head, _) = raw_http_request(addr, "GET", "/assets/main-abc123.js").await;
+    let lower = head.to_ascii_lowercase();
+    assert!(
+        lower.contains("cache-control: public, max-age=31536000, immutable"),
+        "{head}"
+    );
+    assert!(!lower.contains("no-store"), "{head}");
 }
 
 /// HTTP/1.1 by hand over a real socket, as `schema_endpoint.rs` does.

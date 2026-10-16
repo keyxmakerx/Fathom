@@ -1169,10 +1169,10 @@ async fn main() -> ExitCode {
     }
     // ADR-0055 stream (c), decision 12's two headers, over EVERYTHING including the
     // fallback serving the client's files.
-    let app = app.layer(axum::middleware::from_fn_with_state(
+    let app = fathom_server::client::with_security_headers(
+        app,
         fathom_server::client::SecurityHeaders::new(client_address.clone()),
-        fathom_server::client::security_headers,
-    ));
+    );
     let served = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),

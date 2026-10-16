@@ -64,6 +64,13 @@ describe('parsePeople', () => {
     expect(parsed.people[1]).toMatchObject({ state: 'waiting', email: null, asked: { capability: 'draw', scopeLabel: 'LON1' } });
   });
 
+  it('reads an added person who has not used their link as an active member who has not signed in yet', () => {
+    const added = { ...people, people: [{ ...people.people[0], state: 'added' }] };
+    const parsed = parsePeople(utf8(JSON.stringify(added)));
+    expect(parsed.people[0]).toMatchObject({ state: 'active', notSignedInYet: true });
+    expect(parsePeople(utf8(JSON.stringify(people))).people[0].notSignedInYet).toBe(false);
+  });
+
   it('refuses a state or capability it does not know', () => {
     const bad = { ...people, people: [{ ...people.people[0], state: 'suspended' }] };
     expect(() => parsePeople(utf8(JSON.stringify(bad)))).toThrow(/state/);
