@@ -116,6 +116,7 @@ import { showAidsFor } from './showAids';
 import { selectionName } from './selectionName';
 import { useJumpBack } from './useJumpBack';
 import { levelsFor } from './jumpTree';
+import { EMPTY_HINT, autoOpenEquipment } from './emptyHints';
 import { cameraStopAt } from '../drawing/geometry';
 
 // `canDrawFor`/`refusalFor` now live in `components/design/useDesignSession.ts`,
@@ -170,10 +171,6 @@ const PENDING_RACK_VIEW: ClosetView['racks'][number] = {
   row: null,
   bay: null,
 };
-
-/** What an empty design says (ADR-0060 decision 4). */
-const EMPTY_HINT =
-  'An empty design. Open Equipment on the right and drag a device onto the rack, or right-click the canvas to add a rack or a wall.';
 
 /**
  * ADR-0051 §1 — "+ add a surface". There is no
@@ -1096,6 +1093,8 @@ export function RacksPlace(props: RacksPlaceProps) {
     onDeviceOpenedRef.current?.(id, deviceChassis(realViewRef.current, id)?.hostname ?? '');
   }, []);
   const leaveJot = useCallback(() => setJot(null), []);
+  // The empty canvas's "Add equipment" button asks the dock to open the Equipment tab.
+  const [equipmentRequest, setEquipmentRequest] = useState(0);
 
   // Small aids over the canvas: the mini-map and cable colour key (both switched in the Show menu), the port
   // peek, and the trail of where you have been with Alt+Left and Alt+Right.
@@ -1766,7 +1765,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
-    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, cables: look === 'diagram' ? undefined : { value: cableStyle, onChange: changeCableStyle }, aids: showAids }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, cables: look === 'diagram' ? undefined : { value: cableStyle, onChange: changeCableStyle }, aids: showAids }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} autoEquipment={autoOpenEquipment(doc != null, canDraw, realView)} equipmentRequest={equipmentRequest} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
         doc != null ? (
           <div className="shell-bar__undoredo">
             <PlansBarChip controller={plans} />
@@ -1863,6 +1862,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           renderInsideStop={renderInsideStop}
           onTraceFrom={trace.openFrom}
           litPortLabel={litPortLabel}
+          onAddEquipment={() => setEquipmentRequest((n) => n + 1)}
           emptyHint={canDraw && realView.racks.length === 0 && (realView.surfaces?.length ?? 0) === 0 && realView.free.length === 0 && realView.labels.length === 0 ? EMPTY_HINT : null}
           drawnCableIds={cableDraw.drawnIds}
           dashedCableIds={cableDraw.dashedIds}

@@ -21,6 +21,18 @@ export interface RightTabInput {
   onHistory?: () => void;
   onTrailOpenChange?: (open: boolean) => void;
   onPick?: (pick: RightTab | null) => void;
+  /** ADR-0065 §3: undefined until the design has loaded; then whether it is empty and can be drawn in. The
+   * first answer decides whether Equipment opens by itself; later answers never do (a person who closed it
+   * is left alone). */
+  autoEquipment?: boolean;
+  /** A counter: each bump asks for Equipment to open (the "Add equipment" button on the canvas). */
+  equipmentRequest?: number;
+}
+
+/** Opens Equipment by itself, once, when the design is found empty on open and nothing else is open. */
+export function decideAutoEquipment(already: boolean, auto: boolean | undefined, pick: RightTab | null): { decided: boolean; open: boolean } {
+  if (already || auto === undefined) return { decided: already, open: false };
+  return { decided: true, open: auto && pick === null };
 }
 
 /** What is actually open: the chosen tab, unless there is nothing behind it. */
@@ -59,6 +71,24 @@ export function useRightTab(input: RightTabInput) {
   historyRef.current = onHistory;
   const pickRef = useRef(onPick);
   pickRef.current = onPick;
+
+  // ADR-0065 §3: Equipment opens by itself on a design found empty when it is opened, once only.
+  const autoDecided = useRef(false);
+  const { autoEquipment } = input;
+  useEffect(() => {
+    const d = decideAutoEquipment(autoDecided.current, autoEquipment, pickNow.current);
+    autoDecided.current = d.decided;
+    if (d.open) setPick('equipment');
+  }, [autoEquipment]);
+  // The canvas's own "Add equipment" button.
+  const lastRequest = useRef(input.equipmentRequest ?? 0);
+  const request = input.equipmentRequest ?? 0;
+  useEffect(() => {
+    if (request === lastRequest.current) return;
+    lastRequest.current = request;
+    setPick('equipment');
+    trailRef.current?.(false);
+  }, [request]);
 
   // The design place opened or closed these (a refused undo opens the Trail; the bar's History button).
   useEffect(() => {

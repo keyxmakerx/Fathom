@@ -1537,6 +1537,19 @@
   z-index: 5;
 }
 
+.drawing-empty-hint p {
+  margin: 0;
+}
+
+/* The note never takes a click, but its button does. */
+.drawing-empty-hint__add {
+  pointer-events: auto;
+  margin-top: var(--s2);
+  height: var(--control-h, 28px);
+  padding: 0 var(--s3);
+  border-radius: var(--radius-control, 0);
+}
+
 /* The right-click menu (ADR-0060 decision 4): a flat hairline box at the pointer. */
 .drawing-context-menu {
   position: absolute;

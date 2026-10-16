@@ -213,7 +213,7 @@ try {
     // The tool strip: Select makes a plain drag a marquee; the wheel toggle swaps scroll for zoom.
     check('the canvas tool strip is shown', (await page.locator('.canvas-tools').count()) === 1);
     await shot(page, 'FL-06b-tool-strip');
-    await page.getByRole('button', { name: 'Select' }).click();
+    await page.getByRole('button', { name: 'Select', exact: true }).click();
     await page.mouse.click(30, 700);
     await page.mouse.move(40, 120);
     await page.mouse.down();
@@ -221,7 +221,7 @@ try {
     await page.mouse.up();
     await page.waitForTimeout(200);
     check('with Select, a plain drag draws the marquee', (await page.locator('.free-wordmenu').count()) === 1);
-    await page.getByRole('button', { name: 'Pan' }).click();
+    await page.getByRole('button', { name: 'Pan', exact: true }).click();
     await page.mouse.click(30, 700);
     const w0 = await boxes(page).first().boundingBox();
     await page.mouse.move(700, 700);

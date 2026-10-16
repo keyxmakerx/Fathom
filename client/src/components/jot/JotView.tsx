@@ -17,6 +17,7 @@ import type { PortPlace, TemplatePort } from '../../document/plate';
 import type { PortBox } from '../drawing/faceplate';
 import { PlateTools } from './PlateTools';
 import { ALIGN_PX, PLATE_GRID, snapPort, toPlate, type SnappedPort } from './portArrange';
+import { JOT_HINT } from '../racks/emptyHints';
 import './jot.css';
 
 /** The port kinds the tray offers, dragged onto a plate or clicked. */
@@ -402,7 +403,7 @@ export function JotView(props: JotViewProps): JSX.Element {
             </svg>
           </div>
           {canDraw && shown.length === 1 && (
-            <p className="jot__hint">Open Equipment on the right, then drag an item here or click it. Draw a cable from one port to another.</p>
+            <p className="jot__hint">{JOT_HINT}</p>
           )}
         </div>
       )}

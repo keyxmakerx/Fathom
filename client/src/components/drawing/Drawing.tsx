@@ -45,6 +45,7 @@ import type { Bundle } from './bundles';
 import { leadsFor, placeLabels, type LabelItem, type PortPoint } from './cableEnds';
 import { faceplateLayoutFor, plateItems } from './faceplate';
 import { UNNAMED_HOSTNAME, type CableKind, type CableView, type ChassisView, type ClosetView, type DrawingActions, type RackView, type Selection, type Sheath } from './contract';
+import { EmptyHint } from './EmptyHint';
 import { PORT_CLICK_DRAG_THRESHOLD_PX } from './connectThreshold';
 import { decodePaletteDrag, getDraggedUnits, PALETTE_DRAG_MIME } from './dnd';
 import {
@@ -312,6 +313,8 @@ export interface DrawingProps extends DrawingActions {
   litPortLabel?: string | null;
   /** Shown over an empty design, saying what to do next (ADR-0060 decision 4). */
   emptyHint?: string | null;
+  /** The empty design's "Add equipment" button, which opens the Equipment tab (ADR-0065 §3). */
+  onAddEquipment?: () => void;
   /** Opens a device's config drawer or inside view, as a double-click does;
    * a new object each time (the same edge-triggered shape `fitRequest` has). */
   openRequest?: { id: string; view: 'config' | 'inside' } | null;
@@ -453,6 +456,7 @@ function DrawingInner({
   onTraceFrom,
   litPortLabel,
   emptyHint,
+  onAddEquipment,
   openRequest,
   onCalloutChange,
   onGroupChange,
@@ -1976,9 +1980,7 @@ function DrawingInner({
         />
       ) : null}
       {emptyHint ? (
-        <p className="drawing-empty-hint" role="note">
-          {emptyHint}
-        </p>
+        <EmptyHint hint={emptyHint} onAddEquipment={onAddEquipment} />
       ) : null}
       {menu ? (
         <ContextMenu
