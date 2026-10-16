@@ -567,7 +567,10 @@ export function completeCable(doc: Document, cableId: string, toPortId: string, 
   const cable = findNode(doc, cableId);
   if (!cable || cable.absentSince !== undefined || parseNodeId(cableId).kind !== 'Cable') throw new UnknownReferenceError(cableId, 'Cable');
   const toNode = requireLivePort(doc, toPortId);
-  const live = edgesOut(doc, cableId, 'Terminates').filter((e) => e.absentSince === undefined);
+  const live = edgesOut(doc, cableId, 'Terminates').filter((e) => {
+    const target = findNode(doc, e.to);
+    return target !== undefined && target.absentSince === undefined;
+  });
   const near = live.length === 1 ? live[0] : undefined;
   if (near === undefined) throw new FieldValueError('Cable', cableId, 'must have exactly one end connected to finish it');
   if (near.to === toPortId) throw new FieldValueError('Cable', cableId, 'is already plugged into that port');

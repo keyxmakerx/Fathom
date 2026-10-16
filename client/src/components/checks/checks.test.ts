@@ -170,6 +170,18 @@ describe('the gesture guard', () => {
     expect(firstRefusal(mirror, 'a', 'b', ['cat6', 'twinax'])).toBe(refuse);
     expect(seen).toEqual(['cat6', 'twinax']);
   });
+  it("sets aside the one-cable-per-port refusal on the cable's own port only", () => {
+    const on = (id: string) => finding({ rule: 'phy.port.already-cabled', severity: 'refuse', elements: [{ id, name: id }] });
+    // The near port holds the loose cable itself: not a second cable.
+    expect(firstRefusal({ checkCable: () => [on('port:near')] }, 'port:far', 'port:near', ['cat6'], 'port:near')).toBeNull();
+    // A free port that is already cabled is still refused.
+    expect(firstRefusal({ checkCable: () => [on('port:far')] }, 'port:far', 'port:near', ['cat6'], 'port:near')?.elements[0]?.id).toBe('port:far');
+    // Nothing else on the own port is set aside.
+    const media = finding({ rule: 'phy.cable.fibre-or-dac-in-rj45', severity: 'refuse', elements: [{ id: 'port:near', name: 'near' }] });
+    expect(firstRefusal({ checkCable: () => [on('port:near'), media] }, 'port:far', 'port:near', ['smf'], 'port:near')).toBe(media);
+    // Without an own port the refusal stands, as for a new cable.
+    expect(firstRefusal({ checkCable: () => [on('port:near')] }, 'port:far', 'port:near', ['cat6'])?.rule).toBe('phy.port.already-cabled');
+  });
   it('draws on pass, on an engine error and with no mirror', () => {
     expect(firstRefusal({ checkCable: () => [] }, 'a', 'b', [''])).toBeNull();
     expect(firstRefusal({ checkCable: () => { throw new Error('module trapped'); } }, 'a', 'b', [''])).toBeNull();

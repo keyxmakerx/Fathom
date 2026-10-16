@@ -449,6 +449,12 @@ function fieldNumber(node: GraphNode | undefined, key: string): number | null {
   return typeof entry.value === 'number' ? entry.value : null;
 }
 
+/** A `Terminates` edge counts as an end only while the port or peer it lands on is live. */
+function terminatesLiveTarget(doc: Document, edge: GraphEdge): boolean {
+  const target = findNode(doc, edge.to);
+  return target !== undefined && isLiveNode(target);
+}
+
 /** Whichever live `Terminates` edge lands on `portId` (UI-SPEC "one cable
  * per port" — the command layer, `cables.ts`, refuses a second one; this is
  * a read, so it simply takes the first if that invariant were ever
@@ -464,7 +470,7 @@ function portCableView(doc: Document, portId: string, closetRackIds: ReadonlySet
   const near = edgesIn(doc, portId, 'Terminates')[0];
   if (!near) return null;
   const cableId = near.from;
-  const far = edgesOut(doc, cableId, 'Terminates').find((e) => e.id !== near.id);
+  const far = edgesOut(doc, cableId, 'Terminates').find((e) => e.id !== near.id && terminatesLiveTarget(doc, e));
   if (!far) {
     // A one-ended cable (out: "0..2" — the far end may simply not exist yet).
     return { cableId, farPortId: null, farChassisId: null, outsideCloset: false };
@@ -1202,7 +1208,8 @@ function cableView(doc: Document, node: GraphNode): CableView {
   const sheath = sheathRaw !== null && (SHEATH_VALUES as readonly string[]).includes(sheathRaw) ? (sheathRaw as Sheath) : null;
   const ownershipRaw = fieldString(node, 'Cable.ownership');
   const ownership = ownershipRaw !== null && (OWNERSHIP_VALUES as readonly string[]).includes(ownershipRaw) ? ownershipRaw : null;
-  const terminates = edgesOut(doc, node.id, 'Terminates');
+  // Only a `Terminates` whose target is still there is an end: one left pointing at a removed port is not.
+  const terminates = edgesOut(doc, node.id, 'Terminates').filter((e) => terminatesLiveTarget(doc, e));
   const ends = terminates.map((e) => cableEnd(doc, e)).filter((e): e is CableEnd => e !== undefined);
   // Counted from the edges, not from `ends`: a cable whose far device is not on the canvas yet
   // still has two ends, and is not a loose one.

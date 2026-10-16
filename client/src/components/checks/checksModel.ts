@@ -254,12 +254,23 @@ interface GestureChecker {
   checkCable(near: { port: string }, far: { port: string }, media: string): CheckFinding[];
 }
 
-/** The first refusal a cable would cause, or null: no mirror, no refusal, or the checks failing all mean go ahead. */
-export function firstRefusal(mirror: GestureChecker | null, from: string, to: string, medias: readonly string[]): CheckFinding | null {
+/** The first refusal a cable would cause, or null: no mirror, no refusal, or the checks failing all mean go ahead.
+ * `ownPort` is a port whose one-cable-per-port refusal is set aside: a one-ended cable finishing on the far end
+ * already stands on its own near port, and that is not a second cable. Every other refusal on it, and the same
+ * refusal on any other port, still stands. */
+export function firstRefusal(
+  mirror: GestureChecker | null,
+  from: string,
+  to: string,
+  medias: readonly string[],
+  ownPort?: string,
+): CheckFinding | null {
   if (mirror == null) return null;
   try {
     for (const media of medias) {
-      const hit = mirror.checkCable({ port: from }, { port: to }, media).find((r) => r.severity === 'refuse');
+      const hit = mirror
+        .checkCable({ port: from }, { port: to }, media)
+        .find((r) => r.severity === 'refuse' && !(ownPort != null && r.rule === 'phy.port.already-cabled' && r.elements[0]?.id === ownPort));
       if (hit != null) return hit;
     }
   } catch {

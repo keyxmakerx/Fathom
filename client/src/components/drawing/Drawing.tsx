@@ -1790,11 +1790,18 @@ function DrawingInner({
       const to = locatePort(view, toHandleId);
       if (!from || !to) return;
       // The far port holds a one-ended cable: this plugs its second end in, with no new cable and no
-      // picker. The Checks guard is about a new cable (one cable per port would refuse this drop), so it
-      // does not run; `completeCable` still refuses what cannot be connected.
+      // picker. The same Checks guard runs as for a new cable, on the cable's own media when it has one,
+      // except that the cable's own near port is not "already cabled" by it. A free port that is already
+      // cabled is still refused.
       if (to.port.cable != null && isLoosePort(to.port)) {
-        if (compatible(from.port.connector, to.port.connector).ok) onFinishCable?.(to.port.cable.cableId, fromHandleId);
-        else triggerPortShake(toHandleId);
+        if (!compatible(from.port.connector, to.port.connector).ok) {
+          triggerPortShake(toHandleId);
+          return;
+        }
+        const own = view.cables.find((c) => c.id === to.port.cable?.cableId);
+        const medias = own?.media ? [own.media] : mediaCandidates(view, fromHandleId, toHandleId);
+        if (checks?.guardCable(fromHandleId, toHandleId, medias, toHandleId)) return;
+        onFinishCable?.(to.port.cable.cableId, fromHandleId);
         return;
       }
       // Checks: a refused cable is never drawn; a failure of the checks themselves is a pass.

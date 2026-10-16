@@ -19,7 +19,7 @@ import {
   setCableNeedsFinishing,
 } from './cables';
 import { compatible } from './compat';
-import { UnknownReferenceError, addSketchPort, createRack, createShelf, createSurface, fixTo, placeChassis, placeOnShelf } from './commands';
+import { UnknownReferenceError, addSketchPort, createRack, createShelf, createSurface, fixTo, placeChassis, placeOnShelf, removeSketchPort } from './commands';
 import { FieldValueError } from './edit';
 import {
   edgesIn,
@@ -690,6 +690,51 @@ describe('missing links: a cable with one end connected', () => {
     const whole = completeCable(doc, cableId, portB, { now: NOW });
     const lc2 = portByConnector(whole, chassisB, 'lc');
     expect(() => completeCable(whole, cableId, lc2, { now: NOW })).toThrow(FieldValueError);
+  });
+
+  it('removing a cabled port takes its Terminates in the same batch: the cable is a one-ended loose end, and one undo restores all', () => {
+    const { doc, chassisA, chassisB } = twoChassis();
+    const a = portByConnector(doc, chassisA, 'rj45');
+    const b = portByConnector(doc, chassisB, 'rj45');
+    const whole = connectPorts(doc, a, b, {}, { now: NOW, actor: ACTOR });
+    const cableId = edgesIn(whole, a, 'Terminates')[0].from;
+
+    const removed = removeSketchPort(whole, chassisB, b, { now: NOW + 1, actor: ACTOR });
+    const batch = removed.batches[removed.batches.length - 1]!;
+    expect(batch.label).toBe('remove sketch port');
+    // The port, its HasPort and its Terminates all go in this one batch; nothing live points at the removed port.
+    expect(batch.ops).toHaveLength(3);
+    expect(edgesIn(removed, b, 'Terminates')).toHaveLength(0);
+    expect(removed.edges.filter((e) => e.to === b && e.absentSince === undefined)).toEqual([]);
+
+    const view = viewOf(removed, [PORT_MODEL]);
+    const cable = view.cables.find((c) => c.id === cableId)!;
+    expect(cable.looseEnd).toBe(true);
+    expect(cable.ends).toHaveLength(1);
+    // A's port now reads as holding a one-ended cable, not one that leaves for another closet.
+    const portA = view.racks.flatMap((r) => r.chassis).flatMap((c) => c.ports).find((p) => p.id === a)!;
+    expect(portA.cable).toMatchObject({ cableId, farPortId: null, outsideCloset: false });
+
+    const undone = undo(removed, batch.id, { actor: ACTOR, now: NOW + 2 });
+    const back = viewOf(undone, [PORT_MODEL]).cables.find((c) => c.id === cableId)!;
+    expect(back.looseEnd).toBe(false);
+    expect(back.ends).toHaveLength(2);
+    expect(edgesIn(undone, b, 'Terminates')).toHaveLength(1);
+  });
+
+  it('counts only a Terminates whose port is live: one left pointing at a removed port is not an end', () => {
+    const { doc, chassisA, chassisB } = twoChassis();
+    const a = portByConnector(doc, chassisA, 'rj45');
+    const b = portByConnector(doc, chassisB, 'rj45');
+    const whole = connectPorts(doc, a, b, {}, { now: NOW });
+    const cableId = edgesIn(whole, a, 'Terminates')[0].from;
+    // Bypass the command: a document (another editor, an older writer) with the port gone and its Terminates live.
+    const dangling: Document = { ...whole, nodes: whole.nodes.map((n) => (n.id === b ? { ...n, absentSince: NOW + 1 } : n)) };
+    expect(edgesIn(dangling, b, 'Terminates')).toHaveLength(1);
+    const view = viewOf(dangling, [PORT_MODEL]);
+    const cable = view.cables.find((c) => c.id === cableId)!;
+    expect(cable.looseEnd).toBe(true);
+    expect(cable.ends).toHaveLength(1);
   });
 
   it('does not read a cable with a far end that is outside, or both ends, as loose', () => {
