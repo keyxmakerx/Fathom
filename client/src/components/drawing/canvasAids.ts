@@ -5,7 +5,7 @@
 import { useCallback, useState } from 'react';
 
 export interface AidPrefs {
-  /** The mini-map may show on big drawings. */
+  /** The mini-map shows in the corner of the canvas. */
   minimap: boolean;
   /** `null` means "automatic": shown once the design uses two or more cable colours. */
   colourKey: boolean | null;

@@ -337,7 +337,7 @@ export interface DrawingProps extends DrawingActions {
   cameraHub?: CameraHub;
   /** The cables the colour key is lighting (the rest dim), or null/absent for none. */
   keyCableIds?: ReadonlySet<string> | null;
-  /** The mini-map may show (it still appears only on big drawings). */
+  /** The mini-map shows in the corner of the canvas. */
   minimap?: boolean;
   /** This person's cable style (`cableStyle.ts`); physics when absent. */
   cableStyle?: CableStyle;
