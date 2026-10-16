@@ -10,14 +10,18 @@ import {
   MAX_FILE_BYTES,
   MAX_FILES,
   MAX_TITLE,
+  PHOTO_TITLE,
+  photoDocOf,
+  photoOf,
   removeDoc,
   removeDocFile,
   removeDocLink,
   thingLabel,
 } from '../../document/docs';
 import { ApiRefusal } from '../../api/errors';
+import { foldIntoOneBatch } from '../../document/bulk';
 import { deleteFile, fetchFile, saveAsDownload, storeFile } from '../../api/files';
-import { sniffFile } from './sniff';
+import { imageDataUrl, sniffFile } from './sniff';
 import type { Document } from '../../document/model';
 import type { Engine } from '../../engine/engine';
 import { refusalSentence } from '../../engine/mirror';
@@ -214,6 +218,51 @@ export function useDocsApi(opts: {
         }
       },
       open: setView,
+      photoOf: (ownerId) => (doc ? photoOf(doc, ownerId) : null),
+      async readImage(file) {
+        try {
+          const url = imageDataUrl(await fetchFile(organisationId, designId, file.fileId, file.sha256));
+          return url === null ? { refused: `${file.name} is not a picture Fathom can show.` } : { url };
+        } catch (e) {
+          return { refused: fileRefusal(e) };
+        }
+      },
+      async addPhoto(ownerId, file, confirmed) {
+        if (!canDraw) return READ_ONLY;
+        if (doc == null) return { refused: 'No design is open.' };
+        try {
+          if (file.size === 0) return { refused: `${file.name} is empty.` };
+          if (file.size > MAX_FILE_BYTES) return { refused: `${file.name} is over 25 MB.` };
+          const name = file.name.trim().length === 0 ? 'photo' : file.name.slice(0, MAX_TITLE);
+          const raw = new Uint8Array(await file.arrayBuffer());
+          if (sniffFile(raw) !== 'image' || imageDataUrl(raw.subarray(0, 16)) === null)
+            return { refused: `${file.name} is not a PNG, JPEG, GIF or WebP picture.` };
+          if (confirmed !== true) return { confirm: 'image' };
+          const existing = photoDocOf(latest.current ?? doc, ownerId);
+          if ((existing?.files.length ?? 0) >= MAX_FILES) return { refused: `The photo doc already holds ${MAX_FILES} files; remove one first.` };
+          const stored = await storeFile(organisationId, designId, raw);
+          if (stored.media !== 'image') return { refused: 'The server did not take that as a picture.' };
+          // Made and filled in one change, so one undo takes the new photo away.
+          let next = latest.current ?? doc;
+          const from = next.batches.length;
+          let docId = existing?.id;
+          if (docId === undefined) {
+            const made = addDoc(next, { kind: 'thing', id: ownerId }, { title: PHOTO_TITLE, body: '', how: 'typed' }, actor);
+            next = made.doc;
+            docId = made.id;
+          }
+          next = addDocFile(
+            next,
+            docId,
+            { name, size: raw.length, media: 'image', checked: 'unread', removed: 0, fileId: stored.fileId, sha256: stored.sha256 },
+            actor,
+          );
+          applyDocChange(foldIntoOneBatch(next, from, 'add a photo'));
+          return { note: `${name} is the photo now. It is not checked for passwords.` };
+        } catch (e) {
+          return { refused: fileRefusal(e) };
+        }
+      },
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `actor` is derived from accountId
     [doc, canDraw, accountId, applyDocChange, gate, run, organisationId, designId, ensureEngine],

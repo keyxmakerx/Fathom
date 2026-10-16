@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.20"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.21"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -277,6 +277,13 @@ schema:
                     # `note`, on Label.form: a sticky note pinned to the canvas. 62 §16.2: "New
                     # optional field" is minor, twice; "New enum variant" is minor. No kind, edge
                     # or key moved. Whole change = MINOR. The reader still opens 0.10 to 0.19.
+                    #
+                    # 0.21 is the round 15 quality-of-life items (2026-10-10), additive. One
+                    # optional field on the existing declarer PhysicalPort, mac (key 462,
+                    # MacAddress): the hardware address seen on that port, so Find answers
+                    # a MAC with the port and where it is plugged. 62 §16.2: "New optional
+                    # field" is minor. No kind, edge or key moved. Whole change = MINOR. The
+                    # reader still opens 0.10 to 0.20.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -1271,6 +1278,7 @@ kinds:
       - { name: face, type: "enum { front, rear }", card: "0..1", emit: "—", doc: "ADR-0051 §1 — the faceplate the port sits on. Absent means front, or the catalogue's own answer when the model has one: an outlet's rear face is the punchdown, its front the jacks, and this is the field the view guessed at until now." }
       - { name: plate_x, type: u16, card: "0..1", emit: "—", doc: "0.20 — where a hand-typed port sits across its faceplate: thousandths of the plate's width, left edge to the port's centre (0-1000). Absent means the computed layout places it. Layout only, never identity: position is tier 1." }
       - { name: plate_y, type: u16, card: "0..1", emit: "—", doc: "0.19 — plate_x's partner: thousandths of the plate's height, top edge to the port's centre (0-1000)." }
+      - { name: mac, type: MacAddress, card: "0..1", emit: "—", doc: "0.21 — the hardware address seen on this port (a NAS's eth0), typed or pasted, so Find can answer a MAC with the port. Not identity: a NIC can be swapped." }
       - { name: speed_max, type: Bandwidth, card: "0..1", emit: "—", doc: The cage's ceiling — a different fact from Interface.speed. }
       - name: transceiver
         type: Transceiver

@@ -1152,6 +1152,11 @@ mod body {
         pub fn plate_y<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u16, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(413))
         }
+        /// `PhysicalPort.mac` — `MacAddress`, card `0..1`, emit `—`.
+        /// 0.21 — the hardware address seen on this port (a NAS's eth0), typed or pasted, so Find can answer a MAC with the port. Not identity: a NIC can be swapped.
+        pub fn mac<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::MacAddress, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(462))
+        }
         /// `PhysicalPort.speed_max` — `Bandwidth`, card `0..1`, emit `—`.
         /// The cage's ceiling — a different fact from Interface.speed.
         pub fn speed_max<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Bandwidth, crate::bag::FieldError> {
@@ -2500,6 +2505,7 @@ mod body {
             411 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             412 => Some((core::any::TypeId::of::<u16>(), "u16")),
             413 => Some((core::any::TypeId::of::<u16>(), "u16")),
+            462 => Some((core::any::TypeId::of::<crate::scalar::MacAddress>(), "crate::scalar::MacAddress")),
             _ => None,
         }
     }
@@ -2915,6 +2921,7 @@ mod body {
             411 => crate::canon::slot_to::<crate::scalar::Text>(411, "crate::scalar::Text", value),
             412 => crate::canon::slot_to::<u16>(412, "u16", value),
             413 => crate::canon::slot_to::<u16>(413, "u16", value),
+            462 => crate::canon::slot_to::<crate::scalar::MacAddress>(462, "crate::scalar::MacAddress", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -3328,6 +3335,7 @@ mod body {
             411 => crate::canon::slot_from::<crate::scalar::Text>(j),
             412 => crate::canon::slot_from::<u16>(j),
             413 => crate::canon::slot_from::<u16>(j),
+            462 => crate::canon::slot_from::<crate::scalar::MacAddress>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

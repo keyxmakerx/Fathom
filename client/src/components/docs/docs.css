@@ -307,3 +307,35 @@
   list-style: none;
   padding: 0;
 }
+
+/* Round 15, device photo (r15-g1 item 6): a hatched drop well until there is a picture. */
+.device-photo__drop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  padding: var(--s3);
+  border: var(--rule-hair) solid var(--hairline);
+  background-image: var(--hatch);
+  color: var(--muted);
+  font-size: var(--t-micro);
+  text-align: center;
+}
+
+.device-photo__drop--over {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.device-photo__img {
+  display: block;
+  max-width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  border: var(--rule-hair) solid var(--hairline);
+}
+
+.device-photo__pick,
+.device-photo__confirm {
+  margin-top: var(--s1);
+}

@@ -137,6 +137,8 @@ export interface PortView {
    * thousandths of the plate's width and height to its centre. Absent or
    * `null`: the computed layout places it. Never set on a catalogue port. */
   plate?: { x: number; y: number } | null;
+  /** Schema 0.21 — the hardware address seen on this port, `aa:bb:cc:dd:ee:ff`. */
+  mac?: string;
 }
 
 /** One PSU slot (ADR-0050 §3/§4), joining the catalogue's own `psuSlots`
@@ -571,6 +573,7 @@ function portView(
         passThroughId,
         cable,
         service: fields.service ?? null,
+        ...(fields.mac !== undefined ? { mac: fields.mac } : {}),
       };
     }
   }
@@ -588,6 +591,7 @@ function portView(
     cable,
     service: fields.service ?? null,
     ...(fields.plateX !== undefined && fields.plateY !== undefined ? { plate: { x: fields.plateX, y: fields.plateY } } : {}),
+    ...(fields.mac !== undefined ? { mac: fields.mac } : {}),
   };
 }
 

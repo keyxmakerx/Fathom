@@ -8,6 +8,7 @@ import { cableRows, deviceRows, portRows, rackRows, type InvRow } from './kinds'
 import { buildPlaceIndex, NO_WHERE } from './placeIndex';
 import { buildSearchIndex, macClue, portKey, search } from './search';
 import { smallEstate } from './testFixture';
+import { setPortMac } from '../../document/edit';
 import { viewOf } from '../../document/view';
 import type { Document } from '../../document/model';
 
@@ -282,5 +283,19 @@ describe('VLANs', () => {
     const here = search(ix, 'camer', { site: 'LON1', row: '', rack: '' });
     expect(here.total).toBe(1);
     expect(here.outside).toBe(1);
+  });
+});
+
+describe('a MAC on a port (schema 0.21)', () => {
+  it('finds the port from the start of its MAC and says where it is plugged', () => {
+    const e = smallEstate();
+    const view = viewOf(e.doc, []);
+    const plugged = portRows(e.doc, view, buildPlaceIndex(e.doc, view), []).find((r) => r.cells.cable)!;
+    const doc = setPortMac(e.doc, plugged.selection!.id, '3C-22-FB-01-02-03');
+    const ix = indexOf(doc);
+    const out = search(ix, '3c:22:fb', NO_WHERE);
+    const hit = out.groups.flatMap((g) => g.hits).find((h) => h.row.key === plugged.key)!;
+    expect(hit.why).toBe(`its MAC; plugged into ${plugged.cells.cable}`);
+    expect(hit.row.cells.mac).toBe('3c:22:fb:01:02:03');
   });
 });

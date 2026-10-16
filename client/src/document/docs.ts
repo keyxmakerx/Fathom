@@ -567,3 +567,21 @@ export function thingLabel(doc: Document, id: string): string {
 export function allDocs(doc: Document): DocView[] {
   return allDocViews(doc);
 }
+
+/** Round 15, device photo: what a thing's photo doc is called when Fathom makes one. */
+export const PHOTO_TITLE = 'Photo';
+
+/** The picture shown on a thing's panel: the newest image on its own docs, a doc called "Photo"
+ * first. Model docs never count: a photo is of this box, not every box of its kind. */
+export function photoOf(doc: Document, ownerId: string): DocFileView | null {
+  const own = docsOf(doc, ownerId).filter((d) => d.files.some((f) => f.media === 'image'));
+  own.sort((a, b) => Number(b.title === PHOTO_TITLE) - Number(a.title === PHOTO_TITLE) || b.when - a.when);
+  const first = own[0];
+  if (!first) return null;
+  return [...first.files].reverse().find((f) => f.media === 'image') ?? null;
+}
+
+/** The thing's own "Photo" doc, if it has one, to add the next picture to. */
+export function photoDocOf(doc: Document, ownerId: string): DocView | null {
+  return docsOf(doc, ownerId).find((d) => d.title === PHOTO_TITLE) ?? null;
+}

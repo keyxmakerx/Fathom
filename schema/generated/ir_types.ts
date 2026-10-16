@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.20";
+export const SCHEMA_VERSION = "0.21";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -500,7 +500,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   SystemSettings: ["time_zone", "root_authentication_set", "name_servers"],
   NtpServer: ["address", "prefer", "key_id"],
   SyslogTarget: ["host", "facility", "severity", "structured_data"],
-  PhysicalPort: ["label", "position", "connector", "service", "face", "plate_x", "plate_y", "speed_max", "transceiver", "notes", "occupied"],
+  PhysicalPort: ["label", "position", "connector", "service", "face", "plate_x", "plate_y", "mac", "speed_max", "transceiver", "notes", "occupied"],
   Cable: ["label", "assembly", "media", "length_m", "installed_on", "ownership", "provider_circuit", "notes", "last_confirmed", "sheath"],
   PassiveNode: ["label", "form", "split_ratio", "model", "serial", "slots"],
   Premises: ["label", "street", "clli", "form", "region", "coordinates", "notes"],
@@ -943,4 +943,5 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "Device.firmware_hold": 411,
   "PhysicalPort.plate_x": 412,
   "PhysicalPort.plate_y": 413,
+  "PhysicalPort.mac": 462,
 };

@@ -392,14 +392,15 @@ export function useDesignSession(organisationId: string, designId: string, capab
       // being `undefined` then falls back to each command's own default.
       const accountId = getSession()?.accountId;
       const opts = accountId !== undefined ? { actor: accountId } : undefined;
-      // Set only by `'duplicate-device'` — a `{ refused }`-shaped NOTICE,
+      // Set by `'duplicate-device'`, `'rack-close-gaps'` and `'rack-copy'` — a `{ refused }`-shaped NOTICE,
       // not a refusal (`contract.ts`'s `EditorActions.onEdit`).
       let placementNotice: string | undefined;
       try {
         const applied = applyEditorChange(doc, change, catalogue, opts);
         const next = applied.doc;
         placementNotice = applied.notice;
-        applyDocChange(next);
+        // Closing gaps in a rack with none changes nothing, and nothing is saved.
+        if (next !== doc) applyDocChange(next);
         if (placementNotice !== undefined) return { refused: placementNotice };
       } catch (e) {
         return refusalFor(e);
