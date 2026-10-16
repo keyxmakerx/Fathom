@@ -234,7 +234,11 @@ span.shell-bar__tab {
   border-color: var(--control-line-hover);
   box-shadow: none;
 }
+/* Inside a lens group the trigger is one of its parts, so it fills the
+   group's full height like its neighbours; the standalone rule's
+   `align-self: center` would shrink its lit fill and underline to a band. */
 .shell-bar__lenses > .shell-popover-host > .shell-lens {
+  align-self: stretch;
   height: auto;
   border: 0;
   color: var(--muted);
