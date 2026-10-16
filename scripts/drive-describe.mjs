@@ -143,7 +143,8 @@ try {
     await row.getByLabel('Which face').selectOption(face);
   };
   const openEquipment = async (page) => {
-    await page.locator('[data-testid="dock-equipment"]').click();
+    // Equipment opens by itself on an empty design (ADR-0065 §3): open it only if it is not already open.
+    if ((await page.locator('[data-testid="dock-equipment"]').getAttribute('aria-expanded')) !== 'true') await page.locator('[data-testid="dock-equipment"]').click();
     await page.waitForSelector('.drawing-palette__search', { timeout: 10_000 });
   };
 

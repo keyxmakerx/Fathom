@@ -31,6 +31,7 @@
 .port-peek,
 .colour-key,
 .jump-trail__bar,
+.jump-tree,
 .react-flow__minimap.canvas-minimap {
   border: var(--rule-hair, 1px) solid var(--hairline);
   border-radius: var(--radius-pop, 0);
@@ -213,7 +214,7 @@
 
 /* ---- Trail of where you have been --------------------------------------------------------------------- */
 
-/* Kept clear of the tool strip on the left and the notices on the right. */
+/* Top left, kept clear of the tool strip on the left and the notices on the right. */
 .jump-trail {
   position: absolute;
   top: var(--s2);
@@ -221,7 +222,9 @@
   right: 304px;
   z-index: 6;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s1);
   pointer-events: none;
 }
 
@@ -250,68 +253,92 @@
   text-overflow: ellipsis;
 }
 
-.jump-trail__chips {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  margin: 0;
-  padding: 0 var(--s1);
-  list-style: none;
-  overflow: hidden;
-}
-
-.jump-trail__item {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  animation: aid-in var(--m-pop, 160ms) var(--aid-ease) both;
-}
-
-.jump-trail__item + .jump-trail__item::before {
-  content: '›';
-  padding: 0 var(--s1);
-  color: var(--muted);
-}
-
-.jump-trail__more {
-  padding: 0 var(--s1);
-  color: var(--muted);
-}
-
-.jump-chip {
-  height: var(--control-h-sm, 24px);
-  max-width: 168px;
+.jump-trail__nav--icon {
   padding: 0 var(--s2);
-  overflow: hidden;
+}
+
+/* The tree under the Back button: where you are inside the design, outermost first, each line stepped in. */
+.jump-tree {
+  pointer-events: auto;
+  box-sizing: border-box;
+  min-width: 280px;
+  max-width: min(380px, 100%);
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: var(--s1);
+  list-style: none;
+  font-size: var(--t-small);
+  transform-origin: top left;
+  animation: aid-drop-in var(--m-pop, 160ms) var(--aid-ease) both;
+}
+
+.jump-tree__item {
+  padding-left: calc(var(--depth, 0) * var(--s3));
+}
+
+.jump-tree__line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--control-h-sm, 24px);
+  padding: 2px var(--s2);
   border: var(--rule-hair, 1px) solid transparent;
   border-radius: var(--radius-control, 0);
   background: transparent;
-  color: var(--muted);
-  font-size: var(--t-micro);
-  letter-spacing: 0.06em;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
+  color: var(--ink);
+  text-align: left;
   transition:
-    color var(--m-hover, 120ms) var(--m-ease, ease),
+    background-color var(--m-hover, 120ms) var(--m-ease, ease),
     border-color var(--m-hover, 120ms) var(--m-ease, ease);
 }
 
-.jump-chip:hover {
-  color: var(--ink);
-  border-color: var(--hairline);
+.jump-tree__line:hover:not(:disabled) {
+  background: var(--control-bg-hover, color-mix(in srgb, var(--ink) 6%, transparent));
 }
 
-.jump-chip--current {
-  color: var(--ink);
+.jump-tree__line[aria-current='location'] {
   border-color: var(--ink);
-  font-weight: 700;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
 }
 
-@media (max-width: 960px) {
-  .jump-trail__chips {
-    display: none;
-  }
+.jump-tree__line:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.jump-tree__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jump-tree__kind,
+.jump-tree__here {
+  flex: none;
+  color: var(--muted);
+  font-size: var(--t-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.jump-tree__here {
+  order: 2;
+  color: var(--ink);
+}
+
+.jump-tree__kind {
+  order: 3;
+  min-width: 52px;
+  text-align: right;
+}
+
+.jump-tree__line--fold {
+  color: var(--muted);
 }
 
 /* ---- Motion off, and off paper ------------------------------------------------------------------------ */
@@ -321,11 +348,11 @@
   .react-flow__minimap.canvas-minimap,
   .colour-key,
   .jump-trail__bar,
-  .jump-trail__item {
+  .jump-tree {
     animation: none;
   }
+  .jump-tree__line,
   .colour-key__row,
-  .jump-chip,
   .drawing .drawing-cable,
   .drawing .drawing-bundle {
     transition: none;

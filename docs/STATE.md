@@ -223,7 +223,13 @@ breadcrumb does one thing.
 - **Look switch** (ADR-0061): Rack (faceplates, dressed cables) or Diagram (plain labelled boxes, square
   lines in sheath colour, view-and-select). Kept per browser, account and design (`drawing/look.ts`). A
   cable whose far end is off screen draws as stubs ending in a tag that pans to it (`drawing/stubs.ts`).
-- **Equipment list** (left "Equipment" button): search, headings Common / On a wall / Exact models; click
+- **Back button** (ADR-0065 §2, `components/racks/JumpTrail.tsx`, `jumpTree.ts`): one "Back to ..." button over the
+  canvas, with a ▾ beside it that unfolds a tree of where you are inside the design (design, rack, shelf,
+  device, close-up or open, port; each line a name and a kind word, the current one marked "you are here";
+  past six levels the middle folds to "N more"). Containment, not history; no site or room line because
+  the client document has none. No Forward button: Alt+Right and the mouse's forward button still go forward.
+- **Equipment list** (the "Equipment" tab on the right edge; it opens by itself, once, on a design with no
+  devices, and the empty canvas has an **Add equipment** button, ADR-0065 §3): search, headings Common / On a wall / Exact models; click
   or Enter adds where there is room. Common devices arrive named (router-1) with a role.
   **Not here? Describe it** (r15-f1, `components/describe/`): rows of ports (copper, SFP, SFP+, SFP28,
   QSFP28, console, power; how many; which face), the faceplate drawn per face as you go. Faces are

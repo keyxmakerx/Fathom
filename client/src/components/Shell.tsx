@@ -62,6 +62,8 @@ export function Shell({
   noticeElement,
   announce,
   rail,
+  autoEquipment,
+  equipmentRequest,
   trail,
   trailOpen,
   onTrailOpenChange,
@@ -106,6 +108,8 @@ export function Shell({
     onHistory,
     onTrailOpenChange,
     onPick: rememberPick,
+    autoEquipment,
+    equipmentRequest,
   });
   const [wants, setWants] = useState<Record<PanelId, number>>(() => ({
     rail: loadPanelWidth('rail'),

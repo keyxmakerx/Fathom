@@ -5,7 +5,7 @@ import type { ShowAids } from '../shell/types';
 
 /** The mini-map row is always there; the colour key row only in the Rack look, where cables are coloured. */
 export function showAidsFor(prefs: AidPrefs, state: { rack: boolean; colours: number }, onToggle: (id: AidId) => void): ShowAids {
-  const items: ShowAids['items'][number][] = [{ id: 'minimap', label: 'Mini-map', on: prefs.minimap, note: 'big drawings only' }];
+  const items: ShowAids['items'][number][] = [{ id: 'minimap', label: 'Mini-map', on: prefs.minimap }];
   if (state.rack) {
     items.push({
       id: 'colourKey',

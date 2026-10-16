@@ -13,7 +13,6 @@ import {
   canGoBack,
   canGoForward,
   forward as stepForward,
-  jumpTo as stepJumpTo,
   stepLabel,
   visit,
   withCamera,
@@ -68,7 +67,7 @@ export function useJumpBack(input: JumpBackInput) {
   const selId = selection?.id ?? null;
   const spot = useMemo<Spot>(() => ({ look, selection: selKind != null && selId != null ? { kind: selKind, id: selId } : null, jotId, stop }), [look, selKind, selId, jotId, stop]);
   const name = nameOf(spot.selection);
-  const label = stepLabel({ name, look, jot: jotId != null, stop });
+  const label = stepLabel({ name, look, jot: jotId != null, stop, chosen: spot.selection != null });
 
   // Armed a moment after the design opens, once its first fit has moved the camera.
   const [armed, setArmed] = useState(false);
@@ -118,7 +117,6 @@ export function useJumpBack(input: JumpBackInput) {
   const stillThere = useCallback((step: Step) => latest.current.input.exists(step.spot), []);
   const goBack = useCallback(() => apply(stepBack(trailRef.current, stillThere)), [apply, stillThere]);
   const goForward = useCallback(() => apply(stepForward(trailRef.current, stillThere)), [apply, stillThere]);
-  const goTo = useCallback((index: number) => apply(stepJumpTo(trailRef.current, index)), [apply]);
 
   /** Opening a saved view is a step of its own, named for the view. Call before moving the camera. */
   const markView = useCallback(
@@ -188,5 +186,5 @@ export function useJumpBack(input: JumpBackInput) {
     },
   ]);
 
-  return { trail, canBack, canForward, backLabel, goBack, goForward, goTo, markView };
+  return { trail, canBack, canForward, backLabel, goBack, goForward, markView };
 }

@@ -69,9 +69,10 @@ function cap(steps: readonly Step[], index: number): Trail {
 /**
  * The person is now at `spot`. Same place as the current step: nothing new (a changed label is kept).
  * Somewhere new: a step is added after the current one and anything that was ahead of it is dropped, as in
- * a browser. Two exceptions. A change of stop alone, soon after the step was made, moves that step on
- * instead of adding one, so one wheel gesture through three stops is one step. And with `quiet` (the camera
- * is gliding to a step just restored) a change of stop alone is absorbed into the current step.
+ * a browser. Three exceptions. A change of stop alone, soon after the step was made, moves that step on
+ * instead of adding one, so one wheel gesture through three stops is one step. A change of stop alone with
+ * nothing selected or opened is absorbed into the current step: plain zooming is not a place. And with
+ * `quiet` (the camera is gliding to a step just restored) a change of stop alone is absorbed likewise.
  */
 export function visit(trail: Trail, spot: Spot, label: string, camera: Camera | null, now: number, options: { quiet?: boolean } = {}): Trail {
   const cur = trail.steps[trail.index];
@@ -81,8 +82,11 @@ export function visit(trail: Trail, spot: Spot, label: string, camera: Camera | 
     return { ...trail, steps: trail.steps.map((s, i) => (i === trail.index ? { ...s, label } : s)) };
   }
   const stopOnly = sameButStop(cur.spot, spot);
-  // Absorbed in place: the steps ahead (which Forward still needs) stay.
-  if (stopOnly && options.quiet === true) {
+  // Absorbed in place: the steps ahead (which Forward still needs) stay. Zooming with nothing chosen or
+  // opened goes nowhere with a name, so it is absorbed too: otherwise wheeling in and out of an empty
+  // canvas piles up chips that all read "UNTITLED DESIGN".
+  const nothingChosen = spot.selection == null && spot.jotId == null;
+  if (stopOnly && (options.quiet === true || nothingChosen)) {
     return { ...trail, steps: trail.steps.map((s, i) => (i === trail.index ? { ...cur, spot, label } : s)) };
   }
   const keep = trail.steps.slice(0, trail.index + 1);
@@ -135,29 +139,12 @@ export function jumpTo(trail: Trail, index: number): Move | null {
   return { trail: { ...trail, index }, step };
 }
 
-export interface ChipView {
-  index: number;
-  label: string;
-  current: boolean;
-}
-
-/** The chips to draw: at most `max` steps around the current one, and how many are left out each side. */
-export function chipWindow(trail: Trail, max = 5): { chips: ChipView[]; before: number; after: number } {
-  const n = trail.steps.length;
-  if (n === 0) return { chips: [], before: 0, after: 0 };
-  const size = Math.min(max, n);
-  // Keep the current chip in view, nearer the right end so the way back stays visible.
-  const start = Math.max(0, Math.min(trail.index - (size - 2), n - size));
-  const from = Math.max(0, start);
-  const chips = trail.steps.slice(from, from + size).map((s, i) => ({ index: from + i, label: s.label, current: from + i === trail.index }));
-  return { chips, before: from, after: n - (from + size) };
-}
-
-/** The words for a step, in capitals: "SWITCH-1 · FACEPLATE". `name` is what is selected, or the design's own name. */
-export function stepLabel(input: { name: string; look: Look; jot: boolean; stop: CameraStop }): string {
+/** The words for a step, in capitals: "SWITCH-1 · FACEPLATE". `name` is what is selected, or the design's own name.
+ * The level is named only when something is chosen: "UNTITLED DESIGN · FACEPLATE" names nothing you could go back to. */
+export function stepLabel(input: { name: string; look: Look; jot: boolean; stop: CameraStop; chosen?: boolean }): string {
   const parts = [input.name.trim() === '' ? 'Overview' : input.name.trim()];
   if (input.jot) parts.push('open');
-  else if (levelOf(input.stop) !== 'room') parts.push(levelOf(input.stop));
+  else if (input.chosen !== false && levelOf(input.stop) !== 'room') parts.push(levelOf(input.stop));
   else if (input.look === 'diagram') parts.push('diagram');
   return parts.join(' · ').toUpperCase();
 }
