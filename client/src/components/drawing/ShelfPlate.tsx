@@ -15,6 +15,7 @@ import { shelfOccupantFaceplateItems, type Facing } from './elevation';
 import { U_PX, glyphScaleBudgetCap } from './geometry';
 import { useLive } from './liveStore';
 import { portKindFor } from './portGlyph';
+import { isLoosePort, portHandleFlags } from './missingLinks';
 import { SHEATH_VAR } from './sheath';
 import { ShelfGrips, type ResizeShelf } from './ShelfGrips';
 
@@ -152,7 +153,7 @@ function GlyphRow({ ports, glyphClassName, showLabels, onSelectPort, liveDrag, p
               type="source"
               position={Position.Right}
               id={port.id}
-              isConnectable={!cabled}
+              {...portHandleFlags(cabled, isLoosePort(port))}
               className="drawing-shelf__port-handle"
             />
           </button>

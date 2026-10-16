@@ -96,7 +96,8 @@ fn shipped_tree_declaration_counts_hold() {
     // 412-413). No kind, edge or class moves.
     // Round 15 quality-of-life (schema 0.21): +1 field key (`PhysicalPort.mac`, 462; 414-461 are held for the other round 15 threads).
     // Cable runs and ties (schema 0.23): +4 field keys (414-417).
-    assert_eq!(fk.entries.len(), 412, "field-key registry entries");
+    // Missing links (schema 0.24): +1 field key (`Cable.needs_finishing`, 478).
+    assert_eq!(fk.entries.len(), 413, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -179,7 +180,8 @@ fn shipped_tree_declaration_counts_hold() {
     //
     // 0.22 -> 0.23 is cable runs and ties: two kinds, three edges, four field keys (414-417);
     // the counts above already carry them.
-    assert_eq!(tree.version.as_deref(), Some("0.23"));
+    // 0.23 -> 0.24 is missing links for cables: one optional `Cable` field, `needs_finishing` (478).
+    assert_eq!(tree.version.as_deref(), Some("0.24"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

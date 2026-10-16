@@ -514,3 +514,5 @@ fields:
   CableTie.at: 417
   # Round 15 quality-of-life items (schema 0.21, 2026-10-10). 414-461 are held for the other round 15 threads (414-417 are cable runs and ties, above); this range is 462-477.
   PhysicalPort.mac: 462
+  # Missing links for cables (schema 0.24, 2026-10-16). Appended after 0.21's 462; 463-477 stay held for the other round 15 threads.
+  Cable.needs_finishing: 478

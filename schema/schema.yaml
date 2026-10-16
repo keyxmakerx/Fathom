@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.23"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.24"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -298,6 +298,15 @@ schema:
                     # (containment from CableRun) and Ties (reference, CableTie to the Cables it
                     # holds); four field keys (414-417). 62 §16.2: new kinds and edges are minor.
                     # Whole change = MINOR. The reader still opens 0.10 to 0.22.
+                    #
+                    # 0.24 is missing links for cables (round 26 point 6, round 27 points 1-2,
+                    # 2026-10-16), additive: one optional field on the existing declarer Cable,
+                    # needs_finishing (key 478, bool): a person marked this cable's loose end as
+                    # planned or unfinished work. Absent means a cable with one end connected is
+                    # Unknown (a legacy drawing where nobody knows the far end). Whether a cable
+                    # is loose at all is never stored: it is read off the drawing, from fewer than
+                    # two Terminates. 62 §16.2: "New optional field" is minor. No kind, edge or
+                    # existing key moved. Whole change = MINOR. The reader still opens 0.10 to 0.23.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -1345,6 +1354,7 @@ kinds:
       - { name: notes, type: Text, card: "0..1", emit: "—" }
       - { name: last_confirmed, type: Date, card: "0..1", emit: "—", doc: "19 §6.10 — Origin::Hand only; rendered as ADR-0027's stamp, never evaluated." }
       - { name: sheath, type: "enum { grey, blue, red, yellow, green, orange, purple, black, white, aqua, erika }", card: "0..1", emit: "—", doc: "The lead actually used, never a status (docs/UI-SPEC.md \"Cables\"). Copper: the nine stock lead colours; fibre adds aqua (OM3/OM4) and erika (violet OM4, some makers) per TIA-598-C — orange and yellow are shared with copper, the line style (Cable.media) is what tells them apart. Deliberately closed, no other/unknown variant: each token is a `--sheath-*` CSS custom property, not an open taxonomy." }
+      - { name: needs_finishing, type: bool, card: "0..1", emit: "—", doc: "0.24 — set by a person on a cable with only one end connected: this is planned or unfinished work, drawn as slanted amber dashes with a ? and counted under Missing links. Absent means the loose end is Unknown (a legacy drawing; the line fades out, nothing is counted). Meaningless on a cable with both ends connected: it is ignored there and cleared when the second end is plugged in." }
     identity:
       # NOTE (form vs content): 62 §8.1's term grammar has edge(E) with no end qualifier;
       # 19 §3.4 writes the tier with Terminates:A / Terminates:B (end field normalised by

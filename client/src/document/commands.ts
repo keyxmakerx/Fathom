@@ -1395,12 +1395,13 @@ export function addSketchPortRange(doc: Document, chassisId: string, fields: Add
 
 /**
  * ADR-0051 §1 — the reverse of `addSketchPort`: tombstones the port and its
- * `HasPort` edge. Follows `removeChassis`'s own precedent rather than
- * cascading into `cables.ts`'s `disconnect` (which would make this module
- * import `cables.ts`, and `cables.ts` already imports `UnknownReferenceError`
- * from here — a real cycle, not just an inconvenience): a live cable
- * terminating at the removed port is left as this document already leaves
- * one terminating at a chassis `removeChassis` tombstones.
+ * `HasPort` edge, and the `Terminates` edge of a cable plugged into it, all
+ * in the one batch (one undo restores all). The cable itself stays, now with
+ * one end connected: a loose end (Unknown) the Missing links list can find
+ * and finish, rather than a cable still holding an end on a port that is
+ * gone. Not `cables.ts`'s `disconnect` (which would make this module import
+ * `cables.ts`, and `cables.ts` already imports `UnknownReferenceError` from
+ * here — a real cycle): the cable survives, only its end goes.
  */
 export function removeSketchPort(doc: Document, chassisId: string, portId: string, opts?: Actor): Document {
   requireLiveItem(doc, chassisId, 'Chassis');
@@ -1408,14 +1409,17 @@ export function removeSketchPort(doc: Document, chassisId: string, portId: strin
   if (!hasPort) throw new UnknownReferenceError(portId, 'a port on this chassis');
 
   const { actor, now } = resolve(opts);
+  const terminations = edgesIn(doc, portId, 'Terminates');
+  const gone = new Set([hasPort.id, ...terminations.map((e) => e.id)]);
   const working: Document = {
     ...doc,
     nodes: doc.nodes.map((n) => (n.id === portId ? { ...n, absentSince: now } : n)),
-    edges: doc.edges.map((e) => (e.id === hasPort.id ? { ...e, absentSince: now } : e)),
+    edges: doc.edges.map((e) => (gone.has(e.id) ? { ...e, absentSince: now } : e)),
   };
   const ops: Op[] = [
     { type: 'tombstone', element: portId, at: now, by: actor },
     { type: 'tombstone', element: hasPort.id, at: now, by: actor },
+    ...terminations.map((e): Op => ({ type: 'tombstone', element: e.id, at: now, by: actor })),
   ];
   const batch: Batch = { id: newUlid(now), label: 'remove sketch port', ops };
   return withBatch(working, batch);

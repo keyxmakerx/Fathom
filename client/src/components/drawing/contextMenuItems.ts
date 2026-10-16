@@ -47,6 +47,10 @@ export interface MenuActions {
   onSuggestCables?(chassisId: string | null): void;
   onRemoveDevice?(chassisId: string): void;
   onDisconnect?(cableId: string): void;
+  /** Missing links: which kind of loose end this cable has (one end connected), or null for a cable
+   * with both ends, which has nothing to mark. */
+  looseState?(cableId: string): 'needs-finishing' | 'unknown' | null;
+  onSetNeedsFinishing?(cableId: string, on: boolean): void;
   onAddDevice?(rackId: string): void;
   /** Slides everything in a rack up to close the gaps (round 15). */
   onCloseRackGaps?(rackId: string): void;
@@ -134,6 +138,11 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
     case 'cable': {
       const { id } = target;
       items.push({ label: 'Details', onSelect: () => actions.onSelect({ kind: 'cable', id }) });
+      const loose = actions.looseState?.(id) ?? null;
+      if (loose != null && actions.onSetNeedsFinishing) {
+        const on = loose === 'needs-finishing';
+        items.push({ label: on ? 'Clear "Needs finishing"' : 'Needs finishing', onSelect: () => actions.onSetNeedsFinishing?.(id, !on) });
+      }
       if (actions.onDisconnect) items.push({ label: 'Disconnect', onSelect: () => actions.onDisconnect?.(id), danger: true });
       break;
     }

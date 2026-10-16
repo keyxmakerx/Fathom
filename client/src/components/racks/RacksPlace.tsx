@@ -1,7 +1,7 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { captureOf } from '../../document/capture';
-import { connectPorts, disconnect, IncompatibleConnectorError, PortAlreadyTerminatedError, type Sheath } from '../../document/cables';
+import { completeCable, connectPorts, disconnect, IncompatibleConnectorError, PortAlreadyTerminatedError, type Sheath } from '../../document/cables';
 import {
   SURFACE_FORMS,
   createBoard,
@@ -70,6 +70,8 @@ import { loadCableStyle, saveCableStyle, type CableStyle } from '../drawing/cabl
 import { loadLook, saveLook, type Look } from '../drawing/look';
 import { InsideStop } from '../inside/InsideStop';
 import { ChecksBarChip, ChecksSurface } from '../checks/ChecksPanel';
+import { MissingLinksChip } from '../drawing/MissingLinksChip';
+import { missingLinksOf } from '../drawing/missingLinks';
 import { mediaCandidates } from '../checks/checksModel';
 import { CheckMarksContext, ChecksContext } from '../checks/checksStore';
 import { useChecksController } from '../checks/useChecksController';
@@ -1093,6 +1095,20 @@ export function RacksPlace(props: RacksPlaceProps) {
     onDeviceOpenedRef.current?.(id, deviceChassis(realViewRef.current, id)?.hostname ?? '');
   }, []);
   const leaveJot = useCallback(() => setJot(null), []);
+
+  // Missing links (round 26 point 6, round 27): cables with one end connected, read off the drawing.
+  // The bar counts the ones marked Needs finishing; Go selects the cable and brings it into view on the canvas.
+  const missingLinks = useMemo(() => missingLinksOf(displayView), [displayView]);
+  const [revealRequest, setRevealRequest] = useState<{ cableId: string } | null>(null);
+  const handleGoToMissingLink = useCallback(
+    (end: { id: string }) => {
+      setJot(null);
+      if (look !== 'rack') changeLook('rack');
+      setSelection({ kind: 'cable', id: end.id });
+      setRevealRequest({ cableId: end.id });
+    },
+    [look, changeLook],
+  );
   // The empty canvas's "Add equipment" button asks the dock to open the Equipment tab.
   const [equipmentRequest, setEquipmentRequest] = useState(0);
 
@@ -1411,6 +1427,19 @@ export function RacksPlace(props: RacksPlaceProps) {
         applyDocChange(connectPorts(doc, fromPortId, toPortId, { sheath }, actorOpts(accountId)));
       } catch {
         // As `handlePlace`/`handleMove` above.
+      }
+    },
+    [doc, applyDocChange, accountId],
+  );
+
+  // Missing links: a free port dropped on a one-ended cable's port plugs in its second end.
+  const handleFinishCable = useCallback(
+    (cableId: string, toPortId: string) => {
+      if (doc == null) return;
+      try {
+        applyDocChange(completeCable(doc, cableId, toPortId, actorOpts(accountId)));
+      } catch {
+        // As `handleConnect` above.
       }
     },
     [doc, applyDocChange, accountId],
@@ -1768,6 +1797,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, cables: look === 'diagram' ? undefined : { value: cableStyle, onChange: changeCableStyle }, aids: showAids }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} autoEquipment={autoOpenEquipment(doc != null, canDraw, realView)} equipmentRequest={equipmentRequest} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
         doc != null ? (
           <div className="shell-bar__undoredo">
+            <MissingLinksChip found={missingLinks} onGo={handleGoToMissingLink} />
             <PlansBarChip controller={plans} />
             <ChecksBarChip controller={checks} />
           </div>
@@ -1823,6 +1853,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           onPlace={handlePlace}
           onMove={handleMove}
           onConnect={handleConnect}
+          onFinishCable={canDraw ? handleFinishCable : undefined}
+          revealRequest={revealRequest}
           onDisconnect={handleDisconnect}
           onRemoveDevice={handleRemoveDevice}
           onDuplicateDevice={canDraw ? handleDuplicateDevice : undefined}

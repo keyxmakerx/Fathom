@@ -204,7 +204,7 @@ export function useChecksController({ doc, boot, mirrorNow, loadCostMs }: Inputs
     };
   }, [doc, store]);
 
-  const guardCable = useCallback<ChecksApi['guardCable']>((from, to, medias) => {
+  const guardCable = useCallback<ChecksApi['guardCable']>((from, to, medias, ownPort) => {
     let mirror: Mirror | null = null;
     try {
       // A sync measured as dear is not paid here (a safety net: a delta sync is cheap): use what the module holds
@@ -213,7 +213,7 @@ export function useChecksController({ doc, boot, mirrorNow, loadCostMs }: Inputs
     } catch {
       // Not loadable now: go ahead.
     }
-    const hit = firstRefusal(mirror, from, to, medias);
+    const hit = firstRefusal(mirror, from, to, medias, ownPort);
     setRefusal(hit == null ? null : { finding: hit, x: pointer.current.x, y: pointer.current.y });
     return hit != null;
   }, []);

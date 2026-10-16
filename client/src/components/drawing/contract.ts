@@ -82,6 +82,9 @@ export interface DrawingActions {
    * connect is simply inert (the lead never droops into a live drop) until
    * a caller supplies it. */
   onConnect?(fromPortId: string, toPortId: string, sheath: Sheath): void;
+  /** Missing links: a drag from a free port dropped on the port of a one-ended cable plugs that
+   * cable's second end in (`document/cables.ts`'s `completeCable`). Absent for a reader. */
+  onFinishCable?(cableId: string, toPortId: string): void;
   /** UI-SPEC "Delete/Backspace on a selected cable" — raised after nothing
    * else; undo is the caller's concern, not this drawing's. Optional, same
    * reason as `onConnect`. */
@@ -228,6 +231,12 @@ export type EditorChange =
    * An action, not a field edit, the same shape `'supply-remove'` already
    * is. */
   | { kind: 'cable-disconnect'; id: string }
+  /** Missing links: a cable from this free port with no far end yet (`connectOneEnd`). It starts
+   * Unknown; "Needs finishing" below is how a person says it is planned or unfinished work. */
+  | { kind: 'cable-one-end'; portId: string }
+  /** Missing links: the cable panel's and right-click menu's "Needs finishing" toggle
+   * (`setCableNeedsFinishing`). One undo step. */
+  | { kind: 'cable-needs-finishing'; id: string; on: boolean }
   /** UI-SPEC's cable-delete rule — the device panel's "Remove device"
    * action: `document/commands.ts`'s `removeChassis`, an action rather
    * than a field edit, the same shape `'cable-disconnect'`/

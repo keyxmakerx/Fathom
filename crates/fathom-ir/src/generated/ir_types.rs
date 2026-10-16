@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.23";
+    pub const SCHEMA_VERSION: &str = "0.24";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -943,7 +943,7 @@ mod body {
                 NodeKind::NtpServer => &[crate::bag::FieldKey(201), crate::bag::FieldKey(202), crate::bag::FieldKey(203)],
                 NodeKind::SyslogTarget => &[crate::bag::FieldKey(204), crate::bag::FieldKey(205), crate::bag::FieldKey(206), crate::bag::FieldKey(207)],
                 NodeKind::PhysicalPort => &[crate::bag::FieldKey(208), crate::bag::FieldKey(209), crate::bag::FieldKey(210), crate::bag::FieldKey(211), crate::bag::FieldKey(325), crate::bag::FieldKey(412), crate::bag::FieldKey(413), crate::bag::FieldKey(462), crate::bag::FieldKey(212), crate::bag::FieldKey(213), crate::bag::FieldKey(214), crate::bag::FieldKey(215)],
-                NodeKind::Cable => &[crate::bag::FieldKey(216), crate::bag::FieldKey(217), crate::bag::FieldKey(218), crate::bag::FieldKey(219), crate::bag::FieldKey(220), crate::bag::FieldKey(221), crate::bag::FieldKey(222), crate::bag::FieldKey(223), crate::bag::FieldKey(224), crate::bag::FieldKey(312)],
+                NodeKind::Cable => &[crate::bag::FieldKey(216), crate::bag::FieldKey(217), crate::bag::FieldKey(218), crate::bag::FieldKey(219), crate::bag::FieldKey(220), crate::bag::FieldKey(221), crate::bag::FieldKey(222), crate::bag::FieldKey(223), crate::bag::FieldKey(224), crate::bag::FieldKey(312), crate::bag::FieldKey(478)],
                 NodeKind::PassiveNode => &[crate::bag::FieldKey(225), crate::bag::FieldKey(226), crate::bag::FieldKey(227), crate::bag::FieldKey(228), crate::bag::FieldKey(229), crate::bag::FieldKey(350)],
                 NodeKind::Premises => &[crate::bag::FieldKey(230), crate::bag::FieldKey(231), crate::bag::FieldKey(232), crate::bag::FieldKey(233), crate::bag::FieldKey(234), crate::bag::FieldKey(235), crate::bag::FieldKey(236)],
                 NodeKind::Tenant => &[crate::bag::FieldKey(237), crate::bag::FieldKey(238), crate::bag::FieldKey(239), crate::bag::FieldKey(240), crate::bag::FieldKey(241), crate::bag::FieldKey(242)],
@@ -8199,12 +8199,13 @@ mod body {
         Notes,
         LastConfirmed,
         Sheath,
+        NeedsFinishing,
     }
 
     impl CableField {
-        pub const COUNT: usize = 10;
+        pub const COUNT: usize = 11;
         /// Every field, declaration order.
-        pub const ALL: [CableField; 10] = [
+        pub const ALL: [CableField; 11] = [
             CableField::Label,
             CableField::Assembly,
             CableField::Media,
@@ -8215,6 +8216,7 @@ mod body {
             CableField::Notes,
             CableField::LastConfirmed,
             CableField::Sheath,
+            CableField::NeedsFinishing,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -8231,6 +8233,7 @@ mod body {
                 CableField::Notes => "notes",
                 CableField::LastConfirmed => "last_confirmed",
                 CableField::Sheath => "sheath",
+                CableField::NeedsFinishing => "needs_finishing",
             }
         }
         /// The stable wire key (`schema/field-keys.yaml`).
@@ -8246,6 +8249,7 @@ mod body {
                 CableField::Notes => crate::bag::FieldKey(223),
                 CableField::LastConfirmed => crate::bag::FieldKey(224),
                 CableField::Sheath => crate::bag::FieldKey(312),
+                CableField::NeedsFinishing => crate::bag::FieldKey(478),
             }
         }
     }
@@ -10153,7 +10157,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 412] = [
+    pub const FIELD_KEYS: [(&str, u32); 413] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -10566,16 +10570,17 @@ mod body {
         ("CableRun.label", 416),
         ("CableTie.at", 417),
         ("PhysicalPort.mac", 462),
+        ("Cable.needs_finishing", 478),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
     /// per key, least-significant bit first. Read it through [`field_required`];
     /// the array is public only so a test can pin its length.
-    pub const FIELD_REQUIRED_BITS: [u8; 58] = [
+    pub const FIELD_REQUIRED_BITS: [u8; 60] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
         0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0xa3, 0xfb, 0x1d, 0x59, 0x64,
-        0xc0, 0xe6, 0x64, 0xc0, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0xc0, 0xe6, 0x64, 0xc0, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

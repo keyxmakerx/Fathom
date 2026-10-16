@@ -60,7 +60,7 @@ use std::collections::BTreeSet;
 const PINNED: &str = concat!(
     "fathom-plain 1\n",
     "THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n",
-    "schema 0.23\n",
+    "schema 0.24\n",
     "\n",
     r#"{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}"#,
     "\n",
@@ -941,6 +941,25 @@ fn a_0_22_header_opens_and_older_ones_refuse_a_cable_run() {
             other => panic!("a 0.23-only kind under a {old_version} header must refuse: {other:?}"),
         }
     }
+}
+
+/// Missing links (0.24) add one optional `Cable` field and no kind, so a 0.23 design opens and may
+/// hold the cable runs and ties that arrived with 0.23.
+#[test]
+fn a_0_23_header_opens_and_holds_a_cable_run() {
+    use fathom_ir::generated::ir_types::SCHEMA_VERSION;
+    let older = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.23", 1);
+    assert_ne!(older, PINNED, "the substitution must have landed");
+    read_plain(older.as_bytes()).expect("a 0.23 payload opens");
+
+    let mut g = Graph::new();
+    g.begin_batch(BatchId(ulid(0)), "build").expect("open");
+    g.insert_node(NodeKind::CableRun, ulid(1), prov(1))
+        .expect("cable run");
+    g.end_batch().expect("close");
+    let text = String::from_utf8(write_plain(&g).expect("writes")).expect("UTF-8");
+    let old = text.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.23", 1);
+    read_plain(old.as_bytes()).expect("a 0.23 header may hold a cable run");
 }
 
 /// A 0.15 design holds plans, and a 0.14 one does not (the plan kinds arrived at 0.15).

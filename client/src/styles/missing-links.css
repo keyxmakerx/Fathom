@@ -1,0 +1,133 @@
+/* Missing links (round 26 point 6, round 27): a cable with one end connected.
+   Unknown fades out and does not move. Needs finishing crawls amber dashes toward the far end,
+   and the ? in its circle swings like a bell every few seconds. All motion stops under
+   prefers-reduced-motion. */
+
+.drawing-loose {
+  display: block;
+  overflow: visible;
+}
+
+/* Every ? that marks missing information is drawn at one size: MISSING_MARK_PX (looseEnd.ts), set on
+   the glyph by the component, so there is no second number here. */
+:root {
+  --missing-mark-cycle: 3.2s;
+  --missing-crawl-period: 8px; /* one dash and one gap */
+  --missing-crawl-time: 0.444s; /* 8px at 18px a second */
+}
+
+.missing-mark__glyph {
+  font-family: var(--font-sans, inherit);
+  font-weight: 700;
+  fill: var(--caution);
+  user-select: none;
+}
+
+/* The whole ? (not the circle) rocks about its own centre. */
+.missing-mark__swing {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.drawing-loose--needs:not(.drawing-loose--still) .missing-mark__swing {
+  animation: missing-mark-bell var(--missing-mark-cycle) ease-in-out infinite;
+}
+
+/* Rest for the first 70% of the cycle, then 16, -14, 10, -6, 3 degrees, and settle. */
+@keyframes missing-mark-bell {
+  0%, 70% { transform: rotate(0deg); }
+  76% { transform: rotate(16deg); }
+  82% { transform: rotate(-14deg); }
+  88% { transform: rotate(10deg); }
+  93% { transform: rotate(-6deg); }
+  97% { transform: rotate(3deg); }
+  100% { transform: rotate(0deg); }
+}
+
+.drawing-loose--needs:not(.drawing-loose--still) .drawing-loose__dashes--down {
+  animation: missing-crawl-down var(--missing-crawl-time) linear infinite;
+}
+.drawing-loose--needs:not(.drawing-loose--still) .drawing-loose__dashes--up {
+  animation: missing-crawl-up var(--missing-crawl-time) linear infinite;
+}
+
+@keyframes missing-crawl-down {
+  from { transform: translateY(0); }
+  to { transform: translateY(var(--missing-crawl-period)); }
+}
+@keyframes missing-crawl-up {
+  from { transform: translateY(0); }
+  to { transform: translateY(calc(-1 * var(--missing-crawl-period))); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawing-loose .missing-mark__swing,
+  .drawing-loose .drawing-loose__dashes {
+    animation: none !important;
+  }
+}
+
+/* The bar's button and its list. */
+.missing-links__chip {
+  color: var(--caution);
+}
+
+.missing-links {
+  min-width: 300px;
+  max-width: 420px;
+  max-height: 60vh;
+  overflow: auto;
+  padding: var(--s2, 8px);
+}
+
+.missing-links__title {
+  margin: 0 0 var(--s2, 8px);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.missing-links__note {
+  margin: 0 0 var(--s2, 8px);
+  font-size: 12px;
+  color: var(--muted, inherit);
+}
+
+.missing-links__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.missing-links__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2, 8px);
+  justify-content: space-between;
+  padding: 4px 0;
+  border-top: var(--rule-hair, 1px) solid var(--hairline);
+}
+
+.missing-links__row:first-child {
+  border-top: 0;
+}
+
+.missing-links__text {
+  font-size: 13px;
+}
+
+.missing-links__sub {
+  display: block;
+  font-size: 11px;
+  color: var(--muted, inherit);
+}
+
+.missing-links__unknown {
+  margin-top: var(--s2, 8px);
+  border-top: var(--rule-hair, 1px) solid var(--hairline);
+  padding-top: var(--s2, 8px);
+}
+
+.missing-links__unknown > summary {
+  cursor: pointer;
+  font-size: 12px;
+}

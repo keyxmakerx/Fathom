@@ -14,6 +14,7 @@ import type { ClosetView, PortView } from './contract';
 // session) has not widened its re-export list to carry it yet.
 import type { FixtureView } from '../../document/view';
 import { locatePort } from './lookup';
+import { isLoosePort } from './missingLinks';
 
 /**
  * Every port in `view` that a drag started from `fromPortId` may legally
@@ -29,14 +30,15 @@ import { locatePort } from './lookup';
  * a drag started on a shelf occupant or a surface fixture lights its own
  * compatible targets exactly as one started on a rack chassis already does.
  */
-export function liveTargetPortIds(view: ClosetView, fromPortId: string): Set<string> {
+export function liveTargetPortIds(view: ClosetView, fromPortId: string, opts: { finishLoose?: boolean } = {}): Set<string> {
   const from = locatePort(view, fromPortId);
   const live = new Set<string>();
   if (!from || (from.port.cable ?? null) != null) return live;
 
   function consider(port: PortView): void {
     if (port.id === fromPortId) return;
-    if ((port.cable ?? null) != null) return;
+    // A one-ended cable's port stays live when the drawing can finish cables (missing links).
+    if ((port.cable ?? null) != null && !(opts.finishLoose === true && isLoosePort(port))) return;
     if (compatible(from!.port.connector, port.connector).ok) live.add(port.id);
   }
 
