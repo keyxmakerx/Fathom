@@ -577,3 +577,61 @@ fn an_export_that_sets_an_mtu_is_read() {
     let reply = shell.handle(OP_PASTE, &frame(0, linux));
     assert_eq!(platform_of(&reply), "linux-host");
 }
+
+/// A TP-Link switch config, its shape from a real T1700G-28TQ export
+/// (community.tp-link.com topic 150823, read 2026-10-16), carrying credential
+/// lines at TP-Link's documented lengths (README-omada-sw.md).
+fn tplink_paste() -> String {
+    "!T1700G-28TQRev2\n\
+     #\n\
+     vlan 4084\n\
+     name \"GERENCIA4084\"\n\
+     #\n\
+     user name admin privilege admin secret 5 $1$K>@=/'}.Q7R2K9M4X8P1Z6W3N5B0LJHG$T2Y.\n\
+     snmp-server user ops local grp smode v3 slev authPriv cmode SHA cpwd Abc12345 emode DES epwd Def67890\n\
+     snmp-server host 192.0.2.9 162 pr1vate smode v2c\n\
+     hostname \"SW_ALIANCA00\"\n\
+     #\n\
+     interface gigabitEthernet 1/0/1\n\
+     description \"uplink\"\n\
+     shutdown\n\
+     #\n"
+        .to_owned()
+}
+
+const TPLINK_SECRETS: [&str; 4] = [
+    "Q7R2K9M4X8P1Z6W3N5B0LJHG",
+    "Abc12345",
+    "Def67890",
+    "pr1vate",
+];
+
+#[test]
+fn a_tplink_switch_config_is_detected_and_no_credential_survives() {
+    let mut shell = common::all_booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(0, &tplink_paste()));
+    assert_eq!(platform_of(&reply), "omada-sw");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    for k in TPLINK_SECRETS {
+        assert!(!contains(&reply, k), "reply leaks {k}");
+        assert!(!contains(&stored, k), "stored design leaks {k}");
+    }
+    assert!(contains(&stored, "SW_ALIANCA00"));
+
+    let mut shell = common::all_booted_shell();
+    let display = place(&mut shell, "omada-sw");
+    let reply = shell.handle(OP_PASTE_INTO, &into_frame(0, &display, &tplink_paste()));
+    assert_eq!(platform_of(&reply), "omada-sw");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    for k in TPLINK_SECRETS {
+        assert!(!contains(&reply, k), "paste-into reply leaks {k}");
+        assert!(!contains(&stored, k), "paste-into stored capture leaks {k}");
+    }
+}
+
+#[test]
+fn set_form_detection_never_reads_with_the_tplink_dictionary() {
+    let mut shell = common::all_booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(0, &srx_config()));
+    assert_eq!(platform_of(&reply), "junos-srx");
+}
