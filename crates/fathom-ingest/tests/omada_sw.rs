@@ -329,3 +329,87 @@ fn the_ledger_names_every_line() {
         .count();
     assert!(separators > 15, "got {separators}");
 }
+
+/// What the switch echoes when someone types a command: the prompt, then the
+/// command with its value in clear. The sniff accepts a session that starts
+/// this way, so the credential on such a line gets the same forced rule as a
+/// config line, not only the sweep (`cpwd`/`epwd` and the `snmp-server host`
+/// community carry no word the sweep knows).
+#[test]
+fn a_credential_typed_at_the_prompt_is_destroyed() {
+    let paste = "T2600G-28TS(config)#snmp-server user ops local grp smode v3 slev authPriv cmode SHA cpwd Abc12345 emode DES epwd Def67890\n\
+T2600G-28TS(config)#snmp-server host 192.0.2.9 162 pr1vate smode v2c\n\
+T2600G-28TS(config)#hostname \"typed\"\n\
+T2600G-28TS#show running-config\n\
+!T2600G-28TS\n\
+#\n\
+hostname \"SW1\"\n\
+#\n";
+    assert!(looks_like_tplink(paste.as_bytes()));
+    let out = read(paste);
+    let text = out.capture.text();
+    for secret in ["Abc12345", "Def67890", "pr1vate"] {
+        assert!(!text.contains(secret), "{secret} survived:\n{text}");
+    }
+    // A command typed at the prompt is not the config: it binds nothing.
+    let s = format!("{:?}", out.fragment);
+    assert!(s.contains("SW1") && !s.contains("typed"), "{s}");
+}
+
+/// Upper case is not a real device's output, but it is one keystroke of
+/// hand-editing, and every other keyword already folds case.
+#[test]
+fn an_upper_case_snmp_host_line_is_destroyed() {
+    let out = read("!T2600G-28TS\n#\nSNMP-SERVER HOST 192.0.2.9 162 pr1vate smode v2c\n#\n");
+    assert!(
+        !out.capture.text().contains("pr1vate"),
+        "{}",
+        out.capture.text()
+    );
+}
+
+/// The pager prompt run together with the next line of output.
+#[test]
+fn a_credential_after_the_pager_is_destroyed() {
+    let out = read("!T2600G-28TS\n#\nPress any key to continue (Q to quit)snmp-server host 192.0.2.9 162 pr1vate smode v2c\n#\n");
+    assert!(
+        !out.capture.text().contains("pr1vate"),
+        "{}",
+        out.capture.text()
+    );
+}
+
+/// Whether TP-Link's CLI hard-wraps is not established. Real credential
+/// lines run past 80 columns (the documented RADIUS line with a 31-character
+/// key is 96), so a value split at column 80 must not keep its second half.
+#[test]
+fn a_credential_wrapped_onto_the_next_line_is_destroyed() {
+    let full = "radius-server host 192.0.2.5 auth-port 1812 acct-port 1813 key 0 Rad-Key-31-chars-long-exactly!!";
+    let (a, b) = full.split_at(80);
+    let paste = format!(
+        "!T2600G-28TS\n#\n{a}\n{b}\ninterface gigabitEthernet 1/0/3\ndescription \"after\"\n#\n"
+    );
+    let out = read(&paste);
+    let text = out.capture.text();
+    assert!(!text.contains("exactly"), "{text}");
+    assert!(!text.contains("Rad-Key"), "{text}");
+    // The block after it still reads.
+    assert!(format!("{:?}", out.fragment).contains("\"after\""));
+}
+
+/// Only the bare echo is noise: anything more on the line is read.
+#[test]
+fn only_the_bare_command_echo_is_skipped() {
+    let out =
+        read("!T2600G-28TS\n#\nshow running-config snmp-server host 192.0.2.9 162 pr1vate\n#\n");
+    assert!(
+        !out.capture.text().contains("pr1vate"),
+        "{}",
+        out.capture.text()
+    );
+}
+
+#[test]
+fn lone_carriage_returns_still_sniff() {
+    assert!(looks_like_tplink(b"!T2600G-28TS\r#\rvlan 10\r"));
+}

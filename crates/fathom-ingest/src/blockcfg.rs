@@ -118,7 +118,7 @@ pub fn looks_like_tplink(paste: &[u8]) -> bool {
     let Ok(text) = std::str::from_utf8(body) else {
         return false;
     };
-    let mut lines = text.lines().map(str::trim);
+    let mut lines = text.split(['\n', '\r']).map(str::trim);
     let first = lines.find(|l| !l.is_empty() && !is_prompt(l) && !is_command_echo(l));
     let Some(model) = first.and_then(|l| l.strip_prefix('!')) else {
         return false;
@@ -148,7 +148,7 @@ fn is_command_echo(text: &str) -> bool {
     let w: Vec<&str> = text.split_ascii_whitespace().collect();
     matches!(
         w.as_slice(),
-        ["show", "running-config" | "startup-config", ..] | ["terminal", "length", ..]
+        ["show", "running-config" | "startup-config"] | ["terminal", "length", _]
     )
 }
 
@@ -226,7 +226,8 @@ fn words(capture: &str, span: ByteSpan) -> Vec<Word> {
     out
 }
 
-/// One physical line per logical line: these configs never wrap.
+/// One physical line per logical line. Whether a terminal hard-wraps a long
+/// line is open (README-omada-sw.md); a wrapped tail is swept, not forced.
 fn logical_lines(capture: &str) -> Vec<LogicalLine> {
     let mut lines = Vec::new();
     let mut start = 0u32;
@@ -292,14 +293,43 @@ fn opener(ws: &[Word]) -> Option<Vec<Seg>> {
 /// word after the first credential keyword, or, for `snmp-server host IP …`,
 /// the word after the address (TP-Link prints the community there).
 fn secret_from(ws: &[Word]) -> Option<usize> {
-    if let [a, b, _, ..] = ws {
-        if a.text == "snmp-server" && b.text == "host" {
-            return Some(3);
-        }
-    }
-    ws.iter()
+    let host = ws.windows(2).position(|p| {
+        matches!(p, [a, b] if a.text.eq_ignore_ascii_case("snmp-server") && b.text.eq_ignore_ascii_case("host"))
+    });
+    let keyword = ws
+        .iter()
         .position(|w| !w.quoted && is_secret_word(&w.text))
-        .map(|at| at + 1)
+        .map(|at| at + 1);
+    match (host.map(|at| at + 3), keyword) {
+        (Some(h), Some(k)) => Some(h.min(k)),
+        (h, k) => h.or(k),
+    }
+}
+
+/// The narrowest common terminal is 80 columns. Whether TP-Link's CLI
+/// hard-wraps a long line at all is not established (README-omada-sw.md,
+/// "Open"), so a credential line this long is assumed it may have been, and
+/// the next line, unless it only separates or opens a block, is destroyed whole: a value
+/// split across the break would otherwise keep its second half.
+const WRAP_WIDTH: usize = 79;
+
+fn wrappable(capture: &str, span: ByteSpan) -> bool {
+    frame::slice(capture, span).trim_end().chars().count() >= WRAP_WIDTH
+}
+
+/// The words before the credential, then the rest of the line from its first
+/// byte as one segment, quotes and all; and the index of that last segment.
+/// `None` when the keyword ends the line.
+fn tail_path(capture: &str, span: ByteSpan, ws: &[Word], from: usize) -> Option<(Vec<Seg>, usize)> {
+    let first = ws.get(from)?;
+    let tail = ByteSpan {
+        start: first.raw,
+        end: span.start + frame::slice(capture, span).trim_end().len() as u32,
+    };
+    let mut path: Vec<Seg> = ws.iter().take(from).map(seg).collect();
+    path.push((frame::slice(capture, tail).to_owned(), bare(tail)));
+    let last = path.len() - 1;
+    Some((path, last))
 }
 
 /// The whole read: a block config in, an [`IngestOutput`] out, identical in
@@ -323,6 +353,9 @@ pub fn ingest_blockcfg(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, 
     let mut noise: Vec<UnshapedLine> = Vec::new();
     // The block in force: its opener's segments.
     let mut block: Option<Vec<Seg>> = None;
+    // Set when the last line held a forced credential and was long enough
+    // that a terminal may have hard-wrapped it (see [`WRAP_WIDTH`]).
+    let mut may_continue = false;
 
     for line in &lines {
         let span = line
@@ -331,9 +364,11 @@ pub fn ingest_blockcfg(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, 
             .copied()
             .unwrap_or(ByteSpan { start: 0, end: 0 });
         if line.class == LineClass::Blank {
+            may_continue = false;
             outcomes.push(Outcome::new(LineOutcome::Blank));
             continue;
         }
+        let continues = std::mem::take(&mut may_continue);
         let ws = words(&capture, span);
         let toks: Vec<Token> = if ws.is_empty() {
             vec![bare(span)]
@@ -353,22 +388,98 @@ pub fn ingest_blockcfg(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, 
             outcomes.push(Outcome::new(LineOutcome::Header { columns: 0 }));
             continue;
         }
-        if is_pager(text) || is_command_echo(text) || (is_prompt(text) && !text.contains(' ')) {
+        if continues && opener(&ws).is_none() {
+            // Possibly the wrapped rest of a credential: destroyed whole.
+            let lead = frame::slice(&capture, span).len()
+                - frame::slice(&capture, span).trim_start().len();
+            let whole = ByteSpan {
+                start: span.start + lead as u32,
+                end: span.start + (lead + text.len()) as u32,
+            };
+            let n = node(&mut tree, &mut intern, text, span, line.ordinal, true);
+            forced.push((stmts.len(), 0));
+            stmts.push(Stmt {
+                line: line.ordinal,
+                span,
+                path: vec![n],
+                tokens: vec![bare(whole)],
+                list_pos: 0,
+            });
             outcomes.push(Outcome::new(LineOutcome::Unmapped { known_prefix: 0 }));
             continue;
         }
-        if is_prompt(text) {
-            // A prompt with a command after it: swept, never read, and the
-            // block it interrupts is over.
+        if is_command_echo(text) {
+            outcomes.push(Outcome::new(LineOutcome::Unmapped { known_prefix: 0 }));
+            continue;
+        }
+        // A prompt or the pager, with whatever was typed or printed after it
+        // on the same line. That text is never read as config, but a
+        // credential in it gets the same forced destruction as anywhere else:
+        // a command typed at the prompt carries its value in clear.
+        let prefix_end = if is_prompt(text) {
+            text.find(['#', '>']).map(|at| at + 1)
+        } else if is_pager(text) {
+            Some(text.find(')').map(|at| at + 1).unwrap_or(text.len()))
+        } else {
+            None
+        };
+        if let Some(cut) = prefix_end {
             block = None;
-            unshaped.push(UnshapedLine {
-                line: line.ordinal,
-                span,
-                tokens: toks,
-            });
-            outcomes.push(Outcome::new(LineOutcome::Unshaped {
-                reason: ShapeError::NotVerbInitial,
-            }));
+            let lead = frame::slice(&capture, span).len()
+                - frame::slice(&capture, span).trim_start().len();
+            let rest_span = ByteSpan {
+                start: span.start + (lead + cut) as u32,
+                end: span.end,
+            };
+            let rest = words(&capture, rest_span);
+            let prefix: Seg = (
+                text.get(..cut).unwrap_or_default().to_owned(),
+                bare(ByteSpan {
+                    start: span.start + lead as u32,
+                    end: rest_span.start,
+                }),
+            );
+            match secret_from(&rest).and_then(|from| tail_path(&capture, span, &rest, from)) {
+                Some((mut path, last)) => {
+                    path.insert(0, prefix);
+                    let mut nodes = Vec::new();
+                    let mut tokens = Vec::new();
+                    for (at, (t, tok)) in path.iter().enumerate() {
+                        nodes.push(node(
+                            &mut tree,
+                            &mut intern,
+                            t,
+                            span,
+                            line.ordinal,
+                            at == last + 1,
+                        ));
+                        tokens.push(*tok);
+                    }
+                    forced.push((stmts.len(), last + 1));
+                    may_continue = wrappable(&capture, span);
+                    stmts.push(Stmt {
+                        line: line.ordinal,
+                        span,
+                        path: nodes,
+                        tokens,
+                        list_pos: 0,
+                    });
+                    outcomes.push(Outcome::new(LineOutcome::Unmapped { known_prefix: 0 }));
+                }
+                None if rest.is_empty() => {
+                    outcomes.push(Outcome::new(LineOutcome::Unmapped { known_prefix: 0 }));
+                }
+                None => {
+                    unshaped.push(UnshapedLine {
+                        line: line.ordinal,
+                        span,
+                        tokens: toks,
+                    });
+                    outcomes.push(Outcome::new(LineOutcome::Unshaped {
+                        reason: ShapeError::NotVerbInitial,
+                    }));
+                }
+            }
             continue;
         }
 
@@ -381,20 +492,16 @@ pub fn ingest_blockcfg(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, 
             if let Some(ctx) = &block {
                 path.extend(ctx.iter().cloned());
             }
-            match secret_from(&ws) {
-                Some(from) => {
-                    path.extend(ws.iter().take(from).map(seg));
-                    if let Some(first) = ws.get(from) {
-                        // The rest of the line, as bytes, quotes and all.
-                        let tail = ByteSpan {
-                            start: first.raw,
-                            end: span.start + frame::slice(&capture, span).trim_end().len() as u32,
-                        };
-                        path.push((frame::slice(&capture, tail).to_owned(), bare(tail)));
-                        secret = true;
-                    }
+            match secret_from(&ws).and_then(|from| tail_path(&capture, span, &ws, from)) {
+                Some((words_and_tail, _)) => {
+                    path.extend(words_and_tail);
+                    secret = true;
                 }
-                None => path.extend(ws.iter().map(seg)),
+                None => match secret_from(&ws) {
+                    // A keyword with nothing after it: nothing to destroy.
+                    Some(from) => path.extend(ws.iter().take(from).map(seg)),
+                    None => path.extend(ws.iter().map(seg)),
+                },
             }
         }
         // An opener whose own line holds a credential (`line …` never does,
@@ -416,6 +523,7 @@ pub fn ingest_blockcfg(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, 
         }
         if secret {
             forced.push((stmts.len(), last));
+            may_continue = wrappable(&capture, span);
         }
         stmts.push(Stmt {
             line: line.ordinal,

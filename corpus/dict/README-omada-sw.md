@@ -72,6 +72,10 @@ characters outside md5-crypt's alphabet. So the rule assumes nothing about what 
 - **After the first credential keyword on a line, the rest of the line is one segment, destroyed
   whatever any detector says.** For `snmp-server host`, the rest after the address. A keyword inside
   quotes is a value, not a keyword.
+- **A command typed at a prompt** (`T2600G-28TS(config)#snmp-server host … pr1vate …`) is never read as
+  config, but the same rule applies to it: the typed value is in clear.
+- **A credential line of 79 characters or more** may have been hard-wrapped by the terminal, so the line
+  after it is destroyed whole unless it is a separator or opens a block.
 - **Every line is swept**, shaped or not, before anything is stored.
 
 The tests hold values at TP-Link's limits: a user password of 6 to 31 characters (TP-Link's own example,
@@ -95,6 +99,8 @@ They are residue, not lost:
 ## Open
 
 - Whether lines under an opener are indented.
+- Whether the CLI hard-wraps long lines, and at what width. The real `radius-server … key` and
+  `snmp-server user … epwd` lines run past 90 characters.
 - The real alphabet and length of type 5 and type 7 values.
 - The syntax of `user name … algorithm-type` in the May 2026 CLI guide (document 4943 on
   support.omadanetworks.com, model list not readable through the fetch tool).
