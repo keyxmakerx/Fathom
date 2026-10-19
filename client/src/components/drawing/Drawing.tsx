@@ -117,6 +117,9 @@ import { useSettle } from './useSettle';
 import { liveSagPath, markFreshCable } from './cableMotion';
 import { useCameraHub, type CameraHub } from './camera';
 import { CanvasMiniMap } from './CanvasMiniMap';
+import { LooseCableNode, looseCableNodeId, type LooseCableNodeData, type LooseCableNodeType } from './LooseCableNode';
+import { looseRect, LOOSE_NODE_W, LOOSE_RUN_PX } from './looseEnd';
+import { isLoosePort } from './missingLinks';
 
 const NODE_TYPES = {
   rack: RackNode,
@@ -125,6 +128,7 @@ const NODE_TYPES = {
   rowLabel: RowLabelNode,
   surface: SurfaceNode,
   shelf: ShelfPlate,
+  looseCable: LooseCableNode,
 };
 const EDGE_TYPES = { cable: CableEdge, bundle: BundleEdge, planGhost: PlanGhostEdge, cableOverlay: CableOverlayEdge };
 const ALL_NODE_TYPES = { ...NODE_TYPES, ...FREE_NODE_TYPES };
@@ -318,6 +322,8 @@ export interface DrawingProps extends DrawingActions {
   /** Opens a device's config drawer or inside view, as a double-click does;
    * a new object each time (the same edge-triggered shape `fitRequest` has). */
   openRequest?: { id: string; view: 'config' | 'inside' } | null;
+  /** Missing links' Go: brings this cable into view; a new object each time, like `openRequest`. */
+  revealRequest?: { cableId: string } | null;
   /** The chassis whose callout is showing, or null; the caller keeps the details panel closed meanwhile. */
   onCalloutChange?: (id: string | null) => void;
   /** The devices picked together (two or more, by chassis id), or empty. Racked and free devices both count. */
@@ -458,6 +464,8 @@ function DrawingInner({
   emptyHint,
   onAddEquipment,
   openRequest,
+  revealRequest,
+  onFinishCable,
   onCalloutChange,
   onGroupChange,
   groupClearRequest,
@@ -581,6 +589,17 @@ function DrawingInner({
           cableRunsOn: (hostId) => (view.racks.find((r) => r.id === hostId) ?? view.surfaces.find((s) => s.id === hostId))?.cableRuns ?? [],
         }
       : {};
+  // Missing links: the right-click on a cable with one end connected offers the Needs finishing toggle.
+  const looseMenuActions: Partial<MenuActions> =
+    onEdit != null
+      ? {
+          looseState: (cableId) => {
+            const c = (view.cables ?? []).find((x) => x.id === cableId);
+            return c?.looseEnd === true ? (c.needsFinishing === true ? 'needs-finishing' : 'unknown') : null;
+          },
+          onSetNeedsFinishing: (id, on) => void onEdit({ kind: 'cable-needs-finishing', id, on }),
+        }
+      : {};
   const freeMenuActions: Partial<MenuActions> = {
     onAddInRack: onAddDeviceAt ? (rackId, u, at) => free.openAdd(at.screen, at.flow, { rackId, positionU: u }) : undefined,
     onAddBoxHere: onAddFreeBox ? (at) => free.openAdd(at.screen, at.flow) : undefined,
@@ -589,7 +608,7 @@ function DrawingInner({
     onRemoveFree,
   };
   const menuActions: MenuActions = canDraw
-    ? { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onCloseRackGaps, onCopyRack, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, onSuggestCables, ...freeMenuActions, ...cableRunMenuActions }
+    ? { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onCloseRackGaps, onCopyRack, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, onSuggestCables, ...freeMenuActions, ...cableRunMenuActions, ...looseMenuActions }
     : { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom };
   const menuActionsRef = useRef(menuActions);
   useLayoutEffect(() => {
@@ -617,6 +636,7 @@ function DrawingInner({
   );
   const handleNodeContextMenu: NodeMouseHandler = useCallback(
     (event, node) => {
+      if (node.type === 'looseCable') return openMenu(event, { kind: 'cable', id: (node.data as LooseCableNodeData).cable.id });
       const parsedFree = parseFreeNodeId(node.id);
       const rackNode = parseNodeId(node.id);
       if (rackNode?.kind === 'rack') {
@@ -703,8 +723,8 @@ function DrawingInner({
   );
 
   const livePortIds = useMemo(
-    () => (dragFromPortId ? liveTargetPortIds(view, dragFromPortId) : null),
-    [view, dragFromPortId],
+    () => (dragFromPortId ? liveTargetPortIds(view, dragFromPortId, { finishLoose: onFinishCable != null }) : null),
+    [view, dragFromPortId, onFinishCable],
   );
 
   // The draw rule itself runs once, in the caller (`racks/RacksPlace.tsx`,
@@ -858,6 +878,31 @@ function DrawingInner({
     void rf.fitView(closetFitViewOptions(view.racks, view.surfaces ?? [], free.fitIds));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a press of the button refits
   }, [fitRequest, rf, view.racks, view.surfaces]);
+
+  // Missing links' Go: glide to the loose end and keep the zoom at the rack stop or closer.
+  // The request is kept until the node is there (the drawing may have only just mounted).
+  const handledRevealRef = useRef<object | null>(null);
+  useEffect(() => {
+    if (revealRequest == null || revealRequest === handledRevealRef.current) return undefined;
+    let frame = 0;
+    let tries = 0;
+    const attempt = () => {
+      const n = rf.getInternalNode(looseCableNodeId(revealRequest.cableId));
+      if (n == null) {
+        tries += 1;
+        if (tries < 30) frame = requestAnimationFrame(attempt);
+        return;
+      }
+      handledRevealRef.current = revealRequest;
+      void rf.setCenter(
+        n.internals.positionAbsolute.x + (n.measured.width ?? LOOSE_NODE_W) / 2,
+        n.internals.positionAbsolute.y + (n.measured.height ?? LOOSE_RUN_PX) / 2,
+        { zoom: Math.max(rf.getZoom(), CAMERA_STOPS.rack / 100), ...GLIDE },
+      );
+    };
+    attempt();
+    return () => cancelAnimationFrame(frame);
+  }, [revealRequest, rf]);
 
   // Called every frame of any camera move; sets state only when the camera
   // crosses into another stop or zoom band, so a wheel tick renders nothing.
@@ -1460,6 +1505,41 @@ function DrawingInner({
     const built = buildCableEdge(cable);
     if (built) edges.push(built);
   }
+  // Missing links: a cable with one end connected is no edge (it has no far node). It draws as a
+  // column leaving its port, in one of two looks (`LooseCableNode.tsx`). Only for a port with a box
+  // on a plate; a shelf's or surface's port has none, and such a cable is listed but not drawn.
+  const looseKey: string[] = [];
+  const looseBuilt: LooseCableNodeType[] = [];
+  for (const cable of drawnCables) {
+    if (cable.looseEnd !== true) continue;
+    const end = realEndsOf(cable)[0];
+    if (end == null || cable.ends.length !== 1) continue;
+    const box = portBox(end);
+    if (box == null) continue;
+    const lead = leadsFor(box, null, { x: 0, y: 0 }, { x: 0, y: box.y + box.h / 2 }).a;
+    const rect = looseRect(lead);
+    const state = cable.needsFinishing === true ? 'needs-finishing' : 'unknown';
+    const isSelected = selected?.kind === 'cable' && selected.id === cable.id;
+    looseKey.push([cable.id, rect.x, rect.y, lead.dir, state, isSelected, cable.sheath, cable.kind].join('|'));
+    looseBuilt.push({
+      id: looseCableNodeId(cable.id),
+      type: 'looseCable',
+      position: { x: rect.x, y: rect.y },
+      width: rect.width,
+      height: rect.height,
+      draggable: false,
+      selectable: false,
+      connectable: false,
+      focusable: false,
+      zIndex: 5,
+      data: { cable, state, dir: lead.dir, selected: isSelected, onSelect: (id: string) => onSelect({ kind: 'cable', id }) } satisfies LooseCableNodeData,
+    });
+  }
+  // The same nodes while nothing about them changed, so React Flow and the fades downstream see no news.
+  const looseHeld = useRef<{ key: string; nodes: LooseCableNodeType[] }>({ key: '', nodes: [] });
+  if (looseHeld.current.key !== looseKey.join(';')) looseHeld.current = { key: looseKey.join(';'), nodes: looseBuilt };
+  const looseNodes = looseHeld.current.nodes;
+
   // The top cable layer: one edge, after every cable, that draws the pointed-at cable again on
   // top (`CableOverlayEdge.tsx`). It needs a node to hang on; any device's bundle handle will do.
   const overlayAnchor = plates.keys().next().value;
@@ -1666,10 +1746,11 @@ function DrawingInner({
       const to = locatePort(view, toId);
       if (!from || !to) return false;
       if ((from.port.cable ?? null) != null) return false;
-      if ((to.port.cable ?? null) != null) return false;
+      // A one-ended cable's port is a target: dropping a free port on it plugs the second end in.
+      if ((to.port.cable ?? null) != null && !(isLoosePort(to.port) && onFinishCable != null)) return false;
       return compatible(from.port.connector, to.port.connector).ok;
     },
-    [view, canDraw],
+    [view, canDraw, onFinishCable],
   );
 
   const handleConnectStart: OnConnectStart = useCallback((_event, params) => {
@@ -1705,11 +1786,26 @@ function DrawingInner({
         return;
       }
       if (!fromHandleId || !toHandleId) return;
-      // Checks: a refused cable is never drawn; a failure of the checks themselves is a pass.
-      if (checks?.guardCable(fromHandleId, toHandleId, mediaCandidates(view, fromHandleId, toHandleId))) return;
       const from = locatePort(view, fromHandleId);
       const to = locatePort(view, toHandleId);
       if (!from || !to) return;
+      // The far port holds a one-ended cable: this plugs its second end in, with no new cable and no
+      // picker. The same Checks guard runs as for a new cable, on the cable's own media when it has one,
+      // except that the cable's own near port is not "already cabled" by it. A free port that is already
+      // cabled is still refused.
+      if (to.port.cable != null && isLoosePort(to.port)) {
+        if (!compatible(from.port.connector, to.port.connector).ok) {
+          triggerPortShake(toHandleId);
+          return;
+        }
+        const own = view.cables.find((c) => c.id === to.port.cable?.cableId);
+        const medias = own?.media ? [own.media] : mediaCandidates(view, fromHandleId, toHandleId);
+        if (checks?.guardCable(fromHandleId, toHandleId, medias, toHandleId)) return;
+        onFinishCable?.(to.port.cable.cableId, fromHandleId);
+        return;
+      }
+      // Checks: a refused cable is never drawn; a failure of the checks themselves is a pass.
+      if (checks?.guardCable(fromHandleId, toHandleId, mediaCandidates(view, fromHandleId, toHandleId))) return;
       const result = compatible(from.port.connector, to.port.connector);
       if (!result.ok) return;
 
@@ -1728,7 +1824,7 @@ function DrawingInner({
         screenY: (rect?.top ?? 0) + connectionState.to.y,
       });
     },
-    [view, triggerPortShake, checks],
+    [view, triggerPortShake, checks, onFinishCable],
   );
 
   const handlePickerConfirm = useCallback(
@@ -1842,7 +1938,7 @@ function DrawingInner({
     });
   }, [liveStore, selected, dragFromPortId, livePortIds, dropPreview, shakingId, dimmedChassisId, cameraStop, showPortGlyphs, splitBundles, keyCableIds, cableStyle]);
 
-  const allNodes = useMemo(() => [...nodes, ...free.nodes], [nodes, free.nodes]);
+  const allNodes = useMemo(() => [...nodes, ...free.nodes, ...looseNodes], [nodes, free.nodes, looseNodes]);
   const marks = useMemo(
     () =>
       peerMarks(allNodes, peers ?? [], (id) => {

@@ -15,6 +15,7 @@ import { portKindFor } from './portGlyph';
 import { isOneFitted, isSingleFed, pduUsage, pduUsageLabel } from './power';
 import type { SurfacePlacement } from './rows';
 import { mmRailTicks, mmToPx } from './rows';
+import { isLoosePort, portHandleFlags } from './missingLinks';
 import { SHEATH_VAR } from './sheath';
 
 /**
@@ -171,7 +172,7 @@ function PortGlyphs({ ports, onSelectPort, liveDrag, portSheath, litCableId }: P
         }}
       >
         <Glyph cabled={cabled} title={port.label} className="drawing-port-glyph--budgeted" />
-        <Handle type="source" position={Position.Right} id={port.id} isConnectable={!cabled} className="drawing-surface__port-handle" />
+        <Handle type="source" position={Position.Right} id={port.id} {...portHandleFlags(cabled, isLoosePort(port))} className="drawing-surface__port-handle" />
       </button>
     );
   };

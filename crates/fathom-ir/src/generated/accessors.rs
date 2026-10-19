@@ -1231,6 +1231,11 @@ mod body {
         pub fn sheath<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::CableSheath, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(312))
         }
+        /// `Cable.needs_finishing` — `bool`, card `0..1`, emit `—`.
+        /// 0.24 — set by a person on a cable with only one end connected: this is planned or unfinished work, drawn as slanted amber dashes with a ? and counted under Missing links. Absent means the loose end is Unknown (a legacy drawing; the line fades out, nothing is counted). Meaningless on a cable with both ends connected: it is ignored there and cleared when the second end is plugged in.
+        pub fn needs_finishing<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&bool, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(478))
+        }
     }
     /// Typed reads for `PassiveNode` fields.
     pub mod passive_node {
@@ -2536,6 +2541,7 @@ mod body {
             416 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             417 => Some((core::any::TypeId::of::<u16>(), "u16")),
             462 => Some((core::any::TypeId::of::<crate::scalar::MacAddress>(), "crate::scalar::MacAddress")),
+            478 => Some((core::any::TypeId::of::<bool>(), "bool")),
             _ => None,
         }
     }
@@ -2956,6 +2962,7 @@ mod body {
             416 => crate::canon::slot_to::<crate::scalar::Text>(416, "crate::scalar::Text", value),
             417 => crate::canon::slot_to::<u16>(417, "u16", value),
             462 => crate::canon::slot_to::<crate::scalar::MacAddress>(462, "crate::scalar::MacAddress", value),
+            478 => crate::canon::slot_to::<bool>(478, "bool", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -3374,6 +3381,7 @@ mod body {
             416 => crate::canon::slot_from::<crate::scalar::Text>(j),
             417 => crate::canon::slot_from::<u16>(j),
             462 => crate::canon::slot_from::<crate::scalar::MacAddress>(j),
+            478 => crate::canon::slot_from::<bool>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

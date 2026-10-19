@@ -48,7 +48,7 @@ export interface ChecksApi {
   store: ChecksStore;
   /** True when the cable is refused: the card is up and the caller must not draw. A failure of the checks
    * themselves is never a refusal. */
-  guardCable(fromPortId: string, toPortId: string, medias: readonly string[]): boolean;
+  guardCable(fromPortId: string, toPortId: string, medias: readonly string[], ownPortId?: string): boolean;
   clearShow(): void;
 }
 

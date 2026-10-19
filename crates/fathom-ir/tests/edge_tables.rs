@@ -121,9 +121,10 @@ fn slot_type_covers_every_registry_key() {
     // 411 -> 413: `PhysicalPort.plate_x` and `.plate_y` (412-413, schema 0.20).
     // One more key: `PhysicalPort.mac` (462, schema 0.21; 414-461 held for the other round 15 threads).
     // 413 -> 417: cable runs and ties (414-417, schema 0.23).
+    // One more key: `Cable.needs_finishing` (478, schema 0.24).
     assert_eq!(
         FIELD_KEYS.len(),
-        412,
+        413,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

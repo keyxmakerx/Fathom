@@ -17,7 +17,8 @@ import { allDictPlatforms, PASTE_PLATFORMS } from './frames';
 import { decodeReply } from './protocol';
 import { ERRORS, OPCODES } from './protocol.constants';
 import { fileLoader } from './wasm';
-import { connectPorts } from '../document/cables';
+import { connectOneEnd, connectPorts } from '../document/cables';
+import { firstRefusal } from '../components/checks/checksModel';
 import { addSketchPort, createRack, createSketchDevice, movePlacement, removeChassis } from '../document/commands';
 import { createPremises } from '../components/racks/emptyDesign';
 import { setDeviceField } from '../document/edit';
@@ -785,6 +786,25 @@ describe('OP_CHECKS (32) and OP_CHECK_GESTURE (33)', () => {
     expect(refusal?.source.note.length).toBeGreaterThan(0);
     expect(refusal?.elements.some((e) => e.id === ports[0])).toBe(true);
     expect(engine.exportPlain()).toEqual(before);
+  });
+
+  it('a loose cable finishing on a free port: its own port is not "already cabled", but the media rules and a cabled far port still refuse', () => {
+    const { doc, ports } = labDoc();
+    const loose = connectOneEnd(doc, ports[0], {}, step());
+    engine.loadPlain(writePlain(loose));
+    const own = ports[0];
+    const mirror = { checkCable: (a: { port: string }, b: { port: string }, m: string) => engine.checkCable(a, b, m) };
+    const refusal = (media: string, from: string) => firstRefusal(mirror, from, own, [media], own);
+    // A normal copper completion: nothing refuses once the cable's own port is set aside.
+    expect(refusal('cat6', ports[1])).toBeNull();
+    // Unset aside, the engine does say the near port is already cabled: that is what is excluded.
+    expect(firstRefusal(mirror, ports[1], own, ['cat6'])?.rule).toBe('phy.port.already-cabled');
+    // An smf cable onto a free rj45 is refused with the usual rule.
+    expect(refusal('smf', ports[1])?.rule).toBe('phy.cable.fibre-or-dac-in-rj45');
+    // A free port that is already cabled is refused, even for copper.
+    const busy = connectPorts(loose, ports[1], ports[2], {}, step());
+    engine.loadPlain(writePlain(busy));
+    expect(refusal('cat6', ports[1])?.rule).toBe('phy.port.already-cabled');
   });
 
   it('a cable between two free ports is let through: zero rows', () => {

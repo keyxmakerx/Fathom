@@ -2,8 +2,9 @@
 // (`schema/generated/schema.json`'s `class: containment`), never a hand-kept
 // list of kinds. `PassThrough` is excluded: both its ports are already
 // reached by containment (front/rear of the same removed chassis), so
-// nothing dangles. `Terminates` is handled separately below, since a
-// one-ended cable is not something the drawing shows.
+// nothing dangles. `Terminates` is handled separately below: a cable with
+// an end in the cascade goes in full, so removing a device never leaves a
+// loose end (a Missing links one) behind that nobody chose.
 
 import schemaJson from '../../../schema/generated/schema.json';
 import { parseEdgeId, type Document, type EdgeKind, type GraphEdge } from './model';
@@ -60,8 +61,8 @@ export function cascadeRemoval(doc: Document, rootId: string): CascadeResult {
     frontier = next;
   }
 
-  // A cable with one end inside this cascade is removed in full (a one-
-  // ended cable is not shown); an outside far port only loses this cable.
+  // A cable with one end inside this cascade is removed in full (removing a
+  // device never leaves a loose end behind); an outside far port only loses this cable.
   const cablesToRemove = new Set<string>();
   for (const e of doc.edges) {
     if (e.absentSince !== undefined) continue;

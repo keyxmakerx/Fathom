@@ -422,6 +422,43 @@ function ConnectHint({ canDraw }: { canDraw: boolean }) {
   return <div style={TYPED_NOTE_STYLE}>drag from this port to connect</div>;
 }
 
+/** A free port can start a cable whose far end is not there yet; it begins as Unknown. */
+function OneEndCableButton({ portId, actions }: { portId: string; actions: EditorActions }) {
+  return (
+    <SupplyAction
+      label="Add a cable, far end open"
+      className="btn-quiet"
+      onCommit={actions.onEdit ? () => actions.onEdit!(oneEndCableChange(portId)) : undefined}
+    />
+  );
+}
+
+/** The cable panel's Missing links controls: only on a cable with one end connected. Unknown is
+ * the default; "Needs finishing" is a person's word that the open end is planned or unfinished
+ * work, and puts it in the top bar's Missing links count. */
+export function LooseEndField({ cable, actions }: { cable: CableView; actions: EditorActions }) {
+  const [refusal, setRefusal] = useState<string | null>(null);
+  if (cable.looseEnd !== true) return null;
+  const needs = cable.needsFinishing === true;
+  return (
+    <div className="drawing-editor__field" data-testid="loose-end-field">
+      <div className="drawing-editor__field-label">Far end</div>
+      <div className="drawing-editor__field-value">{needs ? 'Needs finishing' : 'Unknown'}</div>
+      {actions.onEdit ? (
+        <button
+          type="button"
+          aria-pressed={needs}
+          onClick={() => setRefusal(actions.onEdit!(needsFinishingChange(cable.id, !needs))?.refused ?? null)}
+        >
+          Needs finishing
+        </button>
+      ) : null}
+      {refusal != null ? <div style={CAUTION_STYLE}>{refusal}</div> : null}
+      <div style={TYPED_NOTE_STYLE}>One end is connected. Drag from a free port onto this cable's port to finish it.</div>
+    </div>
+  );
+}
+
 /** A selected port's own "Cable" field — shared by all three placements
  * below (a rack chassis's port, a shelf occupant's, a surface fixture's),
  * since `PortView.cable` and `farEndOf` read the same way regardless of
@@ -437,6 +474,7 @@ function PortCableSection({ view, port, actions }: { view: ClosetView; port: Por
         <div className="drawing-editor__field-label">Cable</div>
         <div className="drawing-editor__field-value">Not cabled.</div>
         <ConnectHint canDraw={actions.onEdit != null} />
+        <OneEndCableButton portId={port.id} actions={actions} />
       </div>
     );
   }
@@ -455,7 +493,15 @@ function PortCableSection({ view, port, actions }: { view: ClosetView; port: Por
             style={{ display: 'inline-block', background: SHEATH_VAR[cableObj.sheath] }}
           />
         ) : null}
-        <span>{farEnd ? cableEndText(view, farEnd) : ABSENT}</span>
+        <span>
+          {farEnd
+            ? cableEndText(view, farEnd)
+            : cableObj?.looseEnd === true
+              ? cableObj.needsFinishing === true
+                ? 'No far end · needs finishing'
+                : 'No far end · unknown'
+              : ABSENT}
+        </span>
       </div>
       {onSelect ? (
         <div style={{ display: 'flex', gap: 'var(--s2)', marginTop: 'var(--s1)' }}>
@@ -634,6 +680,16 @@ export function setCableFieldChange(
  * `'supply-remove'` already is. */
 export function disconnectCableChange(id: string): EditorChange {
   return { kind: 'cable-disconnect', id };
+}
+
+/** Missing links: a cable from this free port with its far end open. */
+export function oneEndCableChange(portId: string): EditorChange {
+  return { kind: 'cable-one-end', portId };
+}
+
+/** Missing links: the cable panel's "Needs finishing" toggle. */
+export function needsFinishingChange(id: string, on: boolean): EditorChange {
+  return { kind: 'cable-needs-finishing', id, on };
 }
 
 /** UI-SPEC's cable-delete rule — the device panel's "Remove device"
@@ -2357,6 +2413,8 @@ function panelFor(
             </div>
           ))
         )}
+
+        <LooseEndField cable={cable} actions={actions} />
 
         <Field label="Kind" value={cable.kind} />
         <Field label="Media" value={cable.media || ABSENT} />
