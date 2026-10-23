@@ -34,7 +34,7 @@ describe('rememberedTab', () => {
   });
 });
 
-describe('Equipment opening by itself on an empty design (ADR-0065 §3)', () => {
+describe('Equipment opening by itself on an empty design (ADR-0066 §3)', () => {
   it('waits while the design has not loaded', () => {
     expect(decideAutoEquipment(false, undefined, null)).toEqual({ decided: false, open: false });
   });

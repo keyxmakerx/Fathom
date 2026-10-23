@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-Index current to ADR-0064 (2026-10-10). Two records share 0063; code comments cite the live co-editing one.
+Index current to ADR-0067 (2026-10-23). Two numbers were issued twice; on 2026-10-23 the second record of each pair was renumbered: prefixes and VLANs (was 0063) is now 0067, the work-account sign-off rounds (was 0065) is now 0066. Code comments citing ADR-0063 mean live co-editing; ADR-0065 means one sign-in.
 
 > **Status:** Accepted
 > **Date:** 2026-07-28
@@ -100,8 +100,10 @@ question was not in the register. *R* is the reversal cost from `73` §1.2 — R
 | **[0061](adr-0061-round-4-canvas-inventory-engine.md)** | Round 4: canvas, Inventory and the engine | Accepted |  |  |
 | **[0062](adr-0062-inventory-table-and-custom-fields.md)** | Inventory as a table with pages; custom fields | Accepted |  |  |
 | **[0063](adr-0063-live-co-editing.md)** | Live co-editing | Proposed (built) |  |  |
-| **[0063](adr-0063-prefixes-vlans-and-the-importer.md)** | Prefixes and VLANs in Inventory; one file importer | Accepted |  |  |
 | **[0064](adr-0064-firmware-targets-holds-and-screens.md)** | Firmware targets, holds and screens | Accepted |  |  |
+| **[0065](adr-0065-one-sign-in-and-adding-people-at-once.md)** | One sign-in, and adding people at once | Accepted |  |  |
+| **[0066](adr-0066-work-account-sign-offs-rounds-16-to-25.md)** | Sign-off rounds 16 to 27: corporate mapping, circuits, Admin (design only) | Accepted |  |  |
+| **[0067](adr-0067-prefixes-vlans-and-the-importer.md)** | Prefixes and VLANs in Inventory; one file importer (was 0063) | Accepted |  |  |
 
 ## What is not reopened
 

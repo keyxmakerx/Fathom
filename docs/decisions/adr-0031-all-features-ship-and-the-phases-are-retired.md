@@ -46,7 +46,7 @@ requires.
 
 **3. Sequencing is delegated to planning.** The owner's *"how you wish to plan that out is your
 discretion"* makes the build order a planning artifact. `76` §7.2's S-slices and
-`docs/70-ops/79-work-orders/` continue to govern it, under `78` §8. Re-cutting the queue stays
+`docs/archive/70-ops/79-work-orders/` continue to govern it, under `78` §8. Re-cutting the queue stays
 planning work; nothing here changes `78`.
 
 **4. Nothing in `71` §13.1 moves.** Its thirteen rows are permanent product boundaries, not

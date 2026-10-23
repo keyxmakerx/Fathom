@@ -332,7 +332,7 @@ async function main() {
   const dockEq = await pageA.locator('[data-testid="dock-equipment"]').count();
   check('the Equipment tab is there', dockEq > 0, `count ${dockEq}`);
   if (dockEq > 0) {
-    // Equipment opens by itself on an empty design (ADR-0065 §3): open it only if it is not already open.
+    // Equipment opens by itself on an empty design (ADR-0066 §3): open it only if it is not already open.
     if ((await pageA.locator('[data-testid="dock-equipment"]').getAttribute('aria-expanded')) !== 'true') await pageA.locator('[data-testid="dock-equipment"]').click();
     await pageA.waitForTimeout(1500);
     await shot(pageA, 'equipment-open');

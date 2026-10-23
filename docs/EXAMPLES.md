@@ -1,12 +1,14 @@
 # Worked examples
 
-Short walkthroughs of tasks main supports today. Open pull requests (#136, #137, #138) and the ticked
-ideas (#141, not on main) are not covered. Wording on screen may differ slightly; `docs/STATE.md` is the page of record.
+Short walkthroughs of tasks main supports today (brought up to main 2026-10-23). Wording on screen may
+differ slightly; `docs/STATE.md` is the page of record.
 
 ## 1. Paste a device config
 
-Browser paste understands **Junos SRX**, **Junos EX**, **EdgeOS** and **OPNsense** (rules-migration
-CSV). It tells them apart from the text; when it can't, the card asks "Which device is this from?".
+Browser paste understands **Junos SRX**, **Junos EX**, **EdgeOS**, **OPNsense** (rules-migration CSV),
+**MikroTik RouterOS** (`/export`), **pfSense** (`config.xml` backup) and a **Linux host's** `ip addr` /
+`ip link` output. It tells them apart from the text; when it can't, the card asks "Which device is this
+from?" (that picker offers the first four).
 
 1. On the canvas, press **Ctrl+V** with the config text on the clipboard, or right-click and choose
    **Paste config**.
@@ -22,12 +24,16 @@ stores it as typed (ADR-0041).
 
 ## 2. Open a device and cable it
 
+On a design with no devices yet, the **Equipment** list opens by itself (until you close it once on that
+design), and the empty canvas has an **Add equipment** button.
+
 1. Right-click a device and choose **Open**, or double-click it. It draws large with its ports
    (jot mode).
 2. Drag equipment from the list beside it onto the canvas, or click an item to add it.
 3. Drag from one port to another to draw a cable. Click a cable to see its colour and ends; a port offers
    **Select cable** and **Go to far end**.
-4. **Esc**, or the path in the bar, takes you back out.
+4. **Esc**, or **← Canvas** at the top left, takes you back out. On the canvas, the **Back** button
+   names where it goes, and its **▾** opens a tree of where you are inside the design.
 
 At the canvas, hover a cable bundle to fan it open; a selected cable lights its whole path through
 panels. The **Rack | Diagram** switch in the bar changes the look: faceplates, or plain boxes and lines.
@@ -44,7 +50,7 @@ panel.
 3. Click **Why?** on a finding. The card gives the plain reason, the fix, when it is acceptable, and a
    source note. Severity is a word and a glyph, never a colour.
 
-Twelve rules ship (`corpus/rules/`), each with fixtures that must pass and fail. Every rule's reviewer is
+Thirteen rules ship (`corpus/rules/`), each with fixtures that must pass and fail. Every rule's reviewer is
 still "pending", and Why? says so ("Source not yet checked by a person").
 
 ## 4. Add a doc to a device

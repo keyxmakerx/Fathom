@@ -10,7 +10,7 @@
 > **Date:** 2026-09-03. **Reversal cost:** R1 — one detector function, one wire token, one
 > rendered mark. No schema change, no stored data, nothing to migrate.
 > **Answers:** the hole proved by
-> `docs/80-review/evidence/2026-09-03-the-gate-is-only-on-the-paste-box.mjs`.
+> `docs/archive/80-review/evidence/2026-09-03-the-gate-is-only-on-the-paste-box.mjs`.
 
 ## Contents
 
@@ -261,11 +261,11 @@ never on hover alone. §9's driver §7 pins it against the COMPUTED style after 
 | source | for |
 |---|---|
 | the owner, 2026-09-03 | the decision, quoted verbatim in the status line |
-| `docs/80-review/evidence/2026-09-03-the-gate-is-only-on-the-paste-box.mjs` | the proof |
+| `docs/archive/80-review/evidence/2026-09-03-the-gate-is-only-on-the-paste-box.mjs` | the proof |
 | `.context/conventions.md` — the risk enum, invariant 3 | the reserved colours; what invariant 3 actually promises |
 | `docs/50-design/51-*.md` §1 R1, §9, and its comparison table | the colour rule, the mark vocabulary, and the `.egress` inversion precedent |
-| `docs/70-ops/70-owner-answers-and-standing-priorities.md` §16 | *drawn and marked, never refused* |
-| `docs/40-stack/49-the-server-product.md` §1, §15 item 9 | one implementation, not two; a mouse-only state is not a state |
+| `docs/archive/70-ops/70-owner-answers-and-standing-priorities.md` §16 | *drawn and marked, never refused* |
+| `docs/archive/40-stack/49-the-server-product.md` §1, §15 item 9 | one implementation, not two; a mouse-only state is not a state |
 
 ## Disagreements
 

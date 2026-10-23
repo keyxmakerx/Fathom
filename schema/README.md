@@ -4,9 +4,9 @@ The declared schema — the file the whole product is generated from (ADR-0008: 
 is data, and the code is generated from it. A field that exists in prose and not in
 `schema.yaml` does not exist."*).
 
-**Grammar:** `docs/60-content/62-schema-spec.md` is this tree's grammar, layout, validator
-and version discipline. Content is owned by `docs/10-core/11-ir-schema.md` (config layer)
-and `docs/10-core/19-service-and-physical-model.md` (physical and service layers); `62`
+**Grammar:** `docs/archive/60-content/62-schema-spec.md` is this tree's grammar, layout, validator
+and version discipline. Content is owned by `docs/archive/10-core/11-ir-schema.md` (config layer)
+and `docs/archive/10-core/19-service-and-physical-model.md` (physical and service layers); `62`
 wins on form, the source documents win on intent, and a disagreement between them is a
 defect to file, not to interpret around. The codegen (`fathom-schemagen`, `62` §17) is separate work.
 
