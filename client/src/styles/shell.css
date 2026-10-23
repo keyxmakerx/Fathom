@@ -311,7 +311,8 @@ button.shell-search {
   -webkit-backdrop-filter: var(--pop-blur);
   box-shadow: var(--shadow-pop);
   animation: fathom-pop-in var(--m-pop) var(--m-ease);
-  z-index: var(--z-egress);
+  /* Over the canvas's floating cards (Checks, Plans, trace: --z-modal + 1 to + 3), under toasts. */
+  z-index: calc(var(--z-modal) + 3);
 }
 
 .shell-search__group {
@@ -623,7 +624,7 @@ button.shell-admin-pill {
   position: absolute;
   top: 100%;
   left: 0;
-  z-index: var(--z-egress);
+  z-index: calc(var(--z-modal) + 3); /* as .shell-search__results */
   margin-top: 4px;
   border: var(--rule-hair) solid var(--control-line);
   background: var(--pop-bg);
