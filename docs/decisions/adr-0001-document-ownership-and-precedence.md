@@ -41,7 +41,7 @@ failure, not a documentation failure.
 **Adopt an ownership register, a precedence rule, a fifth `Status` value, and a mandatory
 "building on" declaration.**
 
-**1. `docs/00-vision/01-ownership.md` is created.** One table, one row per settled question, naming
+**1. `docs/archive/00-vision/01-ownership.md` is created.** One table, one row per settled question, naming
 the owning document. It is written before any other item in this ADR set is executed. Initial
 ownership, adopting `81` §13.1's proposal and `83` §11's table:
 

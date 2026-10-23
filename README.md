@@ -40,7 +40,12 @@ tasks on what main supports: `docs/EXAMPLES.md`.
 |---|---|
 | `CLAUDE.md` | Rules that bind every session; the pointer page |
 | `docs/STATE.md` | What is built right now |
+| `docs/RUNNING-IT.md`, `docs/OPERATING.md` | Running it; keys, backups, restore, rekey |
+| `docs/EXAMPLES.md` | Short worked tasks on what main supports |
+| `docs/UPGRADING-A-JUNIPER.md`, `docs/UPGRADING-A-CISCO-OR-ARISTA.md` | Firmware upgrades by hand, the steps Fathom's plans carry |
 | `docs/UI-SPEC.md` | The interface, approved |
+| `docs/PHASE-2-STORAGE-DESIGN.md`, `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` | Server design of record: encryption, chains, grants, roles (§ numbers are cited from code) |
+| `docs/OPEN-QUESTIONS.md` | Closed; answers the code cites by letter (B5, E2, ...) |
 | `docs/decisions/` | ADRs; `README.md` is the index |
 | `docs/NEXT.md` | How to work on it |
 | `docs/REBUILD-PLAN.md` | The rebuild's reasoning and phases |
