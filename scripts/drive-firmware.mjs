@@ -63,7 +63,7 @@ function stepsFor(family, filename, src) {
       ['check space first', 'show system storage', '/var is the partition that fills.'],
       ['make room BEFORE the copy', 'request system storage cleanup', 'TRAP 1: cleanup can delete the image you just copied. Run it before the copy, never after.'],
       ['take the first snapshot', 'request system snapshot', 'Copies the running system to alternate media.'],
-      ['have the device pull the image', `file copy ${src} /var/tmp/`, 'The device uses its own transfer stack, so the SCP-versus-SFTP question does not arise.'],
+      ['have the device pull the image', `file copy ${src} ${p}`, 'The device uses its own transfer stack, so the SCP-versus-SFTP question does not arise.'],
       ['prove the whole file arrived', `file checksum sha-256 ${p}`, 'TRAP 2, and the reason this feature exists. The answer must equal the expected_sha256 in this response.'],
       ['prove Juniper made it', `request system software validate ${p}`, 'Checks the vendor signature against a Juniper root certificate.'],
       ['install -- yours to run, not Fathom\'s', `request system software add ${p}`, INSTALL_NOTE],

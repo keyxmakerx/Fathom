@@ -988,8 +988,10 @@ async fn a_fetch_url_serves_the_staged_bytes_once_and_then_never_again() {
     let url = json_str(&body, "fetch_url");
     let text = String::from_utf8_lossy(&body);
     assert!(
-        text.contains(&format!("file copy {url} /var/tmp/")),
-        "the copy command must carry the real URL:\n{text}"
+        text.contains(&format!(
+            "file copy {url} /var/tmp/junos-install-ex-x86-64-21.4R3-S5.5.tgz"
+        )),
+        "the copy command must carry the real URL and name the file the checksum reads:\n{text}"
     );
     assert!(
         text.contains("file checksum sha-256 /var/tmp/junos-install-ex-x86-64-21.4R3-S5.5.tgz"),
@@ -1000,8 +1002,13 @@ async fn a_fetch_url_serves_the_staged_bytes_once_and_then_never_again() {
         .strip_prefix("https://fathom.test.invalid")
         .expect("the configured base url");
 
+    // A `HEAD` first (a proxy, a link preview, a cautious client) must not spend
+    // the one `GET`: axum would otherwise run the `GET` handler for it.
+    let (status, _) = raw_request(addr, "HEAD", path, &[], b"").await;
+    assert_eq!(status, "405", "HEAD is refused without touching the token");
+
     let (status, served) = raw_request(addr, "GET", path, &[], b"").await;
-    assert_eq!(status, "200", "the device's first fetch");
+    assert_eq!(status, "200", "the device's first fetch, after a HEAD");
     assert_eq!(served, bytes, "exactly the staged bytes, and nothing else");
 
     let (status, body) = raw_request(addr, "GET", path, &[], b"").await;

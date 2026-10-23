@@ -34,7 +34,7 @@ const image = (over: Partial<FirmwareImage> = {}): FirmwareImage => ({
       { order: 1, step: 'check space first', command: 'show system storage', note: '' },
       { order: 2, step: 'make room BEFORE the copy', command: 'request system storage cleanup', note: '' },
       { order: 3, step: 'take the first snapshot', command: 'request system snapshot', note: '' },
-      { order: 4, step: 'have the device pull the image', command: 'file copy <the fetch URL, from POST .../fetch-urls — Fathom keeps only its hash> /var/tmp/', note: '' },
+      { order: 4, step: 'have the device pull the image', command: 'file copy <the fetch URL, from POST .../fetch-urls — Fathom keeps only its hash> /var/tmp/x.tgz', note: '' },
       { order: 5, step: 'prove the whole file arrived', command: 'file checksum sha-256 /var/tmp/x.tgz', note: '' },
       { order: 6, step: 'prove Juniper made it', command: 'request system software validate /var/tmp/x.tgz', note: '' },
       { order: 7, step: 'install -- yours to run, not Fathom\'s', command: 'request system software add /var/tmp/x.tgz', note: '' },
@@ -77,10 +77,10 @@ describe('buildUpgradePlan', () => {
   });
 
   it('never carries a link: the fetch step shows a placeholder', () => {
-    expect(t.steps[2]!.after).toBe(`file copy ${LINK_PLACEHOLDER} /var/tmp/`);
+    expect(t.steps[2]!.after).toBe(`file copy ${LINK_PLACEHOLDER} /var/tmp/x.tgz`);
     expect(JSON.stringify(t)).not.toContain('http');
     expect(JSON.stringify(t)).not.toContain('POST');
-    expect(commandWithLink(t.steps[2]!.after!, 'https://f.example/fw/fetch/abc')).toBe('file copy https://f.example/fw/fetch/abc /var/tmp/');
+    expect(commandWithLink(t.steps[2]!.after!, 'https://f.example/fw/fetch/abc')).toBe('file copy https://f.example/fw/fetch/abc /var/tmp/x.tgz');
   });
 
   it('says so when the image is not staged, and gives no commands it does not have', () => {

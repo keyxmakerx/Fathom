@@ -77,7 +77,8 @@ export function StepCopy({ step }: { step: PlanStep }) {
         onClick={async () => {
           let text = step.after;
           if (needsLink) {
-            const link = scope.link ?? (await scope.issue());
+            // A fresh link on every copy: each works once, and a plan can cover several devices.
+            const link = await scope.issue();
             if (link === null) return;
             text = commandWithLink(step.after, link.url);
           }
@@ -87,7 +88,7 @@ export function StepCopy({ step }: { step: PlanStep }) {
       >
         {said ?? 'Copy command'}
       </button>
-      {needsLink ? <span className="plans-note"> Gets a one-time link, which works once.</span> : null}
+      {needsLink ? <span className="plans-note"> Each copy gets a new one-time link: copy once per device.</span> : null}
     </p>
   );
 }
@@ -116,7 +117,7 @@ export function FirmwarePlanExtras({ plan }: { plan: Plan }) {
       </ul>
       {api.isSteward ? (
         <>
-          <h3 className="plans-label">One-time link{first ? ` for ${first.hostname || 'the device'}${devices.length > 1 ? ' and the others' : ''}` : ''}</h3>
+          <h3 className="plans-label">One-time link{devices.length === 1 && first ? ` for ${first.hostname || 'the device'}` : ''}</h3>
           {scope.link ? (
             <div className="fw-link-box">
               <div className="fw-link-box__url">{maskedLink(scope.link.url)}</div>
@@ -126,7 +127,9 @@ export function FirmwarePlanExtras({ plan }: { plan: Plan }) {
                   Get another
                 </button>
               </div>
-              <p className="plans-note">Works once, then expires: 15 minutes. Fathom never logs in to the device.</p>
+              <p className="plans-note">
+                Works once, then expires: 15 minutes.{devices.length > 1 ? ' Get another for each device.' : ''} Fathom never logs in to the device.
+              </p>
               <p className="plans-note">
                 Expected SHA-256 <span className="plans-mono fw-hash">{scope.link.sha256}</span>
               </p>
