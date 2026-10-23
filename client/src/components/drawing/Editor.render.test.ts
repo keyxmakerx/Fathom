@@ -667,4 +667,17 @@ describe('the PLACED ON / sketch-port / add-shelf / add-surface change shapes', 
     expect(line).toContain('trunk');
     expect(line).toContain('Remove line');
   });
+
+  it('offers "Swap model…" to a writer when the catalogue has another model, and nothing to a reader', () => {
+    const palette = [
+      { vendor: 'juniper', model: 'EX4300-48P', rackUnits: 1, summary: '' },
+      { vendor: 'juniper', model: 'EX4400-48P', rackUnits: 1, summary: '' },
+    ];
+    const writer = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-1' }, VIEW, NOOP_ACTIONS, palette) as never);
+    expect(writer).toContain('Swap model…');
+    const reader = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-1' }, VIEW, {}, palette) as never);
+    expect(reader).not.toContain('Swap model');
+    const onlyItself = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-1' }, VIEW, NOOP_ACTIONS, palette.slice(0, 1)) as never);
+    expect(onlyItself).not.toContain('Swap model');
+  });
 });

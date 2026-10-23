@@ -2014,3 +2014,11 @@
 @media (prefers-reduced-motion: reduce) {
   .drawing-context-menu { animation: none; }
 }
+
+/* "Swap model…": what carries over, before the person confirms. */
+.drawing-editor__swap-plan {
+  margin: var(--s2) 0;
+  padding-left: var(--s4);
+  font-size: var(--t-small);
+  color: var(--muted);
+}

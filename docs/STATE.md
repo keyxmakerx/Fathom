@@ -248,6 +248,11 @@ breadcrumb does one thing.
   ports, one undo step, and keeps it in this browser under **Your models** at the top of the list.
   A side or top port draws in neither rack elevation; the opened device shows every face, captioned.
   Not built: PoE marking (no schema field), a model kept on the server for the whole organisation.
+- **Swap a device's model, keep its ports** (sign-off r28-swap, defaults pending the owner's pick).
+  "Swap model…" on a device's Details tab (`document/swapModel.ts`) keeps the device and every port the
+  new model has by name, same face first; a kept port keeps its cable, tie and notes. A port the new
+  model lacks goes and its cable stays as a loose end in Missing links. The serial is cleared; in a rack
+  the box keeps its bottom unit or refuses. Also gives a hand-typed box a catalogue model. One undo step.
 - **Right-click menus:** device (Details, Duplicate, Remove, Open, Inside, Paste config), rack (Details,
   Add a device), cable (Details, Disconnect), empty canvas (42U, 24U, 12U rack, wall). A reader gets Details.
 - **Open a device, paste a config anywhere** (ADR-0060 step 8). Right-click Open or double-click enters
