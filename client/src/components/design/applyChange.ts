@@ -26,6 +26,7 @@ import { copyName, hostnamesOf } from '../racks/pick';
 import { fitSupply, removeSupply, setSupplyField } from '../../document/supplies';
 import { addTemplatePorts } from '../../document/plate';
 import { closeRackGaps, copyRack } from '../../document/rackTidy';
+import { swapModel } from '../../document/swapModel';
 
 /** Throws the same errors the document commands throw; `refusalFor` words them. `notice` is set
  * only by a duplicate whose copy landed unplaced. */
@@ -144,6 +145,10 @@ export function applyEditorChange(
       ? catalogue.find((m) => m.vendor === change.model!.vendor && m.model === change.model!.model)
       : undefined;
     next = createShelf(doc, change.rackId, { positionU: change.positionU, label: change.label, model, ...opts });
+  } else if (change.kind === 'swap-model') {
+    const model = catalogue.find((m) => m.vendor === change.model.vendor && m.model === change.model.model);
+    if (!model) throw new RangeError(`${change.model.model} is not in the catalogue.`);
+    next = swapModel(doc, change.chassisId, model, { catalogue, ...opts });
   } else if (change.kind === 'label') {
     next = setLabel(doc, change.id, { text: change.value }, opts);
   } else if (change.kind === 'area-size') {

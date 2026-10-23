@@ -1,6 +1,7 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { captureOf } from '../../document/capture';
+import { previewSwapIn } from '../../document/swapModel';
 import { completeCable, connectPorts, disconnect, IncompatibleConnectorError, PortAlreadyTerminatedError, type Sheath } from '../../document/cables';
 import {
   SURFACE_FORMS,
@@ -1727,6 +1728,7 @@ export function RacksPlace(props: RacksPlaceProps) {
             // `canDraw`.
             isCableHidden: handleIsCableHidden,
             onToggleCableHidden: handleToggleCableHidden,
+            previewSwap: (chassisId, m) => previewSwapIn(doc, catalogue, chassisId, m),
           },
           paletteFromCatalogue(catalogue),
           selection?.kind === 'chassis' ? (

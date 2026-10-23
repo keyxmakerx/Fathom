@@ -2,6 +2,7 @@ import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getSession } from '../../state/sessionState';
 import { viewOfAll, type ClosetView } from '../../document/view';
+import { previewSwapIn } from '../../document/swapModel';
 import { deriveNetworks, type NetworksDerived } from '../../document/networks-derive';
 import { deriveIpam, type IpamDerived } from '../../document/ipam';
 import { pastePrefixRows, pasteVlanRows } from '../../document/ipam-write';
@@ -556,6 +557,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     onSetField: canDraw ? fieldsActions.onSetField : undefined,
     onAddFieldDef: canDraw ? fieldsActions.onAddFieldDef : undefined,
     onRemoveFieldDef: canDraw ? fieldsActions.onRemoveFieldDef : undefined,
+    previewSwap: (chassisId: string, m: { vendor: string; model: string }) => (doc ? previewSwapIn(doc, catalogue, chassisId, m) : null),
   };
 
   const actorOpts = ctx.actor ? { actor: ctx.actor } : undefined;

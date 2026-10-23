@@ -53,6 +53,7 @@ import type { NoteHow, NoteView } from '../../document/notes';
 import type { TagChip, TagSummary } from '../../document/tags';
 import type { FieldFor, FieldRow, FieldType } from '../../document/fields';
 import type { PortFace } from '../../document/compat';
+import type { SwapPlan } from '../../document/swapModel';
 
 export type {
   CableEnd,
@@ -209,6 +210,9 @@ export type EditorChange =
    * palette's own list, `null` for an unmodelled shelf (1U, per that
    * function's own default). */
   | { kind: 'create-shelf'; rackId: string; positionU: number; label: string; model: { vendor: string; model: string } | null }
+  /** Sign-off r28-swap — "Swap model…": the device keeps its record and the ports the new
+   * model has by name (`document/swapModel.ts`). */
+  | { kind: 'swap-model'; chassisId: string; model: { vendor: string; model: string } }
   /** ADR-0051 §1 — "+ add a surface" (`commands.ts`'s `createSurface`).
    * `form` is the raw text the control holds — the caller
    * (`racks/RacksPlace.tsx`'s `handleEdit`) validates it against
@@ -366,6 +370,9 @@ export interface EditorActions {
    * no hidden-cable tracking at all. */
   isCableHidden?(cableId: string): boolean;
   onToggleCableHidden?(cableId: string): void;
+  /** What "Swap model…" would carry over, before anyone confirms. Writes nothing; absent hides
+   * the preview, not the swap. */
+  previewSwap?(chassisId: string, model: { vendor: string; model: string }): SwapPlan | null;
 }
 
 /** `EditorActions`'s three Notes members, grouped for a caller that only
