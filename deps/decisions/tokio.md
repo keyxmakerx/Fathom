@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Job** | The async runtime. `49` §6 names it *"unavoidable and universal"*, and the reason is structural rather than fashionable: the HTTP layer (`axum`), the PostgreSQL driver (`tokio-postgres`) and the WebSocket transport the collaborative editor needs are all written against tokio's traits. Choosing a different runtime does not mean writing different glue; it means having no HTTP server and no database driver |
-| **Version** | `1.53.1`, **`default-features = false`**, features `rt-multi-thread`, `net`, `macros`, `signal`, `time`, `fs` |
+| **Version** | `1.53.3` (was `1.53.1` until 2026-10-23, see Advisories), **`default-features = false`**, features `rt-multi-thread`, `net`, `macros`, `signal`, `time`, `fs` |
 | **Publisher** | The Tokio project (`tokio-rs`). Repository `https://github.com/tokio-rs/tokio` — read from the crate's own metadata 2026-09-03. **Not the crates.io owner list**, which needs the JSON API; see `00-CLOSURE-SERVER.md` on what that column can and cannot say |
 | **Licence** | MIT — compatible with ADR-0004, and on `deny.toml`'s allow list |
 | **Ships or tooling** | **Ships.** Linked into the `fathom-server` binary. It is **not** in the WASM module and must never be: the browser side has no runtime and no sockets, which is invariant 1's whole point for the client |
@@ -71,6 +71,7 @@ against `tokio` and **every one is patched at or below 1.53.1**:
 
 | Advisory | Patched | Note |
 |---|---|---|
+| RUSTSEC-2026-0386 | ≥ 1.51.6 within 1.51, = 1.53.3, ≥ 1.54.0 | **filed 2026-10-13, after this record.** `AsyncFd`'s safe constructors take any `AsRawFd`, so a closed or reused descriptor can leave a freed registration in `epoll` (use-after-free; informational, unsound). The fix deprecates them for the `unsafe` `AsyncFd::register`. Nothing in `crates/` uses `AsyncFd` (grep, 2026-10-23), but the pin moved to **1.53.3** anyway so the audit gates pass. Read from `rustsec/advisory-db` 2026-10-23; 1.53.3 published 2026-10-13, ten days before the bump, so outside the cooldown |
 | RUSTSEC-2025-0023 | ≥ 1.44.2 | broadcast channel clones in parallel without requiring `Sync` (unsound) |
 | RUSTSEC-2023-0005 | ≥ 1.18.4 | |
 | RUSTSEC-2023-0001 | ≥ 1.24.2 | |
