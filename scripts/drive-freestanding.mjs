@@ -16,7 +16,7 @@ const { chromium } = pw.default ?? pw;
 const ROOT = process.env.FATHOM_ROOT
   || resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CHROME = process.env.PW_CHROMIUM
-  || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+  || '/opt/pw-browsers/chromium';
 const CLIENT = ROOT + '/client';
 const DRIVE_LIB = ROOT + '/scripts/drive-lib';
 const PORT = 5331;
@@ -313,6 +313,15 @@ try {
   const shelfCovers = await coversCentre(shelfPage.locator('.react-flow__node-shelf'));
   const zoomAfterOpen = await zoomOf(shelfPage);
   check('opening a box on a shelf glides to the faceplate stop, the shelf at the pane centre', zoomBeforeOpen !== 2 && shelfCovers && zoomAfterOpen === 2, `from zoom ${zoomBeforeOpen}: box centre ${JSON.stringify(shelfNode)}, zoom ${zoomAfterOpen}`);
+  // The details panel slides open during that glide; the opened box's inset must not end up under it.
+  await shelfPage.waitForTimeout(400);
+  const insetBox = await shelfPage.locator('.drawing-shelf__inset').first().boundingBox();
+  const flowBox = await shelfPage.locator('.react-flow').first().boundingBox();
+  check(
+    'the opened box sits inside the canvas, not under the details panel',
+    insetBox != null && flowBox != null && insetBox.x >= flowBox.x && insetBox.x + insetBox.width <= flowBox.x + flowBox.width,
+    JSON.stringify({ insetBox, flowBox }),
+  );
   await shelfPage.screenshot({ path: SHOTS + 'F-04-shelf.png' });
   console.log('    wrote ' + SHOTS + 'F-04-shelf.png');
   await shelfPage.close();

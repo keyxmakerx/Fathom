@@ -35,6 +35,17 @@ describe('the shortcuts table', () => {
     expect(shortcutText('go-back', false)).toBe('Alt+Left');
   });
 
+  it('zooms with + or =, - or _, and fits with Shift+1, never with Ctrl held (the browser\'s own zoom)', () => {
+    expect(matches(key('+', { shiftKey: true }), 'zoom-in')).toBe(true);
+    expect(matches(key('='), 'zoom-in')).toBe(true);
+    expect(matches(key('+'), 'zoom-in')).toBe(true); // the number pad's
+    expect(matches(key('-'), 'zoom-out')).toBe(true);
+    expect(matches(key('!', { shiftKey: true }), 'zoom-fit')).toBe(true);
+    expect(matches(key('=', { ctrlKey: true }), 'zoom-in')).toBe(false);
+    expect(matches(key('-', { metaKey: true }), 'zoom-out')).toBe(false);
+    expect(matches(key('1'), 'zoom-fit')).toBe(false);
+  });
+
   it('a gesture has no key to match', () => {
     expect(matches(key('Enter'), 'rename')).toBe(false);
   });

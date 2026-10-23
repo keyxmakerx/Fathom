@@ -391,8 +391,6 @@ UI sweep branch after that branch had merged, so it is not on main.
 - Wire shapes have no cross-language vector yet.
 - Unbuilt: saved filters and grids for racks, cables and ports; unreachable-policy hatching; the
   assistant panel; optics (ADR-0047 §5); a Proxmox dictionary.
-- Rough edges: the drawer tags every built line; no confirmation pulse after a paste; the opened
-  occupant can sit under the editor.
 - The old Rust-assembled HTML client is retired, on disk under `crates/fathom-artifact/`, not served.
 
 ---

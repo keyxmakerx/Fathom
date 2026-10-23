@@ -30,6 +30,14 @@
   font-size: var(--t-small);
 }
 
+/* A paste that landed: plain, not a refusal, and above the change note so the two never overlap. */
+.racks-place__notice--done {
+  bottom: calc(var(--s4) + var(--canvas-controls-h, 40px) + 48px);
+  border-color: var(--hairline);
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
 /* ADR-0054 §1's refusal wash "offers reload" — the control that sentence
    names. */
 .racks-place__refusal-reload {
