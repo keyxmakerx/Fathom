@@ -127,6 +127,25 @@
   outline-offset: calc(-1 * var(--rule-hair));
 }
 
+/* A config that just arrived: its built lines pulse once and settle (UI-SPEC
+   "Motion" #4), so the paste is seen to land. Never loops. */
+@keyframes config-drawer-arrive {
+  from {
+    background: var(--surface);
+  }
+  to {
+    background: transparent;
+  }
+}
+.config-drawer--arrived .config-drawer__line--built {
+  animation: config-drawer-arrive 1.6s var(--m-ease, ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .config-drawer--arrived .config-drawer__line--built {
+    animation: none;
+  }
+}
+
 /* A destroyed row carries no risk colour: the gate destroying a value here
    is the gate working, not a warning to raise — the black block below (UI-
    SPEC "Config": "a black block that says so") is this row's one visual,

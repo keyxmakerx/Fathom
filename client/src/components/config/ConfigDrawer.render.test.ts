@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { CaptureLine, CaptureView } from '../../document/capture';
 import type { ChassisView, PortView } from '../../document/view';
-import { ConfigDrawer, type ConfigDrawerProps } from './ConfigDrawer';
+import { ConfigDrawer, noPortNotes, type ConfigDrawerProps } from './ConfigDrawer';
 
 // Render-to-string smoke tests only, per `ShelfPlate.render.test.ts`'s own
 // precedent — no DOM testing library is installed, so hover/click are not
@@ -50,7 +50,7 @@ function chassis(overrides: Partial<ChassisView> = {}): ChassisView {
 }
 
 function line(overrides: Partial<CaptureLine> & Pick<CaptureLine, 'ordinal' | 'text' | 'mark'>): CaptureLine {
-  return { builtLabel: null, drops: [], ...overrides };
+  return { builtLabel: null, builtInterface: false, drops: [], ...overrides };
 }
 
 function capture(lines: CaptureLine[], overrides: Partial<CaptureView> = {}): CaptureView {
@@ -131,8 +131,8 @@ describe('ConfigDrawer (render-to-string)', () => {
 
   it('draws each gutter mark, the destroyed block reading "<label> · destroyed at the gate", and a built line\'s port match', () => {
     const lines: CaptureLine[] = [
-      line({ ordinal: 1, text: 'set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/30', mark: 'built', builtLabel: 'ge-0/0/0.0' }),
-      line({ ordinal: 2, text: 'set interfaces ge-0/0/1 unit 0 family inet address 10.0.0.2/30', mark: 'built', builtLabel: 'ge-0/0/1' }),
+      line({ ordinal: 1, text: 'set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/30', mark: 'built', builtLabel: 'ge-0/0/0.0', builtInterface: true }),
+      line({ ordinal: 2, text: 'set interfaces ge-0/0/1 unit 0 family inet address 10.0.0.2/30', mark: 'built', builtLabel: 'ge-0/0/1', builtInterface: true }),
       line({ ordinal: 3, text: 'set system ntp server 10.10.0.9', mark: 'kept' }),
       line({
         ordinal: 4,
@@ -158,6 +158,28 @@ describe('ConfigDrawer (render-to-string)', () => {
     expect(markup).toContain('●'); // built
     expect(markup).toContain('○'); // kept
     expect(markup).toContain('—'); // destroyed
+  });
+
+  it('says "no port on this plate" once per run of lines, and never for what is not an interface', () => {
+    const lines: CaptureLine[] = [
+      line({ ordinal: 1, text: 'interface Vlan10', mark: 'built', builtLabel: 'Vlan10', builtInterface: true }),
+      line({ ordinal: 2, text: ' description users', mark: 'built', builtLabel: 'Vlan10', builtInterface: true }),
+      line({ ordinal: 3, text: ' ip address 10.0.10.1 255.255.255.0', mark: 'built', builtLabel: 'Vlan10', builtInterface: true }),
+      line({ ordinal: 4, text: 'interface ge-0/0/1', mark: 'built', builtLabel: 'ge-0/0/1', builtInterface: true }),
+      line({ ordinal: 5, text: 'set security zones security-zone trust', mark: 'built', builtLabel: 'trust', builtInterface: false }),
+      line({ ordinal: 6, text: 'interface Vlan10', mark: 'built', builtLabel: 'Vlan10', builtInterface: true }),
+    ];
+    // Line 1 starts the Vlan10 run; 2 and 3 continue it; ge-0/0/1 is a port;
+    // a zone is never one; line 6 starts a new run.
+    expect([...noPortNotes(lines, chassis())]).toEqual([1, 6]);
+    const markup = render(baseProps({ capture: capture(lines) }));
+    expect(markup.split('no port on this plate').length - 1).toBe(2);
+    expect(markup).not.toContain('built trust');
+  });
+
+  it('does not mark lines as just arrived when the drawer opens on a config already there', () => {
+    const lines = [line({ ordinal: 1, text: 'interface ge-0/0/1', mark: 'built', builtLabel: 'ge-0/0/1', builtInterface: true })];
+    expect(render(baseProps({ capture: capture(lines) }))).not.toContain('config-drawer--arrived');
   });
 
   it('caps rendered lines at 20,000 and says how many were not shown', () => {
