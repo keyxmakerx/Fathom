@@ -86,8 +86,11 @@ describe('the Firmware list (r14-b1)', () => {
     expect(out).toContain('Plan an upgrade for them');
   });
 
-  it('a person who can edit gets Upload image; a reader gets neither it nor the plan button', () => {
+  it('a steward gets Upload image; a drawer gets the plan button but not upload; a reader gets neither', () => {
     expect(html(api(world().doc))).toContain('+ Upload image');
+    const drawer = html(api(world().doc, { isSteward: false }));
+    expect(drawer).not.toContain('Upload image');
+    expect(drawer).toContain('Plan an upgrade for them');
     const reader = html(api(world().doc, { canEdit: false, isSteward: false }));
     expect(reader).not.toContain('Upload image');
     expect(reader).not.toContain('Plan an upgrade for them');
