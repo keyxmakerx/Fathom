@@ -344,6 +344,12 @@
   max-width: 40ch;
 }
 
+.home-sample__practice {
+  margin-top: var(--s4);
+  padding-top: var(--s3);
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+
 .home-sample__picture {
   width: 160px;
   flex-shrink: 0;

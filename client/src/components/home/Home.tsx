@@ -104,6 +104,8 @@ const NEW_SITE_PENDING = 'new-site-pending';
 
 /** The sample Home offers (r15-start); its file is `corpus/samples/home-lab.json`. */
 const HOME_SAMPLE = 'home-lab';
+/** The same network with mistakes planted for Checks (card nu-why A); `corpus/samples/practice-lab.json`. */
+const PRACTICE_SAMPLE = 'practice-lab';
 
 /** The catalogue models a sample names, each fetched once; one the catalogue does not hold is left out, and the
  * sample draws that device as a sketch. Never a refusal: the sample opens whatever the catalogue answers. */
@@ -330,12 +332,12 @@ export function Home({
    * r15-start: a fresh copy of the sample, made as a design of the person's own in the same place New design puts
    * one, named after the sample, then opened. Nothing else is touched; wrecking it costs nothing.
    */
-  async function openSample(organisation: Organisation) {
+  async function openSample(organisation: Organisation, sampleId: string = HOME_SAMPLE) {
     if (scopes.status !== 'ready') return;
     setSampleError(null);
     setSampleBusy(true);
     try {
-      const spec = sample(HOME_SAMPLE);
+      const spec = sample(sampleId);
       const target = newDesignTarget(scopes.value);
       let scope: Scope;
       if (target.kind === 'scope') {
@@ -346,7 +348,7 @@ export function Home({
       }
       const built = buildSample(spec, await modelsFor(sampleModels(spec)), accountId != null ? { actor: accountId } : undefined);
       const design = await createDesign(organisation.organisationId, scope.scopeId, writePlain(built.doc));
-      rememberSample(accountId, design.designId);
+      rememberSample(accountId, design.designId, sampleId);
       // The name is a nicety; a refused rename still opens the sample, untitled.
       const named = await renameDesign(organisation.organisationId, design.designId, spec.name).then(
         () => ({ ...design, name: spec.name }),
@@ -489,6 +491,7 @@ export function Home({
             disabled={scopes.status !== 'ready'}
             error={sampleError}
             onOpen={() => void openSample(selectedOrganisation)}
+            practice={{ summary: sample(PRACTICE_SAMPLE).summary, onOpen: () => void openSample(selectedOrganisation, PRACTICE_SAMPLE) }}
           />
         )}
 
@@ -577,6 +580,16 @@ export function Home({
             onClick={() => void openSample(selectedOrganisation)}
           >
             {sampleBusy ? 'Opening the sample…' : 'Open the sample home lab'}
+          </button>
+        )}
+        {firstSteps.hidden && selectedOrganisation && !waitingInvitee && (
+          <button
+            type="button"
+            className="about-link"
+            disabled={sampleBusy || scopes.status !== 'ready'}
+            onClick={() => void openSample(selectedOrganisation, PRACTICE_SAMPLE)}
+          >
+            Open the practice home lab
           </button>
         )}
         {firstSteps.hidden && sampleError && <p className="home__error">{sampleError}</p>}
