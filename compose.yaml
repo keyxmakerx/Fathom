@@ -482,6 +482,9 @@ configs:
       chmod 0755 "$$d"
       key master.key
       key chain.key
+      # ADR-0070: seals the nightly data file. It travels in the keys file,
+      # never in a data file.
+      key backup.key
       password db_bootstrap.pw
       password db_migrate.pw
       password db_app.pw

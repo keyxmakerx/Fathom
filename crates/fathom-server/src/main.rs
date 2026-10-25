@@ -89,11 +89,20 @@ async fn main() -> ExitCode {
         }
         return reset_console_placement().await;
     }
+    // ADR-0070: backups. None of the three needs the database or the full
+    // configuration; `pg_dump` and `pg_restore` do the database's part.
+    match args.first().map(String::as_str) {
+        Some("backup") => return fathom_server::backup_cli::backup(&args[1..]),
+        Some("keys-file") => return fathom_server::backup_cli::keys_file(&args[1..]),
+        Some("restore") => return fathom_server::backup_cli::restore(&args[1..]),
+        _ => {}
+    }
     if !args.is_empty() {
         eprintln!(
             "fathom-server: the subcommands are `healthcheck [--addr HOST:PORT]`, \
              `recover-operator <address>` (with `reissue-bootstrap-token` kept as a deprecated \
-             alias) and `console-placement --reset`; with no arguments it runs the server"
+             alias), `console-placement --reset`, and `backup`, `keys-file` and `restore` \
+             (docs/OPERATING.md, Backups); with no arguments it runs the server"
         );
         return ExitCode::from(2);
     }

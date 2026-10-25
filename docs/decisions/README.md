@@ -105,6 +105,7 @@ question was not in the register. *R* is the reversal cost from `73` §1.2 — R
 | **[0066](adr-0066-learning-lessons-and-ansible.md)** | Learning, lessons and Ansible | Accepted |  |  |
 | **[0067](adr-0067-prefixes-vlans-and-the-importer.md)** | Prefixes and VLANs in Inventory; one file importer (was 0063) | Accepted |  |  |
 | **[0068](adr-0068-work-account-sign-offs-rounds-16-to-25.md)** | Sign-off rounds 16 to 27: corporate mapping, circuits, Admin (was 0065) | Accepted |  |  |
+| **[0070](adr-0070-backups-a-data-file-and-a-keys-file.md)** | Backups: a sealed data file and a separate keys file | Proposed (built on the defaults) |  |  |
 
 ## What is not reopened
 
