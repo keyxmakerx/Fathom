@@ -11,8 +11,12 @@
 //! How EdgeOS `show configuration commands` prints a value holding `'` or `\` is NOT
 //! established (item 6). Searched 2026-10-10: VyOS, EdgeOS's sibling Vyatta fork,
 //! refuses `'` in a value at `set` time ("Cannot use the single quote (') character in
-//! a value string", https://vyos.dev/T1001); no EdgeOS source was found. These tests
-//! therefore assert destruction whatever the quoting means, which holds either way.
+//! a value string", https://vyos.dev/T1001); no EdgeOS source was found. Searched again
+//! 2026-10-25: Ubiquiti's own pages print a plain value bare, with no quotes
+//! (`set interfaces ethernet eth1 vif 10 description VLAN10`,
+//! help.uisp.com/hc/en-us/articles/22591173220887), but none prints a value holding a
+//! space, `'` or `\`. These tests therefore assert destruction whatever the quoting
+//! means, which holds either way.
 
 use std::path::{Path, PathBuf};
 

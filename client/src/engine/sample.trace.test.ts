@@ -92,3 +92,19 @@ describe('the sample home lab against the full catalogue', () => {
     expect(built.catalogued.sort()).toEqual(spec.devices.filter((d) => d.catalogue).map((d) => d.hostname).sort());
   });
 });
+
+// Card nu-why A: the practice lab hides mistakes for Checks to find, and Checks finds those and nothing else.
+describe.each([
+  ['sketches only', new Map<string, CatalogueModel>()],
+  ['against the full catalogue', new Map(CATALOGUE.map((m) => [modelKey(m.vendor, m.model), m]))],
+])('the practice home lab, %s', (_, models) => {
+  const practice = sample('practice-lab');
+
+  it('has exactly its planted mistakes, each found by Checks', () => {
+    const m = new Mirror(engine);
+    m.load(buildSample(practice, models).doc);
+    const found = m.checks().findings.map((f) => f.rule).sort();
+    expect(found).toEqual((practice.mistakes ?? []).map((x) => x.rule).sort());
+    expect(found).toHaveLength(3);
+  });
+});

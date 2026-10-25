@@ -2437,6 +2437,28 @@ impl OperatorStore {
         operator: &VerifiedSession,
         display_name: &str,
     ) -> Result<(String, Invitation, String), OperatorError> {
+        self.create_shell(operator, display_name, false).await
+    }
+
+    /// **A practice space's shell (ADR-0069)**: the same operator act as
+    /// [`Self::create_organisation_shell`], marked practice in the shell row, its
+    /// seal and its chain entry. Redeeming it makes an ordinary organisation whose
+    /// `practice` label the app shows as the claimant's own practice space. The
+    /// mark grants nothing: authority comes from the genesis grants as always.
+    pub async fn create_practice_shell(
+        &self,
+        operator: &VerifiedSession,
+        display_name: &str,
+    ) -> Result<(String, Invitation, String), OperatorError> {
+        self.create_shell(operator, display_name, true).await
+    }
+
+    async fn create_shell(
+        &self,
+        operator: &VerifiedSession,
+        display_name: &str,
+        practice: bool,
+    ) -> Result<(String, Invitation, String), OperatorError> {
         let acting = self.acting_operator(operator)?;
         if display_name.trim().is_empty() {
             return Err(OperatorError::Malformed("display name"));
@@ -2450,38 +2472,51 @@ impl OperatorStore {
 
         let notice = self.notice_address(&tx).await?;
         let shell = ids::new_ulid().to_string();
+        let mut facts = vec![
+            ("shell", Json::Str(shell.clone())),
+            ("display_name", Json::Str(display_name.to_string())),
+            // §6.2's *"this organisation was bootstrapped by operator X
+            // on date D"*, rendered from the chain, permanently.
+            ("operator", Json::Str(acting.clone())),
+            ("notice_address", Json::Str(notice.clone())),
+        ];
+        // Only when true, so an ordinary shell's entry reads as it always has.
+        if practice {
+            facts.push(("practice", Json::Bool(true)));
+        }
         let appended = chains::append_site(
             &tx,
             &self.ring,
             &self.deployment,
             EntryType::OrgShellCreated,
-            &entry_metadata(
-                EntryType::OrgShellCreated,
-                &[
-                    ("shell", Json::Str(shell.clone())),
-                    ("display_name", Json::Str(display_name.to_string())),
-                    // §6.2's *"this organisation was bootstrapped by operator X
-                    // on date D"*, rendered from the chain, permanently.
-                    ("operator", Json::Str(acting.clone())),
-                    ("notice_address", Json::Str(notice.clone())),
-                ],
-            ),
+            &entry_metadata(EntryType::OrgShellCreated, &facts),
         )
         .await?;
 
         let seal = self
-            .shell_seal(&tx, &shell, display_name, &acting, None, 0, appended.seq, 1)
+            .shell_seal(
+                &tx,
+                &shell,
+                display_name,
+                &acting,
+                None,
+                0,
+                practice,
+                appended.seq,
+                1,
+            )
             .await?;
         tx.execute(
             "INSERT INTO organisation_shells \
-                 (id, display_name, created_by, created_seq, row_version, row_seal) \
-             VALUES ($1, $2, $3, $4, 1, $5)",
+                 (id, display_name, created_by, created_seq, row_version, row_seal, practice) \
+             VALUES ($1, $2, $3, $4, 1, $5, $6)",
             &[
                 &shell,
                 &display_name,
                 &acting,
                 &appended.seq,
                 &seal.to_vec(),
+                &practice,
             ],
         )
         .await?;
@@ -2579,7 +2614,7 @@ impl OperatorStore {
         let found = tx
             .query_opt(
                 "SELECT display_name, organisation_id IS NOT NULL, created_by, created_seq, \
-                        row_version, row_seal \
+                        row_version, row_seal, practice \
                    FROM organisation_shells WHERE id = $1",
                 &[&shell],
             )
@@ -2600,6 +2635,7 @@ impl OperatorStore {
         let created_seq: i64 = found.get(3);
         let row_version: i32 = found.get(4);
         let stored_seal: Vec<u8> = found.get(5);
+        let practice: bool = found.get(6);
         if already {
             return Err(self
                 .refuse_redemption(
@@ -2618,6 +2654,7 @@ impl OperatorStore {
                 &created_by,
                 None,
                 0,
+                practice,
                 created_seq,
                 row_version,
             )
@@ -2761,6 +2798,15 @@ impl OperatorStore {
             Err(e) => return Err(e.into()),
         };
         let organisation = genesis_result.organisation.to_string();
+        // ADR-0069: the label goes with the organisation, written while the
+        // transaction still points at the new tenant (`organisations_updatable`).
+        if practice {
+            tx.execute(
+                "UPDATE organisations SET practice = true WHERE id = $1",
+                &[&organisation],
+            )
+            .await?;
+        }
 
         // Back to enrolment custody: `bootstrap_organisation` leaves the
         // transaction pointed at the new tenant, and the next statements are
@@ -2797,6 +2843,7 @@ impl OperatorStore {
                 &created_by,
                 Some(&organisation),
                 now,
+                practice,
                 created_seq,
                 row_version + 1,
             )
@@ -5599,6 +5646,7 @@ impl OperatorStore {
         created_by: &str,
         organisation: Option<&str>,
         redeemed_at_unix: i64,
+        practice: bool,
         created_seq: i64,
         row_version: i32,
     ) -> Result<[u8; 32], OperatorError> {
@@ -5617,6 +5665,11 @@ impl OperatorStore {
             },
         );
         map.insert("redeemed_at".to_string(), Json::Int(redeemed_at_unix));
+        // ADR-0069: only when true, so every shell sealed before the column
+        // existed keeps the seal it has.
+        if practice {
+            map.insert("practice".to_string(), Json::Bool(true));
+        }
         Ok(authority::row_seal(
             &grants::site_row_key(tx, &self.ring).await?,
             &RowFacts {

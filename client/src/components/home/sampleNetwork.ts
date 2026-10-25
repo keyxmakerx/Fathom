@@ -95,6 +95,8 @@ export interface SampleSpec {
   firewall?: SampleFirewall;
   /** Ready-made traces offered when the sample is open: from a device to an address, with a flow. */
   questions?: SampleQuestion[];
+  /** A practice sample's planted mistakes, each the Check rule that finds it; the sample's test holds Checks to it. */
+  mistakes?: { rule: string; where: string; what: string }[];
 }
 
 export interface SampleFirewall {
@@ -386,14 +388,16 @@ function interfaceName(ref: string): string {
   return /^\d/.test(label) ? `port${label}` : label;
 }
 
-/** The port's existing interface when a VLAN already made one, else a new one on the port. */
+/** The unit a VLAN already made on the port, else the port's interface, else a new interface on the port. */
 function targetFor(
   doc: Document,
   devices: Map<string, string>,
   spec: SampleSpec,
   ref: string,
-): { kind: 'interface'; interfaceId: string } | { kind: 'port'; portId: string; interfaceName: string } {
+): { kind: 'unit'; unitId: string } | { kind: 'interface'; interfaceId: string } | { kind: 'port'; portId: string; interfaceName: string } {
   const portId = portOf(doc, devices, spec, ref);
+  const unit = unitsOn(doc, portId)[0];
+  if (unit !== undefined) return { kind: 'unit', unitId: unit };
   const occupant = edgesIn(doc, portId, 'Occupies').find((e) => e.absentSince === undefined);
   return occupant ? { kind: 'interface', interfaceId: occupant.from } : { kind: 'port', portId, interfaceName: interfaceName(ref) };
 }

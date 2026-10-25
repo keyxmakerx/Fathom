@@ -7,6 +7,11 @@ import { useLearn } from './context';
 import { glossPieces, type GlossaryEntry } from './glossary';
 import './glossary.css';
 
+/** The punctuation a run of text opens with, kept on the same line as the word before it. */
+function trailing(s: string): string {
+  return /^[.,;:!?)]+/.exec(s)?.[0] ?? '';
+}
+
 /** `learnMore` opens an explainer; it defaults to the Learn library of the design the card sits in. */
 export function Glossed({ text, learnMore }: { text: string; learnMore?: (explainerId: string) => void }): JSX.Element {
   const learn = useLearn();
@@ -17,23 +22,30 @@ export function Glossed({ text, learnMore }: { text: string; learnMore?: (explai
     <>
       {pieces.map((p, i) =>
         typeof p === 'string' ? (
-          p
+          // Punctuation right after a word went with the word, below, so it never starts a line of its own.
+          i > 0 && typeof pieces[i - 1] !== 'string' ? (
+            p.slice(trailing(p).length)
+          ) : (
+            p
+          )
         ) : (
-          <button
-            key={i}
-            type="button"
-            className="gloss"
-            aria-expanded={open === p.entry}
-            onClick={() => setOpen((o) => (o === p.entry ? null : p.entry))}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape' && open != null) {
-                e.stopPropagation();
-                setOpen(null);
-              }
-            }}
-          >
-            {p.text}
-          </button>
+          <span key={i} className="gloss-wrap">
+            <button
+              type="button"
+              className="gloss"
+              aria-expanded={open === p.entry}
+              onClick={() => setOpen((o) => (o === p.entry ? null : p.entry))}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' && open != null) {
+                  e.stopPropagation();
+                  setOpen(null);
+                }
+              }}
+            >
+              {p.text}
+            </button>
+            {typeof pieces[i + 1] === 'string' ? trailing(pieces[i + 1] as string) : ''}
+          </span>
         ),
       )}
       {open != null && (
