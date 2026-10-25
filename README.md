@@ -15,9 +15,10 @@ walkthrough by the owner does. What exists is in `docs/STATE.md`; what is next i
 
 - **Touch a device.** No SSH, SNMP, polling or discovery. Configuration arrives because a person pastes
   or types it.
-- **Keep a device credential.** The redaction gate (Rust, compiled to WebAssembly, run in the browser)
-  destroys passwords, pre-shared keys and community strings at the paste box, before anything is stored
-  or sent; the server refuses any that still arrive. A secret typed by hand into a free-text field is not
+- **Keep a device credential nobody chose to keep.** The redaction gate (Rust, compiled to WebAssembly,
+  run in the browser) destroys passwords, pre-shared keys and community strings at the paste box, before
+  anything is stored or sent; the server refuses any that still arrive. Credentials a person chooses to
+  store go in a vault, never in the design (ADR-0042, accepted, not built yet). A secret typed by hand into a free-text field is not
   pasted config: Fathom marks it and stores it as typed (ADR-0041).
 - **Claim more than it has.** The server holds the keys and says so (ADR-0040). `CLAUDE.md` rule 5 lists
   the four sentences that stay forbidden until customer-held keys are real; `scripts/forbidden-claims.sh`
@@ -40,7 +41,12 @@ tasks on what main supports: `docs/EXAMPLES.md`.
 |---|---|
 | `CLAUDE.md` | Rules that bind every session; the pointer page |
 | `docs/STATE.md` | What is built right now |
+| `docs/RUNNING-IT.md`, `docs/OPERATING.md` | Running it; keys, backups, restore, rekey |
+| `docs/EXAMPLES.md` | Short worked tasks on what main supports |
+| `docs/UPGRADING-A-JUNIPER.md`, `docs/UPGRADING-A-CISCO-OR-ARISTA.md` | Firmware upgrades by hand, the steps Fathom's plans carry |
 | `docs/UI-SPEC.md` | The interface, approved |
+| `docs/PHASE-2-STORAGE-DESIGN.md`, `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` | Server design of record: encryption, chains, grants, roles (§ numbers are cited from code) |
+| `docs/OPEN-QUESTIONS.md` | Closed; answers the code cites by letter (B5, E2, ...) |
 | `docs/decisions/` | ADRs; `README.md` is the index |
 | `docs/NEXT.md` | How to work on it |
 | `docs/REBUILD-PLAN.md` | The rebuild's reasoning and phases |

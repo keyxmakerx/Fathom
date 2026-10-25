@@ -194,10 +194,10 @@ Current practice was surveyed on 2026-08-06 and each claim re-checked against a 
 | `rustsec.org` and the advisory-db README | `cargo-audit`'s scope: disclosed vulnerabilities only |
 | `doc.rust-lang.org` — `cargo vendor` | Vendored sources are read-only; nothing is verified |
 | `github.com/crev-dev/cargo-crev` | The alternative considered and its adoption status |
-| `docs/30-security/35-supply-chain-and-builds.md` §§5.1–5.7, §1.1, §11.3 | The eight caps, verbatim; the process; §5.7's honest gap and its `material` residual |
-| `docs/00-vision/03-non-goals-and-scope.md` §3.5; `docs/30-security/38-the-egress-question.md` §2.4, §11 | T-P1-a and its **Not met** scorecard row, quoted |
-| `docs/40-stack/41-technology-choices.md` §3.7, §7.1; `docs/30-security/32-cryptography.md` §15.1 | The 20-crate runtime list; the raw ABI and the `getrandom` custom backend; the version disagreement |
-| `docs/40-stack/42-no-node-runtime.md` §3.1, §9.4 | The build-time tool list and which four alter shipped bytes |
+| `docs/archive/30-security/35-supply-chain-and-builds.md` §§5.1–5.7, §1.1, §11.3 | The eight caps, verbatim; the process; §5.7's honest gap and its `material` residual |
+| `docs/archive/00-vision/03-non-goals-and-scope.md` §3.5; `docs/archive/30-security/38-the-egress-question.md` §2.4, §11 | T-P1-a and its **Not met** scorecard row, quoted |
+| `docs/archive/40-stack/41-technology-choices.md` §3.7, §7.1; `docs/archive/30-security/32-cryptography.md` §15.1 | The 20-crate runtime list; the raw ABI and the `getrandom` custom backend; the version disagreement |
+| `docs/archive/40-stack/42-no-node-runtime.md` §3.1, §9.4 | The build-time tool list and which four alter shipped bytes |
 | `Cargo.toml`, `Cargo.lock`, `.github/workflows/ci.yml`, `crates/fathom-corpus/src/detln.rs` | Zero dependencies; the four gates; the determinism worked example |
 
 ## Disagreements

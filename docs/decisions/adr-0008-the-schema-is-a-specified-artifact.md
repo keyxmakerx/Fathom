@@ -31,7 +31,7 @@ A schema that exists only as prose in one document has no mechanism that would c
 
 ## Decision
 
-**Write `docs/60-content/62-schema-spec.md`, and make `schema.yaml` a first-class build input owned
+**Write `docs/archive/60-content/62-schema-spec.md`, and make `schema.yaml` a first-class build input owned
 by `11-ir-schema.md`.** The specification covers, at minimum, the six consumers above:
 
 | Section | Contents |

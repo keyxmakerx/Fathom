@@ -176,11 +176,11 @@ weaker on the platforms with no dictionary**. Say it about the platforms it is t
 
 | source | for |
 |---|---|
-| `docs/40-stack/49-the-server-product.md` §2, §3, §11, §21, §22 | the design this ratifies, and its own honest gap list |
-| `docs/70-ops/70-owner-answers-and-standing-priorities.md` §18.1 | the owner's delegation, verbatim, and the commissioned survey |
-| `docs/30-security/38-the-egress-question.md` §14 (esp. §14.3, §14.4, §14.9) | the eleven mechanisms, the 2%/98% split, the length oracle, the union rule |
+| `docs/archive/40-stack/49-the-server-product.md` §2, §3, §11, §21, §22 | the design this ratifies, and its own honest gap list |
+| `docs/archive/70-ops/70-owner-answers-and-standing-priorities.md` §18.1 | the owner's delegation, verbatim, and the commissioned survey |
+| `docs/archive/30-security/38-the-egress-question.md` §14 (esp. §14.3, §14.4, §14.9) | the eleven mechanisms, the 2%/98% split, the length oracle, the union rule |
 | `docs/90-decisions/adr-0002-*.md` | the precedent cost of editing an invariant |
-| `docs/40-stack/48-the-server-fork.md` §1, §5 | invariant 1's scoping precedent; permissions and revocation |
+| `docs/archive/40-stack/48-the-server-fork.md` §1, §5 | invariant 1's scoping precedent; permissions and revocation |
 | NIST SP 800-88 Rev. 2 (final 2025-09-26) | cryptographic erase as a Purge method |
 | the 2026-08-28 survey's sources — AWS KMS, Google Cloud KMS and Azure encryption-at-rest docs; Slack EKM and its engineering blog; Salesforce Shield BYOK; Atlassian CMK; Miro BYOK; Lucid KMS; Tresorit; Proton; SOC 2 / ISO 27001 vendor summaries | findings 1–4, each with its check date in `70` §18.1 |
 
