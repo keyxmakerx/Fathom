@@ -1,0 +1,69 @@
+# corpus/dict/omada-sw/config.yaml -- a TP-Link JetStream or Omada switch's
+# config text: `show running-config`, or the file Export Config saves.
+# Path shape: [ <opener words>, <line words> ] as
+# crates/fathom-ingest/src/blockcfg.rs synthesises it from real bytes of the
+# paste; an interface's name is its type word and number as one word
+# (`gigabitEthernet1/0/1`, `vlan10`). Sources and the full trail:
+# corpus/dict/README-omada-sw.md.
+platform: omada-sw
+source: { cite: "TP-Link configuration guides and the TL-SG3428 CLI reference, and two real configs posted to community.tp-link.com (topics 184910 and 150823); see corpus/dict/README-omada-sw.md", read_on: "2026-10-16" }
+reviewed_by: <named human>
+entries:
+  # `hostname "SW_ALIANCA00"` (topic 150823).
+  - id: omada-sw/hostname
+    path: [hostname, "$h"]
+    binds:
+      nodes:
+        - { as: n0, kind: Device, fields: [ { field: hostname, from: "$h", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `vlan 10` opens a VLAN's block.
+  - id: omada-sw/vlan
+    path: [vlan, "$v"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Vlan, key: "$v", fields: [ { field: vlan_id, from: "$v", scalar: VlanId } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `name "ISPLAN"` under it.
+  - id: omada-sw/vlan.name
+    path: [vlan, "$v", name, "$n"]
+    binds:
+      nodes:
+        - { as: n0, kind: Vlan, key: "$v", fields: [ { field: vlan_id, from: "$v", scalar: VlanId }, { field: name, from: "$n", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `interface gigabitEthernet 1/0/1`, `interface ten-gigabitEthernet 1/0/28`,
+  # `interface vlan 30`.
+  - id: omada-sw/interface
+    path: [interface, "$i"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `description "CAM"`.
+  - id: omada-sw/interface.description
+    path: [interface, "$i", description, "$d"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName }, { field: description, from: "$d", scalar: Text } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `shutdown` (topic 150823, under `interface gigabitEthernet 1/0/1`). The
+  # IR stores the positive, so this binds admin_up false; a port without it
+  # is not read as up.
+  - id: omada-sw/interface.shutdown
+    path: [interface, "$i", shutdown]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName }, { field: admin_up, const_bool: false } ] }
+    versions: "*"
+    reviewed_by: <named human>

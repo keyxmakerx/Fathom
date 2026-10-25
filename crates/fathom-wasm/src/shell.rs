@@ -185,6 +185,15 @@ impl Shell {
                 Some(p) => p == "linux-host",
                 None => fathom_ingest::iproute::looks_like_iproute(text),
             };
+        // A TP-Link switch's config: `!<model>` then `#`-separated blocks.
+        let switch = !table
+            && !export
+            && !backup
+            && !host
+            && match hint {
+                Some(p) => p == "omada-sw",
+                None => fathom_ingest::blockcfg::looks_like_tplink(text),
+            };
         let (ingest, platform) = if table {
             let Some(dict) = self.dicts.get("opnsense") else {
                 return missing("table");
@@ -202,6 +211,12 @@ impl Shell {
                 return missing("Linux");
             };
             let read = fathom_ingest::iproute::ingest_iproute(text, dict).map_err(refuse)?;
+            (read, dict.platform().to_owned())
+        } else if switch {
+            let Some(dict) = self.dicts.get("omada-sw") else {
+                return missing("TP-Link");
+            };
+            let read = fathom_ingest::blockcfg::ingest_blockcfg(text, dict).map_err(refuse)?;
             (read, dict.platform().to_owned())
         } else if export {
             let Some(dict) = self.dicts.get("routeros") else {
@@ -3161,11 +3176,14 @@ fn field_name(key: fathom_ir::bag::FieldKey) -> &'static str {
 /// The comma-joined detectors that fired on one destroyed value (`14` §9.2:
 /// "redacted once and the manifest records both reasons").
 /// Platforms read by a front end of their own (the rules CSV, a RouterOS export,
-/// a pfSense backup),
+/// a pfSense backup, a Linux host's `ip` output, a TP-Link switch config),
 /// never by the set-form shaper: detection, a named set-form platform and
 /// `OP_REDACT_TEXT` all skip them.
 fn is_own_front_end(platform: &str) -> bool {
-    matches!(platform, "opnsense" | "routeros" | "pfsense" | "linux-host")
+    matches!(
+        platform,
+        "opnsense" | "routeros" | "pfsense" | "linux-host" | "omada-sw"
+    )
 }
 
 fn detector_names(d: fathom_ingest::redact::DetectorSet) -> String {
