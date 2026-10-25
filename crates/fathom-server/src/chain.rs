@@ -425,9 +425,10 @@ pub enum EntryType {
 
     // ---- The password vault, Mode A (migration 0041, storage §13.4) ---------
     //
-    // Written by `vault.rs`. There is deliberately no `vault_read`: a Mode A
-    // read is the browser fetching ciphertext and opening it locally, which the
-    // server cannot see, and an entry claiming otherwise would be false.
+    // Written by `vault.rs`. There is deliberately no Mode A `vault_read`: a
+    // Mode A read is the browser fetching ciphertext and opening it locally,
+    // which the server cannot see, and an entry claiming otherwise would be
+    // false. `vault_read` below is Mode B's, where Fathom itself opens it.
     /// A vault key joined the organisation: a person's (self-certified by an
     /// account-key signature) or the recovery sheet's (signed by the steward
     /// who made it). Metadata names the key, its kind, fingerprint and signer.
@@ -449,6 +450,19 @@ pub enum EntryType {
     VaultEntryDeleted,
     /// The organisation's recovery sheet was opened by a steward.
     VaultRecoveryUsed,
+    // ---- Logins Fathom can use, Mode B (migration 0042, storage §13.4) ------
+    //
+    // Written by `vault_fathom.rs`.
+    /// A login's mode changed: A to B on its owner's signed consent (and, when
+    /// it is shared with other people, a steward's countersignature, filed as
+    /// its own entry), or B back to A. Metadata names the login, both modes,
+    /// the epoch, the server vault key and who acted.
+    VaultModeChanged,
+    /// **Fathom itself opened a Mode B login**, for the purpose and device the
+    /// metadata names, at the request of the account it names. Filed before
+    /// the secret is opened. There is no Mode A `vault_read`, and a
+    /// `vault_read` for a login the chain had in Mode A is a break.
+    VaultRead,
 
     /// **A re-wrap happened** (§12.6): custody changed, exposure did not. The
     /// entry names the old and new master identity, which key rows moved, who
@@ -583,6 +597,8 @@ impl EntryType {
             Self::VaultShareRevoked => "vault_share_revoked",
             Self::VaultEntryDeleted => "vault_entry_deleted",
             Self::VaultRecoveryUsed => "vault_recovery_used",
+            Self::VaultModeChanged => "vault_mode_changed",
+            Self::VaultRead => "vault_read",
             // ADR-0055 stream (c)
             Self::ConsolePlacementRequested => "console_placement_requested",
             Self::ConsolePlacementConfirmed => "console_placement_confirmed",
@@ -660,6 +676,8 @@ impl EntryType {
             "vault_share_revoked" => Some(Self::VaultShareRevoked),
             "vault_entry_deleted" => Some(Self::VaultEntryDeleted),
             "vault_recovery_used" => Some(Self::VaultRecoveryUsed),
+            "vault_mode_changed" => Some(Self::VaultModeChanged),
+            "vault_read" => Some(Self::VaultRead),
             // ADR-0055 stream (c)
             "console_placement_requested" => Some(Self::ConsolePlacementRequested),
             "console_placement_confirmed" => Some(Self::ConsolePlacementConfirmed),
@@ -743,7 +761,9 @@ impl EntryType {
             | Self::VaultShared
             | Self::VaultShareRevoked
             | Self::VaultEntryDeleted
-            | Self::VaultRecoveryUsed => &[ChainKind::Org],
+            | Self::VaultRecoveryUsed
+            | Self::VaultModeChanged
+            | Self::VaultRead => &[ChainKind::Org],
             // **Two types are filed on two kinds.** `rewrap` because the master key
             // is deployment-wide (§7.2). `grant_suspended` because §1.1 gives the
             // operator plane this one authority-adjacent verb: the organisation

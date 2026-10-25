@@ -454,6 +454,9 @@ async fn app(
         sessions,
         watch,
         ring,
+        fathom_key: Arc::new(fathom_server::vault_fathom::FathomKey::from_key(
+            fathom_server::crypto::Key32::from_bytes([77; 32]),
+        )),
         catalogue: Arc::new(catalogue),
         explainers: Arc::new(
             design_api::load_explainers(&repo_root()).expect("load the real corpus explainers"),

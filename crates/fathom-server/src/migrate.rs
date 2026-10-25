@@ -258,6 +258,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0041_vault.sql",
         sql: include_str!("../migrations/0041_vault.sql"),
     },
+    // Logins Fathom itself can use: the vault's Mode B (ADR-0071 part two).
+    Migration {
+        version: 42,
+        name: "0042_vault_fathom.sql",
+        sql: include_str!("../migrations/0042_vault_fathom.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

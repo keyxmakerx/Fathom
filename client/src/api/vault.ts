@@ -71,6 +71,26 @@ export interface Opening {
   viaRecovery: boolean;
 }
 
+/** Fathom's own copy of a login (Mode B, ADR-0071 part two), when it has ever had one. */
+export interface FathomCopy {
+  /** `waiting`: the owner said yes, another admin has still to. `off`: the copy is gone. */
+  state: 'waiting' | 'on' | 'off';
+  consentedBy: string;
+  consentedByName: string;
+  consentAt: number;
+  countersignNeeded: boolean;
+  countersignedBy: string | null;
+  countersignedByName: string | null;
+  /** The epoch the copy was made at. Behind the login's epoch means it is out of date. */
+  copyEpoch: number;
+  serverKeyId: string;
+  /** The statement the owner signed, which a countersigning admin signs as it is. */
+  consentBytes: Uint8Array;
+  reads: number;
+  lastRead: number | null;
+  lastPurpose: string | null;
+}
+
 export interface VaultEntry {
   id: string;
   name: string;
@@ -84,6 +104,9 @@ export interface VaultEntry {
   version: number;
   epoch: number;
   needsRotation: boolean;
+  /** The organisation-history entry of this epoch's share, which a consent names. */
+  shareSeq: number;
+  fathom: FathomCopy | null;
   holders: Holder[];
   /** The caller's own copy, when they hold one. */
   opening: Opening | null;
@@ -98,6 +121,8 @@ export interface VaultOverview {
   recoveryUses: { by: string; byName: string; at: number }[];
   people: { account: string; name: string; key: VaultKeyView | null }[];
   entries: VaultEntry[];
+  /** Which `vault.key` this server seals Fathom's copies under; a consent names it. */
+  fathomKeyId: string;
 }
 
 const W = 'vault';
@@ -137,6 +162,27 @@ function keyView(raw: unknown): VaultKeyView {
   };
 }
 
+function fathomView(raw: unknown): FathomCopy {
+  const r = asRec(raw, W);
+  const state = str(r, 'state', W);
+  if (state !== 'waiting' && state !== 'on' && state !== 'off') throw new Error('malformed vault response: Fathom copy state');
+  return {
+    state,
+    consentedBy: str(r, 'consentedBy', W),
+    consentedByName: str(r, 'consentedByName', W),
+    consentAt: int(r, 'consentAt', W),
+    countersignNeeded: bool(r, 'countersignNeeded', W),
+    countersignedBy: optStr(r, 'countersignedBy', W),
+    countersignedByName: optStr(r, 'countersignedByName', W),
+    copyEpoch: int(r, 'copyEpoch', W),
+    serverKeyId: str(r, 'serverKeyId', W),
+    consentBytes: hex(r, 'consentBytes'),
+    reads: int(r, 'reads', W),
+    lastRead: optNum(r, 'lastRead'),
+    lastPurpose: optStr(r, 'lastPurpose', W),
+  };
+}
+
 function entryView(raw: unknown): VaultEntry {
   const r = asRec(raw, W);
   const kind = str(r, 'kind', W) as LoginKind;
@@ -158,6 +204,8 @@ function entryView(raw: unknown): VaultEntry {
     version: int(r, 'version', W),
     epoch: int(r, 'epoch', W),
     needsRotation: bool(r, 'needsRotation', W),
+    shareSeq: int(r, 'shareSeq', W),
+    fathom: r.fathom == null ? null : fathomView(r.fathom),
     holders: arrayOf(r, 'holders', W).map((h) => {
       const x = asRec(h, W);
       const hk = str(x, 'kind', W);
@@ -203,6 +251,7 @@ export function parseOverview(bytes: Uint8Array): VaultOverview {
       return { account: str(x, 'account', W), name: str(x, 'name', W), key: x.key == null ? null : keyView(x.key) };
     }),
     entries: arrayOf(r, 'entries', W).map(entryView),
+    fathomKeyId: str(r, 'fathomKeyId', W),
   };
 }
 
@@ -331,4 +380,50 @@ export async function openWithRecoverySheet(organisation: string): Promise<Recov
     sealedNonce: hex(r, 'sealedNonce'),
     entries: arrayOf(r, 'entries', W).map(entryView),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Fathom's copy (Mode B). These four routes are the only ones that carry a login in the clear,
+// because handing Fathom the login is what the person chose. The server seals it at once.
+// ---------------------------------------------------------------------------
+
+/** The plain login, as the server keeps it: `{u, p, n}`. */
+export interface LoginCopy {
+  u: string;
+  p: string;
+  n: string;
+}
+
+export async function fathomOn(
+  organisation: string,
+  credential: string,
+  e: { ifVersion: number; epochBefore: number; at: number; keyFpr: Uint8Array; signature: Uint8Array; copy: LoginCopy },
+): Promise<FathomCopy> {
+  const answer = await signedFetch(
+    'POST',
+    entryPath(organisation, credential, 'fathom/on'),
+    body({ ifVersion: e.ifVersion, epochBefore: e.epochBefore, at: e.at, keyFpr: toHex(e.keyFpr), signature: toHex(e.signature), copy: e.copy }),
+  );
+  return fathomView(jsonObject(answer, W));
+}
+
+export async function fathomCountersign(
+  organisation: string,
+  credential: string,
+  e: { at: number; keyFpr: Uint8Array; signature: Uint8Array },
+): Promise<FathomCopy> {
+  const answer = await signedFetch(
+    'POST',
+    entryPath(organisation, credential, 'fathom/countersign'),
+    body({ at: e.at, keyFpr: toHex(e.keyFpr), signature: toHex(e.signature) }),
+  );
+  return fathomView(jsonObject(answer, W));
+}
+
+export async function fathomRefresh(organisation: string, credential: string, copy: LoginCopy): Promise<FathomCopy> {
+  return fathomView(jsonObject(await signedFetch('POST', entryPath(organisation, credential, 'fathom/refresh'), body({ copy })), W));
+}
+
+export async function fathomOff(organisation: string, credential: string): Promise<FathomCopy> {
+  return fathomView(jsonObject(await signedFetch('POST', entryPath(organisation, credential, 'fathom/off'), body({})), W));
 }

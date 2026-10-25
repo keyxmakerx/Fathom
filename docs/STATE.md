@@ -125,8 +125,15 @@ in the `vault` schema (`crates/fathom-server/src/vault.rs`, `client/src/vault/`,
 sheet held by every login and logged on use, holder lists signed by the sharer, the Logins tab,
 Inventory › Passwords, Home or Organisation › Passwords, and the lock badge on the avatar.
 `scripts/drive-vault.mjs` drives three people's own browsers against the real server and sweeps a
-superuser `pg_dump` for every password, note, name, passphrase and recovery code. **Not built yet:**
-logins Fathom itself can use (Mode B), breach checks, external vaults.
+superuser `pg_dump` for every password, note, name, passphrase and recovery code.
+
+**Part two, logins Fathom itself can use** (Mode B, migration `0042_vault_fathom.sql`,
+`crates/fathom-server/src/vault_fathom.rs`): the owner signs a consent over the login's fresh
+epoch, a second admin countersigns when it is shared, the server seals its copy under `vault.key`,
+and `vault_fathom::use_login` opens it only for a marked device, writing `vault_read` to the
+organisation's history first. The card and table say "Fathom can use it" or "Waiting for an
+admin" and how often Fathom used it. **Not built yet:** breach checks, external vaults, and the
+chain verifier's check that a `vault_read` names a login then in Mode B.
 
 **Tenant isolation holds at two layers:** an application filter in every repository function, and
 PostgreSQL row-level security driven by a transaction-local setting (never session-level: a pooled

@@ -578,3 +578,21 @@
 .shell-account {
   position: relative;
 }
+
+/* Fathom's own copy (Mode B): marked in caution, since the server can read it. */
+
+.vault-tag--fathom {
+  color: var(--caution);
+  border-color: var(--caution);
+}
+
+.vault-tag--waiting {
+  color: var(--muted);
+  border-style: dashed;
+}
+
+.vault-card__acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+}

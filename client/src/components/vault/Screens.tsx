@@ -6,8 +6,9 @@ import { useContext, useState, type ReactNode } from 'react';
 
 import type { VaultEntry, VaultOverview } from '../../api/vault';
 import type { Secret } from '../../vault/crypto';
-import { coverWithCurrentKeys, makeRecoverySheet, recoverLogins, removeLogin, revealLogin, takeAwayCopy, vaultUnlocked } from '../../vault/session';
+import { coverWithCurrentKeys, fathomCopyStale, makeRecoverySheet, recoverLogins, refreshFathomCopy, removeLogin, revealLogin, takeAwayCopy, vaultUnlocked } from '../../vault/session';
 import { describeError } from '../design/useDesignSession';
+import { FathomDialog, fathomUseText, keptText, type FathomAct } from './FathomDialogs';
 import { LoginDialog } from './LoginDialog';
 import { VaultModal } from './Modal';
 import { SetupDialog } from './SetupDialog';
@@ -24,6 +25,7 @@ type Dialog =
   | { kind: 'change'; entry: VaultEntry; secret: Secret }
   | { kind: 'sheet'; code: string }
   | { kind: 'recover'; entry: VaultEntry }
+  | { kind: 'fathom'; entry: VaultEntry; act: FathomAct }
   | null;
 
 /** The dialogs, the "set up / unlock" strip, and acts that need an unlocked vault. */
@@ -103,6 +105,30 @@ function useVaultActs(vault: Vault, organisationName: string, place: VaultPlace 
             </button>
           </div>
         </VaultModal>
+      ) : dialog.kind === 'fathom' ? (
+        <FathomDialog
+          organisation={vault.organisation}
+          overview={overview}
+          entry={dialog.entry}
+          act={dialog.act}
+          devicesText={usedOnText(dialog.entry, place)}
+          onClose={() => setDialog(null)}
+          onDone={() => {
+            const act = dialog.act;
+            const entry = dialog.entry;
+            setDialog(null);
+            setNotice(
+              act === 'off'
+                ? `Fathom no longer uses ${entry.name}.`
+                : act === 'countersign'
+                  ? `Signed. Fathom can use ${entry.name} now.`
+                  : entry.holders.some((h) => h.kind === 'person' && !h.revoked && h.account !== entry.owner)
+                    ? `Asked. Fathom uses ${entry.name} once another admin signs.`
+                    : `Fathom can use ${entry.name} now.`,
+            );
+            vault.reload();
+          }}
+        />
       ) : dialog.kind === 'recover' ? (
         <RecoverDialog vault={vault} overview={overview} entry={dialog.entry} onClose={() => setDialog(null)} onDone={(n) => {
           setDialog(null);
@@ -112,7 +138,24 @@ function useVaultActs(vault: Vault, organisationName: string, place: VaultPlace 
       ) : null
     ) : null;
 
-  return { overview, dialog, setDialog, dialogs, whenUnlocked, notice, setNotice };
+  /** The acts on Fathom's copy of a login. Letting it and refreshing it open the login, so they
+   * unlock first; signing and stopping do not. */
+  const fathom = (entry: VaultEntry, act: FathomAct | 'refresh') => {
+    if (act === 'on') whenUnlocked(() => setDialog({ kind: 'fathom', entry, act }));
+    else if (act === 'refresh')
+      whenUnlocked(() =>
+        void refreshFathomCopy(vault.organisation, entry).then(
+          () => {
+            setNotice(`Fathom’s copy of ${entry.name} is up to date.`);
+            vault.reload();
+          },
+          (e: unknown) => setNotice(describeError(e)),
+        ),
+      );
+    else setDialog({ kind: 'fathom', entry, act });
+  };
+
+  return { overview, dialog, setDialog, dialogs, whenUnlocked, notice, setNotice, fathom };
 }
 
 /** The strip above any vault list: set up, unlock, or the 3-day passphrase check. */
@@ -201,15 +244,53 @@ function SecretLine({ vault, entry, onChange }: { vault: Vault; entry: VaultEntr
   );
 }
 
-function LoginCard({ vault, overview, entry, onChange, onRemove }: { vault: Vault; overview: VaultOverview; entry: VaultEntry; onChange?: (s: Secret) => void; onRemove?: () => void }) {
+function LoginCard({
+  vault,
+  overview,
+  entry,
+  onChange,
+  onRemove,
+  onFathom,
+}: {
+  vault: Vault;
+  overview: VaultOverview;
+  entry: VaultEntry;
+  onChange?: (s: Secret) => void;
+  onRemove?: () => void;
+  onFathom?: (act: FathomAct | 'refresh') => void;
+}) {
+  const f = entry.fathom;
+  const live = f != null && f.state !== 'off';
+  const owner = entry.owner === overview.me;
+  const kept = keptText(entry);
+  const used = fathomUseText(entry);
+  const fathomActs: { act: FathomAct | 'refresh'; label: string; testId: string }[] = [];
+  if (onFathom) {
+    if (!live && owner && canRead(entry)) fathomActs.push({ act: 'on', label: 'Let Fathom use it…', testId: 'vault-fathom-on' });
+    if (f?.state === 'waiting' && overview.steward && f.consentedBy !== overview.me)
+      fathomActs.push({ act: 'countersign', label: 'Sign as the second admin…', testId: 'vault-fathom-countersign-open' });
+    if (f?.state === 'on' && fathomCopyStale(entry) && canRead(entry))
+      fathomActs.push({ act: 'refresh', label: 'Bring Fathom’s copy up to date', testId: 'vault-fathom-refresh' });
+    if (live && (owner || overview.steward)) fathomActs.push({ act: 'off', label: 'Stop Fathom using it…', testId: 'vault-fathom-off-open' });
+  }
   return (
     <div className="vault-card" data-testid="vault-card">
       <div className="vault-card__head">
         <span className="vault-card__name">{entry.name}</span>
         <span className="vault-tag">{kindText(entry)}</span>
-        <span className="vault-tag vault-tag--kept" title="Locked in the browser; the server cannot open it">
-          Only people
-        </span>
+        {live ? (
+          <span
+            className={f.state === 'on' && !fathomCopyStale(entry) ? 'vault-tag vault-tag--fathom' : 'vault-tag vault-tag--waiting'}
+            title="Fathom keeps a copy it can open itself. Protects a stolen database or backup, not a compromised server."
+            data-testid="vault-kept"
+          >
+            {kept}
+          </span>
+        ) : (
+          <span className="vault-tag vault-tag--kept" title="Locked in the browser; the server cannot open it" data-testid="vault-kept">
+            {kept}
+          </span>
+        )}
       </div>
       <SecretLine vault={vault} entry={entry} onChange={onChange} />
       <div className="vault-small">
@@ -224,6 +305,23 @@ function LoginCard({ vault, overview, entry, onChange, onRemove }: { vault: Vaul
           </>
         )}
       </div>
+      {live && (
+        <div className="vault-small" data-testid="vault-fathom-line">
+          {f.state === 'waiting'
+            ? `${f.consentedBy === overview.me ? 'You' : f.consentedByName} asked ${ago(f.consentAt * 1000)}; another admin signs before Fathom uses it.`
+            : used}
+          {f.state === 'waiting' && f.copyEpoch !== entry.epoch && <strong className="vault-caution"> It changed since: stop and ask again.</strong>}
+        </div>
+      )}
+      {fathomActs.length > 0 && (
+        <div className="vault-card__acts">
+          {fathomActs.map((a) => (
+            <button key={a.act} type="button" className="vault-btn vault-btn--quiet" onClick={() => onFathom?.(a.act)} data-testid={a.testId}>
+              {a.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -279,7 +377,14 @@ function LoginsTabBody({ place, deviceId, organisationName }: { place: VaultPlac
       {acts.notice && <p className="vault-note">{acts.notice}</p>}
       {mine.length === 0 && <p className="vault-muted">No logins for this device yet.</p>}
       {mine.map((e) => (
-        <LoginCard key={e.id} vault={vault} overview={overview} entry={e} onChange={(secret) => acts.setDialog({ kind: 'change', entry: e, secret })} />
+        <LoginCard
+          key={e.id}
+          vault={vault}
+          overview={overview}
+          entry={e}
+          onChange={(secret) => acts.setDialog({ kind: 'change', entry: e, secret })}
+          onFathom={(act) => acts.fathom(e, act)}
+        />
       ))}
       <div className="vault-actions">
         <button type="button" className="vault-btn" onClick={() => acts.whenUnlocked(() => acts.setDialog({ kind: 'add' }))} data-testid="vault-add">
@@ -373,7 +478,7 @@ export function PasswordsPage({ organisation, organisationName, mode: asked }: {
                 </td>
                 <td>{usedOnText(e, place)}</td>
                 <td>{holdersText(e, overview.me)}</td>
-                <td>Only people</td>
+                <td>{keptText(e)}</td>
                 <td>{ago(e.updatedAt)}</td>
                 <td className="vault-muted" title="Breach-list checks come in a later build">
                   Not checked yet
@@ -391,6 +496,7 @@ export function PasswordsPage({ organisation, organisationName, mode: asked }: {
             overview={overview}
             entry={open}
             onChange={canRead(open) ? (secret) => acts.setDialog({ kind: 'change', entry: open, secret }) : undefined}
+            onFathom={(act) => acts.fathom(open, act)}
             onRemove={
               open.owner === overview.me || overview.steward
                 ? () => {

@@ -2,7 +2,9 @@
 // 32 mockups): three people, each in their own browser with the signing key that browser made, set
 // up their vaults; the admin makes the recovery sheet; logins are stored from a device's Logins tab,
 // shared, revealed, locked and unlocked; a login only Bob holds is opened by the admin with the
-// sheet; and the database is swept for every password and name typed, which must appear nowhere.
+// sheet; the admin lets Fathom use a login (the consent screen, waiting for a second admin while
+// it is shared, stopping, then on at once once only they hold it); and the database is swept for
+// every password and name typed, which must appear nowhere.
 //
 //   node scripts/drive-vault.mjs
 //
@@ -132,6 +134,8 @@ async function startServer() {
       FATHOM_CLIENT_ROOT: `${ROOT}/client/dist`,
       FATHOM_MASTER_KEY: `file://${MASTER_KEY}`,
       FATHOM_CHAIN_KEY: `file://${CHAIN_KEY}`,
+      // Made on first start, as compose's keys-init would.
+      FATHOM_VAULT_KEY: `file://${join(WORK, 'vault.key')}`,
       FATHOM_OPERATOR_NOTICE_ADDRESS: OPERATOR,
       FATHOM_SETUP_PASSWORD: SETUP_PASSWORD,
       FATHOM_BIND: `127.0.0.1:${PORT}`,
@@ -425,15 +429,69 @@ async function runProof(ctx) {
   await A.getByTestId('vault-unlock-go').click();
   check('7. kit plus passphrase unlocks', await until(() => A.getByTestId('vault-badge').isVisible(), 15000));
 
-  // ---- 8. nothing typed reached the database in the clear ----------------------------------
+  // ---- 8. Ann lets Fathom use a login (Mode B, part two) ------------------------------------
+  const adminRow = () => A.getByTestId('vault-row').filter({ has: A.getByRole('button', { name: 'admin', exact: true }) });
+  // A row opens and closes its detail; open it only when it is not already.
+  const openAdmin = async () => {
+    if ((await A.getByTestId('vault-detail').count()) === 0) await adminRow().click();
+    await A.getByTestId('vault-detail').waitFor({ timeout: 10000 });
+  };
+  await openAdmin();
+  await A.getByTestId('vault-detail').getByTestId('vault-fathom-on').click();
+  await A.getByTestId('vault-fathom-consent').waitFor({ timeout: 10000 });
+  const consentText = await A.getByTestId('vault-fathom-consent').innerText();
+  check('8. the consent screen says the design’s sentence word for word', consentText.includes("After this change, Fathom's server can read this credential") && consentText.includes('It cannot be undone for the period it is in force.'));
+  check('8. and what it protects, and what it does not', consentText.includes('Protects a stolen database or backup, not a compromised server.'));
+  check('8. it says Bob holds it too, so another admin signs', /Bob Birch holds it too, so another admin signs/.test(consentText), consentText.slice(0, 600));
+  check('8. nothing is signed until the tick', await A.getByTestId('vault-fathom-on-go').isDisabled());
+  await shot(A, '14-fathom-consent');
+  await A.getByTestId('vault-fathom-read').check();
+  await A.getByTestId('vault-fathom-on-go').click();
+  check('8. shared with Bob, it waits for another admin', !!(await until(async () => /Waiting for an admin/.test(await A.getByTestId('vault-admin').innerText()), 20000)));
+  await openAdmin();
+  check('8. the card says who asked and that a second admin signs', /You asked today; another admin signs/.test(await A.getByTestId('vault-detail').innerText()), await A.getByTestId('vault-detail').innerText());
+  check('8. the one who asked is not offered the second signature', (await A.getByTestId('vault-fathom-countersign-open').count()) === 0);
+  await shot(A, '15-fathom-waiting');
+
+  await B.reload();
+  await openMyPasswords(B);
+  await B.getByTestId('vault-row').filter({ has: B.getByRole('button', { name: 'admin', exact: true }) }).click();
+  const bobSees = await B.getByTestId('vault-detail').innerText();
+  check('8. Bob sees it waiting, and as no admin is offered no signature', /Waiting for an admin/i.test(bobSees) && (await B.getByTestId('vault-fathom-countersign-open').count()) === 0, bobSees);
+
+  // Stop, take Bob off, and ask again: now only Ann (and the sheet) hold it, so it is on at once.
+  await A.getByTestId('vault-detail').getByTestId('vault-fathom-off-open').click();
+  const offText = await A.getByTestId('vault-fathom-off').innerText();
+  check('8. stopping says what it cannot undo', offText.replace(/\s+/g, ' ').includes('Anyone holding a backup from while Fathom could use it, with the server’s vault.key file from that time, can still read it. To revoke that, change the password on the device.'));
+  await shot(A, '16-fathom-off');
+  if (!/To revoke that/.test(offText)) console.log(offText);
+  await A.getByTestId('vault-fathom-off-go').click();
+  check('8. stopped, it is "Only people" again', !!(await until(async () => /Fathom no longer uses admin/.test(await A.getByTestId('vault-admin').innerText()), 15000)));
+  await openAdmin();
+  await A.getByTestId('vault-detail').locator('.vault-holder').filter({ hasText: 'Bob Birch' }).getByRole('button', { name: 'Remove' }).click();
+  await until(async () => (await A.getByTestId('vault-detail').locator('.vault-holder').count()) === 0, 10000);
+  await A.getByTestId('vault-detail').getByTestId('vault-fathom-on').click();
+  await A.getByTestId('vault-fathom-read').check();
+  await A.getByTestId('vault-fathom-on-go').click();
+  check('8. held by Ann alone, Fathom can use it at once', !!(await until(async () => /Fathom can use admin now/.test(await A.getByTestId('vault-admin').innerText()), 20000)));
+  await openAdmin();
+  await until(async () => /Fathom can use it/i.test(await A.getByTestId('vault-detail').innerText()), 10000);
+  const onText = await A.getByTestId('vault-detail').innerText();
+  check('8. the card wears "Fathom can use it" and says it has not been used yet', /Fathom can use it/i.test(onText) && /Fathom has not used it yet/.test(onText), onText);
+  check('8. the table says how Fathom keeps it', /Fathom can use it/i.test(await adminRow().innerText()));
+  await shot(A, '17-fathom-on');
+
+  // ---- 9. nothing typed reached the database in the clear ----------------------------------
   const dump = sh('sudo', ['-n', '-u', 'postgres', 'pg_dump', '--data-only', '--schema=public', '--schema=vault', '-d', DB_NAME], { maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
   // As the superuser: the application role is held back by row-level security, and a sweep that
   // could not read every row would prove nothing.
   const hexOf = (s) => Buffer.from(s, 'utf8').toString('hex');
   for (const [what, value] of [['the generated password', generated], ['Bob’s password', TYPED.bobOwn], ['the sealed note', TYPED.note], ['a login name', TYPED.bobOwnName], ['a vault passphrase', PEOPLE.ann.vault], ['the recovery code', sheet.replace(/-/g, '')]]) {
-    check(`8. ${what} is nowhere in the database, as text or as hex`, !dump.includes(value) && !dump.toLowerCase().includes(hexOf(value)));
+    check(`9. ${what} is nowhere in the database, as text or as hex`, !dump.includes(value) && !dump.toLowerCase().includes(hexOf(value)));
   }
-  check('8. the sweep can see the vault (positive control: the chain names a vault act)', dump.includes('vault_shared') || dump.includes('vault_entry_created'));
+  check('9. the sweep can see the vault (positive control: the chain names a vault act)', dump.includes('vault_shared') || dump.includes('vault_entry_created'));
+  const copies = sh('sudo', ['-n', '-u', 'postgres', 'psql', '-At', '-d', DB_NAME, '-c', "SELECT state || ':' || octet_length(copy_ct) FROM vault.fathom_copies"], { stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  check('9. and Fathom’s copy is there, sealed, so the sweep covered it (positive control)', /^on:\d{2,}$/.test(copies), copies);
 
   console.log(fails.length === 0 ? '\nALL PASS' : `\n${fails.length} FAILED:\n  ${fails.join('\n  ')}`);
   process.exitCode = fails.length === 0 ? 0 : 1;

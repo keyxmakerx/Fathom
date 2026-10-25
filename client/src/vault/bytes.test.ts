@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { toHex } from '../crypto/bytes';
-import { keyFpr, personKeyBytes, recoveryKeyBytes, sha256, shareBytes, supersedeBytes, wrapDigest } from './bytes';
+import { keyFpr, modeChangeBytes, personKeyBytes, recoveryKeyBytes, sha256, shareBytes, supersedeBytes, wrapDigest } from './bytes';
 
 const org = '01JORG0000000000000000000A';
 const account = '01JACC0000000000000000000B';
@@ -55,5 +55,14 @@ describe('vault byte strings, pinned against the server', () => {
     expect(toHex(await wrapDigest(filled(137, 7)))).toBe(
       'b31a268762219208e5f71191e9338a8b711799df3f7d1f8d80ca30048832ba2a',
     );
+  });
+
+  it('consent to Fathom keeping a copy (vault_fathom.rs)', async () => {
+    const recipients = [
+      { who: account, keyFpr: filled(32, 5), digest: filled(32, 6) },
+      { who: 'recovery', keyFpr: filled(32, 3), digest: filled(32, 4) },
+    ];
+    const bytes = modeChangeBytes(org, 'cred_01JCRED000000000000000000', 'A', 'B', 2, 3, account, signer, recipients, '0123456789abcdef', at, 41);
+    expect(await hash(bytes)).toBe('9ff91a76deeba277d39400308bfb32b227ad55ffb97ec3529719a8d212ff5fc7');
   });
 });

@@ -20,6 +20,7 @@ const TAG_WRAP = utf8('fathom/vault/wrap/v1');
 const TAG_SECRET = utf8('fathom/vault/secret/v1');
 const TAG_SEAL_PERSON = utf8('fathom/vault/seal/person/v1');
 const TAG_SEAL_RECOVERY = utf8('fathom/vault/seal/recovery/v1');
+const TAG_MODE = utf8('fathom/vault/mode/v1');
 
 export function u16LE(n: number): Uint8Array {
   const out = new Uint8Array(2);
@@ -188,5 +189,40 @@ export function sealAad(kind: 'person' | 'recovery', organisation: string, subje
     lp(utf8(organisation)),
     lp(utf8(subject)),
     lp(publicKey),
+  );
+}
+
+/** `vault_fathom::mode_change_bytes` (§13.4): the owner's consent to Fathom keeping a copy it can
+ * open (`from` "A", `to` "B"), over the holders of the fresh epoch the change made, the key file
+ * the copy will be sealed under, and the share entry it follows. A countersigning admin signs the
+ * same bytes, as stored. */
+export function modeChangeBytes(
+  organisation: string,
+  credential: string,
+  from: 'A' | 'B',
+  to: 'A' | 'B',
+  epochBefore: number,
+  epochAfter: number,
+  owner: string,
+  ownerKeyFpr: Uint8Array,
+  recipients: readonly Recipient[],
+  serverKeyId: string,
+  at: number,
+  shareSeq: number,
+): Uint8Array {
+  return concatBytes(
+    lp(TAG_MODE),
+    lp(utf8(organisation)),
+    lp(utf8(credential)),
+    lp(utf8(from)),
+    lp(utf8(to)),
+    u32LE(epochBefore),
+    u32LE(epochAfter),
+    lp(utf8(owner)),
+    lp(ownerKeyFpr),
+    lp(canonicalRecipients(recipients)),
+    lp(utf8(serverKeyId)),
+    u64LE(at),
+    u64LE(shareSeq),
   );
 }

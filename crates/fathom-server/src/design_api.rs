@@ -112,6 +112,8 @@ pub struct DesignApiState {
     pub sessions: Arc<SessionStore>,
     pub watch: Arc<EpochWatch>,
     pub ring: Arc<KeyRing>,
+    /// `vault.key`: Fathom's copies of the logins people let it use (ADR-0071 part two).
+    pub fathom_key: Arc<crate::vault_fathom::FathomKey>,
     /// The catalogue, loaded once at startup: read-only reference data, so every
     /// request reads the same `Vec`, not the filesystem. Built by [`load_catalogue`].
     pub catalogue: Arc<Vec<Model>>,

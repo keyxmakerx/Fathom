@@ -21,12 +21,17 @@ import {
   createLogin,
   deleteLogin,
   enrolVaultKey,
+  fathomCountersign,
+  fathomOff,
+  fathomOn,
+  fathomRefresh,
   fetchVault,
   newEpoch,
   openWithRecoverySheet,
   revokeHolder,
   setLoginDetails,
   type EpochReason,
+  type FathomCopy,
   type LoginKind,
   type ShareBody,
   type UsedOn,
@@ -37,7 +42,7 @@ import {
 import { toHex } from '../crypto/bytes';
 import type { Engine } from '../engine/engine';
 import { newUlid } from '../document/ulid';
-import { RECOVERY_RECIPIENT, keyFpr, personKeyBytes, recoveryKeyBytes, shareBytes, supersedeBytes, wrapDigest, type Recipient } from './bytes';
+import { RECOVERY_RECIPIENT, keyFpr, modeChangeBytes, personKeyBytes, recoveryKeyBytes, shareBytes, supersedeBytes, wrapDigest, type Recipient } from './bytes';
 import {
   KDF,
   fromBase32,
@@ -412,7 +417,14 @@ export async function reshareLogin(
   const contentKey = newContentKey();
   const sealed = await sealSecret(organisation, entry.id, next, contentKey, secret);
   const share = await buildShare(organisation, need(organisation).account, entry.id, next, contentKey, recipients.keys);
-  return newEpoch(organisation, entry.id, { ifVersion: entry.version, reason, secretCt: sealed.ct, secretNonce: sealed.nonce, share });
+  const after = await newEpoch(organisation, entry.id, { ifVersion: entry.version, reason, secretCt: sealed.ct, secretNonce: sealed.nonce, share });
+  // Fathom's copy follows the login: a changed password or set of holders leaves it out of date,
+  // and an out-of-date copy is never used. This person holds it, so they bring it up to date. A
+  // copy still waiting for an admin is not: its owner asks again over the new holders.
+  if (after.fathom?.state === 'on' && after.opening) {
+    after.fathom = await fathomRefresh(organisation, after.id, copyOf(secret));
+  }
+  return after;
 }
 
 /** The accounts that currently hold `entry`, live and not revoked, other than the recovery sheet. */
@@ -440,6 +452,89 @@ export async function coverWithCurrentKeys(organisation: string, overview: Vault
   }
   return done;
 }
+
+// ---------------------------------------------------------------------------
+// Letting Fathom use a login (Mode B, storage design §13.4 and §13.5)
+// ---------------------------------------------------------------------------
+
+/** What the person is shown before they say yes, word for word from the storage design §13.4. */
+export const FATHOM_CONSENT_TEXT =
+  "After this change, Fathom's server can read this credential — in normal operation, in memory, in every backup from now on, and to anyone who can read files as the `fathom` user. It cannot be undone for the period it is in force.";
+/** What Mode B protects, and what it does not. Shown beside the consent. */
+export const FATHOM_PROTECTS_TEXT = 'Protects a stolen database or backup, not a compromised server.';
+/** What the person is shown before Fathom stops using it: §13.4's B-to-A sentence, with the key
+ * that actually opens Fathom's copy named. The design wrote "the master key"; here the copy is
+ * sealed under `vault.key`, and the master key alone opens it for no one (ADR-0071 §8). */
+export const FATHOM_OFF_TEXT =
+  'Anyone holding a backup from while Fathom could use it, with the server’s vault.key file from that time, can still read it. To revoke that, change the password on the device.';
+
+const recipientsOf = (entry: VaultEntry): Recipient[] =>
+  entry.holders.map((h) => ({ who: h.kind === 'recovery' ? RECOVERY_RECIPIENT : (h.account ?? ''), keyFpr: h.fpr, digest: h.digest }));
+
+const copyOf = (secret: Secret) => ({ u: secret.username, p: secret.password, n: secret.note });
+
+/** Whether Fathom's copy is behind the login: the password changed or the holders did. */
+export function fathomCopyStale(entry: VaultEntry): boolean {
+  return entry.fathom != null && entry.fathom.state !== 'off' && entry.fathom.copyEpoch !== entry.epoch;
+}
+
+/**
+ * The owner lets Fathom use this login. The login is shared again first, under a fresh key, so
+ * the people who hold it are named again at the moment Fathom can read it (§13.4,
+ * epoch_after > epoch_before); then the owner's account key signs the statement and the login is
+ * handed over. When it is shared with anyone besides the owner, it waits for another admin.
+ */
+export async function letFathomUse(organisation: string, overview: VaultOverview, entry: VaultEntry): Promise<{ entry: VaultEntry; copy: FathomCopy }> {
+  const u = need(organisation);
+  if (entry.owner !== u.account) throw new Error('Only the person who stored this login can let Fathom use it.');
+  const secret = await revealLogin(organisation, entry);
+  const recipients = await chooseRecipients(organisation, overview, holderAccounts(entry));
+  const fresh = await reshareLogin(organisation, entry, recipients, 'rotated', secret);
+  const signer = await accountKeyFacts();
+  const at = nowUnix();
+  const statement = modeChangeBytes(
+    organisation,
+    fresh.id,
+    'A',
+    'B',
+    entry.epoch,
+    fresh.epoch,
+    u.account,
+    signer.fpr,
+    recipientsOf(fresh),
+    overview.fathomKeyId,
+    at,
+    fresh.shareSeq,
+  );
+  const copy = await fathomOn(organisation, fresh.id, {
+    ifVersion: fresh.version,
+    epochBefore: entry.epoch,
+    at,
+    keyFpr: signer.fpr,
+    signature: await signMessage(signer.key, statement),
+    copy: copyOf(secret),
+  });
+  return { entry: fresh, copy };
+}
+
+/** Another admin signs the owner's statement, exactly as it was stored. */
+export async function countersignFathomUse(organisation: string, entry: VaultEntry): Promise<FathomCopy> {
+  if (!entry.fathom || entry.fathom.state !== 'waiting') throw new Error('This login is not waiting for an admin.');
+  const signer = await accountKeyFacts();
+  return fathomCountersign(organisation, entry.id, {
+    at: nowUnix(),
+    keyFpr: signer.fpr,
+    signature: await signMessage(signer.key, entry.fathom.consentBytes),
+  });
+}
+
+/** Hand Fathom the login again after it changed, so its copy is current. */
+export async function refreshFathomCopy(organisation: string, entry: VaultEntry): Promise<FathomCopy> {
+  return fathomRefresh(organisation, entry.id, copyOf(await revealLogin(organisation, entry)));
+}
+
+/** Fathom stops using it: the copy is emptied. The owner or any admin, no unlock needed. */
+export const stopFathomUse = fathomOff;
 
 export const renameLogin = setLoginDetails;
 export const takeAwayCopy = revokeHolder;

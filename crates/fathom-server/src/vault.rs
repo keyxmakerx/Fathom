@@ -315,7 +315,7 @@ pub fn unhex(text: &str, len: Option<usize>, what: &'static str) -> Result<Vec<u
     Ok(out)
 }
 
-fn arr32(v: &[u8]) -> [u8; 32] {
+pub(crate) fn arr32(v: &[u8]) -> [u8; 32] {
     let mut a = [0u8; 32];
     a.copy_from_slice(v);
     a
@@ -343,14 +343,14 @@ pub fn valid_wrap(wrap: &[u8]) -> bool {
     rest.is_empty() && valid_point(eph) && nonce.len() == 12 && ct.len() == 48
 }
 
-fn now_unix() -> i64 {
+pub(crate) fn now_unix() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
 }
 
-fn fresh(at: i64) -> Result<(), VaultError> {
+pub(crate) fn fresh(at: i64) -> Result<(), VaultError> {
     if (at - now_unix()).abs() > CLOCK_SKEW_SECONDS {
         return Err(VaultError::NotAllowed(
             "this computer's clock is more than ten minutes away from the server's; fix the clock and try again",
@@ -491,13 +491,13 @@ async fn seal_meta(
     Ok((ct, nonce.to_vec(), key.epoch))
 }
 
-struct MetaOpener<'a> {
-    auth: &'a Authority<'a>,
-    keys: BTreeMap<i32, crypto::Key32>,
+pub(crate) struct MetaOpener<'a> {
+    pub(crate) auth: &'a Authority<'a>,
+    pub(crate) keys: BTreeMap<i32, crypto::Key32>,
 }
 
 impl MetaOpener<'_> {
-    async fn open(
+    pub(crate) async fn open(
         &mut self,
         tx: &Transaction<'_>,
         credential: &str,
@@ -530,7 +530,10 @@ impl MetaOpener<'_> {
 // Who the caller is
 // ---------------------------------------------------------------------------
 
-async fn is_steward(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<bool, VaultError> {
+pub(crate) async fn is_steward(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+) -> Result<bool, VaultError> {
     match grants::authorise_account(tx, auth, None, Capability::Steward).await {
         Ok(_) => Ok(true),
         Err(AuthorityError::NotAuthorised) | Err(AuthorityError::QuorumNotMet { .. }) => Ok(false),
@@ -538,7 +541,10 @@ async fn is_steward(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<bool, 
     }
 }
 
-async fn require_steward(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<(), VaultError> {
+pub(crate) async fn require_steward(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+) -> Result<(), VaultError> {
     if is_steward(tx, auth).await? {
         Ok(())
     } else {
@@ -550,7 +556,7 @@ async fn require_steward(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<(
 
 /// Verify an ES256 signature by an account key of `account`, named by its fingerprint and in
 /// service at `at`. The key row's own seal is checked first (`grants::key_by_fingerprint`).
-async fn verify_account_signature(
+pub(crate) async fn verify_account_signature(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
     account: &str,
@@ -889,7 +895,7 @@ pub async fn enrol_key(
     Ok(key_view(&row, &me))
 }
 
-fn entry_metadata(entry_type: EntryType, fields: &[(&str, Json)]) -> Vec<u8> {
+pub(crate) fn entry_metadata(entry_type: EntryType, fields: &[(&str, Json)]) -> Vec<u8> {
     let mut map = BTreeMap::new();
     map.insert(
         "entry_type".to_string(),
@@ -1406,7 +1412,7 @@ pub async fn delete_entry(
     Ok(())
 }
 
-fn clean_credential_id(id: &str) -> Result<(), VaultError> {
+pub(crate) fn clean_credential_id(id: &str) -> Result<(), VaultError> {
     let ok = id
         .strip_prefix("cred_")
         .is_some_and(|u| fathom_id::Ulid::decode(u).is_ok_and(|x| x.to_string() == u));
@@ -1424,7 +1430,7 @@ fn check_secret(ct: &[u8], nonce: &[u8]) -> Result<(), VaultError> {
     Ok(())
 }
 
-async fn live_person_key(
+pub(crate) async fn live_person_key(
     tx: &Transaction<'_>,
     tenant: &str,
     account: &str,
@@ -1440,7 +1446,7 @@ async fn live_person_key(
 }
 
 /// The live (unrevoked) wrap at `epoch` for `key` (or, with `None`, for the live recovery key).
-async fn current_wrap(
+pub(crate) async fn current_wrap(
     tx: &Transaction<'_>,
     tenant: &str,
     credential: &str,
@@ -1471,7 +1477,7 @@ async fn current_wrap(
     Ok(row.map(|r| r.get(0)))
 }
 
-async fn lock_entry(
+pub(crate) async fn lock_entry(
     tx: &Transaction<'_>,
     tenant: &str,
     credential: &str,
@@ -1533,6 +1539,11 @@ pub struct EntryView {
     pub needs_rotation: bool,
     pub holders: Vec<Holder>,
     pub opening: Option<Opening>,
+    /// The `vault_shared` chain entry of the current epoch: the sequence an owner's consent to
+    /// Mode B names (`vault_fathom::mode_change_bytes`).
+    pub share_seq: i64,
+    /// Fathom's own copy (Mode B), if this login was ever given one.
+    pub fathom: Option<crate::vault_fathom::FathomView>,
 }
 
 const ENTRY_COLUMNS: &str = "e.id, e.owner, e.meta_ct, e.meta_nonce, e.meta_key_epoch, \
@@ -1587,6 +1598,15 @@ async fn build_entry(
         Some(k) => opening_for(tx, tenant, &id, epoch, k, row).await?,
         None => None,
     };
+    let share_seq: i64 = tx
+        .query_opt(
+            "SELECT chain_seq FROM vault.shares WHERE organisation_id = $1 AND entry_id = $2 \
+             AND epoch = $3",
+            &[&tenant, &id, &epoch],
+        )
+        .await?
+        .map_or(0, |r| r.get(0));
+    let fathom = crate::vault_fathom::view_for(tx, tenant, &id).await?;
     Ok(EntryView {
         id,
         meta,
@@ -1600,6 +1620,8 @@ async fn build_entry(
         needs_rotation: row.get(7),
         holders,
         opening,
+        share_seq,
+        fathom,
     })
 }
 
@@ -1641,7 +1663,7 @@ async fn opening_for(
     }))
 }
 
-async fn entry_by_id(
+pub(crate) async fn entry_by_id(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
     credential: &str,
@@ -1978,6 +2000,11 @@ impl EntryView {
             ("version", Json::Int(self.version)),
             ("epoch", Json::Int(self.epoch as i64)),
             ("needsRotation", Json::Bool(self.needs_rotation)),
+            ("shareSeq", Json::Int(self.share_seq)),
+            (
+                "fathom",
+                opt(&self.fathom, crate::vault_fathom::FathomView::to_json),
+            ),
             (
                 "holders",
                 Json::Arr(

@@ -347,9 +347,18 @@ Built in part one. Pictures from the real-server drive: `reviews/vault/` in the 
 - **Setup** in four steps: what it is, the Emergency Kit (Download, Copy, Print, and the tick
   before Continue), the passphrase (12 characters or more, twice), done.
 - **Fingerprints** are 24 characters in four groups of six, not nine words (ADR-0071).
+- **Logins Fathom can use** (part two). The owner's card offers "Let Fathom use it…". The consent
+  screen says what Fathom will do with it and on which devices, then the storage design's sentence
+  word for word ("After this change, Fathom's server can read this credential…") with "Protects a
+  stolen database or backup, not a compromised server.", names anyone else who holds it (so a
+  second admin signs), and needs a tick before the account key signs. The tag on the card and the
+  table's "How Fathom keeps it" read "Only people", "Waiting for an admin", "Fathom can use it" (in
+  the caution colour) or "Fathom's copy is out of date"; a line under it says "Fathom used it N
+  times · last …, for Auto-populate". Another admin sees "Sign as the second admin…"; the owner or
+  any admin sees "Stop Fathom using it…", whose confirm carries the B-to-A sentence.
 
-Still to draw: the mode marker and consent screen for logins Fathom can use (part two), the breach
-policy settings at organisation, kind and critical-login level (part three).
+Still to draw: the breach policy settings at organisation, kind and critical-login level (part
+three).
 
 ## Owed to the boards, and two numbers not named
 

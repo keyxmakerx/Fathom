@@ -1,6 +1,6 @@
 # ADR-0071: The password vault, part one (logins only people can read)
 
-**Status:** accepted 2026-10-25 (owner answered the round-32 cards on the sign-off page: look v2,
+**Status:** accepted 2026-10-25, part two built the same day (owner answered the round-32 cards on the sign-off page: look v2,
 admins A, lockout A, external, breach A with a weekly re-check, and "make sure the checks can be per
 org, or even like per type of passwords", all 25 October). Part one builds ADR-0042's Mode A.
 
@@ -61,10 +61,43 @@ and what parts two and three hold.
   this browser's account key, which is made at a sign-in with the authenticator app. Someone who
   signed in with a password alone is asked to set one up first, not after choosing a passphrase.
 
-## Not decided here (parts two and three)
+## Part two: logins Fathom itself can use (Mode B), built 2026-10-25
 
-- **Mode B, logins Fathom itself can use** (for Auto-populate): a key file at
-  `/var/lib/fathom/keys/vault.key`, the slot the backup work reserved, and every read logged.
+8. **A copy the server seals, beside the people's copies.** Mode B adds a copy; it does not replace
+   the browser-sealed one, so the people who held the login keep it. The owner's browser opens the
+   login and hands it, as canonical JSON `{n, p, u}`, to one route; the server seals it at once
+   with ChaCha20-Poly1305 under HKDF-Expand(`vault.key`, "fathom/vault/fathom-copy/key/v1" ‖
+   LP(organisation)), the additional data naming the organisation, the login, its epoch and the key
+   id. No new crate. `vault.key` is a root key file of its own (`FATHOM_VAULT_KEY`, default
+   `/var/lib/fathom/keys/vault.key`, the slot the backup work reserved); it is never the master
+   key, so restoring `master.key` alone opens no login.
+9. **Who may change it (storage design §13.5).** Only someone who holds it now (R1). Of those, only
+   its owner consents to A to B (R2), by an ES256 account-key signature over
+   `vault_fathom::mode_change_bytes`, which names the organisation, the login, both epochs, the
+   owner and their key, the holders of the new epoch, `vault.key`'s id, the time and the share entry
+   it follows. The browser builds those bytes itself; `bytes.test.ts` and the server's unit test pin
+   the same SHA-256. A to B always shares the login again first under a fresh key (epoch after >
+   epoch before), so its holders are named again at the moment it becomes server-readable. Shared
+   with anyone besides the owner, it waits until another admin signs the same stored bytes. B to A
+   (R3) is the owner or any admin, with no consent; the copy is emptied and the row kept.
+10. **Every use on the record.** `vault_fathom::use_login(tx, auth, key, login, design, element,
+    purpose)` is the only way Fathom opens a copy: the login must be on, its copy at the current
+    epoch and under this server's `vault.key`, marked as used on that device, and the caller able to
+    draw in that design. It writes `vault_read` to the organisation's history and a row the card
+    counts, both before opening. Purposes are `autopopulate` and `check`.
+11. **A changed login.** A new epoch (a changed password or set of holders) leaves Fathom's copy out
+    of date, and an out-of-date copy is never used; the browser that made the epoch hands Fathom the
+    new one. A copy still waiting for its second signature is not refreshed: the admin must sign over
+    the holders the owner named, so the owner asks again.
+12. **What the person is told.** The consent screen quotes the storage design's sentences word for
+    word, and needs a tick before the account key signs. Turning it off shows the B-to-A sentence
+    with two words changed: the design says "while it was in Mode B, with the master key", and the
+    screen says "while Fathom could use it, with the server's vault.key file", because here that
+    key file, not the master key, opens the copy, and "Mode B" is a word only this record uses.
+    Not built yet: the chain verifier's check that each `vault_read` names a login then in Mode B.
+
+## Not decided here (part three and after)
+
 - **Breach checks**, with the policy at three levels, most specific wins: the organisation (on or
   off, re-check interval, warn or refuse), a kind of login, and a login marked critical (re-checked
   weekly, a breached password refused). Pacing is in `docs/OPERATING.md`.

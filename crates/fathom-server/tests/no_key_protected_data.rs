@@ -662,6 +662,25 @@ const TABLES: &[TableClaim] = &[
         why: "a record that an admin opened an entry with the recovery sheet: who, which entry, \
               when. Written before the wrap is served.",
     },
+    // ---- Logins Fathom can use (Mode B, ADR-0071 part two) -- `0042_vault_fathom.sql` --
+    TableClaim {
+        name: "vault.fathom_copies",
+        protection: Protection::KeyProtected {
+            columns: &["copy_ct"],
+            under: "a per-organisation key derived (HKDF-SHA256) from `vault.key`, a root key \
+                    file of its own beside `master.key` and `chain.key`; the organisation, \
+                    login, epoch and key id are bound in the associated data",
+        },
+        why: "Fathom's own copy of a login its owner let it use. Only `copy_ct` is the login; \
+              the consent statement, signatures, fingerprints and states are what make the \
+              change auditable and must be readable to be checked.",
+    },
+    TableClaim {
+        name: "vault.fathom_reads",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "a record that Fathom opened a login: which one, for what, on which device, at \
+              whose request. Written, with its chain entry, before the copy is opened.",
+    },
 ];
 
 /// Schemas a migration may create besides `public`. Each one's tables are named `schema.table`
