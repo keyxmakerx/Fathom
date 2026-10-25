@@ -1,5 +1,5 @@
 // Drives who is plugged in where (sign-off r29-fill, mockup r29-autofill-a): select a switch, paste its MAC table
-// onto the canvas, add the router's ARP table in the card, see a new device and a cable to a drawn port suggested,
+// onto the canvas, add the router's ARP table and a DHCP lease in the card, see a new device and a cable to a drawn port suggested,
 // add them as one undo step. Screenshots land in FATHOM_SHOTS. Usage: bash scripts/build-wasm.sh (once), then
 // node scripts/drive-hosts.mjs. Overrides: FATHOM_ROOT, PW_CHROMIUM, PW_PLAYWRIGHT.
 import { execFileSync, spawn } from 'node:child_process';
@@ -172,10 +172,16 @@ try {
     check(`the ARP table names the new device (${scheme})`, /new: host-192-168-10-20/.test(named) && /1 address read/.test(named), named.slice(0, 500));
     await shot(page, `HO-02-addresses-${scheme}`);
 
+    await card.locator('textarea').fill('1792900000 9c:54:16:31:8b:d1 192.168.10.20 media-box *\n');
+    await card.getByRole('button', { name: 'Read addresses' }).click();
+    await page.waitForTimeout(300);
+    const leased = await card.innerText();
+    check(`a dnsmasq lease names it (${scheme})`, /new: media-box/.test(leased) && /2 addresses read/.test(leased), leased.slice(0, 500));
+
     await card.getByRole('button', { name: /Add 1 device and 2 cables/i }).click();
     await page.waitForTimeout(700);
     check(`Add closes the card (${scheme})`, (await page.getByTestId('hosts-card').count()) === 0);
-    check(`the new device is on the canvas (${scheme})`, (await page.locator('.react-flow__node-freeBox', { hasText: 'host-192-168-10-20' }).count()) === 1);
+    check(`the new device is on the canvas (${scheme})`, (await page.locator('.react-flow__node-freeBox', { hasText: 'media-box' }).count()) === 1);
     check(`no dashed lines remain (${scheme})`, (await page.locator('[data-plan-ghost]').count()) === 0);
     await shot(page, `HO-03-added-${scheme}`);
 

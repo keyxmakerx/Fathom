@@ -1,11 +1,11 @@
 // Who is plugged in where (round 29, card r29-fill; mockup r29-autofill-a). The suggestions card's other half: a
-// switch's MAC table, and optionally a router's ARP table for the addresses. Each port that learned one address
+// switch's MAC table, and optionally a router's ARP table or DHCP leases for the addresses and names. Each port that learned one address
 // becomes a ticked suggestion, a cable to a drawn port with that MAC or a new sketch device; the rest are listed
 // with why they are left. "Add" is the only write, one undo step. Skip writes nothing, and the text is never kept.
 import { useContext, useEffect, useId, useMemo, useRef, useState, type JSX } from 'react';
 
 import { asString, fieldValue, parseNodeId, type Document } from '../../document/model';
-import { acceptHosts, readArp, readMacTable, suggestHosts, type ArpRow, type HostSuggestion, type MacTable } from '../../document/hosts';
+import { acceptHosts, readAddresses, readMacTable, suggestHosts, type ArpRow, type HostSuggestion, type MacTable } from '../../document/hosts';
 import { deviceOf } from '../../document/portTies';
 import { SuggestContext } from './suggestStore';
 import '../paste/paste.css';
@@ -39,7 +39,7 @@ export function HostsCard({ doc, deviceId, text, actor, spot, onApply, onClose }
   const [device, setDevice] = useState<string | null>(() => (deviceId === null ? null : deviceOf(doc, deviceId)));
   const table: MacTable = useMemo(() => readMacTable(text) ?? { format: 'cisco', rows: [] }, [text]);
   // An ARP table pasted with the MAC table counts; a second box takes one from the router.
-  const [arp, setArp] = useState<ArpRow[]>(() => readArp(text));
+  const [arp, setArp] = useState<ArpRow[]>(() => readAddresses(text));
   const [box, setBox] = useState('');
   const [unread, setUnread] = useState(false);
   const [unticked, setUnticked] = useState<ReadonlySet<string>>(new Set());
@@ -80,8 +80,8 @@ export function HostsCard({ doc, deviceId, text, actor, spot, onApply, onClose }
     return () => window.removeEventListener('keydown', onKey, true);
   }, [onClose]);
 
-  const readAddresses = () => {
-    const more = readArp(box);
+  const readMore = () => {
+    const more = readAddresses(box);
     if (more.length === 0) {
       setUnread(true);
       return;
@@ -168,13 +168,13 @@ export function HostsCard({ doc, deviceId, text, actor, spot, onApply, onClose }
 
           <p className="paste-card__note suggest-card__how">
             {arp.length > 0 ? `${plural(arp.length, 'address', 'addresses')} read. ` : ''}
-            For addresses and names, run <code>show ip arp</code> (Cisco), <code>show arp</code> (Juniper) or <code>ip neigh</code> (Linux) on the router and paste it here.
+            For addresses and names, run <code>show ip arp</code> (Cisco), <code>show arp</code> (Juniper) or <code>ip neigh</code> (Linux) on the router, or paste its DHCP leases (<code>dhcpd.leases</code>, <code>dnsmasq.leases</code>, Kea's <code>kea-leases4.csv</code>), here.
           </p>
-          <textarea className="paste-card__box" rows={3} value={box} onChange={(e) => setBox(e.target.value)} placeholder="paste the ARP table (optional)" spellCheck={false} autoComplete="off" autoCorrect="off" autoCapitalize="off" aria-label="ARP table" />
-          {unread && <p className="paste-card__refusal" role="alert">That does not read as an ARP table. Paste the whole table, with its header line.</p>}
+          <textarea className="paste-card__box" rows={3} value={box} onChange={(e) => setBox(e.target.value)} placeholder="paste an ARP table or DHCP leases (optional)" spellCheck={false} autoComplete="off" autoCorrect="off" autoCapitalize="off" aria-label="ARP table or DHCP leases" />
+          {unread && <p className="paste-card__refusal" role="alert">That does not read as an ARP table or DHCP leases. Paste the whole table or file.</p>}
           {refusal !== '' && <p className="paste-card__refusal" role="alert">{refusal}</p>}
           <div className="paste-card__actions suggest-card__actions">
-            <button type="button" onClick={readAddresses} disabled={box.trim() === ''}>Read addresses</button>
+            <button type="button" onClick={readMore} disabled={box.trim() === ''}>Read addresses</button>
             <button type="button" onClick={onClose}>Skip</button>
             <button type="button" className="suggest-card__add" disabled={ticked.length === 0} onClick={add}>
               {addWord}

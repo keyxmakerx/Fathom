@@ -21,6 +21,15 @@
 //   command summary "show arp").
 // - Linux `ip neigh show`: one line per neighbour in the form `ip neigh add` takes, `ADDR dev DEV lladdr LLADDR
 //   STATE` (man7.org, ip-neighbour(8)); FAILED and INCOMPLETE lines carry no lladdr and say nothing.
+// DHCP leases give the names (round 29, same card), read on 2026-10-25:
+// - ISC dhcpd `dhcpd.leases`: `lease ip-address { ... hardware ethernet MAC; client-hostname hostname; ... }`; the
+//   file is a log, so when a lease is declared more than once the last one is current (mankier.com, dhcpd.leases(5)).
+//   The page does not say the hostname is quoted; files carry it quoted, so quotes are taken off when present.
+// - dnsmasq `dnsmasq.leases`: one line per lease, expiry (epoch seconds), MAC, IP, hostname (no dots; `*` when the
+//   client sent none), client-id (Simon Kelley on dnsmasq-discuss, 10 Feb 2005, "dnsmasq.leases file format?").
+// - Kea memfile `kea-leases4.csv`: header `address,hwaddr,client_id,valid_lifetime,expire,subnet_id,fqdn_fwd,
+//   fqdn_rev,hostname,state,user_context` (kea-users list, September 2023, "kea-leases4.csv decode"); read by its
+//   header names, so a column added later does not move the ones read.
 // A MAC is accepted in the spellings these pages use: colon pairs and Cisco's dotted quads.
 
 import { addSketchPort } from './commands';
@@ -171,6 +180,63 @@ export function readArp(text: string): ArpRow[] {
   return out;
 }
 
+/** A lease's hostname as a name, or nothing: unquoted, and nothing for dnsmasq's `*`. */
+const leaseName = (s: string | undefined): string | undefined => {
+  const t = s?.trim().replace(/^"(.*)"$/, '$1').trim();
+  return t === undefined || t === '' || t === '*' ? undefined : t;
+};
+
+/** Every lease in `text`: ISC dhcpd blocks (the last declaration of an address), dnsmasq lines, or Kea's CSV by its
+ * header. */
+export function readLeases(text: string): ArpRow[] {
+  const src = text.replace(/\r/g, '');
+  const out: ArpRow[] = [];
+  // ISC: lease blocks, the last for an address current.
+  const isc = new Map<string, ArpRow>();
+  for (const m of src.matchAll(/^\s*lease\s+(\S+)\s*\{([\s\S]*?)\n\s*\}/gm)) {
+    const ip = m[1]!;
+    const body = m[2]!;
+    const hw = /hardware\s+ethernet\s+([0-9a-f:]+)\s*;/i.exec(body);
+    const mac = hw ? canonMac(hw[1]!) : null;
+    if (!isIp(ip) || mac === null) continue;
+    const name = leaseName(/client-hostname\s+([^;]+);/.exec(body)?.[1]);
+    isc.delete(ip);
+    isc.set(ip, name !== undefined ? { ip, mac, name } : { ip, mac });
+  }
+  out.push(...isc.values());
+  // Kea: a CSV header naming address and hwaddr.
+  const lines = src.split('\n');
+  const head = lines.findIndex((l) => /^address,hwaddr,/.test(l.trim()));
+  if (head >= 0) {
+    const cols = lines[head]!.trim().split(',');
+    const at = (k: string) => cols.indexOf(k);
+    for (const line of lines.slice(head + 1)) {
+      const cells = line.trim().split(',');
+      if (cells.length < 2) continue;
+      const ip = cells[at('address')] ?? '';
+      const mac = canonMac(cells[at('hwaddr')] ?? '');
+      if (!isIp(ip) || mac === null) continue;
+      const name = at('hostname') >= 0 ? leaseName(cells[at('hostname')]) : undefined;
+      out.push(name !== undefined ? { ip, mac, name: name.replace(/\.$/, '') } : { ip, mac });
+    }
+  }
+  // dnsmasq: expiry, MAC, IP, hostname, client-id.
+  for (const line of lines) {
+    const m = /^\s*\d+\s+(\S+)\s+(\S+)\s+(\S+)\s+\S+\s*$/.exec(line);
+    if (!m) continue;
+    const mac = canonMac(m[1]!);
+    if (mac === null || !isIp(m[2]!)) continue;
+    const name = leaseName(m[3]);
+    out.push(name !== undefined ? { ip: m[2]!, mac, name } : { ip: m[2]!, mac });
+  }
+  return out;
+}
+
+/** Addresses and names from whatever was pasted: ARP tables and DHCP leases alike. */
+export function readAddresses(text: string): ArpRow[] {
+  return [...readArp(text), ...readLeases(text)];
+}
+
 // ---------------------------------------------------------------------------
 // Matching the table to this design.
 
@@ -246,8 +312,13 @@ export function suggestHosts(doc: Document, id: string, table: MacTable, arp: re
   const deviceId = deviceOf(doc, id);
   if (deviceId === null) return [];
   const switchName = hostnameOf(doc, deviceId) || 'This switch';
+  // One row per MAC: the first address seen, and a name from any row that has one (a lease, a Junos ARP name).
   const byMac = new Map<string, ArpRow>();
-  for (const a of arp) if (!byMac.has(a.mac)) byMac.set(a.mac, a);
+  for (const a of arp) {
+    const had = byMac.get(a.mac);
+    if (had === undefined) byMac.set(a.mac, { ...a });
+    else if (had.name === undefined && a.name !== undefined) byMac.set(a.mac, { ...had, name: a.name });
+  }
 
   const byPort = new Map<string, MacRow[]>();
   for (const row of table.rows) {

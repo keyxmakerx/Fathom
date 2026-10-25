@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { connectPorts } from './cables';
 import { addSketchPort, createSketchDevice } from './commands';
 import { setDeviceField, setPortMac } from './edit';
-import { acceptHosts, looksLikeMacTable, readArp, readMacTable, suggestHosts } from './hosts';
+import { acceptHosts, looksLikeMacTable, readAddresses, readArp, readLeases, readMacTable, suggestHosts } from './hosts';
 import { asString, edgesIn, emptyDocument, fieldValue, parseNodeId, readPhysicalPortFields, type Document } from './model';
 import { undo } from './undo';
 
@@ -180,5 +180,73 @@ describe('suggesting devices and cables', () => {
   it('writes nothing for an unticked row', () => {
     const next = acceptHosts(withMac, sw.chassisId, table, arp, new Set(), { x: 0, y: 0 }, OPTS);
     expect(next.nodes.length).toBe(withMac.nodes.length);
+  });
+});
+
+// The shapes of the lease files cited in hosts.ts, with this test's own addresses.
+const ISC = `# The format of this file is documented in the dhcpd.leases(5) manual page.
+lease 192.168.10.20 {
+  starts 4 2026/10/22 09:00:00;
+  ends 4 2026/10/22 21:00:00;
+  hardware ethernet 9c:54:16:31:8b:d1;
+  client-hostname "old-name";
+}
+lease 192.168.10.20 {
+  starts 5 2026/10/23 09:00:00;
+  hardware ethernet 9c:54:16:31:8b:d1;
+  uid "nas-uid";
+  client-hostname "nas";
+}
+lease 192.168.10.40 {
+  hardware ethernet 00:0f:fe:84:bb:73;
+}
+`;
+
+const DNSMASQ = `1792900000 9c:54:16:31:8b:d1 192.168.10.20 nas 01:9c:54:16:31:8b:d1
+1792900100 00:01:e6:43:91:a9 192.168.10.31 * *
+`;
+
+const KEA = `address,hwaddr,client_id,valid_lifetime,expire,subnet_id,fqdn_fwd,fqdn_rev,hostname,state,user_context
+192.168.10.20,9c:54:16:31:8b:d1,,4000,1792900000,1,1,1,nas.home.arpa.,0,
+192.168.10.31,00:01:e6:43:91:a9,,4000,1792900000,1,0,0,,0,
+`;
+
+describe('reading DHCP leases', () => {
+  it('reads ISC dhcpd leases, the last declaration of an address current, quotes taken off', () => {
+    expect(readLeases(ISC)).toEqual([
+      { ip: '192.168.10.20', mac: '9c:54:16:31:8b:d1', name: 'nas' },
+      { ip: '192.168.10.40', mac: '00:0f:fe:84:bb:73' },
+    ]);
+  });
+
+  it('reads dnsmasq leases, and no name for *', () => {
+    expect(readLeases(DNSMASQ)).toEqual([
+      { ip: '192.168.10.20', mac: '9c:54:16:31:8b:d1', name: 'nas' },
+      { ip: '192.168.10.31', mac: '00:01:e6:43:91:a9' },
+    ]);
+  });
+
+  it('reads Kea CSV by its header', () => {
+    expect(readLeases(KEA)).toEqual([
+      { ip: '192.168.10.20', mac: '9c:54:16:31:8b:d1', name: 'nas.home.arpa' },
+      { ip: '192.168.10.31', mac: '00:01:e6:43:91:a9' },
+    ]);
+  });
+
+  it('does not read a MAC table or an ARP table as leases', () => {
+    expect(readLeases(IOS)).toEqual([]);
+    expect(readLeases(IOS_ARP)).toEqual([]);
+  });
+
+  it('names a new device from a lease, keeping the ARP address', () => {
+    const sw = box(emptyDocument(), 'sw-core', ['Gi1/0/5']);
+    const rows = suggestHosts(sw.doc, sw.chassisId, readMacTable(IOS)!, readAddresses(IOS_ARP + '\n' + DNSMASQ));
+    expect(rows.find((r) => r.port === 'Gi1/0/5')).toMatchObject({ kind: 'new', state: 'ready', name: 'nas', ip: '192.168.10.20' });
+  });
+
+  it('takes the name before the first dot from a fully qualified lease name', () => {
+    const sw = box(emptyDocument(), 'sw-core', ['Gi1/0/5']);
+    const rows = suggestHosts(sw.doc, sw.chassisId, readMacTable(IOS)!, readLeases(KEA));
+    expect(rows.find((r) => r.port === 'Gi1/0/5')!.name).toBe('nas');
   });
 });
