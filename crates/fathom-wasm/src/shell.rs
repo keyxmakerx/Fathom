@@ -3192,7 +3192,7 @@ fn is_own_front_end(platform: &str) -> bool {
 
 fn detector_names(d: fathom_ingest::redact::DetectorSet) -> String {
     use fathom_ingest::redact::DetectorSet;
-    const NAMED: [(u8, &str); 7] = [
+    const NAMED: [(u8, &str); 8] = [
         (DetectorSet::PATH, "path"),
         (DetectorSet::CRYPT_PREFIX, "crypt-prefix"),
         (DetectorSet::PEM_ARMOUR, "pem-armour"),
@@ -3200,6 +3200,7 @@ fn detector_names(d: fathom_ingest::redact::DetectorSet) -> String {
         (DetectorSet::BASE64, "base64"),
         (DetectorSet::LEAF_NAME, "leaf-name"),
         (DetectorSet::QUOTE_WRAP, "quote-wrap"),
+        (DetectorSet::KEY_PREFIX, "key-prefix"),
     ];
     NAMED
         .iter()

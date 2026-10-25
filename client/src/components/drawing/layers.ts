@@ -3,7 +3,7 @@
  * with `available: false` has no data on main yet; flip it when its PR lands
  * and the menu lists it. */
 
-export const LAYER_IDS = ['checks', 'addresses', 'vlans', 'docs', 'maintenance', 'tags'] as const;
+export const LAYER_IDS = ['checks', 'addresses', 'vlans', 'docs', 'maintenance', 'tags', 'vpns'] as const;
 
 export type LayerId = (typeof LAYER_IDS)[number];
 
@@ -21,6 +21,8 @@ export const LAYERS: readonly LayerSpec[] = [
   { id: 'docs', label: 'Docs', onByDefault: false, available: true },
   { id: 'maintenance', label: 'Maintenance', onByDefault: false, available: true },
   { id: 'tags', label: 'Tags', onByDefault: false, available: true },
+  // Mesh VPNs (schema 0.26): each VPN a badge with dashed spokes to its members.
+  { id: 'vpns', label: 'VPNs', onByDefault: false, available: true },
 ];
 
 export type LayerSet = Readonly<Record<LayerId, boolean>>;

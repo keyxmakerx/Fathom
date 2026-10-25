@@ -201,7 +201,10 @@ fn schema_version_is_the_trees() {
     // 0.23 -> 0.24: missing links for cables. One optional `Cable` field, `needs_finishing` (478); MINOR.
     //
     // 0.24 -> 0.25: the LAG plan step. One variant, `lag`, on `PlanStep.kind`; MINOR.
-    assert_eq!(SCHEMA_VERSION, "0.25");
+    //
+    // 0.25 -> 0.26: mesh VPNs. One node kind (`OverlayNetwork`), two edge kinds (`HasOverlay`,
+    // `OverlayMember`), seven field keys (479-485); all MINOR.
+    assert_eq!(SCHEMA_VERSION, "0.26");
 }
 
 #[test]
@@ -731,7 +734,8 @@ fn dispatch_names_every_registry_key() {
     // One more: round 15's `PhysicalPort.mac` (462; 414-461 held for the other round 15 threads).
     // 413 -> 417: cable runs and ties (414-417).
     // One more: missing links' `Cable.needs_finishing` (478, schema 0.24).
-    assert_eq!(FIELD_KEYS.len(), 413, "the registry grew or shrank");
+    // 413 -> 420: mesh VPNs (479-485).
+    assert_eq!(FIELD_KEYS.len(), 420, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.
