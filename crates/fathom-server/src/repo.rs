@@ -737,7 +737,7 @@ pub async fn list_members(
 pub(crate) async fn list_organisations_for_account_in(
     tx: &Transaction<'_>,
     account: AccountId,
-) -> Result<Vec<(Organisation, Role)>, RepoError> {
+) -> Result<Vec<(Organisation, Role, bool)>, RepoError> {
     tx.execute(
         "SELECT set_config('app.account_id', $1, true)",
         &[&account.to_string()],
@@ -746,7 +746,7 @@ pub(crate) async fn list_organisations_for_account_in(
 
     let rows = tx
         .query(
-            "SELECT o.id, o.display_name, m.role FROM organisations o \
+            "SELECT o.id, o.display_name, m.role, o.practice FROM organisations o \
              JOIN memberships m ON m.organisation_id = o.id \
              WHERE m.account_id = $1 \
              ORDER BY o.id",
@@ -766,6 +766,7 @@ pub(crate) async fn list_organisations_for_account_in(
                     display_name: row.get(1),
                 },
                 Role::parse(&role).ok_or(RepoError::Corrupt("membership role"))?,
+                row.get(3),
             ))
         })
         .collect()
@@ -783,7 +784,7 @@ pub async fn list_organisations_for_account(
     let tx = client.transaction().await?;
     let organisations = list_organisations_for_account_in(&tx, account).await?;
     tx.commit().await?;
-    Ok(organisations.into_iter().map(|(o, _)| o).collect())
+    Ok(organisations.into_iter().map(|(o, _, _)| o).collect())
 }
 
 // ---- Scopes ----

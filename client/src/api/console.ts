@@ -130,6 +130,13 @@ export async function createOrganisationShell(displayName: string): Promise<Orga
   return parseOrganisationClaimAnswer(bytes);
 }
 
+/** `POST /admin/organisations/practice` (ADR-0069): the same act and answer as `createOrganisationShell`, with the
+ * shell marked practice. */
+export async function createPracticeShell(displayName: string): Promise<OrganisationClaim> {
+  const bytes = await signedFetch('POST', '/admin/organisations/practice', lp(utf8(displayName)));
+  return parseOrganisationClaimAnswer(bytes);
+}
+
 /** One row of `GET /admin/operators`, with §5.5's sentence beside it. */
 export interface OperatorRow {
   id: string;

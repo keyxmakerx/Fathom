@@ -8,9 +8,11 @@ export interface SampleCardProps {
   disabled: boolean;
   error: string | null;
   onOpen: () => void;
+  /** The practice lab (card nu-why A): the same network with mistakes planted for Checks to find. */
+  practice?: { summary: string; onOpen: () => void };
 }
 
-export function SampleCard({ summary, busy, disabled, error, onOpen }: SampleCardProps) {
+export function SampleCard({ summary, busy, disabled, error, onOpen, practice }: SampleCardProps) {
   return (
     <section className="home-sample" aria-labelledby="home-sample-title">
       <div className="home-sample__text">
@@ -22,6 +24,16 @@ export function SampleCard({ summary, busy, disabled, error, onOpen }: SampleCar
         <button type="button" className="home__btn home-sample__open" onClick={onOpen} disabled={busy || disabled}>
           {busy ? 'Opening…' : 'Open sample'}
         </button>
+        {practice && (
+          <div className="home-sample__practice">
+            <p className="home-sample__body">
+              <strong>Practice home lab.</strong> {practice.summary}
+            </p>
+            <button type="button" className="home__btn home__btn--small" onClick={practice.onOpen} disabled={busy || disabled}>
+              Open practice lab
+            </button>
+          </div>
+        )}
         {error && <p className="home__error">{error}</p>}
       </div>
       <svg className="home-sample__picture" viewBox="0 0 220 150" aria-hidden="true">

@@ -2532,4 +2532,84 @@ mod tests {
         }
         assert!(checked > 0, "no secret entries were driven");
     }
+
+    /// #104 item 4, for the dictionaries that came after it. RouterOS and pfSense have
+    /// front ends of their own, so the note box (which chains the set-form dictionaries
+    /// only) and a fragment the paste box cannot sniff are gated by the sweep alone.
+    /// This writes every `secret:` entry of every shipped front-end dictionary in its
+    /// own platform's syntax and drives it through every shipped dictionary's gate.
+    ///
+    /// Values a real device takes (CLAUDE.md rule 2): a SIM PIN has at least 4 digits and
+    /// is coded on 8 bytes (3GPP TS 31.101 §9.6, read 2026-10-25 at
+    /// itecspec.com/3gpp/31.101/s/9.6), so the shortest, `8841`; everything else gets a
+    /// short passphrase that trips no shape detector, so only the name can catch it.
+    #[test]
+    fn every_front_end_secret_is_caught_by_every_gate() {
+        let dir = repo_root().join("corpus").join("dict");
+        let mut all: Vec<String> = fs::read_dir(&dir)
+            .expect("corpus/dict")
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        all.sort();
+        let dicts: Vec<(String, Dictionary)> = all
+            .iter()
+            .map(|p| {
+                (
+                    p.clone(),
+                    Dictionary::load_platform(&repo_root(), p).expect("ships"),
+                )
+            })
+            .collect();
+        let mut checked = 0;
+        for (owner, d) in dicts
+            .iter()
+            .filter(|(p, _)| p == "routeros" || p == "pfsense")
+        {
+            for e in d.entries.iter().filter(|e| e.secret.is_some()) {
+                let Some(pos) = e.secret_pos() else { continue };
+                let lits: Vec<&str> = e.path[..pos]
+                    .iter()
+                    .filter_map(|s| match s {
+                        PathSeg::Literal(t) => Some(t.as_str()),
+                        PathSeg::Capture(_) => None,
+                    })
+                    .collect();
+                let leaf = *lits.last().expect("a leaf before the value");
+                let secret = if leaf.ends_with("pin") {
+                    "8841"
+                } else {
+                    "Horse-Battery-77"
+                };
+                let line = if owner == "pfsense" {
+                    format!("<{leaf}>{secret}</{leaf}>\n")
+                } else {
+                    // `/menu words add leaf=value`, or `/menu set leaf=value` for a
+                    // singleton menu; the row's identity pair is left out.
+                    let menu: Vec<&str> = e.path[..pos]
+                        .iter()
+                        .take_while(|s| !matches!(s, PathSeg::Capture(_)))
+                        .filter_map(|s| match s {
+                            PathSeg::Literal(t) => Some(t.as_str()),
+                            PathSeg::Capture(_) => None,
+                        })
+                        .filter(|t| *t != leaf && *t != "set")
+                        .collect();
+                    let verb = if lits.contains(&"set") { "set" } else { "add" };
+                    format!("/{} {verb} {leaf}={secret}\n", menu.join(" "))
+                };
+                for (other, g) in &dicts {
+                    let out = crate::redact_only(line.as_bytes(), g).expect("within caps");
+                    assert!(
+                        !out.text.text().contains(secret),
+                        "`{}` ({owner}) survives {other}'s gate: {line}",
+                        e.id
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 0, "no secret entries were driven");
+    }
 }

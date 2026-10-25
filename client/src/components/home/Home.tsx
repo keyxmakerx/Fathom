@@ -19,6 +19,7 @@ import { About } from '../about/About';
 import { getSession } from '../../state/sessionState';
 import { clearJoinedFromInvitation, stillWaitingInvitee, wasJoinedFromInvitation } from '../../state/waitingInvitee';
 import { AwaitingSteward } from './AwaitingSteward';
+import { PracticeWelcome, type PracticeOffer } from './PracticeWelcome';
 import { type Loadable } from '../organisation/FoldersPanel';
 import { OrganisationTab } from '../organisation/OrganisationTab';
 import { canDrawFor } from '../design/useDesignSession';
@@ -76,6 +77,8 @@ export interface HomeProps {
    * console. Choosing the tab calls `onOpen`, which starts the operator
    * sign-in; `panel` is what the tab shows meanwhile. */
   admin?: { onOpen: () => void; panel: ReactNode };
+  /** ADR-0069: a practice space of their own, offered to the person who runs the server (present with `admin`). */
+  practice?: PracticeOffer;
   /** Told whether the person joined from an invitation and still waits, so the
    * caller can leave out what would send them the wrong way (the Admin pill). */
   onWaitingInviteeChange?: (waiting: boolean) => void;
@@ -102,6 +105,8 @@ const LEVEL: Record<string, string> = { network: 'Site', building: 'Building', r
 /** The busy marker while the home screen's own New design is making a Site. */
 const NEW_SITE_PENDING = 'new-site-pending';
 
+/** The same network with mistakes planted for Checks (card nu-why A); `corpus/samples/practice-lab.json`. */
+const PRACTICE_SAMPLE = 'practice-lab';
 
 export function Home({
   address,
@@ -115,6 +120,7 @@ export function Home({
   onTabChange,
   onTabsChange,
   admin,
+  practice,
   onWaitingInviteeChange,
 }: HomeProps) {
   const [organisations, setOrganisations] = useState<Loadable<Organisation[]>>({ status: 'loading' });
@@ -207,6 +213,33 @@ export function Home({
     };
   }, [selectedOrgId]);
 
+  // ADR-0069: a practice space just made opens straight onto the home lab, the way Open sample does. Making it went
+  // through Admin's sign-in, so this Home may be a fresh one: it fetches the list again if the space is not in it yet.
+  const justMade = practice?.justMade ?? null;
+  const [refetchedFor, setRefetchedFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (justMade === null || organisations.status !== 'ready') return;
+    const org = organisations.value.find((o) => o.organisationId === justMade);
+    if (!org) {
+      if (refetchedFor === justMade) return;
+      setRefetchedFor(justMade);
+      fetchOrganisations().then(
+        (orgs) => setOrganisations({ status: 'ready', value: orgs }),
+        (error: unknown) => setOrganisations({ status: 'error', message: describeError(error) }),
+      );
+      return;
+    }
+    if (selectedOrgId !== justMade) {
+      setSelectedOrgId(justMade);
+      return;
+    }
+    if (scopes.status !== 'ready') return;
+    practice?.onOpened();
+    void openSample(org);
+    // `openSample` and `practice` are read, not watched: the list, the selection and the folders decide when.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [justMade, organisations, selectedOrgId, scopes, refetchedFor]);
+
   // The "exactly one place to go" rule (ADR-0046 §3). Only decidable once
   // organisations have loaded and, for a sole organisation, its designs
   // have too -- `pickDirectEntry` treats "not yet loaded" as "not one",
@@ -230,6 +263,9 @@ export function Home({
   // way. The note is dropped once an organisation appears.
   const organisationCount = organisations.status === 'ready' ? organisations.value.length : null;
   const waitingInvitee = stillWaitingInvitee(organisationCount, wasJoinedFromInvitation(address));
+  // ADR-0069: the practice space is listed apart, as practice, never as an organisation to run.
+  const realOrganisations = organisations.status === 'ready' ? organisations.value.filter((o) => !o.practice) : [];
+  const practiceOrganisations = organisations.status === 'ready' ? organisations.value.filter((o) => o.practice) : [];
   useEffect(() => {
     if (organisationCount !== null && organisationCount > 0) clearJoinedFromInvitation(address);
   }, [organisationCount, address]);
@@ -319,12 +355,12 @@ export function Home({
    * r15-start: a fresh copy of the sample, made as a design of the person's own in the same place New design puts
    * one, named after the sample, then opened. Nothing else is touched; wrecking it costs nothing.
    */
-  async function openSample(organisation: Organisation) {
+  async function openSample(organisation: Organisation, sampleId: string = HOME_SAMPLE) {
     if (scopes.status !== 'ready') return;
     setSampleError(null);
     setSampleBusy(true);
     try {
-      const spec = sample(HOME_SAMPLE);
+      const spec = sample(sampleId);
       const target = newDesignTarget(scopes.value);
       let scope: Scope;
       if (target.kind === 'scope') {
@@ -335,7 +371,7 @@ export function Home({
       }
       const built = buildSample(spec, await modelsFor(sampleModels(spec)), accountId != null ? { actor: accountId } : undefined);
       const design = await createDesign(organisation.organisationId, scope.scopeId, writePlain(built.doc));
-      rememberSample(accountId, design.designId);
+      rememberSample(accountId, design.designId, sampleId);
       // The name is a nicety; a refused rename still opens the sample, untitled.
       const named = await renameDesign(organisation.organisationId, design.designId, spec.name).then(
         () => ({ ...design, name: spec.name }),
@@ -401,19 +437,23 @@ export function Home({
         <div className="home__label">Your organisations</div>
         {organisations.status === 'loading' && <SkeletonRows rows={2} />}
         {organisations.status === 'error' && <p className="home__error">{organisations.message}</p>}
-        {organisations.status === 'ready' && organisations.value.length === 0 && (
+        {organisations.status === 'ready' && realOrganisations.length === 0 && (
           <>
-            <p className="home__muted">You belong to no organisations yet.</p>
-            {onClaimOrganisation && !waitingInvitee && (
+            <p className="home__muted">
+              {practice
+                ? "None. That's fine: you look after the server, and organisations look after their own designs."
+                : 'You belong to no organisations yet.'}
+            </p>
+            {onClaimOrganisation && !waitingInvitee && !practice && (
               <button type="button" className="home__btn home__btn--small" onClick={onClaimOrganisation}>
                 Claim an organisation
               </button>
             )}
           </>
         )}
-        {organisations.status === 'ready' && organisations.value.length > 0 && (
+        {organisations.status === 'ready' && realOrganisations.length > 0 && (
           <ul className="home__org-list">
-            {organisations.value.map((org) => (
+            {realOrganisations.map((org) => (
               <li key={org.organisationId}>
                 <button
                   type="button"
@@ -430,6 +470,25 @@ export function Home({
             ))}
           </ul>
         )}
+        {practiceOrganisations.length > 0 && (
+          <>
+            <div className="home__label home__label--spaced">Practice</div>
+            <ul className="home__org-list">
+              {practiceOrganisations.map((org) => (
+                <li key={org.organisationId}>
+                  <button
+                    type="button"
+                    className={org.organisationId === selectedOrgId ? 'home__org-row home__org-row--current' : 'home__org-row'}
+                    onClick={() => setSelectedOrgId(org.organisationId)}
+                  >
+                    {org.displayName}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <p className="home__muted home__org-note">Only you see it.</p>
+          </>
+        )}
       </aside>
 
       {aboutOpen ? (
@@ -444,7 +503,10 @@ export function Home({
           </p>
         )}
         <div className="home__title">{selectedOrganisation?.displayName ?? 'Home'}</div>
-        {organisations.status === 'ready' && organisations.value.length === 0 && <AwaitingSteward address={address} />}
+        {organisations.status === 'ready' && organisations.value.length === 0 && practice && !waitingInvitee && (
+          <PracticeWelcome address={address} offer={practice} onOpen={() => void practice.onMake()} />
+        )}
+        {organisations.status === 'ready' && organisations.value.length === 0 && waitingInvitee && <AwaitingSteward address={address} />}
         <HomeTabs tabs={tabs} current={shownTab} onSelect={selectTab} testIds={{ admin: 'console-entry' }} />
 
         {shownTab === 'organisation' && selectedOrganisation && (
@@ -478,6 +540,7 @@ export function Home({
             disabled={scopes.status !== 'ready'}
             error={sampleError}
             onOpen={() => void openSample(selectedOrganisation)}
+            practice={{ summary: sample(PRACTICE_SAMPLE).summary, onOpen: () => void openSample(selectedOrganisation, PRACTICE_SAMPLE) }}
           />
         )}
 
@@ -491,7 +554,7 @@ export function Home({
           />
         )}
 
-        {shownTab === 'designs' && !waitingInvitee && (
+        {shownTab === 'designs' && !waitingInvitee && !(practice && organisations.status === 'ready' && organisations.value.length === 0) && (
         <section className="home__section">
           <div className="home__section-head">
             <div className="home__label">Designs you may open</div>
@@ -569,7 +632,26 @@ export function Home({
             {sampleBusy ? 'Opening the sample…' : 'Open the sample home lab'}
           </button>
         )}
+        {firstSteps.hidden && selectedOrganisation && !waitingInvitee && (
+          <button
+            type="button"
+            className="about-link"
+            disabled={sampleBusy || scopes.status !== 'ready'}
+            onClick={() => void openSample(selectedOrganisation, PRACTICE_SAMPLE)}
+          >
+            Open the practice home lab
+          </button>
+        )}
         {firstSteps.hidden && sampleError && <p className="home__error">{sampleError}</p>}
+        {practice && organisations.status === 'ready' && organisations.value.length > 0 && practiceOrganisations.length === 0 && (
+          <>
+            <button type="button" className="about-link" disabled={practice.busy} onClick={() => void practice.onMake()}>
+              {practice.busy ? 'Making your practice space…' : 'Make a practice space'}
+            </button>
+            {practice.codePrompt}
+            {practice.error && <p className="home__error">{practice.error}</p>}
+          </>
+        )}
         <button type="button" className="about-link" onClick={() => setAboutOpen(true)}>
           About Fathom
         </button>
