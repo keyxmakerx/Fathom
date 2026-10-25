@@ -337,6 +337,26 @@ server and checks the keys were kept. Before 2026-09-19 nobody had run this file
 the environment it was written in has no Docker daemon; four first-start faults were found by
 reading it and two more by that job's first runs.
 
+**How long a clean install takes.** 22 seconds of machine time, measured 2026-10-25 on a fresh
+GitHub `ubuntu-latest` runner (`.github/workflows/clean-install.yml`, run 40148539299) against the
+published `latest`, `ghcr.io/keyxmakerx/fathom-server@sha256:f176a05c…`:
+
+```
+step               took      at
+.env                 0s       0s     cp .env.example .env, the two lines set
+pull                10s      10s     docker compose pull, from cold
+healthy             12s      22s     docker compose up -d --wait
+answering            0s      22s     /health and the client on the published port
+first sign-in        0s      22s     setup password redeemed over HTTP, signed request answered
+```
+
+Times are whole seconds, so a step under one second reads 0s. Not counted: your own reading and
+typing on the five setup screens, and the authenticator scan; nor a slower link than a GitHub
+runner's for the pull. The same workflow runs after every publish from main against that exact
+build and writes its times to the run's summary page. On your own machine, from a fresh checkout:
+`./scripts/timed-clean-install.sh you@example.com` (it refuses an existing `.env` or `fathom_`
+volumes, and leaves the stack running; add `--down` to remove it after).
+
 **If a pull is refused, the package is private.** GitHub's documentation says a package first
 published under a personal account is private whatever the repository's visibility ("Configuring
 a package's access control and visibility", read 2026-09-19); in practice the first publish on

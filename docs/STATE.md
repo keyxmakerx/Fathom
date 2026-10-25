@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-10-02: 1561 Rust tests and 1531 client tests on commit 3b10bfc, read off the runs. Prose brought up to main (10692d2) on 2026-10-23; counts not re-read. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-10-02: 1561 Rust tests and 1531 client tests on commit 3b10bfc, read off the runs. Prose brought up to main (7873e91) on 2026-10-25; counts not re-read. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -12,8 +12,8 @@ This page records what exists. It is not a changelog — history lives in `docs/
 fragment-to-store weld, the finder, emitters, layout. Zero external dependencies on the client side,
 deliberately. The schema is real and enforced; read counts off `fathom-schema-check`.
 
-**Paste, seven platforms (engine).** The wasm shell holds every dictionary at once, keyed by platform
-(Junos SRX, Junos EX, EdgeOS, OPNsense, and the three below with front ends of their own). The paste
+**Paste, eight platforms (engine).** The wasm shell holds every dictionary at once, keyed by platform
+(Junos SRX, Junos EX, EdgeOS, OPNsense, and the four below with front ends of their own). The paste
 frame and the "Which device is this from?" picker name the first four only. A paste names its platform (frame flag byte, bits 1-3) or the
 engine detects it from lines only one dictionary binds; unsure is `ERR_PLATFORM_CHOICE` with the
 candidates, never a guess. `OP_REDACT_TEXT` runs every set-form dictionary. A paste into a device reads as that
@@ -34,6 +34,13 @@ own front end, `fathom-ingest/src/iproute.rs`, picked by an exact sniff of the f
 interfaces, admin-up, VLANs and addresses, and the host from a pasted shell prompt; only known attribute words
 are shaped and every line is swept (`corpus/dict/README-linux-host.md`). Routes and `bridge vlan show` are
 residue. Naming `linux-host` in the paste frame waits on the client.
+
+**Paste: TP-Link switch (engine, 2026-10-16).** A JetStream or Omada switch's config text (`show
+running-config` or Export Config) has its own front end, `fathom-ingest/src/blockcfg.rs`, picked by an exact
+sniff (`!<model>` first, a `#` separator later). It binds VLANs with their names, interfaces with
+description and `shutdown`, and the hostname. After a credential keyword the rest of the line is destroyed
+whatever any detector says, and every line is swept (`corpus/dict/README-omada-sw.md`). Addresses (dotted
+masks) and VLAN membership are residue. Naming `omada-sw` in the paste frame waits on the client.
 
 **The server.** `crates/fathom-server` starts, answers a health check through a real PostgreSQL, shuts
 down cleanly, and runs as the one plain-HTTP published port of a composed stack, behind the operator's
@@ -485,8 +492,9 @@ into the distroless runtime stage from the build stage. `FATHOM_SCHEMA_ROOT` ove
   - **Ubiquiti.** Catalogue: thirteen UniFi models (gateways, switches, access points). UniFi has no human-readable export, so no
     dictionary. EdgeOS binds hostname, interface description, disable and `vif` sub-interfaces; base
     addresses, static routes, DHCP server and NAT are unbound (`corpus/dict/README-ubiquiti.md`).
-  - **Linux hosts.** `ip addr` / `ip link` output has its own front end (see Paste: Linux host above);
-    `bridge vlan show` and routes are residue. A pasted WireGuard private key is still destroyed. Eight per-flavour explainers plus `linux-family-basics`, cited.
+  - **Linux hosts.** Read by `iproute.rs` (above); `bridge` output is residue
+    (`corpus/dict/README-linux-host.md`). A pasted WireGuard private key is still destroyed. Eight
+    per-flavour explainers plus `linux-family-basics`, cited.
   - **Arista.** Two catalogue entries (720XP-48ZC2, 7050SX3-48YC8) and an EOS explainer; no dictionary
     (same shape gap). The safety net destroys every credential in a 120-line synthetic config
     (`crates/fathom-ingest/tests/arista_eos.rs`).

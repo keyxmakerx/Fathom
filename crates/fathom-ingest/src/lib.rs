@@ -26,6 +26,7 @@
 )]
 
 pub mod bind;
+pub mod blockcfg;
 pub mod csv;
 pub mod dict;
 pub mod frame;

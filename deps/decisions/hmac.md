@@ -40,6 +40,14 @@ set, fixed in 0.5.4) relevant to this crate's behaviour rather than to somebody 
 pins `cmov 0.5.4`, verified on 2026-09-12 — **and RustSec does not carry that advisory**, so
 `cargo audit` would not have raised it. §12.5 is the fuller note.
 
+**2026-10-23, the same path again.** RUSTSEC-2026-0385: before `ctutils 0.4.4`, `Choice`'s mask
+generation could compile to a branch on the secret, and `u128` comparisons branched on 32-bit
+targets. `CtEq` is the comparison `verify_slice` inherits, so this one is about this crate's
+behaviour too. `Cargo.lock` pins `ctutils 0.4.5` (0.4.4 is the fix; 0.4.5 is what `crypto-bigint
+0.7.6` requires), admitted early under a dated row in
+`00-COOLDOWN-EXCEPTIONS.md` because waiting was the riskier choice. Read from
+`rustsec/advisory-db` on 2026-10-23.
+
 ## Poly1305 is not an alternative here
 
 RustCrypto's own source, quoted in §11.2: *"Poly1305 is not a traditional MAC and is single-use

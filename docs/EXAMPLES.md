@@ -6,8 +6,8 @@ differ slightly; `docs/STATE.md` is the page of record.
 ## 1. Paste a device config
 
 Browser paste understands **Junos SRX**, **Junos EX**, **EdgeOS**, **OPNsense** (rules-migration CSV),
-**MikroTik RouterOS** (`/export`), **pfSense** (`config.xml` backup) and a **Linux host's** `ip addr` /
-`ip link` output. It tells them apart from the text; when it can't, the card asks "Which device is this
+**MikroTik RouterOS** (`/export`), **pfSense** (`config.xml` backup), a **TP-Link** JetStream or Omada
+switch's config, and a **Linux host's** `ip addr` / `ip link` output. It tells them apart from the text; when it can't, the card asks "Which device is this
 from?" (that picker offers the first four).
 
 1. On the canvas, press **Ctrl+V** with the config text on the clipboard, or right-click and choose
