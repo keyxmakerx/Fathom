@@ -266,6 +266,71 @@ deployment, confirm the code signs in, confirm the seven-day banner appears in e
 session, and confirm the sealed entry is on the site chain where `GET /admin/notices` and a chain
 read both expect it.
 
+## Pinning a host to one build
+
+Written 2026-10-25 for the Alpha host. A pinned host runs one image until you change `.env`, however
+many merges land on `main`. Compose only; from source you are already on the commit you built.
+
+**1. Pick the build.** A release tag (`v0.1.0-alpha.1`) is the usual pick: `.github/workflows/release.yml`
+names an image `main` already published, without rebuilding it, after checking its provenance says
+`publish.yml` built it from that commit on `main`. The run's summary prints the two lines step 3
+needs. Any merged commit works too, as `sha-<the 40-hex commit>`. Either way, read the digest
+yourself:
+
+```sh
+docker buildx imagetools inspect ghcr.io/keyxmakerx/fathom-server:v0.1.0-alpha.1
+#   Digest:    sha256:<64 hex>      <- this one
+```
+
+**2. Back up the keys and the database, separately, and look at both.** The new build may run
+forward-only migrations on its first start, and the pin is only worth having if you can go back.
+These are the commands from Backups above, plus a look inside each file, because a backup you have
+not opened is a guess:
+
+```sh
+# The key volume, to its own destination:
+docker run --rm -v fathom_keys:/keys -v "$PWD":/out alpine \
+  tar czf /out/keys-$(date +%F).tar.gz -C /keys .
+tar tzf keys-$(date +%F).tar.gz          # lists master.key, chain.key and the *.pw files
+
+# The database, to a different destination:
+docker compose exec db pg_dump -U fathom -d fathom -Fc -f /tmp/fathom.dump
+docker compose exec db pg_restore --list /tmp/fathom.dump | head   # a table of contents, not an error
+docker compose cp db:/tmp/fathom.dump ./fathom-$(date +%F).dump
+docker compose exec db rm /tmp/fathom.dump
+```
+
+Move the two files to different places before going on. Staged firmware lives in the `firmware`
+volume; back it up too if you want images to survive (the database keeps only their hashes).
+
+**3. Pin.** In `.env`, beside the file `compose.yaml` reads:
+
+```sh
+FATHOM_TAG=v0.1.0-alpha.1
+FATHOM_DIGEST=sha256:<the 64 hex from step 1>
+```
+
+With both set the image is `name:tag@sha256:…`, and the digest is what gets pulled: if the tag were
+ever pushed again, this host would not follow it. `FATHOM_TAG` alone also pins, but to a name rather
+than to bytes. Check what compose will run before it runs it:
+
+```sh
+docker compose config | grep 'fathom-server:'
+#   image: ghcr.io/keyxmakerx/fathom-server:v0.1.0-alpha.1@sha256:<64 hex>
+```
+
+**4. Start it and check.** `docker compose up -d`, then:
+
+```sh
+docker compose ps server                                    # running, healthy
+docker image ls --digests ghcr.io/keyxmakerx/fathom-server   # a row with sha256:<the same 64 hex>
+```
+
+…and the list under "What to check after an upgrade" below.
+
+**To leave the pin**, delete both lines and `docker compose up -d`: the host follows `latest` again.
+**To move it**, repeat from step 1; step 2 is not optional for a move, for the same reason.
+
 ## What to check after an upgrade
 
 - **Upgrading from a build before ADR-0055 (2026-09-21):** the first start of the new build does
