@@ -280,6 +280,12 @@ const TABLES: &[TableClaim] = &[
               creator and an archived flag, none of which names a field.",
     },
     TableClaim {
+        name: "member_teaching",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "\"type it yourself\" (0040): ids, one boolean, who set it and when. A teaching \
+              setting, not a credential, a payload or a key.",
+    },
+    TableClaim {
         name: "cable_corrections",
         protection: Protection::KeyProtected {
             columns: &["ciphertext"],

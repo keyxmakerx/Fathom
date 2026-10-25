@@ -3597,3 +3597,164 @@ async fn an_added_invitation_cannot_be_cancelled_rejoined_or_moved_back() {
         .await;
     assert!(again.is_err());
 }
+
+// ---- "Type it yourself" (sign-off card r30-nocopy, migration 0040) ----
+
+fn on_body(on: bool) -> Vec<u8> {
+    format!("{{\"on\":{on}}}\n").into_bytes()
+}
+
+fn typing_path(estate: &Estate, account: &AccountId) -> String {
+    format!(
+        "/organisations/{}/people/{account}/type-it-yourself",
+        estate.organisation
+    )
+}
+
+/// Whether `/organisations` says it is on for `person` in the estate's organisation.
+async fn typing_in_listing(addr: SocketAddr, estate: &Estate, person: &Person) -> bool {
+    let (status, body) = call(addr, person, "GET", "/organisations", b"").await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let Json::Arr(orgs) = parse(&body) else {
+        panic!("not an array")
+    };
+    let org = orgs
+        .iter()
+        .find(|o| text(o, "organisation_id") == estate.organisation.to_string())
+        .expect("listed");
+    boolean(org, "type_it_yourself")
+}
+
+#[tokio::test]
+async fn type_it_yourself_a_learner_switches_it_on_only_a_steward_switches_it_off() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring, 1).await;
+    let learner = a_member(
+        &pool,
+        &ring,
+        &estate,
+        "learner",
+        Some((None, Capability::Draw)),
+    )
+    .await;
+    let other = a_member(
+        &pool,
+        &ring,
+        &estate,
+        "other",
+        Some((None, Capability::Draw)),
+    )
+    .await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Limits::STANDARD).await).await;
+    let steward = &estate.stewards[0];
+    let superuser = su().await;
+    let mine = typing_path(&estate, &learner.account);
+
+    // Off until someone sets it: no row reads as off.
+    assert!(!typing_in_listing(addr, &estate, &learner).await);
+
+    // A member may not set it for somebody else, either way.
+    let (status, _body) = call(
+        addr,
+        &learner,
+        "POST",
+        &typing_path(&estate, &other.account),
+        &on_body(true),
+    )
+    .await;
+    assert_eq!(status, "403", "{}", String::from_utf8_lossy(&_body));
+
+    // A member switches it on for themselves; it is sealed once and read with the list.
+    let (status, body) = call(addr, &learner, "POST", &mine, &on_body(true)).await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    assert!(boolean(&parse(&body), "changed"));
+    assert!(typing_in_listing(addr, &estate, &learner).await);
+    assert!(!typing_in_listing(addr, &estate, &other).await);
+    assert_eq!(
+        org_entries(&superuser, &estate, "type_it_yourself_set").await,
+        1
+    );
+
+    // The same again changes nothing and seals nothing.
+    let (status, body) = call(addr, &learner, "POST", &mine, &on_body(true)).await;
+    assert_eq!(status, "200");
+    assert!(!boolean(&parse(&body), "changed"));
+    assert_eq!(
+        org_entries(&superuser, &estate, "type_it_yourself_set").await,
+        1
+    );
+
+    // They cannot switch it off for themselves.
+    let (status, _) = call(addr, &learner, "POST", &mine, &on_body(false)).await;
+    assert_eq!(status, "403");
+    assert!(typing_in_listing(addr, &estate, &learner).await);
+
+    // People shows it to the steward, who switches it off.
+    let people_path = format!("/organisations/{}/people", estate.organisation);
+    let listing = parse(&call(addr, steward, "GET", &people_path, b"").await.1);
+    let row = array(&listing, "people")
+        .iter()
+        .find(|p| text(p, "account") == learner.account.to_string())
+        .cloned()
+        .expect("listed");
+    assert!(boolean(&row, "type_it_yourself"));
+    let (status, body) = call(addr, steward, "POST", &mine, &on_body(false)).await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    assert!(!typing_in_listing(addr, &estate, &learner).await);
+    let set_by: String = superuser
+        .query_one(
+            "SELECT set_by FROM member_teaching WHERE organisation_id = $1 AND account_id = $2",
+            &[
+                &estate.organisation.to_string(),
+                &learner.account.to_string(),
+            ],
+        )
+        .await
+        .expect("a row")
+        .get(0);
+    assert_eq!(set_by, steward.account.to_string());
+
+    // And on, for somebody else.
+    let (status, _) = call(
+        addr,
+        steward,
+        "POST",
+        &typing_path(&estate, &other.account),
+        &on_body(true),
+    )
+    .await;
+    assert_eq!(status, "200");
+    assert!(typing_in_listing(addr, &estate, &other).await);
+    assert_eq!(
+        org_entries(&superuser, &estate, "type_it_yourself_set").await,
+        3
+    );
+
+    // A body that is not exactly `{"on": bool}` is refused.
+    let (status, _) = call(addr, steward, "POST", &mine, b"{\"on\":\"yes\"}\n").await;
+    assert_eq!(status, "400");
+    the_chains_verify(&pool, &ring, &estate).await;
+}
+
+#[tokio::test]
+async fn type_it_yourself_rows_are_never_deleted_by_the_app_and_stay_in_their_tenant() {
+    let pool = support::migrated_pool().await;
+    let client = pool.get().await.expect("connection");
+    let refused = client
+        .execute("DELETE FROM member_teaching", &[])
+        .await
+        .expect_err("the app role may not delete a teaching row");
+    assert_eq!(
+        refused.code(),
+        Some(&tokio_postgres::error::SqlState::INSUFFICIENT_PRIVILEGE)
+    );
+    // No tenant set: the app role sees no row at all.
+    let seen: i64 = client
+        .query_one("SELECT count(*) FROM member_teaching", &[])
+        .await
+        .expect("count")
+        .get(0);
+    assert_eq!(seen, 0);
+}

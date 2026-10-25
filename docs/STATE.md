@@ -349,6 +349,15 @@ and **From Linux**: the same job by hand: over SSH (hash on the computer, `scp -
 from you), on a USB stick, or by TFTP with a warning, each where the vendor documents it and each step
 with its source (`firmware_by_hand.rs`). Fathom link is the default. On in compose once `FATHOM_FIRMWARE_FETCH_BASE_URL` is set.
 
+**Type it yourself** (sign-off card r30-nocopy; migration 0040, `teaching.rs`, `components/typing/`). A
+teaching setting per person per organisation. While it is on, commands are shown to be typed: no copy
+button on them, the text not selectable, each command in labelled parts (command, word, option, path,
+file, value, link). Links and hashes still copy. A steward sets it either way on the person's page; a person
+turns it on for themselves under Your account, and only a steward turns it off. Read with `GET
+/organisations`, set with `POST /organisations/{o}/people/{account}/type-it-yourself`, each change sealed on
+the organisation chain as `type_it_yourself_set`. It covers the firmware link box, by-hand steps and plan
+step commands. It is a teaching aid, not a control: the page's text can still be read another way.
+
 **View sharing** (ADR-0061 round 9, #102). A steward's **Share** button in the bar opens a panel with
 PERSON / CAN rows: **View** (see everything, change nothing) or **Draw**. Only people already in the
 organisation can be added. The grant is signed in the steward's enrolled browser and the server

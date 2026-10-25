@@ -10,11 +10,11 @@ describe('parseOrganisations', () => {
   it('parses a well-formed array', () => {
     const body = JSON.stringify([
       { organisation_id: '01JQZ0000000000000000000AA', display_name: 'Northwind Logistics', role: 'admin' },
-      { organisation_id: '01JQZ0000000000000000000AB', display_name: 'Acme Dental', role: 'member' },
+      { organisation_id: '01JQZ0000000000000000000AB', display_name: 'Acme Dental', role: 'member', type_it_yourself: true },
     ]);
     expect(parseOrganisations(bytesOf(body))).toEqual([
-      { organisationId: '01JQZ0000000000000000000AA', displayName: 'Northwind Logistics', role: 'admin' },
-      { organisationId: '01JQZ0000000000000000000AB', displayName: 'Acme Dental', role: 'member' },
+      { organisationId: '01JQZ0000000000000000000AA', displayName: 'Northwind Logistics', role: 'admin', typeItYourself: false },
+      { organisationId: '01JQZ0000000000000000000AB', displayName: 'Acme Dental', role: 'member', typeItYourself: true },
     ]);
   });
 

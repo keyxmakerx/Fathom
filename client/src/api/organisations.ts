@@ -19,6 +19,9 @@ export interface Organisation {
    * the tab is a hint of what the server allows, so failing closed only
    * hides it. */
   role: 'admin' | 'member';
+  /** "Type it yourself" (sign-off card r30-nocopy): commands are shown to be
+   * typed by hand in this organisation. Absent reads as off. */
+  typeItYourself: boolean;
 }
 
 /**
@@ -55,6 +58,7 @@ export function parseOrganisations(bytes: Uint8Array): Organisation[] {
       organisationId: record.organisation_id,
       displayName: record.display_name,
       role: record.role === 'admin' ? 'admin' : 'member',
+      typeItYourself: record.type_it_yourself === true,
     };
   });
 }
@@ -64,4 +68,19 @@ export function parseOrganisations(bytes: Uint8Array): Organisation[] {
 export async function fetchOrganisations(): Promise<Organisation[]> {
   const bytes = await signedFetch('GET', '/organisations');
   return parseOrganisations(bytes);
+}
+
+/**
+ * Set "type it yourself" for one person (`POST .../people/{account}/type-it-yourself`). A steward
+ * sets it either way for anyone; a person may switch it on for themselves, never off. Resolves to
+ * the setting as it now stands.
+ */
+export async function setTypeItYourself(organisation: string, account: string, on: boolean): Promise<boolean> {
+  const bytes = await signedFetch(
+    'POST',
+    `/organisations/${encodeURIComponent(organisation)}/people/${encodeURIComponent(account)}/type-it-yourself`,
+    new TextEncoder().encode(`{"on":${on}}\n`),
+  );
+  const answer = JSON.parse(new TextDecoder().decode(bytes)) as { type_it_yourself?: unknown };
+  return answer.type_it_yourself === true;
 }
