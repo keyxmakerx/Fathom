@@ -73,9 +73,10 @@ export function pathKeys(result: TraceResult, canon: Canon): Set<string> {
 }
 
 /** The sentence over the hops: where the path ended. */
-export function endLine(result: TraceResult): string {
+export function endLine(result: TraceResult, toLabel?: string | null): string {
   if (result.stopped !== '') return `Could not establish: ${result.stopped}`;
-  return result.hops.length > 0 ? `The walk ends at ${result.to}. The rows above are what the devices read.` : '';
+  // A device picked by name ends at its name; the engine's `to` is then its node id, which means nothing to read.
+  return result.hops.length > 0 ? `The walk ends at ${toLabel ?? result.to}. The rows above are what the devices read.` : '';
 }
 
 /** The device to tie ports on when the walk stopped at an interface not tied to a port, else null. The engine's

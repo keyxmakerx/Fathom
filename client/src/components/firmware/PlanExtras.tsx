@@ -9,8 +9,9 @@ import type { FetchLink } from '../../api/firmware';
 import { deviceFirmware, targetOfDevice } from '../../document/firmware';
 import { touchedBy, type Plan, type PlanStep } from '../../document/plans';
 import { FirmwareContext } from './context';
+import { HowItGetsThere } from './ByHand';
 import { CommandNotes, CopyButton, copyText } from './parts';
-import { LINK_PLACEHOLDER, commandWithLink, maskedLink, parseUpgradeTitle } from './upgradePlan';
+import { FETCH_STEP_TITLE, LINK_PLACEHOLDER, commandWithLink, maskedLink, parseUpgradeTitle } from './upgradePlan';
 import './firmware.css';
 
 interface LinkState {
@@ -62,11 +63,22 @@ export function UpgradeLinkScope({ plan, children }: { plan: Plan; children: Rea
   return <LinkScope.Provider value={state}>{children}</LinkScope.Provider>;
 }
 
-/** Copy command on a step that has commands. The fetch step's copy has the real link in it. */
+/**
+ * Copy command on a step that has commands. The fetch step's copy has the real link in it, and the
+ * fetch step also offers the same job by hand from Windows or Linux.
+ */
 export function StepCopy({ step }: { step: PlanStep }) {
+  const api = useContext(FirmwareContext);
   const scope = useContext(LinkScope);
+  if (!scope) return null;
+  const copy = step.after === '' ? null : <CommandCopy step={step} scope={scope} />;
+  if (step.change.split('\n')[0] !== FETCH_STEP_TITLE) return copy;
+  const byHand = api?.server.images.find((i) => i.imageId === scope.imageId)?.commands?.byHand;
+  return <HowItGetsThere byHand={byHand}>{copy}</HowItGetsThere>;
+}
+
+function CommandCopy({ step, scope }: { step: PlanStep; scope: LinkState }) {
   const [said, setSaid] = useState<string | null>(null);
-  if (!scope || step.after === '') return null;
   const needsLink = step.after.includes(LINK_PLACEHOLDER);
   return (
     <p className="plans-step__actions">

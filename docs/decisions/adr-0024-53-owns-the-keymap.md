@@ -60,7 +60,7 @@ at it. `⇧A` / `⇧R` stay. One `assertive` region exists, and it is egress.**
    - `Esc` unwinds one level of `53` §3.7's ladder, everywhere. `54` §2.5's "collapse all" is a
      second press at the top of the ladder, not a competing behaviour.
    - Depth is `⌥\`; `Ctrl+1/2/3` does not exist.
-4. **A CI test parses every `<kbd>` table in `docs/50-design/` and fails on any key bound to two
+4. **A CI test parses every `<kbd>` table in `docs/archive/50-design/` and fails on any key bound to two
    actions in overlapping scopes.** Roughly fifty lines, and it is the reason to have a single map.
 5. **`53` §12.3's last row becomes:** *"exactly one: the egress-armed transition (`55` §4.6).
    Nothing else, ever."* `55` is right — egress arming is the one thing that changes what leaves the

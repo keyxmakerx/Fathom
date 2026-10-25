@@ -27,6 +27,7 @@ import { TagChips } from '../TagChips';
 import { DocsSection } from '../docs/DocsSection';
 import { DevicePhoto } from '../docs/DevicePhoto';
 import { FirmwareSection } from '../firmware/FirmwareSection';
+import { AboutSection } from '../learn/AboutSection';
 import {
   ABSENT,
   UNNAMED_HOSTNAME,
@@ -2121,6 +2122,7 @@ function panelFor(
                   <TypedNote shown={(chassis.managementAddress ?? '').length > 0} extra={MANAGEMENT_ADDRESS_NOTE} />
 
                   <FirmwareSection deviceId={chassis.deviceId} />
+                  <AboutSection deviceId={chassis.deviceId} />
                   <DevicePhoto ownerId={chassis.deviceId} name={chassis.hostname || UNNAMED_HOSTNAME} />
 
                 </>
@@ -2257,14 +2259,14 @@ function panelFor(
         ) : null}
         <Field label="Shelf" value={`${shelf.label || shelf.id} · ${rack.label}`} />
         <Field label="Slot" value={String(occupant.slot)} />
-        <Field label="Ports" value={`${ABSENT} of ${occupant.ports.length} cabled`} />
+        <Field label="Ports" value={`${occupant.ports.filter((p) => p.cable != null).length} of ${occupant.ports.length} cabled`} />
 
         {occupant.kind === 'chassis' && occupantSketch ? (
           <SketchPortsSection chassisId={occupant.id} ports={occupant.ports} actions={actions} />
         ) : occupant.ports.length > 0 ? (
           <div className="drawing-editor__field">
             <div className="drawing-editor__field-label">Ports</div>
-            {occupant.ports.map((port) => (
+            {byPortLabel(occupant.ports).map((port) => (
               <div key={port.id} className="drawing-editor__field" style={{ display: 'flex', gap: 'var(--s2)' }}>
                 <span>{port.label || ABSENT}</span>
                 <span style={{ color: 'var(--muted)' }}>{port.connector}</span>
@@ -2323,14 +2325,14 @@ function panelFor(
           label="Position"
           value={fixture.xMm != null && fixture.yMm != null ? `${fixture.xMm}mm, ${fixture.yMm}mm` : ABSENT}
         />
-        <Field label="Ports" value={`${ABSENT} of ${fixture.ports.length} cabled`} />
+        <Field label="Ports" value={`${fixture.ports.filter((p) => p.cable != null).length} of ${fixture.ports.length} cabled`} />
 
         {fixture.kind === 'chassis' && sketch ? (
           <SketchPortsSection chassisId={fixture.id} ports={fixture.ports} actions={actions} />
         ) : fixture.ports.length > 0 ? (
           <div className="drawing-editor__field">
             <div className="drawing-editor__field-label">Ports</div>
-            {fixture.ports.map((port) => (
+            {byPortLabel(fixture.ports).map((port) => (
               <div key={port.id} className="drawing-editor__field" style={{ display: 'flex', gap: 'var(--s2)' }}>
                 <span>{port.label || ABSENT}</span>
                 <span style={{ color: 'var(--muted)' }}>{port.connector}</span>
@@ -2537,4 +2539,9 @@ function panelFor(
       <DocsSection ownerId={port.id} />
     </div>
   );
+}
+
+/** Ports in the order printed on the device (1, 2 … 10), not the order they were stored in. */
+function byPortLabel<P extends { label: string }>(ports: readonly P[]): P[] {
+  return [...ports].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
 }

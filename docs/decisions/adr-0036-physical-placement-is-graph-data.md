@@ -206,7 +206,7 @@ coordinate transform over numbers already decided is not a join.
 edges, curves and routing. A rack is a stack of equal-height rows, which is a list. Drawn as a list,
 every placed box is a real `<button>` in the accessible tree with a real name — rather than a
 `<rect>` inside an `aria-hidden` picture with a parallel disclosure contract bolted alongside that
-announces nothing when it drifts. `docs/80-review/evidence/2026-08-15-rack-view-ax.mjs` asserts this
+announces nothing when it drifts. `docs/archive/80-review/evidence/2026-08-15-rack-view-ax.mjs` asserts this
 against Chromium's **accessibility tree**, not the DOM.
 
 ---
@@ -388,7 +388,7 @@ Three things changed, and the third is the one that matters:
 the wire in Rust, and the page's geometry was checked by a *Rust re-implementation of the
 JavaScript* — a `fn top_row` inside a test — which cannot see the renderer's maps at all. The
 browser driver placed boxes only into distinct, non-overlapping units. Both suites passed at 100%
-with the defect present. `docs/80-review/evidence/2026-08-15-rack-view-ax.mjs` now drives both
+with the defect present. `docs/archive/80-review/evidence/2026-08-15-rack-view-ax.mjs` now drives both
 collision cases and asks the **accessible tree** how many boxes it can see; the Rust test carries a
 paragraph saying plainly what it does not check.
 

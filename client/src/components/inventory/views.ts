@@ -20,7 +20,8 @@ const pinned = (kind: string, id: string, name: string, q: string, sorts: SortKe
 
 /** Only fields that exist in the schema and in this list's columns. */
 export const PINNED_VIEWS: readonly SavedView[] = [
-  pinned('devices', 'dev-unplaced', 'Not in a rack', 'where:empty'),
+  // "Not placed", not "Not in a rack": a device on a shelf, wall or desk is placed, and the view rightly leaves it out.
+  pinned('devices', 'dev-unplaced', 'Not placed', 'where:empty'),
   pinned('devices', 'dev-no-mgmt', 'No mgmt address', 'mgmt:empty'),
   pinned('devices', 'dev-no-serial', 'No serial', 'serial:empty'),
   pinned('ports', 'port-free', 'Not cabled', 'cable:empty'),

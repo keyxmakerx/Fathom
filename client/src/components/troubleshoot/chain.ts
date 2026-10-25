@@ -33,6 +33,8 @@ export interface ChainStep {
   targets: string[];
   /** The Why? card: short paragraphs, from the Checks rules where one matches, else fixed sentences. */
   why: string[];
+  /** How to check it, for someone who has not done it before: what to look at or type. */
+  how: string[];
   /** Whether the graph holds what this step is about. A step the graph cannot fill still asks. */
   known: boolean;
   suspects: Suspect[];
@@ -70,6 +72,14 @@ const FIXED = {
   port: 'A port can be switched off, or sit in a different VLAN from the device on the other end. The link light can be on and nothing get through.',
   address: 'A device that is up can still fail to answer if its address is wrong, held twice, or on a different subnet from the device asking.',
   gateway: 'The gateway is the way off the local network. A device can answer on its own network and still be unreachable from elsewhere when its gateway is down.',
+} as const;
+
+/** "How to check" lines, for a person who has not done it before. Plain actions, no verdicts. */
+const HOW = {
+  lights: (dev: string) => `Look at ${dev}: a power or status light should be on, and you may hear a fan.`,
+  linkLight: (where: string) => `Look at ${where}. The small light beside the socket should be on (often green or amber) and flicker when there is traffic.`,
+  ping: (address: string) =>
+    `From a computer on the same network, open a terminal (Command Prompt on Windows, Terminal on Mac or Linux) and type ping ${address}. Lines with "time=" are answers; "Request timed out" or "unreachable" means no answer.`,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -243,6 +253,7 @@ function powerStep(n: Names, deviceId: string, dev: string): ChainStep {
       detail: `Fathom doesn't know what powers ${dev}. ${inlets.length === 0 ? `Is it plugged in and switched on?` : `It has a power inlet with no cable recorded. Is it plugged in and switched on?`}`,
       targets: unique([deviceId, ...inlets]),
       why,
+      how: [HOW.lights(dev)],
       known: false,
       suspects: [{ label: `what powers ${dev}`, id: deviceId }],
       tests: [`Plug something else into the same outlet, or ${dev} into another one`],
@@ -265,6 +276,7 @@ function powerStep(n: Names, deviceId: string, dev: string): ChainStep {
         : `${feeds.map((f) => `${cableWord(doc, f.cable)}, to ${dev} ${portWord(portLabel(doc, f.inlet))}`).join('; ')}`,
     targets: unique([deviceId, ...feeds.flatMap((f) => [f.inlet, f.cable, f.far.port, f.far.owner.id, ...f.far.via])]),
     why,
+    how: [HOW.lights(dev), `Make sure ${names[0]} is switched on: plug a lamp or a phone charger into it.`],
     known: true,
     suspects: [
       ...feeds.map((f, i) => ({ label: names[i], id: f.far.port })),
@@ -359,6 +371,7 @@ export function buildChain(doc: Document, deviceId: string): Chain {
       detail: `Fathom doesn't know what ${dev} is cabled to. Is there a cable in its network port?`,
       targets: [deviceId],
       why: [FIXED.link],
+      how: [HOW.linkLight(`${dev}'s network port`)],
       known: false,
       suspects: [{ label: `the cable or port on ${dev}`, id: deviceId }],
       tests: [`Try ${dev}'s cable in another device, or another cable in ${dev}`],
@@ -374,6 +387,7 @@ export function buildChain(doc: Document, deviceId: string): Chain {
         detail: others.length > 0 ? `Other devices cabled to ${sw}.` : `Fathom doesn't know of another device cabled to ${sw}.`,
         targets: unique([farDevice, ...others.flatMap((o) => [o.id, o.cable])]),
         why: [FIXED.neighbours, WHY_RULES['topo.switch.single-cable']],
+        how: [others.length > 0 ? `Try something you normally use on ${listNames(names)}: open its web page, or a share on it, from a computer.` : `Look at ${sw}'s own lights, and try anything else plugged into it.`],
         known: others.length > 0,
         suspects: [{ label: sw, id: farDevice }],
         tests: [`Look at ${sw}'s own lights and power`],
@@ -388,6 +402,7 @@ export function buildChain(doc: Document, deviceId: string): Chain {
       detail: `${cableWord(doc, up.cable)}, to ${nearWord}${through.length > 0 ? `, through ${listNames(through.map((p) => n.name(p)))}` : ''}`,
       targets: unique([deviceId, up.near, up.cable, up.far.port, up.far.owner.id, ...up.far.via]),
       why: [FIXED.link, WHY_RULES['phy.link.speed-mismatch']],
+      how: [HOW.linkLight(farDevice !== '' ? `${sw} ${farWord}` : nearWord), `Check the other end too, on ${nearWord}.`],
       known: true,
       suspects:
         farDevice !== ''
@@ -419,6 +434,7 @@ export function buildChain(doc: Document, deviceId: string): Chain {
               : `Fathom has it ${facts.mode === 'trunk' ? 'as a trunk' : 'as an access port'} in ${vlan}.`,
         targets: unique([farDevice, up.far.port, up.cable]),
         why: [FIXED.port, WHY_RULES['l2.vlan.access-mismatch'], WHY_RULES['l2.vlan.trunk-missing']],
+        how: [`Sign in to ${sw}'s own management page, or the controller app that runs it, and find ${farWord}. It should say enabled${vlan !== '' ? `, with ${vlan} as its VLAN (sometimes called the PVID or native VLAN)` : ''}.`],
         known: iface !== undefined || vlan !== '',
         suspects: [{ label: `the setup of ${farWord} on ${sw}`, id: up.far.port }],
         tests: [`Check ${farWord} is enabled${vlan !== '' ? ` and in ${vlan}` : ''} on ${sw}`],
@@ -438,6 +454,7 @@ export function buildChain(doc: Document, deviceId: string): Chain {
       detail: `Fathom doesn't know ${dev}'s address. Try the address you use for it.`,
       targets: [deviceId],
       why: [FIXED.address, WHY_RULES['ip.address.same-on-link']],
+      how: [`Find ${dev}'s address in your router's list of connected devices (often called Clients or DHCP leases).`, HOW.ping(`that address`)],
       known: false,
       suspects: [{ label: `the address of ${dev}`, id: deviceId }],
       tests: [`From another device on the same network, try to reach ${dev}`],
@@ -449,6 +466,7 @@ export function buildChain(doc: Document, deviceId: string): Chain {
       detail: `From another device on the same network, try to reach ${address}.`,
       targets: [deviceId],
       why: [FIXED.address, WHY_RULES['ip.address.same-on-link'], WHY_RULES['ip.address.different-subnet-on-link']],
+      how: [HOW.ping(address)],
       known: true,
       suspects: [{ label: `the address ${address}`, id: deviceId }],
       tests: [`Check ${dev} really holds ${address} and is on the right subnet`],
@@ -463,6 +481,7 @@ export function buildChain(doc: Document, deviceId: string): Chain {
       detail: `${dev} reaches other networks through ${gname}.`,
       targets: unique([gw.deviceId, deviceId]),
       why: [FIXED.gateway],
+      how: [HOW.ping(gw.address !== undefined ? bare(gw.address) : gname)],
       known: true,
       suspects: [{ label: gname, id: gw.deviceId }],
       tests: [`From a device on the same network, try to reach ${gname}`],
@@ -474,6 +493,7 @@ export function buildChain(doc: Document, deviceId: string): Chain {
       detail: `Fathom doesn't know ${dev}'s gateway. Can it reach anything off its own network?`,
       targets: [deviceId],
       why: [FIXED.gateway],
+      how: [`On ${dev}, or a computer on the same network, look up the gateway (on Windows type ipconfig in Command Prompt, on Mac or Linux ip route or netstat -rn), then ping it.`],
       known: false,
       suspects: [{ label: `the gateway of ${dev}`, id: deviceId }],
       tests: [`From ${dev}, try to reach a device on another network`],

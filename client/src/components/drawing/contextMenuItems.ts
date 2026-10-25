@@ -3,7 +3,9 @@ import type { Selection } from './contract';
 
 /** What a right-click landed on (ADR-0060 decision 4). */
 export type MenuTarget =
-  | { kind: 'chassis'; id: string }
+  /** `on` is set for a device on a shelf or a surface rather than in a rack unit: its menu offers what
+   * works there, and Details selects it the way a click does. */
+  | { kind: 'chassis'; id: string; on?: 'occupant' | 'fixture' }
   /** `freeU` is the free unit the click landed on, with the click's pane and flow position. */
   | { kind: 'rack'; id: string; freeU?: { u: number; screen: Point; flow: Point } }
   | { kind: 'cable'; id: string }
@@ -102,13 +104,14 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
   const items: MenuItem[] = [];
   switch (target.kind) {
     case 'chassis': {
-      const { id } = target;
+      const { id, on } = target;
       if (actions.onOpen) items.push({ label: 'Open', onSelect: () => actions.onOpen?.(id) });
-      if (actions.onOpenInside) items.push({ label: 'Inside', onSelect: () => actions.onOpenInside?.(id) });
+      if (actions.onOpenInside && on == null) items.push({ label: 'Inside', onSelect: () => actions.onOpenInside?.(id) });
       if (actions.onTraceFrom) items.push({ label: 'Trace a path from here', onSelect: () => actions.onTraceFrom?.(id) });
-      items.push({ label: 'Details', onSelect: () => actions.onSelect({ kind: 'chassis', id }) });
+      items.push({ label: 'Details', onSelect: () => actions.onSelect({ kind: on ?? 'chassis', id }) });
       if (actions.onItsDown) items.push({ label: "It's down", onSelect: () => actions.onItsDown?.(id) });
       if (actions.onPlanChange) items.push({ label: 'Plan a change', onSelect: () => actions.onPlanChange?.(id) });
+      if (on != null) break;
       if (actions.onSuggestCables) items.push({ label: 'Suggest cables from its neighbours (LLDP)', onSelect: () => actions.onSuggestCables?.(id) });
       if (actions.onPlanFirmware) {
         const label = actions.firmwareNeedsVersion?.(id) ? 'Plan a firmware upgrade (choose a version first)' : 'Plan a firmware upgrade';

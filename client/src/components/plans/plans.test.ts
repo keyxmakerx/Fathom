@@ -4,7 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { addSketchPort, createSketchDevice } from '../../document/commands';
 import { IncompatibleConnectorError, PortAlreadyTerminatedError, connectPorts } from '../../document/cables';
-import { edgesOut, emptyDocument, type Document } from '../../document/model';
+import { addEdge, addNode, begin, finish, setNodeField } from '../../document/freeform';
+import { edgesOut, emptyDocument, interfaceName, token, type Document } from '../../document/model';
 import {
   PlanRefusal,
   addStep,
@@ -224,6 +225,28 @@ describe('the add-step form', () => {
     expect(buildStep(doc, canon, { ...EMPTY_FORM, kind: 'cable', portA: ports[0], portB: ports[0] })).toEqual({ error: 'A cable needs two different ports.' });
     expect(buildStep(doc, canon, { ...EMPTY_FORM, kind: 'other' })).toEqual({ error: 'Say what changes.' });
     expect(buildStep(doc, canon, { ...EMPTY_FORM, kind: 'move', device: '', rack: 'rack:R' })).toEqual({ error: 'Choose a device that has a chassis.' });
+  });
+
+  it('builds a LAG step from ticked members, naming it in the device\'s own words', () => {
+    const { doc: base, devices } = lab();
+    const b = begin(base, { actor: 'a', now: 1 });
+    setNodeField(b, devices[0], 'Device.platform', token('junos-ex'));
+    const ids = ['ge-0/0/0', 'ge-0/0/1'].map((name) => {
+      const id = addNode(b, 'Interface', { 'Interface.name': interfaceName(name), 'Interface.form': token('ethernet') });
+      addEdge(b, 'HasInterface', devices[0], id);
+      return id;
+    });
+    const doc = finish(b, 'paste');
+    const canon = buildCanon(doc);
+    expect(buildStep(doc, canon, { ...EMPTY_FORM, kind: 'lag' })).toEqual({ error: 'Choose the device.' });
+    expect(buildStep(doc, canon, { ...EMPTY_FORM, kind: 'lag', device: devices[0], members: [ids[0]] })).toEqual({ error: 'Tick two or more member interfaces.' });
+    const lag = buildStep(doc, canon, { ...EMPTY_FORM, kind: 'lag', device: devices[0], members: ids });
+    expect(lag).toMatchObject({
+      kind: 'lag',
+      before: 'ge-0/0/0, ge-0/0/1',
+      after: 'ae0 (LACP active): ge-0/0/0, ge-0/0/1',
+      edit: { t: 'lag', device: devices[0], name: 'ae0', lacp: 'active', members: ids },
+    });
   });
 
   it('a right-click on a thing prefills the right kind', () => {
@@ -607,6 +630,16 @@ describe('the panel and the page, rendered', () => {
       band: renderToStaticMarkup(createElement(PlanBand, { controller: c })),
     };
   }
+
+  it('offers Back out once a step is marked, and not before', () => {
+    const { doc, ports } = lab();
+    const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }, null]);
+    const started = startPlan(made.doc, made.id, tick());
+    expect(render(readPlan(started, made.id), started).panel).not.toContain('plans-back-out');
+    const first = readPlan(started, made.id).steps[0].id;
+    const done = markDone(started, first, { check: () => null, ...tick() });
+    expect(render(readPlan(done, made.id), done).panel).toContain('Back out…');
+  });
 
   it('the add-step form and the new-plan form say typed text is stored as typed', () => {
     const { doc } = lab();

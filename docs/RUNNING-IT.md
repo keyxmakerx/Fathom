@@ -1,4 +1,4 @@
-# Running Fathom — 2026-09-21
+# Running Fathom — 2026-09-21, links checked 2026-10-23
 
 Two ways to start it: **Docker Compose**, one published port behind your own reverse proxy, which
 CI runs end to end on every push (image built, stack up, the first operator's setup password
@@ -151,14 +151,17 @@ ten-minute setup code to stdout, and every use is sealed on the site chain and b
 operator's session for seven days. `docs/OPERATING.md` has the drill. `reissue-bootstrap-token` is
 kept as a deprecated alias.
 
-**What an operator cannot do yet from the console:** turn an organisation shell into an
-organisation. The shell and its claim token are minted, but the steward-side route that redeems the
-claim is not built (`docs/NEXT.md`, first item), so no organisation exists for a steward to draw in
-until it is. Adding a second operator is also incomplete end to end: the request is signed, delayed
-and recorded, but nothing yet hands the colleague their own setup token — finish it from the host
-with `recover-operator` once their account exists (`docs/NEXT.md`).
+**Making an organisation** (checked 2026-10-25): in the console's Organisations tab, "Create the shell
+and its claim" mints the shell and a one-time `org_` claim token. Hand the token and the notice
+address to whoever will run the organisation; they paste both at "Claim an organisation" on Home and
+save the organisation's recovery key. If you will run it yourself, "Claim it now" does the same from
+the console. Until a person claims an organisation, Home shows them nothing to open.
 
-### Verified on 2026-09-14, from source
+**What an operator cannot do yet from the console:** add a second operator end to end. The request is
+signed, delayed and recorded, but nothing yet hands the colleague their own setup token. Finish it from
+the host with `recover-operator` once their account exists (`docs/STATE.md`, the operator plane).
+
+### Verified on 2026-09-14, from source (a dated snapshot; counts have grown since)
 
 Run here against a real PostgreSQL 16, from an empty database:
 

@@ -414,6 +414,7 @@ async fn app(pool: &Pool, ring: Arc<KeyRing>, limits: Limits) -> axum::Router {
         watch,
         ring,
         catalogue: Arc::new(Vec::new()),
+        explainers: Arc::new(Vec::new()),
         client_address: ClientAddress::peer(),
         live,
         invitation_limits: limits,

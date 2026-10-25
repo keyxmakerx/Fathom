@@ -3,7 +3,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 
-import { OUTCOMES, currentStep, type Plan, type PlanOutcome, type PlanStep } from '../../document/plans';
+import { OUTCOMES, backOutSteps, currentStep, type Plan, type PlanOutcome, type PlanStep } from '../../document/plans';
 import { clampOffset } from '../checks/checksModel';
 import { AddStepForm } from './AddStepForm';
 import { Touches, TypedSentence, WhySlot, usePasteMark } from './PlanParts';
@@ -242,6 +242,41 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
   );
 }
 
+/** Back out (sign-off r16-backout): asks once, then opens a new plan back to where this one started. */
+function BackOut({ controller, plan }: { controller: PlansController; plan: Plan }) {
+  const [asking, setAsking] = useState(false);
+  const doc = controller.doc;
+  if (!controller.canEdit || doc == null) return null;
+  const count = backOutSteps(doc, plan).length;
+  if (count === 0) return null;
+  if (plan.stage === 'recorded' && plan.outcome === 'succeeded') return null;
+  if (!asking) {
+    return (
+      <p className="plans-backout">
+        <button type="button" className="plans-btn" onClick={() => setAsking(true)} data-testid="plans-back-out">
+          Back out…
+        </button>
+      </p>
+    );
+  }
+  return (
+    <div className="plans-backout plans-refused" role="group" aria-label="Back out" data-testid="plans-back-out-ask">
+      <p>
+        {plan.stage === 'doing' ? 'This stops the work and records the plan as failed. ' : ''}A new plan is made to put things back:{' '}
+        {count === 1 ? 'one step' : `${count} steps`}, newest first. Change it, or add to it, before you start it.
+      </p>
+      <p className="plans-step__actions">
+        <button type="button" className="plans-btn plans-btn--ink" onClick={() => void controller.backOut().then(() => setAsking(false))}>
+          Make the plan back
+        </button>
+        <button type="button" className="plans-btn" onClick={() => setAsking(false)}>
+          Cancel
+        </button>
+      </p>
+    </div>
+  );
+}
+
 function DoMode({ controller, plan }: { controller: PlansController; plan: Plan }) {
   const p = progress(plan);
   return (
@@ -254,6 +289,7 @@ function DoMode({ controller, plan }: { controller: PlansController; plan: Plan 
           <DoStep key={s.id} controller={controller} plan={plan} step={s} />
         ))}
       </ol>
+      <BackOut controller={controller} plan={plan} />
     </>
   );
 }
@@ -317,6 +353,7 @@ function RecordMode({ controller, plan }: { controller: PlansController; plan: P
           Saved to the history of {names.join(', ')}
         </p>
       )}
+      <BackOut controller={controller} plan={plan} />
       <ol className="plans-checklist plans-checklist--read">
         {plan.steps.map((s) => (
           <li key={s.id} className="plans-step plans-step--recorded" data-state={s.state}>
