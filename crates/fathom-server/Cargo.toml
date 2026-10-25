@@ -27,7 +27,7 @@ path = "src/main.rs"
 # because `tokio_util::io::ReaderStream` needs an `AsyncRead`, and the only one
 # over a file is `tokio::fs::File` -- which is itself a `spawn_blocking` wrapper
 # over `std::fs`, the same mechanism the upload path already hand-rolls.
-tokio = { version = "1.53.1", default-features = false, features = [
+tokio = { version = "1.53.3", default-features = false, features = [
     "fs",
     "rt-multi-thread",
     "net",
