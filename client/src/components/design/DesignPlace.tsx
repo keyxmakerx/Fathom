@@ -58,6 +58,8 @@ import { useDesignSession } from './useDesignSession';
 import { LearnContext } from '../learn/context';
 import { LearnOverlay } from '../learn/LearnOverlay';
 import { useLearnApi } from '../learn/useLearnApi';
+import { LessonPanel, type LessonTraceAsk } from '../lessons/LessonPanel';
+import { lesson as lessonById, loadRuns, runForDesign, saveRun, type LessonRun } from '../lessons/lessonModel';
 
 /** A download with no server round trip. The object URL is revoked a few
  * seconds later, not straight away — read too soon, a browser saves an empty file. */
@@ -460,6 +462,27 @@ export function DesignPlace(props: DesignPlaceProps) {
   // The explainers (ADR-0066 item 1.1): About cards in a device's panel, the Learn library.
   const learn = useLearnApi(session.doc);
 
+  // A guided lesson runs in its own copy of a sample (round 10 lessons B): this design is one when Home started a
+  // lesson in it. Progress is kept per account in this browser.
+  const [lessonRuns, setLessonRuns] = useState<LessonRun[]>(() => loadRuns(accountId));
+  const lessonRun = runForDesign(lessonRuns, designId);
+  const activeLesson = lessonRun != null ? lessonById(lessonRun.lessonId) : null;
+  const [traceRequest, setTraceRequest] = useState<LessonTraceAsk | null>(null);
+  const advanceLesson = useCallback(
+    (step: number) => {
+      if (lessonRun == null) return;
+      setLessonRuns(saveRun(accountId, { ...lessonRun, step }));
+    },
+    [accountId, lessonRun],
+  );
+  const traceForLesson = useCallback(
+    (ask: LessonTraceAsk) => {
+      if (props.place !== 'racks') onPlaceChange('racks');
+      setTraceRequest({ ...ask });
+    },
+    [props.place, onPlaceChange],
+  );
+
   // Docs on things, models and the design (ADR-0061 round 7): the panels read them through context.
   const docs = useDocsApi({
     organisationId,
@@ -820,6 +843,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         initialIssue={issueRequest}
         initialUpgrade={upgradeRequest}
         initialPlan={planRequest}
+        traceRequest={traceRequest}
         onRequestsHandled={() => {
           setUpgradeRequest(null);
           setPlanRequest(null);
@@ -873,6 +897,19 @@ export function DesignPlace(props: DesignPlaceProps) {
       {learn.view != null && printMode === 'closed' && (
         <LearnContext.Provider value={learn.api}>
           <LearnOverlay view={learn.view} onView={learn.setView} onClose={() => learn.setView(null)} />
+        </LearnContext.Provider>
+      )}
+      {activeLesson != null && lessonRun != null && printMode === 'closed' && pickedSave == null && (
+        <LearnContext.Provider value={learn.api}>
+          <LessonPanel
+            lesson={activeLesson}
+            step={lessonRun.step}
+            doc={doc}
+            selectedId={selectedId}
+            onAdvance={advanceLesson}
+            onTrace={traceForLesson}
+            side={props.place === 'racks' ? 'left' : 'right'}
+          />
         </LearnContext.Provider>
       )}
       {docs.view != null && printMode === 'closed' && (

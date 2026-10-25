@@ -208,7 +208,7 @@ breadcrumb does one thing.
   `corpus/samples/home-lab.json` (11 devices, 12 cables, VLANs 10 and 30) with the editor's own commands and saves
   it as the person's own design. A model the catalogue lacks is drawn as a sketch with the same port labels.
   Getting started (Home's right panel) ticks itself per account in this browser; a sample's own devices and
-  cables do not count. Hidden, it lives under Help. Not built: the guided lessons, and tracing from a device on
+  cables do not count. Hidden, it lives under Help. Not built: tracing from a device on
   a wall, desk or shelf (the menu offers it on racked devices only). `scripts/drive-sample.mjs` drives it.
 - **Explainers in the app** (ADR-0066 item 1.1). `GET /learn/explainers` serves every entry in
   `corpus/explainers/` (loaded once at startup with the rest of the corpus). A device whose `Device.platform`
@@ -219,8 +219,19 @@ breadcrumb does one thing.
   r4-teach Learn switch) writes up to five dashed notes on the Diagram look, one per idea (the first
   firewall, router and switch by role, the first trunk and access link with their VLANs), from the
   `learn note` entries in `corpus/explainers/network-basics.yaml`; each opens its explainer. Like the other
-  Show layers it draws on the Diagram look only. Not built: faceplate brackets for port roles, lessons,
-  explainers for Cisco and MikroTik. `scripts/drive-learn.mjs` drives it.
+  Show layers it draws on the Diagram look only. Glossary words with a basics explainer (VLAN, trunk, access
+  port, zone) offer Learn more. Not built: faceplate brackets for port roles, explainers for Cisco and
+  MikroTik. `scripts/drive-learn.mjs` drives it.
+- **Guided lessons** (ADR-0066 item 1.3, round 10 lessons B). Home lists the lessons in `corpus/lessons/`
+  (VLANs, single points of failure, firewall policy order); Start builds a fresh copy of
+  `corpus/samples/small-office.json` (its SRX config pasted through the redaction gate) as the person's own
+  design and opens it with the lesson panel beside the canvas (on the right in Inventory). Steps are Read,
+  Click the answer, Trace (opens the trace on the canvas) and Change it and watch (Checks), each checked by
+  the page's own engine, never marked by hand; progress is per account in this browser, and Continue reopens
+  the copy. `client/src/engine/lessons.test.ts` holds every lesson to its sample; `scripts/drive-lessons.mjs`
+  drives two lessons through. Inventory's Add network now joins a port that already has an interface
+  through that interface, so a port can be moved from one VLAN to another by hand. Not built: the lesson
+  builder for your own design (ADR-0066 §2) and the Run Ansible step.
 - **Inventory table with pages and shared custom fields** (schema 0.16, ADR-0062). Field definitions are an organisation-wide server store (migration 0035); a value is a `FieldValue` node in the design. Private fields are not built.
 - **IP and VLAN tables, file importer** (ADR-0063, importer): Inventory Prefix and VLAN kinds derived from the drawing, and one importer (CSV, NetBox, Proxmox, nmap).
 - **Suggestions from what a switch knows** (ADR-0046: suggestions, never facts; one undo step; the pasted text is never kept). A neighbour list (`show lldp neighbors` on Junos, Cisco, Arista; `lldpcli show neighbors`; Cisco `show cdp neighbors` and its `detail` form) suggests cables between drawn ports (`document/neighbours.ts`, round 15). A MAC table (`show mac address-table` on Cisco IOS and NX-OS, `show ethernet-switching table` on Junos non-ELS), with an optional ARP table (`show ip arp`, Junos `show arp`, `ip neigh`) or DHCP leases (ISC `dhcpd.leases`, `dnsmasq.leases`, Kea `kea-leases4.csv`) for addresses and names, suggests who is plugged in where: a port that learned one MAC is cabled to a drawn port carrying that MAC, or gets a new sketch device with that MAC and address; a port with several is left (`document/hosts.ts`, round 29, card r29-fill). A device's own report (`show version` on Junos, Cisco IOS and Arista; Cisco `show inventory`; Junos `show chassis hardware`) offers its serial and running version (`Device.os_version`) where the drawing has none, a difference unticked, and only says the model and hostname (`document/facts.ts`). Paste any of these onto the canvas, or right-click a switch. Not read: the Junos ELS table form. `scripts/drive-suggest.mjs` and `scripts/drive-hosts.mjs` drive them.
