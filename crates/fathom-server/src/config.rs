@@ -246,7 +246,8 @@ pub struct Config {
     /// `/mcp` and no `/oauth/*` at all. `FATHOM_AI_SIGN_IN_URL`, where a person's browser
     /// signs in when that is a company address the app cannot reach (default: the public
     /// one). `FATHOM_AI_CLAUDE_RANGES`, the addresses Claude's hosted apps call from
-    /// (default Anthropic's published `160.79.104.0/21`; empty switches the check off).
+    /// (unset or empty: Anthropic's published `160.79.104.0/21`; `off` switches the check
+    /// off).
     /// A malformed value is refused at startup.
     pub ai_connector: Option<crate::oauth::Connector>,
 }

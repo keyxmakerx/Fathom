@@ -110,6 +110,8 @@ export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' 
   accountId: string | null;
   /** The organisation the design is in, for the corrections store. */
   organisationId: string;
+  /** Ids an open AI idea names, marked in the list (ADR-0072 decision 7). */
+  aiTargets?: ReadonlySet<string>;
 }
 
 /** Lets the page paint before the next step of a long job. */
@@ -154,7 +156,7 @@ function saveColumnPrefs(kind: Kind, keys: string[]): void {
  * beside it. Every edit goes through the same document commands the canvas editor uses.
  */
 export function InventoryPlace(props: InventoryPlaceProps) {
-  const { session, onShowOnRack, onShowIssue, onSelectedChange, onPrintableChange, notesActions, tagsActions, fieldsActions, fieldDefs, createField, redact, accountId, organisationId, lens, ...shellProps } = props;
+  const { session, onShowOnRack, onShowIssue, onSelectedChange, onPrintableChange, notesActions, tagsActions, fieldsActions, fieldDefs, createField, redact, accountId, organisationId, lens, aiTargets, ...shellProps } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit, applyDocChange, reloadDesign } = session;
 
   const { ls, go, back: stepBack, backLabel, moves } = useListState();
@@ -865,6 +867,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
               >
                 <DataTable
                   key={`${kind}:${moves}`}
+                  aiMarked={aiTargets}
                   columns={columns}
                   rows={rows}
                   openKey={lastOpened}

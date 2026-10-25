@@ -261,3 +261,34 @@
 .console__tabs + .console__section {
   border-top: none;
 }
+
+/* Admin › AI (ADR-0072 decision 9). */
+.console__btn--danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.console-ai {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.console-ai__row {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.console-ai__row .console__input {
+  flex: 1 1 280px;
+}
+
+.console-ai__stop {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  border-left: var(--rule-accent) solid var(--danger);
+  padding-left: var(--s3);
+}

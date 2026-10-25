@@ -172,7 +172,7 @@ Sources, all read 2026-10-25:
 17. **Is it really Claude?** The sign-in result goes only to `https://claude.ai/api/mcp/auth_callback`
     and needs the verifier of whoever started it, so only Claude's servers can turn it into a token.
     A Claude connection can further be held to Anthropic's published range
-    (`FATHOM_AI_CLAUDE_RANGES`, default `160.79.104.0/21`, empty to switch off): `/mcp` and token
+    (`FATHOM_AI_CLAUDE_RANGES`, default `160.79.104.0/21`, `off` to switch off): `/mcp` and token
     requests on a Claude grant from elsewhere are refused. Claude Code cannot be told apart from
     another program on the same computer; its sign-in page says so, and a Steward can leave it off.
 18. **A company Fathom.** Claude Code and the helper run on the person's computer and reach Fathom

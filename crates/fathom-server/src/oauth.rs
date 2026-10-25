@@ -121,8 +121,8 @@ fn is_loopback_host(host: &str) -> bool {
 
 impl Connector {
     /// `FATHOM_AI_PUBLIC_URL`, `FATHOM_AI_SIGN_IN_URL` (default: the public one) and
-    /// `FATHOM_AI_CLAUDE_RANGES` (default [`CLAUDE_RANGES_DEFAULT`]; empty to switch the
-    /// check off).
+    /// `FATHOM_AI_CLAUDE_RANGES` (unset or empty: [`CLAUDE_RANGES_DEFAULT`]; `off` switches
+    /// the check off).
     pub fn new(
         public_url: &str,
         sign_in_url: Option<&str>,
@@ -133,7 +133,13 @@ impl Connector {
             None => public_url.clone(),
             Some(s) => base_url(s).ok_or("FATHOM_AI_SIGN_IN_URL")?,
         };
-        let ranges = claude_ranges.unwrap_or(CLAUDE_RANGES_DEFAULT);
+        // Empty is the default, not "off": compose passes an unset variable as "". Off is
+        // the word, so it is never reached by accident.
+        let ranges = match claude_ranges.map(str::trim) {
+            None | Some("") => CLAUDE_RANGES_DEFAULT,
+            Some(r) if r.eq_ignore_ascii_case("off") => "",
+            Some(r) => r,
+        };
         let claude_ranges = ranges
             .split(',')
             .map(str::trim)
@@ -1234,6 +1240,12 @@ mod tests {
         assert!(Connector::new("https://user@fathom.example.org", None, None).is_err());
         assert!(Connector::new("http://127.0.0.1:8080", None, None).is_ok());
         assert!(Connector::new("https://a.example", None, Some("not a range")).is_err());
+        // Compose passes an unset variable as "": that is the default range, not no check.
+        let blank = Connector::new("https://a.example", None, Some("")).unwrap();
+        assert!(!blank.is_claude_address("203.0.113.1"));
+        assert!(blank.is_claude_address("160.79.104.10"));
+        let off = Connector::new("https://a.example", None, Some("off")).unwrap();
+        assert!(off.is_claude_address("203.0.113.1"));
     }
 
     #[test]
@@ -1316,8 +1328,6 @@ mod tests {
         assert!(c.is_claude_address("160.79.111.255"));
         assert!(!c.is_claude_address("160.79.112.0"));
         assert!(!c.is_claude_address("unknown"));
-        let open = Connector::new("https://a.example", None, Some("")).unwrap();
-        assert!(open.is_claude_address("203.0.113.9"));
     }
 
     #[test]

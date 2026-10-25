@@ -445,6 +445,24 @@ sits on (`Occupies`). The person makes every tie; Fathom suggests only from a ci
 card opens after a paste onto a drawn device and from a trace or "It's down" stop that reads "not tied to a
 port"; it offers jacks only, and shows and unties ties.
 
+**AI access** (ADR-0072; migration 0043; `src/ai.rs`, `src/oauth.rs`, `src/mcp.rs`, `components/ai/`). A
+person a Steward names lets an AI app read designs they can read, in one organisation, at the tiers the
+organisation allows (layout; addresses; notes), and send ideas a person accepts or dismisses. Never
+passwords or the vault. Two ways in, one grant row (`ai_keys`, kind `helper` or `connector`) and one set of
+rules checked at every request: (a) the **connector**: with `FATHOM_AI_PUBLIC_URL` set, the server is its
+own OAuth 2.1 authorization server and serves `/mcp` (Streamable HTTP, five tools). Claude and Claude Code
+are pinned by their published client ids and redirects; other apps register (RFC 7591) and are off until a
+Steward allows them. S256 PKCE, one-minute single-use codes, one-hour access tokens, rotating refresh
+tokens with reuse detection, hashes only. A Claude grant is used only from Anthropic's published range
+(`FATHOM_AI_CLAUDE_RANGES`). The person signs in and chooses on the "Connect an AI app" page at
+`/oauth/authorize`. (b) the **helper** (`client/public/fathom-ai.mjs`): an ES256 key pair on the person's
+computer signs each `/ai/v1/*` request. Organisation › AI holds the policy (on/off, who, ceiling, apps,
+longest, second-person folders) and every connection with narrow and turn-off; a named person who is not
+an admin sees that tab with AI alone. Admin › AI turns AI off for the server and turns any connection off
+with a reason. AI ideas are a side tab on the Canvas, Racks and Inventory; an Inventory row an open idea
+names is marked. Accepting marks the idea; the change is the person's own edit. Not yet: dashed "would be
+added" rows and marks on the drawing itself.
+
 **Device panel** (r14 A1, A2): Details, Ports and Notes tabs, actions at the foot (Duplicate the main one,
 Remove device in red). Inventory's toolbar has a role filter, written into the filter line as `role:...`.
 

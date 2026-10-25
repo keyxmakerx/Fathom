@@ -127,7 +127,8 @@ async fn deployment(tx: &deadpool_postgres::Transaction<'_>) -> Result<String, R
 }
 
 /// `GET /organisations/{o}/ai`: the switch, the policy, the caller's keys (a Steward's: all),
-/// and the deployment id the helper signs for. Any member.
+/// the deployment id the helper signs for, and the connector's `/mcp` address or null. Any
+/// member.
 async fn overview_handler(
     State(state): State<DesignApiState>,
     PathExtractor(organisation): PathExtractor<String>,
@@ -149,6 +150,15 @@ async fn overview_handler(
     let mut page = ai::overview(&tx, &auth).await?;
     if let Json::Obj(m) = &mut page {
         m.insert("deployment".into(), Json::Str(deployment(&tx).await?));
+        // The address a person pastes into their AI app, when the operator turned the
+        // connector on (ADR-0072 decision 13).
+        m.insert(
+            "connector".into(),
+            match &state.ai_connector {
+                Some(c) => Json::Str(c.resource()),
+                None => Json::Null,
+            },
+        );
     }
     tx.commit().await.map_err(SessionError::Db)?;
     Ok(json_response(page))

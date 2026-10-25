@@ -11,6 +11,13 @@ export const TIERS = ['layout', 'addresses', 'notes'] as const;
 export type Tier = (typeof TIERS)[number];
 export const KEY_DAYS = [30, 90, 365] as const;
 export type KeyState = 'on' | 'disabled' | 'deleted' | 'expired';
+/** Which AI apps may connect as a connector (ADR-0072 decision 16). Claude is on with AI;
+ * the others are off until a Steward allows them. */
+export const APPS = ['claude', 'claude-code', 'other'] as const;
+export type App = (typeof APPS)[number];
+export const APP_NAME: Record<App, string> = { claude: 'Claude', 'claude-code': 'Claude Code', other: 'Other AI apps' };
+/** A key the helper paired, or a connector an app signed in as. */
+export type KeyKind = 'helper' | 'connector';
 
 export interface AiPolicy {
   allowed: boolean;
@@ -18,6 +25,7 @@ export interface AiPolicy {
   ceiling: Tier[];
   maxDays: number;
   secondPersonScopes: string[];
+  apps: App[];
   changedBy: string | null;
   changedAt: number | null;
   version: number;
@@ -25,6 +33,9 @@ export interface AiPolicy {
 
 export interface AiKeyView {
   id: string;
+  kind: KeyKind;
+  /** `helper` for a helper key; for a connector, which app it was given to. */
+  app: App | 'helper';
   owner: string;
   ownerName: string;
   label: string;
@@ -54,6 +65,9 @@ export interface AiOverview {
   canMake: boolean;
   keys: AiKeyView[];
   deployment: string;
+  /** The address a person adds in their AI app, or null when the operator has not turned
+   * the connector on. */
+  connector: string | null;
 }
 
 export interface IdeaStep {
@@ -100,6 +114,7 @@ export function parsePolicy(raw: unknown): AiPolicy {
     ceiling: tiers(o.ceiling),
     maxDays: num(o.maxDays) ?? 90,
     secondPersonScopes: strs(o.secondPersonScopes),
+    apps: Array.isArray(o.apps) ? strs(o.apps).filter((a): a is App => (APPS as readonly string[]).includes(a)) : ['claude'],
     changedBy: typeof o.changedBy === 'string' ? o.changedBy : null,
     changedAt: num(o.changedAt),
     version: num(o.version) ?? 0,
@@ -111,8 +126,11 @@ export function parseKey(raw: unknown): AiKeyView {
   if (typeof o.id !== 'string' || typeof o.version !== 'number') throw new Error('malformed AI key in the response');
   const state = o.state as KeyState;
   const kind = o.stoppedByKind;
+  const app = str(o.app);
   return {
     id: o.id,
+    kind: o.kind === 'connector' ? 'connector' : 'helper',
+    app: (APPS as readonly string[]).includes(app) ? (app as App) : 'helper',
     owner: str(o.owner),
     ownerName: str(o.ownerName) || 'Someone',
     label: str(o.label),
@@ -172,6 +190,7 @@ export function parseOverview(raw: unknown): AiOverview {
     canMake: o.canMake === true,
     keys: Array.isArray(o.keys) ? o.keys.map(parseKey) : [],
     deployment: str(o.deployment),
+    connector: typeof o.connector === 'string' ? o.connector : null,
   };
 }
 
@@ -181,10 +200,14 @@ export async function fetchAi(organisationId: string): Promise<AiOverview> {
 
 export async function setPolicy(
   organisationId: string,
-  policy: Pick<AiPolicy, 'allowed' | 'makers' | 'ceiling' | 'maxDays' | 'secondPersonScopes'>,
+  policy: Pick<AiPolicy, 'allowed' | 'makers' | 'ceiling' | 'maxDays' | 'secondPersonScopes' | 'apps'>,
   ifVersion: number,
 ): Promise<AiPolicy> {
-  return parsePolicy(parse(await signedFetch('POST', `${org(organisationId)}/policy`, body({ ...policy, ifVersion }))));
+  // Only the fields the route takes: it refuses any other, and a whole `AiPolicy` carries more.
+  const { allowed, makers, ceiling, maxDays, secondPersonScopes, apps } = policy;
+  return parsePolicy(
+    parse(await signedFetch('POST', `${org(organisationId)}/policy`, body({ allowed, makers, ceiling, maxDays, secondPersonScopes, apps, ifVersion }))),
+  );
 }
 
 /** The public half as the helper's pair step prints it: 130 hex characters, starting 04. */
@@ -259,4 +282,64 @@ export function plainWords(
     'Never sees passwords, the vault, or anything you cannot see.',
     'What it reads goes to the company behind your AI app.',
   ];
+}
+
+// ---- The connector sign-in (ADR-0072 decisions 13 to 20) ----
+
+/** What the sign-in page learns about an app's request before the person decides. */
+export type ConnectCheck =
+  | { ok: true; app: { id: string; name: string; kind: App; returnsTo: string } }
+  | { ok: false; description: string; back: string | null };
+
+/** Unsigned: the page asks what the app's request is. `query` is the page's own query string. */
+export async function checkConnect(query: string): Promise<ConnectCheck> {
+  const res = await fetch('/oauth/authorize/check', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: query.replace(/^\?/, ''),
+  });
+  if (res.status === 404) return { ok: false, description: 'This Fathom does not have AI connections turned on. Ask whoever runs it.', back: null };
+  let o: Record<string, unknown>;
+  try {
+    o = (await res.json()) as Record<string, unknown>;
+  } catch {
+    return { ok: false, description: 'Fathom could not read this sign-in request.', back: null };
+  }
+  const app = o.app as Record<string, unknown> | undefined;
+  if (res.ok && app && typeof app.id === 'string') {
+    const kind = str(app.kind);
+    return {
+      ok: true,
+      app: { id: app.id, name: str(app.name), kind: (APPS as readonly string[]).includes(kind) ? (kind as App) : 'other', returnsTo: str(app.returnsTo) },
+    };
+  }
+  return {
+    ok: false,
+    description: str(o.description) || str(o.error_description) || 'Fathom could not accept this sign-in request.',
+    back: typeof o.back === 'string' ? o.back : null,
+  };
+}
+
+/** The person's answer. Answers where the browser goes next: back to the app. */
+export async function answerConnect(
+  organisationId: string,
+  request: string,
+  answer: { allow: false } | { allow: true; label?: string; scopes: string[]; sees: Tier[]; mayRecommend: boolean; days: number },
+): Promise<{ redirect: string; key: AiKeyView | null }> {
+  const o = parse(await signedFetch('POST', `${org(organisationId)}/connect`, body({ request: request.replace(/^\?/, ''), ...answer }))) as Record<
+    string,
+    unknown
+  >;
+  return { redirect: str(o.redirect), key: o.key ? parseKey(o.key) : null };
+}
+
+/** Where a sign-in may send the browser back to: https anywhere, or http on this computer. */
+export function safeRedirect(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (u.protocol === 'https:') return true;
+    return u.protocol === 'http:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '[::1]');
+  } catch {
+    return false;
+  }
 }
