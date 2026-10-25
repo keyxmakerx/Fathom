@@ -28,6 +28,9 @@ import { getSession } from '../../state/sessionState';
 import type { Selection } from '../drawing';
 import { DocsOverlay } from '../docs/DocsOverlay';
 import { DocsContext, useDocsApi } from '../docs/useDocsApi';
+import { fetchHistory } from '../../api/history';
+import { openDesign } from '../../api/payload';
+import { readPlain } from '../../document/plain';
 import { HistoryPanel, whenLabel } from '../history/HistoryPanel';
 import { useHistory } from '../history/useHistory';
 import { FirmwareContext } from '../firmware/context';
@@ -64,6 +67,7 @@ import { LessonBuilder } from '../lessons/LessonBuilder';
 import { publishedCopy, publishedLesson } from '../../document/lessons';
 import { createDesign, renameDesign } from '../../api/designs';
 import { writePlain } from '../../document/plain';
+import type { SideTab } from '../shell/sideSlot';
 
 /** A download with no server round trip. The object URL is revoked a few
  * seconds later, not straight away — read too soon, a browser saves an empty file. */
@@ -826,6 +830,13 @@ export function DesignPlace(props: DesignPlaceProps) {
     if (props.place !== 'racks') onPlaceChange('racks');
     setHistoryOpen(true);
   };
+  // The sample as it was made: its first save (r30-small's Reset sample).
+  const loadFirstSave = async () => {
+    const saves = await fetchHistory(organisationId, designId);
+    if (saves.length === 0) throw new Error('This design has no saves to go back to.');
+    const first = Math.min(...saves.map((s) => s.designVersion));
+    return readPlain((await openDesign(organisationId, designId, first)).bytes);
+  };
   const restorePicked = () => {
     if (pickedSave == null || !session.canDraw) return;
     // A new save of the old content, with one batch saying so; the old saves stay in the chain.
@@ -857,10 +868,36 @@ export function DesignPlace(props: DesignPlaceProps) {
   // A past save is a read-only copy: nothing drawn on it is saved.
   const racksSession = pickedSave != null ? { ...session, doc: pickedSave.doc, canDraw: false, applyDocChange: () => {} } : session;
 
+  // r31-bar A: on the drawing, Docs is a tab of the right-hand panel holding the docs list, not an overlay. Leaving
+  // the drawing folds it, so it does not reappear as a page over the other view.
+  const docsPlace = useRef(props.place);
+  useEffect(() => {
+    if (docsPlace.current === 'racks' && props.place !== 'racks') docs.setView(null);
+    docsPlace.current = props.place;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a change of place folds it
+  }, [props.place]);
+  const docsTab: SideTab | null =
+    sharedShellProps.onDocs != null || docs.view != null
+      ? {
+          id: 'docs',
+          label: 'Docs',
+          open: docs.view != null,
+          onOpen: () => docs.setView({ kind: 'list' }),
+          onClose: () => docs.setView(null),
+          content:
+            docs.view != null ? (
+              <DocsContext.Provider value={docs.api}>
+                <DocsOverlay view={docs.view} onView={docs.setView} onClose={() => docs.setView(null)} />
+              </DocsContext.Provider>
+            ) : null,
+        }
+      : null;
+
   const place =
     props.place === 'racks' ? (
       <RacksPlace
         {...sharedShellProps}
+        sideTabs={docsTab != null ? [docsTab] : undefined}
         historyView={historyView}
         onPlaceChange={onPlaceChange}
         session={racksSession}
@@ -885,6 +922,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         designId={designId}
         onSelectedChange={setSelectedId}
         onDeviceOpened={noteDeviceOpened}
+        loadFirstSave={loadFirstSave}
       />
     ) : (
       <InventoryPlace
@@ -910,7 +948,7 @@ export function DesignPlace(props: DesignPlaceProps) {
   // `inert`: Firefox 112+, Chrome 102+, Safari 15.5+ (html.global_attributes.inert, read 2026-09-26).
   return (
     <PasteGateBoundary redact={redact}>
-      <div className="print-hide-under-preview" inert={printMode === 'preview' || docs.view != null || learn.view != null}>
+      <div className="print-hide-under-preview" inert={printMode === 'preview' || (docs.view != null && props.place !== 'racks') || learn.view != null}>
         <FirmwareContext.Provider value={firmwareApi}>
           <PaletteRegistryContext.Provider value={paletteRegistry}>
             <DocsContext.Provider value={docs.api}>
@@ -950,7 +988,7 @@ export function DesignPlace(props: DesignPlaceProps) {
           side={props.place === 'racks' ? 'left' : 'right'}
         />
       )}
-      {docs.view != null && printMode === 'closed' && (
+      {docs.view != null && printMode === 'closed' && props.place !== 'racks' && (
         <DocsContext.Provider value={docs.api}>
           <DocsOverlay view={docs.view} onView={docs.setView} onClose={() => docs.setView(null)} />
         </DocsContext.Provider>

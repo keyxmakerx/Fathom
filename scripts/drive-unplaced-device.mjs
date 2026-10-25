@@ -163,6 +163,8 @@ try {
   // look only inside `view.racks`, so this panel never appeared at all.
   await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
   const panel = page.locator('.drawing-editor__panel');
+  // Remove device sits in the panel's ⋯ menu.
+  await panel.locator('[data-testid="device-more"] > summary').click();
   const panelText = await panel.innerText();
   check('the panel opens for the unplaced device', panelText.includes('sketch-01'));
   check('the panel shows "Placed on", not silence', /placed on/i.test(panelText));
@@ -175,6 +177,8 @@ try {
   console.log('    wrote ' + SHOTS + 'UD-01-panel.png');
 
   // Edit a field — the management address, `IpAddr` (`schema/schema.yaml`).
+  // The management address folds to one line (r30-device); open it first.
+  await panel.locator('[data-testid="management-fold"] > summary').click();
   await editTextField(panel, 'Mgmt address', '10.10.0.5');
   await page.waitForTimeout(300);
   const panelTextAfterEdit = await panel.innerText();
@@ -193,7 +197,7 @@ try {
   // Undo — the bar's own chip (Inventory has no canvas to hold a Ctrl+Z
   // listener; `DesignPlace.tsx`'s own doc: "the bar's Undo/Redo, real
   // everywhere `DesignPlace` renders").
-  await page.locator('.shell-chip', { hasText: 'Undo' }).click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await page.waitForTimeout(400);
   check('the row is back after undo', (await page.locator('.inventory-place__row', { hasText: 'sketch-01' }).count()) === 1);
   await page.screenshot({ path: SHOTS + 'UD-04-undone.png' });

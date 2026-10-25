@@ -66,13 +66,13 @@ describe('menuItemsFor', () => {
   });
 
 
-  it('offers Plan a firmware upgrade beside Plan a change, and says when a version must be chosen first', () => {
+  it('offers Plan a firmware upgrade beside Plan a change, and leaves it out until a version is chosen', () => {
     const go = vi.fn();
     const base = { ...actions(), onPlanChange: vi.fn(), onPlanFirmware: go };
     const labels = (needs: boolean) => menuItemsFor({ kind: 'chassis', id: 'c1' }, { ...base, firmwareNeedsVersion: () => needs }).map((i) => i.label);
     expect(labels(false)).toContain('Plan a firmware upgrade');
     expect(labels(false).indexOf('Plan a firmware upgrade')).toBe(labels(false).indexOf('Plan a change') + 1);
-    expect(labels(true)).toContain('Plan a firmware upgrade (choose a version first)');
+    expect(labels(true).some((l) => l.startsWith('Plan a firmware upgrade'))).toBe(false);
     menuItemsFor({ kind: 'chassis', id: 'c1' }, base).find((i) => i.label === 'Plan a firmware upgrade')!.onSelect();
     expect(go).toHaveBeenCalledWith('c1');
     expect(menuItemsFor({ kind: 'chassis', id: 'c1' }, actions()).map((i) => i.label)).not.toContain('Plan a firmware upgrade');
