@@ -389,6 +389,9 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     ADR-0061 troubleshooting: issues are drawn by the issue views, never as a box.
         | NodeKind::Issue
         | NodeKind::IssueStep
+        //     The lesson builder (0.26): drawn by the lesson panel, never as a box.
+        | NodeKind::Lesson
+        | NodeKind::LessonStep
         //     Firmware targets (0.19): listed by the client, never laid out.
         | NodeKind::FirmwareTarget
         //     Cable runs and ties (0.23): drawn on their rack or wall, never as a box.

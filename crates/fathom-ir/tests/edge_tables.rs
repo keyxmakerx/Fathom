@@ -13,7 +13,7 @@ use fathom_ir::generated::ir_types::{EdgeCardBound, EdgeClass, EdgeKind, FIELD_K
 /// The six `from: [root]` containment edges (`11` §7.2's *root*, as
 /// transcribed in `schema/schema.yaml`'s containment section). ADR-0059
 /// appended `HasTag`, `HasTenant`'s own shape.
-const ROOT_EDGES: [EdgeKind; 12] = [
+const ROOT_EDGES: [EdgeKind; 13] = [
     EdgeKind::HasTunnel,
     EdgeKind::HasPremises,
     EdgeKind::HasCable,
@@ -26,6 +26,7 @@ const ROOT_EDGES: [EdgeKind; 12] = [
     EdgeKind::HasIssue,
     EdgeKind::HasDoc,
     EdgeKind::HasFirmwareTarget,
+    EdgeKind::HasLesson,
 ];
 
 #[test]
@@ -60,7 +61,7 @@ fn symmetric_is_link_and_passthrough_only() {
 }
 
 #[test]
-fn root_containment_is_the_twelve_root_edges() {
+fn root_containment_is_the_thirteen_root_edges() {
     let root: Vec<&'static str> = EdgeKind::ALL
         .iter()
         .filter(|k| k.root_containment())
@@ -122,9 +123,10 @@ fn slot_type_covers_every_registry_key() {
     // One more key: `PhysicalPort.mac` (462, schema 0.21; 414-461 held for the other round 15 threads).
     // 413 -> 417: cable runs and ties (414-417, schema 0.23).
     // One more key: `Cable.needs_finishing` (478, schema 0.24).
+    // 22 more: the lesson builder (486-507, schema 0.26).
     assert_eq!(
         FIELD_KEYS.len(),
-        413,
+        435,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

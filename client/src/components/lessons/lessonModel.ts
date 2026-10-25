@@ -2,6 +2,7 @@
 // of a sample network. Every step is checked here from the design, the selection, a trace or Checks; nobody marks one
 // by hand. Steps name things the way a person does (hostnames, `hostname:label`); this module finds them in the design.
 import { asString, edgesIn, edgesOut, fieldValue, findNode, parseNodeId, readPhysicalPortFields, type Document } from '../../document/model';
+import type { DesignLesson } from '../../document/lessons';
 import type { ChecksResult, TraceResult } from '../../engine/engine';
 import { parseFlow } from '../trace/traceModel';
 
@@ -16,13 +17,13 @@ export type TraceExpect = { reaches: true; crosses: string[] } | { reaches: fals
 
 export type LessonStep =
   | { kind: 'read'; title: string; body: string; explainer?: string }
-  | { kind: 'click'; title: string; prompt: string; answer: { device: string } | { cable: string }; hint: string; after: string }
+  | { kind: 'click'; title: string; prompt: string; answer: { device: string } | { cable: string } | { id: string }; hint: string; after: string }
   | {
       kind: 'trace';
       title: string;
       prompt: string;
-      from: { device: string } | { port: string };
-      to: { device: string };
+      from: { device: string } | { port: string } | { id: string };
+      to: { device: string } | { id: string };
       flow?: string;
       expect: TraceExpect;
       after: string;
@@ -33,6 +34,7 @@ export interface Lesson {
   id: string;
   title: string;
   summary: string;
+  /** The sample a corpus lesson runs in; empty for a lesson written on a design, which runs in its own copy. */
   sample: string;
   sources: LessonSource[];
   steps: LessonStep[];
@@ -123,6 +125,56 @@ export function selected(doc: Document, id: string): { device: string } | { cabl
   return null;
 }
 
+/** What a person calls a device or port: `hostname`, or `hostname port label`. */
+export function nameOf(doc: Document, id: string): string {
+  const node = live(doc, id);
+  if (node == null) return '';
+  const kind = parseNodeId(id).kind;
+  if (kind === 'Device') return asString(fieldValue(node.fields, 'Device.hostname')) ?? '';
+  if (kind === 'PhysicalPort') {
+    const owner = selected(doc, id);
+    const host = owner != null && 'device' in owner ? nameOf(doc, owner.device) : '';
+    return `${host} port ${readPhysicalPortFields(node).label ?? ''}`.trim();
+  }
+  if (kind === 'Cable') {
+    const ends = edgesOut(doc, id, 'Terminates').filter((e) => e.absentSince === undefined).map((e) => nameOf(doc, e.to));
+    return ends.length > 0 ? `the cable on ${ends.join(' and ')}` : 'a cable';
+  }
+  return '';
+}
+
+// ---------------------------------------------------------------------------
+// A lesson written on a design (schema 0.26)
+
+/** The runner's lesson for one written on a design. Devices it names by id are read by their hostname now, since a
+ * trace names its hops that way. */
+export function fromDesignLesson(doc: Document, l: DesignLesson): Lesson {
+  const steps: LessonStep[] = l.steps.map((s): LessonStep => {
+    const after = s.after !== '' ? s.after : 'That is it.';
+    switch (s.kind) {
+      case 'read':
+        return { kind: 'read', title: s.title, body: s.body, ...(s.explainer !== '' ? { explainer: s.explainer } : {}) };
+      case 'click':
+        return { kind: 'click', title: s.title, prompt: s.body, answer: { id: s.answer }, hint: s.hint !== '' ? s.hint : 'Try another.', after };
+      case 'trace': {
+        const expect: TraceExpect =
+          s.expectTrace === 'first_match'
+            ? { firstMatch: s.expectFirstMatch }
+            : s.expectTrace === 'stops'
+            ? { reaches: false, stopsAt: nameOf(doc, s.expectStop) }
+            : { reaches: true, crosses: s.expectCrosses.map((c) => nameOf(doc, c)).filter((c) => c !== '') };
+        return { kind: 'trace', title: s.title, prompt: s.body, from: { id: s.traceFrom }, to: { id: s.traceTo }, ...(s.flow !== '' ? { flow: s.flow } : {}), expect, after };
+      }
+      case 'change':
+        return { kind: 'change', title: s.title, prompt: s.body, expect: { rule: s.expectRule, now: s.expectNow === 'clears' ? 'clears' : 'fires' }, after };
+    }
+  });
+  return { id: `design-lesson:${l.id}`, title: l.title, summary: l.summary, sample: '', sources: [], steps };
+}
+
+/** The run key of a published lesson: the published design's id, so each publish is its own lesson. */
+export const designLessonId = (publishedDesignId: string): string => `design:${publishedDesignId}`;
+
 // ---------------------------------------------------------------------------
 // Checking a step
 
@@ -132,7 +184,9 @@ export type StepCheck = { state: 'waiting' } | { state: 'passed' } | { state: 'w
 export function checkClick(doc: Document, step: Extract<LessonStep, { kind: 'click' }>, selectedId: string | null): StepCheck {
   if (selectedId == null) return { state: 'waiting' };
   const want =
-    'device' in step.answer
+    'id' in step.answer
+      ? live(doc, step.answer.id)?.id ?? null
+      : 'device' in step.answer
       ? deviceByHostname(doc, step.answer.device)
       : (() => {
           const port = portByRef(doc, step.answer.cable);
@@ -150,12 +204,14 @@ export function traceArgs(
   doc: Document,
   step: Extract<LessonStep, { kind: 'trace' }>,
 ): { from: string; fromLabel: string; to: string; toLabel: string; flowText: string; flow?: { protocol: number; port: number } } | null {
-  const from = 'device' in step.from ? deviceByHostname(doc, step.from.device) : portByRef(doc, step.from.port);
-  const to = deviceByHostname(doc, step.to.device);
+  const from =
+    'id' in step.from ? live(doc, step.from.id)?.id ?? null : 'device' in step.from ? deviceByHostname(doc, step.from.device) : portByRef(doc, step.from.port);
+  const to = 'id' in step.to ? live(doc, step.to.id)?.id ?? null : deviceByHostname(doc, step.to.device);
   if (from == null || to == null) return null;
   const flow = parseFlow(step.flow ?? '');
-  const fromLabel = 'device' in step.from ? step.from.device : `${step.from.port.replace(':', ' port ')}`;
-  return { from, fromLabel, to, toLabel: step.to.device, flowText: step.flow ?? '', flow: flow != null && flow !== 'none' ? flow : undefined };
+  const fromLabel = 'id' in step.from ? nameOf(doc, step.from.id) : 'device' in step.from ? step.from.device : `${step.from.port.replace(':', ' port ')}`;
+  const toLabel = 'id' in step.to ? nameOf(doc, step.to.id) : step.to.device;
+  return { from, fromLabel, to, toLabel, flowText: step.flow ?? '', flow: flow != null && flow !== 'none' ? flow : undefined };
 }
 
 /** A trace's answer against what the step expects. */
@@ -195,6 +251,8 @@ export interface LessonRun {
   designId: string;
   /** Steps passed so far; equal to the step count once done. */
   step: number;
+  /** How many steps a written lesson had when the copy was made; a corpus lesson counts its own. */
+  of?: number;
 }
 
 const KEY = (accountId: string | null) => `fathom.lessons.${accountId ?? 'anon'}`;
@@ -225,6 +283,21 @@ export function saveRun(
     // Private mode or a full disk: progress lasts for this page only.
   }
   return next;
+}
+
+/** A published lesson as Home lists it: the design holding it, and its title from the design's name. */
+export interface WrittenLesson {
+  lessonId: string;
+  designId: string;
+  title: string;
+}
+
+/** Published lessons among the designs this person can see: named `Lesson: …`, and not a copy someone is running. */
+export function publishedLessonDesigns(designs: readonly { designId: string; name: string | null }[], runs: readonly LessonRun[]): WrittenLesson[] {
+  const running = new Set(runs.map((r) => r.designId));
+  return designs
+    .filter((d) => d.name != null && d.name.startsWith('Lesson: ') && !running.has(d.designId))
+    .map((d) => ({ lessonId: designLessonId(d.designId), designId: d.designId, title: d.name!.slice('Lesson: '.length) }));
 }
 
 export function runForDesign(runs: readonly LessonRun[], designId: string): LessonRun | null {

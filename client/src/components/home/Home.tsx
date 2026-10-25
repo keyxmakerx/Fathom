@@ -14,8 +14,10 @@ import { ApiRefusal } from '../../api/errors';
 import { fetchOrganisations, type Organisation } from '../../api/organisations';
 import { fetchCatalogue, fetchModel, type CatalogueModel } from '../../api/catalogue';
 import { createScope, fetchScopes, type Scope } from '../../api/scopes';
+import { openDesign } from '../../api/payload';
+import { publishedLesson } from '../../document/lessons';
 import { emptyDocument } from '../../document/model';
-import { writePlain } from '../../document/plain';
+import { readPlain, writePlain } from '../../document/plain';
 import { About } from '../about/About';
 import { getSession } from '../../state/sessionState';
 import { clearJoinedFromInvitation, stillWaitingInvitee, wasJoinedFromInvitation } from '../../state/waitingInvitee';
@@ -34,7 +36,7 @@ import { loadFirstSteps, rememberSample, setFirstStepsHidden, type FirstStepsSta
 import { GettingStarted, SampleCard } from './GettingStarted';
 import { buildSample, modelKey, sample, sampleModels, type SamplePaste, type SampleSpec } from './sampleNetwork';
 import { LessonsList } from '../lessons/LessonsList';
-import { lessons, loadRuns, saveRun, type Lesson, type LessonRun } from '../lessons/lessonModel';
+import { lessons, loadRuns, publishedLessonDesigns, saveRun, type Lesson, type LessonRun, type WrittenLesson } from '../lessons/lessonModel';
 import { bootLessonMirror } from '../lessons/useLessonChecks';
 import './home.css';
 import { EmptyState } from '../ui/EmptyState';
@@ -386,8 +388,34 @@ export function Home({
     setLessonError(null);
     setLessonBusy(lesson.id);
     try {
-      const named = await copySample(organisation, sample(lesson.sample), `Lesson: ${lesson.title}`);
+      const named = await copySample(organisation, sample(lesson.sample), `Practice: ${lesson.title}`);
       setLessonRuns(saveRun(accountId, { lessonId: lesson.id, designId: named.designId, step: 0 }));
+      onOpenRacks(organisation, named);
+    } catch (error: unknown) {
+      setLessonError(describeError(error));
+      setLessonBusy(null);
+    }
+  }
+
+  /** A lesson someone published (ADR-0066 §2): every start is a new copy of the published design, named Practice. */
+  async function startWrittenLesson(organisation: Organisation, written: WrittenLesson) {
+    if (scopes.status !== 'ready') return;
+    setLessonError(null);
+    setLessonBusy(written.lessonId);
+    try {
+      const opened = await openDesign(organisation.organisationId, written.designId);
+      const doc = readPlain(opened.bytes);
+      const lesson = publishedLesson(doc);
+      if (lesson == null) throw new Error('That design holds no published lesson.');
+      const target = newDesignTarget(scopes.value);
+      const scope = target.kind === 'scope' ? target.scope : await createScope(organisation.organisationId, null, organisation.displayName);
+      const design = await createDesign(organisation.organisationId, scope.scopeId, writePlain(doc));
+      const name = `Practice: ${lesson.title}`;
+      const named = await renameDesign(organisation.organisationId, design.designId, name).then(
+        () => ({ ...design, name }),
+        () => design,
+      );
+      setLessonRuns(saveRun(accountId, { lessonId: written.lessonId, designId: named.designId, step: 0, of: lesson.steps.length }));
       onOpenRacks(organisation, named);
     } catch (error: unknown) {
       setLessonError(describeError(error));
@@ -597,6 +625,8 @@ export function Home({
         {shownTab === 'designs' && !waitingInvitee && selectedOrganisation && (
           <LessonsList
             lessons={lessons()}
+            written={designs.status === 'ready' ? publishedLessonDesigns(designs.value, lessonRuns) : []}
+            onStartWritten={(w) => void startWrittenLesson(selectedOrganisation, w)}
             runs={lessonRuns}
             openable={new Set(designs.status === 'ready' ? designs.value.map((d) => d.designId) : [])}
             busyId={lessonBusy}

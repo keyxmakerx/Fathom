@@ -21,7 +21,11 @@ import {
   type Lesson,
   type LessonStep,
 } from '../components/lessons/lessonModel';
+import { recordTrace } from '../components/lessons/LessonBuilder';
+import { fromDesignLesson } from '../components/lessons/lessonModel';
 import { connectPorts } from '../document/cables';
+import { addLessonStep, createLesson, publishedCopy, publishedLesson, TYPED_AS_WRITTEN } from '../document/lessons';
+import { readPlain, writePlain } from '../document/plain';
 import { edgesIn, edgesOut, type Document } from '../document/model';
 import { attachToVlan, detachVlanMember } from '../document/networks';
 import { Engine } from './engine';
@@ -99,7 +103,7 @@ describe.each([
       mirror.load(doc);
       if (step.kind === 'click') {
         const answer =
-          'device' in step.answer ? deviceByHostname(doc, step.answer.device) : cableOnPort(doc, portByRef(doc, step.answer.cable) ?? '');
+          'device' in step.answer ? deviceByHostname(doc, step.answer.device) : 'cable' in step.answer ? cableOnPort(doc, portByRef(doc, step.answer.cable) ?? '') : null;
         expect(answer, where).not.toBeNull();
         expect(checkClick(doc, step, answer).state, where).toBe('passed');
         // A wrong pick gets the hint, never a pass.
@@ -134,5 +138,58 @@ describe.each([
     const findings = mirror.checks().findings;
     expect(findings.filter((f) => f.severity !== 'idea')).toEqual([]);
     expect(findings.map((f) => f.rule)).toEqual(['topo.switch.single-cable']);
+  });
+});
+
+describe('a lesson written on a design, then published', () => {
+  it('records what its traces show, survives the copy, and holds step by step in it', () => {
+    const mirror = new Mirror(engine);
+    const paste: SamplePaste = (doc, deviceId, text, platform) => {
+      mirror.load(doc);
+      return mirror.pasteInto(deviceId, text, platform).doc;
+    };
+    let doc = buildSample(sample('small-office'), new Map(), undefined, paste).doc;
+    const id = (h: string) => deviceByHostname(doc, h)!;
+    const gate = TYPED_AS_WRITTEN;
+    const made = createLesson(doc, { title: 'Our office', gate });
+    doc = made.doc;
+    doc = addLessonStep(doc, made.id, { kind: 'click', title: 'Firewall', body: 'Click the firewall.', answer: id('fw-1'), hint: 'In the rack.', after: 'Yes.' }, { gate }).doc;
+
+    // The author picks the two ends and records what the trace shows now, as the builder does.
+    mirror.load(doc);
+    const reach = recordTrace(doc, mirror.trace(id('desktop-1'), id('nas-1')), [id('desktop-1'), id('nas-1')]);
+    expect(reach.expectTrace).toBe('reaches');
+    expect(reach.expectCrosses).toEqual(expect.arrayContaining([id('switch-2'), id('switch-1')]));
+    expect(reach.expectCrosses).not.toContain(id('desktop-1'));
+    doc = addLessonStep(doc, made.id, { kind: 'trace', title: 'To the NAS', body: 'Trace it.', traceFrom: id('desktop-1'), traceTo: id('nas-1'), ...reach, after: 'Two switches.' }, { gate }).doc;
+    const rtsp = recordTrace(doc, mirror.trace(id('desktop-1'), id('camera-1'), { protocol: 6, port: 554 }));
+    expect(rtsp.expectFirstMatch).toBe('block-cameras');
+    doc = addLessonStep(
+      doc,
+      made.id,
+      { kind: 'trace', title: 'Camera', body: 'Trace it.', traceFrom: id('desktop-1'), traceTo: id('camera-1'), flow: 'TCP 554', ...rtsp, expectTrace: 'first_match', after: 'Order.' },
+      { gate },
+    ).doc;
+    doc = addLessonStep(doc, made.id, { kind: 'change', title: 'Move it', body: 'Put switch-2 port 1 in VLAN 30.', expectRule: 'l2.vlan.access-mismatch', expectNow: 'fires', after: 'Mismatch.' }, { gate }).doc;
+
+    let copy = readPlain(writePlain(publishedCopy(doc, made.id, { sourceDesign: '' })));
+    const lesson = fromDesignLesson(copy, publishedLesson(copy)!);
+    expect(lesson.steps.map((s) => s.kind)).toEqual(['click', 'trace', 'trace', 'change']);
+    lesson.steps.forEach((step, i) => {
+      const where = `step ${i + 1}`;
+      mirror.load(copy);
+      if (step.kind === 'click') {
+        expect(checkClick(copy, step, deviceByHostname(copy, 'fw-1')).state, where).toBe('passed');
+        expect(checkClick(copy, step, deviceByHostname(copy, 'desktop-1')).state, where).toBe('wrong');
+      } else if (step.kind === 'trace') {
+        const args = traceArgs(copy, step)!;
+        expect(checkTrace(step.expect, mirror.trace(args.from, args.to, args.flow)), where).toEqual({ state: 'passed' });
+      } else if (step.kind === 'change') {
+        expect(checkChange(step, mirror.checks()).state, `${where}, before`).toBe('waiting');
+        copy = moveAccessVlan(copy, 'switch-2:1', 30);
+        mirror.load(copy);
+        expect(checkChange(step, mirror.checks()).state, `${where}, after`).toBe('passed');
+      }
+    });
   });
 });

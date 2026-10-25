@@ -57,12 +57,12 @@ use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{EdgeKind, NodeKind, FIELD_KEYS, SCHEMA_VERSION};
 use fathom_ir::scalar::Text;
 
-/// Every 0.10-to-0.25 move is additive, so a payload declared at an older
+/// Every 0.10-to-0.26 move is additive, so a payload declared at an older
 /// version reads exactly like a current one — nothing renamed, retyped or
 /// removed. Every older version this crate still opens, and no other.
 pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &[
     "0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17", "0.18", "0.19", "0.20", "0.21",
-    "0.22", "0.23", "0.24",
+    "0.22", "0.23", "0.24", "0.25",
 ];
 
 /// Node kinds `0.11` (ADR-0058) added. A payload declared at `0.10` cannot
@@ -128,17 +128,21 @@ const NODE_KINDS_SINCE_0_23: &[NodeKind] = &[NodeKind::CableRun, NodeKind::Cable
 const EDGE_KINDS_SINCE_0_23: &[EdgeKind] =
     &[EdgeKind::HasCableRun, EdgeKind::HasCableTie, EdgeKind::Ties];
 
+/// Kinds `0.26` (the lesson builder) added; every accepted older header is too old for them.
+const NODE_KINDS_SINCE_0_26: &[NodeKind] = &[NodeKind::Lesson, NodeKind::LessonStep];
+const EDGE_KINDS_SINCE_0_26: &[EdgeKind] = &[EdgeKind::HasLesson, EdgeKind::HasLessonStep];
+
 /// Refuse a payload declared at `declared` that holds a kind newer than that
 /// version — decision 6's (ADR-0058) and decision 9's (ADR-0059) second
 /// halves, checked once per accepted older version: `0.10` cannot hold
 /// anything `0.11` to `0.19` added, and so on up the chain. `0.20` (the
 /// owner's ticked ideas), `0.21` (round 15), `0.22` (port faces), `0.24` (missing links) and `0.25` (the LAG step) added only fields and
-/// enum variants, no kind; `0.23` (cable runs and ties) added kinds.
+/// enum variants, no kind; `0.23` (cable runs and ties) and `0.26` (the lesson builder) added kinds.
 fn reject_kinds_too_new_for_declared_version(
     declared: &str,
     snapshot: &Snapshot,
 ) -> Result<(), PlainError> {
-    // Nothing to check for the current version (`0.25`, everything is
+    // Nothing to check for the current version (`0.26`, everything is
     // legitimate there) or any value `SchemaVersionMismatch` already
     // refused above this call — only the accepted older headers name a
     // kind set their own editor could never have written.
@@ -150,7 +154,7 @@ fn reject_kinds_too_new_for_declared_version(
         .strip_prefix("0.")
         .and_then(|m| m.parse().ok())
         .unwrap_or(0);
-    let nodes_since: [(u32, &[NodeKind]); 9] = [
+    let nodes_since: [(u32, &[NodeKind]); 10] = [
         (11, NODE_KINDS_SINCE_0_11),
         (12, NODE_KINDS_SINCE_0_12),
         (13, NODE_KINDS_SINCE_0_13),
@@ -160,8 +164,9 @@ fn reject_kinds_too_new_for_declared_version(
         (18, NODE_KINDS_SINCE_0_18),
         (19, NODE_KINDS_SINCE_0_19),
         (23, NODE_KINDS_SINCE_0_23),
+        (26, NODE_KINDS_SINCE_0_26),
     ];
-    let edges_since: [(u32, &[EdgeKind]); 9] = [
+    let edges_since: [(u32, &[EdgeKind]); 10] = [
         (11, EDGE_KINDS_SINCE_0_11),
         (12, EDGE_KINDS_SINCE_0_12),
         (13, EDGE_KINDS_SINCE_0_13),
@@ -171,6 +176,7 @@ fn reject_kinds_too_new_for_declared_version(
         (18, EDGE_KINDS_SINCE_0_18),
         (19, EDGE_KINDS_SINCE_0_19),
         (23, EDGE_KINDS_SINCE_0_23),
+        (26, EDGE_KINDS_SINCE_0_26),
     ];
     for n in &snapshot.nodes {
         let k = n.id.kind;

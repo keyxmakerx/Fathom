@@ -467,7 +467,8 @@ enum Read {
 /// stored as typed: ordinary ones carry long ids this check reads as secrets.
 fn gated_fields() -> Vec<(NodeKind, fathom_ir::bag::FieldKey, &'static str, Read)> {
     use fathom_ir::generated::ir_types::{
-        IssueField as I, IssueStepField as IS, MaintenancePlanField as P, PlanStepField as S,
+        IssueField as I, IssueStepField as IS, LessonField as L, LessonStepField as LS,
+        MaintenancePlanField as P, PlanStepField as S,
     };
     let prose = Read::Lines(false);
     let mut v = vec![
@@ -530,6 +531,38 @@ fn gated_fields() -> Vec<(NodeKind, fathom_ir::bag::FieldKey, &'static str, Read
         "FirmwareTarget",
         prose,
     ));
+    // A lesson and its steps (0.26): typed prose, same check as an issue; the fields naming
+    // what a step points at hold design ids only, one per line.
+    for f in [
+        L::Title,
+        L::Summary,
+        L::Author,
+        L::PublishedAt,
+        L::SourceDesign,
+    ] {
+        v.push((NodeKind::Lesson, f.key(), "Lesson", prose));
+    }
+    for f in [
+        LS::Title,
+        LS::Body,
+        LS::Hint,
+        LS::After,
+        LS::Explainer,
+        LS::Flow,
+        LS::ExpectFirstMatch,
+        LS::ExpectRule,
+    ] {
+        v.push((NodeKind::LessonStep, f.key(), "LessonStep", prose));
+    }
+    for f in [
+        LS::Answer,
+        LS::TraceFrom,
+        LS::TraceTo,
+        LS::ExpectCrosses,
+        LS::ExpectStop,
+    ] {
+        v.push((NodeKind::LessonStep, f.key(), "LessonStep", Read::Targets));
+    }
     v
 }
 

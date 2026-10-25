@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.25"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.26"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -313,6 +313,14 @@ schema:
                     # Interfaces of one device into a new AggregateInterface when the step is done.
                     # 62 §16.2: "New enum variant" is minor. No kind, edge or key added or moved.
                     # Whole change = MINOR. The reader still opens 0.10 to 0.24.
+                    #
+                    # 0.26 is the lesson builder (ADR-0066 §2, 2026-10-25), all additive: two node
+                    # kinds, Lesson and LessonStep (joining Placeable, as Issue and IssueStep do),
+                    # two edge kinds, HasLesson (root containment, HasIssue's shape) and
+                    # HasLessonStep, twenty-two field keys (486-507; 479-485 are held for mesh
+                    # VPNs). A lesson is written in the design it teaches; publishing copies the
+                    # whole design, so its steps keep naming design ids. Whole change = MINOR.
+                    # The reader still opens 0.10 to 0.25.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -545,6 +553,9 @@ classes:
       # Cable runs and ties (0.23): join Placeable as Tag does; drawn on their rack or wall.
       - CableRun
       - CableTie
+      # The lesson builder (0.26): a lesson and its steps are drawn by the lesson panel.
+      - Lesson
+      - LessonStep
       # Custom-field values (0.16): joins Placeable as Tag does; the client draws no box.
       - FieldValue
     doc: |
@@ -2156,6 +2167,52 @@ kinds:
       - { name: at, type: u16, card: "1", emit: "—", doc: "Where along its run, in thousandths of the run's length from its top or left end (0-1000)." }
     identity: []
 
+  # The lesson builder (ADR-0066 §2, 2026-10-25). Appended at the tail (62 §13).
+  - kind: Lesson
+    layer: physical
+    emits: false
+    doc: |
+      A lesson someone wrote on their own design: ordered steps (HasLessonStep) that Fathom
+      checks from the design, the selection, a trace or Checks. Hung off the root through
+      HasLesson. Publishing copies the whole design and sets `published_at` on the copy, so a
+      learner always practises on a frozen copy, never on the author's design. Weak identity,
+      as for an issue.
+    fields:
+      - { name: title, type: Text, card: "1", emit: "—", doc: What the lesson is called. }
+      - { name: summary, type: Text, card: "0..1", emit: "—", doc: "One or two sentences on what it teaches." }
+      - { name: author, type: Text, card: "0..1", emit: "—", doc: Who wrote it. }
+      - { name: published_at, type: Text, card: "0..1", emit: "—", doc: "When this copy was published, as an ISO time. Absent on the author's own draft." }
+      - { name: source_design, type: Identifier, card: "0..1", emit: "—", doc: "Server id of the design it was published from (26-character ULID)." }
+    identity: []
+
+  - kind: LessonStep
+    layer: physical
+    emits: false
+    doc: |
+      One step of a lesson, in `ordinal` order. Which fields a step reads follows `kind`: a read
+      step has a body; a click step an answer; a trace step its two ends, a flow and what the
+      trace should show; a change step the Checks rule that should fire or clear. Ids are design
+      ids, one per line where there can be several.
+    fields:
+      - { name: ordinal, type: u32, card: "1", emit: "—", doc: Position in the lesson. Steps are shown in this order. }
+      - { name: kind, type: "enum { read, click, trace, change }", card: "1", emit: "—", doc: "What the learner does: reads, picks the answer on the canvas, traces, or changes the design." }
+      - { name: title, type: Text, card: "1", emit: "—", doc: The step's heading. }
+      - { name: body, type: Text, card: "0..1", emit: "—", doc: "What the learner reads, or is asked to do." }
+      - { name: hint, type: Text, card: "0..1", emit: "—", doc: "Said after a wrong pick." }
+      - { name: after, type: Text, card: "0..1", emit: "—", doc: "Said once the step passes: why it is so." }
+      - { name: explainer, type: Text, card: "0..1", emit: "—", doc: "Id of an explainer a read step offers as Read more." }
+      - { name: answer, type: Text, card: "0..1", emit: "—", doc: "Design id of the device or cable a click step wants picked." }
+      - { name: trace_from, type: Text, card: "0..1", emit: "—", doc: "Design id of the device or port a trace starts at." }
+      - { name: trace_to, type: Text, card: "0..1", emit: "—", doc: "Design id of the device a trace goes to." }
+      - { name: flow, type: Text, card: "0..1", emit: "—", doc: "The flow traced, as typed in the trace panel, e.g. TCP 554." }
+      - { name: expect_trace, type: "enum { reaches, stops, first_match }", card: "0..1", emit: "—", doc: "What the trace should show: it reaches, it stops, or which policy matches first." }
+      - { name: expect_crosses, type: Text, card: "0..1", emit: "—", doc: "Design ids of devices a reaching trace crosses, one per line." }
+      - { name: expect_stop, type: Text, card: "0..1", emit: "—", doc: "Design id of the device a stopping trace stops at." }
+      - { name: expect_first_match, type: Text, card: "0..1", emit: "—", doc: "Name of the policy that should match first." }
+      - { name: expect_rule, type: Text, card: "0..1", emit: "—", doc: "Id of the Checks rule a change step watches." }
+      - { name: expect_now, type: "enum { fires, clears }", card: "0..1", emit: "—", doc: "Whether that rule should fire or clear once the change is made." }
+    identity: []
+
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
   # require reverse adjacency, and ADR-0007's reverse index already guarantees it (11 §14.3).
@@ -3736,6 +3793,30 @@ edges:
     fields: []
     emit_dict: null
     doc: The cables a tie holds. Removing a cable drops it from the tie; the tie stays.
+
+  # The lesson builder (ADR-0066 §2, 2026-10-25). Appended at the tail (62 §13).
+  - edge: HasLesson
+    class: containment
+    from: [root]
+    to: [Lesson]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ADR-0066 §2. Lessons hang off the design root as issues do.
+  - edge: HasLessonStep
+    class: containment
+    from: [Lesson]
+    to: [LessonStep]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ADR-0066 §2. A lesson's steps; their order is LessonStep.ordinal.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load

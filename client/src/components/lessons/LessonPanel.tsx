@@ -153,7 +153,7 @@ export function LessonPanel({ lesson, step, doc, selectedId, onAdvance, onTrace,
           {current == null ? (
             <div className="lesson-step">
               <p className="lesson-step__text">
-                Lesson done. This copy of the sample is yours to keep or delete; your other designs were never touched.
+                Lesson done. This copy is yours to keep or delete; your other designs were never touched.
               </p>
             </div>
           ) : (
@@ -205,9 +205,11 @@ export function LessonPanel({ lesson, step, doc, selectedId, onAdvance, onTrace,
             </div>
           )}
 
-          <button type="button" className="lesson-step__link lesson-panel__sources-toggle" aria-expanded={showSources} onClick={() => setShowSources(!showSources)}>
-            Sources
-          </button>
+          {lesson.sources.length > 0 && (
+            <button type="button" className="lesson-step__link lesson-panel__sources-toggle" aria-expanded={showSources} onClick={() => setShowSources(!showSources)}>
+              Sources
+            </button>
+          )}
           {showSources && (
             <ul className="lesson-panel__sources">
               {lesson.sources.map((s) => {

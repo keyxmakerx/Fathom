@@ -269,6 +269,109 @@ body:has(.lesson-panel--right:not(.lesson-panel--folded)) .inventory-place {
   color: var(--ink);
 }
 
+/* The builder (frame b1): the same card, with fields and a list of steps. */
+.lesson-build__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  font-size: var(--t-small);
+}
+
+.lesson-build__field > span,
+.lesson-build__pick > span:first-child,
+.lesson-build__choice legend {
+  color: var(--muted);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.lesson-build__field input,
+.lesson-build__field textarea,
+.lesson-build__field select {
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.lesson-build__pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2);
+  font-size: var(--t-small);
+}
+
+.lesson-build__picked {
+  font-weight: 700;
+  flex: 1;
+}
+
+.lesson-build__choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  margin: 0;
+  padding: var(--s2);
+  border: var(--rule-hair) solid var(--hairline);
+  font-size: var(--t-small);
+}
+
+.lesson-build__inline {
+  margin-left: var(--s1);
+  width: 10em;
+  font: inherit;
+}
+
+.lesson-build__steps {
+  margin: 0;
+  padding-left: var(--s4);
+  font-size: var(--t-small);
+}
+
+.lesson-build__step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding: var(--s1) 0;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.lesson-build__step-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s1);
+}
+
+.lesson-build__step-acts button {
+  padding: 0 var(--s2);
+  font-size: var(--t-micro);
+  line-height: 1.8;
+}
+
+.lesson-build__add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1);
+}
+
+.lesson-build__add .lesson-panel__kicker {
+  width: 100%;
+}
+
+.lesson-build__publish {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding-top: var(--s2);
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+
+.lesson-build__publish .lesson-step__next {
+  align-self: flex-start;
+}
+
 @media print {
   .lesson-panel {
     display: none;

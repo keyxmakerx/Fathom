@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.25";
+    pub const SCHEMA_VERSION: &str = "0.26";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -428,12 +428,23 @@ mod body {
         /// A cable tie clipped onto a run, holding the cables that pass through it (the Ties edges).
         /// Moving it along the run changes `at`; the cables held follow it in the cable-tied style.
         CableTie,
+        /// A lesson someone wrote on their own design: ordered steps (HasLessonStep) that Fathom
+        /// checks from the design, the selection, a trace or Checks. Hung off the root through
+        /// HasLesson. Publishing copies the whole design and sets `published_at` on the copy, so a
+        /// learner always practises on a frozen copy, never on the author's design. Weak identity,
+        /// as for an issue.
+        Lesson,
+        /// One step of a lesson, in `ordinal` order. Which fields a step reads follows `kind`: a read
+        /// step has a body; a click step an answer; a trace step its two ends, a flow and what the
+        /// trace should show; a change step the Checks rule that should fire or clear. Ids are design
+        /// ids, one per line where there can be several.
+        LessonStep,
     }
 
     impl NodeKind {
-        pub const COUNT: usize = 72;
+        pub const COUNT: usize = 74;
         /// Every kind, declaration order.
-        pub const ALL: [NodeKind; 72] = [
+        pub const ALL: [NodeKind; 74] = [
             NodeKind::Site,
             NodeKind::Device,
             NodeKind::Chassis,
@@ -506,6 +517,8 @@ mod body {
             NodeKind::FirmwareTarget,
             NodeKind::CableRun,
             NodeKind::CableTie,
+            NodeKind::Lesson,
+            NodeKind::LessonStep,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -584,6 +597,8 @@ mod body {
                 NodeKind::FirmwareTarget => "FirmwareTarget",
                 NodeKind::CableRun => "CableRun",
                 NodeKind::CableTie => "CableTie",
+                NodeKind::Lesson => "Lesson",
+                NodeKind::LessonStep => "LessonStep",
             }
         }
         pub fn from_name(name: &str) -> Option<NodeKind> {
@@ -660,6 +675,8 @@ mod body {
                 "FirmwareTarget" => Some(NodeKind::FirmwareTarget),
                 "CableRun" => Some(NodeKind::CableRun),
                 "CableTie" => Some(NodeKind::CableTie),
+                "Lesson" => Some(NodeKind::Lesson),
+                "LessonStep" => Some(NodeKind::LessonStep),
                 _ => None,
             }
         }
@@ -742,6 +759,8 @@ mod body {
                 NodeKind::FirmwareTarget => &[&["model"]],
                 NodeKind::CableRun => &[],
                 NodeKind::CableTie => &[],
+                NodeKind::Lesson => &[],
+                NodeKind::LessonStep => &[],
             }
         }
         /// The kind's layer (62 §4.2).
@@ -819,6 +838,8 @@ mod body {
                 NodeKind::FirmwareTarget => Layer::Physical,
                 NodeKind::CableRun => Layer::Physical,
                 NodeKind::CableTie => Layer::Physical,
+                NodeKind::Lesson => Layer::Physical,
+                NodeKind::LessonStep => Layer::Physical,
             }
         }
         /// Whether the kind participates in emit at all (62 §4.2); `false`
@@ -897,6 +918,8 @@ mod body {
                 NodeKind::FirmwareTarget => false,
                 NodeKind::CableRun => false,
                 NodeKind::CableTie => false,
+                NodeKind::Lesson => false,
+                NodeKind::LessonStep => false,
             }
         }
         /// The kind's declared field keys, declaration order (62 §4.3). A key
@@ -976,6 +999,8 @@ mod body {
                 NodeKind::FirmwareTarget => &[crate::bag::FieldKey(405), crate::bag::FieldKey(406), crate::bag::FieldKey(407), crate::bag::FieldKey(408), crate::bag::FieldKey(409), crate::bag::FieldKey(410)],
                 NodeKind::CableRun => &[crate::bag::FieldKey(414), crate::bag::FieldKey(415), crate::bag::FieldKey(416)],
                 NodeKind::CableTie => &[crate::bag::FieldKey(417)],
+                NodeKind::Lesson => &[crate::bag::FieldKey(486), crate::bag::FieldKey(487), crate::bag::FieldKey(488), crate::bag::FieldKey(489), crate::bag::FieldKey(490)],
+                NodeKind::LessonStep => &[crate::bag::FieldKey(491), crate::bag::FieldKey(492), crate::bag::FieldKey(493), crate::bag::FieldKey(494), crate::bag::FieldKey(495), crate::bag::FieldKey(496), crate::bag::FieldKey(497), crate::bag::FieldKey(498), crate::bag::FieldKey(499), crate::bag::FieldKey(500), crate::bag::FieldKey(501), crate::bag::FieldKey(502), crate::bag::FieldKey(503), crate::bag::FieldKey(504), crate::bag::FieldKey(505), crate::bag::FieldKey(506), crate::bag::FieldKey(507)],
             }
         }
     }
@@ -1351,12 +1376,16 @@ mod body {
         HasCableTie,
         /// The cables a tie holds. Removing a cable drops it from the tie; the tie stays.
         Ties,
+        /// ADR-0066 §2. Lessons hang off the design root as issues do.
+        HasLesson,
+        /// ADR-0066 §2. A lesson's steps; their order is LessonStep.ordinal.
+        HasLessonStep,
     }
 
     impl EdgeKind {
-        pub const COUNT: usize = 116;
+        pub const COUNT: usize = 118;
         /// Every kind, declaration order.
-        pub const ALL: [EdgeKind; 116] = [
+        pub const ALL: [EdgeKind; 118] = [
             EdgeKind::HasDevice,
             EdgeKind::HasChassis,
             EdgeKind::HasRedundancyGroup,
@@ -1473,6 +1502,8 @@ mod body {
             EdgeKind::HasCableRun,
             EdgeKind::HasCableTie,
             EdgeKind::Ties,
+            EdgeKind::HasLesson,
+            EdgeKind::HasLessonStep,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -1595,6 +1626,8 @@ mod body {
                 EdgeKind::HasCableRun => "HasCableRun",
                 EdgeKind::HasCableTie => "HasCableTie",
                 EdgeKind::Ties => "Ties",
+                EdgeKind::HasLesson => "HasLesson",
+                EdgeKind::HasLessonStep => "HasLessonStep",
             }
         }
         pub fn from_name(name: &str) -> Option<EdgeKind> {
@@ -1715,6 +1748,8 @@ mod body {
                 "HasCableRun" => Some(EdgeKind::HasCableRun),
                 "HasCableTie" => Some(EdgeKind::HasCableTie),
                 "Ties" => Some(EdgeKind::Ties),
+                "HasLesson" => Some(EdgeKind::HasLesson),
+                "HasLessonStep" => Some(EdgeKind::HasLessonStep),
                 _ => None,
             }
         }
@@ -1837,6 +1872,8 @@ mod body {
                 EdgeKind::HasCableRun => EdgeClass::Containment,
                 EdgeKind::HasCableTie => EdgeClass::Containment,
                 EdgeKind::Ties => EdgeClass::Reference,
+                EdgeKind::HasLesson => EdgeClass::Containment,
+                EdgeKind::HasLessonStep => EdgeClass::Containment,
             }
         }
     }
@@ -2014,7 +2051,7 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PathSegment],
                 EdgeKind::ExitsAt => &[NodeKind::PathSegment],
                 EdgeKind::MustTraverse => &[NodeKind::PathSegment],
-                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::Label, NodeKind::Line, NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile, NodeKind::MaintenancePlan, NodeKind::PlanStep, NodeKind::Issue, NodeKind::IssueStep, NodeKind::FirmwareTarget, NodeKind::CableRun, NodeKind::CableTie, NodeKind::FieldValue],
+                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::Label, NodeKind::Line, NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile, NodeKind::MaintenancePlan, NodeKind::PlanStep, NodeKind::Issue, NodeKind::IssueStep, NodeKind::FirmwareTarget, NodeKind::CableRun, NodeKind::CableTie, NodeKind::Lesson, NodeKind::LessonStep, NodeKind::FieldValue],
                 EdgeKind::HasRack => &[NodeKind::Premises],
                 EdgeKind::MountedIn => &[NodeKind::Chassis, NodeKind::PassiveNode],
                 EdgeKind::HasDhcpRelay => &[NodeKind::Device],
@@ -2049,6 +2086,8 @@ mod body {
                 EdgeKind::HasCableRun => &[NodeKind::Rack, NodeKind::Surface],
                 EdgeKind::HasCableTie => &[NodeKind::CableRun],
                 EdgeKind::Ties => &[NodeKind::CableTie],
+                EdgeKind::HasLesson => &[],
+                EdgeKind::HasLessonStep => &[NodeKind::Lesson],
             }
         }
         /// The declared `to:` kind set, class names expanded (62 §6.2).
@@ -2170,6 +2209,8 @@ mod body {
                 EdgeKind::HasCableRun => &[NodeKind::CableRun],
                 EdgeKind::HasCableTie => &[NodeKind::CableTie],
                 EdgeKind::Ties => &[NodeKind::Cable],
+                EdgeKind::HasLesson => &[NodeKind::Lesson],
+                EdgeKind::HasLessonStep => &[NodeKind::LessonStep],
             }
         }
         /// The `out:` bound at L0 — edges leaving a `from` node (11 §7.1).
@@ -2291,6 +2332,8 @@ mod body {
                 EdgeKind::HasCableRun => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasCableTie => EdgeCardBound { min: 0, max: None },
                 EdgeKind::Ties => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasLesson => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasLessonStep => EdgeCardBound { min: 0, max: None },
             }
         }
         /// The `in:` bound at L0 — edges arriving at a `to` node (11 §7.1).
@@ -2412,6 +2455,8 @@ mod body {
                 EdgeKind::HasCableRun => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::HasCableTie => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::Ties => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasLesson => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::HasLessonStep => EdgeCardBound { min: 1, max: Some(1) },
             }
         }
         /// `true` means `(a,b)` and `(b,a)` are the same edge: one stored
@@ -2534,6 +2579,8 @@ mod body {
                 EdgeKind::HasCableRun => false,
                 EdgeKind::HasCableTie => false,
                 EdgeKind::Ties => false,
+                EdgeKind::HasLesson => false,
+                EdgeKind::HasLessonStep => false,
             }
         }
         /// `from: [root]` — containment by the workspace root (11 §7.2).
@@ -2655,6 +2702,8 @@ mod body {
                 EdgeKind::HasCableRun => false,
                 EdgeKind::HasCableTie => false,
                 EdgeKind::Ties => false,
+                EdgeKind::HasLesson => true,
+                EdgeKind::HasLessonStep => false,
             }
         }
         /// The edge's declared field keys, declaration order (62 §6.2).
@@ -2776,6 +2825,8 @@ mod body {
                 EdgeKind::HasCableRun => &[],
                 EdgeKind::HasCableTie => &[],
                 EdgeKind::Ties => &[],
+                EdgeKind::HasLesson => &[],
+                EdgeKind::HasLessonStep => &[],
             }
         }
     }
@@ -5399,6 +5450,123 @@ mod body {
         }
     }
 
+    /// Inline enum on `LessonStep.kind` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum LessonStepKind {
+        Read,
+        Click,
+        Trace,
+        Change,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl LessonStepKind {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 4] = [
+            "read",
+            "click",
+            "trace",
+            "change",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> LessonStepKind {
+            match token {
+                "read" => LessonStepKind::Read,
+                "click" => LessonStepKind::Click,
+                "trace" => LessonStepKind::Trace,
+                "change" => LessonStepKind::Change,
+                other => LessonStepKind::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                LessonStepKind::Read => "read",
+                LessonStepKind::Click => "click",
+                LessonStepKind::Trace => "trace",
+                LessonStepKind::Change => "change",
+                LessonStepKind::Unknown(t) => t,
+            }
+        }
+    }
+
+    /// Inline enum on `LessonStep.expect_trace` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum LessonStepExpectTrace {
+        Reaches,
+        Stops,
+        FirstMatch,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl LessonStepExpectTrace {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 3] = [
+            "reaches",
+            "stops",
+            "first_match",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> LessonStepExpectTrace {
+            match token {
+                "reaches" => LessonStepExpectTrace::Reaches,
+                "stops" => LessonStepExpectTrace::Stops,
+                "first_match" => LessonStepExpectTrace::FirstMatch,
+                other => LessonStepExpectTrace::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                LessonStepExpectTrace::Reaches => "reaches",
+                LessonStepExpectTrace::Stops => "stops",
+                LessonStepExpectTrace::FirstMatch => "first_match",
+                LessonStepExpectTrace::Unknown(t) => t,
+            }
+        }
+    }
+
+    /// Inline enum on `LessonStep.expect_now` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum LessonStepExpectNow {
+        Fires,
+        Clears,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl LessonStepExpectNow {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 2] = [
+            "fires",
+            "clears",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> LessonStepExpectNow {
+            match token {
+                "fires" => LessonStepExpectNow::Fires,
+                "clears" => LessonStepExpectNow::Clears,
+                other => LessonStepExpectNow::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                LessonStepExpectNow::Fires => "fires",
+                LessonStepExpectNow::Clears => "clears",
+                LessonStepExpectNow::Unknown(t) => t,
+            }
+        }
+    }
+
     /// Inline enum on `TunnelEndpoint.side` (62 §7 rule 4; codegen-named).
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum TunnelEndpointSide {
@@ -6305,6 +6473,42 @@ mod body {
         fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
             match j {
                 fathom_canon::Json::Str(t) => Ok(CableRunSide::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for LessonStepKind {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(LessonStepKind::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for LessonStepExpectTrace {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(LessonStepExpectTrace::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for LessonStepExpectNow {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(LessonStepExpectNow::from_token(t)),
                 _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
             }
         }
@@ -9642,6 +9846,142 @@ mod body {
         }
     }
 
+    /// Fields of kind `Lesson`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum LessonField {
+        Title,
+        Summary,
+        Author,
+        PublishedAt,
+        SourceDesign,
+    }
+
+    impl LessonField {
+        pub const COUNT: usize = 5;
+        /// Every field, declaration order.
+        pub const ALL: [LessonField; 5] = [
+            LessonField::Title,
+            LessonField::Summary,
+            LessonField::Author,
+            LessonField::PublishedAt,
+            LessonField::SourceDesign,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                LessonField::Title => "title",
+                LessonField::Summary => "summary",
+                LessonField::Author => "author",
+                LessonField::PublishedAt => "published_at",
+                LessonField::SourceDesign => "source_design",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                LessonField::Title => crate::bag::FieldKey(486),
+                LessonField::Summary => crate::bag::FieldKey(487),
+                LessonField::Author => crate::bag::FieldKey(488),
+                LessonField::PublishedAt => crate::bag::FieldKey(489),
+                LessonField::SourceDesign => crate::bag::FieldKey(490),
+            }
+        }
+    }
+
+    /// Fields of kind `LessonStep`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum LessonStepField {
+        Ordinal,
+        Kind,
+        Title,
+        Body,
+        Hint,
+        After,
+        Explainer,
+        Answer,
+        TraceFrom,
+        TraceTo,
+        Flow,
+        ExpectTrace,
+        ExpectCrosses,
+        ExpectStop,
+        ExpectFirstMatch,
+        ExpectRule,
+        ExpectNow,
+    }
+
+    impl LessonStepField {
+        pub const COUNT: usize = 17;
+        /// Every field, declaration order.
+        pub const ALL: [LessonStepField; 17] = [
+            LessonStepField::Ordinal,
+            LessonStepField::Kind,
+            LessonStepField::Title,
+            LessonStepField::Body,
+            LessonStepField::Hint,
+            LessonStepField::After,
+            LessonStepField::Explainer,
+            LessonStepField::Answer,
+            LessonStepField::TraceFrom,
+            LessonStepField::TraceTo,
+            LessonStepField::Flow,
+            LessonStepField::ExpectTrace,
+            LessonStepField::ExpectCrosses,
+            LessonStepField::ExpectStop,
+            LessonStepField::ExpectFirstMatch,
+            LessonStepField::ExpectRule,
+            LessonStepField::ExpectNow,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                LessonStepField::Ordinal => "ordinal",
+                LessonStepField::Kind => "kind",
+                LessonStepField::Title => "title",
+                LessonStepField::Body => "body",
+                LessonStepField::Hint => "hint",
+                LessonStepField::After => "after",
+                LessonStepField::Explainer => "explainer",
+                LessonStepField::Answer => "answer",
+                LessonStepField::TraceFrom => "trace_from",
+                LessonStepField::TraceTo => "trace_to",
+                LessonStepField::Flow => "flow",
+                LessonStepField::ExpectTrace => "expect_trace",
+                LessonStepField::ExpectCrosses => "expect_crosses",
+                LessonStepField::ExpectStop => "expect_stop",
+                LessonStepField::ExpectFirstMatch => "expect_first_match",
+                LessonStepField::ExpectRule => "expect_rule",
+                LessonStepField::ExpectNow => "expect_now",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                LessonStepField::Ordinal => crate::bag::FieldKey(491),
+                LessonStepField::Kind => crate::bag::FieldKey(492),
+                LessonStepField::Title => crate::bag::FieldKey(493),
+                LessonStepField::Body => crate::bag::FieldKey(494),
+                LessonStepField::Hint => crate::bag::FieldKey(495),
+                LessonStepField::After => crate::bag::FieldKey(496),
+                LessonStepField::Explainer => crate::bag::FieldKey(497),
+                LessonStepField::Answer => crate::bag::FieldKey(498),
+                LessonStepField::TraceFrom => crate::bag::FieldKey(499),
+                LessonStepField::TraceTo => crate::bag::FieldKey(500),
+                LessonStepField::Flow => crate::bag::FieldKey(501),
+                LessonStepField::ExpectTrace => crate::bag::FieldKey(502),
+                LessonStepField::ExpectCrosses => crate::bag::FieldKey(503),
+                LessonStepField::ExpectStop => crate::bag::FieldKey(504),
+                LessonStepField::ExpectFirstMatch => crate::bag::FieldKey(505),
+                LessonStepField::ExpectRule => crate::bag::FieldKey(506),
+                LessonStepField::ExpectNow => crate::bag::FieldKey(507),
+            }
+        }
+    }
+
     /// Fields of edge `UsesProposal`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum UsesProposalField {
@@ -10161,7 +10501,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 413] = [
+    pub const FIELD_KEYS: [(&str, u32); 435] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -10575,16 +10915,38 @@ mod body {
         ("CableTie.at", 417),
         ("PhysicalPort.mac", 462),
         ("Cable.needs_finishing", 478),
+        ("Lesson.title", 486),
+        ("Lesson.summary", 487),
+        ("Lesson.author", 488),
+        ("Lesson.published_at", 489),
+        ("Lesson.source_design", 490),
+        ("LessonStep.ordinal", 491),
+        ("LessonStep.kind", 492),
+        ("LessonStep.title", 493),
+        ("LessonStep.body", 494),
+        ("LessonStep.hint", 495),
+        ("LessonStep.after", 496),
+        ("LessonStep.explainer", 497),
+        ("LessonStep.answer", 498),
+        ("LessonStep.trace_from", 499),
+        ("LessonStep.trace_to", 500),
+        ("LessonStep.flow", 501),
+        ("LessonStep.expect_trace", 502),
+        ("LessonStep.expect_crosses", 503),
+        ("LessonStep.expect_stop", 504),
+        ("LessonStep.expect_first_match", 505),
+        ("LessonStep.expect_rule", 506),
+        ("LessonStep.expect_now", 507),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
     /// per key, least-significant bit first. Read it through [`field_required`];
     /// the array is public only so a test can pin its length.
-    pub const FIELD_REQUIRED_BITS: [u8; 60] = [
+    pub const FIELD_REQUIRED_BITS: [u8; 64] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
         0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0xa3, 0xfb, 0x1d, 0x59, 0x64,
-        0xc0, 0xe6, 0x64, 0xc0, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0xc0, 0xe6, 0x64, 0xc0, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x38, 0x00, 0x00,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

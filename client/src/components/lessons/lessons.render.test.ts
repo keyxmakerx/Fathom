@@ -5,9 +5,11 @@ import { describe, expect, it } from 'vitest';
 import { createSketchDevice } from '../../document/commands';
 import { setDeviceField } from '../../document/edit';
 import { edgesOut, emptyDocument, parseNodeId, type Document } from '../../document/model';
+import { addLessonStep, createLesson, TYPED_AS_WRITTEN } from '../../document/lessons';
+import { LessonBuilder, ruleChoices } from './LessonBuilder';
 import { LessonPanel } from './LessonPanel';
 import { LessonsList } from './LessonsList';
-import { loadRuns, runForDesign, saveRun, type Lesson } from './lessonModel';
+import { loadRuns, publishedLessonDesigns, runForDesign, saveRun, type Lesson } from './lessonModel';
 
 const LESSON: Lesson = {
   id: 'demo',
@@ -123,5 +125,80 @@ describe('lesson progress', () => {
     expect(runForDesign(loadRuns('a', storage), 'd2')?.step).toBe(1);
     store.set('fathom.lessons.a', '{not json');
     expect(loadRuns('a', storage)).toEqual([]);
+  });
+});
+
+describe('LessonBuilder', () => {
+  const { doc, fw } = twoDevices();
+  const builder = (d: Document, canDraw = true): string =>
+    renderToStaticMarkup(
+      createElement(LessonBuilder, {
+        doc: d,
+        selectedId: null,
+        canDraw,
+        apply: () => {},
+        onPublish: async () => '',
+        onClose: () => {},
+        boot: () => new Promise<never>(() => {}),
+      }),
+    );
+
+  it('starts a lesson on a design with a title, and says a copy is what learners get', () => {
+    const html = builder(doc);
+    expect(html).toContain('Start writing');
+    expect(html).toContain('Publishing makes a copy for learners');
+  });
+
+  it('says a reader cannot write one', () => {
+    expect(builder(doc, false)).toContain('cannot be written here');
+  });
+
+  it('lists the steps, names what an unfinished one needs, and holds Publish until all are done', () => {
+    const made = createLesson(doc, { title: 'Firewall', gate: TYPED_AS_WRITTEN });
+    let d = addLessonStep(made.doc, made.id, { kind: 'click', title: 'Pick it', answer: fw, after: 'Yes.' }, { gate: TYPED_AS_WRITTEN }).doc;
+    expect(builder(d)).toMatch(/lesson-step__next"[^>]*>Publish a copy for learners</);
+    d = addLessonStep(d, made.id, { kind: 'change', title: 'Change it' }, { gate: TYPED_AS_WRITTEN }).doc;
+    const html = builder(d);
+    expect(html).toContain('Pick the check to watch.');
+    expect(html).toMatch(/disabled=""[^>]*title="Step 2 is not finished"/);
+  });
+
+  it('offers every shipped Checks rule by its title', () => {
+    const rules = ruleChoices();
+    expect(rules.find((r) => r.id === 'l2.vlan.access-mismatch')?.title).toBe('The two ends of a link are access ports in different VLANs');
+    expect(rules.every((r) => r.title !== '')).toBe(true);
+  });
+});
+
+describe('published lessons on Home', () => {
+  it('lists designs named Lesson, but not a copy someone is running', () => {
+    const designs = [
+      { designId: 'p1', name: 'Lesson: Our office' },
+      { designId: 'mine', name: 'Lesson: VLANs' },
+      { designId: 'x', name: 'Rack room' },
+    ];
+    expect(publishedLessonDesigns(designs, [{ lessonId: 'vlans', designId: 'mine', step: 0 }])).toEqual([
+      { lessonId: 'design:p1', designId: 'p1', title: 'Our office' },
+    ]);
+  });
+
+  it('shows Start, then Continue with the step count saved at the start', () => {
+    const list = (runs: Parameters<typeof LessonsList>[0]['runs']) =>
+      renderToStaticMarkup(
+        createElement(LessonsList, {
+          lessons: [],
+          written: [{ lessonId: 'design:p1', designId: 'p1', title: 'Our office' }],
+          runs,
+          openable: new Set(['c1']),
+          busyId: null,
+          error: null,
+          disabled: false,
+          onStart: () => {},
+          onContinue: () => {},
+        }),
+      );
+    expect(list([])).toContain('Our office');
+    expect(list([])).toContain('>Start<');
+    expect(list([{ lessonId: 'design:p1', designId: 'c1', step: 1, of: 4 }])).toContain('Continue · 2 of 4');
   });
 });

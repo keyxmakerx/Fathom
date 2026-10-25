@@ -59,7 +59,11 @@ import { LearnContext } from '../learn/context';
 import { LearnOverlay } from '../learn/LearnOverlay';
 import { useLearnApi } from '../learn/useLearnApi';
 import { LessonPanel, type LessonTraceAsk } from '../lessons/LessonPanel';
-import { lesson as lessonById, loadRuns, runForDesign, saveRun, type LessonRun } from '../lessons/lessonModel';
+import { fromDesignLesson, lesson as lessonById, loadRuns, runForDesign, saveRun, type LessonRun } from '../lessons/lessonModel';
+import { LessonBuilder } from '../lessons/LessonBuilder';
+import { publishedCopy, publishedLesson } from '../../document/lessons';
+import { createDesign, renameDesign } from '../../api/designs';
+import { writePlain } from '../../document/plain';
 
 /** A download with no server round trip. The object URL is revoked a few
  * seconds later, not straight away — read too soon, a browser saves an empty file. */
@@ -466,7 +470,27 @@ export function DesignPlace(props: DesignPlaceProps) {
   // lesson in it. Progress is kept per account in this browser.
   const [lessonRuns, setLessonRuns] = useState<LessonRun[]>(() => loadRuns(accountId));
   const lessonRun = runForDesign(lessonRuns, designId);
-  const activeLesson = lessonRun != null ? lessonById(lessonRun.lessonId) : null;
+  // A lesson someone wrote (0.26) runs from the copy itself; a corpus lesson by its id.
+  const lessonInDoc = useMemo(() => (session.doc != null ? publishedLesson(session.doc) : null), [session.doc]);
+  const writtenLesson = lessonRun?.lessonId.startsWith('design:') ? lessonInDoc : null;
+  const activeLesson =
+    lessonRun == null ? null : writtenLesson != null && session.doc != null ? fromDesignLesson(session.doc, writtenLesson) : lessonById(lessonRun.lessonId);
+  // The builder (ADR-0066 §2): open from the palette on a design of the person's own, never on a lesson copy.
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const isLessonCopy = lessonRun != null || lessonInDoc != null;
+  const publishLesson = useCallback(
+    async (lessonId: string): Promise<string> => {
+      const current = session.doc;
+      if (current == null) throw new Error('No design is open.');
+      const copy = publishedCopy(current, lessonId, { sourceDesign: designId, actor: accountId ?? undefined });
+      const title = publishedLesson(copy)?.title ?? 'Lesson';
+      const made = await createDesign(organisationId, scopeId, writePlain(copy));
+      const name = `Lesson: ${title}`;
+      await renameDesign(organisationId, made.designId, name).catch(() => undefined);
+      return name;
+    },
+    [session.doc, designId, accountId, organisationId, scopeId],
+  );
   const [traceRequest, setTraceRequest] = useState<LessonTraceAsk | null>(null);
   const advanceLesson = useCallback(
     (step: number) => {
@@ -689,6 +713,9 @@ export function DesignPlace(props: DesignPlaceProps) {
       ...(doc != null ? [{ id: 'print', label: 'Print', hint: shortcutText('print'), keywords: ['export', 'pdf', 'cut sheet'], run: openPrintPanel }] : []),
       ...(doc != null ? [{ id: 'history', label: historyOpen ? 'Close History' : 'Open History', keywords: ['saves', 'restore', 'past'], run: () => toggleHistory() }] : []),
       { id: 'learn', label: 'Open Learn', keywords: ['explainers', 'teach', 'lesson', 'help'], run: () => learn.setView({ kind: 'library' }) },
+      ...(doc != null && session.canDraw && !isLessonCopy && pickedSave == null
+        ? [{ id: 'build-lesson', label: builderOpen ? 'Close the lesson builder' : 'Build a lesson', keywords: ['lesson', 'teach', 'course', 'quiz'], run: () => setBuilderOpen(!builderOpen) }]
+        : []),
       ...(doc != null && pickedSave == null ? [{ id: 'docs', label: 'Open Docs', keywords: ['documentation', 'notes'], run: () => docs.setView({ kind: 'list' }) }] : []),
       { id: 'racks', label: 'Show Racks', keywords: ['canvas', 'drawing'], disabled: props.place === 'racks' ? 'Already showing' : undefined, run: () => onPlaceChange('racks') },
       { id: 'inventory', label: 'Show Inventory', keywords: ['list', 'table'], disabled: props.place === 'inventory' ? 'Already showing' : undefined, run: () => onPlaceChange('inventory') },
@@ -911,6 +938,17 @@ export function DesignPlace(props: DesignPlaceProps) {
             side={props.place === 'racks' ? 'left' : 'right'}
           />
         </LearnContext.Provider>
+      )}
+      {builderOpen && activeLesson == null && !isLessonCopy && printMode === 'closed' && pickedSave == null && (
+        <LessonBuilder
+          doc={doc}
+          selectedId={selectedId}
+          canDraw={session.canDraw}
+          apply={(next) => session.applyDocChange(next)}
+          onPublish={publishLesson}
+          onClose={() => setBuilderOpen(false)}
+          side={props.place === 'racks' ? 'left' : 'right'}
+        />
       )}
       {docs.view != null && printMode === 'closed' && (
         <DocsContext.Provider value={docs.api}>
