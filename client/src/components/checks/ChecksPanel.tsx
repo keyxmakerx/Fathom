@@ -7,6 +7,7 @@ import type { CheckFinding } from '../../engine/engine';
 import { anchorName, clampOffset, findingKey, panelNotes, SEVERITY, sourceView, summaryText, totalCount, UNCHECKED_SOURCE } from './checksModel';
 import type { ChecksController } from './useChecksController';
 import { RefusalCard } from './RefusalCard';
+import { Glossed } from '../learn/Glossed';
 import './checks.css';
 
 /** The bar's "Checks 2": toggles the panel. */
@@ -43,9 +44,11 @@ export function WhyCard({ finding, onClose }: { finding: CheckFinding; onClose: 
   return (
     <section ref={ref} tabIndex={-1} className="checks-why" aria-label="Why" data-testid="checks-why">
       <h3 className="checks-why__title">{finding.title}</h3>
-      <p>{finding.why}</p>
       <p>
-        <strong>Fix:</strong> {finding.fix}
+        <Glossed text={finding.why} />
+      </p>
+      <p>
+        <strong>Fix:</strong> <Glossed text={finding.fix} />
       </p>
       <div className="checks-why__source" data-testid="checks-source">
         <span className="checks-why__label">{src.label}</span>

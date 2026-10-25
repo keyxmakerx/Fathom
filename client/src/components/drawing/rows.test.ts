@@ -133,6 +133,16 @@ describe('layoutSurfaces — ADR-0051 §1: surfaces after the rows', () => {
     expect(layout.panels[0]!.y).toBe(0);
   });
 
+  it('draws a wall taller than a rack when the wall is, or when a fixture sits higher than a rack reaches', () => {
+    const tall = { ...surface('wall-1', 'wall'), heightMm: 2400 };
+    const camera = { id: 'cam', kind: 'chassis' as const, label: 'camera-1', model: null, form: null, xMm: 300, yMm: 2600, ports: [], psuInlets: [], fixtures: [] };
+    const layout = layoutSurfaces([tall, { ...surface('wall-2', 'wall'), fixtures: [camera] }, surface('desk-1', 'desk')], ROWS_WIDTH, ROWS_HEIGHT, 300, U_PX, SURFACE_GAP_PX, 20);
+    expect(layout.panels[0]!.heightPx).toBeCloseTo(20 + mmToPx(2400, U_PX), 6);
+    expect(layout.panels[1]!.heightPx).toBeCloseTo(20 + mmToPx(2900, U_PX), 6);
+    expect(layout.panels[2]!.heightPx).toBe(300);
+    expect(layout.panels[1]!.y).toBeCloseTo(layout.panels[0]!.heightPx + SURFACE_GAP_PX, 6);
+  });
+
   it('a second panel stacks below the first, same x, panelHeightPx + gap down', () => {
     const layout = layoutSurfaces([surface('wall-1', 'wall'), surface('desk-1', 'desk')], ROWS_WIDTH, ROWS_HEIGHT, 688, U_PX);
     expect(layout.panels[1]!.x).toBe(layout.panels[0]!.x);

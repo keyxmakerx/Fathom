@@ -285,7 +285,16 @@ export function announceSessionsChanged(): void {
  * Returns the id this tab should use from here on: unchanged if the claim
  * succeeded, freshly minted if it did not.
  */
-export async function claimThisTab(): Promise<{ tabId: string; isCopy: boolean }> {
+export function claimThisTab(): Promise<{ tabId: string; isCopy: boolean }> {
+  // Once per page. React's development StrictMode runs the restoring effect twice, and a second
+  // claim found this page's own lock, read itself as a copy and signed every reload out.
+  claimed ??= claimOnce();
+  return claimed;
+}
+
+let claimed: Promise<{ tabId: string; isCopy: boolean }> | null = null;
+
+async function claimOnce(): Promise<{ tabId: string; isCopy: boolean }> {
   const id = thisTabId();
   const acquired =
     typeof navigator !== 'undefined' && 'locks' in navigator ? await claimWithWebLock(id) : false;
