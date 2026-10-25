@@ -547,6 +547,96 @@ select.fw-input {
   align-items: center;
 }
 
+/* ---- How the file gets there: Fathom link, or by hand from Windows or Linux ------------------- */
+
+.fw-route {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  margin-top: var(--s2);
+}
+
+.fw-route__switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+}
+
+.fw-chip {
+  font: inherit;
+  font-size: var(--t-small);
+  padding: 2px var(--s2);
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--page);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.fw-chip--on {
+  border-color: var(--ink);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.fw-chip:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.fw-hand {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  align-items: flex-start;
+}
+
+.fw-hand p {
+  margin: 0;
+}
+
+.fw-hand__steps {
+  margin: 0;
+  padding-left: var(--s4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.fw-hand__step {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fw-hand__title {
+  font-weight: 700;
+}
+
+.fw-hand__cmd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1);
+}
+
+.fw-hand__cmd code {
+  padding: 2px var(--s2);
+  background: var(--surface);
+  font-size: var(--t-mono);
+  overflow-wrap: anywhere;
+}
+
+.fw-hand__warning {
+  padding: var(--s2) var(--s3);
+  border: var(--rule-hair) solid var(--caution);
+  color: var(--ink);
+  font-size: var(--t-small);
+}
+
+.fw-hand__why {
+  font-size: var(--t-small);
+}
+
 /* ---- The plan panel's devices ---------------------------------------------------------------- */
 
 .fw-plan__devices {

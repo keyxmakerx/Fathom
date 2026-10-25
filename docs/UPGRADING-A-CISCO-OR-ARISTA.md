@@ -106,6 +106,71 @@ show version
 
 ---
 
+## By hand, from a Windows PC or a Linux box
+
+Fathom is a learning tool, so the upgrade plan's fetch step also shows the job done without Fathom:
+**Fathom link · From Windows · From Linux** (`crates/fathom-server/src/firmware_by_hand.rs`). Only
+getting the file there changes; every step above from "prove the whole file arrived" on is the same.
+Read on 2026-10-25 unless marked.
+
+**First, on your computer, check the file.** Linux `sha256sum <file>` (or `sha512sum` for IOS XE,
+whose download page shows SHA-512); Windows PowerShell `Get-FileHash .\<file> -Algorithm SHA256`
+(`SHA512` for IOS XE). `Get-FileHash` defaults to SHA-256 and prints it on its `Hash` line
+([Microsoft Learn](https://learn.microsoft.com/powershell/module/microsoft.powershell.utility/get-filehash)).
+
+**Cisco IOS XE: the computer pushes.** From Cisco's
+[Copy Cisco IOS Images from PC to Router](https://www.cisco.com/c/en/us/support/docs/security-vpn/secure-shell-ssh/215450-copy-cisco-ios-images-from-pc-to-router.html)
+(document 215450, updated 2025-09-15):
+
+```
+switch(config)# ip scp server enable          # the guide also has aaa new-model, local exec authorization, a privilege 15 user
+pc$ scp -O <file> <you>@<switch>:<file>         # Windows: scp -O .\<file> ...
+switch(config)# no ip scp server enable       # the guide: disable it after the copy
+```
+
+The guide gives only the file name after the colon, so the file lands on the default file system;
+which one that is on your platform could not be established — `dir bootflash:` shows it. `-O` is
+ADR-0045's trap: OpenSSH 9.0 and later speak SFTP unless told otherwise.
+
+**Cisco NX-OS: the computer pushes.** `feature scp-server` enables the switch's SCP server (Cisco's
+[Nexus 3000 and 9000 NX-API REST SDK guide, Configuring SSH](https://developer.cisco.com/docs/cisco-nexus-3000-and-9000-series-nx-api-rest-sdk-user-guide-and-api-reference/latest/configuring-ssh),
+"Enabling the SCP Server"). Then `scp -O <file> <you>@<switch>:<file>` and `no feature scp-server`.
+The scp destination form that names `bootflash:` could not be established from Cisco's pages; turning
+the server off afterwards is carried over from Cisco's IOS advice, not from an NX-OS page.
+
+**Arista EOS: the switch pulls from you.** Arista's
+[upgrade page](https://www.arista.com/en/um-eos/eos-standard-upgrades-and-downgrades) shows the
+switch copying from scp, ftp, http or a USB stick, and never a computer copying to the switch. So
+the route turns around: run an SSH server on your computer, then on the switch
+`copy scp://<you>@<your computer>/<folder>/<file> flash:/<file>`, or from a stick
+`copy usb1:/<file> flash:/<file>`. On Windows that is OpenSSH Server, which Microsoft's table lists
+as not installed by default on Windows 10 (1809 and later) or Server 2019 and 2022, and installed
+but not enabled on Server 2025
+([OpenSSH for Windows overview](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh-overview),
+updated 2025-02-20).
+
+**On a USB stick.** IOS XE: `copy usbflash0:<file> flash:` (install mode; `flash-x:` in bundle mode,
+x the stack member) from Cisco's
+[Catalyst 9300 upgrade guide](https://www.cisco.com/c/en/us/support/docs/switches/catalyst-9300-series-switches/222280-upgrading-catalyst-9300-switches.html)
+(222280, updated 2025-10-15). EOS: `copy usb1:/<file> flash:/<file>` (Arista's upgrade page). NX-OS:
+Cisco's vPC upgrade page (221034, updated 2026-06-12) says USB works but gives no command, so none
+is shown.
+
+**By TFTP, the old way, with a warning.** TFTP has "no login or access control mechanisms" (RFC 1350,
+Security Considerations, read 2026-10-25), and nothing in it encrypts the file, so Fathom shows it
+with that warning, keeps the server running only for the copy, and relies on the hash check on the
+device. IOS XE: `copy tftp://<your computer>/<file> flash:` (222280). NX-OS:
+`copy tftp://<your computer>/<file> bootflash: vrf management` (Cisco's
+[Copying File to Bootflash](https://developer.cisco.com/docs/cisco-nexus-3000-and-9000-series-nx-api-rest-sdk-user-guide-and-api-reference/latest/copying-file-to-bootflash);
+its CLI line has no VRF, its payload names `management`). On Linux the server is `tftpd-hpa`, serving
+`/srv/tftp` (a third-party guide, tecmint.com, updated 2023-12-19). Fathom names no TFTP server for
+Windows. Arista's upgrade page lists no TFTP source, so EOS gets none.
+
+Juniper: neither USB nor TFTP is shown, because no Juniper page read gives the command
+(`docs/UPGRADING-A-JUNIPER.md`).
+
+---
+
 ## What this changes about Fathom's promise
 
 Fathom's SHA-256 proves *the bytes on the device equal the bytes Fathom holds*, which equal what the
