@@ -29,6 +29,7 @@ months.
 
 | crate | version | expires | why the young release is the safer one |
 |---|---|---|---|
+| `ctutils` | `0.4.4` | 2026-11-01 | RUSTSEC-2026-0385 (2026-10-23): before 0.4.4, `Choice`'s mask generation could compile to a branch on secret data, and `u128` constant-time comparisons branched on 32-bit targets. `ctutils::CtEq` is the tag comparison under `hmac` (the chain MAC, `digest` → `ctutils` → `cmov`) and sits under `crypto-bigint`, so under `p256`/`ecdsa` signing. Waiting a week means a week of a known timing leak on the MAC and signing path. 0.4.4 changes only those two functions (its CHANGELOG, read from the fetched crate) and moves no other lockfile line. 0.4.5 (same day) was not taken: it adds a `primitives` module and a Thumb-1 fix, neither needed here. Published 2026-10-23 01:04 GMT; clears the window on its own 2026-10-30. |
 
 <!-- cooldown:end -->
 

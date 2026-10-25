@@ -8,14 +8,14 @@ approval is **an owner act**.
 |---|---|---|---|
 | `chacha20poly1305` | Workspace file encryption (`32` D3) | 2026-08-15 | NCC Group, no significant findings |
 | `argon2` | Passphrase → key (`32` D1) | 2026-08-15 | **No audit.** Mitigated by RFC 9106 test vectors |
-| `tokio` | The server's async runtime (`49` §6) | 2026-09-03 | Five advisories, all patched at or below 1.53.1 |
+| `tokio` | The server's async runtime (`49` §6) | 2026-09-03 | Six advisories; RUSTSEC-2026-0386 (2026-10-13) moved the pin to 1.53.3 |
 | `axum` | The server's HTTP layer (`41` §5.2, `49` §6) | 2026-09-03 | Zero against axum itself; its closure's are all patched below the pins |
 | `tracing` | Structured logging and spans (`49` §6) | 2026-09-03 | RUSTSEC-2023-0078, patched ≥ 0.1.40, in use 0.1.44 |
 | `tracing-subscriber` | Writes the events somewhere | 2026-09-03 | RUSTSEC-2025-0055, patched ≥ 0.3.20, in use 0.3.23 — and `ansi` off as well |
 | `tokio-postgres` | The PostgreSQL driver (`49` §6) | 2026-09-03 | RUSTSEC-2026-0178 — **0.7.18 IS the patch**; two more in `postgres-protocol`, both patched |
 | `deadpool-postgres` | The connection pool | 2026-09-03 | None, open or historic |
 | `hkdf` | HKDF-SHA-256, Expand-only, for every chain subkey (storage §12.1) | 2026-09-12 | None, open or historic |
-| `hmac` | The chain MAC — HMAC-SHA-256 (storage §12.1) | 2026-09-12 | None; `cmov` on its tag-comparison path is pinned ≥ 0.5.4 |
+| `hmac` | The chain MAC — HMAC-SHA-256 (storage §12.1) | 2026-09-12 | None against `hmac`; on its tag-comparison path `cmov` is pinned ≥ 0.5.4 and `ctutils` ≥ 0.4.4 (RUSTSEC-2026-0385) |
 | `sha2` | The hash under the MAC, the KDF and the genesis digest | 2026-09-12 | None against 0.11.0 |
 | `getrandom` | The OS CSPRNG directly, never `rand` (storage §12.4) | 2026-09-12 | None against 0.4.3 |
 | `p256` | The curve under ES256 (admin §15.3) | 2026-09-12 | Nothing found in RustSec or OSV, both with working controls |
