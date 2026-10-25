@@ -3,7 +3,7 @@
  * with `available: false` has no data on main yet; flip it when its PR lands
  * and the menu lists it. */
 
-export const LAYER_IDS = ['checks', 'addresses', 'vlans', 'docs', 'maintenance', 'tags', 'learn'] as const;
+export const LAYER_IDS = ['checks', 'addresses', 'vlans', 'docs', 'maintenance', 'tags', 'learn', 'vpns'] as const;
 
 export type LayerId = (typeof LAYER_IDS)[number];
 
@@ -23,6 +23,8 @@ export const LAYERS: readonly LayerSpec[] = [
   { id: 'tags', label: 'Tags', onByDefault: false, available: true },
   // ADR-0066 item 1.2: plain notes that teach what is on the drawing (the r4-teach Learn switch).
   { id: 'learn', label: 'Learn notes', onByDefault: false, available: true },
+  // Mesh VPNs (schema 0.26): each VPN a badge with dashed spokes to its members.
+  { id: 'vpns', label: 'VPNs', onByDefault: false, available: true },
 ];
 
 export type LayerSet = Readonly<Record<LayerId, boolean>>;

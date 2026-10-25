@@ -516,7 +516,15 @@ fields:
   PhysicalPort.mac: 462
   # Missing links for cables (schema 0.24, 2026-10-16). Appended after 0.21's 462; 463-477 stay held for the other round 15 threads.
   Cable.needs_finishing: 478
-  # The lesson builder (schema 0.26, 2026-10-25). Appended after 0.24's 478; 479-485 are held for mesh VPNs.
+  # Mesh VPNs (schema 0.26, 2026-10-25). Appended after 0.24's 478.
+  OverlayNetwork.name: 479
+  OverlayNetwork.provider: 480
+  OverlayNetwork.range: 481
+  OverlayNetwork.note: 482
+  OverlayMember.address: 483
+  OverlayMember.exit_node: 484
+  OverlayMember.routes: 485
+  # The lesson builder (schema 0.27, 2026-10-25). Appended after 0.26's 485.
   Lesson.title: 486
   Lesson.summary: 487
   Lesson.author: 488

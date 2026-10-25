@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.26";
+export const SCHEMA_VERSION = "0.27";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -79,6 +79,7 @@ export type NodeKind =
   | "FirmwareTarget"
   | "CableRun"
   | "CableTie"
+  | "OverlayNetwork"
   | "Lesson"
   | "LessonStep";
 export const NODE_KINDS: readonly NodeKind[] = [
@@ -154,6 +155,7 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "FirmwareTarget",
   "CableRun",
   "CableTie",
+  "OverlayNetwork",
   "Lesson",
   "LessonStep",
 ];
@@ -276,6 +278,8 @@ export type EdgeKind =
   | "HasCableRun"
   | "HasCableTie"
   | "Ties"
+  | "HasOverlay"
+  | "OverlayMember"
   | "HasLesson"
   | "HasLessonStep";
 export const EDGE_KINDS: readonly EdgeKind[] = [
@@ -395,6 +399,8 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasCableRun",
   "HasCableTie",
   "Ties",
+  "HasOverlay",
+  "OverlayMember",
   "HasLesson",
   "HasLessonStep",
 ];
@@ -552,6 +558,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   FirmwareTarget: ["model", "version", "platform", "image", "image_sha256", "note"],
   CableRun: ["form", "side", "label"],
   CableTie: ["at"],
+  OverlayNetwork: ["name", "provider", "range", "note"],
   Lesson: ["title", "summary", "author", "published_at", "source_design"],
   LessonStep: ["ordinal", "kind", "title", "body", "hint", "after", "explainer", "answer", "trace_from", "trace_to", "flow", "expect_trace", "expect_crosses", "expect_stop", "expect_first_match", "expect_rule", "expect_now"],
 };
@@ -971,6 +978,13 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "CableTie.at": 417,
   "PhysicalPort.mac": 462,
   "Cable.needs_finishing": 478,
+  "OverlayNetwork.name": 479,
+  "OverlayNetwork.provider": 480,
+  "OverlayNetwork.range": 481,
+  "OverlayNetwork.note": 482,
+  "OverlayMember.address": 483,
+  "OverlayMember.exit_node": 484,
+  "OverlayMember.routes": 485,
   "Lesson.title": 486,
   "Lesson.summary": 487,
   "Lesson.author": 488,

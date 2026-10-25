@@ -144,7 +144,7 @@ export function nameOf(doc: Document, id: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// A lesson written on a design (schema 0.26)
+// A lesson written on a design (schema 0.27)
 
 /** The runner's lesson for one written on a design. Devices it names by id are read by their hostname now, since a
  * trace names its hops that way. */

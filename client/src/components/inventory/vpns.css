@@ -1,0 +1,191 @@
+/* Mesh VPNs in Inventory (sign-off r16-overlay). Under the networks grid, in its own section. */
+
+.vpns {
+  margin-top: var(--s5);
+  padding: var(--s4) var(--s3) 0;
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+
+.vpns__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+}
+
+.vpns__title {
+  margin: 0;
+  font-size: var(--t-head);
+  font-weight: 700;
+}
+
+.vpns__count,
+.vpns__note {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.vpns__note {
+  margin: var(--s1) 0 var(--s2);
+  max-width: var(--measure);
+}
+
+.vpns__list,
+.vpns__members {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.vpns__row {
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.vpns__row-head {
+  display: grid;
+  grid-template-columns: minmax(160px, 2fr) 1fr 1fr 1fr;
+  gap: var(--s3);
+  width: 100%;
+  min-height: var(--row-min);
+  padding: var(--s1) var(--s2);
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.vpns__row-head:hover {
+  background: var(--control-bg-hover);
+}
+
+.vpns__row-name {
+  font-weight: 700;
+}
+
+.vpns__mono,
+.vpns__input--mono {
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+}
+
+.vpns__detail,
+.vpns__form {
+  padding: var(--s2) var(--s2) var(--s3);
+  background: var(--surface-2);
+}
+
+.vpns__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--s2) var(--s3);
+  margin-bottom: var(--s2);
+  border: var(--rule-hair) solid var(--hairline);
+}
+
+.vpns__grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s3);
+}
+
+.vpns__field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+.vpns__field--wide {
+  flex: 1 1 240px;
+}
+
+.vpns__input {
+  height: var(--control-h-sm);
+  padding: 0 var(--s1);
+  border: var(--rule-hair) solid var(--control-line);
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+}
+
+.vpns__input--wide {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.vpns__actions {
+  display: flex;
+  gap: var(--s2);
+  margin-top: var(--s2);
+  width: 100%;
+}
+
+.vpns__primary {
+  font-weight: 700;
+}
+
+.vpns__danger {
+  color: var(--danger);
+  margin-left: auto;
+}
+
+.vpns__error {
+  width: 100%;
+  margin: var(--s1) 0 0;
+  color: var(--danger);
+  font-size: var(--t-small);
+}
+
+.vpns__sub {
+  margin: var(--s3) 0 var(--s1);
+  font-size: var(--t-tab);
+  letter-spacing: var(--control-track);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.vpns__member {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s1) 0;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.vpns__member-name {
+  min-width: 120px;
+  font-weight: 700;
+}
+
+.vpns__check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  font-size: var(--t-small);
+}
+
+/* The global `input { appearance: none }` collapses checkboxes; restore the native control. */
+.vpns__check input[type='checkbox'] {
+  appearance: auto;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--ink);
+}
+
+.vpns__member-actions {
+  display: inline-flex;
+  gap: var(--s1);
+}
+
+.vpns__add-member {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin-top: var(--s2);
+}

@@ -1,4 +1,4 @@
-// Lessons written on a design (ADR-0066 §2, schema 0.26). A Lesson node hangs off the root (HasLesson) with ordered
+// Lessons written on a design (ADR-0066 §2, schema 0.27). A Lesson node hangs off the root (HasLesson) with ordered
 // LessonStep children (HasLessonStep). Steps name what they point at by design id, so they stay true in a copy of the
 // design: publishing copies the whole design and marks the lesson in the copy published. Pure, like issues.ts.
 //

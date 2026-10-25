@@ -2123,6 +2123,29 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(417))
         }
     }
+    /// Typed reads for `OverlayNetwork` fields.
+    pub mod overlay_network {
+        /// `OverlayNetwork.name` — `Text`, card `1`, emit `—`.
+        /// What the network is called.
+        pub fn name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(479))
+        }
+        /// `OverlayNetwork.provider` — `enum { tailscale, headscale, netbird, zerotier, wireguard, nebula, other }`, card `1`, emit `—`.
+        /// Whose software runs it.
+        pub fn provider<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::OverlayNetworkProvider, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(480))
+        }
+        /// `OverlayNetwork.range` — `IpPrefix`, card `0..1`, emit `—`.
+        /// The address range members are given, e.g. 100.64.0.0/10.
+        pub fn range<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::IpPrefix, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(481))
+        }
+        /// `OverlayNetwork.note` — `Text`, card `0..1`, emit `—`.
+        /// Words for it.
+        pub fn note<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(482))
+        }
+    }
     /// Typed reads for `Lesson` fields.
     pub mod lesson {
         /// `Lesson.title` — `Text`, card `1`, emit `—`.
@@ -2658,6 +2681,13 @@ mod body {
             417 => Some((core::any::TypeId::of::<u16>(), "u16")),
             462 => Some((core::any::TypeId::of::<crate::scalar::MacAddress>(), "crate::scalar::MacAddress")),
             478 => Some((core::any::TypeId::of::<bool>(), "bool")),
+            479 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            480 => Some((core::any::TypeId::of::<crate::generated::ir_types::OverlayNetworkProvider>(), "crate::generated::ir_types::OverlayNetworkProvider")),
+            481 => Some((core::any::TypeId::of::<crate::scalar::IpPrefix>(), "crate::scalar::IpPrefix")),
+            482 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            483 => Some((core::any::TypeId::of::<crate::scalar::IpAddr>(), "crate::scalar::IpAddr")),
+            484 => Some((core::any::TypeId::of::<bool>(), "bool")),
+            485 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             486 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             487 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             488 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
@@ -3101,6 +3131,13 @@ mod body {
             417 => crate::canon::slot_to::<u16>(417, "u16", value),
             462 => crate::canon::slot_to::<crate::scalar::MacAddress>(462, "crate::scalar::MacAddress", value),
             478 => crate::canon::slot_to::<bool>(478, "bool", value),
+            479 => crate::canon::slot_to::<crate::scalar::Text>(479, "crate::scalar::Text", value),
+            480 => crate::canon::slot_to::<crate::generated::ir_types::OverlayNetworkProvider>(480, "crate::generated::ir_types::OverlayNetworkProvider", value),
+            481 => crate::canon::slot_to::<crate::scalar::IpPrefix>(481, "crate::scalar::IpPrefix", value),
+            482 => crate::canon::slot_to::<crate::scalar::Text>(482, "crate::scalar::Text", value),
+            483 => crate::canon::slot_to::<crate::scalar::IpAddr>(483, "crate::scalar::IpAddr", value),
+            484 => crate::canon::slot_to::<bool>(484, "bool", value),
+            485 => crate::canon::slot_to::<crate::scalar::Text>(485, "crate::scalar::Text", value),
             486 => crate::canon::slot_to::<crate::scalar::Text>(486, "crate::scalar::Text", value),
             487 => crate::canon::slot_to::<crate::scalar::Text>(487, "crate::scalar::Text", value),
             488 => crate::canon::slot_to::<crate::scalar::Text>(488, "crate::scalar::Text", value),
@@ -3542,6 +3579,13 @@ mod body {
             417 => crate::canon::slot_from::<u16>(j),
             462 => crate::canon::slot_from::<crate::scalar::MacAddress>(j),
             478 => crate::canon::slot_from::<bool>(j),
+            479 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            480 => crate::canon::slot_from::<crate::generated::ir_types::OverlayNetworkProvider>(j),
+            481 => crate::canon::slot_from::<crate::scalar::IpPrefix>(j),
+            482 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            483 => crate::canon::slot_from::<crate::scalar::IpAddr>(j),
+            484 => crate::canon::slot_from::<bool>(j),
+            485 => crate::canon::slot_from::<crate::scalar::Text>(j),
             486 => crate::canon::slot_from::<crate::scalar::Text>(j),
             487 => crate::canon::slot_from::<crate::scalar::Text>(j),
             488 => crate::canon::slot_from::<crate::scalar::Text>(j),

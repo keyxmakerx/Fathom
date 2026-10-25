@@ -53,7 +53,7 @@ showed. The owner also asked for Ansible support, with learning on it.
 This was not a card; it follows from §2 and can be reopened on the Sign-offs page.
 
 - A lesson is written **in the design it teaches**: a `Lesson` node with ordered `LessonStep`
-  children (schema 0.26). Steps name what they point at by design id, so they stay true in a copy.
+  children (schema 0.27). Steps name what they point at by design id, so they stay true in a copy.
   Every text field of both kinds goes through the server's credential check on save, as a note's
   does (CLAUDE.md rule 4).
 - **Publish** writes a new design in the same folder, named `Lesson: <title>`: a whole copy of the

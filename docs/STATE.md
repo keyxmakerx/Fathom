@@ -245,7 +245,7 @@ breadcrumb does one thing.
   drives two lessons through. Inventory's Add network now joins a port that already has an interface
   through that interface, so a port can be moved from one VLAN to another by hand. Not built: the Run
   Ansible step.
-- **Lesson builder** (ADR-0066 §2, schema 0.26). On a design of one's own, the search bar's Build a lesson
+- **Lesson builder** (ADR-0066 §2, schema 0.27). On a design of one's own, the search bar's Build a lesson
   opens a panel that writes a `Lesson` with ordered `LessonStep`s into the design: Read, Click the answer
   (from the canvas selection), Trace (ends from the selection, the expectation recorded from a trace run
   now) and Change it and watch (a Checks rule that should fire or clear). Steps move, edit and go; each
@@ -401,6 +401,17 @@ recorded failed, naming the way back) and opens a new, separate plan from where 
 the reverse of every done step, newest first (a cable cut, a cut re-made, a move back, a field's old value, a LAG
 removed), a check step for each that went differently, and room for steps of its own. A recorded plan that did not
 succeed can be backed out too; it stays as written. `scripts/drive-backout.mjs` drives it.
+
+**Mesh VPNs** (sign-off r16-overlay; schema 0.26, field keys 479-485). An `OverlayNetwork` (Tailscale,
+Headscale, NetBird, ZeroTier, WireGuard, Nebula or other) hangs off the root; `OverlayMember` edges to Devices
+carry each member's VPN address, exit node, and subnet routes. Entered by hand in Inventory › Networks, under
+VPNs; addresses, ranges and routes are refused unless they parse (IPv4 only), so a pasted key never gets in from
+the form. The server's credential check reads a VPN's name, note and routes, and the redaction gate now knows
+Tailscale's `tskey-` keys (detector `key-prefix`, source Tailscale "Key prefixes", read 2026-10-25). Show › VPNs
+(off by default) draws, on the Diagram look, each VPN of three or more as a badge right of its members with a
+dashed spoke to each, a two-member VPN as one dashed arc with its name, and each member's VPN address under its
+box; a badge opens a card with range, members, exit node and routes. Not yet: pasting `tailscale status` or
+`netbird status`, and the Rack look. `scripts/drive-vpns.mjs` drives it.
 
 **Live co-editing** (#98, ADR-0063 live). Changes are signed requests the server applies to its own
 head through the engine, refusing what the engine or the credential check refuses, then numbers, chains,

@@ -389,7 +389,7 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     ADR-0061 troubleshooting: issues are drawn by the issue views, never as a box.
         | NodeKind::Issue
         | NodeKind::IssueStep
-        //     The lesson builder (0.26): drawn by the lesson panel, never as a box.
+        //     The lesson builder (0.27): drawn by the lesson panel, never as a box.
         | NodeKind::Lesson
         | NodeKind::LessonStep
         //     Firmware targets (0.19): listed by the client, never laid out.
@@ -397,6 +397,8 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     Cable runs and ties (0.23): drawn on their rack or wall, never as a box.
         | NodeKind::CableRun
         | NodeKind::CableTie
+        //     Mesh VPNs (0.26): drawn by the client's VPNs layer, never as a box.
+        | NodeKind::OverlayNetwork
         //     Custom fields (0.16): a value is text with no geometry,
         //     UNTABLED like `Tag`.
         | NodeKind::FieldValue
