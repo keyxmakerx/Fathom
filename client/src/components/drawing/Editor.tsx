@@ -27,6 +27,7 @@ import { TagChips } from '../TagChips';
 import { DocsSection } from '../docs/DocsSection';
 import { DevicePhoto } from '../docs/DevicePhoto';
 import { FirmwareSection } from '../firmware/FirmwareSection';
+import { AboutSection } from '../learn/AboutSection';
 import {
   ABSENT,
   UNNAMED_HOSTNAME,
@@ -2121,6 +2122,7 @@ function panelFor(
                   <TypedNote shown={(chassis.managementAddress ?? '').length > 0} extra={MANAGEMENT_ADDRESS_NOTE} />
 
                   <FirmwareSection deviceId={chassis.deviceId} />
+                  <AboutSection deviceId={chassis.deviceId} />
                   <DevicePhoto ownerId={chassis.deviceId} name={chassis.hostname || UNNAMED_HOSTNAME} />
 
                 </>

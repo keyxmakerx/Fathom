@@ -190,12 +190,40 @@ pub struct Entry {
 /// (`load::req_nonempty_str`) — same shape as `Entry::reviewed_by` — so a
 /// bundle missing it, or spelling it blank, never reaches `gates.rs`'s
 /// placeholder inventory as anything other than a load failure.
+///
+/// The display fields below it (ADR-0066 item 1.1) are what a person reads in the
+/// app's About card: all optional at load, because the finder never needed them
+/// and a bundle that omits one still loads.
 #[derive(Debug, Clone)]
 pub struct ExplainerEntry {
     pub id: String,
     pub class: String,
     pub title: Option<String>,
     pub reviewed_by: String,
+    /// `subject.path`, e.g. `linux-debian.basics`; `None` for a verbatim subject.
+    pub subject_path: Option<String>,
+    /// Platform registry ids, or `["*"]` for every platform.
+    pub platforms: Vec<String>,
+    pub tab: Option<String>,
+    pub terse: Option<String>,
+    pub explained: Option<String>,
+    /// `teaching.body`.
+    pub teaching: Option<String>,
+    /// `teaching.breaks_if_wrong`.
+    pub breaks_if_wrong: Option<String>,
+    pub reviewed_on: Option<String>,
+    pub sources: Vec<ExplainerSource>,
+}
+
+/// One cited source on an explainer entry.
+#[derive(Debug, Clone)]
+pub struct ExplainerSource {
+    /// `vendor:` or `publisher:`, whichever the entry spells.
+    pub publisher: Option<String>,
+    pub doc: String,
+    pub url: Option<String>,
+    pub read_on: Option<String>,
+    pub note: Option<String>,
 }
 
 /// A rule, id-and-reviewer only — loaded so `related_rules` references can be

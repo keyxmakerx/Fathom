@@ -210,6 +210,17 @@ breadcrumb does one thing.
   Getting started (Home's right panel) ticks itself per account in this browser; a sample's own devices and
   cables do not count. Hidden, it lives under Help. Not built: the guided lessons, and tracing from a device on
   a wall, desk or shelf (the menu offers it on racked devices only). `scripts/drive-sample.mjs` drives it.
+- **Explainers in the app** (ADR-0066 item 1.1). `GET /learn/explainers` serves every entry in
+  `corpus/explainers/` (loaded once at startup with the rest of the corpus). A device whose `Device.platform`
+  has a read-this-first explainer shows a Learn line in its Details tab (every Linux flavour goes to
+  `linux-host`); Read more and Ctrl+K "Open Learn" open the explainer and the library, each marked
+  Unreviewed while `reviewed_by` is a placeholder. `client/src/components/learn/context.ts`'s
+  `useLearn().openExplainer(id)` is the one way in. **Learn notes** (Show menu, off by default; the
+  r4-teach Learn switch) writes up to five dashed notes on the Diagram look, one per idea (the first
+  firewall, router and switch by role, the first trunk and access link with their VLANs), from the
+  `learn note` entries in `corpus/explainers/network-basics.yaml`; each opens its explainer. Like the other
+  Show layers it draws on the Diagram look only. Not built: faceplate brackets for port roles, lessons,
+  explainers for Cisco and MikroTik. `scripts/drive-learn.mjs` drives it.
 - **Inventory table with pages and shared custom fields** (schema 0.16, ADR-0062). Field definitions are an organisation-wide server store (migration 0035); a value is a `FieldValue` node in the design. Private fields are not built.
 - **IP and VLAN tables, file importer** (ADR-0063, importer): Inventory Prefix and VLAN kinds derived from the drawing, and one importer (CSV, NetBox, Proxmox, nmap).
 - **Suggestions from what a switch knows** (ADR-0046: suggestions, never facts; one undo step; the pasted text is never kept). A neighbour list (`show lldp neighbors` on Junos, Cisco, Arista; `lldpcli show neighbors`; Cisco `show cdp neighbors` and its `detail` form) suggests cables between drawn ports (`document/neighbours.ts`, round 15). A MAC table (`show mac address-table` on Cisco IOS and NX-OS, `show ethernet-switching table` on Junos non-ELS), with an optional ARP table (`show ip arp`, Junos `show arp`, `ip neigh`) or DHCP leases (ISC `dhcpd.leases`, `dnsmasq.leases`, Kea `kea-leases4.csv`) for addresses and names, suggests who is plugged in where: a port that learned one MAC is cabled to a drawn port carrying that MAC, or gets a new sketch device with that MAC and address; a port with several is left (`document/hosts.ts`, round 29, card r29-fill). A device's own report (`show version` on Junos, Cisco IOS and Arista; Cisco `show inventory`; Junos `show chassis hardware`) offers its serial and running version (`Device.os_version`) where the drawing has none, a difference unticked, and only says the model and hostname (`document/facts.ts`). Paste any of these onto the canvas, or right-click a switch. Not read: the Junos ELS table form. `scripts/drive-suggest.mjs` and `scripts/drive-hosts.mjs` drive them.
@@ -485,8 +496,8 @@ into the distroless runtime stage from the build stage. `FATHOM_SCHEMA_ROOT` ove
   - **Arista.** Two catalogue entries (720XP-48ZC2, 7050SX3-48YC8) and an EOS explainer; no dictionary
     (same shape gap). The safety net destroys every credential in a 120-line synthetic config
     (`crates/fathom-ingest/tests/arista_eos.rs`).
-  - Every explainer carries `reviewed_by: <named human>`, which means unreviewed; no client surface
-    shows that yet (OPEN-QUESTIONS E2 is answered, not built).
+  - Every explainer carries `reviewed_by: <named human>`, which means unreviewed; the Learn screens
+    say *Unreviewed* on each one (OPEN-QUESTIONS E2, ADR-0066).
   - **Engine gaps:** ADR-0044 rule 2's redaction-unproven refusal is not built; the
     core floor is the only fence. A credential typed into the free-text description cell of the
     OPNsense CSV is not caught (pinned in `opnsense_csv.rs`). The `<named human>` placeholder is a
