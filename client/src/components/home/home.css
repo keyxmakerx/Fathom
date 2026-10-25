@@ -360,6 +360,12 @@
   max-width: 40ch;
 }
 
+.home-sample__practice {
+  margin-top: var(--s4);
+  padding-top: var(--s3);
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+
 .home-sample__picture {
   width: 160px;
   flex-shrink: 0;
@@ -462,5 +468,35 @@
 }
 
 .home__help {
+  margin-top: var(--s4);
+}
+
+/* --- ADR-0069: Home for the person who set the server up ------------- */
+
+.practice-welcome__lead {
+  margin: 0;
+}
+
+.practice-welcome__card {
+  margin-top: var(--s3);
+}
+
+.practice-welcome__later {
+  margin-top: var(--s4);
+  padding: var(--s3) var(--s4);
+  border: var(--rule-hair) dashed var(--hairline);
+}
+
+.practice-welcome__later .home__muted {
+  margin: var(--s1) 0 0;
+  max-width: 60ch;
+}
+
+.home__org-note {
+  margin: var(--s1) 0 0;
+  font-size: var(--t-small);
+}
+
+.home__label--spaced {
   margin-top: var(--s4);
 }

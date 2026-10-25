@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-10-02: 1561 Rust tests and 1531 client tests on commit 3b10bfc, read off the runs. Prose brought up to main (40f0fea) on 2026-10-10; counts not re-read. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-10-02: 1561 Rust tests and 1531 client tests on commit 3b10bfc, read off the runs. Prose brought up to main (3bd5ba9) on 2026-10-25; counts not re-read. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -12,8 +12,9 @@ This page records what exists. It is not a changelog — history lives in `docs/
 fragment-to-store weld, the finder, emitters, layout. Zero external dependencies on the client side,
 deliberately. The schema is real and enforced; read counts off `fathom-schema-check`.
 
-**Paste, four platforms (engine).** The wasm shell holds every dictionary at once, keyed by platform
-(Junos SRX, Junos EX, EdgeOS, OPNsense). A paste names its platform (frame flag byte, bits 1-3) or the
+**Paste, eight platforms (engine).** The wasm shell holds every dictionary at once, keyed by platform
+(Junos SRX, Junos EX, EdgeOS, OPNsense, and the four below with front ends of their own). The paste
+frame and the "Which device is this from?" picker name the first four only. A paste names its platform (frame flag byte, bits 1-3) or the
 engine detects it from lines only one dictionary binds; unsure is `ERR_PLATFORM_CHOICE` with the
 candidates, never a guess. `OP_REDACT_TEXT` runs every set-form dictionary. A paste into a device reads as that
 device's platform; otherwise, when the engine cannot tell, the card asks "Which device is this from?" once.
@@ -28,11 +29,30 @@ frame and the paste card's summary wait on the client.
 no entry describes is destroyed, because pfSense stores keys and passwords base64-encoded
 (`corpus/dict/README-pfsense.md`).
 
+**Paste: OPNsense `config.xml` (engine, 2026-10-25, card r29-pull-devices).** The same XML front end reads a
+backup whose root is `<opnsense>`, with `corpus/dict/opnsense/config-xml.yaml` beside the rules CSV's entries;
+the root decides, even when the device already names `opnsense`. An allowlist like pfSense's: hostname,
+interface assignments and VLANs bind, everything else is destroyed (`corpus/dict/opnsense/README-config-xml.md`).
+An encrypted backup binds nothing and is refused.
+
 **Paste: Linux host (engine, 2026-10-16).** `ip addr` and `ip -d link` output (and their `-o` forms) has its
 own front end, `fathom-ingest/src/iproute.rs`, picked by an exact sniff of the first record header. It binds
 interfaces, admin-up, VLANs and addresses, and the host from a pasted shell prompt; only known attribute words
 are shaped and every line is swept (`corpus/dict/README-linux-host.md`). Routes and `bridge vlan show` are
 residue. Naming `linux-host` in the paste frame waits on the client.
+
+**Paste: TP-Link switch (engine, 2026-10-16).** A JetStream or Omada switch's config text (`show
+running-config` or Export Config) has its own front end, `fathom-ingest/src/blockcfg.rs`, picked by an exact
+sniff (`!<model>` first, a `#` separator later). It binds VLANs with their names, interfaces with
+description and `shutdown`, and the hostname. After a credential keyword the rest of the line is destroyed
+whatever any detector says, and every line is swept (`corpus/dict/README-omada-sw.md`). Addresses (dotted
+masks) and VLAN membership are residue. Naming `omada-sw` in the paste frame waits on the client.
+
+**Paste: UniFi switch (engine, 2026-10-25, unverified).** A UniFi switch's `show running-config` is read by
+the same front end in its `UNIFI` dialect, picked by the EdgeSwitch header with a UniFi model in it. It
+binds interfaces, VLAN names and the hostname, on the EdgeSwitch CLI's syntax: no complete real UniFi
+config was found (`corpus/dict/README-unifi-sw.md`). Naming `unifi-sw` in the paste frame waits on the
+client.
 
 **The server.** `crates/fathom-server` starts, answers a health check through a real PostgreSQL, shuts
 down cleanly, and runs as the one plain-HTTP published port of a composed stack, behind the operator's
@@ -161,23 +181,29 @@ breadcrumb does one thing.
 - **Enrolment and sign-in, both planes.** A token's prefix names its door (`op_` operator, `inv_`
   invitation). Enrolment makes a non-extractable keypair before the request goes out. First run (ADR-0056)
   takes the setup token, address, password, authenticator app and ten recovery codes shown once;
-  `SignIn.tsx` is address and password, then the code when asked. A browser key is evidence sent with a
-  session, not the only way in. CI redeems the first-operator token (`scripts/ci/first-operator-signin.mjs`).
-- **Operator console** (`components/console/`): accounts, invitations, organisation shells and claims,
-  operators, console placement and the SMTP setting. The organisation claim signs the genesis grant in the
+  `SignIn.tsx` is address and password, then one code field when the account has an authenticator app (six
+  digits or a recovery code; ADR-0065). Identities are not offered as buttons, and the fields are named so
+  password managers find them. A browser key is evidence sent with a session, not the only way in. Opening
+  someone else's `/invite#inv_...` link while signed in shows `InviteWhileSignedIn.tsx` (go back, or sign out
+  and use it). Every server answer carries `Cache-Control: no-store`. CI redeems the first-operator token (`scripts/ci/first-operator-signin.mjs`).
+- **Operator console** (`components/console/`), tabbed Accounts · Organisations · Operators · Settings
+  (· Issued once this session has minted a token): account shells and invitations, organisation shells and
+  claims, operators, console placement and the SMTP setting. The organisation claim signs the genesis grant in the
   browser, shows the recovery key once, then forgets it (ADR-0057). Not on the console: the two-person
-  verbs (no assertion by the enrolled key yet), the site trail, an account list.
+  verbs (no assertion by the enrolled key yet), the site trail, an account list. ADR-0068's Admin rework
+  (Health first, a left-hand section list, Engines) is decided, not built.
 - **Home** has tabs (ADR-0060 decision 7): Designs, Organisation (admins and folder stewards; a rail of
   People, Waiting for you (N) and Folders), and Admin (the console, only where it answers). Each shows only to someone who may use it.
   The account menu holds Your account, Signed-in browsers, theme and Sign out; an amber "Admin" pill
   shows beside the initials where the console answers. "New design" goes in the first Site the person may
   draw in. Names start as "Untitled design", sealed under the organisation key (`designs.name_*`); Rename
   needs `draw`. **People and access** (client, `components/organisation/`, `api/invitations.ts`,
-  `api/people.ts`): invite (name, optional email, Read/Draw/Steward, folder) gives a one-time link and a
-  sign-in name that the steward sends; the invited person opens `/invite#inv_...`, gets a key and a
-  key-check code to read out; the steward confirms everyone waiting with one signature action (up to 500,
-  full list shown first, proposal checked against the rows before signing), steward requests one at a
-  time, second-steward approval in the same screen, per-person page with Remove and Give more access.
+  `api/people.ts`): add a person (name, optional email, Read/Draw/Steward, folder) and get a one-time link
+  and a sign-in name to send. A Read or Draw person is a member at once (ADR-0065, migration 0039: state
+  `added` until the link is used, no key-check code). A Steward is still invited: they open the link, get a
+  key and a key-check code to read out, and the steward confirms everyone waiting with one signature action
+  (up to 500, full list shown first, proposal checked against the rows before signing); steward requests one
+  at a time, second-steward approval in the same screen, per-person page with Remove and Give more access.
   Not built: removing access given to the whole organisation (the server's revoke route needs a folder),
   making an existing member a Steward, the contact email after confirmation.
 - **About Fathom** (You panel) lists every shipped library and licence; `scripts/licences-npm.mjs` fails
@@ -194,8 +220,8 @@ breadcrumb does one thing.
   prefix) and the firewall (zones, then every policy in device order with "matches / doesn't match /
   can't tell" and the reason). It stops at the first thing the design does not state. `OP_TRACE` (36) runs
   in the page; right-click a device, "Trace a path from here", then an address or device and an optional
-  "TCP 445". Never a verdict. Not built: interface-to-port ties from a paste (so a pasted device's trace
-  stops at "not tied to a port" until the tie is drawn), learned routes, NAT, port right-click, the
+  "TCP 445". Never a verdict. A pasted interface reaches a port only through a port tie (see Port ties); an
+  untied one stops the trace at "not tied to a port". Not built: learned routes, NAT, port right-click, the
   Diagram look, the "Trace from here" offer from "It's down". `scripts/drive-trace.mjs` drives it.
 - **Sample home lab and the five first steps** (r15-start, round 10). Home's "Open the sample home lab" builds
   `corpus/samples/home-lab.json` (11 devices, 12 cables, VLANs 10 and 30) with the editor's own commands and saves
@@ -203,8 +229,21 @@ breadcrumb does one thing.
   Getting started (Home's right panel) ticks itself per account in this browser; a sample's own devices and
   cables do not count. Hidden, it lives under Help. Not built: the guided lessons, and tracing from a device on
   a wall, desk or shelf (the menu offers it on racked devices only). `scripts/drive-sample.mjs` drives it.
+- **Explainers in the app** (ADR-0066 item 1.1). `GET /learn/explainers` serves every entry in
+  `corpus/explainers/` (loaded once at startup with the rest of the corpus). A device whose `Device.platform`
+  has a read-this-first explainer shows a Learn line in its Details tab (every Linux flavour goes to
+  `linux-host`); Read more and Ctrl+K "Open Learn" open the explainer and the library, each marked
+  Unreviewed while `reviewed_by` is a placeholder. `client/src/components/learn/context.ts`'s
+  `useLearn().openExplainer(id)` is the one way in. **Learn notes** (Show menu, off by default; the
+  r4-teach Learn switch) writes up to five dashed notes on the Diagram look, one per idea (the first
+  firewall, router and switch by role, the first trunk and access link with their VLANs), from the
+  `learn note` entries in `corpus/explainers/network-basics.yaml`; each opens its explainer. Like the other
+  Show layers it draws on the Diagram look only. Not built: faceplate brackets for port roles, lessons,
+  explainers for Cisco and MikroTik. `scripts/drive-learn.mjs` drives it.
 - **Inventory table with pages and shared custom fields** (schema 0.16, ADR-0062). Field definitions are an organisation-wide server store (migration 0035); a value is a `FieldValue` node in the design. Private fields are not built.
-- **IP and VLAN tables, file importer** (ADR-0063, importer): Inventory Prefix and VLAN kinds derived from the drawing, and one importer (CSV, NetBox, Proxmox, nmap).
+- **IP and VLAN tables, file importer** (ADR-0067): Inventory Prefix and VLAN kinds derived from the drawing, and one importer (CSV, NetBox, Proxmox, nmap).
+- **Suggestions from what a switch knows** (ADR-0046: suggestions, never facts; one undo step; the pasted text is never kept). A neighbour list (`show lldp neighbors` on Junos, Cisco, Arista; `lldpcli show neighbors`; Cisco `show cdp neighbors` and its `detail` form) suggests cables between drawn ports (`document/neighbours.ts`, round 15). A MAC table (`show mac address-table` on Cisco IOS and NX-OS, `show ethernet-switching table` on Junos non-ELS), with an optional ARP table (`show ip arp`, Junos `show arp`, `ip neigh`) or DHCP leases (ISC `dhcpd.leases`, `dnsmasq.leases`, Kea `kea-leases4.csv`) for addresses and names, suggests who is plugged in where: a port that learned one MAC is cabled to a drawn port carrying that MAC, or gets a new sketch device with that MAC and address; a port with several is left (`document/hosts.ts`, round 29, card r29-fill). A device's own report (`show version` on Junos, Cisco IOS and Arista; Cisco `show inventory`; Junos `show chassis hardware`) offers its serial and running version (`Device.os_version`) where the drawing has none, a difference unticked, and only says the model and hostname (`document/facts.ts`). Paste any of these onto the canvas, or right-click a switch. Not read: the Junos ELS table form. `scripts/drive-suggest.mjs` and `scripts/drive-hosts.mjs` drive them.
+- **A folder of configs dropped on the canvas** (round 29, card r29-pull A: what a backup playbook saves). Every file goes through the same gate and reader as a paste and is matched to a drawn device by the hostname it names, or by its file name when it names none (`components/paste/configFolder.ts`, `FolderCard.tsx`). A drawn device with no config gets its first one, a hostname not drawn becomes a new device, both ticked; a device that already carries a config is only compared (new, gone and readdressed interfaces, running version), because a second capture is still refused; neighbour lists, MAC tables, binary and oversize files are left with a reason. Add writes the ticked rows as one change. One dropped file is an ordinary paste. Not built: replacing a capture, "last backed up" per device. `scripts/drive-folder.mjs` drives it.
 - **Cable corrections from the floor.** Anyone with Read on a design's place sends "Traced ✓", "Label wrong" or "Not here" about a cable (`cable:` and a ULID); someone with Draw accepts or dismisses it. Corrections are their own server store (`cable_corrections`, migration 0036), sealed under the organisation content key, never graph nodes. Text is refused when the redaction gate's bare credential check fires (`enable secret cisco123` form), so ordinary prose with key or secret in it can be refused too. Accepting is the Draw user's ordinary edit as one undoable batch ("accepted <name>'s correction"; a not-here report becomes a note without the name); if the edit or its save fails the client reopens the correction (`POST .../reopen`, accepted only). Dismissing re-seals the body as empty text, so what was typed is not kept; a dismissed one cannot be reopened. The database binds sender and decider to the session account. A Read sender sees only their own; caps of 5 open per sender per cable, 20 per sender and 200 per design. Orphaned corrections (cable removed) list on the Corrections waiting page with Dismiss only. Known limits: no chain entry for a correction or decision (L2), no retention clean-up of decided rows.
 
 **The canvas** (one canvas, detail by degrees; ADR-0060)
@@ -229,7 +268,7 @@ breadcrumb does one thing.
 - **Look switch** (ADR-0061): Rack (faceplates, dressed cables) or Diagram (plain labelled boxes, square
   lines in sheath colour, view-and-select). Kept per browser, account and design (`drawing/look.ts`). A
   cable whose far end is off screen draws as stubs ending in a tag that pans to it (`drawing/stubs.ts`).
-- **Back button** (ADR-0065 §2, `components/racks/JumpTrail.tsx`, `jumpTree.ts`): one "Back to ..." button over the
+- **Back button** (ADR-0068 §2, `components/racks/JumpTrail.tsx`, `jumpTree.ts`): one "Back to ..." button over the
   canvas, with a ▾ beside it that unfolds a tree of where you are inside the design (design, rack, shelf,
   device, close-up or open, port; each line a name and a kind word, the current one marked "you are here";
   past six levels the middle folds to "N more"). Containment, not history; no site or room line because
@@ -239,7 +278,7 @@ breadcrumb does one thing.
 - **Equipment list** (the "Equipment" tab on the right edge; it opens by itself on a design with no
   devices only until the person closes it once on that design (kept per browser, account and design,
   `design/resume.ts`), after which opening that design leaves it shut; the empty canvas has an **Add
-  equipment** button that still opens it, ADR-0065 §3): search, headings Common / On a wall / Exact models; click
+  equipment** button that still opens it, ADR-0068 §3): search, headings Common / On a wall / Exact models; click
   or Enter adds where there is room. Common devices arrive named (router-1) with a role.
   **Not here? Describe it** (r15-f1, `components/describe/`): rows of ports (copper, SFP, SFP+, SFP28,
   QSFP28, console, power; how many; which face), the faceplate drawn per face as you go. Faces are
@@ -312,7 +351,10 @@ lists staged images (version, models, SHA-256, running, behind, plans) with uplo
 a model's chosen version and holds devices back with a reason. Check `fw.device.behind-chosen-version`
 flags a device behind its model's version. "Plan a firmware upgrade" (right-click, device page, or for every
 behind device) makes a maintenance plan with the vendor's steps for Junos, IOS XE, NX-OS or EOS; the
-device fetches its image with a one-time link. On in compose once `FATHOM_FIRMWARE_FETCH_BASE_URL` is set.
+device fetches its image with a one-time link. The fetch step and the image page also offer **From Windows**
+and **From Linux**: the same job by hand: over SSH (hash on the computer, `scp -O`, or for EOS the switch pulling
+from you), on a USB stick, or by TFTP with a warning, each where the vendor documents it and each step
+with its source (`firmware_by_hand.rs`). Fathom link is the default. On in compose once `FATHOM_FIRMWARE_FETCH_BASE_URL` is set.
 
 **View sharing** (ADR-0061 round 9, #102). A steward's **Share** button in the bar opens a panel with
 PERSON / CAN rows: **View** (see everything, change nothing) or **Draw**. Only people already in the
@@ -338,6 +380,26 @@ server, access point). Per browser and design, never saved.
 touches with Why? cards via `OP_PLAN_PREVIEW`), Do (teal checklist, one live step, Done or Went
 differently), Record (outcome, never edited again). Right-click "Plan a change". Steps apply through the
 ordinary edit path; plan text is gated like notes.
+A **LAG** step (schema 0.25) picks a device, ticks two or more of its member interfaces (so the
+config must be pasted first), names it (the next free ae, bond or Port-channel by platform) and sets
+LACP; Done builds the AggregateInterface and its member edges in one undo step. The far end is its own
+step. No VPN step yet.
+**Back out** (sign-off r16-backout): once a step is marked, Back out stops the work (remaining steps not done,
+recorded failed, naming the way back) and opens a new, separate plan from where things are now back to the start:
+the reverse of every done step, newest first (a cable cut, a cut re-made, a move back, a field's old value, a LAG
+removed), a check step for each that went differently, and room for steps of its own. A recorded plan that did not
+succeed can be backed out too; it stays as written. `scripts/drive-backout.mjs` drives it.
+
+**Mesh VPNs** (sign-off r16-overlay; schema 0.26, field keys 479-485). An `OverlayNetwork` (Tailscale,
+Headscale, NetBird, ZeroTier, WireGuard, Nebula or other) hangs off the root; `OverlayMember` edges to Devices
+carry each member's VPN address, exit node, and subnet routes. Entered by hand in Inventory › Networks, under
+VPNs; addresses, ranges and routes are refused unless they parse (IPv4 only), so a pasted key never gets in from
+the form. The server's credential check reads a VPN's name, note and routes, and the redaction gate now knows
+Tailscale's `tskey-` keys (detector `key-prefix`, source Tailscale "Key prefixes", read 2026-10-25). Show › VPNs
+(off by default) draws, on the Diagram look, each VPN of three or more as a badge right of its members with a
+dashed spoke to each, a two-member VPN as one dashed arc with its name, and each member's VPN address under its
+box; a badge opens a card with range, members, exit node and routes. Not yet: pasting `tailscale status` or
+`netbird status`, and the Rack look. `scripts/drive-vpns.mjs` drives it.
 
 **Live co-editing** (#98, ADR-0063 live). Changes are signed requests the server applies to its own
 head through the engine, refusing what the engine or the credential check refuses, then numbers, chains,
@@ -356,7 +418,7 @@ cables** (R1 gives R2, names get -2; `document/rackTidy.ts`), one undo step each
 its **Photo**: the newest image on its own docs, added by drop or pick onto a "Photo" doc, shown as a
 `data:` image (the CSP allows no `blob:`), confirmed as showing no passwords first.
 
-**Missing links, for cables** (ADR-0065 rounds 26-27; schema 0.24, field key 478 `Cable.needs_finishing`).
+**Missing links, for cables** (ADR-0068 rounds 26-27; schema 0.24, field key 478 `Cable.needs_finishing`).
 A cable with only one end connected draws as a column leaving its port (`LooseCableNode.tsx`), in one of two
 looks. **Unknown** (the default): the line fades out over its last ~110px, no motion, "Far end unknown" on
 hover, not counted. **Needs finishing** (a person marks it: the cable's panel toggle or its right-click; one undo
@@ -369,17 +431,31 @@ finishing only and hides at 0; its list has a row per cable ("sw-01 3 → (no fa
 Not drawn yet: a one-ended cable on a shelf's or wall's port (listed and counted, no line); Sites and Inventory
 do not list them yet. Drive: `scripts/drive-missing-links.mjs`.
 
-**Open, not on main yet:** #136 port ties, #137 reconnecting, #138 History speed. #141 (ticked ideas:
-Ctrl+K, Undo note, saved views, folding panels, faceplate port dragging, pinned notes) merged into the
-UI sweep branch after that branch had merged, so it is not on main.
+**Cables: styles, runs and ties** (round 15; schema 0.23).
+- **Cable style** (`drawing/cableStyle.ts`), picked per person in the Show menu and kept in this browser,
+  never in the design: Physics (the default; cables hang and sway), Cable-tied, Right-angle, Faded.
+- **Cable runs and ties** (`document/cableRuns.ts`, `drawing/PortalTrayNode.tsx`): a `CableRun` is a tray or
+  lacing bar along one side of a rack or wall; a `CableTie` clips onto it and holds the cables it ties.
+  Removing a run takes its ties; removing a cable drops it from any tie.
+- **Suggestions from a neighbour list:** see "Suggestions from what a switch knows" above.
+
+**Port ties** (`document/portTies.ts`, `components/ties/`). A pasted interface is joined to the drawn port it
+sits on (`Occupies`). The person makes every tie; Fathom suggests only from a cited naming rule in
+`corpus/dict/port-names.json` (Juniper EX, SRX on-board ports, EdgeRouter), never by name likeness. The tie
+card opens after a paste onto a drawn device and from a trace or "It's down" stop that reads "not tied to a
+port"; it offers jacks only, and shows and unties ties.
+
+**Device panel** (r14 A1, A2): Details, Ports and Notes tabs, actions at the foot (Duplicate the main one,
+Remove device in red). Inventory's toolbar has a role filter, written into the filter line as `role:...`.
 
 **Carried**
 - The dependency-vulnerability gate needs egress to the advisory database (`scripts/osv-gate.sh`); the
   v0.1 tag waits on that run.
 - The server's credential check is the detector only; SNMPv3 auth and priv values are a known residual
-  (W7). Narrow redaction leaks are tracked in issue #104; #135 closed its server items (id-shaped
-  secrets in plan text, batch comments, history under undeclared keys, canvas-editor paste), and its
-  quoting and wrapped-tail items remain.
+  (W7). Issue #104's narrow redaction leaks are closed: #135 took its server items (id-shaped
+  secrets in plan text, batch comments, history under undeclared keys, canvas-editor paste), #145 the
+  quoting and wrapped tails, and #104's own PR the RouterOS and pfSense secrets that reached the note
+  box. How EdgeOS quotes a value holding a space or `'` is still not established from a source.
 - People and access, residuals named: (1) an operator-issued token for an account can still be redeemed
   after a steward confirms that account (design section 4.4), so a second key could appear after confirm;
   (2) confirm checks that the account has exactly one live key, and nothing about a password or app
@@ -441,11 +517,15 @@ into the distroless runtime stage from the build stage. `FATHOM_SCHEMA_ROOT` ove
 
 - **Typed values are not redacted.** The gate runs on paste only. A password typed by hand is stored
   and exported as written, with a warning mark. That is the decision, not a bug.
-- **Nothing creates cables or ports from a config.** Only by hand.
+- **A paste creates no cables or ports.** Ports are drawn, described or made from a pattern by hand;
+  cables are drawn, or added from a neighbour-list suggestion a person ticks.
 - **Engines are files in the tree.** ADR-0044 describes signed data packs; none of its Phase 5
   exists (no `engine.yaml`, signature, install, chain entry or pinning). The server reads
   `corpus/catalogue/` from disk at start; the client compiles `corpus/dict/` into its bundle. Every
   device fact is cited with its read date; every credential test uses the length the device accepts.
+  - **Home-lab catalogue** (2026-10-10): MikroTik, TP-Link, Netgear, Netgate, Protectli, QNAP, Synology,
+    Raspberry Pi, Lenovo and Intel models, plus UPS and rack makers (APC, CyberPower, Tripp Lite, Panduit,
+    ICC); `ls corpus/catalogue` is the list.
   - **Juniper.** `junos-srx` is the one dictionary with real depth (a branch config binds about 57% of
     its lines). `junos-ex` binds VLANs, ethernet-switching membership, LAG membership and irb units;
     `interface-mode` is unbound on purpose. A virtual chassis has no schema representation. The
@@ -456,22 +536,22 @@ into the distroless runtime stage from the build stage. `FATHOM_SCHEMA_ROOT` ove
     `corpus/dict/opnsense/README-config-xml.md`. The dictionary declares no secrets and the core floor
     destroyed every credential driven at it. No catalogue entry: the catalogue has no form for "a box
     that runs OPNsense".
-  - **Ubiquiti.** Catalogue: UDM-SE and two USW PoE switches. UniFi has no human-readable export, so no
+  - **Ubiquiti.** Catalogue: thirteen UniFi models (gateways, switches, access points). UniFi has no human-readable export, so no
     dictionary. EdgeOS binds hostname, interface description, disable and `vif` sub-interfaces; base
     addresses, static routes, DHCP server and NAT are unbound (`corpus/dict/README-ubiquiti.md`).
-  - **Linux hosts.** A zero-entry dictionary: `ip` and `bridge` output is not verb-initial and
-    `shape.rs` shapes only `set` lines (`corpus/dict/README-linux-host.md`). A pasted WireGuard private
-    key is still destroyed. Eight per-flavour explainers plus `linux-family-basics`, cited.
+  - **Linux hosts.** Read by `iproute.rs` (above); `bridge` output is residue
+    (`corpus/dict/README-linux-host.md`). A pasted WireGuard private key is still destroyed. Eight
+    per-flavour explainers plus `linux-family-basics`, cited.
   - **Arista.** Two catalogue entries (720XP-48ZC2, 7050SX3-48YC8) and an EOS explainer; no dictionary
     (same shape gap). The safety net destroys every credential in a 120-line synthetic config
     (`crates/fathom-ingest/tests/arista_eos.rs`).
-  - Every explainer carries `reviewed_by: <named human>`, which means unreviewed; no client surface
-    shows that yet (OPEN-QUESTIONS E2 is answered, not built).
+  - Every explainer carries `reviewed_by: <named human>`, which means unreviewed; the Learn screens
+    say *Unreviewed* on each one (OPEN-QUESTIONS E2, ADR-0066).
   - **Engine gaps:** ADR-0044 rule 2's redaction-unproven refusal is not built; the
     core floor is the only fence. A credential typed into the free-text description cell of the
     OPNsense CSV is not caught (pinned in `opnsense_csv.rs`). The `<named human>` placeholder is a
     warning, not a build failure, because the shipping gate does not exist. A dictionary cannot bind
-    `lacp_mode`, an interface form or a `NextHop` (`ValueTy` has no arm). The catalogue has no plain
-    SFP or SFP28 kind. `secret_exempt` is honoured only for path shapes a core-held allowlist names;
+    `lacp_mode`, an interface form or a `NextHop` (`ValueTy` has no arm). The catalogue has a plain SFP
+    port kind (1G) but no SFP28 kind. `secret_exempt` is honoured only for path shapes a core-held allowlist names;
     empty citations and reviewers are refused; every dictionary file carries a `source` header and a
     reviewer.

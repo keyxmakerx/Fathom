@@ -118,6 +118,8 @@ pub fn all_booted_shell() -> Shell {
         "routeros",
         "pfsense",
         "linux-host",
+        "omada-sw",
+        "unifi-sw",
     ] {
         let reply = shell.handle(OP_DICT, &frame_of(&platform_sources(platform)));
         assert!(reply.is_empty(), "{platform} must boot");

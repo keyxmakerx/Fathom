@@ -72,6 +72,7 @@ import { TagChips } from '../TagChips';
 import { formatLastChange } from './rows';
 import './networks.css';
 import { EmptyState } from '../ui/EmptyState';
+import { VpnSection } from './VpnSection';
 
 /** `TagChips`'s own `onAdd`/`onRemove` contract, built once per row from
  * whichever of `tagObject`/`tagVlanRow` (and their untag reverse) the
@@ -765,6 +766,8 @@ export function NetworksPanel(props: NetworksPanelProps) {
             </div>
           ) : null}
         </div>
+
+        <VpnSection doc={doc} applyDocChange={applyDocChange} canDraw={canDraw} filter={filter} />
 
         <div className="networks-panel__footnote">
           A network is a VLAN, a subnet or a Docker network. Its members are interfaces; a container is a member through its host. A member is an

@@ -2277,3 +2277,43 @@ button.inv-path__host {
   flex-wrap: wrap;
   max-width: 100%;
 }
+
+/* r31-bar A: the Sheet. The lists take the whole width, and their tabs sit along the bottom like a spreadsheet's. */
+.inv-sheet-tabs {
+  flex: none;
+  display: flex;
+  gap: 0;
+  overflow-x: auto;
+  border-top: var(--rule-hair) solid var(--hairline);
+  background: var(--surface);
+}
+.inv-sheet-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s4);
+  border: 0;
+  border-right: var(--rule-hair) solid var(--hairline);
+  border-top: var(--rule-accent) solid transparent;
+  background: none;
+  font: inherit;
+  font-size: var(--t-small);
+  color: var(--muted);
+  white-space: nowrap;
+  box-shadow: none;
+  cursor: pointer;
+}
+.inv-sheet-tab:hover {
+  color: var(--ink);
+}
+.inv-sheet-tab[aria-current='page'] {
+  color: var(--ink);
+  font-weight: 700;
+  background: var(--page);
+  border-top-color: var(--ink);
+}
+.inv-sheet-tab__n {
+  font-family: var(--mono);
+  font-weight: 400;
+  color: var(--muted);
+}

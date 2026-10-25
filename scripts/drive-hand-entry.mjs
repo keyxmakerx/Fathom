@@ -135,7 +135,7 @@ try {
   await page.goto(`${BASE}/drive.html`);
   // The harness installs the session directly (ADR-0046 §3: "exactly one
   // place to go") — no Home click, no sign-in door.
-  // Equipment opens by itself on an empty design (ADR-0065 §3); open it only if it is not already open.
+  // Equipment opens by itself on an empty design (ADR-0068 §3); open it only if it is not already open.
   if ((await page.locator('button[aria-label="Open the equipment list"]').count()) > 0) {
     await page.click('button[aria-label="Open the equipment list"]');
   }
@@ -216,7 +216,8 @@ try {
   check('and edit the field instead', (await noteBox.inputValue()) === '');
   await noteBox.blur();
 
-  // Duplicate the device (`duplicateDevice`).
+  // Duplicate the device (`duplicateDevice`), from the panel's ⋯ menu.
+  await page.locator('[data-testid="device-more"] > summary').click();
   await page.locator('.drawing-editor__panel button', { hasText: 'Duplicate' }).click();
   await page.waitForTimeout(400);
   check('a second chassis appeared', (await page.locator('.react-flow__node-chassis').count()) === 2);

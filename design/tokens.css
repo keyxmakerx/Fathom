@@ -168,6 +168,8 @@
   /* UI-SPEC "Look": a colour change under the pointer, and a menu arriving. */
   --m-hover: 120ms;
   --m-pop:  160ms;
+  /* r31-motion: a layout move (the views underline, a task taking the bar, the zoom pill opening). */
+  --m-layout: 260ms;
   /* --motion-disclosure deleted per M34 — the product has no animation */
   --motion-ease:       linear;
 }

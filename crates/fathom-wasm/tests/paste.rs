@@ -462,7 +462,9 @@ fn another_vendors_config_says_so() {
     let mut shell = common::booted_shell();
     let e = error(&shell.handle(OP_PASTE, &frame(TS, ENTROPY, CISCO)));
     assert!(
-        e.detail.contains("Junos, EdgeOS and OPNsense today"),
+        e.detail.contains(
+            "Junos, EdgeOS, OPNsense, pfSense, MikroTik RouterOS, TP-Link switches and Linux"
+        ),
         "the message should name what Fathom does know: {}",
         e.detail
     );

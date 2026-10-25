@@ -206,6 +206,7 @@ export function layoutSurfaces(
   panelHeightPx: number,
   uPx: number,
   gapPx: number = SURFACE_GAP_PX,
+  headerPx: number = 0,
 ): SurfacesLayout {
   const panelSurfaces = surfaces.filter((s) => s.form !== 'floor');
   const floorSurfaces = surfaces.filter((s) => s.form === 'floor');
@@ -215,8 +216,11 @@ export function layoutSurfaces(
   let y = 0;
   for (const surface of panelSurfaces) {
     const widthPx = surface.widthMm != null ? mmToPx(surface.widthMm, uPx) : DEFAULT_PANEL_WIDTH_PX;
-    panels.push({ surface, x: panelX, y, widthPx, heightPx: panelHeightPx });
-    y += panelHeightPx + gapPx;
+    // Taller than a rack when the wall is, or when something is fixed higher up than a rack reaches:
+    // a camera 2.2 m up a 2.4 m wall was drawn above the panel, behind whatever sat there.
+    const heightPx = Math.max(panelHeightPx, headerPx + mmToPx(surfaceReachMm(surface), uPx));
+    panels.push({ surface, x: panelX, y, widthPx, heightPx });
+    y += heightPx + gapPx;
   }
 
   const panelsRight = panels.length > 0 ? Math.max(...panels.map((p) => p.x + p.widthPx)) : rowsWidthPx;
@@ -230,6 +234,17 @@ export function layoutSurfaces(
       : null;
 
   return { panels, floor };
+}
+
+/** Room above the highest fixture, for its own box. */
+const FIXTURE_HEADROOM_MM = 300;
+
+/** How many millimetres of a surface the panel has to show: its stated height, and every fixture on it
+ * with room for its box. */
+export function surfaceReachMm(surface: Pick<SurfaceView, 'heightMm' | 'fixtures'>): number {
+  let reach = surface.heightMm ?? 0;
+  for (const f of surface.fixtures) if (f.yMm != null) reach = Math.max(reach, f.yMm + FIXTURE_HEADROOM_MM);
+  return reach;
 }
 
 /** `SurfaceNode.tsx`'s own millimetre rail — a millimetre rail at its left,

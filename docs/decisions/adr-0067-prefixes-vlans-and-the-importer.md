@@ -1,6 +1,6 @@
-# ADR-0063: Prefixes and VLANs in Inventory; one file importer
+# ADR-0067: Prefixes and VLANs in Inventory; one file importer
 
-**Status:** accepted 2026-10-03 (round 9, owner-approved: r9-ipam A, r9-import A).
+**Status:** accepted 2026-10-03 (round 9, owner-approved: r9-ipam A, r9-import A). **Renumbered** from ADR-0063 on 2026-10-23: the number was issued twice, and code cites ADR-0063 for live co-editing.
 
 ## Decision
 

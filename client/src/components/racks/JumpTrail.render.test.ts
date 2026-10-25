@@ -54,12 +54,10 @@ describe('JumpTrail', () => {
     expect(out).not.toContain('data-testid="jump-tree"');
   });
 
-  it('has no arrow when the tree is only the design', () => {
-    let t = visit(EMPTY_TRAIL, spot(null), 'HQ', null, 0);
-    t = visit(t, spot('r1'), 'R1', null, 10_000);
-    const out = html({ trail: t, backLabel: 'HQ' });
-    expect(out).toContain('data-testid="jump-back"');
-    expect(out).not.toContain('jump-tree-toggle');
+  it('shows nothing at the top of the design, even with somewhere to go back to', () => {
+    let t = visit(EMPTY_TRAIL, spot('r1'), 'R1', null, 0);
+    t = visit(t, spot(null), 'HQ', null, 10_000);
+    expect(html({ trail: t, backLabel: 'R1' })).toBe('');
   });
 
   it('unfolds to a list: name and kind word on each line, the current one marked', () => {

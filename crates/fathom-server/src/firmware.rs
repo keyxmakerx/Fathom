@@ -51,6 +51,12 @@
 //! §14.2 permits it). ADR-0045 does not say whether a partial read spends a
 //! single-use token, and half-answering would make it single-use except when not.
 //!
+//! # No `HEAD`, deliberately
+//!
+//! axum answers `HEAD` with the `GET` handler, which would spend the token on a
+//! request that carries no bytes and leave the device's real `GET` refused. So
+//! `HEAD` is its own route and answers `405` without touching the token.
+//!
 //! # Nothing holds an image in memory
 //!
 //! Upload writes to disk as bytes arrive ([`stream_to_disk`]); download streams
@@ -283,7 +289,10 @@ pub fn router(state: FirmwareState) -> Router {
             "/organisations/{organisation}/firmware/{image}/models",
             put(models_handler),
         )
-        .route("/firmware/fetch/{token}", get(fetch_handler))
+        .route(
+            "/firmware/fetch/{token}",
+            get(fetch_handler).head(head_refused),
+        )
         .with_state(state)
 }
 
@@ -1681,6 +1690,16 @@ async fn fetch_handler(
             .expect("a static cache-control is a valid header value"),
     );
     Ok((StatusCode::OK, headers, body).into_response())
+}
+
+/// `HEAD /firmware/fetch/{token}`: refused without reading the token, so a client
+/// or proxy that asks before it fetches does not spend the one `GET` (module doc).
+async fn head_refused() -> Response {
+    (
+        StatusCode::METHOD_NOT_ALLOWED,
+        [(axum::http::header::ALLOW, "GET")],
+    )
+        .into_response()
 }
 
 /// The request's address as the shared policy decides it

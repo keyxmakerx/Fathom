@@ -18,6 +18,8 @@ import {
   catalogueFrom,
   seedCanvasScene,
   seedSuggestScene,
+  seedHostsScene,
+  seedFolderScene,
   seedLookScene,
   seedCableGroupsScene,
   seedCableGroupsSpeedScene,
@@ -174,6 +176,8 @@ async function main() {
   if (scene === 'trail') doc = seedConnectedDevices(catalogue, ME);
   else if (scene === 'canvas') doc = seedCanvasScene(catalogue, ME);
   else if (scene === 'suggest') doc = seedSuggestScene(ME);
+  else if (scene === 'hosts') doc = seedHostsScene(ME);
+  else if (scene === 'folder') doc = seedFolderScene(ME);
   else if (scene === 'look') doc = seedLookScene(catalogue, ME);
   else if (scene === 'show') doc = seedShowScene(catalogue, ME);
   else if (scene === 'conflict') doc = seedConflictingChange(catalogue, ME, COLLEAGUE);

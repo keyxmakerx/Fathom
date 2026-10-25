@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.24";
+    pub const SCHEMA_VERSION: &str = "0.26";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -428,12 +428,19 @@ mod body {
         /// A cable tie clipped onto a run, holding the cables that pass through it (the Ties edges).
         /// Moving it along the run changes `at`; the cables held follow it in the cable-tied style.
         CableTie,
+        /// A VPN that joins devices into one network over whatever links they already have: a
+        /// Tailscale or Headscale tailnet, a NetBird network, a ZeroTier network, a WireGuard
+        /// tunnel or mesh. Hung off the root through HasOverlay; its members are OverlayMember
+        /// edges to Devices. A network of two members is a point-to-point tunnel. NOTHING PARSES
+        /// ONE YET: it is entered by hand. No key, token or preshared secret has a field here, and
+        /// none may gain one (CLAUDE.md rule 4).
+        OverlayNetwork,
     }
 
     impl NodeKind {
-        pub const COUNT: usize = 72;
+        pub const COUNT: usize = 73;
         /// Every kind, declaration order.
-        pub const ALL: [NodeKind; 72] = [
+        pub const ALL: [NodeKind; 73] = [
             NodeKind::Site,
             NodeKind::Device,
             NodeKind::Chassis,
@@ -506,6 +513,7 @@ mod body {
             NodeKind::FirmwareTarget,
             NodeKind::CableRun,
             NodeKind::CableTie,
+            NodeKind::OverlayNetwork,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -584,6 +592,7 @@ mod body {
                 NodeKind::FirmwareTarget => "FirmwareTarget",
                 NodeKind::CableRun => "CableRun",
                 NodeKind::CableTie => "CableTie",
+                NodeKind::OverlayNetwork => "OverlayNetwork",
             }
         }
         pub fn from_name(name: &str) -> Option<NodeKind> {
@@ -660,6 +669,7 @@ mod body {
                 "FirmwareTarget" => Some(NodeKind::FirmwareTarget),
                 "CableRun" => Some(NodeKind::CableRun),
                 "CableTie" => Some(NodeKind::CableTie),
+                "OverlayNetwork" => Some(NodeKind::OverlayNetwork),
                 _ => None,
             }
         }
@@ -742,6 +752,7 @@ mod body {
                 NodeKind::FirmwareTarget => &[&["model"]],
                 NodeKind::CableRun => &[],
                 NodeKind::CableTie => &[],
+                NodeKind::OverlayNetwork => &[],
             }
         }
         /// The kind's layer (62 §4.2).
@@ -819,6 +830,7 @@ mod body {
                 NodeKind::FirmwareTarget => Layer::Physical,
                 NodeKind::CableRun => Layer::Physical,
                 NodeKind::CableTie => Layer::Physical,
+                NodeKind::OverlayNetwork => Layer::Physical,
             }
         }
         /// Whether the kind participates in emit at all (62 §4.2); `false`
@@ -897,6 +909,7 @@ mod body {
                 NodeKind::FirmwareTarget => false,
                 NodeKind::CableRun => false,
                 NodeKind::CableTie => false,
+                NodeKind::OverlayNetwork => false,
             }
         }
         /// The kind's declared field keys, declaration order (62 §4.3). A key
@@ -976,6 +989,7 @@ mod body {
                 NodeKind::FirmwareTarget => &[crate::bag::FieldKey(405), crate::bag::FieldKey(406), crate::bag::FieldKey(407), crate::bag::FieldKey(408), crate::bag::FieldKey(409), crate::bag::FieldKey(410)],
                 NodeKind::CableRun => &[crate::bag::FieldKey(414), crate::bag::FieldKey(415), crate::bag::FieldKey(416)],
                 NodeKind::CableTie => &[crate::bag::FieldKey(417)],
+                NodeKind::OverlayNetwork => &[crate::bag::FieldKey(479), crate::bag::FieldKey(480), crate::bag::FieldKey(481), crate::bag::FieldKey(482)],
             }
         }
     }
@@ -1351,12 +1365,17 @@ mod body {
         HasCableTie,
         /// The cables a tie holds. Removing a cable drops it from the tie; the tie stays.
         Ties,
+        /// VPNs hang off the design root as Tag does.
+        HasOverlay,
+        /// A device on a VPN. A REFERENCE EDGE because a Device already has its containment
+        /// parent. Removing the device drops it from the VPN; the VPN stays.
+        OverlayMember,
     }
 
     impl EdgeKind {
-        pub const COUNT: usize = 116;
+        pub const COUNT: usize = 118;
         /// Every kind, declaration order.
-        pub const ALL: [EdgeKind; 116] = [
+        pub const ALL: [EdgeKind; 118] = [
             EdgeKind::HasDevice,
             EdgeKind::HasChassis,
             EdgeKind::HasRedundancyGroup,
@@ -1473,6 +1492,8 @@ mod body {
             EdgeKind::HasCableRun,
             EdgeKind::HasCableTie,
             EdgeKind::Ties,
+            EdgeKind::HasOverlay,
+            EdgeKind::OverlayMember,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -1595,6 +1616,8 @@ mod body {
                 EdgeKind::HasCableRun => "HasCableRun",
                 EdgeKind::HasCableTie => "HasCableTie",
                 EdgeKind::Ties => "Ties",
+                EdgeKind::HasOverlay => "HasOverlay",
+                EdgeKind::OverlayMember => "OverlayMember",
             }
         }
         pub fn from_name(name: &str) -> Option<EdgeKind> {
@@ -1715,6 +1738,8 @@ mod body {
                 "HasCableRun" => Some(EdgeKind::HasCableRun),
                 "HasCableTie" => Some(EdgeKind::HasCableTie),
                 "Ties" => Some(EdgeKind::Ties),
+                "HasOverlay" => Some(EdgeKind::HasOverlay),
+                "OverlayMember" => Some(EdgeKind::OverlayMember),
                 _ => None,
             }
         }
@@ -1837,6 +1862,8 @@ mod body {
                 EdgeKind::HasCableRun => EdgeClass::Containment,
                 EdgeKind::HasCableTie => EdgeClass::Containment,
                 EdgeKind::Ties => EdgeClass::Reference,
+                EdgeKind::HasOverlay => EdgeClass::Containment,
+                EdgeKind::OverlayMember => EdgeClass::Reference,
             }
         }
     }
@@ -2014,7 +2041,7 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PathSegment],
                 EdgeKind::ExitsAt => &[NodeKind::PathSegment],
                 EdgeKind::MustTraverse => &[NodeKind::PathSegment],
-                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::Label, NodeKind::Line, NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile, NodeKind::MaintenancePlan, NodeKind::PlanStep, NodeKind::Issue, NodeKind::IssueStep, NodeKind::FirmwareTarget, NodeKind::CableRun, NodeKind::CableTie, NodeKind::FieldValue],
+                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::Label, NodeKind::Line, NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile, NodeKind::MaintenancePlan, NodeKind::PlanStep, NodeKind::Issue, NodeKind::IssueStep, NodeKind::FirmwareTarget, NodeKind::CableRun, NodeKind::CableTie, NodeKind::OverlayNetwork, NodeKind::FieldValue],
                 EdgeKind::HasRack => &[NodeKind::Premises],
                 EdgeKind::MountedIn => &[NodeKind::Chassis, NodeKind::PassiveNode],
                 EdgeKind::HasDhcpRelay => &[NodeKind::Device],
@@ -2049,6 +2076,8 @@ mod body {
                 EdgeKind::HasCableRun => &[NodeKind::Rack, NodeKind::Surface],
                 EdgeKind::HasCableTie => &[NodeKind::CableRun],
                 EdgeKind::Ties => &[NodeKind::CableTie],
+                EdgeKind::HasOverlay => &[],
+                EdgeKind::OverlayMember => &[NodeKind::OverlayNetwork],
             }
         }
         /// The declared `to:` kind set, class names expanded (62 §6.2).
@@ -2170,6 +2199,8 @@ mod body {
                 EdgeKind::HasCableRun => &[NodeKind::CableRun],
                 EdgeKind::HasCableTie => &[NodeKind::CableTie],
                 EdgeKind::Ties => &[NodeKind::Cable],
+                EdgeKind::HasOverlay => &[NodeKind::OverlayNetwork],
+                EdgeKind::OverlayMember => &[NodeKind::Device],
             }
         }
         /// The `out:` bound at L0 — edges leaving a `from` node (11 §7.1).
@@ -2291,6 +2322,8 @@ mod body {
                 EdgeKind::HasCableRun => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasCableTie => EdgeCardBound { min: 0, max: None },
                 EdgeKind::Ties => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasOverlay => EdgeCardBound { min: 0, max: None },
+                EdgeKind::OverlayMember => EdgeCardBound { min: 0, max: None },
             }
         }
         /// The `in:` bound at L0 — edges arriving at a `to` node (11 §7.1).
@@ -2412,6 +2445,8 @@ mod body {
                 EdgeKind::HasCableRun => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::HasCableTie => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::Ties => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasOverlay => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::OverlayMember => EdgeCardBound { min: 0, max: None },
             }
         }
         /// `true` means `(a,b)` and `(b,a)` are the same edge: one stored
@@ -2534,6 +2569,8 @@ mod body {
                 EdgeKind::HasCableRun => false,
                 EdgeKind::HasCableTie => false,
                 EdgeKind::Ties => false,
+                EdgeKind::HasOverlay => false,
+                EdgeKind::OverlayMember => false,
             }
         }
         /// `from: [root]` — containment by the workspace root (11 §7.2).
@@ -2655,6 +2692,8 @@ mod body {
                 EdgeKind::HasCableRun => false,
                 EdgeKind::HasCableTie => false,
                 EdgeKind::Ties => false,
+                EdgeKind::HasOverlay => true,
+                EdgeKind::OverlayMember => false,
             }
         }
         /// The edge's declared field keys, declaration order (62 §6.2).
@@ -2776,6 +2815,8 @@ mod body {
                 EdgeKind::HasCableRun => &[],
                 EdgeKind::HasCableTie => &[],
                 EdgeKind::Ties => &[],
+                EdgeKind::HasOverlay => &[],
+                EdgeKind::OverlayMember => &[crate::bag::FieldKey(483), crate::bag::FieldKey(484), crate::bag::FieldKey(485)],
             }
         }
     }
@@ -5106,6 +5147,7 @@ mod body {
         Cable,
         Move,
         Other,
+        Lag,
         /// The generated unknown arm (62 §7 rule 2) — carries the
         /// unrecognised token verbatim; what makes a new variant a minor
         /// bump an old client survives (62 §16.2).
@@ -5114,12 +5156,13 @@ mod body {
 
     impl PlanStepKind {
         /// Declared tokens, declaration order.
-        pub const DECLARED: [&'static str; 5] = [
+        pub const DECLARED: [&'static str; 6] = [
             "address",
             "route",
             "cable",
             "move",
             "other",
+            "lag",
         ];
         /// Neutral token → variant; anything undeclared lands in `Unknown`.
         pub fn from_token(token: &str) -> PlanStepKind {
@@ -5129,6 +5172,7 @@ mod body {
                 "cable" => PlanStepKind::Cable,
                 "move" => PlanStepKind::Move,
                 "other" => PlanStepKind::Other,
+                "lag" => PlanStepKind::Lag,
                 other => PlanStepKind::Unknown(other.to_owned()),
             }
         }
@@ -5140,6 +5184,7 @@ mod body {
                 PlanStepKind::Cable => "cable",
                 PlanStepKind::Move => "move",
                 PlanStepKind::Other => "other",
+                PlanStepKind::Lag => "lag",
                 PlanStepKind::Unknown(t) => t,
             }
         }
@@ -5391,6 +5436,61 @@ mod body {
                 CableRunSide::Top => "top",
                 CableRunSide::Bottom => "bottom",
                 CableRunSide::Unknown(t) => t,
+            }
+        }
+    }
+
+    /// Inline enum on `OverlayNetwork.provider` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum OverlayNetworkProvider {
+        Tailscale,
+        Headscale,
+        Netbird,
+        Zerotier,
+        Wireguard,
+        Nebula,
+        Other,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl OverlayNetworkProvider {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 7] = [
+            "tailscale",
+            "headscale",
+            "netbird",
+            "zerotier",
+            "wireguard",
+            "nebula",
+            "other",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> OverlayNetworkProvider {
+            match token {
+                "tailscale" => OverlayNetworkProvider::Tailscale,
+                "headscale" => OverlayNetworkProvider::Headscale,
+                "netbird" => OverlayNetworkProvider::Netbird,
+                "zerotier" => OverlayNetworkProvider::Zerotier,
+                "wireguard" => OverlayNetworkProvider::Wireguard,
+                "nebula" => OverlayNetworkProvider::Nebula,
+                "other" => OverlayNetworkProvider::Other,
+                other => OverlayNetworkProvider::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                OverlayNetworkProvider::Tailscale => "tailscale",
+                OverlayNetworkProvider::Headscale => "headscale",
+                OverlayNetworkProvider::Netbird => "netbird",
+                OverlayNetworkProvider::Zerotier => "zerotier",
+                OverlayNetworkProvider::Wireguard => "wireguard",
+                OverlayNetworkProvider::Nebula => "nebula",
+                OverlayNetworkProvider::Other => "other",
+                OverlayNetworkProvider::Unknown(t) => t,
             }
         }
     }
@@ -6301,6 +6401,18 @@ mod body {
         fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
             match j {
                 fathom_canon::Json::Str(t) => Ok(CableRunSide::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for OverlayNetworkProvider {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(OverlayNetworkProvider::from_token(t)),
                 _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
             }
         }
@@ -9638,6 +9750,46 @@ mod body {
         }
     }
 
+    /// Fields of kind `OverlayNetwork`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum OverlayNetworkField {
+        Name,
+        Provider,
+        Range,
+        Note,
+    }
+
+    impl OverlayNetworkField {
+        pub const COUNT: usize = 4;
+        /// Every field, declaration order.
+        pub const ALL: [OverlayNetworkField; 4] = [
+            OverlayNetworkField::Name,
+            OverlayNetworkField::Provider,
+            OverlayNetworkField::Range,
+            OverlayNetworkField::Note,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                OverlayNetworkField::Name => "name",
+                OverlayNetworkField::Provider => "provider",
+                OverlayNetworkField::Range => "range",
+                OverlayNetworkField::Note => "note",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                OverlayNetworkField::Name => crate::bag::FieldKey(479),
+                OverlayNetworkField::Provider => crate::bag::FieldKey(480),
+                OverlayNetworkField::Range => crate::bag::FieldKey(481),
+                OverlayNetworkField::Note => crate::bag::FieldKey(482),
+            }
+        }
+    }
+
     /// Fields of edge `UsesProposal`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum UsesProposalField {
@@ -10094,6 +10246,42 @@ mod body {
         }
     }
 
+    /// Fields of edge `OverlayMember`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum OverlayMemberField {
+        Address,
+        ExitNode,
+        Routes,
+    }
+
+    impl OverlayMemberField {
+        pub const COUNT: usize = 3;
+        /// Every field, declaration order.
+        pub const ALL: [OverlayMemberField; 3] = [
+            OverlayMemberField::Address,
+            OverlayMemberField::ExitNode,
+            OverlayMemberField::Routes,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                OverlayMemberField::Address => "address",
+                OverlayMemberField::ExitNode => "exit_node",
+                OverlayMemberField::Routes => "routes",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                OverlayMemberField::Address => crate::bag::FieldKey(483),
+                OverlayMemberField::ExitNode => crate::bag::FieldKey(484),
+                OverlayMemberField::Routes => crate::bag::FieldKey(485),
+            }
+        }
+    }
+
     /// Fields of edge `Cabled`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum CabledField {
@@ -10157,7 +10345,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 413] = [
+    pub const FIELD_KEYS: [(&str, u32); 420] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -10571,16 +10759,23 @@ mod body {
         ("CableTie.at", 417),
         ("PhysicalPort.mac", 462),
         ("Cable.needs_finishing", 478),
+        ("OverlayNetwork.name", 479),
+        ("OverlayNetwork.provider", 480),
+        ("OverlayNetwork.range", 481),
+        ("OverlayNetwork.note", 482),
+        ("OverlayMember.address", 483),
+        ("OverlayMember.exit_node", 484),
+        ("OverlayMember.routes", 485),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
     /// per key, least-significant bit first. Read it through [`field_required`];
     /// the array is public only so a test can pin its length.
-    pub const FIELD_REQUIRED_BITS: [u8; 60] = [
+    pub const FIELD_REQUIRED_BITS: [u8; 61] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
         0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0xa3, 0xfb, 0x1d, 0x59, 0x64,
-        0xc0, 0xe6, 0x64, 0xc0, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0xc0, 0xe6, 0x64, 0xc0, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x01,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

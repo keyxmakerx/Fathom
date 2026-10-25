@@ -16,7 +16,7 @@ import {
   placeOnShelf,
   type CreateSurfaceOptions,
 } from './document/commands';
-import { setChassisField, setDeviceField } from './document/edit';
+import { setChassisField, setDeviceField, setPortMac } from './document/edit';
 import { addNote, type NoteHow } from './document/notes';
 import { emptyDocument, formatEdgeId, formatNodeId, parseNodeId, type Document, type NodeKind } from './document/model';
 import { addSubnet, addVlan } from './document/networks';
@@ -983,6 +983,26 @@ export function seedFirmwareScene(catalogue: CatalogueModel[], me: string): Docu
   choose('DCS-7050SX3-48YC8', '4.30.2F', 'eos', 5);
   working = setFirmwareHold(working, held, 'Lab rig, kept on old version for a class', { actor: me });
   return working;
+}
+
+/** Who is plugged in where (r29-autofill-a): switch-1 with four ports and nas-1, whose eth0 already carries its
+ * MAC, as boxes on the canvas with no cables. */
+export function seedHostsScene(me: string): Document {
+  let doc = createPremises(emptyDocument(), { actor: me }).doc;
+  const sw = createFreeBox(doc, { hostname: 'switch-1', x: 80, y: 80, actor: me });
+  doc = sw.doc;
+  for (const label of ['Gi1/0/1', 'Gi1/0/5', 'Gi1/0/7', 'Gi1/0/24']) doc = addSketchPort(doc, sw.chassisId, { label, connector: 'rj45', face: 'front' }, { actor: me });
+  const nas = createFreeBox(doc, { hostname: 'nas-1', x: 520, y: 80, actor: me });
+  doc = addSketchPort(nas.doc, nas.chassisId, { label: 'eth0', connector: 'rj45', face: 'front' }, { actor: me });
+  const port = doc.nodes.find((n) => parseNodeId(n.id).kind === 'PhysicalPort' && !nas.doc.nodes.some((m) => m.id === n.id))!;
+  return setPortMac(doc, port.id, '000f.fe84.bb73', { actor: me });
+}
+
+/** A dropped folder of configs (r29-pull A): srx-edge is drawn with no config yet, nas-1 beside it. */
+export function seedFolderScene(me: string): Document {
+  let doc = createPremises(emptyDocument(), { actor: me }).doc;
+  doc = createFreeBox(doc, { hostname: 'srx-edge', x: 80, y: 80, actor: me }).doc;
+  return createFreeBox(doc, { hostname: 'nas-1', x: 520, y: 80, actor: me }).doc;
 }
 
 /** The cable-suggestions mockup (r15-f3): switch-1 and four neighbours as boxes on the canvas, no cables yet.

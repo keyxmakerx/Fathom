@@ -1924,8 +1924,8 @@ mod body {
         pub fn ordinal<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(371))
         }
-        /// `PlanStep.kind` — `enum { address, route, cable, move, other }`, card `1`, emit `—`.
-        /// What sort of change.
+        /// `PlanStep.kind` — `enum { address, route, cable, move, other, lag }`, card `1`, emit `—`.
+        /// What sort of change. `lag` (0.25) bundles ports into a LAG.
         pub fn kind<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::PlanStepKind, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(372))
         }
@@ -1950,7 +1950,7 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(376))
         }
         /// `PlanStep.edit` — `Text`, card `0..1`, emit `—`.
-        /// The edit applied on Done: one line, tab-separated, `field`, `cable` or `move` first. Absent for a step done by hand.
+        /// The edit applied on Done: one line, tab-separated, `field`, `cable`, `cut`, `move` or `lag` first. Absent for a step done by hand.
         pub fn edit<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(377))
         }
@@ -2121,6 +2121,29 @@ mod body {
         /// Where along its run, in thousandths of the run's length from its top or left end (0-1000).
         pub fn at<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u16, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(417))
+        }
+    }
+    /// Typed reads for `OverlayNetwork` fields.
+    pub mod overlay_network {
+        /// `OverlayNetwork.name` — `Text`, card `1`, emit `—`.
+        /// What the network is called.
+        pub fn name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(479))
+        }
+        /// `OverlayNetwork.provider` — `enum { tailscale, headscale, netbird, zerotier, wireguard, nebula, other }`, card `1`, emit `—`.
+        /// Whose software runs it.
+        pub fn provider<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::OverlayNetworkProvider, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(480))
+        }
+        /// `OverlayNetwork.range` — `IpPrefix`, card `0..1`, emit `—`.
+        /// The address range members are given, e.g. 100.64.0.0/10.
+        pub fn range<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::IpPrefix, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(481))
+        }
+        /// `OverlayNetwork.note` — `Text`, card `0..1`, emit `—`.
+        /// Words for it.
+        pub fn note<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(482))
         }
     }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
@@ -2542,6 +2565,13 @@ mod body {
             417 => Some((core::any::TypeId::of::<u16>(), "u16")),
             462 => Some((core::any::TypeId::of::<crate::scalar::MacAddress>(), "crate::scalar::MacAddress")),
             478 => Some((core::any::TypeId::of::<bool>(), "bool")),
+            479 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            480 => Some((core::any::TypeId::of::<crate::generated::ir_types::OverlayNetworkProvider>(), "crate::generated::ir_types::OverlayNetworkProvider")),
+            481 => Some((core::any::TypeId::of::<crate::scalar::IpPrefix>(), "crate::scalar::IpPrefix")),
+            482 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            483 => Some((core::any::TypeId::of::<crate::scalar::IpAddr>(), "crate::scalar::IpAddr")),
+            484 => Some((core::any::TypeId::of::<bool>(), "bool")),
+            485 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             _ => None,
         }
     }
@@ -2963,6 +2993,13 @@ mod body {
             417 => crate::canon::slot_to::<u16>(417, "u16", value),
             462 => crate::canon::slot_to::<crate::scalar::MacAddress>(462, "crate::scalar::MacAddress", value),
             478 => crate::canon::slot_to::<bool>(478, "bool", value),
+            479 => crate::canon::slot_to::<crate::scalar::Text>(479, "crate::scalar::Text", value),
+            480 => crate::canon::slot_to::<crate::generated::ir_types::OverlayNetworkProvider>(480, "crate::generated::ir_types::OverlayNetworkProvider", value),
+            481 => crate::canon::slot_to::<crate::scalar::IpPrefix>(481, "crate::scalar::IpPrefix", value),
+            482 => crate::canon::slot_to::<crate::scalar::Text>(482, "crate::scalar::Text", value),
+            483 => crate::canon::slot_to::<crate::scalar::IpAddr>(483, "crate::scalar::IpAddr", value),
+            484 => crate::canon::slot_to::<bool>(484, "bool", value),
+            485 => crate::canon::slot_to::<crate::scalar::Text>(485, "crate::scalar::Text", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -3382,6 +3419,13 @@ mod body {
             417 => crate::canon::slot_from::<u16>(j),
             462 => crate::canon::slot_from::<crate::scalar::MacAddress>(j),
             478 => crate::canon::slot_from::<bool>(j),
+            479 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            480 => crate::canon::slot_from::<crate::generated::ir_types::OverlayNetworkProvider>(j),
+            481 => crate::canon::slot_from::<crate::scalar::IpPrefix>(j),
+            482 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            483 => crate::canon::slot_from::<crate::scalar::IpAddr>(j),
+            484 => crate::canon::slot_from::<bool>(j),
+            485 => crate::canon::slot_from::<crate::scalar::Text>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

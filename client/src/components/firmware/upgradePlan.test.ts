@@ -30,11 +30,12 @@ const image = (over: Partial<FirmwareImage> = {}): FirmwareImage => ({
     family: 'junos',
     couldNotEstablish: [],
     deviceHash: { algorithm: 'sha256', comparesWith: 'expected_sha256' },
+    byHand: null,
     steps: [
       { order: 1, step: 'check space first', command: 'show system storage', note: '' },
       { order: 2, step: 'make room BEFORE the copy', command: 'request system storage cleanup', note: '' },
       { order: 3, step: 'take the first snapshot', command: 'request system snapshot', note: '' },
-      { order: 4, step: 'have the device pull the image', command: 'file copy <the fetch URL, from POST .../fetch-urls — Fathom keeps only its hash> /var/tmp/', note: '' },
+      { order: 4, step: 'have the device pull the image', command: 'file copy <the fetch URL, from POST .../fetch-urls — Fathom keeps only its hash> /var/tmp/x.tgz', note: '' },
       { order: 5, step: 'prove the whole file arrived', command: 'file checksum sha-256 /var/tmp/x.tgz', note: '' },
       { order: 6, step: 'prove Juniper made it', command: 'request system software validate /var/tmp/x.tgz', note: '' },
       { order: 7, step: 'install -- yours to run, not Fathom\'s', command: 'request system software add /var/tmp/x.tgz', note: '' },
@@ -77,10 +78,10 @@ describe('buildUpgradePlan', () => {
   });
 
   it('never carries a link: the fetch step shows a placeholder', () => {
-    expect(t.steps[2]!.after).toBe(`file copy ${LINK_PLACEHOLDER} /var/tmp/`);
+    expect(t.steps[2]!.after).toBe(`file copy ${LINK_PLACEHOLDER} /var/tmp/x.tgz`);
     expect(JSON.stringify(t)).not.toContain('http');
     expect(JSON.stringify(t)).not.toContain('POST');
-    expect(commandWithLink(t.steps[2]!.after!, 'https://f.example/fw/fetch/abc')).toBe('file copy https://f.example/fw/fetch/abc /var/tmp/');
+    expect(commandWithLink(t.steps[2]!.after!, 'https://f.example/fw/fetch/abc')).toBe('file copy https://f.example/fw/fetch/abc /var/tmp/x.tgz');
   });
 
   it('says so when the image is not staged, and gives no commands it does not have', () => {
@@ -117,6 +118,7 @@ describe('the plan for other vendors, from the server steps', () => {
       family: 'ios-xe',
       couldNotEstablish: ['an on-device SHA-256 command on IOS XE'],
       deviceHash: { algorithm: 'sha512', comparesWith: 'vendor_published_sha512' },
+      byHand: null,
       steps: [
         step(1, 'check space first', 'dir bootflash:'),
         step(2, 'make room BEFORE the copy', 'install remove inactive'),

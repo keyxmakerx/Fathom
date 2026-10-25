@@ -78,6 +78,7 @@ import { ColourPicker } from './ColourPicker';
 import { ContextMenu } from './ContextMenu';
 import { parseFreeNodeId } from './freeLayout';
 import { CanvasTools, type CanvasTool } from './CanvasTools';
+import { InSideSlot } from '../shell/sideSlot';
 import { useWheelMode } from './canvasPrefs';
 import { FREE_EDGE_TYPES, FREE_NODE_TYPES, useFreeLayer } from './useFreeLayer';
 import { menuItemsFor, type MenuActions, type MenuTarget } from './contextMenuItems';
@@ -317,7 +318,7 @@ export interface DrawingProps extends DrawingActions {
   litPortLabel?: string | null;
   /** Shown over an empty design, saying what to do next (ADR-0060 decision 4). */
   emptyHint?: string | null;
-  /** The empty design's "Add equipment" button, which opens the Equipment tab (ADR-0065 §3). */
+  /** The empty design's "Add equipment" button, which opens the Equipment tab (ADR-0068 §3). */
   onAddEquipment?: () => void;
   /** Opens a device's config drawer or inside view, as a double-click does;
    * a new object each time (the same edge-triggered shape `fitRequest` has). */
@@ -340,6 +341,9 @@ export interface DrawingProps extends DrawingActions {
   /** Where this person left the camera last time (kept in this browser). Replaces the first fit
    * rather than fighting it; ignored if it no longer shows any rack. */
   initialViewport?: Viewport | null;
+  /** The first fit takes in every surface too, not only the racks: the sample, whose walls and desk would
+   * otherwise open off screen. */
+  fitWholeOnOpen?: boolean;
   /** Called with the camera when a pan or zoom ends. */
   onViewportSettled?: (vp: Viewport) => void;
   /** The place's handle on the camera, for the Views menu. */
@@ -419,6 +423,7 @@ function DrawingInner({
   fitRequest,
   lookSwitched,
   initialViewport,
+  fitWholeOnOpen = false,
   onViewportSettled,
   cameraHub,
   onPlace,
@@ -637,6 +642,9 @@ function DrawingInner({
   const handleNodeContextMenu: NodeMouseHandler = useCallback(
     (event, node) => {
       if (node.type === 'looseCable') return openMenu(event, { kind: 'cable', id: (node.data as LooseCableNodeData).cable.id });
+      // A device on a shelf, wall, desk or ceiling has the same menu as one in a rack unit.
+      const onDevice = (event.target as Element | null)?.closest?.('[data-device-chassis]')?.getAttribute('data-device-chassis');
+      if (onDevice) return openMenu(event, { kind: 'chassis', id: onDevice, on: node.id.startsWith('surface:') ? 'fixture' : 'occupant' });
       const parsedFree = parseFreeNodeId(node.id);
       const rackNode = parseNodeId(node.id);
       if (rackNode?.kind === 'rack') {
@@ -852,8 +860,9 @@ function DrawingInner({
       }
       restoredCameraRef.current = false;
     }
+    const whole = isFirstRun && fitWholeOnOpen;
     const raf = requestAnimationFrame(() => {
-      void rf.fitView(rackFitViewOptions(view.racks, free.fitIds));
+      void rf.fitView(whole ? closetFitViewOptions(view.racks, view.surfaces ?? [], free.fitIds) : rackFitViewOptions(view.racks, free.fitIds));
     });
     return () => cancelAnimationFrame(raf);
     // `view.racks` itself is deliberately not a dependency: `rackIdsKey` is
@@ -1135,7 +1144,7 @@ function DrawingInner({
   const tallestRackHeightU = Math.max(42, ...view.racks.map((r) => r.heightU));
   const panelHeightPx = rackNodeHeight({ heightU: tallestRackHeightU });
   const surfacesLayout = useMemo(
-    () => layoutSurfaces(view.surfaces ?? [], rowsWidthPx, rowsHeightPx, panelHeightPx, U_PX),
+    () => layoutSurfaces(view.surfaces ?? [], rowsWidthPx, rowsHeightPx, panelHeightPx, U_PX, undefined, SURFACE_HEADER_PX),
     [view.surfaces, rowsWidthPx, rowsHeightPx, panelHeightPx],
   );
 
@@ -2058,7 +2067,9 @@ function DrawingInner({
         )}
       </ReactFlow>
       {free.overlay}
-      <CanvasTools tool={tool} onTool={setTool} wheel={wheel} onWheel={setWheel} />
+      <InSideSlot id="canvas-tools">
+        <CanvasTools tool={tool} onTool={setTool} wheel={wheel} onWheel={setWheel} />
+      </InSideSlot>
       <ChecksCanvasBridge />
       <TraceBadges />
       <PlansCanvasBridge />

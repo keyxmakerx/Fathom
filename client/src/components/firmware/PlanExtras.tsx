@@ -9,8 +9,9 @@ import type { FetchLink } from '../../api/firmware';
 import { deviceFirmware, targetOfDevice } from '../../document/firmware';
 import { touchedBy, type Plan, type PlanStep } from '../../document/plans';
 import { FirmwareContext } from './context';
+import { HowItGetsThere } from './ByHand';
 import { CommandNotes, CopyButton, copyText } from './parts';
-import { LINK_PLACEHOLDER, commandWithLink, maskedLink, parseUpgradeTitle } from './upgradePlan';
+import { FETCH_STEP_TITLE, LINK_PLACEHOLDER, commandWithLink, maskedLink, parseUpgradeTitle } from './upgradePlan';
 import './firmware.css';
 
 interface LinkState {
@@ -62,11 +63,22 @@ export function UpgradeLinkScope({ plan, children }: { plan: Plan; children: Rea
   return <LinkScope.Provider value={state}>{children}</LinkScope.Provider>;
 }
 
-/** Copy command on a step that has commands. The fetch step's copy has the real link in it. */
+/**
+ * Copy command on a step that has commands. The fetch step's copy has the real link in it, and the
+ * fetch step also offers the same job by hand from Windows or Linux.
+ */
 export function StepCopy({ step }: { step: PlanStep }) {
+  const api = useContext(FirmwareContext);
   const scope = useContext(LinkScope);
+  if (!scope) return null;
+  const copy = step.after === '' ? null : <CommandCopy step={step} scope={scope} />;
+  if (step.change.split('\n')[0] !== FETCH_STEP_TITLE) return copy;
+  const byHand = api?.server.images.find((i) => i.imageId === scope.imageId)?.commands?.byHand;
+  return <HowItGetsThere byHand={byHand}>{copy}</HowItGetsThere>;
+}
+
+function CommandCopy({ step, scope }: { step: PlanStep; scope: LinkState }) {
   const [said, setSaid] = useState<string | null>(null);
-  if (!scope || step.after === '') return null;
   const needsLink = step.after.includes(LINK_PLACEHOLDER);
   return (
     <p className="plans-step__actions">
@@ -77,7 +89,8 @@ export function StepCopy({ step }: { step: PlanStep }) {
         onClick={async () => {
           let text = step.after;
           if (needsLink) {
-            const link = scope.link ?? (await scope.issue());
+            // A fresh link on every copy: each works once, and a plan can cover several devices.
+            const link = await scope.issue();
             if (link === null) return;
             text = commandWithLink(step.after, link.url);
           }
@@ -87,7 +100,7 @@ export function StepCopy({ step }: { step: PlanStep }) {
       >
         {said ?? 'Copy command'}
       </button>
-      {needsLink ? <span className="plans-note"> Gets a one-time link, which works once.</span> : null}
+      {needsLink ? <span className="plans-note"> Each copy gets a new one-time link: copy once per device.</span> : null}
     </p>
   );
 }
@@ -116,7 +129,7 @@ export function FirmwarePlanExtras({ plan }: { plan: Plan }) {
       </ul>
       {api.isSteward ? (
         <>
-          <h3 className="plans-label">One-time link{first ? ` for ${first.hostname || 'the device'}${devices.length > 1 ? ' and the others' : ''}` : ''}</h3>
+          <h3 className="plans-label">One-time link{devices.length === 1 && first ? ` for ${first.hostname || 'the device'}` : ''}</h3>
           {scope.link ? (
             <div className="fw-link-box">
               <div className="fw-link-box__url">{maskedLink(scope.link.url)}</div>
@@ -126,7 +139,9 @@ export function FirmwarePlanExtras({ plan }: { plan: Plan }) {
                   Get another
                 </button>
               </div>
-              <p className="plans-note">Works once, then expires: 15 minutes. Fathom never logs in to the device.</p>
+              <p className="plans-note">
+                Works once, then expires: 15 minutes.{devices.length > 1 ? ' Get another for each device.' : ''} Fathom never logs in to the device.
+              </p>
               <p className="plans-note">
                 Expected SHA-256 <span className="plans-mono fw-hash">{scope.link.sha256}</span>
               </p>

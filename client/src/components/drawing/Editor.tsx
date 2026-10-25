@@ -12,7 +12,7 @@ import { expandPortPattern, previewLabels } from '../../document/portPattern';
 // once, never guessed" reasoning `DEVICE_ROLES` above already gives, for
 // this session's own cable panel.
 import { OWNERSHIP_VALUES } from '../../document/cables';
-import { SHEATH_VAR, sheathsFor } from './sheath';
+import { SHEATH_VAR, needsHairlineOutline, sheathsFor } from './sheath';
 // `FixtureView`/`Placement` are not in `contract.ts`'s own re-export list
 // (frozen this session — that file's header: "the view re-exports stay"),
 // but they are `document/view.ts`'s own read-side shapes, the same ones
@@ -26,7 +26,8 @@ import { FIELD_TYPES, FIELD_TYPE_LABEL, type FieldType } from '../../document/fi
 import { TagChips } from '../TagChips';
 import { DocsSection } from '../docs/DocsSection';
 import { DevicePhoto } from '../docs/DevicePhoto';
-import { FirmwareSection } from '../firmware/FirmwareSection';
+import { FirmwareChip, FirmwareSection } from '../firmware/FirmwareSection';
+import { AboutSection } from '../learn/AboutSection';
 import {
   ABSENT,
   UNNAMED_HOSTNAME,
@@ -45,6 +46,7 @@ import {
 import { findChassis, findFixture, findOccupant, findRack, findShelf, findUnplacedChassis, locatePort } from './lookup';
 import { connectorName, describePorts, faceplateLayoutFor } from './faceplate';
 import { EmptyState } from '../ui/EmptyState';
+import { Fold } from './Fold';
 
 // `DEVICE_ROLES` is `Device.role`'s own enum vocabulary (`schema/schema.yaml`,
 // mirrored once in `document/edit.ts` rather than guessed here — CLAUDE.md
@@ -1393,6 +1395,107 @@ function PanelTabs({ tabs, initial }: { tabs: readonly PanelTab[]; initial?: str
   );
 }
 
+/** r31 pictures: the panel's faceplate, bigger than the one on the rack. Front ports in their rows, each filled with
+ * the sheath of the cable in it; an empty port is drawn open. */
+function PanelFaceplate({ chassis, view }: { chassis: ChassisView; view: ClosetView }) {
+  const ports = chassis.ports.filter((p) => p.face === 'front');
+  if (ports.length === 0) return null;
+  const rows = [...new Set(ports.map((p) => p.row))].sort((a, b) => a - b);
+  const boxes: { port: PortView; x: number; y: number; w: number }[] = [];
+  let width = 0;
+  rows.forEach((row, r) => {
+    let x = 0;
+    for (const port of ports.filter((p) => p.row === row).sort((a, b) => a.column - b.column)) {
+      if (port.gapBefore && x > 0) x += 6;
+      const w = /^(sfp|qsfp)/i.test(port.connector) ? 22 : 17;
+      boxes.push({ port, x, y: r * 20 + 1, w });
+      x += w + 4;
+    }
+    width = Math.max(width, x - 4);
+  });
+  const height = rows.length * 20 - 4;
+  const sheathOf = (port: PortView) => {
+    const cable = port.cable != null ? view.cables.find((c) => c.id === port.cable!.cableId) : undefined;
+    return cable?.sheath != null ? SHEATH_VAR[cable.sheath] : port.cable != null ? 'var(--muted)' : null;
+  };
+  const cabled = ports.filter((p) => p.cable != null).length;
+  return (
+    <div className="dev-panel__face" data-testid="device-face">
+      <svg width="100%" viewBox={`-1 -1 ${width + 2} ${height + 3}`} style={{ maxWidth: width + 2, maxHeight: 64 }} role="img" aria-label={`${cabled} of ${ports.length} front ports cabled`}>
+        {boxes.map(({ port, x, y, w }) => {
+          const fill = sheathOf(port);
+          return (
+            <rect key={port.id} x={x} y={y} width={w} height={14} rx={1} fill={fill ?? 'var(--page)'} stroke="var(--control-line-hover)" strokeWidth={1}>
+              <title>{`${port.label || ABSENT} · ${connectorName(port.connector)}${port.cable != null ? ' · cabled' : ''}`}</title>
+            </rect>
+          );
+        })}
+      </svg>
+      <div className="dev-panel__facecap">
+        <span>
+          <b>{cabled}</b> of {ports.length} ports cabled
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** "24 × RJ45, 2 × SFP": what the device carries, in counts per connector. */
+function connectorCounts(ports: readonly PortView[]): string {
+  const counts = new Map<string, number>();
+  for (const p of ports) counts.set(connectorName(p.connector), (counts.get(connectorName(p.connector)) ?? 0) + 1);
+  return [...counts].map(([name, n]) => `${n} × ${name}`).join(', ');
+}
+
+/** r31 pictures: each cabled port, a short line in its cable's colour, and where the other end goes. The far device
+ * selects. */
+function ConnectionsSection({ chassis, view, actions }: { chassis: ChassisView; view: ClosetView; actions: EditorActions }) {
+  const cabled = chassis.ports.filter((p) => p.cable != null).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  if (cabled.length === 0) return null;
+  return (
+    <div className="dev-panel__sec" data-testid="device-connections">
+      <div className="dev-panel__h">Connections · {cabled.length}</div>
+      <ul className="dev-conn">
+        {cabled.map((port) => {
+          const end = port.cable!;
+          const cable = view.cables.find((c) => c.id === end.cableId);
+          const located = end.farPortId != null ? locatePort(view, end.farPortId) : undefined;
+          const far =
+            located == null ? null : located.place === 'chassis' ? located.chassis.hostname || UNNAMED_HOSTNAME : located.place === 'shelf' ? located.occupant.label || ABSENT : located.fixture.label || ABSENT;
+          // Not on this drawing: the outside label, or nothing yet on a cable left open.
+          const otherEnd = far == null && cable != null ? farEndOf(view, cable.id, port.id) : undefined;
+          const farText = far ?? (otherEnd != null ? cableEndText(view, otherEnd) : 'not connected yet');
+          const farChassis = end.farChassisId;
+          const onSelect = actions.onSelect;
+          return (
+            <li key={port.id}>
+              <span className="dev-conn__p">{port.label || ABSENT}</span>
+              <span
+                className="dev-conn__ln"
+                style={{
+                  background: cable?.sheath != null ? SHEATH_VAR[cable.sheath] : 'var(--control-line-hover)',
+                  boxShadow: cable?.sheath != null && needsHairlineOutline(cable.sheath) ? 'inset 0 0 0 1px var(--control-line-hover)' : undefined,
+                }}
+              />
+              <span className="dev-conn__far">
+                {farChassis != null && far != null && onSelect ? (
+                  <button type="button" className="dev-conn__go" onClick={() => onSelect({ kind: 'chassis', id: farChassis })}>
+                    {far}
+                  </button>
+                ) : (
+                  <b>{farText}</b>
+                )}
+                {located != null ? ` · ${located.port.label || ABSENT}` : null}
+              </span>
+              <span className="dev-conn__vl">{port.uplink ? 'uplink' : cable?.label ?? ''}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 /** ADR-0051 §1 — "Duplicate": `commands.ts`'s `duplicateDevice`, shown only
  * on a rack-mounted chassis's panel. May carry a NOTICE, not a refusal
  * (`contract.ts`'s `EditorActions.onEdit`). */
@@ -1837,10 +1940,12 @@ export function EditorFor(
   view: ClosetView,
   actions: EditorActions,
   catalogue: readonly PaletteItem[] = [],
-  /** Quiet actions the caller adds under a device's name (open elsewhere, "It's down"). */
+  /** The device panel's foot: the caller's main ways on (Open inside, Trace from here). */
   links?: ReactNode,
+  /** Rows the caller adds to the device panel's ⋯ menu, above Duplicate and Remove. */
+  more?: ReactNode,
 ): ReactNode {
-  const panel = panelFor(selection, view, actions, catalogue, links);
+  const panel = panelFor(selection, view, actions, catalogue, links, more);
   if (selection == null || !isValidElement<{ 'data-elements'?: string }>(panel)) return panel;
   return cloneElement(panel, { 'data-elements': elementsOf(selection, view) });
 }
@@ -1851,6 +1956,7 @@ function panelFor(
   actions: EditorActions,
   catalogue: readonly PaletteItem[] = [],
   links?: ReactNode,
+  more?: ReactNode,
 ): ReactNode {
   if (selection == null) return null;
 
@@ -2029,11 +2135,31 @@ function panelFor(
     // same "no catalogue model" reading the fixture panel below already
     // derives locally for its own `sketch` for the identical reason.
     const chassisSketch = chassis.model === '';
-    const where = [[chassis.vendor, chassis.model].filter(Boolean).join(' '), rack?.label, rack ? uRange : null].filter(Boolean).join(' · ');
+    const kindLine = [chassis.role, rack ? `${rack.label}, ${uRange}` : 'not placed'].filter(Boolean).join(' · ');
+    const sub = [[chassis.vendor, chassis.model].filter(Boolean).join(' '), connectorCounts(chassis.ports)].filter(Boolean).join(' · ');
     return (
-      <div className="drawing-editor__panel drawing-editor__panel--tabbed">
-        <div className="drawing-editor__head">
-          <div className="drawing-editor__title">
+      <div className="drawing-editor__panel drawing-editor__panel--tabbed drawing-editor__panel--device">
+        {/* r31 pictures: what and where in one small line, the name, what it is, then its state as chips. */}
+        <div className="dev-panel__head">
+          <div className="dev-panel__kind">
+            <span>{kindLine}</span>
+            {actions.onEdit != null || more != null ? (
+              <details className="dev-more" data-testid="device-more">
+                <summary className="dev-more__button" aria-label="More for this device" title="More for this device">
+                  ⋯
+                </summary>
+                <div className="dev-more__menu">
+                  {more}
+                  {/* `duplicateDevice` (`commands.ts`) refuses a source that is not rack-mounted, so it is left off an
+                      unplaced device rather than offered only to refuse. */}
+                  {rack ? <DuplicateDeviceControl chassisId={chassis.id} actions={actions} /> : null}
+                  {/* No confirmation dialog; undo is the record's job. */}
+                  <SupplyAction label="Remove device" onCommit={actions.onEdit ? () => actions.onEdit!(removeDeviceChange(chassis.id)) : undefined} />
+                </div>
+              </details>
+            ) : null}
+          </div>
+          <div className="drawing-editor__title dev-panel__name">
             <EditableValue
               value={chassis.hostname}
               placeholder={UNNAMED_HOSTNAME}
@@ -2044,13 +2170,18 @@ function panelFor(
               }
             />
           </div>
-          {chassis.role ? <span className="drawing-editor__badge">{chassis.role}</span> : null}
+          {sub ? <div className="dev-panel__sub">{sub}</div> : null}
+          <div className="dev-panel__chips">
+            <FirmwareChip deviceId={chassis.deviceId} />
+            {chassisSketch ? <span className="dev-tag">Typed by hand</span> : null}
+          </div>
+          {/* r30-device: said once for the whole panel, not under every field. */}
+          <TypedNote shown={[chassis.hostname, chassis.role, chassis.serial, chassis.managementAddress].some((v) => (v ?? '').length > 0)} />
         </div>
-        <TypedNote shown={chassis.hostname.length > 0} />
-        {where ? <div className="drawing-editor__subtitle">{where}</div> : null}
-        {links ? <div className="drawing-editor__links">{links}</div> : null}
+        <PanelFaceplate chassis={chassis} view={view} />
 
         {/* A new sketch has nothing to show but its ports, so it opens there. */}
+        <TypedNoteMode.Provider value="once">
         <PanelTabs
           key={chassis.id}
           initial={chassisSketch && chassis.ports.length === 0 ? 'ports' : undefined}
@@ -2061,7 +2192,6 @@ function panelFor(
               body: (
                 <>
                   <div className="drawing-editor__group">Device</div>
-                  <Field label="Model" value={chassis.model || ABSENT} />
                   {/* ADR-0051 §1, brief item 2 — "a box with no catalogue entry draws
                       from ports typed by hand and says so." */}
                   {chassisSketch ? (
@@ -2070,7 +2200,6 @@ function panelFor(
                       hand.
                     </div>
                   ) : null}
-                  <Field label="Vendor" value={chassis.vendor || ABSENT} />
                   <div className="drawing-editor__field">
                     <div className="drawing-editor__field-label">Role</div>
                     <EditableValue
@@ -2107,24 +2236,29 @@ function panelFor(
                       current one marked. */}
                   <PlacedOnControl itemId={chassis.id} placement={chassis.placement} view={view} actions={actions} />
 
-                  <div className="drawing-editor__group">Management</div>
-                  <div className="drawing-editor__field">
-                    <div className="drawing-editor__field-label">Mgmt address</div>
-                    <EditableValue
-                      value={chassis.managementAddress ?? ''}
-                      placeholder={ABSENT}
-                      editorKind="text"
-                      onCommit={
-                        actions.onEdit
-                          ? (v) => actions.onEdit!({ kind: 'device', id: chassis.deviceId, field: 'management_address', value: v })
-                          : undefined
-                      }
-                    />
-                  </div>
-                  <TypedNote shown={(chassis.managementAddress ?? '').length > 0} extra={MANAGEMENT_ADDRESS_NOTE} />
+                  <ConnectionsSection chassis={chassis} view={view} actions={actions} />
 
-                  <FirmwareSection deviceId={chassis.deviceId} />
-                  <DevicePhoto ownerId={chassis.deviceId} name={chassis.hostname || UNNAMED_HOSTNAME} />
+                  {/* r30-device: Device and Location stay open; the rest fold to one line each. */}
+                  <Fold title="Management" summary={chassis.managementAddress || 'no address'} testId="management-fold">
+                    <div className="drawing-editor__field">
+                      <div className="drawing-editor__field-label">Mgmt address</div>
+                      <EditableValue
+                        value={chassis.managementAddress ?? ''}
+                        placeholder={ABSENT}
+                        editorKind="text"
+                        onCommit={
+                          actions.onEdit
+                            ? (v) => actions.onEdit!({ kind: 'device', id: chassis.deviceId, field: 'management_address', value: v })
+                            : undefined
+                        }
+                      />
+                    </div>
+                    {(chassis.managementAddress ?? '').length > 0 ? <div style={TYPED_NOTE_STYLE}>{MANAGEMENT_ADDRESS_NOTE}</div> : null}
+                  </Fold>
+
+                  <FirmwareSection deviceId={chassis.deviceId} folded />
+                  <AboutSection deviceId={chassis.deviceId} folded />
+                  <DevicePhoto ownerId={chassis.deviceId} name={chassis.hostname || UNNAMED_HOSTNAME} folded />
 
                 </>
               ),
@@ -2207,22 +2341,9 @@ function panelFor(
             },
           ]}
         />
+        </TypedNoteMode.Provider>
 
-        <div className="drawing-editor__footer">
-          {/* UI-SPEC's cable-delete rule — the same one-shot action shape
-              `SupplyAction` already gives "remove"/"Disconnect", raising
-              `document/commands.ts`'s `removeChassis` through
-              `EditorActions.onEdit`. No confirmation dialog; undo is the
-              record's job. */}
-          <SupplyAction
-            label="Remove device"
-            onCommit={actions.onEdit ? () => actions.onEdit!(removeDeviceChange(chassis.id)) : undefined}
-          />
-          {/* `duplicateDevice` (`commands.ts`) refuses a source that is not
-              rack-mounted — the control stays off an unplaced chassis's panel
-              rather than offering an action that can only ever refuse. */}
-          {rack ? <DuplicateDeviceControl chassisId={chassis.id} actions={actions} /> : null}
-        </div>
+        {links ? <div className="drawing-editor__footer dev-panel__foot">{links}</div> : null}
       </div>
     );
   }
@@ -2260,14 +2381,14 @@ function panelFor(
         ) : null}
         <Field label="Shelf" value={`${shelf.label || shelf.id} · ${rack.label}`} />
         <Field label="Slot" value={String(occupant.slot)} />
-        <Field label="Ports" value={`${ABSENT} of ${occupant.ports.length} cabled`} />
+        <Field label="Ports" value={`${occupant.ports.filter((p) => p.cable != null).length} of ${occupant.ports.length} cabled`} />
 
         {occupant.kind === 'chassis' && occupantSketch ? (
           <SketchPortsSection chassisId={occupant.id} ports={occupant.ports} actions={actions} />
         ) : occupant.ports.length > 0 ? (
           <div className="drawing-editor__field">
             <div className="drawing-editor__field-label">Ports</div>
-            {occupant.ports.map((port) => (
+            {byPortLabel(occupant.ports).map((port) => (
               <div key={port.id} className="drawing-editor__field" style={{ display: 'flex', gap: 'var(--s2)' }}>
                 <span>{port.label || ABSENT}</span>
                 <span style={{ color: 'var(--muted)' }}>{port.connector}</span>
@@ -2326,14 +2447,14 @@ function panelFor(
           label="Position"
           value={fixture.xMm != null && fixture.yMm != null ? `${fixture.xMm}mm, ${fixture.yMm}mm` : ABSENT}
         />
-        <Field label="Ports" value={`${ABSENT} of ${fixture.ports.length} cabled`} />
+        <Field label="Ports" value={`${fixture.ports.filter((p) => p.cable != null).length} of ${fixture.ports.length} cabled`} />
 
         {fixture.kind === 'chassis' && sketch ? (
           <SketchPortsSection chassisId={fixture.id} ports={fixture.ports} actions={actions} />
         ) : fixture.ports.length > 0 ? (
           <div className="drawing-editor__field">
             <div className="drawing-editor__field-label">Ports</div>
-            {fixture.ports.map((port) => (
+            {byPortLabel(fixture.ports).map((port) => (
               <div key={port.id} className="drawing-editor__field" style={{ display: 'flex', gap: 'var(--s2)' }}>
                 <span>{port.label || ABSENT}</span>
                 <span style={{ color: 'var(--muted)' }}>{port.connector}</span>
@@ -2540,4 +2661,9 @@ function panelFor(
       <DocsSection ownerId={port.id} />
     </div>
   );
+}
+
+/** Ports in the order printed on the device (1, 2 … 10), not the order they were stored in. */
+function byPortLabel<P extends { label: string }>(ports: readonly P[]): P[] {
+  return [...ports].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
 }

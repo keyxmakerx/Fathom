@@ -227,9 +227,8 @@ pub struct Config {
     /// Refused at startup if an entry does not parse.
     pub admin_sources: Vec<String>,
 
-    /// `FATHOM_FIRMWARE_MAX_BYTES`. The largest image that may be staged, and the
-    /// worst case one fetch holds in memory until streaming lands. Default two
-    /// gibibytes.
+    /// `FATHOM_FIRMWARE_MAX_BYTES`. The largest image that may be staged. A fetch
+    /// streams, so this is disk, not memory. Default two gibibytes.
     pub firmware_max_bytes: u64,
 
     /// `FATHOM_FIRMWARE_FETCH_BASE_URL`. **The origin a SWITCH can reach**, often not

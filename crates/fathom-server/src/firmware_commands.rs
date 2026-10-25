@@ -146,6 +146,10 @@ pub fn commands(platform: Option<&str>, filename: &str, sha256: &str, url: Optio
         plan.device_path.map_or(Json::Null, Json::Str),
     );
     envelope.insert("steps".to_string(), Json::Arr(steps));
+    envelope.insert(
+        "by_hand".to_string(),
+        crate::firmware_by_hand::by_hand(family, filename),
+    );
     envelope.insert("device_hash".to_string(), Json::Obj(device_hash));
     envelope.insert("sourced".to_string(), Json::Str(plan.sourced.to_string()));
     envelope.insert("sourced_note".to_string(), Json::Str(plan.sourced_note));
@@ -209,9 +213,10 @@ fn junos(filename: &str, copy_source: &str) -> Plan {
         ),
         step(
             "have the device pull the image",
-            format!("file copy {copy_source} {JUNOS_STAGING_DIRECTORY}"),
+            format!("file copy {copy_source} {device_path}"),
             "The device uses its own transfer stack, so the SCP-versus-SFTP question does not \
-             arise. Whether Junos verifies TLS certificates on an https:// source could not be \
+             arise. The destination names the file: the fetch URL ends in the token, not the \
+             filename, so a bare directory would not give the name the next steps use. Whether Junos verifies TLS certificates on an https:// source could not be \
              established, so nothing here leans on the transport: the next two steps are what \
              establish that the right bytes arrived.",
         ),

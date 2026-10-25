@@ -35,6 +35,15 @@ describe('searchDesign — quick search over the open design', () => {
     expect(hits[0].selection).toEqual({ kind: 'chassis', id: 'ch1' });
   });
 
+  it('finds a device on a shelf or on a wall, desk or ceiling, not only in a rack unit', () => {
+    const offRack = {
+      racks: [{ id: 'r1', label: 'Rack 1', heightU: 12, chassis: [], shelves: [{ id: 's1', label: 'Shelf', positionU: 6, heightU: 1, occupants: [{ id: 'nas', kind: 'chassis', label: 'nas-1', model: 'DS224+', slot: 1, ports: [], sketch: false }] }] }],
+      surfaces: [{ id: 'w1', label: 'Outside wall', form: 'wall', widthMm: 2000, heightMm: 2400, fixtures: [{ id: 'cam', kind: 'chassis', label: 'camera-1', model: null, form: null, xMm: 300, yMm: 2200, ports: [], psuInlets: [], fixtures: [] }] }],
+    } as unknown as Pick<ClosetView, 'racks' | 'surfaces'>;
+    expect(searchDesign(offRack, 'nas')[0]).toMatchObject({ group: 'Devices', name: 'nas-1', selection: { kind: 'occupant', id: 'nas' } });
+    expect(searchDesign(offRack, 'camera')[0]).toMatchObject({ group: 'Devices', name: 'camera-1', where: 'Outside wall', selection: { kind: 'fixture', id: 'cam' } });
+  });
+
   it('matches a device by serial or management address', () => {
     expect(searchDesign(view, 'sn123')[0].name).toBe('acc-01');
     expect(searchDesign(view, '10.0.0.5')[0].name).toBe('acc-01');

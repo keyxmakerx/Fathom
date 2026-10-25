@@ -1,9 +1,9 @@
 // The plan's side panel (mockups r6-maint-*): Plan lists the steps and what they touch, Do is the checklist with
 // only the current step live, Record takes the outcome. Docked right, draggable, folds, like the Checks panel.
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 
-import { OUTCOMES, currentStep, type Plan, type PlanOutcome, type PlanStep } from '../../document/plans';
+import { OUTCOMES, backOutSteps, currentStep, type Plan, type PlanOutcome, type PlanStep } from '../../document/plans';
 import { clampOffset } from '../checks/checksModel';
 import { AddStepForm } from './AddStepForm';
 import { Touches, TypedSentence, WhySlot, usePasteMark } from './PlanParts';
@@ -11,6 +11,7 @@ import { FirmwarePlanExtras, StepCopy, UpgradeLinkScope } from '../firmware/Plan
 import { OUTCOME_WORD, firstLine, outcomeSentence, progress, secondLine, stepHead, stepIsLive, touchedDevices } from './plansModel';
 import type { PlansController } from './usePlansController';
 import './plans.css';
+import { InSlot } from '../shell/sideSlot';
 
 /** Words under a step: before → after, as typed. */
 function BeforeAfter({ step }: { step: PlanStep }) {
@@ -242,6 +243,41 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
   );
 }
 
+/** Back out (sign-off r16-backout): asks once, then opens a new plan back to where this one started. */
+function BackOut({ controller, plan }: { controller: PlansController; plan: Plan }) {
+  const [asking, setAsking] = useState(false);
+  const doc = controller.doc;
+  if (!controller.canEdit || doc == null) return null;
+  const count = backOutSteps(doc, plan).length;
+  if (count === 0) return null;
+  if (plan.stage === 'recorded' && plan.outcome === 'succeeded') return null;
+  if (!asking) {
+    return (
+      <p className="plans-backout">
+        <button type="button" className="plans-btn" onClick={() => setAsking(true)} data-testid="plans-back-out">
+          Back out…
+        </button>
+      </p>
+    );
+  }
+  return (
+    <div className="plans-backout plans-refused" role="group" aria-label="Back out" data-testid="plans-back-out-ask">
+      <p>
+        {plan.stage === 'doing' ? 'This stops the work and records the plan as failed. ' : ''}A new plan is made to put things back:{' '}
+        {count === 1 ? 'one step' : `${count} steps`}, newest first. Change it, or add to it, before you start it.
+      </p>
+      <p className="plans-step__actions">
+        <button type="button" className="plans-btn plans-btn--ink" onClick={() => void controller.backOut().then(() => setAsking(false))}>
+          Make the plan back
+        </button>
+        <button type="button" className="plans-btn" onClick={() => setAsking(false)}>
+          Cancel
+        </button>
+      </p>
+    </div>
+  );
+}
+
 function DoMode({ controller, plan }: { controller: PlansController; plan: Plan }) {
   const p = progress(plan);
   return (
@@ -254,6 +290,7 @@ function DoMode({ controller, plan }: { controller: PlansController; plan: Plan 
           <DoStep key={s.id} controller={controller} plan={plan} step={s} />
         ))}
       </ol>
+      <BackOut controller={controller} plan={plan} />
     </>
   );
 }
@@ -317,6 +354,7 @@ function RecordMode({ controller, plan }: { controller: PlansController; plan: P
           Saved to the history of {names.join(', ')}
         </p>
       )}
+      <BackOut controller={controller} plan={plan} />
       <ol className="plans-checklist plans-checklist--read">
         {plan.steps.map((s) => (
           <li key={s.id} className="plans-step plans-step--recorded" data-state={s.state}>
@@ -341,6 +379,8 @@ export function panelMode(plan: Plan): 'plan' | 'do' | 'record' {
 const HEADING = { plan: 'Plan', do: 'Do', record: 'Record' } as const;
 
 export function PlanPanel({ controller, plan, besideChecks }: { controller: PlansController; plan: Plan; besideChecks: boolean }) {
+  // In the right-hand panel (r30-panels) the card has a place already; its header does not drag it.
+  const inSlot = useContext(InSlot);
   const ref = useRef<HTMLElement>(null);
   const drag = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null);
   const { prefs, setOffset } = controller;
@@ -433,7 +473,7 @@ export function PlanPanel({ controller, plan, besideChecks }: { controller: Plan
       aria-label="Maintenance plan"
       data-testid="plans-panel"
     >
-      <header className="plans-panel__head" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
+      <header className="plans-panel__head" {...(inSlot ? {} : { onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerCancel: onUp })}>
         <h2 className="plans-panel__title">{HEADING[mode]}</h2>
         <button type="button" className="plans-link" aria-label="Fold the plan panel" onClick={() => controller.setPanelOpen(false)}>
           Fold

@@ -32,7 +32,7 @@ only prose (`85` §15.1, ADR-0002).
 Where two documents specify the same artifact, exactly one is the **owner**; every other document
 references it and does not restate it. The owner is named in the artifact's own header. A document that
 needs to change something it does not own raises a `## Disagreements` entry and **may not ship a
-second specification in the meantime.** Register: `docs/00-vision/01-ownership.md` (ADR-0001).
+second specification in the meantime.** Register: `docs/archive/00-vision/01-ownership.md` (ADR-0001).
 
 ## Currency — security is never answered from memory
 
@@ -81,7 +81,7 @@ what the detector needs.
 > unamended and every other invariant binds as written. But the owner has changed what 1 and 2 are
 > understood to scope, and several documents argue from the old reading:
 > - Invariant 1 applies "only for demo mode like it is currently" (owner, 2026-08-18), not to the full
->   server solution. He took the server pivot (`docs/40-stack/49-the-server-product.md` §1: data on the
+>   server solution. He took the server pivot (`docs/archive/40-stack/49-the-server-product.md` §1: data on the
 >   server, live multi-user editing, multi-tenant) and dropped the single offline HTML file.
 > - Invariant 2's "permanent product boundary" is contradicted by his stated long-term intent
 >   (`48` §1, `49` §16): monitoring, config pulls, an SCP firmware distribution path.
@@ -119,7 +119,7 @@ what the detector needs.
    so it covers a pasted capture only. It does not cover a value typed by hand into any of the schema's
    nineteen free-text `notes`/`description` fields (`OP_FIELD_SET`, `OP_EQUIP_ADD`, cable and port label
    writes and rack placement parse raw text into a typed slot, ungated). That gap is real and open,
-   proved by `docs/80-review/evidence/2026-09-03-the-gate-is-only-on-the-paste-box.mjs`. ADR-0041 does
+   proved by `docs/archive/80-review/evidence/2026-09-03-the-gate-is-only-on-the-paste-box.mjs`. ADR-0041 does
    not gate that door (a hand-typed value still saves and exports as typed). It MARKS a value that looks
    like a credential wherever it is shown, via the one Rust detector
    `fathom_ingest::redact::looks_like_credential`, and never refuses.
@@ -181,7 +181,7 @@ Do not add a fourth. Do not reuse these colours for anything else (not finding s
 diff). Finding severity is a separate scale, rendered in neutrals with a weight/rule treatment; see
 the design docs.
 
-**Amendment (ADR-0011, `docs/90-decisions/adr-0011-risk-is-a-property-of-effect.md`).** The values,
+**Amendment (ADR-0011, `docs/decisions/adr-0011-risk-is-a-property-of-effect.md`).** The values,
 colours and ordering are unchanged. Risk is assigned by *effect*, not command mode: `Disruptive` iff
 committing or running the statement can interrupt an established flow, SA or adjacency on a device
 already carrying traffic. The caption is separable from the band: it is the default rendering and

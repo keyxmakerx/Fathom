@@ -5,6 +5,7 @@ import { beginSignIn, completeSignIn, isSecondFactorNeeded, signOut, type SignIn
 import { identityOfSlot, PRINCIPAL_KIND_OPERATOR } from './api/constants';
 import { appCodeEnrolmentRequired } from './api/credentials';
 import { ApiRefusal } from './api/errors';
+import { makePracticeSpace } from './components/home/practiceSpace';
 import {
   beginOperatorBootstrap,
   completeOperatorBootstrap,
@@ -457,6 +458,42 @@ export default function App() {
   }
   // --- end ADR-0055 console entry --------------------------------------
 
+  // ADR-0069: the practice space. Making it is Admin's own act, so it needs the operator session first; when that
+  // waits on a verification code, the prompt shows on the practice card and the next press carries on.
+  const [practiceBusy, setPracticeBusy] = useState(false);
+  const [practiceError, setPracticeError] = useState<string | null>(null);
+  const [practiceJustMade, setPracticeJustMade] = useState<string | null>(null);
+  async function makePractice(): Promise<string | null> {
+    const accountSession = getSessionOn(ACCOUNT_PLANE);
+    if (!accountSession) return null;
+    setPracticeBusy(true);
+    setPracticeError(null);
+    try {
+      if (!getSessionOn(OPERATOR_PLANE)) {
+        await enterConsole(() => {});
+        if (!getSessionOn(OPERATOR_PLANE)) {
+          setPracticeError('Admin needs your verification code first. Type it above, then press Open practice lab again.');
+          return null;
+        }
+      }
+      const organisationId = await makePracticeSpace(accountSession.address, accountSession.accountId);
+      setPlane(ACCOUNT_PLANE);
+      setView({ kind: 'home' });
+      setHomeTab('designs');
+      setPracticeJustMade(organisationId);
+      return organisationId;
+    } catch (error) {
+      console.error(error);
+      setPlane(ACCOUNT_PLANE);
+      setPracticeError(
+        error instanceof ApiRefusal ? error.message : 'Your practice space could not be made. Nothing was changed on the server.',
+      );
+      return null;
+    } finally {
+      setPracticeBusy(false);
+    }
+  }
+
   // The camera's state. It lives here rather than in `Shell` because the
   // drawing Session 4 builds will read it too, and two copies would drift.
   const [lens, setLens] = useState<Lens>('cables');
@@ -703,7 +740,11 @@ export default function App() {
         accountId={session.accountId}
         initialToken={claiming.token}
         initialNoticeAddress={claiming.noticeAddress}
-        onDone={() => setClaiming(null)}
+        onDone={() => {
+          setClaiming(null);
+          // A claimed organisation is somewhere to draw: land on its designs, not back in the console (r30-small).
+          setHomeTab('designs');
+        }}
         onCancel={() => setClaiming(null)}
       />
     );
@@ -904,6 +945,25 @@ export default function App() {
           onTabsChange={setHomeTabList}
           onWaitingInviteeChange={setWaitingInvitee}
           admin={admin}
+          practice={
+            admin !== undefined
+              ? {
+                  onMake: makePractice,
+                  busy: practiceBusy || enteringConsole,
+                  error: practiceError,
+                  justMade: practiceJustMade,
+                  onOpened: () => setPracticeJustMade(null),
+                  codePrompt: operatorCodePending ? (
+                    <AdminCodePromptForm
+                      enteringConsole={enteringConsole}
+                      operatorCode={operatorCode}
+                      onCodeChange={setOperatorCode}
+                      onSubmit={(event, close) => void submitOperatorCode(event, close)}
+                    />
+                  ) : null,
+                }
+              : undefined
+          }
         />
       </Shell>
     );
@@ -917,7 +977,8 @@ export default function App() {
   const scopeChain = pathTo(scopes, view.design.scopeId);
   const path: PathPart[] = [
     { label: view.organisation.displayName, onSelect: () => setView({ kind: 'home' }), hint: 'Home' },
-    ...scopeChain.map((scope) =>
+    // The root scope is made with the organisation and carries its name; showing both read as a stutter.
+    ...scopeChain.filter((scope, i) => !(i === 0 && scope.displayName === view.organisation.displayName)).map((scope) =>
       firstDesignByScopeId.has(scope.scopeId)
         ? { label: scope.displayName, onSelect: () => selectScope(scope.scopeId), hint: `Open ${scope.displayName}'s latest design` }
         : { label: scope.displayName },

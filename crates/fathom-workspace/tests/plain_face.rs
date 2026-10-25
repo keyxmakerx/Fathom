@@ -60,7 +60,7 @@ use std::collections::BTreeSet;
 const PINNED: &str = concat!(
     "fathom-plain 1\n",
     "THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n",
-    "schema 0.24\n",
+    "schema 0.26\n",
     "\n",
     r#"{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}"#,
     "\n",
@@ -960,6 +960,49 @@ fn a_0_23_header_opens_and_holds_a_cable_run() {
     let text = String::from_utf8(write_plain(&g).expect("writes")).expect("UTF-8");
     let old = text.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.23", 1);
     read_plain(old.as_bytes()).expect("a 0.23 header may hold a cable run");
+}
+
+/// The LAG plan step (0.25) adds one enum variant and no kind, so a 0.24 design opens.
+#[test]
+fn a_0_24_header_opens() {
+    use fathom_ir::generated::ir_types::SCHEMA_VERSION;
+    let older = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.24", 1);
+    assert_ne!(older, PINNED, "the substitution must have landed");
+    read_plain(older.as_bytes()).expect("a 0.24 payload opens");
+}
+
+/// Mesh VPNs (0.26) add kinds: a 0.25 design opens, but no older accepted header may hold a VPN.
+#[test]
+fn a_0_25_header_opens_and_older_ones_refuse_a_vpn() {
+    use fathom_ir::generated::ir_types::SCHEMA_VERSION;
+    let older = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.25", 1);
+    assert_ne!(older, PINNED, "the substitution must have landed");
+    read_plain(older.as_bytes()).expect("a 0.25 payload opens");
+
+    let mut g = Graph::new();
+    g.begin_batch(BatchId(ulid(0)), "build").expect("open");
+    g.insert_node(NodeKind::OverlayNetwork, ulid(1), prov(1))
+        .expect("vpn");
+    g.end_batch().expect("close");
+    let text = String::from_utf8(write_plain(&g).expect("writes")).expect("UTF-8");
+    read_plain(text.as_bytes()).expect("a VPN is legitimate under the current header");
+    for old_version in ["0.10", "0.19", "0.23", "0.24", "0.25"] {
+        let old = text.replacen(
+            &format!("schema {SCHEMA_VERSION}"),
+            &format!("schema {old_version}"),
+            1,
+        );
+        match read_plain(old.as_bytes()).err() {
+            Some(PlainError::KindNotInDeclaredVersion {
+                declared_version,
+                element_kind,
+            }) => {
+                assert_eq!(declared_version, old_version);
+                assert_eq!(element_kind, "OverlayNetwork");
+            }
+            other => panic!("a 0.26-only kind under a {old_version} header must refuse: {other:?}"),
+        }
+    }
 }
 
 /// A 0.15 design holds plans, and a 0.14 one does not (the plan kinds arrived at 0.15).

@@ -500,6 +500,55 @@ fn a_pfsense_backup_is_detected_and_no_secret_survives() {
     }
 }
 
+// OPNsense: its `config.xml` shares the `opnsense` dictionary with the rules CSV,
+// and is told by its root element even when the device names `opnsense`.
+const OPN_HASH: &str = "$2y$10$YRVoF4SgskIsrXOvOQjGieB9XqHPRra9R7d80B3BZdbY/j21TwBfS";
+const OPN_PSK: &str = "Painite-Site-To-Site-PSK-0f3e9a1c7b2d4e6f8a0b1c2d3e4f5a6b7c8d9e0f";
+const OPN_SNMP: &str = "Painite-RO-Community-7Hq2xWm9Lp4Zr";
+
+fn opn_config() -> String {
+    format!(
+        "<?xml version=\"1.0\"?>\n<opnsense>\n  <system>\n    <hostname>painite</hostname>\n\
+         \x20   <user>\n      <name>root</name>\n      <password>{OPN_HASH}</password>\n    </user>\n\
+         \x20 </system>\n  <interfaces>\n    <lan>\n      <enable>1</enable>\n      <if>igb1</if>\n\
+         \x20     <ipaddr>192.168.1.1</ipaddr>\n      <subnet>24</subnet>\n    </lan>\n  </interfaces>\n\
+         \x20 <OPNsense>\n    <IPsec>\n      <preSharedKeys>\n        <preSharedKey uuid=\"1b2c3d4e\">\n\
+         \x20         <ident>203.0.113.9</ident>\n          <Key>{OPN_PSK}</Key>\n        </preSharedKey>\n\
+         \x20     </preSharedKeys>\n    </IPsec>\n    <netsnmp>\n      <general>\n\
+         \x20       <community>{OPN_SNMP}</community>\n      </general>\n    </netsnmp>\n  </OPNsense>\n</opnsense>\n"
+    )
+}
+
+#[test]
+fn an_opnsense_backup_is_detected_and_no_secret_survives() {
+    let secrets = [OPN_HASH, OPN_PSK, OPN_SNMP];
+    let mut shell = common::all_booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(0, &opn_config()));
+    assert_eq!(platform_of(&reply), "opnsense");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    assert!(contains(&stored, "painite"), "the hostname binds");
+    for s in secrets {
+        assert!(!contains(&reply, s), "reply leaks {s}");
+        assert!(!contains(&stored, s), "stored design leaks {s}");
+    }
+
+    // Pasted into a device that is already OPNsense: the XML, not the rules CSV, reads it.
+    let mut shell = common::all_booted_shell();
+    let display = place(&mut shell, "opnsense");
+    let reply = shell.handle(OP_PASTE_INTO, &into_frame(0, &display, &opn_config()));
+    assert_eq!(platform_of(&reply), "opnsense");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    assert!(
+        contains(&stored, "REDACTED"),
+        "the capture is stored, gated"
+    );
+    assert!(contains(&stored, "igb1"), "the interface binds");
+    for s in secrets {
+        assert!(!contains(&reply, s), "paste-into reply leaks {s}");
+        assert!(!contains(&stored, s), "paste-into stored capture leaks {s}");
+    }
+}
+
 #[test]
 fn an_encrypted_pfsense_backup_is_refused_and_stores_nothing() {
     let mut shell = common::all_booted_shell();
@@ -576,4 +625,123 @@ fn an_export_that_sets_an_mtu_is_read() {
     let mut shell = common::all_booted_shell();
     let reply = shell.handle(OP_PASTE, &frame(0, linux));
     assert_eq!(platform_of(&reply), "linux-host");
+}
+
+/// A TP-Link switch config, its shape from a real T1700G-28TQ export
+/// (community.tp-link.com topic 150823, read 2026-10-16), carrying credential
+/// lines at TP-Link's documented lengths (README-omada-sw.md).
+fn tplink_paste() -> String {
+    "!T1700G-28TQRev2\n\
+     #\n\
+     vlan 4084\n\
+     name \"GERENCIA4084\"\n\
+     #\n\
+     user name admin privilege admin secret 5 $1$K>@=/'}.Q7R2K9M4X8P1Z6W3N5B0LJHG$T2Y.\n\
+     snmp-server user ops local grp smode v3 slev authPriv cmode SHA cpwd Abc12345 emode DES epwd Def67890\n\
+     snmp-server host 192.0.2.9 162 pr1vate smode v2c\n\
+     hostname \"SW_ALIANCA00\"\n\
+     #\n\
+     interface gigabitEthernet 1/0/1\n\
+     description \"uplink\"\n\
+     shutdown\n\
+     #\n"
+        .to_owned()
+}
+
+const TPLINK_SECRETS: [&str; 4] = [
+    "Q7R2K9M4X8P1Z6W3N5B0LJHG",
+    "Abc12345",
+    "Def67890",
+    "pr1vate",
+];
+
+#[test]
+fn a_tplink_switch_config_is_detected_and_no_credential_survives() {
+    let mut shell = common::all_booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(0, &tplink_paste()));
+    assert_eq!(platform_of(&reply), "omada-sw");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    for k in TPLINK_SECRETS {
+        assert!(!contains(&reply, k), "reply leaks {k}");
+        assert!(!contains(&stored, k), "stored design leaks {k}");
+    }
+    assert!(contains(&stored, "SW_ALIANCA00"));
+
+    let mut shell = common::all_booted_shell();
+    let display = place(&mut shell, "omada-sw");
+    let reply = shell.handle(OP_PASTE_INTO, &into_frame(0, &display, &tplink_paste()));
+    assert_eq!(platform_of(&reply), "omada-sw");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    for k in TPLINK_SECRETS {
+        assert!(!contains(&reply, k), "paste-into reply leaks {k}");
+        assert!(!contains(&stored, k), "paste-into stored capture leaks {k}");
+    }
+}
+
+#[test]
+fn set_form_detection_never_reads_with_the_tplink_dictionary() {
+    let mut shell = common::all_booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(0, &srx_config()));
+    assert_eq!(platform_of(&reply), "junos-srx");
+}
+
+/// A UniFi switch's `show running-config` as a terminal paste: the session
+/// and header from a real USW-48P-500 (jcutrer.com, read 2026-10-16), the
+/// body in the EdgeSwitch syntax (README-unifi-sw.md).
+fn unifi_paste() -> String {
+    "US.v3.8.6# telnet localhost\n\
+     (UBNT) >enable\n\
+     (UBNT) #show run\n\
+     !Current Configuration:\n\
+     !\n\
+     !System Description \"USW-48P-500,, Linux 3.6.5\"\n\
+     !System Software Version \"\"\n\
+     !\n\
+     hostname \"rack-sw-1\"\n\
+     configure\n\
+     username \"ops\" password Op3rator!x level 1\n\
+     snmp-server host 192.0.2.9 \"trap-community-20chr\"\n\
+     snmp-server user u1 grp1 auth-sha AuthPass1 priv-des PrivPass1\n\
+     interface 0/1\n\
+     description \"uplink\"\n\
+     exit\n\
+     exit\n"
+        .to_owned()
+}
+
+const UNIFI_SECRETS: [&str; 4] = [
+    "Op3rator!x",
+    "trap-community-20chr",
+    "AuthPass1",
+    "PrivPass1",
+];
+
+#[test]
+fn a_unifi_switch_config_is_detected_and_no_credential_survives() {
+    let mut shell = common::all_booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(0, &unifi_paste()));
+    assert_eq!(platform_of(&reply), "unifi-sw");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    for k in UNIFI_SECRETS {
+        assert!(!contains(&reply, k), "reply leaks {k}");
+        assert!(!contains(&stored, k), "stored design leaks {k}");
+    }
+    assert!(contains(&stored, "rack-sw-1"));
+
+    let mut shell = common::all_booted_shell();
+    let display = place(&mut shell, "unifi-sw");
+    let reply = shell.handle(OP_PASTE_INTO, &into_frame(0, &display, &unifi_paste()));
+    assert_eq!(platform_of(&reply), "unifi-sw");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    for k in UNIFI_SECRETS {
+        assert!(!contains(&reply, k), "paste-into reply leaks {k}");
+        assert!(!contains(&stored, k), "paste-into stored capture leaks {k}");
+    }
+}
+
+#[test]
+fn set_form_detection_never_reads_with_the_unifi_dictionary() {
+    let mut shell = common::all_booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(0, &srx_config()));
+    assert_eq!(platform_of(&reply), "junos-srx");
 }

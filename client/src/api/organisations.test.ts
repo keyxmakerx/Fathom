@@ -26,6 +26,15 @@ describe('parseOrganisations', () => {
     expect(parseOrganisations(bytesOf(body)).map((o) => o.role)).toEqual(['member', 'member']);
   });
 
+  it('reads the practice label only when it is exactly true (ADR-0069)', () => {
+    const body = JSON.stringify([
+      { organisation_id: '01JQZ0000000000000000000AA', display_name: 'Practice space', role: 'admin', practice: true },
+      { organisation_id: '01JQZ0000000000000000000AB', display_name: 'Acme Dental', role: 'admin', practice: 'yes' },
+      { organisation_id: '01JQZ0000000000000000000AC', display_name: 'Northwind', role: 'admin' },
+    ]);
+    expect(parseOrganisations(bytesOf(body)).map((o) => o.practice)).toEqual([true, undefined, undefined]);
+  });
+
   it('accepts the empty array — an account that belongs to nothing', () => {
     expect(parseOrganisations(bytesOf('[]'))).toEqual([]);
   });

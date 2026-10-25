@@ -147,7 +147,7 @@ before this had, and it gets its own test.**
 | `fathom-layout` | the device-to-device line derived from a two-ended cable, flagged `cable` |
 | `fathom-inventory` | `cabled_peer` skips absent cables (D8); `display_name` fallback for ports (D11); `InvKind::Cable` and `InvKind::PhysicalPort` rows, appended (D14) |
 | the page | the picker sheet; the hold-a-port gesture on the strip; the Escape rung (D12); journal op + import arm; the Outline row and midpoint word (D13); the wire constants declared so the cross-check test binds them |
-| evidence | `docs/80-review/evidence/2026-08-29-cabling-drive.mjs` through a real reload: mint-on-empty-box, existing-port, unknown-far-end, cut, already-there, the pasted-device chassis mint, the unlabelled-port replay |
+| evidence | `docs/archive/80-review/evidence/2026-08-29-cabling-drive.mjs` through a real reload: mint-on-empty-box, existing-port, unknown-far-end, cut, already-there, the pasted-device chassis mint, the unlabelled-port replay |
 | docs | this record; `57` §14.1 B3 closed; `57` §12.1 and §12.4 annotated; CLAUDE.md's state bullet |
 
 ### As built, 2026-08-29 (the proving session)
@@ -261,12 +261,12 @@ of this is a schema-side cost. Reported, not gated (`49` §1).
 
 | source | for |
 |---|---|
-| `docs/50-design/57-the-zoom-ladder-and-the-trace.md` §12, §13.5, §14.1 | the design and the owner's words |
-| `docs/70-ops/70-owner-answers-and-standing-priorities.md` §18.3 | the empty-chart principle |
+| `docs/archive/50-design/57-the-zoom-ladder-and-the-trace.md` §12, §13.5, §14.1 | the design and the owner's words |
+| `docs/archive/70-ops/70-owner-answers-and-standing-priorities.md` §18.3 | the empty-chart principle |
 | three scout briefs, 2026-08-29 (session scratchpad, `cable-{schema,page,precedent}.brief.txt`) | every line number in §4; the `PassThrough` finding; the `Cable.media.virtual` finding; the tombstone-cascade gap |
 | `schema/schema.yaml` — `Cable`, `Terminates`, `PhysicalPort`, `HasPort`, `HasCable`, `HasChassis`, `PassThrough`, `Link` | the declared shapes |
 | `crates/fathom-wasm/src/shell.rs` — `equip_add`, the `link` arm | the batch and the three-word precedent |
-| `docs/90-decisions/adr-0035-a-hand-placed-position-is-graph-data.md` | this record's shape |
+| `docs/decisions/adr-0035-a-hand-placed-position-is-graph-data.md` | this record's shape |
 
 ## 11. Disagreements
 
