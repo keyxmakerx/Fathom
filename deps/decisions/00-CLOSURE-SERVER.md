@@ -36,6 +36,10 @@
 > 13 → 16 direct. `ctutils 0.4.5` and `crypto-bigint 0.7.6` are under the cooldown window and
 > are admitted by dated rows in `00-COOLDOWN-EXCEPTIONS.md`.
 >
+> **2026-10-25, a yank:** crates.io yanked `crypto-bigint` 0.7.0 to 0.7.8, which put 0.7.6 out of
+> reach of `cargo-deny`. Moved 0.7.6 → **0.7.9**, the only live 0.7 release. No other line moved,
+> and it has its own dated cooldown row.
+>
 > **Cap split 2026-09-12 (OPEN-QUESTIONS A3).** The browser side stays at zero external crates,
 > enforced by `fathom-wasm`'s tests. The server's ceiling is now **200, revisit at 180** — a
 > ceiling, not a budget; every crate still needs its own record here. `scripts/closure-report.sh`
@@ -111,7 +115,7 @@ be exactly the kind of confident guess ADR-0034 forbids.
 | `const-oid` | `0.10.2` | Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 16:35:58 GMT | https://github.com/RustCrypto/formats |
 | `cpubits` | `0.1.1` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 16:53:57 GMT | https://github.com/RustCrypto/utils |
 | `cpufeatures` | `0.3.1` | MIT OR Apache-2.0 | transitive | no | no | Wed, 26 Aug 2026 18:40:00 GMT | https://github.com/RustCrypto/utils |
-| `crypto-bigint` | `0.7.6` | Apache-2.0 OR MIT | transitive | no | no | Fri, 23 Oct 2026 12:25:52 GMT | https://github.com/RustCrypto/crypto-bigint |
+| `crypto-bigint` | `0.7.9` | Apache-2.0 OR MIT | transitive | no | no | Sun, 25 Oct 2026 19:09:46 GMT | https://github.com/RustCrypto/crypto-bigint |
 | `crypto-common` | `0.2.2` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:54:18 GMT | https://github.com/RustCrypto/traits |
 | `ctutils` | `0.4.5` | Apache-2.0 OR MIT | transitive | no | no | Fri, 23 Oct 2026 04:02:08 GMT | https://github.com/RustCrypto/utils |
 | `deadpool` | `0.13.1` | MIT OR Apache-2.0 | transitive | no | no | Wed, 26 Aug 2026 15:11:02 GMT | https://github.com/deadpool-rs/deadpool |
