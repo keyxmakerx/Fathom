@@ -203,3 +203,31 @@
 .drawing[data-zoom-band='50'] .trace-dot {
   display: none;
 }
+
+/* "Try a question" on a sample: a quiet card under the canvas tools (8px + their 34px + a gap), gone while a trace
+   is open. The cable colour key holds the lower left. */
+.trace-questions {
+  position: absolute;
+  left: 8px;
+  top: 52px;
+  z-index: calc(var(--z-modal) - 1);
+  width: min(280px, 60%);
+  padding: var(--s2) var(--s3);
+  background: var(--page);
+  color: var(--ink);
+  border: var(--rule-hair) solid var(--ink);
+  font-family: var(--sans);
+  font-size: var(--t-small);
+}
+
+.trace-questions__title {
+  font-weight: 700;
+}
+
+.trace-questions .trace-suggest li + li {
+  margin-top: var(--s1);
+}
+
+.trace-questions__hint {
+  margin: 0;
+}

@@ -95,9 +95,28 @@ describe.each([
     expect(result.hops.filter((h) => h.kind === 'switch').map((h) => h.title)).toEqual(['switch-2', 'switch-1']);
   });
 
-  it('stops where the design stops when a camera is traced to the NAS', () => {
-    const result = mirror().trace(built.devices.get('camera-1')!, built.devices.get('nas-1')!);
-    expect(result.stopped).not.toBe('');
+  // Card nu-vlan A: a VLAN keeps the cameras on their own network, and the rule on router-1 is what keeps them out.
+  const routerRows = (from: string, to: string): string[] => {
+    const result = mirror().trace(built.devices.get(from)!, to, { protocol: 6, port: 445 });
+    expect(result.stopped).toBe('');
+    const router = result.hops.find((h) => h.title === 'router-1' && h.kind === 'device');
+    return (router?.policies ?? []).map((p) => `${router?.scope}: ${p.name} ${p.action} ${p.state}`);
+  };
+
+  it('reads the deny rule at the router when a camera is traced to the NAS', () => {
+    expect(routerRows('camera-1', '192.168.10.10')).toEqual(['cameras to lan: cameras-stay-out deny matches']);
+  });
+
+  it('reads the permit rule at the router when the desktop is traced to a camera', () => {
+    expect(routerRows('desktop-1', '192.168.30.21')).toEqual(['lan to cameras: lan-may-view-cameras permit matches']);
+  });
+
+  it('traces every ready-made question to its far end', () => {
+    for (const q of spec.questions ?? []) {
+      const result = mirror().trace(built.devices.get(q.from)!, q.to);
+      expect(result.stopped, q.ask).toBe('');
+    }
+    expect(spec.questions?.length).toBeGreaterThan(0);
   });
 
   it('opens with nothing a check refuses', () => {

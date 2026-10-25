@@ -637,6 +637,9 @@ function DrawingInner({
   const handleNodeContextMenu: NodeMouseHandler = useCallback(
     (event, node) => {
       if (node.type === 'looseCable') return openMenu(event, { kind: 'cable', id: (node.data as LooseCableNodeData).cable.id });
+      // A device on a shelf, wall, desk or ceiling has the same menu as one in a rack unit.
+      const onDevice = (event.target as Element | null)?.closest?.('[data-device-chassis]')?.getAttribute('data-device-chassis');
+      if (onDevice) return openMenu(event, { kind: 'chassis', id: onDevice, on: node.id.startsWith('surface:') ? 'fixture' : 'occupant' });
       const parsedFree = parseFreeNodeId(node.id);
       const rackNode = parseNodeId(node.id);
       if (rackNode?.kind === 'rack') {
@@ -1135,7 +1138,7 @@ function DrawingInner({
   const tallestRackHeightU = Math.max(42, ...view.racks.map((r) => r.heightU));
   const panelHeightPx = rackNodeHeight({ heightU: tallestRackHeightU });
   const surfacesLayout = useMemo(
-    () => layoutSurfaces(view.surfaces ?? [], rowsWidthPx, rowsHeightPx, panelHeightPx, U_PX),
+    () => layoutSurfaces(view.surfaces ?? [], rowsWidthPx, rowsHeightPx, panelHeightPx, U_PX, undefined, SURFACE_HEADER_PX),
     [view.surfaces, rowsWidthPx, rowsHeightPx, panelHeightPx],
   );
 

@@ -110,6 +110,15 @@ describe('buildChain', () => {
     expect(chain.steps.find((s) => s.topic === 'address')!.why).toContain(WHY_RULES['ip.address.same-on-link']);
   });
 
+  it('says how to check every step, in actions a newcomer can take', () => {
+    const l = lab();
+    const chain = buildChain(l.doc, l.nas.device);
+    for (const s of chain.steps) expect(s.how.length).toBeGreaterThan(0);
+    const address = chain.steps.find((s) => s.topic === 'address')!;
+    expect(address.how.join(' ')).toMatch(/ping \S+/);
+    expect(chain.steps.find((s) => s.topic === 'link')!.how.join(' ')).toMatch(/light/);
+  });
+
   it('names the parts that would be suspect and tests that tell them apart', () => {
     const l = lab();
     const link = buildChain(l.doc, l.nas.device).steps.find((s) => s.topic === 'link')!;

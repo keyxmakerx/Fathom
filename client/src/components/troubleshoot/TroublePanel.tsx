@@ -7,6 +7,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 
 import type { Answer, Issue } from '../../document/issues';
 import { isTypingTarget } from '../checks/checksModel';
+import { Glossed } from '../learn/Glossed';
 import { TypedSentence, isPasteInput, usePasteMark } from '../plans/PlanParts';
 import { ANSWER_WORD, GLYPH, answerForKey, answered, headerText, planFixState, pointOf, whenText, type Draft, type DraftStepState } from './troubleModel';
 import type { TroubleController } from './useTroubleController';
@@ -37,7 +38,9 @@ function WhyCard({ step, onClose }: { step: { why: readonly string[]; question: 
   return (
     <section ref={ref} tabIndex={-1} className="trouble-why" aria-label="Why" data-testid="trouble-why">
       {step.why.map((w) => (
-        <p key={w}>{w}</p>
+        <p key={w}>
+          <Glossed text={w} />
+        </p>
       ))}
       <button type="button" className="trouble-link" onClick={onClose}>
         Close
@@ -166,6 +169,16 @@ function Step({ step, index, controller, onTie }: { step: DraftStepState; index:
             </button>
           </p>
           {step.detail !== '' && <p className="trouble-step__detail">{step.detail}</p>}
+          {step.how.length > 0 && (
+            <div className="trouble-how" data-testid="trouble-how">
+              <p className="trouble-how__label">How to check</p>
+              {step.how.map((h) => (
+                <p key={h}>
+                  <Glossed text={h} />
+                </p>
+              ))}
+            </div>
+          )}
           {step.tie !== undefined && onTie && (
             <p className="trouble-step__detail">
               Not tied to a port ·{' '}
@@ -367,7 +380,7 @@ export function TroublePanel({
   const placed = `trouble-panel${besideChecks ? ' trouble-panel--beside-checks' : ''}${besidePlans ? ' trouble-panel--beside-plans' : ''}`;
   if (!controller.panelOpen) {
     return (
-      <div className="trouble-folded" data-testid="trouble-folded">
+      <div className={`trouble-folded${besideChecks ? ' trouble-folded--beside-checks' : ''}${besidePlans ? ' trouble-folded--beside-plans' : ''}`} data-testid="trouble-folded">
         <button ref={openBtn} type="button" className="trouble-btn trouble-btn--ink" onClick={() => controller.setPanelOpen(true)}>
           Open "{title}"
         </button>
