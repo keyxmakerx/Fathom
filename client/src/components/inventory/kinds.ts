@@ -13,7 +13,7 @@ import { FIELD_TYPE_LABEL, fieldsOf, listFieldDefs, setFieldValues, type FieldDe
 import { edgesIn, findNode, parseNodeId, readChassisFields, readDeviceFields, readPhysicalPortFields, type Document } from '../../document/model';
 import { tagObject, tagsOf, untagObject } from '../../document/tags';
 import { STATE_WORD, deviceFirmware, listTargets, stateOf } from '../../document/firmware';
-import type { SubnetRow } from '../../document/networks-derive';
+import type { SubnetRow, VlanRow } from '../../document/networks-derive';
 import { vlanLabel, type PrefixRow, type VlanKindRow } from '../../document/ipam';
 import type { CableEnd, ClosetView, Selection } from '../drawing/contract';
 import { ABSENT, UNNAMED_HOSTNAME } from '../drawing/contract';
@@ -479,15 +479,43 @@ export function portRows(doc: Document, view: ClosetView, idx: PlaceIndex, defs:
   });
 }
 
-export function addressRows(doc: Document, subnets: readonly SubnetRow[], deviceLabel: (deviceNodeId: string) => string): InvRow[] {
+/** Every address on a device. An address on a VLAN's member is listed under that VLAN's row by the
+ * derivation, not under a subnet row, so both are read here; without the VLAN rows a design whose
+ * addresses all sit in VLANs (the sample home lab) listed none. */
+export function addressRows(
+  doc: Document,
+  subnets: readonly SubnetRow[],
+  deviceLabel: (deviceNodeId: string) => string,
+  vlans: readonly Pick<VlanRow, 'cidr' | 'members'>[] = [],
+): InvRow[] {
   const out: InvRow[] = [];
+  const seen = new Set<string>();
   for (const subnet of subnets) {
     for (const m of subnet.members) {
+      seen.add(`${m.unitId}|${m.address}`);
       out.push({
         key: `address:${m.addressNodeId}`,
         selection: null,
         ownerId: null,
         cells: { address: m.address, interface: m.interfaceLabel, device: deviceLabel(m.deviceId), subnet: subnet.prefix },
+        tags: [],
+        ids: {},
+        title: m.address,
+        deviceNodeId: m.deviceId,
+      });
+    }
+  }
+  for (const vlan of vlans) {
+    for (const m of vlan.members) {
+      if (m.address == null || m.address === '' || m.container != null) continue;
+      const k = `${m.unitId}|${m.address}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push({
+        key: `address:${m.unitId}:${m.address}`,
+        selection: null,
+        ownerId: null,
+        cells: { address: m.address, interface: m.interfaceLabel, device: deviceLabel(m.deviceId), subnet: vlan.cidr ?? '' },
         tags: [],
         ids: {},
         title: m.address,

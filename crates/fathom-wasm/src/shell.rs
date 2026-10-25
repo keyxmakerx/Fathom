@@ -194,6 +194,17 @@ impl Shell {
                 Some(p) => p == "omada-sw",
                 None => fathom_ingest::blockcfg::looks_like_tplink(text),
             };
+        // A UniFi switch's `show running-config`: the EdgeSwitch header with a
+        // UniFi model in it.
+        let unifi = !table
+            && !export
+            && !backup
+            && !host
+            && !switch
+            && match hint {
+                Some(p) => p == "unifi-sw",
+                None => fathom_ingest::blockcfg::looks_like_unifi(text),
+            };
         let (ingest, platform) = if table {
             let Some(dict) = self.dicts.get("opnsense") else {
                 return missing("table");
@@ -217,6 +228,12 @@ impl Shell {
                 return missing("TP-Link");
             };
             let read = fathom_ingest::blockcfg::ingest_blockcfg(text, dict).map_err(refuse)?;
+            (read, dict.platform().to_owned())
+        } else if unifi {
+            let Some(dict) = self.dicts.get("unifi-sw") else {
+                return missing("UniFi");
+            };
+            let read = fathom_ingest::blockcfg::ingest_unifi(text, dict).map_err(refuse)?;
             (read, dict.platform().to_owned())
         } else if export {
             let Some(dict) = self.dicts.get("routeros") else {
@@ -3180,13 +3197,13 @@ fn field_name(key: fathom_ir::bag::FieldKey) -> &'static str {
 /// The comma-joined detectors that fired on one destroyed value (`14` §9.2:
 /// "redacted once and the manifest records both reasons").
 /// Platforms read by a front end of their own (the rules CSV, a RouterOS export,
-/// a pfSense backup, a Linux host's `ip` output, a TP-Link switch config),
+/// a pfSense backup, a Linux host's `ip` output, a TP-Link or UniFi switch config),
 /// never by the set-form shaper: detection, a named set-form platform and
 /// `OP_REDACT_TEXT` all skip them.
 fn is_own_front_end(platform: &str) -> bool {
     matches!(
         platform,
-        "opnsense" | "routeros" | "pfsense" | "linux-host" | "omada-sw"
+        "opnsense" | "routeros" | "pfsense" | "linux-host" | "omada-sw" | "unifi-sw"
     )
 }
 

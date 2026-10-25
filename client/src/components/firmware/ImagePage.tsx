@@ -8,6 +8,7 @@ import { shortHash, sizeWords } from '../../api/firmware';
 import { modelRows } from '../../document/firmware';
 import type { FirmwareApi } from './context';
 import { BADGE_WORD, imageRows, platformWords } from './images';
+import { HowItGetsThere } from './ByHand';
 import { ModelsEditor } from './ModelsEditor';
 import { CopyButton, GetLink } from './parts';
 import './firmware.css';
@@ -127,8 +128,10 @@ export function ImagePage({ api, rowKey, onOpenModel }: { api: FirmwareApi; rowK
 
       {img && img.state === 'staged' && api.isSteward ? (
         <div>
-          <div className="fw-label">One-time link</div>
-          <GetLink api={api} imageId={img.imageId} />
+          <HowItGetsThere byHand={img.commands?.byHand}>
+            <div className="fw-label">One-time link</div>
+            <GetLink api={api} imageId={img.imageId} />
+          </HowItGetsThere>
         </div>
       ) : null}
       {img && img.state === 'failed' ? <p className="fw-error">This upload failed: {img.failedReason ?? 'unknown reason'}. Nothing was staged.</p> : null}

@@ -524,6 +524,22 @@ async fn main() -> ExitCode {
             return ExitCode::from(8);
         }
     };
+    let explainers = match fathom_server::design_api::load_explainers(&corpus_root) {
+        Ok(entries) => {
+            tracing::info!(entries = entries.len(), "explainers loaded");
+            Arc::new(entries)
+        }
+        Err(e) => {
+            tracing::error!(
+                file = %e.file,
+                line = e.line,
+                message = %e.message,
+                root = %corpus_root.display(),
+                "the corpus could not be loaded; refusing to start"
+            );
+            return ExitCode::from(8);
+        }
+    };
     let sessions_for_firmware = Arc::clone(&sessions);
     let watch_for_firmware = Arc::clone(&watch);
     // ADR-0063: the design heads and the stream hub, and the one connection that
@@ -546,6 +562,7 @@ async fn main() -> ExitCode {
         watch,
         ring: Arc::clone(&ring),
         catalogue,
+        explainers,
         client_address: client_address.clone(),
         live,
         invitation_limits: fathom_server::invitations::Limits::STANDARD,

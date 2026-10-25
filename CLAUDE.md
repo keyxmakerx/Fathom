@@ -8,7 +8,9 @@ multi-user editing, thousands of devices per design.
 
 **Status: built and green, not yet usable** (2026-10-10). Engine, server and client are in and every
 gate passes. Since the owner's walkthroughs (2026-09-22, 2026-09-27; ADR-0060, one canvas with detail
-added by degrees) the rounds on the sign-off page have been built and merged.
+added by degrees) the rounds on the sign-off page through 15 have been built and merged; ADR-0068
+records rounds 16 to 27, of which one sign-in, the Back tree, Equipment opening by itself and missing links
+are built.
 **"Usable" is the owner's word and means beta: polished, the app basically done, a few features allowed to be missing.** Green gates do not
 grant it; a walkthrough by the owner does. The backlog is in GitHub issues; `docs/NEXT.md` says how
 to work, and `docs/REBUILD-PLAN.md` holds the rebuild's reasoning.
@@ -46,8 +48,11 @@ longer exists. It is kept because the thinking is good, not because it is curren
    A credential leak once survived four reviews because the test used a password longer than any
    real device would take.
 3. **A field that is not in `schema/` does not exist.** Extend the schema properly; keep tests green.
-4. **Device credentials are protected by never arriving.** The redaction gate runs before anything
-   is stored. This survives every architectural change.
+4. **A pasted config's credentials never arrive.** The redaction gate runs in the browser before
+   anything from a paste is stored or sent, and the server refuses any that still arrive. This
+   survives every architectural change. It does not mean Fathom never stores a credential: ADR-0042
+   (accepted) keeps credentials a person chooses to store in a vault, never in the design, never
+   without being shown and chosen. The vault is not built yet.
 5. **Four sentences are forbidden in writing** until customer-held keys are real: *zero-knowledge*,
    *end-to-end*, *we cannot read your data*, *only you hold the key*.
 6. Decisions in `docs/decisions/` bind once accepted, but reopen on merit. Sunk cost is not an

@@ -2,7 +2,8 @@
 
 **Partly replaced by ADR-0060 (2026-09-27).** It sets these: one canvas with detail added by
 degrees, the places named Canvas and Inventory, a labelled side panel, right-click menus, and
-Organisation and Admin tabs on the home screen. Where this page and ADR-0060 disagree, ADR-0060 wins.
+Organisation and Admin tabs on the home screen. Where this page and ADR-0060 disagree, ADR-0060 wins; the same holds for the later rounds in
+ADR-0061 and ADR-0068 (for example the one Back button with its tree, ADR-0068 point 2).
 
 **Sources.** Read this page by default; open a picture only when building the surface it shows.
 - **Shell** (ADR-0047): https://claude.ai/artifact/GkXzzMe3JG6SQAaXke9C4p, `design/shell/`. The frame

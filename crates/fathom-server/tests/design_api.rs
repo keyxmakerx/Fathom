@@ -455,6 +455,9 @@ async fn app(
         watch,
         ring,
         catalogue: Arc::new(catalogue),
+        explainers: Arc::new(
+            design_api::load_explainers(&repo_root()).expect("load the real corpus explainers"),
+        ),
         client_address: fathom_server::client_address::ClientAddress::peer(),
         live,
         invitation_limits: fathom_server::invitations::Limits::STANDARD,
@@ -1669,6 +1672,45 @@ async fn verify_reports_broken_at_the_tampered_entry() {
         text.contains("\"verified_before\":1"),
         "entry 1 must still report verified: {text}"
     );
+}
+
+/// The repository root: the crate lives two levels under it.
+fn repo_root() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("the crate lives two levels under the repo root")
+        .to_path_buf()
+}
+
+// ---------------------------------------------------------------------------
+// The explainers (ADR-0066 item 1.1)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn the_explainers_need_a_session_and_say_when_nobody_reviewed_them() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let addr = serve(app(&pool, ring, Vec::new()).await).await;
+
+    let (status, _) = raw_request(addr, "GET", "/learn/explainers", &[], b"").await;
+    assert_eq!(status, "401", "reference text still sits behind a session");
+
+    let (status, body) = call(addr, &estate.steward, "GET", "/learn/explainers", b"").await;
+    assert_eq!(status, "200");
+    let text = String::from_utf8_lossy(&body);
+    assert!(
+        text.contains("\"id\":\"explain:concept:arista.eos-basics\""),
+        "{text}"
+    );
+    assert!(text.contains("\"platforms\":[\"eos\"]"), "{text}");
+    assert!(
+        text.contains("\"reviewed\":false"),
+        "every explainer is still unreviewed, and the wire must say so"
+    );
+    assert!(text.contains("\"sources\":[{"), "{text}");
 }
 
 // ---------------------------------------------------------------------------

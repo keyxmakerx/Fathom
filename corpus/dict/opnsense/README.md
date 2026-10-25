@@ -1,7 +1,7 @@
 # corpus/dict/opnsense — the firewall-rules CSV
 
 > **Status:** Accepted, 2026-08-15. Owns the reasoning behind
-> `firewall-rules.yaml`; `docs/60-content/64-platform-capture-survey.md` §1.1 owns the
+> `firewall-rules.yaml`; `docs/archive/60-content/64-platform-capture-survey.md` §1.1 owns the
 > capture path and its sources.
 
 ## 0. Contents

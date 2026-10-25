@@ -1,8 +1,9 @@
 import { containersOnDevice } from '../../document/docker';
+import { deviceOfChassis } from '../../document/firmware';
 import type { Document } from '../../document/model';
 import { deriveNetworks } from '../../document/networks-derive';
 import { tagsOf } from '../../document/tags';
-import type { ClosetView } from '../../document/view';
+import type { ClosetView, FixtureView, SurfaceView } from '../../document/view';
 import type { Selection } from '../drawing/contract';
 
 /** One quick-search result: what the list shows and what choosing it selects. */
@@ -22,7 +23,7 @@ const GROUP_ORDER: readonly SearchHit['group'][] = ['Devices', 'Racks', 'Ports',
  * name or tag; choosing one selects a cable that carries it) and containers (choosing one
  * selects its host). A port matches only when the query reaches past its device's name
  * ("acc-01 · 6", not "acc"). */
-export function searchDesign(view: Pick<ClosetView, 'racks'> & Partial<Pick<ClosetView, 'cables'>>, query: string, doc?: Document, limit = 12): SearchHit[] {
+export function searchDesign(view: Pick<ClosetView, 'racks'> & Partial<Pick<ClosetView, 'cables' | 'surfaces'>>, query: string, doc?: Document, limit = 12): SearchHit[] {
   const q = query.trim().toLowerCase();
   if (q.length === 0) return [];
   const has = (s: string | null | undefined) => s != null && s.toLowerCase().includes(q);
@@ -70,7 +71,30 @@ export function searchDesign(view: Pick<ClosetView, 'racks'> & Partial<Pick<Clos
       }
     }
   }
+  // Devices off the rack: on a shelf, or fixed to a wall, desk or ceiling. A sample keeps most of its
+  // devices there, so a search that read only rack units missed nine of the sample's eleven.
   const hostOfPort = new Map<string, string>();
+  for (const rack of view.racks) {
+    for (const shelf of rack.shelves ?? []) {
+      for (const occ of shelf.occupants) {
+        if (occ.kind !== 'chassis') continue;
+        for (const port of occ.ports) hostOfPort.set(port.id, occ.label);
+        if (has(occ.label) || has(occ.model) || (doc ? matchingTagName(deviceOfChassis(doc, occ.id) ?? occ.id) : undefined)) {
+          const where = `${shelf.label} · slot ${occ.slot}`;
+          hits.push({ group: 'Devices', name: occ.label, why: `${occ.model ?? 'typed'} · ${where}`, where, selection: { kind: 'occupant', id: occ.id } });
+        }
+      }
+    }
+  }
+  for (const surface of view.surfaces ?? []) {
+    for (const fx of fixturesOf(surface)) {
+      if (fx.kind !== 'chassis') continue;
+      for (const port of fx.ports) hostOfPort.set(port.id, fx.label);
+      if (has(fx.label) || has(fx.model) || (doc ? matchingTagName(deviceOfChassis(doc, fx.id) ?? fx.id) : undefined)) {
+        hits.push({ group: 'Devices', name: fx.label, why: `${fx.model ?? 'typed'} · ${surface.label}`, where: surface.label, selection: { kind: 'fixture', id: fx.id } });
+      }
+    }
+  }
   for (const rack of view.racks) {
     for (const ch of rack.chassis) for (const port of ch.ports) hostOfPort.set(port.id, ch.hostname || ch.model);
   }
@@ -121,4 +145,17 @@ export function searchDesign(view: Pick<ClosetView, 'racks'> & Partial<Pick<Clos
   // Array.prototype.sort is stable, so each group keeps rack order.
   hits.sort((a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group));
   return hits.slice(0, limit);
+}
+
+/** A surface's fixtures, a board's own included. */
+function fixturesOf(surface: Pick<SurfaceView, 'fixtures'>): FixtureView[] {
+  const out: FixtureView[] = [];
+  const walk = (list: readonly FixtureView[]) => {
+    for (const f of list) {
+      out.push(f);
+      walk(f.fixtures);
+    }
+  };
+  walk(surface.fixtures);
+  return out;
 }
