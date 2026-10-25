@@ -74,12 +74,14 @@ import { loadCableStyle, saveCableStyle, type CableStyle } from '../drawing/cabl
 import { loadLook, saveLook, type Look } from '../drawing/look';
 import { InsideStop } from '../inside/InsideStop';
 import { ChecksBarChip, ChecksSurface } from '../checks/ChecksPanel';
+import { totalCount } from '../checks/checksModel';
 import { MissingLinksChip } from '../drawing/MissingLinksChip';
 import { missingLinksOf } from '../drawing/missingLinks';
 import { mediaCandidates } from '../checks/checksModel';
 import { CheckMarksContext, ChecksContext } from '../checks/checksStore';
 import { useChecksController } from '../checks/useChecksController';
 import { TracePanel } from '../trace/TracePanel';
+import { InSideSlot, type SideTab } from '../shell/sideSlot';
 import { TraceContext } from '../trace/traceStore';
 import { useTraceController } from '../trace/useTraceController';
 import { loadFirstSteps, recordFirstSteps } from '../home/firstSteps';
@@ -1814,6 +1816,21 @@ export function RacksPlace(props: RacksPlaceProps) {
     </>
   ) : null;
 
+  // r30-panels: Checks, the open plan, "It's down" and a trace are tabs of the right-hand panel.
+  const sideTabs: SideTab[] | undefined =
+    doc == null
+      ? undefined
+      : [
+          { id: 'checks', label: 'Checks', count: checks.result != null ? totalCount(checks.result) : 0, open: checks.open, onOpen: () => checks.setOpen(true), onClose: () => checks.setOpen(false) },
+          ...(plans.plan != null && !plans.listMode
+            ? [{ id: 'plan', label: 'Plan', open: plans.panelOpen, onOpen: () => plans.setPanelOpen(true), onClose: () => plans.setPanelOpen(false) }]
+            : []),
+          ...(trouble.draft != null || trouble.viewing != null
+            ? [{ id: 'down', label: "It's down", open: trouble.panelOpen, onOpen: () => trouble.setPanelOpen(true), onClose: () => trouble.setPanelOpen(false) }]
+            : []),
+          ...(trace.open && jot == null ? [{ id: 'trace', label: 'Trace', open: true, onOpen: () => {}, onClose: trace.close }] : []),
+        ];
+
   // The bar's path gains the open device; the part before it leads back out.
   const jotDevice = jot != null ? deviceChassis(realView, jot.id) : undefined;
   const jotPath: PathPart[] =
@@ -1826,7 +1843,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
-    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, cables: look === 'diagram' ? undefined : { value: cableStyle, onChange: changeCableStyle }, aids: showAids }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} autoEquipment={autoOpenEquipment(doc != null, canDraw, realView)} equipmentRequest={equipmentRequest} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, cables: look === 'diagram' ? undefined : { value: cableStyle, onChange: changeCableStyle }, aids: showAids }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} autoEquipment={autoOpenEquipment(doc != null, canDraw, realView)} equipmentRequest={equipmentRequest} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} sideTabs={sideTabs} barExtra={
         doc != null ? (
           <>
             {isSample ? <SampleChip onReset={canDraw && loadFirstSave != null ? resetSample : undefined} /> : null}
@@ -2014,11 +2031,19 @@ export function RacksPlace(props: RacksPlaceProps) {
           {canvasNotice}
         </div>
       ) : null}
-      {doc != null && !trace.open ? <ChecksSurface controller={checks} canShow={jot == null} /> : null}
+      {doc != null ? <ChecksSurface controller={checks} canShow={jot == null} /> : null}
       {doc != null ? <PlansSurface controller={plans} besideChecks={checks.open} /> : null}
-      {doc != null && (trouble.draft != null || trouble.viewing != null) ? <TroublePanel controller={trouble} besideChecks={checks.open} besidePlans={plans.plan != null && plans.panelOpen && !plans.listMode} onTie={canDraw ? setTieFor : undefined} /> : null}
+      {doc != null && (trouble.draft != null || trouble.viewing != null) ? (
+        <InSideSlot id="down">
+          <TroublePanel controller={trouble} besideChecks={checks.open} besidePlans={plans.plan != null && plans.panelOpen && !plans.listMode} onTie={canDraw ? setTieFor : undefined} />
+        </InSideSlot>
+      ) : null}
       {doc != null && jot == null && !trace.open ? <ReadyQuestions questions={questions} onAsk={(q) => trace.ask(q.chassisId, q.to, q.flow)} /> : null}
-      {doc != null && jot == null ? <TracePanel controller={trace} onTie={canDraw ? setTieFor : undefined} /> : null}
+      {doc != null && jot == null ? (
+        <InSideSlot id="trace">
+          <TracePanel controller={trace} onTie={canDraw ? setTieFor : undefined} />
+        </InSideSlot>
+      ) : null}
       </TraceContext.Provider>
       </TroubleContext.Provider>
       </SuggestContext.Provider>

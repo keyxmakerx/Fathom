@@ -331,30 +331,9 @@ try {
     await page.waitForTimeout(300);
     check(`[${w}x${h}] a click on empty canvas clears the fade`, (await page.locator('.checks-faded').count()) === 0);
 
-    // Drag the panel by its header; the place is remembered for this browser.
-    const head = await page.locator('.checks-panel__head').boundingBox();
-    await page.mouse.move(head.x + 40, head.y + 10);
-    await page.mouse.down();
-    await page.mouse.move(head.x - 60, head.y + 60, { steps: 6 });
-    await page.mouse.up();
-    await page.waitForTimeout(200);
-    const moved = await page.locator('[data-testid=checks-panel]').boundingBox();
-    check(`[${w}x${h}] the header drags the panel`, Math.abs(moved.x - panel.x) > 20, `${panel.x} -> ${moved.x}`);
-    const stored = await page.evaluate(() => localStorage.getItem('fathom.checks.panel'));
-    check(`[${w}x${h}] the place is remembered`, stored != null && JSON.parse(stored).x !== 0, String(stored));
-    await shot(page, `${tag}-06-dragged`);
-    const area = await page.locator('.shell__drawing').boundingBox();
-    for (const [name, dx, dy] of [['left', -3000, 0], ['bottom', 0, 3000], ['right', 3000, 0], ['top', 0, -3000], ['bottom-left', -3000, 3000], ['top-right', 3000, -3000]]) {
-      const hd = await page.locator('.checks-panel__head').boundingBox();
-      await page.mouse.move(hd.x + 30, hd.y + 10);
-      await page.mouse.down();
-      await page.mouse.move(Math.max(1, Math.min(w - 1, hd.x + 30 + dx)), Math.max(1, Math.min(h - 1, hd.y + 10 + dy)), { steps: 8 });
-      await page.mouse.up();
-      await page.waitForTimeout(150);
-      const pb = await page.locator('[data-testid=checks-panel]').boundingBox();
-      check(`[${w}x${h}] dragged to the ${name}, the panel stays on the canvas`, pb.x >= area.x - 1 && pb.y >= area.y - 1 && pb.x + pb.width <= area.x + area.width + 1 && pb.y + pb.height <= area.y + area.height + 1, JSON.stringify({ pb, area }));
-    }
-    await shot(page, `${tag}-07-dragged-extreme`);
+    // r30-panels: the panel is a tab of the right-hand panel, not a card dragged about the canvas.
+    check(`[${w}x${h}] the panel sits in the right-hand panel, not over the canvas`, (await page.locator('.dock-side [data-testid=checks-panel]').count()) === 1);
+    await shot(page, `${tag}-06-in-dock`);
     await page.locator('.checks-panel__head').getByRole('button', { name: 'Fold the Checks panel' }).click();
     await page.waitForTimeout(200);
     check(`[${w}x${h}] Fold leaves only the count in the bar`, (await page.locator('[data-testid=checks-panel]').count()) === 0 && (await page.locator('[data-testid=checks-chip]').count()) === 1);

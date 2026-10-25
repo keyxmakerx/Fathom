@@ -5,6 +5,7 @@ import { Bar } from './shell/Bar';
 import { useElementWidth, useWindowWidth } from './shell/Dock';
 import { fitPanels, loadPanelWidth, panelMax, savePanelWidth, PANEL_DEFAULT, type PanelId } from './shell/panelSizing';
 import { PANEL_OF, RightDock } from './shell/RightDock';
+import { nextActive, SideSlots } from './shell/sideSlot';
 import { rememberedTab, useRightTab, type RightTab } from './shell/useRightTab';
 import { loadResume, patchResume } from './design/resume';
 import type { ShellProps } from './shell/types';
@@ -79,6 +80,7 @@ export function Shell({
   cablesGroupsSummary,
   hiddenCablesCount,
   onShowAllHiddenCables,
+  sideTabs,
 }: ShellProps) {
   // The notice sits under its field when the open panel shows it; otherwise in the canvas corner.
   const [anchored, setAnchored] = useState(false);
@@ -116,6 +118,34 @@ export function Shell({
     autoEquipment,
     equipmentRequest,
   });
+  // r30-panels: a side tab that opens takes the panel; one that closes gives it back.
+  const [sideActive, setSideActive] = useState<string | null>(null);
+  const sideWasOpen = useRef<Record<string, boolean>>({});
+  useEffect(() => {
+    const tabs = sideTabs ?? [];
+    const next = nextActive(sideActive, sideWasOpen.current, tabs);
+    sideWasOpen.current = Object.fromEntries(tabs.map((t) => [t.id, t.open]));
+    if (next !== sideActive) setSideActive(next);
+  });
+  const [sideEls, setSideEls] = useState<Record<string, HTMLElement | null>>({});
+  const sideRefs = useRef(new Map<string, (el: HTMLElement | null) => void>());
+  const sideRef = useCallback((id: string) => {
+    let ref = sideRefs.current.get(id);
+    if (ref == null) {
+      ref = (el) => setSideEls((now) => (now[id] === el ? now : { ...now, [id]: el }));
+      sideRefs.current.set(id, ref);
+    }
+    return ref;
+  }, []);
+  const slots = sideTabs == null ? null : Object.fromEntries(sideTabs.map((t) => [t.id, sideEls[t.id] ?? null]));
+  const chooseRight = useCallback(
+    (t: RightTab) => {
+      setSideActive(null);
+      choose(t);
+    },
+    [choose],
+  );
+
   const [wants, setWants] = useState<Record<PanelId, number>>(() => ({
     rail: loadPanelWidth('rail'),
     details: loadPanelWidth('details'),
@@ -135,14 +165,14 @@ export function Shell({
   const [bodyRef, bodyWidth] = useElementWidth<HTMLDivElement>();
   const lastRight = useRef<RightTab>(rail != null ? 'equipment' : 'details');
   if (shown != null) lastRight.current = shown;
-  const rightPresent = rail != null || editor != null || onHistory != null || trail != null;
+  const rightPresent = rail != null || editor != null || onHistory != null || trail != null || (sideTabs?.length ?? 0) > 0;
   const stripsWidth = rightPresent ? 28 : 0;
   const fit = fitPanels({
     bodyWidth,
     windowWidth,
     stripsWidth,
     left: null,
-    right: shown != null ? wants[PANEL_OF[shown]] : null,
+    right: sideActive != null ? wants.details : shown != null ? wants[PANEL_OF[shown]] : null,
   });
   // While a panel slides shut its slot still needs a width to shrink from.
   const lastWidths = useRef({ right: wants[PANEL_OF[lastRight.current]] });
@@ -198,7 +228,7 @@ export function Shell({
       {band}
       <div className="shell__body" ref={bodyRef} data-resizing={resizing ? '' : undefined}>
         <main className="shell__drawing" aria-label="Drawing">
-          {children}
+          <SideSlots.Provider value={slots}>{children}</SideSlots.Provider>
           {!inEditor && notices != null && <div className="shell__notices-corner">{notices}</div>}
         </main>
         {/* One right-hand slot: Equipment, Details, History and the Trail are its tabs; one is open at a time. */}
@@ -213,11 +243,15 @@ export function Shell({
           editorProps={{ notices, noticeField, noticeElement, onAnchored: setAnchored }}
           width={rightWidth}
           max={rightMax}
-          onChoose={choose}
+          onChoose={chooseRight}
           onFold={fold}
           onResize={resizePanel}
           onReset={resetPanel}
           onDragging={setResizing}
+          side={sideTabs}
+          active={sideActive}
+          onActivate={setSideActive}
+          slotRef={sideRef}
         />
       </div>
     </div>

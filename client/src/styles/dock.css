@@ -248,3 +248,35 @@
 .dock-right > .dock-strip {
   height: 100%;
 }
+
+/* r30-panels: Checks, a plan, "It's down" and a trace open in the panel instead of over the canvas. Their own
+   card placement (absolute, beside one another, dragged by the head) is undone here; the slot gives them their
+   width, and they scroll inside it. */
+.dock-panel > .dock-side {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background: var(--page);
+}
+.dock-panel > .dock-side[hidden] {
+  display: none;
+}
+.dock-panel > .dock-side > * {
+  position: static;
+  inset: auto;
+  z-index: auto;
+  width: auto;
+  max-height: none;
+  flex: 1 1 auto;
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+  /* !important only to beat the inline offset a dragged card was left at. */
+  transform: none !important;
+}
+.dock-panel .dock-side .checks-panel__head,
+.dock-panel .dock-side .plans-panel__head {
+  cursor: default;
+}

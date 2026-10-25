@@ -1,3 +1,4 @@
+import type { SideTab } from './sideSlot';
 import type { ReactNode } from 'react';
 
 import type { Lens } from './lens';
@@ -164,6 +165,10 @@ export interface ShellProps {
   autoEquipment?: boolean;
   /** Each bump opens the Equipment tab (the "Add equipment" button on the canvas). */
   equipmentRequest?: number;
+
+  /** r30-panels: more tabs for the right-hand panel (Checks, a plan, "It's down", a trace). What each draws goes
+   * through `InSideSlot`. */
+  sideTabs?: readonly SideTab[];
 
   /** The design's trail (ADR-0053 §4), folded to a strip on the right edge.
    * Absent where no design is open. */
