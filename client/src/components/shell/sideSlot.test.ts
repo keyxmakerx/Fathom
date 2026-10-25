@@ -46,8 +46,8 @@ describe('side tabs (r30-panels)', () => {
   });
 
   it('outside a shell with side tabs, what goes in a slot draws where it is', () => {
-    expect(renderToStaticMarkup(createElement(InSideSlot, { id: 'checks' }, 'checks here'))).toBe('checks here');
-    const inShell = createElement(SideSlots.Provider, { value: { checks: null } }, createElement(InSideSlot, { id: 'checks' }, 'checks here'));
+    expect(renderToStaticMarkup(createElement(InSideSlot, { id: 'checks', children: 'checks here' }))).toBe('checks here');
+    const inShell = createElement(SideSlots.Provider, { value: { checks: null } }, createElement(InSideSlot, { id: 'checks', children: 'checks here' }));
     expect(renderToStaticMarkup(inShell)).toBe('');
   });
 });
