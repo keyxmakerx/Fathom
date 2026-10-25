@@ -210,6 +210,13 @@ breadcrumb does one thing.
   Getting started (Home's right panel) ticks itself per account in this browser; a sample's own devices and
   cables do not count. Hidden, it lives under Help. Not built: the guided lessons, and tracing from a device on
   a wall, desk or shelf (the menu offers it on racked devices only). `scripts/drive-sample.mjs` drives it.
+- **Explainers in the app** (ADR-0066 item 1.1). `GET /learn/explainers` serves every entry in
+  `corpus/explainers/` (loaded once at startup with the rest of the corpus). A device whose `Device.platform`
+  has a read-this-first explainer shows a Learn line in its Details tab (every Linux flavour goes to
+  `linux-host`); Read more and Ctrl+K "Open Learn" open the explainer and the library, each marked
+  Unreviewed while `reviewed_by` is a placeholder. `client/src/components/learn/context.ts`'s
+  `useLearn().openExplainer(id)` is the one way in. Not built: the Learn switch, lessons, explainers for
+  Cisco and MikroTik. `scripts/drive-learn.mjs` drives it.
 - **Inventory table with pages and shared custom fields** (schema 0.16, ADR-0062). Field definitions are an organisation-wide server store (migration 0035); a value is a `FieldValue` node in the design. Private fields are not built.
 - **IP and VLAN tables, file importer** (ADR-0063, importer): Inventory Prefix and VLAN kinds derived from the drawing, and one importer (CSV, NetBox, Proxmox, nmap).
 - **Cable corrections from the floor.** Anyone with Read on a design's place sends "Traced ✓", "Label wrong" or "Not here" about a cable (`cable:` and a ULID); someone with Draw accepts or dismisses it. Corrections are their own server store (`cable_corrections`, migration 0036), sealed under the organisation content key, never graph nodes. Text is refused when the redaction gate's bare credential check fires (`enable secret cisco123` form), so ordinary prose with key or secret in it can be refused too. Accepting is the Draw user's ordinary edit as one undoable batch ("accepted <name>'s correction"; a not-here report becomes a note without the name); if the edit or its save fails the client reopens the correction (`POST .../reopen`, accepted only). Dismissing re-seals the body as empty text, so what was typed is not kept; a dismissed one cannot be reopened. The database binds sender and decider to the session account. A Read sender sees only their own; caps of 5 open per sender per cable, 20 per sender and 200 per design. Orphaned corrections (cable removed) list on the Corrections waiting page with Dismiss only. Known limits: no chain entry for a correction or decision (L2), no retention clean-up of decided rows.
@@ -472,8 +479,8 @@ into the distroless runtime stage from the build stage. `FATHOM_SCHEMA_ROOT` ove
   - **Arista.** Two catalogue entries (720XP-48ZC2, 7050SX3-48YC8) and an EOS explainer; no dictionary
     (same shape gap). The safety net destroys every credential in a 120-line synthetic config
     (`crates/fathom-ingest/tests/arista_eos.rs`).
-  - Every explainer carries `reviewed_by: <named human>`, which means unreviewed; no client surface
-    shows that yet (OPEN-QUESTIONS E2 is answered, not built).
+  - Every explainer carries `reviewed_by: <named human>`, which means unreviewed; the Learn screens
+    say *Unreviewed* on each one (OPEN-QUESTIONS E2, ADR-0066).
   - **Engine gaps:** ADR-0044 rule 2's redaction-unproven refusal is not built; the
     core floor is the only fence. A credential typed into the free-text description cell of the
     OPNsense CSV is not caught (pinned in `opnsense_csv.rs`). The `<named human>` placeholder is a
