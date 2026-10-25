@@ -148,7 +148,9 @@ try {
     await page.keyboard.press('Escape');
     const el = box(host);
     const isChassis = await el.evaluate((n) => n.classList.contains('react-flow__node-chassis'));
-    await el.click(isChassis ? { position: { x: 20, y: 6 } } : {});
+    // Near the chassis's left end, half way down: the fitted view can draw a 1U box only a few pixels tall.
+    const h = (await el.boundingBox())?.height ?? 12;
+    await el.click(isChassis ? { position: { x: 20, y: Math.min(6, h / 2) } } : {});
     await page.waitForTimeout(350);
   };
 

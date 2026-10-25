@@ -231,6 +231,9 @@ try {
   await page.waitForTimeout(400);
   await panel.getByRole('button', { name: 'Next' }).click();
   check('step 5 watches Checks', /Watching Checks/.test(await panelText()), (await panelText()).slice(0, 300));
+  // A trace still open holds the bar, with the other views folded away: close it first, as a learner would.
+  const exitTask = page.getByTestId('shell-task-exit');
+  if (await exitTask.isVisible()) await exitTask.click();
   await page.getByRole('link', { name: 'Inventory' }).or(page.getByRole('button', { name: 'Inventory' })).or(page.getByRole('tab', { name: 'Inventory' })).first().click();
   await page.waitForTimeout(800);
   await page.getByText('Networks', { exact: true }).first().click();
