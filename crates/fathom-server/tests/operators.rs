@@ -6724,6 +6724,179 @@ async fn a_good_claim_succeeds_over_http() {
     );
 }
 
+/// **ADR-0069: a practice shell claims as an ordinary organisation, labelled
+/// practice.** The claimant is its steward exactly as for any claim; the label
+/// rides on the organisation row and on the shell's chain entry, and nothing else.
+#[tokio::test]
+async fn a_practice_shell_claims_as_an_ordinary_organisation_labelled_practice() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = Arc::new(sessions(&pool, Arc::clone(&ring)).await);
+    let operators_store = Arc::new(store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await);
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let acting = operator
+        .session_for(
+            &sessions_store,
+            "POST",
+            "/admin/organisations/practice",
+            b"",
+        )
+        .await;
+    let (shell, claim, notice_address) = operators_store
+        .create_practice_shell(&acting, "Practice space")
+        .await
+        .expect("a practice shell and its claim");
+    let (_plain_shell, plain_claim, _) = operators_store
+        .create_organisation_shell(&acting, "Not Practice")
+        .await
+        .expect("an ordinary shell beside it");
+
+    let (account, account_key, signed_in, session_key) =
+        a_signed_in_steward(&operators_store, &sessions_store, &acting, "practiser").await;
+    let addr = claim_addr(
+        Arc::clone(&ring),
+        Arc::clone(&sessions_store),
+        Arc::clone(&operators_store),
+    )
+    .await;
+
+    let mut made = Vec::new();
+    for (token, salt) in [
+        (&claim.token, [0x31u8; 16]),
+        (&plain_claim.token, [0x32u8; 16]),
+    ] {
+        let root = SoftwareKey::random().expect("a root keypair");
+        let body = signed_claim_body(&root, &salt, token, &notice_address, account, &account_key);
+        let headers = sign_claim_request(
+            &sessions_store,
+            &signed_in,
+            &session_key,
+            "POST",
+            "/enrolment/organisation",
+            &body,
+        )
+        .await;
+        let (status, answer) =
+            raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
+        assert_eq!(status, "200", "each claim succeeds: {answer:?}");
+        made.push(read_one_lp(&answer));
+    }
+
+    let su = superuser().await;
+    for (organisation_id, want) in made.iter().zip([true, false]) {
+        let row = su
+            .query_one(
+                "SELECT practice FROM organisations WHERE id = $1",
+                &[organisation_id],
+            )
+            .await
+            .expect("the organisation row");
+        assert_eq!(
+            row.get::<_, bool>(0),
+            want,
+            "the label follows the shell it was claimed from"
+        );
+        let organisation: OrganisationId = organisation_id.parse().expect("an organisation id");
+        assert_eq!(
+            capability_of(&pool, &ring, organisation, account).await,
+            Some(Capability::Steward),
+            "a practice space is stewarded by its claimant like any organisation"
+        );
+    }
+    let seqs: Vec<i64> = su
+        .query(
+            "SELECT seq FROM chain_entries WHERE chain_kind = 'site' \
+               AND entry_type = 'org_shell_created' ORDER BY seq",
+            &[],
+        )
+        .await
+        .expect("the shell entries")
+        .iter()
+        .map(|row| row.get(0))
+        .collect();
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    let mut metadata = String::new();
+    for seq in seqs {
+        let entry = chains::read_site_entry_verified(&tx, &ring, seq)
+            .await
+            .expect("read the entry")
+            .expect("the seq must hold an entry");
+        let text = String::from_utf8_lossy(&entry.metadata).to_string();
+        if text.contains(&shell) {
+            metadata = text;
+        }
+    }
+    tx.commit().await.expect("commit");
+    assert!(
+        metadata.contains("\"practice\":true"),
+        "the chain says it was made as practice: {metadata}"
+    );
+}
+
+/// **ADR-0069: the practice mark is sealed.** A shell flipped to practice in the
+/// database, without the operator act and without a reseal, does not redeem.
+#[tokio::test]
+async fn a_shell_flipped_to_practice_without_a_reseal_does_not_redeem() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = Arc::new(sessions(&pool, Arc::clone(&ring)).await);
+    let operators_store = Arc::new(store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await);
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let acting = operator
+        .session_for(&sessions_store, "POST", "/admin/organisations", b"")
+        .await;
+    let (shell, claim, notice_address) = operators_store
+        .create_organisation_shell(&acting, "Flipped Later")
+        .await
+        .expect("a shell and its claim");
+    superuser()
+        .await
+        .execute(
+            "UPDATE organisation_shells SET practice = true WHERE id = $1",
+            &[&shell],
+        )
+        .await
+        .expect("the superuser flips the column");
+
+    let (account, account_key, signed_in, session_key) =
+        a_signed_in_steward(&operators_store, &sessions_store, &acting, "flipper").await;
+    let addr = claim_addr(
+        Arc::clone(&ring),
+        Arc::clone(&sessions_store),
+        Arc::clone(&operators_store),
+    )
+    .await;
+    let root = SoftwareKey::random().expect("a root keypair");
+    let body = signed_claim_body(
+        &root,
+        &[0x33u8; 16],
+        &claim.token,
+        &notice_address,
+        account,
+        &account_key,
+    );
+    let headers = sign_claim_request(
+        &sessions_store,
+        &signed_in,
+        &session_key,
+        "POST",
+        "/enrolment/organisation",
+        &body,
+    )
+    .await;
+    let (status, answer) =
+        raw_request(addr, "POST", "/enrolment/organisation", &headers, &body).await;
+    assert_ne!(
+        status, "200",
+        "a row that lies about practice is an alarm: {answer:?}"
+    );
+}
+
 /// **A spent token is refused.** A second, otherwise valid redemption is
 /// refused rather than producing a second organisation.
 #[tokio::test]

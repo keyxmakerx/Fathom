@@ -231,3 +231,8 @@
 .trace-questions__hint {
   margin: 0;
 }
+
+.trace-questions__lead {
+  margin-bottom: var(--s2);
+  color: var(--ink);
+}
