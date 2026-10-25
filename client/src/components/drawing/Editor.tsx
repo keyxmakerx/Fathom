@@ -46,6 +46,7 @@ import {
 import { findChassis, findFixture, findOccupant, findRack, findShelf, findUnplacedChassis, locatePort } from './lookup';
 import { connectorName, describePorts, faceplateLayoutFor } from './faceplate';
 import { EmptyState } from '../ui/EmptyState';
+import { Fold } from './Fold';
 
 // `DEVICE_ROLES` is `Device.role`'s own enum vocabulary (`schema/schema.yaml`,
 // mirrored once in `document/edit.ts` rather than guessed here — CLAUDE.md
@@ -2044,11 +2045,13 @@ function panelFor(
           </div>
           {chassis.role ? <span className="drawing-editor__badge">{chassis.role}</span> : null}
         </div>
-        <TypedNote shown={chassis.hostname.length > 0} />
+        {/* r30-device: said once for the whole panel, not under every field. */}
+        <TypedNote shown={[chassis.hostname, chassis.role, chassis.serial, chassis.managementAddress].some((v) => (v ?? '').length > 0)} />
         {where ? <div className="drawing-editor__subtitle">{where}</div> : null}
         {links ? <div className="drawing-editor__links">{links}</div> : null}
 
         {/* A new sketch has nothing to show but its ports, so it opens there. */}
+        <TypedNoteMode.Provider value="once">
         <PanelTabs
           key={chassis.id}
           initial={chassisSketch && chassis.ports.length === 0 ? 'ports' : undefined}
@@ -2105,25 +2108,27 @@ function panelFor(
                       current one marked. */}
                   <PlacedOnControl itemId={chassis.id} placement={chassis.placement} view={view} actions={actions} />
 
-                  <div className="drawing-editor__group">Management</div>
-                  <div className="drawing-editor__field">
-                    <div className="drawing-editor__field-label">Mgmt address</div>
-                    <EditableValue
-                      value={chassis.managementAddress ?? ''}
-                      placeholder={ABSENT}
-                      editorKind="text"
-                      onCommit={
-                        actions.onEdit
-                          ? (v) => actions.onEdit!({ kind: 'device', id: chassis.deviceId, field: 'management_address', value: v })
-                          : undefined
-                      }
-                    />
-                  </div>
-                  <TypedNote shown={(chassis.managementAddress ?? '').length > 0} extra={MANAGEMENT_ADDRESS_NOTE} />
+                  {/* r30-device: Device and Location stay open; the rest fold to one line each. */}
+                  <Fold title="Management" summary={chassis.managementAddress || 'no address'} testId="management-fold">
+                    <div className="drawing-editor__field">
+                      <div className="drawing-editor__field-label">Mgmt address</div>
+                      <EditableValue
+                        value={chassis.managementAddress ?? ''}
+                        placeholder={ABSENT}
+                        editorKind="text"
+                        onCommit={
+                          actions.onEdit
+                            ? (v) => actions.onEdit!({ kind: 'device', id: chassis.deviceId, field: 'management_address', value: v })
+                            : undefined
+                        }
+                      />
+                    </div>
+                    {(chassis.managementAddress ?? '').length > 0 ? <div style={TYPED_NOTE_STYLE}>{MANAGEMENT_ADDRESS_NOTE}</div> : null}
+                  </Fold>
 
-                  <FirmwareSection deviceId={chassis.deviceId} />
-                  <AboutSection deviceId={chassis.deviceId} />
-                  <DevicePhoto ownerId={chassis.deviceId} name={chassis.hostname || UNNAMED_HOSTNAME} />
+                  <FirmwareSection deviceId={chassis.deviceId} folded />
+                  <AboutSection deviceId={chassis.deviceId} folded />
+                  <DevicePhoto ownerId={chassis.deviceId} name={chassis.hostname || UNNAMED_HOSTNAME} folded />
 
                 </>
               ),
@@ -2206,6 +2211,7 @@ function panelFor(
             },
           ]}
         />
+        </TypedNoteMode.Provider>
 
         <div className="drawing-editor__footer">
           {/* UI-SPEC's cable-delete rule — the same one-shot action shape

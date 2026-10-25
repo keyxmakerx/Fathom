@@ -186,6 +186,8 @@ try {
   // 1 - a Junos EX switch has a Learn line, marked Unreviewed.
   await open(false);
   await select('switch-2');
+  await page.locator('[data-testid="learn-fold"]').waitFor({ timeout: 8_000 });
+  await page.evaluate(() => document.querySelectorAll('details.drawing-editor__fold').forEach((d) => { d.open = true; })); // r30-device: the panel's lower sections start folded
   const about = page.locator('[data-testid="learn-about"]');
   await about.waitFor({ timeout: 5_000 });
   const aboutText = await about.innerText();
@@ -232,6 +234,8 @@ try {
   // 6 - a reader sees the same Learn line; phone width renders.
   await open(true);
   await select('leaf-1');
+  await page.locator('[data-testid="learn-fold"]').waitFor({ timeout: 8_000 });
+  await page.evaluate(() => document.querySelectorAll('details.drawing-editor__fold').forEach((d) => { d.open = true; })); // r30-device: the panel's lower sections start folded
   check('a reader sees the EOS Learn line', (await page.locator('[data-testid="learn-about"]').innerText()).includes('Arista EOS'));
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('[data-testid="learn-about"]').getByRole('button', { name: 'Read more' }).click();

@@ -2014,3 +2014,65 @@
 @media (prefers-reduced-motion: reduce) {
   .drawing-context-menu { animation: none; }
 }
+
+/* r30-device: a folded section of the device panel. The heading reads like `.drawing-editor__group`,
+   a hairline runs to the summary on the right, and ▸ turns to ▾ when open. */
+.drawing-editor__fold {
+  margin-top: var(--s3);
+}
+.drawing-editor__fold-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s1) 0;
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.drawing-editor__fold-head::-webkit-details-marker {
+  display: none;
+}
+.drawing-editor__fold-head::before {
+  content: '▸';
+  flex: none;
+  width: 1em;
+}
+.drawing-editor__fold[open] > .drawing-editor__fold-head::before {
+  content: '▾';
+}
+.drawing-editor__fold-title {
+  flex: none;
+  font-weight: 700;
+}
+.drawing-editor__fold-head::after {
+  content: '';
+  order: 1;
+  flex: 1;
+  min-width: var(--s2);
+  height: var(--rule-hair);
+  background: var(--hairline);
+}
+.drawing-editor__fold-summary {
+  order: 2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--t-small);
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--muted);
+}
+.drawing-editor__fold-head:hover,
+.drawing-editor__fold-head:focus-visible {
+  color: var(--ink);
+}
+.drawing-editor__fold-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding-top: var(--s2);
+}

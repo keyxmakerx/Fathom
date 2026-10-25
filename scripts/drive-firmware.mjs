@@ -474,6 +474,9 @@ try {
 
     // The device editor's firmware group.
     await node('switch-1').click();
+    await settle(page, 300);
+    await page.locator('[data-testid="firmware-fold"]').waitFor({ timeout: 8_000 });
+    await page.evaluate(() => document.querySelectorAll('details.drawing-editor__fold').forEach((d) => { d.open = true; })); // r30-device: the panel's lower sections start folded
     await T(page, 'firmware-section').waitFor({ timeout: 8_000 });
     await settle(page, 600);
     const fs = (await T(page, 'firmware-section').innerText()).replace(/\s+/g, ' ');
@@ -604,6 +607,8 @@ try {
       await page.keyboard.press('Escape');
       await node.click();
       await settle(page, 600);
+      await page.locator('[data-testid="firmware-fold"]').waitFor({ timeout: 8_000 }).catch(() => {});
+      await page.evaluate(() => document.querySelectorAll('details.drawing-editor__fold').forEach((d) => { d.open = true; })); // r30-device: the panel's lower sections start folded
       const section = await T(page, 'firmware-section').innerText().catch(() => '');
       check('[read] the editor group shows no Hold or Plan buttons', (await T(page, 'firmware-section').getByRole('button', { name: /^(Hold|Release|Plan|Choose)/ }).count()) === 0, section);
       await shot(page, '19-reader-editor');
