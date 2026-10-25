@@ -47,6 +47,7 @@ import { findChassis, findFixture, findOccupant, findRack, findShelf, findUnplac
 import { connectorName, describePorts, faceplateLayoutFor } from './faceplate';
 import { EmptyState } from '../ui/EmptyState';
 import { Fold } from './Fold';
+import { LoginsTab, LoginsTabLabel } from '../vault/Screens';
 
 // `DEVICE_ROLES` is `Device.role`'s own enum vocabulary (`schema/schema.yaml`,
 // mirrored once in `document/edit.ts` rather than guessed here — CLAUDE.md
@@ -1328,7 +1329,7 @@ function SketchPortsSection({ chassisId, ports, actions }: { chassisId: string; 
 
 /** A panel's tabs (UI-SPEC "Look"): every tab's body stays in the page,
  * the others hidden, so a tab never loses what was typed in it. */
-type PanelTab = { id: string; label: string; body: ReactNode };
+type PanelTab = { id: string; label: ReactNode; body: ReactNode };
 
 /** 'flat' where the page around the panel already has tabs of its own (Inventory's item page). */
 export const PanelTabsMode = createContext<'tabs' | 'flat'>('tabs');
@@ -2318,6 +2319,11 @@ function panelFor(
 
                 </>
               ),
+            },
+            {
+              id: 'logins',
+              label: <LoginsTabLabel deviceId={chassis.deviceId} />,
+              body: <LoginsTab deviceId={chassis.deviceId} />,
             },
             {
               id: 'notes',

@@ -610,7 +610,7 @@ const TABLES: &[TableClaim] = &[
               server's credential check and the browser's redaction gate before it is sealed. \
               `nonce`, `key_epoch` and the other columns are not secret.",
     },
-    // ---- The password vault (ADR-0042 Mode A, ADR-0070) -- `0041_vault.sql` --
+    // ---- The password vault (ADR-0042 Mode A, ADR-0071) -- `0041_vault.sql` --
     //
     // Its own schema, `vault`, so the operator plane's grants on `public` never reach it and a
     // schema-wide grant written later for `public` cannot either. Names carry the schema.

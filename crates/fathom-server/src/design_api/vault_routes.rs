@@ -1,4 +1,4 @@
-//! The password vault's HTTP surface (ADR-0070). Every route is a signed request in an
+//! The password vault's HTTP surface (ADR-0071). Every route is a signed request in an
 //! organisation's tenant context, exactly as the design routes are; `crate::vault` decides who
 //! may do what. Bodies are canonical JSON with bytes as lower-case hex, so nothing here parses
 //! a secret: the only ciphertext that arrives is ciphertext the browser sealed.

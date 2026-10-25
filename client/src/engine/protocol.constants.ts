@@ -52,6 +52,8 @@ export const OPCODES = {
   OP_PLAN_PREVIEW: 35,
   /** ADR-0061 item 9: trace one flow through the design. */
   OP_TRACE: 36,
+  /** ADR-0043 §6: Argon2id over a vault passphrase with the vault key as its secret input. */
+  OP_VAULT_KDF: 37,
 } as const;
 
 /** `protocol.rs`'s face role bytes — one `KIND_FACE_ROW` (5) record kind,
@@ -89,6 +91,8 @@ export const FACES = {
   FACE_TR_HEAD: 35,
   FACE_TR_HOP: 36,
   FACE_TR_POL: 37,
+  /** `OP_VAULT_KDF`'s one row: the derived key as hex. */
+  FACE_VAULT_KEY: 38,
   FACE_INV_KEY: 29,
   /** ADR-0052 §2: one row per ledger line, the paste's gutter mark. */
   FACE_PASTE_LINE: 30,

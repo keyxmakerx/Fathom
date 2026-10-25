@@ -302,7 +302,7 @@ pub fn router(state: DesignApiState) -> Router {
         .with_state(state)
 }
 
-// The password vault's routes (ADR-0070). A child module, so it shares this file's extractor,
+// The password vault's routes (ADR-0071). A child module, so it shares this file's extractor,
 // transaction opening and body helpers without making any of them public.
 mod vault_routes;
 

@@ -22,6 +22,7 @@ import { InviteForm, LinkCard } from './InvitePanel';
 import { accessWords, dateTimeLabel } from './model';
 import { PeopleList, PersonPage } from './PeoplePanel';
 import { WaitingPanel } from './WaitingPanel';
+import { PasswordsPage } from '../vault/Screens';
 import './organisation.css';
 
 type Page =
@@ -30,7 +31,8 @@ type Page =
   | { kind: 'invite' }
   | { kind: 'link'; issued: IssuedInvitation; name: string; access: string; added: boolean; notAddedBecause: string | null }
   | { kind: 'waiting' }
-  | { kind: 'folders' };
+  | { kind: 'folders' }
+  | { kind: 'passwords' };
 
 export interface OrganisationTabProps {
   organisation: Organisation;
@@ -131,6 +133,9 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
   };
 
   function content() {
+    if (page.kind === 'passwords') {
+      return <PasswordsPage organisation={org} organisationName={organisation.displayName} mode="admin" />;
+    }
     if (page.kind === 'folders') {
       return <FoldersPanel organisationName={organisation.displayName} scopes={scopes} onCreateScope={onCreateScope} scopeForm={scopeForm} />;
     }
@@ -259,6 +264,9 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
         )}
         <button type="button" className={current === 'folders' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} aria-current={current === 'folders' ? 'page' : undefined} onClick={() => go({ kind: 'folders' })}>
           Folders
+        </button>
+        <button type="button" className={current === 'passwords' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} data-testid="rail-passwords" aria-current={current === 'passwords' ? 'page' : undefined} onClick={() => go({ kind: 'passwords' })}>
+          Passwords
         </button>
       </nav>
       <div className="org__body">{content()}</div>

@@ -1,5 +1,5 @@
 //! **The password vault, Mode A** (ADR-0042, ADR-0043 §6, storage design §5 and §13,
-//! ADR-0070). `migrations/0041_vault.sql` carries the reasoning for every table and fence.
+//! ADR-0071). `migrations/0041_vault.sql` carries the reasoning for every table and fence.
 //!
 //! # What the server holds, and what it cannot do
 //!
@@ -241,7 +241,7 @@ pub struct Recipient {
 }
 
 /// The canonical recipient list: `[[who, fpr_hex, digest_hex], ...]`, sorted, as canonical
-/// JSON (no spaces). Plain ASCII strings only, so the client's `JSON.stringify` of the same
+/// JSON (no spaces, one trailing newline, as `to_canonical_bytes` writes it). Plain ASCII strings only, so the client's `JSON.stringify` of the same
 /// sorted arrays is byte-identical.
 pub fn canonical_recipients(recipients: &[Recipient]) -> Vec<u8> {
     let mut sorted: Vec<&Recipient> = recipients.iter().collect();

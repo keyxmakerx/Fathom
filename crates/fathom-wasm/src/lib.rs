@@ -400,7 +400,7 @@ pub const SYNC_FRAME_MAX: usize = 32 << 20;
 /// later ones still run. An id that is not a live plan answers with no rows.
 pub const OP_PLAN_PREVIEW: u32 = 35;
 
-/// The password vault's key derivation (ADR-0043 §6, ADR-0070): Argon2id over the person's
+/// The password vault's key derivation (ADR-0043 §6, ADR-0071): Argon2id over the person's
 /// passphrase with the 128-bit vault key as Argon2's SECRET input, so the two are combined in
 /// the derivation rather than being two ways in. The browser has no Argon2 of its own
 /// (WebCrypto offers PBKDF2 only), and the redaction gate's rule that security code stays in

@@ -4,7 +4,7 @@ import type { DesignCapability } from '../../api/designs';
 import { addNote, notesOf as notesOfDoc, removeNote, type NoteHow } from '../../document/notes';
 import { fieldForOwner, fieldsOf as fieldsOfDoc, setFieldValue, type FieldType } from '../../document/fields';
 import { useFieldDefinitions } from './useFieldDefinitions';
-import { findNode, type Document } from '../../document/model';
+import { asString, fieldValue, findNode, isNodeOfKind, type Document } from '../../document/model';
 import { listTags, renameTag, tagObject, tagsOf as tagsOfDoc, untagObject } from '../../document/tags';
 import { skippedSentence } from '../../document/liveDoc';
 import { redo as redoBatch, redoSkipping, undo as undoBatch, undoSkipping, undoable } from '../../document/undo';
@@ -62,6 +62,7 @@ import { LearnContext } from '../learn/context';
 import { LearnOverlay } from '../learn/LearnOverlay';
 import { useLearnApi } from '../learn/useLearnApi';
 import type { SideTab } from '../shell/sideSlot';
+import { VaultPlaceContext, type VaultPlace } from '../vault/useVault';
 
 /** A download with no server round trip. The object URL is revoked a few
  * seconds later, not straight away — read too soon, a browser saves an empty file. */
@@ -80,6 +81,8 @@ function downloadBytes(filename: string, bytes: Uint8Array, mime: string) {
 export interface DesignPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'children' | 'place'> {
   place: Place;
   organisationId: string;
+  /** The organisation's display name, for the vault's Emergency Kit and recovery sheet. */
+  organisationName?: string;
   designId: string;
   capability: DesignCapability;
   /** The design's scope: what the Share panel shares. */
@@ -119,7 +122,7 @@ export interface DesignPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | '
 const SEAL_SETTLE_MS = 1_500;
 
 export function DesignPlace(props: DesignPlaceProps) {
-  const { organisationId, designId, capability, scopeId, onZoomChange, onPlaceChange, openDevice, ...shellProps } = props;
+  const { organisationId, organisationName = '', designId, capability, scopeId, onZoomChange, onPlaceChange, openDevice, ...shellProps } = props;
   const session = useDesignSession(organisationId, designId, capability);
   const [focus, setFocus] = useState<Selection | null>(null);
   // Selecting a thing from outside the drawing (stepping through what changed) without opening it.
@@ -599,6 +602,13 @@ export function DesignPlace(props: DesignPlaceProps) {
     },
     [onPlaceChange],
   );
+  const vaultDoc = session.doc;
+  const vaultPlace = useMemo<VaultPlace | null>(() => {
+    if (!vaultDoc) return null;
+    const devices = vaultDoc.nodes.filter((n) => n.absentSince === undefined && isNodeOfKind(n.id, 'Device'));
+    const names = new Map(devices.map((n) => [n.id, asString(fieldValue(n.fields, 'Device.hostname')) ?? null]));
+    return { organisation: organisationId, organisationName, design: designId, deviceIds: devices.map((n) => n.id), deviceName: (id) => names.get(id) ?? null };
+  }, [vaultDoc, organisationId, organisationName, designId]);
   const firmwareApi = useFirmwareApi({
     organisationId,
     scopeId,
@@ -899,6 +909,7 @@ export function DesignPlace(props: DesignPlaceProps) {
     <PasteGateBoundary redact={redact}>
       <div className="print-hide-under-preview" inert={printMode === 'preview' || (docs.view != null && props.place !== 'racks') || learn.view != null}>
         <FirmwareContext.Provider value={firmwareApi}>
+          <VaultPlaceContext.Provider value={vaultPlace}>
           <PaletteRegistryContext.Provider value={paletteRegistry}>
             <DocsContext.Provider value={docs.api}>
               <LearnContext.Provider value={learn.api}>
@@ -906,6 +917,7 @@ export function DesignPlace(props: DesignPlaceProps) {
               </LearnContext.Provider>
             </DocsContext.Provider>
           </PaletteRegistryContext.Provider>
+          </VaultPlaceContext.Provider>
         </FirmwareContext.Provider>
       </div>
       {learn.view != null && printMode === 'closed' && (

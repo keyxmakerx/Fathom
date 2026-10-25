@@ -2,6 +2,7 @@
 // dictionaries, paste, and read the typed reply back. The redaction gate
 // itself never runs here — it runs inside `fathom-wasm` (CLAUDE.md rule 4)
 // — this file only speaks the wire protocol to it.
+import { concatBytes, fromHex, lp } from '../crypto/bytes';
 import { cableGestureFrame, fieldGestureFrame, packDict, pasteFrame, type CableEnd, type PastePlatform } from './frames';
 import { decodeReply, type FaceRow } from './protocol';
 import { ERRORS, FACES, OPCODES, errorName } from './protocol.constants';
@@ -733,6 +734,24 @@ export class Engine {
       return [];
     }
     return view.rows;
+  }
+
+  /** `OP_VAULT_KDF` (ADR-0043 §6): the 32-byte key that seals a person's vault key, from their
+   * passphrase and the 128-bit vault key on their Emergency Kit. Argon2id lives in the module, not
+   * in JavaScript, so the browser and the RFC 9106 vector check run the same code. */
+  vaultKdf(passphrase: Uint8Array, salt: Uint8Array, secret: Uint8Array, m: number, t: number, p: number): Uint8Array {
+    const head = new Uint8Array(12);
+    const view = new DataView(head.buffer);
+    view.setUint32(0, m, true);
+    view.setUint32(4, t, true);
+    view.setUint32(8, p, true);
+    const frame = concatBytes(head, lp(passphrase), lp(salt), lp(secret));
+    const rows = this.callFaces(OPCODES.OP_VAULT_KDF, frame);
+    const row = rows[0];
+    if (rows.length !== 1 || row.role !== FACES.FACE_VAULT_KEY || !/^[0-9a-f]{64}$/.test(row.strings[0])) {
+      throw new Error('OP_VAULT_KDF reply: not one FACE_VAULT_KEY row of 32 bytes');
+    }
+    return fromHex(row.strings[0]);
   }
 
   /** `OP_PASTE`: pasted text in, the redacted estate's summary out. */

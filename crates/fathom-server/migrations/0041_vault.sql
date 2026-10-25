@@ -1,5 +1,5 @@
 -- 0041 -- the password vault, Mode A (ADR-0042, ADR-0043 §6, storage design §5 and §13,
--- ADR-0070).
+-- ADR-0071).
 --
 -- A password is sealed IN THE BROWSER under its own random content key. That content key is
 -- wrapped once per recipient (ECDH P-256 + HKDF-SHA256 + AES-256-GCM, storage §13.7) to each

@@ -17,6 +17,7 @@ import type { PathItem, PathPart } from './path';
 import { SearchBox } from './SearchBox';
 import { ThemeMenu } from './ThemeMenu';
 import type { AccountInfo, MainView, Place, PresenceUser, ShellProps, ShellSearch, ShowAids } from './types';
+import { VaultBadge, VaultMenuRows } from '../vault/VaultBadge';
 
 // The bar's own `gap` and side padding, counted when measuring its row.
 const BAR_GAP = 12;
@@ -538,9 +539,11 @@ export function Bar({
               onClick={toggle}
             >
               {account.initials}
+              <VaultBadge />
             </button>
           )}
         >
+          <VaultMenuRows />
           {menu}
           <ThemeMenu />
           <PopoverRow onSelect={handleSignOut}>Sign out</PopoverRow>

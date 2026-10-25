@@ -252,7 +252,7 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0040_practice_spaces.sql",
         sql: include_str!("../migrations/0040_practice_spaces.sql"),
     },
-    // The password vault, Mode A, in its own schema (ADR-0070).
+    // The password vault, Mode A, in its own schema (ADR-0071).
     Migration {
         version: 41,
         name: "0041_vault.sql",
