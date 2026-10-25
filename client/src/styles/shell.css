@@ -990,3 +990,192 @@ button.shell-admin-pill {
 .sample-chip__error {
   color: var(--danger);
 }
+
+/* r31-bar A: the four views. One ink underline slides to the chosen view instead of each tab drawing its own. */
+.shell-bar__tabs--views {
+  position: relative;
+}
+.shell-bar__tabs--views .shell-bar__tab--on {
+  border-bottom-color: transparent;
+}
+.shell-bar__tabs-mark {
+  position: absolute;
+  bottom: 0;
+  height: var(--rule-accent);
+  background: var(--ink);
+  transition:
+    left var(--m-layout, 260ms) var(--m-ease, ease),
+    width var(--m-layout, 260ms) var(--m-ease, ease);
+  pointer-events: none;
+}
+
+.shell-doing__hint {
+  margin-left: var(--s2);
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+/* A menu that opens upward (the zoom pill's stops). */
+.shell-popover.shell-popover--above {
+  top: auto;
+  bottom: 100%;
+  left: 50%;
+  margin-top: 0;
+  margin-bottom: 6px;
+  transform: translateX(-50%);
+}
+
+/* r31-bar A: the drawing's tools, top left on the drawing. Select and Pan (drawn by the canvas) and the Back trail are
+   moved into the two slots, so their own corner placement is undone here. */
+.shell-canvas-bar {
+  position: absolute;
+  top: var(--s2);
+  left: var(--s2);
+  right: var(--s2);
+  z-index: 6;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2);
+  pointer-events: none;
+  transition: opacity var(--m-layout, 260ms) var(--m-ease, ease);
+}
+.shell-canvas-bar__group {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 2px var(--s2) 2px 2px;
+  background: var(--page);
+  border: var(--rule-hair) solid var(--control-line);
+  border-radius: var(--radius-pop);
+  box-shadow: var(--shadow-pop);
+  pointer-events: auto;
+}
+.shell-canvas-bar__slot {
+  display: contents;
+}
+.shell-canvas-bar__slot > * {
+  pointer-events: auto;
+}
+.shell-canvas-bar .canvas-tools {
+  position: static;
+  border: 0;
+  padding: 0;
+  box-shadow: none;
+}
+.shell-canvas-bar .jump-trail {
+  position: static;
+  pointer-events: auto;
+}
+.shell-canvas-bar__group:has(> .shell-canvas-bar__slot:empty) {
+  padding-left: var(--s2);
+}
+/* The colour key lives in Layers now (r30-panels): it sits in the menu, not over the drawing. */
+.shell-popover .colour-key {
+  position: static;
+  margin-top: var(--s2);
+  max-width: none;
+  border: 0;
+  box-shadow: none;
+  background: none;
+  animation: none;
+}
+
+/* Undo, Redo and zoom: one pill at the bottom of the drawing. */
+.shell-pill {
+  position: absolute;
+  left: 50%;
+  bottom: var(--s3);
+  z-index: 6;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px var(--s1);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--control-line);
+  border-radius: var(--radius-pop);
+  box-shadow: var(--shadow-pop);
+  transition: opacity var(--m-layout, 260ms) var(--m-ease, ease);
+}
+.shell-pill__btn,
+.shell-pill__value {
+  min-width: var(--control-h);
+  height: var(--control-h);
+  padding: 0 var(--s1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-small);
+  box-shadow: none;
+  cursor: pointer;
+}
+.shell-pill__value {
+  min-width: 52px;
+  font-family: var(--mono);
+}
+.shell-pill__btn:hover:not(:disabled),
+.shell-pill__value:hover,
+.shell-pill__value--on {
+  background: var(--control-bg-hover);
+}
+.shell-pill__btn:disabled {
+  color: var(--muted);
+  opacity: 0.5;
+  cursor: default;
+}
+.shell-pill__rule {
+  width: var(--rule-hair);
+  height: 16px;
+  margin: 0 var(--s1);
+  background: var(--hairline);
+}
+.shell-pill__stops {
+  display: flex;
+  gap: var(--s1);
+  padding: var(--s1);
+}
+.shell-pill__stop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s1);
+  padding: var(--s1) var(--s2);
+  border: 0;
+  background: none;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  box-shadow: none;
+  cursor: pointer;
+}
+.shell-pill__stop[aria-pressed='true'] {
+  color: var(--ink);
+  font-weight: 700;
+}
+.shell-pill__stop-dot {
+  width: 8px;
+  height: 8px;
+  border: var(--rule-hair) solid var(--ink);
+}
+.shell-pill__stop[aria-pressed='true'] .shell-pill__stop-dot {
+  background: var(--ink);
+}
+
+/* r31-motion: the tools step back while something is dragged on the drawing. */
+.shell__drawing:has(.react-flow__pane.dragging, .react-flow__node.dragging) .shell-canvas-bar,
+.shell__drawing:has(.react-flow__pane.dragging, .react-flow__node.dragging) .shell-pill {
+  opacity: 0.25;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-bar__tabs-mark,
+  .shell-canvas-bar,
+  .shell-pill {
+    transition: none;
+  }
+}

@@ -5,6 +5,7 @@ import { Bar } from './shell/Bar';
 import { useElementWidth, useWindowWidth } from './shell/Dock';
 import { fitPanels, loadPanelWidth, panelMax, savePanelWidth, PANEL_DEFAULT, type PanelId } from './shell/panelSizing';
 import { PANEL_OF, RightDock } from './shell/RightDock';
+import { BottomPill, CanvasStrip } from './shell/CanvasBar';
 import { nextActive, SideSlots } from './shell/sideSlot';
 import { rememberedTab, useRightTab, type RightTab } from './shell/useRightTab';
 import { loadResume, patchResume } from './design/resume';
@@ -76,12 +77,19 @@ export function Shell({
   adminPill,
   onHome,
   search,
-  cablesGroupsPopover,
   cablesGroupsSummary,
   hiddenCablesCount,
   onShowAllHiddenCables,
   sideTabs,
+  mainView,
+  designExtra,
+  doing,
+  layersExtra,
+  zoomStops,
+  cablesGroupsPopover: groupsPopover,
 }: ShellProps) {
+  // r31-bar A: on the drawing, its own controls sit on it (a strip top left, a pill at the bottom), not in the bar.
+  const toolsOnCanvas = place === 'racks';
   // The notice sits under its field when the open panel shows it; otherwise in the canvas corner.
   const [anchored, setAnchored] = useState(false);
   const inEditor = editor != null && anchored;
@@ -137,7 +145,8 @@ export function Shell({
     }
     return ref;
   }, []);
-  const slots = sideTabs == null ? null : Object.fromEntries(sideTabs.map((t) => [t.id, sideEls[t.id] ?? null]));
+  const slotIds = [...(sideTabs ?? []).map((t) => t.id), ...(toolsOnCanvas ? ['canvas-tools', 'jump-trail'] : [])];
+  const slots = sideTabs == null && !toolsOnCanvas ? null : Object.fromEntries(slotIds.map((id) => [id, sideEls[id] ?? null]));
   const chooseRight = useCallback(
     (t: RightTab) => {
       setSideActive(null);
@@ -220,15 +229,38 @@ export function Shell({
         adminPill={adminPill}
         onHome={onHome}
         search={search}
-        cablesGroupsPopover={cablesGroupsPopover}
+        cablesGroupsPopover={groupsPopover}
         cablesGroupsSummary={cablesGroupsSummary}
         hiddenCablesCount={hiddenCablesCount}
         onShowAllHiddenCables={onShowAllHiddenCables}
+        mainView={mainView}
+        designExtra={designExtra}
+        doing={doing}
+        toolsOnCanvas={toolsOnCanvas}
       />
       {band}
       <div className="shell__body" ref={bodyRef} data-resizing={resizing ? '' : undefined}>
         <main className="shell__drawing" aria-label="Drawing">
           <SideSlots.Provider value={slots}>{children}</SideSlots.Provider>
+          {toolsOnCanvas && (
+            <>
+              <CanvasStrip
+                place="racks"
+                lens={lens}
+                onLensChange={onLensChange}
+                cablesGroupsPopover={groupsPopover}
+                cablesGroupsSummary={cablesGroupsSummary}
+                layers={layers}
+                look={look}
+                layersExtra={layersExtra}
+                views={views}
+                hiddenCablesCount={hiddenCablesCount}
+                onShowAllHiddenCables={onShowAllHiddenCables}
+                slotRef={sideRef}
+              />
+              <BottomPill canUndo={canUndo} canRedo={canRedo} onUndo={onUndo} onRedo={onRedo} zoom={{ value: zoom, onIn: onZoomIn, onOut: onZoomOut, onFit: onZoomFit, stops: zoomStops }} />
+            </>
+          )}
           {!inEditor && notices != null && <div className="shell__notices-corner">{notices}</div>}
         </main>
         {/* One right-hand slot: Equipment, Details, History and the Trail are its tabs; one is open at a time. */}

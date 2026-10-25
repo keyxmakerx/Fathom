@@ -78,6 +78,7 @@ import { ColourPicker } from './ColourPicker';
 import { ContextMenu } from './ContextMenu';
 import { parseFreeNodeId } from './freeLayout';
 import { CanvasTools, type CanvasTool } from './CanvasTools';
+import { InSideSlot } from '../shell/sideSlot';
 import { useWheelMode } from './canvasPrefs';
 import { FREE_EDGE_TYPES, FREE_NODE_TYPES, useFreeLayer } from './useFreeLayer';
 import { menuItemsFor, type MenuActions, type MenuTarget } from './contextMenuItems';
@@ -2066,7 +2067,9 @@ function DrawingInner({
         )}
       </ReactFlow>
       {free.overlay}
-      <CanvasTools tool={tool} onTool={setTool} wheel={wheel} onWheel={setWheel} />
+      <InSideSlot id="canvas-tools">
+        <CanvasTools tool={tool} onTool={setTool} wheel={wheel} onWheel={setWheel} />
+      </InSideSlot>
       <ChecksCanvasBridge />
       <TraceBadges />
       <PlansCanvasBridge />

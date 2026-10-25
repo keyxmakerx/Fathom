@@ -73,7 +73,7 @@ import { loadDiagramStyle, saveDiagramStyle, type DiagramStyle } from '../drawin
 import { loadCableStyle, saveCableStyle, type CableStyle } from '../drawing/cableStyle';
 import { loadLook, saveLook, type Look } from '../drawing/look';
 import { InsideStop } from '../inside/InsideStop';
-import { ChecksBarChip, ChecksSurface } from '../checks/ChecksPanel';
+import { ChecksSurface } from '../checks/ChecksPanel';
 import { totalCount } from '../checks/checksModel';
 import { MissingLinksChip } from '../drawing/MissingLinksChip';
 import { missingLinksOf } from '../drawing/missingLinks';
@@ -90,7 +90,8 @@ import { restoreTo } from '../../document/restore';
 import { readyQuestions } from '../home/sampleQuestions';
 import { ReadyQuestions } from '../trace/ReadyQuestions';
 import { TieCard } from '../ties/TieCard';
-import { PlanBand, PlansBarChip } from '../plans/PlanBand';
+import { PlanBand } from '../plans/PlanBand';
+import { saveSheet } from '../inventory/sheetPref';
 import { PlansSurface } from '../plans/PlansSurface';
 import { PlansContext } from '../plans/plansStore';
 import { usePlansController } from '../plans/usePlansController';
@@ -1816,6 +1817,46 @@ export function RacksPlace(props: RacksPlaceProps) {
     </>
   ) : null;
 
+  // r31-bar A: the four views. Diagram and Canvas are this place's two looks; Inventory and Sheet are the other place.
+  const mainView: ShellProps['mainView'] = {
+    value: look === 'diagram' ? 'diagram' : 'canvas',
+    onChange: (next) => {
+      if (next === 'diagram' || next === 'canvas') {
+        changeLook(next === 'diagram' ? 'diagram' : 'rack');
+        return;
+      }
+      saveSheet(next === 'sheet');
+      shellProps.onPlaceChange('inventory');
+    },
+  };
+  // The Doing ▾ menu: what you can set about from here. A job that needs a device says so until one is chosen.
+  const needsDevice = selectedChassis == null ? 'select a device first' : undefined;
+  const doing: NonNullable<ShellProps['doing']> = [
+    { id: 'plan', label: 'Plan a change', onSelect: () => plans.setBandOpen(true) },
+    { id: 'down', label: "It's down", onSelect: canDraw && selectedChassis != null ? () => trouble.start(selectedChassis) : undefined, hint: canDraw ? needsDevice : 'needs Draw' },
+    { id: 'trace', label: 'Trace a path', onSelect: selectedChassis != null ? () => trace.openFrom(selectedChassis) : undefined, hint: needsDevice },
+  ];
+  // The zoom stops the bottom pill opens upward with: the camera keeps its middle and takes the stop's zoom.
+  const zoomStops: ShellProps['zoomStops'] = {
+    stops: [
+      { id: 'closet', label: 'Closet' },
+      { id: 'rack', label: 'Rack' },
+      { id: 'faceplate', label: 'Faceplate' },
+      { id: 'inside', label: 'Inside' },
+    ],
+    current: cameraStopAt(shellProps.zoom),
+    onGo: (id) => {
+      const control = cameraHub.control;
+      const box = document.querySelector('.shell__drawing .react-flow')?.getBoundingClientRect();
+      if (control == null || box == null) return;
+      const vp = control.get();
+      const zoom = CAMERA_STOPS[id as keyof typeof CAMERA_STOPS] / 100;
+      const cx = (box.width / 2 - vp.x) / vp.zoom;
+      const cy = (box.height / 2 - vp.y) / vp.zoom;
+      control.set({ x: box.width / 2 - cx * zoom, y: box.height / 2 - cy * zoom, zoom }, true);
+    },
+  };
+
   // r30-panels: Checks, the open plan, "It's down" and a trace are tabs of the right-hand panel.
   const sideTabs: SideTab[] | undefined =
     doc == null
@@ -1829,6 +1870,7 @@ export function RacksPlace(props: RacksPlaceProps) {
             ? [{ id: 'down', label: "It's down", open: trouble.panelOpen, onOpen: () => trouble.setPanelOpen(true), onClose: () => trouble.setPanelOpen(false) }]
             : []),
           ...(trace.open && jot == null ? [{ id: 'trace', label: 'Trace', open: true, onOpen: () => {}, onClose: trace.close }] : []),
+          ...(shellProps.sideTabs ?? []),
         ];
 
   // The bar's path gains the open device; the part before it leads back out.
@@ -1843,16 +1885,9 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
-    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, cables: look === 'diagram' ? undefined : { value: cableStyle, onChange: changeCableStyle }, aids: showAids }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} autoEquipment={autoOpenEquipment(doc != null, canDraw, realView)} equipmentRequest={equipmentRequest} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} sideTabs={sideTabs} barExtra={
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, cables: look === 'diagram' ? undefined : { value: cableStyle, onChange: changeCableStyle }, aids: { ...showAids, items: showAids.items.filter((a) => a.id !== 'colourKey') } }} layersExtra={doc != null && look === 'rack' && keyRows.length > 0 ? <ColourKey rows={keyRows} onHighlight={setKeyCableIds} /> : undefined} mainView={mainView} designExtra={doc != null && isSample ? <SampleChip onReset={canDraw && loadFirstSave != null ? resetSample : undefined} /> : undefined} doing={doc != null ? doing : undefined} zoomStops={look === 'rack' ? zoomStops : undefined} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} autoEquipment={autoOpenEquipment(doc != null, canDraw, realView)} equipmentRequest={equipmentRequest} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} sideTabs={sideTabs} barExtra={
         doc != null ? (
-          <>
-            {isSample ? <SampleChip onReset={canDraw && loadFirstSave != null ? resetSample : undefined} /> : null}
-            <div className="shell-bar__undoredo">
-              <MissingLinksChip found={missingLinks} onGo={handleGoToMissingLink} />
-              <PlansBarChip controller={plans} />
-              <ChecksBarChip controller={checks} />
-            </div>
-          </>
+          <MissingLinksChip found={missingLinks} onGo={handleGoToMissingLink} />
         ) : undefined
       }
       band={doc != null && plans.bandOpen ? <PlanBand controller={plans} /> : undefined}
@@ -1897,7 +1932,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           fitRequest={fitRequest}
           lookSwitched={lookSwitched}
           cameraHub={cameraHub}
-          keyCableIds={keyOn ? keyCableIds : null}
+          keyCableIds={keyCableIds}
           minimap={canvasAids.prefs.minimap}
           cableStyle={cableStyle}
           onEdit={canDraw ? handleEdit : undefined}
@@ -1988,8 +2023,11 @@ export function RacksPlace(props: RacksPlaceProps) {
           onApplyTemplate={canDraw ? handleApplyTemplate : undefined}
         />
       ) : null}
-      {doc != null && look === 'rack' && keyOn && keyRows.length > 0 ? <ColourKey rows={keyRows} onHighlight={setKeyCableIds} /> : null}
-      {doc != null ? <JumpTrail trail={jump.trail} backLabel={jump.backLabel} onBack={jump.goBack} levels={jumpLevels} onGo={(level) => level.target != null && jumpGo(level.target, null)} /> : null}
+      {doc != null ? (
+        <InSideSlot id="jump-trail">
+          <JumpTrail trail={jump.trail} backLabel={jump.backLabel} onBack={jump.goBack} levels={jumpLevels} onGo={(level) => level.target != null && jumpGo(level.target, null)} />
+        </InSideSlot>
+      ) : null}
       {doc != null ? <PortPeek doc={doc} view={displayView} /> : null}
       {drawerAsk != null && pasteState == null ? (
         <PasteCard

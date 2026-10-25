@@ -1,10 +1,10 @@
-import type { SideTab } from './sideSlot';
 import type { ReactNode } from 'react';
 
 import type { Lens } from './lens';
 import type { PathPart } from './path';
 import type { PaletteAction } from './palette';
 import type { SearchHit } from './search';
+import type { SideTab } from './sideSlot';
 
 export type { Lens } from './lens';
 export { LENSES, LENS_LABEL, isLensLit } from './lens';
@@ -14,6 +14,18 @@ export { pathToItems } from './path';
 /** BRIEF.md "The vocabulary": two places, nothing else gets the name. `null`
  * is Home — neither tab is marked current there. */
 export type Place = 'racks' | 'inventory';
+
+/** r31-bar A: the four views the bar names. Diagram and Canvas are the Racks place in its two looks; Inventory is
+ * the item pages; Sheet is the same lists as one spreadsheet with its tabs along the bottom. */
+export type MainView = 'diagram' | 'canvas' | 'inventory' | 'sheet';
+
+/** A row of the Doing ▾ menu. Without `onSelect` it shows, dimmed, with its hint saying what it needs. */
+export interface DoingItem {
+  id: string;
+  label: string;
+  onSelect?: () => void;
+  hint?: string;
+}
 
 /** The Show ▾ menu's rows for the small aids on the canvas (mini-map, cable colour key), kept in this browser. */
 export interface ShowAids {
@@ -165,6 +177,17 @@ export interface ShellProps {
   autoEquipment?: boolean;
   /** Each bump opens the Equipment tab (the "Add equipment" button on the canvas). */
   equipmentRequest?: number;
+
+  /** r31-bar A: the four views as the bar's tabs. */
+  mainView?: { value: MainView; onChange: (view: MainView) => void };
+  /** Right after the design's name in the bar: the Sample chip. */
+  designExtra?: ReactNode;
+  /** The Doing ▾ menu's rows. */
+  doing?: readonly DoingItem[];
+  /** Below the Layers menu's rows: the cable colour key. */
+  layersExtra?: ReactNode;
+  /** The zoom stops the bottom pill opens upward with (r31-bar A). */
+  zoomStops?: { stops: readonly { id: string; label: string }[]; current: string | null; onGo: (id: string) => void };
 
   /** r30-panels: more tabs for the right-hand panel (Checks, a plan, "It's down", a trace). What each draws goes
    * through `InSideSlot`. */

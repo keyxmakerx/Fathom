@@ -61,6 +61,7 @@ import { useDesignSession } from './useDesignSession';
 import { LearnContext } from '../learn/context';
 import { LearnOverlay } from '../learn/LearnOverlay';
 import { useLearnApi } from '../learn/useLearnApi';
+import type { SideTab } from '../shell/sideSlot';
 
 /** A download with no server round trip. The object URL is revoked a few
  * seconds later, not straight away — read too soon, a browser saves an empty file. */
@@ -817,10 +818,36 @@ export function DesignPlace(props: DesignPlaceProps) {
   // A past save is a read-only copy: nothing drawn on it is saved.
   const racksSession = pickedSave != null ? { ...session, doc: pickedSave.doc, canDraw: false, applyDocChange: () => {} } : session;
 
+  // r31-bar A: on the drawing, Docs is a tab of the right-hand panel holding the docs list, not an overlay. Leaving
+  // the drawing folds it, so it does not reappear as a page over the other view.
+  const docsPlace = useRef(props.place);
+  useEffect(() => {
+    if (docsPlace.current === 'racks' && props.place !== 'racks') docs.setView(null);
+    docsPlace.current = props.place;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a change of place folds it
+  }, [props.place]);
+  const docsTab: SideTab | null =
+    sharedShellProps.onDocs != null || docs.view != null
+      ? {
+          id: 'docs',
+          label: 'Docs',
+          open: docs.view != null,
+          onOpen: () => docs.setView({ kind: 'list' }),
+          onClose: () => docs.setView(null),
+          content:
+            docs.view != null ? (
+              <DocsContext.Provider value={docs.api}>
+                <DocsOverlay view={docs.view} onView={docs.setView} onClose={() => docs.setView(null)} />
+              </DocsContext.Provider>
+            ) : null,
+        }
+      : null;
+
   const place =
     props.place === 'racks' ? (
       <RacksPlace
         {...sharedShellProps}
+        sideTabs={docsTab != null ? [docsTab] : undefined}
         historyView={historyView}
         onPlaceChange={onPlaceChange}
         session={racksSession}
@@ -870,7 +897,7 @@ export function DesignPlace(props: DesignPlaceProps) {
   // `inert`: Firefox 112+, Chrome 102+, Safari 15.5+ (html.global_attributes.inert, read 2026-09-26).
   return (
     <PasteGateBoundary redact={redact}>
-      <div className="print-hide-under-preview" inert={printMode === 'preview' || docs.view != null || learn.view != null}>
+      <div className="print-hide-under-preview" inert={printMode === 'preview' || (docs.view != null && props.place !== 'racks') || learn.view != null}>
         <FirmwareContext.Provider value={firmwareApi}>
           <PaletteRegistryContext.Provider value={paletteRegistry}>
             <DocsContext.Provider value={docs.api}>
@@ -886,7 +913,7 @@ export function DesignPlace(props: DesignPlaceProps) {
           <LearnOverlay view={learn.view} onView={learn.setView} onClose={() => learn.setView(null)} />
         </LearnContext.Provider>
       )}
-      {docs.view != null && printMode === 'closed' && (
+      {docs.view != null && printMode === 'closed' && props.place !== 'racks' && (
         <DocsContext.Provider value={docs.api}>
           <DocsOverlay view={docs.view} onView={docs.setView} onClose={() => docs.setView(null)} />
         </DocsContext.Provider>

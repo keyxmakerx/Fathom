@@ -193,7 +193,7 @@ try {
   // Undo — the bar's own chip (Inventory has no canvas to hold a Ctrl+Z
   // listener; `DesignPlace.tsx`'s own doc: "the bar's Undo/Redo, real
   // everywhere `DesignPlace` renders").
-  await page.locator('.shell-chip', { hasText: 'Undo' }).click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await page.waitForTimeout(400);
   check('the row is back after undo', (await page.locator('.inventory-place__row', { hasText: 'sketch-01' }).count()) === 1);
   await page.screenshot({ path: SHOTS + 'UD-04-undone.png' });

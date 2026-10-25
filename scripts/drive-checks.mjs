@@ -202,7 +202,7 @@ try {
     await page.waitForTimeout(1200);
 
     // The standing run: the bar chip is there, the panel follows the findings.
-    check(`[${w}x${h}] the bar carries a Checks chip`, (await page.locator('[data-testid=checks-chip]').count()) === 1);
+    check(`[${w}x${h}] the right panel carries a Checks tab`, (await page.locator('[data-testid=dock-checks]').count()) === 1);
     check(`[${w}x${h}] the engine ran once the design settled`, (await page.locator('[data-testid=checks-panel]').count()) === 0 || (await page.locator('[data-testid=checks-panel]').innerText()).length > 0);
     await shot(page, `${tag}-01-canvas`);
 
@@ -258,13 +258,13 @@ try {
     await page.keyboard.press('Escape');
     await page.waitForTimeout(1200);
     check(`[${w}x${h}] Esc leads back to the canvas`, (await page.locator('[data-testid=jot]').count()) === 0);
-    if ((await page.locator('[data-testid=checks-panel]').count()) === 0) await page.locator('[data-testid=checks-chip]').click();
+    if ((await page.locator('[data-testid=checks-panel]').count()) === 0) await page.locator('[data-testid=dock-checks]').click();
     await page.waitForSelector('[data-testid=checks-panel]');
     await page.waitForTimeout(600);
     const rows = await page.locator('[data-testid=checks-row]').allInnerTexts();
     check(`[${w}x${h}] the panel lists the single-cable idea`, rows.some((r) => /only one cable/i.test(r)), rows.join(' | ').replace(/\s+/g, ' '));
     check(`[${w}x${h}] rows carry a glyph and a word`, rows.every((r) => /[✕▲○]/.test(r) && /can't work|warning|idea/i.test(r)));
-    const chip = await page.locator('[data-testid=checks-chip]').innerText();
+    const chip = await page.locator('[data-testid=dock-checks]').innerText();
     check(`[${w}x${h}] the chip shows the count`, /Checks \d+/.test(chip), chip);
     const badgeCount = await page.locator('[data-testid=checks-badge]').count();
     check(`[${w}x${h}] an idea is listed but not badged on the device`, badgeCount === 0, String(badgeCount));
@@ -336,7 +336,7 @@ try {
     await shot(page, `${tag}-06-in-dock`);
     await page.locator('.checks-panel__head').getByRole('button', { name: 'Fold the Checks panel' }).click();
     await page.waitForTimeout(200);
-    check(`[${w}x${h}] Fold leaves only the count in the bar`, (await page.locator('[data-testid=checks-panel]').count()) === 0 && (await page.locator('[data-testid=checks-chip]').count()) === 1);
+    check(`[${w}x${h}] Fold leaves only the count on the tab`, (await page.locator('[data-testid=checks-panel]').count()) === 0 && (await page.locator('[data-testid=dock-checks]').count()) === 1);
 
     check(`[${w}x${h}] no uncaught page errors`, pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
@@ -349,7 +349,7 @@ try {
     await page.goto(`${BASE}/drive.html?scene=canvas`);
     await page.waitForSelector('.react-flow__pane', { timeout: 15_000 });
     await page.waitForTimeout(1500);
-    const chip = await page.locator('[data-testid=checks-chip]').innerText();
+    const chip = await page.locator('[data-testid=dock-checks]').innerText();
     const canvasW = (await page.locator('.shell__drawing').boundingBox()).width;
     const open = (await page.locator('[data-testid=checks-panel]').count()) === 1;
     console.log(`    [${w}x${h}] fresh: chip "${chip}", canvas ${canvasW}px, panel ${open ? 'open' : 'folded'}`);
@@ -368,7 +368,7 @@ try {
     console.log(`    [${w}x${h}] rail and editor open: canvas ${narrowerW}px`);
     if (narrowerW < 720) check(`[${w}x${h}] with the rail and the editor open the panel stays folded`, (await page.locator('[data-testid=checks-panel]').count()) === 0, `${narrowerW}`);
     // An explicit open is remembered and wins.
-    await page.locator('[data-testid=checks-chip]').click();
+    await page.locator('[data-testid=dock-checks]').click();
     await page.waitForTimeout(300);
     check(`[${w}x${h}] an explicit open wins over the narrow default`, (await page.locator('[data-testid=checks-panel]').count()) === 1);
     const area = await page.locator('.shell__drawing').boundingBox();

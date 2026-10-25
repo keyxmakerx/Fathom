@@ -314,7 +314,7 @@ try {
   }, sel);
   const rowTexts = (page) => T(page, 'firmware-row').evaluateAll((els) => els.map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
   const openChecks = async (page) => {
-    if ((await T(page, 'checks-panel').count()) === 0) await T(page, 'checks-chip').click();
+    if ((await T(page, 'checks-panel').count()) === 0) await T(page, 'dock-checks').click();
     await page.waitForSelector('[data-testid=checks-panel]', { timeout: 8_000 });
     await settle(page, 800);
     return (await T(page, 'checks-row').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));

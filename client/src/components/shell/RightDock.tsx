@@ -86,7 +86,11 @@ export function RightDock({
     else if (t.open) onActivate?.(t.id);
     else t.onOpen();
   };
-  const slots = side.map((t) => <div key={t.id} ref={slotRef?.(t.id)} className="dock-side" data-side={t.id} hidden={active !== t.id} />);
+  const slots = side.map((t) => (
+    <div key={t.id} ref={slotRef?.(t.id)} className="dock-side" data-side={t.id} hidden={active !== t.id}>
+      {t.content != null && t.open ? t.content : null}
+    </div>
+  ));
   const core =
     activeTab != null ? null : shown === 'equipment' ? (
       <nav className="shell-rail" aria-label="Equipment">

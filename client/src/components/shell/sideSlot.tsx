@@ -14,6 +14,8 @@ export interface SideTab {
   open: boolean;
   onOpen: () => void;
   onClose: () => void;
+  /** What the tab shows, when its owner is not inside the shell (Docs); otherwise the owner uses `InSideSlot`. */
+  content?: ReactNode;
 }
 
 /** True inside a side tab's slot: a card that is dragged about the canvas stays put there. */
