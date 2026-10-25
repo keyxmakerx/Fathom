@@ -63,7 +63,8 @@ vendors:
                          # row below. Ubiquiti is two worlds: UniFi devices are
                          # configured by a controller and export no text config a
                          # person pastes (corpus/dict/README-ubiquiti.md records what
-                         # was checked and why no UniFi dictionary exists), while
+                         # was checked; UniFi switches were since found to print one,
+                         # hence `unifi-sw` below), while
                          # EdgeOS routers (EdgeRouter/EdgeMAX) are Vyatta-derived and
                          # do print one, hence the platform row.
 
@@ -151,6 +152,13 @@ platforms:
   # capture is not parseable by the dictionary this row backs. See
   # corpus/dict/README-ubiquiti.md for exactly what the core would need to read it.
   edgeos:    { vendor: ubiquiti,  family: edgeos,  version_scheme: edgeos }
+  # Added 2026-10-25, sign-off r27-unifi: a UniFi switch's `show running-config`, reached
+  # by SSH, `telnet localhost` and `enable` on US-series and some USW models. Real UniFi
+  # fragments were seen (header, an interface block, the closing `exit`); a complete
+  # config was not, so `corpus/dict/unifi-sw/` is built on the EdgeSwitch CLI syntax and
+  # marked unverified (corpus/dict/README-unifi-sw.md). This supersedes the 2026-09-19
+  # finding in README-ubiquiti.md that UniFi switches export no text config.
+  unifi-sw:  { vendor: ubiquiti,  family: unifi,   version_scheme: unifi }
   # Added 2026-10-10. `/export` output, read by its own front end
   # (crates/fathom-ingest/src/routeros.rs), not by the set-form shaper.
   routeros:  { vendor: mikrotik,  family: routeros, version_scheme: routeros }
