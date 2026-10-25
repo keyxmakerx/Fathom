@@ -557,6 +557,15 @@ async fn main() -> ExitCode {
             return ExitCode::from(8);
         }
     }
+    // ADR-0072: the AI router has its own state and its own extractor; it is given the
+    // pool, never the session store, so nothing on it can verify a session.
+    let ai_api = fathom_server::ai_api::AiApiState {
+        pool: sessions.pool().clone(),
+        ring: Arc::clone(&ring),
+        watch: Arc::clone(&watch),
+        live: Arc::clone(&live),
+        client_address: client_address.clone(),
+    };
     let designs = fathom_server::design_api::DesignApiState {
         sessions: Arc::clone(&sessions),
         watch,
@@ -1169,6 +1178,9 @@ async fn main() -> ExitCode {
     // ADR-0057 decision 5. Account-plane, on every host, like the credential routes.
     .merge(fathom_server::api::claim_router(claim_api))
     .merge(fathom_server::design_api::router(designs))
+    // ADR-0072 decision 2. Account-plane, on every host; a separate router so its surface
+    // is one file.
+    .merge(fathom_server::ai_api::router(ai_api))
     .merge(admin_router);
     if let Some(store) = firmware {
         app = app.merge(fathom_server::firmware::router(

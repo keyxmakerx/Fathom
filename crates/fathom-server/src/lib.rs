@@ -48,6 +48,9 @@
 
 pub mod admin;
 pub mod admin_exposure;
+pub mod ai;
+pub mod ai_api;
+pub mod ai_reading;
 pub mod api;
 pub mod audit;
 pub mod authority;

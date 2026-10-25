@@ -252,6 +252,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0040_practice_spaces.sql",
         sql: include_str!("../migrations/0040_practice_spaces.sql"),
     },
+    // AI access keys: a person's AI reads as them, and recommends (ADR-0072).
+    Migration {
+        version: 43,
+        name: "0043_ai_access_keys.sql",
+        sql: include_str!("../migrations/0043_ai_access_keys.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

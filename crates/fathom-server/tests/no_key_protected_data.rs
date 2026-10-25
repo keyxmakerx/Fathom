@@ -610,6 +610,61 @@ const TABLES: &[TableClaim] = &[
               server's credential check and the browser's redaction gate before it is sealed. \
               `nonce`, `key_epoch` and the other columns are not secret.",
     },
+    // ADR-0072 -- migration `0043_ai_access_keys.sql`.
+    TableClaim {
+        name: "ai_policies",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "one row per organisation: whether AI keys are allowed there, the account ids that \
+              may make keys, the most any key may see (`layout`, `addresses`, `notes`), the \
+              longest a key lasts, and the folder ids where a second person accepts ideas. \
+              `row_seal` is an HMAC over that row, which a key opens nothing with.",
+    },
+    TableClaim {
+        name: "ai_keys",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the PUBLIC half of a P-256 key a person's own computer made, its owner, its label, \
+              its folders and tiers, when it ends and who stopped it and why. **The private half \
+              never reaches this server** (ADR-0072 decision 3): a database read hands an \
+              attacker a public key, which verifies a signature and cannot make one. \
+              `row_seal` is an HMAC over the row so a widened row is refused, not obeyed.",
+    },
+    TableClaim {
+        name: "ai_key_directory",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "which organisation a key id belongs to, read before any organisation is chosen so \
+              the request can be verified inside it. Two ids, nothing else.",
+    },
+    TableClaim {
+        name: "ai_request_nonces",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the HASH of each spent request nonce and when it may be forgotten, so a replayed \
+              request is refused. `H(LP(\"fathom/ai/nonce/v1\") || LP(key_id) || LP(nonce))`; a \
+              nonce is not a secret even before it is hashed.",
+    },
+    TableClaim {
+        name: "ai_key_use",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "a count of requests per key per day, the last time and the address it came from, \
+              shown to the key's owner and the organisation's Stewards.",
+    },
+    TableClaim {
+        name: "ai_site_switch",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the operator's one switch for AI on this server: allowed or not, the reason they \
+              gave, who and when, and a seal under the site row key.",
+    },
+    TableClaim {
+        name: "ai_recommendations",
+        protection: Protection::KeyProtected {
+            columns: &["ciphertext"],
+            under:
+                "the organisation's content key, under the tenant key; the idea id, design, key \
+                    and owner are bound in the AEAD associated data",
+        },
+        why: "an AI's idea for a design: the title, reason and steps are sealed whole after each \
+              line has passed the credential check. Dismissing one seals an empty body in its \
+              place. The design id, state, who decided and `step_count` are not secret.",
+    },
 ];
 
 /// Object kinds a migration may create that are not themselves a place to

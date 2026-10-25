@@ -298,8 +298,11 @@ pub fn router(state: DesignApiState) -> Router {
             "/catalogue/models/{vendor}/{model}",
             get(catalogue_model_handler),
         )
+        .merge(ai_routes::routes())
         .with_state(state)
 }
+
+mod ai_routes;
 
 // ---- The extractor: `api::Signed`'s pattern, against `DesignApiState` ----
 
@@ -562,6 +565,8 @@ pub enum RouteError {
     Limited(&'static str),
     /// An invitation act refused: [`invite_error_response`].
     Invite(InviteError),
+    /// An AI-access act refused (ADR-0072): `ai::AiError::response`.
+    Ai(crate::ai::AiError),
 }
 
 impl From<InviteError> for RouteError {
@@ -596,6 +601,7 @@ impl IntoResponse for RouteError {
             )
                 .into_response(),
             Self::Invite(e) => invite_error_response(e),
+            Self::Ai(e) => e.response(),
         }
     }
 }
