@@ -564,3 +564,31 @@
     print-color-adjust: exact;
   }
 }
+
+/* ---- a LAG step's members ------------------------------------------- */
+
+.plans-members {
+  display: grid;
+  gap: var(--s1);
+  margin: var(--s1) 0 0;
+  padding: var(--s2);
+  border: var(--rule-hair) solid var(--hairline);
+}
+
+.plans-members legend {
+  color: var(--muted);
+}
+
+.plans-members label {
+  margin-top: 0;
+  color: var(--ink);
+}
+
+.plans-members__held,
+.plans-members__none {
+  color: var(--muted);
+}
+
+.plans-members__none {
+  margin: 0;
+}

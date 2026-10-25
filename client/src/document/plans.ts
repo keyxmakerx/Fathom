@@ -33,9 +33,11 @@ import {
   token,
   uint,
   fieldValue,
+  interfaceName,
   type Document,
   type GraphNode,
 } from './model';
+import { memberInterfaces } from './portTies';
 import { truncateUtf8 } from './undo';
 
 interface Actor {
@@ -50,11 +52,11 @@ export type TextGate = (text: string) => string;
 export const TYPED_AS_WRITTEN: TextGate = (text) => text;
 
 export type PlanStage = 'planned' | 'doing' | 'recorded';
-export type StepKind = 'address' | 'route' | 'cable' | 'move' | 'other';
+export type StepKind = 'address' | 'route' | 'cable' | 'move' | 'other' | 'lag';
 export type StepState = 'planned' | 'done' | 'went_differently';
 export type PlanOutcome = 'succeeded' | 'partial' | 'failed';
 
-export const STEP_KINDS: readonly StepKind[] = ['address', 'route', 'cable', 'move', 'other'];
+export const STEP_KINDS: readonly StepKind[] = ['address', 'route', 'cable', 'move', 'lag', 'other'];
 export const OUTCOMES: readonly PlanOutcome[] = ['succeeded', 'partial', 'failed'];
 
 export type PlanRefusalCode =
@@ -88,7 +90,12 @@ export type StepEdit =
   | { t: 'field'; id: string; key: string; value: string }
   | { t: 'cable'; a: string; b: string }
   | { t: 'cut'; cable: string }
-  | { t: 'move'; chassis: string; rack: string; positionU: number; face: 'front' | 'rear' };
+  | { t: 'move'; chassis: string; rack: string; positionU: number; face: 'front' | 'rear' }
+  | { t: 'lag'; device: string; name: string; lacp: LacpMode; members: string[] };
+
+/** `lacp_mode` (schema/enums/lacp_mode.yaml); '' leaves it unset. `off` is a static bundle. */
+export type LacpMode = 'active' | 'passive' | 'off' | '';
+export const LACP_MODES: readonly LacpMode[] = ['active', 'passive', 'off', ''];
 
 function clean(part: string, what: string): string {
   if (/[\t\r\n]/.test(part)) throw new PlanRefusal('bad-edit', `${what} may not hold a tab or a line break`);
@@ -105,6 +112,8 @@ export function encodeEdit(e: StepEdit): string {
       return ['cut', clean(e.cable, 'an id')].join('\t');
     case 'move':
       return ['move', clean(e.chassis, 'an id'), clean(e.rack, 'an id'), String(e.positionU), e.face].join('\t');
+    case 'lag':
+      return ['lag', clean(e.device, 'an id'), clean(e.name, 'a name'), e.lacp, ...e.members.map((m) => clean(m, 'an id'))].join('\t');
   }
 }
 
@@ -124,6 +133,10 @@ export function decodeEdit(line: string | undefined): StepEdit | null {
         ? { t: 'move', chassis: p[1], rack: p[2], positionU: u, face: p[4] }
         : null;
     }
+    case 'lag':
+      return p.length >= 5 && (LACP_MODES as readonly string[]).includes(p[3])
+        ? { t: 'lag', device: p[1], name: p[2], lacp: p[3] as LacpMode, members: p.slice(4) }
+        : null;
     default:
       return null;
   }
@@ -141,6 +154,8 @@ export function targetsOf(e: StepEdit | null): string[] {
       return [e.cable];
     case 'move':
       return [e.chassis, e.rack];
+    case 'lag':
+      return [e.device, ...e.members];
   }
 }
 
@@ -196,6 +211,8 @@ function slotsOf(e: StepEdit): [string, string][] {
         [e.chassis, 'Chassis'],
         [e.rack, 'Rack'],
       ];
+    case 'lag':
+      return [[e.device, 'Device'], ...e.members.map((m): [string, string] => [m, 'Interface'])];
   }
 }
 
@@ -209,6 +226,82 @@ function assertWellFormed(doc: Document, e: StepEdit): void {
   }
   if (e.t === 'move' && !Number.isInteger(e.positionU)) throw new PlanRefusal('bad-edit', 'a rack position is a whole number');
   if (e.t === 'move' && e.face !== 'front' && e.face !== 'rear') throw new PlanRefusal('bad-edit', 'a face is front or rear');
+  if (e.t === 'lag') assertLag(doc, e);
+}
+
+// ---------------------------------------------------------------------------
+// LAG steps (schema 0.25): member Interfaces of one device bundled into a new AggregateInterface
+// (ae on Junos, port-channel on IOS, bond on Linux). The far end is its own step on its own device.
+
+/** The LAG a member already belongs to, or null. */
+function lagOf(doc: Document, interfaceId: string): string | null {
+  for (const m of edgesOut(doc, interfaceId, 'MemberOfAggregate')) {
+    const ae = findNode(doc, m.to);
+    if (m.absentSince === undefined && ae && ae.absentSince === undefined) return asString(fieldValue(ae.fields, 'AggregateInterface.name')) ?? m.to;
+  }
+  return null;
+}
+
+/** Every interface-like name the device already holds. */
+function interfaceNames(doc: Document, deviceId: string): Set<string> {
+  const out = new Set<string>();
+  for (const e of edgesOut(doc, deviceId, 'HasInterface')) {
+    const n = findNode(doc, e.to);
+    if (e.absentSince !== undefined || !n || n.absentSince !== undefined) continue;
+    const name = asString(fieldValue(n.fields, `${parseNodeId(n.id).kind}.name`));
+    if (name !== undefined) out.add(name);
+  }
+  return out;
+}
+
+export interface LagMember {
+  id: string;
+  name: string;
+  /** The LAG it is in now, or null when it is free to bundle. */
+  inLag: string | null;
+}
+
+/** A device's member Interfaces, in name order, saying which are already in a LAG. */
+export function lagMembers(doc: Document, deviceId: string): LagMember[] {
+  return memberInterfaces(doc, deviceId)
+    .map((i) => ({ ...i, inLag: lagOf(doc, i.id) }))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+}
+
+/** The first free LAG name in the device's own naming: ae0 on Junos, bond0 on Linux, Port-channel1 on IOS. */
+export function nextLagName(doc: Document, deviceId: string): string {
+  const platform = asString(fieldValue(findNode(doc, deviceId)?.fields ?? {}, 'Device.platform')) ?? '';
+  const [stem, from] = platform.startsWith('junos') ? ['ae', 0] : platform.startsWith('linux') ? ['bond', 0] : platform.startsWith('ios') ? ['Port-channel', 1] : ['lag', 0];
+  const taken = interfaceNames(doc, deviceId);
+  let i = from;
+  while (taken.has(`${stem}${i}`)) i++;
+  return `${stem}${i}`;
+}
+
+function assertLag(doc: Document, e: Extract<StepEdit, { t: 'lag' }>): void {
+  if (!/^[\x21-\x7e]+$/.test(e.name)) throw new PlanRefusal('bad-edit', 'a LAG name is one word with no spaces');
+  if (!LACP_MODES.includes(e.lacp)) throw new PlanRefusal('bad-edit', `"${e.lacp}" is not an LACP mode`);
+  if (e.members.length < 2) throw new PlanRefusal('bad-edit', 'a LAG needs two or more members');
+  if (new Set(e.members).size !== e.members.length) throw new PlanRefusal('bad-edit', 'a member is listed twice');
+  if (interfaceNames(doc, e.device).has(e.name)) throw new PlanRefusal('bad-edit', `${e.name} already exists on this device`);
+  const own = new Set(memberInterfaces(doc, e.device).map((i) => i.id));
+  for (const m of e.members) {
+    if (!own.has(m)) throw new PlanRefusal('bad-edit', 'every member must be an interface of this device');
+    const held = lagOf(doc, m);
+    if (held !== null) throw new PlanRefusal('bad-edit', `a member is already in ${held}`);
+  }
+}
+
+/** Builds the LAG: the AggregateInterface on the device, and each member joined to it. One undo step. */
+function makeLag(doc: Document, e: Extract<StepEdit, { t: 'lag' }>, opts?: Actor): Document {
+  assertLag(doc, e);
+  const b = begin(doc, opts);
+  const fields: Record<string, ReturnType<typeof text>> = { 'AggregateInterface.name': interfaceName(e.name) };
+  if (e.lacp !== '') fields['AggregateInterface.lacp_mode'] = token(e.lacp);
+  const ae = addNode(b, 'AggregateInterface', fields);
+  addEdge(b, 'HasInterface', e.device, ae);
+  for (const m of e.members) addEdge(b, 'MemberOfAggregate', m, ae);
+  return finish(b, truncateUtf8(`make LAG ${e.name}`));
 }
 
 /** Applies an edit through the command a hand edit uses. Throws what that command throws. */
@@ -221,6 +314,8 @@ export function applyEdit(doc: Document, e: StepEdit, opts?: Actor): Document {
       return disconnect(doc, e.cable, opts);
     case 'move':
       return movePlacement(doc, e.chassis, { kind: 'rack', rackId: e.rack, positionU: e.positionU, face: e.face }, opts);
+    case 'lag':
+      return makeLag(doc, e, opts);
     case 'field': {
       const value = e.value === '' ? null : e.value;
       const [kind, key] = e.key.split('.');

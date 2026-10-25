@@ -5,6 +5,7 @@
 //! A step's `edit` is one tab-separated line, the same edits the canvas makes:
 //!   `field` id, wire name (`Device.management_address`), value
 //!   `cable` port id, port id        `cut` cable id        `move` chassis id, rack id
+//!   `lag` device id, LAG name, LACP mode, member interface ids (two or more)
 //! A value may not hold a tab or a line break; the client refuses one when the step is made.
 
 use std::collections::BTreeMap;
@@ -31,6 +32,11 @@ pub enum Edit {
     Move {
         chassis: String,
         rack: String,
+    },
+    Lag {
+        device: String,
+        name: String,
+        members: Vec<String>,
     },
 }
 
@@ -78,6 +84,15 @@ impl Edit {
                 chassis: (*chassis).to_owned(),
                 rack: (*rack).to_owned(),
             },
+            ["lag", device, name, lacp, members @ ..]
+                if !members.is_empty() && ["active", "passive", "off", ""].contains(lacp) =>
+            {
+                Edit::Lag {
+                    device: (*device).to_owned(),
+                    name: (*name).to_owned(),
+                    members: members.iter().map(|m| (*m).to_owned()).collect(),
+                }
+            }
             _ => Edit::None,
         }
     }
@@ -247,6 +262,39 @@ pub fn impact(g: &Graph, edit: &Edit) -> (Vec<String>, Vec<(String, String)>) {
                 }
             }
         }
+        Edit::Lag {
+            device,
+            name,
+            members,
+        } => {
+            let Some(d) = live(g, device) else {
+                return (lines, touches);
+            };
+            touches.push(touch(g, d));
+            let taken = g
+                .out(d, EdgeKind::HasInterface)
+                .filter(|e| e.absent_since.is_none())
+                .filter_map(|e| g.node(e.to).filter(|n| n.absent_since.is_none()))
+                .any(|n| display_name(g, n.id) == *name);
+            if taken {
+                lines.push(format!("{} already has {name}", display_name(g, d)));
+            }
+            for m in members {
+                let Some(i) = live(g, m) else { continue };
+                touches.push(touch(g, i));
+                let held = g
+                    .out(i, EdgeKind::MemberOfAggregate)
+                    .filter(|e| e.absent_since.is_none())
+                    .find_map(|e| g.node(e.to).filter(|n| n.absent_since.is_none()));
+                if let Some(ae) = held {
+                    lines.push(format!(
+                        "{} is already in {}",
+                        display_name(g, i),
+                        display_name(g, ae.id)
+                    ));
+                }
+            }
+        }
     }
     (lines, touches)
 }
@@ -308,6 +356,17 @@ mod tests {
             assert!(matches!(Edit::parse(line), Edit::None), "{line:?}");
         }
         assert!(matches!(Edit::parse("cut\tcable:X"), Edit::Cut { .. }));
+        assert!(matches!(
+            Edit::parse("lag\tdevice:X\tae0\tactive\tinterface:A\tinterface:B"),
+            Edit::Lag { ref members, .. } if members.len() == 2
+        ));
+        for line in [
+            "lag\tdevice:X\tae0\tactive",
+            "lag\tdevice:X\tae0\tsideways\tinterface:A",
+            "lag\tdevice:X",
+        ] {
+            assert!(matches!(Edit::parse(line), Edit::None), "{line:?}");
+        }
         assert!(matches!(
             Edit::parse("cable\ta\tb\textra"),
             Edit::Cable { .. }

@@ -1,7 +1,7 @@
 // The add-step form: pick the kind, then the things from the design itself (never a typed id).
 import { useEffect, useId, useMemo, useRef, useState, type ClipboardEventHandler, type RefObject } from 'react';
 
-import { STEP_KINDS, type StepKind } from '../../document/plans';
+import { STEP_KINDS, lagMembers, nextLagName, type LacpMode, type StepKind } from '../../document/plans';
 import {
   EMPTY_FORM,
   KIND_WORD,
@@ -110,7 +110,10 @@ export function AddStepForm({ controller, stepCount }: { controller: PlansContro
   const cables = useMemo(() => (doc && form.kind === 'cable' && form.cableMode === 'cut' ? cablesOf(doc, canon) : []), [doc, canon, form.kind, form.cableMode]);
   const portsA = useMemo(() => (doc && form.device !== '' ? portsOfDevice(doc, canon, form.device) : []), [doc, canon, form.device]);
   const portsB = useMemo(() => (doc && form.deviceB !== '' ? portsOfDevice(doc, canon, form.deviceB) : []), [doc, canon, form.deviceB]);
+  const members = useMemo(() => (doc && form.kind === 'lag' && form.device !== '' ? lagMembers(doc, form.device) : []), [doc, form.kind, form.device]);
+  const lagDefault = useMemo(() => (doc && form.kind === 'lag' && form.device !== '' ? nextLagName(doc, form.device) : ''), [doc, form.kind, form.device]);
   const kindId = useId();
+  const lacpId = useId();
   const modeId = useId();
   const faceId = useId();
 
@@ -194,6 +197,41 @@ export function AddStepForm({ controller, stepCount }: { controller: PlansContro
           ) : (
             <Pick refEl={first} label="Which cable" value={form.cable} onChange={(v) => set('cable', v)} choices={cables} />
           )}
+        </>
+      )}
+
+      {form.kind === 'lag' && (
+        <>
+          <Pick refEl={first} label="Device" value={form.device} onChange={(v) => setForm((f) => ({ ...f, device: v, members: [] }))} choices={devices} />
+          {form.device !== '' && (
+            <fieldset className="plans-members" data-testid="plans-lag-members">
+              <legend>Members</legend>
+              {members.length === 0 ? (
+                <p className="plans-members__none">This device has no interfaces yet. Paste its config first, then plan the LAG.</p>
+              ) : (
+                members.map((m) => (
+                  <label key={m.id}>
+                    <input
+                      type="checkbox"
+                      checked={form.members.includes(m.id)}
+                      disabled={m.inLag !== null}
+                      onChange={(e) => set('members', e.target.checked ? [...form.members, m.id] : form.members.filter((x) => x !== m.id))}
+                    />{' '}
+                    {m.name}
+                    {m.inLag !== null && <span className="plans-members__held"> · in {m.inLag}</span>}
+                  </label>
+                ))
+              )}
+            </fieldset>
+          )}
+          <Field label="LAG name" value={form.lagName} onChange={(v) => set('lagName', v)} placeholder={lagDefault || 'ae0'} />
+          <label htmlFor={lacpId}>LACP</label>
+          <select id={lacpId} className="plans-select" value={form.lacp} onChange={(e) => set('lacp', e.target.value as LacpMode)}>
+            <option value="active">Active</option>
+            <option value="passive">Passive</option>
+            <option value="off">Off (static bundle)</option>
+            <option value="">Not set</option>
+          </select>
         </>
       )}
 

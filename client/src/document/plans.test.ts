@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { connectPorts } from './cables';
 import { addSketchPort, createSketchDevice } from './commands';
 import { setDeviceField } from './edit';
-import { begin, finish, setNodeField } from './freeform';
-import { edgesOut, emptyDocument, findNode, text, type Document } from './model';
+import { addEdge, addNode, begin, finish, setNodeField } from './freeform';
+import { asString, edgesIn, edgesOut, emptyDocument, fieldValue, findNode, interfaceName, text, token, type Document } from './model';
 import {
   PlanRefusal,
   addStep,
@@ -13,6 +13,8 @@ import {
   currentStep,
   decodeEdit,
   encodeEdit,
+  lagMembers,
+  nextLagName,
   listPlans,
   markDone,
   markWentDifferently,
@@ -531,5 +533,79 @@ describe('reading', () => {
     expect(planProblems(p).join()).toMatch(/before the plan started|before an earlier/);
     void ports;
     void setDeviceField;
+  });
+});
+
+describe('a LAG step', () => {
+  function switchWith(names: string[]): { doc: Document; device: string; ifaces: Record<string, string> } {
+    let doc = createSketchDevice(emptyDocument(), tick());
+    const device = doc.nodes.find((n) => n.id.startsWith('device:'))!.id;
+    const b = begin(doc, tick());
+    setNodeField(b, device, 'Device.platform', token('junos-ex'));
+    const ifaces: Record<string, string> = {};
+    for (const name of names) {
+      ifaces[name] = addNode(b, 'Interface', { 'Interface.name': interfaceName(name), 'Interface.form': token('ethernet') });
+      addEdge(b, 'HasInterface', device, ifaces[name]);
+    }
+    doc = finish(b, 'paste');
+    return { doc, device, ifaces };
+  }
+
+  it('round-trips, and builds the LAG only on Done, as one undo step', () => {
+    const { doc, device, ifaces } = switchWith(['ge-0/0/0', 'ge-0/0/1', 'ge-0/0/2']);
+    expect(nextLagName(doc, device)).toBe('ae0');
+    const edit: StepEdit = { t: 'lag', device, name: 'ae0', lacp: 'active', members: [ifaces['ge-0/0/0'], ifaces['ge-0/0/1']] };
+    expect(decodeEdit(encodeEdit(edit))).toEqual(edit);
+    let made = createPlan(doc, { title: 'Uplink LAG', gate, ...tick() });
+    const step = addStep(made.doc, made.id, { kind: 'lag', change: 'Make ae0', edit, gate, ...tick() });
+    made = { doc: step.doc, id: made.id };
+    expect(made.doc.nodes.some((n) => n.id.startsWith('aggregate-interface:'))).toBe(false);
+    expect(readPlan(made.doc, made.id).steps[0].targets).toEqual([device, ifaces['ge-0/0/0'], ifaces['ge-0/0/1']]);
+
+    const started = startPlan(made.doc, made.id, tick());
+    const done = markDone(started, step.id, { check: allow, ...tick() });
+    const ae = done.nodes.find((n) => n.id.startsWith('aggregate-interface:'))!;
+    expect(asString(fieldValue(ae.fields, 'AggregateInterface.name'))).toBe('ae0');
+    expect(asString(fieldValue(ae.fields, 'AggregateInterface.lacp_mode'))).toBe('active');
+    expect(edgesIn(done, ae.id, 'HasInterface').map((e) => e.from)).toEqual([device]);
+    expect(edgesIn(done, ae.id, 'MemberOfAggregate').map((e) => e.from).sort()).toEqual([ifaces['ge-0/0/0'], ifaces['ge-0/0/1']].sort());
+    expect(lagMembers(done, device).map((m) => [m.name, m.inLag])).toEqual([
+      ['ge-0/0/0', 'ae0'],
+      ['ge-0/0/1', 'ae0'],
+      ['ge-0/0/2', null],
+    ]);
+    expect(nextLagName(done, device)).toBe('ae1');
+    expect(done.batches.length).toBe(started.batches.length + 1);
+    const actor = tick().actor;
+    expect(undo(done, done.batches[done.batches.length - 1].id, { actor, now: 1_790_990_000_000 }).nodes.find((n) => n.id === ae.id)?.absentSince).toBeDefined();
+  });
+
+  it('refuses one member, a taken name, a foreign interface and a member already bundled', () => {
+    const { doc, device, ifaces } = switchWith(['ge-0/0/0', 'ge-0/0/1', 'ge-0/0/2']);
+    const other = switchWith(['xe-0/0/0']);
+    const both = { ...doc, nodes: [...doc.nodes, ...other.doc.nodes.filter((n) => !doc.nodes.some((m) => m.id === n.id))], edges: [...doc.edges, ...other.doc.edges.filter((e) => !doc.edges.some((f) => f.id === e.id))], provenance: [...doc.provenance, ...other.doc.provenance.filter((p) => !doc.provenance.some((q) => q.id === p.id))] };
+    const a = ifaces['ge-0/0/0'];
+    const b = ifaces['ge-0/0/1'];
+    const lag = (members: string[], name = 'ae0'): StepEdit => ({ t: 'lag', device, name, lacp: 'active', members });
+    const bundled = applyEdit(doc, lag([a, b]), tick());
+    const cases: [Document, StepEdit][] = [
+      [doc, lag([a])],
+      [doc, lag([a, a])],
+      [doc, lag([a, b], 'ae 0')],
+      [both, lag([a, other.ifaces['xe-0/0/0']])],
+      [bundled, lag([a, ifaces['ge-0/0/2']], 'ae1')],
+      [bundled, lag([ifaces['ge-0/0/2'], a], 'ae0')],
+    ];
+    for (const [d, e] of cases) {
+      let code = '';
+      try {
+        applyEdit(d, e, tick());
+      } catch (err) {
+        code = err instanceof PlanRefusal ? err.code : String(err);
+      }
+      expect(code, JSON.stringify(e)).toBe('bad-edit');
+    }
+    expect(decodeEdit('lag\tdevice:A\tae0\tsideways\tinterface:B')).toBeNull();
+    expect(decodeEdit('lag\tdevice:A\tae0\tactive')).toBeNull();
   });
 });

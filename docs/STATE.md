@@ -338,6 +338,10 @@ server, access point). Per browser and design, never saved.
 touches with Why? cards via `OP_PLAN_PREVIEW`), Do (teal checklist, one live step, Done or Went
 differently), Record (outcome, never edited again). Right-click "Plan a change". Steps apply through the
 ordinary edit path; plan text is gated like notes.
+A **LAG** step (schema 0.25) picks a device, ticks two or more of its member interfaces (so the
+config must be pasted first), names it (the next free ae, bond or Port-channel by platform) and sets
+LACP; Done builds the AggregateInterface and its member edges in one undo step. The far end is its own
+step. No VPN step yet.
 
 **Live co-editing** (#98, ADR-0063 live). Changes are signed requests the server applies to its own
 head through the engine, refusing what the engine or the credential check refuses, then numbers, chains,

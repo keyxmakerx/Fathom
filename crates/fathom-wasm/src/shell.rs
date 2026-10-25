@@ -1913,7 +1913,7 @@ impl Shell {
             let g = scratch.estate.as_ref().unwrap();
             let (lines, touches) = plan::impact(g, &step.edit);
             let reply = match &step.edit {
-                Edit::None | Edit::Move { .. } => Vec::new(),
+                Edit::None | Edit::Move { .. } | Edit::Lag { .. } => Vec::new(),
                 Edit::Field { id, key, value } => {
                     // A key the target's kind does not have is never written.
                     let foreign = scratch
