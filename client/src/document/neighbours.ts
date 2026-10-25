@@ -14,6 +14,11 @@
 //   manual, "Link Layer Discovery Protocol").
 // - lldpd `lldpcli show neighbors` (Linux): blocks of `Interface: eth0, via: LLDP`, `SysName:`, `PortID: ifname
 //   swp47`, `PortDescr:` (docs.nvidia.com, Cumulus Linux 4.3, "Link Layer Discovery Protocol").
+// - Cisco `show cdp neighbors` (round 29, card r29-fill; read 2026-10-25): Device ID, Local Intrfce, Holdtme,
+//   Capability, Platform, Port ID, with ports written as a word, a space and the number (`Eth 0/1`, `Ser 0`), and
+//   `show cdp neighbors detail`: blocks of `Device ID: device2.cisco.com` and `Interface: Ethernet0/1,  Port ID
+//   (outgoing port): Ethernet0` (cisco.com, "Using Cisco IOS Software" command reference, show cdp neighbors; and
+//   doc 43485, "Configuring Cisco Discovery Protocol on Cisco routers and switches running Cisco IOS").
 // The same pages show one port written two ways (Arista's `Et3/1` beside `Ethernet3/2`; Cisco's `Eth1/2` beside
 // `Ethernet1/2`), so a port name also matches when one word is the start of the other and the numbers agree.
 
@@ -23,7 +28,7 @@ import { compatible } from './compat';
 import { asString, edgesIn, edgesOut, fieldValue, findNode, parseNodeId, readPhysicalPortFields, type Document, type GraphNode } from './model';
 import { citedPortNameRules, deviceOf, positionOf, type PortNameRule } from './portTies';
 
-export type NeighbourFormat = 'junos' | 'cisco' | 'arista' | 'lldpd';
+export type NeighbourFormat = 'junos' | 'cisco' | 'arista' | 'lldpd' | 'cdp';
 
 /** One line of a neighbour list: this switch's port, and the device and port at the other end. */
 export interface NeighbourRow {
@@ -38,7 +43,7 @@ export interface NeighbourList {
 }
 
 interface Table {
-  format: Exclude<NeighbourFormat, 'lldpd'>;
+  format: Exclude<NeighbourFormat, 'lldpd' | 'cdp'>;
   /** Every column the header may carry, in order. */
   columns: readonly string[];
   /** Columns that must be present for the header to count. */
@@ -175,10 +180,66 @@ function readLldpd(lines: readonly string[]): NeighbourList | null {
   return { format: 'lldpd', rows };
 }
 
+/** CDP writes a port as a word, a space and its number; the design writes it without the space. */
+const closeUp = (port: string): string => port.trim().replace(/^([A-Za-z-]+) (\d)/, '$1$2');
+
+const CDP_DEVICE = /^\s*Device ID:\s*(\S+)/;
+const CDP_INTERFACE = /^\s*Interface:\s*([^,]+),\s*Port ID \(outgoing port\):\s*(.+?)\s*$/;
+
+/** `show cdp neighbors detail`: a Device ID line, then its Interface line. */
+function readCdpDetail(lines: readonly string[]): NeighbourList | null {
+  if (!lines.some((l) => CDP_INTERFACE.test(l))) return null;
+  const rows: NeighbourRow[] = [];
+  let name = '';
+  for (const line of lines) {
+    const d = CDP_DEVICE.exec(line);
+    if (d) {
+      name = d[1]!;
+      continue;
+    }
+    const i = CDP_INTERFACE.exec(line);
+    if (i && name !== '') {
+      rows.push({ local: closeUp(i[1]!), name, port: closeUp(i[2]!) });
+      name = '';
+    }
+  }
+  return { format: 'cdp', rows };
+}
+
+const CDP_HEADER = /^\s*Device ID\s+Local Intrfce\s+Holdtme\s+Capability\s+Platform\s+Port ID\s*$/i;
+// A row after the name: local port, hold time, one-letter capabilities, platform, far port.
+const CDP_REST = /^\s*([A-Za-z-]+ ?\d[\d/.:]*)\s+(\d+)\s+((?:[A-Za-z]\s+)*[A-Za-z])\s+(\S+)\s+([A-Za-z-]* ?\d[\d/.:]*)\s*$/;
+
+/** `show cdp neighbors`. A Device ID too long for its column stands on its own line, the rest on the next. */
+function readCdpTable(lines: readonly string[]): NeighbourList | null {
+  const at = lines.findIndex((l) => CDP_HEADER.test(l));
+  if (at < 0) return null;
+  const rows: NeighbourRow[] = [];
+  let pending = '';
+  for (const line of lines.slice(at + 1)) {
+    if (line.trim() === '' || /^\s*total cdp entries/i.test(line)) continue;
+    const whole = /^\s*(\S+)(\s+.*)$/.exec(line);
+    const rest = whole ? CDP_REST.exec(whole[2]!) : null;
+    if (whole && rest) {
+      rows.push({ local: closeUp(rest[1]!), name: whole[1]!, port: closeUp(rest[5]!) });
+      pending = '';
+      continue;
+    }
+    const tail = CDP_REST.exec(line);
+    if (tail && pending !== '') {
+      rows.push({ local: closeUp(tail[1]!), name: pending, port: closeUp(tail[5]!) });
+      pending = '';
+      continue;
+    }
+    pending = /^\S+$/.test(line.trim()) ? line.trim() : '';
+  }
+  return { format: 'cdp', rows };
+}
+
 /** The neighbour list in `text`, or null when it is not one of the shapes above. */
 export function readNeighbours(text: string): NeighbourList | null {
   const lines = text.replace(/\r/g, '').split('\n');
-  return readLldpd(lines) ?? readTable(lines);
+  return readCdpDetail(lines) ?? readLldpd(lines) ?? readCdpTable(lines) ?? readTable(lines);
 }
 
 /** True when pasted text reads as a neighbour list with at least one row: the canvas then offers suggestions

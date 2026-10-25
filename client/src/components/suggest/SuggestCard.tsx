@@ -152,7 +152,7 @@ function CablesCard({ doc, deviceId, text, actor, onApply, onClose, onOther }: S
       {list === null ? (
         <>
           <p className="paste-card__note suggest-card__how">
-            On the switch, run <code>show lldp neighbors</code> (Juniper, Cisco, Arista) or <code>lldpcli show neighbors</code> (Linux), then paste what it prints.
+            On the switch, run <code>show lldp neighbors</code> (Juniper, Cisco, Arista), <code>show cdp neighbors</code> (Cisco) or <code>lldpcli show neighbors</code> (Linux), then paste what it prints.
           </p>
           <p className="paste-card__note suggest-card__how">
             To find who is plugged in where, paste its MAC table instead: <code>show mac address-table</code> (Cisco) or <code>show ethernet-switching table</code> (Juniper). For its serial and running version, paste <code>show version</code>.
