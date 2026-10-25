@@ -298,9 +298,7 @@ export function JotView(props: JotViewProps): JSX.Element {
   return (
     <div className="jot" ref={rootRef} data-testid="jot" onWheel={onWheel} onPointerDown={() => onSelect({ kind: 'chassis', id: deviceId })}>
       <div className="jot__bar" onPointerDown={(e) => e.stopPropagation()}>
-        <button type="button" onClick={onBack}>
-          ← Canvas
-        </button>
+        {/* r30-device: no "← Canvas" here. The bar's breadcrumb leads back out, and so does Esc. */}
         <span className="jot__name">{device.hostname || 'unnamed'}</span>
         {hoverPort !== null && <span className="jot__port">{hoverPort}</span>}
         {renderConfigDrawer && (

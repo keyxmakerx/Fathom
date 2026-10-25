@@ -3046,7 +3046,8 @@ fn nothing_understood(ingest: &fathom_ingest::IngestOutput) -> String {
         return format!(
             "none of these {} lines starts with a Junos configuration verb, so nothing here \
              could be read as a Juniper `set` statement — it stopped at line {}. If this is \
-             a different vendor, Fathom reads Junos, EdgeOS and OPNsense today. Nothing was \
+             a different vendor, Fathom reads Junos, EdgeOS, OPNsense, pfSense, MikroTik \
+             RouterOS, TP-Link switches and Linux `ip addr` output today. Nothing was \
              changed; what you had is still loaded.",
             lines.len(),
             // The physical line, not the logical ordinal: a backslash join makes the two
