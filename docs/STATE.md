@@ -445,9 +445,10 @@ Remove device in red). Inventory's toolbar has a role filter, written into the f
 - The dependency-vulnerability gate needs egress to the advisory database (`scripts/osv-gate.sh`); the
   v0.1 tag waits on that run.
 - The server's credential check is the detector only; SNMPv3 auth and priv values are a known residual
-  (W7). Narrow redaction leaks are tracked in issue #104; #135 closed its server items (id-shaped
-  secrets in plan text, batch comments, history under undeclared keys, canvas-editor paste), and its
-  quoting and wrapped-tail items remain.
+  (W7). Issue #104's narrow redaction leaks are closed: #135 took its server items (id-shaped
+  secrets in plan text, batch comments, history under undeclared keys, canvas-editor paste), #145 the
+  quoting and wrapped tails, and #104's own PR the RouterOS and pfSense secrets that reached the note
+  box. How EdgeOS quotes a value holding a space or `'` is still not established from a source.
 - People and access, residuals named: (1) an operator-issued token for an account can still be redeemed
   after a steward confirms that account (design section 4.4), so a second key could appear after confirm;
   (2) confirm checks that the account has exactly one live key, and nothing about a password or app
