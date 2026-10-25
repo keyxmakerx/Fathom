@@ -226,7 +226,9 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
             // schema 0.18: `HasIssue` reads `from: [root]`.
             "Issue",
             // schema 0.19: `HasFirmwareTarget` reads `from: [root]`.
-            "FirmwareTarget"
+            "FirmwareTarget",
+            // schema 0.26: `HasOverlay` reads `from: [root]`.
+            "OverlayNetwork"
         ],
         "the set of kinds no node kind contains moved"
     );
