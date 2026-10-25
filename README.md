@@ -15,9 +15,10 @@ walkthrough by the owner does. What exists is in `docs/STATE.md`; what is next i
 
 - **Touch a device.** No SSH, SNMP, polling or discovery. Configuration arrives because a person pastes
   or types it.
-- **Keep a device credential.** The redaction gate (Rust, compiled to WebAssembly, run in the browser)
-  destroys passwords, pre-shared keys and community strings at the paste box, before anything is stored
-  or sent; the server refuses any that still arrive. A secret typed by hand into a free-text field is not
+- **Keep a device credential nobody chose to keep.** The redaction gate (Rust, compiled to WebAssembly,
+  run in the browser) destroys passwords, pre-shared keys and community strings at the paste box, before
+  anything is stored or sent; the server refuses any that still arrive. Credentials a person chooses to
+  store go in a vault, never in the design (ADR-0042, accepted, not built yet). A secret typed by hand into a free-text field is not
   pasted config: Fathom marks it and stores it as typed (ADR-0041).
 - **Claim more than it has.** The server holds the keys and says so (ADR-0040). `CLAUDE.md` rule 5 lists
   the four sentences that stay forbidden until customer-held keys are real; `scripts/forbidden-claims.sh`

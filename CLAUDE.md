@@ -48,8 +48,11 @@ longer exists. It is kept because the thinking is good, not because it is curren
    A credential leak once survived four reviews because the test used a password longer than any
    real device would take.
 3. **A field that is not in `schema/` does not exist.** Extend the schema properly; keep tests green.
-4. **Device credentials are protected by never arriving.** The redaction gate runs before anything
-   is stored. This survives every architectural change.
+4. **A pasted config's credentials never arrive.** The redaction gate runs in the browser before
+   anything from a paste is stored or sent, and the server refuses any that still arrive. This
+   survives every architectural change. It does not mean Fathom never stores a credential: ADR-0042
+   (accepted) keeps credentials a person chooses to store in a vault, never in the design, never
+   without being shown and chosen. The vault is not built yet.
 5. **Four sentences are forbidden in writing** until customer-held keys are real: *zero-knowledge*,
    *end-to-end*, *we cannot read your data*, *only you hold the key*.
 6. Decisions in `docs/decisions/` bind once accepted, but reopen on merit. Sunk cost is not an
