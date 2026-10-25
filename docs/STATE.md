@@ -319,7 +319,10 @@ lists staged images (version, models, SHA-256, running, behind, plans) with uplo
 a model's chosen version and holds devices back with a reason. Check `fw.device.behind-chosen-version`
 flags a device behind its model's version. "Plan a firmware upgrade" (right-click, device page, or for every
 behind device) makes a maintenance plan with the vendor's steps for Junos, IOS XE, NX-OS or EOS; the
-device fetches its image with a one-time link. On in compose once `FATHOM_FIRMWARE_FETCH_BASE_URL` is set.
+device fetches its image with a one-time link. The fetch step and the image page also offer **From Windows**
+and **From Linux**: the same job by hand: over SSH (hash on the computer, `scp -O`, or for EOS the switch pulling
+from you), on a USB stick, or by TFTP with a warning, each where the vendor documents it and each step
+with its source (`firmware_by_hand.rs`). Fathom link is the default. On in compose once `FATHOM_FIRMWARE_FETCH_BASE_URL` is set.
 
 **View sharing** (ADR-0061 round 9, #102). A steward's **Share** button in the bar opens a panel with
 PERSON / CAN rows: **View** (see everything, change nothing) or **Draw**. Only people already in the

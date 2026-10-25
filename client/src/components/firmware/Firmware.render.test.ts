@@ -11,6 +11,7 @@ import { FirmwareList } from './FirmwareList';
 import { FirmwareSection } from './FirmwareSection';
 import { ImagePage } from './ImagePage';
 import { ModelPage, statusWords } from './ModelPage';
+import { ByHandSteps, HowItGetsThere } from './ByHand';
 import { CommandNotes } from './parts';
 import { UploadForm } from './UploadForm';
 import { modelTableRows } from './rows';
@@ -183,7 +184,7 @@ describe('an image page', () => {
 });
 
 describe('what the server could not write', () => {
-  const commands = { expectedSha256: HASH, devicePath: '', sourcedNote: '', sourced: 'none', platform: 'frr', family: 'unknown', couldNotEstablish: [], deviceHash: { algorithm: 'sha256', comparesWith: 'expected_sha256' }, steps: [] };
+  const commands = { expectedSha256: HASH, devicePath: '', sourcedNote: '', sourced: 'none', platform: 'frr', family: 'unknown', couldNotEstablish: [], deviceHash: { algorithm: 'sha256', comparesWith: 'expected_sha256' }, byHand: null, steps: [] };
 
   it('says no steps are written for a platform without them', () => {
     expect(renderToStaticMarkup(createElement(CommandNotes, { commands }))).toContain('No steps are written for this platform yet.');
@@ -247,5 +248,60 @@ describe("a device's firmware row", () => {
     const { doc, ids } = estate();
     expect(render(api(doc), ids.sw1!)).toContain('Choose a version first');
     expect(render(null, ids.sw1!)).toBe('');
+  });
+});
+
+describe('the same job by hand, from Windows or Linux', () => {
+  const scp = {
+    way: 'scp',
+    label: 'Over SSH',
+    warning: null,
+    windows: [
+      { order: 1, at: 'computer' as const, step: 'check the file on your computer', command: 'Get-FileHash .\\x.bin -Algorithm SHA512', note: 'Compare with Cisco.' },
+      { order: 2, at: 'device' as const, step: 'let the switch receive a file', command: 'ip scp server enable', note: 'Cisco 215450.' },
+      { order: 3, at: 'computer' as const, step: 'copy it to the device', command: 'scp -O .\\x.bin <you>@<device address>:x.bin', note: 'Why -O.' },
+    ],
+    linux: [{ order: 1, at: 'computer' as const, step: 'let the switch reach this computer', command: '', note: 'Start an SSH server.' }],
+  };
+  const tftp = { ...scp, way: 'tftp', label: 'TFTP (old way)', warning: 'No login or access control (RFC 1350).' };
+  const byHand = { ways: [scp, tftp], sourcedNote: '', couldNotEstablish: ['which file system it lands on'] };
+
+  it('shows where each step is typed, the command, why, and what was not established', () => {
+    const out = renderToStaticMarkup(createElement(ByHandSteps, { way: scp, os: 'windows', couldNotEstablish: byHand.couldNotEstablish }));
+    expect(out).toContain('On your computer');
+    expect(out).toContain('On the device');
+    expect(out).toContain('Check the file on your computer');
+    expect(out).toContain('ip scp server enable');
+    expect(out).toContain('Cisco 215450.');
+    expect(out).toContain('Not established: which file system it lands on');
+    expect(out).toContain('Copy all');
+    expect(out).not.toContain('fw-hand__warning');
+  });
+
+  it('a step done by hand has no command to copy', () => {
+    const out = renderToStaticMarkup(createElement(ByHandSteps, { way: scp, os: 'linux' }));
+    expect(out).toContain('Start an SSH server.');
+    expect(out).not.toContain('<code');
+    expect(out).not.toContain('Copy all');
+  });
+
+  it('TFTP carries its warning above the steps', () => {
+    const out = renderToStaticMarkup(createElement(ByHandSteps, { way: tftp, os: 'windows' }));
+    expect(out).toMatch(/fw-hand__warning[^>]*>No login or access control \(RFC 1350\)\./);
+    expect(out.indexOf('fw-hand__warning')).toBeLessThan(out.indexOf('fw-hand__steps'));
+  });
+
+  it("opens on Fathom's own route, with the switch above it", () => {
+    const out = renderToStaticMarkup(createElement(HowItGetsThere, { byHand }, createElement('p', null, 'the link')));
+    expect(out).toContain('How the file gets there');
+    expect(out).toMatch(/aria-checked="true"[^>]*>Fathom link/);
+    expect(out).toContain('From Windows');
+    expect(out).toContain('the link');
+    expect(out).not.toContain('ip scp server enable');
+  });
+
+  it('shows only the Fathom route when the server wrote no by-hand steps', () => {
+    const out = renderToStaticMarkup(createElement(HowItGetsThere, { byHand: null }, createElement('p', null, 'the link')));
+    expect(out).toBe('<p>the link</p>');
   });
 });
