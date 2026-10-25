@@ -1,0 +1,58 @@
+# corpus/dict/unifi-sw/config.yaml -- a UniFi switch's `show running-config`,
+# read in the EdgeSwitch CLI syntax. UNVERIFIED against a complete real UniFi
+# config: none was found; the syntax is Ubiquiti's EdgeSwitch CLI reference
+# and real UniFi fragments (corpus/dict/README-unifi-sw.md).
+# Path shape: [ <opener words>, <line words> ] as
+# crates/fathom-ingest/src/blockcfg.rs synthesises it from real bytes of the
+# paste (dialect UNIFI).
+platform: unifi-sw
+source: { cite: "Ubiquiti EdgeSwitch CLI Command Reference (help.uisp.com article 22591720570135) and real UniFi output fragments (oxidized issue 1003, jcutrer.com); see corpus/dict/README-unifi-sw.md", read_on: "2026-10-16" }
+reviewed_by: <named human>
+entries:
+  # `hostname "Metro_Switch_A_1"` (EFOS output; UniFi unverified).
+  - id: unifi-sw/hostname
+    path: [hostname, "$h"]
+    binds:
+      nodes:
+        - { as: n0, kind: Device, fields: [ { field: hostname, from: "$h", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `vlan name 100 "test vlan"` under `vlan database`. A bare `vlan 10,103`
+  # list is not bound: it names several VLANs in one value.
+  - id: unifi-sw/vlan.name
+    path: [vlan, database, vlan, name, "$v", "$n"]
+    binds:
+      nodes:
+        - { as: n0, kind: Vlan, key: "$v", fields: [ { field: vlan_id, from: "$v", scalar: VlanId }, { field: name, from: "$n", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `interface 0/1` (oxidized issue 1003, a real US-series config).
+  - id: unifi-sw/interface
+    path: [interface, "$i"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `description "Port 1 Testing"` (jcutrer.com, typed on a UniFi switch).
+  - id: unifi-sw/interface.description
+    path: [interface, "$i", description, "$d"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName }, { field: description, from: "$d", scalar: Text } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `shutdown` under an interface (EdgeSwitch reference). The IR stores the
+  # positive, so this binds admin_up false; a port without it is not read as up.
+  - id: unifi-sw/interface.shutdown
+    path: [interface, "$i", shutdown]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName }, { field: admin_up, const_bool: false } ] }
+    versions: "*"
+    reviewed_by: <named human>

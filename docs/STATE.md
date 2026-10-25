@@ -41,6 +41,12 @@ description and `shutdown`, and the hostname. After a credential keyword the res
 whatever any detector says, and every line is swept (`corpus/dict/README-omada-sw.md`). Addresses (dotted
 masks) and VLAN membership are residue. Naming `omada-sw` in the paste frame waits on the client.
 
+**Paste: UniFi switch (engine, 2026-10-25, unverified).** A UniFi switch's `show running-config` is read by
+the same front end in its `UNIFI` dialect, picked by the EdgeSwitch header with a UniFi model in it. It
+binds interfaces, VLAN names and the hostname, on the EdgeSwitch CLI's syntax: no complete real UniFi
+config was found (`corpus/dict/README-unifi-sw.md`). Naming `unifi-sw` in the paste frame waits on the
+client.
+
 **The server.** `crates/fathom-server` starts, answers a health check through a real PostgreSQL, shuts
 down cleanly, and runs as the one plain-HTTP published port of a composed stack, behind the operator's
 own TLS-terminating proxy. It stores identity and structure (accounts, organisations, memberships, the
