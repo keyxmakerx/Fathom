@@ -87,12 +87,39 @@ const SECRET_WORDS: [&str; 18] = [
 /// A credential keyword: one of [`SECRET_WORDS`], or a word ending the way a
 /// credential keyword does (`auth-sha-key`, `enable-password`), compared
 /// without case.
+///
+/// Any `auth-…` or `priv-…` word is one too: SNMPv3 algorithm names grow
+/// (`auth-sha256`, `priv-aes256`), and each is followed by its password.
 fn is_secret_word(word: &str) -> bool {
     let w = word.to_ascii_lowercase();
     SECRET_WORDS.contains(&w.as_str())
         || ["password", "passwd", "secret", "-key", "pwd"]
             .iter()
             .any(|s| w.ends_with(s))
+        || ["auth-", "priv-"].iter().any(|p| w.starts_with(p))
+}
+
+/// Whether `ws[at]` is followed by a credential because of the words before
+/// it: `authentication simple|encrypt KEY` (OSPF, RIP and VRRP in FASTPATH-
+/// style CLIs) and `encryption … des|aes KEY` (`users snmpv3 encryption`).
+/// Neither syntax is confirmed for UniFi (README-unifi-sw.md, "Open"); reading
+/// them as credentials costs at most a line that was not one.
+fn is_secret_in_context(ws: &[Word], at: usize) -> bool {
+    let Some(w) = ws.get(at).filter(|w| !w.quoted) else {
+        return false;
+    };
+    let w = w.text.to_ascii_lowercase();
+    let before = |want: &str| {
+        ws.iter()
+            .take(at)
+            .any(|p| p.text.eq_ignore_ascii_case(want))
+    };
+    let prev = at
+        .checked_sub(1)
+        .and_then(|p| ws.get(p))
+        .map(|p| p.text.to_ascii_lowercase());
+    (matches!(w.as_str(), "simple" | "encrypt") && prev.as_deref() == Some("authentication"))
+        || (matches!(w.as_str(), "des" | "aes") && before("encryption"))
 }
 
 /// A word run that starts a block. `exact` openers are the whole line
@@ -289,13 +316,32 @@ struct Word {
     quoted: bool,
 }
 
+/// What separates words: any whitespace, `NBSP` included (a paste from a web
+/// page or a document carries it), and any control character, so the
+/// backspaces and escape codes a pager leaves in a session log split words
+/// rather than glue them to the keyword after them.
+fn is_gap(c: char) -> bool {
+    c.is_whitespace() || c.is_control()
+}
+
 fn words(capture: &str, span: ByteSpan) -> Vec<Word> {
     let text = frame::slice(capture, span);
     let at = |i: usize| span.start + i as u32;
     let mut out = Vec::new();
     let mut chars = text.char_indices().peekable();
     while let Some((i, c)) = chars.next() {
-        if c.is_ascii_whitespace() {
+        if c == '\x1b' {
+            // An ANSI escape (`ESC [ 7 m`): its parameters are not a word.
+            if chars.next_if(|&(_, d)| d == '[').is_some() {
+                for (_, d) in chars.by_ref() {
+                    if ('\x40'..='\x7e').contains(&d) {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        if is_gap(c) {
             continue;
         }
         if c == '"' {
@@ -320,7 +366,7 @@ fn words(capture: &str, span: ByteSpan) -> Vec<Word> {
         }
         let mut end = text.len();
         while let Some(&(j, d)) = chars.peek() {
-            if d.is_ascii_whitespace() {
+            if is_gap(d) {
                 end = j;
                 break;
             }
@@ -340,7 +386,7 @@ fn words(capture: &str, span: ByteSpan) -> Vec<Word> {
 }
 
 /// One physical line per logical line. Whether a terminal hard-wraps a long
-/// line is open (README-omada-sw.md); a wrapped tail is swept, not forced.
+/// line is open (README-omada-sw.md); [`WRAP_WIDTH`] says what is assumed.
 fn logical_lines(capture: &str) -> Vec<LogicalLine> {
     let mut lines = Vec::new();
     let mut start = 0u32;
@@ -414,13 +460,19 @@ fn opener(ws: &[Word], dialect: &Dialect) -> Option<Vec<Seg>> {
 /// Where the credential on a line starts, as an index into its words: the
 /// word after the first credential keyword, or, for `snmp-server host IP …`,
 /// the word after the address (TP-Link prints the community there).
+///
+/// `snmp-server` matches at the end of a word too, so a prompt this reader did
+/// not recognise (`(SW#1) (Config)#snmp-server`) still leaves the rule in force.
 fn secret_from(ws: &[Word]) -> Option<usize> {
     let host = ws.windows(2).position(|p| {
-        matches!(p, [a, b] if a.text.eq_ignore_ascii_case("snmp-server") && b.text.eq_ignore_ascii_case("host"))
+        matches!(p, [a, b] if a.text.to_ascii_lowercase().ends_with("snmp-server") && b.text.eq_ignore_ascii_case("host"))
     });
-    let keyword = ws
-        .iter()
-        .position(|w| !w.quoted && is_secret_word(&w.text))
+    let keyword = (0..ws.len())
+        .find(|&at| {
+            ws.get(at)
+                .is_some_and(|w| !w.quoted && is_secret_word(&w.text))
+                || is_secret_in_context(ws, at)
+        })
         .map(|at| at + 1);
     match (host.map(|at| at + 3), keyword) {
         (Some(h), Some(k)) => Some(h.min(k)),
@@ -428,15 +480,31 @@ fn secret_from(ws: &[Word]) -> Option<usize> {
     }
 }
 
-/// The narrowest common terminal is 80 columns. Whether TP-Link's CLI
-/// hard-wraps a long line at all is not established (README-omada-sw.md,
-/// "Open"), so a credential line this long is assumed it may have been, and
-/// the next line, unless it only separates or opens a block, is destroyed whole: a value
-/// split across the break would otherwise keep its second half.
+/// The narrowest common terminal is 80 columns. Whether these CLIs hard-wrap
+/// a long line at all is not established (README-omada-sw.md, "Open"), so any
+/// line this long is assumed it may have been. The next line is destroyed
+/// whole, whatever it looks like, when the long line held a credential
+/// keyword, or when the two read together would: a value split across the
+/// break would otherwise keep its second half, and a keyword split across it
+/// (`passw` / `ord X`) would leave the value unseen. A destroyed line that is
+/// itself this long carries the rule on to the line after it.
 const WRAP_WIDTH: usize = 79;
 
 fn wrappable(capture: &str, span: ByteSpan) -> bool {
     frame::slice(capture, span).trim_end().chars().count() >= WRAP_WIDTH
+}
+
+/// Whether a long line and the line after it, read as one with or without a
+/// space at the break, carry a credential keyword.
+fn joined_secret(long: &str, next: &str) -> bool {
+    ["", " "].iter().any(|gap| {
+        let joined = format!("{long}{gap}{next}");
+        let all = ByteSpan {
+            start: 0,
+            end: joined.len() as u32,
+        };
+        secret_from(&words(&joined, all)).is_some()
+    })
 }
 
 /// The words before the credential, then the rest of the line from its first
@@ -488,9 +556,12 @@ fn ingest_dialect(
     let mut noise: Vec<UnshapedLine> = Vec::new();
     // The block in force: its opener's segments.
     let mut block: Option<Vec<Seg>> = None;
-    // Set when the last line held a forced credential and was long enough
+    // Set when the last line held a credential keyword and was long enough
     // that a terminal may have hard-wrapped it (see [`WRAP_WIDTH`]).
     let mut may_continue = false;
+    // The last line, when it was that long: read with the next for a keyword
+    // split across the break.
+    let mut long_line: Option<String> = None;
 
     for line in &lines {
         let span = line
@@ -500,10 +571,18 @@ fn ingest_dialect(
             .unwrap_or(ByteSpan { start: 0, end: 0 });
         if line.class == LineClass::Blank {
             may_continue = false;
+            long_line = None;
             outcomes.push(Outcome::new(LineOutcome::Blank));
             continue;
         }
-        let continues = std::mem::take(&mut may_continue);
+        let raw_text = frame::slice(&capture, span).trim_end().to_owned();
+        let split = long_line
+            .take()
+            .is_some_and(|long| joined_secret(&long, raw_text.trim_start()));
+        let continues = std::mem::take(&mut may_continue) || split;
+        if wrappable(&capture, span) {
+            long_line = Some(raw_text);
+        }
         let ws = words(&capture, span);
         let toks: Vec<Token> = if ws.is_empty() {
             vec![bare(span)]
@@ -518,12 +597,7 @@ fn ingest_dialect(
         });
         let text = frame::slice(&capture, span).trim();
 
-        if is_separator(text) {
-            block = None;
-            outcomes.push(Outcome::new(LineOutcome::Header { columns: 0 }));
-            continue;
-        }
-        if continues && opener(&ws, dialect).is_none() {
+        if continues {
             // Possibly the wrapped rest of a credential: destroyed whole.
             let lead = frame::slice(&capture, span).len()
                 - frame::slice(&capture, span).trim_start().len();
@@ -540,7 +614,13 @@ fn ingest_dialect(
                 tokens: vec![bare(whole)],
                 list_pos: 0,
             });
+            may_continue = wrappable(&capture, span);
             outcomes.push(Outcome::new(LineOutcome::Unmapped { known_prefix: 0 }));
+            continue;
+        }
+        if is_separator(text) {
+            block = None;
+            outcomes.push(Outcome::new(LineOutcome::Header { columns: 0 }));
             continue;
         }
         if is_command_echo(text) {
@@ -631,8 +711,12 @@ fn ingest_dialect(
                     secret = true;
                 }
                 None => match secret_from(&ws) {
-                    // A keyword with nothing after it: nothing to destroy.
-                    Some(from) => path.extend(ws.iter().take(from).map(seg)),
+                    // A keyword with nothing after it: nothing to destroy
+                    // here, but its value may be on the next line.
+                    Some(from) => {
+                        path.extend(ws.iter().take(from).map(seg));
+                        may_continue = wrappable(&capture, span);
+                    }
                     None => path.extend(ws.iter().map(seg)),
                 },
             }

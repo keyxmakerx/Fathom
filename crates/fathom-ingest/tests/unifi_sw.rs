@@ -254,3 +254,152 @@ fn the_ledger_names_every_line() {
     // The hostname, two VLAN names, three interfaces and three lines under them.
     assert_eq!(bound, 9);
 }
+
+/// The UniFi header and then `body`, as a paste.
+fn with_header(body: &str) -> String {
+    format!(
+        "!Current Configuration:\n\
+!\n\
+!System Description \"USW-48P-500,, Linux 3.6.5\"\n\
+!\n\
+hostname \"rack-sw-1\"\n{body}\n"
+    )
+}
+
+/// `line`, cut into the 80-column pieces a hard-wrapping terminal prints.
+fn wrap80(line: &str) -> String {
+    let chars: Vec<char> = line.chars().collect();
+    chars
+        .chunks(80)
+        .map(|c| c.iter().collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn assert_gone(paste: &str, secrets: &[&str]) {
+    assert!(looks_like_unifi(paste.as_bytes()));
+    let out = read(paste);
+    let text = out.capture.text();
+    let frag = format!("{:?}", out.fragment);
+    for secret in secrets {
+        assert!(!text.contains(secret), "{secret:?} survived:\n{text}");
+        assert!(!frag.contains(secret), "{secret:?} reached the fragment");
+    }
+}
+
+/// A terminal that hard-wraps at 80 columns can split a credential line
+/// anywhere: inside the value, onto a third line, at the keyword, inside the
+/// keyword, or before a word that looks like a separator or an opener.
+#[test]
+fn a_credential_wrapped_by_the_terminal_is_destroyed() {
+    // Onto a third line: 171 characters.
+    let radius = format!("radius server key auth 192.0.2.5 encrypted {HEX128_A}");
+    assert_gone(&with_header(&wrap80(&radius)), &["66CC9DFB6D6"]);
+    let user = format!("(UBNT) (Config)#username \"admin\" password {HEX128_A} level 15 encrypted");
+    assert_gone(&with_header(&wrap80(&user)), &["6CC9DFB6D6"]);
+    // The keyword ends at the break.
+    let name = "n".repeat(60);
+    let at_break = format!("username \"{name}\" password");
+    assert_eq!(at_break.len(), 80);
+    assert_gone(
+        &with_header(&format!("{at_break}\n Op3rator!xY level 1")),
+        &["Op3rator!xY"],
+    );
+    // The keyword split by the break.
+    let pad = "u".repeat(80 - "snmp-server user  grp1 auth-".len());
+    let split = format!("snmp-server user {pad} grp1 auth-");
+    assert_eq!(split.len(), 80);
+    assert_gone(
+        &with_header(&format!("{split}\nsha AuthPass1x priv-des PrivPass1x")),
+        &["AuthPass1x", "PrivPass1x"],
+    );
+    let pad = "a".repeat(80 - "(UBNT) (Config)#username \"\" passw".len());
+    let split = format!("(UBNT) (Config)#username \"{pad}\" passw");
+    assert_eq!(split.len(), 80);
+    assert_gone(
+        &with_header(&format!("{split}\nord Op3rator!xY level 1")),
+        &["Op3rator!xY"],
+    );
+    // The rest begins with `!`, or with an opener's word.
+    let enable = format!("(UBNT) (Config)#enable password {}", "P".repeat(48));
+    assert_gone(
+        &with_header(&format!("{enable}\n!tail-secret-xyz")),
+        &["tail-secret-xyz"],
+    );
+    let pad = "x".repeat(80 - "(UBNT) (Config)#username \"bob\" password \"".len());
+    let quoted = format!("(UBNT) (Config)#username \"bob\" password \"{pad}");
+    assert_eq!(quoted.len(), 80);
+    assert_gone(
+        &with_header(&format!("{quoted}\nline of my long passphrase\" level 1")),
+        &["of my long passphrase"],
+    );
+}
+
+/// What a session log or a copy from a web page leaves between words:
+/// backspaces and escape codes from the pager, and no-break spaces.
+#[test]
+fn control_bytes_and_nbsp_do_not_hide_a_keyword() {
+    let host = "snmp-server host 192.0.2.9 \"trap-community-20chr\"";
+    for lead in [
+        "--More-- or (q)uit\x08\x08\x08\x08\x08\x08",
+        "\x1b[7m--More-- or (q)uit\x1b[m",
+        "\x08\x08\x08\x08",
+    ] {
+        assert_gone(
+            &with_header(&format!("{lead}{host}")),
+            &["trap-community-20chr"],
+        );
+    }
+    assert_gone(
+        &with_header("snmp-server\u{a0}host 192.0.2.9 \"trap-community-20chr\""),
+        &["trap-community-20chr"],
+    );
+    assert_gone(
+        &with_header("snmp-server user u1 grp1 auth-sha\u{a0}AuthPass1x"),
+        &["AuthPass1x"],
+    );
+}
+
+/// A hostname this reader's prompt rule does not take still leaves the
+/// `snmp-server host` rule in force.
+#[test]
+fn an_odd_prompt_does_not_hide_a_community() {
+    for prompt in ["(SW#1) (Config)#", "(\"rack\") (Config)#"] {
+        assert_gone(
+            &with_header(&format!(
+                "{prompt}snmp-server host 192.0.2.9 \"trap-community-20chr\""
+            )),
+            &["trap-community-20chr"],
+        );
+    }
+}
+
+/// FASTPATH-style forms not confirmed for UniFi, and SNMPv3 algorithm names
+/// past the ones the EdgeSwitch reference lists.
+#[test]
+fn unconfirmed_credential_forms_are_destroyed() {
+    assert_gone(
+        &with_header(
+            "interface 0/1\n\
+ip ospf authentication simple OspfSimple3\n\
+ip ospf authentication encrypt OspfEncr4 1\n\
+ip rip authentication simple RipSimple5\n\
+ip vrrp 1 authentication simple VrrpKey7\n\
+exit\n\
+users snmpv3 encryption \"admin\" des EncKey12345\n\
+snmp-server user u4 grp1 auth-sha256 Sha256Pass1 priv-aes256 Aes256Pass1\n\
+snmp-server user u5 grp1 auth-sha512 Sha512Pass1 priv-3des TripleDes1",
+        ),
+        &[
+            "OspfSimple3",
+            "OspfEncr4",
+            "RipSimple5",
+            "VrrpKey7",
+            "EncKey12345",
+            "Sha256Pass1",
+            "Aes256Pass1",
+            "Sha512Pass1",
+            "TripleDes1",
+        ],
+    );
+}

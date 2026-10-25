@@ -76,8 +76,9 @@ switch and is destroyed like a password.
 
 The rule is TP-Link's (`README-omada-sw.md`): after the first credential keyword on a line the rest of
 the line is destroyed whatever any detector says, `snmp-server host` loses everything after its address,
-a command typed at the prompt gets the same rule, the line after a credential line of 79 characters or
-more is destroyed whole, and every line is swept. EdgeSwitch's pager (`--More-- or (q)uit`) is cut off
+a command typed at the prompt gets the same rule, the wrap rule for lines of 79 characters or more
+applies, and every line is swept. Any `auth-…` or `priv-…` word is a credential keyword, so SNMPv3
+algorithm names past the reference's (`auth-sha256`, `priv-aes256`) lose their value too. EdgeSwitch's pager (`--More-- or (q)uit`) is cut off
 the front of a line before it is read.
 
 The tests (`crates/fathom-ingest/tests/unifi_sw.rs`) hold values at the reference's limits: passwords of
@@ -99,4 +100,7 @@ model, so it is no reference here.
 - A real UniFi running-config. Does it print `username`, `enable password`, `snmp-server`, a controller's
   802.1X `radius server key`?
 - Whether the `cli` shells on newer models print this syntax.
+- FASTPATH-style forms the reference read here does not settle: `ip ospf|rip authentication
+  simple|encrypt KEY`, `ip vrrp N authentication simple KEY`, `users snmpv3 encryption "u" des KEY`. They
+  are destroyed as credentials until a real capture says otherwise.
 - The second text format, `cat /tmp/system.cfg` (`key=value`), is not read here.

@@ -74,8 +74,14 @@ characters outside md5-crypt's alphabet. So the rule assumes nothing about what 
   quotes is a value, not a keyword.
 - **A command typed at a prompt** (`T2600G-28TS(config)#snmp-server host … pr1vate …`) is never read as
   config, but the same rule applies to it: the typed value is in clear.
-- **A credential line of 79 characters or more** may have been hard-wrapped by the terminal, so the line
-  after it is destroyed whole unless it is a separator or opens a block.
+- **Any line of 79 characters or more** may have been hard-wrapped by the terminal. The line after it is
+  destroyed whole, whatever it looks like, when the long line holds a credential keyword or the two read
+  together would (a keyword split at the break, `passw` / `ord`). A destroyed line that long carries the
+  rule to the next. Found by an adversarial check on 2026-10-25: a value wrapped onto a third line, a
+  keyword ending at column 80, a keyword split by the break, and a tail starting with `!` or an opener's
+  word all kept part of a credential before.
+- **Words are split on any whitespace and any control character**, and ANSI escape codes are skipped, so
+  a no-break space from a web page or a pager's backspaces in a session log do not hide a keyword.
 - **Every line is swept**, shaped or not, before anything is stored.
 
 The tests hold values at TP-Link's limits: a user password of 6 to 31 characters (TP-Link's own example,
