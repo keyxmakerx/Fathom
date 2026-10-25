@@ -32,6 +32,12 @@ import { useSettledView } from './settledView';
 import { endOffScreen, stubTagText, type StubEnd } from './stubs';
 import { useCameraHub, type CameraHub } from './camera';
 import { CanvasMiniMap } from './CanvasMiniMap';
+import { useLearn } from '../learn/context';
+import '../learn/learn.css';
+import type { LearnNote } from '../learn/learnNotes';
+import type { OverlayView } from '../../document/overlays';
+import { overlayShapes } from './overlayDraw';
+import { OverlayCard, OverlayLayer } from './OverlayLayer';
 
 /** The Diagram look: plain labelled boxes joined by square-cornered lines in the
  * sheath colour. It shows the same document as the Rack look; devices are added,
@@ -120,6 +126,11 @@ function DiagramLineEdge({ data }: EdgeProps<Edge<LineData, 'diagramLine'>>) {
 }
 
 const nodeTypes = { diagramBox: DiagramBoxNode };
+
+/** A Learn note's size and its leader's length, in screen pixels (learn.css draws the leader). */
+const NOTE_W = 220;
+const NOTE_H = 64;
+const NOTE_GAP = 28;
 const edgeTypes = { diagramLine: DiagramLineEdge };
 
 export interface DiagramDrawingProps {
@@ -140,10 +151,15 @@ export interface DiagramDrawingProps {
   cameraHub?: CameraHub;
   /** The mini-map shows in the corner of the canvas. */
   minimap?: boolean;
+  /** The Learn layer's notes (ADR-0066 item 1.2); each opens its explainer. */
+  notes?: readonly LearnNote[];
+  /** The VPNs layer: each VPN a badge with spokes, or one line for two members. */
+  overlays?: readonly OverlayView[];
 }
 
-function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest, drawnCableIds, dashedCableIds, words, style = 'boxes', cameraHub, minimap }: DiagramDrawingProps) {
+function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest, drawnCableIds, dashedCableIds, words, style = 'boxes', cameraHub, minimap, notes, overlays }: DiagramDrawingProps) {
   const rf = useReactFlow();
+  const learn = useLearn();
   const settled = useSettledView();
   const stubbedRef = useRef(new Set<string>());
   const [hoverId, setHoverId] = useState<string | null>(null);
@@ -159,6 +175,9 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
     [view, style, roles],
   );
   const selectedId = selected?.kind === 'chassis' ? selected.id : null;
+  const shapes = useMemo(() => (overlays == null || overlays.length === 0 ? [] : overlayShapes(overlays, boxes)), [overlays, boxes]);
+  const [openOverlayId, setOpenOverlayId] = useState<string | null>(null);
+  const openOverlay = overlays?.find((o) => o.id === openOverlayId) ?? null;
   const selectedCableId = selected?.kind === 'cable' ? selected.id : null;
 
   const panTo = useCallback(
@@ -229,6 +248,40 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
     return placeLabels(cableCandidates(routes, words.cables, 1 / settled.zoom), boxes, 1 / settled.zoom);
   }, [words, boxes, view, settled.zoom, settled.rect, edges]);
 
+  // The Learn layer's notes: to the right of a device, to the left of a cable's middle, each with a
+  // short leader; a fixed on-screen size, pushed down past an earlier note rather than over it.
+  const placedNotes = useMemo(() => {
+    if (notes == null || notes.length === 0) return [];
+    const scale = 1 / settled.zoom;
+    const byId = new Map(boxes.map((b) => [b.id, b]));
+    const lines = new Map(diagramLines(view, new Set(byId.keys())).map((l) => [l.cable.id, l]));
+    const W = NOTE_W * scale;
+    const H = NOTE_H * scale;
+    const GAP = NOTE_GAP * scale;
+    const taken: { x: number; y: number }[] = [];
+    const out: { note: LearnNote; x: number; y: number; side: 'right' | 'left' }[] = [];
+    for (const note of notes) {
+      let x: number;
+      let y: number;
+      let side: 'right' | 'left';
+      if (note.anchor.kind === 'chassis') {
+        const b = byId.get(note.anchor.id);
+        if (b == null) continue;
+        [x, y, side] = [b.x + b.w + GAP, b.y + b.h / 2, 'right'];
+      } else {
+        const l = lines.get(note.anchor.id);
+        if (l == null || stubbedRef.current.has(l.cable.id)) continue;
+        const r = orthRoute(byId.get(l.a)!, byId.get(l.b)!, l.lane);
+        [x, y, side] = [(r.a.x + r.b.x) / 2 - GAP, (r.a.y + r.b.y) / 2, 'left'];
+      }
+      const left = side === 'right' ? x : x - W;
+      while (taken.some((t) => Math.abs(t.x - left) < W && Math.abs(t.y - y) < H)) y += H;
+      taken.push({ x: left, y });
+      out.push({ note, x, y, side });
+    }
+    return out;
+  }, [notes, boxes, view, edges, settled.zoom]);
+
   // The bar's Fit button and its zoom percentage, as the Rack look obeys them.
   const prevFit = useRef(fitRequest);
   useEffect(() => {
@@ -276,7 +329,10 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         nodesDraggable={false}
         elementsSelectable={false}
         onNodeClick={(_e, node) => onSelect({ kind: 'chassis', id: node.id })}
-        onPaneClick={() => onSelect(null)}
+        onPaneClick={() => {
+          setOpenOverlayId(null);
+          onSelect(null);
+        }}
         onMove={handleMove}
         onMoveEnd={handleMoveEnd}
         minZoom={MIN_ZOOM}
@@ -288,6 +344,25 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
       >
         <Background gap={U_PX} size={1} />
         <CanvasMiniMap enabled={minimap === true} />
+        {placedNotes.length > 0 && (
+          <ViewportPortal>
+            {placedNotes.map(({ note, x, y, side }) => (
+              <button
+                key={note.key}
+                type="button"
+                className={`learn-note learn-note--${side} nodrag nopan`}
+                data-testid={`learn-note-${note.key}`}
+                style={{ transform: `translate(${x}px, ${y}px) scale(${1 / settled.zoom}) translate(${side === 'right' ? '0%' : '-100%'}, -50%)`, width: NOTE_W }}
+                onClick={() => learn?.openExplainer(note.explainerId)}
+                title="Why? Opens the explainer"
+              >
+                <span className="learn-note__title">{note.title}</span>
+                <span className="learn-note__line">{note.line}</span>
+              </button>
+            ))}
+          </ViewportPortal>
+        )}
+        {shapes.length > 0 && <OverlayLayer shapes={shapes} overlays={overlays ?? []} openId={openOverlay?.id ?? null} onOpen={setOpenOverlayId} />}
         {labels.length > 0 && (
           <ViewportPortal>
             {labels.map((l) => (
@@ -303,6 +378,7 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
           </ViewportPortal>
         )}
       </ReactFlow>
+      {openOverlay != null && <OverlayCard overlay={openOverlay} onClose={() => setOpenOverlayId(null)} />}
       <CanvasTools wheel={wheel} onWheel={setWheel} />
       <CollabLayer />
     </div>

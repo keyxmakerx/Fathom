@@ -95,9 +95,28 @@ describe.each([
     expect(result.hops.filter((h) => h.kind === 'switch').map((h) => h.title)).toEqual(['switch-2', 'switch-1']);
   });
 
-  it('stops where the design stops when a camera is traced to the NAS', () => {
-    const result = mirror().trace(built.devices.get('camera-1')!, built.devices.get('nas-1')!);
-    expect(result.stopped).not.toBe('');
+  // Card nu-vlan A: a VLAN keeps the cameras on their own network, and the rule on router-1 is what keeps them out.
+  const routerRows = (from: string, to: string): string[] => {
+    const result = mirror().trace(built.devices.get(from)!, to, { protocol: 6, port: 445 });
+    expect(result.stopped).toBe('');
+    const router = result.hops.find((h) => h.title === 'router-1' && h.kind === 'device');
+    return (router?.policies ?? []).map((p) => `${router?.scope}: ${p.name} ${p.action} ${p.state}`);
+  };
+
+  it('reads the deny rule at the router when a camera is traced to the NAS', () => {
+    expect(routerRows('camera-1', '192.168.10.10')).toEqual(['cameras to lan: cameras-stay-out deny matches']);
+  });
+
+  it('reads the permit rule at the router when the desktop is traced to a camera', () => {
+    expect(routerRows('desktop-1', '192.168.30.21')).toEqual(['lan to cameras: lan-may-view-cameras permit matches']);
+  });
+
+  it('traces every ready-made question to its far end', () => {
+    for (const q of spec.questions ?? []) {
+      const result = mirror().trace(built.devices.get(q.from)!, q.to);
+      expect(result.stopped, q.ask).toBe('');
+    }
+    expect(spec.questions?.length).toBeGreaterThan(0);
   });
 
   it('opens with nothing a check refuses', () => {
@@ -120,5 +139,21 @@ describe('the sample home lab against the full catalogue', () => {
   it('draws every device the sample names a model for from the catalogue', () => {
     const built = buildSample(spec, new Map(CATALOGUE.map((m) => [modelKey(m.vendor, m.model), m])));
     expect(built.catalogued.sort()).toEqual(spec.devices.filter((d) => d.catalogue).map((d) => d.hostname).sort());
+  });
+});
+
+// Card nu-why A: the practice lab hides mistakes for Checks to find, and Checks finds those and nothing else.
+describe.each([
+  ['sketches only', new Map<string, CatalogueModel>()],
+  ['against the full catalogue', new Map(CATALOGUE.map((m) => [modelKey(m.vendor, m.model), m]))],
+])('the practice home lab, %s', (_, models) => {
+  const practice = sample('practice-lab');
+
+  it('has exactly its planted mistakes, each found by Checks', () => {
+    const m = new Mirror(engine);
+    m.load(buildSample(practice, models).doc);
+    const found = m.checks().findings.map((f) => f.rule).sort();
+    expect(found).toEqual((practice.mistakes ?? []).map((x) => x.rule).sort());
+    expect(found).toHaveLength(3);
   });
 });

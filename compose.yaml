@@ -32,6 +32,8 @@
 #                        `pull_policy: always` says so explicitly). To freeze a
 #                        deployment, set `FATHOM_TAG=sha-<40-hex commit>` in
 #                        `.env`; publish.yml pushes that tag beside `latest`.
+#                        Add `FATHOM_DIGEST=sha256:<64 hex>` and the image is
+#                        a digest after all (2026-10-25, the Alpha pin).
 #   read_only: true      the ROOT filesystem. The server writes exactly one
 #                        path, and it is a volume of its own -- see THE
 #                        BOOTSTRAP TOKEN VOLUME below. This line said "the
@@ -256,7 +258,11 @@ services:
     #   image: ghcr.io/<org>/fathom-server@sha256:<64 hex>
     # `build:` is here so the stack can be brought up from a clean checkout
     # before any image has been published.
-    image: ghcr.io/keyxmakerx/fathom-server:${FATHOM_TAG:-latest}
+    # `FATHOM_DIGEST` (since 2026-10-25) pins the tag to one image: with
+    # `name:tag@sha256:...` the digest is what is pulled, so a tag that moved
+    # cannot move the host. Unset, the line is exactly `name:${FATHOM_TAG}`.
+    # `docs/OPERATING.md`, "Pinning a host to one build".
+    image: ghcr.io/keyxmakerx/fathom-server:${FATHOM_TAG:-latest}${FATHOM_DIGEST:+@${FATHOM_DIGEST}}
     # `always`, so `docker compose up -d` checks the registry every time and a
     # host following `latest` actually gets the newest build. With `missing` a
     # host that already held a `latest` image kept running it (2026-10-09).

@@ -246,6 +246,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0039_added_at_once.sql",
         sql: include_str!("../migrations/0039_added_at_once.sql"),
     },
+    // A practice space for the person who runs the server (ADR-0069).
+    Migration {
+        version: 40,
+        name: "0040_practice_spaces.sql",
+        sql: include_str!("../migrations/0040_practice_spaces.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

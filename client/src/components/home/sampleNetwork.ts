@@ -18,7 +18,23 @@ import {
 } from '../../document/commands';
 import { connectorTokenOf } from '../../document/compat';
 import { isDeviceRole, setDeviceField } from '../../document/edit';
-import { edgesIn, edgesOut, emptyDocument, findNode, parseNodeId, readPhysicalPortFields, type Document } from '../../document/model';
+import {
+  boolField,
+  edgesIn,
+  edgesOut,
+  emptyDocument,
+  findNode,
+  identifier,
+  ipAddr,
+  ipPrefix,
+  parseNodeId,
+  readPhysicalPortFields,
+  text,
+  token,
+  uint,
+  type Document,
+} from '../../document/model';
+import { addEdge, addNode, begin, finish } from '../../document/freeform';
 import { addSubnet, addVlan, type Actor } from '../../document/networks';
 import { createPremises } from '../racks/emptyDesign';
 
@@ -63,9 +79,29 @@ export interface SampleSpec {
   devices: SampleDevice[];
   cables: SampleCable[];
   vlans: { id: number; name: string; description?: string; access: string[] }[];
-  subnets: { prefix: string; hosts: { port: string; address: string; name?: string }[] }[];
+  /** `gateway` gives every other host on the subnet a default route through it, as DHCP would. */
+  subnets: { prefix: string; gateway?: string; hosts: { port: string; address: string; name?: string }[] }[];
   /** Two devices a trace runs between, end to end; the sample's own test holds it to that. */
   trace: { from: string; to: string };
+  /** Zones on one device's ports, and a rule per zone pair, so a trace shows a VLAN is not a firewall. */
+  firewall?: SampleFirewall;
+  /** Ready-made traces offered when the sample is open: from a device to an address, with a flow. */
+  questions?: SampleQuestion[];
+  /** A practice sample's planted mistakes, each the Check rule that finds it; the sample's test holds Checks to it. */
+  mistakes?: { rule: string; where: string; what: string }[];
+}
+
+export interface SampleFirewall {
+  device: string;
+  zones: { name: string; ports: string[] }[];
+  policies: { from: string; to: string; name: string; action: 'permit' | 'deny' | 'reject' }[];
+}
+
+export interface SampleQuestion {
+  ask: string;
+  from: string;
+  to: string;
+  flow?: string;
 }
 
 const sampleFiles = import.meta.glob('../../../../corpus/samples/*.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
@@ -226,7 +262,89 @@ export function buildSample(spec: SampleSpec, models: ReadonlyMap<string, Catalo
     );
   }
 
+  doc = addDefaultRoutes(doc, devices, spec, opts);
+  if (spec.firewall) doc = addFirewall(doc, devices, spec, spec.firewall, opts);
+
   return { doc, devices, catalogued };
+}
+
+/** A default route on each host of a subnet with a gateway, so a trace can leave the host's own network. */
+function addDefaultRoutes(doc: Document, devices: Map<string, string>, spec: SampleSpec, opts?: Actor): Document {
+  const b = begin(doc, opts);
+  for (const s of spec.subnets) {
+    if (s.gateway === undefined) continue;
+    for (const h of s.hosts) {
+      if (h.address.split('/')[0] === s.gateway) continue;
+      const deviceId = devices.get(h.port.split(':')[0]);
+      if (!deviceId) throw new Error(`the sample names an unknown port "${h.port}"`);
+      const instance = addNode(b, 'RoutingInstance', {
+        'RoutingInstance.name': identifier('default'),
+        'RoutingInstance.isolation': token('routing_table_only'),
+      });
+      addEdge(b, 'HasRoutingInstance', deviceId, instance);
+      const route = addNode(b, 'StaticRoute', {
+        'StaticRoute.destination': ipPrefix('0.0.0.0/0'),
+        'StaticRoute.next_hop': [{ address: ipAddr(s.gateway) }],
+      });
+      addEdge(b, 'HasStaticRoute', instance, route);
+    }
+  }
+  return finish(b, 'Default routes');
+}
+
+/**
+ * The sample's zones and rules: each zone holds the logical units on its ports, and each policy is its own zone-pair
+ * set, so the trace places it on the hop between those two zones. Every rule matches any source, destination and
+ * application, which is what a home router's "block VLAN to VLAN" switch means.
+ */
+function addFirewall(doc: Document, devices: Map<string, string>, spec: SampleSpec, fw: SampleFirewall, opts?: Actor): Document {
+  const deviceId = devices.get(fw.device);
+  if (!deviceId) throw new Error(`the sample's firewall names an unknown device "${fw.device}"`);
+  const b = begin(doc, opts);
+  const zones = new Map<string, string>();
+  for (const z of fw.zones) {
+    const zoneId = addNode(b, 'Zone', { 'Zone.name': identifier(z.name) });
+    addEdge(b, 'HasZone', deviceId, zoneId);
+    for (const ref of z.ports) {
+      const units = unitsOn(b.doc, portOf(b.doc, devices, spec, ref));
+      if (units.length === 0) throw new Error(`the sample puts port "${ref}" in a zone, but nothing is configured on it`);
+      for (const u of units) addEdge(b, 'ZoneMember', zoneId, u);
+    }
+    zones.set(z.name, zoneId);
+  }
+  const zoneUlid = (name: string): string => {
+    const id = zones.get(name);
+    if (!id) throw new Error(`the sample's firewall names an unknown zone "${name}"`);
+    return parseNodeId(id).ulid;
+  };
+  fw.policies.forEach((p) => {
+    const setId = addNode(b, 'PolicySet', {
+      'PolicySet.scope': { zone_pair: { from: zoneUlid(p.from), to: zoneUlid(p.to) } },
+      'PolicySet.evaluation': token('first_match'),
+    });
+    addEdge(b, 'HasPolicySet', deviceId, setId);
+    const ruleId = addNode(b, 'SecurityPolicy', {
+      'SecurityPolicy.name': identifier(p.name),
+      'SecurityPolicy.ordinal': uint(0, 32),
+      'SecurityPolicy.action': token(p.action),
+      'SecurityPolicy.match_any_source': boolField(true),
+      'SecurityPolicy.match_any_destination': boolField(true),
+      'SecurityPolicy.match_any_application': boolField(true),
+      'SecurityPolicy.description': text(`${p.from} to ${p.to}`),
+    });
+    addEdge(b, 'HasPolicy', setId, ruleId);
+  });
+  return finish(b, `Firewall on ${fw.device}`);
+}
+
+/** The live logical units of the interface on a port. */
+function unitsOn(doc: Document, portId: string): string[] {
+  const units: string[] = [];
+  for (const occ of edgesIn(doc, portId, 'Occupies')) {
+    if (occ.absentSince !== undefined) continue;
+    for (const e of edgesOut(doc, occ.from, 'HasUnit')) if (e.absentSince === undefined) units.push(e.to);
+  }
+  return units;
 }
 
 /** An interface named for its port: `eth0` stays `eth0`, a numbered port `1` becomes `port1`. */
@@ -235,14 +353,16 @@ function interfaceName(ref: string): string {
   return /^\d/.test(label) ? `port${label}` : label;
 }
 
-/** The port's existing interface when a VLAN already made one, else a new one on the port. */
+/** The unit a VLAN already made on the port, else the port's interface, else a new interface on the port. */
 function targetFor(
   doc: Document,
   devices: Map<string, string>,
   spec: SampleSpec,
   ref: string,
-): { kind: 'interface'; interfaceId: string } | { kind: 'port'; portId: string; interfaceName: string } {
+): { kind: 'unit'; unitId: string } | { kind: 'interface'; interfaceId: string } | { kind: 'port'; portId: string; interfaceName: string } {
   const portId = portOf(doc, devices, spec, ref);
+  const unit = unitsOn(doc, portId)[0];
+  if (unit !== undefined) return { kind: 'unit', unitId: unit };
   const occupant = edgesIn(doc, portId, 'Occupies').find((e) => e.absentSince === undefined);
   return occupant ? { kind: 'interface', interfaceId: occupant.from } : { kind: 'port', portId, interfaceName: interfaceName(ref) };
 }

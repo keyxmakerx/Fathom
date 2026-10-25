@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.24";
+export const SCHEMA_VERSION = "0.26";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -78,7 +78,8 @@ export type NodeKind =
   | "IssueStep"
   | "FirmwareTarget"
   | "CableRun"
-  | "CableTie";
+  | "CableTie"
+  | "OverlayNetwork";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -152,6 +153,7 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "FirmwareTarget",
   "CableRun",
   "CableTie",
+  "OverlayNetwork",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -271,7 +273,9 @@ export type EdgeKind =
   | "HasFirmwareTarget"
   | "HasCableRun"
   | "HasCableTie"
-  | "Ties";
+  | "Ties"
+  | "HasOverlay"
+  | "OverlayMember";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -389,6 +393,8 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasCableRun",
   "HasCableTie",
   "Ties",
+  "HasOverlay",
+  "OverlayMember",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -544,6 +550,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   FirmwareTarget: ["model", "version", "platform", "image", "image_sha256", "note"],
   CableRun: ["form", "side", "label"],
   CableTie: ["at"],
+  OverlayNetwork: ["name", "provider", "range", "note"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -961,4 +968,11 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "CableTie.at": 417,
   "PhysicalPort.mac": 462,
   "Cable.needs_finishing": 478,
+  "OverlayNetwork.name": 479,
+  "OverlayNetwork.provider": 480,
+  "OverlayNetwork.range": 481,
+  "OverlayNetwork.note": 482,
+  "OverlayMember.address": 483,
+  "OverlayMember.exit_node": 484,
+  "OverlayMember.routes": 485,
 };

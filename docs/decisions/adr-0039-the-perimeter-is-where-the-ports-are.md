@@ -136,7 +136,7 @@ ADR-0035 fixed its 4px snap grid in a record.
 |---|---|
 | the page | the perimeter hit test; the third pointerdown branch; the preview line; the drop resolution and its four outcomes (box / origin / empty canvas / off-canvas); the Escape rung for both drags; the live-region sentences |
 | the module | **nothing.** `OP_CABLE` (27) is unchanged |
-| evidence | `docs/80-review/evidence/2026-09-02-drag-to-connect-drive.mjs` through a real reload: a cable drawn entirely by drag; the same cable by keyboard producing the same journal shape; body-drag still moves; the band suppressed on a small box; Escape mid-connect and mid-move; drop on origin; drop on empty canvas; *"these just talk"* reached from a drag; export → reload → import |
+| evidence | `docs/archive/80-review/evidence/2026-09-02-drag-to-connect-drive.mjs` through a real reload: a cable drawn entirely by drag; the same cable by keyboard producing the same journal shape; body-drag still moves; the band suppressed on a small box; Escape mid-connect and mid-move; drop on origin; drop on empty canvas; *"these just talk"* reached from a drag; export → reload → import |
 | docs | this record; the stale `fathom-weld` comment corrected; `56` §6.3 and §6.4 annotated; CLAUDE.md's state bullet |
 
 ### As built, 2026-09-02 (the proving session)
@@ -243,10 +243,10 @@ record adds no Rust, and the wasm build confirms it rather than merely asserting
 
 | source | for |
 |---|---|
-| `docs/40-stack/49-the-server-product.md` §15 | the ranked gestures; the anchors-are-ports sentence this record turns on |
-| `docs/50-design/57-the-zoom-ladder-and-the-trace.md` §12, §13.5 | the owner's words |
-| `docs/90-decisions/adr-0038-…md` | the gesture this one adds a pointer to |
-| `docs/90-decisions/adr-0035-…md` | the move-drag, and the accelerator cautionary tale |
+| `docs/archive/40-stack/49-the-server-product.md` §15 | the ranked gestures; the anchors-are-ports sentence this record turns on |
+| `docs/archive/50-design/57-the-zoom-ladder-and-the-trace.md` §12, §13.5 | the owner's words |
+| `docs/decisions/adr-0038-a-cable-is-drawn-by-hand-and-its-ports-are-minted-by-the-gesture.md` | the gesture this one adds a pointer to |
+| `docs/decisions/adr-0035-a-hand-placed-position-is-graph-data.md` | the move-drag, and the accelerator cautionary tale |
 | three scout briefs, 2026-09-02 (session scratchpad `drag-{pointer,gesture,access}.*.txt`) | every line number above; the `dgFoldPorts` finding; the `dgSelect` Rack trap; the Escape gap |
 | `docs/50-design/53-*.md` | the keymap's ownership (D10) |
 

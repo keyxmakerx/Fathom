@@ -83,8 +83,10 @@ fn shipped_tree_declaration_counts_hold() {
     // Firmware targets (schema 0.19): +1 kind (`FirmwareTarget`), +1 edge (`HasFirmwareTarget`), +7 keys (405-411).
     // Cable runs and ties (schema 0.23): +2 kinds (`CableRun`, `CableTie`), +3 edges (`HasCableRun`,
     // `HasCableTie`, `Ties`), +4 keys (414-417).
-    assert_eq!(tree.kinds.len(), 72, "kind count");
-    assert_eq!(tree.edges.len(), 124, "edge count (107 + 8 derived)");
+    // Mesh VPNs (schema 0.26): +1 kind (`OverlayNetwork`), +2 edges (`HasOverlay`,
+    // `OverlayMember`), +7 keys (479-485).
+    assert_eq!(tree.kinds.len(), 73, "kind count");
+    assert_eq!(tree.edges.len(), 126, "edge count (107 + 8 derived)");
     // Custom-field values (2026-10-02, schema 0.16): +1 kind (`FieldValue`), +1 edge
     // (`HasFieldValue`), +1 CLASS (`Fieldable`), +2 field keys (380 -> 382).
     assert_eq!(tree.scalars.len(), 61, "scalar count");
@@ -97,7 +99,8 @@ fn shipped_tree_declaration_counts_hold() {
     // Round 15 quality-of-life (schema 0.21): +1 field key (`PhysicalPort.mac`, 462; 414-461 are held for the other round 15 threads).
     // Cable runs and ties (schema 0.23): +4 field keys (414-417).
     // Missing links (schema 0.24): +1 field key (`Cable.needs_finishing`, 478).
-    assert_eq!(fk.entries.len(), 413, "field-key registry entries");
+    // Mesh VPNs (schema 0.26): +7 field keys (479-485).
+    assert_eq!(fk.entries.len(), 420, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -181,7 +184,9 @@ fn shipped_tree_declaration_counts_hold() {
     // 0.22 -> 0.23 is cable runs and ties: two kinds, three edges, four field keys (414-417);
     // the counts above already carry them.
     // 0.23 -> 0.24 is missing links for cables: one optional `Cable` field, `needs_finishing` (478).
-    assert_eq!(tree.version.as_deref(), Some("0.24"));
+    // 0.24 -> 0.25 is the LAG plan step: one variant, `lag`, on `PlanStep.kind`.
+    // 0.25 -> 0.26 is mesh VPNs: one kind, two edges, seven field keys (479-485).
+    assert_eq!(tree.version.as_deref(), Some("0.26"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

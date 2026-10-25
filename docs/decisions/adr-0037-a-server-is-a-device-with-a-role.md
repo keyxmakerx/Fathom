@@ -136,7 +136,7 @@ registers no general-purpose host.** The rows are `junos-srx`, `junos-mx`, `juno
 So the actual sentence *"add my Proxmox box"* is blocked one field to the left of the one this record
 fixes. Today the equipment form makes you pick a platform your server does not speak. That is what
 `crates/fathom-wasm/tests/equip.rs` does, in a comment that says so, and what
-`docs/80-review/evidence/2026-08-16-server-role-drive.mjs` does, in a comment that says so. **Naming
+`docs/archive/80-review/evidence/2026-08-16-server-role-drive.mjs` does, in a comment that says so. **Naming
 it is the point; a hidden workaround would be worse than the gap.**
 
 Why it is not closed here:
@@ -254,13 +254,13 @@ not as a claim about behaviour.
 
 - `schema/schema.yaml` — `Device`, `PassiveNode`, `Chassis`, the `Placeable` class, the version block
 - `schema/platforms.yaml` — the registry and its own declaration rule
-- `docs/10-core/11-ir-schema.md` §6.3 — `Device`'s definition
-- `docs/10-core/19-service-and-physical-model.md` §3.6, §3.9, §3.10, §7.5 — `PassiveNode`, the
+- `docs/archive/10-core/11-ir-schema.md` §6.3 — `Device`'s definition
+- `docs/archive/10-core/19-service-and-physical-model.md` §3.6, §3.9, §3.10, §7.5 — `PassiveNode`, the
   three-limb test, and the bump arithmetic this record's §2 copies
-- `docs/60-content/62-schema-spec.md` §7 (enum rules), §16.2 (the bump table), §17 (generated
+- `docs/archive/60-content/62-schema-spec.md` §7 (enum rules), §16.2 (the bump table), §17 (generated
   artifacts)
-- `docs/60-content/65-the-engine-boundary.md` §4 — why a Linux platform row is not two lines
-- `docs/70-ops/79-work-orders/00-ROUTE-TO-WORKABLE.md` §4b — the field-cost measurement this change
+- `docs/archive/60-content/65-the-engine-boundary.md` §4 — why a Linux platform row is not two lines
+- `docs/archive/70-ops/79-work-orders/00-ROUTE-TO-WORKABLE.md` §4b — the field-cost measurement this change
   reproduced
 - `docs/90-decisions/adr-0035-*.md`, `adr-0036-*.md` — the two records this one is a sibling of, and
   the source of §6's comparison
@@ -290,7 +290,7 @@ The floor (`78` §6), all green, at the commit this record lands with:
   against the 900,000 ceiling
 
 And in Chromium, through the shipped artifact, from an **empty page**:
-`docs/80-review/evidence/2026-08-16-server-role-drive.mjs` — **23/23**. It builds a five-box home lab
+`docs/archive/80-review/evidence/2026-08-16-server-role-drive.mjs` — **23/23**. It builds a five-box home lab
 by hand (firewall, switch, access point, two servers), asserts the dropdown offers exactly
 `DECLARED`, reads the roles out of the inventory table and off the drawn boxes, asks **Chromium for
 the accessible tree** and finds `ap-loft Device access_point` there, exports the journal, throws the

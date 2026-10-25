@@ -93,6 +93,16 @@ describe('menuItemsFor', () => {
     expect(a.onSelect).toHaveBeenCalledWith({ kind: 'chassis', id: 'c1' });
   });
 
+  it('offers a device on a shelf or a wall Open, a trace and details, and selects it the way a click does', () => {
+    const a = actions();
+    const items = menuItemsFor({ kind: 'chassis', id: 'cam', on: 'fixture' }, a);
+    expect(items.map((i) => i.label)).toEqual(['Open', 'Trace a path from here', 'Details']);
+    items[1].onSelect();
+    expect(a.onTraceFrom).toHaveBeenCalledWith('cam');
+    items[2].onSelect();
+    expect(a.onSelect).toHaveBeenCalledWith({ kind: 'fixture', id: 'cam' });
+  });
+
   it("offers It's down on a device and a free box when it can be used, and not otherwise", () => {
     const a = { ...actions(), onItsDown: vi.fn() };
     const chassis = menuItemsFor({ kind: 'chassis', id: 'c1' }, a);

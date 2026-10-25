@@ -577,3 +577,122 @@ fn an_export_that_sets_an_mtu_is_read() {
     let reply = shell.handle(OP_PASTE, &frame(0, linux));
     assert_eq!(platform_of(&reply), "linux-host");
 }
+
+/// A TP-Link switch config, its shape from a real T1700G-28TQ export
+/// (community.tp-link.com topic 150823, read 2026-10-16), carrying credential
+/// lines at TP-Link's documented lengths (README-omada-sw.md).
+fn tplink_paste() -> String {
+    "!T1700G-28TQRev2\n\
+     #\n\
+     vlan 4084\n\
+     name \"GERENCIA4084\"\n\
+     #\n\
+     user name admin privilege admin secret 5 $1$K>@=/'}.Q7R2K9M4X8P1Z6W3N5B0LJHG$T2Y.\n\
+     snmp-server user ops local grp smode v3 slev authPriv cmode SHA cpwd Abc12345 emode DES epwd Def67890\n\
+     snmp-server host 192.0.2.9 162 pr1vate smode v2c\n\
+     hostname \"SW_ALIANCA00\"\n\
+     #\n\
+     interface gigabitEthernet 1/0/1\n\
+     description \"uplink\"\n\
+     shutdown\n\
+     #\n"
+        .to_owned()
+}
+
+const TPLINK_SECRETS: [&str; 4] = [
+    "Q7R2K9M4X8P1Z6W3N5B0LJHG",
+    "Abc12345",
+    "Def67890",
+    "pr1vate",
+];
+
+#[test]
+fn a_tplink_switch_config_is_detected_and_no_credential_survives() {
+    let mut shell = common::all_booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(0, &tplink_paste()));
+    assert_eq!(platform_of(&reply), "omada-sw");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    for k in TPLINK_SECRETS {
+        assert!(!contains(&reply, k), "reply leaks {k}");
+        assert!(!contains(&stored, k), "stored design leaks {k}");
+    }
+    assert!(contains(&stored, "SW_ALIANCA00"));
+
+    let mut shell = common::all_booted_shell();
+    let display = place(&mut shell, "omada-sw");
+    let reply = shell.handle(OP_PASTE_INTO, &into_frame(0, &display, &tplink_paste()));
+    assert_eq!(platform_of(&reply), "omada-sw");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    for k in TPLINK_SECRETS {
+        assert!(!contains(&reply, k), "paste-into reply leaks {k}");
+        assert!(!contains(&stored, k), "paste-into stored capture leaks {k}");
+    }
+}
+
+#[test]
+fn set_form_detection_never_reads_with_the_tplink_dictionary() {
+    let mut shell = common::all_booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(0, &srx_config()));
+    assert_eq!(platform_of(&reply), "junos-srx");
+}
+
+/// A UniFi switch's `show running-config` as a terminal paste: the session
+/// and header from a real USW-48P-500 (jcutrer.com, read 2026-10-16), the
+/// body in the EdgeSwitch syntax (README-unifi-sw.md).
+fn unifi_paste() -> String {
+    "US.v3.8.6# telnet localhost\n\
+     (UBNT) >enable\n\
+     (UBNT) #show run\n\
+     !Current Configuration:\n\
+     !\n\
+     !System Description \"USW-48P-500,, Linux 3.6.5\"\n\
+     !System Software Version \"\"\n\
+     !\n\
+     hostname \"rack-sw-1\"\n\
+     configure\n\
+     username \"ops\" password Op3rator!x level 1\n\
+     snmp-server host 192.0.2.9 \"trap-community-20chr\"\n\
+     snmp-server user u1 grp1 auth-sha AuthPass1 priv-des PrivPass1\n\
+     interface 0/1\n\
+     description \"uplink\"\n\
+     exit\n\
+     exit\n"
+        .to_owned()
+}
+
+const UNIFI_SECRETS: [&str; 4] = [
+    "Op3rator!x",
+    "trap-community-20chr",
+    "AuthPass1",
+    "PrivPass1",
+];
+
+#[test]
+fn a_unifi_switch_config_is_detected_and_no_credential_survives() {
+    let mut shell = common::all_booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(0, &unifi_paste()));
+    assert_eq!(platform_of(&reply), "unifi-sw");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    for k in UNIFI_SECRETS {
+        assert!(!contains(&reply, k), "reply leaks {k}");
+        assert!(!contains(&stored, k), "stored design leaks {k}");
+    }
+    assert!(contains(&stored, "rack-sw-1"));
+
+    let mut shell = common::all_booted_shell();
+    let display = place(&mut shell, "unifi-sw");
+    let reply = shell.handle(OP_PASTE_INTO, &into_frame(0, &display, &unifi_paste()));
+    assert_eq!(platform_of(&reply), "unifi-sw");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    for k in UNIFI_SECRETS {
+        assert!(!contains(&reply, k), "paste-into reply leaks {k}");
+        assert!(!contains(&stored, k), "paste-into stored capture leaks {k}");
+    }
+}
+
+#[test]
+fn set_form_detection_never_reads_with_the_unifi_dictionary() {
+    let mut shell = common::all_booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(0, &srx_config()));
+    assert_eq!(platform_of(&reply), "junos-srx");
+}

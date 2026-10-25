@@ -146,6 +146,10 @@ pub fn commands(platform: Option<&str>, filename: &str, sha256: &str, url: Optio
         plan.device_path.map_or(Json::Null, Json::Str),
     );
     envelope.insert("steps".to_string(), Json::Arr(steps));
+    envelope.insert(
+        "by_hand".to_string(),
+        crate::firmware_by_hand::by_hand(family, filename),
+    );
     envelope.insert("device_hash".to_string(), Json::Obj(device_hash));
     envelope.insert("sourced".to_string(), Json::Str(plan.sourced.to_string()));
     envelope.insert("sourced_note".to_string(), Json::Str(plan.sourced_note));

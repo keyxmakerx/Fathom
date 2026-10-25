@@ -82,6 +82,19 @@
   max-width: 92%;
 }
 
+/* Folded, it keeps clear of the Checks and Plans panels the way the open panel does. */
+.trouble-folded--beside-checks {
+  right: calc(min(264px, 60%) + 2 * var(--s2));
+}
+
+.trouble-folded--beside-plans {
+  right: calc(min(320px, 92%) + 2 * var(--s2));
+}
+
+.trouble-folded--beside-checks.trouble-folded--beside-plans {
+  right: calc(min(264px, 60%) + min(320px, 92%) + 3 * var(--s2));
+}
+
 .trouble-btn {
   cursor: pointer;
 }
@@ -233,6 +246,23 @@
 }
 
 .trouble-step__detail {
+  color: var(--muted);
+}
+
+.trouble-how {
+  margin: var(--s1) 0;
+  padding-left: var(--s2);
+  border-left: var(--rule-hair) solid var(--ink);
+}
+
+.trouble-how p {
+  margin: var(--s1) 0;
+}
+
+.trouble-how__label {
+  font-size: var(--t-tab);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 

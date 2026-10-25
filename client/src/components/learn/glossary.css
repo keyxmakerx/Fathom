@@ -1,0 +1,34 @@
+/* Glossary words in Why? cards (card nu-words A): a dotted underline, ink only, and the definition as a ruled note
+   under the line it came from. */
+.gloss {
+  display: inline;
+  padding: 0;
+  border: 0;
+  border-bottom: var(--rule-hair) dotted currentColor;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: help;
+  box-shadow: none;
+}
+
+.gloss-wrap {
+  white-space: nowrap;
+}
+
+.gloss[aria-expanded='true'] {
+  border-bottom-style: solid;
+}
+
+.gloss-def {
+  display: block;
+  margin-top: var(--s1);
+  padding: var(--s1) var(--s2);
+  border-left: var(--rule-hair) solid var(--ink);
+  color: var(--ink);
+  font-size: var(--t-small);
+}
+
+.gloss-def__term {
+  font-weight: 700;
+}

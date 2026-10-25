@@ -15,7 +15,10 @@ import {
 } from '../../document/model';
 import {
   currentStep,
+  lagMembers,
+  nextLagName,
   touchedBy,
+  type LacpMode,
   type Plan,
   type PlanStage,
   type PlanStep,
@@ -38,7 +41,7 @@ export function holdSiblings(page: { parentElement: { children: ArrayLike<Elemen
 
 export const STAGE_WORD: Record<PlanStage, string> = { planned: 'PLANNING', doing: 'DOING', recorded: 'RECORDED' };
 
-export const KIND_WORD: Record<StepKind, string> = { address: 'Address', route: 'Route', cable: 'Cable', move: 'Move', other: 'Other' };
+export const KIND_WORD: Record<StepKind, string> = { address: 'Address', route: 'Route', cable: 'Cable', move: 'Move', other: 'Other', lag: 'LAG' };
 
 export const OUTCOME_WORD = { succeeded: 'Succeeded', partial: 'Partial', failed: 'Failed' } as const;
 
@@ -312,6 +315,10 @@ export interface StepForm {
   positionU: string;
   face: 'front' | 'rear';
   value: string;
+  /** lag: the member interfaces, the LAG's name ('' = the device's next free one) and its LACP mode. */
+  members: string[];
+  lagName: string;
+  lacp: LacpMode;
 }
 
 export const EMPTY_FORM: StepForm = {
@@ -329,6 +336,9 @@ export const EMPTY_FORM: StepForm = {
   positionU: '1',
   face: 'front',
   value: '',
+  members: [],
+  lagName: '',
+  lacp: 'active',
 };
 
 export interface BuiltStep {
@@ -385,6 +395,23 @@ export function buildStep(doc: Document, canon: Canon, f: StepForm): BuiltStep |
         before: text(f.before) || placementText(doc, canon, chassis),
         after: text(f.after) || `${name(f.rack)} · U${u}`,
         edit: { t: 'move', chassis, rack: f.rack, positionU: u, face: f.face },
+      };
+    }
+    case 'lag': {
+      if (f.device === '') return { error: 'Choose the device.' };
+      if (f.members.length < 2) return { error: 'Tick two or more member interfaces.' };
+      const lag = text(f.lagName) || nextLagName(doc, f.device);
+      if (/\s/.test(lag)) return { error: 'A LAG name is one word with no spaces.' };
+      const names = lagMembers(doc, f.device)
+        .filter((m) => f.members.includes(m.id))
+        .map((m) => m.name);
+      const lacp = f.lacp === '' ? 'LACP not set' : f.lacp === 'off' ? 'static, no LACP' : `LACP ${f.lacp}`;
+      return {
+        kind: 'lag',
+        change: text(f.change) || `Make ${lag} on ${name(f.device)}`,
+        before: text(f.before) || names.join(', '),
+        after: text(f.after) || `${lag} (${lacp}): ${names.join(', ')}`,
+        edit: { t: 'lag', device: f.device, name: lag, lacp: f.lacp, members: f.members },
       };
     }
     case 'route':

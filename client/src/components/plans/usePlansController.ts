@@ -18,6 +18,7 @@ import {
   moveStep,
   readPlan,
   recordPlan,
+  backOut,
   removeStep,
   setPlanHead,
   startPlan,
@@ -130,6 +131,8 @@ export interface PlansController {
   done(stepId: string): Promise<boolean>;
   wentDifferently(stepId: string, note: string, pasted?: boolean): Promise<boolean>;
   record(outcome: PlanOutcome, text: string, pasted?: boolean): Promise<boolean>;
+  /** A new plan back to where this one started, opened for planning (sign-off r16-backout). */
+  backOut(): Promise<boolean>;
 }
 
 interface Inputs {
@@ -481,6 +484,14 @@ export function usePlansController({ doc, boot, mirrorNow, loadCostMs, redact, a
     },
     record: (outcome, text, pasted = false) =>
       run((doc0, gate) => (plan ? recordPlan(doc0, plan.id, { outcome, text, gate, ...stamp() }) : null), howOf(pasted)),
+    backOut: () =>
+      run((doc0) => {
+        if (plan == null) return null;
+        const made = backOut(doc0, plan.id, { author: latest.current.authorName, ...stamp() });
+        setOpenId(made.id);
+        setPrefill(null);
+        return made.doc;
+      }),
   };
   return api;
 }

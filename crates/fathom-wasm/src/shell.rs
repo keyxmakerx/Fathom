@@ -185,6 +185,26 @@ impl Shell {
                 Some(p) => p == "linux-host",
                 None => fathom_ingest::iproute::looks_like_iproute(text),
             };
+        // A TP-Link switch's config: `!<model>` then `#`-separated blocks.
+        let switch = !table
+            && !export
+            && !backup
+            && !host
+            && match hint {
+                Some(p) => p == "omada-sw",
+                None => fathom_ingest::blockcfg::looks_like_tplink(text),
+            };
+        // A UniFi switch's `show running-config`: the EdgeSwitch header with a
+        // UniFi model in it.
+        let unifi = !table
+            && !export
+            && !backup
+            && !host
+            && !switch
+            && match hint {
+                Some(p) => p == "unifi-sw",
+                None => fathom_ingest::blockcfg::looks_like_unifi(text),
+            };
         let (ingest, platform) = if table {
             let Some(dict) = self.dicts.get("opnsense") else {
                 return missing("table");
@@ -202,6 +222,18 @@ impl Shell {
                 return missing("Linux");
             };
             let read = fathom_ingest::iproute::ingest_iproute(text, dict).map_err(refuse)?;
+            (read, dict.platform().to_owned())
+        } else if switch {
+            let Some(dict) = self.dicts.get("omada-sw") else {
+                return missing("TP-Link");
+            };
+            let read = fathom_ingest::blockcfg::ingest_blockcfg(text, dict).map_err(refuse)?;
+            (read, dict.platform().to_owned())
+        } else if unifi {
+            let Some(dict) = self.dicts.get("unifi-sw") else {
+                return missing("UniFi");
+            };
+            let read = fathom_ingest::blockcfg::ingest_unifi(text, dict).map_err(refuse)?;
             (read, dict.platform().to_owned())
         } else if export {
             let Some(dict) = self.dicts.get("routeros") else {
@@ -1913,7 +1945,11 @@ impl Shell {
             let g = scratch.estate.as_ref().unwrap();
             let (lines, touches) = plan::impact(g, &step.edit);
             let reply = match &step.edit {
-                Edit::None | Edit::Move { .. } => Vec::new(),
+                Edit::None | Edit::Move { .. } | Edit::Lag { .. } | Edit::Unlag { .. } => {
+                    Vec::new()
+                }
+                // An empty value clears the field (a back-out step putting back "none"): nothing to parse or try.
+                Edit::Field { value, .. } if value.is_empty() => Vec::new(),
                 Edit::Field { id, key, value } => {
                     // A key the target's kind does not have is never written.
                     let foreign = scratch
@@ -3161,16 +3197,19 @@ fn field_name(key: fathom_ir::bag::FieldKey) -> &'static str {
 /// The comma-joined detectors that fired on one destroyed value (`14` §9.2:
 /// "redacted once and the manifest records both reasons").
 /// Platforms read by a front end of their own (the rules CSV, a RouterOS export,
-/// a pfSense backup),
+/// a pfSense backup, a Linux host's `ip` output, a TP-Link or UniFi switch config),
 /// never by the set-form shaper: detection, a named set-form platform and
 /// `OP_REDACT_TEXT` all skip them.
 fn is_own_front_end(platform: &str) -> bool {
-    matches!(platform, "opnsense" | "routeros" | "pfsense" | "linux-host")
+    matches!(
+        platform,
+        "opnsense" | "routeros" | "pfsense" | "linux-host" | "omada-sw" | "unifi-sw"
+    )
 }
 
 fn detector_names(d: fathom_ingest::redact::DetectorSet) -> String {
     use fathom_ingest::redact::DetectorSet;
-    const NAMED: [(u8, &str); 7] = [
+    const NAMED: [(u8, &str); 8] = [
         (DetectorSet::PATH, "path"),
         (DetectorSet::CRYPT_PREFIX, "crypt-prefix"),
         (DetectorSet::PEM_ARMOUR, "pem-armour"),
@@ -3178,6 +3217,7 @@ fn detector_names(d: fathom_ingest::redact::DetectorSet) -> String {
         (DetectorSet::BASE64, "base64"),
         (DetectorSet::LEAF_NAME, "leaf-name"),
         (DetectorSet::QUOTE_WRAP, "quote-wrap"),
+        (DetectorSet::KEY_PREFIX, "key-prefix"),
     ];
     NAMED
         .iter()

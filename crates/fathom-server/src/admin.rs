@@ -97,6 +97,7 @@ pub fn router(state: AdminState) -> Router {
             post(set_account_disabled),
         )
         .route("/admin/organisations", post(create_organisation_shell))
+        .route("/admin/organisations/practice", post(create_practice_shell))
         .route(
             "/admin/organisations/{organisation}/grants/{grant}/suspension",
             post(suspend_grant),
@@ -234,6 +235,33 @@ async fn create_organisation_shell(
     let (shell, invitation, notice_address) = state
         .operators
         .create_organisation_shell(&session, &display_name)
+        .await
+        .map_err(AdminRefusal)?;
+    let mut out = Vec::with_capacity(160);
+    crypto::lp(&mut out, shell.as_bytes());
+    crypto::lp(&mut out, &invitation.token);
+    crypto::lp(&mut out, invitation.id.as_bytes());
+    crypto::u64_le(&mut out, invitation.expires_at_unix as u64);
+    crypto::lp(&mut out, notice_address.as_bytes());
+    Ok(bytes_response(out))
+}
+
+/// `POST /admin/organisations/practice` — ADR-0069's practice space: the same
+/// act and the same answer as `POST /admin/organisations`, with the shell marked
+/// practice. The operator who presses it claims it at once from their own account.
+///
+/// Body: `LP(display_name)`.
+async fn create_practice_shell(
+    State(state): State<AdminState>,
+    signed: Signed,
+) -> Result<Response, Refusal> {
+    let session = verify(&state, &signed).await?;
+    let fields = read_fields(&signed.body, 1)?;
+    let display_name = text(&fields[0], "display name")?;
+
+    let (shell, invitation, notice_address) = state
+        .operators
+        .create_practice_shell(&session, &display_name)
         .await
         .map_err(AdminRefusal)?;
     let mut out = Vec::with_capacity(160);

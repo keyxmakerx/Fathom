@@ -1,0 +1,66 @@
+# A clean install, timed, on a machine that has never seen Fathom: a fresh
+# GitHub runner pulls the PUBLISHED image (not one built from this checkout,
+# which is what ci.yml's `compose` job proves) and runs the steps
+# docs/RUNNING-IT.md gives a newcomer, through the first operator's sign-in.
+# scripts/timed-clean-install.sh does the work and prints the times; this
+# writes them to the run's summary page. An Alpha item (Sign-offs page,
+# r28-alpha, 2026-10-25).
+#
+# When it runs:
+#   - after every successful publish from main, against that exact build
+#     (FATHOM_TAG=sha-<commit>), so each published image carries a time;
+#   - on a pull request that changes the install itself (compose.yaml,
+#     .env.example, the script, this file), against `latest`;
+#   - by hand, from the Actions tab.
+#
+# Nothing here pushes, logs in or holds a token beyond `contents: read`, so
+# actions/checkout is pinned to the same commit publish.yml resolved.
+name: clean-install
+
+on:
+  workflow_run:
+    workflows: [publish]
+    types: [completed]
+    branches: [main]
+  pull_request:
+    paths:
+      - compose.yaml
+      - .env.example
+      - scripts/timed-clean-install.sh
+      - scripts/ci/first-operator-signin.mjs
+      - .github/workflows/clean-install.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  timed:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # After a publish, the build that publish pushed; otherwise `latest`.
+      FATHOM_TAG: ${{ github.event_name == 'workflow_run' && format('sha-{0}', github.event.workflow_run.head_sha) || 'latest' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The compose file and scripts of the build being installed.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - name: Install, timed
+        run: |
+          ./scripts/timed-clean-install.sh ci@example.invalid | tee install.log
+          {
+            echo "### Clean install (FATHOM_TAG=${FATHOM_TAG})"
+            echo
+            echo '```'
+            sed -n '/^Clean install,/,$p' install.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Logs, on failure
+        if: failure()
+        run: docker compose logs --no-color | tail -200
+      - name: Down
+        if: always()
+        run: docker compose down -v

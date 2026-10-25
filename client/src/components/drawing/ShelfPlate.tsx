@@ -205,6 +205,7 @@ function OccupantBox({
           : 'drawing-shelf__occupant nodrag'
       }
       style={style}
+      data-device-chassis={occupant.kind === 'chassis' ? occupant.id : undefined}
       onClick={(event: MouseEvent) => {
         event.stopPropagation();
         onSelectOccupant();
@@ -395,6 +396,7 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
               <button
                 key={item.occupant.id}
                 type="button"
+                data-device-chassis={item.occupant.kind === 'chassis' ? item.occupant.id : undefined}
                 className={
                   selectedOccupantId === item.occupant.id
                     ? 'drawing-shelf__compact-occupant drawing-shelf__compact-occupant--selected nodrag'

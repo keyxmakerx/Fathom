@@ -84,6 +84,7 @@ use deadpool_postgres::Transaction;
 
 use fathom_canon::Json;
 use fathom_corpus::catalogue::{Catalogue, CatalogueError, Face, Model, Port, PsuSlot, Role, Row};
+use fathom_corpus::model::ExplainerEntry;
 
 use crate::api;
 use crate::audit;
@@ -114,6 +115,9 @@ pub struct DesignApiState {
     /// The catalogue, loaded once at startup: read-only reference data, so every
     /// request reads the same `Vec`, not the filesystem. Built by [`load_catalogue`].
     pub catalogue: Arc<Vec<Model>>,
+    /// The explainers (`corpus/explainers/`), loaded once at startup like the
+    /// catalogue. Built by [`load_explainers`]; ADR-0066 item 1.1.
+    pub explainers: Arc<Vec<ExplainerEntry>>,
     /// ADR-0057 decision 7. The same policy as every route's state
     /// (`src/client_address.rs`): design payload and vault ciphertext are what §4.1
     /// clause (b) protects, so this plane is checked too.
@@ -289,6 +293,7 @@ pub fn router(state: DesignApiState) -> Router {
             get(read_file_handler).delete(delete_file_handler),
         )
         .route("/catalogue/models", get(catalogue_list_handler))
+        .route("/learn/explainers", get(explainers_handler))
         .route(
             "/catalogue/models/{vendor}/{model}",
             get(catalogue_model_handler),
@@ -990,11 +995,15 @@ async fn list_organisations_handler(
 
     let out = organisations
         .into_iter()
-        .map(|(o, role)| {
+        .map(|(o, role, practice)| {
             let mut map = BTreeMap::new();
             map.insert("organisation_id".to_string(), Json::Str(o.id.to_string()));
             map.insert("display_name".to_string(), Json::Str(o.display_name));
             map.insert("role".to_string(), Json::Str(role.as_str().to_string()));
+            // ADR-0069: a label for Home, never read to decide authority.
+            if practice {
+                map.insert("practice".to_string(), Json::Bool(true));
+            }
             Json::Obj(map)
         })
         .collect();
@@ -3286,6 +3295,85 @@ fn json_of_report(report: &chain::Report) -> Json {
     map.insert("summary".to_string(), Json::Str(report.summary()));
 
     Json::Obj(map)
+}
+
+// ---- Explainers: public reference text, behind a session and nothing else ----
+
+/// Read `<root>/corpus/` and keep only its explainer entries. The whole corpus is
+/// loaded because that is the loader that checks it; a corpus that will not load
+/// is a startup failure, as the catalogue is.
+pub fn load_explainers(root: &Path) -> Result<Vec<ExplainerEntry>, fathom_corpus::LoadError> {
+    Ok(fathom_corpus::load::load_corpus(&root.join("corpus"))?.explainers)
+}
+
+/// `reviewed_by` still a placeholder (`<named human>`, `pending: …`): nobody has
+/// vouched for the entry, and the client labels it Unreviewed (OPEN-QUESTIONS E2).
+fn explainer_is_reviewed(reviewed_by: &str) -> bool {
+    let r = reviewed_by.trim();
+    !(r.is_empty() || r.starts_with('<') || r.starts_with("pending"))
+}
+
+fn json_of_explainer(e: &ExplainerEntry) -> Json {
+    fn opt(map: &mut BTreeMap<String, Json>, key: &str, v: &Option<String>) {
+        map.insert(
+            key.to_string(),
+            v.as_ref().map_or(Json::Null, |s| Json::Str(s.clone())),
+        );
+    }
+    let mut map = BTreeMap::new();
+    map.insert("id".to_string(), Json::Str(e.id.clone()));
+    map.insert("class".to_string(), Json::Str(e.class.clone()));
+    opt(&mut map, "title", &e.title);
+    opt(&mut map, "subject", &e.subject_path);
+    map.insert(
+        "platforms".to_string(),
+        Json::Arr(e.platforms.iter().cloned().map(Json::Str).collect()),
+    );
+    opt(&mut map, "tab", &e.tab);
+    opt(&mut map, "terse", &e.terse);
+    opt(&mut map, "explained", &e.explained);
+    opt(&mut map, "teaching", &e.teaching);
+    opt(&mut map, "breaks_if_wrong", &e.breaks_if_wrong);
+    opt(&mut map, "reviewed_on", &e.reviewed_on);
+    map.insert(
+        "reviewed".to_string(),
+        Json::Bool(explainer_is_reviewed(&e.reviewed_by)),
+    );
+    let sources = e
+        .sources
+        .iter()
+        .map(|s| {
+            let mut m = BTreeMap::new();
+            opt(&mut m, "publisher", &s.publisher);
+            m.insert("doc".to_string(), Json::Str(s.doc.clone()));
+            opt(&mut m, "url", &s.url);
+            opt(&mut m, "read_on", &s.read_on);
+            opt(&mut m, "note", &s.note);
+            Json::Obj(m)
+        })
+        .collect();
+    map.insert("sources".to_string(), Json::Arr(sources));
+    Json::Obj(map)
+}
+
+/// `GET /learn/explainers`: every explainer entry, for the About cards and the
+/// Learn library. Reference text from the corpus, the same for every caller.
+async fn explainers_handler(
+    State(state): State<DesignApiState>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (_, tx) = signed.verify_and_commit(&state, tx).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(json_response(Json::Arr(
+        state.explainers.iter().map(json_of_explainer).collect(),
+    )))
 }
 
 // ---- Catalogue: public reference data, behind a session and nothing else ----

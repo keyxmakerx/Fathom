@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.24"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.26"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -307,6 +307,20 @@ schema:
                     # is loose at all is never stored: it is read off the drawing, from fewer than
                     # two Terminates. 62 §16.2: "New optional field" is minor. No kind, edge or
                     # existing key moved. Whole change = MINOR. The reader still opens 0.10 to 0.23.
+                    #
+                    # 0.25 is the LAG plan step (sign-off plan-ideas, 2026-10-25): one new enum
+                    # variant, `lag`, on PlanStep.kind. Its edit line (`lag` first) bundles member
+                    # Interfaces of one device into a new AggregateInterface when the step is done.
+                    # 62 §16.2: "New enum variant" is minor. No kind, edge or key added or moved.
+                    # Whole change = MINOR. The reader still opens 0.10 to 0.24.
+                    #
+                    # 0.26 is mesh VPNs on the diagram (sign-off r16-overlay, 2026-10-25), all
+                    # additive: one node kind, OverlayNetwork (a Tailscale tailnet, a NetBird
+                    # network, a WireGuard tunnel and the like), hung off the root through
+                    # HasOverlay (containment), and OverlayMember (reference, network to Device)
+                    # carrying that member's overlay address, whether it is an exit node, and the
+                    # subnet routes it offers. Seven field keys (479-485). 62 §16.2: new kinds and
+                    # edges are minor. Whole change = MINOR. The reader still opens 0.10 to 0.25.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -539,6 +553,8 @@ classes:
       # Cable runs and ties (0.23): join Placeable as Tag does; drawn on their rack or wall.
       - CableRun
       - CableTie
+      # Mesh VPNs (0.26): joins Placeable as Tag does; drawn by the VPNs layer, never laid out.
+      - OverlayNetwork
       # Custom-field values (0.16): joins Placeable as Tag does; the client draws no box.
       - FieldValue
     doc: |
@@ -2043,12 +2059,12 @@ kinds:
       step is marked done. `targets` names what it touches, one design id per line.
     fields:
       - { name: ordinal, type: u32, card: "1", emit: "—", doc: Position in the plan. Steps run in this order. }
-      - { name: kind, type: "enum { address, route, cable, move, other }", card: "1", emit: "—", doc: What sort of change. }
+      - { name: kind, type: "enum { address, route, cable, move, other, lag }", card: "1", emit: "—", doc: "What sort of change. `lag` (0.25) bundles ports into a LAG." }
       - { name: targets, type: Text, card: "0..1", emit: "—", doc: "Design ids of what the step touches, one per line." }
       - { name: change, type: Text, card: "1", emit: "—", doc: The step in a sentence. }
       - { name: before, type: Text, card: "0..1", emit: "—", doc: How it is now. }
       - { name: after, type: Text, card: "0..1", emit: "—", doc: How it will be. }
-      - { name: edit, type: Text, card: "0..1", emit: "—", doc: "The edit applied on Done: one line, tab-separated, `field`, `cable` or `move` first. Absent for a step done by hand." }
+      - { name: edit, type: Text, card: "0..1", emit: "—", doc: "The edit applied on Done: one line, tab-separated, `field`, `cable`, `cut`, `move` or `lag` first. Absent for a step done by hand." }
       - { name: state, type: "enum { planned, done, went_differently }", card: "1", emit: "—", doc: Where the step is. }
       - { name: note, type: Text, card: "0..1", emit: "—", doc: What happened instead; required for went_differently. }
       - { name: done_at, type: Text, card: "0..1", emit: "—", doc: "When it was marked, as an ISO time." }
@@ -2148,6 +2164,24 @@ kinds:
       Moving it along the run changes `at`; the cables held follow it in the cable-tied style.
     fields:
       - { name: at, type: u16, card: "1", emit: "—", doc: "Where along its run, in thousandths of the run's length from its top or left end (0-1000)." }
+    identity: []
+
+  # Mesh VPNs (sign-off r16-overlay, 2026-10-25). Appended at the tail (62 §13).
+  - kind: OverlayNetwork
+    layer: physical
+    emits: false
+    doc: |
+      A VPN that joins devices into one network over whatever links they already have: a
+      Tailscale or Headscale tailnet, a NetBird network, a ZeroTier network, a WireGuard
+      tunnel or mesh. Hung off the root through HasOverlay; its members are OverlayMember
+      edges to Devices. A network of two members is a point-to-point tunnel. NOTHING PARSES
+      ONE YET: it is entered by hand. No key, token or preshared secret has a field here, and
+      none may gain one (CLAUDE.md rule 4).
+    fields:
+      - { name: name, type: Text, card: "1", emit: "—", doc: What the network is called. }
+      - { name: provider, type: "enum { tailscale, headscale, netbird, zerotier, wireguard, nebula, other }", card: "1", emit: "—", doc: Whose software runs it. }
+      - { name: range, type: IpPrefix, card: "0..1", emit: "—", doc: "The address range members are given, e.g. 100.64.0.0/10." }
+      - { name: note, type: Text, card: "0..1", emit: "—", doc: Words for it. }
     identity: []
 
 edges:
@@ -3730,6 +3764,35 @@ edges:
     fields: []
     emit_dict: null
     doc: The cables a tie holds. Removing a cable drops it from the tie; the tie stays.
+
+  # Mesh VPNs (sign-off r16-overlay, 2026-10-25). Appended at the tail (62 §13).
+  - edge: HasOverlay
+    class: containment
+    from: [root]
+    to: [OverlayNetwork]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: VPNs hang off the design root as Tag does.
+  - edge: OverlayMember
+    class: reference
+    from: [OverlayNetwork]
+    to: [Device]
+    out: "0..n"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields:
+      - { name: address, type: IpAddr, card: "0..1", emit: "—", doc: "The member's address on the VPN." }
+      - { name: exit_node, type: bool, card: "0..1", emit: "—", doc: "True when the member offers itself as the way out to the internet." }
+      - { name: routes, type: Text, card: "0..1", emit: "—", doc: "Subnet routes the member offers to the VPN, one prefix per line." }
+    emit_dict: null
+    doc: |
+      A device on a VPN. A REFERENCE EDGE because a Device already has its containment
+      parent. Removing the device drops it from the VPN; the VPN stays.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load
