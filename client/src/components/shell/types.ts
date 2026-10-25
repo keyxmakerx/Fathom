@@ -184,6 +184,9 @@ export interface ShellProps {
   designExtra?: ReactNode;
   /** The Doing ▾ menu's rows. */
   doing?: readonly DoingItem[];
+  /** r31-motion: a job under way takes the bar. The other views fold, the job sits where Doing was, and the rule
+   * under the bar takes the job's colour. */
+  task?: { label: string; stage?: string; tone: 'plan' | 'do' | 'down' | 'trace'; onExit: () => void } | null;
   /** Below the Layers menu's rows: the cable colour key. */
   layersExtra?: ReactNode;
   /** The zoom stops the bottom pill opens upward with (r31-bar A). */

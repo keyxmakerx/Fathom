@@ -91,6 +91,8 @@ import { readyQuestions } from '../home/sampleQuestions';
 import { ReadyQuestions } from '../trace/ReadyQuestions';
 import { TieCard } from '../ties/TieCard';
 import { PlanBand } from '../plans/PlanBand';
+import { STAGE_WORD } from '../plans/plansModel';
+import { headerText } from '../troubleshoot/troubleModel';
 import { saveSheet } from '../inventory/sheetPref';
 import { PlansSurface } from '../plans/PlansSurface';
 import { PlansContext } from '../plans/plansStore';
@@ -1857,6 +1859,26 @@ export function RacksPlace(props: RacksPlaceProps) {
     },
   };
 
+  // r31-motion: a job under way takes the bar, in its colour: an open plan, an "It's down" session, a trace.
+  const task: ShellProps['task'] =
+    doc == null
+      ? null
+      : plans.plan != null && plans.bandOpen
+        ? {
+            label: plans.plan.title,
+            stage: STAGE_WORD[plans.plan.stage],
+            tone: plans.plan.stage === 'doing' ? 'do' : 'plan',
+            onExit: () => {
+              plans.openPlan(null);
+              plans.setBandOpen(false);
+            },
+          }
+        : trouble.draft != null || trouble.viewing != null
+          ? { label: trouble.draft != null ? headerText(trouble.draft, trouble.focus) : (trouble.viewing?.title ?? "It's down"), stage: "IT'S DOWN", tone: 'down', onExit: () => trouble.close() }
+          : trace.open && trace.from != null
+            ? { label: `Trace from ${trace.from.label}`, stage: 'TRACE', tone: 'trace', onExit: trace.close }
+            : null;
+
   // r30-panels: Checks, the open plan, "It's down" and a trace are tabs of the right-hand panel.
   const sideTabs: SideTab[] | undefined =
     doc == null
@@ -1885,7 +1907,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
-    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, cables: look === 'diagram' ? undefined : { value: cableStyle, onChange: changeCableStyle }, aids: { ...showAids, items: showAids.items.filter((a) => a.id !== 'colourKey') } }} layersExtra={doc != null && look === 'rack' && keyRows.length > 0 ? <ColourKey rows={keyRows} onHighlight={setKeyCableIds} /> : undefined} mainView={mainView} designExtra={doc != null && isSample ? <SampleChip onReset={canDraw && loadFirstSave != null ? resetSample : undefined} /> : undefined} doing={doc != null ? doing : undefined} zoomStops={look === 'rack' ? zoomStops : undefined} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} autoEquipment={autoOpenEquipment(doc != null, canDraw, realView)} equipmentRequest={equipmentRequest} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} sideTabs={sideTabs} barExtra={
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, cables: look === 'diagram' ? undefined : { value: cableStyle, onChange: changeCableStyle }, aids: { ...showAids, items: showAids.items.filter((a) => a.id !== 'colourKey') } }} layersExtra={doc != null && look === 'rack' && keyRows.length > 0 ? <ColourKey rows={keyRows} onHighlight={setKeyCableIds} /> : undefined} mainView={mainView} designExtra={doc != null && isSample ? <SampleChip onReset={canDraw && loadFirstSave != null ? resetSample : undefined} /> : undefined} doing={doc != null ? doing : undefined} zoomStops={look === 'rack' ? zoomStops : undefined} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} autoEquipment={autoOpenEquipment(doc != null, canDraw, realView)} equipmentRequest={equipmentRequest} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} sideTabs={sideTabs} task={task} barExtra={
         doc != null ? (
           <MissingLinksChip found={missingLinks} onGo={handleGoToMissingLink} />
         ) : undefined

@@ -1179,3 +1179,88 @@ button.shell-admin-pill {
     transition: none;
   }
 }
+
+/* r31-motion: a job under way takes the bar. The other views fold away, the job sits after the design, and the rule
+   under the bar takes the job's colour. */
+.shell-bar {
+  --task-tone: var(--ink);
+  transition: border-color var(--m-layout, 260ms) var(--m-ease, ease);
+}
+.shell-bar[data-tone='plan'] {
+  --task-tone: var(--m-plan, var(--ink));
+}
+.shell-bar[data-tone='do'] {
+  --task-tone: var(--m-do, var(--ink));
+}
+.shell-bar[data-tone='down'] {
+  --task-tone: var(--danger);
+}
+.shell-bar[data-tone='trace'] {
+  --task-tone: var(--sheath-blue);
+}
+.shell-bar--task {
+  border-bottom-color: var(--task-tone);
+}
+.shell-bar__tabs--views .shell-bar__tab {
+  transition:
+    max-width var(--m-layout, 260ms) var(--m-ease, ease),
+    opacity var(--m-layout, 260ms) var(--m-ease, ease),
+    padding var(--m-layout, 260ms) var(--m-ease, ease);
+  max-width: 160px;
+  overflow: hidden;
+}
+.shell-bar__tabs--folded .shell-bar__tab:not(.shell-bar__tab--on) {
+  max-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.shell-task {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  height: var(--control-h);
+  padding: 0 var(--s1) 0 var(--s2);
+  border: var(--rule-hair) solid var(--task-tone);
+  background: color-mix(in srgb, var(--task-tone) 8%, var(--page));
+  font-size: var(--t-small);
+  white-space: nowrap;
+}
+.shell-task__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--task-tone);
+}
+.shell-task__label {
+  font-weight: 700;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.shell-task__stage {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  color: var(--task-tone);
+  font-weight: 700;
+}
+.shell-task__exit {
+  height: calc(var(--control-h) - 6px);
+  padding: 0 var(--s2);
+  border: var(--rule-hair) solid var(--control-line);
+  background: var(--page);
+  font: inherit;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  box-shadow: none;
+  cursor: pointer;
+}
+@media (prefers-reduced-motion: reduce) {
+  .shell-bar,
+  .shell-bar__tabs--views .shell-bar__tab {
+    transition: none;
+  }
+}

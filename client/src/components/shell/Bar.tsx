@@ -92,6 +92,8 @@ export interface BarProps {
   doing?: ShellProps['doing'];
   /** The lens, Layers, Undo, Redo, zoom, Docs, History and Print are on the drawing and the right panel, not here. */
   toolsOnCanvas?: boolean;
+  /** A job under way: it takes the bar. */
+  task?: ShellProps['task'];
 }
 
 /** The bar — BRIEF.md "The bar": one row, 44px, a 3px ink rule beneath, and
@@ -136,6 +138,7 @@ export function Bar({
   designExtra,
   doing,
   toolsOnCanvas = false,
+  task = null,
 }: BarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const leadingRef = useRef<HTMLDivElement>(null);
@@ -190,7 +193,7 @@ export function Bar({
   const pathItems = pathFolded ? allPathItems.slice(switcherAt >= 0 ? switcherAt : Math.max(0, allPathItems.length - 2)) : allPathItems;
 
   return (
-    <div className="shell-bar" ref={containerRef}>
+    <div className={task != null ? 'shell-bar shell-bar--task' : 'shell-bar'} data-tone={task?.tone} ref={containerRef}>
       <div className="shell-bar__leading" ref={leadingRef}>
         {onHome ? (
           <button type="button" className="shell-bar__brand" onClick={onHome}>
@@ -204,7 +207,7 @@ export function Bar({
             not controls: a place needs a design, and Home is where you pick
             one. */}
         {mainView != null ? (
-          <ViewTabs view={mainView.value} onChange={mainView.onChange} />
+          <ViewTabs view={mainView.value} onChange={mainView.onChange} folded={task != null} />
         ) : (
         <div className="shell-bar__tabs">
           {place === null ? (
@@ -249,6 +252,16 @@ export function Bar({
           ))}
         </div>
         {designExtra}
+        {task != null && (
+          <div className="shell-task" role="status" data-testid="shell-task">
+            <span className="shell-task__dot" aria-hidden="true" />
+            <span className="shell-task__label">{task.label}</span>
+            {task.stage != null && <span className="shell-task__stage">{task.stage}</span>}
+            <button type="button" className="shell-task__exit" onClick={task.onExit} data-testid="shell-task-exit">
+              Exit
+            </button>
+          </div>
+        )}
         {/* Others in this view: a round dot with their initials; the full name is its label. */}
         {presence.length > 0 && (
           <div className="shell-bar__people" role="group" aria-label="Also in this view">
@@ -377,7 +390,7 @@ export function Bar({
 
         {/* Undo and Redo act on an open design; zoom acts on the drawing,
             so it is Racks only (Inventory is lists). */}
-        {doing != null && doing.length > 0 && <DoingMenu items={doing} />}
+        {doing != null && doing.length > 0 && task == null && <DoingMenu items={doing} />}
         {toolsOnCanvas && onShare && (
           <button type="button" className="shell-chip shell-chip--ink" onClick={onShare} data-testid="shell-share">
             Share
@@ -607,15 +620,15 @@ const VIEW_LABEL: Record<MainView, string> = { diagram: 'Diagram', canvas: 'Canv
 const VIEWS: readonly MainView[] = ['diagram', 'canvas', 'inventory', 'sheet'];
 
 /** r31-bar A: the four views. The ink underline slides to the one you choose (r31-motion). */
-function ViewTabs({ view, onChange }: { view: MainView; onChange: (view: MainView) => void }) {
+function ViewTabs({ view, onChange, folded = false }: { view: MainView; onChange: (view: MainView) => void; folded?: boolean }) {
   const rowRef = useRef<HTMLDivElement>(null);
   const [mark, setMark] = useState<{ left: number; width: number } | null>(null);
   useLayoutEffect(() => {
     const on = rowRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
     if (on != null) setMark({ left: on.offsetLeft, width: on.offsetWidth });
-  }, [view]);
+  }, [view, folded]);
   return (
-    <div className="shell-bar__tabs shell-bar__tabs--views" ref={rowRef} role="tablist" aria-label="Views">
+    <div className={folded ? 'shell-bar__tabs shell-bar__tabs--views shell-bar__tabs--folded' : 'shell-bar__tabs shell-bar__tabs--views'} ref={rowRef} role="tablist" aria-label="Views">
       {VIEWS.map((v) => (
         <button
           key={v}

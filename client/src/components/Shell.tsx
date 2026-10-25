@@ -86,6 +86,7 @@ export function Shell({
   doing,
   layersExtra,
   zoomStops,
+  task,
   cablesGroupsPopover: groupsPopover,
 }: ShellProps) {
   // r31-bar A: on the drawing, its own controls sit on it (a strip top left, a pill at the bottom), not in the bar.
@@ -237,6 +238,7 @@ export function Shell({
         designExtra={designExtra}
         doing={doing}
         toolsOnCanvas={toolsOnCanvas}
+        task={task}
       />
       {band}
       <div className="shell__body" ref={bodyRef} data-resizing={resizing ? '' : undefined}>
