@@ -1,7 +1,7 @@
 -- 0043 -- AI access keys (ADR-0072).
 --
 -- A person's AI app reads a design AS that person and sends recommendations a
--- person accepts. It never saves. Five tables:
+-- person accepts. It never saves. The tables:
 --
 --   ai_policies          one row per organisation, written by a Steward: is AI
 --                        allowed here, who may make keys, the most a key may see,
@@ -20,6 +20,17 @@
 --   ai_site_switch       the operator's "No AI on this server". No row = allowed.
 --   ai_recommendations   an AI's idea for one design, sealed like a cable
 --                        correction (0036). Never a graph node.
+--   ai_oauth_clients     apps that registered themselves for the connector
+--                        sign-in (RFC 7591). Not an organisation's: a name and
+--                        the redirects it may use, nothing it can sign in with.
+--   ai_oauth_codes       a one-minute, single-use sign-in result, by hash.
+--   ai_oauth_tokens      a connector's access and refresh tokens, by hash.
+--
+-- A key is one of two kinds. `helper`: the public half of a pair the person's
+-- computer made, and every request signed (ADR-0072 decisions 3 and 4).
+-- `connector`: made when the person signs an AI app in (decisions 13 to 17),
+-- bound to that app's client id, used through opaque tokens Fathom keeps only
+-- the hashes of. Every other rule is the same row and the same checks.
 --
 -- `app.ai_custody` is set by `src/ai.rs` and by nothing else, and only while a
 -- request that names an AI key is being verified: it unlocks the directory, the
@@ -51,6 +62,15 @@ CREATE OR REPLACE FUNCTION fathom_ai_ids_ok(ids text[], most integer) RETURNS bo
        AND (SELECT count(DISTINCT i) FROM unnest(ids) AS i) = cardinality(ids)
 $fn$;
 
+CREATE OR REPLACE FUNCTION fathom_ai_apps_ok(apps text[]) RETURNS boolean
+    LANGUAGE sql IMMUTABLE AS $fn$
+    SELECT apps IS NOT NULL
+       AND coalesce(array_ndims(apps), 1) = 1
+       AND NOT EXISTS (SELECT 1 FROM unnest(apps) AS a
+                        WHERE a IS NULL OR a NOT IN ('claude', 'claude-code', 'other'))
+       AND (SELECT count(DISTINCT a) FROM unnest(apps) AS a) = cardinality(apps)
+$fn$;
+
 CREATE TABLE IF NOT EXISTS ai_policies (
     organisation_id      text        PRIMARY KEY REFERENCES organisations(id) ON DELETE RESTRICT,
     allowed              boolean     NOT NULL,
@@ -58,6 +78,8 @@ CREATE TABLE IF NOT EXISTS ai_policies (
     ceiling              text[]      NOT NULL CHECK (fathom_ai_sees_ok(ceiling)),
     max_days             integer     NOT NULL CHECK (max_days IN (30, 90, 365)),
     second_person_scopes text[]      NOT NULL CHECK (fathom_ai_ids_ok(second_person_scopes, 200)),
+    -- Which apps may connect through the sign-in (decision 16).
+    apps                 text[]      NOT NULL CHECK (fathom_ai_apps_ok(apps)),
     changed_by           text        NOT NULL REFERENCES accounts(id),
     changed_at           timestamptz NOT NULL DEFAULT now(),
     changed_seq          bigint      NOT NULL CHECK (changed_seq >= 1),
@@ -85,8 +107,11 @@ CREATE TABLE IF NOT EXISTS ai_keys (
     organisation_id  text        NOT NULL REFERENCES organisations(id) ON DELETE RESTRICT,
     id               text        NOT NULL UNIQUE CHECK (char_length(id) = 26),
     owner            text        NOT NULL REFERENCES accounts(id),
-    -- SEC1 uncompressed P-256: 0x04 and two 32-byte coordinates.
-    public_key       bytea       NOT NULL UNIQUE CHECK (octet_length(public_key) = 65),
+    kind             text        NOT NULL CHECK (kind IN ('helper', 'connector')),
+    -- A helper key: SEC1 uncompressed P-256, 0x04 and two 32-byte coordinates.
+    public_key       bytea       UNIQUE CHECK (public_key IS NULL OR octet_length(public_key) = 65),
+    -- A connector: the app's client id, as the sign-in named it.
+    client_id        text        CHECK (client_id IS NULL OR char_length(client_id) BETWEEN 1 AND 300),
     label            text        NOT NULL CHECK (char_length(label) BETWEEN 1 AND 60),
     -- Empty means every folder the owner can read.
     scopes           text[]      NOT NULL CHECK (fathom_ai_ids_ok(scopes, 50)),
@@ -108,6 +133,8 @@ CREATE TABLE IF NOT EXISTS ai_keys (
     CHECK (expires_at > created_at),
     CHECK (expires_at <= created_at + interval '366 days'),
     CHECK ((state = 'on') = (disabled_at IS NULL)),
+    CHECK ((kind = 'helper') = (public_key IS NOT NULL)),
+    CHECK ((kind = 'connector') = (client_id IS NOT NULL)),
     CHECK ((disabled_at IS NULL) = (disabled_by IS NULL)
        AND (disabled_by IS NULL) = (disabled_by_kind IS NULL))
 );
@@ -142,7 +169,9 @@ BEGIN
     IF NEW.id <> OLD.id
        OR NEW.organisation_id <> OLD.organisation_id
        OR NEW.owner <> OLD.owner
-       OR NEW.public_key <> OLD.public_key
+       OR NEW.kind <> OLD.kind
+       OR NEW.public_key IS DISTINCT FROM OLD.public_key
+       OR NEW.client_id IS DISTINCT FROM OLD.client_id
        OR NEW.created_at <> OLD.created_at
        OR NEW.created_seq <> OLD.created_seq THEN
         RAISE EXCEPTION 'an AI key''s identity never changes';
@@ -334,6 +363,115 @@ CREATE POLICY ai_recommendations_updatable ON ai_recommendations
             WITH CHECK (organisation_id = current_setting('app.tenant_id', true)
                     AND (decided_by IS NULL
                          OR decided_by = current_setting('app.account_id', true)));
+
+-- ---------------------------------------------------------------------------
+-- G. THE CONNECTOR SIGN-IN (ADR-0072 decisions 13 to 17)
+--
+-- Read and written with `app.ai_custody` = 'yes', which `src/oauth.rs` sets
+-- only while it is registering an app, redeeming a code or a refresh token, or
+-- turning a bearer token into a verified request, exactly as `src/ai.rs` does
+-- for a signed one. A code is written by the browser's signed consent, in the
+-- organisation's own context. Nothing here is a secret: codes and tokens are
+-- hashed with a labelled SHA-256, and a hash cannot be presented.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ai_oauth_clients (
+    id            text        PRIMARY KEY CHECK (char_length(id) BETWEEN 1 AND 64),
+    client_name   text        NOT NULL CHECK (char_length(client_name) BETWEEN 1 AND 100),
+    redirect_uris text[]      NOT NULL CHECK (cardinality(redirect_uris) BETWEEN 1 AND 5),
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    used          boolean     NOT NULL DEFAULT false
+);
+
+ALTER TABLE ai_oauth_clients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ai_oauth_clients FORCE  ROW LEVEL SECURITY;
+CREATE POLICY ai_oauth_clients_readable ON ai_oauth_clients
+    FOR SELECT USING (current_setting('app.ai_custody', true) = 'yes');
+CREATE POLICY ai_oauth_clients_insertable ON ai_oauth_clients
+    FOR INSERT WITH CHECK (current_setting('app.ai_custody', true) = 'yes');
+CREATE POLICY ai_oauth_clients_markable ON ai_oauth_clients
+    FOR UPDATE USING (current_setting('app.ai_custody', true) = 'yes')
+            WITH CHECK (current_setting('app.ai_custody', true) = 'yes');
+-- A registration nobody signed in with is swept after an hour, on the write path.
+CREATE POLICY ai_oauth_clients_sweepable ON ai_oauth_clients
+    FOR DELETE USING (current_setting('app.ai_custody', true) = 'yes'
+                      AND NOT used AND created_at < now() - interval '1 hour');
+REVOKE UPDATE ON ai_oauth_clients FROM fathom_app;
+GRANT UPDATE (used) ON ai_oauth_clients TO fathom_app;
+
+CREATE TABLE IF NOT EXISTS ai_oauth_codes (
+    code_hash       bytea       PRIMARY KEY CHECK (octet_length(code_hash) = 32),
+    organisation_id text        NOT NULL REFERENCES organisations(id) ON DELETE RESTRICT,
+    key_id          text        NOT NULL REFERENCES ai_keys(id) ON DELETE RESTRICT,
+    client_id       text        NOT NULL CHECK (char_length(client_id) BETWEEN 1 AND 300),
+    redirect_uri    text        NOT NULL CHECK (char_length(redirect_uri) BETWEEN 1 AND 500),
+    code_challenge  text        NOT NULL CHECK (char_length(code_challenge) = 43),
+    expires_at      timestamptz NOT NULL,
+    used_at         timestamptz
+);
+
+ALTER TABLE ai_oauth_codes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ai_oauth_codes FORCE  ROW LEVEL SECURITY;
+CREATE POLICY ai_oauth_codes_insertable ON ai_oauth_codes
+    FOR INSERT WITH CHECK (organisation_id = current_setting('app.tenant_id', true)
+                       AND used_at IS NULL);
+CREATE POLICY ai_oauth_codes_readable ON ai_oauth_codes
+    FOR SELECT USING (current_setting('app.ai_custody', true) = 'yes');
+CREATE POLICY ai_oauth_codes_spendable ON ai_oauth_codes
+    FOR UPDATE USING (current_setting('app.ai_custody', true) = 'yes' AND used_at IS NULL)
+            WITH CHECK (current_setting('app.ai_custody', true) = 'yes' AND used_at IS NOT NULL);
+CREATE POLICY ai_oauth_codes_sweepable ON ai_oauth_codes
+    FOR DELETE USING (current_setting('app.ai_custody', true) = 'yes'
+                      AND expires_at < now() - interval '1 day');
+REVOKE UPDATE ON ai_oauth_codes FROM fathom_app;
+GRANT UPDATE (used_at) ON ai_oauth_codes TO fathom_app;
+
+CREATE TABLE IF NOT EXISTS ai_oauth_tokens (
+    token_hash      bytea       PRIMARY KEY CHECK (octet_length(token_hash) = 32),
+    organisation_id text        NOT NULL REFERENCES organisations(id) ON DELETE RESTRICT,
+    key_id          text        NOT NULL REFERENCES ai_keys(id) ON DELETE RESTRICT,
+    -- One sign-in's tokens share a family; a refresh token used twice ends it.
+    family          text        NOT NULL CHECK (char_length(family) = 26),
+    kind            text        NOT NULL CHECK (kind IN ('access', 'refresh')),
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    expires_at      timestamptz NOT NULL,
+    used_at         timestamptz,
+    CHECK (expires_at > created_at),
+    CHECK (kind = 'refresh' OR used_at IS NULL)
+);
+CREATE INDEX IF NOT EXISTS ai_oauth_tokens_family_idx ON ai_oauth_tokens (family);
+
+ALTER TABLE ai_oauth_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ai_oauth_tokens FORCE  ROW LEVEL SECURITY;
+CREATE POLICY ai_oauth_tokens_readable ON ai_oauth_tokens
+    FOR SELECT USING (current_setting('app.ai_custody', true) = 'yes');
+CREATE POLICY ai_oauth_tokens_insertable ON ai_oauth_tokens
+    FOR INSERT WITH CHECK (current_setting('app.ai_custody', true) = 'yes' AND used_at IS NULL);
+-- Spending a refresh token, or ending a family, only ever moves expiry earlier.
+CREATE POLICY ai_oauth_tokens_endable ON ai_oauth_tokens
+    FOR UPDATE USING (current_setting('app.ai_custody', true) = 'yes')
+            WITH CHECK (current_setting('app.ai_custody', true) = 'yes');
+CREATE POLICY ai_oauth_tokens_sweepable ON ai_oauth_tokens
+    FOR DELETE USING (current_setting('app.ai_custody', true) = 'yes'
+                      AND expires_at < now() - interval '1 day');
+REVOKE UPDATE ON ai_oauth_tokens FROM fathom_app;
+GRANT UPDATE (expires_at, used_at) ON ai_oauth_tokens TO fathom_app;
+
+CREATE OR REPLACE FUNCTION fathom_ai_token_moves() RETURNS trigger
+    LANGUAGE plpgsql AS $fn$
+BEGIN
+    IF NEW.expires_at > OLD.expires_at THEN
+        RAISE EXCEPTION 'an AI token''s end is never moved later';
+    END IF;
+    IF OLD.used_at IS NOT NULL AND NEW.used_at IS DISTINCT FROM OLD.used_at THEN
+        RAISE EXCEPTION 'a spent refresh token stays spent';
+    END IF;
+    RETURN NEW;
+END
+$fn$;
+DROP TRIGGER IF EXISTS ai_oauth_tokens_moves ON ai_oauth_tokens;
+CREATE TRIGGER ai_oauth_tokens_moves
+    BEFORE UPDATE ON ai_oauth_tokens
+    FOR EACH ROW EXECUTE FUNCTION fathom_ai_token_moves();
 
 -- ---------------------------------------------------------------------------
 -- F. ENTRY TYPES. Organisation chain: ai_policy_changed, ai_key_made,

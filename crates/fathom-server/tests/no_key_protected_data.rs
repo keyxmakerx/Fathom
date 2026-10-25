@@ -626,6 +626,8 @@ const TABLES: &[TableClaim] = &[
               its folders and tiers, when it ends and who stopped it and why. **The private half \
               never reaches this server** (ADR-0072 decision 3): a database read hands an \
               attacker a public key, which verifies a signature and cannot make one. \
+              A connector grant (`kind = 'connector'`, ADR-0072 decision 15) has no key at \
+              all, only the client id of the app it was given to, which is public. \
               `row_seal` is an HMAC over the row so a widened row is refused, not obeyed.",
     },
     TableClaim {
@@ -664,6 +666,27 @@ const TABLES: &[TableClaim] = &[
         why: "an AI's idea for a design: the title, reason and steps are sealed whole after each \
               line has passed the credential check. Dismissing one seals an empty body in its \
               place. The design id, state, who decided and `step_count` are not secret.",
+    },
+    TableClaim {
+        name: "ai_oauth_clients",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "an AI app that registered itself for the connector sign-in (RFC 7591): the id this \
+              server gave it, the name it gave, and the addresses it may return to. A public \
+              client: there is no client secret, here or anywhere.",
+    },
+    TableClaim {
+        name: "ai_oauth_codes",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "a one-minute sign-in code, stored only as a labelled SHA-256 of 32 random bytes, \
+              so a database read cannot be traded for a token. Beside it: the grant, the app, \
+              its return address, the PKCE challenge (itself a hash) and when it was spent.",
+    },
+    TableClaim {
+        name: "ai_oauth_tokens",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "access and refresh tokens, stored only as a labelled SHA-256 of 32 random bytes; \
+              the token itself exists only in the app that holds it. Beside it: the grant, the \
+              sign-in it belongs to, its kind, and when it ends or was spent.",
     },
 ];
 

@@ -5,7 +5,9 @@ you"), ai-key ("read and propose", all three data ticks), ai-accept ("anyone wit
 require a second person") and ai-when ("after beta, ADR now") on 25 October, then added requirements
 the same day (below). Built as a draft PR that is not merged until the owner says so. Cards
 r33-ai-pair, r33-ai-org, r33-ai-admin and r33-ai-recs carry the choices still open; this record
-follows their recommended picks until answered.
+follows their recommended picks until answered. **Revised the same evening** (decisions 13 to 20): the
+owner pasted Claude's "Add custom connector" form and approved r33-ai-reach A, Fathom as a
+connector you sign in to.
 
 **Reopens** ADR-0023 on merit (CLAUDE.md rule 6). That record exposed only the corpus and named
 "the workspace, the graph, any parsed capture" as never exposed. The owner now asks for the
@@ -50,9 +52,10 @@ to understand; a security sweep follows the build.
    them outside `/ai/v1/`.
 3. **The key is an ES256 key pair, and the private half stays on the person's computer.** A small
    helper (`fathom-ai`, an MCP server over stdio, one file with no dependencies, served by Fathom
-   itself) makes the pair, prints a pairing code, and signs every request. The person pastes the
-   code into Fathom and picks permissions there. Fathom stores only the public half. (Card
-   r33-ai-pair; the other option is Fathom making the key and the browser downloading it.)
+   itself) makes the pair, prints its public half and key id, and signs every request. The person
+   pastes the public half into Fathom and picks permissions there. Fathom stores only the public
+   half. (Card r33-ai-pair.) Since decision 13 this is the way in for an AI app on the person's own
+   computer that does not speak the connector sign-in, and for a Fathom no AI vendor can reach.
 4. **The "extra header" is a signature, not a second secret.** Every request carries
    `Fathom-AI-Key` (the key's id), `Fathom-AI-Time`, `Fathom-AI-Nonce` and `Fathom-AI-Signature`,
    an ES256 signature over a labelled message: method, path and query, SHA-256 of the body, nonce,
@@ -63,8 +66,9 @@ to understand; a security sweep follows the build.
 5. **Permissions are set when the key is made and can be changed after.** Per key: which folders
    (or every folder the person can read), what data (layout always; addresses, VLANs and configs;
    notes), whether it may recommend, and when it expires (30, 90 or 365 days; 90 by default; no key
-   is forever). The owner can narrow or widen their own key; widening needs a fresh sign-in
-   signature like any other change. A Steward can narrow or disable anyone's key in their
+   is forever). The owner can narrow or widen their own key, within the organisation's ceiling and
+   only while still named as a maker; the request is the same signed browser request as any other
+   change. A Steward can narrow or disable anyone's key in their
    organisation but cannot widen it. Every change is a sealed entry on the organisation chain.
 6. **What leaves is an allowlist.** A design reaches the AI as a purpose-built reading (devices,
    models, ports, cables, racks, places, tags; then addresses and VLANs; then notes), built field by
@@ -100,9 +104,93 @@ to understand; a security sweep follows the build.
 12. **Limits.** Per key: 60 requests a minute, 20 open recommendations per design, 200 open per
     organisation. A disabled or expired key answers exactly as an unknown key does.
 
+## Revised 25 October: Fathom is a connector you sign in to
+
+The owner pasted Claude's "Add custom connector" form, which takes a name and an HTTPS MCP address,
+and asked whether the helper was the right way. It is not the way Claude's connectors are built.
+Card r33-ai-reach A was approved: "that's fine i think, but we also need non-claude ones too. Is
+there anyway we can validate it is coming from claude? What about self hosted versions like our
+company corp one?"
+
+Sources, all read 2026-10-25:
+
+- Claude, *Authentication for connectors*, https://claude.com/docs/connectors/building/authentication:
+  OAuth 2.0 with DCR or a Client ID Metadata Document (CIMD); a `401` with
+  `WWW-Authenticate: Bearer resource_metadata=...` starts sign-in; S256 PKCE always; redirect URI
+  `https://claude.ai/api/mcp/auth_callback` for the hosted apps and a loopback redirect on any port
+  for Claude Code; refresh tokens rotated for public clients; static request headers are a beta for
+  a limited set of organisations and are one credential for every member of a Claude organisation;
+  Anthropic's outbound traffic comes from `160.79.104.0/21`.
+- Claude's client metadata documents, fetched: `https://claude.ai/oauth/mcp-oauth-client-metadata`
+  (client name "Claude", redirect `https://claude.ai/api/mcp/auth_callback`, public client) and
+  `https://claude.ai/oauth/claude-code-client-metadata` ("Claude Code", redirects
+  `http://localhost/callback` and `http://127.0.0.1/callback`).
+- Anthropic, *IP addresses*, https://platform.claude.com/docs/en/api/ip-addresses: the outbound
+  range is "stable", used "when making MCP tool calls to external servers", and "will not change
+  without notice".
+- MCP specification 2025-11-25, *Authorization*,
+  https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization: protected-resource
+  metadata (RFC 9728) is required; tokens must be audience-bound to the server (RFC 8707) and sent
+  only in the `Authorization` header; exact redirect-URI matching; the server must display the
+  redirect host and should warn when the only redirects are loopback, because "any local process
+  can bind a port and claim to be the client".
+- MCP specification 2026-07-28, *Authorization*,
+  https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization: the same rules, plus
+  the authorization server "SHOULD include the `iss` parameter in authorization responses"
+  (RFC 9207) and advertise `authorization_response_iss_parameter_supported`; Dynamic Client
+  Registration "is deprecated and retained for backwards compatibility".
+- MCP specification 2025-11-25, *Transports*,
+  https://modelcontextprotocol.io/specification/2025-11-25/basic/transports: one endpoint; an
+  invalid `Origin` gets `403`; a notification gets `202`; `GET` may answer `405`.
+- Claude, *Authenticate to MCP servers behind a tunnel*,
+  https://claude.com/docs/connectors/mcp-tunnels/oauth: MCP tunnels are a research preview on the
+  Enterprise plan; the person's browser opens the authorization endpoint, Anthropic's servers call
+  the token endpoint; "split metadata" points each at the address its caller can reach.
+
+13. **Fathom serves `/mcp` and is its own OAuth authorization server, when the operator turns it
+    on.** `FATHOM_AI_PUBLIC_URL` names the address Claude's servers reach (`<url>/mcp`, the discovery
+    documents and the token endpoint); `FATHOM_AI_SIGN_IN_URL`, if set, names the address a person's
+    browser opens to sign in, which may be on a company network only (the split metadata above).
+    Without `FATHOM_AI_PUBLIC_URL` none of it exists and every one of those paths is a `404`.
+14. **A connection is the same grant as a key.** Signing in shows decision 5's form, titled with the
+    app's name and the host the sign-in returns to; Allow makes an `ai_keys` row of kind
+    `connector`, bound to the app's client id, with every rule above unchanged: one organisation,
+    the policy at every request, a Steward's narrow and disable, the operator's switch. The tools
+    over `/mcp` are the helper's five.
+15. **Tokens are opaque and only their hashes are stored.** An access token lasts one hour; a
+    refresh token is single-use and replaced on each use, up to the grant's end. A refresh token
+    used twice ends every token of that sign-in (OAuth 2.1's reuse detection). An authorization
+    code lasts one minute, is single-use, and needs the S256 verifier, the same redirect URI and the
+    same `resource`, which must be this server's `/mcp`.
+16. **Which apps may connect is the organisation's choice.** Fathom knows Claude and Claude Code by
+    their published client ids and exact redirects, pinned in the server, so Fathom fetches nothing
+    from a client id it is shown. Any other app registers itself (RFC 7591, an `https` or loopback
+    redirect only; deprecated in MCP 2026-07-28 but still what most apps without a pinned identity
+    can do, and it needs no fetch) and is shown by its redirect's host. The policy says which of Claude, Claude Code
+    and other apps may connect; Claude is allowed when AI is turned on, the others are off until a
+    Steward allows them.
+17. **Is it really Claude?** The sign-in result goes only to `https://claude.ai/api/mcp/auth_callback`
+    and needs the verifier of whoever started it, so only Claude's servers can turn it into a token.
+    A Claude connection can further be held to Anthropic's published range
+    (`FATHOM_AI_CLAUDE_RANGES`, default `160.79.104.0/21`, empty to switch off): `/mcp` and token
+    requests on a Claude grant from elsewhere are refused. Claude Code cannot be told apart from
+    another program on the same computer; its sign-in page says so, and a Steward can leave it off.
+18. **A company Fathom.** Claude Code and the helper run on the person's computer and reach Fathom
+    where it is. For claude.ai, only `/mcp`, `/.well-known/oauth-*` and `/oauth/token` and
+    `/oauth/register` need to face Anthropic's range or an MCP tunnel; the sign-in page stays
+    internal.
+19. **`/mcp` refuses a browser.** An `Origin` header that is not this server's own sign-in address
+    is a `403` before anything is read, and no browser session header is ever read there.
+20. **What changes in decision 3 and the consequences.** The helper stays for local apps and for a
+    Fathom no vendor can reach; "desktop only, at first" no longer holds; and "a bearer token that the
+    AI vendor's servers hold" moves from ruled out to decided, for the reasons above: it is what
+    Claude's connectors are, it is short-lived, audience-bound, revocable by three people, and
+    checked against the policy on every request.
+
 ## What this rules out
 
-A bearer token in an `Authorization` header that the AI vendor's servers hold; a key that spans
+A pasted key shared by a whole Claude organisation (static request headers); fetching a client
+metadata document Fathom has not pinned; a key that spans
 organisations; an AI that saves; an admin who can grant AI access; a reading built by deleting
 fields from the whole graph (a denylist) instead of naming the fields that may leave.
 
@@ -114,9 +202,12 @@ fields from the whole graph (a denylist) instead of naming the fields that may l
 - **Prompt injection is real and is not solved here.** Text inside a design (a description in a
   pasted config, a note) can steer the AI's recommendations. The review step is the defence, which
   is why decision 10 never lets anything apply itself. ADR-0022 found the same leak in `ask_human`.
-- **Desktop only, at first.** A stdio helper serves AI apps that run on the person's computer
-  (desktop apps, coding tools). A browser- or phone-only AI app cannot use it. Serving those means
-  Fathom becoming an OAuth 2.1 authorization server (MCP revision 2026-07-28), a separate record.
+- **Fathom is now an OAuth authorization server.** That is new code on a security-first product:
+  discovery, registration, consent, code and token handling. Decisions 13 to 19 keep it small and
+  off by default.
+- **A connector token is a bearer token.** Anyone holding a live access token can use it for up to
+  an hour. Hashed storage, the one-hour life, refresh rotation with reuse detection, the Claude
+  address range and the three people who can stop a grant are the answer.
 - **A stolen key file is a working key until it is disabled or expires.** The file is the key; the
   helper keeps it readable only by the person's own account. Expiry, the owner's list, the Steward's
   list and the admin's Disable are the answer, and the expiry has no "never".

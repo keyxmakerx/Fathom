@@ -98,6 +98,9 @@ pub const MAX_WHY_CHARS: usize = 1000;
 pub const MAX_STEP_CHARS: usize = 300;
 /// What a step does. A person reads it; nothing applies it.
 pub const ACTIONS: [&str; 6] = ["add", "change", "remove", "connect", "move", "label"];
+/// The apps a policy can allow through the connector sign-in (ADR-0072 decision 16):
+/// Claude's hosted apps, Claude Code, and any app that registered itself.
+pub const APPS: [&str; 3] = ["claude", "claude-code", "other"];
 /// Decided recommendations listed beside the open ones.
 const MAX_DECIDED_LISTED: i64 = 50;
 
@@ -260,7 +263,7 @@ impl AiError {
 // Small pieces
 // ---------------------------------------------------------------------------
 
-fn now_unix() -> i64 {
+pub(crate) fn now_unix() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -436,6 +439,8 @@ pub struct Policy {
     pub ceiling: Vec<String>,
     pub max_days: i32,
     pub second_person_scopes: Vec<String>,
+    /// Which of [`APPS`] may connect through the sign-in.
+    pub apps: Vec<String>,
     pub changed_by: Option<String>,
     pub changed_unix: Option<i64>,
     changed_seq: i64,
@@ -451,6 +456,7 @@ impl Policy {
             ceiling: vec![Tier::Layout.as_str().to_string()],
             max_days: 90,
             second_person_scopes: Vec::new(),
+            apps: vec!["claude".to_string()],
             changed_by: None,
             changed_unix: None,
             changed_seq: 0,
@@ -469,6 +475,7 @@ impl Policy {
             "second_person_scopes".into(),
             strs(&self.second_person_scopes),
         );
+        m.insert("apps".into(), strs(&self.apps));
         m.insert("changed_by".into(), opt_str(&self.changed_by));
         Json::Obj(m).to_canonical_bytes()
     }
@@ -497,6 +504,7 @@ impl Policy {
             "secondPersonScopes".into(),
             strs(&self.second_person_scopes),
         );
+        m.insert("apps".into(), strs(&self.apps));
         m.insert("changedBy".into(), opt_str(&self.changed_by));
         m.insert("changedAt".into(), opt_int(self.changed_unix));
         m.insert("version".into(), Json::Int(self.version as i64));
@@ -504,7 +512,7 @@ impl Policy {
     }
 }
 
-async fn read_policy(
+pub(crate) async fn read_policy(
     tx: &Transaction<'_>,
     ring: &KeyRing,
     organisation: &str,
@@ -513,7 +521,7 @@ async fn read_policy(
     let row = tx
         .query_opt(
             &format!(
-                "SELECT allowed, makers, ceiling, max_days, second_person_scopes, changed_by, \
+                "SELECT allowed, makers, ceiling, max_days, second_person_scopes, apps, changed_by, \
                         extract(epoch FROM changed_at)::bigint, changed_seq, row_version, row_seal \
                  FROM ai_policies WHERE organisation_id = $1{}",
                 if lock { " FOR UPDATE" } else { "" }
@@ -530,12 +538,13 @@ async fn read_policy(
         ceiling: row.get(2),
         max_days: row.get(3),
         second_person_scopes: row.get(4),
-        changed_by: Some(row.get(5)),
-        changed_unix: Some(row.get(6)),
-        changed_seq: row.get(7),
-        version: row.get(8),
+        apps: row.get(5),
+        changed_by: Some(row.get(6)),
+        changed_unix: Some(row.get(7)),
+        changed_seq: row.get(8),
+        version: row.get(9),
     };
-    let stored: Vec<u8> = row.get(9);
+    let stored: Vec<u8> = row.get(10);
     if !crypto::ct_eq(&p.seal(ring, organisation), &stored) {
         return Err(AiError::Unverifiable("ai_policies row seal"));
     }
@@ -598,7 +607,7 @@ impl Switch {
     }
 }
 
-async fn read_switch(tx: &Transaction<'_>, ring: &KeyRing) -> Result<Switch, AiError> {
+pub(crate) async fn read_switch(tx: &Transaction<'_>, ring: &KeyRing) -> Result<Switch, AiError> {
     let row = tx
         .query_opt(
             "SELECT allowed, reason, changed_by, extract(epoch FROM changed_at)::bigint, \
@@ -632,7 +641,12 @@ pub struct AiKey {
     pub id: String,
     pub owner: String,
     pub owner_name: String,
-    pub public_key: Vec<u8>,
+    /// `helper` or `connector` (migration `0043`).
+    pub kind: String,
+    /// A helper key's public half.
+    pub public_key: Option<Vec<u8>>,
+    /// A connector's client id.
+    pub client_id: Option<String>,
     pub label: String,
     pub scopes: Vec<String>,
     pub sees: Vec<String>,
@@ -651,11 +665,14 @@ pub struct AiKey {
 
 const KEY_COLUMNS: &str = "k.organisation_id, k.id, k.owner, \
      coalesce((SELECT a.display_name FROM accounts a WHERE a.id = k.owner), ''), \
-     k.public_key, k.label, k.scopes, k.sees, k.may_recommend, \
+     k.kind, k.public_key, k.client_id, k.label, k.scopes, k.sees, k.may_recommend, \
      extract(epoch FROM k.created_at)::bigint, k.created_seq, \
      extract(epoch FROM k.expires_at)::bigint, k.state, k.changed_seq, \
      extract(epoch FROM k.disabled_at)::bigint, k.disabled_by, k.disabled_by_kind, \
      k.disabled_reason, k.row_version, k.row_seal";
+
+/// How many columns [`KEY_COLUMNS`] selects; a query's own columns follow.
+const KEY_COLUMN_COUNT: usize = 22;
 
 impl AiKey {
     fn from_row(row: &tokio_postgres::Row) -> (Self, Vec<u8>) {
@@ -665,23 +682,25 @@ impl AiKey {
                 id: row.get(1),
                 owner: row.get(2),
                 owner_name: row.get(3),
-                public_key: row.get(4),
-                label: row.get(5),
-                scopes: row.get(6),
-                sees: row.get(7),
-                may_recommend: row.get(8),
-                created_unix: row.get(9),
-                created_seq: row.get(10),
-                expires_unix: row.get(11),
-                state: row.get(12),
-                changed_seq: row.get(13),
-                disabled_unix: row.get(14),
-                disabled_by: row.get(15),
-                disabled_by_kind: row.get(16),
-                disabled_reason: row.get(17),
-                version: row.get(18),
+                kind: row.get(4),
+                public_key: row.get(5),
+                client_id: row.get(6),
+                label: row.get(7),
+                scopes: row.get(8),
+                sees: row.get(9),
+                may_recommend: row.get(10),
+                created_unix: row.get(11),
+                created_seq: row.get(12),
+                expires_unix: row.get(13),
+                state: row.get(14),
+                changed_seq: row.get(15),
+                disabled_unix: row.get(16),
+                disabled_by: row.get(17),
+                disabled_by_kind: row.get(18),
+                disabled_reason: row.get(19),
+                version: row.get(20),
             },
-            row.get(19),
+            row.get(21),
         )
     }
 
@@ -690,7 +709,15 @@ impl AiKey {
         m.insert("organisation".into(), Json::Str(self.organisation.clone()));
         m.insert("id".into(), Json::Str(self.id.clone()));
         m.insert("owner".into(), Json::Str(self.owner.clone()));
-        m.insert("public_key".into(), Json::Str(hex(&self.public_key)));
+        m.insert("kind".into(), Json::Str(self.kind.clone()));
+        m.insert(
+            "public_key".into(),
+            match &self.public_key {
+                Some(k) => Json::Str(hex(k)),
+                None => Json::Null,
+            },
+        );
+        m.insert("client_id".into(), opt_str(&self.client_id));
         m.insert("label".into(), Json::Str(self.label.clone()));
         m.insert("scopes".into(), strs(&self.scopes));
         m.insert("sees".into(), strs(&self.sees));
@@ -720,6 +747,14 @@ impl AiKey {
         )
     }
 
+    /// Which app this is: `helper` for a key the helper made, else one of [`APPS`].
+    pub fn app(&self) -> &'static str {
+        match &self.client_id {
+            None => "helper",
+            Some(c) => crate::oauth::app_of(c),
+        }
+    }
+
     /// On and not past its end, at `now`.
     pub fn is_live(&self, now: i64) -> bool {
         self.state == "on" && self.expires_unix > now
@@ -730,6 +765,8 @@ impl AiKey {
         m.insert("id".into(), Json::Str(self.id.clone()));
         m.insert("owner".into(), Json::Str(self.owner.clone()));
         m.insert("ownerName".into(), Json::Str(self.owner_name.clone()));
+        m.insert("kind".into(), Json::Str(self.kind.clone()));
+        m.insert("app".into(), Json::Str(self.app().to_string()));
         m.insert("label".into(), Json::Str(self.label.clone()));
         m.insert("scopes".into(), strs(&self.scopes));
         m.insert("sees".into(), strs(&self.sees));
@@ -759,7 +796,7 @@ fn verified(ring: &KeyRing, row: &tokio_postgres::Row) -> Result<AiKey, AiError>
     Ok(key)
 }
 
-async fn read_key(
+pub(crate) async fn read_key(
     tx: &Transaction<'_>,
     ring: &KeyRing,
     organisation: &str,
@@ -930,7 +967,7 @@ pub async fn overview(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<Json
         let Json::Obj(mut m) = key.to_json(now) else {
             unreachable!("a key renders as an object")
         };
-        let last: Option<std::time::SystemTime> = row.get(20);
+        let last: Option<std::time::SystemTime> = row.get(KEY_COLUMN_COUNT);
         m.insert(
             "lastUsedAt".into(),
             opt_int(last.and_then(|t| {
@@ -939,10 +976,13 @@ pub async fn overview(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<Json
                     .map(|d| d.as_secs() as i64)
             })),
         );
-        m.insert("lastUsedFrom".into(), opt_str(&row.get(21)));
+        m.insert(
+            "lastUsedFrom".into(),
+            opt_str(&row.get(KEY_COLUMN_COUNT + 1)),
+        );
         m.insert(
             "requestsToday".into(),
-            Json::Int(row.get::<_, i32>(22) as i64),
+            Json::Int(row.get::<_, i32>(KEY_COLUMN_COUNT + 2) as i64),
         );
         m.insert("mine".into(), Json::Bool(key.owner == me));
         keys.push(Json::Obj(m));
@@ -972,6 +1012,21 @@ pub struct PolicyInput {
     pub ceiling: Vec<String>,
     pub max_days: i32,
     pub second_person_scopes: Vec<String>,
+    pub apps: Vec<String>,
+}
+
+/// One spelling of a policy's apps: known names only, each once, in [`APPS`] order.
+pub fn clean_apps(apps: &[String]) -> Result<Vec<String>, AiError> {
+    if apps.iter().any(|a| !APPS.contains(&a.as_str())) {
+        return Err(AiError::Malformed(
+            "the apps are claude, claude-code and other",
+        ));
+    }
+    Ok(APPS
+        .iter()
+        .filter(|a| apps.iter().any(|x| x == *a))
+        .map(|a| a.to_string())
+        .collect())
 }
 
 /// Set the organisation's policy. Steward on the organisation. `if_version` is `0` for the
@@ -993,6 +1048,7 @@ pub async fn set_policy(
         "folders are scope ids",
     )?;
     let ceiling = clean_sees(&input.ceiling)?;
+    let apps = clean_apps(&input.apps)?;
     if !DAYS.contains(&input.max_days) {
         return Err(AiError::Malformed(
             "the longest a key lasts is 30, 90 or 365 days",
@@ -1037,6 +1093,7 @@ pub async fn set_policy(
                 ("ceiling", strs(&ceiling)),
                 ("max_days", Json::Int(input.max_days as i64)),
                 ("second_person_scopes", strs(&second)),
+                ("apps", strs(&apps)),
                 ("by", Json::Str(me.clone())),
             ],
         ),
@@ -1048,6 +1105,7 @@ pub async fn set_policy(
         ceiling,
         max_days: input.max_days,
         second_person_scopes: second,
+        apps,
         changed_by: Some(me.clone()),
         changed_unix: Some(now_unix()),
         changed_seq: appended.seq,
@@ -1057,8 +1115,8 @@ pub async fn set_policy(
     let changed = if current.version == 0 {
         tx.execute(
             "INSERT INTO ai_policies (organisation_id, allowed, makers, ceiling, max_days, \
-                 second_person_scopes, changed_by, changed_seq, row_version, row_seal) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                 second_person_scopes, changed_by, changed_seq, row_version, row_seal, apps) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
             &[
                 &organisation,
                 &next.allowed,
@@ -1070,6 +1128,7 @@ pub async fn set_policy(
                 &next.changed_seq,
                 &next.version,
                 &seal,
+                &next.apps,
             ],
         )
         .await?
@@ -1077,7 +1136,7 @@ pub async fn set_policy(
         tx.execute(
             "UPDATE ai_policies SET allowed = $2, makers = $3, ceiling = $4, max_days = $5, \
                  second_person_scopes = $6, changed_by = $7, changed_at = now(), \
-                 changed_seq = $8, row_version = $9, row_seal = $10 \
+                 changed_seq = $8, row_version = $9, row_seal = $10, apps = $11 \
              WHERE organisation_id = $1 AND row_version = $9 - 1",
             &[
                 &organisation,
@@ -1090,6 +1149,7 @@ pub async fn set_policy(
                 &next.changed_seq,
                 &next.version,
                 &seal,
+                &next.apps,
             ],
         )
         .await?
@@ -1125,6 +1185,118 @@ pub async fn make_key(
     auth: &Authority<'_>,
     input: NewKey,
 ) -> Result<AiKey, AiError> {
+    if input.public_key.len() != 65
+        || input.public_key[0] != 0x04
+        || p256::ecdsa::VerifyingKey::from_sec1_bytes(&input.public_key).is_err()
+    {
+        return Err(AiError::Malformed(
+            "that is not a key the Fathom AI helper made (an uncompressed P-256 public key)",
+        ));
+    }
+    let id = key_id_of(&input.public_key);
+    register(
+        tx,
+        auth,
+        Registration {
+            id,
+            kind: "helper",
+            public_key: Some(input.public_key),
+            client_id: None,
+            label: input.label,
+            scopes: input.scopes,
+            sees: input.sees,
+            may_recommend: input.may_recommend,
+            days: input.days,
+        },
+    )
+    .await
+}
+
+/// What a person chose on the connector sign-in page (ADR-0072 decision 14).
+pub struct NewConnector {
+    /// The app's client id, already checked against the pinned apps or a registration.
+    pub client_id: String,
+    pub label: String,
+    pub scopes: Vec<String>,
+    pub sees: Vec<String>,
+    pub may_recommend: bool,
+    pub days: i32,
+}
+
+/// Make the grant a connector sign-in asks for: the same rules as [`make_key`], plus the
+/// organisation's choice of apps. A person signing the same app in again replaces their
+/// earlier grant for it, so an app that signs in afresh does not pile up live grants.
+pub(crate) async fn make_connector(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    input: NewConnector,
+) -> Result<AiKey, AiError> {
+    let organisation = auth.ctx.tenant().to_string();
+    let me = auth.ctx.actor().to_string();
+    let app = crate::oauth::app_of(&input.client_id);
+    let policy = read_policy(tx, auth.ring, &organisation, false).await?;
+    if policy.allowed && !policy.apps.iter().any(|a| a == app) {
+        return Err(AiError::NotAllowed(
+            "this organisation does not let that app connect",
+        ));
+    }
+    let earlier = tx
+        .query(
+            &format!(
+                "SELECT {KEY_COLUMNS} FROM ai_keys k WHERE k.organisation_id = $1 \
+                   AND k.owner = $2 AND k.client_id = $3 AND k.state = 'on' \
+                 ORDER BY k.id"
+            ),
+            &[&organisation, &me, &input.client_id],
+        )
+        .await?;
+    for row in &earlier {
+        let key = verified(auth.ring, row)?;
+        stop_key(
+            tx,
+            auth,
+            &key.id,
+            key.version,
+            Some("Replaced by a new sign-in from the same app.".to_string()),
+            false,
+        )
+        .await?;
+    }
+    register(
+        tx,
+        auth,
+        Registration {
+            id: crate::ids::new_ulid().to_string(),
+            kind: "connector",
+            public_key: None,
+            client_id: Some(input.client_id),
+            label: input.label,
+            scopes: input.scopes,
+            sees: input.sees,
+            may_recommend: input.may_recommend,
+            days: input.days,
+        },
+    )
+    .await
+}
+
+struct Registration {
+    id: String,
+    kind: &'static str,
+    public_key: Option<Vec<u8>>,
+    client_id: Option<String>,
+    label: String,
+    scopes: Vec<String>,
+    sees: Vec<String>,
+    may_recommend: bool,
+    days: i32,
+}
+
+async fn register(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    input: Registration,
+) -> Result<AiKey, AiError> {
     let organisation = auth.ctx.tenant().to_string();
     let me = auth.ctx.actor().to_string();
     if !read_switch(tx, auth.ring).await?.allowed {
@@ -1137,14 +1309,6 @@ pub async fn make_key(
     if !policy.makers.contains(&me) {
         return Err(AiError::NotAllowed(
             "only the people a Steward named may make AI keys here",
-        ));
-    }
-    if input.public_key.len() != 65
-        || input.public_key[0] != 0x04
-        || p256::ecdsa::VerifyingKey::from_sec1_bytes(&input.public_key).is_err()
-    {
-        return Err(AiError::Malformed(
-            "that is not a key the Fathom AI helper made (an uncompressed P-256 public key)",
         ));
     }
     let label = clean_line(&input.label, MAX_LABEL_CHARS, false)?;
@@ -1190,7 +1354,7 @@ pub async fn make_key(
             "you already have 10 AI keys on here; stop one first",
         ));
     }
-    let id = key_id_of(&input.public_key);
+    let id = input.id;
     let taken = tx
         .query_opt("SELECT 1 FROM ai_key_directory WHERE key_id = $1", &[&id])
         .await?;
@@ -1213,6 +1377,8 @@ pub async fn make_key(
             &[
                 ("key", Json::Str(id.clone())),
                 ("owner", Json::Str(me.clone())),
+                ("kind", Json::Str(input.kind.to_string())),
+                ("client", opt_str(&input.client_id)),
                 ("scopes", strs(&scopes)),
                 ("sees", strs(&sees)),
                 ("may_recommend", Json::Bool(input.may_recommend)),
@@ -1226,7 +1392,9 @@ pub async fn make_key(
         id: id.clone(),
         owner: me.clone(),
         owner_name: String::new(),
+        kind: input.kind.to_string(),
         public_key: input.public_key,
+        client_id: input.client_id,
         label,
         scopes,
         sees,
@@ -1243,16 +1411,18 @@ pub async fn make_key(
         version: 1,
     };
     tx.execute(
-        "INSERT INTO ai_keys (organisation_id, id, owner, public_key, label, scopes, sees, \
-             may_recommend, created_at, created_seq, expires_at, state, changed_seq, \
-             row_version, row_seal) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, to_timestamp($9::bigint), $10, \
-                 to_timestamp($11::bigint), 'on', $10, 1, $12)",
+        "INSERT INTO ai_keys (organisation_id, id, owner, kind, public_key, client_id, label, \
+             scopes, sees, may_recommend, created_at, created_seq, expires_at, state, \
+             changed_seq, row_version, row_seal) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11::bigint), $12, \
+                 to_timestamp($13::bigint), 'on', $12, 1, $14)",
         &[
             &key.organisation,
             &key.id,
             &key.owner,
+            &key.kind,
             &key.public_key,
+            &key.client_id,
             &key.label,
             &key.scopes,
             &key.sees,
@@ -1530,7 +1700,7 @@ pub(crate) async fn operator_overview(
             "verifies".into(),
             Json::Bool(crypto::ct_eq(&key.seal(ring), &stored)),
         );
-        m.insert("lastUsedAt".into(), opt_int(row.get(20)));
+        m.insert("lastUsedAt".into(), opt_int(row.get(KEY_COLUMN_COUNT)));
         keys.push(Json::Obj(m));
     }
     let mut m = BTreeMap::new();
@@ -1718,11 +1888,31 @@ pub struct VerifiedAi {
     key_id: String,
     owner: String,
     address: String,
+    /// `helper` from [`verify_request`], `connector` from `oauth::verify_bearer`: [`open`]
+    /// refuses a key used the other way.
+    kind: &'static str,
 }
 
 impl VerifiedAi {
     pub fn key_id(&self) -> &str {
         &self.key_id
+    }
+
+    /// Only `oauth::verify_bearer` makes one this way, after the token's hash, its expiry,
+    /// the key's seal and the key's state have been checked.
+    pub(crate) fn for_connector(
+        organisation: String,
+        key_id: String,
+        owner: String,
+        address: &str,
+    ) -> Self {
+        Self {
+            organisation,
+            key_id,
+            owner,
+            address: address.chars().take(64).collect(),
+            kind: "connector",
+        }
     }
 }
 
@@ -1783,10 +1973,37 @@ pub async fn verify_request(
         &request.nonce,
         request.unix,
     );
-    if authority::verify_es256(&key.public_key, &message, &request.signature).is_err() {
+    // A connector's grant has no public half and is never used through a signature.
+    let Some(public_key) = &key.public_key else {
+        return Err(AiError::Refused);
+    };
+    if authority::verify_es256(public_key, &message, &request.signature).is_err() {
         return Err(AiError::Refused);
     }
 
+    spend(&tx, &key_id, &request.nonce, request.unix + WINDOW_SECS + 1).await?;
+    tx.execute("SELECT set_config('app.ai_custody', 'no', true)", &[])
+        .await?;
+    tx.commit().await?;
+    Ok(VerifiedAi {
+        organisation,
+        key_id,
+        owner: key.owner,
+        address: address.chars().take(64).collect(),
+        kind: "helper",
+    })
+}
+
+/// Count one request against the key's [`REQUESTS_PER_WINDOW`] and spend its nonce, which
+/// may not have been spent before. A connector's request has no nonce of its own, so
+/// `oauth::verify_bearer` spends a random one: the same window, the same limit. Under
+/// `app.ai_custody`.
+pub(crate) async fn spend(
+    tx: &Transaction<'_>,
+    key_id: &str,
+    nonce: &[u8; 32],
+    forget_after_unix: i64,
+) -> Result<(), AiError> {
     tx.execute(
         "DELETE FROM ai_request_nonces WHERE key_id = $1 AND expires_at < now()",
         &[&key_id],
@@ -1806,25 +2023,13 @@ pub async fn verify_request(
         .execute(
             "INSERT INTO ai_request_nonces (key_id, nonce_hash, expires_at) \
              VALUES ($1, $2, to_timestamp($3::bigint)) ON CONFLICT DO NOTHING",
-            &[
-                &key_id,
-                &nonce_hash(&key_id, &request.nonce),
-                &(request.unix + WINDOW_SECS + 1),
-            ],
+            &[&key_id, &nonce_hash(key_id, nonce), &forget_after_unix],
         )
         .await?;
     if spent != 1 {
         return Err(AiError::Refused);
     }
-    tx.execute("SELECT set_config('app.ai_custody', 'no', true)", &[])
-        .await?;
-    tx.commit().await?;
-    Ok(VerifiedAi {
-        organisation,
-        key_id,
-        owner: key.owner,
-        address: address.chars().take(64).collect(),
-    })
+    Ok(())
 }
 
 /// What a handler on the AI router works with: the owner's tenant context and the key and
@@ -1872,6 +2077,12 @@ pub async fn open(
     }
     let policy = read_policy(tx, ring, &verified.organisation, false).await?;
     if !policy.allowed || !policy.makers.contains(&key.owner) {
+        return Err(AiError::OrganisationOff);
+    }
+    if key.kind != verified.kind {
+        return Err(AiError::Refused);
+    }
+    if key.kind == "connector" && !policy.apps.iter().any(|a| a == key.app()) {
         return Err(AiError::OrganisationOff);
     }
     let tenant_key = keys::tenant_key(tx, ring, &ctx).await?;
@@ -2698,7 +2909,9 @@ mod tests {
             id: String::new(),
             owner: String::new(),
             owner_name: String::new(),
-            public_key: Vec::new(),
+            kind: "helper".into(),
+            public_key: None,
+            client_id: None,
             label: String::new(),
             scopes: Vec::new(),
             sees: key_sees,

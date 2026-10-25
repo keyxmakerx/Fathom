@@ -320,6 +320,16 @@ fn repo_root() -> std::path::PathBuf {
 
 /// The routers `src/main.rs` merges for the account plane, the AI router among them.
 async fn app(pool: &Pool, ring: Arc<KeyRing>) -> axum::Router {
+    app_with(pool, ring, None).await
+}
+
+/// [`app`], with the connector on. An AI request's address is then the test header's, so a
+/// test can stand inside or outside Claude's range.
+async fn app_with(
+    pool: &Pool,
+    ring: Arc<KeyRing>,
+    connector: Option<Arc<fathom_server::oauth::Connector>>,
+) -> axum::Router {
     let sessions = Arc::new(store(pool, Arc::clone(&ring)).await);
     let watch = Arc::new(EpochWatch::new());
     let api_state = fathom_server::api::ApiState {
@@ -334,7 +344,12 @@ async fn app(pool: &Pool, ring: Arc<KeyRing>) -> axum::Router {
         ring: Arc::clone(&ring),
         watch: Arc::clone(&watch),
         live: Arc::clone(&live),
-        client_address: ClientAddress::peer(),
+        client_address: if connector.is_some() {
+            ClientAddress::header(TEST_SOURCE_HEADER)
+        } else {
+            ClientAddress::peer()
+        },
+        connector: connector.clone(),
     };
     let design_state = DesignApiState {
         sessions,
@@ -347,6 +362,7 @@ async fn app(pool: &Pool, ring: Arc<KeyRing>) -> axum::Router {
         client_address: ClientAddress::peer(),
         live,
         invitation_limits: fathom_server::invitations::Limits::STANDARD,
+        ai_connector: connector,
     };
     fathom_server::api::router(api_state)
         .merge(design_api::router(design_state))
@@ -433,6 +449,18 @@ async fn raw(
     headers: &[(&str, String)],
     body: &[u8],
 ) -> (String, Vec<u8>) {
+    let (status, _, body) = raw_with_head(addr, method, path, headers, body).await;
+    (status, body)
+}
+
+/// [`raw`], with the response's head too, for a test that reads a header.
+async fn raw_with_head(
+    addr: SocketAddr,
+    method: &str,
+    path: &str,
+    headers: &[(&str, String)],
+    body: &[u8],
+) -> (String, String, Vec<u8>) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut stream = tokio::net::TcpStream::connect(addr)
         .await
@@ -462,7 +490,7 @@ async fn raw(
         .nth(1)
         .unwrap_or_default()
         .to_string();
-    (status, buf[split + 4..].to_vec())
+    (status, head, buf[split + 4..].to_vec())
 }
 
 fn lp(out: &mut Vec<u8>, field: &[u8]) {
@@ -1525,4 +1553,702 @@ async fn the_database_refuses_the_moves_a_key_may_never_make() {
         .execute("SELECT set_config('app.tenant_id', '', false)", &[])
         .await
         .expect("reset");
+}
+
+// ---------------------------------------------------------------------------
+// The connector (ADR-0072 decisions 13 to 20)
+// ---------------------------------------------------------------------------
+
+const CLAUDE: &str = "https://claude.ai/oauth/mcp-oauth-client-metadata";
+const CLAUDE_BACK: &str = "https://claude.ai/api/mcp/auth_callback";
+/// Inside Anthropic's published outbound range.
+const FROM_CLAUDE: &str = "160.79.104.10";
+/// Outside it.
+const FROM_ELSEWHERE: &str = "203.0.113.77";
+
+fn the_connector() -> Arc<fathom_server::oauth::Connector> {
+    Arc::new(fathom_server::oauth::Connector::new("http://127.0.0.1", None, None).unwrap())
+}
+
+/// `application/x-www-form-urlencoded`, every byte but the unreserved set escaped.
+fn form(pairs: &[(&str, &str)]) -> String {
+    let enc = |v: &str| {
+        v.bytes()
+            .map(|b| match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                    (b as char).to_string()
+                }
+                _ => format!("%{b:02X}"),
+            })
+            .collect::<String>()
+    };
+    pairs
+        .iter()
+        .map(|(k, v)| format!("{}={}", enc(k), enc(v)))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+/// A PKCE verifier and its S256 challenge (RFC 7636 section 4.2).
+fn pkce() -> (String, String) {
+    use sha2::{Digest, Sha256};
+    let verifier = format!(
+        "{}{}",
+        fathom_server::ids::new_ulid(),
+        fathom_server::ids::new_ulid()
+    );
+    let challenge = fathom_server::oauth::b64url(&Sha256::digest(verifier.as_bytes()));
+    (verifier, challenge)
+}
+
+fn query_of(url: &str) -> std::collections::BTreeMap<String, String> {
+    let (_, q) = url.split_once('?').expect("a query");
+    fathom_server::oauth::form(q).expect("a form")
+}
+
+fn str_of(m: &std::collections::BTreeMap<String, Json>, key: &str) -> String {
+    match m.get(key) {
+        Some(Json::Str(v)) => v.clone(),
+        other => panic!("{key}: {other:?}"),
+    }
+}
+
+#[allow(clippy::too_many_arguments)] // a test fixture's own parameter list
+async fn set_policy_with_apps(
+    addr: SocketAddr,
+    steward: &LiveSession,
+    organisation: OrganisationId,
+    makers: &[&str],
+    apps: &[&str],
+    if_version: i64,
+) -> (String, Vec<u8>) {
+    browser(
+        addr,
+        steward,
+        "POST",
+        &format!("/organisations/{organisation}/ai/policy"),
+        &canon(vec![
+            ("allowed", Json::Bool(true)),
+            ("makers", strs(makers)),
+            ("ceiling", strs(&["layout", "addresses"])),
+            ("maxDays", Json::Int(90)),
+            ("secondPersonScopes", strs(&[])),
+            ("apps", strs(apps)),
+            ("ifVersion", Json::Int(if_version)),
+        ]),
+    )
+    .await
+}
+
+/// The app's request as the sign-in page is given it.
+fn sign_in_request(client_id: &str, back: &str, challenge: &str, state: &str) -> String {
+    form(&[
+        ("response_type", "code"),
+        ("client_id", client_id),
+        ("redirect_uri", back),
+        ("code_challenge", challenge),
+        ("code_challenge_method", "S256"),
+        ("state", state),
+        ("resource", "http://127.0.0.1/mcp"),
+    ])
+}
+
+/// The person presses Allow (or not) on the "Connect an AI app" page.
+async fn consent(
+    addr: SocketAddr,
+    person: &LiveSession,
+    organisation: OrganisationId,
+    request: &str,
+    allow: bool,
+) -> (String, Vec<u8>) {
+    browser(
+        addr,
+        person,
+        "POST",
+        &format!("/organisations/{organisation}/ai/connect"),
+        &canon(vec![
+            ("request", s(request)),
+            ("allow", Json::Bool(allow)),
+            ("scopes", strs(&[])),
+            ("sees", strs(&["layout"])),
+            ("mayRecommend", Json::Bool(true)),
+            ("days", Json::Int(30)),
+        ]),
+    )
+    .await
+}
+
+async fn token(addr: SocketAddr, from: &str, pairs: &[(&str, &str)]) -> (String, Vec<u8>) {
+    raw(
+        addr,
+        "POST",
+        "/oauth/token",
+        &[
+            (TEST_SOURCE_HEADER, from.to_string()),
+            (
+                "Content-Type",
+                "application/x-www-form-urlencoded".to_string(),
+            ),
+        ],
+        form(pairs).as_bytes(),
+    )
+    .await
+}
+
+/// Sign in all the way: the page's check, Allow, and the code traded for tokens.
+async fn connect(
+    addr: SocketAddr,
+    person: &LiveSession,
+    organisation: OrganisationId,
+    client_id: &str,
+    back: &str,
+    from: &str,
+) -> (String, String, String) {
+    let (verifier, challenge) = pkce();
+    let request = sign_in_request(client_id, back, &challenge, "st-1");
+    let (status, body) = consent(addr, person, organisation, &request, true).await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let redirect = str_of(&obj(&body), "redirect");
+    let q = query_of(&redirect);
+    let code = q["code"].clone();
+    let (status, body) = token(
+        addr,
+        from,
+        &[
+            ("grant_type", "authorization_code"),
+            ("code", &code),
+            ("code_verifier", &verifier),
+            ("redirect_uri", back),
+            ("client_id", client_id),
+        ],
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let t = obj(&body);
+    (
+        code,
+        str_of(&t, "access_token"),
+        str_of(&t, "refresh_token"),
+    )
+}
+
+/// One JSON-RPC message to `/mcp`.
+async fn mcp(
+    addr: SocketAddr,
+    access: &str,
+    from: &str,
+    message: Vec<(&str, Json)>,
+) -> (String, Vec<u8>) {
+    raw(
+        addr,
+        "POST",
+        "/mcp",
+        &[
+            (TEST_SOURCE_HEADER, from.to_string()),
+            ("Authorization", format!("Bearer {access}")),
+            ("Content-Type", "application/json".to_string()),
+            ("Accept", "application/json, text/event-stream".to_string()),
+        ],
+        &canon(message),
+    )
+    .await
+}
+
+fn rpc(id: i64, method: &str, params: Vec<(&str, Json)>) -> Vec<(&'static str, Json)> {
+    let params = Json::Obj(
+        params
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+    );
+    vec![
+        ("jsonrpc", s("2.0")),
+        ("id", Json::Int(id)),
+        ("method", s(method)),
+        ("params", params),
+    ]
+}
+
+/// The tool's result, which must not be an error.
+fn tool_ok(body: &[u8]) -> Json {
+    let m = obj(body);
+    let Some(Json::Obj(r)) = m.get("result") else {
+        panic!("no result: {}", text(body))
+    };
+    assert_eq!(r.get("isError"), Some(&Json::Bool(false)), "{}", text(body));
+    r["structuredContent"].clone()
+}
+
+/// Decisions 13 to 16. An app finds where to sign in from `/mcp`'s 401 alone; the person
+/// chooses what it reads; the code needs the PKCE verifier and is good once; the token reads
+/// through the same rules a helper key does, from Claude's range only, and reaches nothing
+/// but `/mcp`.
+#[tokio::test]
+async fn claude_signs_in_reads_through_the_same_rules_and_only_from_its_range() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let place = a_place(&pool, &estate).await;
+    let reader = a_member(
+        &pool,
+        &ring,
+        &estate,
+        "reader",
+        Some(place.building_a),
+        Capability::Read,
+    )
+    .await;
+    let addr = serve(app_with(&pool, Arc::clone(&ring), Some(the_connector())).await).await;
+    let steward = sign_in(addr, &estate.steward).await;
+    saved(addr, &steward, estate.organisation, place.design_a, 51).await;
+    saved(addr, &steward, estate.organisation, place.design_b, 52).await;
+    let o = estate.organisation;
+
+    // Discovery: the 401 names the metadata, the metadata names the sign-in.
+    let (status, head, _) = raw_with_head(
+        addr,
+        "POST",
+        "/mcp",
+        &[("Content-Type", "application/json".to_string())],
+        &canon(rpc(1, "initialize", vec![])),
+    )
+    .await;
+    assert_eq!(status, "401");
+    assert!(
+        head.to_ascii_lowercase().contains(
+            "www-authenticate: bearer resource_metadata=\"http://127.0.0.1/.well-known/oauth-protected-resource/mcp\""
+        ),
+        "{head}"
+    );
+    let (status, body) = raw(
+        addr,
+        "GET",
+        "/.well-known/oauth-protected-resource/mcp",
+        &[],
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200");
+    assert_eq!(str_of(&obj(&body), "resource"), "http://127.0.0.1/mcp");
+    let (status, body) = raw(
+        addr,
+        "GET",
+        "/.well-known/oauth-authorization-server",
+        &[],
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200");
+    let meta = obj(&body);
+    assert_eq!(
+        str_of(&meta, "authorization_endpoint"),
+        "http://127.0.0.1/oauth/authorize"
+    );
+    assert_eq!(
+        meta["code_challenge_methods_supported"],
+        strs(&["S256"]),
+        "S256 only"
+    );
+
+    // AI is off here until a Steward turns it on and names who may connect.
+    let reader_session = sign_in(addr, &reader).await;
+    let (_, challenge) = pkce();
+    let request = sign_in_request(CLAUDE, CLAUDE_BACK, &challenge, "st-0");
+    let (status, _) = consent(addr, &reader_session, o, &request, true).await;
+    assert_eq!(status, "403", "off by default");
+    let reader_id = reader.account.to_string();
+    let (status, body) =
+        set_policy_with_apps(addr, &steward, o, &[&reader_id], &["claude"], 0).await;
+    assert_eq!(status, "200", "{}", text(&body));
+
+    // The page's check: Claude by name, and a redirect it did not publish stops the sign-in
+    // with nowhere to send the browser.
+    let (status, body) = raw(
+        addr,
+        "POST",
+        "/oauth/authorize/check",
+        &[],
+        request.as_bytes(),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let Json::Obj(found) = &obj(&body)["app"] else {
+        panic!("app")
+    };
+    assert_eq!(str_of(found, "kind"), "claude");
+    assert_eq!(str_of(found, "returnsTo"), "claude.ai");
+    let evil = sign_in_request(CLAUDE, "https://claude.ai.evil.example/cb", &challenge, "x");
+    let (status, body) = raw(addr, "POST", "/oauth/authorize/check", &[], evil.as_bytes()).await;
+    assert_eq!(status, "400");
+    assert_eq!(obj(&body).get("back"), Some(&Json::Null), "{}", text(&body));
+    let (status, _) = consent(addr, &reader_session, o, &evil, true).await;
+    assert_eq!(status, "403", "Allow re-checks the request");
+
+    // "Don't allow" goes back to Claude with access_denied and the state.
+    let (status, body) = consent(addr, &reader_session, o, &request, false).await;
+    assert_eq!(status, "200");
+    let q = query_of(&str_of(&obj(&body), "redirect"));
+    assert_eq!(q["error"], "access_denied");
+    assert_eq!(q["state"], "st-0");
+    assert_eq!(q["iss"], "http://127.0.0.1");
+
+    // Allow, then a code without its verifier is refused, and the right one is good once.
+    let (verifier, challenge) = pkce();
+    let request = sign_in_request(CLAUDE, CLAUDE_BACK, &challenge, "st-1");
+    let (status, body) = consent(addr, &reader_session, o, &request, true).await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let redirect = str_of(&obj(&body), "redirect");
+    assert!(redirect.starts_with("https://claude.ai/api/mcp/auth_callback?"));
+    let code = query_of(&redirect)["code"].clone();
+    let trade = |verifier: String| {
+        let code = code.clone();
+        async move {
+            token(
+                addr,
+                FROM_CLAUDE,
+                &[
+                    ("grant_type", "authorization_code"),
+                    ("code", &code),
+                    ("code_verifier", &verifier),
+                    ("redirect_uri", CLAUDE_BACK),
+                    ("client_id", CLAUDE),
+                ],
+            )
+            .await
+        }
+    };
+    let (status, body) = trade(pkce().0).await;
+    assert_eq!(status, "400", "{}", text(&body));
+    assert_eq!(str_of(&obj(&body), "error"), "invalid_grant");
+    let (status, body) = trade(verifier.clone()).await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let t = obj(&body);
+    let access = str_of(&t, "access_token");
+    let refresh = str_of(&t, "refresh_token");
+    assert!(access.starts_with("fat_") && refresh.starts_with("far_"));
+
+    // The tools, through the same rules: the reader's one design, at layout.
+    let (status, body) = mcp(
+        addr,
+        &access,
+        FROM_CLAUDE,
+        rpc(1, "initialize", vec![("protocolVersion", s("2025-06-18"))]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let Json::Obj(r) = &obj(&body)["result"] else {
+        panic!()
+    };
+    assert_eq!(str_of(r, "protocolVersion"), "2025-06-18");
+    let (status, body) = mcp(addr, &access, FROM_CLAUDE, rpc(2, "tools/list", vec![])).await;
+    assert_eq!(status, "200");
+    assert!(text(&body).contains("\"recommend\""));
+    let (_, body) = mcp(
+        addr,
+        &access,
+        FROM_CLAUDE,
+        rpc(
+            3,
+            "tools/call",
+            vec![("name", s("whoami")), ("arguments", canon_obj(vec![]))],
+        ),
+    )
+    .await;
+    let Json::Obj(me) = tool_ok(&body) else {
+        panic!()
+    };
+    assert_eq!(me["sees"], strs(&["layout"]));
+    assert_eq!(str_of(&me, "owner"), reader_id);
+    let (_, body) = mcp(
+        addr,
+        &access,
+        FROM_CLAUDE,
+        rpc(4, "tools/call", vec![("name", s("list_designs"))]),
+    )
+    .await;
+    let listed = text(&body);
+    tool_ok(&body);
+    assert!(listed.contains(&place.design_a.to_string()), "{listed}");
+    assert!(!listed.contains(&place.design_b.to_string()), "{listed}");
+    let (_, body) = mcp(
+        addr,
+        &access,
+        FROM_CLAUDE,
+        rpc(
+            5,
+            "tools/call",
+            vec![
+                ("name", s("read_design")),
+                (
+                    "arguments",
+                    canon_obj(vec![("design", s(&place.design_b.to_string()))]),
+                ),
+            ],
+        ),
+    )
+    .await;
+    assert!(
+        text(&body).contains("\"isError\":true"),
+        "another building's design is not read: {}",
+        text(&body)
+    );
+    let (_, body) = mcp(
+        addr,
+        &access,
+        FROM_CLAUDE,
+        rpc(
+            6,
+            "tools/call",
+            vec![
+                ("name", s("recommend")),
+                (
+                    "arguments",
+                    canon_obj(vec![
+                        ("design", s(&place.design_a.to_string())),
+                        ("title", s("Add a second uplink")),
+                        ("why", s("One link is a single point of failure.")),
+                        (
+                            "steps",
+                            Json::Arr(vec![canon_obj(vec![
+                                ("action", s("connect")),
+                                ("text", s("Connect the core switch to the second router.")),
+                            ])]),
+                        ),
+                    ]),
+                ),
+            ],
+        ),
+    )
+    .await;
+    tool_ok(&body);
+
+    // From outside Claude's range the same token is no token.
+    let (status, _) = mcp(addr, &access, FROM_ELSEWHERE, rpc(7, "ping", vec![])).await;
+    assert_eq!(status, "401");
+    // A page on another site may not drive it, a batch is refused, a notification is 202.
+    let (status, _) = raw(
+        addr,
+        "POST",
+        "/mcp",
+        &[
+            (TEST_SOURCE_HEADER, FROM_CLAUDE.to_string()),
+            ("Authorization", format!("Bearer {access}")),
+            ("Origin", "https://evil.example".to_string()),
+        ],
+        &canon(rpc(8, "ping", vec![])),
+    )
+    .await;
+    assert_eq!(status, "403");
+    let (status, _) = raw(
+        addr,
+        "POST",
+        "/mcp",
+        &[
+            (TEST_SOURCE_HEADER, FROM_CLAUDE.to_string()),
+            ("Authorization", format!("Bearer {access}")),
+        ],
+        format!("[{}]", text(&canon(rpc(9, "ping", vec![])))).as_bytes(),
+    )
+    .await;
+    assert_eq!(status, "400");
+    let (status, _) = mcp(
+        addr,
+        &access,
+        FROM_CLAUDE,
+        vec![
+            ("jsonrpc", s("2.0")),
+            ("method", s("notifications/initialized")),
+        ],
+    )
+    .await;
+    assert_eq!(status, "202");
+    let (status, _) = raw(addr, "GET", "/mcp", &[], b"").await;
+    assert_eq!(status, "405");
+
+    // The bearer token reaches no route but `/mcp`.
+    let (bare_status, bare_body) =
+        raw(addr, "GET", &format!("/organisations/{o}/ai"), &[], b"").await;
+    let (status, body) = raw(
+        addr,
+        "GET",
+        &format!("/organisations/{o}/ai"),
+        &[("Authorization", format!("Bearer {access}"))],
+        b"",
+    )
+    .await;
+    assert_eq!((status, body), (bare_status, bare_body));
+
+    // The code was good once; presented again, it ends what it bought.
+    let (status, _) = trade(verifier).await;
+    assert_eq!(status, "400");
+    let (status, _) = mcp(addr, &access, FROM_CLAUDE, rpc(10, "ping", vec![])).await;
+    assert_eq!(status, "401", "a replayed code ends the grant's tokens");
+    let (status, _) = token(
+        addr,
+        FROM_CLAUDE,
+        &[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", &refresh),
+            ("client_id", CLAUDE),
+        ],
+    )
+    .await;
+    assert_eq!(status, "400");
+}
+
+fn canon_obj(fields: Vec<(&str, Json)>) -> Json {
+    Json::Obj(
+        fields
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+    )
+}
+
+/// OAuth 2.1 section 4.3.1. A refresh token is spent on use; presented again, it ends the
+/// whole sign-in. Signing the same app in again replaces the grant. And the Steward's say
+/// binds at every refresh and every request: a switched-off app or a stopped grant is out.
+#[tokio::test]
+async fn a_refresh_token_works_once_and_the_steward_can_stop_any_app() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let place = a_place(&pool, &estate).await;
+    let owner = a_member(&pool, &ring, &estate, "owner", None, Capability::Read).await;
+    let addr = serve(app_with(&pool, Arc::clone(&ring), Some(the_connector())).await).await;
+    let steward = sign_in(addr, &estate.steward).await;
+    saved(addr, &steward, estate.organisation, place.design_a, 61).await;
+    let o = estate.organisation;
+    let owner_id = owner.account.to_string();
+    let (status, body) = set_policy_with_apps(
+        addr,
+        &steward,
+        o,
+        &[&owner_id],
+        &["claude", "claude-code"],
+        0,
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let owner_session = sign_in(addr, &owner).await;
+
+    // Rotation: a refresh gives a new pair; the spent one, presented again, ends both.
+    let (_, access, refresh) =
+        connect(addr, &owner_session, o, CLAUDE, CLAUDE_BACK, FROM_CLAUDE).await;
+    let refresh_with = |r: String| async move {
+        token(
+            addr,
+            FROM_CLAUDE,
+            &[
+                ("grant_type", "refresh_token"),
+                ("refresh_token", &r),
+                ("client_id", CLAUDE),
+            ],
+        )
+        .await
+    };
+    let (status, body) = refresh_with(refresh.clone()).await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let t = obj(&body);
+    let access2 = str_of(&t, "access_token");
+    let refresh2 = str_of(&t, "refresh_token");
+    assert_ne!(refresh2, refresh);
+    let (status, _) = mcp(addr, &access2, FROM_CLAUDE, rpc(1, "ping", vec![])).await;
+    assert_eq!(status, "200");
+    let (status, body) = refresh_with(refresh).await;
+    assert_eq!(status, "400");
+    assert_eq!(str_of(&obj(&body), "error"), "invalid_grant");
+    for a in [&access, &access2] {
+        let (status, _) = mcp(addr, a, FROM_CLAUDE, rpc(2, "ping", vec![])).await;
+        assert_eq!(status, "401", "the whole sign-in ended");
+    }
+    let (status, _) = refresh_with(refresh2).await;
+    assert_eq!(status, "400");
+
+    // Claude Code: a loopback redirect on any port, from this computer.
+    let code_id = "https://claude.ai/oauth/claude-code-client-metadata";
+    let (_, cc_access, cc_refresh) = connect(
+        addr,
+        &owner_session,
+        o,
+        code_id,
+        "http://localhost:53682/callback",
+        FROM_ELSEWHERE,
+    )
+    .await;
+    let (status, _) = mcp(addr, &cc_access, FROM_ELSEWHERE, rpc(3, "ping", vec![])).await;
+    assert_eq!(
+        status, "200",
+        "Claude Code is not held to Anthropic's range"
+    );
+
+    // Another app is off until a Steward allows it.
+    let (status, body) = raw(
+        addr,
+        "POST",
+        "/oauth/register",
+        &[("Content-Type", "application/json".to_string())],
+        br#"{"client_name": "Some other app", "redirect_uris": ["https://other.example/cb"]}"#,
+    )
+    .await;
+    assert_eq!(status, "201", "{}", text(&body));
+    let other_id = str_of(&obj(&body), "client_id");
+    let (status, _) = raw(
+        addr,
+        "POST",
+        "/oauth/register",
+        &[],
+        br#"{"client_name": "Plain http", "redirect_uris": ["http://other.example/cb"]}"#,
+    )
+    .await;
+    assert_eq!(
+        status, "400",
+        "an http redirect off this computer is refused"
+    );
+    let (_, challenge) = pkce();
+    let request = sign_in_request(&other_id, "https://other.example/cb", &challenge, "s");
+    let (status, _) = consent(addr, &owner_session, o, &request, true).await;
+    assert_eq!(status, "403", "other apps are off by default");
+
+    // The Steward switches Claude Code off: its token stops at once, and so does a refresh.
+    let (status, body) =
+        set_policy_with_apps(addr, &steward, o, &[&owner_id], &["claude"], 1).await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let (status, _) = mcp(addr, &cc_access, FROM_ELSEWHERE, rpc(4, "ping", vec![])).await;
+    assert_ne!(
+        status, "200",
+        "a switched-off app is out at the next request"
+    );
+    let (status, _) = token(
+        addr,
+        FROM_ELSEWHERE,
+        &[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", &cc_refresh),
+            ("client_id", code_id),
+        ],
+    )
+    .await;
+    assert_eq!(status, "400");
+
+    // Signing Claude in again replaces the earlier grant, and the overview shows one.
+    let (_, first, _) = connect(addr, &owner_session, o, CLAUDE, CLAUDE_BACK, FROM_CLAUDE).await;
+    let (_, second, _) = connect(addr, &owner_session, o, CLAUDE, CLAUDE_BACK, FROM_CLAUDE).await;
+    let (status, _) = mcp(addr, &first, FROM_CLAUDE, rpc(5, "ping", vec![])).await;
+    assert_eq!(status, "401", "the earlier grant was replaced");
+    let (status, _) = mcp(addr, &second, FROM_CLAUDE, rpc(6, "ping", vec![])).await;
+    assert_eq!(status, "200");
+    let (status, body) = browser(
+        addr,
+        &owner_session,
+        "GET",
+        &format!("/organisations/{o}/ai"),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200");
+    let overview = text(&body);
+    assert!(overview.contains("\"kind\":\"connector\""), "{overview}");
 }

@@ -557,6 +557,17 @@ async fn main() -> ExitCode {
             return ExitCode::from(8);
         }
     }
+    // ADR-0072 decision 13: the connector exists only when the operator named the address
+    // AI apps reach this server at.
+    let ai_connector = config.ai_connector.clone().map(Arc::new);
+    match &ai_connector {
+        Some(c) => tracing::info!(
+            mcp = %c.resource(),
+            sign_in = %c.sign_in_origin(),
+            "the AI connector is on"
+        ),
+        None => tracing::info!("the AI connector is off (FATHOM_AI_PUBLIC_URL is unset)"),
+    }
     // ADR-0072: the AI router has its own state and its own extractor; it is given the
     // pool, never the session store, so nothing on it can verify a session.
     let ai_api = fathom_server::ai_api::AiApiState {
@@ -565,6 +576,7 @@ async fn main() -> ExitCode {
         watch: Arc::clone(&watch),
         live: Arc::clone(&live),
         client_address: client_address.clone(),
+        connector: ai_connector.clone(),
     };
     let designs = fathom_server::design_api::DesignApiState {
         sessions: Arc::clone(&sessions),
@@ -575,6 +587,7 @@ async fn main() -> ExitCode {
         client_address: client_address.clone(),
         live,
         invitation_limits: fathom_server::invitations::Limits::STANDARD,
+        ai_connector,
     };
 
     // The operator plane. ADR-0055 decision 3: the quorum is `min(2, live

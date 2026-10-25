@@ -13,7 +13,7 @@ use fathom_canon::Json;
 use super::{
     begin_org, json_response, object_body, parse_design, DesignApiState, RouteError, Signed,
 };
-use crate::ai::{self, AiError, KeyChange, NewKey, PolicyInput};
+use crate::ai::{self, AiError, KeyChange, NewConnector, NewKey, PolicyInput};
 use crate::grants::Authority;
 use crate::sessions::SessionError;
 
@@ -39,6 +39,10 @@ pub(super) fn routes() -> Router<DesignApiState> {
         .route(
             "/organisations/{organisation}/ai/keys/{key}/delete",
             post(delete_key_handler),
+        )
+        .route(
+            "/organisations/{organisation}/ai/connect",
+            post(connect_handler),
         )
         .route(
             "/organisations/{organisation}/designs/{design}/ai-ideas",
@@ -165,6 +169,7 @@ async fn set_policy_handler(
             "ceiling",
             "maxDays",
             "secondPersonScopes",
+            "apps",
             "ifVersion",
         ],
     )?;
@@ -176,6 +181,8 @@ async fn set_policy_handler(
             .and_then(|d| i32::try_from(d).ok())
             .ok_or_else(malformed)?,
         second_person_scopes: take_strs(&mut m, "secondPersonScopes")?.unwrap_or_default(),
+        // Absent: Claude only, as a policy with no row reads.
+        apps: take_strs(&mut m, "apps")?.unwrap_or_else(|| vec!["claude".to_string()]),
     };
     let if_version = i32::try_from(version(&mut m)?).map_err(|_| malformed())?;
     let mut client = state
@@ -249,6 +256,87 @@ async fn make_key_handler(
     out.insert("key".into(), key.to_json(0));
     out.insert("deployment".into(), Json::Str(deployment));
     out.insert("organisation".into(), Json::Str(organisation));
+    Ok(json_response(Json::Obj(out)))
+}
+
+/// `POST /organisations/{o}/ai/connect`: the person's answer on the "Connect an AI app"
+/// page (ADR-0072 decision 15). `{request, allow, label?, scopes, sees, mayRecommend,
+/// days}`, where `request` is the app's sign-in query string as the page was given it. The
+/// request is checked again here, not trusted from the page. Answers `{redirect}`, where
+/// the browser goes next: back to the app with a code, or with `access_denied`.
+async fn connect_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let Some(connector) = state.ai_connector.clone() else {
+        return Err(RouteError::Ai(AiError::NotFound));
+    };
+    let mut m = object_body(
+        &signed.body,
+        &[
+            "request",
+            "allow",
+            "label",
+            "scopes",
+            "sees",
+            "mayRecommend",
+            "days",
+        ],
+    )?;
+    let request = take_str(&mut m, "request")?.ok_or_else(malformed)?;
+    let allow = take_bool(&mut m, "allow")?.ok_or_else(malformed)?;
+    let form = crate::oauth::form(request.trim_start_matches('?'))
+        .map_err(|_| RouteError::Ai(AiError::Malformed("that sign-in request is not readable")))?;
+    let checked = match connector
+        .check(
+            state.sessions.pool(),
+            &crate::oauth::AuthRequest::from_form(&form),
+        )
+        .await?
+    {
+        Ok(c) => c,
+        Err(problem) => return Err(RouteError::Ai(AiError::NotAllowed(problem.description))),
+    };
+    let mut out = BTreeMap::new();
+    if !allow {
+        out.insert("redirect".into(), Json::Str(connector.denied(&checked)));
+        return Ok(json_response(Json::Obj(out)));
+    }
+    let choice = NewConnector {
+        client_id: checked.client.id.clone(),
+        label: take_str(&mut m, "label")?.unwrap_or_else(|| {
+            checked
+                .client
+                .name
+                .chars()
+                .take(ai::MAX_LABEL_CHARS)
+                .collect()
+        }),
+        scopes: take_strs(&mut m, "scopes")?.unwrap_or_default(),
+        sees: take_strs(&mut m, "sees")?.unwrap_or_default(),
+        may_recommend: take_bool(&mut m, "mayRecommend")?.unwrap_or(false),
+        days: take_int(&mut m, "days")?
+            .and_then(|d| i32::try_from(d).ok())
+            .ok_or_else(malformed)?,
+    };
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let (key, redirect) = connector.allow(&tx, &auth, &checked, choice).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    out.insert("key".into(), key.to_json(0));
+    out.insert("redirect".into(), Json::Str(redirect));
     Ok(json_response(Json::Obj(out)))
 }
 

@@ -127,6 +127,9 @@ pub struct DesignApiState {
     /// The two caps on steward invitations. [`invitations::Limits::STANDARD`] in
     /// production; a test lowers them.
     pub invitation_limits: invitations::Limits,
+    /// The AI connector's settings (ADR-0072 decision 13), for Allow on its sign-in page;
+    /// `None` when `FATHOM_AI_PUBLIC_URL` is unset.
+    pub ai_connector: Option<Arc<crate::oauth::Connector>>,
 }
 
 /// Read every vendor directory under `<root>/corpus/catalogue/` into one flat

@@ -8377,6 +8377,7 @@ async fn an_operator_stops_an_ai_key_or_turns_ai_off_and_widens_nothing() {
                 ceiling: vec!["layout".into()],
                 max_days: 90,
                 second_person_scopes: vec![],
+                apps: vec!["claude".into()],
             },
             0,
         )
