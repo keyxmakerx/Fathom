@@ -56,6 +56,8 @@ describe('aboutPlatform', () => {
 describe('library', () => {
   it('groups by topic in a fixed order', () => {
     expect(library(all).map((g) => g.topic)).toEqual(['Arista EOS', 'Linux', 'IPsec VPNs']);
+    const trunk = ex({ id: 'e:trunk', subject: 'basics.trunk', platforms: ['*'], tab: 'learn note' });
+    expect(library([...all, trunk])[0]!.topic).toBe('Networking basics');
   });
 });
 

@@ -133,6 +133,15 @@ const EXPLAINERS = [
     terse: 'EOS reads like IOS and runs on Linux underneath.', explained: null, teaching: null, breaks_if_wrong: null,
     reviewed_on: '2026-09-19', reviewed: false, sources: [],
   },
+  ...[
+    ['basics.switch', 'Switch: joins the devices of one network', 'Joins devices in the same network and learns which port each one is behind.'],
+    ['basics.trunk', 'Trunk: several VLANs on one cable', 'A trunk carries several VLANs on one cable; each frame is tagged with its VLAN.'],
+    ['basics.access-port', 'Access port: one device, one VLAN', 'An access port connects one device and puts it in one VLAN, with no tags.'],
+  ].map(([subject, title, terse]) => ({
+    id: `explain:concept:${subject}`, class: 'concept', title, subject, platforms: ['*'], tab: 'learn note', terse,
+    explained: null, teaching: null, breaks_if_wrong: null, reviewed_on: '2026-10-25', reviewed: false,
+    sources: [{ publisher: 'Juniper Networks', doc: 'Security Zones and Interfaces', url: 'https://www.juniper.net/documentation/', read_on: '2026-10-25', note: null }],
+  })),
 ];
 
 try {
@@ -230,6 +239,36 @@ try {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
   check('the explainer fits a phone width', !overflow);
   await page.screenshot({ path: SHOTS + 'learn-05-phone.png' });
+
+  // 7 - the Show menu's Learn notes on the Diagram look: one note per idea, each opening its explainer.
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  // The cable-groups scene seeds two designs, so Home opens first (drive-cable-groups.mjs does the same).
+  const diagram = async (scene) => {
+    await page.goto(`${BASE}/drive.html?scene=${scene}`);
+    await page.waitForSelector('.home__design-row', { timeout: 10_000 });
+    const row = page.locator('.home__design-row').filter({ has: page.locator('.home__design-name[title="design-drive"]') });
+    await row.locator('button', { hasText: 'Canvas' }).click();
+    await page.waitForSelector('.react-flow__pane', { timeout: 15_000 });
+    await page.getByLabel('Look').getByRole('button', { name: 'Diagram', exact: true }).click();
+    await page.waitForSelector('.drawing-diagram-box', { timeout: 10_000 });
+    await page.click('button[aria-label="Fit to view"]').then(() => page.waitForTimeout(700));
+  };
+  await diagram('cable-groups');
+  check('no notes until Learn notes is ticked', (await page.locator('.learn-note').count()) === 0);
+  await page.getByTestId('shell-show').click();
+  await page.getByTestId('show-learn').click();
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
+  const swNote = page.getByTestId('learn-note-role:switch');
+  check('the first switch gets one note', (await swNote.count()) === 1 && (await swNote.innerText()).includes('Joins devices'), (await swNote.count()) ? await swNote.innerText() : 'none');
+  const trunkNote = page.getByTestId('learn-note-trunk');
+  check('a trunk gets a note naming its VLANs', (await trunkNote.count()) === 1 && /carries VLANs? \d/.test(await trunkNote.innerText()), (await trunkNote.count()) ? await trunkNote.innerText() : 'none');
+  check('never more than five notes', (await page.locator('.learn-note').count()) <= 5);
+  await page.screenshot({ path: SHOTS + 'learn-06-notes.png' });
+  await trunkNote.click();
+  await page.waitForSelector('.learn-overlay', { timeout: 5_000 });
+  check('the note opens its explainer', ((await page.locator('[data-testid="explainer-page"]').textContent()) ?? '').includes('Trunk: several VLANs on one cable'));
+  await page.keyboard.press('Escape');
 
   check('no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
   await browser.close();

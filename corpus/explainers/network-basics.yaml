@@ -1,0 +1,274 @@
+# corpus/explainers/network-basics.yaml — the plain notes the Learn layer writes on the drawing
+# (ADR-0066 item 1.2, mockup r4-teach A), written in the manner of
+# corpus/explainers/arista-eos-basics.yaml (see that file's header for the field convention).
+#
+# `tab: "learn note"` marks an entry the Learn layer may put on the canvas; `terse` is the one line
+# it writes there, and the rest is the Why? card behind it.
+#
+# `reviewed_by`/`voice_reviewed_by: <named human>` are placeholders, not names (invariant 10,
+# OPEN-QUESTIONS E2): every entry here is shown labelled *Unreviewed* until a named human vouches
+# for it. Written by an AI agent from the pages below, each fetched and read on 2026-10-25; the
+# quotations in each `note` are what was read.
+
+entries:
+
+- id: explain:concept:basics.switch
+  class: concept
+  subject: { path: basics.switch }
+  title: "Switch: joins the devices of one network and learns where each one is"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-10-25
+  voice_reviewed_by: <named human>
+  tab: "learn note"
+
+  terse: >
+    Joins devices in the same network and learns which port each one is behind.
+
+  explained: >
+    A switch forwards Ethernet frames between its ports. As frames arrive it notes the sender's
+    MAC address and the port it came in on, and keeps those in its switching table, so the next
+    frame for that address goes out of one port instead of all of them. VLANs let one switch hold
+    several separate networks at once.
+
+  teaching:
+    body: >
+      On the drawing, every device cabled to the same switch in the same VLAN can reach the others
+      without a router. To reach a different VLAN or subnet, traffic has to go through a router or
+      firewall. On most switches `show ethernet-switching table` (Junos) or `show mac address-table`
+      (Cisco and Arista) lists what the switch has learned.
+
+    breaks_if_wrong: >
+      Treating a switch as if it kept networks apart on its own. Without VLANs, everything plugged
+      into one switch shares one broadcast domain.
+
+  sources:
+    - { vendor: "Juniper Networks", doc: "Understanding Bridging and VLANs on Switches (Ethernet Switching User Guide)", url: "https://www.juniper.net/documentation/en_US/junos/topics/topic-map/bridging-and-vlans.html", read_on: "2026-10-25", note: "page dated 24 March 2025: \"As packets are sent, the switch learns the embedded MAC addresses of the sending nodes\" and stores them \"in address-lookup tables called Ethernet switching tables\"" }
+
+  terminal: true
+
+- id: explain:concept:basics.vlan
+  class: concept
+  subject: { path: basics.vlan }
+  title: "VLAN: one switch, several separate networks"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-10-25
+  voice_reviewed_by: <named human>
+  tab: "learn note"
+
+  terse: >
+    A VLAN is a separate network inside a switch; its devices only hear each other.
+
+  explained: >
+    A VLAN splits one physical LAN into several broadcast domains. Devices in the same VLAN reach
+    each other directly; devices in different VLANs cannot, even on the same switch, unless a
+    router or firewall joins them. Each VLAN has a number, its 802.1Q tag.
+
+  teaching:
+    body: >
+      Put cameras, guests or servers in their own VLAN to keep them apart from everything else. Then
+      decide on the router or firewall what may cross between them. The Show menu's VLANs layer
+      writes each cable's VLAN on the drawing.
+
+    breaks_if_wrong: >
+      A port left in the wrong VLAN looks like a broken cable: the link is up, but the device cannot
+      reach anything it expects to.
+
+  sources:
+    - { vendor: "Juniper Networks", doc: "Understanding Bridging and VLANs on Switches (Ethernet Switching User Guide)", url: "https://www.juniper.net/documentation/en_US/junos/topics/topic-map/bridging-and-vlans.html", read_on: "2026-10-25", note: "\"Bridging divides a single physical LAN (now called a single broadcast domain) into two or more virtual LANs, or VLANs.\"" }
+    - { vendor: "Juniper Networks", doc: "Configuring Tagged VLANs", url: "https://www.juniper.net/documentation/us/en/software/junos/multicast-l2/topics/topic-map/tagged-vlans.html", read_on: "2026-10-25", note: "\"each VLAN is assigned a unique IEEE 802.1Q tag\"" }
+
+  terminal: true
+
+- id: explain:concept:basics.access-port
+  class: concept
+  subject: { path: basics.access-port }
+  title: "Access port: one device, one VLAN"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-10-25
+  voice_reviewed_by: <named human>
+  tab: "learn note"
+
+  terse: >
+    An access port connects one device and puts it in one VLAN, with no tags.
+
+  explained: >
+    A switch port in access mode belongs to a single VLAN. The device on the other end sends
+    ordinary untagged frames and never needs to know which VLAN it is in: the switch decides.
+
+  teaching:
+    body: >
+      PCs, printers, cameras and most servers sit on access ports. Moving a device to a different
+      network is usually just changing its port's VLAN.
+
+    breaks_if_wrong: >
+      Cabling two access ports in different VLANs together joins those VLANs into one, which is what
+      the Checks rule "The two ends of a link are access ports in different VLANs" warns about.
+
+  sources:
+    - { vendor: "Juniper Networks", doc: "Understanding Bridging and VLANs on Switches (Ethernet Switching User Guide)", url: "https://www.juniper.net/documentation/en_US/junos/topics/topic-map/bridging-and-vlans.html", read_on: "2026-10-25", note: "\"An interface in access mode connects a switch to a single network device\"; \"Access interfaces accept only untagged packets.\"" }
+
+  terminal: true
+
+- id: explain:concept:basics.trunk
+  class: concept
+  subject: { path: basics.trunk }
+  title: "Trunk: several VLANs on one cable"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-10-25
+  voice_reviewed_by: <named human>
+  tab: "learn note"
+
+  terse: >
+    A trunk carries several VLANs on one cable; each frame is tagged with its VLAN.
+
+  explained: >
+    Between two switches, or a switch and a router, one cable often has to carry several VLANs.
+    A trunk port does that by adding an 802.1Q tag to each frame, so the far end can put it back
+    in the right VLAN. A native VLAN, if one is set, travels without a tag.
+
+  teaching:
+    body: >
+      Both ends of a trunk must agree on which VLANs it carries. A VLAN missing from one end's list
+      simply does not cross that cable, which the Checks rule "A VLAN is carried on one end of a
+      trunk and not the other" catches.
+
+    breaks_if_wrong: >
+      Some devices reach the far side and others do not, depending only on their VLAN: the usual
+      sign of a VLAN left off a trunk.
+
+  sources:
+    - { vendor: "Juniper Networks", doc: "Understanding Bridging and VLANs on Switches (Ethernet Switching User Guide)", url: "https://www.juniper.net/documentation/en_US/junos/topics/topic-map/bridging-and-vlans.html", read_on: "2026-10-25", note: "\"Traffic sent between switches can then consist of packets from multiple VLANs\"; \"Trunk interfaces usually accept only tagged packets\"; native VLAN configured by VLAN ID on the trunk" }
+    - { vendor: "Juniper Networks", doc: "Configuring Tagged VLANs", url: "https://www.juniper.net/documentation/us/en/software/junos/multicast-l2/topics/topic-map/tagged-vlans.html", read_on: "2026-10-25", note: "\"Trunk ports, which multiplex traffic among a number of VLANs, use the tag\"" }
+
+  terminal: true
+
+- id: explain:concept:basics.router
+  class: concept
+  subject: { path: basics.router }
+  title: "Router: moves traffic between networks"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-10-25
+  voice_reviewed_by: <named human>
+  tab: "learn note"
+
+  terse: >
+    Moves traffic between networks, choosing the next hop from its routing table.
+
+  explained: >
+    A router reads the IP header of each packet, looks the destination up in its routing table and
+    sends the packet towards the next hop. That is how a device in one subnet or VLAN reaches
+    another, and how a home or office reaches the internet.
+
+  teaching:
+    body: >
+      Path trace reads the same thing a router does: at each routed device it looks the destination
+      up (connected networks and static routes, longest prefix first) and shows which route it
+      picked and why.
+
+    breaks_if_wrong: >
+      A device with no route back. Traffic reaches the far end, but the reply has nowhere to go, so
+      it looks as if nothing arrived.
+
+  sources:
+    - { publisher: "IETF", doc: "RFC 1812, Requirements for IP Version 4 Routers, sections 1 and 2.3", url: "https://www.rfc-editor.org/rfc/rfc1812.html", read_on: "2026-10-25", note: "\"a router examines the IP protocol header as part of the switching process\"; a router \"Chooses a next-hop destination for each IP datagram, based on the information in its routing database.\"" }
+
+  terminal: true
+
+- id: explain:concept:basics.firewall-zones
+  class: concept
+  subject: { path: basics.firewall-zones }
+  title: "Firewall: checks traffic between zones"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-10-25
+  voice_reviewed_by: <named human>
+  tab: "learn note"
+
+  terse: >
+    Checks traffic between zones against its policies, in order.
+
+  explained: >
+    A firewall groups its interfaces into zones, each a set of networks with the same security
+    needs (inside, outside, guests). Traffic from one zone to another is only let through when a
+    policy says so, and the policies are read in order.
+
+  teaching:
+    body: >
+      Path trace shows every policy the firewall reads for a flow, with "matches", "doesn't match"
+      or "can't tell" and the reason. Fathom never says permitted or denied: it shows what the
+      design says and leaves the verdict to the person.
+
+    breaks_if_wrong: >
+      A broad policy above a narrow one wins first. The narrow policy looks right on its own and
+      never takes effect.
+
+  sources:
+    - { vendor: "Juniper Networks", doc: "Security Zones and Interfaces (SRX1600, SRX4120, SRX4300 Configuration Essentials)", url: "https://www.juniper.net/documentation/us/en/software/platform/srx1600-srx4120-srx4300-configuration-essentials/topics/concept/srx1600-srx4120-srx4300-security-zones.html", read_on: "2026-10-25", note: "\"A security zone is a logical grouping of network segments that share the same security requirements.\"; \"Security policies control traffic between zones\"" }
+
+  terminal: true
+
+- id: explain:concept:basics.poe
+  class: concept
+  subject: { path: basics.poe }
+  title: "PoE: power and network on one cable"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-10-25
+  voice_reviewed_by: <named human>
+  tab: "learn note"
+
+  terse: >
+    A PoE port powers the device on the other end through the network cable.
+
+  explained: >
+    Power over Ethernet lets a switch port (the power sourcing equipment) power a camera, access
+    point or phone (the powered device) through the same cable that carries its network. The
+    standard has four types; the higher the type, the more power reaches the device.
+
+  teaching:
+    body: >
+      Type 1 (802.3af) delivers up to 13 W to the device, Type 2 (802.3at) up to 25.5 W, Type 3
+      (802.3bt) up to 51 W and Type 4 (802.3bt) up to 71.3 W. A switch also has a total PoE budget
+      shared by all its ports, written on its data sheet.
+
+    breaks_if_wrong: >
+      A device that powers up and then keeps rebooting is often asking for more power than its
+      port, or the switch's remaining budget, can give.
+
+  sources:
+    - { publisher: "Ethernet Alliance", doc: "Overview of 802.3bt, Power over Ethernet standard (Yseboodt and Abramson, December 2019), tables 3 and 4", url: "https://ethernetalliance.org/wp-content/uploads/2019/12/WP_EA_Overview8023bt_V2p1_FINAL.pdf", read_on: "2026-10-25", note: "PD maximum power: Type 1 13 W, Type 2 25.5 W, Type 3 51 W, Type 4 71.3 W; PSE and PD named as power sourcing equipment and powered device" }
+
+  terminal: true

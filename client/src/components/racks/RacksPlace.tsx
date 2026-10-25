@@ -64,6 +64,8 @@ import { CableGroupsPopover } from '../drawing/CableGroupsPopover';
 import { CAMERA_STOPS, U_PX } from '../drawing/geometry';
 import { DiagramDrawing } from '../drawing/DiagramDrawing';
 import { layerWords } from '../drawing/layerLabels';
+import { useLearn } from '../learn/context';
+import { learnNotes } from '../learn/learnNotes';
 import { layerOn, loadLayers, saveLayers, type LayerId, type LayerSet } from '../drawing/layers';
 import { loadDiagramStyle, saveDiagramStyle, type DiagramStyle } from '../drawing/diagramStyle';
 import { loadCableStyle, saveCableStyle, type CableStyle } from '../drawing/cableStyle';
@@ -774,6 +776,12 @@ export function RacksPlace(props: RacksPlaceProps) {
     [realView],
   );
   const words = useMemo(() => layerWords(doc, displayView, layers), [doc, displayView, layers]);
+  const learn = useLearn();
+  const learnExplainers = learn?.explainers;
+  const notes = useMemo(
+    () => (layerOn(layers, 'learn') && learnExplainers != null ? learnNotes(doc, displayView, learnExplainers) : undefined),
+    [doc, displayView, layers, learnExplainers],
+  );
 
   // The Cables list. `cableGroupsState`'s own initial value is read from
   // storage synchronously (never a placeholder that then flashes every
@@ -1830,6 +1838,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           drawnCableIds={cableDraw.drawnIds}
           dashedCableIds={cableDraw.dashedIds}
           words={words}
+          notes={notes}
           style={diagramStyle}
           cameraHub={cameraHub}
           minimap={canvasAids.prefs.minimap}

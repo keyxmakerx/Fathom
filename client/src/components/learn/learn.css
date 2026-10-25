@@ -152,3 +152,56 @@
 .learn-library section:first-child h3 {
   margin-top: 0;
 }
+
+/* The Learn layer's notes on the Diagram look (mockup r4-teach A): dashed, plain, with a short
+   leader to the thing they are about. Positioned, sized and scaled by DiagramDrawing (NOTE_W, NOTE_GAP). */
+.learn-note {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--s1) var(--s2);
+  border: var(--rule-hair) dashed var(--ink);
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-small);
+  text-align: left;
+  cursor: pointer;
+  pointer-events: all;
+  box-shadow: none;
+  z-index: 4;
+}
+
+.learn-note::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 28px;
+  border-top: var(--rule-hair) solid var(--muted);
+}
+
+.learn-note--right::after {
+  right: 100%;
+}
+
+.learn-note--left::after {
+  left: 100%;
+}
+
+.learn-note:hover,
+.learn-note:focus-visible {
+  border-style: solid;
+}
+
+.learn-note__title {
+  font-weight: 700;
+}
+
+.learn-note__line {
+  line-height: 1.35;
+}

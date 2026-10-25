@@ -27,6 +27,7 @@ function rank(e: Explainer): number {
 /** A heading for the library: the part of the subject before the first dot, in words. */
 export function topicOf(e: Explainer): string {
   const subject = e.subject ?? '';
+  if (subject.startsWith('basics.')) return 'Networking basics';
   if (subject.startsWith('linux')) return 'Linux';
   if (subject.startsWith('ipsec') || subject.startsWith('ike') || subject.startsWith('mtu') || subject.startsWith('junos.')) return 'IPsec VPNs';
   if (e.kind === 'symptom' || e.kind === 'error') return 'IPsec VPNs';
@@ -37,9 +38,12 @@ export function topicOf(e: Explainer): string {
   return 'Other';
 }
 
+/** The one-line notes the Learn layer may write on the drawing (`corpus/explainers/network-basics.yaml`). */
+export const NOTE_TAB = 'learn note';
+
 /** The library: topics in a fixed order, "read this first" entries at the top of each. */
 export function library(all: readonly Explainer[]): { topic: string; entries: Explainer[] }[] {
-  const order = ['Arista EOS', 'Juniper EX', 'Linux', 'OPNsense', 'Ubiquiti', 'IPsec VPNs', 'Other'];
+  const order = ['Networking basics', 'Arista EOS', 'Juniper EX', 'Linux', 'OPNsense', 'Ubiquiti', 'IPsec VPNs', 'Other'];
   const groups = new Map<string, Explainer[]>();
   for (const e of all) {
     const t = topicOf(e);
