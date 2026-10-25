@@ -158,6 +158,16 @@ pub struct Label {
 }
 
 impl Label {
+    /// The label as its `name value` lines, for a status record.
+    pub fn to_text(&self) -> String {
+        String::from_utf8(self.encode()).unwrap_or_default()
+    }
+
+    /// Parse the lines [`Label::to_text`] wrote.
+    pub fn from_text(text: &str) -> Result<Self, BackupError> {
+        Self::decode(text.as_bytes())
+    }
+
     fn encode(&self) -> Vec<u8> {
         let id = |k: &Option<KeyId>| k.map(|k| k.to_string()).unwrap_or_else(|| "-".into());
         format!(

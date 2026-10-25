@@ -1,7 +1,9 @@
 # ADR-0070: Backups are a sealed data file and a separate keys file
 
-**Status:** proposed 2026-10-25, built on the recommended defaults while the owner's answer is
-pending (sign-off card `backup-v1`, "Back up Fathom"). The owner asked: *"did we ever setup some
+**Status:** accepted 2026-10-25. The owner answered sign-off card `backup-v1`, "Back up Fathom",
+with every recommended pick (two files; a recovery phrase; the data file sealed; `vault.key` in the
+same keys file) and ticked all four extras: the nightly schedule with retention, the weekly restore
+test, notices, and a copy to S3-compatible storage. The owner first asked: *"did we ever setup some
 sort of backup tool for this? How would the passwords work in that regards? would it be like an
 encrypted compression with two db files or something?"*
 
@@ -79,11 +81,27 @@ owner is filtered and `pg_dump` refuses (reproduced against this schema on Postg
 `pg_restore`; `docs/OPERATING.md` gives the order, and a dump restored that way was started by the
 server, which continued the site chain and refused a different master key with exit 11.
 
-## Not yet built, in the order the card lists them
+## The extras the owner ticked
 
-The Settings › Backups screen, the nightly schedule with retention, the weekly restore test shown on
-that screen, and a notice when a backup fails or the keys file is out of date. Copying to
-S3-compatible storage is later still, and unticked on the card.
+8. **Nightly, keep 14.** A `backup` service in `compose.yaml`, built from `deploy/Dockerfile`'s
+   `backup` stage (the postgres image, for `pg_dump` and `pg_restore`, with the server binary
+   added; published beside the server image and promoted by the same release). It writes a data
+   file into the `backups` volume at 02:00 UTC and keeps the newest 14. It never makes a keys file:
+   that phrase has to reach a person, so `backup-keys` is a tool run by hand.
+9. **A weekly restore test.** On Sundays the service restores the newest data file into a
+   throwaway database with `pg_restore --exit-on-error`, then drops it. CI's `compose` job does the
+   same once on every run, and opens the file with a keys file and its phrase.
+10. **Notices.** The server mounts the `backups` volume read-only and reads the service's `status`
+    file; Admin › Settings › Backups shows it, and the console banner says when a backup, a restore
+    test or an off-site copy failed, when no backup has been made for 48 hours, and when there is no
+    keys file or a key changed since it was made (comparing the key ids `keys-file --record` wrote
+    with the ones the server holds). Commands are shown on the screen, not buttons: a keys file's
+    phrase must not pass through the server, and a restore belongs on the host.
+11. **An S3-compatible copy.** The `offsite` profile adds a digest-pinned rclone container that
+    runs `rclone copy --immutable` of the data files only, daily at 03:00 UTC. rclone rather than a
+    cloud SDK in the server, so the server's dependency tree does not grow a cloud client; `copy`
+    rather than `sync`, so pruning on the host deletes nothing in the bucket. The keys file never
+    goes there.
 
 ## Sources
 
@@ -91,6 +109,8 @@ S3-compatible storage is later still, and unticked on the card.
 - Hoang, Reyhanitabar, Rogaway, Vizár, *Online Authenticated-Encryption and its Nonce-Reuse
   Misuse-Resistance*, IACR ePrint 2015/189, read 2026-10-25: names STREAM; its construction is in
   the full version, which was not read, so the nonce layout above is cited to age, not to it.
+- rclone v1.75.2, `docs/content/docs.md`, sections "Config file" and "--immutable", read on GitHub
+  2026-10-25.
 - OWASP Password Storage Cheat Sheet, as cited in `crates/fathom-server/src/credentials.rs`
   (read 2026-09-21).
 - `pg_dump -Fc` output begins with the bytes `PGDMP`: checked on 2026-10-25 against PostgreSQL 16's

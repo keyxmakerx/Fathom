@@ -396,6 +396,7 @@ services:
       FATHOM_FIRMWARE_FETCH_BASE_URL: ${FATHOM_FIRMWARE_FETCH_BASE_URL:-}
       FATHOM_FIRMWARE_DIR: ${FATHOM_FIRMWARE_FETCH_BASE_URL:+/var/lib/fathom/firmware}
       FATHOM_FIRMWARE_MAX_BYTES: ${FATHOM_FIRMWARE_MAX_BYTES:-}
+      FATHOM_BACKUP_DIR: /var/lib/fathom/backups
     volumes:
       # Read-only: the server reads the generated database password and, later,
       # the master key. It writes neither. **Unchanged, and deliberately so** --
@@ -411,6 +412,9 @@ services:
       - bootstrap:/var/lib/fathom/bootstrap
       # Writable: staged firmware images, one to two gigabytes each.
       - firmware:/var/lib/fathom/firmware
+      # Read-only: the nightly backup service's status, for Admin's Backups
+      # panel (ADR-0070). The server makes no backup and holds no keys file.
+      - backups:/var/lib/fathom/backups:ro
     tmpfs:
       - /tmp:size=64m,mode=1777,noexec,nosuid,nodev
     healthcheck:
@@ -424,6 +428,114 @@ services:
       driver: json-file
       options: { max-size: "20m", max-file: "5" }
 
+  # The nightly backup (ADR-0070, `deploy/backup-loop.sh`): at 02:00 UTC it
+  # seals a dump of the database and the staged firmware into the `backups`
+  # volume, keeps 14, and on Sundays restores the newest into a throwaway
+  # database to prove it opens. Its own image because the server's has no
+  # `pg_dump` (`deploy/Dockerfile`, the `backup` stage). It dumps as
+  # `fathom_bootstrap`: 43 tables force row-level security, so the owner
+  # cannot dump them (`docs/OPERATING.md`, Backups).
+  #
+  # The backups volume holds data files only. The keys file that opens them is
+  # made by hand, once, and kept elsewhere:
+  #   docker compose run --rm -T backup-keys > fathom-keys-$(date +%F).fkeys
+  backup:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      target: backup
+    image: ghcr.io/keyxmakerx/fathom-backup:${FATHOM_TAG:-latest}${FATHOM_BACKUP_DIGEST:+@${FATHOM_BACKUP_DIGEST}}
+    pull_policy: always
+    restart: unless-stopped
+    user: "65532:65532"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      keys-init:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+    environment:
+      FATHOM_BACKUP_AT: ${FATHOM_BACKUP_AT:-02:00}
+      FATHOM_BACKUP_KEEP: ${FATHOM_BACKUP_KEEP:-14}
+      FATHOM_BACKUP_TEST_DAY: ${FATHOM_BACKUP_TEST_DAY:-7}
+      FATHOM_FIRMWARE_DIR: /var/lib/fathom/firmware
+      PGHOST: db
+    volumes:
+      - keys:/var/lib/fathom/keys:ro
+      - firmware:/var/lib/fathom/firmware:ro
+      - backups:/var/lib/fathom/backups
+    tmpfs:
+      - /tmp:size=64m,mode=1777,noexec,nosuid,nodev
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "3" }
+
+  # Not a service that runs: `docker compose run --rm -T backup-keys > file`
+  # seals the key volume into a keys file on standard output and prints its
+  # recovery phrase on the terminal, once. It also records which key ids the
+  # keys file holds, so the Backups screen can say when it is out of date.
+  backup-keys:
+    image: ghcr.io/keyxmakerx/fathom-backup:${FATHOM_TAG:-latest}${FATHOM_BACKUP_DIGEST:+@${FATHOM_BACKUP_DIGEST}}
+    profiles: [tools]
+    user: "65532:65532"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    entrypoint: ["/usr/local/bin/fathom-server", "keys-file", "--record", "/var/lib/fathom/backups/keys-file"]
+    volumes:
+      - keys:/var/lib/fathom/keys:ro
+      - backups:/var/lib/fathom/backups
+
+  # ADR-0070, the owner's fourth extra: a copy of the data files on
+  # S3-compatible storage (AWS, Backblaze B2, Wasabi, MinIO, Cloudflare R2 and
+  # the like). Off unless asked for: `docker compose --profile offsite up -d`.
+  # Only data files leave, which are sealed under `backup.key`; the keys file
+  # never goes here, because a bucket holding both is the one archive ADR-0043
+  # §9 forbids. rclone rather than a cloud SDK in the server, so the server's
+  # dependency tree does not grow a cloud client for one copy a night.
+  # `copy`, never `sync`: pruning here never deletes there. Keep the bucket's
+  # own history with a lifecycle rule (and object lock, where offered).
+  # rclone v1.75.2, `docker.io/rclone/rclone:latest` as of 2026-10-25, built
+  # 2026-10-09.
+  backup-offsite:
+    image: rclone/rclone@sha256:2687085f718d3c628f7fdfb77c52a1d344332aed543110bb88088f2c70d43eb5
+    profiles: [offsite]
+    restart: unless-stopped
+    user: "65532:65532"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    entrypoint: ["/bin/sh", "/offsite.sh"]
+    command: ["loop"]
+    configs:
+      - source: backup_offsite
+        target: /offsite.sh
+    environment:
+      FATHOM_OFFSITE_AT: ${FATHOM_OFFSITE_AT:-03:00}
+      FATHOM_OFFSITE_BUCKET: ${FATHOM_OFFSITE_BUCKET:-}
+      FATHOM_OFFSITE_PREFIX: ${FATHOM_OFFSITE_PREFIX:-fathom}
+      # rclone reads a whole remote from RCLONE_CONFIG_<NAME>_<OPTION>, so no
+      # config file exists anywhere (rclone v1.75.2, docs/content/docs.md,
+      # "Config file", read on GitHub 2026-10-25).
+      RCLONE_CONFIG_OFFSITE_TYPE: s3
+      RCLONE_CONFIG_OFFSITE_PROVIDER: ${FATHOM_OFFSITE_PROVIDER:-Other}
+      RCLONE_CONFIG_OFFSITE_ENDPOINT: ${FATHOM_OFFSITE_ENDPOINT:-}
+      RCLONE_CONFIG_OFFSITE_REGION: ${FATHOM_OFFSITE_REGION:-}
+      RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID: ${FATHOM_OFFSITE_ACCESS_KEY_ID:-}
+      RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY: ${FATHOM_OFFSITE_SECRET_ACCESS_KEY:-}
+      RCLONE_CONFIG_OFFSITE_NO_CHECK_BUCKET: "true"
+      HOME: /tmp
+    volumes:
+      # Read-write only for its own `offsite` status file.
+      - backups:/var/lib/fathom/backups
+    tmpfs:
+      - /tmp:size=16m,mode=1777,noexec,nosuid,nodev
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "3" }
+
 # ---------------------------------------------------------------------------
 # THE TWO FILES THIS STACK USED TO READ FROM THE CHECKOUT, INLINE SINCE
 # 2026-09-19, so that this one file is the whole deployment: paste it into a
@@ -435,6 +547,60 @@ services:
 # are the only copies: `deploy/` no longer carries them.
 # ---------------------------------------------------------------------------
 configs:
+  # `backup-offsite`'s loop (ADR-0070). BusyBox sh, in the rclone image.
+  backup_offsite:
+    content: |
+      #!/bin/sh
+      # Copies the sealed data files to FATHOM_OFFSITE_TARGET every day at
+      # FATHOM_OFFSITE_AT (UTC), after the nightly backup. `once` copies now
+      # and exits. Writes `offsite` beside `status` for the Backups screen.
+      set -u
+      dir=/var/lib/fathom/backups
+      at=$${FATHOM_OFFSITE_AT:-03:00}
+      case "$$at" in [0-2][0-9]:[0-5][0-9]) ;; *) echo "offsite: FATHOM_OFFSITE_AT must be HH:MM" >&2; exit 2 ;; esac
+      [ -n "$${FATHOM_OFFSITE_BUCKET:-}" ] || { echo "offsite: set FATHOM_OFFSITE_BUCKET" >&2; exit 2; }
+      # `offsite:` is the remote the RCLONE_CONFIG_OFFSITE_* lines define.
+      FATHOM_OFFSITE_TARGET="offsite:$$FATHOM_OFFSITE_BUCKET/$${FATHOM_OFFSITE_PREFIX:-fathom}"
+      now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+      record() {
+          tmp="$$dir/.offsite.$$$$"
+          { [ -f "$$dir/offsite" ] && grep -v "^$$1 " "$$dir/offsite"; printf '%s %s\n' "$$1" "$$2"; } > "$$tmp"
+          mv "$$tmp" "$$dir/offsite"
+      }
+      copy_once() {
+          err=/tmp/offsite.err
+          # --immutable: a data file is never rewritten, so one that differs
+          # from its copy is a fault to report, not an update to send.
+          if rclone copy "$$dir" "$$FATHOM_OFFSITE_TARGET" --include 'fathom-*.fdata' \
+                  --immutable --config '' 2>"$$err"; then
+              record offsite_result ok
+              record offsite_last_ok_at "$$(now)"
+              record offsite_error -
+              echo "offsite: copied to $$FATHOM_OFFSITE_TARGET"
+          else
+              record offsite_result failed
+              record offsite_failed_at "$$(now)"
+              record offsite_error "$$(grep -v '^ *$$' "$$err" | tail -n 1 | cut -c1-300)"
+              echo "offsite: FAILED" >&2
+              cat "$$err" >&2
+          fi
+          record offsite_target "$$FATHOM_OFFSITE_TARGET"
+      }
+      case "$${1:-loop}" in
+          once) copy_once; exit 0 ;;
+          loop) ;;
+          *) echo "offsite: say once, or nothing" >&2; exit 2 ;;
+      esac
+      h=$${at%%:*}; m=$${at##*:}
+      target=$$(( $${h#0} * 3600 + $${m#0} * 60 ))
+      echo "offsite: daily at $$at UTC to $$FATHOM_OFFSITE_TARGET"
+      while true; do
+          sod=$$(( $$(date -u +%s) % 86400 ))
+          wait_for=$$(( (target - sod + 86400) % 86400 ))
+          [ "$$wait_for" -eq 0 ] && wait_for=86400
+          sleep "$$wait_for"
+          copy_once
+      done
   # Run once per start by `keys-init` above, as root, with the `keys` volume
   # at /keys: generates whatever secret is missing and sets every owner and
   # mode; never regenerates a file that exists.
@@ -562,3 +728,7 @@ volumes:
   # Staged firmware images (ADR-0045). Back it up if you want images to
   # survive a lost disk; the database only records their hashes.
   firmware:
+  # The nightly data files and the backup service's `status` (ADR-0070).
+  # **Holds no key**: copy it anywhere, off the machine is the point. The keys
+  # file that opens these goes somewhere else.
+  backups:

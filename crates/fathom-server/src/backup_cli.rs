@@ -86,6 +86,21 @@ fn optional_key(var: &str, default: &str, warn: bool) -> Option<Key32> {
     }
 }
 
+/// The ids of the keys this install holds now, for the Backups panel to
+/// compare a keys file's record against. The master and chain ids come from
+/// the running server's ring; the backup and vault keys are read here and
+/// silently left out when absent.
+pub fn current_ids(master: crate::crypto::KeyId, chain: crate::crypto::KeyId) -> Label {
+    Label {
+        made_at_unix: 0,
+        fathom_version: env!("CARGO_PKG_VERSION").to_string(),
+        backup_key: optional_key("FATHOM_BACKUP_KEY", DEFAULT_BACKUP_KEY, false).map(|k| k.id()),
+        master_key: Some(master),
+        chain_key: Some(chain),
+        vault_key: optional_key("FATHOM_VAULT_KEY", DEFAULT_VAULT_KEY, false).map(|k| k.id()),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // backup
 // ---------------------------------------------------------------------------
@@ -266,6 +281,13 @@ pub fn keys_file(args: &[String]) -> ExitCode {
     {
         return fail(format!("could not write the keys file: {e}"));
     }
+    // `--record FILE`: the key ids this keys file holds, so the Backups screen
+    // can say when a key has changed since (the nightly service passes it).
+    if let Some(record) = flag(args, "--record") {
+        if let Err(e) = std::fs::write(&record, kf.label.to_text()) {
+            eprintln!("fathom-server: note: the keys file was written, but {record} was not: {e}");
+        }
+    }
     let names: Vec<&str> = kf.files.iter().map(|(n, _)| n.as_str()).collect();
     eprintln!();
     eprintln!("  Recovery phrase for this keys file. It is shown once and not kept anywhere:");
@@ -277,6 +299,70 @@ pub fn keys_file(args: &[String]) -> ExitCode {
     eprintln!("  It holds: {}", names.join(", "));
     eprintln!("  Key ids: {}", describe(&kf.label));
     eprintln!();
+    ExitCode::SUCCESS
+}
+
+// ---------------------------------------------------------------------------
+// dump-from: the nightly service's restore test
+// ---------------------------------------------------------------------------
+
+/// `fathom-server dump-from FILE.fdata`: the database dump, to standard
+/// output, opened with the backup key this install holds. No keys file and no
+/// phrase, so it can run unattended; a chunk that fails stops it with a
+/// non-zero exit, which the caller's pipeline must check.
+pub fn dump_from(args: &[String]) -> ExitCode {
+    let Some(path) = args.first().filter(|a| !a.starts_with("--")) else {
+        return usage("dump-from takes a data file: dump-from FILE.fdata > database.dump");
+    };
+    if io::stdout().is_terminal() {
+        return usage("dump-from writes the dump to standard output; pipe it to pg_restore");
+    }
+    let key = match backup_key() {
+        Ok(k) => k,
+        Err(e) => return fail(e),
+    };
+    let file = match std::fs::File::open(path) {
+        Ok(f) => io::BufReader::new(f),
+        Err(e) => return fail(format!("{path}: {e}")),
+    };
+    let reader = match DataReader::open(file) {
+        Ok(r) => r,
+        Err(e) => return fail(format!("{path}: {e}")),
+    };
+    if reader.label().backup_key != Some(key.id()) {
+        eprintln!(
+            "fathom-server: {path} was made under another backup key; this install's cannot open it"
+        );
+        return ExitCode::from(EXIT_WRONG_KEYS);
+    }
+    let mut contents = reader.unlock(&key);
+    let mut out = io::stdout().lock();
+    let mut in_dump = false;
+    let mut saw_dump = false;
+    loop {
+        match contents.next() {
+            Ok(None) => break,
+            Ok(Some(Item::FileStart(name))) => {
+                in_dump = name == DUMP_NAME;
+                saw_dump |= in_dump;
+            }
+            Ok(Some(Item::Bytes(b))) => {
+                if in_dump {
+                    if let Err(e) = out.write_all(&b) {
+                        return fail(format!("could not write the dump: {e}"));
+                    }
+                }
+            }
+            Ok(Some(Item::FileEnd)) => in_dump = false,
+            Err(e) => return fail(format!("{path}: {e}")),
+        }
+    }
+    if let Err(e) = out.flush() {
+        return fail(format!("could not write the dump: {e}"));
+    }
+    if !saw_dump {
+        return fail(format!("{path}: there is no database dump in it"));
+    }
     ExitCode::SUCCESS
 }
 

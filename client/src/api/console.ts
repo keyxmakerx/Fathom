@@ -241,6 +241,8 @@ export async function listOrganisations(): Promise<OrganisationRow[]> {
 export type Notice =
   | { kind: 'one_operator'; live: number; weeks: number; line: string }
   | { kind: 'recovered_from_host'; atUnix: number; untilUnix: number; line: string }
+  /** From `GET /admin/backups` (`api/backups.ts`), not `/admin/notices`. */
+  | { kind: 'backup'; line: string }
   | { kind: 'unknown'; line: string };
 
 export function parseNotices(bytes: Uint8Array): Notice[] {

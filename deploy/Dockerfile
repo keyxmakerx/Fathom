@@ -94,6 +94,10 @@ RUN mkdir -p /bootstrap-seed && \
 RUN mkdir -p /firmware-seed && \
     printf '%s\n' "Staged firmware images (ADR-0045). Fathom writes them; switches fetch them." \
       > /firmware-seed/README
+# The backups volume's seed (ADR-0070), for the same reason again.
+RUN mkdir -p /backups-seed && \
+    printf '%s\n' "Nightly Fathom data files (ADR-0070). No key is kept here; the keys file goes elsewhere." \
+      > /backups-seed/README
 
 
 # ---- wasm-build (the browser engine, ADR-0052 §1) ------------------------
@@ -153,6 +157,25 @@ RUN npm ci --ignore-scripts
 COPY --from=wasm-build /src/target/wasm32-unknown-unknown/release/fathom_wasm.wasm /src/client/public/engine/fathom_wasm.wasm
 
 RUN npm run build
+
+# ---- backup -----------------------------------------------------------
+# The nightly backup service (ADR-0070, `deploy/backup-loop.sh`). The server
+# image is distroless and has no `pg_dump`, and the `db` image is Alpine (musl,
+# checked 2026-10-25: `ldd --version` reports musl libc 1.2.6), where this glibc
+# binary cannot run. So: the postgres image's Debian 13 variant, the same
+# PostgreSQL 18.6 as `db` (a `pg_dump` must be at least the server's version),
+# glibc 2.41 like the build stage, plus the binary. Tag `18.6-trixie`, digest
+# read from Docker Hub 2026-10-25. Placed before `server` so that `server` stays
+# the last stage, which is what an unqualified `docker build .` produces.
+FROM postgres@sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6 AS backup
+COPY --from=build /src/target/server/fathom-server /usr/local/bin/fathom-server
+COPY deploy/backup-loop.sh /usr/local/bin/backup-loop.sh
+# The backups volume's mount point, owned by the server's uid so a fresh named
+# volume inherits it (the same reason as the bootstrap directory below).
+RUN mkdir -p /var/lib/fathom/backups && chown 65532:65532 /var/lib/fathom/backups \
+    && chmod 0755 /usr/local/bin/backup-loop.sh
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/backup-loop.sh"]
 
 # ---- run --------------------------------------------------------------
 # Named `server` (not left anonymous) because this Dockerfile now builds
@@ -225,6 +248,10 @@ ENV FATHOM_BOOTSTRAP_TOKEN_FILE=/var/lib/fathom/bootstrap/first-operator-token
 # The second writable path: staged firmware images, owned by 65532 for the same
 # reason. Only used when compose turns firmware on (FATHOM_FIRMWARE_DIR).
 COPY --from=build --chown=65532:65532 /firmware-seed /var/lib/fathom/firmware
+# The backups volume's mount point (ADR-0070), read-only here, owned by 65532
+# for the same reason: whichever container mounts a fresh named volume first
+# seeds its ownership, and the backup service, which writes it, is not root.
+COPY --from=build --chown=65532:65532 /backups-seed /var/lib/fathom/backups
 
 # 65532:65532 is distroless's `nonroot`. The compose file says so as well; both
 # say it so that neither alone is load-bearing.
