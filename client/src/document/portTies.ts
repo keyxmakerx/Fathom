@@ -91,7 +91,7 @@ const JACK_FORMS = new Set(['ethernet', 'serial', 'management']);
 
 /** Member Interfaces only: no units, VLANs, loopbacks, IRBs, tunnels or aggregate parents. A paste does not always
  * write Interface.form, so an interface without one is offered only when its name reads as a jack. */
-function memberInterfaces(doc: Document, deviceId: string): { id: string; name: string }[] {
+export function memberInterfaces(doc: Document, deviceId: string): { id: string; name: string }[] {
   const out: { id: string; name: string }[] = [];
   for (const e of edgesOut(doc, deviceId, 'HasInterface')) {
     if (parseNodeId(e.to).kind !== 'Interface') continue;

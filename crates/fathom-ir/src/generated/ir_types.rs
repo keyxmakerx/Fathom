@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.24";
+    pub const SCHEMA_VERSION: &str = "0.25";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -5106,6 +5106,7 @@ mod body {
         Cable,
         Move,
         Other,
+        Lag,
         /// The generated unknown arm (62 §7 rule 2) — carries the
         /// unrecognised token verbatim; what makes a new variant a minor
         /// bump an old client survives (62 §16.2).
@@ -5114,12 +5115,13 @@ mod body {
 
     impl PlanStepKind {
         /// Declared tokens, declaration order.
-        pub const DECLARED: [&'static str; 5] = [
+        pub const DECLARED: [&'static str; 6] = [
             "address",
             "route",
             "cable",
             "move",
             "other",
+            "lag",
         ];
         /// Neutral token → variant; anything undeclared lands in `Unknown`.
         pub fn from_token(token: &str) -> PlanStepKind {
@@ -5129,6 +5131,7 @@ mod body {
                 "cable" => PlanStepKind::Cable,
                 "move" => PlanStepKind::Move,
                 "other" => PlanStepKind::Other,
+                "lag" => PlanStepKind::Lag,
                 other => PlanStepKind::Unknown(other.to_owned()),
             }
         }
@@ -5140,6 +5143,7 @@ mod body {
                 PlanStepKind::Cable => "cable",
                 PlanStepKind::Move => "move",
                 PlanStepKind::Other => "other",
+                PlanStepKind::Lag => "lag",
                 PlanStepKind::Unknown(t) => t,
             }
         }
