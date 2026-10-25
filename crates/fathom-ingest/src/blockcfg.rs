@@ -1,6 +1,8 @@
 //! The block-config front end — a switch's running or exported config in the
-//! `interface …` / `vlan N` block style (TP-Link JetStream and Omada switches)
-//! in, the same typed graph fragment out.
+//! `interface …` block style in, the same typed graph fragment out. Two
+//! dialects: TP-Link JetStream and Omada switches ([`TPLINK`]), and UniFi
+//! switches in the EdgeSwitch syntax ([`UNIFI`], unverified against a complete
+//! real config: `corpus/dict/README-unifi-sw.md`).
 //!
 //! # Why this is a front end, the way `iproute.rs` and `routeros.rs` are
 //!
@@ -85,23 +87,99 @@ const SECRET_WORDS: [&str; 18] = [
 /// A credential keyword: one of [`SECRET_WORDS`], or a word ending the way a
 /// credential keyword does (`auth-sha-key`, `enable-password`), compared
 /// without case.
+///
+/// Any `auth-…` or `priv-…` word is one too: SNMPv3 algorithm names grow
+/// (`auth-sha256`, `priv-aes256`), and each is followed by its password.
 fn is_secret_word(word: &str) -> bool {
     let w = word.to_ascii_lowercase();
     SECRET_WORDS.contains(&w.as_str())
         || ["password", "passwd", "secret", "-key", "pwd"]
             .iter()
             .any(|s| w.ends_with(s))
+        || ["auth-", "priv-"].iter().any(|p| w.starts_with(p))
 }
 
-/// Openers: the words that start a block. `interface` and `vlan` take the rest
-/// of the line as their context; the longer ones are matched whole.
-const OPENERS: [&[&str]; 5] = [
-    &["interface"],
-    &["vlan"],
-    &["line"],
-    &["ip", "dhcp", "server", "pool"],
-    &["ipv6", "dhcp", "server", "pool"],
-];
+/// Whether `ws[at]` is followed by a credential because of the words before
+/// it: `authentication simple|encrypt KEY` (OSPF, RIP and VRRP in FASTPATH-
+/// style CLIs) and `encryption … des|aes KEY` (`users snmpv3 encryption`).
+/// Neither syntax is confirmed for UniFi (README-unifi-sw.md, "Open"); reading
+/// them as credentials costs at most a line that was not one.
+fn is_secret_in_context(ws: &[Word], at: usize) -> bool {
+    let Some(w) = ws.get(at).filter(|w| !w.quoted) else {
+        return false;
+    };
+    let w = w.text.to_ascii_lowercase();
+    let before = |want: &str| {
+        ws.iter()
+            .take(at)
+            .any(|p| p.text.eq_ignore_ascii_case(want))
+    };
+    let prev = at
+        .checked_sub(1)
+        .and_then(|p| ws.get(p))
+        .map(|p| p.text.to_ascii_lowercase());
+    (matches!(w.as_str(), "simple" | "encrypt") && prev.as_deref() == Some("authentication"))
+        || (matches!(w.as_str(), "des" | "aes") && before("encryption"))
+}
+
+/// A word run that starts a block. `exact` openers are the whole line
+/// (`vlan database`); the others take the rest of the line as their context.
+struct Opener {
+    words: &'static [&'static str],
+    exact: bool,
+}
+
+/// What differs between the vendors this reader takes: which lines open a
+/// block. Everything else, the credential rule included, is shared.
+pub struct Dialect {
+    openers: &'static [Opener],
+}
+
+/// TP-Link JetStream and Omada: `vlan 10` opens a block holding its `name`.
+pub const TPLINK: Dialect = Dialect {
+    openers: &[
+        Opener {
+            words: &["interface"],
+            exact: false,
+        },
+        Opener {
+            words: &["vlan"],
+            exact: false,
+        },
+        Opener {
+            words: &["line"],
+            exact: false,
+        },
+        Opener {
+            words: &["ip", "dhcp", "server", "pool"],
+            exact: false,
+        },
+        Opener {
+            words: &["ipv6", "dhcp", "server", "pool"],
+            exact: false,
+        },
+    ],
+};
+
+/// UniFi switches, in the EdgeSwitch syntax (README-unifi-sw.md). `vlan` is
+/// not an opener here: inside an interface it begins lines such as `vlan pvid
+/// 10`, and the VLAN table lives under `vlan database`.
+pub const UNIFI: Dialect = Dialect {
+    openers: &[
+        Opener {
+            words: &["interface"],
+            exact: false,
+        },
+        Opener {
+            words: &["vlan", "database"],
+            exact: true,
+        },
+        Opener {
+            words: &["line"],
+            exact: false,
+        },
+    ],
+};
 
 /// Does this paste look like a TP-Link JetStream or Omada switch config?
 ///
@@ -129,18 +207,68 @@ pub fn looks_like_tplink(paste: &[u8]) -> bool {
     lines.any(|l| l == "#")
 }
 
+/// Does this paste look like a UniFi switch's `show running-config`?
+///
+/// Exact: the EdgeSwitch header `!Current Configuration:` must appear, and
+/// within the header block after it a `!System Description "US…` line, the
+/// UniFi model (`USW-48P-500`, `US-8-60W`). EdgeSwitch itself prints
+/// `EdgeSwitch …` there and Broadcom EFOS `EFOS, …`, so neither passes; what
+/// comes before the header (the shell banner, `telnet localhost`, `(UBNT)
+/// #show run`) is skipped, since a terminal paste usually carries it.
+pub fn looks_like_unifi(paste: &[u8]) -> bool {
+    let body = paste.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(paste);
+    let Ok(text) = std::str::from_utf8(body) else {
+        return false;
+    };
+    let mut lines = text
+        .split(['\n', '\r'])
+        .map(str::trim)
+        .filter(|l| !l.is_empty());
+    if !lines.any(|l| l == "!Current Configuration:") {
+        return false;
+    }
+    lines
+        .take_while(|l| l.starts_with('!'))
+        .any(|l| l.starts_with("!System Description \"US"))
+}
+
 /// `T2600G-28TS#show running-config`, `SG3428>`: the switch's own prompt, as
 /// oxidized's TP-Link model matches it (`[\w.@()-]+[#>]`), with or without
 /// the command typed after it.
+///
+/// UniFi's EdgeSwitch shell prompts in parentheses with spaces between them,
+/// `(UBNT) #` and `(UBNT) (Interface 0/1)#` (README-unifi-sw.md), so a run of
+/// parenthesised groups and spaces is a prompt too.
 fn is_prompt(text: &str) -> bool {
     let Some(at) = text.find(['#', '>']) else {
         return false;
     };
     let name = text.get(..at).unwrap_or_default();
-    !name.is_empty()
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"_.@()-".contains(&b))
+    if name.is_empty() {
+        return false;
+    }
+    if name
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b"_.@()-".contains(&b))
+    {
+        return true;
+    }
+    // `(UBNT) (Interface 0/1)`: only groups and the spaces between them.
+    let mut rest = name.trim_end();
+    if !rest.starts_with('(') {
+        return false;
+    }
+    while let Some(r) = rest.strip_prefix('(') {
+        let Some(close) = r.find(')') else {
+            return false;
+        };
+        let inner = r.get(..close).unwrap_or_default();
+        if inner.contains(['(', '"']) {
+            return false;
+        }
+        rest = r.get(close + 1..).unwrap_or_default().trim_start();
+    }
+    rest.is_empty()
 }
 
 /// The command a terminal echoes above its output.
@@ -160,10 +288,22 @@ fn is_separator(text: &str) -> bool {
         || text == "exit"
 }
 
-/// `Press any key to continue (Q to quit)`, the pager, possibly run together.
-fn is_pager(text: &str) -> bool {
+/// Where the pager prompt on a line ends, if the line opens with one:
+/// TP-Link's `Press any key to continue (Q to quit)` and EdgeSwitch's
+/// `--More-- or (q)uit`, possibly run together with the next line of output.
+fn pager_end(text: &str) -> Option<usize> {
     let squashed: String = text.chars().filter(|c| !c.is_whitespace()).collect();
-    squashed.starts_with("Pressanykeytocontinue")
+    if squashed.starts_with("Pressanykeytocontinue") {
+        return Some(text.find(')').map(|at| at + 1).unwrap_or(text.len()));
+    }
+    if text.starts_with("--More--") {
+        return Some(
+            text.find("(q)uit")
+                .map(|at| at + "(q)uit".len())
+                .unwrap_or("--More--".len()),
+        );
+    }
+    None
 }
 
 /// One word, located in the capture. A quoted word's `text` and `span` are
@@ -176,13 +316,32 @@ struct Word {
     quoted: bool,
 }
 
+/// What separates words: any whitespace, `NBSP` included (a paste from a web
+/// page or a document carries it), and any control character, so the
+/// backspaces and escape codes a pager leaves in a session log split words
+/// rather than glue them to the keyword after them.
+fn is_gap(c: char) -> bool {
+    c.is_whitespace() || c.is_control()
+}
+
 fn words(capture: &str, span: ByteSpan) -> Vec<Word> {
     let text = frame::slice(capture, span);
     let at = |i: usize| span.start + i as u32;
     let mut out = Vec::new();
     let mut chars = text.char_indices().peekable();
     while let Some((i, c)) = chars.next() {
-        if c.is_ascii_whitespace() {
+        if c == '\x1b' {
+            // An ANSI escape (`ESC [ 7 m`): its parameters are not a word.
+            if chars.next_if(|&(_, d)| d == '[').is_some() {
+                for (_, d) in chars.by_ref() {
+                    if ('\x40'..='\x7e').contains(&d) {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        if is_gap(c) {
             continue;
         }
         if c == '"' {
@@ -207,7 +366,7 @@ fn words(capture: &str, span: ByteSpan) -> Vec<Word> {
         }
         let mut end = text.len();
         while let Some(&(j, d)) = chars.peek() {
-            if d.is_ascii_whitespace() {
+            if is_gap(d) {
                 end = j;
                 break;
             }
@@ -227,7 +386,7 @@ fn words(capture: &str, span: ByteSpan) -> Vec<Word> {
 }
 
 /// One physical line per logical line. Whether a terminal hard-wraps a long
-/// line is open (README-omada-sw.md); a wrapped tail is swept, not forced.
+/// line is open (README-omada-sw.md); [`WRAP_WIDTH`] says what is assumed.
 fn logical_lines(capture: &str) -> Vec<LogicalLine> {
     let mut lines = Vec::new();
     let mut start = 0u32;
@@ -266,11 +425,20 @@ fn seg(w: &Word) -> Seg {
 
 /// The opener a line starts, if it starts one: the context segments every
 /// line under it is read with.
-fn opener(ws: &[Word]) -> Option<Vec<Seg>> {
+fn opener(ws: &[Word], dialect: &Dialect) -> Option<Vec<Seg>> {
     let lead: Vec<&str> = ws.iter().map(|w| w.text.as_str()).collect();
-    let words = OPENERS
+    let words = dialect
+        .openers
         .iter()
-        .find(|o| lead.len() > o.len() && lead.starts_with(o))?;
+        .find(|o| {
+            let fits = if o.exact {
+                lead.len() == o.words.len()
+            } else {
+                lead.len() > o.words.len()
+            };
+            fits && lead.starts_with(o.words)
+        })?
+        .words;
     let (head, rest) = ws.split_at(words.len());
     let mut out: Vec<Seg> = head.iter().map(seg).collect();
     match (words.first(), rest) {
@@ -292,13 +460,19 @@ fn opener(ws: &[Word]) -> Option<Vec<Seg>> {
 /// Where the credential on a line starts, as an index into its words: the
 /// word after the first credential keyword, or, for `snmp-server host IP …`,
 /// the word after the address (TP-Link prints the community there).
+///
+/// `snmp-server` matches at the end of a word too, so a prompt this reader did
+/// not recognise (`(SW#1) (Config)#snmp-server`) still leaves the rule in force.
 fn secret_from(ws: &[Word]) -> Option<usize> {
     let host = ws.windows(2).position(|p| {
-        matches!(p, [a, b] if a.text.eq_ignore_ascii_case("snmp-server") && b.text.eq_ignore_ascii_case("host"))
+        matches!(p, [a, b] if a.text.to_ascii_lowercase().ends_with("snmp-server") && b.text.eq_ignore_ascii_case("host"))
     });
-    let keyword = ws
-        .iter()
-        .position(|w| !w.quoted && is_secret_word(&w.text))
+    let keyword = (0..ws.len())
+        .find(|&at| {
+            ws.get(at)
+                .is_some_and(|w| !w.quoted && is_secret_word(&w.text))
+                || is_secret_in_context(ws, at)
+        })
         .map(|at| at + 1);
     match (host.map(|at| at + 3), keyword) {
         (Some(h), Some(k)) => Some(h.min(k)),
@@ -306,15 +480,31 @@ fn secret_from(ws: &[Word]) -> Option<usize> {
     }
 }
 
-/// The narrowest common terminal is 80 columns. Whether TP-Link's CLI
-/// hard-wraps a long line at all is not established (README-omada-sw.md,
-/// "Open"), so a credential line this long is assumed it may have been, and
-/// the next line, unless it only separates or opens a block, is destroyed whole: a value
-/// split across the break would otherwise keep its second half.
+/// The narrowest common terminal is 80 columns. Whether these CLIs hard-wrap
+/// a long line at all is not established (README-omada-sw.md, "Open"), so any
+/// line this long is assumed it may have been. The next line is destroyed
+/// whole, whatever it looks like, when the long line held a credential
+/// keyword, or when the two read together would: a value split across the
+/// break would otherwise keep its second half, and a keyword split across it
+/// (`passw` / `ord X`) would leave the value unseen. A destroyed line that is
+/// itself this long carries the rule on to the line after it.
 const WRAP_WIDTH: usize = 79;
 
 fn wrappable(capture: &str, span: ByteSpan) -> bool {
     frame::slice(capture, span).trim_end().chars().count() >= WRAP_WIDTH
+}
+
+/// Whether a long line and the line after it, read as one with or without a
+/// space at the break, carry a credential keyword.
+fn joined_secret(long: &str, next: &str) -> bool {
+    ["", " "].iter().any(|gap| {
+        let joined = format!("{long}{gap}{next}");
+        let all = ByteSpan {
+            start: 0,
+            end: joined.len() as u32,
+        };
+        secret_from(&words(&joined, all)).is_some()
+    })
 }
 
 /// The words before the credential, then the rest of the line from its first
@@ -335,6 +525,19 @@ fn tail_path(capture: &str, span: ByteSpan, ws: &[Word], from: usize) -> Option<
 /// The whole read: a block config in, an [`IngestOutput`] out, identical in
 /// shape to what [`crate::ingest`] returns for a `set`-form paste.
 pub fn ingest_blockcfg(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, IngestRefusal> {
+    ingest_dialect(paste, dict, &TPLINK)
+}
+
+/// [`ingest_blockcfg`] for a UniFi switch's `show running-config`.
+pub fn ingest_unifi(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, IngestRefusal> {
+    ingest_dialect(paste, dict, &UNIFI)
+}
+
+fn ingest_dialect(
+    paste: &[u8],
+    dict: &Dictionary,
+    dialect: &Dialect,
+) -> Result<IngestOutput, IngestRefusal> {
     // `frame` for its refusals and its normalisation only; the lines are ours.
     let framed = frame::frame(paste)?;
     let mut capture = framed.capture;
@@ -353,9 +556,12 @@ pub fn ingest_blockcfg(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, 
     let mut noise: Vec<UnshapedLine> = Vec::new();
     // The block in force: its opener's segments.
     let mut block: Option<Vec<Seg>> = None;
-    // Set when the last line held a forced credential and was long enough
+    // Set when the last line held a credential keyword and was long enough
     // that a terminal may have hard-wrapped it (see [`WRAP_WIDTH`]).
     let mut may_continue = false;
+    // The last line, when it was that long: read with the next for a keyword
+    // split across the break.
+    let mut long_line: Option<String> = None;
 
     for line in &lines {
         let span = line
@@ -365,10 +571,18 @@ pub fn ingest_blockcfg(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, 
             .unwrap_or(ByteSpan { start: 0, end: 0 });
         if line.class == LineClass::Blank {
             may_continue = false;
+            long_line = None;
             outcomes.push(Outcome::new(LineOutcome::Blank));
             continue;
         }
-        let continues = std::mem::take(&mut may_continue);
+        let raw_text = frame::slice(&capture, span).trim_end().to_owned();
+        let split = long_line
+            .take()
+            .is_some_and(|long| joined_secret(&long, raw_text.trim_start()));
+        let continues = std::mem::take(&mut may_continue) || split;
+        if wrappable(&capture, span) {
+            long_line = Some(raw_text);
+        }
         let ws = words(&capture, span);
         let toks: Vec<Token> = if ws.is_empty() {
             vec![bare(span)]
@@ -383,12 +597,7 @@ pub fn ingest_blockcfg(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, 
         });
         let text = frame::slice(&capture, span).trim();
 
-        if is_separator(text) {
-            block = None;
-            outcomes.push(Outcome::new(LineOutcome::Header { columns: 0 }));
-            continue;
-        }
-        if continues && opener(&ws).is_none() {
+        if continues {
             // Possibly the wrapped rest of a credential: destroyed whole.
             let lead = frame::slice(&capture, span).len()
                 - frame::slice(&capture, span).trim_start().len();
@@ -405,7 +614,13 @@ pub fn ingest_blockcfg(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, 
                 tokens: vec![bare(whole)],
                 list_pos: 0,
             });
+            may_continue = wrappable(&capture, span);
             outcomes.push(Outcome::new(LineOutcome::Unmapped { known_prefix: 0 }));
+            continue;
+        }
+        if is_separator(text) {
+            block = None;
+            outcomes.push(Outcome::new(LineOutcome::Header { columns: 0 }));
             continue;
         }
         if is_command_echo(text) {
@@ -418,10 +633,8 @@ pub fn ingest_blockcfg(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, 
         // a command typed at the prompt carries its value in clear.
         let prefix_end = if is_prompt(text) {
             text.find(['#', '>']).map(|at| at + 1)
-        } else if is_pager(text) {
-            Some(text.find(')').map(|at| at + 1).unwrap_or(text.len()))
         } else {
-            None
+            pager_end(text)
         };
         if let Some(cut) = prefix_end {
             block = None;
@@ -485,7 +698,7 @@ pub fn ingest_blockcfg(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, 
 
         let mut path: Vec<Seg> = Vec::new();
         let mut secret = false;
-        if let Some(open) = opener(&ws) {
+        if let Some(open) = opener(&ws, dialect) {
             block = Some(open.clone());
             path = open;
         } else {
@@ -498,8 +711,12 @@ pub fn ingest_blockcfg(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, 
                     secret = true;
                 }
                 None => match secret_from(&ws) {
-                    // A keyword with nothing after it: nothing to destroy.
-                    Some(from) => path.extend(ws.iter().take(from).map(seg)),
+                    // A keyword with nothing after it: nothing to destroy
+                    // here, but its value may be on the next line.
+                    Some(from) => {
+                        path.extend(ws.iter().take(from).map(seg));
+                        may_continue = wrappable(&capture, span);
+                    }
                     None => path.extend(ws.iter().map(seg)),
                 },
             }
@@ -677,17 +894,52 @@ mod tests {
 
     #[test]
     fn an_interface_name_is_one_word() {
-        let o = opener(&ws("interface gigabitEthernet 1/0/1")).unwrap();
+        let o = opener(&ws("interface gigabitEthernet 1/0/1"), &TPLINK).unwrap();
         assert_eq!(o.len(), 2);
         assert_eq!(o[1].0, "gigabitEthernet1/0/1");
         assert_eq!(o[1].1.span, ByteSpan { start: 10, end: 31 });
-        let v = opener(&ws("vlan 10")).unwrap();
+        let v = opener(&ws("vlan 10"), &TPLINK).unwrap();
         assert_eq!(
             v.iter().map(|s| s.0.as_str()).collect::<Vec<_>>(),
             ["vlan", "10"]
         );
-        assert!(opener(&ws("vlan")).is_none());
-        assert!(opener(&ws("switchport pvid 70")).is_none());
+        assert!(opener(&ws("vlan"), &TPLINK).is_none());
+        assert!(opener(&ws("switchport pvid 70"), &TPLINK).is_none());
+    }
+
+    #[test]
+    fn the_unifi_sniff_is_exact() {
+        let head = "!Current Configuration:\n!\n!System Description \"USW-48P-500,, Linux 3.6.5\"\n!System Software Version \"\"\n!\n";
+        assert!(looks_like_unifi(head.as_bytes()));
+        let banner = format!("US.v3.8.6# telnet localhost\nEntering character mode\n(UBNT) >enable\n(UBNT) #show run\n{head}");
+        assert!(looks_like_unifi(banner.as_bytes()));
+        assert!(!looks_like_unifi(
+            b"!Current Configuration:\n!\n!System Description \"EdgeSwitch 16-Port 10G, 1.7.4\"\n"
+        ));
+        assert!(!looks_like_unifi(
+            b"!Current Configuration:\n!\n!System Description \"EFOS, 3.12.0.1, Linux 5.4.2\"\n"
+        ));
+        assert!(!looks_like_unifi(b"!T2600G-28TS\n#\n"));
+        assert!(!looks_like_tplink(head.as_bytes()));
+    }
+
+    #[test]
+    fn unifi_prompts_are_prompts() {
+        assert!(is_prompt("(UBNT) #show run"));
+        assert!(is_prompt("(UBNT) >enable"));
+        assert!(is_prompt("(UBNT) (Interface 0/1)#description \"x\""));
+        assert!(is_prompt("(UBNT) (Config)#"));
+        assert!(!is_prompt("description \"a#b\""));
+        assert!(!is_prompt("(Q to quit) and more"));
+    }
+
+    #[test]
+    fn a_unifi_vlan_line_is_not_an_opener() {
+        assert!(opener(&ws("vlan pvid 10"), &UNIFI).is_none());
+        assert!(opener(&ws("vlan database"), &UNIFI).is_some());
+        assert!(opener(&ws("vlan database extra"), &UNIFI).is_none());
+        let o = opener(&ws("interface 0/1"), &UNIFI).unwrap();
+        assert_eq!(o[1].0, "0/1");
     }
 
     #[test]

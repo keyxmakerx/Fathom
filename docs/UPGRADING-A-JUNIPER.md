@@ -6,8 +6,8 @@ documentation rather than a verbatim read of it.** Each step says which it is. C
 *summary* against the real hardware guide for your platform and release before a maintenance window
 you care about. ADR-0034 is why this warning is here rather than omitted.
 
-This works today, by hand, with no Fathom involved. ADR-0045 describes what Fathom will do for you,
-which is stage the image and check the hash — never run the upgrade.
+This works today, by hand, with no Fathom involved. Fathom's part (ADR-0045, ADR-0064; Inventory ›
+Firmware, built) is to plan the upgrade, stage the image and check the hash — never run it.
 
 ---
 

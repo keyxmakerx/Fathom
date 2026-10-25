@@ -1,4 +1,4 @@
-# Running Fathom — 2026-09-21
+# Running Fathom — 2026-09-21, links checked 2026-10-23
 
 Two ways to start it: **Docker Compose**, one published port behind your own reverse proxy, which
 CI runs end to end on every push (image built, stack up, the first operator's setup password
@@ -159,9 +159,9 @@ the console. Until a person claims an organisation, Home shows them nothing to o
 
 **What an operator cannot do yet from the console:** add a second operator end to end. The request is
 signed, delayed and recorded, but nothing yet hands the colleague their own setup token. Finish it from
-the host with `recover-operator` once their account exists (`docs/NEXT.md`).
+the host with `recover-operator` once their account exists (`docs/STATE.md`, the operator plane).
 
-### Verified on 2026-09-14, from source
+### Verified on 2026-09-14, from source (a dated snapshot; counts have grown since)
 
 Run here against a real PostgreSQL 16, from an empty database:
 

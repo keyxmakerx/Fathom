@@ -21,7 +21,7 @@ pretend otherwise. The requirement starts here and applies to what comes next.
 
 ## 2. Before you write anything
 
-Read `.context/conventions.md` — all of it. It is short, it is binding, and it is where the ten
+Read `.context/conventions.md` — all of it. It is short, it is binding, and it is where the eleven
 hard invariants live. Four of them are refusals the product exists to make, and a change that
 breaks one is not a contribution however good the code is:
 
