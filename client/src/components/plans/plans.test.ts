@@ -631,6 +631,16 @@ describe('the panel and the page, rendered', () => {
     };
   }
 
+  it('offers Back out once a step is marked, and not before', () => {
+    const { doc, ports } = lab();
+    const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }, null]);
+    const started = startPlan(made.doc, made.id, tick());
+    expect(render(readPlan(started, made.id), started).panel).not.toContain('plans-back-out');
+    const first = readPlan(started, made.id).steps[0].id;
+    const done = markDone(started, first, { check: () => null, ...tick() });
+    expect(render(readPlan(done, made.id), done).panel).toContain('Back out…');
+  });
+
   it('the add-step form and the new-plan form say typed text is stored as typed', () => {
     const { doc } = lab();
     const made = planWith(doc, []);

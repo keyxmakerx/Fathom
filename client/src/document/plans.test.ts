@@ -13,6 +13,9 @@ import {
   currentStep,
   decodeEdit,
   encodeEdit,
+  backOut,
+  backOutSteps,
+  BACKED_OUT_NOTE,
   lagMembers,
   nextLagName,
   listPlans,
@@ -607,5 +610,83 @@ describe('a LAG step', () => {
     }
     expect(decodeEdit('lag\tdevice:A\tae0\tsideways\tinterface:B')).toBeNull();
     expect(decodeEdit('lag\tdevice:A\tae0\tactive')).toBeNull();
+  });
+});
+
+describe('backing out', () => {
+  it('stops the plan, records it failed and makes a new plan with the reverse steps, newest first', () => {
+    const { doc, device, ports, cable } = lab();
+    const withAddr = setDeviceField(doc, device, 'management_address', '10.0.0.1', tick());
+    let made = createPlan(withAddr, { title: 'Move uplink', gate, ...tick() });
+    const s1 = addStep(made.doc, made.id, { kind: 'cable', change: 'Patch 1 to 2', edit: { t: 'cable', a: ports[0], b: ports[1] }, gate, ...tick() });
+    const s2 = addStep(s1.doc, made.id, { kind: 'address', change: 'New address', edit: { t: 'field', id: device, key: 'Device.management_address', value: '10.0.0.9' }, gate, ...tick() });
+    const s3 = addStep(s2.doc, made.id, { kind: 'cable', change: 'Unplug the old uplink', edit: { t: 'cut', cable }, gate, ...tick() });
+    const s4 = addStep(s3.doc, made.id, { kind: 'other', change: 'Tell the office', gate, ...tick() });
+    made = { doc: s4.doc, id: made.id };
+    let d = startPlan(made.doc, made.id, tick());
+    d = markDone(d, s1.id, { check: allow, ...tick() });
+    d = markDone(d, s2.id, { check: allow, ...tick() });
+    d = markWentDifferently(d, s3.id, { note: 'Left it plugged in', gate, ...tick() });
+
+    const before = d.batches.length;
+    const out = backOut(d, made.id, { ...tick() });
+    expect(out.doc.batches.length).toBe(before + 1);
+    const old = readPlan(out.doc, made.id);
+    expect(old.stage).toBe('recorded');
+    expect(old.outcome).toBe('failed');
+    expect(old.record).toContain('Back out: Move uplink');
+    expect(old.steps[3]).toMatchObject({ state: 'went_differently', note: BACKED_OUT_NOTE });
+
+    const back = readPlan(out.doc, out.id);
+    expect(back.title).toBe('Back out: Move uplink');
+    expect(back.stage).toBe('planned');
+    expect(back.steps.map((s) => s.change)).toEqual([
+      'Check step 3, it went differently: Unplug the old uplink',
+      'Undo step 2: New address',
+      'Undo step 1: Patch 1 to 2',
+    ]);
+    expect(back.steps[1].edit).toEqual({ t: 'field', id: device, key: 'Device.management_address', value: '10.0.0.1' });
+    expect(back.steps[2].edit?.t).toBe('cut');
+
+    // The way back is an ordinary plan: it can take a step of its own, then runs and puts the design back.
+    let b = addStep(out.doc, out.id, { kind: 'other', change: 'Clear the ARP cache', gate, ...tick() }).doc;
+    b = startPlan(b, out.id, tick());
+    for (const st of readPlan(b, out.id).steps) b = markDone(b, st.id, { check: allow, ...tick() });
+    expect(findNode(b, device)!.fields['Device.management_address']).toMatchObject({ presence: 'set' });
+    expect(asString(fieldValue(findNode(b, device)!.fields, 'Device.management_address'))).toBe('10.0.0.1');
+    expect(edgesIn(b, ports[0], 'Terminates')).toEqual([]);
+  });
+
+  it('reverses a LAG, and a recorded plan stays as written', () => {
+    let doc = createSketchDevice(emptyDocument(), tick());
+    const device = doc.nodes.find((n) => n.id.startsWith('device:'))!.id;
+    const bb = begin(doc, tick());
+    const ids = ['ge-0/0/0', 'ge-0/0/1'].map((name) => {
+      const id = addNode(bb, 'Interface', { 'Interface.name': interfaceName(name), 'Interface.form': token('ethernet') });
+      addEdge(bb, 'HasInterface', device, id);
+      return id;
+    });
+    doc = finish(bb, 'paste');
+    let made = createPlan(doc, { title: 'LAG', gate, ...tick() });
+    const st = addStep(made.doc, made.id, { kind: 'lag', change: 'Make ae0', edit: { t: 'lag', device, name: 'ae0', lacp: 'active', members: ids }, gate, ...tick() });
+    made = { doc: st.doc, id: made.id };
+    let d = markDone(startPlan(made.doc, made.id, tick()), st.id, { check: allow, ...tick() });
+    d = recordPlan(d, made.id, { outcome: 'partial', gate, ...tick() });
+    const steps = backOutSteps(d, readPlan(d, made.id));
+    expect(steps[0].edit?.t).toBe('unlag');
+    const out = backOut(d, made.id, { ...tick() });
+    expect(readPlan(out.doc, made.id).outcome).toBe('partial');
+    const back = readPlan(out.doc, out.id);
+    let b = startPlan(out.doc, out.id, tick());
+    b = markDone(b, back.steps[0].id, { check: allow, ...tick() });
+    expect(b.nodes.filter((n) => n.id.startsWith('aggregate-interface:') && n.absentSince === undefined)).toEqual([]);
+    expect(lagMembers(b, device).every((m) => m.inLag === null)).toBe(true);
+  });
+
+  it('refuses a plan with nothing marked', () => {
+    const { doc, ports } = lab();
+    const p = plan(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
+    expect(() => backOut(p.doc, p.id, tick())).toThrow(PlanRefusal);
+    expect(() => backOut(startPlan(p.doc, p.id, tick()), p.id, tick())).toThrow(PlanRefusal);
   });
 });

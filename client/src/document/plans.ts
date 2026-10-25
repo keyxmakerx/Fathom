@@ -28,7 +28,9 @@ import {
   edgesIn,
   edgesOut,
   findNode,
+  parseEdgeId,
   parseNodeId,
+  readMountedInFields,
   text,
   token,
   uint,
@@ -91,7 +93,8 @@ export type StepEdit =
   | { t: 'cable'; a: string; b: string }
   | { t: 'cut'; cable: string }
   | { t: 'move'; chassis: string; rack: string; positionU: number; face: 'front' | 'rear' }
-  | { t: 'lag'; device: string; name: string; lacp: LacpMode; members: string[] };
+  | { t: 'lag'; device: string; name: string; lacp: LacpMode; members: string[] }
+  | { t: 'unlag'; lag: string };
 
 /** `lacp_mode` (schema/enums/lacp_mode.yaml); '' leaves it unset. `off` is a static bundle. */
 export type LacpMode = 'active' | 'passive' | 'off' | '';
@@ -114,6 +117,8 @@ export function encodeEdit(e: StepEdit): string {
       return ['move', clean(e.chassis, 'an id'), clean(e.rack, 'an id'), String(e.positionU), e.face].join('\t');
     case 'lag':
       return ['lag', clean(e.device, 'an id'), clean(e.name, 'a name'), e.lacp, ...e.members.map((m) => clean(m, 'an id'))].join('\t');
+    case 'unlag':
+      return ['unlag', clean(e.lag, 'an id')].join('\t');
   }
 }
 
@@ -137,6 +142,8 @@ export function decodeEdit(line: string | undefined): StepEdit | null {
       return p.length >= 5 && (LACP_MODES as readonly string[]).includes(p[3])
         ? { t: 'lag', device: p[1], name: p[2], lacp: p[3] as LacpMode, members: p.slice(4) }
         : null;
+    case 'unlag':
+      return p.length === 2 ? { t: 'unlag', lag: p[1] } : null;
     default:
       return null;
   }
@@ -156,6 +163,8 @@ export function targetsOf(e: StepEdit | null): string[] {
       return [e.chassis, e.rack];
     case 'lag':
       return [e.device, ...e.members];
+    case 'unlag':
+      return [e.lag];
   }
 }
 
@@ -213,6 +222,8 @@ function slotsOf(e: StepEdit): [string, string][] {
       ];
     case 'lag':
       return [[e.device, 'Device'], ...e.members.map((m): [string, string] => [m, 'Interface'])];
+    case 'unlag':
+      return [[e.lag, 'AggregateInterface']];
   }
 }
 
@@ -227,6 +238,7 @@ function assertWellFormed(doc: Document, e: StepEdit): void {
   if (e.t === 'move' && !Number.isInteger(e.positionU)) throw new PlanRefusal('bad-edit', 'a rack position is a whole number');
   if (e.t === 'move' && e.face !== 'front' && e.face !== 'rear') throw new PlanRefusal('bad-edit', 'a face is front or rear');
   if (e.t === 'lag') assertLag(doc, e);
+  if (e.t === 'unlag') lagEdges(doc, e.lag);
 }
 
 // ---------------------------------------------------------------------------
@@ -292,6 +304,29 @@ function assertLag(doc: Document, e: Extract<StepEdit, { t: 'lag' }>): void {
   }
 }
 
+/** The edges a LAG removal takes with it: its HasInterface and its members' MemberOfAggregate. Anything else on it
+ * (a unit, an address) is refused, so removing a LAG never leaves a config orphaned. */
+function lagEdges(doc: Document, lagId: string): string[] {
+  const ae = findNode(doc, lagId);
+  if (!ae || ae.absentSince !== undefined) throw new PlanRefusal('bad-edit', 'that LAG is not in the design');
+  const own = doc.edges.filter((x) => x.absentSince === undefined && (x.from === lagId || x.to === lagId));
+  const taken = own.filter((x) => parseEdgeId(x.id).kind === 'HasInterface' || parseEdgeId(x.id).kind === 'MemberOfAggregate');
+  if (taken.length !== own.length) {
+    const name = asString(fieldValue(ae.fields, 'AggregateInterface.name')) ?? 'the LAG';
+    throw new PlanRefusal('bad-edit', `${name} carries more than its members; take those off first`);
+  }
+  return taken.map((x) => x.id);
+}
+
+/** Removes a LAG: the AggregateInterface and its member edges, members kept. One undo step. */
+function removeLag(doc: Document, lagId: string, opts?: Actor): Document {
+  const edges = lagEdges(doc, lagId);
+  const name = asString(fieldValue(findNode(doc, lagId)!.fields, 'AggregateInterface.name')) ?? 'LAG';
+  const b = begin(doc, opts);
+  tombstone(b, new Set([lagId]), new Set(edges));
+  return finish(b, truncateUtf8(`remove LAG ${name}`));
+}
+
 /** Builds the LAG: the AggregateInterface on the device, and each member joined to it. One undo step. */
 function makeLag(doc: Document, e: Extract<StepEdit, { t: 'lag' }>, opts?: Actor): Document {
   assertLag(doc, e);
@@ -316,6 +351,8 @@ export function applyEdit(doc: Document, e: StepEdit, opts?: Actor): Document {
       return movePlacement(doc, e.chassis, { kind: 'rack', rackId: e.rack, positionU: e.positionU, face: e.face }, opts);
     case 'lag':
       return makeLag(doc, e, opts);
+    case 'unlag':
+      return removeLag(doc, e.lag, opts);
     case 'field': {
       const value = e.value === '' ? null : e.value;
       const [kind, key] = e.key.split('.');
@@ -715,6 +752,158 @@ export function recordPlan(doc: Document, planId: string, opts: RecordOptions): 
   const record = gated(opts.gate, opts.text, 'the record').trim();
   if (record !== '') setNodeField(b, planId, 'MaintenancePlan.record', text(record));
   return finish(b, truncateUtf8(`${plan.title}: recorded as ${opts.outcome}`));
+}
+
+// ---------------------------------------------------------------------------
+// Backing out (sign-off r16-backout). A plan that went wrong is not rewound in place: Back out writes a new,
+// separate plan from where the design is now back to where it started, so the way back can hold steps of its own.
+// It starts as the reverse of every step done, newest first; a step that went differently becomes a step to check.
+
+/** What a backed-out plan's own remaining steps are marked, and the words its record starts with. */
+export const BACKED_OUT_NOTE = 'Not done: the plan was backed out';
+
+const BACK_OUT_TITLE = 'Back out: ';
+
+export interface ReverseStep {
+  kind: StepKind;
+  change: string;
+  before: string;
+  after: string;
+  edit?: StepEdit;
+  targets?: string[];
+}
+
+/** The live cable between two ports, or null. */
+function liveCableBetween(doc: Document, a: string, b: string): string | null {
+  for (const t of edgesIn(doc, a, 'Terminates')) {
+    const c = findNode(doc, t.from);
+    if (c && c.absentSince === undefined && edgesOut(doc, t.from, 'Terminates').some((u) => u.to === b)) return t.from;
+  }
+  return null;
+}
+
+/** Every end a cable ever had, removed or not: a cut cable's ends are tombstoned with it. */
+function everEnds(doc: Document, cableId: string): string[] {
+  return doc.edges.filter((x) => x.from === cableId && parseEdgeId(x.id).kind === 'Terminates').map((x) => x.to);
+}
+
+const liveNode = (doc: Document, id: string): boolean => {
+  const n = findNode(doc, id);
+  return n !== undefined && n.absentSince === undefined;
+};
+
+/** The value a field held before its latest change, as an edit value ('' = it had none). */
+function priorValue(doc: Document, id: string, key: string): string {
+  const h = doc.history.find((r) => r.element === id && r.field === key);
+  const last = h?.entries[h.entries.length - 1];
+  if (!last || last.presence !== 'set') return '';
+  const v = last.value;
+  return typeof v === 'number' ? String(v) : (asString(v) ?? '');
+}
+
+/** The reverse of one marked step, read against the design as it is now. */
+export function reverseOf(doc: Document, step: PlanStep): ReverseStep {
+  const n = step.ordinal + 1;
+  const words = firstLineOf(step.change);
+  if (step.state === 'went_differently') {
+    return { kind: 'other', change: `Check step ${n}, it went differently: ${words}`, before: step.note, after: step.before, targets: step.targets.filter((t) => liveNode(doc, t)) };
+  }
+  const by = (edit: StepEdit): ReverseStep => ({ kind: step.kind, change: `Undo step ${n}: ${words}`, before: step.after, after: step.before, edit });
+  const byHand = (what: string): ReverseStep => ({
+    kind: 'other',
+    change: `Undo step ${n}: ${what}`,
+    before: step.after,
+    after: step.before,
+    targets: step.targets.filter((t) => liveNode(doc, t)),
+  });
+  const e = step.edit;
+  if (e === null) return byHand(words);
+  switch (e.t) {
+    case 'cable': {
+      const cable = liveCableBetween(doc, e.a, e.b);
+      return cable ? by({ t: 'cut', cable }) : byHand(`${words} (the cable is no longer in the design)`);
+    }
+    case 'cut': {
+      const ends = everEnds(doc, e.cable);
+      return ends.length === 2 && ends.every((p) => liveNode(doc, p)) ? by({ t: 'cable', a: ends[0], b: ends[1] }) : byHand(words);
+    }
+    case 'move': {
+      // Where it stood before: its newest removed rack placement, if the move took it out of a rack.
+      const prior = doc.edges
+        .filter((x) => x.from === e.chassis && x.absentSince !== undefined && parseEdgeId(x.id).kind === 'MountedIn')
+        .sort((x, y) => (y.absentSince ?? 0) - (x.absentSince ?? 0))[0];
+      const f = prior ? readMountedInFields(prior) : null;
+      return prior && f?.positionU != null && liveNode(doc, prior.to)
+        ? by({ t: 'move', chassis: e.chassis, rack: prior.to, positionU: f.positionU, face: f.face === 'rear' ? 'rear' : 'front' })
+        : byHand(words);
+    }
+    case 'field':
+      return by({ ...e, value: priorValue(doc, e.id, e.key) });
+    case 'lag': {
+      const ae = edgesOut(doc, e.device, 'HasInterface').find(
+        (h) => parseNodeId(h.to).kind === 'AggregateInterface' && liveNode(doc, h.to) && asString(fieldValue(findNode(doc, h.to)!.fields, 'AggregateInterface.name')) === e.name,
+      );
+      return ae ? by({ t: 'unlag', lag: ae.to }) : byHand(words);
+    }
+    case 'unlag': {
+      const ae = findNode(doc, e.lag);
+      const was = (kind: string) => doc.edges.filter((x) => x.to === e.lag && parseEdgeId(x.id).kind === kind);
+      const device = was('HasInterface')[0]?.from;
+      const members = was('MemberOfAggregate').map((x) => x.from).filter((m) => liveNode(doc, m));
+      const name = ae ? asString(fieldValue(ae.fields, 'AggregateInterface.name')) : undefined;
+      const lacp = ae ? (asString(fieldValue(ae.fields, 'AggregateInterface.lacp_mode')) ?? '') : '';
+      return device && name && members.length >= 2 && (LACP_MODES as readonly string[]).includes(lacp)
+        ? by({ t: 'lag', device, name, lacp: lacp as LacpMode, members })
+        : byHand(words);
+    }
+  }
+}
+
+function firstLineOf(s: string): string {
+  return s.split('\n')[0];
+}
+
+/** The way back, newest step first: what Back out pre-fills. */
+export function backOutSteps(doc: Document, plan: Plan): ReverseStep[] {
+  return plan.steps
+    .filter((s) => s.state !== 'planned' && !(s.state === 'went_differently' && s.note === BACKED_OUT_NOTE))
+    .sort((a, b) => b.ordinal - a.ordinal)
+    .map((s) => reverseOf(doc, s));
+}
+
+/**
+ * Backs a plan out. While the work is going, the plan stops: its remaining steps are marked as not done and it is
+ * recorded as failed, saying where the way back is. A plan already recorded is left as written. Either way a new
+ * plan is made, still being planned, holding the reverse steps: it can be changed, added to and reordered before
+ * anyone starts it. One batch; the recording in it cannot be undone, as no recording can.
+ */
+export function backOut(doc: Document, planId: string, opts: Actor & { author?: string }): { doc: Document; id: string } {
+  const plan = readPlan(doc, planId);
+  if (plan.stage === 'planned') throw new PlanRefusal('not-doing', 'nothing has been done yet; change the plan instead');
+  const steps = backOutSteps(doc, plan);
+  if (steps.length === 0) throw new PlanRefusal('no-steps', 'no step has been marked, so there is nothing to back out');
+  const from = doc.batches.length;
+  const now = opts.now ?? Date.now();
+  const at = { actor: opts.actor, now };
+  const title = truncateUtf8(`${BACK_OUT_TITLE}${plan.title}`, 200);
+  let next = doc;
+  if (plan.stage === 'doing') {
+    const b = begin(next, at);
+    for (const s of plan.steps.filter((x) => x.state === 'planned')) {
+      setNodeField(b, s.id, 'PlanStep.state', token('went_differently'));
+      setNodeField(b, s.id, 'PlanStep.note', text(BACKED_OUT_NOTE));
+      setNodeField(b, s.id, 'PlanStep.done_at', text(new Date(now).toISOString()));
+    }
+    setNodeField(b, planId, 'MaintenancePlan.stage', token('recorded'));
+    setNodeField(b, planId, 'MaintenancePlan.outcome', token('failed'));
+    const record = plan.record.trim() === '' ? '' : `${plan.record.trim()}\n`;
+    setNodeField(b, planId, 'MaintenancePlan.record', text(`${record}Backed out. The way back is the plan "${title}".`));
+    next = finish(b, 'back out');
+  }
+  const made = createPlan(next, { title, gate: TYPED_AS_WRITTEN, ...(opts.author ? { author: opts.author } : {}), ...at });
+  next = made.doc;
+  for (const s of steps) next = addStep(next, made.id, { ...s, gate: TYPED_AS_WRITTEN, ...at }).doc;
+  return { doc: relabelLast(next, from, truncateUtf8(`${plan.title}: backed out`)), id: made.id };
 }
 
 /** Unknown ids in a plan's steps, for the list view to flag: a thing deleted since planning. */
