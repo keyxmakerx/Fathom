@@ -72,6 +72,13 @@ configuration. The server image is distroless and has no `pg_dump`, so in compos
 from the `db` container and is piped in; `docs/OPERATING.md` has the lines. `keys-init` now
 generates `backup.key` beside the other keys.
 
+**The dump is taken as the superuser, `fathom_bootstrap`.** The manual procedure this replaces said
+`pg_dump -U fathom`, which fails on a real install: 43 tables are `FORCE ROW LEVEL SECURITY`, so the
+owner is filtered and `pg_dump` refuses (reproduced against this schema on PostgreSQL 16,
+2026-10-25). Restoring needs the two roles the migrations create, made as `fathom`, before
+`pg_restore`; `docs/OPERATING.md` gives the order, and a dump restored that way was started by the
+server, which continued the site chain and refused a different master key with exit 11.
+
 ## Not yet built, in the order the card lists them
 
 The Settings › Backups screen, the nightly schedule with retention, the weekly restore test shown on
