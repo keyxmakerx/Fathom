@@ -37,6 +37,7 @@ import { deviceChassis, jotPlates, jotSpot, originOf } from '../jot/jotLayout';
 import { PasteCard, type PasteState } from '../paste/PasteCard';
 import { SuggestCard } from '../suggest/SuggestCard';
 import { createSuggestStore, SuggestContext } from '../suggest/suggestStore';
+import { looksLikeFacts } from '../../document/facts';
 import { looksLikeMacTable } from '../../document/hosts';
 import { looksLikeNeighbours } from '../../document/neighbours';
 import type { PastePlatform } from '../../engine/frames';
@@ -1189,8 +1190,9 @@ export function RacksPlace(props: RacksPlaceProps) {
     (text: string, platform?: PastePlatform) => {
       if (doc == null || !canDraw) return;
       pendingPasteRef.current = null;
-      // A neighbour list or a MAC table is not a config: it opens the suggestions, for the selected device if there is one.
-      if (looksLikeNeighbours(text) || looksLikeMacTable(text)) {
+      // A neighbour list, a MAC table or show version is not a config: it opens the suggestions, for the selected device
+      // if there is one.
+      if (looksLikeNeighbours(text) || looksLikeMacTable(text) || looksLikeFacts(text)) {
         setPasteState(null);
         setSuggest({ deviceId: selectedChassis, text });
         return;

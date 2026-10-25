@@ -1,6 +1,6 @@
 // Drives who is plugged in where (sign-off r29-fill, mockup r29-autofill-a): select a switch, paste its MAC table
 // onto the canvas, add the router's ARP table and a DHCP lease in the card, see a new device and a cable to a drawn port suggested,
-// add them as one undo step. Screenshots land in FATHOM_SHOTS. Usage: bash scripts/build-wasm.sh (once), then
+// add them as one undo step; and a pasted show version filling the serial and running version. Screenshots land in FATHOM_SHOTS. Usage: bash scripts/build-wasm.sh (once), then
 // node scripts/drive-hosts.mjs. Overrides: FATHOM_ROOT, PW_CHROMIUM, PW_PLAYWRIGHT.
 import { execFileSync, spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -209,6 +209,34 @@ try {
     await page.waitForTimeout(250);
     check('Esc closes it', (await page.getByTestId('hosts-card').count()) === 0);
     check('no uncaught page errors (menu)', pageErrors.length === 0, pageErrors.join(' | '));
+    await context.close();
+  }
+  // show version pasted with a device selected: serial and version ticked, saved as one undo step.
+  {
+    const { context, page, pageErrors } = await open('hosts');
+    await page.locator('.react-flow__node-freeBox', { hasText: 'switch-1' }).first().click();
+    const VERSION = [
+      'Cisco IOS Software [Bengaluru], Catalyst L3 Switch Software (CAT9K_IOSXE), Version 17.6.4, RELEASE SOFTWARE (fc1)',
+      'System Serial Number               : FJC2325E0HB',
+      '',
+    ].join('\n');
+    await page.evaluate((text) => {
+      const data = new DataTransfer();
+      data.setData('text/plain', text);
+      document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true }));
+    }, VERSION);
+    await page.waitForTimeout(500);
+    const card = page.getByTestId('facts-card');
+    check('a pasted show version opens the facts card, not the config card', (await card.count()) === 1 && (await page.getByTestId('paste-card').count()) === 0);
+    const said = await card.innerText().catch(() => '');
+    check('it offers the serial and the running version', /FJC2325E0HB/.test(said) && /17\.6\.4/.test(said), said.slice(0, 400));
+    await shot(page, 'HO-04-facts');
+    await card.getByRole('button', { name: 'Save' }).click();
+    await page.waitForTimeout(600);
+    check('Save closes the card', (await card.count()) === 0);
+    check('the serial is on the device', (await page.getByText('FJC2325E0HB').count()) >= 1);
+    await shot(page, 'HO-05-facts-saved');
+    check('no uncaught page errors (facts)', pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }
 } finally {

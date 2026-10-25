@@ -89,3 +89,22 @@ describe('the MAC table half', () => {
     expect(html).toContain('<code>show mac address-table</code>');
   });
 });
+
+describe('the show version half', () => {
+  const sw = box(emptyDocument(), 'switch-1', ['ge-0/0/1']);
+  const ARISTA = 'Arista DCS-7050SX3-48YC8\nSerial number:       SSJ17290598\n\nSoftware image version: 4.28.3M\n';
+
+  it('opens on a pasted show version and ticks what the drawing lacks', () => {
+    const html = renderToStaticMarkup(createElement(SuggestCard, { doc: sw.doc, deviceId: sw.chassisId, text: ARISTA, onApply: noop, onClose: noop }));
+    expect(html).toContain('data-testid="facts-card"');
+    expect(html).toMatch(/<input type="checkbox" checked=""\/><span class="suggest-card__end">Serial<\/span>/);
+    expect(html).toMatch(/<input type="checkbox" checked=""\/><span class="suggest-card__end">Running version<\/span>/);
+    expect(html).toContain('The device says it is a DCS-7050SX3-48YC8.');
+  });
+
+  it('picks the device by the hostname it reports when none was chosen', () => {
+    const html = renderToStaticMarkup(createElement(SuggestCard, { doc: sw.doc, deviceId: null, text: 'Hostname: switch-1\nModel: ex4300-48p\nJunos: 21.4R3-S5\n', onApply: noop, onClose: noop }));
+    expect(html).toMatch(/<option value="device:[^"]+" selected="">switch-1<\/option>/);
+    expect(html).toContain('21.4R3-S5');
+  });
+});

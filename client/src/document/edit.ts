@@ -143,12 +143,12 @@ function commitField(
   return withBatch(working, batch);
 }
 
-export type DeviceFieldKey = 'hostname' | 'role' | 'management_address';
+export type DeviceFieldKey = 'hostname' | 'role' | 'management_address' | 'os_version';
 export type ChassisFieldKey = 'serial';
 
 /**
  * `Device.hostname` (`Identifier`), `Device.role` (the enum above) or
- * `Device.management_address` (`IpAddr`) on one `Device` node — pure, one
+ * `Device.management_address` (`IpAddr`) or `Device.os_version` (`OsVersion`) on one `Device` node — pure, one
  * `Origin::Hand` batch, `value: null` clears the field (UI-SPEC "Absent is
  * drawn as absent": a cleared field is `presence: 'absent'`, never `""`).
  */
@@ -180,6 +180,13 @@ export function setDeviceField(
           throw new FieldValueError(wireKey, value, 'is not a valid IPv4 or IPv6 address');
         }
         encoded = text(value);
+        break;
+      case 'os_version':
+        // `OsVersion` (scalar.rs) is the device's own version string, kept as written.
+        if (value.trim() === '' || /\s/.test(value.trim())) {
+          throw new FieldValueError(wireKey, value, 'is not a version (write it as the device prints it, like 21.4R3-S5)');
+        }
+        encoded = text(value.trim());
         break;
     }
   }

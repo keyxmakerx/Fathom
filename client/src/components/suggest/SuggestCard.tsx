@@ -6,8 +6,10 @@ import { useContext, useEffect, useId, useMemo, useRef, useState, type JSX } fro
 
 import { asString, fieldValue, parseNodeId, type Document } from '../../document/model';
 import { acceptSuggestions, readNeighbours, suggestCables, type CableSuggestion, type NeighbourList } from '../../document/neighbours';
+import { looksLikeFacts } from '../../document/facts';
 import { looksLikeMacTable } from '../../document/hosts';
 import { deviceOf } from '../../document/portTies';
+import { FactsCard } from './FactsCard';
 import { HostsCard } from './HostsCard';
 import { SuggestContext } from './suggestStore';
 import '../paste/paste.css';
@@ -40,15 +42,24 @@ function namedDevices(doc: Document): { id: string; name: string }[] {
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 }
 
-/** One card for both lists a switch can give: a neighbour list suggests cables, a MAC table (round 29) suggests who
- * is plugged in where. A MAC table pasted into the cables card's box switches it over. */
+/** One card for what a device can tell about itself and its neighbours: a neighbour list suggests cables, a MAC
+ * table (round 29) suggests who is plugged in where, `show version` its serial and running version. Either of the
+ * last two pasted into the cables card's box switches it over. */
 export function SuggestCard(props: SuggestCardProps): JSX.Element {
-  const [hosts, setHosts] = useState<string | null>(() => (props.text !== undefined && looksLikeMacTable(props.text) ? props.text : null));
-  if (hosts !== null) return <HostsCard doc={props.doc} deviceId={props.deviceId} text={hosts} actor={props.actor} spot={props.spot} onApply={props.onApply} onClose={props.onClose} />;
-  return <CablesCard {...props} onHosts={setHosts} />;
+  const [other, setOther] = useState<{ kind: 'hosts' | 'facts'; text: string } | null>(() => (props.text !== undefined ? otherOf(props.text) : null));
+  if (other?.kind === 'hosts') return <HostsCard doc={props.doc} deviceId={props.deviceId} text={other.text} actor={props.actor} spot={props.spot} onApply={props.onApply} onClose={props.onClose} />;
+  if (other?.kind === 'facts') return <FactsCard doc={props.doc} deviceId={props.deviceId} text={other.text} actor={props.actor} onApply={props.onApply} onClose={props.onClose} />;
+  return <CablesCard {...props} onOther={setOther} />;
 }
 
-function CablesCard({ doc, deviceId, text, actor, onApply, onClose, onHosts }: SuggestCardProps & { onHosts: (text: string) => void }): JSX.Element {
+/** The card a text that is not a neighbour list belongs to: a MAC table, or a device's report on itself. */
+function otherOf(text: string): { kind: 'hosts' | 'facts'; text: string } | null {
+  if (looksLikeMacTable(text)) return { kind: 'hosts', text };
+  if (looksLikeFacts(text)) return { kind: 'facts', text };
+  return null;
+}
+
+function CablesCard({ doc, deviceId, text, actor, onApply, onClose, onOther }: SuggestCardProps & { onOther: (o: { kind: 'hosts' | 'facts'; text: string }) => void }): JSX.Element {
   const [device, setDevice] = useState<string | null>(() => (deviceId === null ? null : deviceOf(doc, deviceId)));
   const [list, setList] = useState<NeighbourList | null>(() => (text === undefined ? null : readNeighbours(text)));
   const [box, setBox] = useState('');
@@ -91,8 +102,9 @@ function CablesCard({ doc, deviceId, text, actor, onApply, onClose, onHosts }: S
 
   const read = () => {
     const parsed = readNeighbours(box);
-    if ((parsed === null || parsed.rows.length === 0) && looksLikeMacTable(box)) {
-      onHosts(box);
+    const other = parsed === null || parsed.rows.length === 0 ? otherOf(box) : null;
+    if (other !== null) {
+      onOther(other);
       return;
     }
     if (parsed === null || parsed.rows.length === 0) {
@@ -143,10 +155,10 @@ function CablesCard({ doc, deviceId, text, actor, onApply, onClose, onHosts }: S
             On the switch, run <code>show lldp neighbors</code> (Juniper, Cisco, Arista) or <code>lldpcli show neighbors</code> (Linux), then paste what it prints.
           </p>
           <p className="paste-card__note suggest-card__how">
-            To find who is plugged in where, paste its MAC table instead: <code>show mac address-table</code> (Cisco) or <code>show ethernet-switching table</code> (Juniper).
+            To find who is plugged in where, paste its MAC table instead: <code>show mac address-table</code> (Cisco) or <code>show ethernet-switching table</code> (Juniper). For its serial and running version, paste <code>show version</code>.
           </p>
           <textarea className="paste-card__box" rows={7} value={box} onChange={(e) => setBox(e.target.value)} placeholder="paste the neighbour list" spellCheck={false} autoComplete="off" autoCorrect="off" autoCapitalize="off" aria-label="Neighbour list" />
-          {unread && <p className="paste-card__refusal" role="alert">That does not read as a neighbour list or a MAC table. Paste the whole table, with its header line.</p>}
+          {unread && <p className="paste-card__refusal" role="alert">That does not read as a neighbour list, a MAC table or show version. Paste the whole output, with its header line.</p>}
           <div className="paste-card__actions">
             <button type="button" onClick={read} disabled={box.trim() === ''}>Read it</button>
             <button type="button" onClick={onClose}>Cancel</button>
