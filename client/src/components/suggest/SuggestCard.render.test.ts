@@ -59,3 +59,33 @@ describe('the dashed lines', () => {
     expect(suggestMarks([{ key: 'a|b', ends: ['port:a', 'port:b'] }])).toEqual([{ stepId: 'suggest:a|b', ordinal: 0, kind: 'add-cable', keys: [], ends: ['port:a', 'port:b'], word: '' }]);
   });
 });
+
+const MACS = `Vlan    Mac Address       Type        Ports
+----    -----------       --------    -----
+ 100    9c54.1631.8bd1    DYNAMIC     ge-0/0/9
+`;
+
+describe('the MAC table half', () => {
+  const sw = box(emptyDocument(), 'switch-1', ['ge-0/0/1', 'ge-0/0/9']);
+
+  it('opens on a pasted MAC table and suggests a new device', () => {
+    const html = renderToStaticMarkup(createElement(SuggestCard, { doc: sw.doc, deviceId: sw.chassisId, text: MACS, onApply: noop, onClose: noop }));
+    expect(html).toContain('data-testid="hosts-card"');
+    expect(html).toContain('Who is plugged in · 1');
+    expect(html).toContain('new: host-318bd1');
+    expect(html).toContain('Add 1 device and 1 cable');
+    expect(html).toContain('<code>show ip arp</code>');
+  });
+
+  it('names the device from an ARP table pasted with it', () => {
+    const arp = 'Protocol  Address       Age(min)Hardware Addr  Type Interface\nInternet  192.168.10.20 9       9c54.1631.8bd1 ARPA Vlan100\n';
+    const html = renderToStaticMarkup(createElement(SuggestCard, { doc: sw.doc, deviceId: sw.chassisId, text: MACS + '\n' + arp, onApply: noop, onClose: noop }));
+    expect(html).toContain('new: host-192-168-10-20');
+    expect(html).toContain('1 address read.');
+  });
+
+  it('says how to get one on the cables card', () => {
+    const html = renderToStaticMarkup(createElement(SuggestCard, { doc: sw.doc, deviceId: sw.chassisId, onApply: noop, onClose: noop }));
+    expect(html).toContain('<code>show mac address-table</code>');
+  });
+});

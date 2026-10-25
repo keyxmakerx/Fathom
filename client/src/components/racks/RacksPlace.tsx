@@ -37,6 +37,7 @@ import { deviceChassis, jotPlates, jotSpot, originOf } from '../jot/jotLayout';
 import { PasteCard, type PasteState } from '../paste/PasteCard';
 import { SuggestCard } from '../suggest/SuggestCard';
 import { createSuggestStore, SuggestContext } from '../suggest/suggestStore';
+import { looksLikeMacTable } from '../../document/hosts';
 import { looksLikeNeighbours } from '../../document/neighbours';
 import type { PastePlatform } from '../../engine/frames';
 import { devicePlatform, platformChoices, previewPaste, worthReading } from '../paste/pasteConfig';
@@ -1188,8 +1189,8 @@ export function RacksPlace(props: RacksPlaceProps) {
     (text: string, platform?: PastePlatform) => {
       if (doc == null || !canDraw) return;
       pendingPasteRef.current = null;
-      // A neighbour list is not a config: it opens the suggestions, for the selected device if there is one.
-      if (looksLikeNeighbours(text)) {
+      // A neighbour list or a MAC table is not a config: it opens the suggestions, for the selected device if there is one.
+      if (looksLikeNeighbours(text) || looksLikeMacTable(text)) {
         setPasteState(null);
         setSuggest({ deviceId: selectedChassis, text });
         return;
@@ -1962,7 +1963,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         />
       ) : null}
       {suggest != null && doc != null && canDraw && pasteState == null ? (
-        <SuggestCard key={suggest.text ?? suggest.deviceId ?? 'any'} doc={doc} deviceId={suggest.deviceId} text={suggest.text} actor={accountId ?? undefined} onApply={(next, deviceId) => {
+        <SuggestCard key={suggest.text ?? suggest.deviceId ?? 'any'} doc={doc} deviceId={suggest.deviceId} text={suggest.text} actor={accountId ?? undefined} spot={openSpot} onApply={(next, deviceId) => {
             applyDocChange(next);
             // The switch's details say how many of its ports are now cabled: the added cables, in words.
             const chassisId = edgesOut(next, deviceId, 'HasChassis')[0]?.to;

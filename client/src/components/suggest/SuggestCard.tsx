@@ -6,7 +6,9 @@ import { useContext, useEffect, useId, useMemo, useRef, useState, type JSX } fro
 
 import { asString, fieldValue, parseNodeId, type Document } from '../../document/model';
 import { acceptSuggestions, readNeighbours, suggestCables, type CableSuggestion, type NeighbourList } from '../../document/neighbours';
+import { looksLikeMacTable } from '../../document/hosts';
 import { deviceOf } from '../../document/portTies';
+import { HostsCard } from './HostsCard';
 import { SuggestContext } from './suggestStore';
 import '../paste/paste.css';
 import './suggest.css';
@@ -19,6 +21,8 @@ export interface SuggestCardProps {
   text?: string;
   actor?: string;
   /** Writes the cables; `deviceId` is the switch, so the caller can show its ports. */
+  /** Where a new device from a MAC table is pinned. */
+  spot?: () => { x: number; y: number };
   onApply: (next: Document, deviceId: string) => void;
   onClose: () => void;
 }
@@ -36,7 +40,15 @@ function namedDevices(doc: Document): { id: string; name: string }[] {
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 }
 
-export function SuggestCard({ doc, deviceId, text, actor, onApply, onClose }: SuggestCardProps): JSX.Element {
+/** One card for both lists a switch can give: a neighbour list suggests cables, a MAC table (round 29) suggests who
+ * is plugged in where. A MAC table pasted into the cables card's box switches it over. */
+export function SuggestCard(props: SuggestCardProps): JSX.Element {
+  const [hosts, setHosts] = useState<string | null>(() => (props.text !== undefined && looksLikeMacTable(props.text) ? props.text : null));
+  if (hosts !== null) return <HostsCard doc={props.doc} deviceId={props.deviceId} text={hosts} actor={props.actor} spot={props.spot} onApply={props.onApply} onClose={props.onClose} />;
+  return <CablesCard {...props} onHosts={setHosts} />;
+}
+
+function CablesCard({ doc, deviceId, text, actor, onApply, onClose, onHosts }: SuggestCardProps & { onHosts: (text: string) => void }): JSX.Element {
   const [device, setDevice] = useState<string | null>(() => (deviceId === null ? null : deviceOf(doc, deviceId)));
   const [list, setList] = useState<NeighbourList | null>(() => (text === undefined ? null : readNeighbours(text)));
   const [box, setBox] = useState('');
@@ -79,6 +91,10 @@ export function SuggestCard({ doc, deviceId, text, actor, onApply, onClose }: Su
 
   const read = () => {
     const parsed = readNeighbours(box);
+    if ((parsed === null || parsed.rows.length === 0) && looksLikeMacTable(box)) {
+      onHosts(box);
+      return;
+    }
     if (parsed === null || parsed.rows.length === 0) {
       setUnread(true);
       return;
@@ -126,8 +142,11 @@ export function SuggestCard({ doc, deviceId, text, actor, onApply, onClose }: Su
           <p className="paste-card__note suggest-card__how">
             On the switch, run <code>show lldp neighbors</code> (Juniper, Cisco, Arista) or <code>lldpcli show neighbors</code> (Linux), then paste what it prints.
           </p>
+          <p className="paste-card__note suggest-card__how">
+            To find who is plugged in where, paste its MAC table instead: <code>show mac address-table</code> (Cisco) or <code>show ethernet-switching table</code> (Juniper).
+          </p>
           <textarea className="paste-card__box" rows={7} value={box} onChange={(e) => setBox(e.target.value)} placeholder="paste the neighbour list" spellCheck={false} autoComplete="off" autoCorrect="off" autoCapitalize="off" aria-label="Neighbour list" />
-          {unread && <p className="paste-card__refusal" role="alert">That does not read as a neighbour list. Paste the whole table, with its header line.</p>}
+          {unread && <p className="paste-card__refusal" role="alert">That does not read as a neighbour list or a MAC table. Paste the whole table, with its header line.</p>}
           <div className="paste-card__actions">
             <button type="button" onClick={read} disabled={box.trim() === ''}>Read it</button>
             <button type="button" onClick={onClose}>Cancel</button>
