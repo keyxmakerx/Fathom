@@ -2076,3 +2076,270 @@
   gap: var(--s2);
   padding-top: var(--s2);
 }
+
+/* r31 pictures: the device panel. One head (what and where, the name, what it is, its state as chips), a faceplate
+   you can read, then quiet sections with their labels in a column. */
+.drawing-editor__panel--device {
+  gap: var(--s2);
+}
+.dev-panel__head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: calc(-1 * var(--s4)) calc(-1 * var(--s4)) 0;
+  padding: 18px var(--s4) 14px;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+.dev-panel__kind {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 24px;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-head);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.dev-panel__name {
+  font-size: var(--t-title);
+  line-height: 1.5rem;
+  letter-spacing: -0.005em;
+  overflow-wrap: anywhere;
+}
+.dev-panel__sub {
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+.dev-panel__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dev-panel__chips:empty {
+  display: none;
+}
+.dev-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  border: var(--rule-hair) solid var(--hairline);
+  font-size: var(--t-micro);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.dev-tag--ok {
+  color: var(--safe);
+  border-color: color-mix(in srgb, var(--safe) 45%, transparent);
+  background: var(--safe-wash);
+}
+.dev-tag--warn {
+  color: var(--caution);
+  border-color: color-mix(in srgb, var(--caution) 45%, transparent);
+  background: var(--caution-wash);
+}
+.dev-tag__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* The ⋯ menu: the rarer actions, out of the way. */
+.dev-more {
+  position: relative;
+  flex: none;
+}
+.dev-more__button {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  list-style: none;
+  cursor: pointer;
+  font-size: var(--t-body);
+  letter-spacing: 0;
+  color: var(--muted);
+}
+.dev-more__button::-webkit-details-marker {
+  display: none;
+}
+.dev-more__button:hover,
+.dev-more[open] > .dev-more__button {
+  background: var(--control-bg-hover);
+  color: var(--ink);
+}
+.dev-more__menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 5;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 6px;
+  background: var(--pop-bg);
+  -webkit-backdrop-filter: var(--pop-blur);
+  backdrop-filter: var(--pop-blur);
+  border: var(--rule-hair) solid var(--control-line);
+  box-shadow: var(--shadow-pop);
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: var(--t-small);
+}
+.dev-more__menu button {
+  height: auto;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  justify-content: flex-start;
+  text-align: left;
+  width: 100%;
+}
+.dev-more__menu button:hover {
+  background: var(--control-bg-hover);
+}
+.dev-more__menu button.btn-danger {
+  color: var(--danger);
+}
+.dev-more__menu > .drawing-editor__field {
+  width: 100%;
+}
+
+.dev-panel__face {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  margin: 0 calc(-1 * var(--s4));
+  padding: 14px var(--s4) 12px;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+.dev-panel__face svg {
+  display: block;
+  height: auto;
+}
+.dev-panel__facecap {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+.dev-panel__facecap b {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+/* Section headings with a hairline running out to the right, and fields as label | value rows. */
+.drawing-editor__panel--device .drawing-editor__group,
+.dev-panel__h {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin-top: var(--s3);
+  padding-bottom: 0;
+  border-bottom: 0;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-head);
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--muted);
+}
+.drawing-editor__panel--device .drawing-editor__group::after,
+.dev-panel__h::after {
+  content: '';
+  flex: 1;
+  height: var(--rule-hair);
+  background: var(--hairline);
+}
+.drawing-editor__panel--device .drawing-tabs__panel {
+  gap: var(--s1);
+}
+.drawing-editor__panel--device .drawing-tabs__panel > .drawing-editor__field:has(> .drawing-editor__field-label + :last-child) {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  column-gap: var(--s3);
+  align-items: baseline;
+  font-size: var(--t-small);
+}
+.drawing-editor__panel--device .drawing-tabs__panel > .drawing-editor__field:has(> .drawing-editor__field-label + :last-child) > .drawing-editor__field-label {
+  font-size: var(--t-small);
+  letter-spacing: normal;
+  text-transform: none;
+}
+.drawing-editor__panel--device .drawing-tabs__panel > .drawing-editor__field > .drawing-editor__field-value {
+  font-size: var(--t-small);
+  min-width: 0;
+}
+
+.dev-conn {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: var(--t-small);
+}
+.dev-conn li {
+  display: grid;
+  grid-template-columns: minmax(22px, auto) 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s2);
+  padding: 4px 0;
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+.dev-conn li:first-child {
+  border-top: 0;
+}
+.dev-conn__p {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-align: right;
+}
+.dev-conn__ln {
+  height: 2px;
+  border-radius: 1px;
+}
+.dev-conn__far {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dev-conn__far b,
+.dev-conn__go {
+  font-weight: 700;
+  color: var(--ink);
+}
+.dev-conn__go {
+  display: inline;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: inherit;
+  cursor: pointer;
+}
+.dev-conn__go:hover {
+  background: none;
+  text-decoration: underline;
+}
+.dev-conn__vl {
+  font-size: var(--t-micro);
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.dev-panel__foot {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+}
+.dev-panel__foot > button {
+  flex: none;
+  margin: 0;
+}

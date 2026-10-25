@@ -1766,6 +1766,17 @@ export function RacksPlace(props: RacksPlaceProps) {
             onToggleCableHidden: handleToggleCableHidden,
           },
           paletteFromCatalogue(catalogue),
+          // r31 pictures: the two ways on at the panel's foot; the rest in its ⋯ menu.
+          selection?.kind === 'chassis' ? (
+            <>
+              <button type="button" className="btn-main" onClick={() => handleOpenDevice(selection.id, true, null)} data-testid="device-open-inside">
+                Open inside
+              </button>
+              <button type="button" onClick={() => trace.openFrom(selection.id)} data-testid="device-trace-from">
+                Trace from here
+              </button>
+            </>
+          ) : undefined,
           selection?.kind === 'chassis' ? (
             <>
               {onOpenInventory ? (

@@ -11,6 +11,24 @@ import { statusWords } from './ModelPage';
 import { GetLink, HoldForm, StateMark } from './parts';
 import './firmware.css';
 
+/** The device panel's head (r31 pictures): what it runs and where that leaves it, as one chip. Nothing for a device
+ * with no catalogue model. */
+export function FirmwareChip({ deviceId }: { deviceId: string }) {
+  const api = useContext(FirmwareContext);
+  if (!api) return null;
+  const device = deviceFirmware(api.doc, deviceId);
+  if (!device || device.models.length === 0) return null;
+  const state = stateOf(device, targetOfDevice(api.doc, device));
+  const { word } = statusWords(state, device.hold);
+  const tone = state === 'current' ? 'ok' : state === 'behind' ? 'warn' : '';
+  return (
+    <span className={`dev-tag${tone ? ` dev-tag--${tone}` : ''}`} data-testid="firmware-chip">
+      {tone ? <span className="dev-tag__dot" aria-hidden="true" /> : null}
+      Firmware {device.osVersion ? `${device.osVersion} · ` : ''}{word}
+    </span>
+  );
+}
+
 /** `folded`: the canvas panel shows it as one line (r30-device), what it runs and where that leaves it. */
 export function FirmwareSection({ deviceId, folded = false }: { deviceId: string; folded?: boolean }) {
   const api = useContext(FirmwareContext);

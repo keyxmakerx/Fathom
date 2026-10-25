@@ -163,6 +163,8 @@ try {
   // look only inside `view.racks`, so this panel never appeared at all.
   await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
   const panel = page.locator('.drawing-editor__panel');
+  // Remove device sits in the panel's ⋯ menu.
+  await panel.locator('[data-testid="device-more"] > summary').click();
   const panelText = await panel.innerText();
   check('the panel opens for the unplaced device', panelText.includes('sketch-01'));
   check('the panel shows "Placed on", not silence', /placed on/i.test(panelText));
@@ -175,6 +177,8 @@ try {
   console.log('    wrote ' + SHOTS + 'UD-01-panel.png');
 
   // Edit a field — the management address, `IpAddr` (`schema/schema.yaml`).
+  // The management address folds to one line (r30-device); open it first.
+  await panel.locator('[data-testid="management-fold"] > summary').click();
   await editTextField(panel, 'Mgmt address', '10.10.0.5');
   await page.waitForTimeout(300);
   const panelTextAfterEdit = await panel.innerText();
