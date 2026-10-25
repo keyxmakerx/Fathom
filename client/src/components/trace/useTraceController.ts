@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Document } from '../../document/model';
-import type { ChassisView, ClosetView } from '../../document/view';
+import { deviceOfChassis } from '../../document/firmware';
+import type { ChassisView, ClosetView, FixtureView } from '../../document/view';
 import type { TraceResult } from '../../engine/engine';
 import type { Mirror } from '../../engine/mirror';
 import { searchDesign } from '../shell/search';
@@ -32,6 +33,8 @@ export interface TraceController {
   /** A trace is asked for and its answer has not come back. */
   pending: boolean;
   openFrom(chassisId: string): void;
+  /** Opens a whole question at once: from a device to an address or device name, with a flow (may be empty). */
+  ask(chassisId: string, to: string, flowText: string): void;
   close(): void;
   setQuery(text: string): void;
   pick(end: TraceEnd): void;
@@ -40,16 +43,40 @@ export interface TraceController {
   replay(): void;
 }
 
-function chassisOf(view: Pick<ClosetView, 'racks' | 'unplaced'>, id: string): ChassisView | null {
-  for (const rack of view.racks) for (const c of rack.chassis) if (c.id === id) return c;
-  return view.unplaced.find((c) => c.id === id) ?? null;
+/** The trace end for a device, found by its chassis id wherever it sits: a rack unit, a shelf slot, a wall,
+ * desk or ceiling, or nowhere yet. A shelf or surface device's Device is read off the design itself. */
+function endFor(view: Pick<ClosetView, 'racks' | 'unplaced'> & Partial<Pick<ClosetView, 'surfaces'>>, doc: Document | null, chassisId: string): TraceEnd | null {
+  for (const rack of view.racks) for (const c of rack.chassis) if (c.id === chassisId) return endOf(c);
+  const loose = view.unplaced.find((c) => c.id === chassisId);
+  if (loose != null) return endOf(loose);
+  const label = offRackLabel(view, chassisId);
+  if (label == null || doc == null) return null;
+  const deviceId = deviceOfChassis(doc, chassisId);
+  return deviceId == null ? null : { deviceId, label };
+}
+
+function offRackLabel(view: Pick<ClosetView, 'racks'> & Partial<Pick<ClosetView, 'surfaces'>>, chassisId: string): string | null {
+  for (const rack of view.racks) for (const shelf of rack.shelves ?? []) for (const o of shelf.occupants) if (o.id === chassisId && o.kind === 'chassis') return o.label;
+  const walk = (list: readonly FixtureView[]): string | null => {
+    for (const f of list) {
+      if (f.id === chassisId && f.kind === 'chassis') return f.label;
+      const inner = walk(f.fixtures);
+      if (inner != null) return inner;
+    }
+    return null;
+  };
+  for (const surface of view.surfaces ?? []) {
+    const hit = walk(surface.fixtures);
+    if (hit != null) return hit;
+  }
+  return null;
 }
 
 const endOf = (c: ChassisView): TraceEnd => ({ deviceId: c.deviceId, label: c.hostname || c.model });
 
 interface Deps {
   doc: Document | null;
-  view: Pick<ClosetView, 'racks' | 'unplaced'>;
+  view: Pick<ClosetView, 'racks' | 'unplaced'> & Partial<Pick<ClosetView, 'surfaces'>>;
   boot: () => Promise<Mirror>;
   mirrorNow: (load?: boolean) => Mirror | null;
 }
@@ -115,24 +142,39 @@ export function useTraceController({ doc, view, boot, mirrorNow }: Deps): TraceC
     if (target != null || query.trim() === '' || address != null) return [];
     const out: TraceEnd[] = [];
     for (const hit of searchDesign(view, query, doc ?? undefined, 24)) {
-      if (hit.group !== 'Devices' || hit.selection?.kind !== 'chassis') continue;
-      const c = chassisOf(view, hit.selection.id);
-      if (c != null && c.deviceId !== from?.deviceId) out.push(endOf(c));
+      const kind = hit.selection?.kind;
+      if (hit.group !== 'Devices' || (kind !== 'chassis' && kind !== 'occupant' && kind !== 'fixture')) continue;
+      const end = endFor(view, doc, hit.selection.id);
+      if (end != null && end.deviceId !== from?.deviceId) out.push(end);
     }
     return out.slice(0, 6);
   }, [view, doc, query, target, address, from?.deviceId]);
 
   const openFrom = useCallback(
     (chassisId: string) => {
-      const c = chassisOf(view, chassisId);
-      if (c == null) return;
-      setFrom(endOf(c));
+      const end = endFor(view, doc, chassisId);
+      if (end == null) return;
+      setFrom(end);
       setQueryText('');
       setTarget(null);
       setResult(null);
       setError('');
     },
-    [view],
+    [view, doc],
+  );
+
+  const ask = useCallback(
+    (chassisId: string, toText: string, flowWords: string) => {
+      const end = endFor(view, doc, chassisId);
+      if (end == null) return;
+      setFrom(end);
+      setQueryText(toText);
+      setTarget(null);
+      setFlowText(flowWords);
+      setResult(null);
+      setError('');
+    },
+    [view, doc],
   );
 
   const close = useCallback(() => {
@@ -176,6 +218,7 @@ export function useTraceController({ doc, view, boot, mirrorNow }: Deps): TraceC
     error,
     pending: from != null && to != null && flow !== null && result == null && error === '',
     openFrom,
+    ask,
     close,
     setQuery,
     pick,

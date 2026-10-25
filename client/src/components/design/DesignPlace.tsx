@@ -55,6 +55,9 @@ import { presenceViewOf } from './liveSession';
 import { recordDesignOpen, recordDeviceOpen } from '../home/recent';
 import { loadResume } from './resume';
 import { useDesignSession } from './useDesignSession';
+import { LearnContext } from '../learn/context';
+import { LearnOverlay } from '../learn/LearnOverlay';
+import { useLearnApi } from '../learn/useLearnApi';
 
 /** A download with no server round trip. The object URL is revoked a few
  * seconds later, not straight away — read too soon, a browser saves an empty file. */
@@ -454,6 +457,9 @@ export function DesignPlace(props: DesignPlaceProps) {
     [session, accountId],
   );
 
+  // The explainers (ADR-0066 item 1.1): About cards in a device's panel, the Learn library.
+  const learn = useLearnApi(session.doc);
+
   // Docs on things, models and the design (ADR-0061 round 7): the panels read them through context.
   const docs = useDocsApi({
     organisationId,
@@ -659,6 +665,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         : []),
       ...(doc != null ? [{ id: 'print', label: 'Print', hint: shortcutText('print'), keywords: ['export', 'pdf', 'cut sheet'], run: openPrintPanel }] : []),
       ...(doc != null ? [{ id: 'history', label: historyOpen ? 'Close History' : 'Open History', keywords: ['saves', 'restore', 'past'], run: () => toggleHistory() }] : []),
+      { id: 'learn', label: 'Open Learn', keywords: ['explainers', 'teach', 'lesson', 'help'], run: () => learn.setView({ kind: 'library' }) },
       ...(doc != null && pickedSave == null ? [{ id: 'docs', label: 'Open Docs', keywords: ['documentation', 'notes'], run: () => docs.setView({ kind: 'list' }) }] : []),
       { id: 'racks', label: 'Show Racks', keywords: ['canvas', 'drawing'], disabled: props.place === 'racks' ? 'Already showing' : undefined, run: () => onPlaceChange('racks') },
       { id: 'inventory', label: 'Show Inventory', keywords: ['list', 'table'], disabled: props.place === 'inventory' ? 'Already showing' : undefined, run: () => onPlaceChange('inventory') },
@@ -852,15 +859,22 @@ export function DesignPlace(props: DesignPlaceProps) {
   // `inert`: Firefox 112+, Chrome 102+, Safari 15.5+ (html.global_attributes.inert, read 2026-09-26).
   return (
     <PasteGateBoundary redact={redact}>
-      <div className="print-hide-under-preview" inert={printMode === 'preview' || docs.view != null}>
+      <div className="print-hide-under-preview" inert={printMode === 'preview' || docs.view != null || learn.view != null}>
         <FirmwareContext.Provider value={firmwareApi}>
           <PaletteRegistryContext.Provider value={paletteRegistry}>
             <DocsContext.Provider value={docs.api}>
-              <CollabContext.Provider value={collab}>{place}</CollabContext.Provider>
+              <LearnContext.Provider value={learn.api}>
+                <CollabContext.Provider value={collab}>{place}</CollabContext.Provider>
+              </LearnContext.Provider>
             </DocsContext.Provider>
           </PaletteRegistryContext.Provider>
         </FirmwareContext.Provider>
       </div>
+      {learn.view != null && printMode === 'closed' && (
+        <LearnContext.Provider value={learn.api}>
+          <LearnOverlay view={learn.view} onView={learn.setView} onClose={() => learn.setView(null)} />
+        </LearnContext.Provider>
+      )}
       {docs.view != null && printMode === 'closed' && (
         <DocsContext.Provider value={docs.api}>
           <DocsOverlay view={docs.view} onView={docs.setView} onClose={() => docs.setView(null)} />

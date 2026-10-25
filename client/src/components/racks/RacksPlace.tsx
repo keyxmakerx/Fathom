@@ -37,6 +37,8 @@ import { deviceChassis, jotPlates, jotSpot, originOf } from '../jot/jotLayout';
 import { PasteCard, type PasteState } from '../paste/PasteCard';
 import { SuggestCard } from '../suggest/SuggestCard';
 import { createSuggestStore, SuggestContext } from '../suggest/suggestStore';
+import { looksLikeFacts } from '../../document/facts';
+import { looksLikeMacTable } from '../../document/hosts';
 import { looksLikeNeighbours } from '../../document/neighbours';
 import type { PastePlatform } from '../../engine/frames';
 import { devicePlatform, platformChoices, previewPaste, worthReading } from '../paste/pasteConfig';
@@ -65,6 +67,8 @@ import { CableGroupsPopover } from '../drawing/CableGroupsPopover';
 import { CAMERA_STOPS, U_PX } from '../drawing/geometry';
 import { DiagramDrawing } from '../drawing/DiagramDrawing';
 import { layerWords } from '../drawing/layerLabels';
+import { useLearn } from '../learn/context';
+import { learnNotes } from '../learn/learnNotes';
 import { layerOn, loadLayers, saveLayers, type LayerId, type LayerSet } from '../drawing/layers';
 import { loadDiagramStyle, saveDiagramStyle, type DiagramStyle } from '../drawing/diagramStyle';
 import { loadCableStyle, saveCableStyle, type CableStyle } from '../drawing/cableStyle';
@@ -79,7 +83,9 @@ import { useChecksController } from '../checks/useChecksController';
 import { TracePanel } from '../trace/TracePanel';
 import { TraceContext } from '../trace/traceStore';
 import { useTraceController } from '../trace/useTraceController';
-import { recordFirstSteps } from '../home/firstSteps';
+import { loadFirstSteps, recordFirstSteps } from '../home/firstSteps';
+import { readyQuestions } from '../home/sampleQuestions';
+import { ReadyQuestions } from '../trace/ReadyQuestions';
 import { TieCard } from '../ties/TieCard';
 import { PlanBand, PlansBarChip } from '../plans/PlanBand';
 import { PlansSurface } from '../plans/PlansSurface';
@@ -784,6 +790,12 @@ export function RacksPlace(props: RacksPlaceProps) {
     [realView],
   );
   const words = useMemo(() => layerWords(doc, displayView, layers), [doc, displayView, layers]);
+  const learn = useLearn();
+  const learnExplainers = learn?.explainers;
+  const notes = useMemo(
+    () => (layerOn(layers, 'learn') && learnExplainers != null ? learnNotes(doc, displayView, learnExplainers) : undefined),
+    [doc, displayView, layers, learnExplainers],
+  );
 
   // The Cables list. `cableGroupsState`'s own initial value is read from
   // storage synchronously (never a placeholder that then flashes every
@@ -923,6 +935,10 @@ export function RacksPlace(props: RacksPlaceProps) {
   useEffect(() => {
     recordFirstSteps(accountId, designId, doc, traced);
   }, [accountId, designId, doc, traced]);
+
+  // A sample offers the questions it was made to answer (card nu-vlan A); a design of the person's own does not.
+  const isSample = useMemo(() => loadFirstSteps(accountId).samples.includes(designId), [accountId, designId]);
+  const questions = useMemo(() => (isSample && doc != null ? readyQuestions(doc) : []), [isSample, doc]);
 
   // Resolves the current selection to a rack id, however it was reached;
   // anything not rack-shaped reports `null`.
@@ -1198,8 +1214,9 @@ export function RacksPlace(props: RacksPlaceProps) {
     (text: string, platform?: PastePlatform) => {
       if (doc == null || !canDraw) return;
       pendingPasteRef.current = null;
-      // A neighbour list is not a config: it opens the suggestions, for the selected device if there is one.
-      if (looksLikeNeighbours(text)) {
+      // A neighbour list, a MAC table or show version is not a config: it opens the suggestions, for the selected device
+      // if there is one.
+      if (looksLikeNeighbours(text) || looksLikeMacTable(text) || looksLikeFacts(text)) {
         setPasteState(null);
         setSuggest({ deviceId: selectedChassis, text });
         return;
@@ -1848,6 +1865,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           drawnCableIds={cableDraw.drawnIds}
           dashedCableIds={cableDraw.dashedIds}
           words={words}
+          notes={notes}
           style={diagramStyle}
           cameraHub={cameraHub}
           minimap={canvasAids.prefs.minimap}
@@ -1980,7 +1998,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         />
       ) : null}
       {suggest != null && doc != null && canDraw && pasteState == null ? (
-        <SuggestCard key={suggest.text ?? suggest.deviceId ?? 'any'} doc={doc} deviceId={suggest.deviceId} text={suggest.text} actor={accountId ?? undefined} onApply={(next, deviceId) => {
+        <SuggestCard key={suggest.text ?? suggest.deviceId ?? 'any'} doc={doc} deviceId={suggest.deviceId} text={suggest.text} actor={accountId ?? undefined} spot={openSpot} onApply={(next, deviceId) => {
             applyDocChange(next);
             // The switch's details say how many of its ports are now cabled: the added cables, in words.
             const chassisId = edgesOut(next, deviceId, 'HasChassis')[0]?.to;
@@ -2003,6 +2021,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       {doc != null && !trace.open ? <ChecksSurface controller={checks} canShow={jot == null} /> : null}
       {doc != null ? <PlansSurface controller={plans} besideChecks={checks.open} /> : null}
       {doc != null && (trouble.draft != null || trouble.viewing != null) ? <TroublePanel controller={trouble} besideChecks={checks.open} besidePlans={plans.plan != null && plans.panelOpen && !plans.listMode} onTie={canDraw ? setTieFor : undefined} /> : null}
+      {doc != null && jot == null && !trace.open ? <ReadyQuestions questions={questions} onAsk={(q) => trace.ask(q.chassisId, q.to, q.flow)} /> : null}
       {doc != null && jot == null ? <TracePanel controller={trace} onTie={canDraw ? setTieFor : undefined} /> : null}
       </TraceContext.Provider>
       </TroubleContext.Provider>

@@ -249,3 +249,53 @@ describe('accepting', () => {
     expect(edgesIn(next, m.nas.ports['eth0']!, 'Terminates')).toHaveLength(1);
   });
 });
+
+// CDP, as cisco.com's samples print it (read 2026-10-25; sources in neighbours.ts), with this test's own names.
+const CDP = `Capability Codes: R - Router, T - Trans Bridge, B - Source Route Bridge
+                  S - Switch, H - Host, I - IGMP, r - Repeater
+
+Device ID        Local Intrfce     Holdtme    Capability  Platform  Port ID
+access-sw.example.net
+                 Gig 1/0/1         122          T S       WS-C2960  Gig 0/1
+R2-AGS           Ser 1              129          R        2500      Ser 0
+ap-1             Gig 1/0/9         155           H        AIR-AP  2/11
+`;
+
+const CDP_DETAIL = `-------------------------
+Device ID: access-sw.example.net
+Entry address(es):
+  IP address: 192.0.2.10
+Platform: cisco WS-C2960,  Capabilities: Switch IGMP
+Interface: GigabitEthernet1/0/1,  Port ID (outgoing port): GigabitEthernet0/1
+Holdtime : 122 sec
+`;
+
+describe('CDP neighbours', () => {
+  it('reads the table, ports closed up, a long Device ID on its own line', () => {
+    const list = readNeighbours(CDP)!;
+    expect(list.format).toBe('cdp');
+    expect(list.rows).toEqual([
+      { local: 'Gig1/0/1', name: 'access-sw.example.net', port: 'Gig0/1' },
+      { local: 'Ser1', name: 'R2-AGS', port: 'Ser0' },
+      { local: 'Gig1/0/9', name: 'ap-1', port: '2/11' },
+    ]);
+  });
+
+  it('reads the detail form', () => {
+    expect(readNeighbours(CDP_DETAIL)).toEqual({ format: 'cdp', rows: [{ local: 'GigabitEthernet1/0/1', name: 'access-sw.example.net', port: 'GigabitEthernet0/1' }] });
+    expect(looksLikeNeighbours(CDP_DETAIL)).toBe(true);
+  });
+
+  it('suggests the cable when the ports are drawn with their long names', () => {
+    const had = new Set<string>();
+    let doc = createSketchDevice(emptyDocument(), { ...OPTS, hostname: 'core' });
+    const core = doc.nodes.find((n) => parseNodeId(n.id).kind === 'Chassis')!.id;
+    doc = addSketchPort(doc, core, { label: 'GigabitEthernet1/0/1', connector: 'rj45', face: 'front' }, OPTS);
+    doc.nodes.forEach((n) => had.add(n.id));
+    doc = createSketchDevice(doc, { ...OPTS, hostname: 'access-sw' });
+    const access = doc.nodes.find((n) => !had.has(n.id) && parseNodeId(n.id).kind === 'Chassis')!.id;
+    doc = addSketchPort(doc, access, { label: 'GigabitEthernet0/1', connector: 'rj45', face: 'front' }, OPTS);
+    const rows = suggestCables(doc, core, readNeighbours(CDP)!);
+    expect(rows.find((r) => r.row.name === 'access-sw.example.net')).toMatchObject({ state: 'ready', remoteName: 'access-sw' });
+  });
+});

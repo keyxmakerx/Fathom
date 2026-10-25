@@ -221,7 +221,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
         const derived = deriveIpam(doc, d);
         setBackground({
           networks: d.vlanRows.length + d.subnetRows.length + d.dockerNetworkRows.length,
-          addresses: d.subnetRows.reduce((n, s) => n + s.members.length, 0),
+          addresses: addressRows(doc, d.subnetRows, (id) => id, d.vlanRows).length,
           prefixes: prefixRows(derived.prefixes),
           vlans: vlanKindRows(derived.vlans),
           prefixData: derived.prefixes,
@@ -258,7 +258,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     if (!doc) return [];
     if (kind === 'addresses') {
       const labelOf = (id: string) => rowsByKind.devices?.find((r) => r.deviceNodeId === id)?.title ?? id;
-      return addressRows(doc, networksDerived.subnetRows, labelOf);
+      return addressRows(doc, networksDerived.subnetRows, labelOf, networksDerived.vlanRows);
     }
     if (kind === 'prefixes') return prefixRows(ipam.prefixes).filter((r) => inWhere(r.places, where));
     if (kind === 'vlans') return vlanKindRows(ipam.vlans).filter((r) => inWhere(r.places, where));

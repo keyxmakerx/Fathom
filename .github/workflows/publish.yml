@@ -56,10 +56,11 @@
 # looks multi-arch.
 name: publish
 
+# Not on `v*` tags since 2026-10-25: a release names an image this workflow
+# already published, without rebuilding it -- see release.yml for why.
 on:
   push:
     branches: [main]
-    tags: ['v*']
   workflow_dispatch:
 
 # Least privilege, and each one is load-bearing:
@@ -164,7 +165,6 @@ jobs:
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
-            type=ref,event=tag
             type=sha,format=long
           labels: |
             org.opencontainers.image.title=Fathom server

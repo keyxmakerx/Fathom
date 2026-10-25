@@ -32,7 +32,7 @@ touching it.
 |---|---|
 | The whole Rust engine — schema, graph, config reading, redaction | Hard, correct, tested. Nothing to replace it. |
 | The server | Already runs, already proved against a real database. |
-| The redaction gate | Passwords are protected by never arriving. That stays. |
+| The redaction gate | Passwords in a pasted config are protected by never arriving. That stays; stored credentials are ADR-0042's vault. |
 | Key handling (ADR-0040) | Already decided and ratified. |
 | The reasoning in the docs | Moved to an archive, not deleted. |
 

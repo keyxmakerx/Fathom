@@ -9,7 +9,7 @@
 > retired and never reused if it is reversed, and any workspace written in the meantime carries pins
 > a later build would have to ignore rather than misread
 > **Supersedes:** — amends `56` §3.5 and closes the *Undecided* in
-> `docs/70-ops/79-work-orders/00-ROUTE-TO-WORKABLE.md` §4 item 2; supersedes no ADR
+> `docs/archive/70-ops/79-work-orders/00-ROUTE-TO-WORKABLE.md` §4 item 2; supersedes no ADR
 
 ## Contents
 
@@ -183,7 +183,7 @@ Four ways of saying it, degrading in different directions:
 | `fathom-wasm` | `OP_PLACE = 21`, mode 0 releases and mode 1 places; slot 7 of `FACE_BOX` gains the placed flag before the group key |
 | the page | drag a box, four place buttons, `Alt`+arrow from the Outline row, *let the layout place it*, the mark, the row, the note, the journal op and its import arm |
 | tests | `fathom-wasm/tests/place.rs` (8), `fathom-layout/tests/layout.rs` (6), `fathom-schema/tests/shipped_tree.rs` (1, the `Placeable` drift guard) |
-| evidence | `docs/80-review/evidence/2026-08-15-hand-placement-drive.mjs` — 25/25 in Chromium, including a real reload between export and import |
+| evidence | `docs/archive/80-review/evidence/2026-08-15-hand-placement-drive.mjs` — 25/25 in Chromium, including a real reload between export and import |
 
 ## 7. What it cost, measured
 
@@ -242,15 +242,15 @@ made, was under a kilobyte.
 
 | Source | For |
 |---|---|
-| `docs/50-design/56-diagram-view.md` §3.5, §3.6, §5.2, §5.3 | `LayoutHint`, the computed/override separation, the channel budget, the 4 px grid |
-| `docs/50-design/51-design-tokens.md` §9 | `dashed` reserved for proposed, `dotted` for pending — both unavailable |
-| `docs/50-design/55-accessibility.md` §4.5.2 | focus never enters the `<svg>`; the Outline is the interface |
-| `docs/50-design/59-diagram-aggregation-and-colour.md` §3.5, §3.6 | the precedent for adding a node channel with the table checked first |
-| `docs/10-core/11-ir-schema.md` §3.2, §8.3, §10.5, §10.6 | node fields never hold a `NodeId`; confidence is directness; tombstones; *"Diagram position and layout — survives a rename, keyed by `NodeId`"* |
-| `docs/60-content/62-schema-spec.md` §2.3, §4.2, §6.2, §17.1 | the YAML subset, the layer vocabulary, class expansion, the field-key registry |
-| `docs/70-ops/75-capability-register.md` §2.4, §10 | *"state written beside the op log"*; C-08 |
-| `docs/70-ops/79-work-orders/00-ROUTE-TO-WORKABLE.md` §4, §5b | the *Undecided* this closes; the journal route |
-| `docs/40-stack/47-byte-census.md` §9.3, §11 | how a byte figure is quoted, and the precedent for refusing a feature on one |
+| `docs/archive/50-design/56-diagram-view.md` §3.5, §3.6, §5.2, §5.3 | `LayoutHint`, the computed/override separation, the channel budget, the 4 px grid |
+| `docs/archive/50-design/51-design-tokens.md` §9 | `dashed` reserved for proposed, `dotted` for pending — both unavailable |
+| `docs/archive/50-design/55-accessibility.md` §4.5.2 | focus never enters the `<svg>`; the Outline is the interface |
+| `docs/archive/50-design/59-diagram-aggregation-and-colour.md` §3.5, §3.6 | the precedent for adding a node channel with the table checked first |
+| `docs/archive/10-core/11-ir-schema.md` §3.2, §8.3, §10.5, §10.6 | node fields never hold a `NodeId`; confidence is directness; tombstones; *"Diagram position and layout — survives a rename, keyed by `NodeId`"* |
+| `docs/archive/60-content/62-schema-spec.md` §2.3, §4.2, §6.2, §17.1 | the YAML subset, the layer vocabulary, class expansion, the field-key registry |
+| `docs/archive/70-ops/75-capability-register.md` §2.4, §10 | *"state written beside the op log"*; C-08 |
+| `docs/archive/70-ops/79-work-orders/00-ROUTE-TO-WORKABLE.md` §4, §5b | the *Undecided* this closes; the journal route |
+| `docs/archive/40-stack/47-byte-census.md` §9.3, §11 | how a byte figure is quoted, and the precedent for refusing a feature on one |
 | `.context/conventions.md` invariants 3, 7, 9 | credentials, opaque ids, determinism |
 
 No vendor claim is made in this record, so ADR-0034's two-source rule does not engage. The one

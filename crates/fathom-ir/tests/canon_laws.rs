@@ -199,7 +199,9 @@ fn schema_version_is_the_trees() {
     // (`HasCableRun`, `HasCableTie`, `Ties`), four field keys (414-417); all MINOR.
     //
     // 0.23 -> 0.24: missing links for cables. One optional `Cable` field, `needs_finishing` (478); MINOR.
-    assert_eq!(SCHEMA_VERSION, "0.24");
+    //
+    // 0.24 -> 0.25: the LAG plan step. One variant, `lag`, on `PlanStep.kind`; MINOR.
+    assert_eq!(SCHEMA_VERSION, "0.25");
 }
 
 #[test]

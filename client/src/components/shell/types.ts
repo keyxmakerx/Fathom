@@ -160,7 +160,7 @@ export interface ShellProps {
    * Racks place. Omitted or `null` draws no Equipment tab. */
   rail?: ReactNode;
   /** The design is open and empty (and can be drawn in): the Equipment tab opens by itself, once, when it
-   * is opened. Undefined until the design has loaded (ADR-0065 §3). */
+   * is opened. Undefined until the design has loaded (ADR-0068 §3). */
   autoEquipment?: boolean;
   /** Each bump opens the Equipment tab (the "Add equipment" button on the canvas). */
   equipmentRequest?: number;

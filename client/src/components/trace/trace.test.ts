@@ -72,6 +72,7 @@ const controller = (over: Partial<TraceController> = {}): TraceController => ({
   result: result(),
   error: '',
   openFrom: () => {},
+  ask: () => {},
   close: () => {},
   setQuery: () => {},
   pick: () => {},
@@ -123,6 +124,7 @@ describe('the rows a hop shows', () => {
 
   it('says where the path ended', () => {
     expect(endLine(result())).toMatch(/^The walk ends at /);
+    expect(endLine({ ...result(), to: 'device:01ABC' }, 'desktop-1')).toMatch(/^The walk ends at desktop-1\./);
     expect(endLine({ ...result(), stopped: 'no cable is recorded on ge-0/0/1 of rtr-1' })).toBe('Could not establish: no cable is recorded on ge-0/0/1 of rtr-1');
   });
 });

@@ -917,7 +917,8 @@ export default function App() {
   const scopeChain = pathTo(scopes, view.design.scopeId);
   const path: PathPart[] = [
     { label: view.organisation.displayName, onSelect: () => setView({ kind: 'home' }), hint: 'Home' },
-    ...scopeChain.map((scope) =>
+    // The root scope is made with the organisation and carries its name; showing both read as a stutter.
+    ...scopeChain.filter((scope, i) => !(i === 0 && scope.displayName === view.organisation.displayName)).map((scope) =>
       firstDesignByScopeId.has(scope.scopeId)
         ? { label: scope.displayName, onSelect: () => selectScope(scope.scopeId), hint: `Open ${scope.displayName}'s latest design` }
         : { label: scope.displayName },

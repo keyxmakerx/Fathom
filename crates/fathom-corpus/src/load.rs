@@ -396,14 +396,63 @@ fn load_explainer_bundle(source: &str, file: &str) -> Result<Vec<ExplainerEntry>
         .ok_or_else(|| err(file, entries_node.line, "`entries` must be a sequence"))?;
     let mut out = Vec::new();
     for item in seq {
+        let teaching = item.get("teaching");
+        let sources = item
+            .get("sources")
+            .and_then(|v| v.as_seq())
+            .unwrap_or(&[])
+            .iter()
+            .filter_map(|src| {
+                Some(ExplainerSource {
+                    publisher: opt_str(src, "vendor").or_else(|| opt_str(src, "publisher")),
+                    doc: source_doc(src)?,
+                    url: opt_str(src, "url").filter(|u| !u.is_empty()),
+                    read_on: opt_str(src, "read_on"),
+                    note: opt_str(src, "note"),
+                })
+            })
+            .collect();
         out.push(ExplainerEntry {
             id: req_str(item, "id", file)?,
             class: opt_str(item, "class").unwrap_or_default(),
             title: opt_str(item, "title"),
             reviewed_by: req_nonempty_str(item, "reviewed_by", file)?,
+            subject_path: item.get("subject").and_then(|s| opt_str(s, "path")),
+            platforms: str_seq(item, "platforms"),
+            tab: opt_str(item, "tab"),
+            terse: opt_str(item, "terse"),
+            explained: opt_str(item, "explained"),
+            teaching: teaching.and_then(|t| opt_str(t, "body")),
+            breaks_if_wrong: teaching.and_then(|t| opt_str(t, "breaks_if_wrong")),
+            reviewed_on: opt_str(item, "reviewed_on"),
+            sources,
         });
     }
     Ok(out)
+}
+
+/// What a source is, in words, whichever of the corpus's three shapes it takes:
+/// a document (`doc`), a standard (`std` and `section`), or a side of a printed
+/// card (`card`, `side`, `block`).
+fn source_doc(src: &Node) -> Option<String> {
+    if let Some(doc) = opt_str(src, "doc") {
+        return Some(doc);
+    }
+    if let Some(std) = opt_str(src, "std") {
+        return Some(match opt_str(src, "section") {
+            Some(section) => format!("{std}, section {section}"),
+            None => std,
+        });
+    }
+    let card = opt_str(src, "card")?;
+    let mut out = format!("Card {card}");
+    if let Some(side) = opt_int(src, "side") {
+        out.push_str(&format!(", side {side}"));
+    }
+    if let Some(block) = opt_str(src, "block") {
+        out.push_str(&format!(": {block}"));
+    }
+    Some(out)
 }
 
 // --- rule bundle -------------------------------------------------------------

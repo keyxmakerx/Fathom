@@ -14,6 +14,12 @@
       "cite": "corpus/catalogue/ (each model's own source block)",
       "url": "",
       "read_on": "2026-10-10"
+    },
+    {
+      "claim": "A VLAN on its own does not keep two networks apart once a router joins them. UniFi's zone-based firewall shows Internal to Internal as Allow All by default, and its Network Isolation option is what adds the rules that block traffic between VLANs. So this sample's router carries a rule that stops the cameras reaching the LAN.",
+      "cite": "Ubiquiti Help Center: Zone-Based Firewalls in UniFi (zone matrix, Internal to Internal: Allow All); Implementing Network and Client Isolation in UniFi (Network Isolation configures the firewall rules that block inter-VLAN traffic)",
+      "url": "https://help.ui.com/hc/en-us/articles/115003173168",
+      "read_on": "2026-10-25"
     }
   ],
   "rack": { "label": "Rack 1", "heightU": 12, "numbering": "ascending" },
@@ -102,13 +108,14 @@
       "access": ["switch-1:1", "switch-1:3", "switch-1:4", "switch-1:5", "switch-1:6", "switch-1:7", "switch-2:1", "switch-2:2", "switch-2:3"]
     },
     {
-      "id": 30, "name": "cameras", "description": "Cameras, kept apart from the LAN",
+      "id": 30, "name": "cameras", "description": "Cameras, kept apart from the LAN by a rule on router-1",
       "access": ["switch-1:2", "switch-1:8", "switch-1:9"]
     }
   ],
   "subnets": [
     {
       "prefix": "192.168.10.0/24",
+      "gateway": "192.168.10.1",
       "hosts": [
         { "port": "router-1:1", "address": "192.168.10.1/24", "name": "LAN" },
         { "port": "ap-1:1", "address": "192.168.10.5/24" },
@@ -121,12 +128,29 @@
     },
     {
       "prefix": "192.168.30.0/24",
+      "gateway": "192.168.30.1",
       "hosts": [
         { "port": "router-1:2", "address": "192.168.30.1/24", "name": "Cameras" },
         { "port": "camera-1:eth0", "address": "192.168.30.21/24" },
         { "port": "camera-2:eth0", "address": "192.168.30.22/24" }
       ]
     }
+  ],
+  "firewall": {
+    "device": "router-1",
+    "zones": [
+      { "name": "lan", "ports": ["router-1:1"] },
+      { "name": "cameras", "ports": ["router-1:2"] }
+    ],
+    "policies": [
+      { "from": "cameras", "to": "lan", "name": "cameras-stay-out", "action": "deny" },
+      { "from": "lan", "to": "cameras", "name": "lan-may-view-cameras", "action": "permit" }
+    ]
+  },
+  "questions": [
+    { "ask": "Can a camera reach the NAS?", "from": "camera-1", "to": "192.168.10.10", "flow": "TCP 445" },
+    { "ask": "Can the desktop reach the NAS?", "from": "desktop-1", "to": "192.168.10.10", "flow": "TCP 445" },
+    { "ask": "Can the desktop see a camera?", "from": "desktop-1", "to": "192.168.30.21", "flow": "TCP 443" }
   ],
   "trace": { "from": "desktop-1", "to": "nas-1" }
 }

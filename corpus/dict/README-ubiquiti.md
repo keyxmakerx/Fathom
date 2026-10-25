@@ -1,6 +1,9 @@
 # README-ubiquiti.md — the UniFi/EdgeOS decision, data not code
 
-**Status:** Accepted, 2026-09-19. This file is the one place this decision is recorded;
+**Status:** Accepted, 2026-09-19. **Superseded for UniFi switches on 2026-10-25:** a UniFi switch does
+print a text config (`show running-config` after `telnet localhost`), so `unifi-sw` now has a platform row
+and a dictionary; see `README-unifi-sw.md`. The finding below still holds for the controller's backup and
+for UniFi APs and gateways. This file is the one place this decision is recorded;
 `schema/platforms.yaml`'s `ubiquiti`/`edgeos` comments point here rather than restating it
 (conventions §*Precedence*).
 

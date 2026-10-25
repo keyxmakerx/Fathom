@@ -6,8 +6,8 @@ documentation rather than a verbatim read of it.** Each step says which it is. C
 *summary* against the real hardware guide for your platform and release before a maintenance window
 you care about. ADR-0034 is why this warning is here rather than omitted.
 
-This works today, by hand, with no Fathom involved. ADR-0045 describes what Fathom will do for you,
-which is stage the image and check the hash — never run the upgrade.
+This works today, by hand, with no Fathom involved. Fathom's part (ADR-0045, ADR-0064; Inventory ›
+Firmware, built) is to plan the upgrade, stage the image and check the hash — never run it.
 
 ---
 
@@ -77,6 +77,18 @@ Two shapes. The second is the one ADR-0045 chose for Fathom, and it is the bette
 sha256sum junos-install-....tgz          # write this down
 scp -O junos-install-....tgz user@device:/var/tmp/
 ```
+
+From Windows, the same in PowerShell (`scp` comes with the OpenSSH Client; if PowerShell does not
+recognise it, add OpenSSH Client in Settings, Optional features — Microsoft Learn, updated
+2025-09-04). `Get-FileHash` defaults to SHA-256 (Microsoft Learn, read 2026-10-25):
+
+```powershell
+Get-FileHash .\junos-install-....tgz -Algorithm SHA256
+scp -O .\junos-install-....tgz user@device:/var/tmp/
+```
+
+Fathom shows both on the upgrade plan's fetch step, under **From Windows** and **From Linux**
+(`crates/fathom-server/src/firmware_by_hand.rs`).
 
 If `-O` fails, the device has SFTP enabled and you do not need it. If the transfer fails without
 `-O` and succeeds with it, trap 3 is exactly what you hit.

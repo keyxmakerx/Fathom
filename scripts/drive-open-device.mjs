@@ -191,7 +191,7 @@ set security ike policy ike-two pre-shared-key ascii-text hunter22
     await pasteText(page, 'set system host-name which-sw\nset interfaces ge-0/0/1 description uplink\n');
     await page.getByText('Which device is this from?').waitFor({ timeout: 15_000 });
     check('the card offers the candidates as words', (await page.locator('[data-testid=paste-card]').getByRole('button', { name: 'Juniper EX' }).count()) === 1);
-    // Scoped to the card: Equipment opens by itself on an empty design (ADR-0065 §3) and lists models too.
+    // Scoped to the card: Equipment opens by itself on an empty design (ADR-0068 §3) and lists models too.
     await page.locator('[data-testid=paste-card]').getByRole('button', { name: 'Juniper EX' }).click();
     await page.waitForSelector('[data-testid=paste-destroyed]', { timeout: 15_000 });
     check('the answer is used', (await page.locator('[data-testid=paste-card]').innerText()).includes('junos-ex'));
@@ -225,7 +225,7 @@ set security ike policy ike-two pre-shared-key ascii-text hunter22
     await shot(page, 'S8-04-open-device');
 
     // Drop equipment beside it: click an item in the equipment list.
-    // Equipment opens by itself on an empty design (ADR-0065 §3): open it only if it is not already open.
+    // Equipment opens by itself on an empty design (ADR-0068 §3): open it only if it is not already open.
     if ((await page.locator('[data-testid="dock-equipment"]').getAttribute('aria-expanded')) !== 'true') await page.locator('[data-testid="dock-equipment"]').click();
     await page.waitForTimeout(300);
     await page.locator('.drawing-palette__item', { hasText: 'Switch' }).first().click();
