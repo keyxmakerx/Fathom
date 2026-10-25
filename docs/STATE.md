@@ -29,6 +29,12 @@ frame and the paste card's summary wait on the client.
 no entry describes is destroyed, because pfSense stores keys and passwords base64-encoded
 (`corpus/dict/README-pfsense.md`).
 
+**Paste: OPNsense `config.xml` (engine, 2026-10-25, card r29-pull-devices).** The same XML front end reads a
+backup whose root is `<opnsense>`, with `corpus/dict/opnsense/config-xml.yaml` beside the rules CSV's entries;
+the root decides, even when the device already names `opnsense`. An allowlist like pfSense's: hostname,
+interface assignments and VLANs bind, everything else is destroyed (`corpus/dict/opnsense/README-config-xml.md`).
+An encrypted backup binds nothing and is refused.
+
 **Paste: Linux host (engine, 2026-10-16).** `ip addr` and `ip -d link` output (and their `-o` forms) has its
 own front end, `fathom-ingest/src/iproute.rs`, picked by an exact sniff of the first record header. It binds
 interfaces, admin-up, VLANs and addresses, and the host from a pasted shell prompt; only known attribute words

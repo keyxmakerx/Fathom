@@ -1,6 +1,13 @@
 # `config.xml` — what it carries, what would bind it, and what the core needs to read it
 
-> **Status:** written 2026-09-19, data not code (ADR-0044 §2 rule 1). This file exists so the
+> **Status, 2026-10-25:** the reader exists. `crates/fathom-ingest/src/xml.rs` (built for pfSense)
+> reads a `config.xml` whose root is `<opnsense>` with `config-xml.yaml` and `secrets-xml.yaml`
+> beside this file; the wasm shell picks it by the root element, even when the device already
+> names `opnsense`. As for pfSense, the dictionary is an allowlist: every value no entry describes
+> is destroyed, so §3's list only names what was destroyed. Bound: the hostname, interface
+> assignments (port, description, `enable`), VLANs. Sources for that build are §5.
+>
+> **Written 2026-09-19, data not code (ADR-0044 §2 rule 1).** This file exists so the
 > next session can build an XML framer without repeating this survey. Nothing here is a
 > dictionary entry — there is no XML reader yet (§4), so nothing here can be tested against a
 > real capture, and every field-to-kind mapping below is a **proposal**, marked as such.
@@ -148,6 +155,23 @@ that it does not have to re-derive it:
    product's stated posture is "credentials never arrive," not "credentials arrive hashed") is
    worth one explicit ADR line rather than an implementer's silent choice, because it is the
    first credential-shaped value this project would read that is not, itself, the live secret.
+
+## 5. Sources for the 2026-10-25 build, read that day
+
+- `raw.githubusercontent.com/opnsense/core/master/src/etc/config.xml.sample`: root `<opnsense>`,
+  `system/hostname`, `system/user` with `name` and a `$2y$10$` `password`, `interfaces/<role>`
+  with `if`, `descr`, `ipaddr`, `subnet`, and the flag written `<enable>1</enable>`.
+- `.../core/master/src/opnsense/mvc/app/models/OPNsense/Interfaces/Vlan.xml`: mount `/vlans`,
+  `vlan` an ArrayField (so each record carries a `uuid` attribute) with `if`, `tag`, `pcp`,
+  `proto`, `descr`, `vlanif`.
+- `.../core/master/src/opnsense/mvc/app/models/OPNsense/IPsec/IPsec.xml`: mount `//OPNsense/IPsec`,
+  `preSharedKeys/preSharedKey/Key`, `keyPairs/keyPair` with `name` and `privateKey`.
+- `raw.githubusercontent.com/opnsense/plugins/master/net-mgmt/net-snmp/src/opnsense/mvc/app/models/OPNsense/Netsnmp/General.xml`:
+  mount `//OPNsense/netsnmp/general`, `community`.
+
+The commit was not recorded: the GitHub API was not reachable from the session, only the raw
+files on `master`. WireGuard's and OpenVPN's tags are still not established (§1); their values are
+destroyed by the allowlist either way, and `crates/fathom-ingest/tests/opnsense_xml.rs` shows it.
 
 ## Sources consulted
 

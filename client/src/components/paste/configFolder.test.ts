@@ -99,6 +99,46 @@ describe('a dropped folder of configs', () => {
     expect(changed(same[0]!.changes!)).toBe(false);
   });
 
+  it('reads an OPNsense backup in the folder and keeps none of its secrets', () => {
+    const HASH = '$2y$10$YRVoF4SgskIsrXOvOQjGieB9XqHPRra9R7d80B3BZdbY/j21TwBfS';
+    const SNMP = 'Painite-RO-Community-7Hq2xWm9Lp4Zr';
+    const xml = `<?xml version="1.0"?>
+<opnsense>
+  <system>
+    <hostname>painite</hostname>
+    <user>
+      <name>root</name>
+      <password>${HASH}</password>
+    </user>
+  </system>
+  <interfaces>
+    <lan>
+      <enable>1</enable>
+      <if>igb1</if>
+      <ipaddr>192.168.1.1</ipaddr>
+      <subnet>24</subnet>
+    </lan>
+  </interfaces>
+  <OPNsense>
+    <netsnmp>
+      <general>
+        <community>${SNMP}</community>
+      </general>
+    </netsnmp>
+  </OPNsense>
+</opnsense>
+`;
+    const doc = createSketchDevice(emptyDocument(), { ...OPTS, hostname: 'painite' });
+    const files = [{ name: 'painite.xml', text: xml }];
+    const rows = planFolder(mirror, doc, files);
+    expect(rows[0]).toMatchObject({ outcome: 'attach', platform: 'opnsense' });
+    const next = applyFolder(mirror, doc, files, rows, spots, OPTS);
+    const bytes = writePlain(next);
+    expect(bytesInclude(bytes, HASH)).toBe(false);
+    expect(bytesInclude(bytes, SNMP)).toBe(false);
+    expect(captureOf(next, deviceNamed(next, 'painite')[0]!.id)).not.toBeNull();
+  });
+
   it('reads only the first of two files that name the same device', () => {
     const files = [
       { name: '1.conf', text: SRX('srx-a') },
