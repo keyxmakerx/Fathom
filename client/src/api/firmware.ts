@@ -38,6 +38,35 @@ export interface DeviceHash {
   comparesWith: string;
 }
 
+/** One step of getting the file there by hand (firmware_by_hand.rs). An empty command is done by hand. */
+export interface ByHandStep {
+  order: number;
+  /** Where it is typed. */
+  at: 'computer' | 'device';
+  step: string;
+  command: string;
+  /** Why, with the source it came from. */
+  note: string;
+}
+
+/** One way the file can travel by hand: over SSH, on a USB stick, or by TFTP. */
+export interface ByHandWay {
+  /** `scp`, `usb` or `tftp`. */
+  way: string;
+  label: string;
+  /** Shown above the steps; TFTP's says why it is the old way. */
+  warning: string | null;
+  windows: ByHandStep[];
+  linux: ByHandStep[];
+}
+
+/** The same upgrade without Fathom: the ways that replace the device pulling the image. */
+export interface ByHand {
+  ways: ByHandWay[];
+  sourcedNote: string;
+  couldNotEstablish: string[];
+}
+
 export interface FirmwareCommands {
   expectedSha256: string;
   devicePath: string;
@@ -51,6 +80,8 @@ export interface FirmwareCommands {
   /** What the vendor's pages did not settle; shown, never papered over. */
   couldNotEstablish: string[];
   deviceHash: DeviceHash;
+  /** Null for a platform with no steps, and from a server that does not write them yet. */
+  byHand: ByHand | null;
 }
 
 export interface FirmwareImage {
@@ -111,6 +142,33 @@ function numField(o: Record<string, unknown>, key: string, what: string): number
 const optStr = (o: Record<string, unknown>, key: string): string | null => (typeof o[key] === 'string' && o[key] !== '' ? (o[key] as string) : null);
 const optNum = (o: Record<string, unknown>, key: string): number | null => (typeof o[key] === 'number' ? (o[key] as number) : null);
 
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((m): m is string => typeof m === 'string' && m !== '') : []);
+
+function parseByHand(v: unknown): ByHand | null {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  const steps = (list: unknown, os: string): ByHandStep[] =>
+    (Array.isArray(list) ? list : []).map((s, i) => {
+      const r = obj(s, `${os} step ${i}`);
+      return {
+        order: optNum(r, 'order') ?? i + 1,
+        at: r.at === 'device' ? 'device' : 'computer',
+        step: strField(r, 'step', `${os} step ${i}`),
+        command: typeof r.command === 'string' ? r.command : '',
+        note: typeof r.note === 'string' ? r.note : '',
+      };
+    });
+  const ways = (Array.isArray(o.ways) ? o.ways : [])
+    .map((w, i): ByHandWay => {
+      const r = obj(w, `way ${i}`);
+      const way = strField(r, 'way', `way ${i}`);
+      return { way, label: typeof r.label === 'string' && r.label !== '' ? r.label : way, warning: optStr(r, 'warning'), windows: steps(r.windows, `${way} windows`), linux: steps(r.linux, `${way} linux`) };
+    })
+    .filter((w) => w.windows.length > 0 || w.linux.length > 0);
+  if (ways.length === 0) return null;
+  return { ways, sourcedNote: typeof o.sourced_note === 'string' ? o.sourced_note : '', couldNotEstablish: strings(o.could_not_establish) };
+}
+
 function parseCommands(v: unknown): FirmwareCommands | null {
   if (v === null || v === undefined) return null;
   const o = obj(v, 'commands');
@@ -128,6 +186,7 @@ function parseCommands(v: unknown): FirmwareCommands | null {
       algorithm: typeof dh.algorithm === 'string' && dh.algorithm !== '' ? dh.algorithm : 'sha256',
       comparesWith: typeof dh.compares_with === 'string' && dh.compares_with !== '' ? dh.compares_with : 'expected_sha256',
     },
+    byHand: parseByHand(o.by_hand),
     steps: steps.map((s, i) => {
       const r = obj(s, `step ${i}`);
       return { order: optNum(r, 'order') ?? i + 1, step: strField(r, 'step', `step ${i}`), command: strField(r, 'command', `step ${i}`), note: typeof r.note === 'string' ? r.note : '' };

@@ -30,6 +30,7 @@ const image = (over: Partial<FirmwareImage> = {}): FirmwareImage => ({
     family: 'junos',
     couldNotEstablish: [],
     deviceHash: { algorithm: 'sha256', comparesWith: 'expected_sha256' },
+    byHand: null,
     steps: [
       { order: 1, step: 'check space first', command: 'show system storage', note: '' },
       { order: 2, step: 'make room BEFORE the copy', command: 'request system storage cleanup', note: '' },
@@ -117,6 +118,7 @@ describe('the plan for other vendors, from the server steps', () => {
       family: 'ios-xe',
       couldNotEstablish: ['an on-device SHA-256 command on IOS XE'],
       deviceHash: { algorithm: 'sha512', comparesWith: 'vendor_published_sha512' },
+      byHand: null,
       steps: [
         step(1, 'check space first', 'dir bootflash:'),
         step(2, 'make room BEFORE the copy', 'install remove inactive'),

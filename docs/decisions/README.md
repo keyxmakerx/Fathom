@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-Index current to ADR-0067 (2026-10-23). Two numbers were issued twice; on 2026-10-23 the second record of each pair was renumbered: prefixes and VLANs (was 0063) is now 0067, the work-account sign-off rounds (was 0065) is now 0066. Code comments citing ADR-0063 mean live co-editing; ADR-0065 means one sign-in.
+Index current to ADR-0068 (2026-10-25). Two numbers were issued twice, so the second record of each pair was renumbered: prefixes and VLANs (was 0063) is now 0067, and the work-account sign-off rounds (was 0065) is now 0068. Code citing ADR-0063 means live co-editing; ADR-0065 means one sign-in; ADR-0066 means learning, lessons and Ansible.
 
 > **Status:** Accepted
 > **Date:** 2026-07-28
@@ -102,8 +102,9 @@ question was not in the register. *R* is the reversal cost from `73` §1.2 — R
 | **[0063](adr-0063-live-co-editing.md)** | Live co-editing | Proposed (built) |  |  |
 | **[0064](adr-0064-firmware-targets-holds-and-screens.md)** | Firmware targets, holds and screens | Accepted |  |  |
 | **[0065](adr-0065-one-sign-in-and-adding-people-at-once.md)** | One sign-in, and adding people at once | Accepted |  |  |
-| **[0066](adr-0066-work-account-sign-offs-rounds-16-to-25.md)** | Sign-off rounds 16 to 27: corporate mapping, circuits, Admin (design only) | Accepted |  |  |
+| **[0066](adr-0066-learning-lessons-and-ansible.md)** | Learning, lessons and Ansible | Accepted |  |  |
 | **[0067](adr-0067-prefixes-vlans-and-the-importer.md)** | Prefixes and VLANs in Inventory; one file importer (was 0063) | Accepted |  |  |
+| **[0068](adr-0068-work-account-sign-offs-rounds-16-to-25.md)** | Sign-off rounds 16 to 27: corporate mapping, circuits, Admin (was 0065) | Accepted |  |  |
 
 ## What is not reopened
 

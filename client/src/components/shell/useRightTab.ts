@@ -21,7 +21,7 @@ export interface RightTabInput {
   onHistory?: () => void;
   onTrailOpenChange?: (open: boolean) => void;
   onPick?: (pick: RightTab | null) => void;
-  /** ADR-0066 §3: undefined until the design has loaded; then whether it is empty and can be drawn in. The
+  /** ADR-0068 §3: undefined until the design has loaded; then whether it is empty and can be drawn in. The
    * first answer decides whether Equipment opens by itself; later answers never do (a person who closed it
    * is left alone). */
   autoEquipment?: boolean;
@@ -82,7 +82,7 @@ export function useRightTab(input: RightTabInput) {
   const pickRef = useRef(onPick);
   pickRef.current = onPick;
 
-  // ADR-0066 §3: Equipment opens by itself on a design found empty when it is opened, once only.
+  // ADR-0068 §3: Equipment opens by itself on a design found empty when it is opened, once only.
   const autoDecided = useRef(false);
   const { autoEquipment } = input;
   const closedOnceRef = useRef(input.equipmentClosedOnce === true);

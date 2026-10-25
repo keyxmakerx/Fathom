@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-10-02: 1561 Rust tests and 1531 client tests on commit 3b10bfc, read off the runs. Prose brought up to main (7873e91) on 2026-10-25; counts not re-read. Read numbers off a real run, not off this page.
+**Last confirmed:** 2026-10-02: 1561 Rust tests and 1531 client tests on commit 3b10bfc, read off the runs. Prose brought up to main (3bd5ba9) on 2026-10-25; counts not re-read. Read numbers off a real run, not off this page.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -178,7 +178,7 @@ breadcrumb does one thing.
   (· Issued once this session has minted a token): account shells and invitations, organisation shells and
   claims, operators, console placement and the SMTP setting. The organisation claim signs the genesis grant in the
   browser, shows the recovery key once, then forgets it (ADR-0057). Not on the console: the two-person
-  verbs (no assertion by the enrolled key yet), the site trail, an account list. ADR-0066's Admin rework
+  verbs (no assertion by the enrolled key yet), the site trail, an account list. ADR-0068's Admin rework
   (Health first, a left-hand section list, Engines) is decided, not built.
 - **Home** has tabs (ADR-0060 decision 7): Designs, Organisation (admins and folder stewards; a rail of
   People, Waiting for you (N) and Folders), and Admin (the console, only where it answers). Each shows only to someone who may use it.
@@ -217,8 +217,20 @@ breadcrumb does one thing.
   Getting started (Home's right panel) ticks itself per account in this browser; a sample's own devices and
   cables do not count. Hidden, it lives under Help. Not built: the guided lessons, and tracing from a device on
   a wall, desk or shelf (the menu offers it on racked devices only). `scripts/drive-sample.mjs` drives it.
+- **Explainers in the app** (ADR-0066 item 1.1). `GET /learn/explainers` serves every entry in
+  `corpus/explainers/` (loaded once at startup with the rest of the corpus). A device whose `Device.platform`
+  has a read-this-first explainer shows a Learn line in its Details tab (every Linux flavour goes to
+  `linux-host`); Read more and Ctrl+K "Open Learn" open the explainer and the library, each marked
+  Unreviewed while `reviewed_by` is a placeholder. `client/src/components/learn/context.ts`'s
+  `useLearn().openExplainer(id)` is the one way in. **Learn notes** (Show menu, off by default; the
+  r4-teach Learn switch) writes up to five dashed notes on the Diagram look, one per idea (the first
+  firewall, router and switch by role, the first trunk and access link with their VLANs), from the
+  `learn note` entries in `corpus/explainers/network-basics.yaml`; each opens its explainer. Like the other
+  Show layers it draws on the Diagram look only. Not built: faceplate brackets for port roles, lessons,
+  explainers for Cisco and MikroTik. `scripts/drive-learn.mjs` drives it.
 - **Inventory table with pages and shared custom fields** (schema 0.16, ADR-0062). Field definitions are an organisation-wide server store (migration 0035); a value is a `FieldValue` node in the design. Private fields are not built.
 - **IP and VLAN tables, file importer** (ADR-0067): Inventory Prefix and VLAN kinds derived from the drawing, and one importer (CSV, NetBox, Proxmox, nmap).
+- **Suggestions from what a switch knows** (ADR-0046: suggestions, never facts; one undo step; the pasted text is never kept). A neighbour list (`show lldp neighbors` on Junos, Cisco, Arista; `lldpcli show neighbors`; Cisco `show cdp neighbors` and its `detail` form) suggests cables between drawn ports (`document/neighbours.ts`, round 15). A MAC table (`show mac address-table` on Cisco IOS and NX-OS, `show ethernet-switching table` on Junos non-ELS), with an optional ARP table (`show ip arp`, Junos `show arp`, `ip neigh`) or DHCP leases (ISC `dhcpd.leases`, `dnsmasq.leases`, Kea `kea-leases4.csv`) for addresses and names, suggests who is plugged in where: a port that learned one MAC is cabled to a drawn port carrying that MAC, or gets a new sketch device with that MAC and address; a port with several is left (`document/hosts.ts`, round 29, card r29-fill). A device's own report (`show version` on Junos, Cisco IOS and Arista; Cisco `show inventory`; Junos `show chassis hardware`) offers its serial and running version (`Device.os_version`) where the drawing has none, a difference unticked, and only says the model and hostname (`document/facts.ts`). Paste any of these onto the canvas, or right-click a switch. Not read: the Junos ELS table form. `scripts/drive-suggest.mjs` and `scripts/drive-hosts.mjs` drive them.
 - **Cable corrections from the floor.** Anyone with Read on a design's place sends "Traced ✓", "Label wrong" or "Not here" about a cable (`cable:` and a ULID); someone with Draw accepts or dismisses it. Corrections are their own server store (`cable_corrections`, migration 0036), sealed under the organisation content key, never graph nodes. Text is refused when the redaction gate's bare credential check fires (`enable secret cisco123` form), so ordinary prose with key or secret in it can be refused too. Accepting is the Draw user's ordinary edit as one undoable batch ("accepted <name>'s correction"; a not-here report becomes a note without the name); if the edit or its save fails the client reopens the correction (`POST .../reopen`, accepted only). Dismissing re-seals the body as empty text, so what was typed is not kept; a dismissed one cannot be reopened. The database binds sender and decider to the session account. A Read sender sees only their own; caps of 5 open per sender per cable, 20 per sender and 200 per design. Orphaned corrections (cable removed) list on the Corrections waiting page with Dismiss only. Known limits: no chain entry for a correction or decision (L2), no retention clean-up of decided rows.
 
 **The canvas** (one canvas, detail by degrees; ADR-0060)
@@ -243,7 +255,7 @@ breadcrumb does one thing.
 - **Look switch** (ADR-0061): Rack (faceplates, dressed cables) or Diagram (plain labelled boxes, square
   lines in sheath colour, view-and-select). Kept per browser, account and design (`drawing/look.ts`). A
   cable whose far end is off screen draws as stubs ending in a tag that pans to it (`drawing/stubs.ts`).
-- **Back button** (ADR-0066 §2, `components/racks/JumpTrail.tsx`, `jumpTree.ts`): one "Back to ..." button over the
+- **Back button** (ADR-0068 §2, `components/racks/JumpTrail.tsx`, `jumpTree.ts`): one "Back to ..." button over the
   canvas, with a ▾ beside it that unfolds a tree of where you are inside the design (design, rack, shelf,
   device, close-up or open, port; each line a name and a kind word, the current one marked "you are here";
   past six levels the middle folds to "N more"). Containment, not history; no site or room line because
@@ -253,7 +265,7 @@ breadcrumb does one thing.
 - **Equipment list** (the "Equipment" tab on the right edge; it opens by itself on a design with no
   devices only until the person closes it once on that design (kept per browser, account and design,
   `design/resume.ts`), after which opening that design leaves it shut; the empty canvas has an **Add
-  equipment** button that still opens it, ADR-0066 §3): search, headings Common / On a wall / Exact models; click
+  equipment** button that still opens it, ADR-0068 §3): search, headings Common / On a wall / Exact models; click
   or Enter adds where there is room. Common devices arrive named (router-1) with a role.
   **Not here? Describe it** (r15-f1, `components/describe/`): rows of ports (copper, SFP, SFP+, SFP28,
   QSFP28, console, power; how many; which face), the faceplate drawn per face as you go. Faces are
@@ -326,7 +338,10 @@ lists staged images (version, models, SHA-256, running, behind, plans) with uplo
 a model's chosen version and holds devices back with a reason. Check `fw.device.behind-chosen-version`
 flags a device behind its model's version. "Plan a firmware upgrade" (right-click, device page, or for every
 behind device) makes a maintenance plan with the vendor's steps for Junos, IOS XE, NX-OS or EOS; the
-device fetches its image with a one-time link. On in compose once `FATHOM_FIRMWARE_FETCH_BASE_URL` is set.
+device fetches its image with a one-time link. The fetch step and the image page also offer **From Windows**
+and **From Linux**: the same job by hand: over SSH (hash on the computer, `scp -O`, or for EOS the switch pulling
+from you), on a USB stick, or by TFTP with a warning, each where the vendor documents it and each step
+with its source (`firmware_by_hand.rs`). Fathom link is the default. On in compose once `FATHOM_FIRMWARE_FETCH_BASE_URL` is set.
 
 **View sharing** (ADR-0061 round 9, #102). A steward's **Share** button in the bar opens a panel with
 PERSON / CAN rows: **View** (see everything, change nothing) or **Draw**. Only people already in the
@@ -352,6 +367,15 @@ server, access point). Per browser and design, never saved.
 touches with Why? cards via `OP_PLAN_PREVIEW`), Do (teal checklist, one live step, Done or Went
 differently), Record (outcome, never edited again). Right-click "Plan a change". Steps apply through the
 ordinary edit path; plan text is gated like notes.
+A **LAG** step (schema 0.25) picks a device, ticks two or more of its member interfaces (so the
+config must be pasted first), names it (the next free ae, bond or Port-channel by platform) and sets
+LACP; Done builds the AggregateInterface and its member edges in one undo step. The far end is its own
+step. No VPN step yet.
+**Back out** (sign-off r16-backout): once a step is marked, Back out stops the work (remaining steps not done,
+recorded failed, naming the way back) and opens a new, separate plan from where things are now back to the start:
+the reverse of every done step, newest first (a cable cut, a cut re-made, a move back, a field's old value, a LAG
+removed), a check step for each that went differently, and room for steps of its own. A recorded plan that did not
+succeed can be backed out too; it stays as written. `scripts/drive-backout.mjs` drives it.
 
 **Live co-editing** (#98, ADR-0063 live). Changes are signed requests the server applies to its own
 head through the engine, refusing what the engine or the credential check refuses, then numbers, chains,
@@ -370,7 +394,7 @@ cables** (R1 gives R2, names get -2; `document/rackTidy.ts`), one undo step each
 its **Photo**: the newest image on its own docs, added by drop or pick onto a "Photo" doc, shown as a
 `data:` image (the CSP allows no `blob:`), confirmed as showing no passwords first.
 
-**Missing links, for cables** (ADR-0066 rounds 26-27; schema 0.24, field key 478 `Cable.needs_finishing`).
+**Missing links, for cables** (ADR-0068 rounds 26-27; schema 0.24, field key 478 `Cable.needs_finishing`).
 A cable with only one end connected draws as a column leaving its port (`LooseCableNode.tsx`), in one of two
 looks. **Unknown** (the default): the line fades out over its last ~110px, no motion, "Far end unknown" on
 hover, not counted. **Needs finishing** (a person marks it: the cable's panel toggle or its right-click; one undo
@@ -383,15 +407,13 @@ finishing only and hides at 0; its list has a row per cable ("sw-01 3 → (no fa
 Not drawn yet: a one-ended cable on a shelf's or wall's port (listed and counted, no line); Sites and Inventory
 do not list them yet. Drive: `scripts/drive-missing-links.mjs`.
 
-**Cables: styles, runs and ties, suggestions** (round 15; schema 0.23).
+**Cables: styles, runs and ties** (round 15; schema 0.23).
 - **Cable style** (`drawing/cableStyle.ts`), picked per person in the Show menu and kept in this browser,
   never in the design: Physics (the default; cables hang and sway), Cable-tied, Right-angle, Faded.
 - **Cable runs and ties** (`document/cableRuns.ts`, `drawing/PortalTrayNode.tsx`): a `CableRun` is a tray or
   lacing bar along one side of a rack or wall; a `CableTie` clips onto it and holds the cables it ties.
   Removing a run takes its ties; removing a cable drops it from any tie.
-- **Suggestions from a neighbour list** (`components/suggest/SuggestCard.tsx`, `document/neighbours.ts`):
-  paste a switch's LLDP neighbour list and the card ticks every cable it can name for certain and says why
-  it left the rest. Add is one undo step of ordinary cables; the pasted text is never kept.
+- **Suggestions from a neighbour list:** see "Suggestions from what a switch knows" above.
 
 **Port ties** (`document/portTies.ts`, `components/ties/`). A pasted interface is joined to the drawn port it
 sits on (`Occupies`). The person makes every tie; Fathom suggests only from a cited naming rule in
@@ -498,8 +520,8 @@ into the distroless runtime stage from the build stage. `FATHOM_SCHEMA_ROOT` ove
   - **Arista.** Two catalogue entries (720XP-48ZC2, 7050SX3-48YC8) and an EOS explainer; no dictionary
     (same shape gap). The safety net destroys every credential in a 120-line synthetic config
     (`crates/fathom-ingest/tests/arista_eos.rs`).
-  - Every explainer carries `reviewed_by: <named human>`, which means unreviewed; no client surface
-    shows that yet (OPEN-QUESTIONS E2 is answered, not built).
+  - Every explainer carries `reviewed_by: <named human>`, which means unreviewed; the Learn screens
+    say *Unreviewed* on each one (OPEN-QUESTIONS E2, ADR-0066).
   - **Engine gaps:** ADR-0044 rule 2's redaction-unproven refusal is not built; the
     core floor is the only fence. A credential typed into the free-text description cell of the
     OPNsense CSV is not caught (pinned in `opnsense_csv.rs`). The `<named human>` placeholder is a

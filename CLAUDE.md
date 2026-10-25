@@ -8,7 +8,7 @@ multi-user editing, thousands of devices per design.
 
 **Status: built and green, not yet usable** (2026-10-10). Engine, server and client are in and every
 gate passes. Since the owner's walkthroughs (2026-09-22, 2026-09-27; ADR-0060, one canvas with detail
-added by degrees) the rounds on the sign-off page through 15 have been built and merged; ADR-0066
+added by degrees) the rounds on the sign-off page through 15 have been built and merged; ADR-0068
 records rounds 16 to 27, of which one sign-in, the Back tree, Equipment opening by itself and missing links
 are built.
 **"Usable" is the owner's word and means beta: polished, the app basically done, a few features allowed to be missing.** Green gates do not

@@ -1,4 +1,4 @@
-// What an empty design says, and when Equipment opens by itself (ADR-0066 §3). The Equipment list is the
+// What an empty design says, and when Equipment opens by itself (ADR-0068 §3). The Equipment list is the
 // first tab of the dock on the RIGHT edge (`shell/RightDock.tsx`); the words here must name that side.
 
 import type { FixtureView } from '../../document/view';

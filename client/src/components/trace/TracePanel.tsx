@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
 
 import type { TraceHop, TracePolicy } from '../../engine/engine';
+import { Glossed } from '../learn/Glossed';
 import { endLine, hiddenCount, readingAs, untiedStop, visiblePolicies } from './traceModel';
 import { hopPhase } from './tracePlayback';
 import { useTraceRevealed } from './traceStore';
@@ -18,7 +19,9 @@ function WhyCard({ lines, onClose }: { lines: string[]; onClose: () => void }): 
   return (
     <div className="trace-why" role="note" data-testid="trace-why">
       {lines.filter((l) => l !== '').map((l) => (
-        <p key={l}>{l}</p>
+        <p key={l}>
+          <Glossed text={l} />
+        </p>
       ))}
       <button type="button" className="trace-link" onClick={onClose}>
         Close
@@ -63,7 +66,7 @@ function Hop({ hop, only, phase }: { hop: TraceHop; only: boolean; phase: 'done'
       </div>
       {hop.detail.map((d) => (
         <p key={d} className="trace-hop__detail">
-          {d}
+          <Glossed text={d} />
         </p>
       ))}
       {placed.length > 0 && (
@@ -190,7 +193,7 @@ export function TracePanel({ controller, onTie }: { controller: TraceController;
               <Hop key={h.n} hop={h} only={only} phase={hopPhase(i, revealed)} />
             ))}
           </ol>
-          {result.stopped === '' && <p className="trace-end">{endLine(result)}</p>}
+          {result.stopped === '' && <p className="trace-end">{endLine(result, target?.label)}</p>}
           {untied != null && (
             <p className="trace-end">
               Not tied to a port ·{' '}

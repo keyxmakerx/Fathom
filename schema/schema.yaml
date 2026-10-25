@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.24"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.25"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -307,6 +307,12 @@ schema:
                     # is loose at all is never stored: it is read off the drawing, from fewer than
                     # two Terminates. 62 §16.2: "New optional field" is minor. No kind, edge or
                     # existing key moved. Whole change = MINOR. The reader still opens 0.10 to 0.23.
+                    #
+                    # 0.25 is the LAG plan step (sign-off plan-ideas, 2026-10-25): one new enum
+                    # variant, `lag`, on PlanStep.kind. Its edit line (`lag` first) bundles member
+                    # Interfaces of one device into a new AggregateInterface when the step is done.
+                    # 62 §16.2: "New enum variant" is minor. No kind, edge or key added or moved.
+                    # Whole change = MINOR. The reader still opens 0.10 to 0.24.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -2043,12 +2049,12 @@ kinds:
       step is marked done. `targets` names what it touches, one design id per line.
     fields:
       - { name: ordinal, type: u32, card: "1", emit: "—", doc: Position in the plan. Steps run in this order. }
-      - { name: kind, type: "enum { address, route, cable, move, other }", card: "1", emit: "—", doc: What sort of change. }
+      - { name: kind, type: "enum { address, route, cable, move, other, lag }", card: "1", emit: "—", doc: "What sort of change. `lag` (0.25) bundles ports into a LAG." }
       - { name: targets, type: Text, card: "0..1", emit: "—", doc: "Design ids of what the step touches, one per line." }
       - { name: change, type: Text, card: "1", emit: "—", doc: The step in a sentence. }
       - { name: before, type: Text, card: "0..1", emit: "—", doc: How it is now. }
       - { name: after, type: Text, card: "0..1", emit: "—", doc: How it will be. }
-      - { name: edit, type: Text, card: "0..1", emit: "—", doc: "The edit applied on Done: one line, tab-separated, `field`, `cable` or `move` first. Absent for a step done by hand." }
+      - { name: edit, type: Text, card: "0..1", emit: "—", doc: "The edit applied on Done: one line, tab-separated, `field`, `cable`, `cut`, `move` or `lag` first. Absent for a step done by hand." }
       - { name: state, type: "enum { planned, done, went_differently }", card: "1", emit: "—", doc: Where the step is. }
       - { name: note, type: Text, card: "0..1", emit: "—", doc: What happened instead; required for went_differently. }
       - { name: done_at, type: Text, card: "0..1", emit: "—", doc: "When it was marked, as an ISO time." }

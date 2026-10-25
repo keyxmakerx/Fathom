@@ -135,7 +135,7 @@ try {
   await page.goto(`${BASE}/drive.html`);
   // The harness installs the session directly (ADR-0046 §3: "exactly one
   // place to go") — no Home click, no sign-in door.
-  // Equipment opens by itself on an empty design (ADR-0066 §3); open it only if it is not already open.
+  // Equipment opens by itself on an empty design (ADR-0068 §3); open it only if it is not already open.
   if ((await page.locator('button[aria-label="Open the equipment list"]').count()) > 0) {
     await page.click('button[aria-label="Open the equipment list"]');
   }

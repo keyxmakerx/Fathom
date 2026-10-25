@@ -208,6 +208,31 @@ describe('the commands the server writes per platform', () => {
     expect(img!.commands).toMatchObject({ platform: 'ios-xe', family: 'ios-xe', sourced: 'vendor_docs', couldNotEstablish: ['an on-device SHA-256 command on IOS XE'], deviceHash: { algorithm: 'sha512', comparesWith: 'vendor_published_sha512' } });
   });
 
+  it('reads each by-hand way with its Windows and Linux steps, and none from an older server', () => {
+    const step = (at: string, command: string) => ({ order: 1, at, step: 's', command, note: 'why', run_by: 'operator' });
+    const byHand = {
+      ways: [
+        { way: 'scp', label: 'Over SSH', warning: null, windows: [step('computer', 'Get-FileHash .\\j.tgz -Algorithm SHA256')], linux: [step('computer', 'sha256sum j.tgz'), { ...step('device', 'feature scp-server'), order: 2 }] },
+        { way: 'tftp', label: 'TFTP (old way)', warning: 'No login (RFC 1350).', windows: [step('computer', '')], linux: [step('computer', 'sudo apt install tftpd-hpa')] },
+        { way: 'usb', label: 'USB stick', warning: null, windows: [], linux: [] },
+      ],
+      sourced_note: 'Read on 2026-10-25',
+      could_not_establish: ['a', ''],
+    };
+    const [img] = parseImages(bytes([{ ...IMAGE, commands: { ...COMMANDS, by_hand: byHand } }]));
+    const hand = img!.commands?.byHand;
+    expect(hand).toMatchObject({ sourcedNote: 'Read on 2026-10-25', couldNotEstablish: ['a'] });
+    expect(hand?.ways.map((w) => w.way)).toEqual(['scp', 'tftp']);
+    expect(hand?.ways[0]?.linux.map((s) => s.at)).toEqual(['computer', 'device']);
+    expect(hand?.ways[0]?.windows[0]?.command).toBe('Get-FileHash .\\j.tgz -Algorithm SHA256');
+    expect(hand?.ways[0]?.warning).toBeNull();
+    expect(hand?.ways[1]?.warning).toBe('No login (RFC 1350).');
+    const [old] = parseImages(bytes([{ ...IMAGE, commands: COMMANDS }]));
+    expect(old!.commands?.byHand).toBeNull();
+    const [unknown] = parseImages(bytes([{ ...IMAGE, commands: { ...COMMANDS, by_hand: null } }]));
+    expect(unknown!.commands?.byHand).toBeNull();
+  });
+
   it('reads an unknown platform: no steps, sourced none', () => {
     const [img] = parseImages(bytes([{ ...IMAGE, commands: { ...COMMANDS, platform: 'frr', family: 'unknown', sourced: 'none', steps: [], device_path: null } }]));
     expect(img!.commands).toMatchObject({ family: 'unknown', sourced: 'none', steps: [], devicePath: '', platform: 'frr' });

@@ -251,7 +251,7 @@ try {
   // "Exactly one place to go" (ADR-0046 §3) lands the browser directly on
   // Racks — no Home click, no sign-in door, since the harness installs the
   // session and the one organisation/design pair directly.
-  // Equipment opens by itself on an empty design (ADR-0066 §3); open it only if it is not already open.
+  // Equipment opens by itself on an empty design (ADR-0068 §3); open it only if it is not already open.
   if ((await page.locator('button[aria-label="Open the equipment list"]').count()) > 0) {
     await page.click('button[aria-label="Open the equipment list"]');
   }

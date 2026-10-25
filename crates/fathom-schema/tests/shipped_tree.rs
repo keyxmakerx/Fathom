@@ -181,7 +181,8 @@ fn shipped_tree_declaration_counts_hold() {
     // 0.22 -> 0.23 is cable runs and ties: two kinds, three edges, four field keys (414-417);
     // the counts above already carry them.
     // 0.23 -> 0.24 is missing links for cables: one optional `Cable` field, `needs_finishing` (478).
-    assert_eq!(tree.version.as_deref(), Some("0.24"));
+    // 0.24 -> 0.25 is the LAG plan step: one variant, `lag`, on `PlanStep.kind`.
+    assert_eq!(tree.version.as_deref(), Some("0.25"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

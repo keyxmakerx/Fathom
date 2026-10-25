@@ -1,7 +1,7 @@
-# ADR-0066: Sign-off rounds 16 to 25: corporate mapping, circuits, Admin
+# ADR-0068: Sign-off rounds 16 to 25: corporate mapping, circuits, Admin
 
 **Status:** accepted 2026-10-15, rounds 26 and 27 added 2026-10-16 (owner answered the cards of rounds 16 to 25 on the sign-off page
-kept on the work account, 14 and 15 October). Design decisions. Built since: one sign-in and adding people at once (point 1, ADR-0065), the Back tree (point 2, round 26 point 2), Equipment opening by itself (point 3, round 27 point 3) and missing links for cables (round 27); `docs/STATE.md` says what is on main. **Renumbered** from ADR-0065 on 2026-10-23: the number was issued twice; ADR-0065 is one sign-in.
+kept on the work account, 14 and 15 October). Design decisions. Built since: one sign-in and adding people at once (point 1, ADR-0065), the Back tree (point 2, round 26 point 2), Equipment opening by itself (point 3, round 27 point 3) and missing links for cables (round 27); `docs/STATE.md` says what is on main. **Renumbered** from ADR-0065 on 2026-10-25: the number was issued twice (ADR-0065 is one sign-in), and 0066 went to learning, lessons and Ansible.
 
 **Context.** The owner works on the corporate network at an ISP. The first use at work is the
 owner mapping datacenters, closets and UPS rooms; circuit design is the second group. Practise on the

@@ -367,6 +367,7 @@ function FixtureBox({
 
   return (
     <div
+      data-device-chassis={fixture.kind === 'chassis' ? fixture.id : undefined}
       className={
         upright
           ? 'drawing-surface__fixture drawing-surface__fixture--upright nodrag'

@@ -1,4 +1,4 @@
-// Drives ADR-0066 §2 and §3 end to end: the Back button's tree (where you are inside the design, a name and a
+// Drives ADR-0068 §2 and §3 end to end: the Back button's tree (where you are inside the design, a name and a
 // kind word per line, "you are here", Esc and an outside click fold it, a click on the empty canvas only
 // folds it and leaves the selection, no Forward button) and the Equipment tab (opens by itself on an empty
 // design until it is closed once on that design, and stays shut when the design is opened again; an Add
@@ -129,7 +129,7 @@ try {
   };
   const eq = (page) => page.locator('[data-testid="dock-equipment"]');
 
-  // Part 1 (ADR-0066 section 3): an empty design.
+  // Part 1 (ADR-0068 section 3): an empty design.
   {
     const { context, page, pageErrors } = await open('empty');
     check('Equipment opens by itself on an empty design', (await eq(page).getAttribute('aria-expanded')) === 'true');

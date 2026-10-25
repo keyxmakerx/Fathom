@@ -209,7 +209,7 @@ try {
     // Open a device, add equipment, cable one port, then a second cable onto the same port.
     await page.locator('.react-flow__node-chassis').first().dblclick();
     await page.waitForSelector('[data-testid=jot]', { timeout: 10_000 });
-    // Equipment opens by itself on an empty design (ADR-0066 §3): open it only if it is not already open.
+    // Equipment opens by itself on an empty design (ADR-0068 §3): open it only if it is not already open.
     if ((await page.locator('[data-testid="dock-equipment"]').getAttribute('aria-expanded')) !== 'true') await page.locator('[data-testid="dock-equipment"]').click();
     await page.waitForTimeout(300);
     await page.locator('.drawing-palette__item', { hasText: 'Switch' }).first().click();
@@ -376,7 +376,7 @@ try {
     console.log(`    [${w}x${h}] fresh: chip "${chip}", canvas ${canvasW}px, panel ${open ? 'open' : 'folded'}`);
     if (canvasW < 720) check(`[${w}x${h}] a canvas under 720 px starts folded`, !open, `${canvasW}`);
     // The rail and the editor open: the canvas narrows, and the panel does not open by itself.
-    // Equipment opens by itself on an empty design (ADR-0066 §3): open it only if it is not already open.
+    // Equipment opens by itself on an empty design (ADR-0068 §3): open it only if it is not already open.
     if ((await page.locator('[data-testid="dock-equipment"]').getAttribute('aria-expanded')) !== 'true') await page.locator('[data-testid="dock-equipment"]').click();
     await page.waitForTimeout(500);
     const narrowW = (await page.locator('.shell__drawing').boundingBox()).width;
