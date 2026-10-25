@@ -423,6 +423,33 @@ pub enum EntryType {
     /// and for a batch the `batch_id` and its size), `refused` or `cancelled`.
     InvitationClosed,
 
+    // ---- The password vault, Mode A (migration 0041, storage §13.4) ---------
+    //
+    // Written by `vault.rs`. There is deliberately no `vault_read`: a Mode A
+    // read is the browser fetching ciphertext and opening it locally, which the
+    // server cannot see, and an entry claiming otherwise would be false.
+    /// A vault key joined the organisation: a person's (self-certified by an
+    /// account-key signature) or the recovery sheet's (signed by the steward
+    /// who made it). Metadata names the key, its kind, fingerprint and signer.
+    VaultKeyEnrolled,
+    /// A person replaced their vault key, usually after forgetting the
+    /// passphrase; signed by their account key, naming old and new fingerprints.
+    VaultKeySuperseded,
+    /// A login was stored. Names the entry and its owner, never a name or value.
+    VaultEntryCreated,
+    /// A signed recipient set took effect for one epoch (§13.3): created,
+    /// changed, shared or rotated. Names the epoch, the sharer and every
+    /// recipient key.
+    VaultShared,
+    /// A steward or owner stopped Fathom serving one recipient's wrap. This
+    /// revokes nothing already read; metadata says `remediation: none` until a
+    /// rotation follows.
+    VaultShareRevoked,
+    /// A login was deleted: the ciphertext is overwritten, the tombstone kept.
+    VaultEntryDeleted,
+    /// The organisation's recovery sheet was opened by a steward.
+    VaultRecoveryUsed,
+
     /// **A re-wrap happened** (§12.6): custody changed, exposure did not. The
     /// entry names the old and new master identity, which key rows moved, who
     /// ran it, and that no payload was re-encrypted. Rotation writes a
@@ -549,6 +576,13 @@ impl EntryType {
             Self::FirmwareModelsChanged => "firmware_models_changed",
             Self::InvitationIssued => "invitation_issued",
             Self::InvitationClosed => "invitation_closed",
+            Self::VaultKeyEnrolled => "vault_key_enrolled",
+            Self::VaultKeySuperseded => "vault_key_superseded",
+            Self::VaultEntryCreated => "vault_entry_created",
+            Self::VaultShared => "vault_shared",
+            Self::VaultShareRevoked => "vault_share_revoked",
+            Self::VaultEntryDeleted => "vault_entry_deleted",
+            Self::VaultRecoveryUsed => "vault_recovery_used",
             // ADR-0055 stream (c)
             Self::ConsolePlacementRequested => "console_placement_requested",
             Self::ConsolePlacementConfirmed => "console_placement_confirmed",
@@ -619,6 +653,13 @@ impl EntryType {
             "firmware_models_changed" => Some(Self::FirmwareModelsChanged),
             "invitation_issued" => Some(Self::InvitationIssued),
             "invitation_closed" => Some(Self::InvitationClosed),
+            "vault_key_enrolled" => Some(Self::VaultKeyEnrolled),
+            "vault_key_superseded" => Some(Self::VaultKeySuperseded),
+            "vault_entry_created" => Some(Self::VaultEntryCreated),
+            "vault_shared" => Some(Self::VaultShared),
+            "vault_share_revoked" => Some(Self::VaultShareRevoked),
+            "vault_entry_deleted" => Some(Self::VaultEntryDeleted),
+            "vault_recovery_used" => Some(Self::VaultRecoveryUsed),
             // ADR-0055 stream (c)
             "console_placement_requested" => Some(Self::ConsolePlacementRequested),
             "console_placement_confirmed" => Some(Self::ConsolePlacementConfirmed),
@@ -695,7 +736,14 @@ impl EntryType {
             | Self::FirmwareFetchRedeemed
             | Self::FirmwareModelsChanged
             | Self::InvitationIssued
-            | Self::InvitationClosed => &[ChainKind::Org],
+            | Self::InvitationClosed
+            | Self::VaultKeyEnrolled
+            | Self::VaultKeySuperseded
+            | Self::VaultEntryCreated
+            | Self::VaultShared
+            | Self::VaultShareRevoked
+            | Self::VaultEntryDeleted
+            | Self::VaultRecoveryUsed => &[ChainKind::Org],
             // **Two types are filed on two kinds.** `rewrap` because the master key
             // is deployment-wide (§7.2). `grant_suspended` because §1.1 gives the
             // operator plane this one authority-adjacent verb: the organisation

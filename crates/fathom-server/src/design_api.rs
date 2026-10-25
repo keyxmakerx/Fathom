@@ -298,8 +298,13 @@ pub fn router(state: DesignApiState) -> Router {
             "/catalogue/models/{vendor}/{model}",
             get(catalogue_model_handler),
         )
+        .merge(vault_routes::routes())
         .with_state(state)
 }
+
+// The password vault's routes (ADR-0070). A child module, so it shares this file's extractor,
+// transaction opening and body helpers without making any of them public.
+mod vault_routes;
 
 // ---- The extractor: `api::Signed`'s pattern, against `DesignApiState` ----
 
@@ -562,6 +567,14 @@ pub enum RouteError {
     Limited(&'static str),
     /// An invitation act refused: [`invite_error_response`].
     Invite(InviteError),
+    /// A vault act refused: `vault_routes::vault_error_response`.
+    Vault(crate::vault::VaultError),
+}
+
+impl From<crate::vault::VaultError> for RouteError {
+    fn from(e: crate::vault::VaultError) -> Self {
+        Self::Vault(e)
+    }
 }
 
 impl From<InviteError> for RouteError {
@@ -596,6 +609,7 @@ impl IntoResponse for RouteError {
             )
                 .into_response(),
             Self::Invite(e) => invite_error_response(e),
+            Self::Vault(e) => vault_routes::vault_error_response(e),
         }
     }
 }

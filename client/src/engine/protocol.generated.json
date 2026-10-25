@@ -27,7 +27,8 @@
     "OP_CHECK_GESTURE": 33,
     "OP_SYNC": 34,
     "OP_PLAN_PREVIEW": 35,
-    "OP_TRACE": 36
+    "OP_TRACE": 36,
+    "OP_VAULT_KDF": 37
   },
   "faces": {
     "FACE_HEADER": 0,
@@ -62,6 +63,7 @@
     "FACE_TR_HEAD": 35,
     "FACE_TR_HOP": 36,
     "FACE_TR_POL": 37,
+    "FACE_VAULT_KEY": 38,
     "FACE_INV_KEY": 29,
     "FACE_PASTE_LINE": 30,
     "FACE_DROP": 31,
@@ -102,6 +104,7 @@
     "FACE_TR_HEAD": ["from", "to", "flow", "stopped", "hop_count", "", "", ""],
     "FACE_TR_HOP": ["n", "kind", "title", "detail", "nodes", "why", "source", "scope"],
     "FACE_TR_POL": ["hop", "id", "ordinal", "name", "action", "state", "reason", "placed"],
+    "FACE_VAULT_KEY": ["key_hex", "", "", "", "", "", "", ""],
     "FACE_INV_KEY": ["", "key_1", "key_2", "key_3", "key_4", "key_5", "key_6", ""],
     "FACE_PASTE_LINE": ["ordinal", "outcome", "byte_start", "byte_end", "node_id", "fields", "reason", ""],
     "FACE_DROP": ["ordinal", "marker_start", "marker_end", "label", "detectors", "", "", ""],
