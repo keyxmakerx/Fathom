@@ -34,6 +34,13 @@ interfaces, admin-up, VLANs and addresses, and the host from a pasted shell prom
 are shaped and every line is swept (`corpus/dict/README-linux-host.md`). Routes and `bridge vlan show` are
 residue. Naming `linux-host` in the paste frame waits on the client.
 
+**Paste: TP-Link switch (engine, 2026-10-16).** A JetStream or Omada switch's config text (`show
+running-config` or Export Config) has its own front end, `fathom-ingest/src/blockcfg.rs`, picked by an exact
+sniff (`!<model>` first, a `#` separator later). It binds VLANs with their names, interfaces with
+description and `shutdown`, and the hostname. After a credential keyword the rest of the line is destroyed
+whatever any detector says, and every line is swept (`corpus/dict/README-omada-sw.md`). Addresses (dotted
+masks) and VLAN membership are residue. Naming `omada-sw` in the paste frame waits on the client.
+
 **The server.** `crates/fathom-server` starts, answers a health check through a real PostgreSQL, shuts
 down cleanly, and runs as the one plain-HTTP published port of a composed stack, behind the operator's
 own TLS-terminating proxy. It stores identity and structure (accounts, organisations, memberships, the
@@ -468,9 +475,9 @@ into the distroless runtime stage from the build stage. `FATHOM_SCHEMA_ROOT` ove
   - **Ubiquiti.** Catalogue: UDM-SE and two USW PoE switches. UniFi has no human-readable export, so no
     dictionary. EdgeOS binds hostname, interface description, disable and `vif` sub-interfaces; base
     addresses, static routes, DHCP server and NAT are unbound (`corpus/dict/README-ubiquiti.md`).
-  - **Linux hosts.** A zero-entry dictionary: `ip` and `bridge` output is not verb-initial and
-    `shape.rs` shapes only `set` lines (`corpus/dict/README-linux-host.md`). A pasted WireGuard private
-    key is still destroyed. Eight per-flavour explainers plus `linux-family-basics`, cited.
+  - **Linux hosts.** Read by `iproute.rs` (above); `bridge` output is residue
+    (`corpus/dict/README-linux-host.md`). A pasted WireGuard private key is still destroyed. Eight
+    per-flavour explainers plus `linux-family-basics`, cited.
   - **Arista.** Two catalogue entries (720XP-48ZC2, 7050SX3-48YC8) and an EOS explainer; no dictionary
     (same shape gap). The safety net destroys every credential in a 120-line synthetic config
     (`crates/fathom-ingest/tests/arista_eos.rs`).
