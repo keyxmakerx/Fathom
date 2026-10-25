@@ -282,7 +282,7 @@ const TABLES: &[TableClaim] = &[
     TableClaim {
         name: "member_teaching",
         protection: Protection::NoKeyProtectedMaterial,
-        why: "\"type it yourself\" (0040): ids, one boolean, who set it and when. A teaching \
+        why: "\"type it yourself\" (0041): ids, one boolean, who set it and when. A teaching \
               setting, not a credential, a payload or a key.",
     },
     TableClaim {

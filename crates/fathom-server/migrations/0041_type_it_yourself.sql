@@ -1,4 +1,4 @@
--- 0040 -- "type it yourself" (sign-off card r30-nocopy, approved 25 October 2026).
+-- 0041 -- "type it yourself" (sign-off card r30-nocopy, approved 25 October 2026).
 --
 -- A teaching setting for one person in one organisation. While it is on, the
 -- client shows commands to be typed by hand: no copy buttons on them, the command

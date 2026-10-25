@@ -246,11 +246,17 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0039_added_at_once.sql",
         sql: include_str!("../migrations/0039_added_at_once.sql"),
     },
-    // "Type it yourself": a teaching setting per member (sign-off card r30-nocopy).
+    // A practice space for the person who runs the server (ADR-0069).
     Migration {
         version: 40,
-        name: "0040_type_it_yourself.sql",
-        sql: include_str!("../migrations/0040_type_it_yourself.sql"),
+        name: "0040_practice_spaces.sql",
+        sql: include_str!("../migrations/0040_practice_spaces.sql"),
+    },
+    // "Type it yourself": a teaching setting per member (sign-off card r30-nocopy).
+    Migration {
+        version: 41,
+        name: "0041_type_it_yourself.sql",
+        sql: include_str!("../migrations/0041_type_it_yourself.sql"),
     },
 ];
 

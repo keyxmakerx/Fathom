@@ -18,7 +18,7 @@ approval is **an owner act**.
 | `hmac` | The chain MAC — HMAC-SHA-256 (storage §12.1) | 2026-09-12 | None against `hmac`; on its tag-comparison path `cmov` is pinned ≥ 0.5.4 and `ctutils` ≥ 0.4.4 (RUSTSEC-2026-0385), in use 0.4.5 |
 | `sha2` | The hash under the MAC, the KDF and the genesis digest | 2026-09-12 | None against 0.11.0 |
 | `getrandom` | The OS CSPRNG directly, never `rand` (storage §12.4) | 2026-09-12 | None against 0.4.3 |
-| `p256` | The curve under ES256 (admin §15.3) | 2026-09-12 | None against `p256`; `crypto-bigint` under it is pinned 0.7.6 for RUSTSEC-2026-0387 |
+| `p256` | The curve under ES256 (admin §15.3) | 2026-09-12 | None against `p256`; `crypto-bigint` under it is pinned 0.7.9 (fixed for RUSTSEC-2026-0387 from 0.7.6; 0.7.0 to 0.7.8 yanked 2026-10-25) |
 | `ecdsa` | ECDSA itself, and the low-S rule §3's correction requires | 2026-09-12 | Nothing found in RustSec or OSV, both with working controls |
 
 **Four rows above were missing until 2026-09-12** — `hkdf`, `hmac`, `sha2` and `getrandom` had

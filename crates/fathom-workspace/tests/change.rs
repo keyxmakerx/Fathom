@@ -1119,3 +1119,85 @@ fn premises_fields_are_not_rack_fields() {
         .contains(&RackField::Label.key()));
     let _ = PremisesField::Label;
 }
+
+#[test]
+fn a_secret_in_a_vpn_is_found() {
+    use fathom_ir::generated::ir_types::{OverlayMemberField, OverlayNetworkField};
+    // A WireGuard private key is 32 bytes, base64: 44 characters ending in `=` (wg(8)). The
+    // value here is random bytes, not anyone's key. A Tailscale auth key starts `tskey-auth-`.
+    let wg = "PrivateKey = 2WF+k/FE9kbKAlAY1+B/UTfUyDHuo2ufDyiYu17aQ+U=";
+    let bare_wg = "2WF+k/FE9kbKAlAY1+B/UTfUyDHuo2ufDyiYu17aQ+U=";
+    let ts = "tailscale up --authkey tskey-auth-kN3vP8qR2CNTRL-Vx7mQ2pL9sT4wZ8bY6cF1hJ3kD5gA0e";
+    for secret in [wg, ts] {
+        let mut g = base();
+        g.begin_batch(batch_id(74), "vpn").unwrap();
+        let n = g
+            .insert_node(NodeKind::OverlayNetwork, ulid(986), prov(986))
+            .unwrap();
+        g.set_field(
+            n.into(),
+            OverlayNetworkField::Note.key(),
+            Text(secret.into()),
+            prov(987),
+        )
+        .unwrap();
+        g.end_batch().unwrap();
+        assert!(fathom_workspace::find_credential(&g).is_some(), "{secret}");
+    }
+    for routes in [bare_wg, wg] {
+        let mut g = base();
+        g.begin_batch(batch_id(75), "vpn").unwrap();
+        let n = g
+            .insert_node(NodeKind::OverlayNetwork, ulid(988), prov(988))
+            .unwrap();
+        let device = NodeId {
+            kind: NodeKind::Device,
+            ulid: ulid(DEVICE),
+        };
+        let m = g
+            .insert_edge(EdgeKind::OverlayMember, ulid(989), n, device, prov(989))
+            .unwrap();
+        g.set_field(
+            m.into(),
+            OverlayMemberField::Routes.key(),
+            Text(format!("10.0.10.0/24\n{routes}")),
+            prov(990),
+        )
+        .unwrap();
+        g.end_batch().unwrap();
+        assert_eq!(
+            fathom_workspace::find_credential(&g),
+            Some(("OverlayMember", 2)),
+            "{routes}"
+        );
+    }
+    // Honest routes and an honest note are not refused.
+    let mut g = base();
+    g.begin_batch(batch_id(76), "vpn").unwrap();
+    let n = g
+        .insert_node(NodeKind::OverlayNetwork, ulid(991), prov(991))
+        .unwrap();
+    g.set_field(
+        n.into(),
+        OverlayNetworkField::Note.key(),
+        Text("Home tailnet; nas is the exit node".into()),
+        prov(992),
+    )
+    .unwrap();
+    let device = NodeId {
+        kind: NodeKind::Device,
+        ulid: ulid(DEVICE),
+    };
+    let m = g
+        .insert_edge(EdgeKind::OverlayMember, ulid(993), n, device, prov(993))
+        .unwrap();
+    g.set_field(
+        m.into(),
+        OverlayMemberField::Routes.key(),
+        Text("10.0.10.0/24\n192.168.1.0/24".into()),
+        prov(994),
+    )
+    .unwrap();
+    g.end_batch().unwrap();
+    assert_eq!(fathom_workspace::find_credential(&g), None);
+}

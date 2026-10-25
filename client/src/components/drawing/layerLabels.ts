@@ -8,6 +8,7 @@ import { listPlans } from '../../document/plans';
 import { buildCanon } from '../checks/checksModel';
 import { touchedDevices } from '../plans/plansModel';
 import { tagsOf } from '../../document/tags';
+import { overlaysOf } from '../../document/overlays';
 import type { ClosetView } from './contract';
 import { layerOn, type LayerSet } from './layers';
 import type { Rect } from './diagram';
@@ -46,7 +47,8 @@ export function layerWords(doc: Document | null, view: ClosetView, layers: Layer
   const wantTags = layerOn(layers, 'tags');
   const wantDocs = layerOn(layers, 'docs');
   const wantMaint = layerOn(layers, 'maintenance');
-  if (!wantAddr && !wantVlan && !wantTags && !wantDocs && !wantMaint) return EMPTY;
+  const wantVpns = layerOn(layers, 'vpns');
+  if (!wantAddr && !wantVlan && !wantTags && !wantDocs && !wantMaint && !wantVpns) return EMPTY;
   const cables = new Map<string, CableWords>();
   const devices = new Map<string, string[]>();
 
@@ -96,13 +98,15 @@ export function layerWords(doc: Document | null, view: ClosetView, layers: Layer
     }
   }
 
-  if (wantTags || wantDocs || wantMaint) {
+  if (wantTags || wantDocs || wantMaint || wantVpns) {
     for (const ch of view.racks.flatMap((r) => r.chassis)) {
       const words: string[] = [];
       const plan = planned.get(ch.deviceId);
       if (plan != null) words.push(plan);
       if (wantDocs && docsOf(doc, ch.deviceId, ch.model).length > 0) words.push('docs');
       if (wantTags) words.push(...tagsOf(doc, ch.deviceId).map((t) => t.name));
+      // A member's VPN address, the way the VPN's own spokes reach it.
+      if (wantVpns) for (const { member } of overlaysOf(doc, ch.deviceId)) if (member.address != null) words.push(member.address);
       if (words.length > 0) devices.set(ch.id, words);
     }
   }

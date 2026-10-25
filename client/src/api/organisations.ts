@@ -22,6 +22,9 @@ export interface Organisation {
   /** "Type it yourself" (sign-off card r30-nocopy): commands are shown to be
    * typed by hand in this organisation. Absent reads as off. */
   typeItYourself: boolean;
+  /** ADR-0069: the account's own practice space, made by the person who runs the server. A label for Home only;
+   * present only when true. */
+  practice?: true;
 }
 
 /**
@@ -59,6 +62,7 @@ export function parseOrganisations(bytes: Uint8Array): Organisation[] {
       displayName: record.display_name,
       role: record.role === 'admin' ? 'admin' : 'member',
       typeItYourself: record.type_it_yourself === true,
+      ...(record.practice === true ? { practice: true as const } : {}),
     };
   });
 }

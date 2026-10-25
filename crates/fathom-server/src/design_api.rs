@@ -1004,7 +1004,7 @@ async fn list_organisations_handler(
 
     let out = organisations
         .into_iter()
-        .map(|(o, role)| {
+        .map(|(o, role, practice)| {
             let mut map = BTreeMap::new();
             map.insert("organisation_id".to_string(), Json::Str(o.id.to_string()));
             map.insert("display_name".to_string(), Json::Str(o.display_name));
@@ -1013,6 +1013,10 @@ async fn list_organisations_handler(
                 "type_it_yourself".to_string(),
                 Json::Bool(typing.contains(&o.id.to_string())),
             );
+            // ADR-0069: a label for Home, never read to decide authority.
+            if practice {
+                map.insert("practice".to_string(), Json::Bool(true));
+            }
             Json::Obj(map)
         })
         .collect();

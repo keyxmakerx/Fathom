@@ -3598,7 +3598,7 @@ async fn an_added_invitation_cannot_be_cancelled_rejoined_or_moved_back() {
     assert!(again.is_err());
 }
 
-// ---- "Type it yourself" (sign-off card r30-nocopy, migration 0040) ----
+// ---- "Type it yourself" (sign-off card r30-nocopy, migration 0041) ----
 
 fn on_body(on: bool) -> Vec<u8> {
     format!("{{\"on\":{on}}}\n").into_bytes()

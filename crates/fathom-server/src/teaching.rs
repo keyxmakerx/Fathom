@@ -1,4 +1,4 @@
-//! "Type it yourself" (sign-off card r30-nocopy, migration `0040`).
+//! "Type it yourself" (sign-off card r30-nocopy, migration `0041`).
 //!
 //! A teaching setting for one member of one organisation. While it is on, the
 //! client shows commands to be typed by hand: no copy buttons on them, the

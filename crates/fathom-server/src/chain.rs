@@ -422,7 +422,7 @@ pub enum EntryType {
     /// A steward closed an invitation: `reason` is `confirmed` (with the grant,
     /// and for a batch the `batch_id` and its size), `refused` or `cancelled`.
     InvitationClosed,
-    /// "Type it yourself" was set for a member (`0040`): `account`, `on`, and the
+    /// "Type it yourself" was set for a member (`0041`): `account`, `on`, and the
     /// `actor` who set it, who may be the member switching it on for themselves.
     TypeItYourselfSet,
 
