@@ -43,11 +43,11 @@ export const PLAIN_WARNING =
   'THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.';
 export { SCHEMA_VERSION };
 
-// Every 0.10-to-0.25 move is additive, so a payload declared at an older
+// Every 0.10-to-0.26 move is additive, so a payload declared at an older
 // version reads exactly like a current one. Every older version this reader
 // still opens, and no other -- byte-identical to
 // `fathom_workspace::ACCEPTED_OLDER_SCHEMA_VERSIONS`.
-export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12', '0.13', '0.14', '0.15', '0.16', '0.17', '0.18', '0.19', '0.20', '0.21', '0.22', '0.23', '0.24'];
+export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12', '0.13', '0.14', '0.15', '0.16', '0.17', '0.18', '0.19', '0.20', '0.21', '0.22', '0.23', '0.24', '0.25'];
 
 // Kinds 0.11 (ADR-0058) added. A payload declared at 0.10 cannot
 // legitimately hold one -- its editor never had the kind -- so finding one
@@ -96,6 +96,10 @@ const EDGE_KINDS_SINCE_0_19: ReadonlySet<EdgeKind> = new Set(['HasFirmwareTarget
 const NODE_KINDS_SINCE_0_23: ReadonlySet<NodeKind> = new Set(['CableRun', 'CableTie']);
 const EDGE_KINDS_SINCE_0_23: ReadonlySet<EdgeKind> = new Set(['HasCableRun', 'HasCableTie', 'Ties']);
 
+// Kinds 0.26 (mesh VPNs) added; every accepted older header is too old for them.
+const NODE_KINDS_SINCE_0_26: ReadonlySet<NodeKind> = new Set(['OverlayNetwork']);
+const EDGE_KINDS_SINCE_0_26: ReadonlySet<EdgeKind> = new Set(['HasOverlay', 'OverlayMember']);
+
 // A kind first added at minor `m` is too new for any header below `m`. Mirrors the Rust table.
 const NODES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<NodeKind>]> = [
   [11, NODE_KINDS_SINCE_0_11],
@@ -107,6 +111,7 @@ const NODES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<NodeKind>]> = [
   [18, NODE_KINDS_SINCE_0_18],
   [19, NODE_KINDS_SINCE_0_19],
   [23, NODE_KINDS_SINCE_0_23],
+  [26, NODE_KINDS_SINCE_0_26],
 ];
 const EDGES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<EdgeKind>]> = [
   [11, EDGE_KINDS_SINCE_0_11],
@@ -118,6 +123,7 @@ const EDGES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<EdgeKind>]> = [
   [18, EDGE_KINDS_SINCE_0_18],
   [19, EDGE_KINDS_SINCE_0_19],
   [23, EDGE_KINDS_SINCE_0_23],
+  [26, EDGE_KINDS_SINCE_0_26],
 ];
 
 function rejectKindsTooNewForDeclaredVersion(declared: string, doc: Document): void {

@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
+import { listOverlays } from '../../document/overlays';
 import { captureOf } from '../../document/capture';
 import { completeCable, connectPorts, disconnect, IncompatibleConnectorError, PortAlreadyTerminatedError, type Sheath } from '../../document/cables';
 import {
@@ -83,9 +84,10 @@ import { useChecksController } from '../checks/useChecksController';
 import { TracePanel } from '../trace/TracePanel';
 import { TraceContext } from '../trace/traceStore';
 import { useTraceController } from '../trace/useTraceController';
-import { loadFirstSteps, recordFirstSteps } from '../home/firstSteps';
+import { recordFirstSteps, sampleOfDesign } from '../home/firstSteps';
+import { sample as sampleSpec } from '../home/sampleNetwork';
 import { readyQuestions } from '../home/sampleQuestions';
-import { ReadyQuestions } from '../trace/ReadyQuestions';
+import { PracticeNote, ReadyQuestions } from '../trace/ReadyQuestions';
 import { TieCard } from '../ties/TieCard';
 import { PlanBand, PlansBarChip } from '../plans/PlanBand';
 import { PlansSurface } from '../plans/PlansSurface';
@@ -796,6 +798,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     () => (layerOn(layers, 'learn') && learnExplainers != null ? learnNotes(doc, displayView, learnExplainers) : undefined),
     [doc, displayView, layers, learnExplainers],
   );
+  const vpns = useMemo(() => (doc != null && layerOn(layers, 'vpns') ? listOverlays(doc) : undefined), [doc, layers]);
 
   // The Cables list. `cableGroupsState`'s own initial value is read from
   // storage synchronously (never a placeholder that then flashes every
@@ -937,8 +940,17 @@ export function RacksPlace(props: RacksPlaceProps) {
   }, [accountId, designId, doc, traced]);
 
   // A sample offers the questions it was made to answer (card nu-vlan A); a design of the person's own does not.
-  const isSample = useMemo(() => loadFirstSteps(accountId).samples.includes(designId), [accountId, designId]);
-  const questions = useMemo(() => (isSample && doc != null ? readyQuestions(doc) : []), [isSample, doc]);
+  // The practice lab instead says how many mistakes Checks will find (card nu-why A).
+  const fromSample = useMemo(() => {
+    const id = sampleOfDesign(accountId, designId);
+    try {
+      return id != null ? sampleSpec(id) : null;
+    } catch {
+      return null;
+    }
+  }, [accountId, designId]);
+  const questions = useMemo(() => (fromSample != null && doc != null ? readyQuestions(doc, [fromSample]) : []), [fromSample, doc]);
+  const planted = fromSample?.mistakes?.length ?? 0;
 
   // Resolves the current selection to a rack id, however it was reached;
   // anything not rack-shaped reports `null`.
@@ -1869,6 +1881,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           style={diagramStyle}
           cameraHub={cameraHub}
           minimap={canvasAids.prefs.minimap}
+          overlays={vpns}
         />
       ) : (
         <Drawing
@@ -2022,6 +2035,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       {doc != null ? <PlansSurface controller={plans} besideChecks={checks.open} /> : null}
       {doc != null && (trouble.draft != null || trouble.viewing != null) ? <TroublePanel controller={trouble} besideChecks={checks.open} besidePlans={plans.plan != null && plans.panelOpen && !plans.listMode} onTie={canDraw ? setTieFor : undefined} /> : null}
       {doc != null && jot == null && !trace.open ? <ReadyQuestions questions={questions} onAsk={(q) => trace.ask(q.chassisId, q.to, q.flow)} /> : null}
+      {doc != null && jot == null && !trace.open && !checks.open && planted > 0 ? <PracticeNote count={planted} onOpenChecks={() => checks.setOpen(true)} /> : null}
       {doc != null && jot == null ? <TracePanel controller={trace} onTie={canDraw ? setTieFor : undefined} /> : null}
       </TraceContext.Provider>
       </TroubleContext.Provider>

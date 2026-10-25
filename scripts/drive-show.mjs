@@ -130,7 +130,7 @@ try {
   await page.getByTestId('shell-show').click();
   // The canvas aids (Mini-map, Cable colour key) share the menu; the layers are the rest.
   const items = (await page.locator('.shell-show__row').allInnerTexts()).filter((t) => !/Mini-map|Cable colour key/.test(t));
-  check('menu lists the layers: Checks, Addresses, VLANs, Docs, Maintenance, Tags, Learn notes', items.length === 7 && items.every((t) => /Checks|Addresses|VLANs|Docs|Maintenance|Tags|Learn notes/.test(t)), items.join(' | '));
+  check('menu lists the layers: Checks, Addresses, VLANs, Docs, Maintenance, Tags, Learn notes, VPNs', items.length === 8 && items.every((t) => /Checks|Addresses|VLANs|Docs|Maintenance|Tags|Learn notes|VPNs/.test(t)), items.join(' | '));
   await page.screenshot({ path: SHOTS + 'show-menu.png' });
   await page.getByTestId('show-addresses').click();
   await page.getByTestId('show-vlans').click();

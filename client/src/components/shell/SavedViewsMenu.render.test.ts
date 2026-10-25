@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { SavedView } from '../drawing/savedViews';
 import { SavedViewsMenu, type SavedViewsMenuProps } from './SavedViewsMenu';
 
-const layers = { checks: true, addresses: false, vlans: false, docs: false, maintenance: false, tags: false, learn: false };
+const layers = { checks: true, addresses: false, vlans: false, docs: false, maintenance: false, tags: false, learn: false, vpns: false };
 const view = (id: string, name: string): SavedView => ({ id, name, look: 'rack', camera: { x: 0, y: 0, zoom: 1 }, layers });
 const props = (over: Partial<SavedViewsMenuProps> = {}): SavedViewsMenuProps => ({ views: [], onSave: () => null, onGo: () => {}, onRename: () => null, onDelete: () => {}, ...over });
 const render = (over: Partial<SavedViewsMenuProps> = {}) => renderToStaticMarkup(createElement(SavedViewsMenu, props(over)));
