@@ -703,7 +703,11 @@ export default function App() {
         accountId={session.accountId}
         initialToken={claiming.token}
         initialNoticeAddress={claiming.noticeAddress}
-        onDone={() => setClaiming(null)}
+        onDone={() => {
+          setClaiming(null);
+          // A claimed organisation is somewhere to draw: land on its designs, not back in the console (r30-small).
+          setHomeTab('designs');
+        }}
         onCancel={() => setClaiming(null)}
       />
     );

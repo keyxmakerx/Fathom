@@ -176,6 +176,8 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   }
   const [prefs, setPrefs] = useState<string[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // The filter line stays folded until Filter is pressed or a filter is set (r30-small).
+  const [filterShown, setFilterShown] = useState(false);
   const [pasteText, setPasteText] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   // The design as it was when the importer opened, and as it is now (the dialog's callback is old by
@@ -816,8 +818,11 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                 notice={notice}
                 progress={bulkProgress}
                 undo={bulkUndo && bulkUndo.notice === notice && bulkStillUndoable(doc, bulkUndo.id) ? { run: runBulkUndo } : null}
+                filter={{ shown: filterShown || q !== '', onToggle: () => setFilterShown(!filterShown) }}
               />
-              <FilterLine q={q} onQ={(next) => go({ q: next })} schema={schema} rows={baseRows} parsed={filtered.parsed} kindLabel={kindLabel} />
+              {filterShown || q !== '' ? (
+                <FilterLine q={q} onQ={(next) => go({ q: next })} schema={schema} rows={baseRows} parsed={filtered.parsed} kindLabel={kindLabel} autoFocus={filterShown && q === ''} />
+              ) : null}
               <div
                 className="inv-list__grid"
                 onPaste={(e) => {

@@ -83,6 +83,8 @@ import { TracePanel } from '../trace/TracePanel';
 import { TraceContext } from '../trace/traceStore';
 import { useTraceController } from '../trace/useTraceController';
 import { loadFirstSteps, recordFirstSteps } from '../home/firstSteps';
+import { SampleChip } from '../home/SampleChip';
+import { restoreTo } from '../../document/restore';
 import { readyQuestions } from '../home/sampleQuestions';
 import { ReadyQuestions } from '../trace/ReadyQuestions';
 import { TieCard } from '../ties/TieCard';
@@ -296,6 +298,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   onSelectedChange?: (id: string | null) => void;
   /** A device was opened (double-click): Home's Recent row remembers it. */
   onDeviceOpened?: (chassisId: string, name: string) => void;
+  /** The design as it was first saved: Reset sample puts the sample back to it (r30-small). */
+  loadFirstSave?: () => Promise<Document>;
 }
 
 /**
@@ -336,6 +340,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     designId,
     onSelectedChange,
     onDeviceOpened,
+    loadFirstSave,
     ...shellProps
   } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign } = session;
@@ -929,6 +934,16 @@ export function RacksPlace(props: RacksPlaceProps) {
   // A sample offers the questions it was made to answer (card nu-vlan A); a design of the person's own does not.
   const isSample = useMemo(() => loadFirstSteps(accountId).samples.includes(designId), [accountId, designId]);
   const questions = useMemo(() => (isSample && doc != null ? readyQuestions(doc) : []), [isSample, doc]);
+  // Reset sample (r30-small): one new save that puts back what the first save held; History keeps the rest.
+  const docNowRef = useRef(doc);
+  docNowRef.current = doc;
+  const resetSample = async () => {
+    if (loadFirstSave == null || accountId == null) return;
+    const first = await loadFirstSave();
+    const current = docNowRef.current;
+    if (current == null) return;
+    applyDocChange(restoreTo(current, first, 'Reset the sample', { actor: accountId, now: Date.now() }));
+  };
 
   // Resolves the current selection to a rack id, however it was reached;
   // anything not rack-shaped reports `null`.
@@ -1813,11 +1828,14 @@ export function RacksPlace(props: RacksPlaceProps) {
   return (
     <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, cables: look === 'diagram' ? undefined : { value: cableStyle, onChange: changeCableStyle }, aids: showAids }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} autoEquipment={autoOpenEquipment(doc != null, canDraw, realView)} equipmentRequest={equipmentRequest} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
         doc != null ? (
-          <div className="shell-bar__undoredo">
-            <MissingLinksChip found={missingLinks} onGo={handleGoToMissingLink} />
-            <PlansBarChip controller={plans} />
-            <ChecksBarChip controller={checks} />
-          </div>
+          <>
+            {isSample ? <SampleChip onReset={canDraw && loadFirstSave != null ? resetSample : undefined} /> : null}
+            <div className="shell-bar__undoredo">
+              <MissingLinksChip found={missingLinks} onGo={handleGoToMissingLink} />
+              <PlansBarChip controller={plans} />
+              <ChecksBarChip controller={checks} />
+            </div>
+          </>
         ) : undefined
       }
       band={doc != null && plans.bandOpen ? <PlanBand controller={plans} /> : undefined}
@@ -1867,6 +1885,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           cableStyle={cableStyle}
           onEdit={canDraw ? handleEdit : undefined}
           initialViewport={resumeView.initialViewport}
+          fitWholeOnOpen={isSample}
           onViewportSettled={resumeView.onViewportSettled}
           onPlace={handlePlace}
           onMove={handleMove}

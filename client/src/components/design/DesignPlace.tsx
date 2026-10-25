@@ -28,6 +28,9 @@ import { getSession } from '../../state/sessionState';
 import type { Selection } from '../drawing';
 import { DocsOverlay } from '../docs/DocsOverlay';
 import { DocsContext, useDocsApi } from '../docs/useDocsApi';
+import { fetchHistory } from '../../api/history';
+import { openDesign } from '../../api/payload';
+import { readPlain } from '../../document/plain';
 import { HistoryPanel, whenLabel } from '../history/HistoryPanel';
 import { useHistory } from '../history/useHistory';
 import { FirmwareContext } from '../firmware/context';
@@ -776,6 +779,13 @@ export function DesignPlace(props: DesignPlaceProps) {
     if (props.place !== 'racks') onPlaceChange('racks');
     setHistoryOpen(true);
   };
+  // The sample as it was made: its first save (r30-small's Reset sample).
+  const loadFirstSave = async () => {
+    const saves = await fetchHistory(organisationId, designId);
+    if (saves.length === 0) throw new Error('This design has no saves to go back to.');
+    const first = Math.min(...saves.map((s) => s.designVersion));
+    return readPlain((await openDesign(organisationId, designId, first)).bytes);
+  };
   const restorePicked = () => {
     if (pickedSave == null || !session.canDraw) return;
     // A new save of the old content, with one batch saying so; the old saves stay in the chain.
@@ -834,6 +844,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         designId={designId}
         onSelectedChange={setSelectedId}
         onDeviceOpened={noteDeviceOpened}
+        loadFirstSave={loadFirstSave}
       />
     ) : (
       <InventoryPlace

@@ -907,7 +907,9 @@ button.shell-admin-pill {
 }
 .shell-show__style {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 6px 8px;
   padding: var(--s2) 8px;
   margin-top: 4px;
   border-top: var(--rule-hair) solid var(--hairline);
@@ -918,6 +920,26 @@ button.shell-admin-pill {
 }
 .shell-show__style .btn-group {
   height: var(--control-h-sm);
+}
+/* Four cable styles do not fit the menu's width in one row: two by two, inside the menu. */
+.shell-show__style[aria-label='Cable style'] .btn-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  flex-basis: 100%;
+  height: auto;
+}
+.shell-show__style[aria-label='Cable style'] .btn-group > button {
+  min-height: var(--control-h-sm);
+}
+.shell-show__style[aria-label='Cable style'] .btn-group > :nth-child(2n + 1) {
+  border-left: 0;
+}
+.shell-show__style[aria-label='Cable style'] .btn-group > :nth-child(n + 3) {
+  border-top: var(--rule-hair) solid var(--control-line);
+}
+.shell-show__style .shell-show__hint {
+  flex-basis: 100%;
+  margin: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -942,4 +964,29 @@ button.shell-admin-pill {
 }
 .shell-show:has(.shell-bar__fold-groups) {
   min-width: 300px;
+}
+
+/* The bar's Sample chip (r30-small): what the sample is, and Reset. */
+.sample-chip {
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s2) 8px;
+  font-size: var(--t-small);
+}
+.sample-chip p {
+  margin: 0;
+  line-height: 1.4;
+}
+.sample-chip__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.sample-chip__confirm .btn-group {
+  align-self: flex-start;
+}
+.sample-chip__error {
+  color: var(--danger);
 }
