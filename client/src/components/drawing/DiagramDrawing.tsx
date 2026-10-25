@@ -35,6 +35,9 @@ import { CanvasMiniMap } from './CanvasMiniMap';
 import { useLearn } from '../learn/context';
 import '../learn/learn.css';
 import type { LearnNote } from '../learn/learnNotes';
+import type { OverlayView } from '../../document/overlays';
+import { overlayShapes } from './overlayDraw';
+import { OverlayCard, OverlayLayer } from './OverlayLayer';
 
 /** The Diagram look: plain labelled boxes joined by square-cornered lines in the
  * sheath colour. It shows the same document as the Rack look; devices are added,
@@ -150,9 +153,11 @@ export interface DiagramDrawingProps {
   minimap?: boolean;
   /** The Learn layer's notes (ADR-0066 item 1.2); each opens its explainer. */
   notes?: readonly LearnNote[];
+  /** The VPNs layer: each VPN a badge with spokes, or one line for two members. */
+  overlays?: readonly OverlayView[];
 }
 
-function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest, drawnCableIds, dashedCableIds, words, style = 'boxes', cameraHub, minimap, notes }: DiagramDrawingProps) {
+function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest, drawnCableIds, dashedCableIds, words, style = 'boxes', cameraHub, minimap, notes, overlays }: DiagramDrawingProps) {
   const rf = useReactFlow();
   const learn = useLearn();
   const settled = useSettledView();
@@ -170,6 +175,9 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
     [view, style, roles],
   );
   const selectedId = selected?.kind === 'chassis' ? selected.id : null;
+  const shapes = useMemo(() => (overlays == null || overlays.length === 0 ? [] : overlayShapes(overlays, boxes)), [overlays, boxes]);
+  const [openOverlayId, setOpenOverlayId] = useState<string | null>(null);
+  const openOverlay = overlays?.find((o) => o.id === openOverlayId) ?? null;
   const selectedCableId = selected?.kind === 'cable' ? selected.id : null;
 
   const panTo = useCallback(
@@ -321,7 +329,10 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         nodesDraggable={false}
         elementsSelectable={false}
         onNodeClick={(_e, node) => onSelect({ kind: 'chassis', id: node.id })}
-        onPaneClick={() => onSelect(null)}
+        onPaneClick={() => {
+          setOpenOverlayId(null);
+          onSelect(null);
+        }}
         onMove={handleMove}
         onMoveEnd={handleMoveEnd}
         minZoom={MIN_ZOOM}
@@ -351,6 +362,7 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
             ))}
           </ViewportPortal>
         )}
+        {shapes.length > 0 && <OverlayLayer shapes={shapes} overlays={overlays ?? []} openId={openOverlay?.id ?? null} onOpen={setOpenOverlayId} />}
         {labels.length > 0 && (
           <ViewportPortal>
             {labels.map((l) => (
@@ -366,6 +378,7 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
           </ViewportPortal>
         )}
       </ReactFlow>
+      {openOverlay != null && <OverlayCard overlay={openOverlay} onClose={() => setOpenOverlayId(null)} />}
       <CanvasTools wheel={wheel} onWheel={setWheel} />
       <CollabLayer />
     </div>

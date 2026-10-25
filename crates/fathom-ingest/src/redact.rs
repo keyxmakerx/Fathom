@@ -112,6 +112,8 @@ impl DetectorSet {
     /// #104: destroyed because broken or unclosed quoting next to a destroyed secret
     /// leaves the secret's extent unknown, not because the text itself tripped anything.
     pub const QUOTE_WRAP: u8 = 64;
+    /// A token that starts with a vendor's own key prefix ([`vendor_key_prefix`]).
+    pub const KEY_PREFIX: u8 = 128;
 }
 
 /// 14 §9.4's secret-word list, case-folded, hyphens = underscores.
@@ -616,6 +618,9 @@ fn gate_statement(
         if crypt_prefix(text) {
             detectors |= DetectorSet::CRYPT_PREFIX;
         }
+        if pieces(text).any(vendor_key_prefix) {
+            detectors |= DetectorSet::KEY_PREFIX;
+        }
         if long_hex(text) {
             detectors |= DetectorSet::LONG_HEX;
         }
@@ -894,6 +899,9 @@ fn gate_unshaped(capture: &str, dict: &Dictionary, line: &UnshapedLine, edits: &
             if crypt_prefix(piece) {
                 detectors |= DetectorSet::CRYPT_PREFIX;
             }
+            if vendor_key_prefix(piece) {
+                detectors |= DetectorSet::KEY_PREFIX;
+            }
             if long_hex(piece) {
                 detectors |= DetectorSet::LONG_HEX;
             }
@@ -1017,7 +1025,11 @@ pub fn looks_like_credential(text: &str) -> bool {
     }
     for token in text.split_whitespace() {
         for piece in pieces(token) {
-            if crypt_prefix(piece) || long_hex(piece) || base64ish(piece) {
+            if crypt_prefix(piece)
+                || vendor_key_prefix(piece)
+                || long_hex(piece)
+                || base64ish(piece)
+            {
                 return true;
             }
         }
@@ -1213,6 +1225,19 @@ fn crypt_prefix(text: &str) -> bool {
         && rest.get(head.len()..).map(|r| r.starts_with('$')) == Some(true)
 }
 
+/// A key that names itself by its first characters, whatever follows.
+///
+/// `tskey-`: every key Tailscale issues starts so — `tskey-auth` (pre-authentication keys, the
+/// one a person pastes into `tailscale up --authkey`), `tskey-api`, `tskey-client`,
+/// `tskey-scim`, `tskey-webhook`. Source: Tailscale, "Key prefixes",
+/// <https://tailscale.com/docs/reference/key-prefixes>, read 2026-10-25. Their keys are
+/// case-sensitive, and so is this test. The prefix alone is not a key, so it must have
+/// something after it.
+fn vendor_key_prefix(text: &str) -> bool {
+    text.strip_prefix("tskey-")
+        .is_some_and(|rest| !rest.is_empty())
+}
+
 /// `^[0-9a-fA-F]{32,}$` — 32 hex characters is 128 bits.
 fn long_hex(text: &str) -> bool {
     text.chars().count() >= 32 && text.chars().all(|c| c.is_ascii_hexdigit())
@@ -1314,6 +1339,25 @@ mod tests {
         assert!(!crypt_prefix("$$abc"));
         assert!(!crypt_prefix("aes-256-cbc"));
         assert!(!crypt_prefix("$abcd$x"));
+    }
+
+    #[test]
+    fn vendor_key_prefix_detector() {
+        // Shapes from Tailscale's own key-prefix list; the characters after the prefix are made up.
+        assert!(vendor_key_prefix(
+            "tskey-auth-kN3vP8qR2CNTRL-Vx7mQ2pL9sT4wZ8bY6cF1hJ3kD5gA0e"
+        ));
+        assert!(vendor_key_prefix("tskey-api-k8sXmP2CNTRL-a"));
+        assert!(!vendor_key_prefix("tskey-"));
+        assert!(!vendor_key_prefix("TSKEY-auth-x"));
+        assert!(!vendor_key_prefix("tailscale"));
+        // In a typed line, with no secret word near it and `--authkey` joined by `=`.
+        assert!(looks_like_credential(
+            "tailscale up --authkey=tskey-auth-kN3vP8qR2CNTRL-Vx7mQ2"
+        ));
+        assert!(looks_like_credential(
+            "use tskey-auth-kN3vP8qR2CNTRL-Vx7mQ2 for the NAS"
+        ));
     }
 
     #[test]

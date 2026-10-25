@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
+import { listOverlays } from '../../document/overlays';
 import { captureOf } from '../../document/capture';
 import { completeCable, connectPorts, disconnect, IncompatibleConnectorError, PortAlreadyTerminatedError, type Sheath } from '../../document/cables';
 import {
@@ -786,6 +787,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     () => (layerOn(layers, 'learn') && learnExplainers != null ? learnNotes(doc, displayView, learnExplainers) : undefined),
     [doc, displayView, layers, learnExplainers],
   );
+  const vpns = useMemo(() => (doc != null && layerOn(layers, 'vpns') ? listOverlays(doc) : undefined), [doc, layers]);
 
   // The Cables list. `cableGroupsState`'s own initial value is read from
   // storage synchronously (never a placeholder that then flashes every
@@ -1851,6 +1853,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           style={diagramStyle}
           cameraHub={cameraHub}
           minimap={canvasAids.prefs.minimap}
+          overlays={vpns}
         />
       ) : (
         <Drawing

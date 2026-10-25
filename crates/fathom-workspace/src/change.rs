@@ -24,8 +24,8 @@ use fathom_graph::{
 use fathom_ir::canon::CanonError;
 use fathom_ir::generated::accessors::slot_from_canon;
 use fathom_ir::generated::ir_types::{
-    CaptureField, DeviceField, DocField, DocLinkField, FirmwareTargetField, NodeKind, NoteField,
-    SCHEMA_VERSION,
+    CaptureField, DeviceField, DocField, DocLinkField, EdgeKind, FirmwareTargetField, NodeKind,
+    NoteField, OverlayMemberField, OverlayNetworkField, SCHEMA_VERSION,
 };
 use fathom_ir::scalar::Text;
 
@@ -276,6 +276,7 @@ pub fn apply_change_in_place(
     let batch = &change.batch;
 
     let mut written: Vec<(NodeKind, fathom_ir::bag::FieldKey, String)> = Vec::new();
+    let mut written_on_edges: Vec<(EdgeKind, fathom_ir::bag::FieldKey, String)> = Vec::new();
     graph.begin_batch(batch.id, &batch.label)?;
     if let Some(comment) = &batch.comment {
         graph.set_batch_comment(comment.clone())?;
@@ -321,6 +322,11 @@ pub fn apply_change_in_place(
                             // name a node a later op of this batch adds.
                             written.push((n.kind, *key, text.0.clone()));
                         }
+                        if let (ElementId::Edge(e), Some(text)) =
+                            (element, boxed.downcast_ref::<Text>())
+                        {
+                            written_on_edges.push((e.kind, *key, text.0.clone()));
+                        }
                         graph.set_field_boxed(*element, *key, boxed, rec)?;
                     }
                     StoredPresence::Absent => graph.assert_absent(*element, *key, rec)?,
@@ -338,6 +344,11 @@ pub fn apply_change_in_place(
     }
     for (kind, key, text) in &written {
         if let Some((kind, line)) = credential_in_text(graph, *kind, *key, text) {
+            return Err(ChangeError::Credential { kind, line });
+        }
+    }
+    for (kind, key, text) in &written_on_edges {
+        if let Some((kind, line)) = credential_in_edge_text(*kind, *key, text) {
             return Err(ChangeError::Credential { kind, line });
         }
     }
@@ -530,7 +541,38 @@ fn gated_fields() -> Vec<(NodeKind, fathom_ir::bag::FieldKey, &'static str, Read
         "FirmwareTarget",
         prose,
     ));
+    // Mesh VPNs (0.26): a VPN's name and note are typed prose. An auth key pasted into either is
+    // the thing this check exists to refuse.
+    for f in [OverlayNetworkField::Name, OverlayNetworkField::Note] {
+        v.push((NodeKind::OverlayNetwork, f.key(), "OverlayNetwork", prose));
+    }
     v
+}
+
+/// The text fields on edges the credential check reads. A member's subnet routes are prefixes,
+/// one per line, and nothing else: read bare, as pasted device output is.
+fn gated_edge_fields() -> Vec<(EdgeKind, fathom_ir::bag::FieldKey, &'static str, Read)> {
+    vec![(
+        EdgeKind::OverlayMember,
+        OverlayMemberField::Routes.key(),
+        "OverlayMember",
+        Read::Lines(true),
+    )]
+}
+
+/// [`credential_in_text`] for a value written to `key` of a `kind` edge.
+fn credential_in_edge_text(
+    kind: EdgeKind,
+    key: fathom_ir::bag::FieldKey,
+    text: &str,
+) -> Option<(&'static str, usize)> {
+    gated_edge_fields()
+        .into_iter()
+        .find(|(k, f, _, _)| *k == kind && *f == key)
+        .and_then(|(_, _, label, read)| match read {
+            Read::Lines(bare) => credential_line(text, bare).map(|l| (label, l)),
+            Read::Targets | Read::Edit => None,
+        })
 }
 
 /// Every gated text field in the graph ([`gated_fields`]), line by line, so a
@@ -554,6 +596,23 @@ pub fn find_credential(graph: &Graph) -> Option<(&'static str, usize)> {
             for entry in history.entries() {
                 let text = entry.value.as_ref().and_then(|v| v.downcast_ref::<Text>());
                 if let Some(hit) = text.and_then(|t| credential_in_text(graph, kind, key, &t.0)) {
+                    return Some(hit);
+                }
+            }
+        }
+    }
+    for (kind, key, _, _) in gated_edge_fields() {
+        for edge in graph.edges_of_kind(kind) {
+            let value = fathom_ir::bag::typed::<Text, _>(edge, key).ok();
+            if let Some(hit) = value.and_then(|t| credential_in_edge_text(kind, key, &t.0)) {
+                return Some(hit);
+            }
+            let Some(history) = graph.history(edge.id.into(), key) else {
+                continue;
+            };
+            for entry in history.entries() {
+                let text = entry.value.as_ref().and_then(|v| v.downcast_ref::<Text>());
+                if let Some(hit) = text.and_then(|t| credential_in_edge_text(kind, key, &t.0)) {
                     return Some(hit);
                 }
             }

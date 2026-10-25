@@ -883,3 +883,21 @@ fn redact_only_output_carries_no_canary() {
         "a canary survived into redact_only's output"
     );
 }
+
+/// A Tailscale key pasted with the command that used it: the key never reaches the output, and
+/// the key-prefix detector is what caught it. The key is short and has no secret word beside it,
+/// so nothing else would (Tailscale, "Key prefixes", read 2026-10-25).
+#[test]
+fn a_tailscale_key_is_destroyed() {
+    let secret = "tskey-auth-kFATHOM7CNTRL-Q2x";
+    let line = format!("tailscale up --authkey={secret} --advertise-exit-node\n");
+    let out = ingest(line.as_bytes(), &dict()).expect("within the caps");
+    assert!(!format!("{out:?}").contains(secret), "the key survived");
+    assert!(
+        out.drops
+            .entries
+            .iter()
+            .any(|e| e.detectors.0 & DetectorSet::KEY_PREFIX != 0),
+        "the key-prefix detector is what caught it"
+    );
+}
