@@ -28,6 +28,9 @@ export function useVaultUnlocked(organisation?: string): { until: number } | nul
 const loads = new Map<string, VaultLoad>();
 const loadListeners = new Set<() => void>();
 const inFlight = new Map<string, number>();
+const startedAt = new Map<string, number>();
+// Screens that mount together (a tab, its count, the page) share one fetch.
+const FRESH_MS = 2000;
 
 function setLoad(organisation: string, load: VaultLoad): void {
   loads.set(organisation, load);
@@ -37,6 +40,7 @@ function setLoad(organisation: string, load: VaultLoad): void {
 function fetchInto(organisation: string): void {
   const n = (inFlight.get(organisation) ?? 0) + 1;
   inFlight.set(organisation, n);
+  startedAt.set(organisation, Date.now());
   fetchVault(organisation).then(
     (value) => inFlight.get(organisation) === n && setLoad(organisation, { status: 'ready', value }),
     (e: unknown) => inFlight.get(organisation) === n && setLoad(organisation, { status: 'error', message: describeError(e) }),
@@ -54,8 +58,10 @@ export function useVault(organisation: string): Vault {
     () => loads.get(organisation) ?? LOADING,
     () => LOADING,
   );
+  // Every screen that opens asks again, showing the last list meanwhile: someone else may have
+  // stored or shared a login since this tab last looked.
   useEffect(() => {
-    if (organisation !== '' && !loads.has(organisation)) fetchInto(organisation);
+    if (organisation !== '' && Date.now() - (startedAt.get(organisation) ?? 0) > FRESH_MS) fetchInto(organisation);
   }, [organisation]);
   const reload = useCallback(() => {
     if (organisation !== '') fetchInto(organisation);

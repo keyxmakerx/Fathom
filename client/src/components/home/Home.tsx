@@ -22,6 +22,7 @@ import { AwaitingSteward } from './AwaitingSteward';
 import { PracticeWelcome, type PracticeOffer } from './PracticeWelcome';
 import { type Loadable } from '../organisation/FoldersPanel';
 import { OrganisationTab } from '../organisation/OrganisationTab';
+import { PasswordsPage } from '../vault/Screens';
 import { canDrawFor } from '../design/useDesignSession';
 import { canStewardFor } from './capabilities';
 import { pickDirectEntry, type DirectEntry } from './directEntry';
@@ -280,7 +281,9 @@ export function Home({
     (organisations.status === 'ready' &&
       organisations.value.some((org) => org.organisationId === selectedOrgId && org.role === 'admin')) ||
     (scopes.status === 'ready' && scopes.value.some((scope) => canStewardFor(scope.capability)));
-  const tabs = homeTabs({ organisationAdmin, admin: admin !== undefined, waitingInvitee });
+  const member =
+    organisations.status === 'ready' && organisations.value.some((org) => org.organisationId === selectedOrgId && !org.practice);
+  const tabs = homeTabs({ organisationAdmin, admin: admin !== undefined, waitingInvitee, member });
   const shownTab: HomeTab = tabs.includes(tab) ? tab : 'designs';
   const tabsKey = tabs.join(' ');
   useEffect(() => {
@@ -529,6 +532,12 @@ export function Home({
               )
             }
           />
+        )}
+
+        {shownTab === 'passwords' && selectedOrganisation && (
+          <section className="home__section">
+            <PasswordsPage organisation={selectedOrganisation.organisationId} organisationName={selectedOrganisation.displayName} mode="mine" />
+          </section>
         )}
 
         {shownTab === 'admin' && admin && <section className="home__section">{admin.panel}</section>}

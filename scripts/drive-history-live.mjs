@@ -93,7 +93,7 @@ async function until(fn, timeoutMs = 10000, what = '') {
 }
 
 function resetSchema() {
-  sh('psql', [MIGRATE_URL, '-qc', 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;']);
+  sh('psql', [MIGRATE_URL, '-qc', 'DROP SCHEMA IF EXISTS vault CASCADE; DROP SCHEMA public CASCADE; CREATE SCHEMA public;']);
 }
 
 

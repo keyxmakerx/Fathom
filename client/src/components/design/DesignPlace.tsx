@@ -606,7 +606,8 @@ export function DesignPlace(props: DesignPlaceProps) {
   const vaultPlace = useMemo<VaultPlace | null>(() => {
     if (!vaultDoc) return null;
     const devices = vaultDoc.nodes.filter((n) => n.absentSince === undefined && isNodeOfKind(n.id, 'Device'));
-    const names = new Map(devices.map((n) => [n.id, asString(fieldValue(n.fields, 'Device.hostname')) ?? null]));
+    // A device with no hostname yet reads as the canvas draws it, never as its id; null is for a device gone from the design.
+    const names = new Map(devices.map((n) => [n.id, asString(fieldValue(n.fields, 'Device.hostname')) || 'unnamed device']));
     return { organisation: organisationId, organisationName, design: designId, deviceIds: devices.map((n) => n.id), deviceName: (id) => names.get(id) ?? null };
   }, [vaultDoc, organisationId, organisationName, designId]);
   const firmwareApi = useFirmwareApi({

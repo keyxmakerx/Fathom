@@ -200,6 +200,18 @@
   gap: var(--s1);
 }
 
+/* The reset collapses ticks to nothing; restore the native control wherever a vault surface draws one
+   (the Organisation page restores its own, but Home and the design do not). */
+.vault-sheet input[type='checkbox'],
+.vault-page input[type='checkbox'],
+.vault-tab input[type='checkbox'] {
+  appearance: auto;
+  width: 14px;
+  height: 14px;
+  margin: 0 var(--s1) 0 0;
+  flex-shrink: 0;
+}
+
 .vault-check--off {
   color: var(--muted);
 }
@@ -341,6 +353,17 @@
   font-weight: 400;
   padding: var(--s1) var(--s2);
   border-bottom: var(--rule-hair) solid var(--ink);
+  white-space: nowrap;
+}
+
+/* A login's name never breaks at its hyphen ("ups-mgmt"), and reads from the left like the rest. */
+.vault-table td:first-child {
+  white-space: nowrap;
+}
+
+.vault-table td:first-child .vault-link {
+  text-align: left;
+  padding-left: 0;
 }
 
 .vault-table td {

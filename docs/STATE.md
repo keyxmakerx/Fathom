@@ -116,7 +116,17 @@ makes it irrelevant.
 protects the database, backups and disk, not the running process. `tests/no_key_protected_data.rs`
 requires every table to declare whether it holds key-protected material and under which key, and a
 marker written through the real write path must appear in no column of any table (a positive control
-proves the sweep can find one). The credential vault is not built.
+proves the sweep can find one). It walks every non-system schema, and the schemas must be exactly
+`public` and `vault`.
+
+**The password vault, part one** (ADR-0071): device logins sealed in the browser (ADR-0042 Mode A),
+in the `vault` schema (`crates/fathom-server/src/vault.rs`, `client/src/vault/`,
+`client/src/components/vault/`). Emergency Kit and passphrase (Argon2id in the engine), a recovery
+sheet held by every login and logged on use, holder lists signed by the sharer, the Logins tab,
+Inventory › Passwords, Home or Organisation › Passwords, and the lock badge on the avatar.
+`scripts/drive-vault.mjs` drives three people's own browsers against the real server and sweeps a
+superuser `pg_dump` for every password, note, name, passphrase and recovery code. **Not built yet:**
+logins Fathom itself can use (Mode B), breach checks, external vaults.
 
 **Tenant isolation holds at two layers:** an application filter in every repository function, and
 PostgreSQL row-level security driven by a transaction-local setting (never session-level: a pooled

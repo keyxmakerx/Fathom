@@ -1,7 +1,7 @@
 import type { HomeTab } from './homeTabs';
 import './home.css';
 
-const LABEL: Record<HomeTab, string> = { designs: 'Designs', organisation: 'Organisation', admin: 'Admin' };
+const LABEL: Record<HomeTab, string> = { designs: 'Designs', passwords: 'Passwords', organisation: 'Organisation', admin: 'Admin' };
 
 export interface HomeTabsProps {
   tabs: readonly HomeTab[];

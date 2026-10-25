@@ -77,6 +77,45 @@ docker compose cp db:/tmp/fathom.dump ./fathom-$(date +%F).dump
 Copy the key archive off the machine before you put a single design in it, and test a restore with
 it. The server says the same thing in its startup log every time it loads the keys.
 
+## The password vault
+
+ADR-0071. Logins people store are sealed in their own browsers before they are sent; the server
+keeps ciphertext it cannot open. What that means for you:
+
+- **Back up the whole database.** The vault is its own schema, `vault`, next to `public`. The
+  `pg_dump` commands above copy every schema; a dump limited with `--schema=public` loses every
+  stored login.
+- **The master key does not open the vault.** Losing `master.key` loses the server's own
+  encryption; restoring it does not give anyone a stored password. Nothing you hold on the host
+  does.
+- **The recovery sheet belongs to the organisation's admins, not to you.** It is printed from
+  Organisation › Passwords, held by every new login, and each use is written to the organisation's
+  history and listed for every admin. Advise admins to keep it on paper, away from the server.
+- **A person who loses both their Emergency Kit and their passphrase** loses only their own copy:
+  logins also held by a colleague or the sheet are shared to them again once they set up afresh.
+
+### Breach checks (part three, not built yet)
+
+When they arrive, checks are off until an organisation's admin turns them on, and the policy has
+three levels, most specific first: one login marked critical (re-checked weekly; a breached
+password is refused), a kind of login (device login, SNMP, Wi-Fi, API key, other), and the organisation
+(on or off, the re-check interval, weekly by default, warn or refuse).
+
+The check sends the first 5 hex characters of a password's SHA-1 to the Have I Been Pwned range
+API, with padding, from the browser that holds the password; the password and the rest of its hash
+never leave it. The HIBP API v3 page (read 2026-10-25) says "There is no rate limit on the Pwned
+Passwords API" and asks only for a user agent and no use meant to limit availability. Fathom paces
+itself anyway, so one organisation never looks like abuse from your address:
+
+- at most 10 prefixes a second from one browser, 4 at a time;
+- de-duplicated by prefix, so 100,000 passwords need at most 100,000 of the 1,048,576 prefixes,
+  usually far fewer requests;
+- batches of 500, oldest-checked first, resumed at the next unlock;
+- a full pass of 100,000 passwords is about three hours of unlocked time, spread over the week.
+
+A browser must be able to reach `api.pwnedpasswords.com` for checks to run; behind a proxy that
+blocks it, the Passwords pages say "Not checked yet" and nothing else changes.
+
 ## Restore
 
 ADR-0043 §4's stamp is what tells a wrong-key restore from corruption. The configured master key's

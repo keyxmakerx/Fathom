@@ -1,8 +1,9 @@
 // Setting up (mockup r32-vault-lockout-a): the Emergency Kit is saved BEFORE the passphrase is
 // chosen, so nobody finishes setup holding a vault they cannot open on their next computer.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
+import { signingKey } from '../../api/share';
 import type { VaultOverview } from '../../api/vault';
 import { newVaultSecret, vaultKeyText } from '../../vault/crypto';
 import { setUpVault, vaultEngine } from '../../vault/session';
@@ -22,6 +23,17 @@ export function SetupDialog({ organisation, organisationName, overview, onDone, 
   const [b, setB] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The vault key is signed by this browser's own key, which is made at a sign-in with the
+  // authenticator app (ADR-0056 decision 4 words it that way, never "app code").
+  // Someone who signed in with only a password is told so before the kit, not after the passphrase.
+  const [noKeyHere, setNoKeyHere] = useState(false);
+  useEffect(() => {
+    let live = true;
+    signingKey().catch(() => live && setNoKeyHere(true));
+    return () => {
+      live = false;
+    };
+  }, []);
 
   async function finish() {
     setBusy(true);
@@ -56,8 +68,14 @@ export function SetupDialog({ organisation, organisationName, overview, onDone, 
               holds them, or an admin with the recovery sheet, shares them with you again.
             </p>
           )}
+          {noKeyHere && (
+            <p className="vault-note vault-note--caution" data-testid="vault-no-key-here">
+              Your vault needs this browser&rsquo;s own signing key, which Fathom makes when you sign in with your authenticator app.
+              Set up an authenticator app under Account, then sign out and sign in here again.
+            </p>
+          )}
           <div className="vault-actions">
-            <button type="button" className="vault-btn vault-btn--solid" onClick={() => setStep(2)} data-testid="vault-setup-next">
+            <button type="button" className="vault-btn vault-btn--solid" onClick={() => setStep(2)} disabled={noKeyHere} data-testid="vault-setup-next">
               Continue
             </button>
             <button type="button" className="vault-btn" onClick={onClose}>
