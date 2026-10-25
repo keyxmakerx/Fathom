@@ -118,12 +118,21 @@ of the other two.
   used on, for someone who may draw in that design. Turning it off empties the copy at once; a
   backup taken while it was on still holds it, which the screen says too.
 
-### Breach checks (part three, not built yet)
+### Breach checks (part three)
 
-When they arrive, checks are off until an organisation's admin turns them on, and the policy has
-three levels, most specific first: one login marked critical (re-checked weekly; a breached
-password is refused), a kind of login (device login, SNMP, Wi-Fi, API key, other), and the organisation
-(on or off, the re-check interval, weekly by default, warn or refuse).
+Checks are off until an organisation's admin turns them on under Organisation › Passwords, and the
+policy has three levels, most specific first: one login marked critical (always checked, re-checked
+weekly, a breached password refused), a kind of login (device login, SNMP, Wi-Fi, API key, other),
+and the organisation (on or off, daily, weekly, every 30 or 90 days, warn or refuse). Each change
+of policy, and each critical mark, is on the organisation's history.
+
+**A refusal is the browser's, not the server's.** The server never sees a password, so it cannot
+check one; the browser that saves a password refuses a breached one where the policy says so, and
+records what it found. The server keeps only, per login and epoch, "found" or "not found" and when.
+If the list cannot be reached, a save goes ahead and the login reads "Not checked yet".
+
+The browser's Content-Security-Policy allows exactly one origin besides Fathom's own for this,
+`https://api.pwnedpasswords.com`, in `connect-src`.
 
 The check sends the first 5 hex characters of a password's SHA-1 to the Have I Been Pwned range
 API, with padding, from the browser that holds the password; the password and the rest of its hash
@@ -134,11 +143,17 @@ itself anyway, so one organisation never looks like abuse from your address:
 - at most 10 prefixes a second from one browser, 4 at a time;
 - de-duplicated by prefix, so 100,000 passwords need at most 100,000 of the 1,048,576 prefixes,
   usually far fewer requests;
-- batches of 500, oldest-checked first, resumed at the next unlock;
+- batches of 500, oldest-checked first, resumed at the next unlock (checks run after an unlock, for
+  the logins that person holds whose check is due);
 - a full pass of 100,000 passwords is about three hours of unlocked time, spread over the week.
 
 A browser must be able to reach `api.pwnedpasswords.com` for checks to run; behind a proxy that
-blocks it, the Passwords pages say "Not checked yet" and nothing else changes.
+blocks it, the Passwords pages say "Not checked yet" and nothing else changes. The request carries
+`Add-Padding: true`, which a browser sends only after a CORS preflight; HIBP's page says CORS
+"accepts all origins" on its non-authenticated APIs, but whether the range API answers that
+preflight could not be established from the build machine (it cannot reach the API). The drive
+answers it with a stand-in. If real browsers show "Not checked yet" for everything, that is the
+first thing to look at.
 
 ## Restore
 

@@ -27,6 +27,7 @@ import {
   fathomRefresh,
   fetchVault,
   newEpoch,
+  recordBreach,
   openWithRecoverySheet,
   revokeHolder,
   setLoginDetails,
@@ -40,6 +41,7 @@ import {
   type VaultOverview,
 } from '../api/vault';
 import { toHex } from '../crypto/bytes';
+import { BATCH, checkDue, timesBreached } from './breach';
 import type { Engine } from '../engine/engine';
 import { newUlid } from '../document/ulid';
 import { RECOVERY_RECIPIENT, keyFpr, modeChangeBytes, personKeyBytes, recoveryKeyBytes, shareBytes, supersedeBytes, wrapDigest, type Recipient } from './bytes';
@@ -535,6 +537,40 @@ export async function refreshFathomCopy(organisation: string, entry: VaultEntry)
 
 /** Fathom stops using it: the copy is emptied. The owner or any admin, no unlock needed. */
 export const stopFathomUse = fathomOff;
+
+// ---------------------------------------------------------------------------
+// Breach checks (part three)
+// ---------------------------------------------------------------------------
+
+/**
+ * After an unlock: check the logins this person holds whose check is due under the policy, oldest
+ * checked first, up to one batch, and record what was found. A login the list could not be asked
+ * about stays as it was. Answers how many were checked and the names of those found.
+ */
+export async function runDueChecks(organisation: string, overview: VaultOverview): Promise<{ checked: number; found: string[] }> {
+  need(organisation);
+  const due = overview.entries
+    .filter((e) => e.opening && checkDue(e, overview.breachPolicy))
+    .sort((a, b) => (a.breach?.checkedAt ?? 0) - (b.breach?.checkedAt ?? 0))
+    .slice(0, BATCH);
+  let checked = 0;
+  const found: string[] = [];
+  await Promise.all(
+    due.map(async (entry) => {
+      try {
+        const secret = await revealLogin(organisation, entry);
+        if (secret.password === '') return;
+        const times = await timesBreached(secret.password);
+        await recordBreach(organisation, entry.id, entry.epoch, times > 0);
+        checked += 1;
+        if (times > 0) found.push(entry.name);
+      } catch {
+        // Unreachable list, locked meanwhile, or changed since: checked at a later unlock.
+      }
+    }),
+  );
+  return { checked, found };
+}
 
 export const renameLogin = setLoginDetails;
 export const takeAwayCopy = revokeHolder;

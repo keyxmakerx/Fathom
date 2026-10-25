@@ -264,6 +264,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0042_vault_fathom.sql",
         sql: include_str!("../migrations/0042_vault_fathom.sql"),
     },
+    Migration {
+        version: 43,
+        name: "0043_vault_breach.sql",
+        sql: include_str!("../migrations/0043_vault_breach.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

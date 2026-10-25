@@ -357,8 +357,13 @@ Built in part one. Pictures from the real-server drive: `reviews/vault/` in the 
   times · last …, for Auto-populate". Another admin sees "Sign as the second admin…"; the owner or
   any admin sees "Stop Fathom using it…", whose confirm carries the B-to-A sentence.
 
-Still to draw: the breach policy settings at organisation, kind and critical-login level (part
-three).
+- **Breach checks** (part three). Organisation › Passwords has a Breach checks card: the
+  organisation's level (Check, how often, warn or refuse) and a row per kind, "Same as the
+  organisation" or "Its own". Each card says "Breach list: Not found · today", "Not checked yet",
+  "Checks off" or "Found in a breach · change it on the device", with Mark critical (owner or admin)
+  and a red "Critical" tag. Saving a breached password shows how many times it was seen and either
+  refuses ("this login is marked critical" or "your organisation refuses those") or asks for "Save
+  it anyway". After an unlock, a note says what was checked and names anything found.
 
 ## Owed to the boards, and two numbers not named
 

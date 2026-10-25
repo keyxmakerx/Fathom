@@ -4,7 +4,9 @@
 // shared, revealed, locked and unlocked; a login only Bob holds is opened by the admin with the
 // sheet; the admin lets Fathom use a login (the consent screen, waiting for a second admin while
 // it is shared, stopping, then on at once once only they hold it); and the database is swept for
-// every password and name typed, which must appear nowhere.
+// every password and name typed, which must appear nowhere. Between, breach checks: an admin sets
+// the policy at two levels, an unlock checks what is due against a stand-in breach list, and a
+// critical login refuses a breached password.
 //
 //   node scripts/drive-vault.mjs
 //
@@ -18,6 +20,7 @@
 // /mnt/project-files/reviews/vault/). The server is killed BY PORT, never by name.
 
 import { execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { copyFileSync, createWriteStream, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,7 +58,9 @@ const PEOPLE = {
   cy: { address: 'cy.cedar@acme.example', password: 'vault-drive-cy-sign-in-passphrase', vault: 'cy counts the quiet winter stars', tag: 'CY' },
 };
 /** Typed into the vault; none of these may reach the database in the clear. */
+const hibpAsked = [];
 const TYPED = { bobOwn: 'Ups-Only-Bob-7731!', bobOwnName: 'ups-mgmt', note: 'console on port 9, ask facilities' };
+const BREACHED_SHA1 = createHash('sha1').update(TYPED.bobOwn).digest('hex').toUpperCase();
 
 const fails = [];
 function check(name, ok, detail) {
@@ -255,6 +260,18 @@ async function runProof(ctx) {
     page[k].on('response', (r) => { if (r.status() === 404) console.log(`[${k} 404] ${r.request().method()} ${new URL(r.url()).pathname}`); });
     page[k].on('console', (m) => { if (m.type() === 'error') console.log(`[${k} console.error] ${m.text()}`); });
     await ctx[k].grantPermissions(['clipboard-read', 'clipboard-write'], { origin: URL_ });
+    // The breach list, answered here: this machine cannot reach it, and a drive must not depend
+    // on a third party. It lists Bob's password as breached and pads like the real one.
+    await ctx[k].route('https://api.pwnedpasswords.com/range/*', (route) => {
+      const req = route.request();
+      const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'add-padding' };
+      if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+      const prefix = new URL(req.url()).pathname.split('/').pop();
+      hibpAsked.push({ prefix, padding: req.headers()['add-padding'] });
+      const lines = ['0018A45C4D1DEF81644B54AB7F969B88D65:0'];
+      if (prefix === BREACHED_SHA1.slice(0, 5)) lines.push(`${BREACHED_SHA1.slice(5)}:4242`);
+      return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/plain' }, body: lines.join('\r\n') });
+    });
   }
   const { ann: A, bob: B, cy: C } = page;
   const shot = (p, name) => p.screenshot({ path: `${SHOTS}${name}.png` });
@@ -481,17 +498,56 @@ async function runProof(ctx) {
   check('8. the table says how Fathom keeps it', /Fathom can use it/i.test(await adminRow().innerText()));
   await shot(A, '17-fathom-on');
 
-  // ---- 9. nothing typed reached the database in the clear ----------------------------------
+  // ---- 9. breach checks: the policy, a check at unlock, and a critical login ---------------
+  const policy = A.getByTestId('vault-breach-policy');
+  await policy.waitFor({ timeout: 10000 });
+  await shot(A, '18-breach-policy-off');
+  await A.getByTestId('vault-policy-org').getByLabel('Check').check();
+  await A.getByTestId('vault-policy-snmp').getByLabel('SNMP policy').selectOption('own');
+  await A.getByTestId('vault-policy-snmp-level').getByLabel('When one is found').selectOption('refuse');
+  await A.getByTestId('vault-policy-save').click();
+  check('9. an admin saves the policy at two levels', !!(await until(async () => /breach-check policy is saved/.test(await A.getByTestId('vault-admin').innerText()), 10000)));
+  check('9. and it comes back as saved', (await A.getByTestId('vault-policy-org').getByLabel('Check').isChecked()) && (await A.getByTestId('vault-policy-snmp-level').getByLabel('When one is found').inputValue()) === 'refuse');
+  check('9. with checks on and nothing checked, the list says "Not checked yet"', !!(await until(async () => /Not checked yet/.test(await A.getByTestId('vault-admin').innerText()), 10000)));
+  await shot(A, '19-breach-policy-on');
+  // Lock and unlock: the due checks run for the logins Ann holds.
+  await A.getByRole('button', { name: 'Account menu' }).click();
+  await A.getByTestId('vault-lock-now').click();
+  await A.keyboard.press('Escape');
+  await A.getByTestId('vault-unlock-open').click();
+  await A.getByTestId('vault-passphrase').fill(PEOPLE.ann.vault);
+  await A.getByTestId('vault-unlock-go').click();
+  check('9. unlocking checks what is due and names what was found', !!(await until(async () => new RegExp(`Found in a breach: ${TYPED.bobOwnName}`).test(await A.getByTestId('vault-admin').innerText()), 20000)), (await A.getByTestId('vault-admin').innerText()).slice(0, 300));
+  const bobRow = A.getByTestId('vault-row').filter({ hasText: TYPED.bobOwnName });
+  check('9. the list marks the breached one', !!(await until(async () => /Found in a breach/.test(await bobRow.innerText()), 10000)));
+  check('9. and the other as not found', /Not found · today/.test(await adminRow().innerText()), await adminRow().innerText());
+  check('9. only five-character prefixes were sent, each with padding', hibpAsked.length > 0 && hibpAsked.every((a) => /^[0-9A-F]{5}$/.test(a.prefix) && a.padding === 'true'), JSON.stringify(hibpAsked));
+  await shot(A, '20-breach-found');
+  // Critical: Ann marks the admin login critical, then tries to change it to the breached password.
+  await openAdmin();
+  await A.getByTestId('vault-detail').getByTestId('vault-critical-toggle').click();
+  check('9. the card wears "Critical"', !!(await until(async () => (await A.getByTestId('vault-detail').getByTestId('vault-critical-tag').count()) === 1, 10000)));
+  await A.getByTestId('vault-detail').getByTestId('vault-change').click();
+  await A.getByTestId('vault-login-dialog').waitFor({ timeout: 10000 });
+  await A.getByTestId('vault-password').fill(TYPED.bobOwn);
+  await A.getByTestId('vault-save').click();
+  check('9. a breached password is refused on a critical login, in words', !!(await until(async () => /marked critical/.test(await A.getByTestId('vault-login-dialog').innerText()), 15000)));
+  await shot(A, '21-breach-refused');
+  await A.getByTestId('vault-generate').click();
+  await A.getByTestId('vault-save').click();
+  check('9. a generated one saves', !!(await until(async () => (await A.getByTestId('vault-login-dialog').count()) === 0, 15000)));
+
+  // ---- 10. nothing typed reached the database in the clear ----------------------------------
   const dump = sh('sudo', ['-n', '-u', 'postgres', 'pg_dump', '--data-only', '--schema=public', '--schema=vault', '-d', DB_NAME], { maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
   // As the superuser: the application role is held back by row-level security, and a sweep that
   // could not read every row would prove nothing.
   const hexOf = (s) => Buffer.from(s, 'utf8').toString('hex');
   for (const [what, value] of [['the generated password', generated], ['Bob’s password', TYPED.bobOwn], ['the sealed note', TYPED.note], ['a login name', TYPED.bobOwnName], ['a vault passphrase', PEOPLE.ann.vault], ['the recovery code', sheet.replace(/-/g, '')]]) {
-    check(`9. ${what} is nowhere in the database, as text or as hex`, !dump.includes(value) && !dump.toLowerCase().includes(hexOf(value)));
+    check(`10. ${what} is nowhere in the database, as text or as hex`, !dump.includes(value) && !dump.toLowerCase().includes(hexOf(value)));
   }
-  check('9. the sweep can see the vault (positive control: the chain names a vault act)', dump.includes('vault_shared') || dump.includes('vault_entry_created'));
+  check('10. the sweep can see the vault (positive control: the chain names a vault act)', dump.includes('vault_shared') || dump.includes('vault_entry_created'));
   const copies = sh('sudo', ['-n', '-u', 'postgres', 'psql', '-At', '-d', DB_NAME, '-c', "SELECT state || ':' || octet_length(copy_ct) FROM vault.fathom_copies"], { stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  check('9. and Fathom’s copy is there, sealed, so the sweep covered it (positive control)', /^on:\d{2,}$/.test(copies), copies);
+  check('10. and Fathom’s copy is there, sealed, so the sweep covered it (positive control)', /^on:\d{2,}$/.test(copies), copies);
 
   console.log(fails.length === 0 ? '\nALL PASS' : `\n${fails.length} FAILED:\n  ${fails.join('\n  ')}`);
   process.exitCode = fails.length === 0 ? 0 : 1;

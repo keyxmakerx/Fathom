@@ -132,8 +132,14 @@ superuser `pg_dump` for every password, note, name, passphrase and recovery code
 epoch, a second admin countersigns when it is shared, the server seals its copy under `vault.key`,
 and `vault_fathom::use_login` opens it only for a marked device, writing `vault_read` to the
 organisation's history first. The card and table say "Fathom can use it" or "Waiting for an
-admin" and how often Fathom used it. **Not built yet:** breach checks, external vaults, and the
-chain verifier's check that a `vault_read` names a login then in Mode B.
+admin" and how often Fathom used it. 
+
+**Part three, breach checks** (migration `0043_vault_breach.sql`, `src/vault_breach.rs`,
+`client/src/vault/breach.ts`): the policy at three levels (a login marked critical, a kind of
+login, the organisation), the check in a holder's browser against the Have I Been Pwned range API
+with five hash characters and padding, paced, at unlock and at save, and the "Breach list" column.
+**Not built yet:** external vaults, and the chain verifier's check that a `vault_read` names a
+login then in Mode B.
 
 **Tenant isolation holds at two layers:** an application filter in every repository function, and
 PostgreSQL row-level security driven by a transaction-local setting (never session-level: a pooled

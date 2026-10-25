@@ -96,10 +96,28 @@ and what parts two and three hold.
     key file, not the master key, opens the copy, and "Mode B" is a word only this record uses.
     Not built yet: the chain verifier's check that each `vault_read` names a login then in Mode B.
 
-## Not decided here (part three and after)
+## Part three: breach checks, built 2026-10-25
 
-- **Breach checks**, with the policy at three levels, most specific wins: the organisation (on or
-  off, re-check interval, warn or refuse), a kind of login, and a login marked critical (re-checked
-  weekly, a breached password refused). Pacing is in `docs/OPERATING.md`.
+13. **Three levels, most specific wins** (owner, 25 October: "make sure the checks can be per org,
+    or even like per type of passwords"). A login marked critical is always checked, re-checked every
+    7 days, and a breached password refused. Otherwise its kind's level if the organisation set one,
+    otherwise the organisation's, otherwise off. Resolved in `vault_breach::effective` and mirrored in
+    `breach.ts`'s `effectivePolicy`, each unit-tested. An admin sets the policy; the owner or an admin
+    marks a login critical; both are `vault_breach_policy_set` entries on the organisation's history.
+    No DELETE: a kind that goes back to "same as the organisation" keeps its row, marked to inherit.
+14. **The check is the browser's.** A browser that holds the login sends the first five hex
+    characters of the password's SHA-1 to `https://api.pwnedpasswords.com/range/` with `Add-Padding:
+    true` and compares the rest itself (source: HIBP API v3 page, read 2026-10-25). It runs at save,
+    and after an unlock for the logins that person holds whose check is due, paced as OPERATING.md
+    says. The server records, per login and epoch, only found or not and when, and only from someone
+    holding it at that epoch; a changed password starts unchecked. It cannot refuse a password it never
+    sees, so a refusal is the saving browser's, and the policy card says so.
+15. **One more origin in the CSP.** `connect-src` gains `https://api.pwnedpasswords.com` and nothing
+    else (`src/client.rs`, departure 4). Whether that API answers the CORS preflight the padding
+    header causes could not be established from the build machine; the drive answers it with a
+    stand-in, and a list that cannot be reached leaves logins "Not checked yet" without blocking a
+    save.
+
+## Not decided here (after part three)
 - **External vaults** (Mode C), Vaultwarden first, each limited to one folder or collection. Each
   vault's current documentation is read again before it is built.

@@ -107,6 +107,10 @@ export interface VaultEntry {
   /** The organisation-history entry of this epoch's share, which a consent names. */
   shareSeq: number;
   fathom: FathomCopy | null;
+  /** Marked critical: checked weekly, a breached password refused. */
+  critical: boolean;
+  /** What a holder's browser last found at this epoch; null when not checked since it changed. */
+  breach: { found: boolean; checkedAt: number } | null;
   holders: Holder[];
   /** The caller's own copy, when they hold one. */
   opening: Opening | null;
@@ -123,6 +127,19 @@ export interface VaultOverview {
   entries: VaultEntry[];
   /** Which `vault.key` this server seals Fathom's copies under; a consent names it. */
   fathomKeyId: string;
+  breachPolicy: BreachPolicy;
+}
+
+export interface BreachLevel {
+  enabled: boolean;
+  intervalDays: number;
+  action: 'warn' | 'refuse';
+}
+
+/** The organisation's level (null: never set, so off) and the kinds it overrides. */
+export interface BreachPolicy {
+  organisation: BreachLevel | null;
+  kinds: Partial<Record<LoginKind, BreachLevel>>;
 }
 
 const W = 'vault';
@@ -160,6 +177,21 @@ function keyView(raw: unknown): VaultKeyView {
       kdfP: optNum(own, 'kdfP'),
     },
   };
+}
+
+function breachLevel(raw: unknown): BreachLevel {
+  const r = asRec(raw, W);
+  const action = str(r, 'action', W);
+  if (action !== 'warn' && action !== 'refuse') throw new Error('malformed vault response: breach action');
+  return { enabled: bool(r, 'enabled', W), intervalDays: int(r, 'intervalDays', W), action };
+}
+
+function breachPolicy(raw: unknown): BreachPolicy {
+  const r = asRec(raw, W);
+  const kinds: BreachPolicy['kinds'] = {};
+  const k = r.kinds == null ? {} : asRec(r.kinds, W);
+  for (const kind of LOGIN_KINDS) if (k[kind] != null) kinds[kind] = breachLevel(k[kind]);
+  return { organisation: r.organisation == null ? null : breachLevel(r.organisation), kinds };
 }
 
 function fathomView(raw: unknown): FathomCopy {
@@ -206,6 +238,11 @@ function entryView(raw: unknown): VaultEntry {
     needsRotation: bool(r, 'needsRotation', W),
     shareSeq: int(r, 'shareSeq', W),
     fathom: r.fathom == null ? null : fathomView(r.fathom),
+    critical: bool(r, 'critical', W),
+    breach: r.breach == null ? null : (() => {
+      const b = asRec(r.breach, W);
+      return { found: bool(b, 'found', W), checkedAt: int(b, 'checkedAt', W) };
+    })(),
     holders: arrayOf(r, 'holders', W).map((h) => {
       const x = asRec(h, W);
       const hk = str(x, 'kind', W);
@@ -252,6 +289,7 @@ export function parseOverview(bytes: Uint8Array): VaultOverview {
     }),
     entries: arrayOf(r, 'entries', W).map(entryView),
     fathomKeyId: str(r, 'fathomKeyId', W),
+    breachPolicy: breachPolicy(r.breachPolicy),
   };
 }
 
@@ -426,4 +464,23 @@ export async function fathomRefresh(organisation: string, credential: string, co
 
 export async function fathomOff(organisation: string, credential: string): Promise<FathomCopy> {
   return fathomView(jsonObject(await signedFetch('POST', entryPath(organisation, credential, 'fathom/off'), body({})), W));
+}
+
+// ---------------------------------------------------------------------------
+// Breach checks (part three)
+// ---------------------------------------------------------------------------
+
+/** An admin sets the whole policy; a kind left out is the same as the organisation. */
+export async function setBreachPolicy(organisation: string, policy: BreachPolicy): Promise<BreachPolicy> {
+  return breachPolicy(jsonObject(await signedFetch('POST', `${base(organisation)}/breach-policy`, body(policy)), W));
+}
+
+export async function setCritical(organisation: string, credential: string, critical: boolean): Promise<boolean> {
+  return bool(jsonObject(await signedFetch('POST', entryPath(organisation, credential, 'critical'), body({ critical })), W), 'critical', W);
+}
+
+/** What this browser found for the login at `epoch`. Only a holder may say. */
+export async function recordBreach(organisation: string, credential: string, epoch: number, found: boolean): Promise<{ found: boolean; checkedAt: number }> {
+  const r = jsonObject(await signedFetch('POST', entryPath(organisation, credential, 'breach'), body({ epoch, found })), W);
+  return { found: bool(r, 'found', W), checkedAt: int(r, 'checkedAt', W) };
 }

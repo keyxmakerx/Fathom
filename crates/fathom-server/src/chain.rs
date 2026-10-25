@@ -463,6 +463,10 @@ pub enum EntryType {
     /// the secret is opened. There is no Mode A `vault_read`, and a
     /// `vault_read` for a login the chain had in Mode A is a break.
     VaultRead,
+    // Written by `vault_breach.rs`.
+    /// The breach-check policy changed: the organisation's level and the
+    /// kinds it overrides, or one login marked critical or not.
+    VaultBreachPolicySet,
 
     /// **A re-wrap happened** (§12.6): custody changed, exposure did not. The
     /// entry names the old and new master identity, which key rows moved, who
@@ -599,6 +603,7 @@ impl EntryType {
             Self::VaultRecoveryUsed => "vault_recovery_used",
             Self::VaultModeChanged => "vault_mode_changed",
             Self::VaultRead => "vault_read",
+            Self::VaultBreachPolicySet => "vault_breach_policy_set",
             // ADR-0055 stream (c)
             Self::ConsolePlacementRequested => "console_placement_requested",
             Self::ConsolePlacementConfirmed => "console_placement_confirmed",
@@ -678,6 +683,7 @@ impl EntryType {
             "vault_recovery_used" => Some(Self::VaultRecoveryUsed),
             "vault_mode_changed" => Some(Self::VaultModeChanged),
             "vault_read" => Some(Self::VaultRead),
+            "vault_breach_policy_set" => Some(Self::VaultBreachPolicySet),
             // ADR-0055 stream (c)
             "console_placement_requested" => Some(Self::ConsolePlacementRequested),
             "console_placement_confirmed" => Some(Self::ConsolePlacementConfirmed),
@@ -763,7 +769,8 @@ impl EntryType {
             | Self::VaultEntryDeleted
             | Self::VaultRecoveryUsed
             | Self::VaultModeChanged
-            | Self::VaultRead => &[ChainKind::Org],
+            | Self::VaultRead
+            | Self::VaultBreachPolicySet => &[ChainKind::Org],
             // **Two types are filed on two kinds.** `rewrap` because the master key
             // is deployment-wide (§7.2). `grant_suspended` because §1.1 gives the
             // operator plane this one authority-adjacent verb: the organisation

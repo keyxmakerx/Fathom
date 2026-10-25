@@ -25,6 +25,7 @@ use super::{
 use crate::grants::Authority;
 use crate::sessions::SessionError;
 use crate::vault::{self, Enrolment, Meta, ShareIn, VaultError, WrapIn};
+use crate::vault_breach::{self, Level, Policy};
 use crate::vault_fathom::{self, Consent};
 
 pub(super) fn routes() -> Router<DesignApiState> {
@@ -73,6 +74,18 @@ pub(super) fn routes() -> Router<DesignApiState> {
         .route(
             "/organisations/{organisation}/vault/entries/{credential}/fathom/off",
             post(fathom_off_handler),
+        )
+        .route(
+            "/organisations/{organisation}/vault/breach-policy",
+            post(breach_policy_handler),
+        )
+        .route(
+            "/organisations/{organisation}/vault/entries/{credential}/critical",
+            post(critical_handler),
+        )
+        .route(
+            "/organisations/{organisation}/vault/entries/{credential}/breach",
+            post(breach_result_handler),
         )
 }
 
@@ -587,4 +600,103 @@ async fn fathom_off_handler(
         vault_fathom::turn_off(&tx, &auth, &credential).await?
     });
     Ok(json_response(view.to_json()))
+}
+
+// ---- Breach checks (part three) ----
+
+fn req_bool(
+    m: &mut BTreeMap<String, Json>,
+    key: &str,
+    what: &'static str,
+) -> Result<bool, RouteError> {
+    match m.remove(key) {
+        Some(Json::Bool(b)) => Ok(b),
+        _ => Err(malformed(what)),
+    }
+}
+
+/// `{enabled, intervalDays, action}`.
+fn level_from(j: Json) -> Result<Level, RouteError> {
+    let mut m = obj_of(
+        j,
+        &["enabled", "intervalDays", "action"],
+        "breach policy level",
+    )?;
+    Ok(Level {
+        enabled: req_bool(&mut m, "enabled", "breach checks on or off")?,
+        interval_days: small(
+            req_int(&mut m, "intervalDays", "re-check interval")?,
+            "re-check interval",
+        )?,
+        action: req_str(&mut m, "action", "warn or refuse")?,
+    })
+}
+
+/// `POST .../vault/breach-policy`: an admin sets the whole policy. Body:
+/// `{organisation: level | null, kinds: {kind: level}}`; a kind left out is the same as the
+/// organisation.
+async fn breach_policy_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let mut m = object_body(&signed.body, &["organisation", "kinds"])?;
+    let organisation_level = match m.remove("organisation") {
+        None | Some(Json::Null) => None,
+        Some(j) => Some(level_from(j)?),
+    };
+    let mut kinds = BTreeMap::new();
+    match m.remove("kinds") {
+        None => {}
+        Some(Json::Obj(k)) => {
+            for (kind, j) in k {
+                kinds.insert(kind, level_from(j)?);
+            }
+        }
+        Some(_) => return Err(malformed("kinds")),
+    }
+    let policy = Policy {
+        organisation: organisation_level,
+        kinds,
+    };
+    let saved = with_vault!(state, signed, organisation, |tx, auth| {
+        vault_breach::set_policy(&tx, &auth, policy).await?
+    });
+    Ok(json_response(saved.to_json()))
+}
+
+/// `POST .../vault/entries/{cred}/critical`: the owner or an admin. Body: `{critical}`.
+async fn critical_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, credential)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let credential = credential_path(&credential)?;
+    let mut m = object_body(&signed.body, &["critical"])?;
+    let critical = req_bool(&mut m, "critical", "critical")?;
+    let now = with_vault!(state, signed, organisation, |tx, auth| {
+        vault_breach::set_critical(&tx, &auth, &credential, critical).await?
+    });
+    Ok(json_response(Json::Obj(
+        [("critical".to_string(), Json::Bool(now))]
+            .into_iter()
+            .collect(),
+    )))
+}
+
+/// `POST .../vault/entries/{cred}/breach`: a holder's browser records what it found. Body:
+/// `{epoch, found}`.
+async fn breach_result_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, credential)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let credential = credential_path(&credential)?;
+    let mut m = object_body(&signed.body, &["epoch", "found"])?;
+    let epoch = small(req_int(&mut m, "epoch", "epoch")?, "epoch")?;
+    let found = req_bool(&mut m, "found", "found")?;
+    let result = with_vault!(state, signed, organisation, |tx, auth| {
+        vault_breach::record(&tx, &auth, &credential, epoch, found).await?
+    });
+    Ok(json_response(result.to_json()))
 }

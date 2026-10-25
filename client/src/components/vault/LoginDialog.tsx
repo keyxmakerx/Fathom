@@ -4,7 +4,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-import { KIND_LABELS, LOGIN_KINDS, type LoginKind, type UsedOn, type VaultEntry, type VaultOverview } from '../../api/vault';
+import { KIND_LABELS, LOGIN_KINDS, recordBreach, type LoginKind, type UsedOn, type VaultEntry, type VaultOverview } from '../../api/vault';
+import { effectivePolicy, timesBreached } from '../../vault/breach';
 import type { Secret } from '../../vault/crypto';
 import { chooseRecipients, holderAccounts, renameLogin, reshareLogin, storeLogin } from '../../vault/session';
 import { describeError } from '../design/useDesignSession';
@@ -38,6 +39,9 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
   const [aloneOk, setAloneOk] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** A breached password the policy only warns of, which this person chose to keep: for which. */
+  const [keptBreached, setKeptBreached] = useState<string | null>(null);
+  const [breachNote, setBreachNote] = useState<{ times: number; refuse: boolean } | null>(null);
 
   const people = overview.people.filter((p) => p.account !== overview.me);
   const alone = others.length === 0 && overview.recovery == null;
@@ -59,13 +63,43 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
     setDevices((d) => (d.some((u) => u.element === id && u.design === place.design) ? d.filter((u) => !(u.element === id && u.design === place.design)) : [...d, { design: place.design, element: id }]));
   };
 
+  const policy = effectivePolicy(overview.breachPolicy, kind, entry?.critical ?? false);
+  const newPassword = !entry || (secret != null && password !== secret.password);
+
+  /** Checks a new password against the breach list where the policy says to. Answers whether to
+   * go on, and how many breaches it was found in (null when not checked). */
+  async function breachGate(): Promise<{ go: boolean; times: number | null }> {
+    if (!policy.level.enabled || !newPassword || password === '') return { go: true, times: null };
+    let times: number;
+    try {
+      times = await timesBreached(password);
+    } catch {
+      // The list could not be reached: saving is not held hostage to a third party. The login
+      // shows "Not checked yet" and is checked at a later unlock.
+      setBreachNote(null);
+      return { go: true, times: null };
+    }
+    if (times === 0) return { go: true, times };
+    const refuse = policy.level.action === 'refuse';
+    setBreachNote({ times, refuse });
+    if (refuse) return { go: false, times };
+    return { go: keptBreached === password, times };
+  }
+
   async function save() {
     setBusy(true);
     setError(null);
     try {
+      const gate = await breachGate();
+      if (!gate.go) return;
       const recipients = await chooseRecipients(organisation, overview, others);
+      const done = (saved: VaultEntry) => {
+        // Best effort: the record is what the list shows; a failure leaves it "Not checked yet".
+        if (gate.times !== null) void recordBreach(organisation, saved.id, saved.epoch, gate.times > 0).catch(() => undefined);
+        onDone(saved);
+      };
       if (!entry) {
-        onDone(await storeLogin(organisation, recipients, { name: name.trim(), kind, usedOn: devices, secret: { username, password, note } }));
+        done(await storeLogin(organisation, recipients, { name: name.trim(), kind, usedOn: devices, secret: { username, password, note } }));
         return;
       }
       let current = entry;
@@ -73,7 +107,7 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
       if (secretChanged || holdersChanged) {
         current = await reshareLogin(organisation, current, recipients, secretChanged ? 'changed' : 'shared', { username, password, note });
       }
-      onDone(current);
+      done(current);
     } catch (e) {
       setError(describeError(e));
     } finally {
@@ -122,7 +156,10 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
                 className="vault-input vault-input--mono"
                 type={shown ? 'text' : 'password'}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setBreachNote(null);
+                }}
                 autoComplete="new-password"
                 spellCheck={false}
                 data-testid="vault-password"
@@ -136,6 +173,7 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
                 onClick={() => {
                   setPassword(generatePassword());
                   setShown(true);
+                  setBreachNote(null);
                 }}
                 data-testid="vault-generate"
               >
@@ -207,6 +245,28 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
           </div>
         )}
 
+        {breachNote && breachNote.refuse && (
+          <p className="vault-note vault-note--danger" role="alert" data-testid="vault-breached">
+            This password is in a list of breached passwords ({breachNote.times.toLocaleString()} times), and{' '}
+            {policy.from === 'critical' ? 'this login is marked critical' : 'your organisation refuses those'}. Choose another;
+            Generate one makes one that is not.
+          </p>
+        )}
+        {breachNote && !breachNote.refuse && (
+          <div className="vault-note vault-note--caution" role="alert" data-testid="vault-breached">
+            <p>
+              This password is in a list of breached passwords ({breachNote.times.toLocaleString()} times). Anyone trying passwords
+              against your devices tries these first.
+            </p>
+            <label className="vault-check">
+              <input type="checkbox" checked={keptBreached === password} onChange={(e) => setKeptBreached(e.target.checked ? password : null)} data-testid="vault-breached-ok" /> Save it
+              anyway
+            </label>
+          </div>
+        )}
+        {policy.level.enabled && newPassword && !breachNote && (
+          <p className="vault-small">Checked against a list of breached passwords when you save. Only five characters of its hash leave this browser.</p>
+        )}
         {error && (
           <p className="vault-error" role="alert">
             {error}

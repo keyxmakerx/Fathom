@@ -274,11 +274,17 @@ fn cache_control(rel: &Path) -> &'static str {
 /// 3. **`frame-ancestors 'none'` rather than `'self'`.** Nothing in Fathom
 ///    frames Fathom, and the console is the surface an attacker would want
 ///    framed.
+/// 4. **`https://api.pwnedpasswords.com` in `connect-src`** (ADR-0071 part
+///    three). The vault's breach check runs in the browser that holds the
+///    password, which asks the Have I Been Pwned range API for the hashes that
+///    share the first five hex characters of its SHA-1. One fixed origin, GETs
+///    whose only content is that prefix; nothing a script could post there
+///    reaches anyone who could read it back.
 ///
 /// `img-src` carries `data:` because Vite inlines small assets as data URIs
 /// at build time, and the print pack's "This view" picture is a `data:` image
 /// made in the browser (`client/src/print/viewImage.ts`, `PrintPreview.tsx`); `connect-src 'self'` is what the signed-request client
-/// needs and no more.
+/// needs, with the one origin in 4 beside it.
 ///
 /// # What has been PROVEN and what has only been derived
 ///
@@ -291,7 +297,7 @@ fn cache_control(rel: &Path) -> &'static str {
 /// than on a drive. That is said here rather than left to be assumed, and the
 /// script's own header names the next step.
 pub const CONTENT_SECURITY_POLICY: &str = "default-src 'none'; script-src 'self' \
-     'wasm-unsafe-eval'; connect-src 'self'; img-src 'self' data:; style-src 'self'; \
+     'wasm-unsafe-eval'; connect-src 'self' https://api.pwnedpasswords.com; img-src 'self' data:; style-src 'self'; \
      style-src-attr 'unsafe-inline'; font-src 'self'; base-uri 'none'; form-action 'self'; \
      frame-ancestors 'none'";
 

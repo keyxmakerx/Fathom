@@ -800,3 +800,155 @@ async fn fathoms_copy_is_never_stored_in_the_clear() {
         .get(0);
     assert_eq!(hits, 0);
 }
+
+// ---------------------------------------------------------------------------
+// Breach checks (ADR-0071 part three, `vault_breach.rs`). Here beside Mode B because they share
+// every fixture above.
+// ---------------------------------------------------------------------------
+
+use fathom_server::vault_breach::{self, Level, Policy};
+
+fn level(enabled: bool, days: i32, action: &str) -> Level {
+    Level {
+        enabled,
+        interval_days: days,
+        action: action.into(),
+    }
+}
+
+#[tokio::test]
+async fn admins_set_the_policy_owners_mark_critical_and_only_holders_record_a_check() {
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let org = estate.organisation;
+    let alice = a_member(&pool, &ring, &estate, "alice", Some(Capability::Draw)).await;
+    let bob = a_member(&pool, &ring, &estate, "bob", None).await;
+    let carol = a_member(&pool, &ring, &estate, "carol", None).await;
+    let a = enrol_vault(&pool, &ring, org, &alice).await;
+    let b = enrol_vault(&pool, &ring, org, &bob).await;
+    enrol_vault(&pool, &ring, org, &carol).await;
+    let design = a_design(&pool, &estate).await;
+    let holders = [
+        (&a, alice.account.to_string()),
+        (&b, bob.account.to_string()),
+    ];
+    let login = a_login(&pool, &ring, &estate, &alice, &design, &holders).await;
+
+    // The policy is an admin's.
+    let mut policy = Policy {
+        organisation: Some(level(true, 30, "warn")),
+        ..Policy::default()
+    };
+    policy.kinds.insert("snmp".into(), level(false, 30, "warn"));
+    let p = policy.clone();
+    let refused = with_auth(&pool, &ring, org, alice.account, |tx, auth| {
+        Box::pin(async move { vault_breach::set_policy(tx, auth, p).await })
+    })
+    .await;
+    assert!(
+        matches!(refused, Err(VaultError::NotAllowed(_))),
+        "{refused:?}"
+    );
+    let p = policy.clone();
+    let saved = with_auth(&pool, &ring, org, estate.steward.account, |tx, auth| {
+        Box::pin(async move { vault_breach::set_policy(tx, auth, p).await })
+    })
+    .await
+    .expect("an admin sets it");
+    assert_eq!(saved, policy);
+    // A nonsense interval is refused before anything is written.
+    let mut bad = policy.clone();
+    bad.organisation = Some(level(true, 0, "warn"));
+    let refused = with_auth(&pool, &ring, org, estate.steward.account, |tx, auth| {
+        Box::pin(async move { vault_breach::set_policy(tx, auth, bad).await })
+    })
+    .await;
+    assert!(
+        matches!(refused, Err(VaultError::Malformed(_))),
+        "{refused:?}"
+    );
+    // Dropping the SNMP override goes back to the organisation's level; nothing is deleted.
+    let p = Policy {
+        organisation: policy.organisation.clone(),
+        ..Policy::default()
+    };
+    let saved = with_auth(&pool, &ring, org, estate.steward.account, |tx, auth| {
+        Box::pin(async move { vault_breach::set_policy(tx, auth, p).await })
+    })
+    .await
+    .expect("override dropped");
+    assert!(saved.kinds.is_empty());
+    assert_eq!(
+        vault_breach::effective(&saved, "snmp", false).1,
+        vault_breach::From::Organisation
+    );
+
+    // Critical is the owner's or an admin's to mark.
+    let id = login.id.clone();
+    let refused = with_auth(&pool, &ring, org, bob.account, |tx, auth| {
+        Box::pin(async move { vault_breach::set_critical(tx, auth, &id, true).await })
+    })
+    .await;
+    assert!(
+        matches!(refused, Err(VaultError::NotAllowed(_))),
+        "{refused:?}"
+    );
+    let id = login.id.clone();
+    with_auth(&pool, &ring, org, alice.account, |tx, auth| {
+        Box::pin(async move { vault_breach::set_critical(tx, auth, &id, true).await })
+    })
+    .await
+    .expect("the owner marks it");
+
+    // A check is recorded only by someone holding it, at its current epoch.
+    let (id, epoch) = (login.id.clone(), login.epoch);
+    let refused = with_auth(&pool, &ring, org, carol.account, |tx, auth| {
+        Box::pin(async move { vault_breach::record(tx, auth, &id, epoch, true).await })
+    })
+    .await;
+    assert!(
+        matches!(refused, Err(VaultError::NotAllowed(_))),
+        "{refused:?}"
+    );
+    let id = login.id.clone();
+    let refused = with_auth(&pool, &ring, org, bob.account, |tx, auth| {
+        Box::pin(async move { vault_breach::record(tx, auth, &id, epoch - 1, true).await })
+    })
+    .await;
+    assert!(
+        matches!(refused, Err(VaultError::NotAllowed(_))),
+        "{refused:?}"
+    );
+    let id = login.id.clone();
+    let found = with_auth(&pool, &ring, org, bob.account, |tx, auth| {
+        Box::pin(async move { vault_breach::record(tx, auth, &id, epoch, true).await })
+    })
+    .await
+    .expect("a holder records it");
+    assert!(found.found);
+
+    let view = with_auth(&pool, &ring, org, alice.account, |tx, auth| {
+        Box::pin(vault::overview(tx, auth))
+    })
+    .await
+    .unwrap();
+    let e = view.entries.iter().find(|e| e.id == login.id).unwrap();
+    assert!(e.critical);
+    assert_eq!(e.breach.as_ref().map(|r| r.found), Some(true));
+    assert_eq!(view.breach_policy, saved);
+
+    // A changed password starts unchecked.
+    let changed = rotate(&pool, &ring, org, &alice, &login, &holders, "changed").await;
+    assert!(changed.breach.is_none());
+
+    // Each change of policy and mark is on the organisation's history.
+    let types = chain_types(org).await;
+    assert_eq!(
+        types
+            .iter()
+            .filter(|t| *t == "vault_breach_policy_set")
+            .count(),
+        3
+    );
+}

@@ -1544,6 +1544,10 @@ pub struct EntryView {
     pub share_seq: i64,
     /// Fathom's own copy (Mode B), if this login was ever given one.
     pub fathom: Option<crate::vault_fathom::FathomView>,
+    /// Marked critical: checked weekly, a breached password refused (`vault_breach.rs`).
+    pub critical: bool,
+    /// What a holder's browser last found for the current epoch, if it was checked.
+    pub breach: Option<crate::vault_breach::Result_>,
 }
 
 const ENTRY_COLUMNS: &str = "e.id, e.owner, e.meta_ct, e.meta_nonce, e.meta_key_epoch, \
@@ -1607,6 +1611,7 @@ async fn build_entry(
         .await?
         .map_or(0, |r| r.get(0));
     let fathom = crate::vault_fathom::view_for(tx, tenant, &id).await?;
+    let (critical, breach) = crate::vault_breach::entry_facts(tx, tenant, &id, epoch).await?;
     Ok(EntryView {
         id,
         meta,
@@ -1622,6 +1627,8 @@ async fn build_entry(
         opening,
         share_seq,
         fathom,
+        critical,
+        breach,
     })
 }
 
@@ -1713,6 +1720,7 @@ pub struct Overview {
     pub recovery_uses: Vec<RecoveryUse>,
     pub people: Vec<Person>,
     pub entries: Vec<EntryView>,
+    pub breach_policy: crate::vault_breach::Policy,
 }
 
 /// Everything the vault surface reads, in one call.
@@ -1825,6 +1833,7 @@ pub async fn overview(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<Over
         recovery_uses,
         people,
         entries,
+        breach_policy: crate::vault_breach::load_policy(tx, &tenant).await?,
     })
 }
 
@@ -2005,6 +2014,11 @@ impl EntryView {
                 "fathom",
                 opt(&self.fathom, crate::vault_fathom::FathomView::to_json),
             ),
+            ("critical", Json::Bool(self.critical)),
+            (
+                "breach",
+                opt(&self.breach, crate::vault_breach::Result_::to_json),
+            ),
             (
                 "holders",
                 Json::Arr(
@@ -2087,6 +2101,7 @@ impl Overview {
                 "entries",
                 Json::Arr(self.entries.iter().map(EntryView::to_json).collect()),
             ),
+            ("breachPolicy", self.breach_policy.to_json()),
         ])
     }
 }

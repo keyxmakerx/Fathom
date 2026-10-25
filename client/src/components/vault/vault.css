@@ -596,3 +596,31 @@
   flex-wrap: wrap;
   gap: var(--s1);
 }
+
+/* Breach checks (part three) */
+
+.vault-tag--critical {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.vault-policy {
+  display: grid;
+  gap: var(--s2);
+}
+
+.vault-policy__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.vault-policy__row > span:first-child {
+  min-width: 9em;
+}
+
+.vault-input--small {
+  width: auto;
+  padding: 0 var(--s1);
+}

@@ -6,8 +6,10 @@ import { useContext, useState, type ReactNode } from 'react';
 
 import type { VaultEntry, VaultOverview } from '../../api/vault';
 import type { Secret } from '../../vault/crypto';
-import { coverWithCurrentKeys, fathomCopyStale, makeRecoverySheet, recoverLogins, refreshFathomCopy, removeLogin, revealLogin, takeAwayCopy, vaultUnlocked } from '../../vault/session';
+import { setCritical } from '../../api/vault';
+import { coverWithCurrentKeys, fathomCopyStale, runDueChecks, makeRecoverySheet, recoverLogins, refreshFathomCopy, removeLogin, revealLogin, takeAwayCopy, vaultUnlocked } from '../../vault/session';
 import { describeError } from '../design/useDesignSession';
+import { BreachPolicyCard, breachText } from './BreachPolicy';
 import { FathomDialog, fathomUseText, keptText, type FathomAct } from './FathomDialogs';
 import { LoginDialog } from './LoginDialog';
 import { VaultModal } from './Modal';
@@ -40,6 +42,18 @@ function useVaultActs(vault: Vault, organisationName: string, place: VaultPlace 
       .then((n) => {
         if (n > 0) setNotice(`${n === 1 ? 'One login was' : `${n} logins were`} shared again so the recovery sheet and current keys cover ${n === 1 ? 'it' : 'them'}.`);
         if (n > 0) vault.reload();
+      })
+      .catch(() => undefined)
+      // Then the breach checks that are due, for the logins this person holds.
+      .then(() => runDueChecks(vault.organisation, o))
+      .then((r) => {
+        if (!r || r.checked === 0) return;
+        setNotice(
+          r.found.length > 0
+            ? `Checked ${r.checked} against the breach list. Found in a breach: ${r.found.join(', ')}. Change ${r.found.length === 1 ? 'it' : 'them'} on the device.`
+            : `Checked ${r.checked} against the breach list. None found.`,
+        );
+        vault.reload();
       })
       .catch(() => undefined);
   };
@@ -259,6 +273,9 @@ function LoginCard({
   onRemove?: () => void;
   onFathom?: (act: FathomAct | 'refresh') => void;
 }) {
+  const [markError, setMarkError] = useState<string | null>(null);
+  const breach = breachText(entry, overview.breachPolicy);
+  const mayMark = entry.owner === overview.me || overview.steward;
   const f = entry.fathom;
   const live = f != null && f.state !== 'off';
   const owner = entry.owner === overview.me;
@@ -278,6 +295,11 @@ function LoginCard({
       <div className="vault-card__head">
         <span className="vault-card__name">{entry.name}</span>
         <span className="vault-tag">{kindText(entry)}</span>
+        {entry.critical && (
+          <span className="vault-tag vault-tag--critical" title="Checked weekly; a breached password is refused" data-testid="vault-critical-tag">
+            Critical
+          </span>
+        )}
         {live ? (
           <span
             className={f.state === 'on' && !fathomCopyStale(entry) ? 'vault-tag vault-tag--fathom' : 'vault-tag vault-tag--waiting'}
@@ -303,6 +325,32 @@ function LoginCard({
               Delete
             </button>
           </>
+        )}
+      </div>
+      <div className="vault-small" data-testid="vault-breach-line">
+        Breach list: <span className={breach.tone === 'danger' ? 'vault-caution' : undefined}>{breach.text}</span>
+        {breach.tone === 'danger' && <strong className="vault-caution"> · change it on the device</strong>}
+        {mayMark && (
+          <>
+            {' · '}
+            <button
+              type="button"
+              className="vault-link"
+              onClick={() => {
+                setMarkError(null);
+                setCritical(vault.organisation, entry.id, !entry.critical).then(vault.reload, (e: unknown) => setMarkError(describeError(e)));
+              }}
+              data-testid="vault-critical-toggle"
+            >
+              {entry.critical ? 'Unmark critical' : 'Mark critical'}
+            </button>
+          </>
+        )}
+        {markError && (
+          <span className="vault-error" role="alert">
+            {' '}
+            {markError}
+          </span>
         )}
       </div>
       {live && (
@@ -480,8 +528,8 @@ export function PasswordsPage({ organisation, organisationName, mode: asked }: {
                 <td>{holdersText(e, overview.me)}</td>
                 <td>{keptText(e)}</td>
                 <td>{ago(e.updatedAt)}</td>
-                <td className="vault-muted" title="Breach-list checks come in a later build">
-                  Not checked yet
+                <td className={breachText(e, overview.breachPolicy).tone === 'danger' ? 'vault-caution' : breachText(e, overview.breachPolicy).tone === 'muted' ? 'vault-muted' : undefined} data-testid="vault-breach-cell">
+                  {breachText(e, overview.breachPolicy).text}
                 </td>
                 {mode === 'admin' && <td>{canRead(e) ? 'Can read' : <span className="vault-muted">Can’t read</span>}</td>}
               </tr>
@@ -530,6 +578,15 @@ export function PasswordsPage({ organisation, organisationName, mode: asked }: {
             <p className="vault-small">What an admin can always do: see it’s here, take access away, delete it. What an admin can’t: read it, or give themselves a copy without the recovery sheet.</p>
           )}
         </div>
+      )}
+      {mode === 'admin' && (
+        <BreachPolicyCard
+          key={JSON.stringify(overview.breachPolicy)} organisation={organisation} policy={overview.breachPolicy}
+          onSaved={() => {
+            acts.setNotice('The breach-check policy is saved. It is on the organisation’s history.');
+            vault.reload();
+          }}
+        />
       )}
       {mode === 'admin' && <RecoveryCard overview={overview} onMake={() => void act(async () => acts.setDialog({ kind: 'sheet', code: await makeRecoverySheet(overview, organisation) }))} />}
       {acts.dialogs}

@@ -681,6 +681,19 @@ const TABLES: &[TableClaim] = &[
         why: "a record that Fathom opened a login: which one, for what, on which device, at \
               whose request. Written, with its chain entry, before the copy is opened.",
     },
+    // ---- Breach checks (ADR-0071 part three) -- `0043_vault_breach.sql` --
+    TableClaim {
+        name: "vault.breach_policy",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the organisation's breach-check settings: on or off, how often, warn or refuse, per \
+              kind of login. Settings, not secrets; changes are on the organisation's history.",
+    },
+    TableClaim {
+        name: "vault.breach_results",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "whether a holder's browser found a login's password in a breach list, and when. \
+              One bit per login and epoch; the password and its hash never reach the server.",
+    },
 ];
 
 /// Schemas a migration may create besides `public`. Each one's tables are named `schema.table`
