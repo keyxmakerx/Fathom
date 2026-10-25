@@ -36,7 +36,7 @@ pub struct Shell {
     estate_schema: String,
     /// Every dictionary handed in over `OP_DICT`, keyed by its own `platform:` line and
     /// held for the module's lifetime. Booting one platform never replaces another.
-    /// `opnsense` is the rules-CSV one; the rest are set-form. Empty until `OP_DICT`
+    /// `opnsense` reads both its rules CSV and its `config.xml`; the rest are set-form. Empty until `OP_DICT`
     /// succeeds, so `OP_PASTE` can refuse with `ERR_NO_DICTIONARY`.
     dicts: std::collections::BTreeMap<String, fathom_ingest::dict::Dictionary>,
     /// The rule pack and its cache over `estate` (ADR-0061 §5).
@@ -148,10 +148,15 @@ impl Shell {
         hint: Option<&str>,
     ) -> Result<(fathom_ingest::IngestOutput, String), Vec<u8>> {
         let refuse = |e| protocol::encode_error(ERR_INGEST_REFUSED, &refusal_text(e));
-        let table = match hint {
-            Some(p) => p == "opnsense",
-            None => fathom_ingest::csv::looks_like_rules_csv(text),
-        };
+        // A whole-file backup is told by its root element, whatever the hint: an
+        // OPNsense device's `config.xml` is not its rules CSV.
+        let root = fathom_ingest::xml::root_element(text);
+        let opnsense_xml = root == Some("opnsense") && matches!(hint, None | Some("opnsense"));
+        let table = !opnsense_xml
+            && match hint {
+                Some(p) => p == "opnsense",
+                None => fathom_ingest::csv::looks_like_rules_csv(text),
+            };
         // A RouterOS export has its own front end, like the table: an exact sniff,
         // and never read by a set-form dictionary.
         let export = !table
@@ -173,14 +178,16 @@ impl Shell {
         // A pfSense backup: a `config.xml` whose root is `<pfsense>`.
         let backup = !table
             && !export
+            && !opnsense_xml
             && match hint {
                 Some(p) => p == "pfsense",
-                None => fathom_ingest::xml::root_element(text) == Some("pfsense"),
+                None => root == Some("pfsense"),
             };
         // `ip addr` / `ip link` output from a Linux host: numbered records.
         let host = !table
             && !export
             && !backup
+            && !opnsense_xml
             && match hint {
                 Some(p) => p == "linux-host",
                 None => fathom_ingest::iproute::looks_like_iproute(text),
@@ -205,7 +212,13 @@ impl Shell {
                 Some(p) => p == "unifi-sw",
                 None => fathom_ingest::blockcfg::looks_like_unifi(text),
             };
-        let (ingest, platform) = if table {
+        let (ingest, platform) = if opnsense_xml {
+            let Some(dict) = self.dicts.get("opnsense") else {
+                return missing("OPNsense");
+            };
+            let read = fathom_ingest::xml::ingest_xml(text, dict).map_err(refuse)?;
+            (read, dict.platform().to_owned())
+        } else if table {
             let Some(dict) = self.dicts.get("opnsense") else {
                 return missing("table");
             };
