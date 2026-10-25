@@ -207,6 +207,26 @@ fn key_volume(master: u8, backup: u8) -> std::path::PathBuf {
     dir
 }
 
+/// ADR-0071's `vault.key` (Mode B) sits in the key volume beside the others,
+/// so it travels in the keys file and its id goes on the label, which is what
+/// lets the Backups screen say when a keys file was made before it existed.
+#[test]
+fn the_vault_key_joins_the_keys_file_and_its_label() {
+    let dir = key_volume(3, 1);
+    let before = KeysFile::from_dir(&dir).unwrap();
+    assert_eq!(before.label.vault_key, None);
+    std::fs::write(dir.join("vault.key"), [7u8; 32]).unwrap();
+    let kf = KeysFile::from_dir(&dir).unwrap();
+    assert!(kf
+        .files
+        .iter()
+        .any(|(n, b)| n == "vault.key" && b == &[7u8; 32]));
+    assert_eq!(kf.label.vault_key, Some(key(7).id()));
+    let phrase = backup::parse_phrase(&backup::new_phrase().unwrap()).unwrap();
+    let back = KeysFile::open(&kf.seal(&phrase).unwrap(), &phrase).unwrap();
+    assert_eq!(back.key("vault.key").map(|k| k.id()), Some(key(7).id()));
+}
+
 #[test]
 fn the_keys_file_round_trips_under_its_phrase_and_nothing_else() {
     let kf = KeysFile::from_dir(&key_volume(3, 1)).unwrap();

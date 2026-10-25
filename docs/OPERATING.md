@@ -61,6 +61,8 @@ So a Fathom backup is **two files, kept in different places** (ADR-0070):
 Neither opens anything without the other, and the keys file needs its phrase too. The credential
 vault (ADR-0042), once built, needs nothing extra: its rows are in the dump, Mode A passwords stay
 sealed by each person's own passphrase, and `vault.key` (Mode B) joins the keys file by itself.
+A keys file made before `vault.key` existed does not hold it, so make a new one when the vault
+arrives: until then the Backups screen and the banner say the vault key is not in it.
 
 **Compose: it runs by itself.** Since 2026-10-25 the stack has a `backup` service (the postgres
 image, for `pg_dump` and `pg_restore`, with the server binary added). Every night at 02:00 UTC it

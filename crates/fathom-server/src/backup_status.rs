@@ -23,7 +23,7 @@ use crate::admin::AdminRefusal;
 use crate::api::{Refusal, Signed};
 use crate::backup::{date, Label};
 use crate::client_address::ClientAddress;
-use crate::crypto::{self, KeyId};
+use crate::crypto;
 use crate::operators::OperatorError;
 use crate::sessions::{PrincipalKind, SessionError, SessionStore, VerifiedSession};
 
@@ -258,25 +258,48 @@ pub fn notices(
                 .to_string(),
         ),
         Some(Ok(held)) => {
-            let changed: Vec<&str> = [
+            // A key the keys file never held (the vault's, ADR-0071, on an
+            // install whose keys file predates it) is said apart from one
+            // that was replaced: the first means that key is in no keys file
+            // at all, and a lost host would take it with it.
+            let mut missing: Vec<&str> = Vec::new();
+            let mut changed: Vec<&str> = Vec::new();
+            for (what, now, then) in [
                 ("master", current.master_key, held.master_key),
                 ("chain", current.chain_key, held.chain_key),
                 ("backup", current.backup_key, held.backup_key),
                 ("vault", current.vault_key, held.vault_key),
-            ]
-            .into_iter()
-            .filter(|(_, now, then): &(&str, Option<KeyId>, Option<KeyId>)| {
-                now.is_some() && now != then
-            })
-            .map(|(what, _, _)| what)
-            .collect();
+            ] {
+                match (now, then) {
+                    (Some(_), None) => missing.push(what),
+                    (Some(n), Some(t)) if n != t => changed.push(what),
+                    _ => {}
+                }
+            }
+            let keys = |v: &[&str]| {
+                format!(
+                    "the {} key{}",
+                    v.join(" and "),
+                    if v.len() == 1 { "" } else { "s" }
+                )
+            };
+            let mut why = Vec::new();
+            if !missing.is_empty() {
+                why.push(format!(
+                    "{} {} not in it",
+                    keys(&missing),
+                    if missing.len() == 1 { "is" } else { "are" }
+                ));
+            }
             if !changed.is_empty() {
+                why.push(format!("{} changed since", keys(&changed)));
+            }
+            if !why.is_empty() {
                 out.push(format!(
-                    "The keys file made {} is out of date: the {} key{} changed since. Backups \
-                     made from now on need a new one; keep the old one for older backups.",
+                    "The keys file made {} is out of date: {}. Make a new one now; keep the old \
+                     one for older backups.",
                     date(held.made_at_unix),
-                    changed.join(" and "),
-                    if changed.len() == 1 { "" } else { "s" },
+                    why.join(", and "),
                 ));
             }
         }
@@ -350,6 +373,19 @@ mod tests {
         );
         assert_eq!(n.len(), 1, "{n:?}");
         assert!(n[0].contains("off-site") && n[0].contains("AccessDenied"));
+    }
+
+    #[test]
+    fn a_vault_key_the_keys_file_never_held_is_named_as_missing() {
+        let now = parse_utc("2026-10-25T09:00:00Z").unwrap();
+        let status = "last_backup_at 2026-10-25T02:00:04Z\nlast_result ok\n";
+        let old = current();
+        let mut with_vault = current();
+        with_vault.vault_key = Some(Key32::from_bytes([4; 32]).id());
+        let n = notices(true, Some(status), Some(&old.to_text()), &with_vault, now);
+        assert_eq!(n.len(), 1, "{n:?}");
+        assert!(n[0].contains("the vault key is not in it"), "{}", n[0]);
+        assert!(!n[0].contains("changed"), "{}", n[0]);
     }
 
     #[test]
