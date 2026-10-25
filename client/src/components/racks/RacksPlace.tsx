@@ -37,6 +37,8 @@ import { JotView } from '../jot/JotView';
 import { deviceChassis, jotPlates, jotSpot, originOf } from '../jot/jotLayout';
 import { PasteCard, type PasteState } from '../paste/PasteCard';
 import { SuggestCard } from '../suggest/SuggestCard';
+import { FolderCard } from '../paste/FolderCard';
+import { applyFolder, dragHasFiles, filesFromDrop, planFolder, type FolderFile, type FolderRow } from '../paste/configFolder';
 import { createSuggestStore, SuggestContext } from '../suggest/suggestStore';
 import { looksLikeFacts } from '../../document/facts';
 import { looksLikeMacTable } from '../../document/hosts';
@@ -1200,12 +1202,23 @@ export function RacksPlace(props: RacksPlaceProps) {
   // ADR-0061 §7: a config pasted anywhere on the canvas. The gate runs in the module (`previewPaste`)
   // before the card shows; the card's choice is the only thing that writes. The raw text is never kept.
   const [pasteState, setPasteState] = useState<PasteState | null>(null);
-  const openSpot = useCallback(() => {
-    const taken = [...realView.free.map((f) => ({ x: f.x, y: f.y, w: BOX_W, h: BOX_H })), ...realView.labels.map((l) => ({ x: l.x, y: l.y, w: l.form === 'area' ? l.w : 64, h: l.form === 'area' ? l.h : 22 }))];
-    // With racks or surfaces drawn, the grid starts to their right so a new box never lands on top of them.
-    const right = realView.racks.length > 0 || realView.surfaces.length > 0 ? closetRightPx(realView, RACK_NODE_WIDTH, U_PX) : 0;
-    return right > 0 ? nextFreeSpot(taken, undefined, undefined, { x: right + 96, y: 0 }) : nextFreeSpot(taken);
-  }, [realView]);
+  // `n` free spots for new boxes, each clear of the ones before it.
+  const openSpots = useCallback(
+    (n: number) => {
+      const taken = [...realView.free.map((f) => ({ x: f.x, y: f.y, w: BOX_W, h: BOX_H })), ...realView.labels.map((l) => ({ x: l.x, y: l.y, w: l.form === 'area' ? l.w : 64, h: l.form === 'area' ? l.h : 22 }))];
+      // With racks or surfaces drawn, the grid starts to their right so a new box never lands on top of them.
+      const right = realView.racks.length > 0 || realView.surfaces.length > 0 ? closetRightPx(realView, RACK_NODE_WIDTH, U_PX) : 0;
+      const spots: { x: number; y: number }[] = [];
+      for (let i = 0; i < n; i += 1) {
+        const spot = right > 0 ? nextFreeSpot(taken, undefined, undefined, { x: right + 96, y: 0 }) : nextFreeSpot(taken);
+        spots.push(spot);
+        taken.push({ ...spot, w: BOX_W, h: BOX_H });
+      }
+      return spots;
+    },
+    [realView],
+  );
+  const openSpot = useCallback(() => openSpots(1)[0]!, [openSpots]);
   // Held only while the card asks "which device is this from?"; cleared on every other outcome.
   const pendingPasteRef = useRef<string | null>(null);
   // Cable suggestions (r15-cables): the device the neighbour list was read on (null asks), and text already pasted.
@@ -1245,6 +1258,64 @@ export function RacksPlace(props: RacksPlaceProps) {
     },
     [doc, canDraw, withMirror, openSpot, accountId, selectedChassis],
   );
+  // A folder of configs dropped on the canvas (r29-pull A): each file read as a paste, matched by hostname. One file
+  // dropped is a paste. The texts are held only while the card is open.
+  const [folder, setFolder] = useState<{ files: FolderFile[]; rows: FolderRow[]; base: Document; refusal?: string } | null>(null);
+  const startFolder = useCallback(
+    (files: FolderFile[]) => {
+      if (doc == null || !canDraw || files.length === 0) return;
+      const only = files.length === 1 ? files[0]! : null;
+      if (only !== null && only.tooLarge !== true && worthReading(only.text)) return startPaste(only.text);
+      setPasteState(null);
+      withMirror()
+        .then((mirror) => {
+          const rows = planFolder(mirror, doc, files);
+          mirrorLoadedDocRef.current = null;
+          setFolder({ files, rows, base: doc });
+        })
+        .catch((error: unknown) => {
+          mirrorLoadedDocRef.current = null;
+          setPasteState({ kind: 'refused', message: tidySentence(refusalFor(error)?.refused ?? refusalSentence(error)) });
+        });
+    },
+    [doc, canDraw, withMirror, startPaste],
+  );
+  const handleFolderAdd = useCallback(
+    (rows: FolderRow[]) => {
+      if (folder == null || doc == null) return;
+      if (folder.base !== doc) return setFolder({ ...folder, refusal: 'The design changed while this was open. Drop the folder again.' });
+      withMirror()
+        .then((mirror) => {
+          const next = applyFolder(mirror, doc, folder.files, rows, openSpots, actorOpts(accountId));
+          mirrorLoadedDocRef.current = null;
+          if (next !== doc) applyDocChange(next);
+          setFolder(null);
+        })
+        .catch((error: unknown) => {
+          mirrorLoadedDocRef.current = null;
+          setFolder({ ...folder, refusal: tidySentence(refusalFor(error)?.refused ?? refusalSentence(error)) });
+        });
+    },
+    [folder, doc, withMirror, openSpots, accountId, applyDocChange],
+  );
+  useEffect(() => {
+    if (!canDraw || doc == null) return;
+    const onOver = (event: DragEvent) => {
+      if (!event.defaultPrevented && dragHasFiles(event.dataTransfer)) event.preventDefault();
+    };
+    const onDrop = (event: DragEvent) => {
+      // A dialog with its own drop box (the importer) takes its files first.
+      if (event.defaultPrevented || event.dataTransfer === null || !dragHasFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      filesFromDrop(event.dataTransfer).then(startFolder, () => setPasteState({ kind: 'refused', message: 'Those files could not be read.' }));
+    };
+    document.addEventListener('dragover', onOver);
+    document.addEventListener('drop', onDrop);
+    return () => {
+      document.removeEventListener('dragover', onOver);
+      document.removeEventListener('drop', onDrop);
+    };
+  }, [canDraw, doc, startFolder]);
   const handlePasteConfig = useCallback(() => {
     // A right-click is a gesture, so the browser may let the page read the clipboard; if not, the card has a box.
     const read = navigator.clipboard?.readText?.bind(navigator.clipboard);
@@ -1991,6 +2062,9 @@ export function RacksPlace(props: RacksPlaceProps) {
             setPasteState(null);
           }}
         />
+      ) : null}
+      {folder != null && pasteState == null ? (
+        <FolderCard key={folder.rows.map((r) => r.file).join('\n')} rows={folder.rows} refusal={folder.refusal} onAdd={handleFolderAdd} onClose={() => setFolder(null)} />
       ) : null}
       {suggest != null && doc != null && canDraw && pasteState == null ? (
         <SuggestCard key={suggest.text ?? suggest.deviceId ?? 'any'} doc={doc} deviceId={suggest.deviceId} text={suggest.text} actor={accountId ?? undefined} spot={openSpot} onApply={(next, deviceId) => {
