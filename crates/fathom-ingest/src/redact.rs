@@ -112,6 +112,8 @@ impl DetectorSet {
     /// #104: destroyed because broken or unclosed quoting next to a destroyed secret
     /// leaves the secret's extent unknown, not because the text itself tripped anything.
     pub const QUOTE_WRAP: u8 = 64;
+    /// A token that starts with a vendor's own key prefix ([`vendor_key_prefix`]).
+    pub const KEY_PREFIX: u8 = 128;
 }
 
 /// 14 §9.4's secret-word list, case-folded, hyphens = underscores.
@@ -616,6 +618,9 @@ fn gate_statement(
         if crypt_prefix(text) {
             detectors |= DetectorSet::CRYPT_PREFIX;
         }
+        if pieces(text).any(vendor_key_prefix) {
+            detectors |= DetectorSet::KEY_PREFIX;
+        }
         if long_hex(text) {
             detectors |= DetectorSet::LONG_HEX;
         }
@@ -894,6 +899,9 @@ fn gate_unshaped(capture: &str, dict: &Dictionary, line: &UnshapedLine, edits: &
             if crypt_prefix(piece) {
                 detectors |= DetectorSet::CRYPT_PREFIX;
             }
+            if vendor_key_prefix(piece) {
+                detectors |= DetectorSet::KEY_PREFIX;
+            }
             if long_hex(piece) {
                 detectors |= DetectorSet::LONG_HEX;
             }
@@ -907,7 +915,15 @@ fn gate_unshaped(capture: &str, dict: &Dictionary, line: &UnshapedLine, edits: &
         // which the leaf-name walk below can see, because on those the leaf
         // name is not a preceding *token*, it is the left half of one.
         if let Some((lhs, _)) = text.split_once(['=', ':']) {
-            if key_names_a_secret(lhs.trim()) {
+            if sweep_key_names_a_secret(lhs.trim()) {
+                detectors |= DetectorSet::LEAF_NAME;
+            }
+        }
+        // `<name>value</name>`, the shape of a pfSense `config.xml` pasted somewhere that
+        // is not the pfSense reader: a note, or a fragment with no `<pfsense>` root. The
+        // element's name is the key, as the left half of `key=value` is above.
+        if let Some(name) = xml_element_name(text) {
+            if sweep_key_names_a_secret(name) {
                 detectors |= DetectorSet::LEAF_NAME;
             }
         }
@@ -969,8 +985,82 @@ fn key_names_a_secret(lhs: &str) -> bool {
         .any(|part| !part.is_empty() && dict::is_secret_word(part))
 }
 
+/// A token and its pieces, as described above `key_names_a_secret`.
+/// `<` and `>` are separators too (#104 item 4): a base64 key inside an XML element,
+/// `<prv>LS0tLS1CRUdJTi…</prv>`, is one token whose angle brackets kept `base64ish` from
+/// ever seeing the value.
 fn pieces(text: &str) -> impl Iterator<Item = &str> + '_ {
-    std::iter::once(text).chain(text.split(['=', ':', ',']).filter(|p| !p.is_empty()))
+    std::iter::once(text).chain(
+        text.split(['=', ':', ',', '<', '>'])
+            .filter(|p| !p.is_empty()),
+    )
+}
+
+/// The name of the element a token opens, `password` in `<password>x</password>`.
+/// Only an opening tag with its `>` in the same token counts, so `<REDACTED:psk>` and a
+/// bare `<` in prose are not elements.
+fn xml_element_name(word: &str) -> Option<&str> {
+    let rest = word.strip_prefix('<')?;
+    let end = rest.find('>')?;
+    let name = &rest[..end];
+    let ok = !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    ok.then_some(name)
+}
+
+/// Settings keys that name a credential in another platform's export and that neither
+/// [`SECRET_WORD_LIST`] nor its component split can see, matched as a whole key (or the
+/// last `.` part of a RouterOS v7 dotted key), never by component.
+///
+/// #104 item 4: a paste is gated by one dictionary, and the note box runs the set-form
+/// dictionaries only, so a RouterOS or pfSense secret that reaches either door is
+/// guarded by this sweep alone. Each name below is one the platform's own dictionary
+/// declares `secret:` (`corpus/dict/routeros/secrets.yaml`, `corpus/dict/pfsense/
+/// secrets.yaml`, sources in their READMEs). Found 2026-10-25 by driving every declared
+/// secret through every dictionary's gate: `pin=8841` and `<rocommunity>…` survived.
+///
+/// They are NOT added to [`SECRET_WORD_LIST`], for two reasons. That list also drives
+/// the dictionary gate's secret coupling, and `identity` would refuse `/system identity
+/// set name=`, which is a hostname. And it drives ADR-0041's hint over typed text, where
+/// `source: 10.0.0.1` must not be marked. Here a false positive costs only the text of
+/// a line Fathom did not understand (`14` §9.7).
+///
+/// - RouterOS: `pin` (LTE, PPP client), `sim-pin`, `cak` (MACsec), `identity`
+///   (ZeroTier's private identity), and the four script bodies, which can hold any
+///   credential in any spelling (`source`, `on-event`, `up-script`, `down-script`).
+/// - pfSense: names run together with no separator: `rocommunity`, `rwcommunity`,
+///   `ipsecpsk`, `privatekey`, `accountkey`, `vouchersyncpass`, and the password
+///   hashes `bcrypt-hash`, `sha512-hash`.
+pub const SWEEP_KEY_LIST: [&str; 16] = [
+    "pin",
+    "sim-pin",
+    "cak",
+    "identity",
+    "source",
+    "on-event",
+    "up-script",
+    "down-script",
+    "rocommunity",
+    "rwcommunity",
+    "ipsecpsk",
+    "privatekey",
+    "accountkey",
+    "vouchersyncpass",
+    "bcrypt-hash",
+    "sha512-hash",
+];
+
+/// [`key_names_a_secret`], plus [`SWEEP_KEY_LIST`]. The unshaped sweep's question only.
+fn sweep_key_names_a_secret(lhs: &str) -> bool {
+    if key_names_a_secret(lhs) {
+        return true;
+    }
+    let fold = |s: &str| s.to_ascii_lowercase().replace('_', "-");
+    let whole = fold(lhs);
+    let last = whole.rsplit('.').next().unwrap_or("").to_owned();
+    SWEEP_KEY_LIST.iter().any(|w| *w == whole || *w == last)
 }
 
 // ---------------------------------------------------------------------------
@@ -1017,7 +1107,11 @@ pub fn looks_like_credential(text: &str) -> bool {
     }
     for token in text.split_whitespace() {
         for piece in pieces(token) {
-            if crypt_prefix(piece) || long_hex(piece) || base64ish(piece) {
+            if crypt_prefix(piece)
+                || vendor_key_prefix(piece)
+                || long_hex(piece)
+                || base64ish(piece)
+            {
                 return true;
             }
         }
@@ -1213,6 +1307,19 @@ fn crypt_prefix(text: &str) -> bool {
         && rest.get(head.len()..).map(|r| r.starts_with('$')) == Some(true)
 }
 
+/// A key that names itself by its first characters, whatever follows.
+///
+/// `tskey-`: every key Tailscale issues starts so — `tskey-auth` (pre-authentication keys, the
+/// one a person pastes into `tailscale up --authkey`), `tskey-api`, `tskey-client`,
+/// `tskey-scim`, `tskey-webhook`. Source: Tailscale, "Key prefixes",
+/// <https://tailscale.com/docs/reference/key-prefixes>, read 2026-10-25. Their keys are
+/// case-sensitive, and so is this test. The prefix alone is not a key, so it must have
+/// something after it.
+fn vendor_key_prefix(text: &str) -> bool {
+    text.strip_prefix("tskey-")
+        .is_some_and(|rest| !rest.is_empty())
+}
+
 /// `^[0-9a-fA-F]{32,}$` — 32 hex characters is 128 bits.
 fn long_hex(text: &str) -> bool {
     text.chars().count() >= 32 && text.chars().all(|c| c.is_ascii_hexdigit())
@@ -1314,6 +1421,25 @@ mod tests {
         assert!(!crypt_prefix("$$abc"));
         assert!(!crypt_prefix("aes-256-cbc"));
         assert!(!crypt_prefix("$abcd$x"));
+    }
+
+    #[test]
+    fn vendor_key_prefix_detector() {
+        // Shapes from Tailscale's own key-prefix list; the characters after the prefix are made up.
+        assert!(vendor_key_prefix(
+            "tskey-auth-kN3vP8qR2CNTRL-Vx7mQ2pL9sT4wZ8bY6cF1hJ3kD5gA0e"
+        ));
+        assert!(vendor_key_prefix("tskey-api-k8sXmP2CNTRL-a"));
+        assert!(!vendor_key_prefix("tskey-"));
+        assert!(!vendor_key_prefix("TSKEY-auth-x"));
+        assert!(!vendor_key_prefix("tailscale"));
+        // In a typed line, with no secret word near it and `--authkey` joined by `=`.
+        assert!(looks_like_credential(
+            "tailscale up --authkey=tskey-auth-kN3vP8qR2CNTRL-Vx7mQ2"
+        ));
+        assert!(looks_like_credential(
+            "use tskey-auth-kN3vP8qR2CNTRL-Vx7mQ2 for the NAS"
+        ));
     }
 
     #[test]

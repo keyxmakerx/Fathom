@@ -19,6 +19,9 @@ export interface Organisation {
    * the tab is a hint of what the server allows, so failing closed only
    * hides it. */
   role: 'admin' | 'member';
+  /** ADR-0069: the account's own practice space, made by the person who runs the server. A label for Home only;
+   * present only when true. */
+  practice?: true;
 }
 
 /**
@@ -55,6 +58,7 @@ export function parseOrganisations(bytes: Uint8Array): Organisation[] {
       organisationId: record.organisation_id,
       displayName: record.display_name,
       role: record.role === 'admin' ? 'admin' : 'member',
+      ...(record.practice === true ? { practice: true as const } : {}),
     };
   });
 }

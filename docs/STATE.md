@@ -383,6 +383,17 @@ the reverse of every done step, newest first (a cable cut, a cut re-made, a move
 removed), a check step for each that went differently, and room for steps of its own. A recorded plan that did not
 succeed can be backed out too; it stays as written. `scripts/drive-backout.mjs` drives it.
 
+**Mesh VPNs** (sign-off r16-overlay; schema 0.26, field keys 479-485). An `OverlayNetwork` (Tailscale,
+Headscale, NetBird, ZeroTier, WireGuard, Nebula or other) hangs off the root; `OverlayMember` edges to Devices
+carry each member's VPN address, exit node, and subnet routes. Entered by hand in Inventory › Networks, under
+VPNs; addresses, ranges and routes are refused unless they parse (IPv4 only), so a pasted key never gets in from
+the form. The server's credential check reads a VPN's name, note and routes, and the redaction gate now knows
+Tailscale's `tskey-` keys (detector `key-prefix`, source Tailscale "Key prefixes", read 2026-10-25). Show › VPNs
+(off by default) draws, on the Diagram look, each VPN of three or more as a badge right of its members with a
+dashed spoke to each, a two-member VPN as one dashed arc with its name, and each member's VPN address under its
+box; a badge opens a card with range, members, exit node and routes. Not yet: pasting `tailscale status` or
+`netbird status`, and the Rack look. `scripts/drive-vpns.mjs` drives it.
+
 **Live co-editing** (#98, ADR-0063 live). Changes are signed requests the server applies to its own
 head through the engine, refusing what the engine or the credential check refuses, then numbers, chains,
 encrypts and streams them to other browsers. Different fields merge; on the same field the later one
@@ -443,9 +454,10 @@ failures, staleness and an out-of-date keys file reach the console banner.
 - The dependency-vulnerability gate needs egress to the advisory database (`scripts/osv-gate.sh`); the
   v0.1 tag waits on that run.
 - The server's credential check is the detector only; SNMPv3 auth and priv values are a known residual
-  (W7). Narrow redaction leaks are tracked in issue #104; #135 closed its server items (id-shaped
-  secrets in plan text, batch comments, history under undeclared keys, canvas-editor paste), and its
-  quoting and wrapped-tail items remain.
+  (W7). Issue #104's narrow redaction leaks are closed: #135 took its server items (id-shaped
+  secrets in plan text, batch comments, history under undeclared keys, canvas-editor paste), #145 the
+  quoting and wrapped tails, and #104's own PR the RouterOS and pfSense secrets that reached the note
+  box. How EdgeOS quotes a value holding a space or `'` is still not established from a source.
 - People and access, residuals named: (1) an operator-issued token for an account can still be redeemed
   after a steward confirms that account (design section 4.4), so a second key could appear after confirm;
   (2) confirm checks that the account has exactly one live key, and nothing about a password or app

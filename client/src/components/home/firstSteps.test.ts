@@ -7,7 +7,7 @@ import { addSketchPort, createSketchDevice } from '../../document/commands';
 import { emptyDocument, parseNodeId, type Document } from '../../document/model';
 import { buildSample, sample } from './sampleNetwork';
 import { GettingStarted } from './GettingStarted';
-import { loadFirstSteps, recordFirstSteps, rememberSample, setFirstStepsHidden, stepsIn } from './firstSteps';
+import { loadFirstSteps, recordFirstSteps, rememberSample, sampleOfDesign, setFirstStepsHidden, stepsIn } from './firstSteps';
 
 function fakeStorage(): Storage {
   const m = new Map<string, string>();
@@ -67,8 +67,17 @@ describe('the five first steps', () => {
     expect(loadFirstSteps('a1').hidden).toBe(true);
     expect(setFirstStepsHidden('a1', false).hidden).toBe(false);
     vi.stubGlobal('localStorage', undefined);
-    expect(loadFirstSteps('a1')).toEqual({ done: [], hidden: false, samples: [] });
+    expect(loadFirstSteps('a1')).toEqual({ done: [], hidden: false, samples: [], sampleOf: {} });
     expect(() => recordFirstSteps('a1', 'd', emptyDocument(), true)).not.toThrow();
+  });
+
+  it('remember which sample a design was made from', () => {
+    vi.stubGlobal('localStorage', fakeStorage());
+    rememberSample('a1', 'd-old');
+    rememberSample('a1', 'd-new', 'practice-lab');
+    expect(sampleOfDesign('a1', 'd-new')).toBe('practice-lab');
+    expect(sampleOfDesign('a1', 'd-old')).toBe('home-lab');
+    expect(sampleOfDesign('a1', 'own')).toBeNull();
   });
 
   it('draw the count, the ticked steps struck through, and the paste note', () => {

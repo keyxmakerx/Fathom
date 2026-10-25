@@ -12,6 +12,10 @@
   box-shadow: none;
 }
 
+.gloss-wrap {
+  white-space: nowrap;
+}
+
 .gloss[aria-expanded='true'] {
   border-bottom-style: solid;
 }

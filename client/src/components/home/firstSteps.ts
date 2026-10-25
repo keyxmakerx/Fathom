@@ -26,9 +26,11 @@ export interface FirstStepsState {
   hidden: boolean;
   /** Designs opened from a sample, so their cables and devices are not the person's own steps. */
   samples: string[];
+  /** Which sample each of those designs was made from, by sample id; a design opened before this was kept has none. */
+  sampleOf: Record<string, string>;
 }
 
-const EMPTY: FirstStepsState = { done: [], hidden: false, samples: [] };
+const EMPTY: FirstStepsState = { done: [], hidden: false, samples: [], sampleOf: {} };
 const STEP_IDS = new Set<string>(FIRST_STEPS.map((s) => s.id));
 
 const key = (accountId: string | null | undefined): string => `fathom.firstSteps.${accountId ?? 'local'}`;
@@ -42,6 +44,10 @@ export function loadFirstSteps(accountId: string | null | undefined): FirstSteps
       done: Array.isArray(parsed.done) ? (parsed.done.filter((s) => STEP_IDS.has(s)) as StepId[]) : [],
       hidden: parsed.hidden === true,
       samples: Array.isArray(parsed.samples) ? parsed.samples.filter((s): s is string => typeof s === 'string') : [],
+      sampleOf:
+        parsed.sampleOf != null && typeof parsed.sampleOf === 'object'
+          ? Object.fromEntries(Object.entries(parsed.sampleOf).filter((e): e is [string, string] => typeof e[1] === 'string'))
+          : {},
     };
   } catch {
     return EMPTY;
@@ -62,9 +68,17 @@ export function setFirstStepsHidden(accountId: string | null | undefined, hidden
   return next;
 }
 
-export function rememberSample(accountId: string | null | undefined, designId: string): void {
+export function rememberSample(accountId: string | null | undefined, designId: string, sampleId?: string): void {
   const state = loadFirstSteps(accountId);
-  if (!state.samples.includes(designId)) save(accountId, { ...state, samples: [...state.samples, designId] });
+  const samples = state.samples.includes(designId) ? state.samples : [...state.samples, designId];
+  save(accountId, { ...state, samples, sampleOf: sampleId === undefined ? state.sampleOf : { ...state.sampleOf, [designId]: sampleId } });
+}
+
+/** The sample `designId` was made from: the one recorded, the home lab for a sample copy made before that was
+ * recorded, or null for a design of the person's own. */
+export function sampleOfDesign(accountId: string | null | undefined, designId: string): string | null {
+  const state = loadFirstSteps(accountId);
+  return state.sampleOf[designId] ?? (state.samples.includes(designId) ? 'home-lab' : null);
 }
 
 /** The steps `doc` shows were done. A sample counts only for a paste; its devices and cables came with it. */
