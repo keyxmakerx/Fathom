@@ -416,6 +416,7 @@ async fn app(pool: &Pool, ring: Arc<KeyRing>, limits: Limits) -> axum::Router {
         fathom_key: Arc::new(fathom_server::vault_fathom::FathomKey::from_key(
             fathom_server::crypto::Key32::from_bytes([77; 32]),
         )),
+        outside: Arc::new(fathom_server::vault_outside::Outside::refusing()),
         catalogue: Arc::new(Vec::new()),
         explainers: Arc::new(Vec::new()),
         client_address: ClientAddress::peer(),

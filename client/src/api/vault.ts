@@ -128,6 +128,8 @@ export interface VaultOverview {
   /** Which `vault.key` this server seals Fathom's copies under; a consent names it. */
   fathomKeyId: string;
   breachPolicy: BreachPolicy;
+  /** Outside vaults (part four): the caller's own connections, and every one for an admin. */
+  outside: OutsideConnection[];
 }
 
 export interface BreachLevel {
@@ -290,6 +292,7 @@ export function parseOverview(bytes: Uint8Array): VaultOverview {
     entries: arrayOf(r, 'entries', W).map(entryView),
     fathomKeyId: str(r, 'fathomKeyId', W),
     breachPolicy: breachPolicy(r.breachPolicy),
+    outside: arrayOf(r, 'outside', W).map(outsideConnection),
   };
 }
 
@@ -483,4 +486,180 @@ export async function setCritical(organisation: string, credential: string, crit
 export async function recordBreach(organisation: string, credential: string, epoch: number, found: boolean): Promise<{ found: boolean; checkedAt: number }> {
   const r = jsonObject(await signedFetch('POST', entryPath(organisation, credential, 'breach'), body({ epoch, found })), W);
   return { found: bool(r, 'found', W), checkedAt: int(r, 'checkedAt', W) };
+}
+
+// ---------------------------------------------------------------------------
+// Outside vaults (part four). The master password never appears here: the browser opens the
+// account's keys with it (`../vault/outside.ts`) and sends only the organisation key.
+// ---------------------------------------------------------------------------
+
+export interface OutsideItem {
+  id: string;
+  cipherId: string;
+  name: string;
+  kind: LoginKind;
+  usedOn: UsedOn[];
+  state: 'on' | 'removed';
+  removedBy: string | null;
+  removedByName: string | null;
+  reads: number;
+  lastRead: number | null;
+}
+
+export interface OutsideConnection {
+  id: string;
+  owner: string;
+  ownerName: string;
+  provider: 'vaultwarden';
+  url: string;
+  collectionName: string;
+  /** `stopped`: a check failed on a read, and `stoppedReason` says which. */
+  state: 'on' | 'stopped' | 'disconnected';
+  stoppedReason: string | null;
+  checkedAt: number | null;
+  createdAt: number;
+  items: OutsideItem[];
+}
+
+export interface CheckLine {
+  id: string;
+  passed: boolean;
+  text: string;
+}
+
+export interface OutsideLogin {
+  cipherId: string;
+  name: string;
+  hasPassword: boolean;
+}
+
+/** What the server read from the vault with the API key, for the browser to open. */
+export interface OutsidePrepared {
+  url: string;
+  deviceId: string;
+  protectedUserKey: string;
+  protectedPrivateKey: string;
+  kdf: { type: number; iterations: number; memory: number | null; parallelism: number | null };
+  /** The account's e-mail, which Bitwarden salts the master key with; null if the vault did not say. */
+  salt: string | null;
+  organisations: { id: string; name: string; role: number; status: number; protectedKey: string | null }[];
+  collections: { id: string; organisationId: string; protectedName: string }[];
+  checks: CheckLine[];
+}
+
+function outsideItem(raw: unknown): OutsideItem {
+  const r = asRec(raw, W);
+  const state = str(r, 'state', W);
+  if (state !== 'on' && state !== 'removed') throw new Error('malformed vault response: outside item state');
+  const kind = str(r, 'kind', W) as LoginKind;
+  return {
+    id: str(r, 'id', W),
+    cipherId: str(r, 'cipherId', W),
+    name: str(r, 'name', W),
+    kind: LOGIN_KINDS.includes(kind) ? kind : 'other',
+    usedOn: arrayOf(r, 'usedOn', W).map((u) => {
+      const x = asRec(u, W);
+      return { design: str(x, 'design', W), element: str(x, 'element', W) };
+    }),
+    state,
+    removedBy: optStr(r, 'removedBy', W),
+    removedByName: optStr(r, 'removedByName', W),
+    reads: int(r, 'reads', W),
+    lastRead: optNum(r, 'lastRead'),
+  };
+}
+
+function outsideConnection(raw: unknown): OutsideConnection {
+  const r = asRec(raw, W);
+  const state = str(r, 'state', W);
+  if (state !== 'on' && state !== 'stopped' && state !== 'disconnected') throw new Error('malformed vault response: outside state');
+  return {
+    id: str(r, 'id', W),
+    owner: str(r, 'owner', W),
+    ownerName: str(r, 'ownerName', W),
+    provider: 'vaultwarden',
+    url: str(r, 'url', W),
+    collectionName: str(r, 'collectionName', W),
+    state,
+    stoppedReason: optStr(r, 'stoppedReason', W),
+    checkedAt: optNum(r, 'checkedAt'),
+    createdAt: int(r, 'createdAt', W),
+    items: arrayOf(r, 'items', W).map(outsideItem),
+  };
+}
+
+function checkLines(r: Rec): CheckLine[] {
+  return arrayOf(r, 'checks', W).map((c) => {
+    const x = asRec(c, W);
+    return { id: str(x, 'id', W), passed: bool(x, 'passed', W), text: str(x, 'text', W) };
+  });
+}
+
+export async function outsidePrepare(
+  organisation: string,
+  e: { url: string; clientId: string; clientSecret: string },
+): Promise<OutsidePrepared> {
+  const r = jsonObject(await signedFetch('POST', `${base(organisation)}/outside/prepare`, body(e)), W);
+  const k = asRec(r.kdf, W);
+  return {
+    url: str(r, 'url', W),
+    deviceId: str(r, 'deviceId', W),
+    protectedUserKey: str(r, 'protectedUserKey', W),
+    protectedPrivateKey: str(r, 'protectedPrivateKey', W),
+    kdf: { type: int(k, 'type', W), iterations: int(k, 'iterations', W), memory: optNum(k, 'memory'), parallelism: optNum(k, 'parallelism') },
+    salt: optStr(r, 'salt', W),
+    organisations: arrayOf(r, 'organisations', W).map((o) => {
+      const x = asRec(o, W);
+      return { id: str(x, 'id', W), name: str(x, 'name', W), role: int(x, 'role', W), status: int(x, 'status', W), protectedKey: optStr(x, 'protectedKey', W) };
+    }),
+    collections: arrayOf(r, 'collections', W).map((c) => {
+      const x = asRec(c, W);
+      return { id: str(x, 'id', W), organisationId: str(x, 'organisationId', W), protectedName: str(x, 'protectedName', W) };
+    }),
+    checks: checkLines(r),
+  };
+}
+
+export async function outsideConnect(
+  organisation: string,
+  e: { url: string; clientId: string; clientSecret: string; deviceId: string; collectionId: string; collectionName: string; orgKey: Uint8Array },
+): Promise<OutsideConnection> {
+  const answer = await signedFetch('POST', `${base(organisation)}/outside/connect`, body({ ...e, orgKey: toHex(e.orgKey) }));
+  return outsideConnection(jsonObject(answer, W));
+}
+
+export async function outsideCheck(
+  organisation: string,
+  connection: string,
+): Promise<{ connection: OutsideConnection; checks: CheckLine[]; logins: OutsideLogin[] }> {
+  const r = jsonObject(await signedFetch('POST', `${base(organisation)}/outside/${encodeURIComponent(connection)}/check`, body({})), W);
+  return {
+    connection: outsideConnection(r.connection),
+    checks: checkLines(r),
+    logins: arrayOf(r, 'logins', W).map((l) => {
+      const x = asRec(l, W);
+      return { cipherId: str(x, 'cipherId', W), name: str(x, 'name', W), hasPassword: bool(x, 'hasPassword', W) };
+    }),
+  };
+}
+
+export async function outsidePull(
+  organisation: string,
+  connection: string,
+  e: { cipherId: string; kind: LoginKind; usedOn: UsedOn[] },
+): Promise<OutsideConnection> {
+  const answer = await signedFetch('POST', `${base(organisation)}/outside/${encodeURIComponent(connection)}/pull`, body(e));
+  return outsideConnection(jsonObject(answer, W));
+}
+
+export async function outsideDisconnect(organisation: string, connection: string): Promise<OutsideConnection> {
+  return outsideConnection(jsonObject(await signedFetch('POST', `${base(organisation)}/outside/${encodeURIComponent(connection)}/disconnect`, body({})), W));
+}
+
+export async function outsideRemove(organisation: string, item: string): Promise<OutsideConnection> {
+  return outsideConnection(jsonObject(await signedFetch('POST', `${base(organisation)}/outside/items/${encodeURIComponent(item)}/remove`, body({})), W));
+}
+
+export async function outsideRestore(organisation: string, item: string): Promise<OutsideConnection> {
+  return outsideConnection(jsonObject(await signedFetch('POST', `${base(organisation)}/outside/items/${encodeURIComponent(item)}/restore`, body({})), W));
 }

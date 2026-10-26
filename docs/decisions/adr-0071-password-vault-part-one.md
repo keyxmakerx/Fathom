@@ -118,6 +118,49 @@ and what parts two and three hold.
     stand-in, and a list that cannot be reached leaves logins "Not checked yet" without blocking a
     save.
 
-## Not decided here (after part three)
-- **External vaults** (Mode C), Vaultwarden first, each limited to one folder or collection. Each
-  vault's current documentation is read again before it is built.
+## Part four: outside vaults (Mode C), Vaultwarden, built 2026-10-26
+
+Sources, read 2026-10-25 and again 2026-10-26: dani-garcia/vaultwarden at `0f44744`
+(`src/api/identity.rs`, `src/api/core/{ciphers,organizations}.rs`, `src/db/models/`), and
+bitwarden/sdk-internal (`bitwarden-crypto`'s type-2 values, `bitwarden-vault`'s item keys).
+Owner's answers, sign-off page, 2026-10-26: r34-vault-read A, r34-vault-crates and
+r34-vault-crates24 (all 24 packages), r34-vault-ring A.
+
+16. **Per person, admins over all of it** (r34-vault-read A, with the owner's note "Make sure this is
+    per user, but the Admin can reject/pull whatever as needed"). Any member connects their own
+    outside vault; what is pulled through it is theirs, and only they pull. Every admin sees every
+    connection, checks any, disconnects any, and removes any pulled login. An admin's removal is the
+    one its owner cannot undo; an owner can restore only a removal of their own.
+17. **The server signs in; the browser unlocks once.** Vaultwarden's API answers no cross-origin
+    browser, so the server makes the two calls (`POST /identity/connect/token` with the personal API
+    key, `grant_type=client_credentials`, device type 22, Server; `GET /api/sync`). At connect the
+    person's browser opens the organisation key with their master password (PBKDF2 or Argon2id as the
+    account says, then RSA-OAEP, `client/src/vault/outside.ts`); the master password never leaves it.
+    The server seals the API key and that organisation key under `vault.key`, per organisation and
+    connection, and checks the key it was handed by opening the collection's name with it and
+    matching the name the person typed.
+18. **Three checks before every read, a failure stops the connection.** The account's role is User
+    (an Owner or Admin sees every collection; a Manager can be widened without the account changing),
+    it sees exactly one collection and it is the connected one, and it has no personal item, the trash
+    included. A failed check stops the connection, with a `vault_outside_changed` "stopped" entry on
+    the organisation's history; a passing check resumes it. A stopped connection is never read.
+19. **A use is filed before it is opened.** Fathom reads a pulled login only for a device it is marked
+    on, for someone who may draw in that design, through a connection that is on, after the checks
+    pass in that same round, and after writing `vault_outside_read` to the organisation's history.
+    Pulling stores the item's name, kind and devices sealed under `vault.key`; the password is read
+    from the outside vault each time, never kept.
+20. **No transaction is held across the network.** Each act authorises and reads in one transaction,
+    makes its round, then re-reads under a row lock and records the outcome in a second. A failed
+    check's stop commits even though the act answers an error.
+21. **C7's one exception** (r34-vault-ring A): `ring`, under `rustls` only, for this client only
+    (`deny.toml` `wrappers`, `deps/decisions/ring.md`). The approved crates push two of ADR-0032's
+    caps past their numbers, measured 2026-10-26: 171 packages against C2's 160 (161 for Linux) and
+    22 with a `build.rs` against C4's 12 (14 for Linux). No script enforces either cap.
+
+**Departures from mockup r32-vault-external.** The mockup's provider list shows Passbolt and Delinea
+as "Next" and not selectable. Marking a pulled login on devices is on the device's Logins tab, as for
+Fathom's own logins, not in the connect dialog.
+
+## Not decided here (after part four)
+- **Passbolt and Delinea**, next in round 32. Each vault's current documentation is read again
+  before it is built.

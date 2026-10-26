@@ -700,6 +700,35 @@ const TABLES: &[TableClaim] = &[
         why: "whether a holder's browser found a login's password in a breach list, and when. \
               One bit per login and epoch; the password and its hash never reach the server.",
     },
+    // ---- Outside vaults (ADR-0071 part four) -- `0045_vault_outside.sql` --
+    TableClaim {
+        name: "vault.outside_connections",
+        protection: Protection::KeyProtected {
+            columns: &["secret_ct"],
+            under: "a per-organisation key derived (HKDF-SHA256) from `vault.key`; the \
+                    organisation, connection and key id are bound in the associated data",
+        },
+        why: "a member's connection to their own outside vault. Only `secret_ct` is secret: the \
+              API key and the organisation key their browser opened. The address, the \
+              collection's id and name, the device id and the state are what an admin sees \
+              and must be readable. Disconnecting empties `secret_ct`.",
+    },
+    TableClaim {
+        name: "vault.outside_items",
+        protection: Protection::KeyProtected {
+            columns: &["meta_ct"],
+            under: "the same `vault.key`-derived key under its own tag; the organisation, item \
+                    and key id are bound in the associated data",
+        },
+        why: "a login pulled from an outside vault: its name, kind and devices, sealed. The \
+              password is never stored; it is read from the outside vault at each use.",
+    },
+    TableClaim {
+        name: "vault.outside_reads",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "a record that Fathom read a pulled login: which one, for what, on which device, at \
+              whose request. Written, with its chain entry, before the item is opened.",
+    },
 ];
 
 /// Schemas a migration may create besides `public`. Each one's tables are named `schema.table`

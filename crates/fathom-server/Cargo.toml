@@ -309,6 +309,31 @@ argon2 = { version = "0.6", default-features = false, features = [
 # record and says plainly that it carries no audit either.
 sha1 = { version = "0.11", default-features = false }
 
+# Outside vaults (ADR-0071 part four; sign-off cards r34-vault-crates and
+# r34-vault-crates24, 2026-10-26: all approved). The server signs in to a
+# person's own Vaultwarden and reads one collection; Vaultwarden's API answers
+# no cross-origin browser, so the request is the server's.
+#
+# **C7's one exception.** rustls's `ring` provider carries C and assembly, which
+# C7 bans. The owner allowed it on 2026-10-26 (card r34-vault-ring, A): "ring is
+# allowed only underneath rustls, and only for the server's outbound HTTPS to
+# outside vaults." `deny.toml` keeps `ring` banned for every other parent
+# (`wrappers`), and only `src/vault_outside/https.rs` names rustls. The pure-Rust
+# provider was not taken: its README says "DO NOT USE THIS IN PRODUCTION"
+# (github.com/rustcrypto/rustls-rustcrypto, read 2026-10-26). Records:
+# deps/decisions/{rustls,tokio-rustls,webpki-roots,ring}.md.
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring"] }
+# Mozilla's root certificates, compiled in, so trust does not depend on the
+# container's CA bundle. CDLA-Permissive-2.0, allowed by name for this crate.
+webpki-roots = "1.0.10"
+# Bitwarden's type-2 values are AES-256-CBC with PKCS#7 under an HMAC-SHA256
+# (bitwarden/sdk-internal, read 2026-10-26); RustCrypto, the family of the
+# `hmac` and `sha2` above. Opened only after the MAC verifies. Records:
+# deps/decisions/{aes,cbc}.md.
+aes = { version = "0.9.3", default-features = false }
+cbc = { version = "0.2.1", default-features = false, features = ["block-padding"] }
+
 [dev-dependencies]
 # `tests/design_api.rs` builds real graphs to prove a save round-trips a
 # genuine `fathom-plain` payload (ADR-0049), which needs the generated node

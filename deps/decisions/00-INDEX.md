@@ -20,6 +20,12 @@ approval is **an owner act**.
 | `getrandom` | The OS CSPRNG directly, never `rand` (storage §12.4) | 2026-09-12 | None against 0.4.3 |
 | `p256` | The curve under ES256 (admin §15.3) | 2026-09-12 | None against `p256`; `crypto-bigint` under it is pinned 0.7.9 (fixed for RUSTSEC-2026-0387 from 0.7.6; 0.7.0 to 0.7.8 yanked 2026-10-25) |
 | `ecdsa` | ECDSA itself, and the low-S rule §3's correction requires | 2026-09-12 | Nothing found in RustSec or OSV, both with working controls |
+| `rustls` | TLS for the one outbound client, to outside vaults (ADR-0071 part four) | 2026-10-26 | Seven against rustls; four (RUSTSEC-2026-0346 to 0349) patched from 0.23.46, the pin |
+| `tokio-rustls` | rustls over tokio for that client | 2026-10-26 | One historic, patched long before 0.26 |
+| `webpki-roots` | Mozilla's roots, compiled in | 2026-10-26 | RUSTSEC-2026-0381, patched from 1.0.10, the pin (admitted young for it) |
+| `ring` | rustls's crypto: **C7's one exception**, under rustls only | 2026-10-26 | RUSTSEC-2025-0009 patched below the pin; two informational notices |
+| `aes` | AES-256 under Bitwarden's type-2 values | 2026-10-26 | None |
+| `cbc` | CBC and PKCS#7 for the same, opened only after the MAC | 2026-10-26 | None |
 
 **Four rows above were missing until 2026-09-12** — `hkdf`, `hmac`, `sha2` and `getrandom` had
 records on disk since the key hierarchy landed and no line here. The gate reads the files, not this
