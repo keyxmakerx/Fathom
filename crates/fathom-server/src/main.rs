@@ -89,11 +89,21 @@ async fn main() -> ExitCode {
         }
         return reset_console_placement().await;
     }
+    // ADR-0070: backups. None of the three needs the database or the full
+    // configuration; `pg_dump` and `pg_restore` do the database's part.
+    match args.first().map(String::as_str) {
+        Some("backup") => return fathom_server::backup_cli::backup(&args[1..]),
+        Some("keys-file") => return fathom_server::backup_cli::keys_file(&args[1..]),
+        Some("restore") => return fathom_server::backup_cli::restore(&args[1..]),
+        Some("dump-from") => return fathom_server::backup_cli::dump_from(&args[1..]),
+        _ => {}
+    }
     if !args.is_empty() {
         eprintln!(
             "fathom-server: the subcommands are `healthcheck [--addr HOST:PORT]`, \
              `recover-operator <address>` (with `reissue-bootstrap-token` kept as a deprecated \
-             alias) and `console-placement --reset`; with no arguments it runs the server"
+             alias), `console-placement --reset`, and `backup`, `keys-file`, `restore` and \
+             `dump-from` (docs/OPERATING.md, Backups); with no arguments it runs the server"
         );
         return ExitCode::from(2);
     }
@@ -1145,6 +1155,22 @@ async fn main() -> ExitCode {
                 sessions: Arc::clone(&sessions),
                 placement: Arc::clone(&placement),
                 client_address: client_address.clone(),
+            },
+        ))
+        // ADR-0070: `GET /admin/backups`, the Backups panel. It reads what the nightly
+        // service wrote into the backups volume (`FATHOM_BACKUP_DIR`, mounted read-only).
+        .merge(fathom_server::backup_status::router(
+            fathom_server::backup_status::BackupStatusState {
+                sessions: Arc::clone(&sessions),
+                client_address: client_address.clone(),
+                dir: std::env::var("FATHOM_BACKUP_DIR")
+                    .ok()
+                    .filter(|d| !d.trim().is_empty())
+                    .map(std::path::PathBuf::from),
+                current: fathom_server::backup_cli::current_ids(
+                    ring.master_key_id(),
+                    ring.chain_key_id(),
+                ),
             },
         ))
         // The confirmation and the sweep: the first verified `/admin` request on the new

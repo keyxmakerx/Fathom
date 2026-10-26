@@ -91,6 +91,7 @@
 //                                        raised to 45 so that fifteen sign-ins
 //                                        a window is still fifteen)
 //   8. the operator's own key sign-in, and a signed GET /admin/operators.
+//  11. with FATHOM_CI_EXPECT_BACKUP, a signed GET /admin/backups (ADR-0070).
 //
 // **Step 8 needs a route stream (b) owns** — the one that registers an
 // operator's key under `/admin`. Until it exists this script stops after step
@@ -647,6 +648,32 @@ const row = listText.split('\n').find((line) => line.startsWith(`${operatorId} `
 if (!row) fail('register', `the register does not name ${operatorId}:\n${listText}`);
 if (!row.includes(address)) fail('register', `the register's row does not carry ${address}: ${row}`);
 console.log(`the register names the operator and their address: ${row}`);
+
+// 11. ADR-0070, only where the job made a backup and a keys file first
+// (ci.yml's `compose` job sets FATHOM_CI_EXPECT_BACKUP). The Backups screen's
+// read: five LP fields, the service's status saying ok, the keys file's ids
+// recorded, and nothing for the banner to say.
+if (process.env.FATHOM_CI_EXPECT_BACKUP) {
+  const backupsPath = '/admin/backups';
+  const backupsHeaders = await signedHeaders(op, 'GET', backupsPath, EMPTY);
+  const backups = await fetch(baseUrl + backupsPath, { method: 'GET', headers: backupsHeaders });
+  const backupsBytes = new Uint8Array(await backups.arrayBuffer());
+  if (backups.status !== 200) fail('backups', `status ${backups.status}: ${dec.decode(backupsBytes).trim()}`);
+  const fields = [];
+  let restBytes = backupsBytes;
+  for (let i = 0; i < 5; i++) {
+    const read = readLp(restBytes);
+    fields.push(dec.decode(read.value));
+    restBytes = read.rest;
+  }
+  if (restBytes.length !== 0) fail('backups', `${restBytes.length} trailing byte(s)`);
+  const [status, record, , files, notices] = fields;
+  if (!/^last_result ok$/m.test(status)) fail('backups', `the status does not say ok:\n${status}`);
+  if (!/^backup_key [0-9a-f]+$/m.test(record)) fail('backups', `no keys file recorded:\n${record}`);
+  if (!/^fathom-\S+\.fdata \d+$/m.test(files)) fail('backups', `no data file listed:\n${files}`);
+  if (notices.trim() !== '') fail('backups', `the banner would say:\n${notices}`);
+  console.log(`backups: the screen reads ok, a keys file, ${files.trim().split('\n').length} data file(s), no notice`);
+}
 console.log(
   'OK: the deployment said setup was pending, the setup password named its own address, the first ' +
     'operator set a password, enrolled an authenticator app, was asked for a verification ' +

@@ -481,6 +481,15 @@ port"; it offers jacks only, and shows and unties ties.
 **Device panel** (r14 A1, A2): Details, Ports and Notes tabs, actions at the foot (Duplicate the main one,
 Remove device in red). Inventory's toolbar has a role filter, written into the filter line as `role:...`.
 
+**Backups** (ADR-0070). Two files: a data file (the `pg_dump -Fc` archive and staged firmware,
+sealed under `backup.key` in 1 MiB ChaCha20-Poly1305 chunks) and a keys file (the key volume, sealed
+under a 26-character recovery phrase through Argon2id). `fathom-server backup`, `keys-file`,
+`restore` (`--out` or `--check`) and `dump-from`; each file carries key ids, so a wrong keys file is
+named before the phrase is asked for. In compose, a `backup` service makes one nightly (keep 14) and
+tests a restore weekly; `backup-keys` makes the keys file by hand; the `offsite` profile copies data
+files to S3-compatible storage with a pinned rclone. Admin › Settings › Backups shows the state, and
+failures, staleness and an out-of-date keys file reach the console banner.
+
 **Carried**
 - The dependency-vulnerability gate needs egress to the advisory database (`scripts/osv-gate.sh`); the
   v0.1 tag waits on that run.
@@ -518,9 +527,11 @@ network live (everything today comes from pasted text).
 **Compose, run end to end by CI.** `docker compose up -d` from the root with one variable in `.env`
 (`docs/RUNNING-IT.md`) pulls the image `publish.yml` pushes to GHCR on every merge to `main`
 (`deploy/Dockerfile`'s `server` stage, `ghcr.io/keyxmakerx/fathom-server`); `--build` builds the same
-stage. The file is self-contained. A one-shot `keys-init` container generates the two root keys and
-three database passwords into the `keys` volume. CI's `compose` job checks health and the client on
-the published port, reads the first-operator token, and proves a restart keeps its keys.
+stage. The file is self-contained. A one-shot `keys-init` container generates the three root keys
+(master, chain, backup) and three database passwords into the `keys` volume. CI's `compose` job
+checks health and the client on the published port, signs the first operator in, proves a restart
+keeps its keys, and makes, restore-tests and opens one backup. The backup service's image,
+`ghcr.io/keyxmakerx/fathom-backup`, is published beside the server's.
 
 **The server serves the web client itself** (`crates/fathom-server/src/client.rs`,
 `FATHOM_CLIENT_ROOT`, read into memory once at startup) on the one published port, plain HTTP. HTTPS is
