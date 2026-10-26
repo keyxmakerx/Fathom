@@ -126,7 +126,11 @@
   border-color: var(--control-line-hover);
 }
 
-:where(input:focus-visible, select:focus-visible, textarea:focus-visible) {
+/* Not zero specificity like the rest: `design/tokens.css` rings every
+   `:focus-visible` element, and at zero this lost to it, so a focused field
+   showed the button's outset ring outside its own border. One pseudo-class
+   ties it, base.css comes later, and a class rule still wins. */
+:where(input, select, textarea):focus-visible {
   border-color: var(--ink);
   outline: var(--focus-width) solid color-mix(in srgb, var(--ink) 16%, transparent);
   outline-offset: 0;

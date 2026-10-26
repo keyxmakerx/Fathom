@@ -103,25 +103,39 @@ function AdminCodePromptForm({
   const close = usePopoverClose();
   return (
     <form
-      className="popover-row popover-row--form"
+      className="admin-code"
       data-testid="console-code-prompt"
       onSubmit={(event) => onSubmit(event, close)}
     >
-      <label htmlFor="console-verification-code">Verification code</label>
-      <input
-        id="console-verification-code"
-        type="text"
-        inputMode="numeric"
-        autoComplete="one-time-code"
-        spellCheck={false}
-        value={operatorCode}
-        onChange={(event) => onCodeChange(event.target.value)}
-        disabled={enteringConsole}
-        required
-      />
-      <button type="submit" disabled={enteringConsole || operatorCode.trim().length === 0}>
-        {enteringConsole ? 'Checking…' : 'Continue'}
-      </button>
+      <label className="admin-code__label" htmlFor="console-verification-code">
+        Verification code
+      </label>
+      {/* The input sits alone in its own box, as on the sign-in card:
+          Bitwarden reads an input's following siblings as its label. */}
+      <div className="admin-code__row">
+        <div className="admin-code__control">
+          <input
+            id="console-verification-code"
+            name="totp"
+            className="admin-code__input"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            spellCheck={false}
+            value={operatorCode}
+            onChange={(event) => onCodeChange(event.target.value)}
+            disabled={enteringConsole}
+            required
+          />
+        </div>
+        <button
+          type="submit"
+          className="home__btn btn-main"
+          disabled={enteringConsole || operatorCode.trim().length === 0}
+        >
+          {enteringConsole ? 'Checking…' : 'Continue'}
+        </button>
+      </div>
     </form>
   );
 }
