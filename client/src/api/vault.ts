@@ -125,8 +125,9 @@ export interface VaultOverview {
   recoveryUses: { by: string; byName: string; at: number }[];
   people: { account: string; name: string; key: VaultKeyView | null }[];
   entries: VaultEntry[];
-  /** Which `vault.key` this server seals Fathom's copies under; a consent names it. */
-  fathomKeyId: string;
+  /** Which `vault.key` this server seals Fathom's copies under; a consent names it. Null on an
+   * install whose keys volume predates it: letting Fathom use a login is off there. */
+  fathomKeyId: string | null;
   breachPolicy: BreachPolicy;
   /** Outside vaults (part four): the caller's own connections, and every one for an admin. */
   outside: OutsideConnection[];
@@ -290,7 +291,7 @@ export function parseOverview(bytes: Uint8Array): VaultOverview {
       return { account: str(x, 'account', W), name: str(x, 'name', W), key: x.key == null ? null : keyView(x.key) };
     }),
     entries: arrayOf(r, 'entries', W).map(entryView),
-    fathomKeyId: str(r, 'fathomKeyId', W),
+    fathomKeyId: optStr(r, 'fathomKeyId', W),
     breachPolicy: breachPolicy(r.breachPolicy),
     outside: arrayOf(r, 'outside', W).map(outsideConnection),
   };

@@ -364,6 +364,40 @@ jobs:
           after=$(docker compose logs --no-log-prefix keys-init | grep -c "generated")
           test "$after" -eq 7 || { echo "a restart regenerated a secret: $after generated lines"; exit 1; }
           curl -fs http://localhost:8080/health > /dev/null
+      # 2026-10-26: an install whose compose front end kept a compose file from before
+      # vault.key existed ran the new image beside a keys-init that never writes one, on a keys
+      # volume the server mounts read-only, and the server crash-looped. Taking vault.key away
+      # stands for that volume: the server must still start, saying why the vault's own logins
+      # are off, and the current keys-init must then add vault.key and change no other key.
+      - name: An upgrade from a keys volume without vault.key starts, and keys-init adds it
+        run: |
+          set -euo pipefail
+          keys() { docker compose run --rm -T --no-deps --entrypoint sh keys-init -c \
+            'cd /keys && sha256sum master.key chain.key backup.key db_bootstrap.pw db_migrate.pw db_app.pw && ls vault.key 2>/dev/null || true'; }
+          before=$(keys | grep -v vault.key)
+          docker compose run --rm -T --no-deps --entrypoint rm keys-init /keys/vault.key
+          docker compose restart server
+          healthy() {
+            for i in $(seq 1 30); do
+              curl -fs http://localhost:8080/health > /dev/null && return 0
+              sleep 2
+            done
+            echo "health never answered"; return 1
+          }
+          healthy
+          docker compose logs --no-log-prefix server | grep -q "vault.key does not exist and this server cannot create it" \
+            || { echo "the server started without vault.key but did not say so"; exit 1; }
+          docker compose run --rm -T --no-deps keys-init | tee init.txt
+          grep -q "generated vault.key" init.txt
+          test "$(grep -c generated init.txt)" -eq 1 || { echo "keys-init regenerated a key it already had"; exit 1; }
+          after=$(keys)
+          echo "$after" | grep -qx vault.key
+          test "$before" = "$(echo "$after" | grep -v vault.key)" || { echo "an existing key changed"; exit 1; }
+          loaded=$(docker compose logs --no-log-prefix server | grep -c "vault key loaded")
+          docker compose restart server
+          healthy
+          test "$(docker compose logs --no-log-prefix server | grep -c "vault key loaded")" -gt "$loaded"
+          rm -f init.txt
       - name: Logs, on failure
         if: failure()
         run: docker compose logs --no-color | tail -200

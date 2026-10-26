@@ -114,7 +114,8 @@ pub struct DesignApiState {
     pub watch: Arc<EpochWatch>,
     pub ring: Arc<KeyRing>,
     /// `vault.key`: Fathom's copies of the logins people let it use (ADR-0071 part two).
-    pub fathom_key: Arc<crate::vault_fathom::FathomKey>,
+    /// `None` on an install whose keys volume predates it: those acts answer 503 and say so.
+    pub fathom_key: Option<Arc<crate::vault_fathom::FathomKey>>,
     /// How the server reaches people's outside vaults (ADR-0071 part four).
     pub outside: Arc<crate::vault_outside::Outside>,
     /// The catalogue, loaded once at startup: read-only reference data, so every

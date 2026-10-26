@@ -137,6 +137,12 @@ pub(super) fn vault_error_response(e: VaultError) -> Response {
         VaultError::NoVaultKey => {
             (StatusCode::CONFLICT, "set up your vault first\n").into_response()
         }
+        VaultError::NoServerKey => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "this server has no vault.key yet, so Fathom cannot keep or open logins itself. \
+             Whoever runs it updates its compose file to the current one and redeploys.\n",
+        )
+            .into_response(),
         VaultError::OutsideUnreachable(why) => {
             (StatusCode::BAD_GATEWAY, format!("{why}\n")).into_response()
         }
@@ -148,6 +154,16 @@ pub(super) fn vault_error_response(e: VaultError) -> Response {
             (StatusCode::INTERNAL_SERVER_ERROR, "refused\n").into_response()
         }
     }
+}
+
+/// `vault.key`, or the refusal an install without one gives (`FathomKey::load_at_startup`).
+fn fathom_key(
+    state: &DesignApiState,
+) -> Result<std::sync::Arc<vault_fathom::FathomKey>, RouteError> {
+    state
+        .fathom_key
+        .clone()
+        .ok_or(RouteError::Vault(VaultError::NoServerKey))
 }
 
 // ---- Body fields ----
@@ -321,10 +337,15 @@ async fn overview_handler(
     PathExtractor(organisation): PathExtractor<String>,
     signed: Signed,
 ) -> Result<Response, RouteError> {
-    let fk = std::sync::Arc::clone(&state.fathom_key);
+    // Without `vault.key` there is nothing an outside vault connection could have been sealed
+    // under on this server, so the list is empty and the consent names no key.
+    let fk = state.fathom_key.clone();
     let (view, connections) = with_vault!(state, signed, organisation, |tx, auth| (
         vault::overview(&tx, &auth).await?,
-        outside::list(&tx, &auth, &fk).await?
+        match &fk {
+            Some(fk) => outside::list(&tx, &auth, fk).await?,
+            None => Vec::new(),
+        }
     ));
     let mut j = view.to_json();
     if let Json::Obj(m) = &mut j {
@@ -335,7 +356,7 @@ async fn overview_handler(
         // Which `vault.key` an owner's consent names (`vault_fathom::mode_change_bytes`).
         m.insert(
             "fathomKeyId".to_string(),
-            Json::Str(state.fathom_key.id().to_string()),
+            fk.map_or(Json::Null, |k| Json::Str(k.id().to_string())),
         );
     }
     Ok(json_response(j))
@@ -585,7 +606,7 @@ async fn fathom_on_handler(
         signature: req_hex(&mut m, "signature", Some(64), "consent signature")?,
     };
     let copy = copy_from(&mut m)?;
-    let fk = std::sync::Arc::clone(&state.fathom_key);
+    let fk = fathom_key(&state)?;
     let view = with_vault!(state, signed, organisation, |tx, auth| {
         vault_fathom::turn_on(&tx, &auth, &fk, &credential, if_version, consent, copy).await?
     });
@@ -620,7 +641,7 @@ async fn fathom_refresh_handler(
     let credential = credential_path(&credential)?;
     let mut m = object_body(&signed.body, &["copy"])?;
     let copy = copy_from(&mut m)?;
-    let fk = std::sync::Arc::clone(&state.fathom_key);
+    let fk = fathom_key(&state)?;
     let view = with_vault!(state, signed, organisation, |tx, auth| {
         vault_fathom::refresh(&tx, &auth, &fk, &credential, copy).await?
     });
@@ -959,7 +980,7 @@ async fn outside_connect_handler(
         .map_err(SessionError::Pool)?;
     let ((), session) = first_session!(state, signed, client, organisation, |tx, _auth| ());
     let (_, sync) = outside::vw_read(&state.outside, &url, &client_id, &secret, &device_id).await?;
-    let fk = std::sync::Arc::clone(&state.fathom_key);
+    let fk = fathom_key(&state)?;
     let input = outside::ConnectIn {
         url,
         client_id,
@@ -985,7 +1006,7 @@ async fn outside_check_handler(
 ) -> Result<Response, RouteError> {
     let connection = outside_id(&connection, "out_")?;
     object_body(&signed.body, &[])?;
-    let fk = std::sync::Arc::clone(&state.fathom_key);
+    let fk = fathom_key(&state)?;
     let mut client = state
         .sessions
         .pool()
@@ -1029,7 +1050,7 @@ async fn outside_pull_handler(
     }
     let kind = req_str(&mut m, "kind", "kind")?;
     let used_on = used_on_list(&mut m)?;
-    let fk = std::sync::Arc::clone(&state.fathom_key);
+    let fk = fathom_key(&state)?;
     let mut client = state
         .sessions
         .pool()
@@ -1061,7 +1082,7 @@ async fn outside_disconnect_handler(
 ) -> Result<Response, RouteError> {
     let connection = outside_id(&connection, "out_")?;
     object_body(&signed.body, &[])?;
-    let fk = std::sync::Arc::clone(&state.fathom_key);
+    let fk = fathom_key(&state)?;
     let view = with_vault!(state, signed, organisation, |tx, auth| {
         outside::disconnect(&tx, &auth, &fk, &connection).await?
     });
@@ -1076,7 +1097,7 @@ async fn outside_remove_handler(
 ) -> Result<Response, RouteError> {
     let item = outside_id(&item, "oit_")?;
     object_body(&signed.body, &[])?;
-    let fk = std::sync::Arc::clone(&state.fathom_key);
+    let fk = fathom_key(&state)?;
     let view = with_vault!(state, signed, organisation, |tx, auth| {
         outside::remove(&tx, &auth, &fk, &item).await?
     });
@@ -1092,7 +1113,7 @@ async fn outside_restore_handler(
 ) -> Result<Response, RouteError> {
     let item = outside_id(&item, "oit_")?;
     object_body(&signed.body, &[])?;
-    let fk = std::sync::Arc::clone(&state.fathom_key);
+    let fk = fathom_key(&state)?;
     let view = with_vault!(state, signed, organisation, |tx, auth| {
         outside::restore(&tx, &auth, &fk, &item).await?
     });

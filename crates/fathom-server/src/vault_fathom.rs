@@ -83,6 +83,22 @@ impl FathomKey {
         })
     }
 
+    /// [`Self::load`] for startup, where a missing `vault.key` that cannot be made is not a
+    /// reason to stop. A compose front end keeps the compose text it was first given while
+    /// `latest` pulls a newer image, so an install set up before 2026-10-25 runs a server that
+    /// wants `vault.key` beside a `keys-init` that never writes one, on a keys volume the
+    /// server sees read-only. That server starts with Fathom's copies and outside vaults off
+    /// (`None`) and says why, rather than crash-looping on an update. Every other failure, a
+    /// key that exists and is wrong, too open or unreadable, still refuses, because those are
+    /// a key that is there and must not be ignored.
+    pub fn load_at_startup(source: &KeySource) -> Result<Option<Self>, KeyError> {
+        match Self::load(source, true) {
+            Ok(k) => Ok(Some(k)),
+            Err(KeyError::Uncreatable) if matches!(source, KeySource::File(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
     pub fn from_key(key: Key32) -> Self {
         Self {
             key,
@@ -947,6 +963,49 @@ pub async fn use_login(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The upgrade path: a keys volume from before `vault.key` existed, which this server
+    /// cannot write to. It starts without the key; a key that is there is still loaded, and
+    /// one that is there and wrong still refuses.
+    #[test]
+    fn a_missing_vault_key_that_cannot_be_made_starts_without_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("fathom-vaultkey-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // No such directory stands for a read-only one: either way the file cannot be made,
+        // and this holds when the tests run as root, who could write a read-only directory.
+        let absent = KeySource::File(dir.join("not-there").join("vault.key"));
+        assert!(FathomKey::load_at_startup(&absent).unwrap().is_none());
+        assert_eq!(
+            FathomKey::load(&absent, true).unwrap_err(),
+            KeyError::Uncreatable,
+            "load itself still refuses; only startup carries on"
+        );
+
+        let made = KeySource::File(dir.join("vault.key"));
+        let first = FathomKey::load_at_startup(&made).unwrap().expect("made");
+        let again = FathomKey::load_at_startup(&made).unwrap().expect("read");
+        assert_eq!(first.id(), again.id(), "the key made is the key kept");
+
+        let open = dir.join("open.key");
+        std::fs::write(&open, [9u8; 32]).unwrap();
+        std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(matches!(
+            FathomKey::load_at_startup(&KeySource::File(open)),
+            Err(KeyError::TooPermissive { .. })
+        ));
+
+        let short = dir.join("short.key");
+        std::fs::write(&short, [9u8; 5]).unwrap();
+        std::fs::set_permissions(&short, std::fs::Permissions::from_mode(0o400)).unwrap();
+        assert_eq!(
+            FathomKey::load_at_startup(&KeySource::File(short)).unwrap_err(),
+            KeyError::NotAKey
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// Canonical JSON as `to_canonical_bytes` writes it: one trailing newline.
     fn canon(text: &str) -> Vec<u8> {
