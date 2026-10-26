@@ -3271,6 +3271,165 @@ async fn a_steward_creates_scopes_down_the_tree_and_a_drawer_is_refused() {
 }
 
 // ---------------------------------------------------------------------------
+// ADR-0074 §1 and §2: a folder says what kind of place it is, and whether it is a hub
+// ---------------------------------------------------------------------------
+
+fn place_body(form: &str, role: &str) -> Vec<u8> {
+    let mut body = Vec::new();
+    lp(&mut body, form.as_bytes());
+    lp(&mut body, role.as_bytes());
+    body
+}
+
+fn scope_id_in(text: &str) -> ScopeId {
+    text.split("\"scope_id\":\"")
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .expect("a scope_id")
+        .parse()
+        .expect("a well-formed scope id")
+}
+
+#[tokio::test]
+async fn a_steward_sets_a_folders_place_kind_and_hub_role_and_a_drawer_may_not() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let scopes = format!("/organisations/{}/scopes", estate.organisation);
+
+    // A site made with its kind and role in the same request.
+    let mut body = scope_create_body(None, &unique("hub site"));
+    body.extend(place_body("central_office", "hub"));
+    let (status, reply) = call(addr, &estate.steward, "POST", &scopes, &body).await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&reply));
+    let text = String::from_utf8_lossy(&reply).into_owned();
+    assert!(text.contains("\"place_form\":\"central_office\""), "{text}");
+    assert!(text.contains("\"place_role\":\"hub\""), "{text}");
+    let site = scope_id_in(&text);
+
+    // An older client's two-field create still works, with no place words.
+    let (status, reply) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &scopes,
+        &scope_create_body(Some(site), &unique("building")),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&reply));
+    let text = String::from_utf8_lossy(&reply).into_owned();
+    assert!(text.contains("\"place_form\":null"), "{text}");
+    assert!(text.contains("\"place_role\":null"), "{text}");
+    let building = scope_id_in(&text);
+
+    let (status, reply) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &scopes,
+        &scope_create_body(Some(building), &unique("closet")),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&reply));
+    let closet = scope_id_in(&String::from_utf8_lossy(&reply));
+
+    let place = |scope: ScopeId| format!("{scopes}/{scope}/place");
+
+    // The steward sets the building's kind and role afterwards.
+    let (status, reply) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &place(building),
+        &place_body("data_centre", "branch"),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&reply));
+    let text = String::from_utf8_lossy(&reply).into_owned();
+    assert!(text.contains("\"place_form\":\"data_centre\""), "{text}");
+    assert!(text.contains("\"place_role\":\"branch\""), "{text}");
+    assert!(text.contains("\"kind\":\"building\""), "{text}");
+
+    // A closet takes a room kind, and never a role.
+    let (status, reply) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &place(closet),
+        &place_body("ups_room", ""),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&reply));
+    for (form, role) in [("ups_room", "hub"), ("central_office", ""), ("", "boss")] {
+        let (status, reply) = call(
+            addr,
+            &estate.steward,
+            "POST",
+            &place(closet),
+            &place_body(form, role),
+        )
+        .await;
+        assert_eq!(
+            status,
+            "400",
+            "{form}/{role}: {}",
+            String::from_utf8_lossy(&reply)
+        );
+    }
+    // A site may not take a room kind.
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &place(site),
+        &place_body("closet", ""),
+    )
+    .await;
+    assert_eq!(status, "400");
+
+    // A drawer may not change a folder's place.
+    let (status, _) = call(
+        addr,
+        &drawer,
+        "POST",
+        &place(building),
+        &place_body("hut", "hub"),
+    )
+    .await;
+    assert_eq!(status, "403");
+
+    // The list carries both words; empty fields clear them.
+    let (status, reply) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &place(building),
+        &place_body("", ""),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&reply));
+    let (status, reply) = call(addr, &estate.steward, "GET", &scopes, &[]).await;
+    assert_eq!(status, "200");
+    let text = String::from_utf8_lossy(&reply).into_owned();
+    let row_of = |id: ScopeId| {
+        text.split('{')
+            .find(|row| row.contains(&format!("\"scope_id\":\"{id}\"")))
+            .expect("the folder is listed")
+            .to_string()
+    };
+    assert!(row_of(site).contains("\"place_role\":\"hub\""), "{text}");
+    assert!(row_of(building).contains("\"place_form\":null"), "{text}");
+    assert!(
+        row_of(closet).contains("\"place_form\":\"ups_room\""),
+        "{text}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // This session's brief, item 4: a Capture or a Note carrying a credential
 // ---------------------------------------------------------------------------
 

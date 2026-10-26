@@ -305,6 +305,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0049_account_name.sql",
         sql: include_str!("../migrations/0049_account_name.sql"),
     },
+    // A folder says what kind of place it is, and whether it is a hub (ADR-0074).
+    Migration {
+        version: 50,
+        name: "0050_scope_place.sql",
+        sql: include_str!("../migrations/0050_scope_place.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

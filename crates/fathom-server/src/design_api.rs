@@ -185,6 +185,10 @@ pub fn router(state: DesignApiState) -> Router {
             post(create_design_handler),
         )
         .route(
+            "/organisations/{organisation}/scopes/{scope}/place",
+            post(set_scope_place_handler),
+        )
+        .route(
             "/organisations/{organisation}/scopes/{scope}/access",
             get(access_handler),
         )
@@ -1214,7 +1218,7 @@ async fn list_scopes_handler(
 
     let rows = tx
         .query(
-            "SELECT id, parent_scope_id, kind, display_name, path, depth \
+            "SELECT id, parent_scope_id, kind, display_name, path, depth, place_form, place_role \
              FROM scopes \
              WHERE organisation_id = $1 \
              ORDER BY path",
@@ -1231,6 +1235,8 @@ async fn list_scopes_handler(
         let display_name: String = row.get(3);
         let path: String = row.get(4);
         let depth: i16 = row.get(5);
+        let place_form: Option<String> = row.get(6);
+        let place_role: Option<String> = row.get(7);
 
         let scope: ScopeId = id_text
             .parse()
@@ -1252,24 +1258,23 @@ async fn list_scopes_handler(
             Err(other) => return Err(SessionError::Authority(other).into()),
         };
 
-        let mut map = BTreeMap::new();
-        map.insert("scope_id".to_string(), Json::Str(id_text));
-        map.insert(
-            "parent_scope_id".to_string(),
-            match parent_text {
-                Some(p) => Json::Str(p),
-                None => Json::Null,
+        out.push(scope_json(
+            &repo::Scope {
+                id: scope,
+                organisation_id: tenant,
+                parent_scope_id: parent_text
+                    .map(|p| p.parse())
+                    .transpose()
+                    .map_err(|_| SessionError::Corrupt("parent scope id"))?,
+                kind,
+                display_name,
+                path,
+                depth,
+                place_form,
+                place_role,
             },
-        );
-        map.insert("kind".to_string(), Json::Str(kind.as_str().to_string()));
-        map.insert("display_name".to_string(), Json::Str(display_name));
-        map.insert("depth".to_string(), Json::Int(depth as i64));
-        map.insert("path".to_string(), Json::Str(path));
-        map.insert(
-            "capability".to_string(),
-            Json::Str(capability.as_str().to_string()),
-        );
-        out.push(Json::Obj(map));
+            capability,
+        ));
     }
 
     tx.commit().await.map_err(SessionError::Db)?;
@@ -1298,7 +1303,15 @@ async fn create_scope_handler(
 
     let (parent_bytes, rest) =
         crypto::read_lp(&signed.body).ok_or(SessionError::Malformed("request body"))?;
-    let (label_bytes, _) = crypto::read_lp(rest).ok_or(SessionError::Malformed("request body"))?;
+    let (label_bytes, rest) =
+        crypto::read_lp(rest).ok_or(SessionError::Malformed("request body"))?;
+    // ADR-0074: the place kind and role may follow, each empty for none. A body that
+    // stops after the label is the older client's, and still a whole request.
+    let (form, role) = if rest.is_empty() {
+        (None, None)
+    } else {
+        read_place(rest)?
+    };
     let parent: Option<ScopeId> = if parent_bytes.is_empty() {
         None
     } else {
@@ -1352,20 +1365,158 @@ async fn create_scope_handler(
     };
     let kind = child_kind_under(parent_kind)
         .ok_or(SessionError::Malformed("a rack may not contain a scope"))?;
+    check_place_fits(kind, form.as_deref(), role.as_deref())?;
 
-    let scope = repo::create_scope_in_tx(&tx, tenant, parent, kind, &label)
+    let mut scope = repo::create_scope_in_tx(&tx, tenant, parent, kind, &label)
+        .await
+        .map_err(SessionError::from)?;
+    if form.is_some() || role.is_some() {
+        repo::set_scope_place_in_tx(&tx, tenant, scope.id, form.as_deref(), role.as_deref())
+            .await
+            .map_err(SessionError::from)?;
+        scope.place_form = form;
+        scope.place_role = role;
+    }
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    Ok(json_response(scope_json(&scope, answer.capability)))
+}
+
+/// `POST /organisations/{organisation}/scopes/{scope}/place`: ADR-0074 §1 and §2, **a
+/// steward of a folder says what kind of place it is and whether it is a hub.** Body:
+/// two length-prefixed fields, the place kind then the role, each empty to clear it.
+///
+/// Authorises `steward` on the folder itself (inherited down the path, as for creating
+/// one), so a drawer, a reader, or a foreign or missing folder gets the same `403`. A
+/// word the folder's level may not take (a role on a closet, a room kind on a site) is
+/// `400` before anything is written. Answers in the shape of
+/// [`list_scopes_handler`]'s rows.
+async fn set_scope_place_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, scope)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let scope_id = parse_scope(&scope)?;
+    let (form, role) = read_place(&signed.body)?;
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let answer = grants::authorise_account(&tx, &auth, Some(scope_id), Capability::Steward)
+        .await
+        .map_err(SessionError::Authority)?;
+
+    let row = tx
+        .query_opt(
+            "SELECT parent_scope_id, kind, display_name, path, depth \
+             FROM scopes WHERE id = $1 AND organisation_id = $2",
+            &[&scope_id.to_string(), &ctx.tenant().to_string()],
+        )
+        .await
+        .map_err(SessionError::Db)?
+        .ok_or(DesignError::NoSuchScope)?;
+    let parent_text: Option<String> = row.get(0);
+    let kind_text: String = row.get(1);
+    let kind = repo::ScopeKind::parse(&kind_text).ok_or(SessionError::Corrupt("scope kind"))?;
+    check_place_fits(kind, form.as_deref(), role.as_deref())?;
+
+    repo::set_scope_place_in_tx(&tx, tenant, scope_id, form.as_deref(), role.as_deref())
         .await
         .map_err(SessionError::from)?;
     tx.commit().await.map_err(SessionError::Db)?;
 
+    let scope = repo::Scope {
+        id: scope_id,
+        organisation_id: tenant,
+        parent_scope_id: parent_text
+            .map(|p| p.parse())
+            .transpose()
+            .map_err(|_| SessionError::Corrupt("parent scope id"))?,
+        kind,
+        display_name: row.get(2),
+        path: row.get(3),
+        depth: row.get(4),
+        place_form: form,
+        place_role: role,
+    };
+    Ok(json_response(scope_json(&scope, answer.capability)))
+}
+
+/// Reads the place kind and role (ADR-0074) as two length-prefixed fields, each empty
+/// for none. Nothing may follow them.
+fn read_place(body: &[u8]) -> Result<(Option<String>, Option<String>), SessionError> {
+    let (form_bytes, rest) =
+        crypto::read_lp(body).ok_or(SessionError::Malformed("request body"))?;
+    let (role_bytes, rest) =
+        crypto::read_lp(rest).ok_or(SessionError::Malformed("request body"))?;
+    if !rest.is_empty() {
+        return Err(SessionError::Malformed("request body"));
+    }
+    let word = |bytes: &[u8], what: &'static str| -> Result<Option<String>, SessionError> {
+        if bytes.is_empty() {
+            return Ok(None);
+        }
+        core::str::from_utf8(bytes)
+            .map(|s| Some(s.to_string()))
+            .map_err(|_| SessionError::Malformed(what))
+    };
+    Ok((
+        word(form_bytes, "place kind")?,
+        word(role_bytes, "place role")?,
+    ))
+}
+
+/// `400` for a place word this level of folder may not take, before the database's
+/// `CHECK` (migration 0050) would turn it into a less legible refusal.
+fn check_place_fits(
+    kind: repo::ScopeKind,
+    form: Option<&str>,
+    role: Option<&str>,
+) -> Result<(), SessionError> {
+    if let Some(f) = form {
+        if !kind.place_forms().contains(&f) {
+            return Err(SessionError::Malformed(
+                "place kind for this level of folder",
+            ));
+        }
+    }
+    if let Some(r) = role {
+        if !kind.takes_place_role() || !repo::PLACE_ROLES.contains(&r) {
+            return Err(SessionError::Malformed(
+                "place role for this level of folder",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// One scope as `/scopes` answers it: the list's rows, a create's and a place change's.
+fn scope_json(scope: &repo::Scope, capability: Capability) -> Json {
+    let opt = |v: &Option<String>| match v {
+        Some(s) => Json::Str(s.clone()),
+        None => Json::Null,
+    };
     let mut map = BTreeMap::new();
     map.insert("scope_id".to_string(), Json::Str(scope.id.to_string()));
     map.insert(
         "parent_scope_id".to_string(),
-        match scope.parent_scope_id {
-            Some(p) => Json::Str(p.to_string()),
-            None => Json::Null,
-        },
+        opt(&scope.parent_scope_id.map(|p| p.to_string())),
     );
     map.insert(
         "kind".to_string(),
@@ -1377,11 +1528,13 @@ async fn create_scope_handler(
     );
     map.insert("depth".to_string(), Json::Int(scope.depth as i64));
     map.insert("path".to_string(), Json::Str(scope.path.clone()));
+    map.insert("place_form".to_string(), opt(&scope.place_form));
+    map.insert("place_role".to_string(), opt(&scope.place_role));
     map.insert(
         "capability".to_string(),
-        Json::Str(answer.capability.as_str().to_string()),
+        Json::Str(capability.as_str().to_string()),
     );
-    Ok(json_response(Json::Obj(map)))
+    Json::Obj(map)
 }
 
 /// The one scope kind that fits directly under a parent of kind `parent_kind`

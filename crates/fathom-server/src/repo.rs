@@ -174,7 +174,35 @@ impl ScopeKind {
             Self::Rack => 3,
         }
     }
+
+    /// The words a folder of this kind may take as its `place_form` (ADR-0074 §1;
+    /// `migrations/0050_scope_place.sql` holds the same lists as `CHECK`s). A site or a
+    /// building is a place a person walks into, named by `Premises.form`; a closet folder
+    /// is a kind of room.
+    pub(crate) fn place_forms(self) -> &'static [&'static str] {
+        match self {
+            Self::Network | Self::Building => &[
+                "central_office",
+                "data_centre",
+                "hut",
+                "cabinet",
+                "headend",
+                "customer_premises",
+                "other",
+            ],
+            Self::Rack => &["closet", "data_hall", "ups_room", "meet_me_room", "other"],
+        }
+    }
+
+    /// Whether a folder of this kind may carry a hand-set role (ADR-0074 §2). A closet
+    /// is not a hub.
+    pub(crate) fn takes_place_role(self) -> bool {
+        !matches!(self, Self::Rack)
+    }
 }
+
+/// The roles a site or building may be given by hand (ADR-0074 §2).
+pub(crate) const PLACE_ROLES: &[&str] = &["hub", "branch", "customer", "other"];
 
 // ---- Rows ----
 
@@ -209,6 +237,11 @@ pub struct Scope {
     /// `id`. Never a name.
     pub path: String,
     pub depth: i16,
+    /// What kind of place this folder is (ADR-0074 §1), one of
+    /// [`ScopeKind::place_forms`]; `None` until a steward says.
+    pub place_form: Option<String>,
+    /// Hub, branch, customer or other, set by hand (ADR-0074 §2); never on a closet.
+    pub place_role: Option<String>,
 }
 
 // ---- Errors ----
@@ -236,6 +269,9 @@ pub enum RepoError {
     },
     /// Moving a scope under itself or one of its descendants.
     WouldCreateCycle,
+    /// A place word (ADR-0074) this kind of folder may not take: a role on a closet, or
+    /// a form from another level's list.
+    PlaceDoesNotFit,
     /// A row this process wrote could not be read back as what it should be. Should
     /// be unreachable given the migration's `CHECK`s; explicit rather than a panic.
     Corrupt(&'static str),
@@ -284,6 +320,9 @@ impl fmt::Display for RepoError {
             }
             Self::WouldCreateCycle => {
                 f.write_str("that move would put a scope under itself or its own descendant")
+            }
+            Self::PlaceDoesNotFit => {
+                f.write_str("this kind of folder may not take that place kind or role")
             }
             Self::Corrupt(what) => write!(f, "a stored {what} did not decode as one"),
         }
@@ -849,6 +888,8 @@ fn row_to_scope(row: &Row) -> Result<Scope, RepoError> {
         display_name: row.get(4),
         path: row.get(5),
         depth: row.get(6),
+        place_form: row.get(7),
+        place_role: row.get(8),
     })
 }
 
@@ -926,7 +967,48 @@ pub(crate) async fn create_scope_in_tx(
         display_name: display_name.to_string(),
         path,
         depth,
+        place_form: None,
+        place_role: None,
     })
+}
+
+/// Sets what kind of place `scope` is and its hand-set role (ADR-0074 §1 and §2), in a
+/// transaction the caller has open and has already authorised `steward` in. `None`
+/// clears a word. A word the folder's kind may not take is refused here, before the
+/// migration's `CHECK` would refuse it less legibly.
+pub(crate) async fn set_scope_place_in_tx(
+    tx: &Transaction<'_>,
+    tenant: OrganisationId,
+    scope: ScopeId,
+    form: Option<&str>,
+    role: Option<&str>,
+) -> Result<(), RepoError> {
+    let row = tx
+        .query_opt(
+            "SELECT kind FROM scopes WHERE id = $1 AND organisation_id = $2 FOR UPDATE",
+            &[&scope.to_string(), &tenant.to_string()],
+        )
+        .await?
+        .ok_or(RepoError::NoSuchScope)?;
+    let kind_text: String = row.get(0);
+    let kind = ScopeKind::parse(&kind_text).ok_or(RepoError::Corrupt("scope kind"))?;
+    if let Some(f) = form {
+        if !kind.place_forms().contains(&f) {
+            return Err(RepoError::PlaceDoesNotFit);
+        }
+    }
+    if let Some(r) = role {
+        if !kind.takes_place_role() || !PLACE_ROLES.contains(&r) {
+            return Err(RepoError::PlaceDoesNotFit);
+        }
+    }
+    tx.execute(
+        "UPDATE scopes SET place_form = $1, place_role = $2 \
+         WHERE id = $3 AND organisation_id = $4",
+        &[&form, &role, &scope.to_string(), &tenant.to_string()],
+    )
+    .await?;
+    Ok(())
 }
 
 /// Lists `root` and every descendant by one prefix match over `path`
@@ -952,7 +1034,8 @@ pub async fn list_subtree(
 
     let rows = tx
         .query(
-            "SELECT id, organisation_id, parent_scope_id, kind, display_name, path, depth \
+            "SELECT id, organisation_id, parent_scope_id, kind, display_name, path, depth, \
+                    place_form, place_role \
              FROM scopes \
              WHERE organisation_id = $1 AND (path = $2 OR path LIKE $2 || '.%') \
              ORDER BY path",

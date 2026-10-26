@@ -8,6 +8,7 @@ import { InviteForm, LinkCard } from './InvitePanel';
 import { PeopleList, PersonPage } from './PeoplePanel';
 import { RefuseConfirm, ReviewList, SecondingList, StewardCards, WaitingPanel, WaitingTable } from './WaitingPanel';
 import { OrganisationTab } from './OrganisationTab';
+import { FoldersPanel } from './FoldersPanel';
 import { applyEdits, splitRows } from './model';
 
 // Render-to-string tests, as `Enrol.render.test.ts` does: what each screen says
@@ -417,5 +418,36 @@ describe('Waiting for you', () => {
     expect(out).toContain('Cannot be confirmed');
     expect(out).toContain('joined more than 14 days ago');
     expect(out).not.toContain('Confirm 1');
+  });
+});
+
+describe('Folders (ADR-0074)', () => {
+  const scopes = {
+    status: 'ready' as const,
+    value: [
+      { ...folder('S1', 'Northgate'), placeForm: 'central_office', placeRole: 'hub' },
+      { ...folder('B1', 'Block A'), kind: 'building', parentScopeId: 'S1', depth: 2, placeRole: 'branch' },
+      { ...folder('C1', 'IDF-2'), kind: 'rack', parentScopeId: 'B1', depth: 3, placeForm: 'ups_room', capability: 'draw' },
+    ],
+  };
+
+  it('shows each folder\'s kind of place and role, with a hub marked', () => {
+    const out = html(createElement(FoldersPanel, { organisationName: 'Northwind', scopes, onCreateScope: noop, scopeForm: null, onSetPlace: async () => {} }));
+    expect(out).toContain('Central office');
+    expect(out).toMatch(/home-folders__role home-folders__role--hub[^>]*>Hub</);
+    expect(out).toMatch(/home-folders__role"[^>]*>Branch</);
+    expect(out).toContain('UPS room');
+  });
+
+  it('offers a steward the kind and role, and a drawer neither', () => {
+    const out = html(createElement(FoldersPanel, { organisationName: 'Northwind', scopes, onCreateScope: noop, scopeForm: null, onSetPlace: async () => {} }));
+    expect(out.match(/>Kind and role</g)).toHaveLength(2);
+    expect(out).not.toContain('>Kind of room<');
+  });
+
+  it('shows the words but offers no change when nothing can save them', () => {
+    const out = html(createElement(FoldersPanel, { organisationName: 'Northwind', scopes, onCreateScope: noop, scopeForm: null }));
+    expect(out).toContain('Central office');
+    expect(out).not.toContain('Kind and role');
   });
 });

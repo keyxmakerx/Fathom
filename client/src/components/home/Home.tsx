@@ -12,7 +12,7 @@ import {
 } from '../../api/designs';
 import { ApiRefusal } from '../../api/errors';
 import { fetchOrganisations, type Organisation } from '../../api/organisations';
-import { createScope, fetchScopes, type Scope } from '../../api/scopes';
+import { createScope, fetchScopes, setScopePlace, type Place, type Scope } from '../../api/scopes';
 import { openDesign } from '../../api/payload';
 import { publishedLesson } from '../../document/lessons';
 import { emptyDocument } from '../../document/model';
@@ -22,7 +22,8 @@ import { getSession } from '../../state/sessionState';
 import { clearJoinedFromInvitation, stillWaitingInvitee, wasJoinedFromInvitation } from '../../state/waitingInvitee';
 import { AwaitingSteward } from './AwaitingSteward';
 import { PracticeWelcome, type PracticeOffer } from './PracticeWelcome';
-import { type Loadable } from '../organisation/FoldersPanel';
+import { PlaceFields, type Loadable } from '../organisation/FoldersPanel';
+import { kindForLevel } from '../organisation/place';
 import { fetchAi } from '../../api/ai';
 import { OrganisationTab } from '../organisation/OrganisationTab';
 import { PasswordsPage } from '../vault/Screens';
@@ -161,6 +162,7 @@ export function Home({
   // success or cancel.
   const [scopeFormParent, setScopeFormParent] = useState<{ id: string | null; label: string; child: string } | null>(null);
   const [scopeLabelInput, setScopeLabelInput] = useState('');
+  const [scopeFormPlace, setScopeFormPlace] = useState<Place>({ form: null, role: null });
   const [scopeFormBusy, setScopeFormBusy] = useState(false);
   const [scopeFormError, setScopeFormError] = useState<string | null>(null);
 
@@ -483,6 +485,7 @@ export function Home({
   function openScopeForm(parentId: string | null, parentLabel: string, child: string) {
     setScopeFormParent({ id: parentId, label: parentLabel, child });
     setScopeLabelInput('');
+    setScopeFormPlace({ form: null, role: null });
     setScopeFormError(null);
   }
 
@@ -509,7 +512,8 @@ export function Home({
     }
     setScopeFormBusy(true);
     setScopeFormError(null);
-    createScope(selectedOrgId, scopeFormParent.id, label)
+    const place = scopeFormPlace.form || scopeFormPlace.role ? scopeFormPlace : undefined;
+    createScope(selectedOrgId, scopeFormParent.id, label, place)
       .then((scope) => {
         setScopes((current) =>
           current.status === 'ready' ? { status: 'ready', value: [...current.value, scope] } : current,
@@ -521,6 +525,23 @@ export function Home({
         setScopeFormError(describeError(error));
         setScopeFormBusy(false);
       });
+  }
+
+  /** ADR-0074: a steward changed a folder's kind of place or role; the answer replaces
+   * the folder in the loaded list. A refusal is thrown in words for the row to show. */
+  async function setPlace(scopeId: string, place: Place) {
+    if (selectedOrgId === null) return;
+    let scope: Scope;
+    try {
+      scope = await setScopePlace(selectedOrgId, scopeId, place);
+    } catch (error: unknown) {
+      throw new Error(describeError(error));
+    }
+    setScopes((current) =>
+      current.status === 'ready'
+        ? { status: 'ready', value: current.value.map((s) => (s.scopeId === scopeId ? scope : s)) }
+        : current,
+    );
   }
 
   // **Home waits while it may be about to leave.** Until the direct-entry rule
@@ -620,6 +641,7 @@ export function Home({
             aiOnly={!organisationAdmin}
             scopes={scopes}
             onCreateScope={openScopeForm}
+            onSetPlace={setPlace}
             scopeForm={
               scopeFormParent && (
                 <ScopeForm
@@ -627,6 +649,8 @@ export function Home({
                   child={scopeFormParent.child}
                   value={scopeLabelInput}
                   onChange={setScopeLabelInput}
+                  place={scopeFormPlace}
+                  onPlaceChange={setScopeFormPlace}
                   onSubmit={submitScopeForm}
                   onCancel={closeScopeForm}
                   busy={scopeFormBusy}
@@ -951,6 +975,9 @@ interface ScopeFormProps {
   child: string;
   value: string;
   onChange: (value: string) => void;
+  /** ADR-0074: the new folder's kind of place and role, both optional. */
+  place: Place;
+  onPlaceChange: (place: Place) => void;
   onSubmit: () => void;
   onCancel: () => void;
   busy: boolean;
@@ -958,7 +985,7 @@ interface ScopeFormProps {
 }
 
 /** ADR-0054 §3's label field, opened by any "New site/building/closet" button. */
-function ScopeForm({ parentLabel, child, value, onChange, onSubmit, onCancel, busy, error }: ScopeFormProps) {
+function ScopeForm({ parentLabel, child, value, onChange, place, onPlaceChange, onSubmit, onCancel, busy, error }: ScopeFormProps) {
   return (
     <form
       className="home__scope-form"
@@ -978,6 +1005,7 @@ function ScopeForm({ parentLabel, child, value, onChange, onSubmit, onCancel, bu
         placeholder="label"
         autoFocus
       />
+      <PlaceFields kind={kindForLevel(child)} place={place} onChange={onPlaceChange} idPrefix="home-new-scope" />
       <button type="submit" className="home__btn" disabled={busy}>
         {busy ? 'Creating…' : 'Create'}
       </button>

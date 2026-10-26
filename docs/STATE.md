@@ -236,6 +236,12 @@ breadcrumb does one thing.
   (Health first, a left-hand section list, Engines) is decided, not built.
 - **Home** has tabs (ADR-0060 decision 7): Designs, Organisation (admins and folder stewards; a rail of
   People, Waiting for you (N) and Folders), and Admin (the console, only where it answers). Each shows only to someone who may use it.
+  **Folders say what kind of place they are** (ADR-0074 §1 and §2, migration 0050): a steward gives a site
+  or building a kind of place (central office, datacenter, hut, street cabinet, headend, customer premises,
+  other) and a role set by hand (Hub, Branch, Customer, Other; a hub has a double border), and a closet a
+  kind of room (closet, data hall, UPS room, meet-me room, other). Both are optional, set when the folder
+  is made or afterwards from its row (`POST …/scopes/{scope}/place`, steward only), plaintext beside
+  `display_name` (OPEN-QUESTIONS V2). Nothing draws them zoomed out yet.
   The account menu holds Your account, Signed-in browsers, theme and Sign out; an amber "Admin" pill
   shows beside the initials where the console answers. "New design" goes in the first Site the person may
   draw in. Names start as "Untitled design", sealed under the organisation key (`designs.name_*`); Rename

@@ -14,7 +14,7 @@ import {
 } from '../../api/invitations';
 import type { Organisation } from '../../api/organisations';
 import { fetchPeople, removeAccess, secondSteward, type AccessRow, type People } from '../../api/people';
-import type { Scope } from '../../api/scopes';
+import type { Place, Scope } from '../../api/scopes';
 import { shareWith } from '../../api/share';
 import { AiPanel } from '../ai/AiPanel';
 import { canStewardFor } from '../home/capabilities';
@@ -42,6 +42,8 @@ export interface OrganisationTabProps {
   scopes: Loadable<Scope[]>;
   onCreateScope: (parentId: string | null, parentLabel: string, child: string) => void;
   scopeForm: ReactNode;
+  /** ADR-0074: a steward sets a folder's kind of place and role. */
+  onSetPlace?: (scopeId: string, place: Place) => Promise<void>;
   /** Someone a Steward named to connect AI apps, who is not an admin here: the tab is AI
    * alone (ADR-0072). */
   aiOnly?: boolean;
@@ -54,7 +56,7 @@ export interface OrganisationTabProps {
  * server refuses anyone else before it reads a row, and this tab then shows
  * that refusal in place of the list, with no Waiting entry and no emails.
  */
-export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm, aiOnly = false }: OrganisationTabProps) {
+export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm, onSetPlace, aiOnly = false }: OrganisationTabProps) {
   const org = organisation.organisationId;
   const [page, setPage] = useState<Page>({ kind: aiOnly ? 'ai' : 'people' });
   const [people, setPeople] = useState<Loadable<People>>({ status: 'loading' });
@@ -153,7 +155,7 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
       );
     }
     if (page.kind === 'folders') {
-      return <FoldersPanel organisationName={organisation.displayName} scopes={scopes} onCreateScope={onCreateScope} scopeForm={scopeForm} />;
+      return <FoldersPanel organisationName={organisation.displayName} scopes={scopes} onCreateScope={onCreateScope} scopeForm={scopeForm} onSetPlace={onSetPlace} />;
     }
     if (page.kind === 'invite') {
       return (

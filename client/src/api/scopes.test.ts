@@ -5,7 +5,7 @@ vi.mock('./signedFetch', () => ({
 }));
 
 import { signedFetch } from './signedFetch';
-import { buildScopeForest, createScope, parseScope, parseScopes, pathTo, type Scope } from './scopes';
+import { buildScopeForest, createScope, parseScope, parseScopes, pathTo, setScopePlace, type Scope } from './scopes';
 
 const mockedSignedFetch = vi.mocked(signedFetch);
 
@@ -226,6 +226,58 @@ describe('createScope', () => {
     await createScope('org-1', null, 'HQ');
     const [, , sentBody] = mockedSignedFetch.mock.calls[0];
     expect(readTwoLpFields(sentBody as Uint8Array)).toEqual({ parent: '', label: 'HQ' });
+  });
+});
+
+/** Every length-prefixed field in `bytes`, in order. */
+function readLpFields(bytes: Uint8Array): string[] {
+  const out: string[] = [];
+  let at = 0;
+  while (at < bytes.length) {
+    const len = new DataView(bytes.buffer, bytes.byteOffset + at, 4).getUint32(0, true);
+    out.push(new TextDecoder().decode(bytes.subarray(at + 4, at + 4 + len)));
+    at += 4 + len;
+  }
+  return out;
+}
+
+describe('a folder\'s place (ADR-0074)', () => {
+  const placed = {
+    scope_id: 'scope-hq',
+    parent_scope_id: null,
+    kind: 'network',
+    display_name: 'HQ',
+    depth: 1,
+    path: 'scope-hq',
+    capability: 'steward',
+    place_form: 'central_office',
+    place_role: 'hub',
+  };
+
+  it('reads the place kind and role, and none when the server sends null', () => {
+    expect(parseScope(placed, 'x')).toMatchObject({ placeForm: 'central_office', placeRole: 'hub' });
+    const bare = parseScope({ ...placed, place_form: null, place_role: null }, 'x');
+    expect(bare.placeForm ?? null).toBeNull();
+    expect(bare.placeRole ?? null).toBeNull();
+    expect(() => parseScope({ ...placed, place_role: 3 }, 'x')).toThrow(/place_role/);
+  });
+
+  it('creates a folder with its kind and role after the label, empty for none', async () => {
+    mockedSignedFetch.mockResolvedValueOnce(bytesOf(JSON.stringify(placed)));
+    const scope = await createScope('org-1', null, 'HQ', { form: 'central_office', role: null });
+    expect(scope.placeRole).toBe('hub');
+    const [, , sentBody] = mockedSignedFetch.mock.calls.at(-1)!;
+    expect(readLpFields(sentBody as Uint8Array)).toEqual(['', 'HQ', 'central_office', '']);
+  });
+
+  it('sets a folder\'s place on its own route', async () => {
+    mockedSignedFetch.mockResolvedValueOnce(bytesOf(JSON.stringify(placed)));
+    const scope = await setScopePlace('org-1', 'scope-hq', { form: 'central_office', role: 'hub' });
+    expect(scope.placeForm).toBe('central_office');
+    const [method, path, sentBody] = mockedSignedFetch.mock.calls.at(-1)!;
+    expect(method).toBe('POST');
+    expect(path).toBe('/organisations/org-1/scopes/scope-hq/place');
+    expect(readLpFields(sentBody as Uint8Array)).toEqual(['central_office', 'hub']);
   });
 });
 
