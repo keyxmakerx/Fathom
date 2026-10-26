@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.28";
+export const SCHEMA_VERSION = "0.29";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -82,7 +82,10 @@ export type NodeKind =
   | "OverlayNetwork"
   | "Lesson"
   | "LessonStep"
-  | "Card";
+  | "Card"
+  | "Store"
+  | "StockItem"
+  | "StockLevel";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -160,6 +163,9 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "Lesson",
   "LessonStep",
   "Card",
+  "Store",
+  "StockItem",
+  "StockLevel",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -285,7 +291,13 @@ export type EdgeKind =
   | "HasLesson"
   | "HasLessonStep"
   | "HasCard"
-  | "OnCard";
+  | "OnCard"
+  | "HasStore"
+  | "HasStock"
+  | "HasStockLevel"
+  | "InStore"
+  | "ReservedFor"
+  | "ForIssue";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -409,6 +421,12 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasLessonStep",
   "HasCard",
   "OnCard",
+  "HasStore",
+  "HasStock",
+  "HasStockLevel",
+  "InStore",
+  "ReservedFor",
+  "ForIssue",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -568,6 +586,9 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Lesson: ["title", "summary", "author", "published_at", "source_design"],
   LessonStep: ["ordinal", "kind", "title", "body", "hint", "after", "explainer", "answer", "trace_from", "trace_to", "flow", "expect_trace", "expect_crosses", "expect_stop", "expect_first_match", "expect_rule", "expect_now"],
   Card: ["slot", "name", "model", "serial"],
+  Store: ["name", "place", "note"],
+  StockItem: ["part", "model", "name", "serial", "count", "state", "bin", "optic", "due", "rma", "lent_to", "came_from", "note"],
+  StockLevel: ["model", "at_least"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -1018,4 +1039,22 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "Card.name": 509,
   "Card.model": 510,
   "Card.serial": 511,
+  "Store.name": 512,
+  "Store.place": 513,
+  "Store.note": 514,
+  "StockItem.part": 515,
+  "StockItem.model": 516,
+  "StockItem.name": 517,
+  "StockItem.serial": 518,
+  "StockItem.count": 519,
+  "StockItem.state": 520,
+  "StockItem.bin": 521,
+  "StockItem.optic": 522,
+  "StockItem.due": 523,
+  "StockItem.rma": 524,
+  "StockItem.lent_to": 525,
+  "StockItem.came_from": 526,
+  "StockItem.note": 527,
+  "StockLevel.model": 528,
+  "StockLevel.at_least": 529,
 };

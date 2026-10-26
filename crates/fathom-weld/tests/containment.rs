@@ -158,7 +158,11 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // `HasLessonStep`, +1; `Lesson` and `LessonStep` join `Placeable`, +2 (their pins).
     // 149 -> 152 (cards, schema 0.28): `HasCard` (Chassis, Card) and (Card, Card), +2; `Card`
     // joins `Placeable`, +1 (its pin). `OnCard` is REFERENCE.
-    assert_eq!(resolved, 152, "the containment pair set moved");
+    // 152 -> 156 (spares and stores, schema 0.29): `HasStore`, `HasStock` and `HasStockLevel` read
+    // `from: [root]`, +0; `Store`, `StockItem` and `StockLevel` join `Placeable`, +3 (their pins);
+    // `StockItem` joins `Fieldable`, +1 (`HasFieldValue`). `InStore`, `ReservedFor` and `ForIssue`
+    // are REFERENCE.
+    assert_eq!(resolved, 156, "the containment pair set moved");
 
     // The 43 containment kinds are all still containment kinds, and every
     // kind but `LearnedRoute` and `Site` is somebody's containment child.
@@ -197,7 +201,9 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // REFERENCE and does not count here.
     // 68 (the lesson builder, schema 0.27): `HasLesson` (root -> Lesson), `HasLessonStep`.
     // 69 (cards, schema 0.28): `HasCard` (Chassis/Card -> Card).
-    assert_eq!(containment, 69);
+    // 72 (spares and stores, schema 0.29): `HasStore`, `HasStock`, `HasStockLevel` (root ->
+    // Store, StockItem, StockLevel). `InStore`, `ReservedFor`, `ForIssue` are REFERENCE.
+    assert_eq!(containment, 72);
     let orphans: Vec<&str> = NodeKind::ALL
         .into_iter()
         .filter(|child| {
@@ -236,7 +242,11 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
             // schema 0.26: `HasOverlay` reads `from: [root]`.
             "OverlayNetwork",
             // schema 0.27: `HasLesson` reads `from: [root]`.
-            "Lesson"
+            "Lesson",
+            // schema 0.29: `HasStore`, `HasStock`, `HasStockLevel` read `from: [root]`.
+            "Store",
+            "StockItem",
+            "StockLevel"
         ],
         "the set of kinds no node kind contains moved"
     );

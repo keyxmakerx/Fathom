@@ -551,3 +551,21 @@ fields:
   Card.name: 509
   Card.model: 510
   Card.serial: 511
+  Store.name: 512
+  Store.place: 513
+  Store.note: 514
+  StockItem.part: 515
+  StockItem.model: 516
+  StockItem.name: 517
+  StockItem.serial: 518
+  StockItem.count: 519
+  StockItem.state: 520
+  StockItem.bin: 521
+  StockItem.optic: 522
+  StockItem.due: 523
+  StockItem.rma: 524
+  StockItem.lent_to: 525
+  StockItem.came_from: 526
+  StockItem.note: 527
+  StockLevel.model: 528
+  StockLevel.at_least: 529

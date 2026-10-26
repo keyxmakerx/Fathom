@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.28";
+    pub const SCHEMA_VERSION: &str = "0.29";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -458,12 +458,28 @@ mod body {
         ///
         /// Origin::Hand, or a suggestion from a pasted inventory the person ticks (ADR-0046).
         Card,
+        /// Somewhere spares are kept that is not a rack: a cupboard, a shelf, a drawer, a room. Hung
+        /// off the root through HasStore, listed rather than drawn until Sites and rooms are built.
+        /// A store's bins are not nodes: a StockItem names its bin in words.
+        Store,
+        /// Something on hand but not fitted (ADR-0074): a spare card, optic, power supply, device,
+        /// lead or anything else; or one on order, away for repair, lent out or retired. Hung off the
+        /// root through HasStock. A thing with a serial is one item; a thing without one may be a
+        /// count of the same ("37 blue 2 m leads"). Fitting a spare turns it into the Card, the
+        /// PowerSupply or the port's transceiver it becomes and ends the item; taking a part out makes
+        /// an item, with where it came from frozen in `came_from`, so the serial's history reads on.
+        /// An optic keeps its Transceiver value so fitting it sets the cage exactly.
+        StockItem,
+        /// The fewest spares of one model to keep on hand (ADR-0074). Hung off the root through
+        /// HasStockLevel; one per model, the editor keeps that, as FirmwareTarget does. The rule
+        /// `stock.below-minimum` reads it against the spare StockItems of that model.
+        StockLevel,
     }
 
     impl NodeKind {
-        pub const COUNT: usize = 76;
+        pub const COUNT: usize = 79;
         /// Every kind, declaration order.
-        pub const ALL: [NodeKind; 76] = [
+        pub const ALL: [NodeKind; 79] = [
             NodeKind::Site,
             NodeKind::Device,
             NodeKind::Chassis,
@@ -540,6 +556,9 @@ mod body {
             NodeKind::Lesson,
             NodeKind::LessonStep,
             NodeKind::Card,
+            NodeKind::Store,
+            NodeKind::StockItem,
+            NodeKind::StockLevel,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -622,6 +641,9 @@ mod body {
                 NodeKind::Lesson => "Lesson",
                 NodeKind::LessonStep => "LessonStep",
                 NodeKind::Card => "Card",
+                NodeKind::Store => "Store",
+                NodeKind::StockItem => "StockItem",
+                NodeKind::StockLevel => "StockLevel",
             }
         }
         pub fn from_name(name: &str) -> Option<NodeKind> {
@@ -702,6 +724,9 @@ mod body {
                 "Lesson" => Some(NodeKind::Lesson),
                 "LessonStep" => Some(NodeKind::LessonStep),
                 "Card" => Some(NodeKind::Card),
+                "Store" => Some(NodeKind::Store),
+                "StockItem" => Some(NodeKind::StockItem),
+                "StockLevel" => Some(NodeKind::StockLevel),
                 _ => None,
             }
         }
@@ -788,6 +813,9 @@ mod body {
                 NodeKind::Lesson => &[],
                 NodeKind::LessonStep => &[],
                 NodeKind::Card => &[&["owner(CardHost)", "slot"]],
+                NodeKind::Store => &[],
+                NodeKind::StockItem => &[],
+                NodeKind::StockLevel => &[&["model"]],
             }
         }
         /// The kind's layer (62 §4.2).
@@ -869,6 +897,9 @@ mod body {
                 NodeKind::Lesson => Layer::Physical,
                 NodeKind::LessonStep => Layer::Physical,
                 NodeKind::Card => Layer::Physical,
+                NodeKind::Store => Layer::Physical,
+                NodeKind::StockItem => Layer::Physical,
+                NodeKind::StockLevel => Layer::Physical,
             }
         }
         /// Whether the kind participates in emit at all (62 §4.2); `false`
@@ -951,6 +982,9 @@ mod body {
                 NodeKind::Lesson => false,
                 NodeKind::LessonStep => false,
                 NodeKind::Card => false,
+                NodeKind::Store => false,
+                NodeKind::StockItem => false,
+                NodeKind::StockLevel => false,
             }
         }
         /// The kind's declared field keys, declaration order (62 §4.3). A key
@@ -1034,6 +1068,9 @@ mod body {
                 NodeKind::Lesson => &[crate::bag::FieldKey(486), crate::bag::FieldKey(487), crate::bag::FieldKey(488), crate::bag::FieldKey(489), crate::bag::FieldKey(490)],
                 NodeKind::LessonStep => &[crate::bag::FieldKey(491), crate::bag::FieldKey(492), crate::bag::FieldKey(493), crate::bag::FieldKey(494), crate::bag::FieldKey(495), crate::bag::FieldKey(496), crate::bag::FieldKey(497), crate::bag::FieldKey(498), crate::bag::FieldKey(499), crate::bag::FieldKey(500), crate::bag::FieldKey(501), crate::bag::FieldKey(502), crate::bag::FieldKey(503), crate::bag::FieldKey(504), crate::bag::FieldKey(505), crate::bag::FieldKey(506), crate::bag::FieldKey(507)],
                 NodeKind::Card => &[crate::bag::FieldKey(508), crate::bag::FieldKey(509), crate::bag::FieldKey(510), crate::bag::FieldKey(511)],
+                NodeKind::Store => &[crate::bag::FieldKey(512), crate::bag::FieldKey(513), crate::bag::FieldKey(514)],
+                NodeKind::StockItem => &[crate::bag::FieldKey(515), crate::bag::FieldKey(516), crate::bag::FieldKey(517), crate::bag::FieldKey(518), crate::bag::FieldKey(519), crate::bag::FieldKey(520), crate::bag::FieldKey(521), crate::bag::FieldKey(522), crate::bag::FieldKey(523), crate::bag::FieldKey(524), crate::bag::FieldKey(525), crate::bag::FieldKey(526), crate::bag::FieldKey(527)],
+                NodeKind::StockLevel => &[crate::bag::FieldKey(528), crate::bag::FieldKey(529)],
             }
         }
     }
@@ -1424,12 +1461,24 @@ mod body {
         /// ADR-0073. A port on a card's faceplate. A REFERENCE EDGE because the port already has
         /// its containment parent, the chassis (HasPort); see Card's doc for why it stays there.
         OnCard,
+        /// Stores hang off the design root as Tag does.
+        HasStore,
+        /// Stock hangs off the design root as Tag does.
+        HasStock,
+        /// Stock levels hang off the design root as FirmwareTarget does.
+        HasStockLevel,
+        /// ADR-0074. The store an item sits in. None while it is on order, away for repair or lent.
+        InStore,
+        /// ADR-0074. The plan step that will fit a reserved item. Back out or a removed step frees it.
+        ReservedFor,
+        /// ADR-0074. The issue a part went away for repair under.
+        ForIssue,
     }
 
     impl EdgeKind {
-        pub const COUNT: usize = 122;
+        pub const COUNT: usize = 128;
         /// Every kind, declaration order.
-        pub const ALL: [EdgeKind; 122] = [
+        pub const ALL: [EdgeKind; 128] = [
             EdgeKind::HasDevice,
             EdgeKind::HasChassis,
             EdgeKind::HasRedundancyGroup,
@@ -1552,6 +1601,12 @@ mod body {
             EdgeKind::HasLessonStep,
             EdgeKind::HasCard,
             EdgeKind::OnCard,
+            EdgeKind::HasStore,
+            EdgeKind::HasStock,
+            EdgeKind::HasStockLevel,
+            EdgeKind::InStore,
+            EdgeKind::ReservedFor,
+            EdgeKind::ForIssue,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -1680,6 +1735,12 @@ mod body {
                 EdgeKind::HasLessonStep => "HasLessonStep",
                 EdgeKind::HasCard => "HasCard",
                 EdgeKind::OnCard => "OnCard",
+                EdgeKind::HasStore => "HasStore",
+                EdgeKind::HasStock => "HasStock",
+                EdgeKind::HasStockLevel => "HasStockLevel",
+                EdgeKind::InStore => "InStore",
+                EdgeKind::ReservedFor => "ReservedFor",
+                EdgeKind::ForIssue => "ForIssue",
             }
         }
         pub fn from_name(name: &str) -> Option<EdgeKind> {
@@ -1806,6 +1867,12 @@ mod body {
                 "HasLessonStep" => Some(EdgeKind::HasLessonStep),
                 "HasCard" => Some(EdgeKind::HasCard),
                 "OnCard" => Some(EdgeKind::OnCard),
+                "HasStore" => Some(EdgeKind::HasStore),
+                "HasStock" => Some(EdgeKind::HasStock),
+                "HasStockLevel" => Some(EdgeKind::HasStockLevel),
+                "InStore" => Some(EdgeKind::InStore),
+                "ReservedFor" => Some(EdgeKind::ReservedFor),
+                "ForIssue" => Some(EdgeKind::ForIssue),
                 _ => None,
             }
         }
@@ -1934,6 +2001,12 @@ mod body {
                 EdgeKind::HasLessonStep => EdgeClass::Containment,
                 EdgeKind::HasCard => EdgeClass::Containment,
                 EdgeKind::OnCard => EdgeClass::Reference,
+                EdgeKind::HasStore => EdgeClass::Containment,
+                EdgeKind::HasStock => EdgeClass::Containment,
+                EdgeKind::HasStockLevel => EdgeClass::Containment,
+                EdgeKind::InStore => EdgeClass::Reference,
+                EdgeKind::ReservedFor => EdgeClass::Reference,
+                EdgeKind::ForIssue => EdgeClass::Reference,
             }
         }
     }
@@ -2111,7 +2184,7 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PathSegment],
                 EdgeKind::ExitsAt => &[NodeKind::PathSegment],
                 EdgeKind::MustTraverse => &[NodeKind::PathSegment],
-                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::Label, NodeKind::Line, NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile, NodeKind::MaintenancePlan, NodeKind::PlanStep, NodeKind::Issue, NodeKind::IssueStep, NodeKind::FirmwareTarget, NodeKind::CableRun, NodeKind::CableTie, NodeKind::OverlayNetwork, NodeKind::Lesson, NodeKind::LessonStep, NodeKind::Card, NodeKind::FieldValue],
+                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::Label, NodeKind::Line, NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile, NodeKind::MaintenancePlan, NodeKind::PlanStep, NodeKind::Issue, NodeKind::IssueStep, NodeKind::FirmwareTarget, NodeKind::CableRun, NodeKind::CableTie, NodeKind::OverlayNetwork, NodeKind::Lesson, NodeKind::LessonStep, NodeKind::Card, NodeKind::Store, NodeKind::StockItem, NodeKind::StockLevel, NodeKind::FieldValue],
                 EdgeKind::HasRack => &[NodeKind::Premises],
                 EdgeKind::MountedIn => &[NodeKind::Chassis, NodeKind::PassiveNode],
                 EdgeKind::HasDhcpRelay => &[NodeKind::Device],
@@ -2141,7 +2214,7 @@ mod body {
                 EdgeKind::DocOn => &[NodeKind::Doc],
                 EdgeKind::HasDocLink => &[NodeKind::Doc],
                 EdgeKind::HasDocFile => &[NodeKind::Doc],
-                EdgeKind::HasFieldValue => &[NodeKind::Device, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::Rack, NodeKind::Vlan, NodeKind::ContainerNetwork],
+                EdgeKind::HasFieldValue => &[NodeKind::Device, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::Rack, NodeKind::Vlan, NodeKind::ContainerNetwork, NodeKind::StockItem],
                 EdgeKind::HasFirmwareTarget => &[],
                 EdgeKind::HasCableRun => &[NodeKind::Rack, NodeKind::Surface],
                 EdgeKind::HasCableTie => &[NodeKind::CableRun],
@@ -2152,6 +2225,12 @@ mod body {
                 EdgeKind::HasLessonStep => &[NodeKind::Lesson],
                 EdgeKind::HasCard => &[NodeKind::Chassis, NodeKind::Card],
                 EdgeKind::OnCard => &[NodeKind::PhysicalPort],
+                EdgeKind::HasStore => &[],
+                EdgeKind::HasStock => &[],
+                EdgeKind::HasStockLevel => &[],
+                EdgeKind::InStore => &[NodeKind::StockItem],
+                EdgeKind::ReservedFor => &[NodeKind::StockItem],
+                EdgeKind::ForIssue => &[NodeKind::StockItem],
             }
         }
         /// The declared `to:` kind set, class names expanded (62 §6.2).
@@ -2279,6 +2358,12 @@ mod body {
                 EdgeKind::HasLessonStep => &[NodeKind::LessonStep],
                 EdgeKind::HasCard => &[NodeKind::Card],
                 EdgeKind::OnCard => &[NodeKind::Card],
+                EdgeKind::HasStore => &[NodeKind::Store],
+                EdgeKind::HasStock => &[NodeKind::StockItem],
+                EdgeKind::HasStockLevel => &[NodeKind::StockLevel],
+                EdgeKind::InStore => &[NodeKind::Store],
+                EdgeKind::ReservedFor => &[NodeKind::PlanStep],
+                EdgeKind::ForIssue => &[NodeKind::Issue],
             }
         }
         /// The `out:` bound at L0 — edges leaving a `from` node (11 §7.1).
@@ -2406,6 +2491,12 @@ mod body {
                 EdgeKind::HasLessonStep => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasCard => EdgeCardBound { min: 0, max: None },
                 EdgeKind::OnCard => EdgeCardBound { min: 0, max: Some(1) },
+                EdgeKind::HasStore => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasStock => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasStockLevel => EdgeCardBound { min: 0, max: None },
+                EdgeKind::InStore => EdgeCardBound { min: 0, max: Some(1) },
+                EdgeKind::ReservedFor => EdgeCardBound { min: 0, max: Some(1) },
+                EdgeKind::ForIssue => EdgeCardBound { min: 0, max: Some(1) },
             }
         }
         /// The `in:` bound at L0 — edges arriving at a `to` node (11 §7.1).
@@ -2533,6 +2624,12 @@ mod body {
                 EdgeKind::HasLessonStep => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::HasCard => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::OnCard => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasStore => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::HasStock => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::HasStockLevel => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::InStore => EdgeCardBound { min: 0, max: None },
+                EdgeKind::ReservedFor => EdgeCardBound { min: 0, max: None },
+                EdgeKind::ForIssue => EdgeCardBound { min: 0, max: None },
             }
         }
         /// `true` means `(a,b)` and `(b,a)` are the same edge: one stored
@@ -2661,6 +2758,12 @@ mod body {
                 EdgeKind::HasLessonStep => false,
                 EdgeKind::HasCard => false,
                 EdgeKind::OnCard => false,
+                EdgeKind::HasStore => false,
+                EdgeKind::HasStock => false,
+                EdgeKind::HasStockLevel => false,
+                EdgeKind::InStore => false,
+                EdgeKind::ReservedFor => false,
+                EdgeKind::ForIssue => false,
             }
         }
         /// `from: [root]` — containment by the workspace root (11 §7.2).
@@ -2788,6 +2891,12 @@ mod body {
                 EdgeKind::HasLessonStep => false,
                 EdgeKind::HasCard => false,
                 EdgeKind::OnCard => false,
+                EdgeKind::HasStore => true,
+                EdgeKind::HasStock => true,
+                EdgeKind::HasStockLevel => true,
+                EdgeKind::InStore => false,
+                EdgeKind::ReservedFor => false,
+                EdgeKind::ForIssue => false,
             }
         }
         /// The edge's declared field keys, declaration order (62 §6.2).
@@ -2915,6 +3024,12 @@ mod body {
                 EdgeKind::HasLessonStep => &[],
                 EdgeKind::HasCard => &[],
                 EdgeKind::OnCard => &[],
+                EdgeKind::HasStore => &[],
+                EdgeKind::HasStock => &[],
+                EdgeKind::HasStockLevel => &[],
+                EdgeKind::InStore => &[],
+                EdgeKind::ReservedFor => &[],
+                EdgeKind::ForIssue => &[],
             }
         }
     }
@@ -5714,6 +5829,108 @@ mod body {
         }
     }
 
+    /// Inline enum on `StockItem.part` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum StockItemPart {
+        Card,
+        Optic,
+        PowerSupply,
+        Device,
+        Cable,
+        Other,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl StockItemPart {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 6] = [
+            "card",
+            "optic",
+            "power_supply",
+            "device",
+            "cable",
+            "other",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> StockItemPart {
+            match token {
+                "card" => StockItemPart::Card,
+                "optic" => StockItemPart::Optic,
+                "power_supply" => StockItemPart::PowerSupply,
+                "device" => StockItemPart::Device,
+                "cable" => StockItemPart::Cable,
+                "other" => StockItemPart::Other,
+                other => StockItemPart::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                StockItemPart::Card => "card",
+                StockItemPart::Optic => "optic",
+                StockItemPart::PowerSupply => "power_supply",
+                StockItemPart::Device => "device",
+                StockItemPart::Cable => "cable",
+                StockItemPart::Other => "other",
+                StockItemPart::Unknown(t) => t,
+            }
+        }
+    }
+
+    /// Inline enum on `StockItem.state` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum StockItemState {
+        Spare,
+        Reserved,
+        OnOrder,
+        InRepair,
+        Lent,
+        Retired,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl StockItemState {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 6] = [
+            "spare",
+            "reserved",
+            "on_order",
+            "in_repair",
+            "lent",
+            "retired",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> StockItemState {
+            match token {
+                "spare" => StockItemState::Spare,
+                "reserved" => StockItemState::Reserved,
+                "on_order" => StockItemState::OnOrder,
+                "in_repair" => StockItemState::InRepair,
+                "lent" => StockItemState::Lent,
+                "retired" => StockItemState::Retired,
+                other => StockItemState::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                StockItemState::Spare => "spare",
+                StockItemState::Reserved => "reserved",
+                StockItemState::OnOrder => "on_order",
+                StockItemState::InRepair => "in_repair",
+                StockItemState::Lent => "lent",
+                StockItemState::Retired => "retired",
+                StockItemState::Unknown(t) => t,
+            }
+        }
+    }
+
     /// Inline enum on `TunnelEndpoint.side` (62 §7 rule 4; codegen-named).
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum TunnelEndpointSide {
@@ -6668,6 +6885,30 @@ mod body {
         fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
             match j {
                 fathom_canon::Json::Str(t) => Ok(LessonStepExpectNow::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for StockItemPart {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(StockItemPart::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for StockItemState {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(StockItemState::from_token(t)),
                 _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
             }
         }
@@ -10221,6 +10462,150 @@ mod body {
         }
     }
 
+    /// Fields of kind `Store`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum StoreField {
+        Name,
+        Place,
+        Note,
+    }
+
+    impl StoreField {
+        pub const COUNT: usize = 3;
+        /// Every field, declaration order.
+        pub const ALL: [StoreField; 3] = [
+            StoreField::Name,
+            StoreField::Place,
+            StoreField::Note,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                StoreField::Name => "name",
+                StoreField::Place => "place",
+                StoreField::Note => "note",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                StoreField::Name => crate::bag::FieldKey(512),
+                StoreField::Place => crate::bag::FieldKey(513),
+                StoreField::Note => crate::bag::FieldKey(514),
+            }
+        }
+    }
+
+    /// Fields of kind `StockItem`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum StockItemField {
+        Part,
+        Model,
+        Name,
+        Serial,
+        Count,
+        State,
+        Bin,
+        Optic,
+        Due,
+        Rma,
+        LentTo,
+        CameFrom,
+        Note,
+    }
+
+    impl StockItemField {
+        pub const COUNT: usize = 13;
+        /// Every field, declaration order.
+        pub const ALL: [StockItemField; 13] = [
+            StockItemField::Part,
+            StockItemField::Model,
+            StockItemField::Name,
+            StockItemField::Serial,
+            StockItemField::Count,
+            StockItemField::State,
+            StockItemField::Bin,
+            StockItemField::Optic,
+            StockItemField::Due,
+            StockItemField::Rma,
+            StockItemField::LentTo,
+            StockItemField::CameFrom,
+            StockItemField::Note,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                StockItemField::Part => "part",
+                StockItemField::Model => "model",
+                StockItemField::Name => "name",
+                StockItemField::Serial => "serial",
+                StockItemField::Count => "count",
+                StockItemField::State => "state",
+                StockItemField::Bin => "bin",
+                StockItemField::Optic => "optic",
+                StockItemField::Due => "due",
+                StockItemField::Rma => "rma",
+                StockItemField::LentTo => "lent_to",
+                StockItemField::CameFrom => "came_from",
+                StockItemField::Note => "note",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                StockItemField::Part => crate::bag::FieldKey(515),
+                StockItemField::Model => crate::bag::FieldKey(516),
+                StockItemField::Name => crate::bag::FieldKey(517),
+                StockItemField::Serial => crate::bag::FieldKey(518),
+                StockItemField::Count => crate::bag::FieldKey(519),
+                StockItemField::State => crate::bag::FieldKey(520),
+                StockItemField::Bin => crate::bag::FieldKey(521),
+                StockItemField::Optic => crate::bag::FieldKey(522),
+                StockItemField::Due => crate::bag::FieldKey(523),
+                StockItemField::Rma => crate::bag::FieldKey(524),
+                StockItemField::LentTo => crate::bag::FieldKey(525),
+                StockItemField::CameFrom => crate::bag::FieldKey(526),
+                StockItemField::Note => crate::bag::FieldKey(527),
+            }
+        }
+    }
+
+    /// Fields of kind `StockLevel`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum StockLevelField {
+        Model,
+        AtLeast,
+    }
+
+    impl StockLevelField {
+        pub const COUNT: usize = 2;
+        /// Every field, declaration order.
+        pub const ALL: [StockLevelField; 2] = [
+            StockLevelField::Model,
+            StockLevelField::AtLeast,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                StockLevelField::Model => "model",
+                StockLevelField::AtLeast => "at_least",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                StockLevelField::Model => crate::bag::FieldKey(528),
+                StockLevelField::AtLeast => crate::bag::FieldKey(529),
+            }
+        }
+    }
+
     /// Fields of edge `UsesProposal`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum UsesProposalField {
@@ -10776,7 +11161,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 446] = [
+    pub const FIELD_KEYS: [(&str, u32); 464] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -11223,16 +11608,35 @@ mod body {
         ("Card.name", 509),
         ("Card.model", 510),
         ("Card.serial", 511),
+        ("Store.name", 512),
+        ("Store.place", 513),
+        ("Store.note", 514),
+        ("StockItem.part", 515),
+        ("StockItem.model", 516),
+        ("StockItem.name", 517),
+        ("StockItem.serial", 518),
+        ("StockItem.count", 519),
+        ("StockItem.state", 520),
+        ("StockItem.bin", 521),
+        ("StockItem.optic", 522),
+        ("StockItem.due", 523),
+        ("StockItem.rma", 524),
+        ("StockItem.lent_to", 525),
+        ("StockItem.came_from", 526),
+        ("StockItem.note", 527),
+        ("StockLevel.model", 528),
+        ("StockLevel.at_least", 529),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
     /// per key, least-significant bit first. Read it through [`field_required`];
     /// the array is public only so a test can pin its length.
-    pub const FIELD_REQUIRED_BITS: [u8; 64] = [
+    pub const FIELD_REQUIRED_BITS: [u8; 67] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
         0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0xa3, 0xfb, 0x1d, 0x59, 0x64,
         0xc0, 0xe6, 0x64, 0xc0, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x41, 0x38, 0x00, 0x10,
+        0x09, 0x01, 0x03,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —
