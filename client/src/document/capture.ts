@@ -62,6 +62,9 @@ export interface CaptureLine {
    * — a policy match clause, an address, anything with no `name` field on
    * the schema's own registry — or nothing at all. */
   builtLabel: string | null;
+  /** True when `builtLabel` names an interface: only then can it be a
+   * faceplate port, so only then is "no port on this plate" worth saying. */
+  builtInterface: boolean;
   drops: CaptureDrop[];
 }
 
@@ -225,16 +228,16 @@ function builtSpans(doc: Document, captureUlid: string): BuiltSpan[] {
   return spans;
 }
 
-function builtLabelFor(spans: BuiltSpan[]): string | null {
+function builtLabelFor(spans: BuiltSpan[]): { label: string; isInterface: boolean } | null {
   let fallback: string | null = null;
   for (const s of spans) {
     if (!s.owner) continue;
     const name = nameOf(s.owner);
     if (!name) continue;
-    if (INTERFACE_KINDS.has(parseNodeId(s.owner.id).kind)) return name;
+    if (INTERFACE_KINDS.has(parseNodeId(s.owner.id).kind)) return { label: name, isInterface: true };
     if (fallback === null) fallback = name;
   }
-  return fallback;
+  return fallback === null ? null : { label: fallback, isInterface: false };
 }
 
 /** Derives the config drawer's `CaptureView` for one device's live capture,
@@ -255,11 +258,13 @@ export function captureOf(doc: Document, deviceId: string): CaptureView | null {
     const builtHere = spans.filter((s) => overlaps(s.start, s.end, line.start, line.end));
     const drops = dropsIn(line.text);
     const mark: CaptureMark = builtHere.length > 0 ? 'built' : drops.length > 0 ? 'destroyed' : 'kept';
+    const built = builtHere.length > 0 ? builtLabelFor(builtHere) : null;
     return {
       ordinal: i + 1,
       text: line.text,
       mark,
-      builtLabel: builtHere.length > 0 ? builtLabelFor(builtHere) : null,
+      builtLabel: built?.label ?? null,
+      builtInterface: built?.isInterface ?? false,
       drops,
     };
   });

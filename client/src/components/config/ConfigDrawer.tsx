@@ -4,7 +4,7 @@
 // only the drawer's own box: the gutter, the config text with its destroyed
 // blocks, the paste box, and the assistant's six rules, printed here and
 // nowhere else.
-import { useRef, useState, type JSX, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react';
 
 import type { CaptureLine, CaptureView } from '../../document/capture';
 import type { ChassisView } from '../../document/view';
@@ -56,6 +56,24 @@ function gutterMark(mark: CaptureLine['mark']): string {
   }
 }
 
+/** The lines that say "built X · no port on this plate": an interface with no
+ * port of that name, said once at the top of each run of lines that built it
+ * rather than on every one of them. A zone, a policy or anything else that is
+ * never a port gets no note at all. */
+export function noPortNotes(lines: readonly CaptureLine[], chassis: ChassisView): Set<number> {
+  const notes = new Set<number>();
+  let previous: string | null = null;
+  for (const line of lines) {
+    const label = line.mark === 'built' && line.builtInterface ? line.builtLabel : null;
+    if (label !== null && label !== previous && matchedPortLabel(line, chassis) === null) notes.add(line.ordinal);
+    previous = label;
+  }
+  return notes;
+}
+
+/** How long a freshly pasted config's built lines stay marked, in milliseconds. */
+export const ARRIVAL_MS = 1600;
+
 /** Cap named in the brief this component was built from: "cap the drawer at
  * 20,000 lines with a sentence saying how many were not shown". A render
  * cap only — `capture.lines` itself is never truncated
@@ -96,6 +114,21 @@ export function ConfigDrawer(props: ConfigDrawerProps): JSX.Element {
   const lines = capture?.lines ?? [];
   const shown = lines.slice(0, LINE_CAP);
   const hiddenCount = lines.length - shown.length;
+  const notes = noPortNotes(shown, chassis);
+
+  // A config that arrives while the drawer is open (a paste) marks its built
+  // lines once, so the paste visibly landed; one already there when the
+  // drawer opens does not.
+  const [arrived, setArrived] = useState(false);
+  const firstCapture = useRef(capture?.id ?? null);
+  const captureId = capture?.id ?? null;
+  useEffect(() => {
+    if (captureId === null || captureId === firstCapture.current) return undefined;
+    firstCapture.current = captureId;
+    setArrived(true);
+    const t = setTimeout(() => setArrived(false), ARRIVAL_MS);
+    return () => clearTimeout(t);
+  }, [captureId]);
 
   function commitPaste() {
     if (pasteText.trim().length === 0) return;
@@ -117,7 +150,7 @@ export function ConfigDrawer(props: ConfigDrawerProps): JSX.Element {
   }
 
   return (
-    <div className="config-drawer">
+    <div className={'config-drawer' + (arrived ? ' config-drawer--arrived' : '')}>
       <div className="config-drawer__handle">
         <span className="config-drawer__title">config</span>
         <span className="config-drawer__legend">
@@ -167,8 +200,7 @@ export function ConfigDrawer(props: ConfigDrawerProps): JSX.Element {
       {capture !== null && (
         <div className="config-drawer__lines" role="list">
           {shown.map((line) => {
-            const port = matchedPortLabel(line, chassis);
-            const showNoPortNote = line.mark === 'built' && line.builtLabel !== null && port === null;
+            const showNoPortNote = notes.has(line.ordinal);
             return (
               // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
               <div
