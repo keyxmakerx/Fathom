@@ -302,6 +302,7 @@ async function runProof(ctx) {
 
   // ---- 1. everyone sets up a vault; Ann's screens are the record --------------------------
   await signIn(A, PEOPLE.ann);
+  check('1. Ann (admin) has her own Passwords tab on Home, beside Organisation', await until(() => A.getByRole('tab', { name: 'Passwords' }).isVisible(), 10000));
   await openAdminPasswords(A);
   check('1. Ann (admin) sees "Set up your vault" before anything else', await A.getByTestId('vault-strip-setup').isVisible());
   await shot(A, '01-admin-before-setup');
