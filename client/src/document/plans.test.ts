@@ -728,4 +728,19 @@ describe('swap a part', () => {
       { t: 'part', id: card, model: '', serial: 'OLD1' },
     ]);
   });
+
+  it('fits the spare reserved for a swap step from stock, and the old optic goes in as retired', async () => {
+    const { setOptic, opticOf } = await import('./cards');
+    const { addStock, listStock, reserve, stockItem } = await import('./stock');
+    const { doc: d0, ports } = lab();
+    let doc = setOptic(d0, ports[3], { type: '10GBASE-SR', part: 'SFP-10G-SR', serial: 'OPT-OLD' }, tick());
+    const spare = addStock(doc, { part: 'optic', model: 'SFP-10G-SR', serial: 'OPT-SPARE', optic: { type: '10GBASE-SR' } }, tick());
+    const made = createPlan(spare.doc, { title: 'Swap the optic', gate, ...tick() });
+    const s = addStep(made.doc, made.id, { kind: 'swap', change: 'swap', edit: { t: 'part', id: ports[3], model: 'SFP-10G-SR', serial: 'OPT-SPARE' }, gate, ...tick() });
+    doc = reserve(s.doc, spare.ids[0]!, s.id, tick());
+    const d = markDone(startPlan(doc, made.id, tick()), s.id, { check: allow, ...tick() });
+    expect(opticOf(findNode(d, ports[3])!)).toEqual({ type: '10GBASE-SR', part: 'SFP-10G-SR', serial: 'OPT-SPARE' });
+    expect(stockItem(d, spare.ids[0]!)).toBeNull();
+    expect(listStock(d).map((i) => [i.serial, i.state])).toEqual([['OPT-OLD', 'retired']]);
+  });
 });
