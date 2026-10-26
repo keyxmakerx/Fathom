@@ -601,3 +601,13 @@
   flex-basis: 100%;
   padding: var(--s1) 0;
 }
+
+.home-folders__why {
+  margin: 0 0 12px;
+}
+
+.home-folders__why summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+}

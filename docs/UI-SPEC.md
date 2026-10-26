@@ -306,6 +306,13 @@ drawn with a double border. Rooms come from ADR-0051's room builder (plan image 
 with snapping, suggested rooms accepted or rejected). Small sites fold behind their hub as a counted
 stack. No 2.5D view. A rack dragged by hand keeps its place.
 
+**Built (2026-10-26).** Folders take a kind and role (`Kind and role` on a row); the zoom stops start
+Every site › Site › Building, each drawing the folders a person may read as boxes over the canvas, with
+counts, "You are here", a hub's double border and more than eight small sites of one role folded into a
+counted stack. Boxes sit in a grid until hand placement (ADR-0047) lands, and fold by role until Circuits
+say which hub feeds a site. A design moves between folders from Home, and a NetBox export fills sites,
+buildings and rack designs as a plan to accept. Not built: the room builder, rooms, door labels.
+
 ## The patching surface
 
 At the faceplate zoom **plates pull in and push out, as many as needed**, arranged by hand, cabled

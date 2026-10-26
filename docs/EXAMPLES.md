@@ -114,3 +114,24 @@ You need Draw. A card is a module in a slot (a line card, NIM or FPC); an optic 
 
 The Cards and optics lesson walks the same steps on a sample network. An AI assistant sees each card's
 slot and model and which ports are on it, never a serial.
+
+## 10. Add a building and its closets
+
+You need to be an admin of the organisation, or a steward of the site you add under.
+
+1. **Home › Organisation › Folders**, **New site**. Name it and, if you like, say what kind of place it
+   is (central office, datacenter, hut…) and its role (Hub, Branch, Customer). A hub has a double border.
+2. On the site's row, **New building**; on the building's row, **New closet**, with a kind of room
+   (closet, data hall, UPS room…). **Kind and role** on a row changes them later.
+3. Or **Import from NetBox**: drop a rack or device export. After the redaction gate it shows the sites,
+   locations and racks as a plan, matched by name to folders you already have. Accept it to make the
+   missing folders and one rack design per location; importing again makes nothing twice.
+4. **Designs**, **Move** on a design's row puts it in another folder. You need steward on both; the
+   move is filed in the organisation's history.
+5. Open a design and zoom out past the closet: Building, then Site, then Every site. A box opens one
+   level in; **Back to the closet** returns.
+
+**Who sees what.** A folder is also a permission. Access given at a site covers every building, closet
+and design inside it; access given at a closet covers only that closet. Zoomed out, you see only the
+folders you may read, so a person with one closet sees that closet and the path to it. An AI app sees
+the same folders, and no more than its key allows.

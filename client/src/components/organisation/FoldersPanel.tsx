@@ -53,6 +53,14 @@ export function FoldersPanel({ organisationName, scopes, onCreateScope, scopeFor
         Sites, Buildings and Closets sort designs, and say who may read, draw or look after them. None is needed to start one.
         Zoomed out, Fathom draws them as the map of your estate, with hubs in a double border.
       </p>
+      <details className="home-folders__why">
+        <summary>Who sees what</summary>
+        <p className="home__muted">
+          A folder is also a permission. Access given at a site covers every building, closet and design inside it; access given at
+          a closet covers only that closet. Zoomed out, each person sees only the folders they may read, so someone with one closet
+          sees that closet and the path to it. Moving a design to another folder changes who can see it, so it needs steward on both.
+        </p>
+      </details>
       {scopeForm}
       {estate && importing && scopes.status === 'ready' && (
         <EstateImport
