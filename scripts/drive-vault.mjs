@@ -126,6 +126,24 @@ async function makeBrowserKey(ctx, address) {
   return hex;
 }
 
+/** Give this browser a key the server never saw, in place of its own: what a browser holds
+ * after the server's data is set up again. Signing in still works, by password. */
+async function swapForUnknownKey(page, address) {
+  await page.evaluate(async (slot) => {
+    const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
+    await new Promise((resolve, reject) => {
+      const open = indexedDB.open('fathom-enrolled-keys', 2);
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const tx = open.result.transaction('keys', 'readwrite');
+        tx.objectStore('keys').put(pair, slot);
+        tx.oncomplete = () => { open.result.close(); resolve(); };
+        tx.onerror = () => reject(tx.error);
+      };
+    });
+  }, address);
+}
+
 async function startServer() {
   console.log('==> starting fathom-server on ' + URL_);
   try { sh('fuser', ['-k', `${PORT}/tcp`]); } catch {}
@@ -195,6 +213,12 @@ async function setUpVault(page, who, shot) {
   await page.getByTestId('vault-new-passphrase-again').fill(who.vault);
   if (shot) await page.screenshot({ path: `${SHOTS}${shot}-3-passphrase.png` });
   await page.getByTestId('vault-setup-finish').click();
+  if (who.unknownKey) {
+    await page.getByTestId('vault-stale-key').waitFor({ timeout: 30000 });
+    check(`${who.tag}: a key the server does not know is explained, not answered with "no signing key"`, !(await page.getByTestId('vault-setup').innerText()).includes('no signing key'));
+    if (shot) await page.screenshot({ path: `${SHOTS}${shot}-4-unknown-key.png` });
+    await page.getByTestId('vault-new-key-here').click();
+  }
   await page.getByTestId('vault-setup-done').waitFor({ timeout: 30000 });
   await page.getByTestId('vault-setup-done').click();
   return code;
@@ -288,7 +312,9 @@ async function runProof(ctx) {
   for (const k of ['bob', 'cy']) {
     await signIn(page[k], PEOPLE[k]);
     await openMyPasswords(page[k]);
-    await setUpVault(page[k], PEOPLE[k], null);
+    // Cy's browser holds a key the server never saw, as after the server's data is set up again.
+    if (k === 'cy') await swapForUnknownKey(page[k], PEOPLE[k].address);
+    await setUpVault(page[k], k === 'cy' ? { ...PEOPLE[k], unknownKey: true } : PEOPLE[k], k === 'cy' ? '02c-cy-setup' : null);
     check(`1. ${PEOPLE[k].tag} set up a vault in their own browser`, await until(() => page[k].getByTestId('vault-badge').isVisible(), 5000));
   }
 
