@@ -443,6 +443,14 @@ own Save as PDF. A4 or Letter; cables none, all or as shown on screen; serials a
 optional; black and white with colours as words; title block and page x of y. Port map also as .csv or
 .xlsx. From Inventory the pack also prints the table as shown (its columns, filters and sort).
 
+**Phone field view and labels** (ADR-0075, card r39-phone). Under 760px wide: tabs Scan, Find (Inventory)
+and Canvas (read-only), plus Ideas while an AI idea waits; desk chrome folded away; a design opens on Find.
+A label's QR code is `/scan#<design>/<id>`; scanning it (phone Camera app, or Scan with `BarcodeDetector`
+or typing) opens the item's Inventory page after sign-in. Same-server links only; other text goes to Find.
+Add to Home Screen (manifest, no service worker). Inventory › tick rows › Print labels: devices, racks,
+cables (two each) and ports on Brother TZe 24/18/12 mm, QL 62 mm or 29 × 90 mm, or A4 thirty a sheet.
+Not yet: door labels (rooms), store bins (waits on available inventory). Drive: `scripts/drive-phone.mjs`.
+
 **Cables list** (#54). From the lit Cables lens: groups by VLAN, tag, type or device, a count each; a ticked
 VLAN's trunks draw dashed; "Hide this cable" with a "n hidden · show" chip. Per browser and design, never
 saved; both looks. Quick search also finds cables, VLANs and containers by name or tag.

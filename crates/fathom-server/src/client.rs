@@ -166,7 +166,9 @@ impl ClientRoot {
 /// `/invite`: an invitation is redeemed at `/invite#inv_…` (ADR-0056 decision 6)
 /// and the page that reads the fragment is the same single-page client. So is
 /// `/oauth/authorize`, where an AI app sends a person to sign in and choose what it may
-/// read (ADR-0072 decision 15); its query is the app's request, read by the client. Anything
+/// read (ADR-0072 decision 15); its query is the app's request, read by the client. So is
+/// `/scan`, where a printed label's QR code lands (`/scan#<design>/<node>`, ADR-0075): the ids
+/// are in the fragment, so they never reach this function or a log. Anything
 /// else is a run of segments each made only of ASCII letters, digits, `.`,
 /// `-` and `_`, none empty and none starting with a dot -- which is every
 /// file Vite emits and nothing that can climb out of the root (`..`, a
@@ -179,6 +181,8 @@ fn safe_relative_path(path: &str) -> Option<PathBuf> {
         || path == "/invite"
         || path == "/invite/"
         || path == "/oauth/authorize"
+        || path == "/scan"
+        || path == "/scan/"
     {
         return Some(PathBuf::from("index.html"));
     }
@@ -211,6 +215,8 @@ fn content_type(rel: &Path) -> &'static str {
         Some("png") => "image/png",
         Some("ico") => "image/x-icon",
         Some("json") | Some("map") => "application/json",
+        // The phone's Add to Home Screen (ADR-0075); the W3C Web App Manifest's own media type.
+        Some("webmanifest") => "application/manifest+json",
         Some("woff2") => "font/woff2",
         Some("woff") => "font/woff",
         Some("txt") | Some("sha256") => "text/plain; charset=utf-8",
@@ -287,6 +293,14 @@ fn cache_control(rel: &Path) -> &'static str {
 ///    share the first five hex characters of its SHA-1. One fixed origin, GETs
 ///    whose only content is that prefix; nothing a script could post there
 ///    reaches anyone who could read it back.
+/// 5. **`manifest-src 'self'`** (ADR-0075). The phone's "Add to Home Screen" reads the
+///    client's own `manifest.webmanifest`. CSP Level 3 says `manifest-src` *"restricts the URLs
+///    from which application manifests may be loaded"* and falls back to `default-src`
+///    (<https://raw.githubusercontent.com/w3c/webappsec-csp/main/index.bs>, read 2026-10-26),
+///    so under `'none'` the manifest would be refused. `'self'` admits this origin's file only.
+///    The Scan camera needs nothing here: `media-src` *"restricts the URLs from which video,
+///    audio, and associated text track resources may be loaded"* (same source), and a camera
+///    stream is handed to the `<video>` element as an object, not loaded from a URL.
 ///
 /// `img-src` carries `data:` because Vite inlines small assets as data URIs
 /// at build time, and the print pack's "This view" picture is a `data:` image
@@ -305,8 +319,8 @@ fn cache_control(rel: &Path) -> &'static str {
 /// script's own header names the next step.
 pub const CONTENT_SECURITY_POLICY: &str = "default-src 'none'; script-src 'self' \
      'wasm-unsafe-eval'; connect-src 'self' https://api.pwnedpasswords.com; img-src 'self' data:; style-src 'self'; \
-     style-src-attr 'unsafe-inline'; font-src 'self'; base-uri 'none'; form-action 'self'; \
-     frame-ancestors 'none'";
+     style-src-attr 'unsafe-inline'; font-src 'self'; manifest-src 'self'; base-uri 'none'; \
+     form-action 'self'; frame-ancestors 'none'";
 
 /// OWASP's recommendation **without `preload`**, and the omission is a
 /// decision rather than an oversight: preloading is a submission to a
@@ -432,7 +446,7 @@ mod tests {
     #[test]
     fn the_invitation_address_is_the_client_too() {
         // The token is in the fragment, which never reaches this function.
-        for p in ["/invite", "/invite/", "/oauth/authorize"] {
+        for p in ["/invite", "/invite/", "/oauth/authorize", "/scan", "/scan/"] {
             assert_eq!(
                 safe_relative_path(p),
                 Some(PathBuf::from("index.html")),

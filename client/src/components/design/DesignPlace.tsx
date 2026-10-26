@@ -72,6 +72,10 @@ import { createDesign, renameDesign } from '../../api/designs';
 import { writePlain } from '../../document/plain';
 import type { SideTab } from '../shell/sideSlot';
 import { VaultPlaceContext, type VaultPlace } from '../vault/useVault';
+import { usePhone } from '../phone/usePhone';
+import { PhoneTabs } from '../phone/PhoneTabs';
+import { ScanSheet } from '../phone/ScanSheet';
+import { parseScannedText, scanHash, type ScanTarget } from '../phone/scan';
 
 /** A download with no server round trip. The object URL is revoked a few
  * seconds later, not straight away — read too soon, a browser saves an empty file. */
@@ -99,6 +103,10 @@ export interface DesignPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | '
   onZoomChange: (zoom: number) => void;
   /** A device to open on arrival (Home's Recent row). */
   openDevice?: string;
+  /** A scanned label's node to open once the design has loaded (ADR-0075); a fresh object each time. */
+  scanRequest?: { designId: string; nodeId: string } | null;
+  /** A label scanned in here that belongs to another design: the app opens that one. */
+  onOpenScan?: (target: ScanTarget) => void;
 }
 
 /**
@@ -131,7 +139,7 @@ export interface DesignPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | '
 const SEAL_SETTLE_MS = 1_500;
 
 export function DesignPlace(props: DesignPlaceProps) {
-  const { organisationId, organisationName = '', designId, capability, scopeId, onZoomChange, onPlaceChange, openDevice, ...shellProps } = props;
+  const { organisationId, organisationName = '', designId, capability, scopeId, onZoomChange, onPlaceChange, openDevice, scanRequest, onOpenScan, ...shellProps } = props;
   const session = useDesignSession(organisationId, designId, capability);
   const [focus, setFocus] = useState<Selection | null>(null);
   // Selecting a thing from outside the drawing (stepping through what changed) without opening it.
@@ -640,6 +648,64 @@ export function DesignPlace(props: DesignPlaceProps) {
     },
     [placeNow, onPlaceChange],
   );
+
+  // ADR-0075: the field view. A scanned label opens its item's ordinary Inventory page, the way
+  // openFirmwareModel lands on a model; anything that is not a label is looked up in Find.
+  const phone = usePhone();
+  const [scanning, setScanning] = useState(false);
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
+  const goToInventory = useCallback(
+    (hash: string, replace = false) => {
+      if (replace) window.history.replaceState(null, '', `/${hash}`);
+      else window.history.pushState(null, '', hash);
+      if (placeNow === 'inventory') window.dispatchEvent(new PopStateEvent('popstate'));
+      else onPlaceChange('inventory');
+    },
+    [placeNow, onPlaceChange],
+  );
+  const handleScanned = useCallback(
+    (text: string) => {
+      const target = parseScannedText(text, window.location.origin);
+      if (target == null) {
+        // A link that is not this Fathom's label is not followed, and not searched for either.
+        if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text.trim())) {
+          setScanMessage('That code is a link, but not a label from this Fathom, so it was not opened.');
+          return;
+        }
+        setScanning(false);
+        setScanMessage(null);
+        goToInventory(formatHash({ ...EMPTY_STATE, find: text.trim() }));
+        return;
+      }
+      if (target.designId !== designId) {
+        setScanning(false);
+        onOpenScan?.(target);
+        return;
+      }
+      const hash = session.doc ? scanHash(session.doc, target.nodeId) : null;
+      if (hash == null) {
+        setScanMessage('That label is for something no longer in this design. Send a "Not here" from the rack it was on.');
+        return;
+      }
+      setScanning(false);
+      setScanMessage(null);
+      goToInventory(hash);
+    },
+    [designId, onOpenScan, session.doc, goToInventory],
+  );
+  const scanDoc = session.doc;
+  const handledScan = useRef<object | null>(null);
+  useEffect(() => {
+    if (scanRequest == null || scanRequest.designId !== designId || scanDoc == null || handledScan.current === scanRequest) return;
+    handledScan.current = scanRequest;
+    const hash = scanHash(scanDoc, scanRequest.nodeId);
+    if (hash != null) goToInventory(hash, true);
+    else {
+      setScanMessage('That label is for something no longer in this design.');
+      setScanning(true);
+    }
+  }, [scanRequest, designId, scanDoc, goToInventory]);
+
   const requestUpgrade = useCallback(
     (template: UpgradeTemplate) => {
       setUpgradeRequest({ template });
@@ -813,8 +879,8 @@ export function DesignPlace(props: DesignPlaceProps) {
     resume: { accountId, designId },
     trailOpen,
     onTrailOpenChange: setTrailOpen,
-    canUndo: session.canDraw && undoCandidates.length > 0 && !historyOpen,
-    canRedo: session.canDraw && redoCandidate != null && !historyOpen,
+    canUndo: session.canDraw && !(phone && props.place === 'racks') && undoCandidates.length > 0 && !historyOpen,
+    canRedo: session.canDraw && !(phone && props.place === 'racks') && redoCandidate != null && !historyOpen,
     onUndo: handleUndo,
     onRedo: handleRedo,
     onPrint: openPrintPanel,
@@ -882,7 +948,13 @@ export function DesignPlace(props: DesignPlaceProps) {
       }
     : undefined;
   // A past save is a read-only copy: nothing drawn on it is saved.
-  const racksSession = pickedSave != null ? { ...session, doc: pickedSave.doc, canDraw: false, applyDocChange: () => {} } : session;
+  // On a phone the canvas is to look at (ADR-0075 decision 1): the same read-only session a picked save gets.
+  const racksSession =
+    pickedSave != null
+      ? { ...session, doc: pickedSave.doc, canDraw: false, applyDocChange: () => {} }
+      : phone
+        ? { ...session, canDraw: false, applyDocChange: () => {} }
+        : session;
 
   // r31-bar A: on the drawing, Docs is a tab of the right-hand panel holding the docs list, not an overlay. Leaving
   // the drawing folds it, so it does not reappear as a page over the other view.
@@ -918,10 +990,14 @@ export function DesignPlace(props: DesignPlaceProps) {
         state={aiIdeas}
         canDraw={session.canDraw}
         nameOf={(id) => (findNode(doc, id) ? planNameOf(doc, buildCanon(doc), id) : null)}
-        onShow={showIssue}
+        onShow={(id) => {
+          if (phone) setAiIdeasOpen(false);
+          showIssue(id);
+        }}
       />
     ) : null;
-  const aiTab = aiIdeasTab(aiIdeas, aiIdeasOpen, setAiIdeasOpen, aiIdeasContent);
+  // On a phone the ideas are a bottom tab and a full-screen sheet instead (ADR-0075).
+  const aiTab = phone ? null : aiIdeasTab(aiIdeas, aiIdeasOpen, setAiIdeasOpen, aiIdeasContent);
   const racksSideTabs = [...(docsTab != null ? [docsTab] : []), ...(aiTab != null ? [aiTab] : [])];
 
   const place =
@@ -1046,6 +1122,49 @@ export function DesignPlace(props: DesignPlaceProps) {
       )}
       {printMode === 'preview' && printJob && <PrintPreview job={printJob} onClose={closePrint} />}
       {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
+      {phone && printMode === 'closed' && (
+        <PhoneTabs
+          place={props.place}
+          onPlaceChange={(next) => {
+            setScanning(false);
+            setAiIdeasOpen(false);
+            onPlaceChange(next);
+          }}
+          onScan={() => {
+            setAiIdeasOpen(false);
+            setScanMessage(null);
+            setScanning(true);
+          }}
+          scanning={scanning}
+          ideas={aiIdeas.open.length}
+          ideasOpen={aiIdeasOpen}
+          onIdeas={() => {
+            setScanning(false);
+            setAiIdeasOpen(true);
+          }}
+        />
+      )}
+      {phone && aiIdeasOpen && (
+        <div className="phone-scan" role="dialog" aria-modal="true" aria-label="AI ideas">
+          <div className="phone-scan__head">
+            <span className="phone-scan__title">AI ideas</span>
+            <button type="button" className="phone-scan__close" onClick={() => setAiIdeasOpen(false)}>
+              Close
+            </button>
+          </div>
+          {aiIdeasContent}
+        </div>
+      )}
+      {scanning && (
+        <ScanSheet
+          onResult={handleScanned}
+          message={scanMessage}
+          onClose={() => {
+            setScanning(false);
+            setScanMessage(null);
+          }}
+        />
+      )}
       <ChangeToast
         doc={doc}
         accountId={accountId}

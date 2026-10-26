@@ -220,7 +220,8 @@ address your switches can reach this server on (often not the one your browser u
 `FATHOM_FIRMWARE_MAX_BYTES` caps an image (default 2 GiB).
 
 **Your reverse proxy does HTTPS.** The browser generates your sign-in key with WebCrypto, which
-browsers allow only on HTTPS or `localhost`, so a plain-HTTP address on the network cannot sign in.
+browsers allow only on HTTPS or `localhost`, so a plain-HTTP address on the network cannot sign in. The
+camera for scanning labels on a phone has the same rule (ADR-0075).
 Set `Strict-Transport-Security: max-age=31536000` on the proxy and redirect plain HTTP to HTTPS
 there; the binary speaks plain HTTP and cannot send it.
 

@@ -96,3 +96,12 @@ Set `FATHOM_FIRMWARE_FETCH_BASE_URL` first (`docs/RUNNING-IT.md`); firmware is o
 1. Click **History** in the bar. It says first whether every save is intact.
 2. Pick a save to see the design as it was, its changes outlined. **Back to now** returns.
 3. **Restore this version** (Draw) makes a new save; both stay listed.
+
+## 9. Label cables and check one from a phone
+
+1. **Inventory › Cables**, tick the cables, **Print labels**. Pick the label size your printer has
+   (Brother 24 mm tape is the default) and print; set the print dialog's paper to the same size, margins none.
+   Each cable gets two labels, one for each end.
+2. On a phone, point the Camera app at a label and open the link, or open Fathom and press **Scan**.
+   After sign-in the cable's page opens: its two ends, and **Label wrong** / **Not here** for a reader.
+3. **Add to Home Screen** from the phone browser's share menu keeps Fathom one tap away.
