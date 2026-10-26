@@ -1975,6 +1975,44 @@ async fn claude_signs_in_reads_through_the_same_rules_and_only_from_its_range() 
     tool_ok(&body);
     assert!(listed.contains(&place.design_a.to_string()), "{listed}");
     assert!(!listed.contains(&place.design_b.to_string()), "{listed}");
+    // ADR-0074 §8: a design says where it sits, but only as far as the person may read: the
+    // reader holds the building, not the site above it, so the site is not named.
+    assert!(
+        listed.contains(&format!("\\\"id\\\":\\\"{}\\\"", place.building_a)),
+        "{listed}"
+    );
+    assert!(
+        listed.contains("\\\"level\\\":\\\"building\\\""),
+        "{listed}"
+    );
+    assert!(!listed.contains(&place.network.to_string()), "{listed}");
+    // Listing by folder: the building finds the design; the unreadable site above it, nothing.
+    for (folder, finds) in [(place.building_a, true), (place.network, false)] {
+        let (_, body) = mcp(
+            addr,
+            &access,
+            FROM_CLAUDE,
+            rpc(
+                4,
+                "tools/call",
+                vec![
+                    ("name", s("list_designs")),
+                    (
+                        "arguments",
+                        canon_obj(vec![("folder", s(&folder.to_string()))]),
+                    ),
+                ],
+            ),
+        )
+        .await;
+        tool_ok(&body);
+        assert_eq!(
+            text(&body).contains(&place.design_a.to_string()),
+            finds,
+            "{}",
+            text(&body)
+        );
+    }
     let (_, body) = mcp(
         addr,
         &access,

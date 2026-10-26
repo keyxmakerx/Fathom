@@ -6,6 +6,9 @@ import { useElementWidth, useWindowWidth } from './shell/Dock';
 import { fitPanels, loadPanelWidth, panelMax, savePanelWidth, PANEL_DEFAULT, type PanelId } from './shell/panelSizing';
 import { PANEL_OF, RightDock } from './shell/RightDock';
 import { BottomPill, CanvasStrip } from './shell/CanvasBar';
+import { PlacesMap } from './places/PlacesMap';
+import { focusFor, upperStopsFor, type UpperStop } from './places/placesMap';
+import { MIN_ZOOM } from './drawing/geometry';
 import { nextActive, SideSlots } from './shell/sideSlot';
 import { rememberedTab, useRightTab, type RightTab } from './shell/useRightTab';
 import { loadResume, patchResume } from './design/resume';
@@ -88,11 +91,49 @@ export function Shell({
   doing,
   layersExtra,
   zoomStops,
+  places,
   task,
   cablesGroupsPopover: groupsPopover,
 }: ShellProps) {
   // r31-bar A: on the drawing, its own controls sit on it (a strip top left, a pill at the bottom), not in the bar.
   const toolsOnCanvas = place === 'racks';
+
+  // ADR-0074: above the closet the same camera goes on to the building, the site and every site,
+  // drawn from the folders over the canvas, which stays mounted beneath.
+  const [above, setAbove] = useState<{ stop: UpperStop; focusId: string | null } | null>(null);
+  const currentScopeId = places?.currentScopeId ?? null;
+  useEffect(() => setAbove(null), [currentScopeId]);
+  const upper = places && zoomStops ? upperStopsFor(places.scopes, places.currentScopeId) : [];
+  const goUp = (stop: UpperStop) => places && setAbove({ stop, focusId: focusFor(places.scopes, stop, places.currentScopeId) });
+  const UPPER_LABEL: Record<UpperStop, string> = { estate: 'Every site', site: 'Site', building: 'Building' };
+  const pillStops: ShellProps['zoomStops'] =
+    zoomStops && upper.length > 0
+      ? {
+          stops: [...[...upper].reverse().map((id) => ({ id, label: UPPER_LABEL[id] })), ...zoomStops.stops],
+          current: above?.stop ?? zoomStops.current,
+          onGo: (id) => {
+            if ((upper as string[]).includes(id)) return goUp(id as UpperStop);
+            setAbove(null);
+            zoomStops.onGo(id);
+          },
+        }
+      : zoomStops;
+  // Zooming out past the closet goes up a stop; zooming in from the nearest one comes back down.
+  const zoomOut = () => {
+    if (above) {
+      const next = upper[upper.indexOf(above.stop) + 1];
+      if (next) goUp(next);
+      return;
+    }
+    if (upper.length > 0 && zoom <= MIN_ZOOM * 100 + 1) return goUp(upper[0]);
+    onZoomOut();
+  };
+  const zoomIn = () => {
+    if (!above) return onZoomIn();
+    const at = upper.indexOf(above.stop);
+    if (at <= 0) setAbove(null);
+    else goUp(upper[at - 1]);
+  };
   // The notice sits under its field when the open panel shows it; otherwise in the canvas corner.
   const [anchored, setAnchored] = useState(false);
   const inEditor = editor != null && anchored;
@@ -262,9 +303,22 @@ export function Shell({
       <div className="shell__body" ref={bodyRef} data-resizing={resizing ? '' : undefined}>
         <main className="shell__drawing" aria-label="Drawing">
           <SideSlots.Provider value={slots}>{children}</SideSlots.Provider>
+          {toolsOnCanvas && above && places && (
+            <PlacesMap
+              scopes={places.scopes}
+              currentScopeId={places.currentScopeId}
+              stop={above.stop}
+              focusId={above.focusId}
+              designScopeIds={places.designScopeIds}
+              onGo={(stop, focusId) => setAbove({ stop, focusId })}
+              onOpenScope={places.onOpenScope}
+              onBack={() => setAbove(null)}
+            />
+          )}
           {toolsOnCanvas && (
             <>
-              <CanvasStrip
+              {/* Lenses and layers are the canvas's; above the closet there is no canvas to set them on. */}
+              {!above && <CanvasStrip
                 place="racks"
                 lens={lens}
                 onLensChange={onLensChange}
@@ -277,8 +331,8 @@ export function Shell({
                 hiddenCablesCount={hiddenCablesCount}
                 onShowAllHiddenCables={onShowAllHiddenCables}
                 slotRef={sideRef}
-              />
-              <BottomPill canUndo={canUndo} canRedo={canRedo} onUndo={onUndo} onRedo={onRedo} zoom={{ value: zoom, onIn: onZoomIn, onOut: onZoomOut, onFit: onZoomFit, stops: zoomStops }} />
+              />}
+              <BottomPill canUndo={canUndo} canRedo={canRedo} onUndo={onUndo} onRedo={onRedo} zoom={{ value: zoom, onIn: zoomIn, onOut: zoomOut, onFit: above ? undefined : onZoomFit, stops: pillStops }} />
             </>
           )}
           {!inEditor && notices != null && <div className="shell__notices-corner">{notices}</div>}

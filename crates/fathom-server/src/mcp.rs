@@ -61,14 +61,18 @@ const TOOLS: &str = r#"[
   {
     "name": "list_designs",
     "title": "List designs",
-    "description": "The designs this connection may read, with their ids and names. Use an id with read_design.",
-    "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
+    "description": "The designs this connection may read, with their ids, names and where each sits: its site, building and closet, with each place's kind and role (a hub is the site others hang from). Give folder to list only the designs in one site, building or closet. Use an id with read_design.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {"folder": {"type": "string", "description": "A site, building or closet id from a design's where; only designs inside it."}},
+      "additionalProperties": false
+    },
     "annotations": {"readOnlyHint": true, "openWorldHint": false}
   },
   {
     "name": "read_design",
     "title": "Read a design",
-    "description": "One design: its devices, links, sites and racks, the cards, power supplies and optics fitted in each device, with addresses and notes only where the person allowed them. Never passwords, device secrets or serial numbers.",
+    "description": "One design: where it sits (site, building, closet, with kind and hub role), its devices, links, sites and racks, the cards, power supplies and optics fitted in each device, with addresses and notes only where the person allowed them. Never passwords, device secrets or serial numbers.",
     "inputSchema": {
       "type": "object",
       "properties": {"design": {"type": "string", "description": "The design's id, from list_designs."}},
@@ -92,7 +96,7 @@ const TOOLS: &str = r#"[
   {
     "name": "recommend",
     "title": "Recommend a change",
-    "description": "Recommend a change to one design. Nothing in the design changes: a person sees the idea in Fathom, marked as an AI idea, and accepts or dismisses it. Name devices, cards, ports and links in targets by the ids read_design gave. Do not put passwords, keys or secrets in any text; text that looks like one is refused.",
+    "description": "Recommend a change to one design. Nothing in the design changes: a person sees the idea in Fathom, marked as an AI idea, and accepts or dismisses it. An idea may add a room, a rack or a link between buildings as plain steps. Name devices, cards, ports and links in targets by the ids read_design gave. Do not put passwords, keys or secrets in any text; text that looks like one is refused.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -355,10 +359,21 @@ async fn call(
     name: &str,
     mut args: BTreeMap<String, Json>,
 ) -> Result<Json, AiError> {
+    // ADR-0074 §8: list_designs may name a folder; one the key does not reach matches nothing.
+    let mut within = None;
+    if name == "list_designs" {
+        match args.remove("folder") {
+            None => {}
+            Some(Json::Str(f)) => {
+                within = Some(f.trim().parse().map_err(|_| AiError::NotFound)?);
+            }
+            Some(_) => return Err(AiError::Malformed("folder is an id from a design's where")),
+        }
+    }
     let design = match name {
         "whoami" | "list_designs" => {
             if !args.is_empty() {
-                return Err(AiError::Malformed("this tool takes no arguments"));
+                return Err(AiError::Malformed("this tool takes no other arguments"));
             }
             None
         }
@@ -378,7 +393,7 @@ async fn call(
     };
     let answer = match (name, design) {
         ("whoami", _) => ai::whoami(&session),
-        ("list_designs", _) => ai::ai_designs(&tx, &auth, &session.key).await?,
+        ("list_designs", _) => ai::ai_designs(&tx, &auth, &session.key, within).await?,
         ("read_design", Some(d)) => {
             ai::ai_reading(&tx, &auth, Some(&state.live.heads), &session, d).await?
         }

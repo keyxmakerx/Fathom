@@ -1,7 +1,8 @@
-// Drives the REAL built client against the REAL server through ADR-0074's first piece: a
+// Drives the REAL built client against the REAL server through ADR-0074: a
 // steward makes a site with its kind of place and Hub role, a building under it, then sets
-// the building's kind and role from the folder row; a reload keeps all of it. Screenshots
-// for the PR.
+// the building's kind and role from the folder row; a reload keeps all of it. Then a design
+// in a closet, and the camera goes up from it to the building, the site and every site.
+// Screenshots for the PR.
 //
 //   node scripts/drive-folder-place.mjs
 //
@@ -195,7 +196,7 @@ async function runProof(browser, ctxA, seed) {
   await A.locator('.org-rail__item', { hasText: 'Folders' }).click();
 
   // A site, made with its kind of place and role in one go.
-  await A.getByRole('button', { name: 'New site' }).click();
+  await A.getByRole('button', { name: 'New site' }).first().click();
   await A.locator('#home-new-scope-label').fill('Northgate');
   await A.locator('#home-new-scope-form').selectOption({ label: 'Central office' });
   await A.locator('#home-new-scope-role').selectOption({ label: 'Hub' });
@@ -223,7 +224,7 @@ async function runProof(browser, ctxA, seed) {
   await buildingRow.getByRole('button', { name: 'New closet' }).click();
   await A.locator('#home-new-scope-label').fill('IDF-2');
   check('F3. a new closet asks for a kind of room and no role', (await A.locator('#home-new-scope-role').count()) === 0 && (await A.locator('#home-new-scope-form option', { hasText: 'UPS room' }).count()) === 1);
-  await A.locator('#home-new-scope-form').selectOption({ label: 'Closet' });
+  await A.locator('#home-new-scope-form').selectOption({ label: 'UPS room' });
   await A.getByRole('button', { name: 'Create', exact: true }).click();
   await A.locator('.home-folders__row', { hasText: 'IDF-2' }).waitFor({ timeout: 10000 });
   await shot('f3-folders');
@@ -235,8 +236,46 @@ async function runProof(browser, ctxA, seed) {
   await A.locator('.org-rail__item', { hasText: 'Folders' }).click();
   await A.locator('.home-folders__row', { hasText: 'IDF-2' }).waitFor({ timeout: 10000 });
   const all = (await A.locator('.home-folders').innerText()).replace(/\s+/g, ' ');
-  check('F4. after a reload the kinds and roles are still there', /Central office/.test(all) && /Datacenter/.test(all) && /Branch/i.test(all) && /Closet/.test(all) && (await A.locator('.home-folders__role--hub').count()) === 1, all);
+  check('F4. after a reload the kinds and roles are still there', /Central office/.test(all) && /Datacenter/.test(all) && /Branch/i.test(all) && /UPS room/.test(all) && (await A.locator('.home-folders__role--hub').count()) === 1, all);
   await shot('f4-after-reload');
+
+  // ---- ADR-0074, the stops above the closet --------------------------------------
+  // A design in IDF-2, then the camera goes up from its closet.
+  await A.getByRole('tab', { name: 'Designs' }).click();
+  const startRow = A.locator('.home__scope-heading', { hasText: 'IDF-2' }).first();
+  await startRow.getByRole('button', { name: 'New design' }).click();
+  await A.locator('.shell__drawing').waitFor({ timeout: 20000 });
+  await A.getByTestId('shell-pill').waitFor({ timeout: 20000 });
+  await A.locator('.shell-pill__value').click();
+  // The folders arrive with the design's other data; the upper stops join the list when they do.
+  await A.locator('.shell-pill__stop', { hasText: 'Every site' }).waitFor({ timeout: 10000 });
+  const stopLabels = (await A.locator('.shell-pill__stop').allInnerTexts()).map((t) => t.trim().toLowerCase());
+  check('Z1. the zoom stops start at Every site, Site and Building, then the closet', stopLabels.slice(0, 4).join('|') === 'every site|site|building|closet', stopLabels.join('|'));
+  await A.locator('.shell-pill__stop', { hasText: 'Building' }).click();
+  const map = A.getByTestId('places-map');
+  await map.waitFor({ timeout: 10000 });
+  const buildingText = (await map.innerText()).replace(/\s+/g, ' ');
+  check('Z2. the building stop shows its closet, marked as where you are, with its design', /IDF-2/.test(buildingText) && /You are here/i.test(buildingText) && /1 design/.test(buildingText), buildingText);
+  await shot('z1-building-stop');
+
+  await map.locator('.places-map__crumb', { hasText: 'Northgate' }).click();
+  await A.locator('[data-stop="site"]').waitFor({ timeout: 5000 });
+  const siteText = (await map.innerText()).replace(/\s+/g, ' ');
+  check('Z3. the site stop shows Block A with its closet and kind, and the site is a hub', /Block A/.test(siteText) && /1 closet/.test(siteText) && /Datacenter/.test(siteText) && (await map.locator('.places-map__role--hub').count()) === 1, siteText);
+  await shot('z2-site-stop');
+
+  // Zooming out goes up one more stop.
+  await A.getByRole('button', { name: 'Zoom out' }).click();
+  await A.locator('[data-stop="estate"]').waitFor({ timeout: 5000 });
+  check('Z4. zooming out from the site reaches every site, the hub drawn with a double border', (await map.locator('.places-box--hub').count()) === 1);
+  await shot('z3-estate-stop');
+
+  // Going in: a site box opens its site, a building its building, the closet you are in goes back down.
+  await map.locator('.places-box', { hasText: 'Northgate' }).click();
+  await map.locator('.places-box', { hasText: 'Block A' }).click();
+  await A.locator('[data-stop="building"]').waitFor({ timeout: 5000 });
+  await map.locator('.places-box', { hasText: 'IDF-2' }).click();
+  check('Z5. the closet you are in takes you back down to the canvas', (await A.getByTestId('places-map').count()) === 0);
   check('F5. no page errors', errors.length === 0, errors.join(' | '));
 }
 

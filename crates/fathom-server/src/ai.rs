@@ -2140,13 +2140,76 @@ pub fn whoami(session: &AiSession) -> Json {
     Json::Obj(m)
 }
 
-/// `GET /ai/v1/designs`: every design the owner can read that the key's folders reach.
+/// ADR-0074 §8: where a design sits, as its folders root first (site, building, closet), each
+/// with its kind of place and hand-set role. Only a folder this key reaches **and** its owner
+/// may read is named: an ancestor above the key's folders is left out, as `/scopes` leaves out
+/// one its caller cannot read, so a reading never names a place the key was not given.
+async fn folder_chain(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    verified: &grants::VerifiedAuthorityState,
+    key: &AiKey,
+    path: &str,
+) -> Result<Json, AiError> {
+    let ids: Vec<String> = path.split('.').map(str::to_string).collect();
+    let rows = tx
+        .query(
+            "SELECT id, kind, display_name, path, place_form, place_role FROM scopes \
+             WHERE organisation_id = $1 AND id = ANY($2) ORDER BY depth",
+            &[&auth.ctx.tenant().to_string(), &ids],
+        )
+        .await?;
+    let mut out = Vec::new();
+    for row in rows {
+        let id: String = row.get(0);
+        let folder_path: String = row.get(3);
+        if !covers(&key.scopes, &folder_path) {
+            continue;
+        }
+        match grants::authorise_in_verified_state(
+            tx,
+            auth,
+            verified,
+            Some(parse_scope(&id)?),
+            Capability::Read,
+        )
+        .await
+        {
+            Ok(_) => {}
+            Err(AuthorityError::NotAuthorised) | Err(AuthorityError::QuorumNotMet { .. }) => {
+                continue
+            }
+            Err(other) => return Err(other.into()),
+        }
+        let kind: String = row.get(1);
+        let level = match kind.as_str() {
+            "network" => "site",
+            "building" => "building",
+            _ => "closet",
+        };
+        let opt = |v: Option<String>| v.map_or(Json::Null, Json::Str);
+        let mut m = BTreeMap::new();
+        m.insert("id".into(), Json::Str(id));
+        m.insert("level".into(), Json::Str(level.into()));
+        m.insert("name".into(), Json::Str(row.get(2)));
+        m.insert("kind".into(), opt(row.get(4)));
+        m.insert("role".into(), opt(row.get(5)));
+        out.push(Json::Obj(m));
+    }
+    Ok(Json::Arr(out))
+}
+
+/// `GET /ai/v1/designs`: every design the owner can read that the key's folders reach, each
+/// with where it sits ([`folder_chain`]). `within`, when given, keeps only the designs in that
+/// folder or one inside it (ADR-0074 §8), as the key sees the folders.
 pub async fn ai_designs(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
     key: &AiKey,
+    within: Option<ScopeId>,
 ) -> Result<Json, AiError> {
     let verified = grants::verify_authority_state(tx, auth).await?;
+    let within = within.map(|w| w.to_string());
     let rows = tx
         .query(
             "SELECT d.id, d.scope_id, s.path, d.name_ciphertext, d.name_nonce, d.name_key_epoch, \
@@ -2195,11 +2258,22 @@ pub async fn ai_designs(
             (Some(c), Some(n), Some(e)) => Some((c, n, e)),
             _ => None,
         };
+        // Filter by a folder only as the key sees it: one it does not reach, or an ancestor its
+        // owner cannot read, matches nothing rather than confirming what is inside it.
+        let place = folder_chain(tx, auth, &verified, key, &path).await?;
+        if let Some(w) = &within {
+            let named = matches!(&place, Json::Arr(fs) if fs.iter().any(|f|
+                matches!(f, Json::Obj(m) if m.get("id") == Some(&Json::Str(w.clone())))));
+            if !named {
+                continue;
+            }
+        }
         let name = names.open(tx, &id, sealed).await?;
         let mut m = BTreeMap::new();
         m.insert("id".into(), Json::Str(id));
         m.insert("name".into(), name.map_or(Json::Null, Json::Str));
         m.insert("folder".into(), Json::Str(scope_text));
+        m.insert("where".into(), place);
         m.insert("version".into(), Json::Int(row.get(6)));
         out.push(Json::Obj(m));
     }
@@ -2233,8 +2307,11 @@ pub async fn ai_reading(
     session: &AiSession,
     design: DesignId,
 ) -> Result<Json, AiError> {
-    let (scope, _) = readable_place(tx, auth, &session.key, design).await?;
+    let (scope, path) = readable_place(tx, auth, &session.key, design).await?;
     let stored = designs::read_version_in_tx(tx, auth, heads, design, Some(scope), None).await?;
+    // Before the reading is built: what it holds is not `Send`, so no await may follow it.
+    let verified = grants::verify_authority_state(tx, auth).await?;
+    let place = folder_chain(tx, auth, &verified, &session.key, &path).await?;
     let tiers = tiers(&session.key, &session.policy);
     let graph = fathom_workspace::read_plain(&stored.payload)
         .map_err(|_| AiError::Unverifiable("a stored design that does not parse"))?;
@@ -2244,6 +2321,7 @@ pub async fn ai_reading(
     };
     m.insert("design".into(), Json::Str(design.to_string()));
     m.insert("version".into(), Json::Int(stored.version));
+    m.insert("where".into(), place);
     m.insert(
         "about".into(),
         Json::Str(

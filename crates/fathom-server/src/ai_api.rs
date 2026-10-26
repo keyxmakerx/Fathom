@@ -220,7 +220,7 @@ async fn designs_handler(
         tenant_key: &session.tenant_key,
         watch: &state.watch,
     };
-    let answer = ai::ai_designs(&tx, &auth, &session.key).await?;
+    let answer = ai::ai_designs(&tx, &auth, &session.key, None).await?;
     tx.commit().await?;
     Ok(json(answer))
 }

@@ -56,7 +56,9 @@ export function FoldersPanel({ organisationName, scopes, onCreateScope, scopeFor
           {scopes.value.map((scope) => {
             const child = CHILD_LEVEL[scope.kind];
             const steward = canStewardFor(scope.capability);
-            const form = placeFormLabel(scope.kind, scope.placeForm);
+            const formLabel = placeFormLabel(scope.kind, scope.placeForm);
+            // "Closet" twice says nothing: the kind shows only where it adds to the level.
+            const form = formLabel === LEVEL[scope.kind] ? null : formLabel;
             const role = takesRole(scope.kind) ? placeRoleLabel(scope.placeRole) : null;
             return (
               <li

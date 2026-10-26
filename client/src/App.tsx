@@ -1072,6 +1072,13 @@ export default function App() {
       setView({ ...view, place });
     },
     onHome: () => setView({ kind: 'home' }),
+    // ADR-0074: zooming out of the closet draws these folders as the building, site and estate.
+    places: {
+      scopes,
+      currentScopeId: view.design.scopeId,
+      designScopeIds: orgDesigns.map((d) => d.scopeId),
+      onOpenScope: selectScope,
+    },
   };
 
   // ADR-0046 §8: Inventory is basic-but-real now, not a placeholder — both

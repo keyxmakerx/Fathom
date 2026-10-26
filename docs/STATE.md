@@ -241,7 +241,13 @@ breadcrumb does one thing.
   other) and a role set by hand (Hub, Branch, Customer, Other; a hub has a double border), and a closet a
   kind of room (closet, data hall, UPS room, meet-me room, other). Both are optional, set when the folder
   is made or afterwards from its row (`POST …/scopes/{scope}/place`, steward only), plaintext beside
-  `display_name` (OPEN-QUESTIONS V2). Nothing draws them zoomed out yet.
+  `display_name` (OPEN-QUESTIONS V2). **Above the closet** (`components/places/`, `Shell.tsx`): the zoom
+  stops start Every site, Site, Building, and zooming out past the closet goes up a stop. Each draws the
+  folders the person may read as boxes over the canvas (which stays mounted): a building's closets, a
+  site's buildings, every site, with counts, "You are here", a hub's double border, and more than eight
+  branch or customer sites of one role folded into a counted stack. A box opens one level in; a closet
+  opens its latest design. Boxes are laid out in a grid for now, not placed by hand (ADR-0047), and
+  rooms wait for the room builder (ADR-0051). A design cannot yet be moved into another folder.
   The account menu holds Your account, Signed-in browsers, theme and Sign out; an amber "Admin" pill
   shows beside the initials where the console answers. "New design" goes in the first Site the person may
   draw in. Names start as "Untitled design", sealed under the organisation key (`designs.name_*`); Rename
@@ -544,7 +550,9 @@ person a Steward names lets an AI app read designs they can read, in one organis
 organisation allows (layout; addresses; notes), and send ideas a person accepts or dismisses. Never
 passwords or the vault. Two ways in, one grant row (`ai_keys`, kind `helper` or `connector`) and one set of
 rules checked at every request: (a) the **connector**: with `FATHOM_AI_PUBLIC_URL` set, the server is its
-own OAuth 2.1 authorization server and serves `/mcp` (Streamable HTTP, five tools). Claude and Claude Code
+own OAuth 2.1 authorization server and serves `/mcp` (Streamable HTTP, five tools; since ADR-0074 a design
+says `where` it sits, site › building › closet with kind and hub role, as far as the person may read,
+and `list_designs` takes a `folder`). Claude and Claude Code
 are pinned by their published client ids and redirects; other apps register (RFC 7591) and are off until a
 Steward allows them. S256 PKCE, one-minute single-use codes, one-hour access tokens, rotating refresh
 tokens with reuse detection, hashes only. A Claude grant is used only from Anthropic's published range
