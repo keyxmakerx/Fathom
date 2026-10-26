@@ -5246,6 +5246,7 @@ mod body {
         Move,
         Other,
         Lag,
+        Swap,
         /// The generated unknown arm (62 §7 rule 2) — carries the
         /// unrecognised token verbatim; what makes a new variant a minor
         /// bump an old client survives (62 §16.2).
@@ -5254,13 +5255,14 @@ mod body {
 
     impl PlanStepKind {
         /// Declared tokens, declaration order.
-        pub const DECLARED: [&'static str; 6] = [
+        pub const DECLARED: [&'static str; 7] = [
             "address",
             "route",
             "cable",
             "move",
             "other",
             "lag",
+            "swap",
         ];
         /// Neutral token → variant; anything undeclared lands in `Unknown`.
         pub fn from_token(token: &str) -> PlanStepKind {
@@ -5271,6 +5273,7 @@ mod body {
                 "move" => PlanStepKind::Move,
                 "other" => PlanStepKind::Other,
                 "lag" => PlanStepKind::Lag,
+                "swap" => PlanStepKind::Swap,
                 other => PlanStepKind::Unknown(other.to_owned()),
             }
         }
@@ -5283,6 +5286,7 @@ mod body {
                 PlanStepKind::Move => "move",
                 PlanStepKind::Other => "other",
                 PlanStepKind::Lag => "lag",
+                PlanStepKind::Swap => "swap",
                 PlanStepKind::Unknown(t) => t,
             }
         }

@@ -54,7 +54,7 @@ import type { TagChip, TagSummary } from '../../document/tags';
 import type { FieldFor, FieldRow, FieldType } from '../../document/fields';
 import type { PortFace } from '../../document/compat';
 import type { SwapPlan } from '../../document/swapModel';
-import type { CardView, Optic } from '../../document/cards';
+import type { Optic } from '../../document/cards';
 
 export type {
   CableEnd,

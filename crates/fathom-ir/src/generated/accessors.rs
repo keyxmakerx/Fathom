@@ -1926,8 +1926,8 @@ mod body {
         pub fn ordinal<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(371))
         }
-        /// `PlanStep.kind` — `enum { address, route, cable, move, other, lag }`, card `1`, emit `—`.
-        /// What sort of change. `lag` (0.25) bundles ports into a LAG.
+        /// `PlanStep.kind` — `enum { address, route, cable, move, other, lag, swap }`, card `1`, emit `—`.
+        /// What sort of change. `lag` (0.25) bundles ports into a LAG. `swap` (0.28) replaces a card, power supply or optic with another.
         pub fn kind<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::PlanStepKind, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(372))
         }
@@ -1952,7 +1952,7 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(376))
         }
         /// `PlanStep.edit` — `Text`, card `0..1`, emit `—`.
-        /// The edit applied on Done: one line, tab-separated, `field`, `cable`, `cut`, `move` or `lag` first. Absent for a step done by hand.
+        /// The edit applied on Done: one line, tab-separated, `field`, `cable`, `cut`, `move`, `lag`, `unlag` or `part` first. Absent for a step done by hand.
         pub fn edit<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(377))
         }

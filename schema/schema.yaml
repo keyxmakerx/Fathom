@@ -335,7 +335,8 @@ schema:
                     # OnCard (reference, port to card) saying which ports are on it; one class,
                     # CardHost. Transceiver, unit until now, gains its shape (type, vendor, part,
                     # serial, wavelength_nm, all optional); it was never writable except as {},
-                    # which still reads. Four field keys (508-511). 62 §16.2: new kinds, edges
+                    # which still reads. Four field keys (508-511). PlanStep.kind gains `swap`, a
+                    # part replaced in a maintenance window. 62 §16.2: new kinds, edges
                     # and a class member are minor. Whole change = MINOR. The reader still opens
                     # 0.10 to 0.27.
 
@@ -2088,12 +2089,12 @@ kinds:
       step is marked done. `targets` names what it touches, one design id per line.
     fields:
       - { name: ordinal, type: u32, card: "1", emit: "—", doc: Position in the plan. Steps run in this order. }
-      - { name: kind, type: "enum { address, route, cable, move, other, lag }", card: "1", emit: "—", doc: "What sort of change. `lag` (0.25) bundles ports into a LAG." }
+      - { name: kind, type: "enum { address, route, cable, move, other, lag, swap }", card: "1", emit: "—", doc: "What sort of change. `lag` (0.25) bundles ports into a LAG. `swap` (0.28) replaces a card, power supply or optic with another." }
       - { name: targets, type: Text, card: "0..1", emit: "—", doc: "Design ids of what the step touches, one per line." }
       - { name: change, type: Text, card: "1", emit: "—", doc: The step in a sentence. }
       - { name: before, type: Text, card: "0..1", emit: "—", doc: How it is now. }
       - { name: after, type: Text, card: "0..1", emit: "—", doc: How it will be. }
-      - { name: edit, type: Text, card: "0..1", emit: "—", doc: "The edit applied on Done: one line, tab-separated, `field`, `cable`, `cut`, `move` or `lag` first. Absent for a step done by hand." }
+      - { name: edit, type: Text, card: "0..1", emit: "—", doc: "The edit applied on Done: one line, tab-separated, `field`, `cable`, `cut`, `move`, `lag`, `unlag` or `part` first. Absent for a step done by hand." }
       - { name: state, type: "enum { planned, done, went_differently }", card: "1", emit: "—", doc: Where the step is. }
       - { name: note, type: Text, card: "0..1", emit: "—", doc: What happened instead; required for went_differently. }
       - { name: done_at, type: Text, card: "0..1", emit: "—", doc: "When it was marked, as an ISO time." }

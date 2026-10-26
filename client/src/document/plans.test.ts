@@ -690,3 +690,42 @@ describe('backing out', () => {
     expect(() => backOut(startPlan(p.doc, p.id, tick()), p.id, tick())).toThrow(PlanRefusal);
   });
 });
+
+// r35: a part swapped in a maintenance window.
+describe('swap a part', () => {
+  it('swaps a card and an optic in place, keeps the ports and cable, and backs out to the old serials', async () => {
+    const { fitCard, cardsOf, setOptic, opticOf } = await import('./cards');
+    const { doc: d0, ports } = lab();
+    const chassis = edgesIn(d0, ports[3], 'HasPort')[0]!.from;
+    let doc = fitCard(d0, chassis, '1', { model: 'NM-4X', serial: 'OLD1' }, tick());
+    doc = setOptic(doc, ports[3], { type: '10GBASE-SR', part: 'SFP-10G-SR', serial: 'OPT-OLD' }, tick());
+    const card = cardsOf(doc, chassis)[0]!.id;
+
+    const edits: StepEdit[] = [
+      { t: 'part', id: card, model: '', serial: 'NEW1' },
+      { t: 'part', id: ports[3], model: '', serial: 'OPT-NEW' },
+    ];
+    for (const e of edits) expect(decodeEdit(encodeEdit(e))).toEqual(e);
+    expect(() => applyEdit(doc, { t: 'part', id: card, model: '', serial: '' })).toThrow(PlanRefusal);
+    expect(() => applyEdit(doc, { t: 'part', id: card, model: '', serial: 'two words' })).toThrow(PlanRefusal);
+
+    let made = createPlan(doc, { title: 'Swap parts', gate, ...tick() });
+    const steps: string[] = [];
+    for (const edit of edits) {
+      const s = addStep(made.doc, made.id, { kind: 'swap', change: 'swap', edit, gate, ...tick() });
+      made = { doc: s.doc, id: made.id };
+      steps.push(s.id);
+    }
+    let d = startPlan(made.doc, made.id, tick());
+    for (const s of steps) d = markDone(d, s, { check: allow, ...tick() });
+    expect(cardsOf(d, chassis)[0]).toMatchObject({ model: 'NM-4X', serial: 'NEW1' });
+    expect(opticOf(findNode(d, ports[3])!)).toEqual({ type: '10GBASE-SR', part: 'SFP-10G-SR', serial: 'OPT-NEW' });
+    expect(edgesIn(d, ports[3], 'Terminates').filter((e) => e.absentSince === undefined)).toHaveLength(1);
+
+    const back = backOutSteps(d, readPlan(d, made.id));
+    expect(back.map((s) => s.edit)).toEqual([
+      { t: 'part', id: ports[3], model: 'SFP-10G-SR', serial: 'OPT-OLD' },
+      { t: 'part', id: card, model: '', serial: 'OLD1' },
+    ]);
+  });
+});
