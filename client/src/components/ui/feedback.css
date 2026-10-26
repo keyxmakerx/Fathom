@@ -84,8 +84,7 @@
   border: 0;
 }
 
-.skeleton__bar,
-.skeleton__unit {
+.skeleton__bar {
   background: linear-gradient(
     90deg,
     var(--surface) 0%,
@@ -126,40 +125,20 @@
   height: 100%;
   min-height: 240px;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
-  padding: var(--s7) var(--s5);
 }
 
-.skeleton__racks {
-  display: flex;
-  align-items: flex-end;
-  gap: var(--s6);
-  width: min(720px, 100%);
-  height: min(420px, 100%);
-}
-
-.skeleton__rack {
-  flex: 1 1 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-evenly;
-  gap: var(--s2);
-  padding: var(--s2);
-  border: var(--rule-hair) solid var(--hairline);
-}
-
-.skeleton__unit {
-  display: block;
-  height: 14px;
+.skeleton__line {
+  color: var(--muted);
 }
 
 /* A load that answers quickly shows nothing at all: the shapes wait a beat
-   before they fade in, so a quick open does not flash rack outlines or grey
-   rows for a frame and then swap them for the real thing (owner,
+   before they fade in, so a quick open does not flash grey rows or a
+   loading line for a frame and then swap them for the real thing (owner,
    2026-10-26). The hidden words are there from the start. */
 .skeleton__row,
-.skeleton__racks {
+.skeleton__line {
   animation: skeleton-appear var(--m-skeleton-fade, 200ms) ease-out var(--m-skeleton-wait, 400ms) both;
 }
 
@@ -181,7 +160,7 @@
   }
 }
 
-/* The place's loading box gives the rack outlines the whole canvas. */
+/* The place's loading box gives its line the whole canvas. */
 .racks-place__loading:has(.skeleton--racks) {
   height: 100%;
   padding: 0;
@@ -191,13 +170,12 @@
   .empty-state {
     animation: none;
   }
-  .skeleton__bar,
-  .skeleton__unit {
+  .skeleton__bar {
     animation: none;
   }
   /* Still waits, but appears at once rather than fading. */
   .skeleton__row,
-  .skeleton__racks {
+  .skeleton__line {
     --m-skeleton-fade: 1ms;
   }
 }
