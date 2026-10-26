@@ -316,6 +316,11 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     like the rack and rear elevations, a separate renderer this
         //     table does not govern.
         | NodeKind::Surface
+        //     The room builder's kinds (ADR-0051, schema 0.29), Surface's rule:
+        //     drawn on the building stop's plan, a renderer this table does not govern.
+        | NodeKind::FloorPlan
+        | NodeKind::Room
+        | NodeKind::RoomCorner
         // (b) `19`'s service model, which `56` does not mention at all.
         | NodeKind::Tenant
         | NodeKind::Service

@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.28";
+    pub const SCHEMA_VERSION: &str = "0.29";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -458,12 +458,33 @@ mod body {
         ///
         /// Origin::Hand, or a suggestion from a pasted inventory the person ticks (ADR-0046).
         Card,
+        /// A floor's plan as a picture (ADR-0051 "Blueprints"): a scan, a photo or an exported
+        /// image, drawn beneath the building's rooms at the phantom opacity and never full black.
+        /// The bytes are not in the graph: they are stored sealed by the server under `file_id`,
+        /// DocFile's precedent exactly, and `sha256` (which the chained payload covers) is what a
+        /// download is checked against. Scaled by marking two points a known distance apart, kept
+        /// as `um_per_px`. A plan cannot say it is current or the right building, and it is in no
+        /// export (ADR-0051's caveats stand); the rooms traced over it are the facts.
+        ///
+        /// NOTHING PARSES A PLAN: every FloorPlan is Origin::Hand. Contained by Premises through
+        /// HasFloorPlan, Surface's reason (19 §3.6): it is only somewhere.
+        FloorPlan,
+        /// A room traced on a floor (ADR-0051 "Blueprints"): a closed outline of RoomCorner nodes,
+        /// named. Room geometry, never a network fact. A room whose label is a closet folder's
+        /// name opens that closet from the building stop. Origin::Hand: a suggested room is never
+        /// stored until a person accepts it. Weak identity, Note's precedent: two rooms may share
+        /// a name until someone tells them apart.
+        Room,
+        /// One corner of a Room's outline, in millimetres from the floor's origin (the plan
+        /// image's top left when there is one). Corners join in `seq` order and the last joins
+        /// the first. Integers, never floats (invariant 9).
+        RoomCorner,
     }
 
     impl NodeKind {
-        pub const COUNT: usize = 76;
+        pub const COUNT: usize = 79;
         /// Every kind, declaration order.
-        pub const ALL: [NodeKind; 76] = [
+        pub const ALL: [NodeKind; 79] = [
             NodeKind::Site,
             NodeKind::Device,
             NodeKind::Chassis,
@@ -540,6 +561,9 @@ mod body {
             NodeKind::Lesson,
             NodeKind::LessonStep,
             NodeKind::Card,
+            NodeKind::FloorPlan,
+            NodeKind::Room,
+            NodeKind::RoomCorner,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -622,6 +646,9 @@ mod body {
                 NodeKind::Lesson => "Lesson",
                 NodeKind::LessonStep => "LessonStep",
                 NodeKind::Card => "Card",
+                NodeKind::FloorPlan => "FloorPlan",
+                NodeKind::Room => "Room",
+                NodeKind::RoomCorner => "RoomCorner",
             }
         }
         pub fn from_name(name: &str) -> Option<NodeKind> {
@@ -702,6 +729,9 @@ mod body {
                 "Lesson" => Some(NodeKind::Lesson),
                 "LessonStep" => Some(NodeKind::LessonStep),
                 "Card" => Some(NodeKind::Card),
+                "FloorPlan" => Some(NodeKind::FloorPlan),
+                "Room" => Some(NodeKind::Room),
+                "RoomCorner" => Some(NodeKind::RoomCorner),
                 _ => None,
             }
         }
@@ -788,6 +818,9 @@ mod body {
                 NodeKind::Lesson => &[],
                 NodeKind::LessonStep => &[],
                 NodeKind::Card => &[&["owner(CardHost)", "slot"]],
+                NodeKind::FloorPlan => &[&["owner(Premises)", "floor"]],
+                NodeKind::Room => &[],
+                NodeKind::RoomCorner => &[],
             }
         }
         /// The kind's layer (62 §4.2).
@@ -869,6 +902,9 @@ mod body {
                 NodeKind::Lesson => Layer::Physical,
                 NodeKind::LessonStep => Layer::Physical,
                 NodeKind::Card => Layer::Physical,
+                NodeKind::FloorPlan => Layer::Physical,
+                NodeKind::Room => Layer::Physical,
+                NodeKind::RoomCorner => Layer::Physical,
             }
         }
         /// Whether the kind participates in emit at all (62 §4.2); `false`
@@ -951,6 +987,9 @@ mod body {
                 NodeKind::Lesson => false,
                 NodeKind::LessonStep => false,
                 NodeKind::Card => false,
+                NodeKind::FloorPlan => false,
+                NodeKind::Room => false,
+                NodeKind::RoomCorner => false,
             }
         }
         /// The kind's declared field keys, declaration order (62 §4.3). A key
@@ -1034,6 +1073,9 @@ mod body {
                 NodeKind::Lesson => &[crate::bag::FieldKey(486), crate::bag::FieldKey(487), crate::bag::FieldKey(488), crate::bag::FieldKey(489), crate::bag::FieldKey(490)],
                 NodeKind::LessonStep => &[crate::bag::FieldKey(491), crate::bag::FieldKey(492), crate::bag::FieldKey(493), crate::bag::FieldKey(494), crate::bag::FieldKey(495), crate::bag::FieldKey(496), crate::bag::FieldKey(497), crate::bag::FieldKey(498), crate::bag::FieldKey(499), crate::bag::FieldKey(500), crate::bag::FieldKey(501), crate::bag::FieldKey(502), crate::bag::FieldKey(503), crate::bag::FieldKey(504), crate::bag::FieldKey(505), crate::bag::FieldKey(506), crate::bag::FieldKey(507)],
                 NodeKind::Card => &[crate::bag::FieldKey(508), crate::bag::FieldKey(509), crate::bag::FieldKey(510), crate::bag::FieldKey(511)],
+                NodeKind::FloorPlan => &[crate::bag::FieldKey(512), crate::bag::FieldKey(513), crate::bag::FieldKey(514), crate::bag::FieldKey(515), crate::bag::FieldKey(516), crate::bag::FieldKey(517), crate::bag::FieldKey(518)],
+                NodeKind::Room => &[crate::bag::FieldKey(519), crate::bag::FieldKey(520)],
+                NodeKind::RoomCorner => &[crate::bag::FieldKey(521), crate::bag::FieldKey(522), crate::bag::FieldKey(523)],
             }
         }
     }
@@ -1424,12 +1466,18 @@ mod body {
         /// ADR-0073. A port on a card's faceplate. A REFERENCE EDGE because the port already has
         /// its containment parent, the chassis (HasPort); see Card's doc for why it stays there.
         OnCard,
+        /// ADR-0051. A floor's plan hangs off its place, HasSurface's shape; in "1" makes owner(Premises) usable as FloorPlan's identity term.
+        HasFloorPlan,
+        /// ADR-0051. A room hangs off its place, HasSurface's shape.
+        HasRoom,
+        /// ADR-0051. A room's outline, corner by corner; their order is RoomCorner.seq.
+        HasRoomCorner,
     }
 
     impl EdgeKind {
-        pub const COUNT: usize = 122;
+        pub const COUNT: usize = 125;
         /// Every kind, declaration order.
-        pub const ALL: [EdgeKind; 122] = [
+        pub const ALL: [EdgeKind; 125] = [
             EdgeKind::HasDevice,
             EdgeKind::HasChassis,
             EdgeKind::HasRedundancyGroup,
@@ -1552,6 +1600,9 @@ mod body {
             EdgeKind::HasLessonStep,
             EdgeKind::HasCard,
             EdgeKind::OnCard,
+            EdgeKind::HasFloorPlan,
+            EdgeKind::HasRoom,
+            EdgeKind::HasRoomCorner,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -1680,6 +1731,9 @@ mod body {
                 EdgeKind::HasLessonStep => "HasLessonStep",
                 EdgeKind::HasCard => "HasCard",
                 EdgeKind::OnCard => "OnCard",
+                EdgeKind::HasFloorPlan => "HasFloorPlan",
+                EdgeKind::HasRoom => "HasRoom",
+                EdgeKind::HasRoomCorner => "HasRoomCorner",
             }
         }
         pub fn from_name(name: &str) -> Option<EdgeKind> {
@@ -1806,6 +1860,9 @@ mod body {
                 "HasLessonStep" => Some(EdgeKind::HasLessonStep),
                 "HasCard" => Some(EdgeKind::HasCard),
                 "OnCard" => Some(EdgeKind::OnCard),
+                "HasFloorPlan" => Some(EdgeKind::HasFloorPlan),
+                "HasRoom" => Some(EdgeKind::HasRoom),
+                "HasRoomCorner" => Some(EdgeKind::HasRoomCorner),
                 _ => None,
             }
         }
@@ -1934,6 +1991,9 @@ mod body {
                 EdgeKind::HasLessonStep => EdgeClass::Containment,
                 EdgeKind::HasCard => EdgeClass::Containment,
                 EdgeKind::OnCard => EdgeClass::Reference,
+                EdgeKind::HasFloorPlan => EdgeClass::Containment,
+                EdgeKind::HasRoom => EdgeClass::Containment,
+                EdgeKind::HasRoomCorner => EdgeClass::Containment,
             }
         }
     }
@@ -2111,7 +2171,7 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PathSegment],
                 EdgeKind::ExitsAt => &[NodeKind::PathSegment],
                 EdgeKind::MustTraverse => &[NodeKind::PathSegment],
-                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::Label, NodeKind::Line, NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile, NodeKind::MaintenancePlan, NodeKind::PlanStep, NodeKind::Issue, NodeKind::IssueStep, NodeKind::FirmwareTarget, NodeKind::CableRun, NodeKind::CableTie, NodeKind::OverlayNetwork, NodeKind::Lesson, NodeKind::LessonStep, NodeKind::Card, NodeKind::FieldValue],
+                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::Label, NodeKind::Line, NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile, NodeKind::MaintenancePlan, NodeKind::PlanStep, NodeKind::Issue, NodeKind::IssueStep, NodeKind::FirmwareTarget, NodeKind::CableRun, NodeKind::CableTie, NodeKind::OverlayNetwork, NodeKind::Lesson, NodeKind::LessonStep, NodeKind::Card, NodeKind::FloorPlan, NodeKind::Room, NodeKind::RoomCorner, NodeKind::FieldValue],
                 EdgeKind::HasRack => &[NodeKind::Premises],
                 EdgeKind::MountedIn => &[NodeKind::Chassis, NodeKind::PassiveNode],
                 EdgeKind::HasDhcpRelay => &[NodeKind::Device],
@@ -2152,6 +2212,9 @@ mod body {
                 EdgeKind::HasLessonStep => &[NodeKind::Lesson],
                 EdgeKind::HasCard => &[NodeKind::Chassis, NodeKind::Card],
                 EdgeKind::OnCard => &[NodeKind::PhysicalPort],
+                EdgeKind::HasFloorPlan => &[NodeKind::Premises],
+                EdgeKind::HasRoom => &[NodeKind::Premises],
+                EdgeKind::HasRoomCorner => &[NodeKind::Room],
             }
         }
         /// The declared `to:` kind set, class names expanded (62 §6.2).
@@ -2279,6 +2342,9 @@ mod body {
                 EdgeKind::HasLessonStep => &[NodeKind::LessonStep],
                 EdgeKind::HasCard => &[NodeKind::Card],
                 EdgeKind::OnCard => &[NodeKind::Card],
+                EdgeKind::HasFloorPlan => &[NodeKind::FloorPlan],
+                EdgeKind::HasRoom => &[NodeKind::Room],
+                EdgeKind::HasRoomCorner => &[NodeKind::RoomCorner],
             }
         }
         /// The `out:` bound at L0 — edges leaving a `from` node (11 §7.1).
@@ -2406,6 +2472,9 @@ mod body {
                 EdgeKind::HasLessonStep => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasCard => EdgeCardBound { min: 0, max: None },
                 EdgeKind::OnCard => EdgeCardBound { min: 0, max: Some(1) },
+                EdgeKind::HasFloorPlan => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasRoom => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasRoomCorner => EdgeCardBound { min: 0, max: None },
             }
         }
         /// The `in:` bound at L0 — edges arriving at a `to` node (11 §7.1).
@@ -2533,6 +2602,9 @@ mod body {
                 EdgeKind::HasLessonStep => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::HasCard => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::OnCard => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasFloorPlan => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::HasRoom => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::HasRoomCorner => EdgeCardBound { min: 1, max: Some(1) },
             }
         }
         /// `true` means `(a,b)` and `(b,a)` are the same edge: one stored
@@ -2661,6 +2733,9 @@ mod body {
                 EdgeKind::HasLessonStep => false,
                 EdgeKind::HasCard => false,
                 EdgeKind::OnCard => false,
+                EdgeKind::HasFloorPlan => false,
+                EdgeKind::HasRoom => false,
+                EdgeKind::HasRoomCorner => false,
             }
         }
         /// `from: [root]` — containment by the workspace root (11 §7.2).
@@ -2788,6 +2863,9 @@ mod body {
                 EdgeKind::HasLessonStep => false,
                 EdgeKind::HasCard => false,
                 EdgeKind::OnCard => false,
+                EdgeKind::HasFloorPlan => false,
+                EdgeKind::HasRoom => false,
+                EdgeKind::HasRoomCorner => false,
             }
         }
         /// The edge's declared field keys, declaration order (62 §6.2).
@@ -2915,6 +2993,9 @@ mod body {
                 EdgeKind::HasLessonStep => &[],
                 EdgeKind::HasCard => &[],
                 EdgeKind::OnCard => &[],
+                EdgeKind::HasFloorPlan => &[],
+                EdgeKind::HasRoom => &[],
+                EdgeKind::HasRoomCorner => &[],
             }
         }
     }
@@ -10221,6 +10302,126 @@ mod body {
         }
     }
 
+    /// Fields of kind `FloorPlan`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum FloorPlanField {
+        Floor,
+        Name,
+        FileId,
+        Sha256,
+        WidthPx,
+        HeightPx,
+        UmPerPx,
+    }
+
+    impl FloorPlanField {
+        pub const COUNT: usize = 7;
+        /// Every field, declaration order.
+        pub const ALL: [FloorPlanField; 7] = [
+            FloorPlanField::Floor,
+            FloorPlanField::Name,
+            FloorPlanField::FileId,
+            FloorPlanField::Sha256,
+            FloorPlanField::WidthPx,
+            FloorPlanField::HeightPx,
+            FloorPlanField::UmPerPx,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                FloorPlanField::Floor => "floor",
+                FloorPlanField::Name => "name",
+                FloorPlanField::FileId => "file_id",
+                FloorPlanField::Sha256 => "sha256",
+                FloorPlanField::WidthPx => "width_px",
+                FloorPlanField::HeightPx => "height_px",
+                FloorPlanField::UmPerPx => "um_per_px",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                FloorPlanField::Floor => crate::bag::FieldKey(512),
+                FloorPlanField::Name => crate::bag::FieldKey(513),
+                FloorPlanField::FileId => crate::bag::FieldKey(514),
+                FloorPlanField::Sha256 => crate::bag::FieldKey(515),
+                FloorPlanField::WidthPx => crate::bag::FieldKey(516),
+                FloorPlanField::HeightPx => crate::bag::FieldKey(517),
+                FloorPlanField::UmPerPx => crate::bag::FieldKey(518),
+            }
+        }
+    }
+
+    /// Fields of kind `Room`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum RoomField {
+        Label,
+        Floor,
+    }
+
+    impl RoomField {
+        pub const COUNT: usize = 2;
+        /// Every field, declaration order.
+        pub const ALL: [RoomField; 2] = [
+            RoomField::Label,
+            RoomField::Floor,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                RoomField::Label => "label",
+                RoomField::Floor => "floor",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                RoomField::Label => crate::bag::FieldKey(519),
+                RoomField::Floor => crate::bag::FieldKey(520),
+            }
+        }
+    }
+
+    /// Fields of kind `RoomCorner`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum RoomCornerField {
+        XMm,
+        YMm,
+        Seq,
+    }
+
+    impl RoomCornerField {
+        pub const COUNT: usize = 3;
+        /// Every field, declaration order.
+        pub const ALL: [RoomCornerField; 3] = [
+            RoomCornerField::XMm,
+            RoomCornerField::YMm,
+            RoomCornerField::Seq,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                RoomCornerField::XMm => "x_mm",
+                RoomCornerField::YMm => "y_mm",
+                RoomCornerField::Seq => "seq",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                RoomCornerField::XMm => crate::bag::FieldKey(521),
+                RoomCornerField::YMm => crate::bag::FieldKey(522),
+                RoomCornerField::Seq => crate::bag::FieldKey(523),
+            }
+        }
+    }
+
     /// Fields of edge `UsesProposal`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum UsesProposalField {
@@ -10776,7 +10977,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 446] = [
+    pub const FIELD_KEYS: [(&str, u32); 458] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -11223,16 +11424,29 @@ mod body {
         ("Card.name", 509),
         ("Card.model", 510),
         ("Card.serial", 511),
+        ("FloorPlan.floor", 512),
+        ("FloorPlan.name", 513),
+        ("FloorPlan.file_id", 514),
+        ("FloorPlan.sha256", 515),
+        ("FloorPlan.width_px", 516),
+        ("FloorPlan.height_px", 517),
+        ("FloorPlan.um_per_px", 518),
+        ("Room.label", 519),
+        ("Room.floor", 520),
+        ("RoomCorner.x_mm", 521),
+        ("RoomCorner.y_mm", 522),
+        ("RoomCorner.seq", 523),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
     /// per key, least-significant bit first. Read it through [`field_required`];
     /// the array is public only so a test can pin its length.
-    pub const FIELD_REQUIRED_BITS: [u8; 64] = [
+    pub const FIELD_REQUIRED_BITS: [u8; 66] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
         0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0xa3, 0xfb, 0x1d, 0x59, 0x64,
         0xc0, 0xe6, 0x64, 0xc0, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x41, 0x38, 0x00, 0x10,
+        0x81, 0x0e,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

@@ -2286,6 +2286,75 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(511))
         }
     }
+    /// Typed reads for `FloorPlan` fields.
+    pub mod floor_plan {
+        /// `FloorPlan.floor` — `Text`, card `1`, emit `—`.
+        /// The floor it shows, in the building's own words: "Ground", "2", "Basement".
+        pub fn floor<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(512))
+        }
+        /// `FloorPlan.name` — `Text`, card `0..1`, emit `—`.
+        /// The file name as chosen.
+        pub fn name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(513))
+        }
+        /// `FloorPlan.file_id` — `Identifier`, card `0..1`, emit `—`.
+        /// The server's id for the stored image; absent, the floor has rooms and no picture.
+        pub fn file_id<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(514))
+        }
+        /// `FloorPlan.sha256` — `Text`, card `0..1`, emit `—`.
+        /// Lowercase hex SHA-256 of the stored bytes.
+        pub fn sha256<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(515))
+        }
+        /// `FloorPlan.width_px` — `u32`, card `0..1`, emit `—`.
+        /// The image's width in pixels.
+        pub fn width_px<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(516))
+        }
+        /// `FloorPlan.height_px` — `u32`, card `0..1`, emit `—`.
+        /// The image's height in pixels.
+        pub fn height_px<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(517))
+        }
+        /// `FloorPlan.um_per_px` — `u32`, card `0..1`, emit `—`.
+        /// Micrometres per image pixel, from two points marked a known distance apart. Absent, the plan is not yet scaled. An integer, never a float (invariant 9).
+        pub fn um_per_px<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(518))
+        }
+    }
+    /// Typed reads for `Room` fields.
+    pub mod room {
+        /// `Room.label` — `Text`, card `1`, emit `—`.
+        /// The room's name or number as the door says it: "214", "IDF-2".
+        pub fn label<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(519))
+        }
+        /// `Room.floor` — `Text`, card `0..1`, emit `—`.
+        /// The floor it is on, FloorPlan.floor's words; absent reads as the only floor.
+        pub fn floor<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(520))
+        }
+    }
+    /// Typed reads for `RoomCorner` fields.
+    pub mod room_corner {
+        /// `RoomCorner.x_mm` — `i32`, card `1`, emit `—`.
+        /// Millimetres right of the origin.
+        pub fn x_mm<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&i32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(521))
+        }
+        /// `RoomCorner.y_mm` — `i32`, card `1`, emit `—`.
+        /// Millimetres down from the origin.
+        pub fn y_mm<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&i32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(522))
+        }
+        /// `RoomCorner.seq` — `u16`, card `1`, emit `—`.
+        /// The corner's place in the outline, from 0.
+        pub fn seq<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u16, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(523))
+        }
+    }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
     /// path the read accessors use, for every entry in the field-key registry,
     /// node and edge fields alike. `None` for a key this schema version does
@@ -2738,6 +2807,18 @@ mod body {
             509 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             510 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
             511 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            512 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            513 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            514 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            515 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            516 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            517 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            518 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            519 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            520 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            521 => Some((core::any::TypeId::of::<i32>(), "i32")),
+            522 => Some((core::any::TypeId::of::<i32>(), "i32")),
+            523 => Some((core::any::TypeId::of::<u16>(), "u16")),
             _ => None,
         }
     }
@@ -3192,6 +3273,18 @@ mod body {
             509 => crate::canon::slot_to::<crate::scalar::Text>(509, "crate::scalar::Text", value),
             510 => crate::canon::slot_to::<crate::scalar::Identifier>(510, "crate::scalar::Identifier", value),
             511 => crate::canon::slot_to::<crate::scalar::Identifier>(511, "crate::scalar::Identifier", value),
+            512 => crate::canon::slot_to::<crate::scalar::Text>(512, "crate::scalar::Text", value),
+            513 => crate::canon::slot_to::<crate::scalar::Text>(513, "crate::scalar::Text", value),
+            514 => crate::canon::slot_to::<crate::scalar::Identifier>(514, "crate::scalar::Identifier", value),
+            515 => crate::canon::slot_to::<crate::scalar::Text>(515, "crate::scalar::Text", value),
+            516 => crate::canon::slot_to::<u32>(516, "u32", value),
+            517 => crate::canon::slot_to::<u32>(517, "u32", value),
+            518 => crate::canon::slot_to::<u32>(518, "u32", value),
+            519 => crate::canon::slot_to::<crate::scalar::Text>(519, "crate::scalar::Text", value),
+            520 => crate::canon::slot_to::<crate::scalar::Text>(520, "crate::scalar::Text", value),
+            521 => crate::canon::slot_to::<i32>(521, "i32", value),
+            522 => crate::canon::slot_to::<i32>(522, "i32", value),
+            523 => crate::canon::slot_to::<u16>(523, "u16", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -3644,6 +3737,18 @@ mod body {
             509 => crate::canon::slot_from::<crate::scalar::Text>(j),
             510 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
             511 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            512 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            513 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            514 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            515 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            516 => crate::canon::slot_from::<u32>(j),
+            517 => crate::canon::slot_from::<u32>(j),
+            518 => crate::canon::slot_from::<u32>(j),
+            519 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            520 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            521 => crate::canon::slot_from::<i32>(j),
+            522 => crate::canon::slot_from::<i32>(j),
+            523 => crate::canon::slot_from::<u16>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

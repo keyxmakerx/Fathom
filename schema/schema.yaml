@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.28"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.29"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -339,6 +339,14 @@ schema:
                     # part replaced in a maintenance window. 62 §16.2: new kinds, edges
                     # and a class member are minor. Whole change = MINOR. The reader still opens
                     # 0.10 to 0.27.
+                    #
+                    # 0.29 is the room builder (ADR-0051, ADR-0074 decision 4, sign-off r37-estate
+                    # v2), all additive: three node kinds, FloorPlan (a plan image behind a
+                    # building's rooms, scaled by two points), Room (a named room on a floor) and
+                    # RoomCorner (one corner of a room's outline, in millimetres), contained by
+                    # HasFloorPlan and HasRoom from Premises and HasRoomCorner from Room. Twelve
+                    # field keys (512-523). 62 §16.2: new kinds and edges are minor. Whole change =
+                    # MINOR. The reader still opens 0.10 to 0.28.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -583,6 +591,11 @@ classes:
       - LessonStep
       # Cards and optics (0.28): a card is drawn inside its chassis, PowerSupply's precedent.
       - Card
+      # ADR-0051, ADR-0074 decision 4 (schema 0.29): the room builder's kinds, drawn on the
+      # building stop's plan rather than the topology diagram, Surface's precedent.
+      - FloorPlan
+      - Room
+      - RoomCorner
       # Custom-field values (0.16): joins Placeable as Tag does; the client draws no box.
       - FieldValue
     doc: |
@@ -2284,6 +2297,60 @@ kinds:
     identity:
       - [ owner(CardHost), slot ]   # tier 1 -- a physical coordinate, PowerSupply's precedent
 
+
+  # The room builder (ADR-0051, ADR-0074 decision 4; schema 0.29). Appended at the tail (62 §13).
+  - kind: FloorPlan
+    layer: physical
+    emits: false
+    doc: |
+      A floor's plan as a picture (ADR-0051 "Blueprints"): a scan, a photo or an exported
+      image, drawn beneath the building's rooms at the phantom opacity and never full black.
+      The bytes are not in the graph: they are stored sealed by the server under `file_id`,
+      DocFile's precedent exactly, and `sha256` (which the chained payload covers) is what a
+      download is checked against. Scaled by marking two points a known distance apart, kept
+      as `um_per_px`. A plan cannot say it is current or the right building, and it is in no
+      export (ADR-0051's caveats stand); the rooms traced over it are the facts.
+
+      NOTHING PARSES A PLAN: every FloorPlan is Origin::Hand. Contained by Premises through
+      HasFloorPlan, Surface's reason (19 §3.6): it is only somewhere.
+    fields:
+      - { name: floor, type: Text, card: "1", emit: "—", doc: "The floor it shows, in the building's own words: \"Ground\", \"2\", \"Basement\"." }
+      - { name: name, type: Text, card: "0..1", emit: "—", doc: The file name as chosen. }
+      - { name: file_id, type: Identifier, card: "0..1", emit: "—", doc: "The server's id for the stored image; absent, the floor has rooms and no picture." }
+      - { name: sha256, type: Text, card: "0..1", emit: "—", doc: Lowercase hex SHA-256 of the stored bytes. }
+      - { name: width_px, type: u32, card: "0..1", emit: "—", doc: The image's width in pixels. }
+      - { name: height_px, type: u32, card: "0..1", emit: "—", doc: The image's height in pixels. }
+      - { name: um_per_px, type: u32, card: "0..1", emit: "—", doc: "Micrometres per image pixel, from two points marked a known distance apart. Absent, the plan is not yet scaled. An integer, never a float (invariant 9)." }
+    identity:
+      - [ owner(Premises), floor ]   # tier 1 -- one plan per floor of a place
+
+  - kind: Room
+    layer: physical
+    emits: false
+    doc: |
+      A room traced on a floor (ADR-0051 "Blueprints"): a closed outline of RoomCorner nodes,
+      named. Room geometry, never a network fact. A room whose label is a closet folder's
+      name opens that closet from the building stop. Origin::Hand: a suggested room is never
+      stored until a person accepts it. Weak identity, Note's precedent: two rooms may share
+      a name until someone tells them apart.
+    fields:
+      - { name: label, type: Text, card: "1", emit: "—", doc: "The room's name or number as the door says it: \"214\", \"IDF-2\"." }
+      - { name: floor, type: Text, card: "0..1", emit: "—", doc: "The floor it is on, FloorPlan.floor's words; absent reads as the only floor." }
+    identity: []
+
+  - kind: RoomCorner
+    layer: physical
+    emits: false
+    doc: |
+      One corner of a Room's outline, in millimetres from the floor's origin (the plan
+      image's top left when there is one). Corners join in `seq` order and the last joins
+      the first. Integers, never floats (invariant 9).
+    fields:
+      - { name: x_mm, type: i32, card: "1", emit: "—", doc: Millimetres right of the origin. }
+      - { name: y_mm, type: i32, card: "1", emit: "—", doc: Millimetres down from the origin. }
+      - { name: seq, type: u16, card: "1", emit: "—", doc: "The corner's place in the outline, from 0." }
+    identity: []
+
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
   # require reverse adjacency, and ADR-0007's reverse index already guarantees it (11 §14.3).
@@ -3945,6 +4012,41 @@ edges:
     doc: |
       ADR-0073. A port on a card's faceplate. A REFERENCE EDGE because the port already has
       its containment parent, the chassis (HasPort); see Card's doc for why it stays there.
+
+  # The room builder (ADR-0051, ADR-0074 decision 4; schema 0.29). Appended at the tail (62 §13).
+  - edge: HasFloorPlan
+    class: containment
+    from: [Premises]
+    to: [FloorPlan]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ADR-0051. A floor's plan hangs off its place, HasSurface's shape; in "1" makes owner(Premises) usable as FloorPlan's identity term.
+  - edge: HasRoom
+    class: containment
+    from: [Premises]
+    to: [Room]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ADR-0051. A room hangs off its place, HasSurface's shape.
+  - edge: HasRoomCorner
+    class: containment
+    from: [Room]
+    to: [RoomCorner]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ADR-0051. A room's outline, corner by corner; their order is RoomCorner.seq.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load

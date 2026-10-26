@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.28";
+export const SCHEMA_VERSION = "0.29";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -82,7 +82,10 @@ export type NodeKind =
   | "OverlayNetwork"
   | "Lesson"
   | "LessonStep"
-  | "Card";
+  | "Card"
+  | "FloorPlan"
+  | "Room"
+  | "RoomCorner";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -160,6 +163,9 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "Lesson",
   "LessonStep",
   "Card",
+  "FloorPlan",
+  "Room",
+  "RoomCorner",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -285,7 +291,10 @@ export type EdgeKind =
   | "HasLesson"
   | "HasLessonStep"
   | "HasCard"
-  | "OnCard";
+  | "OnCard"
+  | "HasFloorPlan"
+  | "HasRoom"
+  | "HasRoomCorner";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -409,6 +418,9 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasLessonStep",
   "HasCard",
   "OnCard",
+  "HasFloorPlan",
+  "HasRoom",
+  "HasRoomCorner",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -568,6 +580,9 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Lesson: ["title", "summary", "author", "published_at", "source_design"],
   LessonStep: ["ordinal", "kind", "title", "body", "hint", "after", "explainer", "answer", "trace_from", "trace_to", "flow", "expect_trace", "expect_crosses", "expect_stop", "expect_first_match", "expect_rule", "expect_now"],
   Card: ["slot", "name", "model", "serial"],
+  FloorPlan: ["floor", "name", "file_id", "sha256", "width_px", "height_px", "um_per_px"],
+  Room: ["label", "floor"],
+  RoomCorner: ["x_mm", "y_mm", "seq"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -1018,4 +1033,16 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "Card.name": 509,
   "Card.model": 510,
   "Card.serial": 511,
+  "FloorPlan.floor": 512,
+  "FloorPlan.name": 513,
+  "FloorPlan.file_id": 514,
+  "FloorPlan.sha256": 515,
+  "FloorPlan.width_px": 516,
+  "FloorPlan.height_px": 517,
+  "FloorPlan.um_per_px": 518,
+  "Room.label": 519,
+  "Room.floor": 520,
+  "RoomCorner.x_mm": 521,
+  "RoomCorner.y_mm": 522,
+  "RoomCorner.seq": 523,
 };

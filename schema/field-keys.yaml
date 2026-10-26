@@ -551,3 +551,15 @@ fields:
   Card.name: 509
   Card.model: 510
   Card.serial: 511
+  FloorPlan.floor: 512
+  FloorPlan.name: 513
+  FloorPlan.file_id: 514
+  FloorPlan.sha256: 515
+  FloorPlan.width_px: 516
+  FloorPlan.height_px: 517
+  FloorPlan.um_per_px: 518
+  Room.label: 519
+  Room.floor: 520
+  RoomCorner.x_mm: 521
+  RoomCorner.y_mm: 522
+  RoomCorner.seq: 523
