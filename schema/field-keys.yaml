@@ -547,3 +547,7 @@ fields:
   LessonStep.expect_first_match: 505
   LessonStep.expect_rule: 506
   LessonStep.expect_now: 507
+  Card.slot: 508
+  Card.name: 509
+  Card.model: 510
+  Card.serial: 511

@@ -207,7 +207,10 @@ fn schema_version_is_the_trees() {
     //
     // 0.26 -> 0.27: the lesson builder. Two node kinds (`Lesson`, `LessonStep`), two edge kinds
     // (`HasLesson`, `HasLessonStep`), twenty-two field keys (486-507); all MINOR.
-    assert_eq!(SCHEMA_VERSION, "0.27");
+    //
+    // 0.27 -> 0.28: cards and optics. One node kind (`Card`), one edge kind (`HasCard`), one class
+    // (`CardHost`), four field keys (508-511), and `Transceiver` gains its shape; all MINOR.
+    assert_eq!(SCHEMA_VERSION, "0.28");
 }
 
 #[test]
@@ -313,17 +316,26 @@ fn exemplar_round_trips_per_family() {
         max: Some(2),
     });
 
-    // Rule 8 — the fifteen field-less structs in `value`.
+    // Rule 8 — the fourteen field-less structs in `value`.
     law(value::IkeId);
     law(value::Dpd);
     law(value::OspfArea);
     law(value::VpnMonitor);
     law(value::PortPosition);
-    law(value::Transceiver);
     law(value::SplitRatio);
     law(value::AttributeDecl);
     law(value::FieldPath);
     law(value::Resolution);
+
+    // Rule 6 — Transceiver (ADR-0073), empty and full.
+    law(value::Transceiver::default());
+    law(value::Transceiver {
+        r#type: Some(scalar::Text("10GBASE-SR".into())),
+        vendor: Some(scalar::Text("Acme".into())),
+        part: Some(scalar::Identifier("SFP-10G-SR".into())),
+        serial: Some(scalar::Identifier("AB123".into())),
+        wavelength_nm: Some(850),
+    });
 
     // Rule 9 — the four hand-written enums in `value`, every variant.
     law(value::PeerSpec::Address(
@@ -739,7 +751,8 @@ fn dispatch_names_every_registry_key() {
     // One more: missing links' `Cable.needs_finishing` (478, schema 0.24).
     // 413 -> 420: mesh VPNs (479-485).
     // 420 -> 442: the lesson builder (486-507, schema 0.27).
-    assert_eq!(FIELD_KEYS.len(), 442, "the registry grew or shrank");
+    // 442 -> 446: cards (508-511, schema 0.28).
+    assert_eq!(FIELD_KEYS.len(), 446, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

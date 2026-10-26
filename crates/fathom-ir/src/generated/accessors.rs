@@ -1165,6 +1165,8 @@ mod body {
         /// `PhysicalPort.transceiver` — `Transceiver`, card `0..1`, emit `—`.
         /// Absent means we looked and the cage is empty; Unknown means nobody looked. A
         /// catalogue-populated port is Unknown and may not be Absent (11 §8.5).
+        /// ADR-0073 gives the value its shape: { type, vendor, part, serial, wavelength_nm },
+        /// every member optional, so {} is "an optic is fitted, nothing more is known".
         pub fn transceiver<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::value::Transceiver, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(213))
         }
@@ -2262,6 +2264,28 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(507))
         }
     }
+    /// Typed reads for `Card` fields.
+    pub mod card {
+        /// `Card.slot` — `Text`, card `1`, emit `—`.
+        /// The slot's name in the vendor's own words: "0", "FPC 2", "NIM 1".
+        pub fn slot<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(508))
+        }
+        /// `Card.name` — `Text`, card `0..1`, emit `—`.
+        /// What the card is, in words: "24 x SFP+".
+        pub fn name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(509))
+        }
+        /// `Card.model` — `Identifier`, card `0..1`, emit `—`.
+        pub fn model<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(510))
+        }
+        /// `Card.serial` — `Identifier`, card `0..1`, emit `—`.
+        /// Inventory. Sensitive-ish; never leaves the workspace -- Chassis.serial's own doc.
+        pub fn serial<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(511))
+        }
+    }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
     /// path the read accessors use, for every entry in the field-key registry,
     /// node and edge fields alike. `None` for a key this schema version does
@@ -2710,6 +2734,10 @@ mod body {
             505 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             506 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             507 => Some((core::any::TypeId::of::<crate::generated::ir_types::LessonStepExpectNow>(), "crate::generated::ir_types::LessonStepExpectNow")),
+            508 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            509 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            510 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            511 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
             _ => None,
         }
     }
@@ -3160,6 +3188,10 @@ mod body {
             505 => crate::canon::slot_to::<crate::scalar::Text>(505, "crate::scalar::Text", value),
             506 => crate::canon::slot_to::<crate::scalar::Text>(506, "crate::scalar::Text", value),
             507 => crate::canon::slot_to::<crate::generated::ir_types::LessonStepExpectNow>(507, "crate::generated::ir_types::LessonStepExpectNow", value),
+            508 => crate::canon::slot_to::<crate::scalar::Text>(508, "crate::scalar::Text", value),
+            509 => crate::canon::slot_to::<crate::scalar::Text>(509, "crate::scalar::Text", value),
+            510 => crate::canon::slot_to::<crate::scalar::Identifier>(510, "crate::scalar::Identifier", value),
+            511 => crate::canon::slot_to::<crate::scalar::Identifier>(511, "crate::scalar::Identifier", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -3608,6 +3640,10 @@ mod body {
             505 => crate::canon::slot_from::<crate::scalar::Text>(j),
             506 => crate::canon::slot_from::<crate::scalar::Text>(j),
             507 => crate::canon::slot_from::<crate::generated::ir_types::LessonStepExpectNow>(j),
+            508 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            509 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            510 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            511 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

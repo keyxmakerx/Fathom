@@ -126,9 +126,10 @@ fn slot_type_covers_every_registry_key() {
     // One more key: `Cable.needs_finishing` (478, schema 0.24).
     // 413 -> 420: mesh VPNs (479-485, schema 0.26).
     // 420 -> 442: the lesson builder (486-507, schema 0.27).
+    // 442 -> 446: cards (508-511, schema 0.28).
     assert_eq!(
         FIELD_KEYS.len(),
-        442,
+        446,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {
