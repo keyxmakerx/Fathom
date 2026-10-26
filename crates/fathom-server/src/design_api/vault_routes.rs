@@ -1058,7 +1058,7 @@ async fn outside_connect_handler(
             [f] => f.id.clone(),
             _ => String::new(),
         };
-        let fk = std::sync::Arc::clone(&state.fathom_key);
+        let fk = fathom_key(&state)?;
         let input = outside::ConnectIn {
             provider,
             url,
