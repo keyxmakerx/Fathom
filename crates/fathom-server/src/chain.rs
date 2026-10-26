@@ -422,6 +422,54 @@ pub enum EntryType {
     /// A steward closed an invitation: `reason` is `confirmed` (with the grant,
     /// and for a batch the `batch_id` and its size), `refused` or `cancelled`.
     InvitationClosed,
+    /// "Type it yourself" was set for a member (`0041`): `account`, `on`, and the
+    /// `actor` who set it, who may be the member switching it on for themselves.
+    TypeItYourselfSet,
+
+    // ---- The password vault, Mode A (migration 0041, storage §13.4) ---------
+    //
+    // Written by `vault.rs`. There is deliberately no Mode A `vault_read`: a
+    // Mode A read is the browser fetching ciphertext and opening it locally,
+    // which the server cannot see, and an entry claiming otherwise would be
+    // false. `vault_read` below is Mode B's, where Fathom itself opens it.
+    /// A vault key joined the organisation: a person's (self-certified by an
+    /// account-key signature) or the recovery sheet's (signed by the steward
+    /// who made it). Metadata names the key, its kind, fingerprint and signer.
+    VaultKeyEnrolled,
+    /// A person replaced their vault key, usually after forgetting the
+    /// passphrase; signed by their account key, naming old and new fingerprints.
+    VaultKeySuperseded,
+    /// A login was stored. Names the entry and its owner, never a name or value.
+    VaultEntryCreated,
+    /// A signed recipient set took effect for one epoch (§13.3): created,
+    /// changed, shared or rotated. Names the epoch, the sharer and every
+    /// recipient key.
+    VaultShared,
+    /// A steward or owner stopped Fathom serving one recipient's wrap. This
+    /// revokes nothing already read; metadata says `remediation: none` until a
+    /// rotation follows.
+    VaultShareRevoked,
+    /// A login was deleted: the ciphertext is overwritten, the tombstone kept.
+    VaultEntryDeleted,
+    /// The organisation's recovery sheet was opened by a steward.
+    VaultRecoveryUsed,
+    // ---- Logins Fathom can use, Mode B (migration 0042, storage §13.4) ------
+    //
+    // Written by `vault_fathom.rs`.
+    /// A login's mode changed: A to B on its owner's signed consent (and, when
+    /// it is shared with other people, a steward's countersignature, filed as
+    /// its own entry), or B back to A. Metadata names the login, both modes,
+    /// the epoch, the server vault key and who acted.
+    VaultModeChanged,
+    /// **Fathom itself opened a Mode B login**, for the purpose and device the
+    /// metadata names, at the request of the account it names. Filed before
+    /// the secret is opened. There is no Mode A `vault_read`, and a
+    /// `vault_read` for a login the chain had in Mode A is a break.
+    VaultRead,
+    // Written by `vault_breach.rs`.
+    /// The breach-check policy changed: the organisation's level and the
+    /// kinds it overrides, or one login marked critical or not.
+    VaultBreachPolicySet,
 
     /// **A re-wrap happened** (§12.6): custody changed, exposure did not. The
     /// entry names the old and new master identity, which key rows moved, who
@@ -483,7 +531,7 @@ pub enum EntryType {
     /// The window ran out unconfirmed, or `fathom-server console-placement
     /// --reset` cleared a placement from the host. The entry's `reason` says which.
     ConsolePlacementReverted,
-    // ---- AI access keys (migration 0043, ADR-0072) ------------------------
+    // ---- AI access keys (migration 0045, ADR-0072) ------------------------
     /// A Steward changed the organisation's AI policy: on or off, who may make
     /// keys, the ceiling, the longest key, the second-person folders.
     AiPolicyChanged,
@@ -566,6 +614,17 @@ impl EntryType {
             Self::FirmwareModelsChanged => "firmware_models_changed",
             Self::InvitationIssued => "invitation_issued",
             Self::InvitationClosed => "invitation_closed",
+            Self::TypeItYourselfSet => "type_it_yourself_set",
+            Self::VaultKeyEnrolled => "vault_key_enrolled",
+            Self::VaultKeySuperseded => "vault_key_superseded",
+            Self::VaultEntryCreated => "vault_entry_created",
+            Self::VaultShared => "vault_shared",
+            Self::VaultShareRevoked => "vault_share_revoked",
+            Self::VaultEntryDeleted => "vault_entry_deleted",
+            Self::VaultRecoveryUsed => "vault_recovery_used",
+            Self::VaultModeChanged => "vault_mode_changed",
+            Self::VaultRead => "vault_read",
+            Self::VaultBreachPolicySet => "vault_breach_policy_set",
             // ADR-0055 stream (c)
             Self::ConsolePlacementRequested => "console_placement_requested",
             Self::ConsolePlacementConfirmed => "console_placement_confirmed",
@@ -642,6 +701,17 @@ impl EntryType {
             "firmware_models_changed" => Some(Self::FirmwareModelsChanged),
             "invitation_issued" => Some(Self::InvitationIssued),
             "invitation_closed" => Some(Self::InvitationClosed),
+            "type_it_yourself_set" => Some(Self::TypeItYourselfSet),
+            "vault_key_enrolled" => Some(Self::VaultKeyEnrolled),
+            "vault_key_superseded" => Some(Self::VaultKeySuperseded),
+            "vault_entry_created" => Some(Self::VaultEntryCreated),
+            "vault_shared" => Some(Self::VaultShared),
+            "vault_share_revoked" => Some(Self::VaultShareRevoked),
+            "vault_entry_deleted" => Some(Self::VaultEntryDeleted),
+            "vault_recovery_used" => Some(Self::VaultRecoveryUsed),
+            "vault_mode_changed" => Some(Self::VaultModeChanged),
+            "vault_read" => Some(Self::VaultRead),
+            "vault_breach_policy_set" => Some(Self::VaultBreachPolicySet),
             // ADR-0055 stream (c)
             "console_placement_requested" => Some(Self::ConsolePlacementRequested),
             "console_placement_confirmed" => Some(Self::ConsolePlacementConfirmed),
@@ -710,7 +780,7 @@ impl EntryType {
             | Self::ConsolePlacementRequested
             | Self::ConsolePlacementConfirmed
             | Self::ConsolePlacementReverted => &[ChainKind::Site],
-            // ADR-0072 (`0043` §F).
+            // ADR-0072 (`0045` §F).
             Self::AiSwitchChanged => &[ChainKind::Site],
             Self::AiPolicyChanged
             | Self::AiKeyMade
@@ -731,7 +801,18 @@ impl EntryType {
             | Self::FirmwareFetchRedeemed
             | Self::FirmwareModelsChanged
             | Self::InvitationIssued
-            | Self::InvitationClosed => &[ChainKind::Org],
+            | Self::InvitationClosed
+            | Self::TypeItYourselfSet
+            | Self::VaultKeyEnrolled
+            | Self::VaultKeySuperseded
+            | Self::VaultEntryCreated
+            | Self::VaultShared
+            | Self::VaultShareRevoked
+            | Self::VaultEntryDeleted
+            | Self::VaultRecoveryUsed
+            | Self::VaultModeChanged
+            | Self::VaultRead
+            | Self::VaultBreachPolicySet => &[ChainKind::Org],
             // **Two types are filed on two kinds.** `rewrap` because the master key
             // is deployment-wide (§7.2). `grant_suspended` because §1.1 gives the
             // operator plane this one authority-adjacent verb: the organisation

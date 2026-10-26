@@ -26,6 +26,11 @@
 #   flags read from `gh attestation verify --help`, gh 2.89.0, 2026-10-25.
 # - A tag name Docker would not accept as an image tag.
 #
+# Since 2026-10-25 there are two images per commit, the server and the backup
+# service (ADR-0070), and a release names both: `FATHOM_TAG` picks the tag of
+# each, so naming only one would leave a pinned host unable to pull the other.
+# One matrix leg per image; each leg refuses on its own terms.
+#
 # Actions are pinned to the same commit SHAs as publish.yml, for the reason
 # given there.
 name: release
@@ -39,9 +44,6 @@ permissions:
   packages: write      # add the release tag to the existing image
   attestations: read   # verify the provenance publish.yml attached
 
-env:
-  SERVER_IMAGE: ghcr.io/keyxmakerx/fathom-server
-
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -49,6 +51,16 @@ concurrency:
 jobs:
   promote:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: ghcr.io/keyxmakerx/fathom-server
+            digest_var: FATHOM_DIGEST
+          - image: ghcr.io/keyxmakerx/fathom-backup
+            digest_var: FATHOM_BACKUP_DIGEST
+    env:
+      IMAGE: ${{ matrix.image }}
     steps:
       - name: Set up buildx (for imagetools)
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
@@ -69,8 +81,8 @@ jobs:
           if ! printf '%s' "$TAG" | grep -Eq '^v[A-Za-z0-9_.-]{1,127}$'; then
             echo "::error::'$TAG' is not a usable image tag"; exit 1
           fi
-          if ! out=$(docker buildx imagetools inspect "${SERVER_IMAGE}:sha-${GITHUB_SHA}" 2>&1); then
-            echo "::error::No ${SERVER_IMAGE}:sha-${GITHUB_SHA}. Main has not published this commit; tag a commit after its publish run is green."
+          if ! out=$(docker buildx imagetools inspect "${IMAGE}:sha-${GITHUB_SHA}" 2>&1); then
+            echo "::error::No ${IMAGE}:sha-${GITHUB_SHA}. Main has not published this commit; tag a commit after its publish run is green."
             echo "$out"; exit 1
           fi
           digest=$(printf '%s\n' "$out" | awk '$1 == "Digest:" { print $2; exit }')
@@ -85,7 +97,7 @@ jobs:
           DIGEST: ${{ steps.resolve.outputs.digest }}
         run: |
           set -euo pipefail
-          gh attestation verify "oci://${SERVER_IMAGE}@${DIGEST}" \
+          gh attestation verify "oci://${IMAGE}@${DIGEST}" \
             --repo "${GITHUB_REPOSITORY}" \
             --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/publish.yml" \
             --source-digest "${GITHUB_SHA}" \
@@ -98,8 +110,8 @@ jobs:
           DIGEST: ${{ steps.resolve.outputs.digest }}
         run: |
           set -euo pipefail
-          docker buildx imagetools create --tag "${SERVER_IMAGE}:${TAG}" "${SERVER_IMAGE}@${DIGEST}"
-          got=$(docker buildx imagetools inspect "${SERVER_IMAGE}:${TAG}" | awk '$1 == "Digest:" { print $2; exit }')
+          docker buildx imagetools create --tag "${IMAGE}:${TAG}" "${IMAGE}@${DIGEST}"
+          got=$(docker buildx imagetools inspect "${IMAGE}:${TAG}" | awk '$1 == "Digest:" { print $2; exit }')
           if [ "$got" != "$DIGEST" ]; then
             echo "::error::${TAG} resolves to ${got}, not ${DIGEST}"; exit 1
           fi
@@ -114,7 +126,7 @@ jobs:
             echo "### Released ${TAG}"
             echo
             echo '```'
-            echo "image   ${SERVER_IMAGE}:${TAG}@${DIGEST}"
+            echo "image   ${IMAGE}:${TAG}@${DIGEST}"
             echo "commit  ${GITHUB_SHA}"
             echo '```'
             echo
@@ -122,6 +134,6 @@ jobs:
             echo
             echo '```'
             echo "FATHOM_TAG=${TAG}"
-            echo "FATHOM_DIGEST=${DIGEST}"
+            echo "${{ matrix.digest_var }}=${DIGEST}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

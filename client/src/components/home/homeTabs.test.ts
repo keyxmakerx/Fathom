@@ -16,8 +16,14 @@ describe('homeTabs', () => {
     expect(homeTabs({ organisationAdmin: true, admin: true })).toEqual(['designs', 'organisation', 'admin']);
   });
 
+  it("gives a member who is not an admin their own Passwords; an admin finds theirs under Organisation", () => {
+    expect(homeTabs({ organisationAdmin: false, admin: false, member: true })).toEqual(['designs', 'passwords']);
+    expect(homeTabs({ organisationAdmin: false, admin: true, member: true })).toEqual(['designs', 'passwords', 'admin']);
+    expect(homeTabs({ organisationAdmin: true, admin: false, member: true })).toEqual(['designs', 'organisation']);
+  });
+
   it('gives someone who joined from an invitation and still waits no tabs to choose between', () => {
-    expect(homeTabs({ organisationAdmin: true, admin: true, waitingInvitee: true })).toEqual(['designs']);
+    expect(homeTabs({ organisationAdmin: true, admin: true, waitingInvitee: true, member: true })).toEqual(['designs']);
     expect(homeTabs({ organisationAdmin: false, admin: true, waitingInvitee: false })).toEqual(['designs', 'admin']);
   });
 });

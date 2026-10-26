@@ -387,7 +387,7 @@ async function main() {
       }
       const nextVersion = entry.version + 1;
       const nextBytes = requestBody.slice(4);
-      designs.set(versionsMatch[1], { version: nextVersion, bytes: nextBytes });
+      designs.set(versionsMatch[1], { ...entry, version: nextVersion, bytes: nextBytes });
       if (versionsMatch[1] === DESIGN_ID) log.push({ bytes: nextBytes, atUnix: Math.floor(Date.now() / 1000), actor: ME });
       window.__saveCount__ += 1;
       if (verifyEngine) {

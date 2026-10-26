@@ -325,6 +325,26 @@ jobs:
           fi
           cat err.txt
           rm -f err.txt
+      # ADR-0070. One backup and one restore test now, rather than waiting for
+      # the night: the dump is taken as the superuser (43 tables FORCE row
+      # security), sealed, and restored into a throwaway database. Then a keys
+      # file is made, and the data file is opened with it and its phrase.
+      - name: A backup is made and restores
+        run: |
+          set -euo pipefail
+          docker compose exec -T backup backup-loop.sh once
+          docker compose exec -T backup backup-loop.sh test
+          docker compose exec -T backup cat /var/lib/fathom/backups/status | tee status.txt
+          grep -qx "last_result ok" status.txt
+          grep -qx "last_test_result ok" status.txt
+          docker compose run --rm -T backup-keys > keys.fkeys 2> phrase.txt
+          phrase=$(grep -Eo '[A-Z2-7]{4}(-[A-Z2-7]{4}){3}(-[A-Z2-7]{5}){2}' phrase.txt | head -1)
+          test -n "$phrase"
+          file=$(awk '$1 == "last_backup_file" { print $2 }' status.txt)
+          docker compose cp "backup:/var/lib/fathom/backups/$file" ./latest.fdata
+          docker compose run --rm -T -v "$PWD:/w:ro" -e FATHOM_RECOVERY_PHRASE="$phrase" \
+            --entrypoint fathom-server backup restore /w/latest.fdata --keys /w/keys.fkeys --check
+          rm -f keys.fkeys phrase.txt latest.fdata status.txt
       # A password nobody can use is not a way in. This speaks the browser
       # client's own bytes with Node's WebCrypto and no dependency: redeem the
       # setup password, sign in as the operator it names, and read the
@@ -332,15 +352,17 @@ jobs:
       # stopped at "the file exists", and a client that could not redeem it
       # passed.
       - name: The setup password gets the first operator in over HTTP
+        env:
+          FATHOM_CI_EXPECT_BACKUP: "1"
         run: node scripts/ci/first-operator-signin.mjs http://localhost:8080
       - name: A restart keeps its keys
         run: |
           before=$(docker compose logs --no-log-prefix keys-init | grep -c "generated")
-          test "$before" -eq 5 || { echo "expected five secrets generated at first start, saw $before"; exit 1; }
+          test "$before" -eq 7 || { echo "expected seven secrets generated at first start (backup.key and vault.key since 2026-10-25), saw $before"; exit 1; }
           docker compose restart server
           docker compose up --detach --wait --wait-timeout 120
           after=$(docker compose logs --no-log-prefix keys-init | grep -c "generated")
-          test "$after" -eq 5 || { echo "a restart regenerated a secret: $after generated lines"; exit 1; }
+          test "$after" -eq 7 || { echo "a restart regenerated a secret: $after generated lines"; exit 1; }
           curl -fs http://localhost:8080/health > /dev/null
       - name: Logs, on failure
         if: failure()

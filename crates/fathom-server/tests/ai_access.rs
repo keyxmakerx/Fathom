@@ -355,6 +355,9 @@ async fn app_with(
         sessions,
         watch,
         ring,
+        fathom_key: Arc::new(fathom_server::vault_fathom::FathomKey::from_key(
+            fathom_server::crypto::Key32::from_bytes([77; 32]),
+        )),
         catalogue: Arc::new(Vec::new()),
         explainers: Arc::new(
             design_api::load_explainers(&repo_root()).expect("load the real corpus explainers"),
@@ -417,7 +420,7 @@ fn a_payload(seed: u128) -> Vec<u8> {
     fathom_workspace::write_plain(&g).expect("a graph this crate built must write")
 }
 
-const CURRENT_SCHEMA_WIRE_VERSION: u32 = 26;
+const CURRENT_SCHEMA_WIRE_VERSION: u32 = 27;
 
 fn save_body(payload: &[u8]) -> Vec<u8> {
     let mut out = CURRENT_SCHEMA_WIRE_VERSION.to_le_bytes().to_vec();
@@ -1465,7 +1468,7 @@ async fn a_key_row_widened_in_the_database_is_refused_not_obeyed() {
     assert!(!text(&body).contains("blanking plate"));
 }
 
-/// The database's own refusals (`0043`): a key's identity never changes, a stopped key
+/// The database's own refusals (`0045`): a key's identity never changes, a stopped key
 /// stays stopped, its end never moves later, and nothing is deleted.
 #[tokio::test]
 async fn the_database_refuses_the_moves_a_key_may_never_make() {

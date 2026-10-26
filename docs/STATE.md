@@ -116,7 +116,30 @@ makes it irrelevant.
 protects the database, backups and disk, not the running process. `tests/no_key_protected_data.rs`
 requires every table to declare whether it holds key-protected material and under which key, and a
 marker written through the real write path must appear in no column of any table (a positive control
-proves the sweep can find one). The credential vault is not built.
+proves the sweep can find one). It walks every non-system schema, and the schemas must be exactly
+`public` and `vault`.
+
+**The password vault, part one** (ADR-0071): device logins sealed in the browser (ADR-0042 Mode A),
+in the `vault` schema (`crates/fathom-server/src/vault.rs`, `client/src/vault/`,
+`client/src/components/vault/`). Emergency Kit and passphrase (Argon2id in the engine), a recovery
+sheet held by every login and logged on use, holder lists signed by the sharer, the Logins tab,
+Inventory › Passwords, Home or Organisation › Passwords, and the lock badge on the avatar.
+`scripts/drive-vault.mjs` drives three people's own browsers against the real server and sweeps a
+superuser `pg_dump` for every password, note, name, passphrase and recovery code.
+
+**Part two, logins Fathom itself can use** (Mode B, migration `0043_vault_fathom.sql`,
+`crates/fathom-server/src/vault_fathom.rs`): the owner signs a consent over the login's fresh
+epoch, a second admin countersigns when it is shared, the server seals its copy under `vault.key`,
+and `vault_fathom::use_login` opens it only for a marked device, writing `vault_read` to the
+organisation's history first. The card and table say "Fathom can use it" or "Waiting for an
+admin" and how often Fathom used it. 
+
+**Part three, breach checks** (migration `0044_vault_breach.sql`, `src/vault_breach.rs`,
+`client/src/vault/breach.ts`): the policy at three levels (a login marked critical, a kind of
+login, the organisation), the check in a holder's browser against the Have I Been Pwned range API
+with five hash characters and padding, paced, at unlock and at save, and the "Breach list" column.
+**Not built yet:** external vaults, and the chain verifier's check that a `vault_read` names a
+login then in Mode B.
 
 **Tenant isolation holds at two layers:** an application filter in every repository function, and
 PostgreSQL row-level security driven by a transaction-local setting (never session-level: a pooled
@@ -227,7 +250,7 @@ breadcrumb does one thing.
   `corpus/samples/home-lab.json` (11 devices, 12 cables, VLANs 10 and 30) with the editor's own commands and saves
   it as the person's own design. A model the catalogue lacks is drawn as a sketch with the same port labels.
   Getting started (Home's right panel) ticks itself per account in this browser; a sample's own devices and
-  cables do not count. Hidden, it lives under Help. Not built: the guided lessons, and tracing from a device on
+  cables do not count. Hidden, it lives under Help. Not built: tracing from a device on
   a wall, desk or shelf (the menu offers it on racked devices only). `scripts/drive-sample.mjs` drives it.
 - **Explainers in the app** (ADR-0066 item 1.1). `GET /learn/explainers` serves every entry in
   `corpus/explainers/` (loaded once at startup with the rest of the corpus). A device whose `Device.platform`
@@ -238,8 +261,27 @@ breadcrumb does one thing.
   r4-teach Learn switch) writes up to five dashed notes on the Diagram look, one per idea (the first
   firewall, router and switch by role, the first trunk and access link with their VLANs), from the
   `learn note` entries in `corpus/explainers/network-basics.yaml`; each opens its explainer. Like the other
-  Show layers it draws on the Diagram look only. Not built: faceplate brackets for port roles, lessons,
-  explainers for Cisco and MikroTik. `scripts/drive-learn.mjs` drives it.
+  Show layers it draws on the Diagram look only. Glossary words with a basics explainer (VLAN, trunk, access
+  port, zone) offer Learn more. Not built: faceplate brackets for port roles, explainers for Cisco and
+  MikroTik. `scripts/drive-learn.mjs` drives it.
+- **Guided lessons** (ADR-0066 item 1.3, round 10 lessons B). Home lists the lessons in `corpus/lessons/`
+  (VLANs, single points of failure, firewall policy order); Start builds a fresh copy of
+  `corpus/samples/small-office.json` (its SRX config pasted through the redaction gate) as the person's own
+  design and opens it with the lesson panel beside the canvas (on the right in Inventory). Steps are Read,
+  Click the answer, Trace (opens the trace on the canvas) and Change it and watch (Checks), each checked by
+  the page's own engine, never marked by hand; progress is per account in this browser, and Continue reopens
+  the copy. `client/src/engine/lessons.test.ts` holds every lesson to its sample; `scripts/drive-lessons.mjs`
+  drives two lessons through. Inventory's Add network now joins a port that already has an interface
+  through that interface, so a port can be moved from one VLAN to another by hand. Not built: the Run
+  Ansible step.
+- **Lesson builder** (ADR-0066 §2, schema 0.27). On a design of one's own, the search bar's Build a lesson
+  opens a panel that writes a `Lesson` with ordered `LessonStep`s into the design: Read, Click the answer
+  (from the canvas selection), Trace (ends from the selection, the expectation recorded from a trace run
+  now) and Change it and watch (a Checks rule that should fire or clear). Steps move, edit and go; each
+  says what it still needs. Publish writes a frozen copy named `Lesson: <title>` in the same folder; Home
+  lists it under Lessons as Written here, and Start copies it again as `Practice: <title>` with the runner
+  open. Lesson text is in the server's credential check. `client/src/engine/lessons.test.ts` runs a written
+  lesson in its published copy; `scripts/drive-lesson-builder.mjs` writes, publishes and finishes one.
 - **Inventory table with pages and shared custom fields** (schema 0.16, ADR-0062). Field definitions are an organisation-wide server store (migration 0035); a value is a `FieldValue` node in the design. Private fields are not built.
 - **IP and VLAN tables, file importer** (ADR-0067): Inventory Prefix and VLAN kinds derived from the drawing, and one importer (CSV, NetBox, Proxmox, nmap).
 - **Suggestions from what a switch knows** (ADR-0046: suggestions, never facts; one undo step; the pasted text is never kept). A neighbour list (`show lldp neighbors` on Junos, Cisco, Arista; `lldpcli show neighbors`; Cisco `show cdp neighbors` and its `detail` form) suggests cables between drawn ports (`document/neighbours.ts`, round 15). A MAC table (`show mac address-table` on Cisco IOS and NX-OS, `show ethernet-switching table` on Junos non-ELS), with an optional ARP table (`show ip arp`, Junos `show arp`, `ip neigh`) or DHCP leases (ISC `dhcpd.leases`, `dnsmasq.leases`, Kea `kea-leases4.csv`) for addresses and names, suggests who is plugged in where: a port that learned one MAC is cabled to a drawn port carrying that MAC, or gets a new sketch device with that MAC and address; a port with several is left (`document/hosts.ts`, round 29, card r29-fill). A device's own report (`show version` on Junos, Cisco IOS and Arista; Cisco `show inventory`; Junos `show chassis hardware`) offers its serial and running version (`Device.os_version`) where the drawing has none, a difference unticked, and only says the model and hostname (`document/facts.ts`). Paste any of these onto the canvas, or right-click a switch. Not read: the Junos ELS table form. `scripts/drive-suggest.mjs` and `scripts/drive-hosts.mjs` drive them.
@@ -287,6 +329,11 @@ breadcrumb does one thing.
   ports, one undo step, and keeps it in this browser under **Your models** at the top of the list.
   A side or top port draws in neither rack elevation; the opened device shows every face, captioned.
   Not built: PoE marking (no schema field), a model kept on the server for the whole organisation.
+- **Swap a device's model, keep its ports** (sign-off r28-swap, defaults pending the owner's pick).
+  "Swap model…" on a device's Details tab (`document/swapModel.ts`) keeps the device and every port the
+  new model has by name, same face first; a kept port keeps its cable, tie and notes. A port the new
+  model lacks goes and its cable stays as a loose end in Missing links. The serial is cleared; in a rack
+  the box keeps its bottom unit or refuses. Also gives a hand-typed box a catalogue model. One undo step.
 - **Right-click menus:** device (Details, Duplicate, Remove, Open, Inside, Paste config), rack (Details,
   Add a device), cable (Details, Disconnect), empty canvas (42U, 24U, 12U rack, wall). A reader gets Details.
 - **Open a device, paste a config anywhere** (ADR-0060 step 8). Right-click Open or double-click enters
@@ -355,6 +402,15 @@ device fetches its image with a one-time link. The fetch step and the image page
 and **From Linux**: the same job by hand: over SSH (hash on the computer, `scp -O`, or for EOS the switch pulling
 from you), on a USB stick, or by TFTP with a warning, each where the vendor documents it and each step
 with its source (`firmware_by_hand.rs`). Fathom link is the default. On in compose once `FATHOM_FIRMWARE_FETCH_BASE_URL` is set.
+
+**Type it yourself** (sign-off card r30-nocopy; migration 0041, `teaching.rs`, `components/typing/`). A
+teaching setting per person per organisation. While it is on, commands are shown to be typed: no copy
+button on them, the text not selectable, each command in labelled parts (command, word, option, path,
+file, value, link). Links and hashes still copy. A steward sets it either way on the person's page; a person
+turns it on for themselves under Your account, and only a steward turns it off. Read with `GET
+/organisations`, set with `POST /organisations/{o}/people/{account}/type-it-yourself`, each change sealed on
+the organisation chain as `type_it_yourself_set`. It covers the firmware link box, by-hand steps and plan
+step commands. It is a teaching aid, not a control: the page's text can still be read another way.
 
 **View sharing** (ADR-0061 round 9, #102). A steward's **Share** button in the bar opens a panel with
 PERSON / CAN rows: **View** (see everything, change nothing) or **Draw**. Only people already in the
@@ -445,7 +501,7 @@ sits on (`Occupies`). The person makes every tie; Fathom suggests only from a ci
 card opens after a paste onto a drawn device and from a trace or "It's down" stop that reads "not tied to a
 port"; it offers jacks only, and shows and unties ties.
 
-**AI access** (ADR-0072; migration 0043; `src/ai.rs`, `src/oauth.rs`, `src/mcp.rs`, `components/ai/`). A
+**AI access** (ADR-0072; migration 0045; `src/ai.rs`, `src/oauth.rs`, `src/mcp.rs`, `components/ai/`). A
 person a Steward names lets an AI app read designs they can read, in one organisation, at the tiers the
 organisation allows (layout; addresses; notes), and send ideas a person accepts or dismisses. Never
 passwords or the vault. Two ways in, one grant row (`ai_keys`, kind `helper` or `connector`) and one set of
@@ -466,6 +522,15 @@ added" rows and marks on the drawing itself.
 **Device panel** (r14 A1, A2): Details, Ports and Notes tabs, actions at the foot (Duplicate the main one,
 Remove device in red). Inventory's toolbar has a role filter, written into the filter line as `role:...`.
 
+**Backups** (ADR-0070). Two files: a data file (the `pg_dump -Fc` archive and staged firmware,
+sealed under `backup.key` in 1 MiB ChaCha20-Poly1305 chunks) and a keys file (the key volume, sealed
+under a 26-character recovery phrase through Argon2id). `fathom-server backup`, `keys-file`,
+`restore` (`--out` or `--check`) and `dump-from`; each file carries key ids, so a wrong keys file is
+named before the phrase is asked for. In compose, a `backup` service makes one nightly (keep 14) and
+tests a restore weekly; `backup-keys` makes the keys file by hand; the `offsite` profile copies data
+files to S3-compatible storage with a pinned rclone. Admin › Settings › Backups shows the state, and
+failures, staleness and an out-of-date keys file reach the console banner.
+
 **Carried**
 - The dependency-vulnerability gate needs egress to the advisory database (`scripts/osv-gate.sh`); the
   v0.1 tag waits on that run.
@@ -485,8 +550,6 @@ Remove device in red). Inventory's toolbar has a role filter, written into the f
 - Wire shapes have no cross-language vector yet.
 - Unbuilt: saved filters and grids for racks, cables and ports; unreachable-policy hatching; the
   assistant panel; optics (ADR-0047 §5); a Proxmox dictionary.
-- Rough edges: the drawer tags every built line; no confirmation pulse after a paste; the opened
-  occupant can sit under the editor.
 - The old Rust-assembled HTML client is retired, on disk under `crates/fathom-artifact/`, not served.
 
 ---
@@ -505,9 +568,11 @@ network live (everything today comes from pasted text).
 **Compose, run end to end by CI.** `docker compose up -d` from the root with one variable in `.env`
 (`docs/RUNNING-IT.md`) pulls the image `publish.yml` pushes to GHCR on every merge to `main`
 (`deploy/Dockerfile`'s `server` stage, `ghcr.io/keyxmakerx/fathom-server`); `--build` builds the same
-stage. The file is self-contained. A one-shot `keys-init` container generates the two root keys and
-three database passwords into the `keys` volume. CI's `compose` job checks health and the client on
-the published port, reads the first-operator token, and proves a restart keeps its keys.
+stage. The file is self-contained. A one-shot `keys-init` container generates the three root keys
+(master, chain, backup) and three database passwords into the `keys` volume. CI's `compose` job
+checks health and the client on the published port, signs the first operator in, proves a restart
+keeps its keys, and makes, restore-tests and opens one backup. The backup service's image,
+`ghcr.io/keyxmakerx/fathom-backup`, is published beside the server's.
 
 **The server serves the web client itself** (`crates/fathom-server/src/client.rs`,
 `FATHOM_CLIENT_ROOT`, read into memory once at startup) on the one published port, plain HTTP. HTTPS is

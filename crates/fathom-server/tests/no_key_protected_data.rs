@@ -280,6 +280,12 @@ const TABLES: &[TableClaim] = &[
               creator and an archived flag, none of which names a field.",
     },
     TableClaim {
+        name: "member_teaching",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "\"type it yourself\" (0041): ids, one boolean, who set it and when. A teaching \
+              setting, not a credential, a payload or a key.",
+    },
+    TableClaim {
         name: "cable_corrections",
         protection: Protection::KeyProtected {
             columns: &["ciphertext"],
@@ -610,7 +616,91 @@ const TABLES: &[TableClaim] = &[
               server's credential check and the browser's redaction gate before it is sealed. \
               `nonce`, `key_epoch` and the other columns are not secret.",
     },
-    // ADR-0072 -- migration `0043_ai_access_keys.sql`.
+    // ---- The password vault (ADR-0042 Mode A, ADR-0071) -- `0042_vault.sql` --
+    //
+    // Its own schema, `vault`, so the operator plane's grants on `public` never reach it and a
+    // schema-wide grant written later for `public` cannot either. Names carry the schema.
+    TableClaim {
+        name: "vault.keys",
+        protection: Protection::KeyProtected {
+            columns: &["sealed_private"],
+            under: "a key the server never holds: for a person, Argon2id over their passphrase \
+                    and the 128-bit vault key from their Emergency Kit (ADR-0043 §6); for the \
+                    organisation's recovery key, the secret printed on the recovery sheet",
+        },
+        why: "each person's vault public key and the organisation's recovery public key, with \
+              the account-key signatures that vouch for them. Public keys, fingerprints, KDF \
+              parameters and signatures are public by construction; only the sealed private \
+              half is key-protected, and the server cannot open it.",
+    },
+    TableClaim {
+        name: "vault.entries",
+        protection: Protection::KeyProtected {
+            columns: &["meta_ct", "secret_ct"],
+            under: "`meta_ct` under the organisation content key with the entry id in the \
+                    associated data; `secret_ct` under a per-entry key the browser made, which \
+                    the server only ever sees wrapped to recipients' vault keys",
+        },
+        why: "one stored login. The name, kind and which devices use it are sealed metadata; \
+              the password itself is sealed in the browser before it is sent. Owner, version \
+              and timestamps are structure, not secrets.",
+    },
+    TableClaim {
+        name: "vault.wraps",
+        protection: Protection::KeyProtected {
+            columns: &["wrap"],
+            under: "ECDH P-256 to one recipient's vault public key, HKDF-SHA256, AES-256-GCM \
+                    (storage design §13.7); only that recipient's private key opens it",
+        },
+        why: "one recipient's copy of one entry's key. `wrap_digest` is a hash of the wrap the \
+              signed share commits to, not a secret.",
+    },
+    TableClaim {
+        name: "vault.shares",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the signed list of who holds an entry at one epoch: account ids, key fingerprints \
+              and wrap digests, with the sharer's ES256 signature. It must be readable to be \
+              checked, and it names no password.",
+    },
+    TableClaim {
+        name: "vault.recovery_uses",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "a record that an admin opened an entry with the recovery sheet: who, which entry, \
+              when. Written before the wrap is served.",
+    },
+    // ---- Logins Fathom can use (Mode B, ADR-0071 part two) -- `0043_vault_fathom.sql` --
+    TableClaim {
+        name: "vault.fathom_copies",
+        protection: Protection::KeyProtected {
+            columns: &["copy_ct"],
+            under: "a per-organisation key derived (HKDF-SHA256) from `vault.key`, a root key \
+                    file of its own beside `master.key` and `chain.key`; the organisation, \
+                    login, epoch and key id are bound in the associated data",
+        },
+        why: "Fathom's own copy of a login its owner let it use. Only `copy_ct` is the login; \
+              the consent statement, signatures, fingerprints and states are what make the \
+              change auditable and must be readable to be checked.",
+    },
+    TableClaim {
+        name: "vault.fathom_reads",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "a record that Fathom opened a login: which one, for what, on which device, at \
+              whose request. Written, with its chain entry, before the copy is opened.",
+    },
+    // ---- Breach checks (ADR-0071 part three) -- `0044_vault_breach.sql` --
+    TableClaim {
+        name: "vault.breach_policy",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the organisation's breach-check settings: on or off, how often, warn or refuse, per \
+              kind of login. Settings, not secrets; changes are on the organisation's history.",
+    },
+    TableClaim {
+        name: "vault.breach_results",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "whether a holder's browser found a login's password in a breach list, and when. \
+              One bit per login and epoch; the password and its hash never reach the server.",
+    },
+    // ADR-0072 -- migration `0045_ai_access_keys.sql`.
     TableClaim {
         name: "ai_policies",
         protection: Protection::NoKeyProtectedMaterial,
@@ -689,6 +779,10 @@ const TABLES: &[TableClaim] = &[
               sign-in it belongs to, its kind, and when it ends or was spent.",
     },
 ];
+
+/// Schemas a migration may create besides `public`. Each one's tables are named `schema.table`
+/// in [`TABLES`] and are held to the same claims.
+const SCHEMAS: &[&str] = &["vault"];
 
 /// Object kinds a migration may create that are not themselves a place to
 /// store row data: an index accelerates reads of an already-allowed table,
@@ -839,7 +933,7 @@ fn created_objects(sql: &str) -> Vec<(String, String)> {
     let (cleaned, _literals) = strip_string_literals(&strip_comments(sql));
     let cleaned = cleaned.to_ascii_lowercase();
     let words: Vec<&str> = cleaned
-        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
         .filter(|w| !w.is_empty())
         .collect();
 
@@ -911,7 +1005,9 @@ fn the_migrations_create_no_view_sequence_or_other_undeclared_place_to_put_rows(
     for (name, sql) in migration_files() {
         for (kind, ident) in created_objects(&sql) {
             assert!(
-                kind == "table" || NON_STORAGE_KINDS.contains(&kind.as_str()),
+                kind == "table"
+                    || NON_STORAGE_KINDS.contains(&kind.as_str())
+                    || (kind == "schema" && SCHEMAS.contains(&ident.as_str())),
                 "{name} creates a {kind} called `{ident}`, which is neither an allowlisted table \
                  nor one of {NON_STORAGE_KINDS:?}. Anything else is an undeclared place to put \
                  rows."
@@ -930,6 +1026,10 @@ fn the_checker_itself_detects_what_it_is_looking_for() {
         ("create unlogged table Designs (id uuid);", "designs"),
         ("CREATE TABLE IF NOT EXISTS users (id uuid);", "users"),
         ("CREATE\n  TABLE\n  nodes (id uuid);", "nodes"),
+        (
+            "CREATE TABLE IF NOT EXISTS vault.keys (id text);",
+            "vault.keys",
+        ),
     ];
     for (sql, expected) in cases {
         let found = created_objects(sql);
@@ -1009,11 +1109,33 @@ async fn the_real_database_holds_exactly_the_allowed_tables() {
     let client = pool.get().await.expect("connection");
     let rows = client
         .query(
-            "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
+            "SELECT CASE WHEN schemaname = 'public' THEN tablename \
+                    ELSE schemaname || '.' || tablename END \
+               FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema')",
             &[],
         )
         .await
         .expect("list tables");
+    let schemas: BTreeSet<String> = client
+        .query(
+            "SELECT nspname FROM pg_namespace \
+              WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast') \
+                AND nspname NOT LIKE 'pg_temp_%' AND nspname NOT LIKE 'pg_toast_temp_%'",
+            &[],
+        )
+        .await
+        .expect("list schemas")
+        .iter()
+        .map(|r| r.get::<_, String>(0))
+        .collect();
+    let expected_schemas: BTreeSet<String> = std::iter::once("public")
+        .chain(SCHEMAS.iter().copied())
+        .map(String::from)
+        .collect();
+    assert_eq!(
+        schemas, expected_schemas,
+        "the database holds a schema this test was not told about, or lost one"
+    );
     let actual: BTreeSet<String> = rows.iter().map(|r| r.get::<_, String>(0)).collect();
 
     assert_eq!(
@@ -1049,11 +1171,12 @@ async fn every_declared_ciphertext_column_exists_and_is_bytea() {
             table.name
         );
         for column in columns {
+            let (schema, bare) = table.name.split_once('.').unwrap_or(("public", table.name));
             let row = client
                 .query_opt(
                     "SELECT data_type FROM information_schema.columns \
-                     WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2",
-                    &[&table.name, column],
+                     WHERE table_schema = $1 AND table_name = $2 AND column_name = $3",
+                    &[&schema, &bare, column],
                 )
                 .await
                 .expect("read the column's type");
@@ -1176,7 +1299,10 @@ async fn sweep(needle: &str) -> Vec<String> {
 
     let tables: Vec<(String, String)> = client
         .query(
-            "SELECT tablename, quote_ident(tablename) FROM pg_tables WHERE schemaname = 'public'",
+            "SELECT CASE WHEN schemaname = 'public' THEN tablename \
+                    ELSE schemaname || '.' || tablename END, \
+                    quote_ident(schemaname) || '.' || quote_ident(tablename) \
+               FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema')",
             &[],
         )
         .await
@@ -1192,7 +1318,7 @@ async fn sweep(needle: &str) -> Vec<String> {
     let mut hits = Vec::new();
     for (name, quoted) in tables {
         let rows = client
-            .query(&format!("SELECT t::text FROM public.{quoted} t"), &[])
+            .query(&format!("SELECT t::text FROM {quoted} t"), &[])
             .await
             .unwrap_or_else(|e| panic!("sweep {name}: {e}"));
         for row in rows {

@@ -21,8 +21,10 @@ import { canStewardFor } from '../home/capabilities';
 import { FoldersPanel, type Loadable } from './FoldersPanel';
 import { InviteForm, LinkCard } from './InvitePanel';
 import { accessWords, dateTimeLabel } from './model';
+import { setTypeItYourself } from '../../api/organisations';
 import { PeopleList, PersonPage } from './PeoplePanel';
 import { WaitingPanel } from './WaitingPanel';
+import { PasswordsPage } from '../vault/Screens';
 import './organisation.css';
 
 type Page =
@@ -32,6 +34,7 @@ type Page =
   | { kind: 'link'; issued: IssuedInvitation; name: string; access: string; added: boolean; notAddedBecause: string | null }
   | { kind: 'waiting' }
   | { kind: 'folders' }
+  | { kind: 'passwords' }
   | { kind: 'ai' };
 
 export interface OrganisationTabProps {
@@ -137,6 +140,9 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
   };
 
   function content() {
+    if (page.kind === 'passwords') {
+      return <PasswordsPage organisation={org} organisationName={organisation.displayName} mode="admin" />;
+    }
     if (page.kind === 'ai') {
       return (
         <AiPanel
@@ -239,6 +245,17 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
               reload();
             })
           }
+          onSetTyping={(on) =>
+            void act(async () => {
+              await setTypeItYourself(org, person.account, on);
+              setNotice(
+                on
+                  ? `On. Commands are shown to ${person.name} to be typed. It is in the organisation’s history.`
+                  : `Off. ${person.name} gets copy buttons on commands again. It is in the organisation’s history.`,
+              );
+              reload();
+            })
+          }
           onGive={(capability, scopeId) =>
             void act(async () => {
               await shareWith(org, scopeId, person.account, capability);
@@ -277,6 +294,11 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
         <button type="button" className={current === 'folders' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} aria-current={current === 'folders' ? 'page' : undefined} onClick={() => go({ kind: 'folders' })}>
           Folders
         </button>
+        {!aiOnly && (
+        <button type="button" className={current === 'passwords' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} data-testid="rail-passwords" aria-current={current === 'passwords' ? 'page' : undefined} onClick={() => go({ kind: 'passwords' })}>
+          Passwords
+        </button>
+        )}
         <button type="button" className={current === 'ai' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} data-testid="rail-ai" aria-current={current === 'ai' ? 'page' : undefined} onClick={() => go({ kind: 'ai' })}>
           AI
         </button>

@@ -31,3 +31,13 @@ describe('glossPieces', () => {
     for (const e of GLOSSARY) expect(e.definition.length).toBeLessThan(320);
   });
 });
+
+const explainerFiles = import.meta.glob('../../../../corpus/explainers/*.yaml', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
+const explainerIds = new Set(Object.values(explainerFiles).flatMap((text) => [...text.matchAll(/^- id: (\S+)$/gm)].map((m) => m[1])));
+
+describe('Learn more from the glossary', () => {
+  it('names only explainers that exist, and the basics words have one', () => {
+    for (const e of GLOSSARY) if (e.explainer !== undefined) expect(explainerIds, e.term).toContain(e.explainer);
+    for (const term of ['vlan', 'trunk', 'access port', 'zone']) expect(GLOSSARY.find((e) => e.term === term)?.explainer, term).toBeDefined();
+  });
+});

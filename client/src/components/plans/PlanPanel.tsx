@@ -10,14 +10,18 @@ import { Touches, TypedSentence, WhySlot, usePasteMark } from './PlanParts';
 import { FirmwarePlanExtras, StepCopy, UpgradeLinkScope } from '../firmware/PlanExtras';
 import { OUTCOME_WORD, firstLine, outcomeSentence, progress, secondLine, stepHead, stepIsLive, touchedDevices } from './plansModel';
 import type { PlansController } from './usePlansController';
+import { useTypeItYourself } from '../typing/typeItYourself';
+import '../typing/typing.css';
 import './plans.css';
 import { InSlot } from '../shell/sideSlot';
 
 /** Words under a step: before → after, as typed. */
 function BeforeAfter({ step }: { step: PlanStep }) {
+  // "Type it yourself": the words are a command to learn, so they are not selectable.
+  const typing = useTypeItYourself();
   if (step.before === '' && step.after === '') return null;
   return (
-    <p className="plans-step__change">
+    <p className={`plans-step__change${typing ? ' type-noselect' : ''}`}>
       {step.before !== '' && <span className="plans-mono">{step.before}</span>}
       {step.before !== '' && step.after !== '' && <span aria-label="becomes"> → </span>}
       {step.after !== '' && <span className="plans-mono">{step.after}</span>}

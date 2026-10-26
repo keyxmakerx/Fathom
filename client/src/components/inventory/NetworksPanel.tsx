@@ -34,6 +34,7 @@ import {
   NetworkRefusalError,
   addSubnet,
   addVlan,
+  attachTargetForPort,
   detachAddress,
   detachVlanMember,
   removeSubnetNetwork,
@@ -401,7 +402,7 @@ function AddNetworkEditor(props: { doc: Document; applyDocChange: (next: Documen
       } else if (form.kind === 'vlan') {
         const vlanId = Number(form.vlanIdText);
         if (used.length === 0) throw new Error('attach at least one interface, or choose "on" with no port for a bare VLAN');
-        const target = (r: AttachRow): NetworkAttachTarget => ({ kind: 'port', portId: r.portId, interfaceName: r.interfaceName || r.portId });
+        const target = (r: AttachRow): NetworkAttachTarget => attachTargetForPort(doc, r.portId, r.interfaceName || r.portId);
         const next = addVlan(
           doc,
           {
@@ -421,7 +422,7 @@ function AddNetworkEditor(props: { doc: Document; applyDocChange: (next: Documen
           {
             prefix: form.subnetText,
             attach: used.map((r) => ({
-              target: { kind: 'port', portId: r.portId, interfaceName: r.interfaceName || r.portId },
+              target: attachTargetForPort(doc, r.portId, r.interfaceName || r.portId),
               address: r.addressText,
               name: form.name || undefined,
             })),

@@ -106,6 +106,7 @@ question was not in the register. *R* is the reversal cost from `73` §1.2 — R
 | **[0067](adr-0067-prefixes-vlans-and-the-importer.md)** | Prefixes and VLANs in Inventory; one file importer (was 0063) | Accepted |  |  |
 | **[0068](adr-0068-work-account-sign-offs-rounds-16-to-25.md)** | Sign-off rounds 16 to 27: corporate mapping, circuits, Admin (was 0065) | Accepted |  |  |
 | **[0069](adr-0069-practice-space-and-practice-lab.md)** | A practice space for the operator, and a practice lab | Accepted |  |  |
+| **[0070](adr-0070-backups-a-data-file-and-a-keys-file.md)** | Backups: a sealed data file and a separate keys file | Accepted |  |  |
 
 ## What is not reopened
 

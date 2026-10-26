@@ -1,0 +1,95 @@
+{
+  "id": "vlans",
+  "title": "VLANs: why the camera can't see the NAS",
+  "summary": "Two networks on one switch, what keeps them apart, and what joins them.",
+  "sample": "small-office",
+  "sources": [
+    {
+      "claim": "A VLAN splits one physical LAN into separate broadcast domains, and devices in different VLANs need a router to reach each other.",
+      "cite": "Juniper Networks, Understanding Bridging and VLANs on Switches (page dated 24 March 2025)",
+      "url": "https://www.juniper.net/documentation/en_US/junos/topics/topic-map/bridging-and-vlans.html",
+      "read_on": "2026-10-25"
+    },
+    {
+      "claim": "On Junos the last security policy is the default policy, which denies all traffic.",
+      "cite": "Juniper Networks, Reordering Security Policies (page dated 13 November 2024)",
+      "url": "https://juniper.net/documentation/en_US/junos/topics/topic-map/security-reordering-policies.html",
+      "read_on": "2026-10-25"
+    }
+  ],
+  "steps": [
+    {
+      "kind": "read",
+      "title": "Two networks on one switch",
+      "body": "In this office the cameras plug into the same switch as the desks and the NAS, switch-1, but they sit in their own VLAN, 30. The desks, the printer, the NAS and the Wi-Fi are in VLAN 10. A VLAN is a separate network inside a switch: its devices only hear each other.",
+      "explainer": "explain:concept:basics.vlan"
+    },
+    {
+      "kind": "trace",
+      "title": "Same VLAN",
+      "prompt": "Trace from camera-1 to camera-2.",
+      "from": {
+        "device": "camera-1"
+      },
+      "to": {
+        "device": "camera-2"
+      },
+      "expect": {
+        "reaches": true,
+        "crosses": [
+          "switch-1"
+        ]
+      },
+      "after": "Both cameras are in VLAN 30, so switch-1 joins them directly. No router or firewall is involved."
+    },
+    {
+      "kind": "trace",
+      "title": "Different VLANs",
+      "prompt": "Now trace from camera-1 to nas-1.",
+      "from": {
+        "device": "camera-1"
+      },
+      "to": {
+        "device": "nas-1"
+      },
+      "expect": {
+        "reaches": true,
+        "crosses": [
+          "switch-1",
+          "fw-1"
+        ]
+      },
+      "after": "This time the path leaves VLAN 30, goes up to fw-1 and comes back down into VLAN 10: devices in different VLANs only meet at a router or firewall. On the fw-1 hop Fathom says no policy from cameras to trust is in the design, so it cannot say what fw-1 does with this traffic. On Junos the last, default policy denies all traffic, which is why the camera can't see the NAS."
+    },
+    {
+      "kind": "click",
+      "title": "What joins them",
+      "prompt": "Click the device that joins VLAN 10 and VLAN 30.",
+      "answer": {
+        "device": "fw-1"
+      },
+      "hint": "Look for the device with a cable into each VLAN and an address in each network.",
+      "after": "fw-1 has an interface in each network, 192.168.10.1 and 192.168.30.1. Traffic between the two VLANs can only cross there, where its policies are read."
+    },
+    {
+      "kind": "change",
+      "title": "Break it on purpose",
+      "prompt": "Make a mistake on purpose. Open Inventory, then Networks, open VLAN 10 and detach switch-2 port 1. Then Add network: a VLAN with id 30, on switch-2, port 1. Save, and watch this step.",
+      "expect": {
+        "rule": "l2.vlan.access-mismatch",
+        "now": "fires"
+      },
+      "after": "Checks warns: the desk run now has VLAN 10 at switch-1 and VLAN 30 at switch-2. A cable between two access ports joins their VLANs, so the desks and the cameras would share one network."
+    },
+    {
+      "kind": "change",
+      "title": "Put it back",
+      "prompt": "Put it back: in VLAN 30 detach switch-2 port 1, then add it to VLAN 10 the same way.",
+      "expect": {
+        "rule": "l2.vlan.access-mismatch",
+        "now": "clears"
+      },
+      "after": "Clear again. A VLAN keeps devices apart on one switch, and only a router or firewall joins two VLANs."
+    }
+  ]
+}

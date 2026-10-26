@@ -243,6 +243,8 @@ pub const FACE_TR_HOP: u8 = 36;
 /// One policy of the hop before it: hop number · display id · ordinal · name · configured action
 /// · `matches`, `doesn't match` or `can't tell` · reason · `placed` or `unplaced`.
 pub const FACE_TR_POL: u8 = 37;
+/// `OP_VAULT_KDF`'s one row: the derived 32 bytes as 64 lowercase hex characters.
+pub const FACE_VAULT_KEY: u8 = 38;
 
 // --- the shape reply (`49` §19 phase 0, item 3) ---
 
@@ -1657,6 +1659,15 @@ pub struct RedactReply<'a> {
     pub capture: &'a str,
     /// [`FACE_DROP`] rows, one per destroyed value, as `PasteReply::drops`.
     pub drops: &'a [[String; 5]],
+}
+
+/// `OP_VAULT_KDF`'s reply: one `FACE_VAULT_KEY` row.
+pub fn encode_vault_key_reply(hex: &str) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+    let rec = face_slots(&mut blob, FACE_VAULT_KEY, 1, &[hex]);
+    write_face_record(&mut records, &rec);
+    face_reply(records, 1, blob)
 }
 
 pub fn encode_redact_reply(reply: &RedactReply<'_>) -> Vec<u8> {

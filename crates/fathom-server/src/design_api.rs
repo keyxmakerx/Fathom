@@ -102,6 +102,7 @@ use crate::repo::{self, DesignId, OrganisationId, ScopeId, TenantContext};
 use crate::sessions::{
     self, PendingRequest, SessionError, SessionStore, SignedRequest, VerifiedSession,
 };
+use crate::teaching;
 
 // ---- State ----
 
@@ -112,6 +113,8 @@ pub struct DesignApiState {
     pub sessions: Arc<SessionStore>,
     pub watch: Arc<EpochWatch>,
     pub ring: Arc<KeyRing>,
+    /// `vault.key`: Fathom's copies of the logins people let it use (ADR-0071 part two).
+    pub fathom_key: Arc<crate::vault_fathom::FathomKey>,
     /// The catalogue, loaded once at startup: read-only reference data, so every
     /// request reads the same `Vec`, not the filesystem. Built by [`load_catalogue`].
     pub catalogue: Arc<Vec<Model>>,
@@ -224,6 +227,10 @@ pub fn router(state: DesignApiState) -> Router {
         )
         .route("/organisations/{organisation}/people", get(people_handler))
         .route(
+            "/organisations/{organisation}/people/{account}/type-it-yourself",
+            post(type_it_yourself_handler),
+        )
+        .route(
             "/organisations/{organisation}/designs/{design}",
             get(open_design_handler),
         )
@@ -302,10 +309,14 @@ pub fn router(state: DesignApiState) -> Router {
             get(catalogue_model_handler),
         )
         .merge(ai_routes::routes())
+        .merge(vault_routes::routes())
         .with_state(state)
 }
 
 mod ai_routes;
+// The password vault's routes (ADR-0071). A child module, so it shares this file's extractor,
+// transaction opening and body helpers without making any of them public.
+mod vault_routes;
 
 // ---- The extractor: `api::Signed`'s pattern, against `DesignApiState` ----
 
@@ -570,6 +581,14 @@ pub enum RouteError {
     Invite(InviteError),
     /// An AI-access act refused (ADR-0072): `ai::AiError::response`.
     Ai(crate::ai::AiError),
+    /// A vault act refused: `vault_routes::vault_error_response`.
+    Vault(crate::vault::VaultError),
+}
+
+impl From<crate::vault::VaultError> for RouteError {
+    fn from(e: crate::vault::VaultError) -> Self {
+        Self::Vault(e)
+    }
 }
 
 impl From<InviteError> for RouteError {
@@ -605,6 +624,7 @@ impl IntoResponse for RouteError {
                 .into_response(),
             Self::Invite(e) => invite_error_response(e),
             Self::Ai(e) => e.response(),
+            Self::Vault(e) => vault_routes::vault_error_response(e),
         }
     }
 }
@@ -999,6 +1019,10 @@ async fn list_organisations_handler(
     let organisations = repo::list_organisations_for_account_in(&tx, account)
         .await
         .map_err(SessionError::from)?;
+    // Read with the list, so the client knows before it draws a command.
+    let typing = teaching::on_for_account(&tx, account)
+        .await
+        .map_err(SessionError::Db)?;
 
     tx.commit().await.map_err(SessionError::Db)?;
 
@@ -1009,6 +1033,10 @@ async fn list_organisations_handler(
             map.insert("organisation_id".to_string(), Json::Str(o.id.to_string()));
             map.insert("display_name".to_string(), Json::Str(o.display_name));
             map.insert("role".to_string(), Json::Str(role.as_str().to_string()));
+            map.insert(
+                "type_it_yourself".to_string(),
+                Json::Bool(typing.contains(&o.id.to_string())),
+            );
             // ADR-0069: a label for Home, never read to decide authority.
             if practice {
                 map.insert("practice".to_string(), Json::Bool(true));
@@ -1962,6 +1990,41 @@ async fn people_handler(
         watch: &state.watch,
     };
     let answer = invitations::people(&tx, &state.ring, &auth).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(json_response(answer))
+}
+
+/// `POST /organisations/{o}/people/{account}/type-it-yourself`: body `{"on": bool}`.
+/// A steward sets it either way for any member; a member may switch it on for
+/// themselves, never off. See [`teaching`]. Answers `{"account",
+/// "type_it_yourself", "changed", "changed_seq"}`.
+async fn type_it_yourself_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, account)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let account: repo::AccountId = account
+        .parse()
+        .map_err(|_| SessionError::Malformed("account id"))?;
+    let mut m = object_body(&signed.body, &["on"])?;
+    let Some(Json::Bool(on)) = m.remove("on") else {
+        return Err(SessionError::Malformed("request body").into());
+    };
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let answer = teaching::set(&tx, &auth, &account.to_string(), on).await?;
     tx.commit().await.map_err(SessionError::Db)?;
     Ok(json_response(answer))
 }

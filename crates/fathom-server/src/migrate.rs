@@ -252,11 +252,34 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0040_practice_spaces.sql",
         sql: include_str!("../migrations/0040_practice_spaces.sql"),
     },
-    // AI access keys: a person's AI reads as them, and recommends (ADR-0072).
+    // "Type it yourself": a teaching setting per member (sign-off card r30-nocopy).
+    Migration {
+        version: 41,
+        name: "0041_type_it_yourself.sql",
+        sql: include_str!("../migrations/0041_type_it_yourself.sql"),
+    },
+    // The password vault, Mode A, in its own schema (ADR-0071).
+    Migration {
+        version: 42,
+        name: "0042_vault.sql",
+        sql: include_str!("../migrations/0042_vault.sql"),
+    },
+    // Logins Fathom itself can use: the vault's Mode B (ADR-0071 part two).
     Migration {
         version: 43,
-        name: "0043_ai_access_keys.sql",
-        sql: include_str!("../migrations/0043_ai_access_keys.sql"),
+        name: "0043_vault_fathom.sql",
+        sql: include_str!("../migrations/0043_vault_fathom.sql"),
+    },
+    Migration {
+        version: 44,
+        name: "0044_vault_breach.sql",
+        sql: include_str!("../migrations/0044_vault_breach.sql"),
+    },
+    // AI access keys: a person's AI reads as them, and recommends (ADR-0072).
+    Migration {
+        version: 45,
+        name: "0045_ai_access_keys.sql",
+        sql: include_str!("../migrations/0045_ai_access_keys.sql"),
     },
 ];
 

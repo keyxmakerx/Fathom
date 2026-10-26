@@ -13,6 +13,8 @@ export interface KeySpec {
   shift?: boolean;
   /** Alt (Option on a Mac) held. Shortcuts that do not name it are not triggered with it held. */
   alt?: boolean;
+  /** Other keys that do the same, such as `=`, the unshifted key `+` shares. */
+  also?: readonly string[];
 }
 
 export interface Shortcut {
@@ -31,6 +33,9 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'print', group: 'Canvas', keys: ['Ctrl', 'P'], what: 'Print or export', spec: { key: 'p', mod: true } },
   { id: 'go-back', group: 'Canvas', keys: ['Alt', 'Left'], what: 'Go back to where you were, like a browser', spec: { key: 'ArrowLeft', alt: true } },
   { id: 'go-forward', group: 'Canvas', keys: ['Alt', 'Right'], what: 'Go forward again', spec: { key: 'ArrowRight', alt: true } },
+  { id: 'zoom-in', group: 'Canvas', keys: ['+'], what: 'Zoom in', spec: { key: '+', also: ['='] } },
+  { id: 'zoom-out', group: 'Canvas', keys: ['-'], what: 'Zoom out', spec: { key: '-', also: ['_'] } },
+  { id: 'zoom-fit', group: 'Canvas', keys: ['Shift', '1'], what: 'Fit the whole design in view', spec: { key: '!' } },
   { id: 'shortcuts', group: 'Canvas', keys: ['?'], what: 'Show this list of shortcuts', spec: { key: '?' } },
 
   { id: 'clear', group: 'Selection', keys: ['Esc'], what: 'Clear the selection or close what is open', spec: { key: 'Escape' } },
@@ -63,10 +68,10 @@ export function matches(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey'
   if (spec === undefined || (spec.alt ?? false) !== event.altKey) return false;
   const mod = event.ctrlKey || event.metaKey;
   if ((spec.mod ?? false) !== mod) return false;
-  // `?` is itself typed with Shift, and a letter's shift is only asked about where it matters (redo).
-  if (spec.key !== '?' && spec.key.length === 1 && (spec.shift ?? false) !== event.shiftKey) return false;
-  if (spec.key.length === 1) return event.key.toLowerCase() === spec.key;
-  return event.key === spec.key;
+  // Shift is asked about only for a letter, where it changes the meaning (redo); `?`, `+` and `!` are
+  // themselves typed with Shift on most keyboards.
+  if (/^[a-z]$/.test(spec.key) && (spec.shift ?? false) !== event.shiftKey) return false;
+  return [spec.key, ...(spec.also ?? [])].some((k) => (k.length === 1 ? event.key.toLowerCase() === k : event.key === k));
 }
 
 /** True while someone is typing, so a shortcut must stay out of the way. */

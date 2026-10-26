@@ -102,6 +102,12 @@ pub struct Config {
     /// designs.
     pub chain_key: KeySource,
 
+    /// Where **`vault.key`** comes from: the root of Fathom's own copies of the logins people
+    /// let it use (the vault's Mode B, ADR-0071). `FATHOM_VAULT_KEY`, default
+    /// `file:///var/lib/fathom/keys/vault.key`, generated at first start like the other two.
+    /// A key of its own, so the database and the master key together still open no login.
+    pub vault_key: KeySource,
+
     /// Where sealed audit entries are shipped. `FATHOM_AUDIT_SYSLOG`, a bare
     /// `host:port`, TCP, RFC 5424.
     ///
@@ -459,6 +465,15 @@ impl Config {
             variable: "FATHOM_CHAIN_KEY",
         })?;
 
+        let vault_key = KeySource::parse(
+            &get("FATHOM_VAULT_KEY")
+                .filter(|v| !v.trim().is_empty())
+                .unwrap_or_else(|| crate::vault_fathom::DEFAULT_VAULT_KEY.to_string()),
+        )
+        .map_err(|_| ConfigError::Unparseable {
+            variable: "FATHOM_VAULT_KEY",
+        })?;
+
         // No default, and absence is not an error: no destination means spool-only. A
         // MALFORMED one is an error, or the server would start, report healthy and ship
         // nothing.
@@ -650,6 +665,7 @@ impl Config {
             schema_root,
             master_key,
             chain_key,
+            vault_key,
             audit_syslog,
             audit_spool_bounds,
             sign_in_limits,

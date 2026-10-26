@@ -4106,8 +4106,10 @@ async fn the_schema_has_exactly_one_column_a_password_can_be_stored_in() {
     let rows = superuser()
         .await
         .query(
-            "SELECT table_name, column_name FROM information_schema.columns \
-              WHERE table_schema = 'public' \
+            "SELECT CASE WHEN table_schema = 'public' THEN table_name \
+                    ELSE table_schema || '.' || table_name END, column_name \
+               FROM information_schema.columns \
+              WHERE table_schema NOT IN ('pg_catalog', 'information_schema') \
                 AND (column_name ILIKE '%password%' OR column_name ILIKE '%passphrase%' \
                      OR column_name ILIKE '%passcode%' OR column_name = 'pin') \
               ORDER BY table_name, column_name",

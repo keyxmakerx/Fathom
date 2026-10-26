@@ -30,7 +30,7 @@ const BASE_URL = `http://127.0.0.1:${PORT}`;
 const DB_NAME = 'fathom_design_burst';
 const RUNTIME_URL = runtimeUrl(DB_NAME);
 const MIGRATE_URL = migrateUrl(DB_NAME);
-const CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const CHROME = process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium';
 const PLAYWRIGHT = '/opt/node22/lib/node_modules/playwright/index.mjs';
 // The setup password the server is started with (ADR-0057).
 const SETUP_PASSWORD = 'amber-kestrel-harbour-0057';

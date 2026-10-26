@@ -21,8 +21,8 @@ use fathom_graph::{
 use fathom_id::Ulid;
 use fathom_ir::generated::ir_types::{
     CaptureField, ChassisField, DeviceField, DocField, DocLinkField, EdgeKind, FirmwareTargetField,
-    MountedInFace, MountedInField, NodeKind, NoteField, PremisesField, RackField,
-    RackUnitNumbering,
+    LessonField, LessonStepField, MountedInFace, MountedInField, NodeKind, NoteField,
+    PremisesField, RackField, RackUnitNumbering,
 };
 use fathom_ir::scalar::Text;
 use fathom_workspace::{
@@ -1023,6 +1023,58 @@ fn a_secret_in_firmware_prose_is_found() {
         DeviceField::FirmwareHold.key(),
         Text("Vendor bug in the chosen release; waiting for the next one".into()),
         prov(985),
+    )
+    .unwrap();
+    g.end_batch().unwrap();
+    assert!(fathom_workspace::find_credential(&g).is_none());
+}
+
+#[test]
+fn a_secret_in_lesson_text_is_found_and_an_honest_lesson_is_not() {
+    let secret = "set security ike policy p pre-shared-key ascii-text $9$Qz7Lx-VYgoJDm5T3";
+    for key in [
+        LessonStepField::Body.key(),
+        LessonStepField::Hint.key(),
+        LessonStepField::After.key(),
+        LessonStepField::Answer.key(),
+    ] {
+        let mut g = base();
+        g.begin_batch(batch_id(74), "lesson").unwrap();
+        let s = g
+            .insert_node(NodeKind::LessonStep, ulid(986), prov(986))
+            .unwrap();
+        g.set_field(s.into(), key, Text(secret.into()), prov(987))
+            .unwrap();
+        g.end_batch().unwrap();
+        assert!(fathom_workspace::find_credential(&g).is_some(), "{key:?}");
+    }
+    let mut g = base();
+    g.begin_batch(batch_id(75), "lesson").unwrap();
+    let l = g
+        .insert_node(NodeKind::Lesson, ulid(988), prov(988))
+        .unwrap();
+    let s = g
+        .insert_node(NodeKind::LessonStep, ulid(989), prov(989))
+        .unwrap();
+    g.set_field(
+        l.into(),
+        LessonField::Title.key(),
+        Text("Why the cameras are on their own VLAN".into()),
+        prov(990),
+    )
+    .unwrap();
+    g.set_field(
+        s.into(),
+        LessonStepField::Body.key(),
+        Text("Run `show security policies` and read them top to bottom.".into()),
+        prov(992),
+    )
+    .unwrap();
+    g.set_field(
+        s.into(),
+        LessonStepField::Answer.key(),
+        Text(format!("{l}")),
+        prov(993),
     )
     .unwrap();
     g.end_batch().unwrap();

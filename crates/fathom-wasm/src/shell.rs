@@ -23,7 +23,7 @@ use crate::{
     OP_CABLE, OP_CHECKS, OP_CHECK_GESTURE, OP_DIAGRAM, OP_DICT, OP_ELEMENT, OP_ELEMENT_REMOVE,
     OP_EQUIPMENT, OP_EQUIP_ADD, OP_EXPORT_PLAIN, OP_FIELD_SET, OP_FINDINGS, OP_INIT, OP_INSIDE,
     OP_INV_ROWS, OP_LINK, OP_LOAD_PLAIN, OP_PASTE, OP_PASTE_INTO, OP_PLACE, OP_PLAN_PREVIEW,
-    OP_QUERY, OP_RACK_ELEVATION, OP_RACK_PLACE, OP_REDACT_TEXT, OP_SYNC, OP_TRACE,
+    OP_QUERY, OP_RACK_ELEVATION, OP_RACK_PLACE, OP_REDACT_TEXT, OP_SYNC, OP_TRACE, OP_VAULT_KDF,
 };
 
 pub struct Shell {
@@ -81,6 +81,7 @@ impl Shell {
             OP_PASTE => self.paste(req),
             OP_PASTE_INTO => self.paste_into(req),
             OP_REDACT_TEXT => self.redact_text(req),
+            OP_VAULT_KDF => crate::vaultkdf::call(req),
             OP_LOAD_PLAIN => self.load_plain(req),
             OP_SYNC => self.sync(req),
             OP_EXPORT_PLAIN => self.export_plain(req),

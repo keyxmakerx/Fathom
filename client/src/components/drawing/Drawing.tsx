@@ -114,6 +114,7 @@ import { buildDrawingNodes, ownerNodeIdForPort } from './buildDrawingNodes';
 import { PEER_DOT_PX, peerMarks } from './peerMarks';
 import { useDrawingNodeCaches } from './useDrawingNodeCaches';
 import { easeOut, glideOptions } from './motion';
+import { panToShow } from './keepInView';
 import { useSettle } from './useSettle';
 import { liveSagPath, markFreshCable } from './cableMotion';
 import { useCameraHub, type CameraHub } from './camera';
@@ -189,6 +190,9 @@ const SHAKE_MS = 220;
 export function shouldFitOnMount(isFirstRun: boolean, selected: Selection | null): boolean {
   return !(isFirstRun && selected?.kind === 'chassis');
 }
+
+/** Room left between an opened shelf box's inset and the pane's edge. */
+const INSET_MARGIN_PX = 24;
 
 /** A dropped fixture's rough height, so it lands below the pointer, not above. */
 const DROP_LIFT_PX = 90;
@@ -1107,10 +1111,24 @@ function DrawingInner({
   );
   const onSelectShelf = useCallback((shelfId: string) => onSelect({ kind: 'shelf', id: shelfId }), [onSelect]);
   // A box on a shelf opens at the faceplate stop by the same continuous camera every other selection moves — never a second, independent jump.
+  // The details panel slides open during that glide and narrows the pane, which left the opened box's
+  // inset under the panel; once both have settled, pan just far enough to bring it back out.
+  const occupantOpenRef = useRef(0);
   const onOpenShelfOccupant = useCallback(
     (occupantId: string, centreX: number, centreY: number) => {
       onSelect({ kind: 'occupant', id: occupantId });
-      void rf.setCenter(centreX, centreY, { zoom: CAMERA_STOPS.faceplate / 100, ...GLIDE });
+      const open = ++occupantOpenRef.current;
+      void rf.setCenter(centreX, centreY, { zoom: CAMERA_STOPS.faceplate / 100, ...GLIDE }).then(() => {
+        requestAnimationFrame(() => {
+          const pane = containerRef.current;
+          const inset = pane?.querySelector('.drawing-shelf__inset');
+          if (open !== occupantOpenRef.current || pane == null || inset == null) return;
+          const dx = panToShow(pane.getBoundingClientRect(), inset.getBoundingClientRect(), INSET_MARGIN_PX);
+          if (dx === 0) return;
+          const v = rf.getViewport();
+          void rf.setViewport({ ...v, x: v.x + dx }, { ...GLIDE });
+        });
+      });
     },
     [onSelect, rf],
   );

@@ -35,6 +35,8 @@ export interface TraceController {
   openFrom(chassisId: string): void;
   /** Opens a whole question at once: from a device to an address or device name, with a flow (may be empty). */
   ask(chassisId: string, to: string, flowText: string): void;
+  /** Opens a trace already filled in: a lesson's trace step asks for one. `from` may be a device or a port. */
+  openWith(from: TraceEnd, to: TraceEnd, flowText: string): void;
   close(): void;
   setQuery(text: string): void;
   pick(end: TraceEnd): void;
@@ -177,6 +179,15 @@ export function useTraceController({ doc, view, boot, mirrorNow }: Deps): TraceC
     [view, doc],
   );
 
+  const openWith = useCallback((start: TraceEnd, end: TraceEnd, flow: string) => {
+    setFrom(start);
+    setTarget(end);
+    setQueryText(end.label);
+    setFlowText(flow);
+    setResult(null);
+    setError('');
+  }, []);
+
   const close = useCallback(() => {
     runRef.current += 1;
     setFrom(null);
@@ -219,6 +230,7 @@ export function useTraceController({ doc, view, boot, mirrorNow }: Deps): TraceC
     pending: from != null && to != null && flow !== null && result == null && error === '',
     openFrom,
     ask,
+    openWith,
     close,
     setQuery,
     pick,

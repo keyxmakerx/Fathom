@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import type { JSX } from 'react';
 
+import { useLearn } from './context';
 import { glossPieces, type GlossaryEntry } from './glossary';
 import './glossary.css';
 
@@ -11,7 +12,10 @@ function trailing(s: string): string {
   return /^[.,;:!?)]+/.exec(s)?.[0] ?? '';
 }
 
+/** `learnMore` opens an explainer; it defaults to the Learn library of the design the card sits in. */
 export function Glossed({ text, learnMore }: { text: string; learnMore?: (explainerId: string) => void }): JSX.Element {
+  const learn = useLearn();
+  learnMore ??= learn?.openExplainer;
   const pieces = useMemo(() => glossPieces(text), [text]);
   const [open, setOpen] = useState<GlossaryEntry | null>(null);
   return (

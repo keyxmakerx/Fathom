@@ -734,6 +734,12 @@
   flex: 1 1 auto;
 }
 
+/* The editor's sticky foot sits on the scroller's very bottom edge, not a padding's height above
+   it with the page showing through underneath. */
+.inv-page__body .drawing-editor__footer {
+  bottom: calc(-1 * var(--s3));
+}
+
 .inv-page__list {
   list-style: none;
   margin: 0;
@@ -2054,8 +2060,12 @@ button.inv-path__host,
 .inv-path__cable button,
 .inv-plug button,
 .inv-rackp button.inv-link,
-.inv-rackp .inv-page__list button {
+.inv-rackp .inv-page__list button,
+.inv-page__list--plug li > button {
   font: inherit;
+  /* A name or a label as typed: base.css capitalises a bare <button>. */
+  text-transform: none;
+  letter-spacing: normal;
   background: none;
   border: none;
   padding: 0;

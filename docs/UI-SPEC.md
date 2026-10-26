@@ -328,16 +328,42 @@ All four are schema additions and do not exist until the schema says so.
   first, as a pasted config does; typed text is marked, not redacted. Notes show in the one editor,
   both places.
 
-## Not yet drawn: vault surfaces
+## The password vault (ADR-0071; mockups r32-vault, look v2)
 
-Designer work from a closed brief, in this page's language, before they are built (storage §13):
-- **The share dialog:** the full sorted recipient set before the authenticator touch, each with a
-  nine-word fingerprint phrase and trust state; the mode marker and its sentence in the same dialog.
-- **The four fingerprint states:** `unpinned` (acknowledge once), `pinned` (quiet), `rotated` (inline,
-  no red, one-click accept), `unexplained` (loud; the recipient is dropped and no wrap is produced; no
-  "proceed anyway"; wording names both explanations).
-- **The mode-change consent screen:** the full statement before the touch, in the register of storage
-  §12.6.
+Built in part one. Pictures from the real-server drive: `reviews/vault/` in the project files.
+- **Logins tab** on a device's right panel, before Notes, with its count ("Logins 1"). Each login is
+  a card: name, kind, "Only people", Show/Hide, Copy (cleared after a while), Change, who holds it
+  and how old it is. "+ Add a login" opens the dialog: name (visible to admins), kind, user name,
+  password with Generate one (20 characters), a note sealed with it, Used on, and who holds it
+  (you and the recovery sheet always; colleagues ticked).
+- **Passwords kind in Inventory**: the same logins as a table (name, used on, who holds it, how
+  Fathom keeps it, changed, breach list).
+- **Home › Passwords** for a member who is not an admin; **Organisation › Passwords** for an admin:
+  every login in the organisation, "Can read" or "Can't read", Remove someone, Delete, and the
+  recovery-sheet card (fingerprint, every use listed, Replace the sheet).
+- **Locked and unlocked.** A strip says "Locked. Passwords show once you unlock." An unlocked
+  vault puts a small lock badge on the avatar; the avatar menu's first rows say "Vault unlocked ·
+  Locks itself in N minutes" and Lock now. Fifteen minutes per tab.
+- **Setup** in four steps: what it is, the Emergency Kit (Download, Copy, Print, and the tick
+  before Continue), the passphrase (12 characters or more, twice), done.
+- **Fingerprints** are 24 characters in four groups of six, not nine words (ADR-0071).
+- **Logins Fathom can use** (part two). The owner's card offers "Let Fathom use it…". The consent
+  screen says what Fathom will do with it and on which devices, then the storage design's sentence
+  word for word ("After this change, Fathom's server can read this credential…") with "Protects a
+  stolen database or backup, not a compromised server.", names anyone else who holds it (so a
+  second admin signs), and needs a tick before the account key signs. The tag on the card and the
+  table's "How Fathom keeps it" read "Only people", "Waiting for an admin", "Fathom can use it" (in
+  the caution colour) or "Fathom's copy is out of date"; a line under it says "Fathom used it N
+  times · last …, for Auto-populate". Another admin sees "Sign as the second admin…"; the owner or
+  any admin sees "Stop Fathom using it…", whose confirm carries the B-to-A sentence.
+
+- **Breach checks** (part three). Organisation › Passwords has a Breach checks card: the
+  organisation's level (Check, how often, warn or refuse) and a row per kind, "Same as the
+  organisation" or "Its own". Each card says "Breach list: Not found · today", "Not checked yet",
+  "Checks off" or "Found in a breach · change it on the device", with Mark critical (owner or admin)
+  and a red "Critical" tag. Saving a breached password shows how many times it was seen and either
+  refuses ("this login is marked critical" or "your organisation refuses those") or asks for "Save
+  it anyway". After an unlock, a note says what was checked and names anything found.
 
 ## Owed to the boards, and two numbers not named
 

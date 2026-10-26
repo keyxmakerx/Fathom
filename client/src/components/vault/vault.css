@@ -1,0 +1,626 @@
+/* The password vault (mockups design r32-vault-*). Square, flat, hairlines, tokens only; the same
+   button and field shapes as firmware.css. */
+
+.vault-page {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s4);
+  overflow: auto;
+}
+
+.vault-page__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+
+.vault-page__title {
+  margin: 0;
+  font-size: var(--t-mast);
+}
+
+.vault-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.vault-muted {
+  color: var(--muted);
+}
+
+.vault-small {
+  color: var(--muted);
+  font-size: var(--t-small);
+  margin: 0;
+}
+
+.vault-error {
+  color: var(--danger);
+  margin: 0;
+}
+
+.vault-caution {
+  color: var(--caution);
+}
+
+.vault-btn {
+  box-sizing: border-box;
+  height: 28px;
+  padding: 0 var(--s3);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-tab);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.vault-btn--solid {
+  background: var(--ink);
+  color: var(--page);
+}
+
+.vault-btn--quiet {
+  border-color: transparent;
+  background: none;
+  padding: 0 var(--s1);
+  color: var(--muted);
+  height: auto;
+}
+
+.vault-btn--quiet:hover {
+  color: var(--ink);
+}
+
+.vault-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.vault-btn:focus-visible,
+.vault-link:focus-visible,
+.vault-input:focus-visible {
+  outline: var(--focus-width, 2px) solid var(--focus-colour, var(--ink));
+  outline-offset: 2px;
+}
+
+.vault-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--ink);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.vault-link--strong {
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.vault-actions {
+  display: flex;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Fields */
+
+.vault-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.vault-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  min-width: 0;
+  flex: 1 1 0;
+}
+
+.vault-field__label {
+  font-size: var(--t-micro);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.vault-input {
+  box-sizing: border-box;
+  height: 28px;
+  min-width: 0;
+  width: 100%;
+  padding: 0 var(--s2);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-body);
+}
+
+.vault-textarea {
+  height: auto;
+  padding: var(--s1) var(--s2);
+  resize: vertical;
+}
+
+.vault-input--mono {
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+}
+
+.vault-inline {
+  display: flex;
+  gap: var(--s1);
+  align-items: center;
+}
+
+.vault-row2 {
+  display: flex;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+
+.vault-fieldset {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.vault-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s4);
+  max-height: 160px;
+  overflow: auto;
+}
+
+.vault-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+}
+
+/* The reset collapses ticks to nothing; restore the native control wherever a vault surface draws one
+   (the Organisation page restores its own, but Home and the design do not). */
+.vault-sheet input[type='checkbox'],
+.vault-page input[type='checkbox'],
+.vault-tab input[type='checkbox'] {
+  appearance: auto;
+  width: 14px;
+  height: 14px;
+  margin: 0 var(--s1) 0 0;
+  flex-shrink: 0;
+}
+
+.vault-check--off {
+  color: var(--muted);
+}
+
+/* Notes and strips */
+
+.vault-note {
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  border-left: 3px solid var(--hairline);
+  background: var(--surface);
+}
+
+.vault-note p {
+  margin: 0 0 var(--s2);
+}
+
+.vault-note p:last-child {
+  margin-bottom: 0;
+}
+
+.vault-note--caution {
+  border-left-color: var(--caution);
+  background: var(--caution-wash);
+}
+
+.vault-note--danger {
+  border-left-color: var(--danger);
+  background: var(--danger-wash);
+}
+
+.vault-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  padding: var(--s2) var(--s3);
+  border: var(--rule-hair) solid var(--hairline);
+  background: var(--surface);
+}
+
+.vault-strip--caution {
+  border-color: var(--caution);
+  background: var(--caution-wash);
+}
+
+/* A login */
+
+.vault-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding: var(--s2) var(--s3);
+  border: var(--rule-hair) solid var(--hairline);
+}
+
+.vault-card__head {
+  display: flex;
+  gap: var(--s2);
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.vault-card__name {
+  font-weight: 700;
+  font-family: var(--mono);
+}
+
+.vault-tag {
+  font-size: var(--t-micro);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: var(--rule-hair) solid var(--hairline);
+  padding: 0 var(--s1);
+}
+
+.vault-tag--kept {
+  color: var(--safe);
+  border-color: var(--safe);
+}
+
+.vault-secret {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.vault-secret__plain {
+  display: inline-flex;
+  gap: var(--s2);
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+  user-select: all;
+}
+
+.vault-secret__note {
+  flex-basis: 100%;
+}
+
+.vault-mask {
+  font-family: var(--mono);
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+.vault-fpr {
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+  letter-spacing: 0.04em;
+}
+
+.vault-about summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.vault-about p {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+/* The list */
+
+.vault-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.vault-table th {
+  text-align: left;
+  font-size: var(--t-micro);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 400;
+  padding: var(--s1) var(--s2);
+  border-bottom: var(--rule-hair) solid var(--ink);
+  white-space: nowrap;
+}
+
+/* A login's name never breaks at its hyphen ("ups-mgmt"), and reads from the left like the rest. */
+.vault-table td:first-child {
+  white-space: nowrap;
+}
+
+.vault-table td:first-child .vault-link {
+  text-align: left;
+  padding-left: 0;
+}
+
+.vault-table td {
+  padding: var(--s1) var(--s2);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  vertical-align: top;
+}
+
+.vault-table__row {
+  cursor: pointer;
+}
+
+.vault-table__row:hover,
+.vault-table__row--on {
+  background: var(--surface);
+}
+
+.vault-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  max-width: 720px;
+}
+
+.vault-holders {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+
+.vault-holder {
+  display: flex;
+  gap: var(--s2);
+  align-items: baseline;
+}
+
+.vault-recovery {
+  max-width: 720px;
+}
+
+.vault-uses {
+  margin: 0;
+  padding-left: var(--s4);
+  font-size: var(--t-small);
+}
+
+/* Dialogs */
+
+.vault-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 10vh var(--s4) var(--s4);
+  background: color-mix(in srgb, var(--page) 72%, transparent);
+  overflow: auto;
+}
+
+.vault-sheet {
+  box-sizing: border-box;
+  width: min(440px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s4);
+  background: var(--page);
+  color: var(--ink);
+  border: var(--rule-hair) solid var(--ink);
+}
+
+.vault-sheet--wide {
+  width: min(640px, 100%);
+}
+
+.vault-sheet__title {
+  margin: 0;
+  font-size: var(--t-title);
+}
+
+.vault-h3 {
+  margin: 0;
+  font-size: var(--t-head);
+}
+
+.vault-sheet p {
+  margin: 0;
+}
+
+.vault-step {
+  font-size: var(--t-micro);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.vault-foot {
+  border-top: var(--rule-hair) solid var(--hairline);
+  padding-top: var(--s2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+/* The Emergency Kit and the recovery sheet */
+
+.vault-kit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s3);
+  border: var(--rule-mast, 3px) solid var(--ink);
+}
+
+.vault-kit__head {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+.vault-kit__brand {
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--ink);
+}
+
+.vault-kit__title {
+  font-weight: 700;
+}
+
+.vault-kit__code {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s3);
+  font-family: var(--mono);
+  font-size: var(--t-title);
+  letter-spacing: 0.08em;
+  user-select: all;
+}
+
+/* The lock on the avatar (mockup r32-vault-look-menu). */
+
+.vault-badge {
+  position: absolute;
+  right: -7px;
+  bottom: -6px;
+  width: 13px;
+  height: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--safe);
+  color: var(--page);
+  border: 1px solid var(--page);
+  pointer-events: none;
+}
+
+.vault-badge svg {
+  width: 9px;
+  height: 9px;
+}
+
+.vault-menu {
+  padding: var(--s2) var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+
+.vault-menu__title {
+  font-weight: 700;
+}
+
+/* Printing the kit or the sheet prints only it. */
+@media print {
+  body.vault-printing * {
+    visibility: hidden;
+  }
+
+  body.vault-printing .vault-kit,
+  body.vault-printing .vault-kit * {
+    visibility: visible;
+  }
+
+  body.vault-printing .vault-kit {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+
+  body.vault-printing .vault-kit__actions {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .vault-table th:nth-child(4),
+  .vault-table td:nth-child(4),
+  .vault-table th:nth-child(6),
+  .vault-table td:nth-child(6) {
+    display: none;
+  }
+}
+
+/* The badge hangs off the avatar's corner. */
+.shell-account {
+  position: relative;
+}
+
+/* Fathom's own copy (Mode B): marked in caution, since the server can read it. */
+
+.vault-tag--fathom {
+  color: var(--caution);
+  border-color: var(--caution);
+}
+
+.vault-tag--waiting {
+  color: var(--muted);
+  border-style: dashed;
+}
+
+.vault-card__acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+}
+
+/* Breach checks (part three) */
+
+.vault-tag--critical {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.vault-policy {
+  display: grid;
+  gap: var(--s2);
+}
+
+.vault-policy__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.vault-policy__row > span:first-child {
+  min-width: 9em;
+}
+
+.vault-input--small {
+  width: auto;
+  padding: 0 var(--s1);
+}
