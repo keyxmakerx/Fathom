@@ -12,6 +12,10 @@ here and not in `deps/decisions/`: the helper has **its own workspace and its ow
 none of these reach Fathom's lock, its gates or its server image, and the compose `passbolt`
 profile is what builds it.
 
+**The measured closure, approved by the owner on 2026-10-26** ("Approved", after PR #202 stated it):
+152 packages in the helper's own lockfile rather than the card's 124, 17 of them with a `build.rs`
+(past ADR-0032's C4 of 12) and 12 proc macros.
+
 Resolved on its own, the helper's lock holds **152 external packages** (149 compiled for Linux),
 of which 131 are not in Fathom's lock at the same version; with no older Fathom versions to unify
 with, only two crates have a second version (`serdect`, `syn`). 17 have a `build.rs` and 12 are
