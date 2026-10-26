@@ -5,8 +5,9 @@
 import { useEffect, useId, useState, type DragEvent } from 'react';
 
 import { PORT_CONNECTOR_VALUES } from '../../document/compat';
+import { expandPortPattern } from '../../document/portPattern';
 import { ABSENT, type CardView, type ChassisView, type EditorActions, type EditorChange, type Optic, type PortView } from './contract';
-import { CAUTION_STYLE, EditableValue, Field, SupplyAction, TYPED_NOTE_STYLE } from './Editor';
+import { CAUTION_STYLE, EditableValue, Field, SHOW_PANEL_TAB, SupplyAction, TYPED_NOTE_STYLE } from './Editor';
 import { connectorName } from './faceplate';
 
 /** The drag payload type an optic chip carries: the port id it came from. */
@@ -170,18 +171,15 @@ function FitCardForm({
   const [name, setName] = useState('');
   const [model, setModel] = useState('');
   const [serial, setSerial] = useState('');
-  const [prefix, setPrefix] = useState('');
-  const [count, setCount] = useState('');
-  const [first, setFirst] = useState('1');
+  const [pattern, setPattern] = useState('');
   const [connector, setConnector] = useState('sfp_plus');
   const [refusal, setRefusal] = useState<string | null>(null);
-  const shownPrefix = prefix || (slot ? `${slot}/` : '');
+  // The same name-or-pattern field "+ Add a port" uses: `1/{1-24}` is 24 ports typed once.
+  const expanded = pattern.trim() === '' ? null : expandPortPattern(pattern);
 
   function commit() {
-    const n = count.trim() === '' ? 0 : Number(count);
-    const f = Number(first);
-    if (!Number.isInteger(n) || n < 0 || !Number.isInteger(f) || f < 0) {
-      setRefusal('Ports and first number are whole numbers.');
+    if (expanded && !expanded.ok) {
+      setRefusal(expanded.reason);
       return;
     }
     const result = actions.onEdit?.({
@@ -191,7 +189,7 @@ function FitCardForm({
       name: name || undefined,
       model: model || undefined,
       serial: serial || undefined,
-      ports: n > 0 ? { prefix: shownPrefix, first: f, last: f + n - 1, connector } : undefined,
+      ports: expanded?.ok ? { labels: expanded.labels, connector } : undefined,
     });
     if (result?.refused) {
       setRefusal(result.refused);
@@ -231,7 +229,7 @@ function FitCardForm({
       {cell('What it is', name, setName, '24 x SFP+')}
       {cell('Model', model, setModel)}
       {cell('Serial', serial, setSerial)}
-      {cell('Ports', count, setCount, '24')}
+      {cell('Ports, a name or a pattern', pattern, setPattern, slot ? `${slot}/{1-24}` : '1/{1-24}', true)}
       <label className="drawing-ports__cell">
         <span>Connector</span>
         <select value={connector} onChange={(e) => setConnector(e.target.value)}>
@@ -242,10 +240,14 @@ function FitCardForm({
           ))}
         </select>
       </label>
-      {cell('Named', prefix, setPrefix, shownPrefix || '1/')}
-      {cell('From', first, setFirst)}
       <div className="drawing-ports__pattern" style={TYPED_NOTE_STYLE}>
-        {Number(count) > 0 ? `Ports ${shownPrefix}${first} to ${shownPrefix}${Number(first) + Number(count) - 1}` : 'No ports yet: add them later by fitting the card again.'}
+        {expanded === null
+          ? 'No ports yet: fit it again with ports, or add them later.'
+          : expanded.ok
+            ? expanded.labels.length === 1
+              ? `Port ${expanded.labels[0]}`
+              : `${expanded.labels.length} ports, ${expanded.labels[0]} to ${expanded.labels.at(-1)}`
+            : expanded.reason}
       </div>
       <div className="drawing-ports__actions">
         <button type="button" className="drawing-ports__primary" onClick={commit}>
@@ -295,10 +297,23 @@ function CardRow({ card, depth, actions }: { card: CardView; depth: number; acti
   );
 }
 
+/** Asks the open device's Cards section to start fitting a card (the palette's and right-click's "Fit a card"). */
+export const FIT_CARD_EVENT = 'fathom:fit-card';
+
 export function CardsSection({ chassis, actions }: { chassis: ChassisView; actions: EditorActions }) {
   const [adding, setAdding] = useState<string | null>(null);
   const cards = chassis.cards ?? [];
   const empty = (chassis.cardSlots ?? []).filter((name) => !cards.some((c) => c.slot === name));
+  const firstEmpty = empty[0] ?? '';
+  useEffect(() => {
+    const onRequest = (event: Event) => {
+      if ((event as CustomEvent<{ chassisId: string }>).detail.chassisId !== chassis.id) return;
+      window.dispatchEvent(new CustomEvent(SHOW_PANEL_TAB, { detail: { tab: 'ports' } }));
+      setAdding(firstEmpty);
+    };
+    window.addEventListener(FIT_CARD_EVENT, onRequest);
+    return () => window.removeEventListener(FIT_CARD_EVENT, onRequest);
+  }, [chassis.id, firstEmpty]);
   if (cards.length === 0 && empty.length === 0 && !actions.onEdit) return null;
   return (
     <div className="drawing-editor__field" data-testid="cards-section">

@@ -935,7 +935,9 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                                 ? 'Ports come with a device.'
                                 : kind === 'addresses'
                                   ? 'Addresses are read from your devices.'
-                                  : 'Add one with the button above.'}
+                                  : kind === 'parts'
+                                    ? "Right-click a device and choose Fit a card, set an optic in a port's panel, or paste the device's show inventory onto the canvas."
+                                    : 'Add one with the button above.'}
                       </EmptyState>
                     ) : (
                       <EmptyState title="Nothing matches the filters." compact action={{ label: 'Clear filters', onClick: () => go({ q: '' }) }}>

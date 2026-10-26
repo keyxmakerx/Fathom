@@ -37,7 +37,8 @@ import {
   type Document,
   type GraphNode,
 } from '../../document/model';
-import { fitCard, setOptic, type CardPorts } from '../../document/cards';
+import { fitCard, setOptic } from '../../document/cards';
+import { expandPortPattern } from '../../document/portPattern';
 import { addEdge, addNode, begin, finish } from '../../document/freeform';
 import { addSubnet, addVlan, type Actor } from '../../document/networks';
 import { tiePorts } from '../../document/portTies';
@@ -58,7 +59,7 @@ export interface SampleDevice {
   ports: SamplePort[];
   face: 'front' | 'rear';
   /** Cards in the device's slots, each with its own ports (r35), fitted the way the Cards panel fits one. */
-  cards?: { slot: string; name?: string; model?: string; serial?: string; ports?: CardPorts }[];
+  cards?: { slot: string; name?: string; model?: string; serial?: string; ports?: { pattern: string; connector: string } }[];
   /** Optics in the device's cages, by port label. */
   optics?: { port: string; type?: string; part?: string; serial?: string }[];
 }
@@ -178,12 +179,18 @@ function chassisOf(doc: Document, deviceId: string): string {
   return edge.to;
 }
 
+function cardLabels(pattern: string): string[] {
+  const expanded = expandPortPattern(pattern);
+  if (!expanded.ok) throw new Error(`a sample card's ports "${pattern}": ${expanded.reason}`);
+  return expanded.labels;
+}
+
 /** The ports a device's cards bring, labelled as `fitCard` labels them. */
 function cardPortsOf(device: SampleDevice): SamplePort[] {
   const out: SamplePort[] = [];
   for (const c of device.cards ?? []) {
     if (!c.ports) continue;
-    for (let n = c.ports.first; n <= c.ports.last; n += 1) out.push({ label: `${c.ports.prefix}${n}`, connector: c.ports.connector });
+    for (const label of cardLabels(c.ports.pattern)) out.push({ label, connector: c.ports.connector });
   }
   return out;
 }
@@ -261,8 +268,8 @@ export function buildSample(spec: SampleSpec, models: ReadonlyMap<string, Catalo
       else doc = movePlacement(doc, chassisId, { kind: 'surface', surfaceId: surfaces.get(place.surface)!, xMm: place.x ?? null, yMm: place.y ?? null }, opts);
     }
     for (const card of d.cards ?? []) {
-      const { slot, ...fields } = card;
-      doc = fitCard(doc, chassisOf(doc, deviceId), slot, fields, opts);
+      const { slot, ports, ...fields } = card;
+      doc = fitCard(doc, chassisOf(doc, deviceId), slot, { ...fields, ...(ports ? { ports: { labels: cardLabels(ports.pattern), connector: ports.connector } } : {}) }, opts);
     }
     for (const { port, ...optic } of d.optics ?? []) doc = setOptic(doc, portOf(doc, new Map([[d.hostname, deviceId]]), spec, `${d.hostname}:${port}`), optic, opts);
     if (fits) catalogued.push(d.hostname);

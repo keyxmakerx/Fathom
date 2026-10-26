@@ -279,6 +279,8 @@ export interface DrawingProps extends DrawingActions {
   onItsDown?: (elementId: string) => void;
   /** Right-click "Suggest cables from its neighbours (LLDP)"; null from the empty canvas. Absent for a reader. */
   onSuggestCables?: (chassisId: string | null) => void;
+  /** Right-click "Fit a card" on a device (ADR-0073). Absent for a reader. */
+  onFitCard?: (chassisId: string) => void;
   /** Bump to fit every rack into view (a counter, so a repeat press fires). */
   fitRequest?: number;
   /** Remounted by a Rack/Diagram switch: no focus is pending, so fit even with a selection. */
@@ -450,6 +452,7 @@ function DrawingInner({
   firmwareNeedsVersion,
   onItsDown,
   onSuggestCables,
+  onFitCard,
   onOpenDevice,
   onResizeShelf,
   onAddFreeBox,
@@ -617,7 +620,7 @@ function DrawingInner({
     onRemoveFree,
   };
   const menuActions: MenuActions = canDraw
-    ? { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onCloseRackGaps, onCopyRack, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, onSuggestCables, ...freeMenuActions, ...cableRunMenuActions, ...looseMenuActions }
+    ? { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onCloseRackGaps, onCopyRack, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, onSuggestCables, onFitCard, ...freeMenuActions, ...cableRunMenuActions, ...looseMenuActions }
     : { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom };
   const menuActionsRef = useRef(menuActions);
   useLayoutEffect(() => {

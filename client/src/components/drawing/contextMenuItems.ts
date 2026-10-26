@@ -47,6 +47,8 @@ export interface MenuActions {
   onItsDown?(elementId: string): void;
   /** Opens cable suggestions from a neighbour list (LLDP), for a device or, from the empty canvas, any. */
   onSuggestCables?(chassisId: string | null): void;
+  /** Right-click "Fit a card" on a device (ADR-0073). Absent for a reader. */
+  onFitCard?(chassisId: string): void;
   onRemoveDevice?(chassisId: string): void;
   onDisconnect?(cableId: string): void;
   /** Missing links: which kind of loose end this cable has (one end connected), or null for a cable
@@ -113,6 +115,7 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
       if (actions.onPlanChange) items.push({ label: 'Plan a change', onSelect: () => actions.onPlanChange?.(id) });
       if (on != null) break;
       if (actions.onSuggestCables) items.push({ label: 'Suggest cables from its neighbours (LLDP)', onSelect: () => actions.onSuggestCables?.(id) });
+      if (actions.onFitCard) items.push({ label: 'Fit a card', onSelect: () => actions.onFitCard?.(id) });
       // Offered only once its model has a chosen version; until then the device page's Firmware says how (r30-small).
       if (actions.onPlanFirmware && !actions.firmwareNeedsVersion?.(id)) {
         items.push({ label: 'Plan a firmware upgrade', onSelect: () => actions.onPlanFirmware?.(id) });

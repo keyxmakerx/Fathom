@@ -1146,6 +1146,7 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
   useEffect(() => {
     function onRequest(event: Event) {
       if ((event as CustomEvent<{ chassisId: string }>).detail.chassisId !== chassisId) return;
+      window.dispatchEvent(new CustomEvent(SHOW_PANEL_TAB, { detail: { tab: 'ports' } }));
       setIsOpen(true);
       window.requestAnimationFrame(() => labelRef.current?.focus());
     }
@@ -1339,6 +1340,9 @@ type PanelTab = { id: string; label: ReactNode; body: ReactNode };
 /** 'flat' where the page around the panel already has tabs of its own (Inventory's item page). */
 export const PanelTabsMode = createContext<'tabs' | 'flat'>('tabs');
 
+/** Brings a details-panel tab forward: `detail.tab` is its id ("ports", "details"). */
+export const SHOW_PANEL_TAB = 'fathom:panel-tab';
+
 /** The tab last opened, so the next device opens on the same one. */
 let lastTab: string | null = null;
 
@@ -1350,6 +1354,15 @@ function PanelTabs({ tabs, initial }: { tabs: readonly PanelTab[]; initial?: str
     setPickedState(id);
   };
   const base = useId();
+  // A command that opens a form on one tab ("Fit a card", "Add a port") brings that tab forward first.
+  useEffect(() => {
+    const onShow = (event: Event) => {
+      const id = (event as CustomEvent<{ tab: string }>).detail.tab;
+      if (tabs.some((t) => t.id === id)) setPicked(id);
+    };
+    window.addEventListener(SHOW_PANEL_TAB, onShow);
+    return () => window.removeEventListener(SHOW_PANEL_TAB, onShow);
+  });
   if (mode === 'flat') return <>{tabs.map((tab) => <div key={tab.id} className="drawing-tabs__panel">{tab.body}</div>)}</>;
   const current = tabs.some((t) => t.id === picked) ? picked : tabs[0].id;
 

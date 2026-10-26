@@ -54,7 +54,7 @@ import type { TagChip, TagSummary } from '../../document/tags';
 import type { FieldFor, FieldRow, FieldType } from '../../document/fields';
 import type { PortFace } from '../../document/compat';
 import type { SwapPlan } from '../../document/swapModel';
-import type { Optic } from '../../document/cards';
+import type { CardPorts, Optic } from '../../document/cards';
 
 export type {
   CableEnd,
@@ -281,7 +281,7 @@ export type EditorChange =
       name?: string;
       model?: string;
       serial?: string;
-      ports?: { prefix: string; first: number; last: number; connector: string };
+      ports?: CardPorts;
     }
   | { kind: 'card-remove'; id: string }
   | { kind: 'card'; id: string; field: 'name' | 'model' | 'serial'; value: string | null }

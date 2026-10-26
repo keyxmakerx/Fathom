@@ -27,9 +27,9 @@ describe('cards and optics through the engine', () => {
   it('loads a card, a sub-card and optics, and exports the same bytes', () => {
     let doc = createSketchDevice(emptyDocument(), { hostname: 'core-sw1' });
     const chassisId = doc.nodes.find((n) => n.id.startsWith('chassis:'))!.id;
-    doc = fitCard(doc, chassisId, 'FPC 0', { name: 'MPC', model: 'MPC7E', serial: 'CAFE01', ports: { prefix: '0/', first: 0, last: 1, connector: 'qsfp28' } });
+    doc = fitCard(doc, chassisId, 'FPC 0', { name: 'MPC', model: 'MPC7E', serial: 'CAFE01', ports: { labels: ['0/0', '0/1'], connector: 'qsfp28' } });
     const cardId = cardsOf(doc, chassisId)[0].id;
-    doc = fitCard(doc, cardId, '0', { ports: { prefix: '0/0/', first: 0, last: 0, connector: 'sfp_plus' } });
+    doc = fitCard(doc, cardId, '0', { ports: { labels: ['0/0/0'], connector: 'sfp_plus' } });
     const port = (label: string): string =>
       edgesOut(doc, chassisId, 'HasPort').find((e) => readPhysicalPortFields(findNode(doc, e.to)!).label === label)!.to;
     doc = setOptic(doc, port('0/0'), { type: '100GBASE-LR4', vendor: 'Acme', part: 'QSFP28-LR4', serial: 'S1', wavelengthNm: 1310 });
@@ -44,7 +44,7 @@ describe('cards and optics through the engine', () => {
   it('refuses an optic with a member the schema does not have', () => {
     let doc = createSketchDevice(emptyDocument(), { hostname: 'sw2' });
     const chassisId = doc.nodes.find((n) => n.id.startsWith('chassis:'))!.id;
-    doc = fitCard(doc, chassisId, '0', { ports: { prefix: '0/', first: 0, last: 0, connector: 'sfp_plus' } });
+    doc = fitCard(doc, chassisId, '0', { ports: { labels: ['0/0'], connector: 'sfp_plus' } });
     const portId = edgesOut(doc, chassisId, 'HasPort')[0].to;
     doc = setOptic(doc, portId, {});
     const bad = { ...doc, nodes: doc.nodes.map((n) => (n.id === portId ? { ...n, fields: { ...n.fields, 'PhysicalPort.transceiver': { ...n.fields['PhysicalPort.transceiver'], value: { colour: 'blue' } } } } : n)) };

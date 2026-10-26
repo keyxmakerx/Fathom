@@ -284,10 +284,8 @@ export function moveOptic(doc: Document, fromPortId: string, toPortId: string, o
 // Cards
 
 export interface CardPorts {
-  /** Labels are `prefix` + n, `first`..`last`: "1/" + 1..24 gives "1/1".."1/24". */
-  prefix: string;
-  first: number;
-  last: number;
+  /** The card's port labels, as the port-pattern field gives them (`expandPortPattern`: "1/{1-24}"). */
+  labels: readonly string[];
   connector: string;
   face?: PortFace;
 }
@@ -317,13 +315,15 @@ export function fitCard(doc: Document, hostId: string, slot: string, fields: Fit
     if (!(PORT_CONNECTOR_VALUES as readonly string[]).includes(p.connector)) {
       throw new FieldValueError('PhysicalPort.connector', p.connector, `is not one of: ${PORT_CONNECTOR_VALUES.join(', ')}`);
     }
-    if (!Number.isInteger(p.first) || !Number.isInteger(p.last) || p.first < 0 || p.first > p.last) {
-      throw new FieldValueError('PhysicalPort.label', `${p.first}-${p.last}`, 'is not a range of whole numbers, low to high');
+    if (p.labels.length > MAX_CARD_PORTS) {
+      throw new FieldValueError('PhysicalPort.label', `${p.labels.length} ports`, `a card has at most ${MAX_CARD_PORTS} ports`);
     }
-    if (p.last - p.first + 1 > MAX_CARD_PORTS) {
-      throw new FieldValueError('PhysicalPort.label', `${p.first}-${p.last}`, `a card has at most ${MAX_CARD_PORTS} ports`);
+    for (const raw of p.labels) {
+      const l = raw.trim();
+      if (l === '') throw new FieldValueError('PhysicalPort.label', raw, 'a port needs a name');
+      if (labels.includes(l)) throw new FieldValueError('PhysicalPort.label', l, 'is listed twice');
+      labels.push(l);
     }
-    for (let n = p.first; n <= p.last; n += 1) labels.push(`${p.prefix}${n}`);
     const taken = new Set(
       edgesOut(doc, chassisId, 'HasPort')
         .map((e) => live(doc, e.to))

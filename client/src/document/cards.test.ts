@@ -38,7 +38,7 @@ const portByLabel = (doc: Document, chassisId: string, label: string): string =>
 describe('cards', () => {
   it('fits a card with its ports, owned by the chassis and pointing at the card', () => {
     const { doc, chassisId } = docWithChassis();
-    const next = fitCard(doc, chassisId, '1', { name: '4 x QSFP28', model: 'LC-4QSFP28', serial: 'FJZ1', ports: { prefix: '1/', first: 1, last: 4, connector: 'qsfp28' } });
+    const next = fitCard(doc, chassisId, '1', { name: '4 x QSFP28', model: 'LC-4QSFP28', serial: 'FJZ1', ports: { labels: ['1/1', '1/2', '1/3', '1/4'], connector: 'qsfp28' } });
     const [card] = cardsOf(next, chassisId);
     expect(card).toMatchObject({ slot: '1', name: '4 x QSFP28', model: 'LC-4QSFP28', serial: 'FJZ1' });
     expect(card.portIds).toHaveLength(4);
@@ -50,9 +50,9 @@ describe('cards', () => {
 
   it('refuses a taken slot and a clashing port label', () => {
     const { doc, chassisId } = docWithChassis();
-    const one = fitCard(doc, chassisId, '1', { ports: { prefix: '1/', first: 1, last: 2, connector: 'sfp_plus' } });
+    const one = fitCard(doc, chassisId, '1', { ports: { labels: ['1/1', '1/2'], connector: 'sfp_plus' } });
     expect(() => fitCard(one, chassisId, '1')).toThrow(SlotTakenByCardError);
-    expect(() => fitCard(one, chassisId, '2', { ports: { prefix: '1/', first: 2, last: 3, connector: 'sfp_plus' } })).toThrow(FieldValueError);
+    expect(() => fitCard(one, chassisId, '2', { ports: { labels: ['1/2', '1/3'], connector: 'sfp_plus' } })).toThrow(FieldValueError);
     expect(() => fitCard(one, chassisId, '2', { model: 'has space' })).toThrow(FieldValueError);
   });
 
@@ -60,7 +60,7 @@ describe('cards', () => {
     const { doc, chassisId } = docWithChassis();
     const mpc = fitCard(doc, chassisId, 'FPC 2', { name: 'MPC' });
     const mpcId = cardsOf(mpc, chassisId)[0].id;
-    const mic = fitCard(mpc, mpcId, '0', { name: 'MIC', ports: { prefix: '2/0/', first: 0, last: 1, connector: 'sfp_plus' } });
+    const mic = fitCard(mpc, mpcId, '0', { name: 'MIC', ports: { labels: ['2/0/0', '2/0/1'], connector: 'sfp_plus' } });
     const micId = cardsOf(mic, mpcId)[0].id;
     expect(chassisOfCard(mic, micId)).toBe(chassisId);
     expect(slotPath(mic, micId)).toBe('slot FPC 2 · sub-slot 0');
@@ -69,9 +69,9 @@ describe('cards', () => {
 
   it('takes a card out with its sub-cards and ports, and leaves a plugged cable loose', () => {
     const { doc, chassisId } = docWithChassis();
-    const a = fitCard(doc, chassisId, 'FPC 0', { ports: { prefix: '0/', first: 0, last: 1, connector: 'sfp_plus' } });
+    const a = fitCard(doc, chassisId, 'FPC 0', { ports: { labels: ['0/0', '0/1'], connector: 'sfp_plus' } });
     const cardId = cardsOf(a, chassisId)[0].id;
-    const b = fitCard(a, cardId, '0', { ports: { prefix: '0/0/', first: 0, last: 0, connector: 'sfp_plus' } });
+    const b = fitCard(a, cardId, '0', { ports: { labels: ['0/0/0'], connector: 'sfp_plus' } });
     const port = portByLabel(b, chassisId, '0/1');
     const cabled = connectOneEnd(b, port);
     const cableId = edgesIn(cabled, port, 'Terminates')[0].from;
@@ -97,7 +97,7 @@ describe('cards', () => {
 describe('optics', () => {
   it('reads nobody-looked, empty and fitted apart', () => {
     const { doc, chassisId } = docWithChassis();
-    const a = fitCard(doc, chassisId, '0', { ports: { prefix: '0/', first: 1, last: 2, connector: 'sfp_plus' } });
+    const a = fitCard(doc, chassisId, '0', { ports: { labels: ['0/1', '0/2'], connector: 'sfp_plus' } });
     const p1 = portByLabel(a, chassisId, '0/1');
     expect(opticOf(findNode(a, p1)!)).toBeUndefined();
     const empty = setOptic(a, p1, null);
@@ -110,7 +110,7 @@ describe('optics', () => {
 
   it('moves an optic to another cage in one undo, and refuses a full cage', () => {
     const { doc, chassisId } = docWithChassis();
-    const a = fitCard(doc, chassisId, '0', { ports: { prefix: '0/', first: 1, last: 3, connector: 'sfp_plus' } });
+    const a = fitCard(doc, chassisId, '0', { ports: { labels: ['0/1', '0/2', '0/3'], connector: 'sfp_plus' } });
     const [p1, p2, p3] = ['0/1', '0/2', '0/3'].map((l) => portByLabel(a, chassisId, l));
     const b = setOptic(setOptic(a, p1, { part: 'SFP-10G-LR' }), p3, {});
     const moved = moveOptic(b, p1, p2);
@@ -122,7 +122,7 @@ describe('optics', () => {
 
   it('refuses a part number with a space and a wavelength out of range', () => {
     const { doc, chassisId } = docWithChassis();
-    const a = fitCard(doc, chassisId, '0', { ports: { prefix: '0/', first: 1, last: 1, connector: 'sfp_plus' } });
+    const a = fitCard(doc, chassisId, '0', { ports: { labels: ['0/1'], connector: 'sfp_plus' } });
     const p = portByLabel(a, chassisId, '0/1');
     expect(() => setOptic(a, p, { part: 'SFP 10G' })).toThrow(FieldValueError);
     expect(() => setOptic(a, p, { wavelengthNm: 70000 })).toThrow(FieldValueError);

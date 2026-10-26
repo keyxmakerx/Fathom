@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
+import { FIT_CARD_EVENT } from '../drawing/Parts';
 import { listOverlays } from '../../document/overlays';
 import { captureOf } from '../../document/capture';
 import { previewSwapIn } from '../../document/swapModel';
@@ -1767,6 +1768,12 @@ export function RacksPlace(props: RacksPlaceProps) {
     [doc, handleEdit],
   );
 
+  // "Fit a card" (palette and right-click): open the device's details on its Ports tab with the card form started.
+  const fitCard = useCallback((chassisId: string) => {
+    setSelection({ kind: 'chassis', id: chassisId });
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent(FIT_CARD_EVENT, { detail: { chassisId } })), 80);
+  }, []);
+
   // What the command palette (Ctrl+K) can do with the selection. Asked for each time it opens.
   usePaletteActions('racks', (): PaletteAction[] => {
     if (!canDraw && selection?.kind !== 'chassis') return [];
@@ -1808,6 +1815,13 @@ export function RacksPlace(props: RacksPlaceProps) {
           setSelection({ kind: 'chassis', id: chassisId });
           window.setTimeout(() => window.dispatchEvent(new CustomEvent('fathom:add-port', { detail: { chassisId } })), 80);
         },
+      },
+      {
+        id: 'fit-card',
+        label: deviceName === '' ? 'Fit a card in a device' : `Fit a card in ${deviceName}`,
+        keywords: ['module', 'line card', 'slot', 'linecard', 'nim', 'fpc'],
+        disabled: chassisId === null ? needDevice : undefined,
+        run: () => chassisId !== null && fitCard(chassisId),
       },
       {
         id: 'rename',
@@ -2122,6 +2136,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           firmwareNeedsVersion={firmwareNeedsVersion}
           onItsDown={canDraw ? trouble.start : undefined}
           onSuggestCables={canDraw ? (chassisId) => setSuggest({ deviceId: chassisId ?? selectedChassis }) : undefined}
+          onFitCard={canDraw ? fitCard : undefined}
           onCalloutChange={setCalloutId}
           onGroupChange={setGroupIds}
           groupClearRequest={groupClear}

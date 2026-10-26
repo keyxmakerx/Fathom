@@ -65,9 +65,7 @@
           "model": "LC-4SFPP",
           "serial": "CARD-0001",
           "ports": {
-            "prefix": "1/",
-            "first": 1,
-            "last": 4,
+            "pattern": "1/{1-4}",
             "connector": "sfp_plus"
           }
         }

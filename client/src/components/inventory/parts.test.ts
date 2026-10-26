@@ -31,7 +31,7 @@ function estate(): { doc: Document; chassisId: string; portId: string } {
   const rackId = withRack.nodes.find((n) => n.id !== premisesId)!.id;
   let doc = placeChassis(withRack, rackId, MODEL, 12, 'front', { now: NOW });
   const chassisId = edgesIn(doc, rackId, 'MountedIn')[0].from;
-  doc = fitCard(doc, chassisId, '0', { model: 'MPC-10G', serial: 'CARD1', ports: { prefix: 'xe-0/0/', first: 0, last: 1, connector: 'sfp_plus' } });
+  doc = fitCard(doc, chassisId, '0', { model: 'MPC-10G', serial: 'CARD1', ports: { labels: ['xe-0/0/0', 'xe-0/0/1'], connector: 'sfp_plus' } });
   const portId = edgesOut(doc, chassisId, 'HasPort').find((e) => readPhysicalPortFields(findNode(doc, e.to)!).label === 'xe-0/0/1')!.to;
   doc = setOptic(doc, portId, { type: '10GBASE-LR', vendor: 'Finisar', part: 'FTLX1471', serial: 'OPT1' });
   return { doc, chassisId, portId };
