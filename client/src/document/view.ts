@@ -236,6 +236,9 @@ export interface RackView {
   /** Schema 0.23: the trays and lacing bars on this rack, each with its ties. Absent in views
    * built by hand before runs existed; read as none. */
   cableRuns?: CableRunView[];
+  /** Where a person dragged this rack on the canvas (its `LayoutPin`), seen from the front.
+   * Absent when nobody has, and the rack sits in its row's bay slot. */
+  pin?: { x: number; y: number };
 }
 
 /** ADR-0051 §1 — one item `SitsOn` a shelf: a mini PC, a desktop switch, an
@@ -1096,6 +1099,7 @@ function rackView(
     ...chassis.map((c) => ({ positionU: c.positionU, heightU: c.heightU })),
     ...shelves.map((s) => ({ positionU: s.positionU, heightU: s.heightU })),
   ];
+  const pin = pinOf(doc, rackId);
 
   return {
     id: rackId,
@@ -1108,6 +1112,7 @@ function rackView(
     row: fields.row ?? null,
     bay: fields.bay ?? null,
     cableRuns: cableRunsOf(doc, rackId),
+    ...(pin ? { pin } : {}),
   };
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { removeChassis } from './commands';
+import { createRack, removeChassis } from './commands';
 import {
   createFreeBox,
   createLabel,
@@ -14,7 +14,8 @@ import {
   setLineLabel,
   snap,
 } from './freeform';
-import { emptyDocument, findNode, type Document } from './model';
+import { emptyDocument, findNode, formatNodeId, type Document } from './model';
+import { newUlid } from './ulid';
 import { undo } from './undo';
 import { viewOf } from './view';
 
@@ -108,5 +109,31 @@ describe('labels and areas', () => {
     expect(viewOf(edited, []).labels.find((l) => l.id === area.id)).toMatchObject({ text: 'Guest wifi', w: 300, h: 64 });
     const removed = removeFree(edited, [area.id], step());
     expect(viewOf(removed, []).labels.map((l) => l.id)).toEqual([text.id]);
+  });
+});
+
+describe('a rack placed by hand', () => {
+  function oneRack(): { doc: Document; rackId: string } {
+    const premisesId = formatNodeId('Premises', newUlid(t));
+    const base: Document = {
+      ...emptyDocument(),
+      nodes: [{ id: premisesId, existence: newUlid(t), fields: { 'Premises.label': { presence: 'set', prov: newUlid(t), value: 'Riverside CO' } } }],
+    };
+    const doc = createRack(base, premisesId, { label: 'R1', heightU: 42, unitNumbering: 'ascending', ...step() });
+    return { doc, rackId: doc.nodes.find((n) => n.id !== premisesId)!.id };
+  }
+
+  it('has no pin until someone drags it, so it sits in its row', () => {
+    const { doc, rackId } = oneRack();
+    expect(viewOf(doc, []).racks.find((r) => r.id === rackId)!.pin).toBeUndefined();
+  });
+
+  it('keeps where it was dropped, on the 4 px grid, as one undo step', () => {
+    const { doc, rackId } = oneRack();
+    const moved = moveFree(doc, [{ id: rackId, x: 401, y: -37 }], step());
+    expect(viewOf(moved, []).racks.find((r) => r.id === rackId)!.pin).toEqual({ x: 400, y: -36 });
+    expect(moved.batches).toHaveLength(doc.batches.length + 1);
+    const undone = undo(moved, moved.batches.at(-1)!.id, step());
+    expect(viewOf(undone, []).racks.find((r) => r.id === rackId)!.pin).toBeUndefined();
   });
 });
