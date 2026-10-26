@@ -107,8 +107,9 @@ the people who may connect under **Who may connect AI apps**, and presses **Save
 
 Then, under **Connect an AI app**, pick how your app connects:
 
-- **It signs in (Claude, Claude Code).** Copy the address shown (it ends in `/mcp`). In Claude:
-  Customize › Connectors › Add custom connector, paste it. In Claude Code:
+- **It signs in (Claude, Claude Code).** Copy the address shown (it ends in `/mcp`). In Claude
+  (claude.ai, desktop, phone, and Claude Code on the web): Customize › Connectors › Add custom
+  connector, paste it; a Claude Code web session started after that has Fathom's tools. In Claude Code:
   `claude mcp add --transport http fathom <address>`, then `/mcp`. The app sends you to Fathom; choose
   the organisation, what it may see and for how long, and press **Allow**. This needs the server's
   `FATHOM_AI_PUBLIC_URL` (docs/OPERATING.md, "AI connections"); without it the page says so.

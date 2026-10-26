@@ -133,8 +133,9 @@ function SignIn({ url }: { url: string | null }) {
       <CopyLine text={url} testId="ai-connector-url" />
       <ul className="ai-how__list">
         <li>
-          <strong>Claude</strong> (claude.ai, desktop, phone): Customize › Connectors › Add custom connector, and paste the
-          address. Leave the advanced settings empty.
+          <strong>Claude</strong> (claude.ai, desktop, phone, and Claude Code on the web): Customize › Connectors › Add custom
+          connector, and paste the address. Leave the advanced settings empty. A Claude Code web session started after that
+          has Fathom's tools.
         </li>
         <li>
           <strong>Claude Code</strong>: <code>claude mcp add --transport http fathom {url}</code>, then <code>/mcp</code> to sign
