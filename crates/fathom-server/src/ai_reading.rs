@@ -352,6 +352,17 @@ const EDGES: &[EdgeRow] = &[
         kind: EdgeKind::FittedIn,
         fields: NO_FIELDS,
     },
+    // A card in its slot, and the ports on it (ADR-0073).
+    EdgeRow {
+        tier: Tier::Layout,
+        kind: EdgeKind::HasCard,
+        fields: NO_FIELDS,
+    },
+    EdgeRow {
+        tier: Tier::Layout,
+        kind: EdgeKind::OnCard,
+        fields: NO_FIELDS,
+    },
     EdgeRow {
         tier: Tier::Layout,
         kind: EdgeKind::SitsOn,
@@ -732,5 +743,74 @@ mod tests {
         assert!(text.contains("core-sw1"), "{text}");
         assert!(!text.contains("s3cr3tR0"), "{text}");
         assert_eq!(out.withheld, 1);
+    }
+
+    /// A card, the slot it sits in and the ports on it all leave at the layout tier; the
+    /// card's serial does not (ADR-0073).
+    #[test]
+    fn a_card_and_its_ports_leave_without_the_serial() {
+        use fathom_graph::BatchId;
+        use fathom_ir::generated::ir_types::PhysicalPortField;
+        use fathom_ir::scalar;
+        let mut g = Graph::new();
+        g.begin_batch(BatchId(fathom_id::Ulid(80)), "ai_reading card fixture")
+            .expect("open batch");
+        let chassis = g
+            .insert_node(NodeKind::Chassis, fathom_id::Ulid(81), prov(8))
+            .expect("chassis");
+        let card = g
+            .insert_node(NodeKind::Card, fathom_id::Ulid(82), prov(8))
+            .expect("card");
+        g.set_field(
+            card.into(),
+            CardField::Model.key(),
+            scalar::Identifier("NM-4X".into()),
+            prov(8),
+        )
+        .expect("model");
+        g.set_field(
+            card.into(),
+            CardField::Serial.key(),
+            scalar::Identifier("FOC2231X0QZ".into()),
+            prov(8),
+        )
+        .expect("serial");
+        let port = g
+            .insert_node(NodeKind::PhysicalPort, fathom_id::Ulid(83), prov(8))
+            .expect("port");
+        g.set_field(
+            port.into(),
+            PhysicalPortField::Label.key(),
+            scalar::Text("1/1".into()),
+            prov(8),
+        )
+        .expect("label");
+        g.insert_edge(
+            EdgeKind::HasCard,
+            fathom_id::Ulid(84),
+            chassis,
+            card,
+            prov(8),
+        )
+        .expect("has card");
+        g.insert_edge(
+            EdgeKind::HasPort,
+            fathom_id::Ulid(85),
+            chassis,
+            port,
+            prov(8),
+        )
+        .expect("has port");
+        g.insert_edge(EdgeKind::OnCard, fathom_id::Ulid(86), port, card, prov(8))
+            .expect("on card");
+        g.end_batch().expect("close batch");
+
+        let tiers: BTreeSet<Tier> = [Tier::Layout].into_iter().collect();
+        let out = reading(&g, &tiers).expect("a reading");
+        let text = String::from_utf8(out.document.to_canonical_bytes()).unwrap();
+        for word in ["NM-4X", "\"HasCard\"", "\"OnCard\"", "\"HasPort\""] {
+            assert!(text.contains(word), "{word} missing: {text}");
+        }
+        assert!(!text.contains("FOC2231X0QZ"), "{text}");
     }
 }

@@ -38,12 +38,23 @@ teaching, troubleshooting, and maintenances".
    says which card each end is on and what optic it holds.
 9. **Serials never leave in an AI reading or a trace.** The AI reading lists a card's slot, name and
    model and strips an optic's serial, as it already did for the chassis.
+10. **How a person adds one, and who may (round 2, 2026-10-26).** The owner asked how and why a person
+   would reach this. A card is fitted from three places: a device's right-click **Fit a card**, the
+   palette ("Fit a card in core-1"), and the Cards block on the device's Ports tab; the first two open
+   that tab at the first empty slot. Its ports take the same name-or-pattern field adding a port
+   already has (`1/{1-4}`), not a second one. An optic is set in a port's panel or read from a paste.
+   All of it needs Draw, as every other edit does; a reader sees the parts and the Parts list but no
+   control to change them. The Parts list, when empty, says these three ways in.
+11. **The AI reading carries the card edges.** `HasCard` and `OnCard` leave at the layout tier, so an
+    assistant sees which slot a card is in and which ports are on it, and the connector's tool
+    descriptions say so. Serials still never leave. The importers (NetBox, Proxmox, nmap) stay
+    device-level: reading NetBox modules is a possible follow-up, not built.
 
 ## Kept open
 
-Spares (an "available inventory" thread asked that parts be able to exist unfitted, with history that
-follows the serial): `CardHost` can gain a store member later, and the swap step's choice of a new part
-can then be filtered to spares. Spare optics would need a kind of their own. Neither is built.
+Spares: the owner answered r36-stock and r38-stock-how on 2026-10-26 (a state and a named store on
+each part, built after cards). This ADR leaves room for it: `CardHost` can gain a store member, and the
+swap step's choice of a new part can be filtered to what is on hand. That work is its own.
 
 ## Sources
 

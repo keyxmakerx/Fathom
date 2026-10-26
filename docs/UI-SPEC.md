@@ -60,7 +60,9 @@ not a second picture.
 
 **Optics.** A cage takes an optic before it takes a cable. Drag cage to cage; on release say what is
 between them (a DAC, or two optics and a fibre pair), defaulting to the last answer. Compatibility
-follows the optic, not the cage. Schema first: `Transceiver` has no fields yet.
+follows the optic, not the cage. Built (ADR-0073): `Transceiver` has its shape, an optic drags from the
+port panel onto another cage, and a line card is fitted from a device's Ports tab or its right-click
+**Fit a card**. The Parts list in Inventory lists every card, swappable supply and optic.
 
 **Tracked changes.** A maintenance record's *Show these changes* draws them as a document does: added
 solid, removed faded and struck, changed as old and new, everything else at 0.28. A view over the

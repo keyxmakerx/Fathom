@@ -41,8 +41,10 @@ const INTERNAL_ERROR: i64 = -32603;
 /// What the app is told at `initialize`, for its model to read.
 const INSTRUCTIONS: &str = "Fathom holds network designs. This connection reads the designs \
     in one organisation that the person who signed in chose, with only the detail they \
-    allowed: layout, and if allowed addresses and notes. Passwords, device secrets and the \
-    vault are never part of a reading. You cannot change a design. You can recommend a \
+    allowed: layout, and if allowed addresses and notes. Layout includes each device's \
+    cards (Card, seated by HasCard; its ports say OnCard), power supplies, and the optic in a \
+    port (the port's transceiver). Passwords, device secrets, serial numbers and the vault are \
+    never part of a reading. You cannot change a design. You can recommend a \
     change with the recommend tool; a person sees it in Fathom, marked as an AI idea, and \
     accepts or dismisses it. Start with list_designs, then read_design.";
 
@@ -66,7 +68,7 @@ const TOOLS: &str = r#"[
   {
     "name": "read_design",
     "title": "Read a design",
-    "description": "One design: its devices, links, sites and racks, with addresses and notes only where the person allowed them. Never passwords or device secrets.",
+    "description": "One design: its devices, links, sites and racks, the cards, power supplies and optics fitted in each device, with addresses and notes only where the person allowed them. Never passwords, device secrets or serial numbers.",
     "inputSchema": {
       "type": "object",
       "properties": {"design": {"type": "string", "description": "The design's id, from list_designs."}},
@@ -90,7 +92,7 @@ const TOOLS: &str = r#"[
   {
     "name": "recommend",
     "title": "Recommend a change",
-    "description": "Recommend a change to one design. Nothing in the design changes: a person sees the idea in Fathom, marked as an AI idea, and accepts or dismisses it. Name devices and links in targets by the ids read_design gave. Do not put passwords, keys or secrets in any text; text that looks like one is refused.",
+    "description": "Recommend a change to one design. Nothing in the design changes: a person sees the idea in Fathom, marked as an AI idea, and accepts or dismisses it. Name devices, cards, ports and links in targets by the ids read_design gave. Do not put passwords, keys or secrets in any text; text that looks like one is refused.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -105,7 +107,7 @@ const TOOLS: &str = r#"[
             "type": "object",
             "properties": {
               "action": {"type": "string", "enum": ["add", "change", "remove", "connect", "move", "label"]},
-              "target": {"type": "string", "description": "The id of the device, link, site or rack the step is about, if any."},
+              "target": {"type": "string", "description": "The id of the device, card, port, link, site or rack the step is about, if any."},
               "text": {"type": "string", "description": "What to do, up to 300 characters."}
             },
             "required": ["action", "text"],

@@ -57,6 +57,18 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     definition: 'A group of interfaces a firewall treats the same way, such as lan or cameras. Firewall rules are written from one zone to another.',
     explainer: 'explain:concept:basics.firewall-zones',
   },
+  {
+    term: 'line card',
+    definition:
+      'A board that slides into a slot in a modular device and carries ports of its own. Its ports go down when it is pulled. Cisco also calls them modules or NIMs; Juniper calls them FPCs and PICs.',
+  },
+  {
+    term: 'optic',
+    definition:
+      'The small plug-in module (an SFP or QSFP) that turns a port into a fibre or copper connection. The port is the cage; the optic decides the speed, the fibre type and how far it reaches.',
+  },
+  { term: 'transceiver', definition: 'Another name for an optic: the module in a port that sends and receives on the fibre or copper.' },
+  { term: 'sfp', definition: 'Small form-factor pluggable: the common optic for 1 Gb/s ports. SFP+ is the 10 Gb/s one and QSFP the wider one for 40 Gb/s and up.' },
 ];
 
 /** The part after a port name, as in `port2.0` or `ge-0/0/1.0`. */

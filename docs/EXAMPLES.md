@@ -96,3 +96,21 @@ Set `FATHOM_FIRMWARE_FETCH_BASE_URL` first (`docs/RUNNING-IT.md`); firmware is o
 1. Click **History** in the bar. It says first whether every save is intact.
 2. Pick a save to see the design as it was, its changes outlined. **Back to now** returns.
 3. **Restore this version** (Draw) makes a new save; both stay listed.
+
+## 9. Fit a card and an optic
+
+You need Draw. A card is a module in a slot (a line card, NIM or FPC); an optic is the SFP in a port.
+
+1. Right-click a device, **Fit a card** (or type "fit a card" in the palette). The Ports tab opens at
+   the first empty slot; the catalogue's slot names are offered when the model lists them.
+2. Give the slot, model and serial, and its ports as a name or a pattern, as adding a port takes it:
+   `1/{1-4}`, SFP+. The ports appear on the device and say which card they are on.
+3. Click a port and set its optic (type, part, serial). Drag it onto another cage to move it.
+4. Or paste the device's `show inventory` (Cisco) or `show chassis hardware` (Junos): the facts card
+   offers each card, optic and supply it read.
+5. **Inventory › Parts** lists every card, supply and optic with its serial; edit model and serial in place.
+6. To replace one, add a **Swap a part** step to a maintenance. It says which ports go down while the
+   part is out, and Back out puts the old serial back.
+
+The Cards and optics lesson walks the same steps on a sample network. An AI assistant sees each card's
+slot and model and which ports are on it, never a serial.
