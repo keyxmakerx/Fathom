@@ -500,6 +500,55 @@ fn a_pfsense_backup_is_detected_and_no_secret_survives() {
     }
 }
 
+// OPNsense: its `config.xml` shares the `opnsense` dictionary with the rules CSV,
+// and is told by its root element even when the device names `opnsense`.
+const OPN_HASH: &str = "$2y$10$YRVoF4SgskIsrXOvOQjGieB9XqHPRra9R7d80B3BZdbY/j21TwBfS";
+const OPN_PSK: &str = "Painite-Site-To-Site-PSK-0f3e9a1c7b2d4e6f8a0b1c2d3e4f5a6b7c8d9e0f";
+const OPN_SNMP: &str = "Painite-RO-Community-7Hq2xWm9Lp4Zr";
+
+fn opn_config() -> String {
+    format!(
+        "<?xml version=\"1.0\"?>\n<opnsense>\n  <system>\n    <hostname>painite</hostname>\n\
+         \x20   <user>\n      <name>root</name>\n      <password>{OPN_HASH}</password>\n    </user>\n\
+         \x20 </system>\n  <interfaces>\n    <lan>\n      <enable>1</enable>\n      <if>igb1</if>\n\
+         \x20     <ipaddr>192.168.1.1</ipaddr>\n      <subnet>24</subnet>\n    </lan>\n  </interfaces>\n\
+         \x20 <OPNsense>\n    <IPsec>\n      <preSharedKeys>\n        <preSharedKey uuid=\"1b2c3d4e\">\n\
+         \x20         <ident>203.0.113.9</ident>\n          <Key>{OPN_PSK}</Key>\n        </preSharedKey>\n\
+         \x20     </preSharedKeys>\n    </IPsec>\n    <netsnmp>\n      <general>\n\
+         \x20       <community>{OPN_SNMP}</community>\n      </general>\n    </netsnmp>\n  </OPNsense>\n</opnsense>\n"
+    )
+}
+
+#[test]
+fn an_opnsense_backup_is_detected_and_no_secret_survives() {
+    let secrets = [OPN_HASH, OPN_PSK, OPN_SNMP];
+    let mut shell = common::all_booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(0, &opn_config()));
+    assert_eq!(platform_of(&reply), "opnsense");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    assert!(contains(&stored, "painite"), "the hostname binds");
+    for s in secrets {
+        assert!(!contains(&reply, s), "reply leaks {s}");
+        assert!(!contains(&stored, s), "stored design leaks {s}");
+    }
+
+    // Pasted into a device that is already OPNsense: the XML, not the rules CSV, reads it.
+    let mut shell = common::all_booted_shell();
+    let display = place(&mut shell, "opnsense");
+    let reply = shell.handle(OP_PASTE_INTO, &into_frame(0, &display, &opn_config()));
+    assert_eq!(platform_of(&reply), "opnsense");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    assert!(
+        contains(&stored, "REDACTED"),
+        "the capture is stored, gated"
+    );
+    assert!(contains(&stored, "igb1"), "the interface binds");
+    for s in secrets {
+        assert!(!contains(&reply, s), "paste-into reply leaks {s}");
+        assert!(!contains(&stored, s), "paste-into stored capture leaks {s}");
+    }
+}
+
 #[test]
 fn an_encrypted_pfsense_backup_is_refused_and_stores_nothing() {
     let mut shell = common::all_booted_shell();

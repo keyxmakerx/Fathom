@@ -93,7 +93,8 @@ fn rule_node(out: &fathom_ingest::IngestOutput, uuid: &str) -> usize {
 fn the_dictionary_compiles_and_declares_its_platform() {
     let d = dict();
     assert_eq!(d.platform(), "opnsense");
-    assert_eq!(d.entry_count(), 6);
+    // Six for the rules CSV; the rest are `config-xml.yaml` and `secrets-xml.yaml`.
+    assert_eq!(d.entry_count(), 20);
 }
 
 /// The sniff must never claim a Junos paste. Cheap to check and expensive to

@@ -1,11 +1,12 @@
 import { useContext, useEffect, useId, useRef, useState } from 'react';
+import { Fold } from '../drawing/Fold';
 import { DocsContext } from './context';
 import './docs.css';
 
 /** Round 15 (r15-qol), device photo: what the box really looks like, on its panel. The picture is
  * the newest image on the device's own docs (a doc called "Photo" first). Dropping or choosing one
  * adds it to that doc. A photo cannot be checked for passwords, so the person says it shows none. */
-export function DevicePhoto({ ownerId, name }: { ownerId: string; name: string }) {
+export function DevicePhoto({ ownerId, name, folded = false }: { ownerId: string; name: string; folded?: boolean }) {
   const api = useContext(DocsContext);
   const photo = api?.photoOf(ownerId) ?? null;
   const [url, setUrl] = useState<{ fileId: string; url: string } | null>(null);
@@ -47,9 +48,9 @@ export function DevicePhoto({ ownerId, name }: { ownerId: string; name: string }
   }
 
   const shown = photo && url?.fileId === photo.fileId ? url.url : null;
-  return (
+  const body = (
     <div className="drawing-editor__field device-photo" data-testid="device-photo">
-      <div className="drawing-editor__field-label">Photo</div>
+      {folded ? null : <div className="drawing-editor__field-label">Photo</div>}
       {photo ? (
         shown ? (
           <img className="device-photo__img" src={shown} alt={`Photo of ${name}`} />
@@ -115,5 +116,12 @@ export function DevicePhoto({ ownerId, name }: { ownerId: string; name: string }
         </p>
       ) : null}
     </div>
+  );
+  if (!folded) return body;
+  return (
+    // Folded (r30-device), the summary says whether there is one.
+    <Fold title="Photo" summary={photo ? 'one on file' : 'none yet'} testId="photo-fold">
+      {body}
+    </Fold>
   );
 }

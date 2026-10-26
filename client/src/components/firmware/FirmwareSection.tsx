@@ -5,12 +5,32 @@
 import { useContext, useState } from 'react';
 
 import { deviceFirmware, stateOf, targetOfDevice } from '../../document/firmware';
+import { Fold } from '../drawing/Fold';
 import { FirmwareContext } from './context';
 import { statusWords } from './ModelPage';
 import { GetLink, HoldForm, StateMark } from './parts';
 import './firmware.css';
 
-export function FirmwareSection({ deviceId }: { deviceId: string }) {
+/** The device panel's head (r31 pictures): what it runs and where that leaves it, as one chip. Nothing for a device
+ * with no catalogue model. */
+export function FirmwareChip({ deviceId }: { deviceId: string }) {
+  const api = useContext(FirmwareContext);
+  if (!api) return null;
+  const device = deviceFirmware(api.doc, deviceId);
+  if (!device || device.models.length === 0) return null;
+  const state = stateOf(device, targetOfDevice(api.doc, device));
+  const { word } = statusWords(state, device.hold);
+  const tone = state === 'current' ? 'ok' : state === 'behind' ? 'warn' : '';
+  return (
+    <span className={`dev-tag${tone ? ` dev-tag--${tone}` : ''}`} data-testid="firmware-chip">
+      {tone ? <span className="dev-tag__dot" aria-hidden="true" /> : null}
+      Firmware {device.osVersion ? `${device.osVersion} · ` : ''}{word}
+    </span>
+  );
+}
+
+/** `folded`: the canvas panel shows it as one line (r30-device), what it runs and where that leaves it. */
+export function FirmwareSection({ deviceId, folded = false }: { deviceId: string; folded?: boolean }) {
   const api = useContext(FirmwareContext);
   const [holding, setHolding] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,9 +43,9 @@ export function FirmwareSection({ deviceId }: { deviceId: string }) {
   const image = target ? (api.server.images.find((i) => i.imageId === target.image && i.state === 'staged') ?? null) : null;
   const model = target?.model ?? device.models[0]!;
 
-  return (
+  const body = (
     <div className="drawing-editor__field fw-section" data-testid="firmware-section">
-      <div className="drawing-editor__group">Firmware</div>
+      {folded ? null : <div className="drawing-editor__group">Firmware</div>}
       <div className="fw-section__row">
         <span className="drawing-editor__field-label">Running</span>
         <span className={device.osVersion ? 'fw-mono' : 'fw-muted'}>{device.osVersion || 'not recorded'}</span>
@@ -97,5 +117,11 @@ export function FirmwareSection({ deviceId }: { deviceId: string }) {
       </div>
       {image && api.isSteward ? <GetLink api={api} imageId={image.imageId} /> : null}
     </div>
+  );
+  if (!folded) return body;
+  return (
+    <Fold title="Firmware" summary={`${device.osVersion || 'not recorded'} · ${word}`} testId="firmware-fold">
+      {body}
+    </Fold>
   );
 }

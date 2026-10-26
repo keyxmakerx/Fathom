@@ -172,6 +172,8 @@ try {
     const coreNode = page.locator('.react-flow__node-chassis').filter({ hasText: 'core-01' });
     await coreNode.click();
     await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
+    // Remove device sits in the panel's ⋯ menu.
+    await page.locator('[data-testid="device-more"] > summary').click();
     const removeButton = page.locator('.drawing-editor__panel button', { hasText: 'Remove device' });
     check('the panel offers "Remove device"', (await removeButton.count()) === 1);
     await removeButton.scrollIntoViewIfNeeded();

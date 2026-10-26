@@ -118,3 +118,41 @@ describe('Bar — account menu rows', () => {
     expect(markup).not.toContain('People and permissions');
   });
 });
+
+describe('Bar — r31-bar A, on the drawing', () => {
+  const onCanvas = (over: Partial<BarProps> = {}) =>
+    renderToStaticMarkup(
+      createElement(Bar, {
+        ...BASE,
+        toolsOnCanvas: true,
+        mainView: { value: 'canvas', onChange: () => {} },
+        doing: [
+          { id: 'plan', label: 'Plan a change', onSelect: () => {} },
+          { id: 'down', label: "It's down", hint: 'select a device first' },
+        ],
+        onShare: () => {},
+        onPrint: () => {},
+        onDocs: () => {},
+        onHistory: () => {},
+        ...over,
+      }),
+    );
+
+  it('names the four views, Canvas current', () => {
+    const markup = onCanvas();
+    for (const v of ['diagram', 'canvas', 'inventory', 'sheet']) expect(markup).toContain(`data-testid="view-${v}"`);
+    expect(markup).toMatch(/aria-current="page"[^>]*data-testid="view-canvas"/);
+  });
+
+  it('keeps Doing and Share, and leaves the lens, Undo, zoom, Docs, History and Print to the drawing and the panel', () => {
+    const markup = onCanvas();
+    expect(markup).toContain('data-testid="shell-doing"');
+    expect(markup).toContain('data-testid="shell-share"');
+    expect(markup).not.toContain('>Routing<');
+    expect(markup).not.toContain('>Undo<');
+    expect(markup).not.toContain('aria-label="Zoom in"');
+    expect(markup).not.toContain('data-testid="shell-docs"');
+    expect(markup).not.toContain('data-testid="shell-history"');
+    expect(markup).not.toContain('data-testid="shell-show"');
+  });
+});

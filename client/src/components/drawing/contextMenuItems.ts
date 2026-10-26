@@ -113,9 +113,9 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
       if (actions.onPlanChange) items.push({ label: 'Plan a change', onSelect: () => actions.onPlanChange?.(id) });
       if (on != null) break;
       if (actions.onSuggestCables) items.push({ label: 'Suggest cables from its neighbours (LLDP)', onSelect: () => actions.onSuggestCables?.(id) });
-      if (actions.onPlanFirmware) {
-        const label = actions.firmwareNeedsVersion?.(id) ? 'Plan a firmware upgrade (choose a version first)' : 'Plan a firmware upgrade';
-        items.push({ label, onSelect: () => actions.onPlanFirmware?.(id) });
+      // Offered only once its model has a chosen version; until then the device page's Firmware says how (r30-small).
+      if (actions.onPlanFirmware && !actions.firmwareNeedsVersion?.(id)) {
+        items.push({ label: 'Plan a firmware upgrade', onSelect: () => actions.onPlanFirmware?.(id) });
       }
       if (actions.onDuplicateDevice) items.push({ label: 'Duplicate', onSelect: () => actions.onDuplicateDevice?.(id) });
       if (actions.onRemoveDevice) items.push({ label: 'Remove', onSelect: () => actions.onRemoveDevice?.(id), danger: true });
