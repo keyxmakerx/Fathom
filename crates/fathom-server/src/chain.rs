@@ -766,7 +766,7 @@ impl EntryType {
             | Self::FirmwareModelsChanged
             | Self::InvitationIssued
             | Self::InvitationClosed
-            | Self::TypeItYourselfSet,
+            | Self::TypeItYourselfSet
             | Self::VaultKeyEnrolled
             | Self::VaultKeySuperseded
             | Self::VaultEntryCreated
