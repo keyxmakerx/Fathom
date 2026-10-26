@@ -299,6 +299,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0048_vault_passbolt.sql",
         sql: include_str!("../migrations/0048_vault_passbolt.sql"),
     },
+    // Custom fields on a spare: definitions may apply to `part` (ADR-0074).
+    Migration {
+        version: 49,
+        name: "0049_field_part.sql",
+        sql: include_str!("../migrations/0049_field_part.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

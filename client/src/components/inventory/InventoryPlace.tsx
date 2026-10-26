@@ -797,7 +797,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
           ) : kind === 'parts' && onHand && doc && !openKey ? (
             <div className="inventory-place__main">
               <PartsSwitch onHand={onHand} onChange={setOnHand} />
-              <StockPanel doc={doc} canDraw={canDraw} applyDocChange={applyDocChange} redact={redact} />
+              <StockPanel doc={doc} canDraw={canDraw} applyDocChange={applyDocChange} redact={redact} fieldDefs={fieldDefs} createField={createField} />
             </div>
           ) : kind === 'passwords' ? (
             <div className="inventory-place__main">

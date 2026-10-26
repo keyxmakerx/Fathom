@@ -45,6 +45,7 @@ import {
   type StockState,
 } from '../../document/stock';
 import { listIssues } from '../../document/issues';
+import { fieldsOf, listFieldDefs, setFieldValues, type FieldDefView, type FieldFor, type FieldType } from '../../document/fields';
 import { buildCanon } from '../checks/checksModel';
 import { devicesOf, partsOfDevice } from '../plans/plansModel';
 import { getSession } from '../../state/sessionState';
@@ -103,7 +104,7 @@ function stateLine(doc: Document, i: StockItemView): string {
 // ---------------------------------------------------------------------------
 // One item, opened
 
-function ItemDetail({ doc, item, canDraw, apply }: { doc: Document; item: StockItemView; canDraw: boolean; apply: (next: Document) => void }) {
+function ItemDetail({ doc, item, canDraw, apply, fieldDefs }: { doc: Document; item: StockItemView; canDraw: boolean; apply: (next: Document) => void; fieldDefs: readonly FieldDefView[] }) {
   const stores = listStores(doc);
   const issues = useMemo(() => listIssues(doc).filter((i) => i.stage !== 'closed'), [doc]);
   const [error, setError] = useState<string | null>(null);
@@ -120,10 +121,15 @@ function ItemDetail({ doc, item, canDraw, apply }: { doc: Document; item: StockI
   const [extra, setExtra] = useState({ rma: '', due: '', issue: '', to: '', take: '1' });
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const run = (f: () => Document) => attempt(() => apply(f()), setError);
+  const custom = fieldsOf(doc, item.id, fieldDefs).filter((r) => !r.def.archived);
+  const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(custom.map((r) => [r.def.id, r.value ?? ''])));
 
   if (!canDraw) {
     return (
       <div className="stock__detail">
+        {custom.length > 0 ? (
+          <p className="stock__note">{custom.filter((r) => r.value).map((r) => `${r.def.name}: ${r.value}`).join(' · ')}</p>
+        ) : null}
         {item.cameFrom ? <p className="stock__note">Came from {item.cameFrom}.</p> : null}
         {item.note ? <p className="stock__note">{item.note}</p> : null}
         <p className="stock__note">Read only. Switch to Draw to change stock.</p>
@@ -191,6 +197,42 @@ function ItemDetail({ doc, item, canDraw, apply }: { doc: Document; item: StockI
           </button>
         </div>
       </form>
+
+      {custom.length > 0 ? (
+        <form
+          className="stock__grid"
+          aria-label="Custom fields"
+          onSubmit={(e) => {
+            e.preventDefault();
+            run(() => setFieldValues(doc, custom.map((r) => ({ ownerId: item.id, defId: r.def.id, raw: values[r.def.id] ?? '' })), fieldDefs, actorOpts()));
+          }}
+        >
+          {custom.map((r) => (
+            <Field key={r.def.id} label={r.def.name}>
+              {r.def.type === 'choice' ? (
+                <select className="stock__input" value={values[r.def.id] ?? ''} onChange={(e) => setValues({ ...values, [r.def.id]: e.target.value })}>
+                  <option value="" />
+                  {r.def.choices.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  className="stock__input"
+                  type={r.def.type === 'number' ? 'number' : r.def.type === 'date' ? 'date' : r.def.type === 'url' ? 'url' : 'text'}
+                  value={values[r.def.id] ?? ''}
+                  onChange={(e) => setValues({ ...values, [r.def.id]: e.target.value })}
+                />
+              )}
+            </Field>
+          ))}
+          <div className="stock__actions">
+            <button type="submit">Save fields</button>
+          </div>
+        </form>
+      ) : null}
 
       {item.cameFrom ? <p className="stock__note">Came from {item.cameFrom}.</p> : null}
 
@@ -337,7 +379,21 @@ function ItemDetail({ doc, item, canDraw, apply }: { doc: Document; item: StockI
 // ---------------------------------------------------------------------------
 // The list
 
-function ItemRows({ doc, items, canDraw, apply, empty }: { doc: Document; items: StockItemView[]; canDraw: boolean; apply: (next: Document) => void; empty: ReactNode }) {
+function ItemRows({
+  doc,
+  items,
+  canDraw,
+  apply,
+  empty,
+  fieldDefs,
+}: {
+  doc: Document;
+  items: StockItemView[];
+  canDraw: boolean;
+  apply: (next: Document) => void;
+  empty: ReactNode;
+  fieldDefs: readonly FieldDefView[];
+}) {
   const [open, setOpen] = useState<string | null>(null);
   const stores = new Map(listStores(doc).map((s) => [s.id, s.name]));
   if (items.length === 0) return <>{empty}</>;
@@ -357,7 +413,7 @@ function ItemRows({ doc, items, canDraw, apply, empty }: { doc: Document; items:
               <span className={`stock__state stock__state--${i.state}`}>{STATE_LABEL[i.state]}</span> {stateLine(doc, i)}
             </span>
           </button>
-          {open === i.id ? <ItemDetail key={i.id} doc={doc} item={i} canDraw={canDraw} apply={apply} /> : null}
+          {open === i.id ? <ItemDetail key={i.id} doc={doc} item={i} canDraw={canDraw} apply={apply} fieldDefs={fieldDefs} /> : null}
         </li>
       ))}
     </ul>
@@ -680,6 +736,51 @@ function AddStock({
 }
 
 // ---------------------------------------------------------------------------
+// Prices and suppliers (r38: "A custom fields"): a starter set, made once, kept with the organisation's own fields.
+
+/** The starter set offered when no field applies to a spare yet. */
+export const STARTER_FIELDS: readonly { name: string; type: FieldType }[] = [
+  { name: 'Price', type: 'number' },
+  { name: 'Supplier', type: 'text' },
+  { name: 'Order number', type: 'text' },
+  { name: 'Warranty end', type: 'date' },
+];
+
+function StarterFields({ createField }: { createField: (kind: FieldFor, name: string, type: FieldType) => Promise<{ refused: string } | void> }) {
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+  return (
+    <section className="stock__section" aria-label="Prices and suppliers">
+      <h3 className="stock__sub">Prices and suppliers</h3>
+      <p className="stock__note">
+        Keep what each spare cost and where it came from as custom fields: {STARTER_FIELDS.map((f) => f.name).join(', ')}. They are your organisation's fields,
+        so they can be renamed or added to like any other. Anyone who can read this design can read them.
+      </p>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => {
+          setBusy(true);
+          void (async () => {
+            for (const f of STARTER_FIELDS) {
+              const out = await createField('part', f.name, f.type);
+              if (out && 'refused' in out) {
+                setSaid(out.refused);
+                break;
+              }
+            }
+            setBusy(false);
+          })();
+        }}
+      >
+        Add these fields
+      </button>
+      {said ? <p className="stock__error">{said}</p> : null}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Stores and levels
 
 function StoresSection({ doc, canDraw, apply, onOpen }: { doc: Document; canDraw: boolean; apply: (next: Document) => void; onOpen: (id: string) => void }) {
@@ -808,12 +909,15 @@ export function StoreBinPage({
   canDraw,
   onChange,
   onBack,
+  fieldDefs = [],
 }: {
   doc: Document;
   storeId: string;
   canDraw: boolean;
   onChange: (next: Document) => void;
   onBack?: () => void;
+  /** Custom fields on a spare (`part`), when the organisation's are loaded. */
+  fieldDefs?: readonly FieldDefView[];
 }) {
   const page = storeView(doc, storeId);
   const [error, setError] = useState<string | null>(null);
@@ -848,7 +952,7 @@ export function StoreBinPage({
       {page.bins.map((b) => (
         <div key={b.bin ?? ''} className="stock__bin">
           <h3 className="stock__sub">{b.bin ?? 'No bin'}</h3>
-          <ItemRows doc={doc} items={b.items} canDraw={canDraw} apply={onChange} empty={null} />
+          <ItemRows doc={doc} items={b.items} canDraw={canDraw} apply={onChange} empty={null} fieldDefs={fieldDefs} />
         </div>
       ))}
       {canDraw ? (
@@ -903,11 +1007,15 @@ export function StockPanel({
   canDraw,
   applyDocChange,
   redact,
+  fieldDefs = [],
+  createField,
 }: {
   doc: Document;
   canDraw: boolean;
   applyDocChange: (next: Document) => void;
   redact: (text: string) => Promise<string>;
+  fieldDefs?: readonly FieldDefView[];
+  createField?: (kind: FieldFor, name: string, type: FieldType) => Promise<{ refused: string } | void>;
 }) {
   const [show, setShow] = useState<Show>('on_hand');
   const [adding, setAdding] = useState(false);
@@ -920,7 +1028,7 @@ export function StockPanel({
     return Object.fromEntries(SHOWS.map((s) => [s.key, all.filter((i) => !s.states || s.states.includes(i.state)).reduce((n, i) => n + i.count, 0)])) as Record<Show, number>;
   }, [doc]);
 
-  if (store) return <StoreBinPage doc={doc} storeId={store} canDraw={canDraw} onChange={applyDocChange} onBack={() => setStoreOpen(null)} />;
+  if (store) return <StoreBinPage doc={doc} storeId={store} canDraw={canDraw} onChange={applyDocChange} onBack={() => setStoreOpen(null)} fieldDefs={fieldDefs} />;
 
   return (
     <section className="stock" data-testid="stock-panel" aria-label="On hand">
@@ -963,12 +1071,14 @@ export function StockPanel({
         items={items}
         canDraw={canDraw}
         apply={applyDocChange}
+        fieldDefs={fieldDefs}
         empty={
           <p className="stock__note">
             {show === 'on_hand' ? 'Nothing on hand yet. Add spares with the button above, or take a part out of a device into stock.' : 'Nothing here.'}
           </p>
         }
       />
+      {canDraw && createField && listFieldDefs(fieldDefs, 'part').length === 0 ? <StarterFields createField={createField} /> : null}
       <StoresSection doc={doc} canDraw={canDraw} apply={applyDocChange} onOpen={setStoreOpen} />
       <LevelsSection doc={doc} canDraw={canDraw} apply={applyDocChange} />
     </section>

@@ -5,7 +5,7 @@
 import { utf8 } from '../crypto/bytes';
 import { signedFetch } from './signedFetch';
 
-export const FIELD_FOR = ['device', 'rack', 'cable', 'port', 'network'] as const;
+export const FIELD_FOR = ['device', 'rack', 'cable', 'port', 'network', 'part'] as const;
 export type FieldFor = (typeof FIELD_FOR)[number];
 export const FIELD_TYPES = ['text', 'number', 'date', 'choice', 'url'] as const;
 export type FieldType = (typeof FIELD_TYPES)[number];

@@ -1,0 +1,7 @@
+# Keeps two SFP-10G-SR; one is on the shelf and one is away for repair.
+nodes:
+  - { id: l1, kind: StockLevel, set: { model: SFP-10G-SR, at_least: 2 } }
+  - { id: s1, kind: StockItem, set: { part: optic, model: SFP-10G-SR, serial: OPT-0101, state: spare } }
+  - { id: s2, kind: StockItem, set: { part: optic, model: SFP-10G-SR, serial: OPT-0102, state: in_repair } }
+edges: []
+anchor: l1

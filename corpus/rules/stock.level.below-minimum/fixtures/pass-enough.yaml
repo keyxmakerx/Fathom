@@ -1,0 +1,8 @@
+# Keeps two; two are on the shelf, and a third of another model does not matter.
+nodes:
+  - { id: l1, kind: StockLevel, set: { model: SFP-10G-SR, at_least: 2 } }
+  - { id: s1, kind: StockItem, set: { part: optic, model: SFP-10G-SR, serial: OPT-0101, state: spare } }
+  - { id: s2, kind: StockItem, set: { part: optic, model: SFP-10G-SR, serial: OPT-0102, state: spare } }
+  - { id: s3, kind: StockItem, set: { part: optic, model: SFP-10G-LR, serial: OPT-0201, state: spare } }
+edges: []
+anchor: l1

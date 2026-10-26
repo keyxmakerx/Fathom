@@ -24,7 +24,7 @@ use crate::repo::ScopeId;
 
 const AAD_FIELD_DEF: &[u8] = b"fathom/field-definition/v1";
 
-pub const KINDS: [&str; 5] = ["device", "rack", "cable", "port", "network"];
+pub const KINDS: [&str; 6] = ["device", "rack", "cable", "port", "network", "part"];
 pub const TYPES: [&str; 5] = ["text", "number", "date", "choice", "url"];
 pub const MAX_NAME_CHARS: usize = 100;
 pub const MAX_CHOICES: usize = 100;
@@ -300,7 +300,9 @@ pub async fn create(
 ) -> Result<FieldDefinition, DesignError> {
     require_draw(tx, auth).await?;
     if !KINDS.contains(&kind) {
-        return Err(bad("kind is one of device, rack, cable, port, network"));
+        return Err(bad(
+            "kind is one of device, rack, cable, port, network, part",
+        ));
     }
     if !TYPES.contains(&ty) {
         return Err(bad("type is one of text, number, date, choice, url"));
