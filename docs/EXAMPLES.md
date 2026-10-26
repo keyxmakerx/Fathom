@@ -96,3 +96,15 @@ Set `FATHOM_FIRMWARE_FETCH_BASE_URL` first (`docs/RUNNING-IT.md`); firmware is o
 1. Click **History** in the bar. It says first whether every save is intact.
 2. Pick a save to see the design as it was, its changes outlined. **Back to now** returns.
 3. **Restore this version** (Draw) makes a new save; both stay listed.
+
+## 9. Swap a dead optic from stock
+
+1. **Inventory › Parts**, switch to **On hand**. **+ Add to stock** if the cupboard is not listed yet:
+   type the spare's model and serial, or paste the list from its box.
+2. **Keep at least** one or two of the model, so Checks says when the shelf runs short.
+3. On the canvas, right-click the device, **It's down**: the link step says whether a spare optic is on
+   hand and in which bin.
+4. Plan it: a **Swap a part** step, the port, then **From stock**. The spare is kept for the step.
+5. **Done** fits it. The dead optic goes into stock as retired, with where it came from; open it on
+   On hand and **Send for repair** with the vendor's RMA number and the issue it was for.
+
