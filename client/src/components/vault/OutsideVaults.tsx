@@ -2,7 +2,9 @@
 // per user, but the Admin can reject/pull whatever as needed"). Each person connects their own
 // Vaultwarden account, limited to one collection, or Delinea Secret Server account, limited to one
 // folder, and pulls logins from it one at a time; an admin sees every connection, can disconnect
-// any, and can remove any login pulled through one.
+// any, and can remove any login pulled through one. Passbolt is offered only when the server runs
+// its optional helper: Fathom finishes an invited account's setup with its own key, and the
+// connection waits until one folder is shared with that account.
 
 import { useState } from 'react';
 
@@ -14,6 +16,8 @@ import {
   outsideDelineaConnect,
   outsideDelineaPrepare,
   outsideDisconnect,
+  outsidePassboltConnect,
+  outsidePassboltPrepare,
   outsidePrepare,
   outsidePull,
   outsideRemove,
@@ -40,7 +44,7 @@ export function suggestCollectionName(): string {
   return `fathom-${Array.from(b, (x) => a[x % a.length]).join('')}`;
 }
 
-const PROVIDERS: { id: OutsideProvider | 'passbolt'; mark: string; name: string; line: string }[] = [
+const PROVIDERS: { id: OutsideProvider; mark: string; name: string; line: string }[] = [
   { id: 'vaultwarden', mark: 'VW', name: 'Vaultwarden or Bitwarden', line: 'A Fathom user, role User, in one collection' },
   { id: 'delinea', mark: 'DL', name: 'Delinea Secret Server', line: 'An account with View on one folder' },
   { id: 'passbolt', mark: 'PB', name: 'Passbolt', line: 'A Fathom user that holds only one shared folder' },
@@ -56,7 +60,18 @@ const BEFORE: Record<OutsideProvider, CheckLine[]> = {
     { id: 'collection', passed: false, text: 'It can see 1 folder' },
     { id: 'personal', passed: false, text: 'Every secret it can see is in that folder' },
   ],
+  passbolt: [
+    { id: 'role', passed: false, text: 'It is a plain user, not an administrator' },
+    { id: 'collection', passed: false, text: 'It can see 1 folder, once one is shared with it' },
+    { id: 'personal', passed: false, text: 'Every item it can see is in that folder, and none is personal' },
+    { id: 'metadata', passed: false, text: 'Passbolt’s shared metadata key, if it has one, is Curve25519' },
+  ],
 };
+
+/** A fingerprint in groups of four, as people read them aloud. */
+function grouped(fp: string): string {
+  return (fp.toUpperCase().match(/.{1,4}/g) ?? []).join(' ');
+}
 
 function Checks({ lines, ran }: { lines: CheckLine[]; ran: boolean }) {
   return (
@@ -75,8 +90,22 @@ function Checks({ lines, ran }: { lines: CheckLine[]; ran: boolean }) {
   );
 }
 
-export function ConnectOutsideDialog({ organisation, onClose, onDone }: { organisation: string; onClose: () => void; onDone: (c: OutsideConnection) => void }) {
+export function ConnectOutsideDialog({
+  organisation,
+  passbolt,
+  onClose,
+  onDone,
+}: {
+  organisation: string;
+  /** This server's Passbolt helper answers. */
+  passbolt: boolean;
+  onClose: () => void;
+  onDone: (c: OutsideConnection) => void;
+}) {
   const [provider, setProvider] = useState<OutsideProvider>('vaultwarden');
+  const [invite, setInvite] = useState('');
+  const [serverFp, setServerFp] = useState<string | null>(null);
+  const [fpConfirmed, setFpConfirmed] = useState(false);
   const [url, setUrl] = useState('https://');
   const [username, setUsername] = useState('');
   const [clientId, setClientId] = useState('');
@@ -91,8 +120,10 @@ export function ConnectOutsideDialog({ organisation, onClose, onDone }: { organi
 
   const choose = (p: OutsideProvider) => {
     setProvider(p);
-    // Secret Server's folder is one made there already, so its name is typed, not suggested.
-    setCollection(p === 'delinea' ? '' : suggestCollectionName());
+    // Secret Server's and Passbolt's folder is one made there already, so its name is typed.
+    setCollection(p === 'vaultwarden' ? suggestCollectionName() : '');
+    setServerFp(null);
+    setFpConfirmed(false);
     setLines(null);
     setError(null);
     setPassword('');
@@ -118,8 +149,38 @@ export function ConnectOutsideDialog({ organisation, onClose, onDone }: { organi
     }
   };
 
+  const readInvite = async () => {
+    setError(null);
+    setBusy('Asking Passbolt for its key…');
+    try {
+      const prep = await outsidePassboltPrepare(organisation, { invite: invite.trim() });
+      setServerFp(prep.serverFingerprint);
+      setFpConfirmed(false);
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const connectPassbolt = async () => {
+    if (!serverFp) return readInvite();
+    setError(null);
+    setBusy('Setting up Fathom’s account…');
+    try {
+      const conn = await outsidePassboltConnect(organisation, { invite: invite.trim(), folderName: collection.trim(), serverFingerprint: serverFp });
+      setInvite('');
+      onDone(conn);
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const connect = async () => {
     if (provider === 'delinea') return connectDelinea();
+    if (provider === 'passbolt') return connectPassbolt();
     setError(null);
     setBusy('Reading the account…');
     try {
@@ -154,14 +215,17 @@ export function ConnectOutsideDialog({ organisation, onClose, onDone }: { organi
   };
 
   const dl = provider === 'delinea';
-  const ready = url.startsWith('https://') && url.length > 8 && password && collection.trim() && (dl ? username.trim() : clientId.trim() && clientSecret.trim());
+  const pb = provider === 'passbolt';
+  const ready = pb
+    ? invite.includes('/setup/start/') && collection.trim() && (serverFp == null || fpConfirmed)
+    : url.startsWith('https://') && url.length > 8 && password && collection.trim() && (dl ? username.trim() : clientId.trim() && clientSecret.trim());
   return (
     <VaultModal title="Connect an outside vault" onClose={onClose} wide testId="outside-connect">
       <div className="vault-outside">
         <div className="vault-form">
           <div className="vault-providers" role="radiogroup" aria-label="Which vault">
             {PROVIDERS.map((p) => {
-              const id = p.id === 'passbolt' ? null : p.id;
+              const id = p.id === 'passbolt' && !passbolt ? null : p.id;
               const pick = () => {
                 if (id) choose(id);
               };
@@ -187,16 +251,57 @@ export function ConnectOutsideDialog({ organisation, onClose, onDone }: { organi
                     <strong>{p.name}</strong>
                     <span className="vault-muted">{p.line}</span>
                   </span>
-                  {!id && <span className="vault-tag">Next</span>}
+                  {!id && <span className="vault-tag" title="This server’s operator switches on the passbolt profile to offer it">Not on this server</span>}
                 </div>
               );
             })}
           </div>
-          <label className="vault-field">
-            <span className="vault-field__label">The vault’s address</span>
-            <input className="vault-input vault-input--mono" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://vault.example.org" data-testid="outside-url" />
-          </label>
-          {dl && (
+          {!pb && (
+            <label className="vault-field">
+              <span className="vault-field__label">The vault’s address</span>
+              <input className="vault-input vault-input--mono" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://vault.example.org" data-testid="outside-url" />
+            </label>
+          )}
+          {pb && (
+            <>
+              <label className="vault-field">
+                <span className="vault-field__label">The invitation link</span>
+                <input
+                  className="vault-input vault-input--mono"
+                  value={invite}
+                  onChange={(e) => {
+                    setInvite(e.target.value);
+                    setServerFp(null);
+                    setFpConfirmed(false);
+                  }}
+                  placeholder="https://passbolt.example.org/setup/start/…"
+                  autoComplete="off"
+                  data-testid="outside-pb-invite"
+                />
+                <span className="vault-small">
+                  Ask Passbolt’s administrator to add a user just for Fathom, role User, and paste the link from its invitation e-mail. Fathom makes its own key and finishes that
+                  account’s setup with it; nobody else ever holds the key.
+                </span>
+              </label>
+              {serverFp && (
+                <div className="vault-fieldset" data-testid="outside-pb-fingerprint">
+                  <div className="vault-field__label">Passbolt’s server key</div>
+                  <p className="vault-input--mono">{grouped(serverFp)}</p>
+                  <label className="vault-check">
+                    <input type="checkbox" checked={fpConfirmed} onChange={(e) => setFpConfirmed(e.target.checked)} data-testid="outside-pb-confirm" /> This is the fingerprint
+                    Passbolt’s administrator gave me
+                  </label>
+                  <span className="vault-small">Fathom keeps this one, and stops if Passbolt ever answers with another.</span>
+                </div>
+              )}
+              <label className="vault-field">
+                <span className="vault-field__label">Folder Fathom may use</span>
+                <input className="vault-input vault-input--mono" value={collection} onChange={(e) => setCollection(e.target.value)} data-testid="outside-collection" />
+                <span className="vault-small">Its name as Passbolt shows it. Share only this folder with Fathom’s user once it is set up; Fathom waits until then.</span>
+              </label>
+            </>
+          )}
+          {dl && !pb && (
             <>
               <div className="vault-inline">
                 <label className="vault-field">
@@ -219,7 +324,7 @@ export function ConnectOutsideDialog({ organisation, onClose, onDone }: { organi
               </label>
             </>
           )}
-          {!dl && (
+          {!dl && !pb && (
             <>
               <div className="vault-inline">
                 <label className="vault-field">
@@ -250,7 +355,7 @@ export function ConnectOutsideDialog({ organisation, onClose, onDone }: { organi
               </label>
             </>
           )}
-          <div className="vault-field__label">Checked before it connects</div>
+          <div className="vault-field__label">{pb ? 'Checked before it is used, and on every read' : 'Checked before it connects'}</div>
           <Checks lines={lines ?? BEFORE[provider]} ran={lines != null} />
           {error && (
             <p className="vault-error" role="alert">
@@ -262,14 +367,14 @@ export function ConnectOutsideDialog({ organisation, onClose, onDone }: { organi
               Cancel
             </button>
             <button type="button" className="vault-btn vault-btn--solid" disabled={!ready || busy != null} onClick={() => void connect()} data-testid="outside-connect-go">
-              {busy ?? 'Connect'}
+              {busy ?? (pb ? (serverFp ? 'Set up Fathom’s account' : 'Read the invitation') : 'Connect')}
             </button>
           </div>
         </div>
         <aside className="vault-outside__notes">
           <p className="vault-note">
             <strong>Why so strict.</strong> Fathom’s account in your vault is a key to whatever that account can see. Keeping it to one{' '}
-            {dl ? 'folder' : 'collection'} means a mistake in Fathom, or someone who takes over the Fathom server, can reach Fathom’s things and nobody
+            {dl || pb ? 'folder' : 'collection'} means a mistake in Fathom, or someone who takes over the Fathom server, can reach Fathom’s things and nobody
             else’s.
           </p>
           <p className="vault-note">
@@ -277,8 +382,14 @@ export function ConnectOutsideDialog({ organisation, onClose, onDone }: { organi
             the admins.
           </p>
           {dl && <p className="vault-note">Fathom can check what the account can see, not what it may do there. Give it View only; Fathom never changes a secret.</p>}
+          {pb && (
+            <p className="vault-note">
+              Passbolt seals everything with OpenPGP. This server does that in a separate helper with no network. Fathom uses only Curve25519 keys for it, and will not open with
+              Passbolt’s shared metadata key if that key is RSA or another curve. An account with multi-factor sign-in cannot be used.
+            </p>
+          )}
           <p className="vault-note vault-note--caution">
-            Fathom keeps this account’s {dl ? 'user name and password' : 'API key'} so it can read without you. Treat it like a “Fathom may use” password: anyone who takes
+            Fathom keeps this account’s {dl ? 'user name and password' : pb ? 'private key' : 'API key'} so it can read without you. Treat it like a “Fathom may use” password: anyone who takes
             over the Fathom server can use it too.
           </p>
         </aside>
@@ -288,6 +399,7 @@ export function ConnectOutsideDialog({ organisation, onClose, onDone }: { organi
 }
 
 function stateText(c: OutsideConnection): string {
+  if (c.state === 'waiting') return 'Waiting for one folder to be shared with Fathom’s user';
   if (c.state === 'on') return c.checkedAt ? `On · checked ${ago(c.checkedAt)}` : 'On';
   if (c.state === 'stopped') return `Stopped: ${c.stoppedReason ?? 'a check failed'}`;
   return 'Disconnected';
@@ -303,6 +415,7 @@ function ConnectionCard({ organisation, overview, conn, onChanged }: { organisat
   const mine = conn.owner === overview.me;
   const can = mine || overview.steward;
   const [logins, setLogins] = useState<OutsideLogin[] | null>(null);
+  const [lines, setLines] = useState<CheckLine[] | null>(null);
   const [kinds, setKinds] = useState<Record<string, LoginKind>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -310,8 +423,8 @@ function ConnectionCard({ organisation, overview, conn, onChanged }: { organisat
     setBusy(true);
     setError(null);
     try {
-      await work();
-      onChanged(note);
+      const said = await work();
+      onChanged(typeof said === 'string' ? said : note);
     } catch (e) {
       setError(describeError(e));
       onChanged();
@@ -327,7 +440,7 @@ function ConnectionCard({ organisation, overview, conn, onChanged }: { organisat
           {PROVIDER_LABELS[conn.provider]} · {conn.collectionName}
         </span>
         <span className={conn.state === 'on' ? 'vault-tag vault-tag--kept' : conn.state === 'stopped' ? 'vault-tag vault-tag--critical' : 'vault-tag'} data-testid="outside-state">
-          {conn.state === 'on' ? 'On' : conn.state === 'stopped' ? 'Stopped' : 'Disconnected'}
+          {conn.state === 'on' ? 'On' : conn.state === 'stopped' ? 'Stopped' : conn.state === 'waiting' ? 'Waiting' : 'Disconnected'}
         </span>
       </div>
       <p className="vault-small">
@@ -356,10 +469,11 @@ function ConnectionCard({ organisation, overview, conn, onChanged }: { organisat
           ))}
         </ul>
       )}
+      {lines && conn.state === 'waiting' && <Checks lines={lines} ran />}
       {logins && mine && conn.state === 'on' && (
         <div className="vault-fieldset" data-testid="outside-logins">
           <div className="vault-field__label">In {conn.collectionName}</div>
-          {logins.length === 0 && <p className="vault-muted">{conn.provider === 'delinea' ? 'The folder holds no secrets yet.' : 'The collection holds no logins yet.'}</p>}
+          {logins.length === 0 && <p className="vault-muted">{conn.provider === 'vaultwarden' ? 'The collection holds no logins yet.' : 'The folder holds nothing yet.'}</p>}
           {logins.map((l) => {
             const item = pulled.get(l.cipherId);
             return (
@@ -410,7 +524,13 @@ function ConnectionCard({ organisation, overview, conn, onChanged }: { organisat
               void run(async () => {
                 const r = await outsideCheck(organisation, conn.id);
                 setLogins(r.logins);
-              }, 'The checks passed.')
+                setLines(r.checks);
+                if (r.connection.state === 'waiting') {
+                  const failed = r.checks.find((l) => !l.passed);
+                  return `Still waiting: ${failed ? failed.text : 'a check did not pass'}.`;
+                }
+                return conn.state === 'waiting' ? `Bound to ${conn.collectionName}. The checks passed.` : 'The checks passed.';
+              })
             }
             data-testid="outside-check"
           >
@@ -452,7 +572,7 @@ export function OutsideVaults({ organisation, overview, mode, onChanged }: { org
       <p className="vault-muted">
         {mode === 'admin'
           ? 'Each person connects their own. You can disconnect any of them, and remove any login pulled through one; a login you remove stays out until an admin restores it.'
-          : 'Logins Fathom reads from your own Vaultwarden or Secret Server, one collection or folder only, checked again on every read.'}
+          : `Logins Fathom reads from your own Vaultwarden, Secret Server${overview.passboltAvailable ? ' or Passbolt' : ''}, one collection or folder only, checked again on every read.`}
       </p>
       {note && <p className="vault-note">{note}</p>}
       {shown.length === 0 && <p className="vault-muted">{mode === 'admin' ? 'Nobody has connected one.' : 'None connected.'}</p>}
@@ -471,10 +591,15 @@ export function OutsideVaults({ organisation, overview, mode, onChanged }: { org
       {connecting && (
         <ConnectOutsideDialog
           organisation={organisation}
+          passbolt={overview.passboltAvailable}
           onClose={() => setConnecting(false)}
           onDone={(c) => {
             setConnecting(false);
-            setNote(`Connected to ${c.collectionName}. Check it now to list the logins you can pull.`);
+            setNote(
+              c.state === 'waiting'
+                ? `Fathom’s Passbolt account is set up. Share ${c.collectionName} with it in Passbolt (and, on Passbolt 5, its metadata key), then check it here.`
+                : `Connected to ${c.collectionName}. Check it now to list the logins you can pull.`,
+            );
             onChanged();
           }}
         />

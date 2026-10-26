@@ -293,6 +293,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0047_vault_delinea.sql",
         sql: include_str!("../migrations/0047_vault_delinea.sql"),
     },
+    // Passbolt, the third kind of outside vault, and a connection that waits for its folder.
+    Migration {
+        version: 48,
+        name: "0048_vault_passbolt.sql",
+        sql: include_str!("../migrations/0048_vault_passbolt.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

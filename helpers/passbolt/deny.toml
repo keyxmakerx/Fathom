@@ -1,0 +1,79 @@
+# cargo-deny for the Passbolt helper's own lockfile (ADR-0071 part four, Passbolt). The same
+# policy as the workspace's deny.toml, which carries the reasoning for each section; what differs
+# is written here with its reason. Run from the repository root by scripts/gate-passbolt-helper.sh.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+unmaintained = "workspace"
+# The two advisories the owner was shown on sign-off cards r34-passbolt v2 (answered B) and
+# r34-passbolt-crates (answered A), both 2026-10-26. Neither has a fix rpgp 0.21.0 can take: rsa has
+# none at all, and crypto-bigint's is in its 0.7 line, which rpgp does not use yet. Both are timing
+# leaks of a PRIVATE key. The helper refuses every private-key step with a key that is not
+# Curve25519 throughout (src/lib.rs, `curve25519_only`), and the Curve25519 code (ed25519-dalek,
+# x25519-dalek, curve25519-dalek) depends on neither crate (`cargo tree -i rsa`, `cargo tree -i
+# crypto-bigint`, 2026-10-26; and in rpgp 0.21.0's src/crypto/ecdh.rs, Curve25519 is x25519-dalek and
+# elliptic-curve serves only the NIST curves). What reaches them is only a Passbolt server's RSA PUBLIC key, which
+# Fathom encrypts to and checks signatures with. Both lines go when rpgp moves on.
+ignore = [
+    { id = "RUSTSEC-2023-0071", reason = "rsa 0.9.10, Marvin: private-key timing. Fathom does no RSA private-key step (r34-passbolt v2 B)." },
+    { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5.5: reached only through the NIST curves and cx448, which the Curve25519-only rule never uses with a private key (r34-passbolt v2 B)." },
+]
+
+[licenses]
+version = 2
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+]
+confidence-threshold = 0.93
+unused-allowed-license = "allow"
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[[bans.skip]]
+crate = "serdect@0.2.0"
+reason = "Reached through elliptic-curve 0.13.8 (rpgp's NIST and secp256k1 curves); cx448 0.1.1 takes serdect 0.3.0 itself. Both are rpgp's own tree (`cargo tree -i`, 2026-10-26), approved with it on r34-passbolt-crates."
+
+[[bans.skip]]
+crate = "syn@2.0.119"
+reason = "Build-time only: the proc-macros rpgp and its curves declare (bitfields-impl, curve25519-dalek-derive, derive_builder, and others), on syn 2. The same syn 2 copy the workspace's deny.toml skips."
+
+[[bans.deny]]
+name = "proc-macro1"
+reason = "The typosquat used in the August 2026 crates.io attack (RUSTSEC-2026-0260)."
+
+[[bans.deny]]
+name = "openssl-sys"
+reason = "C7, as in the workspace's deny.toml."
+
+[[bans.deny]]
+name = "native-tls"
+reason = "C7, as in the workspace's deny.toml."
+
+[[bans.deny]]
+name = "ring"
+reason = "C7. The workspace's one exception for ring is under rustls for outside-vault HTTPS (r34-vault-ring A); the helper has no network and no TLS, so no exception here."
+
+[[bans.deny]]
+name = "aws-lc-sys"
+reason = "C7, as in the workspace's deny.toml."
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

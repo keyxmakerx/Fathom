@@ -131,6 +131,8 @@ export interface VaultOverview {
   breachPolicy: BreachPolicy;
   /** Outside vaults (part four): the caller's own connections, and every one for an admin. */
   outside: OutsideConnection[];
+  /** Whether this server's Passbolt helper answers; Passbolt is offered only then. */
+  passboltAvailable: boolean;
 }
 
 export interface BreachLevel {
@@ -294,6 +296,7 @@ export function parseOverview(bytes: Uint8Array): VaultOverview {
     fathomKeyId: optStr(r, 'fathomKeyId', W),
     breachPolicy: breachPolicy(r.breachPolicy),
     outside: arrayOf(r, 'outside', W).map(outsideConnection),
+    passboltAvailable: r.passboltAvailable === true,
   };
 }
 
@@ -513,21 +516,23 @@ export interface OutsideConnection {
   ownerName: string;
   provider: OutsideProvider;
   url: string;
-  /** Vaultwarden's collection, or Secret Server's folder. */
+  /** Vaultwarden's collection, or Secret Server's or Passbolt's folder. */
   collectionName: string;
-  /** `stopped`: a check failed on a read, and `stoppedReason` says which. */
-  state: 'on' | 'stopped' | 'disconnected';
+  /** `stopped`: a check failed on a read, and `stoppedReason` says which. `waiting`: Passbolt's
+   * account is set up and waits for its folder to be shared; the first passing check binds it. */
+  state: 'waiting' | 'on' | 'stopped' | 'disconnected';
   stoppedReason: string | null;
   checkedAt: number | null;
   createdAt: number;
   items: OutsideItem[];
 }
 
-export type OutsideProvider = 'vaultwarden' | 'delinea';
+export type OutsideProvider = 'vaultwarden' | 'delinea' | 'passbolt';
 
 export const PROVIDER_LABELS: Record<OutsideProvider, string> = {
   vaultwarden: 'Vaultwarden',
   delinea: 'Secret Server',
+  passbolt: 'Passbolt',
 };
 
 export interface CheckLine {
@@ -579,14 +584,14 @@ function outsideItem(raw: unknown): OutsideItem {
 }
 
 function outsideProvider(p: string): OutsideProvider {
-  if (p !== 'vaultwarden' && p !== 'delinea') throw new Error('malformed vault response: outside provider');
+  if (p !== 'vaultwarden' && p !== 'delinea' && p !== 'passbolt') throw new Error('malformed vault response: outside provider');
   return p;
 }
 
 function outsideConnection(raw: unknown): OutsideConnection {
   const r = asRec(raw, W);
   const state = str(r, 'state', W);
-  if (state !== 'on' && state !== 'stopped' && state !== 'disconnected') throw new Error('malformed vault response: outside state');
+  if (state !== 'waiting' && state !== 'on' && state !== 'stopped' && state !== 'disconnected') throw new Error('malformed vault response: outside state');
   return {
     id: str(r, 'id', W),
     owner: str(r, 'owner', W),
@@ -663,6 +668,23 @@ export async function outsideDelineaConnect(
   e: { url: string; username: string; password: string; folderName: string },
 ): Promise<OutsideConnection> {
   const answer = await signedFetch('POST', `${base(organisation)}/outside/connect`, body({ provider: 'delinea', ...e }));
+  return outsideConnection(jsonObject(answer, W));
+}
+
+/** Passbolt: the address its invitation names and its server key's fingerprint, for the person to
+ * compare with what Passbolt's administrator gives them. The invitation is not used. */
+export async function outsidePassboltPrepare(organisation: string, e: { invite: string }): Promise<{ url: string; serverFingerprint: string }> {
+  const r = jsonObject(await signedFetch('POST', `${base(organisation)}/outside/prepare`, body({ provider: 'passbolt', ...e })), W);
+  return { url: str(r, 'url', W), serverFingerprint: str(r, 'serverFingerprint', W) };
+}
+
+/** Passbolt: Fathom makes its own key and finishes the invited account's setup with it; the
+ * connection then waits for one folder to be shared with that account. Uses the invitation. */
+export async function outsidePassboltConnect(
+  organisation: string,
+  e: { invite: string; folderName: string; serverFingerprint: string },
+): Promise<OutsideConnection> {
+  const answer = await signedFetch('POST', `${base(organisation)}/outside/connect`, body({ provider: 'passbolt', ...e }));
   return outsideConnection(jsonObject(answer, W));
 }
 

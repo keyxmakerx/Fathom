@@ -181,10 +181,63 @@ xsoar.pan.dev Secret Server integration. Each is cited where it is used, in
     No real Secret Server was reachable: the tests and the drive use a stand-in of the documented
     shapes. An account that needs a one-time code cannot be used.
 
+### Passbolt, built 2026-10-26
+
+Sources, read 2026-10-26: passbolt/passbolt_api at `5de65b8` (2026-10-20): the JWT sign-in
+(`src/Service/JwtAuthentication/`, challenge version `1.0.0`, a verify token expiring at most an
+hour ahead), `GET /auth/verify.json`, `POST /setup/complete/{user}.json`, `/users/me.json`,
+`/metadata/keys.json` with its private-key shares, `/folders.json`, `/resources.json` and
+`/secrets/resource/{id}.json`; and rpgp at `0.21.0`. Owner's answers, sign-off page, 2026-10-26:
+r34-passbolt v2 B (Curve25519 only, rpgp in a locked-down helper) and r34-passbolt-crates A ("but
+let this be an optional thing ... after the admin clarifies they do want this support").
+
+25. **Optional, and in its own container.** OpenPGP runs in `helpers/passbolt/`, its own Cargo
+    workspace with its own lockfile, its own `deny.toml`, its own dependency records
+    (`helpers/passbolt/deps/`) and its own gate (`scripts/gate-passbolt-helper.sh`, the CI job
+    `passbolt-helper`). None of its packages are in Fathom's lockfile. It ships as a second image,
+    started only with `docker compose --profile passbolt up`: no network, a read-only filesystem,
+    every capability dropped, no new privileges, 32 processes and 256 MB at most. It answers framed
+    JSON on a Unix socket (mode 0600) in a volume the server mounts read-only, and holds no key
+    between calls: the server sends the sealed key each time. The server offers Passbolt only when
+    `FATHOM_PASSBOLT_HELPER` is set and the helper answers a ping; otherwise the choice reads "Not
+    on this server" and nothing is sent anywhere.
+26. **Curve25519 only, for every private-key step.** The helper makes Fathom's key (Ed25519 primary,
+    Curve25519 encryption subkey) and refuses to sign or open with any key that is not Curve25519
+    throughout. Passbolt's own server key may be any algorithm, since Fathom only encrypts to it
+    and checks its signatures. A shared metadata key that is RSA or another curve is not opened,
+    and the check says so. This keeps the closure's two unfixed advisories (RUSTSEC-2023-0071 in
+    `rsa`, RUSTSEC-2026-0387 in `crypto-bigint` 0.5.5) off every private key's path; both are
+    ignored with that reason in the helper's `deny.toml`, nowhere else.
+27. **An invitation, not a password.** Passbolt's administrator adds a user for Fathom, role User,
+    and the person pastes the invitation link. Fathom reads Passbolt's server key, shows its
+    fingerprint, and goes on only when the person ticks that it is the one the administrator gave
+    them; the fingerprint is pinned and any other answer later is refused. Fathom then makes its own
+    key and completes the setup with the public half. The private half is sealed under `vault.key`
+    with the pinned fingerprint, as Vaultwarden's API key is; no person ever holds it. The chain
+    files `vault_outside_changed` stage `set_up` naming both fingerprints.
+28. **It waits until something is shared.** A new Passbolt account sees nothing, so the connection
+    starts `waiting` (migration `0048_vault_passbolt.sql`: the state, a nullable folder until bound,
+    and the provider). Each check lists what is still missing. The first check that passes binds the
+    folder, pins the shared metadata key's fingerprint and turns the connection on (stage `bound`).
+    A waiting connection is never read for a use and never stops.
+29. **Four checks before every read.** The account's role is `user`; it sees exactly one folder and
+    it is the connected one; every item it sees is in that folder and none is personal; and the
+    shared metadata key, if Passbolt has one, is Curve25519, the pinned one, and given to Fathom.
+    Each read also checks the server key against the pin and Fathom's own key against the
+    account's. A failure stops the connection as in 18. An account with multi-factor sign-in on is
+    refused with that reason. A secret is read only for a use, as in 19.
+30. **Not established, and said here.** No real Passbolt was reachable. The server's tests use a
+    stand-in for the helper; the helper's tests run against GnuPG both ways (an RSA-3072 server
+    key); the drive runs the real helper on both ends against a stand-in of the documented shapes.
+    Whether a real Passbolt accepts Fathom's setup and challenge as built is not established until
+    someone runs it against one. The helper's closure is 152 packages (the crates card offered 124
+    and the owner approved "124 and etc"), 17 with a `build.rs` and 12 proc macros, so in the
+    helper's image it is past ADR-0032's C4 (12) as Fathom's own closure is (22); C2 is within its
+    number there. No script enforces either cap.
+
 **Departures from mockup r32-vault-external.** The mockup's provider list shows Passbolt and Delinea
-as "Next" and not selectable; Delinea is now selectable. Marking a pulled login on devices is on the device's Logins tab, as for
+as "Next" and not selectable; both are now selectable, Passbolt only where its helper answers. Marking a pulled login on devices is on the device's Logins tab, as for
 Fathom's own logins, not in the connect dialog.
 
 ## Not decided here (after part four)
-- **Passbolt**, next in round 32. It needs OpenPGP for sign-in and for every secret; the crate
-  that would do it brings advisories with no fix, and the owner is choosing how to go on.
+- **A real Passbolt.** Nothing here has been run against one (30).

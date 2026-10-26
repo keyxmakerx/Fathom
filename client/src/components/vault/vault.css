@@ -171,6 +171,13 @@
   align-items: center;
 }
 
+div.vault-row {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .vault-row2 {
   display: flex;
   gap: var(--s3);

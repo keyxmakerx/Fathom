@@ -116,6 +116,10 @@ pub struct Config {
     /// people may connect outside vaults at these hosts only; unset means any host this server
     /// can reach, over HTTPS.
     pub outside_vault_hosts: Option<Vec<String>>,
+    /// `FATHOM_PASSBOLT_HELPER`: the Unix socket of the Passbolt helper (`helpers/passbolt/`),
+    /// when the operator runs one (the compose `passbolt` profile). Unset means Passbolt is not
+    /// offered.
+    pub passbolt_helper: Option<std::path::PathBuf>,
 
     /// Where sealed audit entries are shipped. `FATHOM_AUDIT_SYSLOG`, a bare
     /// `host:port`, TCP, RFC 5424.
@@ -507,6 +511,10 @@ impl Config {
                 }
             };
 
+        let passbolt_helper = get("FATHOM_PASSBOLT_HELPER")
+            .filter(|v| !v.trim().is_empty())
+            .map(|v| std::path::PathBuf::from(v.trim()));
+
         // No default, and absence is not an error: no destination means spool-only. A
         // MALFORMED one is an error, or the server would start, report healthy and ship
         // nothing.
@@ -701,6 +709,7 @@ impl Config {
             vault_key,
             outside_vault_ca,
             outside_vault_hosts,
+            passbolt_helper,
             audit_syslog,
             audit_spool_bounds,
             sign_in_limits,

@@ -94,6 +94,13 @@
   gap: var(--s6);
 }
 
+/* The Passwords tab. On its own the vault page fills a pane and scrolls itself; here the centre
+   scrolls, so the page takes its own height or it shrinks to its padding. */
+.home__section .vault-page {
+  flex: none;
+  overflow: visible;
+}
+
 .home__title {
   font-size: var(--t-title);
   line-height: var(--lh-title);

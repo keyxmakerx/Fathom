@@ -246,7 +246,7 @@ first thing to look at.
 
 ### Outside vaults (part four)
 
-A member can connect their own Vaultwarden, or Delinea Secret Server, so Fathom reads logins from
+A member can connect their own Vaultwarden, Delinea Secret Server or Passbolt, so Fathom reads logins from
 one collection (one folder) in it. The server makes the requests, over HTTPS, to the address the
 member types; your firewall must let the server reach it.
 
@@ -262,6 +262,20 @@ member types; your firewall must let the server reach it.
   under `vault.key`, like Fathom's own copies: readable by the server, so the same backup rules
   apply. Disconnecting empties them; the key or password still works in the vault until someone
   changes it there.
+- **Passbolt is optional.** It needs OpenPGP, which runs in a second container:
+  `docker compose --profile passbolt up -d` starts `passbolt-helper` beside the server. It has no
+  network, a read-only filesystem and no capabilities, and answers only on a Unix socket in the
+  `passbolt-socket` volume, which the server mounts read-only and finds through
+  `FATHOM_PASSBOLT_HELPER` (set in `compose.yaml`). Without the profile the helper does not run and
+  Passbolt reads "Not on this server". It holds no key: Fathom's Passbolt key is sealed under
+  `vault.key` like the others and sent to the helper for each step. Its packages are not in the
+  server's lockfile; they have their own records and gate (`helpers/passbolt/`,
+  `scripts/gate-passbolt-helper.sh`), and two advisories in them are ignored for the reason in
+  ADR-0071 26. Each Passbolt read is a handful of requests (`/auth/verify.json`, the sign-in, then
+  `/users/me.json`, metadata keys, folders and resources) and one secret when Fathom uses it.
+  Fathom asks the person to confirm Passbolt's server key fingerprint at setup; get it from
+  Passbolt's administrator, not from the same screen. An account with multi-factor sign-in cannot
+  be used.
 - **This is the only place the server's binary carries C**: rustls's `ring` provider (ADR-0032 C7's
   one exception, `deps/decisions/ring.md`). Building from source needs a C compiler; the published
   image's build stage has one.

@@ -347,8 +347,11 @@ async fn overview_handler(
             None => Vec::new(),
         }
     ));
+    // Passbolt is offered only when this server's helper answers.
+    let passbolt = outside::passbolt::available(&state.outside).await;
     let mut j = view.to_json();
     if let Json::Obj(m) = &mut j {
+        m.insert("passboltAvailable".to_string(), Json::Bool(passbolt));
         m.insert(
             "outside".to_string(),
             Json::Arr(connections.iter().map(|c| c.to_json()).collect()),
@@ -872,6 +875,28 @@ fn account(m: &mut BTreeMap<String, Json>) -> Result<(String, String), RouteErro
     Ok((user, password))
 }
 
+/// A Passbolt invitation link, read.
+fn invite_of(m: &mut BTreeMap<String, Json>) -> Result<outside::passbolt::Invite, RouteError> {
+    Ok(outside::passbolt::parse_invite(&req_str(
+        m,
+        "invite",
+        "the invitation link",
+    )?)?)
+}
+
+/// A fingerprint as the person was shown it: hex, spaces and case ignored.
+fn fingerprint_of(m: &mut BTreeMap<String, Json>) -> Result<String, RouteError> {
+    let text: String = req_str(m, "serverFingerprint", "the server key's fingerprint")?
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .to_ascii_lowercase();
+    if !(text.len() == 40 || text.len() == 64) || !text.bytes().all(|c| c.is_ascii_hexdigit()) {
+        return Err(malformed("the server key's fingerprint"));
+    }
+    Ok(text)
+}
+
 fn folders_json(answer: &outside::delinea::Answer) -> Json {
     Json::Arr(
         answer
@@ -894,7 +919,9 @@ fn folders_json(answer: &outside::delinea::Answer) -> Json {
 /// organisations and collections the account sees (names still sealed) and the checks as far as
 /// they can run before a collection is chosen; the master password that opens them never comes
 /// here. Secret Server, body `{provider: "delinea", url, username, password}`: the folders the
-/// account sees, by name, and the checks.
+/// account sees, by name, and the checks. Passbolt, body `{provider: "passbolt", invite}`: the
+/// address the invitation names and its server key's fingerprint, for the person to compare
+/// with what the Passbolt's administrator gives them; the invitation is not used.
 async fn outside_prepare_handler(
     State(state): State<DesignApiState>,
     PathExtractor(organisation): PathExtractor<String>,
@@ -909,9 +936,31 @@ async fn outside_prepare_handler(
             "clientSecret",
             "username",
             "password",
+            "invite",
         ],
     )?;
     let provider = provider_of(&mut m)?;
+    if provider == outside::Provider::Passbolt {
+        let invite = invite_of(&mut m)?;
+        if !m.is_empty() {
+            return Err(malformed("request body"));
+        }
+        state.outside.check_host(&invite.url)?;
+        let mut client = state
+            .sessions
+            .pool()
+            .get()
+            .await
+            .map_err(SessionError::Pool)?;
+        let ((), _session) = first_session!(state, signed, client, organisation, |tx, _auth| ());
+        // Nothing is spent here: the invitation is used only by connect.
+        let (_, fp) = outside::passbolt::server_key(&state.outside, &invite.url).await?;
+        return Ok(json_response(pairs(vec![
+            ("provider", Json::Str("passbolt".to_string())),
+            ("url", Json::Str(invite.url.to_text())),
+            ("serverFingerprint", Json::Str(fp)),
+        ])));
+    }
     let url = outside_url(&mut m)?;
     if provider == outside::Provider::Delinea {
         let (user, password) = account(&mut m)?;
@@ -1014,6 +1063,8 @@ async fn outside_prepare_handler(
 
 /// `POST .../vault/outside/connect`. Body: `{url, clientId, clientSecret, deviceId,
 /// collectionId, collectionName, orgKey}`, the organisation key as 128 hex characters.
+/// Passbolt: `{provider: "passbolt", invite, folderName, serverFingerprint}`; Fathom makes its
+/// key, finishes the account's setup, and the connection waits for its folder.
 async fn outside_connect_handler(
     State(state): State<DesignApiState>,
     PathExtractor(organisation): PathExtractor<String>,
@@ -1033,9 +1084,43 @@ async fn outside_connect_handler(
             "username",
             "password",
             "folderName",
+            "invite",
+            "serverFingerprint",
         ],
     )?;
     let provider = provider_of(&mut m)?;
+    if provider == outside::Provider::Passbolt {
+        let invite = invite_of(&mut m)?;
+        let folder_name = req_str(&mut m, "folderName", "the folder's name")?;
+        let server_fp = fingerprint_of(&mut m)?;
+        if !m.is_empty() {
+            return Err(malformed("request body"));
+        }
+        state.outside.check_host(&invite.url)?;
+        let fk = fathom_key(&state)?;
+        let mut client = state
+            .sessions
+            .pool()
+            .get()
+            .await
+            .map_err(SessionError::Pool)?;
+        let ((), session) = first_session!(state, signed, client, organisation, |tx, _auth| ());
+        let done = outside::passbolt::set_up(&state.outside, &invite, &server_fp).await?;
+        let view = with_session!(state, session, client, organisation, |tx, auth| {
+            outside::set_up(
+                &tx,
+                &auth,
+                &fk,
+                &invite.url,
+                &invite.user_id,
+                &done,
+                &server_fp,
+                &folder_name,
+            )
+            .await?
+        });
+        return Ok(json_response(view.to_json()));
+    }
     let url = outside_url(&mut m)?;
     if provider == outside::Provider::Delinea {
         let (user, password) = account(&mut m)?;

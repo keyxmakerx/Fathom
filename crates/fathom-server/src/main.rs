@@ -376,6 +376,10 @@ async fn main() -> ExitCode {
         Ok(net) => Arc::new(fathom_server::vault_outside::Outside {
             net: Box::new(net),
             allowed_hosts: config.outside_vault_hosts.clone(),
+            pgp: config.passbolt_helper.clone().map(|path| {
+                Box::new(fathom_server::vault_outside::passbolt::SocketPgp { path })
+                    as Box<dyn fathom_server::vault_outside::passbolt::Pgp>
+            }),
         }),
         Err(e) => {
             tracing::error!(error = %e, "refusing to start: the outside vault CA file could not be read");

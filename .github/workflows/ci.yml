@@ -280,6 +280,66 @@ jobs:
       - name: Schema gates
         run: cargo run --locked -p fathom-schema --bin fathom-schema-check
 
+  # ADR-0071 part four, Passbolt: the optional helper, `helpers/passbolt/`, is its own workspace
+  # with its own lockfile so that rpgp's packages never enter Fathom's (owner's answers
+  # 2026-10-26, r34-passbolt v2 B and r34-passbolt-crates A). That is only safe if its lockfile
+  # passes the same gates, so this job runs them over it, then its format, clippy and tests (the
+  # tests talk to GnuPG, which a Passbolt server uses and this runner carries), then builds its
+  # image and asks the running container to answer through its socket with no network at all.
+  passbolt-helper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch cargo-deny and cargo-audit (pinned, checksummed)
+        run: |
+          ./scripts/ci/fetch-audit-tools.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Install the pinned toolchain (reads rust-toolchain.toml)
+        run: rustup toolchain install
+
+      - name: The helper lockfile's gates (gate-zero, look-alikes, deny, audit, cooldown, OSV)
+        run: ./scripts/gate-passbolt-helper.sh
+
+      - name: Format
+        run: cargo fmt --manifest-path helpers/passbolt/Cargo.toml --check
+
+      - name: Clippy, warnings are errors
+        run: cargo clippy --manifest-path helpers/passbolt/Cargo.toml --all-targets --locked -- -D warnings
+
+      - name: Tests, against GnuPG
+        run: |
+          gpg --version | head -1
+          cargo test --manifest-path helpers/passbolt/Cargo.toml --locked
+
+      - name: Build the image and ping it with no network
+        run: |
+          set -euo pipefail
+          docker build -f deploy/passbolt-helper.Dockerfile --target helper -t fathom-passbolt-helper:ci .
+          docker volume create passbolt-ci
+          docker run -d --name pbh --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges:true --user 65532:65532 \
+            -v passbolt-ci:/run/fathom-passbolt fathom-passbolt-helper:ci
+          for i in $(seq 1 20); do
+            docker run --rm -v passbolt-ci:/run/fathom-passbolt alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 \
+              test -S /run/fathom-passbolt/helper.sock && break
+            sleep 1
+          done
+          sudo python3 -I -c '
+          import socket, struct, json, sys, glob
+          path = glob.glob("/var/lib/docker/volumes/passbolt-ci/_data/helper.sock")[0]
+          s = socket.socket(socket.AF_UNIX); s.connect(path)
+          b = json.dumps({"op": "ping"}).encode()
+          s.sendall(struct.pack(">I", len(b)) + b)
+          n = struct.unpack(">I", s.recv(4))[0]
+          a = json.loads(s.recv(n))
+          print(a); sys.exit(0 if a.get("ok") is True else 1)
+          '
+          docker logs pbh
+          docker rm -f pbh
+
   # THE STACK, END TO END. Added 2026-09-19: until this job, nobody had ever
   # run `compose.yaml`, because the environment this repository is developed
   # in has no Docker daemon, and three first-start faults were found only by
