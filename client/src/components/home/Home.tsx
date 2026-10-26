@@ -523,6 +523,19 @@ export function Home({
       });
   }
 
+  // **Home waits while it may be about to leave.** Until the direct-entry rule
+  // can decide, drawing Home's loading rows would show a page the person is
+  // then carried away from in the same breath (owner, 2026-10-26: loading
+  // "feels weird"). An empty frame, then wherever they land.
+  const decidingDirectEntry =
+    onDirectEntry !== undefined &&
+    (landed ||
+      organisations.status === 'loading' ||
+      (organisations.status === 'ready' && organisations.value.length === 1 && designs.status === 'loading'));
+  if (decidingDirectEntry) {
+    return <div className="home" aria-busy="true" />;
+  }
+
   return (
     <div className="home">
       <aside className="home__rail">

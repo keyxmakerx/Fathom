@@ -2,9 +2,9 @@
 export type HomeTab = 'designs' | 'passwords' | 'organisation' | 'admin';
 
 /** Pure: the tabs Home shows, each only to someone who may use it. Designs is
- * everyone's; Passwords is a member's own vault, for someone in an organisation
- * who is not its admin (an admin finds it under Organisation, with the admin's
- * view); Organisation is for the organisation's admins; Admin is for a
+ * everyone's; Passwords is a member's own vault, for anyone in an organisation,
+ * its admins included (the owner could not find it under Organisation alone,
+ * 2026-10-26; the admin's view of everyone's stays there); Organisation is for the organisation's admins; Admin is for a
  * browser on the host the operator console answers on, until the server says
  * this account holds no operator custody. */
 export function homeTabs({
@@ -22,7 +22,7 @@ export function homeTabs({
 }): HomeTab[] {
   const tabs: HomeTab[] = ['designs'];
   if (waitingInvitee) return tabs;
-  if (member && !organisationAdmin) tabs.push('passwords');
+  if (member) tabs.push('passwords');
   if (organisationAdmin) tabs.push('organisation');
   if (admin) tabs.push('admin');
   return tabs;

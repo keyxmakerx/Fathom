@@ -298,6 +298,12 @@ between rooms a counted bundle, a floor-plan image as an optional background. St
 plan cannot say it is current or the right building, would be missing from every export, and needs a
 size cap.
 
+**ADR-0074 (2026-10-26).** The building, site and estate stops draw the Site › Building › Closet
+folders Home already has, with their permissions; a folder gains a kind and a hand-set role, a hub
+drawn with a double border. Rooms come from ADR-0051's room builder (plan image or PDF page, traced
+with snapping, suggested rooms accepted or rejected). Small sites fold behind their hub as a counted
+stack. No 2.5D view. A rack dragged by hand keeps its place.
+
 ## The patching surface
 
 At the faceplate zoom **plates pull in and push out, as many as needed**, arranged by hand, cabled
@@ -338,7 +344,9 @@ Built in part one. Pictures from the real-server drive: `reviews/vault/` in the 
   (you and the recovery sheet always; colleagues ticked).
 - **Passwords kind in Inventory**: the same logins as a table (name, used on, who holds it, how
   Fathom keeps it, changed, breach list).
-- **Home › Passwords** for a member who is not an admin; **Organisation › Passwords** for an admin:
+- **Home › Passwords** for every member, admins included, with their own vault and "Set up your
+  vault" (admins too since 2026-10-26: the owner could not find it under Organisation alone);
+  **Organisation › Passwords** for an admin:
   every login in the organisation, "Can read" or "Can't read", Remove someone, Delete, and the
   recovery-sheet card (fingerprint, every use listed, Replace the sheet).
 - **Locked and unlocked.** A strip says "Locked. Passwords show once you unlock." An unlocked

@@ -67,6 +67,10 @@ export interface ShellProps {
    * `Racks` nor `Inventory` is marked. */
   place: Place | null;
   onPlaceChange: (place: Place) => void;
+  /** With no design open (Home, Admin): the name of the design last open.
+   * Present, the place words are buttons that go back to it in that place;
+   * absent, they are only named. */
+  returnTo?: string;
 
   /** The breadcrumb, root first, current (ink, 700) last. Empty on Home. */
   path: PathPart[];
