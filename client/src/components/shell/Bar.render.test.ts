@@ -69,6 +69,14 @@ describe('Bar — what is present where', () => {
     expect(markup).not.toContain('aria-label="Zoom in"');
   });
 
+  it('with nothing open but a design open before (Home, Admin): Canvas and Inventory go back to it, neither marked', () => {
+    const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, place: null, returnTo: 'Main closet' }));
+    expect(markup).toContain('title="Back to Main closet on the canvas">Canvas</button>');
+    expect(markup).toContain('title="Back to Main closet in Inventory">Inventory</button>');
+    expect(markup).not.toContain('shell-bar__tab--on');
+    expect(markup).not.toContain('Undo');
+  });
+
   it('the brand is a way Home only when there is somewhere else to be', () => {
     expect(renderToStaticMarkup(createElement(Bar, BASE))).toContain('<span class="shell-bar__brand">Fathom</span>');
     expect(renderToStaticMarkup(createElement(Bar, { ...BASE, onHome: () => {} }))).toContain(

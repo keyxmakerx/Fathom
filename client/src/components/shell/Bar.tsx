@@ -27,6 +27,8 @@ const BAR_PAD = 16;
 export interface BarProps {
   place: Place | null;
   onPlaceChange: (place: Place) => void;
+  /** `ShellProps['returnTo']`: the design the place words go back to while none is open. */
+  returnTo?: string;
   path: PathPart[];
   tree: ReactNode;
   lens: Lens;
@@ -103,6 +105,7 @@ export interface BarProps {
 export function Bar({
   place,
   onPlaceChange,
+  returnTo,
   path,
   tree,
   lens,
@@ -205,17 +208,26 @@ export function Bar({
           <span className="shell-bar__brand">Fathom</span>
         )}
         <Sep />
-        {/* With no design open (Home, Site) the two places are named but are
-            not controls: a place needs a design, and Home is where you pick
-            one. */}
+        {/* With no design open (Home, Admin) the two places go back to the
+            design last open; before any has been, they are named but are not
+            controls: a place needs a design, and Home is where you pick one. */}
         {mainView != null ? (
           <ViewTabs view={mainView.value} onChange={mainView.onChange} folded={task != null} />
         ) : (
         <div className="shell-bar__tabs">
-          {place === null ? (
+          {place === null && returnTo == null ? (
             <>
               <span className="shell-bar__tab">Canvas</span>
               <span className="shell-bar__tab">Inventory</span>
+            </>
+          ) : place === null ? (
+            <>
+              <button type="button" className="shell-bar__tab" data-testid="shell-return-canvas" title={`Back to ${returnTo} on the canvas`} onClick={() => onPlaceChange('racks')}>
+                Canvas
+              </button>
+              <button type="button" className="shell-bar__tab" title={`Back to ${returnTo} in Inventory`} onClick={() => onPlaceChange('inventory')}>
+                Inventory
+              </button>
             </>
           ) : (
             <>

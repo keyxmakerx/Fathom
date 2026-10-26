@@ -33,6 +33,7 @@ export { LENSES, LENS_LABEL, isLensLit, pathToItems } from './shell/types';
 export function Shell({
   place,
   onPlaceChange,
+  returnTo,
   path,
   tree,
   lens,
@@ -216,6 +217,7 @@ export function Shell({
       )}
       <Bar
         place={place}
+        returnTo={returnTo}
         onPlaceChange={onPlaceChange}
         path={path}
         tree={tree}
