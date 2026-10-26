@@ -14,6 +14,7 @@ import {
   type OrganisationClaim,
   type OrganisationRow,
 } from '../../api/console';
+import { fetchBackupStatus } from '../../api/backups';
 import { useConsoleHost } from '../../api/placement';
 import { formatToken } from '../../api/enrolment';
 import { describeConsoleError } from './describeConsoleError';
@@ -22,6 +23,7 @@ import { NoticesBanner } from './NoticesBanner';
 import { ConsoleTabs, consoleSections, type ConsoleSection } from './ConsoleTabs';
 import { Operators } from './Operators';
 import { PlacementForm } from './PlacementForm';
+import { BackupsPanel } from './BackupsPanel';
 import { SmtpForm } from './SmtpForm';
 import { secondsLeft } from './placementCopy';
 import './console.css';
@@ -96,8 +98,15 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
     // A notice that cannot be fetched is not a notice that does not exist,
     // but there is nothing honest to show in its place: the banner stays
     // empty and the section errors below say what failed.
-    fetchNotices()
-      .then(setNotices)
+    // Backup notices (ADR-0070) join the same banner: a failed backup or an
+    // out-of-date keys file is a standing fact, like the rest.
+    Promise.all([fetchNotices(), fetchBackupStatus().catch(() => null)])
+      .then(([standing, backups]) =>
+        setNotices([
+          ...standing,
+          ...(backups?.notices ?? []).map((line): Notice => ({ kind: 'backup', line })),
+        ]),
+      )
       .catch(() => {});
   }, []);
 
@@ -263,6 +272,7 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
           </p>
           <SmtpForm actingOperatorId={operatorId} />
           <PlacementForm actingOperatorId={operatorId} currentHost={host} />
+          <BackupsPanel />
         </section>
       )}
 

@@ -85,8 +85,10 @@ fn shipped_tree_declaration_counts_hold() {
     // `HasCableTie`, `Ties`), +4 keys (414-417).
     // Mesh VPNs (schema 0.26): +1 kind (`OverlayNetwork`), +2 edges (`HasOverlay`,
     // `OverlayMember`), +7 keys (479-485).
-    assert_eq!(tree.kinds.len(), 73, "kind count");
-    assert_eq!(tree.edges.len(), 126, "edge count (107 + 8 derived)");
+    // The lesson builder (schema 0.27): +2 kinds (`Lesson`, `LessonStep`), +2 edges (`HasLesson`,
+    // `HasLessonStep`), +22 keys (486-507).
+    assert_eq!(tree.kinds.len(), 75, "kind count");
+    assert_eq!(tree.edges.len(), 128, "edge count (107 + 8 derived)");
     // Custom-field values (2026-10-02, schema 0.16): +1 kind (`FieldValue`), +1 edge
     // (`HasFieldValue`), +1 CLASS (`Fieldable`), +2 field keys (380 -> 382).
     assert_eq!(tree.scalars.len(), 61, "scalar count");
@@ -100,7 +102,8 @@ fn shipped_tree_declaration_counts_hold() {
     // Cable runs and ties (schema 0.23): +4 field keys (414-417).
     // Missing links (schema 0.24): +1 field key (`Cable.needs_finishing`, 478).
     // Mesh VPNs (schema 0.26): +7 field keys (479-485).
-    assert_eq!(fk.entries.len(), 420, "field-key registry entries");
+    // The lesson builder (schema 0.27): +22 field keys (486-507).
+    assert_eq!(fk.entries.len(), 442, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -186,7 +189,8 @@ fn shipped_tree_declaration_counts_hold() {
     // 0.23 -> 0.24 is missing links for cables: one optional `Cable` field, `needs_finishing` (478).
     // 0.24 -> 0.25 is the LAG plan step: one variant, `lag`, on `PlanStep.kind`.
     // 0.25 -> 0.26 is mesh VPNs: one kind, two edges, seven field keys (479-485).
-    assert_eq!(tree.version.as_deref(), Some("0.26"));
+    // 0.26 -> 0.27 is the lesson builder: two kinds, two edges, twenty-two field keys (486-507).
+    assert_eq!(tree.version.as_deref(), Some("0.27"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

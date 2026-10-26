@@ -1,5 +1,5 @@
 //! **Logins Fathom itself can use: the vault's Mode B** (ADR-0042 §3, storage design §5 and
-//! §13.4 to §13.5, ADR-0071 part two). `migrations/0042_vault_fathom.sql` carries the reasoning
+//! §13.4 to §13.5, ADR-0071 part two). `migrations/0043_vault_fathom.sql` carries the reasoning
 //! for the tables.
 //!
 //! # What this adds to Mode A, and what it costs

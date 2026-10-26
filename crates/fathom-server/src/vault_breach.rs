@@ -1,4 +1,4 @@
-//! Breach checks for stored logins (ADR-0071 part three, migration `0043_vault_breach.sql`).
+//! Breach checks for stored logins (ADR-0071 part three, migration `0044_vault_breach.sql`).
 //!
 //! The check itself runs in a browser that holds the login (`client/src/vault/breach.ts`): five
 //! hex characters of the password's SHA-1 go to the Have I Been Pwned range API, with padding,

@@ -1,0 +1,379 @@
+/* Guided lessons: Home's list (round 10, lessons B) and the runner beside the canvas (ADR-0066 §2, frame b1). */
+
+.lessons-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.lessons-list {
+  margin-top: var(--s5);
+}
+
+.lessons-list__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-small);
+}
+
+.lessons-list__table th {
+  text-align: left;
+  font-size: var(--t-micro);
+  font-weight: 400;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: var(--s2) var(--s2) var(--s1) 0;
+  border-bottom: var(--rule-hair) solid var(--ink);
+}
+
+.lessons-list__table td {
+  padding: var(--s2) var(--s2) var(--s2) 0;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  vertical-align: top;
+}
+
+.lessons-list__row--on {
+  background: var(--surface);
+}
+
+.lessons-list__row--on .lessons-list__title {
+  font-weight: 700;
+}
+
+.lessons-list__summary {
+  color: var(--muted);
+  padding-top: 2px;
+}
+
+.lessons-list__act {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.lessons-list__done {
+  color: var(--muted);
+  margin-right: var(--s2);
+}
+
+.lessons-list__continue {
+  background: var(--ink);
+  color: var(--page);
+  border-color: var(--ink);
+}
+
+/* The runner: a card at the bottom left of the window, over the canvas but under cards and dialogs. */
+.lesson-panel {
+  position: fixed;
+  left: var(--s3);
+  bottom: var(--s3);
+  z-index: calc(var(--z-modal) + 1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  width: min(340px, calc(100vw - 2 * var(--s3)));
+  max-height: min(70vh, calc(100vh - 120px));
+  overflow-y: auto;
+  padding: var(--s3);
+  background: var(--page);
+  color: var(--ink);
+  border: var(--rule-hair) solid var(--ink);
+  border-top: var(--rule-mast) solid var(--ink);
+  border-radius: var(--radius);
+  font-size: var(--t-body);
+}
+
+/* Inventory: a column on the right, under the bar, and the page makes room for it so nothing hides behind it.
+   :has() is Baseline widely available, in every browser since December 2023 (MDN, :has(), read 2026-10-25). */
+.lesson-panel--right {
+  top: 44px;
+  right: 0;
+  bottom: 0;
+  left: auto;
+  width: 320px;
+  max-height: none;
+  border-top: var(--rule-hair) solid var(--hairline);
+  border-right: 0;
+  border-bottom: 0;
+}
+
+.lesson-panel--right.lesson-panel--folded {
+  top: auto;
+  bottom: var(--s3);
+  right: var(--s3);
+  border: var(--rule-hair) solid var(--ink);
+}
+
+body:has(.lesson-panel--right:not(.lesson-panel--folded)) .inventory-place {
+  margin-right: 320px;
+}
+
+@media (max-width: 720px) {
+  .lesson-panel--right {
+    top: auto;
+    bottom: var(--s3);
+    right: var(--s3);
+    width: min(340px, calc(100vw - 2 * var(--s3)));
+    max-height: 60vh;
+    border: var(--rule-hair) solid var(--ink);
+  }
+
+  body:has(.lesson-panel--right:not(.lesson-panel--folded)) .inventory-place {
+    margin-right: 0;
+  }
+}
+
+.lesson-panel--folded {
+  gap: var(--s1);
+}
+
+.lesson-panel__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+
+.lesson-panel__kicker,
+.lesson-step__kind {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.lesson-panel__title {
+  font-weight: 700;
+}
+
+.lesson-panel__fold,
+.lesson-step__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-size: var(--t-small);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.lesson-panel__dots {
+  display: flex;
+  gap: var(--s1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lesson-panel__dot {
+  flex: 1;
+  height: 4px;
+  background: var(--hairline);
+}
+
+.lesson-panel__dot--done {
+  background: var(--ink);
+}
+
+.lesson-panel__dot--on {
+  background: var(--muted);
+}
+
+.lesson-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s3);
+  border: var(--rule-hair) solid var(--hairline);
+}
+
+.lesson-step__title {
+  font-weight: 700;
+}
+
+.lesson-step__text,
+.lesson-step__after,
+.lesson-step__status {
+  margin: 0;
+  line-height: var(--lh-step);
+}
+
+.lesson-step code {
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+  overflow-wrap: anywhere;
+}
+
+.lesson-step__status {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.lesson-step__status--wrong {
+  color: var(--caution);
+}
+
+.lesson-step__after {
+  padding-left: var(--s2);
+  border-left: var(--rule-accent) solid var(--safe);
+}
+
+.lesson-step__tick {
+  color: var(--safe);
+  font-weight: 700;
+}
+
+.lesson-step__act {
+  align-self: flex-start;
+}
+
+.lesson-step__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s2);
+}
+
+.lesson-step__next {
+  background: var(--ink);
+  color: var(--page);
+  border-color: var(--ink);
+}
+
+.lesson-step__next:disabled {
+  background: none;
+  color: var(--muted);
+  border-color: var(--control-line);
+  cursor: default;
+}
+
+.lesson-panel__sources-toggle {
+  align-self: flex-start;
+  color: var(--muted);
+}
+
+.lesson-panel__sources {
+  margin: 0;
+  padding-left: var(--s4);
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+.lesson-panel__sources li + li {
+  margin-top: var(--s1);
+}
+
+.lesson-panel__claim {
+  color: var(--ink);
+}
+
+/* The builder (frame b1): the same card, with fields and a list of steps. */
+.lesson-build__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  font-size: var(--t-small);
+}
+
+.lesson-build__field > span,
+.lesson-build__pick > span:first-child,
+.lesson-build__choice legend {
+  color: var(--muted);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.lesson-build__field input,
+.lesson-build__field textarea,
+.lesson-build__field select {
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.lesson-build__pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2);
+  font-size: var(--t-small);
+}
+
+.lesson-build__picked {
+  font-weight: 700;
+  flex: 1;
+}
+
+.lesson-build__choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  margin: 0;
+  padding: var(--s2);
+  border: var(--rule-hair) solid var(--hairline);
+  font-size: var(--t-small);
+}
+
+.lesson-build__inline {
+  margin-left: var(--s1);
+  width: 10em;
+  font: inherit;
+}
+
+.lesson-build__steps {
+  margin: 0;
+  padding-left: var(--s4);
+  font-size: var(--t-small);
+}
+
+.lesson-build__step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding: var(--s1) 0;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.lesson-build__step-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s1);
+}
+
+.lesson-build__step-acts button {
+  padding: 0 var(--s2);
+  font-size: var(--t-micro);
+  line-height: 1.8;
+}
+
+.lesson-build__add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1);
+}
+
+.lesson-build__add .lesson-panel__kicker {
+  width: 100%;
+}
+
+.lesson-build__publish {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding-top: var(--s2);
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+
+.lesson-build__publish .lesson-step__next {
+  align-self: flex-start;
+}
+
+@media print {
+  .lesson-panel {
+    display: none;
+  }
+}

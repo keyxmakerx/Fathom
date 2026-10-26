@@ -95,6 +95,7 @@ describe('captureOf', () => {
 
     expect(l2.mark).toBe('built');
     expect(l2.builtLabel).toBe('ge-0/0/0.0');
+    expect(l2.builtInterface).toBe(true);
     expect(l2.drops).toEqual([]);
 
     expect(l3.mark).toBe('destroyed');
@@ -156,5 +157,7 @@ describe('captureOf', () => {
     expect(view!.lines).toHaveLength(1);
     expect(view!.lines[0].mark).toBe('built');
     expect(view!.lines[0].builtLabel).toBe('trust');
+    // A zone is never a faceplate port, so the drawer must not say one is missing.
+    expect(view!.lines[0].builtInterface).toBe(false);
   });
 });

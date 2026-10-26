@@ -1,5 +1,5 @@
 //! Logins Fathom itself can use — the vault's Mode B, `src/vault_fathom.rs` and
-//! `migrations/0042_vault_fathom.sql` — against a real PostgreSQL.
+//! `migrations/0043_vault_fathom.sql` — against a real PostgreSQL.
 //!
 //! Storage design §13.4 and §13.5 are the rules: only the owner, holding it, consents to A→B
 //! by a signature over the exact statement; a login shared with other people waits for another

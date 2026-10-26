@@ -165,6 +165,23 @@ export type NetworkAttachTarget =
   | { kind: 'interface'; interfaceId: string }
   | { kind: 'port'; portId: string; interfaceName: string };
 
+/**
+ * What to attach to on a port, the way a person means it: the port's own unit 0 when it already has one (a port that
+ * already carries a VLAN or an address), its interface when that has no unit yet, else a new interface named
+ * `interfaceName`. Without this, a port that ever held a network could not be put in another one.
+ */
+export function attachTargetForPort(doc: Document, portId: string, interfaceName: string): NetworkAttachTarget {
+  const occupant = edgesIn(doc, portId, 'Occupies').find((e) => e.absentSince === undefined && findNode(doc, e.from)?.absentSince === undefined);
+  if (occupant === undefined || parseNodeId(occupant.from).kind !== 'Interface') return { kind: 'port', portId, interfaceName };
+  for (const hu of edgesOut(doc, occupant.from, 'HasUnit')) {
+    const unit = hu.absentSince === undefined ? findNode(doc, hu.to) : undefined;
+    if (unit !== undefined && unit.absentSince === undefined && asNumber(fieldValue(unit.fields, 'LogicalUnit.index')) === 0) {
+      return { kind: 'unit', unitId: unit.id };
+    }
+  }
+  return { kind: 'interface', interfaceId: occupant.from };
+}
+
 export interface ResolvedUnit {
   working: Document;
   unitId: string;

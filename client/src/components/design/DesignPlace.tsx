@@ -61,6 +61,12 @@ import { useDesignSession } from './useDesignSession';
 import { LearnContext } from '../learn/context';
 import { LearnOverlay } from '../learn/LearnOverlay';
 import { useLearnApi } from '../learn/useLearnApi';
+import { LessonPanel, type LessonTraceAsk } from '../lessons/LessonPanel';
+import { fromDesignLesson, lesson as lessonById, loadRuns, runForDesign, saveRun, type LessonRun } from '../lessons/lessonModel';
+import { LessonBuilder } from '../lessons/LessonBuilder';
+import { publishedCopy, publishedLesson } from '../../document/lessons';
+import { createDesign, renameDesign } from '../../api/designs';
+import { writePlain } from '../../document/plain';
 import type { SideTab } from '../shell/sideSlot';
 import { VaultPlaceContext, type VaultPlace } from '../vault/useVault';
 
@@ -467,6 +473,47 @@ export function DesignPlace(props: DesignPlaceProps) {
   // The explainers (ADR-0066 item 1.1): About cards in a device's panel, the Learn library.
   const learn = useLearnApi(session.doc);
 
+  // A guided lesson runs in its own copy of a sample (round 10 lessons B): this design is one when Home started a
+  // lesson in it. Progress is kept per account in this browser.
+  const [lessonRuns, setLessonRuns] = useState<LessonRun[]>(() => loadRuns(accountId));
+  const lessonRun = runForDesign(lessonRuns, designId);
+  // A lesson someone wrote (0.26) runs from the copy itself; a corpus lesson by its id.
+  const lessonInDoc = useMemo(() => (session.doc != null ? publishedLesson(session.doc) : null), [session.doc]);
+  const writtenLesson = lessonRun?.lessonId.startsWith('design:') ? lessonInDoc : null;
+  const activeLesson =
+    lessonRun == null ? null : writtenLesson != null && session.doc != null ? fromDesignLesson(session.doc, writtenLesson) : lessonById(lessonRun.lessonId);
+  // The builder (ADR-0066 §2): open from the palette on a design of the person's own, never on a lesson copy.
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const isLessonCopy = lessonRun != null || lessonInDoc != null;
+  const publishLesson = useCallback(
+    async (lessonId: string): Promise<string> => {
+      const current = session.doc;
+      if (current == null) throw new Error('No design is open.');
+      const copy = publishedCopy(current, lessonId, { sourceDesign: designId, actor: accountId ?? undefined });
+      const title = publishedLesson(copy)?.title ?? 'Lesson';
+      const made = await createDesign(organisationId, scopeId, writePlain(copy));
+      const name = `Lesson: ${title}`;
+      await renameDesign(organisationId, made.designId, name).catch(() => undefined);
+      return name;
+    },
+    [session.doc, designId, accountId, organisationId, scopeId],
+  );
+  const [traceRequest, setTraceRequest] = useState<LessonTraceAsk | null>(null);
+  const advanceLesson = useCallback(
+    (step: number) => {
+      if (lessonRun == null) return;
+      setLessonRuns(saveRun(accountId, { ...lessonRun, step }));
+    },
+    [accountId, lessonRun],
+  );
+  const traceForLesson = useCallback(
+    (ask: LessonTraceAsk) => {
+      if (props.place !== 'racks') onPlaceChange('racks');
+      setTraceRequest({ ...ask });
+    },
+    [props.place, onPlaceChange],
+  );
+
   // Docs on things, models and the design (ADR-0061 round 7): the panels read them through context.
   const docs = useDocsApi({
     organisationId,
@@ -681,6 +728,9 @@ export function DesignPlace(props: DesignPlaceProps) {
       ...(doc != null ? [{ id: 'print', label: 'Print', hint: shortcutText('print'), keywords: ['export', 'pdf', 'cut sheet'], run: openPrintPanel }] : []),
       ...(doc != null ? [{ id: 'history', label: historyOpen ? 'Close History' : 'Open History', keywords: ['saves', 'restore', 'past'], run: () => toggleHistory() }] : []),
       { id: 'learn', label: 'Open Learn', keywords: ['explainers', 'teach', 'lesson', 'help'], run: () => learn.setView({ kind: 'library' }) },
+      ...(doc != null && session.canDraw && !isLessonCopy && pickedSave == null
+        ? [{ id: 'build-lesson', label: builderOpen ? 'Close the lesson builder' : 'Build a lesson', keywords: ['lesson', 'teach', 'course', 'quiz'], run: () => setBuilderOpen(!builderOpen) }]
+        : []),
       ...(doc != null && pickedSave == null ? [{ id: 'docs', label: 'Open Docs', keywords: ['documentation', 'notes'], run: () => docs.setView({ kind: 'list' }) }] : []),
       { id: 'racks', label: 'Show Racks', keywords: ['canvas', 'drawing'], disabled: props.place === 'racks' ? 'Already showing' : undefined, run: () => onPlaceChange('racks') },
       { id: 'inventory', label: 'Show Inventory', keywords: ['list', 'table'], disabled: props.place === 'inventory' ? 'Already showing' : undefined, run: () => onPlaceChange('inventory') },
@@ -868,6 +918,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         initialIssue={issueRequest}
         initialUpgrade={upgradeRequest}
         initialPlan={planRequest}
+        traceRequest={traceRequest}
         onRequestsHandled={() => {
           setUpgradeRequest(null);
           setPlanRequest(null);
@@ -925,6 +976,30 @@ export function DesignPlace(props: DesignPlaceProps) {
         <LearnContext.Provider value={learn.api}>
           <LearnOverlay view={learn.view} onView={learn.setView} onClose={() => learn.setView(null)} />
         </LearnContext.Provider>
+      )}
+      {activeLesson != null && lessonRun != null && printMode === 'closed' && pickedSave == null && (
+        <LearnContext.Provider value={learn.api}>
+          <LessonPanel
+            lesson={activeLesson}
+            step={lessonRun.step}
+            doc={doc}
+            selectedId={selectedId}
+            onAdvance={advanceLesson}
+            onTrace={traceForLesson}
+            side={props.place === 'racks' ? 'left' : 'right'}
+          />
+        </LearnContext.Provider>
+      )}
+      {builderOpen && activeLesson == null && !isLessonCopy && printMode === 'closed' && pickedSave == null && (
+        <LessonBuilder
+          doc={doc}
+          selectedId={selectedId}
+          canDraw={session.canDraw}
+          apply={(next) => session.applyDocChange(next)}
+          onPublish={publishLesson}
+          onClose={() => setBuilderOpen(false)}
+          side={props.place === 'racks' ? 'left' : 'right'}
+        />
       )}
       {docs.view != null && printMode === 'closed' && props.place !== 'racks' && (
         <DocsContext.Provider value={docs.api}>

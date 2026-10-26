@@ -8,6 +8,9 @@ the editor uses, so a sample can hold nothing a person could not draw by hand.
   without a port the sample uses (matched by label and connector), the device is drawn as a sketch with
   `devices[].ports`. Label ports the way the catalogue does: its silkscreen number.
 - `cables[].a`/`.b` and every port reference are `hostname:label`.
+- `configs` pastes a device's configuration through the redaction gate, exactly as a person's paste goes (the small
+  office's SRX firewall), and `ties` puts each pasted interface on its port. Building such a sample needs the engine,
+  so Home starts it first. `firewall` instead draws zones and rules by hand, as the home lab does.
 - `trace` names two devices a path trace must cross end to end; `client/src/engine/sample.trace.test.ts` holds
   the sample to it, with and without catalogue models.
 - Every factual claim names its source in `sources` (CLAUDE.md rule 1).

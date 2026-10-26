@@ -2146,6 +2146,122 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(482))
         }
     }
+    /// Typed reads for `Lesson` fields.
+    pub mod lesson {
+        /// `Lesson.title` — `Text`, card `1`, emit `—`.
+        /// What the lesson is called.
+        pub fn title<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(486))
+        }
+        /// `Lesson.summary` — `Text`, card `0..1`, emit `—`.
+        /// One or two sentences on what it teaches.
+        pub fn summary<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(487))
+        }
+        /// `Lesson.author` — `Text`, card `0..1`, emit `—`.
+        /// Who wrote it.
+        pub fn author<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(488))
+        }
+        /// `Lesson.published_at` — `Text`, card `0..1`, emit `—`.
+        /// When this copy was published, as an ISO time. Absent on the author's own draft.
+        pub fn published_at<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(489))
+        }
+        /// `Lesson.source_design` — `Identifier`, card `0..1`, emit `—`.
+        /// Server id of the design it was published from (26-character ULID).
+        pub fn source_design<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(490))
+        }
+    }
+    /// Typed reads for `LessonStep` fields.
+    pub mod lesson_step {
+        /// `LessonStep.ordinal` — `u32`, card `1`, emit `—`.
+        /// Position in the lesson. Steps are shown in this order.
+        pub fn ordinal<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(491))
+        }
+        /// `LessonStep.kind` — `enum { read, click, trace, change }`, card `1`, emit `—`.
+        /// What the learner does: reads, picks the answer on the canvas, traces, or changes the design.
+        pub fn kind<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::LessonStepKind, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(492))
+        }
+        /// `LessonStep.title` — `Text`, card `1`, emit `—`.
+        /// The step's heading.
+        pub fn title<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(493))
+        }
+        /// `LessonStep.body` — `Text`, card `0..1`, emit `—`.
+        /// What the learner reads, or is asked to do.
+        pub fn body<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(494))
+        }
+        /// `LessonStep.hint` — `Text`, card `0..1`, emit `—`.
+        /// Said after a wrong pick.
+        pub fn hint<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(495))
+        }
+        /// `LessonStep.after` — `Text`, card `0..1`, emit `—`.
+        /// Said once the step passes: why it is so.
+        pub fn after<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(496))
+        }
+        /// `LessonStep.explainer` — `Text`, card `0..1`, emit `—`.
+        /// Id of an explainer a read step offers as Read more.
+        pub fn explainer<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(497))
+        }
+        /// `LessonStep.answer` — `Text`, card `0..1`, emit `—`.
+        /// Design id of the device or cable a click step wants picked.
+        pub fn answer<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(498))
+        }
+        /// `LessonStep.trace_from` — `Text`, card `0..1`, emit `—`.
+        /// Design id of the device or port a trace starts at.
+        pub fn trace_from<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(499))
+        }
+        /// `LessonStep.trace_to` — `Text`, card `0..1`, emit `—`.
+        /// Design id of the device a trace goes to.
+        pub fn trace_to<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(500))
+        }
+        /// `LessonStep.flow` — `Text`, card `0..1`, emit `—`.
+        /// The flow traced, as typed in the trace panel, e.g. TCP 554.
+        pub fn flow<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(501))
+        }
+        /// `LessonStep.expect_trace` — `enum { reaches, stops, first_match }`, card `0..1`, emit `—`.
+        /// What the trace should show: it reaches, it stops, or which policy matches first.
+        pub fn expect_trace<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::LessonStepExpectTrace, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(502))
+        }
+        /// `LessonStep.expect_crosses` — `Text`, card `0..1`, emit `—`.
+        /// Design ids of devices a reaching trace crosses, one per line.
+        pub fn expect_crosses<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(503))
+        }
+        /// `LessonStep.expect_stop` — `Text`, card `0..1`, emit `—`.
+        /// Design id of the device a stopping trace stops at.
+        pub fn expect_stop<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(504))
+        }
+        /// `LessonStep.expect_first_match` — `Text`, card `0..1`, emit `—`.
+        /// Name of the policy that should match first.
+        pub fn expect_first_match<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(505))
+        }
+        /// `LessonStep.expect_rule` — `Text`, card `0..1`, emit `—`.
+        /// Id of the Checks rule a change step watches.
+        pub fn expect_rule<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(506))
+        }
+        /// `LessonStep.expect_now` — `enum { fires, clears }`, card `0..1`, emit `—`.
+        /// Whether that rule should fire or clear once the change is made.
+        pub fn expect_now<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::LessonStepExpectNow, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(507))
+        }
+    }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
     /// path the read accessors use, for every entry in the field-key registry,
     /// node and edge fields alike. `None` for a key this schema version does
@@ -2572,6 +2688,28 @@ mod body {
             483 => Some((core::any::TypeId::of::<crate::scalar::IpAddr>(), "crate::scalar::IpAddr")),
             484 => Some((core::any::TypeId::of::<bool>(), "bool")),
             485 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            486 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            487 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            488 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            489 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            490 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            491 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            492 => Some((core::any::TypeId::of::<crate::generated::ir_types::LessonStepKind>(), "crate::generated::ir_types::LessonStepKind")),
+            493 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            494 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            495 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            496 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            497 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            498 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            499 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            500 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            501 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            502 => Some((core::any::TypeId::of::<crate::generated::ir_types::LessonStepExpectTrace>(), "crate::generated::ir_types::LessonStepExpectTrace")),
+            503 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            504 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            505 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            506 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            507 => Some((core::any::TypeId::of::<crate::generated::ir_types::LessonStepExpectNow>(), "crate::generated::ir_types::LessonStepExpectNow")),
             _ => None,
         }
     }
@@ -3000,6 +3138,28 @@ mod body {
             483 => crate::canon::slot_to::<crate::scalar::IpAddr>(483, "crate::scalar::IpAddr", value),
             484 => crate::canon::slot_to::<bool>(484, "bool", value),
             485 => crate::canon::slot_to::<crate::scalar::Text>(485, "crate::scalar::Text", value),
+            486 => crate::canon::slot_to::<crate::scalar::Text>(486, "crate::scalar::Text", value),
+            487 => crate::canon::slot_to::<crate::scalar::Text>(487, "crate::scalar::Text", value),
+            488 => crate::canon::slot_to::<crate::scalar::Text>(488, "crate::scalar::Text", value),
+            489 => crate::canon::slot_to::<crate::scalar::Text>(489, "crate::scalar::Text", value),
+            490 => crate::canon::slot_to::<crate::scalar::Identifier>(490, "crate::scalar::Identifier", value),
+            491 => crate::canon::slot_to::<u32>(491, "u32", value),
+            492 => crate::canon::slot_to::<crate::generated::ir_types::LessonStepKind>(492, "crate::generated::ir_types::LessonStepKind", value),
+            493 => crate::canon::slot_to::<crate::scalar::Text>(493, "crate::scalar::Text", value),
+            494 => crate::canon::slot_to::<crate::scalar::Text>(494, "crate::scalar::Text", value),
+            495 => crate::canon::slot_to::<crate::scalar::Text>(495, "crate::scalar::Text", value),
+            496 => crate::canon::slot_to::<crate::scalar::Text>(496, "crate::scalar::Text", value),
+            497 => crate::canon::slot_to::<crate::scalar::Text>(497, "crate::scalar::Text", value),
+            498 => crate::canon::slot_to::<crate::scalar::Text>(498, "crate::scalar::Text", value),
+            499 => crate::canon::slot_to::<crate::scalar::Text>(499, "crate::scalar::Text", value),
+            500 => crate::canon::slot_to::<crate::scalar::Text>(500, "crate::scalar::Text", value),
+            501 => crate::canon::slot_to::<crate::scalar::Text>(501, "crate::scalar::Text", value),
+            502 => crate::canon::slot_to::<crate::generated::ir_types::LessonStepExpectTrace>(502, "crate::generated::ir_types::LessonStepExpectTrace", value),
+            503 => crate::canon::slot_to::<crate::scalar::Text>(503, "crate::scalar::Text", value),
+            504 => crate::canon::slot_to::<crate::scalar::Text>(504, "crate::scalar::Text", value),
+            505 => crate::canon::slot_to::<crate::scalar::Text>(505, "crate::scalar::Text", value),
+            506 => crate::canon::slot_to::<crate::scalar::Text>(506, "crate::scalar::Text", value),
+            507 => crate::canon::slot_to::<crate::generated::ir_types::LessonStepExpectNow>(507, "crate::generated::ir_types::LessonStepExpectNow", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -3426,6 +3586,28 @@ mod body {
             483 => crate::canon::slot_from::<crate::scalar::IpAddr>(j),
             484 => crate::canon::slot_from::<bool>(j),
             485 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            486 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            487 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            488 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            489 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            490 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            491 => crate::canon::slot_from::<u32>(j),
+            492 => crate::canon::slot_from::<crate::generated::ir_types::LessonStepKind>(j),
+            493 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            494 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            495 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            496 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            497 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            498 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            499 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            500 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            501 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            502 => crate::canon::slot_from::<crate::generated::ir_types::LessonStepExpectTrace>(j),
+            503 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            504 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            505 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            506 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            507 => crate::canon::slot_from::<crate::generated::ir_types::LessonStepExpectNow>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

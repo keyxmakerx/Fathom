@@ -1,0 +1,56 @@
+/* "Type it yourself": a command broken into labelled parts. Tokens only. The text is not selectable
+   while it is drawn this way; that is a teaching aid, not a control. */
+
+.type-cmd {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--s1) var(--s2);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.type-cmd__part {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.type-cmd__text {
+  padding: 2px var(--s2);
+  background: var(--surface);
+  border-bottom: var(--rule-hair) solid var(--muted);
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+  overflow-wrap: anywhere;
+}
+
+.type-cmd__label {
+  padding: 0 var(--s2);
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.type-cmd__part--link .type-cmd__text,
+.type-cmd__part--fill-in .type-cmd__text {
+  border-bottom-style: dashed;
+}
+
+.type-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+/* Command text drawn whole, not in parts, while the setting is on. */
+.type-noselect {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.fw-link-box__typed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}

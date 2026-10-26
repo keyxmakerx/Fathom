@@ -1,4 +1,4 @@
--- 0043 -- breach checks for stored logins (ADR-0071 part three; owner's round-32 answers: breach
+-- 0044 -- breach checks for stored logins (ADR-0071 part three; owner's round-32 answers: breach
 -- A with a weekly re-check, "make sure the checks can be per org, or even like per type of
 -- passwords", 25 October).
 --
@@ -17,7 +17,7 @@
 -- **A refusal is the browser's.** The server never sees the password, so it cannot check one; it
 -- records what a holder's browser found. The interface and OPERATING.md say so.
 --
--- As in 0041: no default privileges, every table granted by name, tenant-pinned row security,
+-- As in 0042: no default privileges, every table granted by name, tenant-pinned row security,
 -- no DELETE.
 
 -- ---------------------------------------------------------------------------
@@ -110,7 +110,7 @@ CREATE POLICY vault_breach_results_updatable ON vault.breach_results
 -- `vault_breach_policy_set`: an admin changed the policy, or someone marked a login critical or
 -- not. Turning checks off is an act on the organisation's history like any other setting. The
 -- answers themselves are not chain entries: there is one per login per week. The list below is
--- 0042's, plus this. Mirrored by `EntryType::kinds()` in `src/chain.rs`.
+-- 0043's, plus this. Mirrored by `EntryType::kinds()` in `src/chain.rs`.
 -- ---------------------------------------------------------------------------
 ALTER TABLE chain_entries NO FORCE ROW LEVEL SECURITY;
 
@@ -164,13 +164,15 @@ ALTER TABLE chain_entries
                                 'invitation_issued', 'invitation_closed',
                                 'firmware_models_changed',
                                 -- 0041.
+                                'type_it_yourself_set',
+                                -- 0042.
                                 'vault_key_enrolled', 'vault_key_superseded',
                                 'vault_entry_created', 'vault_shared',
                                 'vault_share_revoked', 'vault_entry_deleted',
                                 'vault_recovery_used',
-                                -- 0042.
-                                'vault_mode_changed', 'vault_read',
                                 -- 0043.
+                                'vault_mode_changed', 'vault_read',
+                                -- 0044.
                                 'vault_breach_policy_set'))
     );
 

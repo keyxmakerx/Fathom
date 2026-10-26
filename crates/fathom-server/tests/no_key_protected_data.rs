@@ -280,6 +280,12 @@ const TABLES: &[TableClaim] = &[
               creator and an archived flag, none of which names a field.",
     },
     TableClaim {
+        name: "member_teaching",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "\"type it yourself\" (0041): ids, one boolean, who set it and when. A teaching \
+              setting, not a credential, a payload or a key.",
+    },
+    TableClaim {
         name: "cable_corrections",
         protection: Protection::KeyProtected {
             columns: &["ciphertext"],
@@ -610,7 +616,7 @@ const TABLES: &[TableClaim] = &[
               server's credential check and the browser's redaction gate before it is sealed. \
               `nonce`, `key_epoch` and the other columns are not secret.",
     },
-    // ---- The password vault (ADR-0042 Mode A, ADR-0071) -- `0041_vault.sql` --
+    // ---- The password vault (ADR-0042 Mode A, ADR-0071) -- `0042_vault.sql` --
     //
     // Its own schema, `vault`, so the operator plane's grants on `public` never reach it and a
     // schema-wide grant written later for `public` cannot either. Names carry the schema.
@@ -662,7 +668,7 @@ const TABLES: &[TableClaim] = &[
         why: "a record that an admin opened an entry with the recovery sheet: who, which entry, \
               when. Written before the wrap is served.",
     },
-    // ---- Logins Fathom can use (Mode B, ADR-0071 part two) -- `0042_vault_fathom.sql` --
+    // ---- Logins Fathom can use (Mode B, ADR-0071 part two) -- `0043_vault_fathom.sql` --
     TableClaim {
         name: "vault.fathom_copies",
         protection: Protection::KeyProtected {
@@ -681,7 +687,7 @@ const TABLES: &[TableClaim] = &[
         why: "a record that Fathom opened a login: which one, for what, on which device, at \
               whose request. Written, with its chain entry, before the copy is opened.",
     },
-    // ---- Breach checks (ADR-0071 part three) -- `0043_vault_breach.sql` --
+    // ---- Breach checks (ADR-0071 part three) -- `0044_vault_breach.sql` --
     TableClaim {
         name: "vault.breach_policy",
         protection: Protection::NoKeyProtectedMaterial,

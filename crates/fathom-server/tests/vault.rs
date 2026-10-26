@@ -1,4 +1,4 @@
-//! The password vault, Mode A — `src/vault.rs` and `migrations/0041_vault.sql` — against a
+//! The password vault, Mode A — `src/vault.rs` and `migrations/0042_vault.sql` — against a
 //! real PostgreSQL.
 //!
 //! The server never holds a key that opens a password, so these tests do not need one either:

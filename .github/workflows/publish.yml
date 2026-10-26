@@ -7,9 +7,12 @@
 # stage: the distroless server binary with the schema, the corpus and the
 # built web client beside it, served by the binary itself. (For one day,
 # 2026-09-19, a second image carried Caddy with the client; the operator's
-# own reverse proxy does that job now.) `compose.yaml` builds the same stage
-# from a checkout; this is the same image, published, for a host that can
-# only pull. Until this
+# own reverse proxy does that job now.) Since 2026-10-25 a second image ships
+# beside it, the `backup` stage (ADR-0070): the postgres image, for `pg_dump`
+# and `pg_restore`, with the same server binary added. Both are built from
+# the same checkout in the same run, after the same floor. `compose.yaml`
+# builds the same stages from a checkout; these are the same images,
+# published, for a host that can only pull. Until this
 # date the workflow built the root Dockerfile, which packaged the retired
 # single-file client behind nginx, and it had never published anything since
 # the client was rebuilt: its inline gate floor ran the server's tests with no
@@ -81,6 +84,7 @@ env:
   # attest-build-provenance does not, so one spelling used everywhere is safer
   # than relying on one action's normalisation and not the other's.
   SERVER_IMAGE: ghcr.io/keyxmakerx/fathom-server
+  BACKUP_IMAGE: ghcr.io/keyxmakerx/fathom-backup
 
 concurrency:
   # A second merge should supersede the first rather than race it to `latest`.
@@ -190,6 +194,37 @@ jobs:
           subject-name: ${{ env.SERVER_IMAGE }}
           subject-digest: ${{ steps.build_server.outputs.digest }}
           push-to-registry: true
+      - name: Tags and labels (backup)
+        id: meta_backup
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.BACKUP_IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=sha,format=long
+          labels: |
+            org.opencontainers.image.title=Fathom backup
+            org.opencontainers.image.description=Fathom's nightly backup service: sealed data files, a weekly restore test. ADR-0070.
+      - name: Build and push (backup)
+        id: build_backup
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: deploy/Dockerfile
+          target: backup
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta_backup.outputs.tags }}
+          labels: ${{ steps.meta_backup.outputs.labels }}
+          provenance: false
+          sbom: false
+      - name: Attest build provenance (backup)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.BACKUP_IMAGE }}
+          subject-digest: ${{ steps.build_backup.outputs.digest }}
+          push-to-registry: true
       - name: Record what shipped
         run: |
           set -euo pipefail
@@ -198,6 +233,7 @@ jobs:
             echo
             echo '```'
             echo "server  ${SERVER_IMAGE}@${{ steps.build_server.outputs.digest }}"
+            echo "backup  ${BACKUP_IMAGE}@${{ steps.build_backup.outputs.digest }}"
             echo "commit  ${GITHUB_SHA}"
             echo '```'
             echo

@@ -1,4 +1,4 @@
--- 0042 -- logins Fathom itself can use: the vault's Mode B (ADR-0042 §3, storage design §5 and
+-- 0043 -- logins Fathom itself can use: the vault's Mode B (ADR-0042 §3, storage design §5 and
 -- §13.4 to §13.5, ADR-0071 part two).
 --
 -- A Mode A login opens only in the browser of someone who holds it. A Mode B login ALSO has a
@@ -22,7 +22,7 @@
 -- Every opening by Fathom is a `vault_read` entry on the organisation chain, filed BEFORE the
 -- secret is opened, and a row in `fathom_reads` for the login's card.
 --
--- As in 0041: no default privileges, every table granted by name, tenant-pinned row security,
+-- As in 0042: no default privileges, every table granted by name, tenant-pinned row security,
 -- no DELETE. Turning Mode B off empties the copy and keeps the row.
 
 -- ---------------------------------------------------------------------------
@@ -139,7 +139,7 @@ CREATE POLICY vault_fathom_reads_insertable ON vault.fathom_reads
 -- ---------------------------------------------------------------------------
 -- D. TWO MORE ORGANISATION-CHAIN ENTRY TYPES (§13.4)
 --
--- `vault_mode_changed` and `vault_read` (Mode B only). The list below is 0041's, plus these.
+-- `vault_mode_changed` and `vault_read` (Mode B only). The list below is 0042's, plus these.
 -- Mirrored by `EntryType::kinds()` in `src/chain.rs`.
 -- ---------------------------------------------------------------------------
 ALTER TABLE chain_entries NO FORCE ROW LEVEL SECURITY;
@@ -194,11 +194,13 @@ ALTER TABLE chain_entries
                                 'invitation_issued', 'invitation_closed',
                                 'firmware_models_changed',
                                 -- 0041.
+                                'type_it_yourself_set',
+                                -- 0042.
                                 'vault_key_enrolled', 'vault_key_superseded',
                                 'vault_entry_created', 'vault_shared',
                                 'vault_share_revoked', 'vault_entry_deleted',
                                 'vault_recovery_used',
-                                -- 0042.
+                                -- 0043.
                                 'vault_mode_changed', 'vault_read'))
     );
 

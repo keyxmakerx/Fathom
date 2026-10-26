@@ -1,4 +1,4 @@
--- 0041 -- the password vault, Mode A (ADR-0042, ADR-0043 §6, storage design §5 and §13,
+-- 0042 -- the password vault, Mode A (ADR-0042, ADR-0043 §6, storage design §5 and §13,
 -- ADR-0071).
 --
 -- A password is sealed IN THE BROWSER under its own random content key. That content key is
@@ -351,6 +351,8 @@ ALTER TABLE chain_entries
                                 'invitation_issued', 'invitation_closed',
                                 'firmware_models_changed',
                                 -- 0041.
+                                'type_it_yourself_set',
+                                -- 0042.
                                 'vault_key_enrolled', 'vault_key_superseded',
                                 'vault_entry_created', 'vault_shared',
                                 'vault_share_revoked', 'vault_entry_deleted',

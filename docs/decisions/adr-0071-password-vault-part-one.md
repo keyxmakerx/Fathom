@@ -12,7 +12,7 @@ and what parts two and three hold.
 ## Decided
 
 1. **Its own schema.** The vault lives in a PostgreSQL schema called `vault` (`keys`, `entries`,
-   `wraps`, `shares`, `recovery_uses`; migration `0041_vault.sql`), not in `public`. Every
+   `wraps`, `shares`, `recovery_uses`; migration `0042_vault.sql`), not in `public`. Every
    no-key-protected-data test now walks every non-system schema with qualified names, and the
    real-database test asserts the schemas are exactly `public` and `vault`. **A backup that copies only
    `public` loses every stored login**; `docs/OPERATING.md` says so.

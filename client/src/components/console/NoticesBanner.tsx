@@ -82,6 +82,8 @@ export function NoticesBanner({
           `This notice stands until ${new Date(notice.untilUnix * 1000).toLocaleString()}. If it was not you, treat it as an incident.`,
         loud: true,
       });
+    } else if (notice.kind === 'backup') {
+      lines.push({ key: `backup-${notice.line}`, text: notice.line, loud: true });
     } else {
       lines.push({ key: `raw-${notice.line}`, text: notice.line, loud: false });
     }

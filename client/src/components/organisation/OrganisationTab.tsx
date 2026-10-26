@@ -20,6 +20,7 @@ import { canStewardFor } from '../home/capabilities';
 import { FoldersPanel, type Loadable } from './FoldersPanel';
 import { InviteForm, LinkCard } from './InvitePanel';
 import { accessWords, dateTimeLabel } from './model';
+import { setTypeItYourself } from '../../api/organisations';
 import { PeopleList, PersonPage } from './PeoplePanel';
 import { WaitingPanel } from './WaitingPanel';
 import { PasswordsPage } from '../vault/Screens';
@@ -225,6 +226,17 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
                 result.delayed && result.takesEffectAtUnix !== null
                   ? `Signed. This steward keeps their access until ${dateTimeLabel(result.takesEffectAtUnix)}, 24 hours after you signed.`
                   : 'Removed and signed. It is in the organisation’s history.',
+              );
+              reload();
+            })
+          }
+          onSetTyping={(on) =>
+            void act(async () => {
+              await setTypeItYourself(org, person.account, on);
+              setNotice(
+                on
+                  ? `On. Commands are shown to ${person.name} to be typed. It is in the organisation’s history.`
+                  : `Off. ${person.name} gets copy buttons on commands again. It is in the organisation’s history.`,
               );
               reload();
             })

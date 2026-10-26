@@ -9,6 +9,7 @@ import { BottomPill, CanvasStrip } from './shell/CanvasBar';
 import { nextActive, SideSlots } from './shell/sideSlot';
 import { rememberedTab, useRightTab, type RightTab } from './shell/useRightTab';
 import { loadResume, patchResume } from './design/resume';
+import { isTypingTarget, matches } from './shell/shortcuts';
 import type { ShellProps } from './shell/types';
 
 export type {
@@ -191,6 +192,21 @@ export function Shell({
   });
   const rightWidth = fit.right > 0 ? fit.right : Math.min(lastWidths.current.right, wants[PANEL_OF[lastRight.current]]);
   const rightMax = panelMax(windowWidth, bodyWidth, stripsWidth, 0);
+
+  // The bar's zoom buttons from the keyboard, on the canvas only and never while typing.
+  useEffect(() => {
+    if (place !== 'racks') return undefined;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented || isTypingTarget(event.target)) return;
+      const act = matches(event, 'zoom-in') ? onZoomIn : matches(event, 'zoom-out') ? onZoomOut : matches(event, 'zoom-fit') ? onZoomFit : undefined;
+      if (act == null) return;
+      event.preventDefault();
+      act();
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [place, onZoomIn, onZoomOut, onZoomFit]);
+
   return (
     <div className="shell">
       {announce !== undefined && (

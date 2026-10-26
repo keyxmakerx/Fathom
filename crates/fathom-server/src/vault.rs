@@ -1,5 +1,5 @@
 //! **The password vault, Mode A** (ADR-0042, ADR-0043 §6, storage design §5 and §13,
-//! ADR-0071). `migrations/0041_vault.sql` carries the reasoning for every table and fence.
+//! ADR-0071). `migrations/0042_vault.sql` carries the reasoning for every table and fence.
 //!
 //! # What the server holds, and what it cannot do
 //!
