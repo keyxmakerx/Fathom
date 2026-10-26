@@ -328,15 +328,38 @@ async fn main() -> ExitCode {
     // ADR-0071: the vault's own root, for Fathom's copies of the logins people let it use. A
     // third key so that the database and the master key together still open no login; refused
     // if it is either of the other two.
-    let fathom_key = match fathom_server::vault_fathom::FathomKey::load(&config.vault_key, true) {
-        Ok(k) if k.id() == ring.master_key_id() || k.id() == ring.chain_key_id() => {
+    // A keys volume from before 2026-10-25 has no `vault.key`, and an install whose compose
+    // front end kept the old compose text never runs the `keys-init` that writes one. That
+    // server starts with the vault's Fathom copies and outside vaults off and says what to do,
+    // rather than crash-looping on an image update (`FathomKey::load_at_startup`).
+    let fathom_key = match fathom_server::vault_fathom::FathomKey::load_at_startup(
+        &config.vault_key,
+    ) {
+        Ok(Some(k)) if k.id() == ring.master_key_id() || k.id() == ring.chain_key_id() => {
             tracing::error!(
                 vault_key = %config.vault_key.describe(),
                 "refusing to start: vault.key is the same 32 bytes as the master key or the chain key"
             );
             return ExitCode::from(10);
         }
-        Ok(k) => Arc::new(k),
+        Ok(Some(k)) => {
+            tracing::info!(
+                vault_key_id = %k.id(),
+                vault_key_source = %k.describe_source(),
+                "vault key loaded"
+            );
+            Some(Arc::new(k))
+        }
+        Ok(None) => {
+            tracing::warn!(
+                vault_key = %config.vault_key.describe(),
+                "vault.key does not exist and this server cannot create it, so letting Fathom \
+                 use logins and outside vaults are off; everything else works. Update this \
+                 install's compose file to the current compose.yaml and redeploy: its keys-init \
+                 makes vault.key and leaves the other keys alone (docs/RUNNING-IT.md)"
+            );
+            None
+        }
         Err(e) => {
             tracing::error!(
                 error = %e,
@@ -359,12 +382,6 @@ async fn main() -> ExitCode {
             return ExitCode::from(10);
         }
     };
-    tracing::info!(
-        vault_key_id = %fathom_key.id(),
-        vault_key_source = %fathom_key.describe_source(),
-        "vault key loaded"
-    );
-
     {
         let (master_source, chain_source) = ring.describe_sources();
         // ADR-0043 §10: the key file gets its own named volume and a startup log line

@@ -207,6 +207,13 @@ build may run forward-only migrations on its first start. Then `docker compose p
 created date, and hard-refresh the browser. If `.env` sets `FATHOM_TAG`, the install stays on that
 build until you change it.
 
+**Update the compose file with the image.** `git pull` does that for a checkout. A compose front end
+such as Portainer keeps the compose text you pasted while `latest` pulls a new image, so paste the
+current `compose.yaml` into the stack and redeploy with a re-pull. Its `keys-init` writes any key a
+newer server wants (`backup.key` and `vault.key` since 2026-10-25) and leaves existing keys alone.
+A server that finds no `vault.key` it can make still starts, with letting Fathom use logins and
+outside vaults off, and logs a warning saying this.
+
 **Firmware is off until you name an address.** Set `FATHOM_FIRMWARE_FETCH_BASE_URL` in `.env` to the
 address your switches can reach this server on (often not the one your browser uses), then
 `docker compose up -d`. Images upload in the browser; each device fetches its own over a one-time link.

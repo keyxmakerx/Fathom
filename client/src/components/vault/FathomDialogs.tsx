@@ -9,6 +9,7 @@ import {
   FATHOM_CONSENT_TEXT,
   FATHOM_OFF_TEXT,
   FATHOM_PROTECTS_TEXT,
+  NO_SERVER_KEY_TEXT,
   countersignFathomUse,
   fathomCopyStale,
   holderAccounts,
@@ -144,15 +145,17 @@ export function FathomDialog({
       <p className="vault-small">
         It is shared again first under a fresh key, so the people holding it are named again now.
         {others.length > 0 ? ` ${others.join(', ')} ${others.length === 1 ? 'holds' : 'hold'} it too, so another admin signs before Fathom uses it.` : ''}{' '}
-        Fathom’s copy is sealed under the server’s vault key {overview.fathomKeyId}; a backup restored without that key file loses only Fathom’s copies.
+        {overview.fathomKeyId != null &&
+          `Fathom’s copy is sealed under the server’s vault key ${overview.fathomKeyId}; a backup restored without that key file loses only Fathom’s copies.`}
       </p>
+      {overview.fathomKeyId == null && <p className="vault-note vault-note--danger">{NO_SERVER_KEY_TEXT}</p>}
       <label className="vault-check">
         <input type="checkbox" checked={read} onChange={() => setRead((r) => !r)} data-testid="vault-fathom-read" /> I have read this. Fathom’s
         server can read this login while this is on.
       </label>
       {failed}
       <div className="vault-actions">
-        <button type="button" className="vault-btn vault-btn--solid" disabled={busy || !read} onClick={() => run(() => letFathomUse(organisation, overview, entry))} data-testid="vault-fathom-on-go">
+        <button type="button" className="vault-btn vault-btn--solid" disabled={busy || !read || overview.fathomKeyId == null} onClick={() => run(() => letFathomUse(organisation, overview, entry))} data-testid="vault-fathom-on-go">
           {busy ? 'Signing…' : 'Let Fathom use it'}
         </button>
         <button type="button" className="vault-btn" onClick={onClose}>

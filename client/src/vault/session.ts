@@ -480,6 +480,10 @@ export function fathomCopyStale(entry: VaultEntry): boolean {
   return entry.fathom != null && entry.fathom.state !== 'off' && entry.fathom.copyEpoch !== entry.epoch;
 }
 
+/** What a person sees where the server has no `vault.key`. */
+export const NO_SERVER_KEY_TEXT =
+  'This server has no vault key yet, so Fathom cannot keep a copy of a login. Whoever runs it updates its compose file to the current one and redeploys.';
+
 /**
  * The owner lets Fathom use this login. The login is shared again first, under a fresh key, so
  * the people who hold it are named again at the moment Fathom can read it (§13.4,
@@ -489,6 +493,8 @@ export function fathomCopyStale(entry: VaultEntry): boolean {
 export async function letFathomUse(organisation: string, overview: VaultOverview, entry: VaultEntry): Promise<{ entry: VaultEntry; copy: FathomCopy }> {
   const u = need(organisation);
   if (entry.owner !== u.account) throw new Error('Only the person who stored this login can let Fathom use it.');
+  const fathomKeyId = overview.fathomKeyId;
+  if (fathomKeyId == null) throw new Error(NO_SERVER_KEY_TEXT);
   const secret = await revealLogin(organisation, entry);
   const recipients = await chooseRecipients(organisation, overview, holderAccounts(entry));
   const fresh = await reshareLogin(organisation, entry, recipients, 'rotated', secret);
@@ -504,7 +510,7 @@ export async function letFathomUse(organisation: string, overview: VaultOverview
     u.account,
     signer.fpr,
     recipientsOf(fresh),
-    overview.fathomKeyId,
+    fathomKeyId,
     at,
     fresh.shareSeq,
   );

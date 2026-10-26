@@ -99,6 +99,9 @@ pub enum VaultError {
     },
     /// The caller has no live vault key in this organisation yet.
     NoVaultKey,
+    /// This server has no `vault.key` (an install whose keys volume predates it), so the acts
+    /// that need Fathom's own key are off.
+    NoServerKey,
     /// A stored row did not open or is not shaped like one this server wrote.
     Corrupt(&'static str),
     /// An outside vault could not be reached, or answered with something Fathom cannot use
@@ -121,6 +124,7 @@ impl core::fmt::Display for VaultError {
             Self::NotFound => write!(f, "no such login"),
             Self::Conflict { version } => write!(f, "changed; now at version {version}"),
             Self::NoVaultKey => write!(f, "no vault key"),
+            Self::NoServerKey => write!(f, "this server has no vault.key"),
             Self::Corrupt(what) => write!(f, "corrupt: {what}"),
             Self::OutsideUnreachable(why) => write!(f, "outside vault unreachable: {why}"),
             Self::OutsideRefused(why) => write!(f, "outside vault refused: {why}"),

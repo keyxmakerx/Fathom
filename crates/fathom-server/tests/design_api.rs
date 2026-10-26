@@ -454,9 +454,9 @@ async fn app(
         sessions,
         watch,
         ring,
-        fathom_key: Arc::new(fathom_server::vault_fathom::FathomKey::from_key(
+        fathom_key: Some(Arc::new(fathom_server::vault_fathom::FathomKey::from_key(
             fathom_server::crypto::Key32::from_bytes([77; 32]),
-        )),
+        ))),
         outside: Arc::new(fathom_server::vault_outside::Outside::refusing()),
         catalogue: Arc::new(catalogue),
         explainers: Arc::new(
