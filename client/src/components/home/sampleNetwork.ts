@@ -37,6 +37,7 @@ import {
   type Document,
   type GraphNode,
 } from '../../document/model';
+import { fitCard, setOptic, type CardPorts } from '../../document/cards';
 import { addEdge, addNode, begin, finish } from '../../document/freeform';
 import { addSubnet, addVlan, type Actor } from '../../document/networks';
 import { tiePorts } from '../../document/portTies';
@@ -56,6 +57,10 @@ export interface SampleDevice {
   place: { rack: number } | { shelf: string; slot: number } | { surface: string; x?: number; y?: number };
   ports: SamplePort[];
   face: 'front' | 'rear';
+  /** Cards in the device's slots, each with its own ports (r35), fitted the way the Cards panel fits one. */
+  cards?: { slot: string; name?: string; model?: string; serial?: string; ports?: CardPorts }[];
+  /** Optics in the device's cages, by port label. */
+  optics?: { port: string; type?: string; part?: string; serial?: string }[];
 }
 
 export interface SampleCable {
@@ -173,13 +178,23 @@ function chassisOf(doc: Document, deviceId: string): string {
   return edge.to;
 }
 
+/** The ports a device's cards bring, labelled as `fitCard` labels them. */
+function cardPortsOf(device: SampleDevice): SamplePort[] {
+  const out: SamplePort[] = [];
+  for (const c of device.cards ?? []) {
+    if (!c.ports) continue;
+    for (let n = c.ports.first; n <= c.ports.last; n += 1) out.push({ label: `${c.ports.prefix}${n}`, connector: c.ports.connector });
+  }
+  return out;
+}
+
 /** `hostname:label` to a PhysicalPort id; an RJ45 or named port before any other with the same label. */
 function portOf(doc: Document, devices: Map<string, string>, spec: SampleSpec, ref: string): string {
   const [hostname, label] = ref.split(':');
   const deviceId = devices.get(hostname);
   const device = spec.devices.find((d) => d.hostname === hostname);
   if (!deviceId || !device || label === undefined) throw new Error(`the sample names an unknown port "${ref}"`);
-  const want = device.ports.find((p) => p.label === label);
+  const want = device.ports.find((p) => p.label === label) ?? cardPortsOf(device).find((p) => p.label === label);
   if (!want) throw new Error(`the sample uses port "${ref}" without listing it`);
   const chassisId = chassisOf(doc, deviceId);
   for (const e of edgesOut(doc, chassisId, 'HasPort')) {
@@ -245,6 +260,11 @@ export function buildSample(spec: SampleSpec, models: ReadonlyMap<string, Catalo
       else if ('shelf' in place) doc = movePlacement(doc, chassisId, { kind: 'shelf', shelfId: shelves.get(place.shelf)!, slot: place.slot }, opts);
       else doc = movePlacement(doc, chassisId, { kind: 'surface', surfaceId: surfaces.get(place.surface)!, xMm: place.x ?? null, yMm: place.y ?? null }, opts);
     }
+    for (const card of d.cards ?? []) {
+      const { slot, ...fields } = card;
+      doc = fitCard(doc, chassisOf(doc, deviceId), slot, fields, opts);
+    }
+    for (const { port, ...optic } of d.optics ?? []) doc = setOptic(doc, portOf(doc, new Map([[d.hostname, deviceId]]), spec, `${d.hostname}:${port}`), optic, opts);
     if (fits) catalogued.push(d.hostname);
     doc = setDeviceField(doc, deviceId, 'hostname', d.hostname, opts);
     if (isDeviceRole(d.role)) doc = setDeviceField(doc, deviceId, 'role', d.role, opts);

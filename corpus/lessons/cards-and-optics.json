@@ -1,0 +1,57 @@
+{
+  "id": "cards-and-optics",
+  "title": "Cards and optics: the parts inside a switch",
+  "summary": "Find the card the closets hang off, the optic one link needs, and what a swap takes down.",
+  "sample": "parts-lab",
+  "sources": [
+    {
+      "claim": "Optics (transceivers) are hot-removable and hot-insertable field-replaceable units: they come out and go in without powering the device off.",
+      "cite": "Juniper Networks, Maintain Transceivers, EX4400 Switch Hardware Guide (the page shows no date)",
+      "url": "https://www.juniper.net/documentation/us/en/hardware/ex4400/Other/maintaining-transceivers.html",
+      "read_on": "2026-10-26"
+    },
+    {
+      "claim": "A modular device reports each card in its slot and each optic under the card it sits in, each with its own part number and serial.",
+      "cite": "Juniper Networks, show chassis hardware, Junos CLI reference, MX960 sample output",
+      "url": "https://www.juniper.net/documentation/us/en/software/junos/cli-reference/Other/show-chassis-hardware.html",
+      "read_on": "2026-10-26"
+    }
+  ],
+  "steps": [
+    {
+      "kind": "read",
+      "title": "Parts you can pull",
+      "body": "Bigger switches take cards: a card slides into a slot and brings its own ports. A fibre port is only a cage until an optic, a small transceiver, is pushed into it. Cards and optics are field-replaceable, each with its own part number and serial, so they are tracked like devices. In Fathom a card's ports stay on the device and say which card they are on; the optic is part of its port."
+    },
+    {
+      "kind": "click",
+      "title": "The card",
+      "prompt": "Both closets and the server reach the rest through one card. Click the device it sits in.",
+      "answer": { "device": "core-1" },
+      "hint": "Follow the aqua cables back from sw-a and sw-b.",
+      "after": "core-1, slot 1: a four-port SFP+ card. Its ports are 1/1 to 1/4. Open core-1's Ports tab to see the card and which cages hold an optic."
+    },
+    {
+      "kind": "click",
+      "title": "One optic, one link",
+      "prompt": "The optic in core-1 port 1/2 is failing. Click the cable that goes dark while it is swapped.",
+      "answer": { "cable": "core-1:1/2" },
+      "hint": "Port 1/2 is on the card in slot 1. Which closet does it feed?",
+      "after": "Closet B's uplink. Optics come out and go in with the switch powered, but while the cage is empty nothing reaches sw-b or desktop-2."
+    },
+    {
+      "kind": "trace",
+      "title": "Through the card",
+      "prompt": "Trace from desktop-2 to server-1.",
+      "from": { "device": "desktop-2" },
+      "to": { "device": "server-1" },
+      "expect": { "reaches": true, "crosses": ["sw-b", "core-1"] },
+      "after": "Both hops on core-1, in on 1/2 and out on 1/3, are ports on the same card. Take the card out and every closet loses the server at once; swap one optic and only its link goes."
+    },
+    {
+      "kind": "read",
+      "title": "Keeping track",
+      "body": "Inventory's Parts list holds every card, power supply and optic with where it sits and its serial. Paste show inventory or show chassis hardware onto a device and Fathom offers what it reports. When a part fails, a maintenance plan's Swap a part step says which ports go down and records the new serial when you mark it done."
+    }
+  ]
+}
