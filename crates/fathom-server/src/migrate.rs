@@ -275,6 +275,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0044_vault_breach.sql",
         sql: include_str!("../migrations/0044_vault_breach.sql"),
     },
+    // Outside vaults, per person (ADR-0071 part four).
+    Migration {
+        version: 45,
+        name: "0045_vault_outside.sql",
+        sql: include_str!("../migrations/0045_vault_outside.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

@@ -115,6 +115,8 @@ pub struct DesignApiState {
     pub ring: Arc<KeyRing>,
     /// `vault.key`: Fathom's copies of the logins people let it use (ADR-0071 part two).
     pub fathom_key: Arc<crate::vault_fathom::FathomKey>,
+    /// How the server reaches people's outside vaults (ADR-0071 part four).
+    pub outside: Arc<crate::vault_outside::Outside>,
     /// The catalogue, loaded once at startup: read-only reference data, so every
     /// request reads the same `Vec`, not the filesystem. Built by [`load_catalogue`].
     pub catalogue: Arc<Vec<Model>>,
@@ -3634,6 +3636,51 @@ async fn begin_org<'a>(
     let tx = client.transaction().await.map_err(SessionError::Db)?;
     let (session, tx) = signed.verify_and_commit(state, tx).await?;
     let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    Ok((tx, ctx, tenant_key))
+}
+
+/// [`begin_org`], keeping the verified session for [`reopen_org`]: a route that makes a network
+/// round between two transactions (an outside vault, ADR-0071 part four) verifies the signed
+/// request once and opens its second transaction from the same session, never holding a
+/// database transaction across the network.
+async fn begin_org_keep<'a>(
+    state: &DesignApiState,
+    signed: &Signed,
+    client: &'a mut deadpool_postgres::Client,
+    organisation: &str,
+) -> Result<
+    (
+        Transaction<'a>,
+        TenantContext,
+        crate::keys::DataKey,
+        sessions::VerifiedSession,
+    ),
+    RouteError,
+> {
+    let tenant = parse_organisation(organisation)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    Ok((tx, ctx, tenant_key, session))
+}
+
+/// The second transaction of such a route: the tenant context opened again from the session
+/// the first one verified, so a membership ended in between is noticed.
+async fn reopen_org<'a>(
+    state: &DesignApiState,
+    session: &sessions::VerifiedSession,
+    client: &'a mut deadpool_postgres::Client,
+    organisation: &str,
+) -> Result<(Transaction<'a>, TenantContext, crate::keys::DataKey), RouteError> {
+    let tenant = parse_organisation(organisation)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, session).await?;
     let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
         .await
         .map_err(SessionError::Keys)?;

@@ -624,3 +624,86 @@
   width: auto;
   padding: 0 var(--s1);
 }
+
+/* ---- Outside vaults (ADR-0071 part four; mockup r32-vault-external) ---- */
+
+.vault-sheet:has(.vault-outside) {
+  width: min(980px, 100%);
+}
+
+.vault-outside {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: var(--s4);
+  align-items: start;
+}
+
+.vault-outside__notes {
+  display: grid;
+  gap: var(--s3);
+}
+
+@media (max-width: 760px) {
+  .vault-outside {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.vault-providers {
+  display: grid;
+  gap: 8px;
+}
+
+.vault-provider {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  opacity: 0.75;
+}
+
+.vault-provider--on {
+  border-color: var(--ink);
+  border-left-width: 4px;
+  opacity: 1;
+}
+
+.vault-provider__mark {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--ink);
+  font-weight: 700;
+  font-size: var(--t-small);
+}
+
+.vault-provider__text {
+  display: grid;
+  gap: 2px;
+}
+
+.vault-checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.vault-checklist__item--pass > span:first-child {
+  color: var(--safe);
+}
+
+.vault-checklist__item--fail {
+  color: var(--danger);
+}
+
+.vault-outside-section {
+  display: grid;
+  gap: 10px;
+  margin-top: var(--s4);
+}
