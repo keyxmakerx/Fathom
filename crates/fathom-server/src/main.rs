@@ -346,6 +346,19 @@ async fn main() -> ExitCode {
             return ExitCode::from(10);
         }
     };
+    // ADR-0071 part four: the one outbound HTTPS client, for people's outside vaults.
+    let outside = match fathom_server::vault_outside::https::Https::new(
+        config.outside_vault_ca.as_deref(),
+    ) {
+        Ok(net) => Arc::new(fathom_server::vault_outside::Outside {
+            net: Box::new(net),
+            allowed_hosts: config.outside_vault_hosts.clone(),
+        }),
+        Err(e) => {
+            tracing::error!(error = %e, "refusing to start: the outside vault CA file could not be read");
+            return ExitCode::from(10);
+        }
+    };
     tracing::info!(
         vault_key_id = %fathom_key.id(),
         vault_key_source = %fathom_key.describe_source(),
@@ -620,6 +633,7 @@ async fn main() -> ExitCode {
         watch,
         ring: Arc::clone(&ring),
         fathom_key,
+        outside,
         catalogue,
         explainers,
         client_address: client_address.clone(),

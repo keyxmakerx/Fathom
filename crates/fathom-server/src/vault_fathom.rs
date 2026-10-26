@@ -100,7 +100,13 @@ impl FathomKey {
 
     /// One key per organisation, so a copy cannot be moved between tenants and still open.
     fn copy_key(&self, organisation: &str) -> Key32 {
-        let mut info = TAG_COPY_KEY.to_vec();
+        self.subkey(TAG_COPY_KEY, organisation)
+    }
+
+    /// A key of its own per job and organisation, under `vault.key`: Mode B's copies, and
+    /// (ADR-0071 part four) an outside vault connection's secrets and its items' metadata.
+    pub(crate) fn subkey(&self, tag: &[u8], organisation: &str) -> Key32 {
+        let mut info = tag.to_vec();
         crypto::lp(&mut info, organisation.as_bytes());
         crypto::hkdf_expand(&self.key, &info)
     }
@@ -183,12 +189,12 @@ impl Drop for UsedLogin {
     }
 }
 
-fn wipe_string(s: &mut String) {
+pub(crate) fn wipe_string(s: &mut String) {
     let mut bytes = std::mem::take(s).into_bytes();
     wipe(&mut bytes);
 }
 
-fn wipe(bytes: &mut [u8]) {
+pub(crate) fn wipe(bytes: &mut [u8]) {
     for b in bytes.iter_mut() {
         *b = 0;
     }

@@ -71,7 +71,12 @@ confidence-threshold = 0.93
 unused-allowed-license = "allow"
 # No per-crate licence exceptions. If one is ever needed it is written here with
 # the crate, the licence, and the reason -- never as a raised threshold.
-exceptions = []
+# webpki-roots carries Mozilla's root certificates under CDLA-Permissive-2.0, a
+# permissive data licence; allowed BY NAME for this crate only (sign-off card
+# r34-vault-crates24, 2026-10-26). Anything else under it still fails.
+exceptions = [
+    { crate = "webpki-roots", allow = ["CDLA-Permissive-2.0"] },
+]
 
 [bans]
 # Two versions of one crate is how a typosquat hides beside the real one, and it
@@ -109,6 +114,14 @@ reason = "Reached only through tracing-attributes 0.1.31. THIS IS A FEATURE-UNIF
 crate = "syn@3.0.4"
 reason = "Reached through async-trait 0.1.92 and tokio-macros 2.7.2, the current major. Build-time only. See the entry above for why a second copy exists at all."
 
+[[bans.skip]]
+crate = "getrandom@0.2.17"
+reason = "Reached only through ring 0.17.14 (the outside-vault exception above), which has not moved to getrandom 0.3+; the server's own randomness is getrandom 0.4.3. Approved with the outside-vault crates (sign-off card r34-vault-crates24, 2026-10-26)."
+
+[[bans.skip]]
+crate = "windows-sys@0.52.0"
+reason = "Reached only through ring 0.17.14, and with windows-targets 0.52 and its eight windows_* crates compiled only for Windows targets; absent from the Linux server and the wasm client (`cargo tree --target x86_64-unknown-linux-gnu`, 2026-10-26)."
+
 # Crates that may never appear in this workspace's graph, each with its reason.
 [[bans.deny]]
 name = "proc-macro1"
@@ -124,7 +137,13 @@ reason = "C7. It resolves to a platform C TLS stack. Same reason as openssl-sys.
 
 [[bans.deny]]
 name = "ring"
-reason = "C7. ring carries C and assembly. WO-11 §7 trigger 4 says C7 is a decision and not a detail; this line is that trigger made mechanical, so a rustls crypto provider cannot arrive transitively without failing the build."
+# C7's ONE exception (owner, 2026-10-26, sign-off card r34-vault-ring, A): "ring is
+# allowed only underneath rustls, and only for the server's outbound HTTPS to
+# outside vaults." `wrappers` is that sentence made mechanical: ring may be a
+# dependency of rustls and rustls-webpki (rustls's certificate checker, which
+# ring's provider brings) and of nothing else, so a second parent fails the build.
+wrappers = ["rustls", "rustls-webpki"]
+reason = "C7. ring carries C and assembly. WO-11 §7 trigger 4 says C7 is a decision and not a detail; this line is that trigger made mechanical, so a crypto provider cannot arrive under any other parent without failing the build. Allowed under rustls for outside vaults only (ADR-0071 part four, deps/decisions/ring.md)."
 
 [[bans.deny]]
 name = "aws-lc-sys"

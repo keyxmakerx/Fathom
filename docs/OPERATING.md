@@ -244,6 +244,26 @@ preflight could not be established from the build machine (it cannot reach the A
 answers it with a stand-in. If real browsers show "Not checked yet" for everything, that is the
 first thing to look at.
 
+### Outside vaults (part four)
+
+A member can connect their own Vaultwarden so Fathom reads logins from one collection in it. The
+server makes the requests, over HTTPS, to the address the member types; your firewall must let the
+server reach it.
+
+- **`FATHOM_OUTSIDE_VAULT_HOSTS`**: comma-separated host names. When set, members may connect
+  vaults at these hosts only. Unset means any host the server can reach, which lets a member make
+  the server send two fixed HTTPS requests to an address of their choosing; set it if the server
+  sits beside services that should not be probed.
+- **`FATHOM_OUTSIDE_VAULT_CA`**: a PEM file of certificates to trust beside Mozilla's roots, for a
+  vault behind a private CA. The server refuses to start (exit code 10) if the file holds none.
+  There is no setting that skips certificate checks.
+- The API key and the organisation key are sealed under `vault.key`, like Fathom's own copies:
+  readable by the server, so the same backup rules apply. Disconnecting empties them; the API key
+  still works in the vault until someone makes a new one there.
+- **This is the only place the server's binary carries C**: rustls's `ring` provider (ADR-0032 C7's
+  one exception, `deps/decisions/ring.md`). Building from source needs a C compiler; the published
+  image's build stage has one.
+
 ## Restore
 
 ADR-0043 §4's stamp is what tells a wrong-key restore from corruption. The configured master key's

@@ -358,6 +358,7 @@ async fn app_with(
         fathom_key: Arc::new(fathom_server::vault_fathom::FathomKey::from_key(
             fathom_server::crypto::Key32::from_bytes([77; 32]),
         )),
+        outside: Arc::new(fathom_server::vault_outside::Outside::refusing()),
         catalogue: Arc::new(Vec::new()),
         explainers: Arc::new(
             design_api::load_explainers(&repo_root()).expect("load the real corpus explainers"),
@@ -1468,7 +1469,7 @@ async fn a_key_row_widened_in_the_database_is_refused_not_obeyed() {
     assert!(!text(&body).contains("blanking plate"));
 }
 
-/// The database's own refusals (`0045`): a key's identity never changes, a stopped key
+/// The database's own refusals (`0046`): a key's identity never changes, a stopped key
 /// stays stopped, its end never moves later, and nothing is deleted.
 #[tokio::test]
 async fn the_database_refuses_the_moves_a_key_may_never_make() {

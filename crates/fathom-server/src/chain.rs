@@ -470,6 +470,21 @@ pub enum EntryType {
     /// The breach-check policy changed: the organisation's level and the
     /// kinds it overrides, or one login marked critical or not.
     VaultBreachPolicySet,
+    // ---- Outside vaults (migration 0044) ------------------------------------
+    //
+    // Written by `vault_outside.rs`.
+    /// A connection to an outside vault, or one login pulled through it,
+    /// changed: `stage` is `connected`, `stopped` (a check failed on a read),
+    /// `disconnected`, `pulled`, `changed`, `removed` or `restored`. Names the
+    /// connection, the item when there is one, its owner and who acted; never
+    /// a login's name or value.
+    VaultOutsideChanged,
+    /// **Fathom opened a login from an outside vault**, for the purpose and
+    /// device the metadata names, at the request of the account it names,
+    /// after the connection's checks passed again. Filed before the item is
+    /// opened, like `vault_read`, and kept apart from it: an outside item is
+    /// never a Mode A or Mode B login.
+    VaultOutsideRead,
 
     /// **A re-wrap happened** (§12.6): custody changed, exposure did not. The
     /// entry names the old and new master identity, which key rows moved, who
@@ -531,7 +546,7 @@ pub enum EntryType {
     /// The window ran out unconfirmed, or `fathom-server console-placement
     /// --reset` cleared a placement from the host. The entry's `reason` says which.
     ConsolePlacementReverted,
-    // ---- AI access keys (migration 0045, ADR-0072) ------------------------
+    // ---- AI access keys (migration 0046, ADR-0072) ------------------------
     /// A Steward changed the organisation's AI policy: on or off, who may make
     /// keys, the ceiling, the longest key, the second-person folders.
     AiPolicyChanged,
@@ -625,6 +640,8 @@ impl EntryType {
             Self::VaultModeChanged => "vault_mode_changed",
             Self::VaultRead => "vault_read",
             Self::VaultBreachPolicySet => "vault_breach_policy_set",
+            Self::VaultOutsideChanged => "vault_outside_changed",
+            Self::VaultOutsideRead => "vault_outside_read",
             // ADR-0055 stream (c)
             Self::ConsolePlacementRequested => "console_placement_requested",
             Self::ConsolePlacementConfirmed => "console_placement_confirmed",
@@ -712,6 +729,8 @@ impl EntryType {
             "vault_mode_changed" => Some(Self::VaultModeChanged),
             "vault_read" => Some(Self::VaultRead),
             "vault_breach_policy_set" => Some(Self::VaultBreachPolicySet),
+            "vault_outside_changed" => Some(Self::VaultOutsideChanged),
+            "vault_outside_read" => Some(Self::VaultOutsideRead),
             // ADR-0055 stream (c)
             "console_placement_requested" => Some(Self::ConsolePlacementRequested),
             "console_placement_confirmed" => Some(Self::ConsolePlacementConfirmed),
@@ -780,7 +799,7 @@ impl EntryType {
             | Self::ConsolePlacementRequested
             | Self::ConsolePlacementConfirmed
             | Self::ConsolePlacementReverted => &[ChainKind::Site],
-            // ADR-0072 (`0045` §F).
+            // ADR-0072 (`0046` §F).
             Self::AiSwitchChanged => &[ChainKind::Site],
             Self::AiPolicyChanged
             | Self::AiKeyMade
@@ -812,7 +831,9 @@ impl EntryType {
             | Self::VaultRecoveryUsed
             | Self::VaultModeChanged
             | Self::VaultRead
-            | Self::VaultBreachPolicySet => &[ChainKind::Org],
+            | Self::VaultBreachPolicySet
+            | Self::VaultOutsideChanged
+            | Self::VaultOutsideRead => &[ChainKind::Org],
             // **Two types are filed on two kinds.** `rewrap` because the master key
             // is deployment-wide (§7.2). `grant_suspended` because §1.1 gives the
             // operator plane this one authority-adjacent verb: the organisation

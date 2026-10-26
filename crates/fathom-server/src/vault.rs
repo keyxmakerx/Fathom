@@ -101,6 +101,11 @@ pub enum VaultError {
     NoVaultKey,
     /// A stored row did not open or is not shaped like one this server wrote.
     Corrupt(&'static str),
+    /// An outside vault could not be reached, or answered with something Fathom cannot use
+    /// (ADR-0071 part four). The words are for the person and name no secret.
+    OutsideUnreachable(String),
+    /// An outside vault's account failed a check, so Fathom will not connect to it or read it.
+    OutsideRefused(String),
 }
 
 impl core::fmt::Display for VaultError {
@@ -117,6 +122,8 @@ impl core::fmt::Display for VaultError {
             Self::Conflict { version } => write!(f, "changed; now at version {version}"),
             Self::NoVaultKey => write!(f, "no vault key"),
             Self::Corrupt(what) => write!(f, "corrupt: {what}"),
+            Self::OutsideUnreachable(why) => write!(f, "outside vault unreachable: {why}"),
+            Self::OutsideRefused(why) => write!(f, "outside vault refused: {why}"),
         }
     }
 }
@@ -429,7 +436,7 @@ impl Meta {
         })
     }
 
-    fn to_canonical(&self) -> Vec<u8> {
+    pub(crate) fn to_canonical(&self) -> Vec<u8> {
         let mut m = BTreeMap::new();
         m.insert("name".to_string(), Json::Str(self.name.clone()));
         m.insert("kind".to_string(), Json::Str(self.kind.clone()));
@@ -445,7 +452,7 @@ impl Meta {
         Json::Obj(m).to_canonical_bytes()
     }
 
-    fn from_canonical(bytes: &[u8]) -> Result<Self, VaultError> {
+    pub(crate) fn from_canonical(bytes: &[u8]) -> Result<Self, VaultError> {
         let Ok(Json::Obj(mut m)) = Json::parse_canonical(bytes) else {
             return Err(VaultError::Corrupt("vault metadata"));
         };

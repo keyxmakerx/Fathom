@@ -108,6 +108,15 @@ pub struct Config {
     /// A key of its own, so the database and the master key together still open no login.
     pub vault_key: KeySource,
 
+    /// ADR-0071 part four. `FATHOM_OUTSIDE_VAULT_CA`: a PEM file of certificates to trust,
+    /// beside Mozilla's roots, when reaching a person's outside vault (a home network's own
+    /// CA). Unset means Mozilla's roots alone.
+    pub outside_vault_ca: Option<std::path::PathBuf>,
+    /// `FATHOM_OUTSIDE_VAULT_HOSTS`: comma-separated host names (or `[v6]` literals). When set,
+    /// people may connect outside vaults at these hosts only; unset means any host this server
+    /// can reach, over HTTPS.
+    pub outside_vault_hosts: Option<Vec<String>>,
+
     /// Where sealed audit entries are shipped. `FATHOM_AUDIT_SYSLOG`, a bare
     /// `host:port`, TCP, RFC 5424.
     ///
@@ -474,6 +483,30 @@ impl Config {
             variable: "FATHOM_VAULT_KEY",
         })?;
 
+        let outside_vault_ca = get("FATHOM_OUTSIDE_VAULT_CA")
+            .filter(|v| !v.trim().is_empty())
+            .map(|v| std::path::PathBuf::from(v.trim()));
+        let outside_vault_hosts =
+            match get("FATHOM_OUTSIDE_VAULT_HOSTS").filter(|v| !v.trim().is_empty()) {
+                None => None,
+                Some(v) => {
+                    let hosts: Vec<String> = v
+                        .split(',')
+                        .map(|h| h.trim().to_ascii_lowercase())
+                        .filter(|h| !h.is_empty())
+                        .collect();
+                    if hosts.iter().any(|h| {
+                        crate::vault_outside::OutsideUrl::parse(&format!("https://{h}"))
+                            .map_or(true, |u| &u.host != h)
+                    }) {
+                        return Err(ConfigError::Unparseable {
+                            variable: "FATHOM_OUTSIDE_VAULT_HOSTS",
+                        });
+                    }
+                    Some(hosts)
+                }
+            };
+
         // No default, and absence is not an error: no destination means spool-only. A
         // MALFORMED one is an error, or the server would start, report healthy and ship
         // nothing.
@@ -666,6 +699,8 @@ impl Config {
             master_key,
             chain_key,
             vault_key,
+            outside_vault_ca,
+            outside_vault_hosts,
             audit_syslog,
             audit_spool_bounds,
             sign_in_limits,

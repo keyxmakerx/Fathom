@@ -138,7 +138,16 @@ admin" and how often Fathom used it.
 `client/src/vault/breach.ts`): the policy at three levels (a login marked critical, a kind of
 login, the organisation), the check in a holder's browser against the Have I Been Pwned range API
 with five hash characters and padding, paced, at unlock and at save, and the "Breach list" column.
-**Not built yet:** external vaults, and the chain verifier's check that a `vault_read` names a
+**Part four, outside vaults** (migration `0045_vault_outside.sql`, `src/vault_outside/`,
+`client/src/vault/outside.ts`, `components/vault/OutsideVaults.tsx`): a member connects their own
+Vaultwarden with its personal API key; their browser opens the organisation key once; the server
+seals the key and the organisation key under `vault.key`, checks the account (role User, one
+collection, nothing personal) before every read, stops it on a failed check, and reads a pulled
+login only for a marked device after filing `vault_outside_read`. Admins see, check, disconnect and
+remove across everyone's. The server's one outbound HTTPS client is rustls over `ring`, C7's one
+exception. `tests/vault_outside.rs` runs it against a stand-in; `scripts/drive-vault-outside.mjs`
+drives it in browsers against a stand-in over HTTPS with a private CA.
+**Not built yet:** Passbolt and Delinea, and the chain verifier's check that a `vault_read` names a
 login then in Mode B.
 
 **Tenant isolation holds at two layers:** an application filter in every repository function, and
@@ -501,7 +510,7 @@ sits on (`Occupies`). The person makes every tie; Fathom suggests only from a ci
 card opens after a paste onto a drawn device and from a trace or "It's down" stop that reads "not tied to a
 port"; it offers jacks only, and shows and unties ties.
 
-**AI access** (ADR-0072; migration 0045; `src/ai.rs`, `src/oauth.rs`, `src/mcp.rs`, `components/ai/`). A
+**AI access** (ADR-0072; migration 0046; `src/ai.rs`, `src/oauth.rs`, `src/mcp.rs`, `components/ai/`). A
 person a Steward names lets an AI app read designs they can read, in one organisation, at the tiers the
 organisation allows (layout; addresses; notes), and send ideas a person accepts or dismisses. Never
 passwords or the vault. Two ways in, one grant row (`ai_keys`, kind `helper` or `connector`) and one set of

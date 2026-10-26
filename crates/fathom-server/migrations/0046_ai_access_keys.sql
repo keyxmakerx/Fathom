@@ -1,4 +1,4 @@
--- 0045 -- AI access keys (ADR-0072).
+-- 0046 -- AI access keys (ADR-0072).
 --
 -- A person's AI app reads a design AS that person and sends recommendations a
 -- person accepts. It never saves. The tables:
@@ -520,7 +520,7 @@ ALTER TABLE chain_entries
                                 'operator_key_enrolled',
                                 'operator_seat_hold_cleared',
                                 'operator_adopted',
-                                -- 0045.
+                                -- 0046.
                                 'ai_switch_changed', 'ai_key_disabled'))
      OR (chain_kind = 'org'
              AND entry_type IN ('org_genesis', 'rewrap',
@@ -545,6 +545,8 @@ ALTER TABLE chain_entries
                                 -- 0044.
                                 'vault_breach_policy_set',
                                 -- 0045.
+                                'vault_outside_changed', 'vault_outside_read',
+                                -- 0046.
                                 'ai_policy_changed', 'ai_key_made', 'ai_key_changed',
                                 'ai_key_disabled', 'ai_recommendation_decided'))
     );

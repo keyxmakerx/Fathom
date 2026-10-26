@@ -19,14 +19,15 @@ use axum::Router;
 use fathom_canon::Json;
 
 use super::{
-    authority_refusal_response, begin_org, if_version_field, json_response, object_body, str_field,
-    DesignApiState, RouteError, Signed,
+    authority_refusal_response, begin_org, begin_org_keep, if_version_field, json_response,
+    object_body, reopen_org, str_field, DesignApiState, RouteError, Signed,
 };
 use crate::grants::Authority;
 use crate::sessions::SessionError;
 use crate::vault::{self, Enrolment, Meta, ShareIn, VaultError, WrapIn};
 use crate::vault_breach::{self, Level, Policy};
 use crate::vault_fathom::{self, Consent};
+use crate::vault_outside::{self as outside, bitwarden::BwKey, OutsideUrl};
 
 pub(super) fn routes() -> Router<DesignApiState> {
     Router::new()
@@ -87,6 +88,34 @@ pub(super) fn routes() -> Router<DesignApiState> {
             "/organisations/{organisation}/vault/entries/{credential}/breach",
             post(breach_result_handler),
         )
+        .route(
+            "/organisations/{organisation}/vault/outside/prepare",
+            post(outside_prepare_handler),
+        )
+        .route(
+            "/organisations/{organisation}/vault/outside/connect",
+            post(outside_connect_handler),
+        )
+        .route(
+            "/organisations/{organisation}/vault/outside/{connection}/check",
+            post(outside_check_handler),
+        )
+        .route(
+            "/organisations/{organisation}/vault/outside/{connection}/pull",
+            post(outside_pull_handler),
+        )
+        .route(
+            "/organisations/{organisation}/vault/outside/{connection}/disconnect",
+            post(outside_disconnect_handler),
+        )
+        .route(
+            "/organisations/{organisation}/vault/outside/items/{item}/remove",
+            post(outside_remove_handler),
+        )
+        .route(
+            "/organisations/{organisation}/vault/outside/items/{item}/restore",
+            post(outside_restore_handler),
+        )
 }
 
 /// A vault refusal. A permission answer names what the person may not do in words they can
@@ -107,6 +136,12 @@ pub(super) fn vault_error_response(e: VaultError) -> Response {
             .into_response(),
         VaultError::NoVaultKey => {
             (StatusCode::CONFLICT, "set up your vault first\n").into_response()
+        }
+        VaultError::OutsideUnreachable(why) => {
+            (StatusCode::BAD_GATEWAY, format!("{why}\n")).into_response()
+        }
+        VaultError::OutsideRefused(why) => {
+            (StatusCode::CONFLICT, format!("{why}\n")).into_response()
         }
         other => {
             tracing::error!(reason = %other, "vault act failed");
@@ -286,12 +321,17 @@ async fn overview_handler(
     PathExtractor(organisation): PathExtractor<String>,
     signed: Signed,
 ) -> Result<Response, RouteError> {
-    let view = with_vault!(state, signed, organisation, |tx, auth| vault::overview(
-        &tx, &auth
-    )
-    .await?);
+    let fk = std::sync::Arc::clone(&state.fathom_key);
+    let (view, connections) = with_vault!(state, signed, organisation, |tx, auth| (
+        vault::overview(&tx, &auth).await?,
+        outside::list(&tx, &auth, &fk).await?
+    ));
     let mut j = view.to_json();
     if let Json::Obj(m) = &mut j {
+        m.insert(
+            "outside".to_string(),
+            Json::Arr(connections.iter().map(|c| c.to_json()).collect()),
+        );
         // Which `vault.key` an owner's consent names (`vault_fathom::mode_change_bytes`).
         m.insert(
             "fathomKeyId".to_string(),
@@ -699,4 +739,362 @@ async fn breach_result_handler(
         vault_breach::record(&tx, &auth, &credential, epoch, found).await?
     });
     Ok(json_response(result.to_json()))
+}
+
+// ---- Outside vaults (part four) ----
+//
+// A route here makes its network round BETWEEN two transactions: the first verifies the signed
+// request and reads what the round needs, the second records what came back. No database
+// transaction is held while an outside vault answers.
+
+/// Two transactions around a network round, from one verified request.
+macro_rules! with_session {
+    ($state:expr, $session:expr, $client:expr, $organisation:expr, |$tx:ident, $auth:ident| $body:expr) => {{
+        let ($tx, ctx, tenant_key) =
+            reopen_org(&$state, &$session, &mut $client, &$organisation).await?;
+        let $auth = Authority {
+            ring: &$state.ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch: &$state.watch,
+        };
+        let out = $body;
+        $tx.commit().await.map_err(SessionError::Db)?;
+        out
+    }};
+}
+
+/// The first transaction: verify, open the tenant, run `$body`, commit; hand back the session.
+macro_rules! first_session {
+    ($state:expr, $signed:expr, $client:expr, $organisation:expr, |$tx:ident, $auth:ident| $body:expr) => {{
+        let ($tx, ctx, tenant_key, session) =
+            begin_org_keep(&$state, &$signed, &mut $client, &$organisation).await?;
+        let $auth = Authority {
+            ring: &$state.ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch: &$state.watch,
+        };
+        let out = $body;
+        $tx.commit().await.map_err(SessionError::Db)?;
+        (out, session)
+    }};
+}
+
+fn outside_url(m: &mut BTreeMap<String, Json>) -> Result<OutsideUrl, RouteError> {
+    Ok(OutsideUrl::parse(&req_str(
+        m,
+        "url",
+        "the vault's address",
+    )?)?)
+}
+
+fn api_key(m: &mut BTreeMap<String, Json>) -> Result<(String, String), RouteError> {
+    let id = req_str(m, "clientId", "client id")?;
+    let secret = req_str(m, "clientSecret", "client secret")?;
+    outside::check_api_key(&id, &secret)?;
+    Ok((id, secret))
+}
+
+fn used_on_list(m: &mut BTreeMap<String, Json>) -> Result<Vec<(String, String)>, RouteError> {
+    match m.remove("usedOn") {
+        None => Ok(Vec::new()),
+        Some(Json::Arr(items)) => items
+            .into_iter()
+            .map(|item| {
+                let mut o = obj_of(item, &["design", "element"], "usedOn")?;
+                Ok((
+                    req_str(&mut o, "design", "usedOn")?,
+                    req_str(&mut o, "element", "usedOn")?,
+                ))
+            })
+            .collect(),
+        Some(_) => Err(malformed("usedOn")),
+    }
+}
+
+fn outside_id(text: &str, prefix: &str) -> Result<String, RouteError> {
+    if text.len() == prefix.len() + 26
+        && text.starts_with(prefix)
+        && text[prefix.len()..]
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric())
+    {
+        Ok(text.to_string())
+    } else {
+        Err(RouteError::Vault(VaultError::NotFound))
+    }
+}
+
+fn pairs(fields: Vec<(&str, Json)>) -> Json {
+    Json::Obj(
+        fields
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+    )
+}
+
+/// `POST .../vault/outside/prepare`: sign in to the outside vault with the API key, and hand the
+/// person's browser what it needs to open the account's keys with the master password, which
+/// never comes here. Body: `{url, clientId, clientSecret}`. Answers the protected keys, how they
+/// are derived, the organisations and collections the account sees (names still sealed) and the
+/// checks as far as they can run before a collection is chosen.
+async fn outside_prepare_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let mut m = object_body(&signed.body, &["url", "clientId", "clientSecret"])?;
+    let url = outside_url(&mut m)?;
+    let (client_id, secret) = api_key(&mut m)?;
+    state.outside.check_host(&url)?;
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let ((), _session) = first_session!(state, signed, client, organisation, |tx, _auth| ());
+    let device_id = outside::new_device_id()?;
+    let (token, sync) =
+        outside::vw_read(&state.outside, &url, &client_id, &secret, &device_id).await?;
+    let lines = outside::vaultwarden::checks(&sync, None, None);
+    let opt_i = |v: Option<i64>| v.map_or(Json::Null, Json::Int);
+    Ok(json_response(pairs(vec![
+        ("url", Json::Str(url.to_text())),
+        ("deviceId", Json::Str(device_id)),
+        (
+            "protectedUserKey",
+            Json::Str(token.protected_user_key.clone()),
+        ),
+        (
+            "protectedPrivateKey",
+            Json::Str(token.protected_private_key.clone()),
+        ),
+        (
+            "kdf",
+            pairs(vec![
+                ("type", Json::Int(token.kdf_type)),
+                ("iterations", Json::Int(token.kdf_iterations)),
+                ("memory", opt_i(token.kdf_memory)),
+                ("parallelism", opt_i(token.kdf_parallelism)),
+            ]),
+        ),
+        ("salt", token.salt.clone().map_or(Json::Null, Json::Str)),
+        (
+            "organisations",
+            Json::Arr(
+                sync.memberships
+                    .iter()
+                    .map(|o| {
+                        pairs(vec![
+                            ("id", Json::Str(o.org_id.clone())),
+                            ("name", Json::Str(o.name.clone())),
+                            ("role", Json::Int(o.role)),
+                            ("status", Json::Int(o.status)),
+                            (
+                                "protectedKey",
+                                o.protected_key.clone().map_or(Json::Null, Json::Str),
+                            ),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+        (
+            "collections",
+            Json::Arr(
+                sync.collections
+                    .iter()
+                    .map(|c| {
+                        pairs(vec![
+                            ("id", Json::Str(c.id.clone())),
+                            ("organisationId", Json::Str(c.org_id.clone())),
+                            ("protectedName", Json::Str(c.protected_name.clone())),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+        ("checks", outside::checks_json(&lines)),
+    ])))
+}
+
+/// `POST .../vault/outside/connect`. Body: `{url, clientId, clientSecret, deviceId,
+/// collectionId, collectionName, orgKey}`, the organisation key as 128 hex characters.
+async fn outside_connect_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let mut m = object_body(
+        &signed.body,
+        &[
+            "url",
+            "clientId",
+            "clientSecret",
+            "deviceId",
+            "collectionId",
+            "collectionName",
+            "orgKey",
+        ],
+    )?;
+    let url = outside_url(&mut m)?;
+    let (client_id, secret) = api_key(&mut m)?;
+    let device_id = req_str(&mut m, "deviceId", "device id")?;
+    outside::check_device_id(&device_id)?;
+    let collection_id = req_str(&mut m, "collectionId", "collection")?;
+    let collection_name = req_str(&mut m, "collectionName", "the collection's name")?;
+    let mut raw = req_hex(&mut m, "orgKey", Some(64), "organisation key")?;
+    let org_key = BwKey::from_slice(&raw).ok_or_else(|| malformed("organisation key"));
+    vault_fathom::wipe(&mut raw);
+    let org_key = org_key?;
+    state.outside.check_host(&url)?;
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let ((), session) = first_session!(state, signed, client, organisation, |tx, _auth| ());
+    let (_, sync) = outside::vw_read(&state.outside, &url, &client_id, &secret, &device_id).await?;
+    let fk = std::sync::Arc::clone(&state.fathom_key);
+    let input = outside::ConnectIn {
+        url,
+        client_id,
+        client_secret: secret,
+        device_id,
+        collection_id,
+        collection_name,
+        org_key,
+    };
+    let view = with_session!(state, session, client, organisation, |tx, auth| {
+        outside::connect(&tx, &auth, &fk, input, &sync).await?
+    });
+    Ok(json_response(view.to_json()))
+}
+
+/// `POST .../vault/outside/{connection}/check`: "Check now". The owner or an admin. Body `{}`.
+/// Answers the connection, the check lines and the collection's logins by name; a failed check
+/// stops the connection and is answered 409 with why.
+async fn outside_check_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, connection)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let connection = outside_id(&connection, "out_")?;
+    object_body(&signed.body, &[])?;
+    let fk = std::sync::Arc::clone(&state.fathom_key);
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (plan, session) = first_session!(state, signed, client, organisation, |tx, auth| {
+        outside::plan(&tx, &auth, &fk, &connection, outside::Why::Check).await?
+    });
+    let read = outside::vw_read(
+        &state.outside,
+        &plan.url,
+        &plan.secrets.client_id,
+        &plan.secrets.client_secret,
+        &plan.device_id,
+    )
+    .await
+    .map(|(_, s)| s);
+    let checked = with_session!(state, session, client, organisation, |tx, auth| {
+        outside::after_check(&tx, &auth, &fk, &plan, read).await?
+    })?;
+    Ok(json_response(pairs(vec![
+        ("connection", checked.view.to_json()),
+        ("checks", outside::checks_json(&checked.lines)),
+        ("logins", outside::logins_json(&checked.logins)),
+    ])))
+}
+
+/// `POST .../vault/outside/{connection}/pull`: the owner pulls one login into Fathom, or changes
+/// the devices it is marked on. Body: `{cipherId, kind, usedOn: [{design, element}]}`.
+async fn outside_pull_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, connection)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let connection = outside_id(&connection, "out_")?;
+    let mut m = object_body(&signed.body, &["cipherId", "kind", "usedOn"])?;
+    let cipher_id = req_str(&mut m, "cipherId", "the login")?;
+    if cipher_id.is_empty() || cipher_id.len() > 64 {
+        return Err(malformed("the login"));
+    }
+    let kind = req_str(&mut m, "kind", "kind")?;
+    let used_on = used_on_list(&mut m)?;
+    let fk = std::sync::Arc::clone(&state.fathom_key);
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (plan, session) = first_session!(state, signed, client, organisation, |tx, auth| {
+        outside::plan(&tx, &auth, &fk, &connection, outside::Why::Pull).await?
+    });
+    let (_, sync) = outside::vw_read(
+        &state.outside,
+        &plan.url,
+        &plan.secrets.client_id,
+        &plan.secrets.client_secret,
+        &plan.device_id,
+    )
+    .await?;
+    let view = with_session!(state, session, client, organisation, |tx, auth| {
+        outside::pull(&tx, &auth, &fk, &plan, &sync, &cipher_id, &kind, used_on).await?
+    })?;
+    Ok(json_response(view.to_json()))
+}
+
+/// `POST .../vault/outside/{connection}/disconnect`: the owner or an admin. Body `{}`.
+async fn outside_disconnect_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, connection)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let connection = outside_id(&connection, "out_")?;
+    object_body(&signed.body, &[])?;
+    let fk = std::sync::Arc::clone(&state.fathom_key);
+    let view = with_vault!(state, signed, organisation, |tx, auth| {
+        outside::disconnect(&tx, &auth, &fk, &connection).await?
+    });
+    Ok(json_response(view.to_json()))
+}
+
+/// `POST .../vault/outside/items/{item}/remove`: the owner or an admin. Body `{}`.
+async fn outside_remove_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, item)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let item = outside_id(&item, "oit_")?;
+    object_body(&signed.body, &[])?;
+    let fk = std::sync::Arc::clone(&state.fathom_key);
+    let view = with_vault!(state, signed, organisation, |tx, auth| {
+        outside::remove(&tx, &auth, &fk, &item).await?
+    });
+    Ok(json_response(view.to_json()))
+}
+
+/// `POST .../vault/outside/items/{item}/restore`: an admin, or the owner of a login they
+/// removed themselves. Body `{}`.
+async fn outside_restore_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, item)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let item = outside_id(&item, "oit_")?;
+    object_body(&signed.body, &[])?;
+    let fk = std::sync::Arc::clone(&state.fathom_key);
+    let view = with_vault!(state, signed, organisation, |tx, auth| {
+        outside::restore(&tx, &auth, &fk, &item).await?
+    });
+    Ok(json_response(view.to_json()))
 }

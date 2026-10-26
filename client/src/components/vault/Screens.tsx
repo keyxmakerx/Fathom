@@ -12,6 +12,7 @@ import { describeError } from '../design/useDesignSession';
 import { BreachPolicyCard, breachText } from './BreachPolicy';
 import { FathomDialog, fathomUseText, keptText, type FathomAct } from './FathomDialogs';
 import { LoginDialog } from './LoginDialog';
+import { OutsideOnDevice, OutsideVaults } from './OutsideVaults';
 import { VaultModal } from './Modal';
 import { SetupDialog } from './SetupDialog';
 import { UnlockDialog } from './UnlockDialog';
@@ -439,6 +440,7 @@ function LoginsTabBody({ place, deviceId, organisationName }: { place: VaultPlac
           + Add a login
         </button>
       </div>
+      <OutsideOnDevice organisation={place.organisation} overview={overview} here={here[0]} onChanged={vault.reload} />
       <details className="vault-about">
         <summary>What a login is in Fathom</summary>
         <p>
@@ -579,6 +581,7 @@ export function PasswordsPage({ organisation, organisationName, mode: asked }: {
           )}
         </div>
       )}
+      <OutsideVaults organisation={organisation} overview={overview} mode={mode} onChanged={vault.reload} />
       {mode === 'admin' && (
         <BreachPolicyCard
           key={JSON.stringify(overview.breachPolicy)} organisation={organisation} policy={overview.breachPolicy}

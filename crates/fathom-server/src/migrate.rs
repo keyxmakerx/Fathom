@@ -275,11 +275,17 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0044_vault_breach.sql",
         sql: include_str!("../migrations/0044_vault_breach.sql"),
     },
-    // AI access keys: a person's AI reads as them, and recommends (ADR-0072).
+    // Outside vaults, per person (ADR-0071 part four).
     Migration {
         version: 45,
-        name: "0045_ai_access_keys.sql",
-        sql: include_str!("../migrations/0045_ai_access_keys.sql"),
+        name: "0045_vault_outside.sql",
+        sql: include_str!("../migrations/0045_vault_outside.sql"),
+    },
+    // AI access keys: a person's AI reads as them, and recommends (ADR-0072).
+    Migration {
+        version: 46,
+        name: "0046_ai_access_keys.sql",
+        sql: include_str!("../migrations/0046_ai_access_keys.sql"),
     },
 ];
 

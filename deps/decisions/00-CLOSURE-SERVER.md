@@ -85,6 +85,17 @@ and it is a **proxy, not the answer** — a repository URL is written by the cra
 proves nothing about who holds the publish token. Naming a publisher from a repository URL would
 be exactly the kind of confident guess ADR-0034 forbids.
 
+**Added 2026-10-26, outside vaults (ADR-0071 part four).** Six direct crates (`rustls`,
+`tokio-rustls`, `webpki-roots`, `aes`, `cbc`, and `ring` under C7's one exception) bring 24
+packages in all, measured with `cargo update` on that day and listed to the owner before approval:
+the six's own records, `rustls-webpki`, `rustls-pki-types`, `untrusted`, `block-padding`,
+`getrandom 0.2` (ring's, beside the server's 0.4), the build-time `cc`, `find-msvc-tools` and
+`shlex` that compile ring's C and assembly, and ten Windows-only `windows*` crates absent from
+the Linux build. The owner approved all 24 on sign-off cards r34-vault-crates and
+r34-vault-crates24. `cc` and `find-msvc-tools` are pinned below their newest releases for the
+cooldown; `rustls-webpki` and `webpki-roots` are admitted young for an advisory
+(`00-COOLDOWN-EXCEPTIONS.md`).
+
 ## The closure
 
 <!-- gate-zero:closure approved-by="the owner" date="2026-09-03" -->
@@ -92,6 +103,7 @@ be exactly the kind of confident guess ADR-0034 forbids.
 | crate | version | licence | direct | build.rs | proc-macro | published | repository |
 |---|---|---|---|---|---|---|---|
 | `aead` | `0.6.1` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:48:56 GMT | https://github.com/RustCrypto/traits |
+| `aes` | `0.9.3` | MIT OR Apache-2.0 | DIRECT | no | no | Fri, 28 Aug 2026 14:49:07 GMT | https://github.com/RustCrypto/block-ciphers |
 | `argon2` | `0.6.0` | MIT OR Apache-2.0 | DIRECT | no | no | Thu, 27 Aug 2026 16:54:19 GMT | https://github.com/RustCrypto/password-hashes |
 | `async-trait` | `0.1.92` | MIT OR Apache-2.0 | transitive | no | yes | Sat, 08 Aug 2026 07:10:36 GMT | https://github.com/dtolnay/async-trait |
 | `atomic-waker` | `1.1.2` | Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 14:59:32 GMT | https://github.com/smol-rs/atomic-waker |
@@ -104,9 +116,12 @@ be exactly the kind of confident guess ADR-0034 forbids.
 | `bitflags` | `2.13.1` | MIT OR Apache-2.0 | transitive | no | no | Wed, 15 Jul 2026 20:36:21 GMT | https://github.com/bitflags/bitflags |
 | `blake2` | `0.11.0` | MIT OR Apache-2.0 | transitive | no | no | Wed, 26 Aug 2026 13:23:39 GMT | https://github.com/RustCrypto/hashes |
 | `block-buffer` | `0.12.1` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:55:10 GMT | https://github.com/RustCrypto/utils |
+| `block-padding` | `0.4.2` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:05:23 GMT | https://github.com/RustCrypto/utils |
 | `bumpalo` | `3.20.3` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 18:15:49 GMT | https://github.com/fitzgen/bumpalo |
 | `byteorder` | `1.5.0` | Unlicense OR MIT | transitive | no | no | Sun, 28 Jun 2026 15:18:27 GMT | https://github.com/BurntSushi/byteorder |
 | `bytes` | `1.12.1` | MIT | transitive | no | no | Wed, 08 Jul 2026 10:01:30 GMT | https://github.com/tokio-rs/bytes |
+| `cbc` | `0.2.1` | MIT OR Apache-2.0 | DIRECT | no | no | Sun, 28 Jun 2026 15:58:43 GMT | https://github.com/RustCrypto/block-modes |
+| `cc` | `1.8.0` | MIT OR Apache-2.0 | transitive | no | no | Sun, 11 Oct 2026 14:17:36 GMT | https://github.com/rust-lang/cc-rs |
 | `cfg-if` | `1.0.4` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 16:58:08 GMT | https://github.com/rust-lang/cfg-if |
 | `chacha20` | `0.10.2` | MIT OR Apache-2.0 | transitive | no | no | Thu, 27 Aug 2026 17:51:14 GMT | https://github.com/RustCrypto/stream-ciphers |
 | `chacha20poly1305` | `0.11.0` | Apache-2.0 OR MIT | DIRECT | no | no | Sun, 28 Jun 2026 17:41:39 GMT | https://github.com/RustCrypto/AEADs |
@@ -128,11 +143,13 @@ be exactly the kind of confident guess ADR-0034 forbids.
 | `errno` | `0.3.14` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:08:03 GMT | https://github.com/lambda-fairy/rust-errno |
 | `fallible-iterator` | `0.2.0` | MIT/Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 14:36:53 GMT | https://github.com/sfackler/rust-fallible-iterator |
 | `ff` | `0.14.0` | MIT/Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:39:58 GMT | https://github.com/zkcrypto/ff |
+| `find-msvc-tools` | `0.1.14` | MIT OR Apache-2.0 | transitive | no | no | Fri, 25 Sep 2026 10:09:50 GMT | https://github.com/rust-lang/cc-rs |
 | `futures-channel` | `0.3.34` | MIT OR Apache-2.0 | transitive | no | no | Tue, 11 Aug 2026 12:13:11 GMT | https://github.com/rust-lang/futures-rs |
 | `futures-core` | `0.3.34` | MIT OR Apache-2.0 | transitive | no | no | Tue, 11 Aug 2026 12:13:02 GMT | https://github.com/rust-lang/futures-rs |
 | `futures-sink` | `0.3.34` | MIT OR Apache-2.0 | transitive | no | no | Tue, 11 Aug 2026 12:13:07 GMT | https://github.com/rust-lang/futures-rs |
 | `futures-task` | `0.3.34` | MIT OR Apache-2.0 | transitive | no | no | Tue, 11 Aug 2026 12:13:08 GMT | https://github.com/rust-lang/futures-rs |
 | `futures-util` | `0.3.34` | MIT OR Apache-2.0 | transitive | no | no | Tue, 11 Aug 2026 12:13:20 GMT | https://github.com/rust-lang/futures-rs |
+| `getrandom` | `0.2.17` | MIT OR Apache-2.0 | DIRECT | no | no | Sun, 28 Jun 2026 18:10:42 GMT | https://github.com/rust-random/getrandom |
 | `getrandom` | `0.4.3` | MIT OR Apache-2.0 | DIRECT | yes | no | Sun, 28 Jun 2026 18:10:53 GMT | https://github.com/rust-random/getrandom |
 | `group` | `0.14.0` | MIT/Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:11:33 GMT | https://github.com/zkcrypto/group |
 | `hkdf` | `0.13.0` | MIT OR Apache-2.0 | DIRECT | no | no | Sun, 28 Jun 2026 17:37:30 GMT | https://github.com/RustCrypto/KDFs/ |
@@ -183,6 +200,10 @@ be exactly the kind of confident guess ADR-0034 forbids.
 | `rand_core` | `0.10.1` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:28:08 GMT | https://github.com/rust-random/rand_core |
 | `redox_syscall` | `0.5.18` | MIT | transitive | no | no | Sun, 28 Jun 2026 15:52:34 GMT | https://gitlab.redox-os.org/redox-os/syscall |
 | `rfc6979` | `0.6.0` | Apache-2.0 OR MIT | transitive | no | no | Tue, 30 Jun 2026 02:21:46 GMT | https://github.com/RustCrypto/signatures |
+| `ring` | `0.17.14` | Apache-2.0 AND ISC | transitive | yes | no | Sun, 28 Jun 2026 16:42:11 GMT | https://github.com/briansmith/ring |
+| `rustls` | `0.23.46` | Apache-2.0 OR ISC OR MIT | DIRECT | yes | no | Wed, 14 Oct 2026 09:54:16 GMT | https://github.com/rustls/rustls |
+| `rustls-pki-types` | `1.15.1` | MIT OR Apache-2.0 | transitive | no | no | Thu, 23 Jul 2026 09:56:12 GMT | https://github.com/rustls/pki-types |
+| `rustls-webpki` | `0.103.16` | ISC | transitive | no | no | Tue, 20 Oct 2026 08:58:29 GMT | https://github.com/rustls/webpki |
 | `rustversion` | `1.0.23` | MIT OR Apache-2.0 | transitive | no | yes | Tue, 07 Jul 2026 02:10:27 GMT | https://github.com/dtolnay/rustversion |
 | `scopeguard` | `1.2.0` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 15:31:51 GMT | https://github.com/bluss/scopeguard |
 | `sec1` | `0.8.1` | Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 17:13:56 GMT | https://github.com/RustCrypto/formats |
@@ -192,6 +213,7 @@ be exactly the kind of confident guess ADR-0034 forbids.
 | `sha1` | `0.11.0` | MIT OR Apache-2.0 | DIRECT | no | no | Sun, 28 Jun 2026 17:51:00 GMT | https://github.com/RustCrypto/hashes |
 | `sha2` | `0.11.0` | MIT OR Apache-2.0 | DIRECT | no | no | Sun, 28 Jun 2026 17:17:31 GMT | https://github.com/RustCrypto/hashes |
 | `sharded-slab` | `0.1.7` | MIT | transitive | no | no | Sun, 28 Jun 2026 15:19:03 GMT | https://github.com/hawkw/sharded-slab |
+| `shlex` | `2.0.1` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 18:20:48 GMT | https://github.com/comex/rust-shlex |
 | `signal-hook-registry` | `1.4.8` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 16:11:53 GMT | https://github.com/vorner/signal-hook |
 | `signature` | `3.0.0` | Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 16:12:50 GMT | https://github.com/RustCrypto/traits |
 | `siphasher` | `1.0.3` | MIT/Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 16:03:43 GMT | https://github.com/jedisct1/rust-siphash |
@@ -209,6 +231,7 @@ be exactly the kind of confident guess ADR-0034 forbids.
 | `tokio` | `1.53.3` | MIT | DIRECT | no | no | Tue, 13 Oct 2026 20:51:48 GMT | https://github.com/tokio-rs/tokio |
 | `tokio-macros` | `2.7.2` | MIT | transitive | no | yes | Wed, 29 Jul 2026 13:15:28 GMT | https://github.com/tokio-rs/tokio |
 | `tokio-postgres` | `0.7.18` | MIT OR Apache-2.0 | DIRECT | no | no | Sun, 28 Jun 2026 16:47:48 GMT | https://github.com/rust-postgres/rust-postgres |
+| `tokio-rustls` | `0.26.6` | MIT OR Apache-2.0 | DIRECT | no | no | Mon, 28 Sep 2026 09:18:11 GMT | https://github.com/rustls/tokio-rustls |
 | `tokio-util` | `0.7.19` | MIT | DIRECT | no | no | Tue, 21 Jul 2026 12:10:48 GMT | https://github.com/tokio-rs/tokio |
 | `tower` | `0.5.3` | MIT | transitive | no | no | Sun, 28 Jun 2026 16:05:58 GMT | https://github.com/tower-rs/tower |
 | `tower-layer` | `0.3.3` | MIT | transitive | no | no | Sun, 28 Jun 2026 16:09:52 GMT | https://github.com/tower-rs/tower |
@@ -223,6 +246,7 @@ be exactly the kind of confident guess ADR-0034 forbids.
 | `unicode-normalization` | `0.1.25` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 15:02:20 GMT | https://github.com/unicode-rs/unicode-normalization |
 | `unicode-properties` | `0.1.4` | MIT/Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 14:56:18 GMT | https://github.com/unicode-rs/unicode-properties |
 | `universal-hash` | `0.6.1` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 14:50:03 GMT | https://github.com/RustCrypto/traits |
+| `untrusted` | `0.9.0` | ISC | transitive | no | no | Sun, 28 Jun 2026 15:31:56 GMT | https://github.com/briansmith/untrusted |
 | `wasi` | `0.11.1+wasi-snapshot-preview1` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 16:14:11 GMT | https://github.com/bytecodealliance/wasi |
 | `wasi` | `0.14.7+wasi-0.2.4` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 16:14:19 GMT | https://github.com/bytecodealliance/wasi-rs |
 | `wasip2` | `1.0.4+wasi-0.2.12` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 17:34:32 GMT | https://github.com/bytecodealliance/wasi-rs |
@@ -232,14 +256,25 @@ be exactly the kind of confident guess ADR-0034 forbids.
 | `wasm-bindgen-macro-support` | `0.2.127` | MIT OR Apache-2.0 | transitive | no | no | Sat, 08 Aug 2026 00:56:56 GMT | https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/macro-support |
 | `wasm-bindgen-shared` | `0.2.127` | MIT OR Apache-2.0 | transitive | yes | no | Sat, 08 Aug 2026 00:56:53 GMT | https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/shared |
 | `web-sys` | `0.3.104` | MIT OR Apache-2.0 | transitive | no | no | Sat, 08 Aug 2026 00:57:05 GMT | https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/web-sys |
+| `webpki-roots` | `1.0.10` | CDLA-Permissive-2.0 | DIRECT | no | no | Mon, 19 Oct 2026 20:11:34 GMT | https://github.com/rustls/webpki-roots |
 | `whoami` | `2.1.3` | Apache-2.0 OR BSL-1.0 OR MIT | transitive | no | no | Tue, 11 Aug 2026 23:31:58 GMT | https://github.com/ardaku/whoami |
 | `windows-link` | `0.2.1` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:12:27 GMT | https://github.com/microsoft/windows-rs |
+| `windows-sys` | `0.52.0` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:13:12 GMT | https://github.com/microsoft/windows-rs |
 | `windows-sys` | `0.61.2` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:13:16 GMT | https://github.com/microsoft/windows-rs |
+| `windows-targets` | `0.52.6` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:15:54 GMT | https://github.com/microsoft/windows-rs |
+| `windows_aarch64_gnullvm` | `0.52.6` | MIT OR Apache-2.0 | transitive | yes | no | Sun, 28 Jun 2026 17:12:32 GMT | https://github.com/microsoft/windows-rs |
+| `windows_aarch64_msvc` | `0.52.6` | MIT OR Apache-2.0 | transitive | yes | no | Sun, 28 Jun 2026 16:21:54 GMT | https://github.com/microsoft/windows-rs |
+| `windows_i686_gnu` | `0.52.6` | MIT OR Apache-2.0 | transitive | yes | no | Sun, 28 Jun 2026 16:09:15 GMT | https://github.com/microsoft/windows-rs |
+| `windows_i686_gnullvm` | `0.52.6` | MIT OR Apache-2.0 | transitive | yes | no | Sun, 28 Jun 2026 14:42:14 GMT | https://github.com/microsoft/windows-rs |
+| `windows_i686_msvc` | `0.52.6` | MIT OR Apache-2.0 | transitive | yes | no | Sun, 28 Jun 2026 15:19:07 GMT | https://github.com/microsoft/windows-rs |
+| `windows_x86_64_gnu` | `0.52.6` | MIT OR Apache-2.0 | transitive | yes | no | Sun, 28 Jun 2026 17:12:42 GMT | https://github.com/microsoft/windows-rs |
+| `windows_x86_64_gnullvm` | `0.52.6` | MIT OR Apache-2.0 | transitive | yes | no | Sun, 28 Jun 2026 17:12:33 GMT | https://github.com/microsoft/windows-rs |
+| `windows_x86_64_msvc` | `0.52.6` | MIT OR Apache-2.0 | transitive | yes | no | Sun, 28 Jun 2026 16:21:57 GMT | https://github.com/microsoft/windows-rs |
 | `wit-bindgen` | `0.57.1` | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | transitive | yes | no | Sun, 28 Jun 2026 18:22:51 GMT | https://github.com/bytecodealliance/wit-bindgen |
 | `wnaf` | `0.14.1` | Apache-2.0 OR MIT | transitive | no | no | Thu, 03 Sep 2026 19:10:51 GMT | https://github.com/RustCrypto/elliptic-curves |
 | `zeroize` | `1.9.0` | Apache-2.0 OR MIT | transitive | no | no | Sun, 28 Jun 2026 17:42:15 GMT | https://github.com/RustCrypto/utils |
 
-**147 external crates**, of which **16 direct**. **12 carry a `build.rs`** and **6 are proc-macros** — 18 of 147 run code at compile time, which is the number the August 2026 attack was about. Against `35` §5.1: **≤ 30 direct (16)**, **≤ 200 in the closure (147)**.
+**171 external crates**, of which **22 direct**. **22 carry a `build.rs`** and **6 are proc-macros** — 28 of 171 run code at compile time, which is the number the August 2026 attack was about. Against `35` §5.1: **≤ 30 direct (22)**, **≤ 200 in the closure (171)**.
 
 <!-- gate-zero:end -->
 

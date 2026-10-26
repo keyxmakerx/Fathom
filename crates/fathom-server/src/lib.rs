@@ -73,6 +73,7 @@ pub mod field_defs;
 pub mod firmware;
 pub mod firmware_by_hand;
 pub mod firmware_commands;
+pub mod foreign_json;
 pub mod grants;
 pub mod heads;
 pub mod health;
@@ -95,6 +96,7 @@ pub mod teaching;
 pub mod vault;
 pub mod vault_breach;
 pub mod vault_fathom;
+pub mod vault_outside;
 // ADR-0055 stream (a): the person's credential — a password, an app code, ten
 // backup codes and the two ways back in. Added at the END of this list so the
 // other two ADR-0055 streams' additions land beside it and the merge is

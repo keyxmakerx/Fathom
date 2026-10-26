@@ -21,7 +21,7 @@
 //! - [`make_key`], [`change_key`], [`stop_key`]: who may do what to which field (decision
 //!   5). The owner widens or narrows; a Steward only narrows or stops; nobody moves an end
 //!   later. Every act is on the organisation chain, and the database refuses the rest
-//!   (`0045`'s `fathom_ai_key_moves`).
+//!   (`0046`'s `fathom_ai_key_moves`).
 //! - [`operator_disable_key`], [`operator_set_switch`]: the server's operator may stop a
 //!   key or turn AI off on the whole server. Neither grants anything.
 //! - Rows are sealed under the organisation's row key (the server switch under the site's),
@@ -641,7 +641,7 @@ pub struct AiKey {
     pub id: String,
     pub owner: String,
     pub owner_name: String,
-    /// `helper` or `connector` (migration `0045`).
+    /// `helper` or `connector` (migration `0046`).
     pub kind: String,
     /// A helper key's public half.
     pub public_key: Option<Vec<u8>>,
@@ -1795,7 +1795,7 @@ pub(crate) async fn operator_set_switch(
 
 /// Stop one key in one organisation, with a reason the owner and the Stewards see. Filed on
 /// both chains, as an operator's grant suspension is. The database lets the operator plane
-/// make this one move and no other (`0045`'s trigger). The caller holds operator custody;
+/// make this one move and no other (`0046`'s trigger). The caller holds operator custody;
 /// this points it at the organisation, which leaves `app.design_capability` at its refusal.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn operator_disable_key(
