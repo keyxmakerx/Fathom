@@ -154,6 +154,24 @@
   height: 14px;
 }
 
+/* A load that answers quickly shows nothing at all: the shapes wait a beat
+   before they fade in, so a quick open does not flash rack outlines or grey
+   rows for a frame and then swap them for the real thing (owner,
+   2026-10-26). The hidden words are there from the start. */
+.skeleton__row,
+.skeleton__racks {
+  animation: skeleton-appear var(--m-skeleton-fade, 200ms) ease-out var(--m-skeleton-wait, 400ms) both;
+}
+
+@keyframes skeleton-appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 @keyframes skeleton-shimmer {
   from {
     background-position: 200% 0;
@@ -176,5 +194,10 @@
   .skeleton__bar,
   .skeleton__unit {
     animation: none;
+  }
+  /* Still waits, but appears at once rather than fading. */
+  .skeleton__row,
+  .skeleton__racks {
+    --m-skeleton-fade: 1ms;
   }
 }

@@ -147,10 +147,21 @@ export async function fetchConsoleFlag(): Promise<ConsoleFlag> {
  * not be able to get two answers, and the answer cannot change without a
  * navigation, which is a new page load. */
 let flagOnce: Promise<ConsoleFlag> | null = null;
+/** The same answer once it has come back, so a screen mounted after it (the
+ * console, its placement form) starts on it instead of a "loading" render
+ * that would flash a sentence for one frame before the page it opens. */
+let flagSettled: ConsoleHostState | null = null;
 
 export function consoleFlag(): Promise<ConsoleFlag> {
   if (flagOnce === null) {
-    flagOnce = fetchConsoleFlag();
+    const asked = fetchConsoleFlag();
+    flagOnce = asked;
+    asked.then(
+      (flag) => {
+        if (flagOnce === asked) flagSettled = { status: 'ready', flag };
+      },
+      () => {},
+    );
   }
   return flagOnce;
 }
@@ -159,6 +170,7 @@ export function consoleFlag(): Promise<ConsoleFlag> {
  * by any screen: a page load is what refreshes this. */
 export function forgetConsoleFlag(): void {
   flagOnce = null;
+  flagSettled = null;
 }
 
 export type ConsoleHostState =
@@ -174,8 +186,9 @@ export type ConsoleHostState =
  * a control that appeared and then vanished would be a control that existed.
  */
 export function useConsoleHost(): ConsoleHostState {
-  const [state, setState] = useState<ConsoleHostState>({ status: 'loading' });
+  const [state, setState] = useState<ConsoleHostState>(() => flagSettled ?? { status: 'loading' });
   useEffect(() => {
+    if (flagSettled !== null) return;
     let cancelled = false;
     consoleFlag()
       .then((flag) => {
