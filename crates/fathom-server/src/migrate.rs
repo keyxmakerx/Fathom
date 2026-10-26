@@ -281,6 +281,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0045_vault_outside.sql",
         sql: include_str!("../migrations/0045_vault_outside.sql"),
     },
+    // AI access keys: a person's AI reads as them, and recommends (ADR-0072).
+    Migration {
+        version: 46,
+        name: "0046_ai_access_keys.sql",
+        sql: include_str!("../migrations/0046_ai_access_keys.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

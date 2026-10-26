@@ -14,6 +14,9 @@ import { viewOf } from '../../document/view';
 import { Engine } from '../../engine/engine';
 import { refusalSentence } from '../../engine/mirror';
 import { buildCsv } from '../../print/csv';
+import { AiIdeasPanel, aiIdeasTab, useAiIdeas } from '../ai/AiIdeas';
+import { buildCanon } from '../checks/checksModel';
+import { nameOf as planNameOf } from '../plans/plansModel';
 import { buildCableScheduleRows, cableScheduleHeaderRow, CABLE_SCHEDULE_WIDTHS } from '../../print/cableSchedule';
 import { buildCutSheet } from '../../print/cutSheet';
 import { cutSheetTableRows } from '../../print/cutSheetTable';
@@ -174,6 +177,8 @@ export function DesignPlace(props: DesignPlaceProps) {
   // History beside the canvas: a picked save is shown read-only with what it changed outlined.
   const [historyOpen, setHistoryOpen] = useState(false);
   const history = useHistory(organisationId, designId, historyOpen, session.doc?.batches.length ?? 0);
+  const aiIdeas = useAiIdeas(organisationId, designId);
+  const [aiIdeasOpen, setAiIdeasOpen] = useState(false);
   const pickedSave = historyOpen ? history.picked : null;
   const outlineKey = pickedSave != null ? pickedSave.outline.join('\n') : '';
   useEffect(() => {
@@ -904,11 +909,26 @@ export function DesignPlace(props: DesignPlaceProps) {
         }
       : null;
 
+  // ADR-0072 decision 7: AI ideas are one side tab, the same in every place.
+  const aiIdeasContent =
+    aiIdeasOpen && doc != null ? (
+      <AiIdeasPanel
+        organisationId={organisationId}
+        designId={designId}
+        state={aiIdeas}
+        canDraw={session.canDraw}
+        nameOf={(id) => (findNode(doc, id) ? planNameOf(doc, buildCanon(doc), id) : null)}
+        onShow={showIssue}
+      />
+    ) : null;
+  const aiTab = aiIdeasTab(aiIdeas, aiIdeasOpen, setAiIdeasOpen, aiIdeasContent);
+  const racksSideTabs = [...(docsTab != null ? [docsTab] : []), ...(aiTab != null ? [aiTab] : [])];
+
   const place =
     props.place === 'racks' ? (
       <RacksPlace
         {...sharedShellProps}
-        sideTabs={docsTab != null ? [docsTab] : undefined}
+        sideTabs={racksSideTabs.length > 0 ? racksSideTabs : undefined}
         historyView={historyView}
         onPlaceChange={onPlaceChange}
         session={racksSession}
@@ -938,6 +958,8 @@ export function DesignPlace(props: DesignPlaceProps) {
     ) : (
       <InventoryPlace
         {...sharedShellProps}
+        sideTabs={aiTab != null ? [aiTab] : undefined}
+        aiTargets={aiIdeas.targets}
         onPlaceChange={onPlaceChange}
         session={session}
         onShowOnRack={showOnRack}

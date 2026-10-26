@@ -41,6 +41,8 @@ export interface DataTableProps {
   /** Where the list was scrolled to when it was last left. */
   initialScrollTop?: number;
   onScrollTop?: (top: number) => void;
+  /** Ids an open AI idea names (ADR-0072 decision 7): a row whose thing is one is marked. */
+  aiMarked?: ReadonlySet<string>;
 }
 
 interface Cell {
@@ -57,7 +59,7 @@ function inputType(col: Column): string {
 }
 
 export function DataTable(props: DataTableProps) {
-  const { columns, rows, openKey, checked, sorts, canEdit, onCommit, onFilterTag, onOpen, onToggleChecked, onToggleAll, onSort, columnMenu, emptyText, empty, initialScrollTop = 0, onScrollTop } = props;
+  const { columns, rows, openKey, checked, sorts, canEdit, onCommit, onFilterTag, onOpen, onToggleChecked, onToggleAll, onSort, columnMenu, emptyText, empty, initialScrollTop = 0, onScrollTop, aiMarked } = props;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(initialScrollTop);
   const [viewHeight, setViewHeight] = useState(600);
@@ -334,13 +336,18 @@ export function DataTable(props: DataTableProps) {
             {visible.map((row, i) => {
               const index = first + i;
               const isOpen = row.key === openKey;
+              const aiMark =
+                aiMarked != null &&
+                aiMarked.size > 0 &&
+                [row.key, row.ownerId, row.ids.deviceId, row.ids.chassisId, row.ids.rackId, row.ids.cableId].some((id) => id != null && aiMarked.has(id));
               return (
                 <div
                   key={row.key}
                   role="row"
                   aria-rowindex={index + 2}
                   aria-selected={isOpen}
-                  className={`inv-table__row${isOpen ? ' inv-table__row--open' : ''}${checked.has(row.key) ? ' inv-table__row--checked' : ''}`}
+                  className={`inv-table__row${isOpen ? ' inv-table__row--open' : ''}${checked.has(row.key) ? ' inv-table__row--checked' : ''}${aiMark ? ' inv-table__row--ai' : ''}`}
+                  title={aiMark ? 'An AI idea would change this. See AI ideas.' : undefined}
                   style={{ top: index * ROW_HEIGHT, height: ROW_HEIGHT }}
                 >
                   <div className="inv-table__check" role="gridcell" style={{ width: CHECK_WIDTH }}>

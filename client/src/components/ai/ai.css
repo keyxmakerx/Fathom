@@ -1,0 +1,592 @@
+/* AI access (ADR-0072): Organisation › AI, the "Connect an AI app" page, and the AI ideas
+   panel. Ink and weight, every size a token from design/tokens.css. An AI idea is marked
+   with --sheath-purple, the one colour no other surface uses for state. */
+
+.ai-org-frame {
+  container-type: inline-size;
+}
+
+.ai-org {
+  display: flex;
+  gap: var(--s5);
+  align-items: flex-start;
+}
+
+.ai-org__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.ai-org__side {
+  width: 340px;
+  flex-shrink: 0;
+  border-left: var(--rule-hair) solid var(--hairline);
+  padding-left: var(--s4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.ai-side-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ai-kicker,
+.ai-label {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-head);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ai-label {
+  margin-top: var(--s3);
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  flex-wrap: wrap;
+}
+
+.ai-title {
+  font-size: var(--t-title);
+  line-height: var(--lh-title);
+  font-weight: 700;
+  margin: 0;
+}
+
+.ai-subtitle {
+  font-size: var(--t-mast);
+  font-weight: 700;
+  margin: 0;
+}
+
+.ai-body {
+  font-size: var(--t-body);
+  max-width: var(--measure);
+  margin: 0;
+}
+
+.ai-muted {
+  color: var(--muted);
+  font-size: var(--t-small);
+  margin: 0;
+  max-width: var(--measure);
+}
+
+.ai-error {
+  color: var(--danger);
+  font-size: var(--t-small);
+  margin: 0;
+}
+
+.ai-warn {
+  border-left: var(--rule-accent) solid var(--caution);
+  background: var(--caution-wash);
+  padding: var(--s2) var(--s3);
+  font-size: var(--t-small);
+  max-width: var(--measure);
+  margin: 0;
+}
+
+.ai-stopped {
+  border-left: var(--rule-accent) solid var(--danger);
+  background: var(--danger-wash);
+  padding: var(--s2) var(--s3);
+  font-size: var(--t-small);
+  max-width: var(--measure);
+  margin: var(--s2) 0 0;
+}
+
+/* The reset collapses ticks to nothing; restore the native control, as organisation.css does. */
+.ai-connect input[type='checkbox'],
+.ai-org input[type='checkbox'],
+.ai-ideas input[type='checkbox'] {
+  appearance: auto;
+  width: 14px;
+  height: 14px;
+  margin: 2px 0 0;
+  flex-shrink: 0;
+}
+
+.ai-ticks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+
+.ai-tick {
+  display: flex;
+  gap: var(--s2);
+  align-items: flex-start;
+  font-size: var(--t-body);
+}
+
+.ai-tick--off {
+  color: var(--muted);
+}
+
+.ai-tick__why {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.ai-switch {
+  display: flex;
+  gap: var(--s2);
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.ai-switch__label {
+  font-weight: 700;
+}
+
+.ai-seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  border: var(--rule-hair) solid var(--control-line);
+  width: fit-content;
+}
+
+.ai-seg__item {
+  border: none;
+  border-right: var(--rule-hair) solid var(--control-line);
+  background: var(--control-bg);
+  padding: var(--s1) var(--s3);
+  font-size: var(--t-tab);
+  letter-spacing: var(--control-track);
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.ai-seg__item:last-child {
+  border-right: none;
+}
+
+.ai-seg__item--on {
+  background: var(--ink);
+  color: var(--page);
+}
+
+.ai-seg__item:disabled {
+  opacity: var(--phantom);
+  cursor: not-allowed;
+}
+
+.ai-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+  align-items: center;
+}
+
+.ai-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  border: var(--rule-hair) solid var(--control-line);
+  padding: 2px var(--s2);
+  font-size: var(--t-small);
+  background: var(--page);
+}
+
+.ai-chip--plain {
+  color: var(--muted);
+}
+
+.ai-chip--add {
+  color: var(--muted);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.ai-chip__x {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  cursor: pointer;
+  color: var(--muted);
+  box-shadow: none;
+}
+
+.ai-select,
+.ai-input {
+  font: inherit;
+  font-size: var(--t-small);
+  height: var(--control-h-sm);
+  border: var(--rule-hair) solid var(--control-line);
+  background: var(--page);
+  padding: 0 var(--s2);
+}
+
+.ai-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ai-actions {
+  display: flex;
+  gap: var(--s2);
+  margin-top: var(--s3);
+  flex-wrap: wrap;
+}
+
+.ai-btn {
+  padding: var(--s1) var(--s3);
+  font-size: var(--t-tab);
+  letter-spacing: var(--control-track);
+  text-transform: uppercase;
+  border: var(--rule-hair) solid var(--control-line);
+  background: var(--page);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.ai-btn--small {
+  padding: 2px var(--s2);
+}
+
+.ai-btn--primary {
+  background: var(--ink);
+  color: var(--page);
+  border-color: var(--ink);
+}
+
+.ai-btn--danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.ai-btn:disabled {
+  opacity: var(--phantom);
+  cursor: not-allowed;
+}
+
+.ai-plain {
+  border: var(--rule-hair) solid var(--ink);
+  padding: var(--s3);
+  margin-top: var(--s3);
+  font-size: var(--t-small);
+}
+
+.ai-plain__title {
+  font-weight: 700;
+  font-size: var(--t-body);
+}
+
+.ai-plain ul {
+  margin: var(--s2) 0 0;
+  padding-left: var(--s4);
+}
+
+/* The "i": a small round button beside a heading; its text opens in place, on the next line. */
+.ai-info__i {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: var(--rule-hair) solid var(--muted);
+  background: var(--page);
+  color: var(--ink);
+  font-family: Georgia, serif;
+  font-style: italic;
+  font-weight: 700;
+  font-size: var(--t-micro);
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  box-shadow: none;
+  text-transform: none;
+  letter-spacing: normal;
+  vertical-align: middle;
+}
+
+.ai-info__i--on {
+  background: var(--ink);
+  color: var(--page);
+  border-color: var(--ink);
+}
+
+.ai-info__body {
+  display: block;
+  flex-basis: 100%;
+  margin-top: var(--s1);
+  padding: var(--s2) var(--s3);
+  background: var(--surface);
+  border-left: var(--rule-accent) solid var(--ink);
+  color: var(--ink);
+  font-size: var(--t-small);
+  text-transform: none;
+  letter-spacing: normal;
+  max-width: var(--measure);
+}
+
+.ai-how {
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s3);
+  max-width: var(--sheet-card);
+}
+
+.ai-how .ai-label {
+  margin-top: 0;
+}
+
+.ai-copy {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+  margin-top: var(--s2);
+}
+
+.ai-copy code,
+.ai-how code {
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+}
+
+.ai-how__list {
+  margin: var(--s2) 0 0;
+  padding-left: var(--s4);
+  font-size: var(--t-small);
+}
+
+.ai-policy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.ai-policy__cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s5);
+}
+
+@media (max-width: 860px) {
+  .ai-policy__cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The Organisation tab already has its rail, so the room that matters is the panel's own:
+   with a connection open beside a policy that cannot keep two columns, the connection goes
+   under it, ruled off, rather than squeezing both. */
+@container (max-width: 980px) {
+  .ai-org {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ai-org__side {
+    width: auto;
+    border-left: none;
+    padding-left: 0;
+    border-top: var(--rule-hair) solid var(--hairline);
+    padding-top: var(--s4);
+  }
+}
+
+.ai-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-small);
+}
+
+.ai-table th {
+  text-align: left;
+  font-weight: 400;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-head);
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: var(--s2);
+  border-bottom: var(--rule-hair) solid var(--ink);
+}
+
+.ai-table td {
+  padding: var(--s2);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.ai-table__row {
+  cursor: pointer;
+}
+
+.ai-table__row:hover {
+  background: var(--control-bg-hover);
+}
+
+.ai-table__row--on {
+  background: var(--surface);
+}
+
+.ai-table__name {
+  font-weight: 700;
+}
+
+.ai-state {
+  font-size: var(--t-micro);
+  letter-spacing: var(--control-track);
+  text-transform: uppercase;
+  border: var(--rule-hair) solid currentColor;
+  padding: 1px var(--s1);
+  white-space: nowrap;
+}
+
+.ai-state--on {
+  color: var(--safe);
+  background: var(--safe-wash);
+}
+
+.ai-state--off {
+  color: var(--danger);
+}
+
+.ai-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--s1) var(--s3);
+  font-size: var(--t-small);
+  margin: 0;
+}
+
+.ai-facts dt {
+  color: var(--muted);
+}
+
+.ai-facts dd {
+  margin: 0;
+}
+
+.ai-stop {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+/* The "Connect an AI app" page: the request on the left, the choices on the right. */
+.ai-connect {
+  display: flex;
+  min-height: 100vh;
+  background: var(--page);
+}
+
+.ai-connect__main {
+  flex: 1 1 auto;
+  padding: var(--s6) var(--s5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  max-width: 720px;
+}
+
+.ai-connect__side {
+  width: 380px;
+  flex-shrink: 0;
+  margin-left: auto;
+  border-left: var(--rule-hair) solid var(--hairline);
+  background: var(--surface);
+  padding: var(--s5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.ai-steps {
+  margin: 0;
+  padding-left: var(--s4);
+  font-size: var(--t-body);
+  max-width: var(--measure);
+}
+
+.ai-steps li + li {
+  margin-top: var(--s1);
+}
+
+@media (max-width: 860px) {
+  .ai-connect {
+    flex-direction: column;
+  }
+
+  .ai-connect__side {
+    width: auto;
+    border-left: none;
+  }
+}
+
+/* AI ideas: the panel on a design, and the marks beside what an idea would change. */
+.ai-ideas {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.ai-idea {
+  border: var(--rule-hair) solid var(--hairline);
+  border-left: var(--rule-accent) solid var(--sheath-purple);
+  padding: var(--s3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.ai-idea__by {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s2);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-head);
+  text-transform: uppercase;
+  color: var(--sheath-purple);
+}
+
+.ai-idea__when {
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.ai-idea__title {
+  font-weight: 700;
+  font-size: var(--t-mast);
+}
+
+.ai-idea__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: var(--t-small);
+}
+
+.ai-idea__steps li {
+  border-top: var(--rule-hair) dashed var(--hairline);
+  padding: var(--s1) 0;
+  display: flex;
+  gap: var(--s2);
+}
+
+.ai-idea__action {
+  font-size: var(--t-micro);
+  letter-spacing: var(--control-track);
+  text-transform: uppercase;
+  color: var(--sheath-purple);
+  min-width: 56px;
+}
+
+.ai-mark {
+  color: var(--sheath-purple);
+  font-size: var(--t-micro);
+  letter-spacing: var(--control-track);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ai-ideas-button {
+  color: var(--sheath-purple);
+  border-color: var(--sheath-purple);
+}

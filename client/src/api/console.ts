@@ -457,3 +457,68 @@ export async function sendTestMessage(changeId: string): Promise<string> {
     throw error;
   }
 }
+
+// ---- ADR-0072 decision 9: AI on this server ----
+
+export interface ServerAiKey {
+  id: string;
+  organisation: string;
+  ownerName: string;
+  app: string;
+  kind: 'helper' | 'connector';
+  sees: string[];
+  state: string;
+  stoppedReason: string | null;
+  lastUsedAt: number | null;
+  verifies: boolean;
+}
+
+export interface ServerAi {
+  allowed: boolean;
+  reason: string | null;
+  version: number;
+  keys: ServerAiKey[];
+}
+
+export function parseServerAi(bytes: Uint8Array): ServerAi {
+  let o: Record<string, unknown>;
+  try {
+    o = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+  } catch {
+    throw new Error('malformed AI overview: not JSON');
+  }
+  const server = (o.server ?? {}) as Record<string, unknown>;
+  const s = (v: unknown) => (typeof v === 'string' ? v : '');
+  return {
+    allowed: server.allowed !== false,
+    reason: typeof server.reason === 'string' ? server.reason : null,
+    version: typeof server.version === 'number' ? server.version : 0,
+    keys: (Array.isArray(o.keys) ? o.keys : []).map((raw) => {
+      const k = (raw ?? {}) as Record<string, unknown>;
+      return {
+        id: s(k.id),
+        organisation: s(k.organisation),
+        ownerName: s(k.ownerName) || 'Someone',
+        app: s(k.app),
+        kind: k.kind === 'connector' ? 'connector' : 'helper',
+        sees: Array.isArray(k.sees) ? k.sees.filter((x): x is string => typeof x === 'string') : [],
+        state: s(k.state),
+        stoppedReason: typeof k.stoppedReason === 'string' ? k.stoppedReason : null,
+        lastUsedAt: typeof k.lastUsedAt === 'number' ? k.lastUsedAt : null,
+        verifies: k.verifies !== false,
+      };
+    }),
+  };
+}
+
+export async function fetchServerAi(): Promise<ServerAi> {
+  return parseServerAi(await signedFetch('GET', '/admin/ai'));
+}
+
+export async function setServerAi(allowed: boolean, reason: string, ifVersion: number): Promise<void> {
+  await signedFetch('POST', '/admin/ai/switch', concatBytes(lp(utf8(allowed ? 'yes' : 'no')), lp(utf8(reason)), lp(utf8(String(ifVersion)))));
+}
+
+export async function disableAiKeyAsAdmin(organisation: string, key: string, reason: string): Promise<void> {
+  await signedFetch('POST', `/admin/ai/keys/${encodeURIComponent(organisation)}/${encodeURIComponent(key)}/disable`, lp(utf8(reason)));
+}

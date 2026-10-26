@@ -8263,3 +8263,215 @@ async fn address_check_site_mode_ends_an_operator_session_on_a_different_address
          {nonce_again:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// ADR-0072 decision 9: the operator's two AI verbs
+// ---------------------------------------------------------------------------
+
+fn json_field<'a>(j: &'a fathom_canon::Json, key: &str) -> &'a fathom_canon::Json {
+    match j {
+        fathom_canon::Json::Obj(m) => m.get(key).unwrap_or_else(|| panic!("no {key} in {j:?}")),
+        other => panic!("not an object: {other:?}"),
+    }
+}
+
+fn switch_version(page: &fathom_canon::Json) -> (bool, i32) {
+    let server = json_field(page, "server");
+    let allowed = matches!(
+        json_field(server, "allowed"),
+        fathom_canon::Json::Bool(true)
+    );
+    let fathom_canon::Json::Int(v) = json_field(server, "version") else {
+        panic!("no version")
+    };
+    (allowed, *v as i32)
+}
+
+/// The operator may stop one key with a reason, filed on both chains, or turn AI off for
+/// the whole server. The database lets the operator plane make no other move on a key.
+#[tokio::test]
+async fn an_operator_stops_an_ai_key_or_turns_ai_off_and_widens_nothing() {
+    use fathom_server::ai;
+
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
+    let operators_store = store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await;
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+    let (organisation, steward, _key, _grant) = an_estate(&pool, &ring).await;
+    let acting = || operator.session_for(&sessions_store, "POST", "/admin/ai/x", b"");
+
+    // This deployment outlives the run: start from AI on.
+    let page = operators_store
+        .ai_overview(&acting().await)
+        .await
+        .expect("the AI page");
+    let (allowed, version) = switch_version(&page);
+    if !allowed {
+        operators_store
+            .set_ai_switch(&acting().await, true, None, version)
+            .await
+            .expect("back on");
+    }
+
+    // A Steward turns AI on for themselves and registers two keys.
+    let watch = EpochWatch::new();
+    let make = |label: &'static str| {
+        let pool = pool.clone();
+        let ring = Arc::clone(&ring);
+        let watch = &watch;
+        async move {
+            let mut client = pool.get().await.expect("connection");
+            let tx = client.transaction().await.expect("begin");
+            let ctx = repo::open_tenant_context(&tx, organisation, steward)
+                .await
+                .expect("tenant context");
+            let tenant_key = keys::tenant_key(&tx, &ring, &ctx)
+                .await
+                .expect("tenant key");
+            let auth = Authority {
+                ring: &ring,
+                ctx: &ctx,
+                tenant_key: &tenant_key,
+                watch,
+            };
+            let made = ai::make_key(
+                &tx,
+                &auth,
+                ai::NewKey {
+                    public_key: SoftwareKey::random().unwrap().public_key().to_vec(),
+                    label: label.into(),
+                    scopes: vec![],
+                    sees: vec!["layout".into()],
+                    may_recommend: false,
+                    days: 30,
+                },
+            )
+            .await;
+            if made.is_ok() {
+                tx.commit().await.expect("commit");
+            }
+            made
+        }
+    };
+    {
+        let mut client = pool.get().await.expect("connection");
+        let tx = client.transaction().await.expect("begin");
+        let ctx = repo::open_tenant_context(&tx, organisation, steward)
+            .await
+            .expect("tenant context");
+        let tenant_key = keys::tenant_key(&tx, &ring, &ctx)
+            .await
+            .expect("tenant key");
+        let auth = Authority {
+            ring: &ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch: &watch,
+        };
+        ai::set_policy(
+            &tx,
+            &auth,
+            ai::PolicyInput {
+                allowed: true,
+                makers: vec![steward.to_string()],
+                ceiling: vec!["layout".into()],
+                max_days: 90,
+                second_person_scopes: vec![],
+                apps: vec!["claude".into()],
+            },
+            0,
+        )
+        .await
+        .expect("policy");
+        tx.commit().await.expect("commit");
+    }
+    let first = make("Claude on a laptop").await.expect("a key").id;
+    let second = make("Claude in the rack room").await.expect("a key").id;
+
+    // Stop the first, with a reason. On both chains.
+    let before = site_entries_of("ai_key_disabled").await;
+    operators_store
+        .disable_ai_key(
+            &acting().await,
+            &organisation.to_string(),
+            &first,
+            "It turned up in a public paste",
+        )
+        .await
+        .expect("the operator stops a key");
+    assert_eq!(site_entries_of("ai_key_disabled").await, before + 1);
+    let page = operators_store
+        .ai_overview(&acting().await)
+        .await
+        .expect("the AI page");
+    let text = String::from_utf8(page.to_canonical_bytes()).unwrap();
+    assert!(text.contains(&first), "{text}");
+    assert!(text.contains("\"stoppedByKind\":\"operator\""), "{text}");
+    assert!(
+        !text.contains("Claude on a laptop"),
+        "the operator plane sees ids, not what a person called their app"
+    );
+    // Twice is refused, and no reason is refused.
+    assert!(operators_store
+        .disable_ai_key(&acting().await, &organisation.to_string(), &first, "again")
+        .await
+        .is_err());
+    assert!(operators_store
+        .disable_ai_key(&acting().await, &organisation.to_string(), &second, "")
+        .await
+        .is_err());
+
+    // Under operator custody the database allows that one move and no other.
+    let client = pool.get().await.expect("connection");
+    client
+        .batch_execute(&format!(
+            "SET app.operator_custody = 'yes'; SET app.tenant_id = '{organisation}'"
+        ))
+        .await
+        .expect("custody");
+    let widened = client
+        .execute(
+            "UPDATE ai_keys SET sees = ARRAY['layout','addresses','notes'], \
+                 row_version = row_version + 1 WHERE id = $1",
+            &[&second],
+        )
+        .await;
+    assert!(widened.is_err(), "the operator plane widened a key");
+    let reopened = client
+        .execute(
+            "UPDATE ai_keys SET state = 'on', disabled_at = NULL, disabled_by = NULL, \
+                 disabled_by_kind = NULL, disabled_reason = NULL, \
+                 row_version = row_version + 1 WHERE id = $1",
+            &[&first],
+        )
+        .await;
+    assert!(reopened.is_err(), "a stopped key came back on");
+    client
+        .batch_execute("RESET app.operator_custody; RESET app.tenant_id")
+        .await
+        .expect("reset");
+
+    // The server switch: off stops new keys; on again.
+    let page = operators_store
+        .ai_overview(&acting().await)
+        .await
+        .expect("the AI page");
+    let (_, version) = switch_version(&page);
+    operators_store
+        .set_ai_switch(
+            &acting().await,
+            false,
+            Some("Reviewing AI access".into()),
+            version,
+        )
+        .await
+        .expect("off");
+    assert!(matches!(make("A third").await, Err(ai::AiError::SiteOff)));
+    operators_store
+        .set_ai_switch(&acting().await, true, None, version + 1)
+        .await
+        .expect("on again");
+    make("A third").await.expect("a key once AI is back on");
+}

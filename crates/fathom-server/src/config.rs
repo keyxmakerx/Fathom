@@ -255,6 +255,16 @@ pub struct Config {
     /// wrong value fails visibly on the device. Required whenever `firmware_dir` is
     /// set.
     pub firmware_fetch_base_url: Option<String>,
+
+    /// ADR-0072 decision 13: the AI connector. `FATHOM_AI_PUBLIC_URL`, the address AI apps
+    /// reach this server at (`https://`, or `http://` to a loopback host); unset means no
+    /// `/mcp` and no `/oauth/*` at all. `FATHOM_AI_SIGN_IN_URL`, where a person's browser
+    /// signs in when that is a company address the app cannot reach (default: the public
+    /// one). `FATHOM_AI_CLAUDE_RANGES`, the addresses Claude's hosted apps call from
+    /// (unset or empty: Anthropic's published `160.79.104.0/21`; `off` switches the check
+    /// off).
+    /// A malformed value is refused at startup.
+    pub ai_connector: Option<crate::oauth::Connector>,
 }
 
 /// ADR-0043 §9's path, as stated in the operator's register: the master key is 32
@@ -632,6 +642,18 @@ impl Config {
             },
         };
 
+        let ai_connector = match get("FATHOM_AI_PUBLIC_URL").filter(|v| !v.trim().is_empty()) {
+            None => None,
+            Some(public) => Some(
+                crate::oauth::Connector::new(
+                    public.trim(),
+                    get("FATHOM_AI_SIGN_IN_URL").as_deref(),
+                    get("FATHOM_AI_CLAUDE_RANGES").as_deref(),
+                )
+                .map_err(|variable| ConfigError::Unparseable { variable })?,
+            ),
+        };
+
         // Trailing newline trimmed (a shell script wrote the file); otherwise the
         // password is taken exactly as generated.
         let database_password =
@@ -696,6 +718,7 @@ impl Config {
             admin_sources,
             firmware_max_bytes,
             firmware_fetch_base_url,
+            ai_connector,
         })
     }
 

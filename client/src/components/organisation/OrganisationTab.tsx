@@ -16,6 +16,7 @@ import type { Organisation } from '../../api/organisations';
 import { fetchPeople, removeAccess, secondSteward, type AccessRow, type People } from '../../api/people';
 import type { Scope } from '../../api/scopes';
 import { shareWith } from '../../api/share';
+import { AiPanel } from '../ai/AiPanel';
 import { canStewardFor } from '../home/capabilities';
 import { FoldersPanel, type Loadable } from './FoldersPanel';
 import { InviteForm, LinkCard } from './InvitePanel';
@@ -33,13 +34,17 @@ type Page =
   | { kind: 'link'; issued: IssuedInvitation; name: string; access: string; added: boolean; notAddedBecause: string | null }
   | { kind: 'waiting' }
   | { kind: 'folders' }
-  | { kind: 'passwords' };
+  | { kind: 'passwords' }
+  | { kind: 'ai' };
 
 export interface OrganisationTabProps {
   organisation: Organisation;
   scopes: Loadable<Scope[]>;
   onCreateScope: (parentId: string | null, parentLabel: string, child: string) => void;
   scopeForm: ReactNode;
+  /** Someone a Steward named to connect AI apps, who is not an admin here: the tab is AI
+   * alone (ADR-0072). */
+  aiOnly?: boolean;
 }
 
 
@@ -49,9 +54,9 @@ export interface OrganisationTabProps {
  * server refuses anyone else before it reads a row, and this tab then shows
  * that refusal in place of the list, with no Waiting entry and no emails.
  */
-export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm }: OrganisationTabProps) {
+export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm, aiOnly = false }: OrganisationTabProps) {
   const org = organisation.organisationId;
-  const [page, setPage] = useState<Page>({ kind: 'people' });
+  const [page, setPage] = useState<Page>({ kind: aiOnly ? 'ai' : 'people' });
   const [people, setPeople] = useState<Loadable<People>>({ status: 'loading' });
   const [waiting, setWaiting] = useState<Loadable<Waiting>>({ status: 'loading' });
   const [busy, setBusy] = useState(false);
@@ -59,6 +64,7 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
   const [notice, setNotice] = useState<string | null>(null);
 
   const reload = useCallback(() => {
+    if (aiOnly) return;
     fetchPeople(org).then(
       (value) => setPeople({ status: 'ready', value }),
       (e: unknown) => setPeople({ status: 'error', message: describeError(e) }),
@@ -67,14 +73,14 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
       (value) => setWaiting({ status: 'ready', value }),
       (e: unknown) => setWaiting({ status: 'error', message: describeError(e) }),
     );
-  }, [org]);
+  }, [org, aiOnly]);
 
   useEffect(() => {
     setPeople({ status: 'loading' });
     setWaiting({ status: 'loading' });
-    setPage({ kind: 'people' });
+    setPage({ kind: aiOnly ? 'ai' : 'people' });
     reload();
-  }, [reload]);
+  }, [reload, aiOnly]);
 
   const folders = scopes.status === 'ready' ? scopes.value.filter((s) => canStewardFor(s.capability)) : [];
   const waitingReady = waiting.status === 'ready';
@@ -136,6 +142,15 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
   function content() {
     if (page.kind === 'passwords') {
       return <PasswordsPage organisation={org} organisationName={organisation.displayName} mode="admin" />;
+    }
+    if (page.kind === 'ai') {
+      return (
+        <AiPanel
+          organisationId={org}
+          organisationName={organisation.displayName}
+          folders={scopes.status === 'ready' ? scopes.value : []}
+        />
+      );
     }
     if (page.kind === 'folders') {
       return <FoldersPanel organisationName={organisation.displayName} scopes={scopes} onCreateScope={onCreateScope} scopeForm={scopeForm} />;
@@ -266,10 +281,12 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
   return (
     <div className="org">
       <nav className="org-rail" aria-label="Organisation">
+        {!aiOnly && (
         <button type="button" className={current === 'people' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} aria-current={current === 'people' ? 'page' : undefined} onClick={() => go({ kind: 'people' })}>
           People
         </button>
-        {waitingReady && (
+        )}
+        {!aiOnly && waitingReady && (
           <button type="button" className={current === 'waiting' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} data-testid="rail-waiting" aria-current={current === 'waiting' ? 'page' : undefined} onClick={() => go({ kind: 'waiting' })}>
             Waiting for you{needs > 0 ? ` (${needs})` : ''}
           </button>
@@ -277,8 +294,13 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
         <button type="button" className={current === 'folders' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} aria-current={current === 'folders' ? 'page' : undefined} onClick={() => go({ kind: 'folders' })}>
           Folders
         </button>
+        {!aiOnly && (
         <button type="button" className={current === 'passwords' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} data-testid="rail-passwords" aria-current={current === 'passwords' ? 'page' : undefined} onClick={() => go({ kind: 'passwords' })}>
           Passwords
+        </button>
+        )}
+        <button type="button" className={current === 'ai' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} data-testid="rail-ai" aria-current={current === 'ai' ? 'page' : undefined} onClick={() => go({ kind: 'ai' })}>
+          AI
         </button>
       </nav>
       <div className="org__body">{content()}</div>

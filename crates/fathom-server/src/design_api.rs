@@ -132,6 +132,9 @@ pub struct DesignApiState {
     /// The two caps on steward invitations. [`invitations::Limits::STANDARD`] in
     /// production; a test lowers them.
     pub invitation_limits: invitations::Limits,
+    /// The AI connector's settings (ADR-0072 decision 13), for Allow on its sign-in page;
+    /// `None` when `FATHOM_AI_PUBLIC_URL` is unset.
+    pub ai_connector: Option<Arc<crate::oauth::Connector>>,
 }
 
 /// Read every vendor directory under `<root>/corpus/catalogue/` into one flat
@@ -307,10 +310,12 @@ pub fn router(state: DesignApiState) -> Router {
             "/catalogue/models/{vendor}/{model}",
             get(catalogue_model_handler),
         )
+        .merge(ai_routes::routes())
         .merge(vault_routes::routes())
         .with_state(state)
 }
 
+mod ai_routes;
 // The password vault's routes (ADR-0071). A child module, so it shares this file's extractor,
 // transaction opening and body helpers without making any of them public.
 mod vault_routes;
@@ -576,6 +581,8 @@ pub enum RouteError {
     Limited(&'static str),
     /// An invitation act refused: [`invite_error_response`].
     Invite(InviteError),
+    /// An AI-access act refused (ADR-0072): `ai::AiError::response`.
+    Ai(crate::ai::AiError),
     /// A vault act refused: `vault_routes::vault_error_response`.
     Vault(crate::vault::VaultError),
 }
@@ -618,6 +625,7 @@ impl IntoResponse for RouteError {
             )
                 .into_response(),
             Self::Invite(e) => invite_error_response(e),
+            Self::Ai(e) => e.response(),
             Self::Vault(e) => vault_routes::vault_error_response(e),
         }
     }

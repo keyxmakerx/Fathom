@@ -474,6 +474,31 @@ is gone — confirm-or-revert has nothing left to revert to — `fathom-server c
 nothing and grants nobody anything. The console then answers wherever the environment variables
 say, or everywhere if neither is set.
 
+## AI connections
+
+ADR-0072. AI access is off in every organisation until a Steward turns it on, and Admin › AI turns it
+off for the whole server at once (a reason is asked and shown to every organisation's Stewards).
+
+**The connector** lets Claude, Claude Code and, if a Steward allows them, other AI apps sign in to Fathom
+the way they sign in to any remote MCP server. It exists only when this is set:
+
+| Variable | What it is |
+|---|---|
+| `FATHOM_AI_PUBLIC_URL` | The address AI apps reach this server at, `https://host[:port]`, no path. Apps add `<this>/mcp`. `http://` only to a loopback host, for one computer. Unset: no `/mcp`, no `/oauth/*`, no `/.well-known/oauth-*`. |
+| `FATHOM_AI_SIGN_IN_URL` | Optional. Where a person's browser signs in, when that is a company address the AI vendor cannot reach. Default: the public address. |
+| `FATHOM_AI_CLAUDE_RANGES` | Comma-separated ranges a Claude (claude.ai) connection may be used from. Default `160.79.104.0/21`, Anthropic's published outbound range (platform.claude.com/docs/en/api/ip-addresses, read 2026-10-25), also when empty. `off` switches the check off. |
+
+**What has to be reachable.** Claude's hosted apps call from Anthropic's cloud: they need `/mcp`,
+`/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/oauth/token` and
+`/oauth/register` from that range. The sign-in page, `/oauth/authorize`, is opened by the person's own
+browser and may stay internal (`FATHOM_AI_SIGN_IN_URL`). Claude Code and the helper run on the person's
+computer and reach Fathom wherever the person can. The source-address check needs the proxy named in
+`FATHOM_TRUSTED_PROXIES`, as the sign-in rate limit does.
+
+**Stopping one.** A person, a Steward (with a reason) or an admin (with a reason) turns a connection off
+at its next request; it cannot be turned back on. Tokens are stored only as hashes: a database copy
+cannot be used to call `/mcp`.
+
 ## Break-glass: recovering an operator from the host
 
 ADR-0055 decision 8, in its own words: *"Break-glass is a host command, loud."* `fathom-server

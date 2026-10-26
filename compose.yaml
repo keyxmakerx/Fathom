@@ -387,6 +387,12 @@ services:
       # `.env`.
       FATHOM_ADMIN_HOSTS: ${FATHOM_ADMIN_HOSTS:-}
       FATHOM_ADMIN_SOURCES: ${FATHOM_ADMIN_SOURCES:-}
+      # AI connections (ADR-0072 decision 13; docs/OPERATING.md "AI connections"):
+      # off until FATHOM_AI_PUBLIC_URL is set in `.env` to the address AI apps
+      # reach this server at. An empty range list is the default range, not off.
+      FATHOM_AI_PUBLIC_URL: ${FATHOM_AI_PUBLIC_URL:-}
+      FATHOM_AI_SIGN_IN_URL: ${FATHOM_AI_SIGN_IN_URL:-}
+      FATHOM_AI_CLAUDE_RANGES: ${FATHOM_AI_CLAUDE_RANGES:-}
       # Firmware (ADR-0045): on once FATHOM_FIRMWARE_FETCH_BASE_URL is set in
       # `.env` -- the address your SWITCHES can reach this server on, which the
       # server cannot work out for itself. The `:+` form sets the directory only
