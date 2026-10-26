@@ -246,20 +246,22 @@ first thing to look at.
 
 ### Outside vaults (part four)
 
-A member can connect their own Vaultwarden so Fathom reads logins from one collection in it. The
-server makes the requests, over HTTPS, to the address the member types; your firewall must let the
-server reach it.
+A member can connect their own Vaultwarden, or Delinea Secret Server, so Fathom reads logins from
+one collection (one folder) in it. The server makes the requests, over HTTPS, to the address the
+member types; your firewall must let the server reach it.
 
 - **`FATHOM_OUTSIDE_VAULT_HOSTS`**: comma-separated host names. When set, members may connect
   vaults at these hosts only. Unset means any host the server can reach, which lets a member make
   the server send two fixed HTTPS requests to an address of their choosing; set it if the server
-  sits beside services that should not be probed.
+  sits beside services that should not be probed. Secret Server is four requests: a sign-in
+  (`/oauth2/token`), its folders, its secrets, and one secret when Fathom uses it.
 - **`FATHOM_OUTSIDE_VAULT_CA`**: a PEM file of certificates to trust beside Mozilla's roots, for a
   vault behind a private CA. The server refuses to start (exit code 10) if the file holds none.
   There is no setting that skips certificate checks.
-- The API key and the organisation key are sealed under `vault.key`, like Fathom's own copies:
-  readable by the server, so the same backup rules apply. Disconnecting empties them; the API key
-  still works in the vault until someone makes a new one there.
+- The API key and the organisation key, or Secret Server's account name and password, are sealed
+  under `vault.key`, like Fathom's own copies: readable by the server, so the same backup rules
+  apply. Disconnecting empties them; the key or password still works in the vault until someone
+  changes it there.
 - **This is the only place the server's binary carries C**: rustls's `ring` provider (ADR-0032 C7's
   one exception, `deps/decisions/ring.md`). Building from source needs a C compiler; the published
   image's build stage has one.

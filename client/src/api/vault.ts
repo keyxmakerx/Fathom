@@ -511,8 +511,9 @@ export interface OutsideConnection {
   id: string;
   owner: string;
   ownerName: string;
-  provider: 'vaultwarden';
+  provider: OutsideProvider;
   url: string;
+  /** Vaultwarden's collection, or Secret Server's folder. */
   collectionName: string;
   /** `stopped`: a check failed on a read, and `stoppedReason` says which. */
   state: 'on' | 'stopped' | 'disconnected';
@@ -521,6 +522,13 @@ export interface OutsideConnection {
   createdAt: number;
   items: OutsideItem[];
 }
+
+export type OutsideProvider = 'vaultwarden' | 'delinea';
+
+export const PROVIDER_LABELS: Record<OutsideProvider, string> = {
+  vaultwarden: 'Vaultwarden',
+  delinea: 'Secret Server',
+};
 
 export interface CheckLine {
   id: string;
@@ -570,6 +578,11 @@ function outsideItem(raw: unknown): OutsideItem {
   };
 }
 
+function outsideProvider(p: string): OutsideProvider {
+  if (p !== 'vaultwarden' && p !== 'delinea') throw new Error('malformed vault response: outside provider');
+  return p;
+}
+
 function outsideConnection(raw: unknown): OutsideConnection {
   const r = asRec(raw, W);
   const state = str(r, 'state', W);
@@ -578,7 +591,7 @@ function outsideConnection(raw: unknown): OutsideConnection {
     id: str(r, 'id', W),
     owner: str(r, 'owner', W),
     ownerName: str(r, 'ownerName', W),
-    provider: 'vaultwarden',
+    provider: outsideProvider(str(r, 'provider', W)),
     url: str(r, 'url', W),
     collectionName: str(r, 'collectionName', W),
     state,
@@ -626,6 +639,30 @@ export async function outsideConnect(
   e: { url: string; clientId: string; clientSecret: string; deviceId: string; collectionId: string; collectionName: string; orgKey: Uint8Array },
 ): Promise<OutsideConnection> {
   const answer = await signedFetch('POST', `${base(organisation)}/outside/connect`, body({ ...e, orgKey: toHex(e.orgKey) }));
+  return outsideConnection(jsonObject(answer, W));
+}
+
+/** Delinea Secret Server: the server signs in with the account and reads what it sees. */
+export async function outsideDelineaPrepare(
+  organisation: string,
+  e: { url: string; username: string; password: string },
+): Promise<{ url: string; folders: { id: string; name: string }[]; checks: CheckLine[] }> {
+  const r = jsonObject(await signedFetch('POST', `${base(organisation)}/outside/prepare`, body({ provider: 'delinea', ...e })), W);
+  return {
+    url: str(r, 'url', W),
+    folders: arrayOf(r, 'folders', W).map((f) => {
+      const x = asRec(f, W);
+      return { id: str(x, 'id', W), name: str(x, 'name', W) };
+    }),
+    checks: checkLines(r),
+  };
+}
+
+export async function outsideDelineaConnect(
+  organisation: string,
+  e: { url: string; username: string; password: string; folderName: string },
+): Promise<OutsideConnection> {
+  const answer = await signedFetch('POST', `${base(organisation)}/outside/connect`, body({ provider: 'delinea', ...e }));
   return outsideConnection(jsonObject(answer, W));
 }
 

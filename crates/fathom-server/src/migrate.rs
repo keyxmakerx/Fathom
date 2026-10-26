@@ -287,6 +287,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0046_ai_access_keys.sql",
         sql: include_str!("../migrations/0046_ai_access_keys.sql"),
     },
+    // Delinea Secret Server, the second kind of outside vault.
+    Migration {
+        version: 47,
+        name: "0047_vault_delinea.sql",
+        sql: include_str!("../migrations/0047_vault_delinea.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

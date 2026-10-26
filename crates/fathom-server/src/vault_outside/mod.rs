@@ -1,7 +1,8 @@
-//! **Outside vaults: logins Fathom reads from a person's own Vaultwarden** (ADR-0071 part four;
-//! owner's answers 2026-10-26: r34-vault-read A, "Make sure this is per user, but the Admin can
-//! reject/pull whatever as needed", r34-vault-crates, r34-vault-ring A).
-//! `migrations/0045_vault_outside.sql` carries the reasoning for the tables.
+//! **Outside vaults: logins Fathom reads from a person's own Vaultwarden or Delinea Secret
+//! Server** (ADR-0071 part four; owner's answers 2026-10-26: r34-vault-read A, "Make sure this is
+//! per user, but the Admin can reject/pull whatever as needed", r34-vault-crates, r34-vault-ring
+//! A). `migrations/0045_vault_outside.sql` carries the reasoning for the tables;
+//! `0047_vault_delinea.sql` adds the second provider.
 //!
 //! # The shape
 //!
@@ -13,6 +14,11 @@
 //! time, each marked with the devices it is used on. Fathom reads a pulled login's user name and
 //! password from the outside vault each time it uses it, after the checks pass again; it keeps
 //! no copy.
+//!
+//! **Secret Server** ([`delinea`]) has the same shape with one folder for the collection: the
+//! server signs in with an application account's user name and password (sealed the same way),
+//! the two [`delinea::checks`] run on what the account can see, and a use reads the one secret.
+//! Secret Server names folders and secrets in the clear, so nothing is opened in a browser.
 //!
 //! # What enforces what, by function
 //!
@@ -35,6 +41,7 @@
 //! outside vault. The connect screen says so before anyone connects.
 
 pub mod bitwarden;
+pub mod delinea;
 pub mod https;
 pub mod vaultwarden;
 
@@ -396,16 +403,206 @@ pub async fn vw_read(
     Ok((token, sync))
 }
 
+/// A Secret Server application account's user name and password, as Fathom accepts them.
+pub fn check_account(user: &str, password: &str) -> Result<(), VaultError> {
+    if user.is_empty() || user.chars().count() > 256 || user.chars().any(char::is_control) {
+        return Err(VaultError::Malformed("the account's user name"));
+    }
+    if password.is_empty() || password.len() > 1024 || password.chars().any(char::is_control) {
+        return Err(VaultError::Malformed("the account's password"));
+    }
+    Ok(())
+}
+
+async fn dl_json(
+    outside: &Outside,
+    url: &OutsideUrl,
+    token: &str,
+    path: String,
+) -> Result<Json, VaultError> {
+    let answer = outside
+        .net
+        .send(HttpRequest {
+            method: "GET",
+            url: url.clone(),
+            path,
+            headers: vec![("Authorization", format!("Bearer {token}"))],
+            body: Vec::new(),
+        })
+        .await
+        .map_err(|e| unreachable(e.0))?;
+    match answer.status {
+        200 => {}
+        401 | 403 => {
+            return Err(VaultError::OutsideRefused(
+                "the vault refused the account Fathom reads with; it may need View on its folder, or a secret may need a check-out or a comment, which Fathom does not do"
+                    .to_string(),
+            ))
+        }
+        s => return Err(unreachable(format!("the vault answered {s} when Fathom read it"))),
+    }
+    foreign_json::parse(&answer.body)
+        .map_err(|_| unreachable("the vault's answer was not one Fathom reads"))
+}
+
+/// Sign in to Secret Server and read what the account sees: its folders, its secrets, and the
+/// one secret `item` when a use asks for it.
+pub async fn dl_read(
+    outside: &Outside,
+    url: &OutsideUrl,
+    user: &str,
+    password: &str,
+    item: Option<&str>,
+) -> Result<delinea::Answer, VaultError> {
+    outside.check_host(url)?;
+    let body = form_encode(&[
+        ("username", user),
+        ("password", password),
+        ("grant_type", "password"),
+    ]);
+    let answer = outside
+        .net
+        .send(HttpRequest {
+            method: "POST",
+            url: url.clone(),
+            path: "/oauth2/token".to_string(),
+            headers: vec![(
+                "Content-Type",
+                "application/x-www-form-urlencoded; charset=utf-8".to_string(),
+            )],
+            body,
+        })
+        .await
+        .map_err(|e| unreachable(e.0))?;
+    match answer.status {
+        200 => {}
+        400 | 401 => {
+            return Err(VaultError::OutsideRefused(
+                "the vault refused the account: check its user name and password, and that it may sign in to the API (an account that needs a one-time code cannot be used)"
+                    .to_string(),
+            ))
+        }
+        s => return Err(unreachable(format!("the vault answered {s} to the sign-in"))),
+    }
+    let v = foreign_json::parse(&answer.body).map_err(|_| {
+        unreachable(
+            "the vault's sign-in answer was not one Fathom reads; is that address a Secret Server?",
+        )
+    })?;
+    let mut token = delinea::read_token(&v).map_err(|e| unreachable(e.0))?;
+    let take = delinea::TAKE;
+    let read = async {
+        let folders = delinea::read_folders(
+            &dl_json(outside, url, &token, format!("/api/v1/folders?take={take}")).await?,
+        )
+        .map_err(|e| unreachable(e.0))?;
+        let secrets = delinea::read_secrets(
+            &dl_json(outside, url, &token, format!("/api/v1/secrets?take={take}")).await?,
+        )
+        .map_err(|e| unreachable(e.0))?;
+        let secret = match item {
+            None => None,
+            Some(id) => {
+                if id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit()) {
+                    return Err(VaultError::Malformed("the secret"));
+                }
+                Some(
+                    delinea::read_secret(
+                        &dl_json(outside, url, &token, format!("/api/v1/secrets/{id}")).await?,
+                    )
+                    .map_err(|e| unreachable(e.0))?,
+                )
+            }
+        };
+        Ok(delinea::Answer {
+            folders,
+            secrets,
+            secret,
+        })
+    }
+    .await;
+    wipe_string(&mut token);
+    read
+}
+
+/// One round's answer from either kind of vault.
+pub enum Answer {
+    Vaultwarden(SyncAnswer),
+    Delinea(delinea::Answer),
+}
+
+impl From<SyncAnswer> for Answer {
+    fn from(s: SyncAnswer) -> Self {
+        Self::Vaultwarden(s)
+    }
+}
+
+impl Answer {
+    /// The checks, for the connection's collection or folder.
+    pub fn checks(&self, collection: Option<&str>, name: Option<&str>) -> Vec<CheckLine> {
+        match self {
+            Self::Vaultwarden(s) => vaultwarden::checks(s, collection, name),
+            Self::Delinea(a) => delinea::checks(a, collection, name),
+        }
+    }
+}
+
+/// Sign in and read, with a connection's own secrets. `item` is the secret a use needs, read in
+/// the same round (Secret Server answers a password only for one secret at a time; Vaultwarden's
+/// sync already holds every item).
+pub async fn read(
+    outside: &Outside,
+    url: &OutsideUrl,
+    s: &Secrets,
+    device_id: &str,
+    item: Option<&str>,
+) -> Result<Answer, VaultError> {
+    match s.provider {
+        Provider::Vaultwarden => vw_read(outside, url, &s.client_id, &s.client_secret, device_id)
+            .await
+            .map(|(_, sync)| Answer::Vaultwarden(sync)),
+        Provider::Delinea => dl_read(outside, url, &s.client_id, &s.client_secret, item)
+            .await
+            .map(Answer::Delinea),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // What is sealed under vault.key
 // ---------------------------------------------------------------------------
 
+/// Which kind of outside vault a connection is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Provider {
+    Vaultwarden,
+    Delinea,
+}
+
+impl Provider {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Vaultwarden => "vaultwarden",
+            Self::Delinea => "delinea",
+        }
+    }
+
+    pub fn parse(s: &str) -> Result<Self, VaultError> {
+        match s {
+            "vaultwarden" => Ok(Self::Vaultwarden),
+            "delinea" => Ok(Self::Delinea),
+            _ => Err(VaultError::Malformed("provider")),
+        }
+    }
+}
+
 /// A connection's secrets as the server holds them while it uses them. No `Debug`, `Clone`;
-/// wiped on drop.
+/// wiped on drop. `client_id` and `client_secret` are a Vaultwarden personal API key, or a Secret Server
+/// application account's user name and password. `org_key` is Vaultwarden's alone.
 pub struct Secrets {
+    pub provider: Provider,
     pub client_id: String,
     pub client_secret: String,
-    pub org_key: BwKey,
+    pub org_key: Option<BwKey>,
 }
 
 impl Drop for Secrets {
@@ -481,7 +678,10 @@ fn seal_secrets(
     let mut m = BTreeMap::new();
     m.insert("ci".to_string(), Json::Str(s.client_id.clone()));
     m.insert("cs".to_string(), Json::Str(s.client_secret.clone()));
-    m.insert("ok".to_string(), Json::Str(hex(s.org_key.expose())));
+    m.insert("pv".to_string(), Json::Str(s.provider.as_str().to_string()));
+    if let Some(k) = &s.org_key {
+        m.insert("ok".to_string(), Json::Str(hex(k.expose())));
+    }
     let plain = Json::Obj(m).to_canonical_bytes();
     seal(
         fk,
@@ -516,20 +716,30 @@ fn open_secrets(
     let Ok(Json::Obj(mut m)) = parsed else {
         return Err(VaultError::Corrupt("outside vault secrets"));
     };
-    let (Some(Json::Str(ci)), Some(Json::Str(cs)), Some(Json::Str(mut ok))) =
-        (m.remove("ci"), m.remove("cs"), m.remove("ok"))
+    let (Some(Json::Str(ci)), Some(Json::Str(cs)), Some(Json::Str(pv))) =
+        (m.remove("ci"), m.remove("cs"), m.remove("pv"))
     else {
         return Err(VaultError::Corrupt("outside vault secrets"));
     };
-    let mut raw = unhex(&ok, Some(64), "organisation key")
-        .map_err(|_| VaultError::Corrupt("outside vault secrets"))?;
-    wipe_string(&mut ok);
-    let org_key = BwKey::from_slice(&raw).ok_or(VaultError::Corrupt("outside vault secrets"));
-    wipe(&mut raw);
+    let provider =
+        Provider::parse(&pv).map_err(|_| VaultError::Corrupt("outside vault secrets"))?;
+    let org_key = match (provider, m.remove("ok")) {
+        (Provider::Vaultwarden, Some(Json::Str(mut ok))) => {
+            let mut raw = unhex(&ok, Some(64), "organisation key")
+                .map_err(|_| VaultError::Corrupt("outside vault secrets"))?;
+            wipe_string(&mut ok);
+            let k = BwKey::from_slice(&raw).ok_or(VaultError::Corrupt("outside vault secrets"));
+            wipe(&mut raw);
+            Some(k?)
+        }
+        (Provider::Delinea, None) => None,
+        _ => return Err(VaultError::Corrupt("outside vault secrets")),
+    };
     Ok(Secrets {
+        provider,
         client_id: ci,
         client_secret: cs,
-        org_key: org_key?,
+        org_key,
     })
 }
 
@@ -592,8 +802,40 @@ pub struct OutsideLogin {
     pub has_password: bool,
 }
 
-/// Every login in `collection`, by name, with the item's own key where it has one.
+/// Every login in `collection` (a Vaultwarden collection or a Secret Server folder), by name.
 fn logins_in(
+    answer: &Answer,
+    collection: &str,
+    secrets: &Secrets,
+) -> Result<Vec<OutsideLogin>, VaultError> {
+    match answer {
+        Answer::Vaultwarden(sync) => {
+            let org = secrets
+                .org_key
+                .as_ref()
+                .ok_or(VaultError::Corrupt("outside vault secrets"))?;
+            vw_logins_in(sync, collection, org)
+        }
+        Answer::Delinea(a) => {
+            let mut out: Vec<OutsideLogin> = a
+                .secrets
+                .iter()
+                .filter(|s| s.folder_id.as_deref() == Some(collection))
+                .map(|s| OutsideLogin {
+                    cipher_id: s.id.clone(),
+                    name: s.name.clone(),
+                    // A summary does not say; the read at use does.
+                    has_password: true,
+                })
+                .collect();
+            out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            Ok(out)
+        }
+    }
+}
+
+/// Every login in a Vaultwarden collection, opened with the item's own key where it has one.
+fn vw_logins_in(
     sync: &SyncAnswer,
     collection: &str,
     org: &BwKey,
@@ -914,22 +1156,24 @@ async fn file_changed(
 
 /// What a person sends to connect. The organisation key is the one their browser opened.
 pub struct ConnectIn {
+    pub provider: Provider,
     pub url: OutsideUrl,
     pub client_id: String,
     pub client_secret: String,
     pub device_id: String,
     pub collection_id: String,
     pub collection_name: String,
-    pub org_key: BwKey,
+    /// Vaultwarden's, opened in the person's browser; `None` for Secret Server.
+    pub org_key: Option<BwKey>,
 }
 
-/// Connect, after `vw_read` with the same API key. See the module comment.
+/// Connect, after [`read`]'s first round with the same credentials. See the module comment.
 pub async fn connect(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
     fk: &FathomKey,
     input: ConnectIn,
-    sync: &SyncAnswer,
+    answer: &Answer,
 ) -> Result<ConnectionView, VaultError> {
     let tenant = auth.ctx.tenant().to_string();
     let me = auth.ctx.actor().to_string();
@@ -941,32 +1185,41 @@ pub async fn connect(
     if name.is_empty() || name.chars().count() > 200 {
         return Err(VaultError::Malformed("the collection's name"));
     }
-    let lines = vaultwarden::checks(sync, Some(&input.collection_id), Some(&name));
+    let lines = answer.checks(Some(&input.collection_id), Some(&name));
     if let Some(why) = vaultwarden::first_failure(&lines) {
         return Err(VaultError::OutsideRefused(why));
     }
-    let col = &sync.collections[0];
-    // The key handed over opens this collection's sealed name, and the name is the one the
-    // person typed: the key is this collection's organisation key and no other.
-    let opened_name = bitwarden::open_text(&col.protected_name, &input.org_key).map_err(|e| match e {
-        OpenError::Mac => VaultError::OutsideRefused(
-            "the key your browser opened is not this collection's; open the vault again with its master password".to_string(),
-        ),
-        _ => unreachable("the collection's name is not in a form Fathom reads"),
-    })?;
-    if opened_name.split_whitespace().collect::<Vec<_>>().join(" ") != name {
-        return Err(VaultError::OutsideRefused(format!(
-            "the account's one collection is not called “{name}”; check the name"
-        )));
-    }
-    // Every login in it opens with that key, so a later read will not fail half way.
-    logins_in(sync, &col.id, &input.org_key)?;
+    let outside_org = match (answer, input.provider, &input.org_key) {
+        (Answer::Vaultwarden(sync), Provider::Vaultwarden, Some(org_key)) => {
+            let col = &sync.collections[0];
+            // The key handed over opens this collection's sealed name, and the name is the one
+            // the person typed: the key is this collection's organisation key and no other.
+            let opened_name = bitwarden::open_text(&col.protected_name, org_key).map_err(|e| match e {
+                OpenError::Mac => VaultError::OutsideRefused(
+                    "the key your browser opened is not this collection's; open the vault again with its master password".to_string(),
+                ),
+                _ => unreachable("the collection's name is not in a form Fathom reads"),
+            })?;
+            if opened_name.split_whitespace().collect::<Vec<_>>().join(" ") != name {
+                return Err(VaultError::OutsideRefused(format!(
+                    "the account's one collection is not called “{name}”; check the name"
+                )));
+            }
+            col.org_id.clone()
+        }
+        // Secret Server names its folders in the clear; the checks compared the name.
+        (Answer::Delinea(_), Provider::Delinea, None) => input.collection_id.clone(),
+        _ => return Err(VaultError::Malformed("provider")),
+    };
     let id = format!("out_{}", crate::ids::new_ulid());
     let secrets = Secrets {
+        provider: input.provider,
         client_id: input.client_id.clone(),
         client_secret: input.client_secret.clone(),
         org_key: input.org_key,
     };
+    // Every login in it opens, so a later read will not fail half way.
+    logins_in(answer, &input.collection_id, &secrets)?;
     let (ct, nonce, key_id) = seal_secrets(fk, &tenant, &id, &secrets)?;
     drop(secrets);
     file_changed(
@@ -978,9 +1231,9 @@ pub async fn connect(
             &me,
             &me,
             vec![
-                ("provider", Json::Str("vaultwarden".to_string())),
+                ("provider", Json::Str(input.provider.as_str().to_string())),
                 ("url", Json::Str(input.url.to_text())),
-                ("collection", Json::Str(col.id.clone())),
+                ("collection", Json::Str(input.collection_id.clone())),
                 ("server_key", Json::Str(key_id.clone())),
             ],
         ),
@@ -990,19 +1243,20 @@ pub async fn connect(
         "INSERT INTO vault.outside_connections (organisation_id, id, owner, provider, base_url, \
             outside_org_id, collection_id, collection_name, device_id, state, server_key_id, \
             secret_nonce, secret_ct, checked_at, updated_by) \
-         VALUES ($1, $2, $3, 'vaultwarden', $4, $5, $6, $7, $8, 'on', $9, $10, $11, now(), $3)",
+         VALUES ($1, $2, $3, $12, $4, $5, $6, $7, $8, 'on', $9, $10, $11, now(), $3)",
         &[
             &tenant,
             &id,
             &me,
             &input.url.to_text(),
-            &col.org_id,
-            &col.id,
+            &outside_org,
+            &input.collection_id,
             &name,
             &input.device_id,
             &key_id,
             &nonce,
             &ct,
+            &input.provider.as_str(),
         ],
     )
     .await?;
@@ -1039,7 +1293,7 @@ async fn load_plan(
         .query_opt(
             &format!(
                 "SELECT owner, base_url, device_id, collection_id, collection_name, state, \
-                        server_key_id, secret_nonce, secret_ct \
+                        server_key_id, secret_nonce, secret_ct, provider \
                  FROM vault.outside_connections WHERE organisation_id = $1 AND id = $2{}",
                 if lock { " FOR UPDATE" } else { "" }
             ),
@@ -1061,6 +1315,9 @@ async fn load_plan(
         &r.get::<_, Vec<u8>>(7),
         &r.get::<_, Vec<u8>>(8),
     )?;
+    if secrets.provider.as_str() != r.get::<_, String>(9) {
+        return Err(VaultError::Corrupt("an outside vault's provider"));
+    }
     Ok((
         Plan {
             connection: connection.to_string(),
@@ -1123,7 +1380,7 @@ pub async fn after_check(
     auth: &Authority<'_>,
     fk: &FathomKey,
     plan: &Plan,
-    read: Result<SyncAnswer, VaultError>,
+    read: Result<Answer, VaultError>,
 ) -> Result<Result<Checked, VaultError>, VaultError> {
     let tenant = auth.ctx.tenant().to_string();
     let me = auth.ctx.actor().to_string();
@@ -1132,15 +1389,11 @@ pub async fn after_check(
     let (lines, logins, failure) = match read {
         Err(VaultError::OutsideRefused(why)) => (Vec::new(), Vec::new(), Some(why)),
         Err(e) => return Ok(Err(e)),
-        Ok(sync) => {
-            let lines = vaultwarden::checks(
-                &sync,
-                Some(&plan.collection_id),
-                Some(&plan.collection_name),
-            );
+        Ok(answer) => {
+            let lines = answer.checks(Some(&plan.collection_id), Some(&plan.collection_name));
             match vaultwarden::first_failure(&lines) {
                 Some(why) => (lines, Vec::new(), Some(why)),
-                None => match logins_in(&sync, &plan.collection_id, &plan.secrets.org_key) {
+                None => match logins_in(&answer, &plan.collection_id, &plan.secrets) {
                     Ok(l) => (lines, l, None),
                     Err(VaultError::OutsideRefused(why)) => (lines, Vec::new(), Some(why)),
                     Err(e) => return Ok(Err(e)),
@@ -1232,7 +1485,7 @@ pub async fn pull(
     auth: &Authority<'_>,
     fk: &FathomKey,
     plan: &Plan,
-    sync: &SyncAnswer,
+    answer: &Answer,
     cipher_id: &str,
     kind: &str,
     used_on: Vec<(String, String)>,
@@ -1245,7 +1498,7 @@ pub async fn pull(
             "this outside vault is stopped; check it again first",
         )));
     }
-    let lines = vaultwarden::checks(sync, Some(&plan.collection_id), Some(&plan.collection_name));
+    let lines = answer.checks(Some(&plan.collection_id), Some(&plan.collection_name));
     if let Some(why) = vaultwarden::first_failure(&lines) {
         stop(
             tx,
@@ -1260,7 +1513,7 @@ pub async fn pull(
         .await?;
         return Ok(Err(VaultError::OutsideRefused(why)));
     }
-    let logins = match logins_in(sync, &plan.collection_id, &plan.secrets.org_key) {
+    let logins = match logins_in(answer, &plan.collection_id, &plan.secrets) {
         Ok(l) => l,
         Err(e) => return Ok(Err(e)),
     };
@@ -1502,6 +1755,11 @@ pub async fn disconnect(
 // Fathom using a pulled login
 // ---------------------------------------------------------------------------
 
+enum Found<'a> {
+    Vaultwarden(&'a vaultwarden::Cipher),
+    Delinea(&'a delinea::Secret),
+}
+
 pub struct UsePlan {
     pub plan: Plan,
     pub item: String,
@@ -1597,7 +1855,7 @@ pub async fn use_finish(
     auth: &Authority<'_>,
     fk: &FathomKey,
     up: &UsePlan,
-    read: Result<SyncAnswer, VaultError>,
+    read: Result<Answer, VaultError>,
 ) -> Result<Result<UsedLogin, VaultError>, VaultError> {
     let tenant = auth.ctx.tenant().to_string();
     let me = auth.ctx.actor().to_string();
@@ -1614,7 +1872,7 @@ pub async fn use_finish(
             "this login, or the outside vault it comes from, changed while Fathom read it",
         )));
     }
-    let sync = match read {
+    let answer = match read {
         Ok(s) => s,
         Err(VaultError::OutsideRefused(why)) => {
             stop(
@@ -1632,11 +1890,7 @@ pub async fn use_finish(
         }
         Err(e) => return Ok(Err(e)),
     };
-    let lines = vaultwarden::checks(
-        &sync,
-        Some(&up.plan.collection_id),
-        Some(&up.plan.collection_name),
-    );
+    let lines = answer.checks(Some(&up.plan.collection_id), Some(&up.plan.collection_name));
     if let Some(why) = vaultwarden::first_failure(&lines) {
         stop(
             tx,
@@ -1651,21 +1905,43 @@ pub async fn use_finish(
         .await?;
         return Ok(Err(VaultError::OutsideRefused(why)));
     }
-    let Some(cipher) = sync.ciphers.iter().find(|c| {
-        c.id == up.cipher_id
-            && !c.deleted
-            && c.kind == vaultwarden::CIPHER_LOGIN
-            && c.collection_ids.contains(&up.plan.collection_id)
-    }) else {
-        return Ok(Err(VaultError::NotAllowed(
+    let gone = || {
+        Ok(Err(VaultError::NotAllowed(
             "that login is not in the outside vault's collection any more",
-        )));
+        )))
     };
-    if !cipher.view_password {
-        return Ok(Err(VaultError::NotAllowed(
-            "the outside vault hides this login's password from the account Fathom uses",
-        )));
-    }
+    let found = match &answer {
+        Answer::Vaultwarden(sync) => {
+            let Some(cipher) = sync.ciphers.iter().find(|c| {
+                c.id == up.cipher_id
+                    && !c.deleted
+                    && c.kind == vaultwarden::CIPHER_LOGIN
+                    && c.collection_ids.contains(&up.plan.collection_id)
+            }) else {
+                return gone();
+            };
+            if !cipher.view_password {
+                return Ok(Err(VaultError::NotAllowed(
+                    "the outside vault hides this login's password from the account Fathom uses",
+                )));
+            }
+            Found::Vaultwarden(cipher)
+        }
+        Answer::Delinea(a) => {
+            let Some(secret) = a.secret.as_ref().filter(|x| {
+                x.id == up.cipher_id
+                    && x.folder_id.as_deref() == Some(up.plan.collection_id.as_str())
+            }) else {
+                return gone();
+            };
+            if secret.password.is_none() {
+                return Ok(Err(VaultError::NotAllowed(
+                    "that secret has no password field Fathom can read",
+                )));
+            }
+            Found::Delinea(secret)
+        }
+    };
     let appended = chains::append_org(
         tx,
         auth.ring,
@@ -1706,23 +1982,34 @@ pub async fn use_finish(
         &[&tenant, &up.plan.connection],
     )
     .await?;
-    let own = match bitwarden::item_key(cipher.protected_key.as_deref(), &up.plan.secrets.org_key) {
-        Ok(k) => k,
-        Err(e) => return Ok(Err(opened(e))),
-    };
-    let key = own.as_ref().unwrap_or(&up.plan.secrets.org_key);
-    let text = |v: &Option<String>| -> Result<String, VaultError> {
-        match v {
-            None => Ok(String::new()),
-            Some(v) => bitwarden::open_text(v, key).map_err(opened),
+    let (user, password) = match found {
+        Found::Delinea(secret) => (
+            secret.user.clone().unwrap_or_default(),
+            secret.password.clone().unwrap_or_default(),
+        ),
+        Found::Vaultwarden(cipher) => {
+            let Some(org) = up.plan.secrets.org_key.as_ref() else {
+                return Err(VaultError::Corrupt("outside vault secrets"));
+            };
+            let own = match bitwarden::item_key(cipher.protected_key.as_deref(), org) {
+                Ok(k) => k,
+                Err(e) => return Ok(Err(opened(e))),
+            };
+            let key = own.as_ref().unwrap_or(org);
+            let text = |v: &Option<String>| -> Result<String, VaultError> {
+                match v {
+                    None => Ok(String::new()),
+                    Some(v) => bitwarden::open_text(v, key).map_err(opened),
+                }
+            };
+            match (
+                text(&cipher.protected_username),
+                text(&cipher.protected_password),
+            ) {
+                (Ok(u), Ok(p)) => (u, p),
+                (Err(e), _) | (_, Err(e)) => return Ok(Err(e)),
+            }
         }
-    };
-    let (user, password) = match (
-        text(&cipher.protected_username),
-        text(&cipher.protected_password),
-    ) {
-        (Ok(u), Ok(p)) => (u, p),
-        (Err(e), _) | (_, Err(e)) => return Ok(Err(e)),
     };
     Ok(Ok(UsedLogin { user, password }))
 }
@@ -1793,9 +2080,10 @@ mod tests {
     fn secrets_open_only_for_their_organisation_and_connection() {
         let fk = FathomKey::from_key(crypto::Key32::from_bytes([7; 32]));
         let s = Secrets {
+            provider: Provider::Vaultwarden,
             client_id: "user.abc".into(),
             client_secret: "secret".into(),
-            org_key: BwKey::from_slice(&[5u8; 64]).unwrap(),
+            org_key: Some(BwKey::from_slice(&[5u8; 64]).unwrap()),
         };
         let (ct, nonce, key_id) = seal_secrets(&fk, "01JORG", "out_X", &s).unwrap();
         let back = open_secrets(&fk, "01JORG", "out_X", &key_id, &nonce, &ct).unwrap();
@@ -1803,7 +2091,17 @@ mod tests {
             (back.client_id.as_str(), back.client_secret.as_str()),
             ("user.abc", "secret")
         );
-        assert_eq!(back.org_key.expose(), &[5u8; 64]);
+        assert_eq!(back.org_key.as_ref().unwrap().expose(), &[5u8; 64]);
+        let d = Secrets {
+            provider: Provider::Delinea,
+            client_id: "svc-fathom".into(),
+            client_secret: "pw".into(),
+            org_key: None,
+        };
+        let (ct2, nonce2, _) = seal_secrets(&fk, "01JORG", "out_D", &d).unwrap();
+        let back = open_secrets(&fk, "01JORG", "out_D", &key_id, &nonce2, &ct2).unwrap();
+        assert_eq!(back.provider, Provider::Delinea);
+        assert!(back.org_key.is_none());
         assert!(open_secrets(&fk, "01JOTHER", "out_X", &key_id, &nonce, &ct).is_err());
         assert!(open_secrets(&fk, "01JORG", "out_Y", &key_id, &nonce, &ct).is_err());
         let other = FathomKey::from_key(crypto::Key32::from_bytes([8; 32]));

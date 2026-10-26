@@ -157,10 +157,34 @@ r34-vault-crates24 (all 24 packages), r34-vault-ring A.
     caps past their numbers, measured 2026-10-26: 171 packages against C2's 160 (161 for Linux) and
     22 with a `build.rs` against C4's 12 (14 for Linux). No script enforces either cap.
 
+### Delinea Secret Server, built 2026-10-26
+
+Sources, read 2026-10-26: docs.delinea.com, Secret Server 12.3.x ("Script Authentication Using
+Tokens"; "REST API PowerShell Scripts"); DelineaXPM/python-tss-sdk and tss-sdk-go (main); the
+xsoar.pan.dev Secret Server integration. Each is cited where it is used, in
+`src/vault_outside/delinea.rs`.
+
+22. **The server signs in with an account, nothing opens in a browser.** Secret Server names
+    folders and secrets in the clear and answers a password in the clear, so there is no key for a
+    browser to open: the server signs in (`POST /oauth2/token`, `grant_type=password`), reads the
+    folders and secrets the account sees, and reads one secret only when a use asks for it. The
+    account's user name and password are sealed under `vault.key` as Vaultwarden's API key is.
+    Migration `0047_vault_delinea.sql` widens the provider list; nothing new is stored.
+23. **Two checks, on what the account can see.** It sees exactly one folder and it is the
+    connected one by id and the typed name; every secret it sees is in that folder. A failure stops
+    the connection as in 18. A partial page (a `total` above what was listed) is refused rather
+    than checked.
+24. **Not established, and said on the screen.** Whether the API states an account's permission on
+    a folder could not be established (the REST reference refused the build machine), so Fathom
+    checks what the account can see, not whether it can edit, and the connect screen asks for View
+    only and says so. A secret that needs a check-out or a comment is refused, not worked around.
+    No real Secret Server was reachable: the tests and the drive use a stand-in of the documented
+    shapes. An account that needs a one-time code cannot be used.
+
 **Departures from mockup r32-vault-external.** The mockup's provider list shows Passbolt and Delinea
-as "Next" and not selectable. Marking a pulled login on devices is on the device's Logins tab, as for
+as "Next" and not selectable; Delinea is now selectable. Marking a pulled login on devices is on the device's Logins tab, as for
 Fathom's own logins, not in the connect dialog.
 
 ## Not decided here (after part four)
-- **Passbolt and Delinea**, next in round 32. Each vault's current documentation is read again
-  before it is built.
+- **Passbolt**, next in round 32. It needs OpenPGP for sign-in and for every secret; the crate
+  that would do it brings advisories with no fix, and the owner is choosing how to go on.
