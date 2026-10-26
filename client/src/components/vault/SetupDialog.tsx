@@ -3,10 +3,13 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
+import { registerBrowserKey } from '../../api/credentials';
+import { ApiRefusal } from '../../api/errors';
 import { signingKey } from '../../api/share';
 import type { VaultOverview } from '../../api/vault';
 import { newVaultSecret, vaultKeyText } from '../../vault/crypto';
 import { setUpVault, vaultEngine } from '../../vault/session';
+import { getSession } from '../../state/sessionState';
 import { describeError } from '../design/useDesignSession';
 import { VaultModal } from './Modal';
 import { KitSheet, rememberCheck } from './parts';
@@ -23,6 +26,10 @@ export function SetupDialog({ organisation, organisationName, overview, onDone, 
   const [b, setB] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // This browser holds a key, but the server does not count it as one of this account's: its
+  // data was restored or set up again since, or the key was retired. Sign-in only makes a key
+  // for a browser that holds none, so the dialog offers to make a new one here.
+  const [staleKey, setStaleKey] = useState(false);
   // The vault key is signed by this browser's own key, which is made at a sign-in with the
   // authenticator app (ADR-0056 decision 4 words it that way, never "app code").
   // Someone who signed in with only a password is told so before the kit, not after the passphrase.
@@ -43,10 +50,30 @@ export function SetupDialog({ organisation, organisationName, overview, onDone, 
       rememberCheck(organisation, overview.me);
       setStep(4);
     } catch (e) {
-      setError(describeError(e));
+      if (e instanceof ApiRefusal && e.status === 409 && e.message.trim() === 'no signing key') {
+        setStaleKey(true);
+      } else {
+        setError(describeError(e));
+      }
     } finally {
       setBusy(false);
     }
+  }
+
+  async function newKeyHere() {
+    const address = getSession()?.address;
+    if (!address) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await registerBrowserKey(address);
+      setStaleKey(false);
+    } catch (e) {
+      setBusy(false);
+      setError(`Fathom could not make a new signing key for this browser: ${describeError(e)}`);
+      return;
+    }
+    await finish();
   }
 
   const tooShort = a.length > 0 && a.length < MIN_PASSPHRASE;
@@ -133,6 +160,17 @@ export function SetupDialog({ organisation, organisationName, overview, onDone, 
             <p className="vault-error" role="alert">
               {error}
             </p>
+          )}
+          {staleKey && (
+            <div className="vault-note vault-note--caution" role="alert" data-testid="vault-stale-key">
+              <p>
+                This browser&rsquo;s signing key is not one Fathom&rsquo;s server knows any more. That happens when the server&rsquo;s data
+                was restored or set up again, or the key was retired. Nothing was saved.
+              </p>
+              <button type="button" className="vault-btn vault-btn--solid" onClick={() => void newKeyHere()} disabled={busy} data-testid="vault-new-key-here">
+                Make a new signing key for this browser and try again
+              </button>
+            </div>
           )}
           <div className="vault-actions">
             <button type="submit" className="vault-btn vault-btn--solid" disabled={busy || a.length < MIN_PASSPHRASE || a !== b} data-testid="vault-setup-finish">
