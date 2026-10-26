@@ -27,6 +27,7 @@ import { PlacementForm } from './PlacementForm';
 import { BackupsPanel } from './BackupsPanel';
 import { SmtpForm } from './SmtpForm';
 import { secondsLeft } from './placementCopy';
+import { SkeletonRows } from '../ui/Skeleton';
 import './console.css';
 import '../../styles/console.css';
 
@@ -81,6 +82,12 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
   const consoleHost = useConsoleHost();
   const [notices, setNotices] = useState<Notice[]>([]);
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  // **The page arrives whole.** The banner, the tabs and the lists each wait
+  // on a request of their own; drawn as each came back, the banner landed
+  // last and pushed everything below it down (owner, 2026-10-26: "things
+  // loaded separately"). So the board below the heading waits for the first
+  // round, and a quick answer shows no loading shapes at all.
+  const [firstLoadDone, setFirstLoadDone] = useState(false);
 
   // **A refresh does not put the lists back to `loading`.** `ListBlock`
   // renders nothing but a word while a list is loading, so doing that would
@@ -90,18 +97,20 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
   // the confirmation vanished. The first load still shows `loading`,
   // because that is the state the component starts in.
   const refresh = useCallback(() => {
-    listOperators()
-      .then((value) => setOperators({ status: 'ready', value }))
-      .catch((error: unknown) => setOperators({ status: 'error', message: describe(error) }));
-    listOrganisations()
-      .then((value) => setOrganisations({ status: 'ready', value }))
-      .catch((error: unknown) => setOrganisations({ status: 'error', message: describe(error) }));
+    const lists = [
+      listOperators()
+        .then((value) => setOperators({ status: 'ready', value }))
+        .catch((error: unknown) => setOperators({ status: 'error', message: describe(error) })),
+      listOrganisations()
+        .then((value) => setOrganisations({ status: 'ready', value }))
+        .catch((error: unknown) => setOrganisations({ status: 'error', message: describe(error) })),
+    ];
     // A notice that cannot be fetched is not a notice that does not exist,
     // but there is nothing honest to show in its place: the banner stays
     // empty and the section errors below say what failed.
     // Backup notices (ADR-0070) join the same banner: a failed backup or an
     // out-of-date keys file is a standing fact, like the rest.
-    Promise.all([fetchNotices(), fetchBackupStatus().catch(() => null)])
+    const banner = Promise.all([fetchNotices(), fetchBackupStatus().catch(() => null)])
       .then(([standing, backups]) =>
         setNotices([
           ...standing,
@@ -109,6 +118,7 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
         ]),
       )
       .catch(() => {});
+    void Promise.all([...lists, banner]).then(() => setFirstLoadDone(true));
   }, []);
 
   // **Nothing is asked of the console on a host the console does not answer
@@ -141,7 +151,7 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
   if (consoleHost.status === 'loading') {
     return (
       <div className="console">
-        <p className="console__muted">Asking the server whether this host answers for the console…</p>
+        <SkeletonRows label="Asking the server whether this host answers for the console…" rows={3} />
       </div>
     );
   }
@@ -184,6 +194,10 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
         </p>
       </header>
 
+      {!firstLoadDone ? (
+        <SkeletonRows label="Loading Admin…" rows={5} />
+      ) : (
+      <>
       <NoticesBanner
         notices={notices}
         pendingConfirmByUnix={pendingConfirmBy}
@@ -336,6 +350,8 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
           </ul>
         </section>
       )}
+      </>
+      )}
     </div>
   );
 }
@@ -349,7 +365,7 @@ function ListBlock<T>({
   empty: string;
   render: (rows: T[]) => React.ReactNode;
 }) {
-  if (loaded.status === 'loading') return <p className="console__muted">Loading…</p>;
+  if (loaded.status === 'loading') return <SkeletonRows rows={3} />;
   if (loaded.status === 'error') return <p className="console__error">{loaded.message}</p>;
   if (loaded.value.length === 0) return <p className="console__muted">{empty}</p>;
   return <>{render(loaded.value)}</>;

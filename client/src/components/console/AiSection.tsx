@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { disableAiKeyAsAdmin, fetchServerAi, setServerAi, type OrganisationRow, type ServerAi, type ServerAiKey } from '../../api/console';
 import { describeConsoleError } from './describeConsoleError';
+import { SkeletonRows } from '../ui/Skeleton';
 
 const APP: Record<string, string> = { helper: 'Fathom AI helper', claude: 'Claude', 'claude-code': 'Claude Code', other: 'Other app' };
 
@@ -66,6 +67,7 @@ export function AiSection({ organisations }: { organisations: OrganisationRow[] 
           {error}
         </p>
       )}
+      {!ai && !error && <SkeletonRows label="Loading AI on this server…" rows={3} />}
       {ai && (
         <>
           <div className="console-ai__switch">

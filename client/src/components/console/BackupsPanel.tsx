@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { type BackupStatus, fetchBackupStatus } from '../../api/backups';
+import { SkeletonRows } from '../ui/Skeleton';
 import '../../styles/console.css';
 
 /**
@@ -61,7 +62,7 @@ export function offsiteSentence(status: Record<string, string>): string {
 }
 
 export function BackupsView({ loaded }: BackupsViewProps) {
-  if (loaded.status === 'loading') return <p className="console__note">Loading…</p>;
+  if (loaded.status === 'loading') return <SkeletonRows label="Loading the backup status…" rows={3} />;
   if (loaded.status === 'error') return <p className="console__warn">Could not read the backup status: {loaded.message}</p>;
   const b = loaded.value;
   const keysMade = madeAt(b.keysFile.made_at);
