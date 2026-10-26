@@ -338,7 +338,9 @@ Built in part one. Pictures from the real-server drive: `reviews/vault/` in the 
   (you and the recovery sheet always; colleagues ticked).
 - **Passwords kind in Inventory**: the same logins as a table (name, used on, who holds it, how
   Fathom keeps it, changed, breach list).
-- **Home › Passwords** for a member who is not an admin; **Organisation › Passwords** for an admin:
+- **Home › Passwords** for every member, admins included, with their own vault and "Set up your
+  vault" (admins too since 2026-10-26: the owner could not find it under Organisation alone);
+  **Organisation › Passwords** for an admin:
   every login in the organisation, "Can read" or "Can't read", Remove someone, Delete, and the
   recovery-sheet card (fingerprint, every use listed, Replace the sheet).
 - **Locked and unlocked.** A strip says "Locked. Passwords show once you unlock." An unlocked
