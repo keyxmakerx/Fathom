@@ -41,7 +41,7 @@ use crate::chain::EntryType;
 use crate::chains::{self, ChainStoreError};
 use crate::crypto::{self, CryptoError};
 use crate::designs::{self, DesignError};
-use crate::field_defs::is_unsafe_char;
+use crate::field_defs::{self, is_unsafe_char};
 use crate::grants::{self, Authority, AuthorityError};
 use crate::heads::HeadStore;
 use crate::keys::{self, KeyRing, KeyStoreError};
@@ -2236,12 +2236,33 @@ pub async fn ai_reading(
     let (scope, _) = readable_place(tx, auth, &session.key, design).await?;
     let stored = designs::read_version_in_tx(tx, auth, heads, design, Some(scope), None).await?;
     let tiers = tiers(&session.key, &session.policy);
+    // ADR-0074: a spare's custom-field values say only their definition's id; name the
+    // organisation's `part` fields (Price, Supplier) so the values read. Notes tier only, as the
+    // values are, and each name through the same credential check. Read before the graph is
+    // built: the graph is not `Send` and must not be held across an await.
+    let field_names = if tiers.contains(&Tier::Notes) {
+        let mut names = BTreeMap::new();
+        for def in field_defs::list(tx, auth).await? {
+            if def.kind == "part"
+                && !def.archived
+                && !fathom_ingest::redact::looks_like_credential_bare(&def.name)
+            {
+                names.insert(def.id, Json::Str(def.name));
+            }
+        }
+        Some(Json::Obj(names))
+    } else {
+        None
+    };
     let graph = fathom_workspace::read_plain(&stored.payload)
         .map_err(|_| AiError::Unverifiable("a stored design that does not parse"))?;
     let reading = ai_reading::reading(&graph, &tiers).map_err(AiError::Unverifiable)?;
     let Json::Obj(mut m) = reading.document else {
         return Err(AiError::Unverifiable("a reading that is not an object"));
     };
+    if let Some(names) = field_names {
+        m.insert("field_names".into(), names);
+    }
     m.insert("design".into(), Json::Str(design.to_string()));
     m.insert("version".into(), Json::Int(stored.version));
     m.insert(

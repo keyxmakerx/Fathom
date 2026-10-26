@@ -66,7 +66,7 @@ const TOOLS: &str = r#"[
   {
     "name": "read_design",
     "title": "Read a design",
-    "description": "One design: its devices, links, sites and racks, with addresses and notes only where the person allowed them. Never passwords or device secrets.",
+    "description": "One design: its devices, links, sites and racks, and the spares on hand (stores, each spare's sort, model, state and count, and the fewest of a model kept), with addresses and notes only where the person allowed them. With notes allowed, a spare's custom fields such as its price and supplier, named in field_names. Never passwords, device secrets or serial numbers.",
     "inputSchema": {
       "type": "object",
       "properties": {"design": {"type": "string", "description": "The design's id, from list_designs."}},
@@ -90,7 +90,7 @@ const TOOLS: &str = r#"[
   {
     "name": "recommend",
     "title": "Recommend a change",
-    "description": "Recommend a change to one design. Nothing in the design changes: a person sees the idea in Fathom, marked as an AI idea, and accepts or dismisses it. Name devices and links in targets by the ids read_design gave. Do not put passwords, keys or secrets in any text; text that looks like one is refused.",
+    "description": "Recommend a change to one design. Nothing in the design changes: a person sees the idea in Fathom, marked as an AI idea, and accepts or dismisses it. Name devices, links, stores and spares in targets by the ids read_design gave; a stock idea (keep more of a model, order one, send one for repair) targets the store or spare it is about. Do not put passwords, keys or secrets in any text; text that looks like one is refused.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -105,7 +105,7 @@ const TOOLS: &str = r#"[
             "type": "object",
             "properties": {
               "action": {"type": "string", "enum": ["add", "change", "remove", "connect", "move", "label"]},
-              "target": {"type": "string", "description": "The id of the device, link, site or rack the step is about, if any."},
+              "target": {"type": "string", "description": "The id of the device, link, site, rack, store or spare the step is about, if any."},
               "text": {"type": "string", "description": "What to do, up to 300 characters."}
             },
             "required": ["action", "text"],

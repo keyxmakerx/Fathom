@@ -10,15 +10,19 @@
 //! Three tiers, matching the key's ticks:
 //!
 //! * `layout`, always: places, racks, devices and their models, ports, cables,
-//!   tags, interfaces by name, containers.
+//!   tags, interfaces by name, containers, and spares on hand (ADR-0074): each
+//!   store's name, each spare's sort, model, state, count and bin, and the
+//!   levels kept.
 //! * `addresses`: what pasted configs set and an AI needs to reason about a
 //!   network: IP addresses, VLANs, logical units, interface descriptions, a
 //!   device's management address and domain.
 //! * `notes`: shared notes, free-text labels and the notes fields on ports,
-//!   cables and premises.
+//!   cables and premises; a store's place and note, a spare's note, and the
+//!   custom-field values on spares (prices and suppliers, r38-stock-how).
 //!
 //! **Never, at any tier:** history, provenance, the batch log, file contents,
-//! serial numbers, street addresses and coordinates, contacts, and every
+//! serial numbers, street addresses and coordinates, contacts (who a spare is
+//! lent to), RMA numbers, custom-field values on anything but a spare, and every
 //! security, NAT, IKE and IPsec kind. A tombstoned element is not shown.
 //!
 //! **Belt and braces on text.** Every string value that leaves is run through
@@ -38,10 +42,11 @@ use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{
     AddressField, AggregateInterfaceField, CableField, CableRunField, CableTieField, CardField,
     ChassisField, ContainerField, ContainerNetworkField, DeviceField, EdgeKind, ExternalPeerField,
-    FixedToField, InterfaceField, LabelField, LineEndField, LineField, LinkField, LogicalUnitField,
-    MountedInField, NodeKind, NoteField, OccupiesField, PassiveNodeField, PhysicalPortField,
-    PowerSupplyField, PremisesField, PublishedPortField, RackField, SiteField, SitsOnField,
-    SurfaceField, TagField, TerminatesField, VlanField, VlanMemberField,
+    FieldValueField, FixedToField, InterfaceField, LabelField, LineEndField, LineField, LinkField,
+    LogicalUnitField, MountedInField, NodeKind, NoteField, OccupiesField, PassiveNodeField,
+    PhysicalPortField, PowerSupplyField, PremisesField, PublishedPortField, RackField, SiteField,
+    SitsOnField, StockItemField, StockLevelField, StoreField, SurfaceField, TagField,
+    TerminatesField, VlanField, VlanMemberField,
 };
 
 /// The three things a key may be allowed to see.
@@ -131,6 +136,22 @@ const NODES: &[NodeRow] = &[
         tier: Tier::Layout,
         kind: NodeKind::Card,
         fields: fields!(CardField: Slot, Name, Model),
+    },
+    // Spares on hand (ADR-0074). Never the serial, the RMA number or who it is lent to.
+    NodeRow {
+        tier: Tier::Layout,
+        kind: NodeKind::Store,
+        fields: fields!(StoreField: Name),
+    },
+    NodeRow {
+        tier: Tier::Layout,
+        kind: NodeKind::StockItem,
+        fields: fields!(StockItemField: Part, Model, Name, Count, State, Bin, Optic, Due, CameFrom),
+    },
+    NodeRow {
+        tier: Tier::Layout,
+        kind: NodeKind::StockLevel,
+        fields: fields!(StockLevelField: Model, AtLeast),
     },
     NodeRow {
         tier: Tier::Layout,
@@ -244,6 +265,22 @@ const NODES: &[NodeRow] = &[
         fields: fields!(PhysicalPortField: Mac),
     },
     // ---- notes ----
+    NodeRow {
+        tier: Tier::Notes,
+        kind: NodeKind::Store,
+        fields: fields!(StoreField: Place, Note),
+    },
+    NodeRow {
+        tier: Tier::Notes,
+        kind: NodeKind::StockItem,
+        fields: fields!(StockItemField: Note),
+    },
+    // Only a spare's custom-field values: [`reading`] drops any other owner's.
+    NodeRow {
+        tier: Tier::Notes,
+        kind: NodeKind::FieldValue,
+        fields: fields!(FieldValueField: Definition, Value),
+    },
     NodeRow {
         tier: Tier::Notes,
         kind: NodeKind::Note,
@@ -458,7 +495,17 @@ const EDGES: &[EdgeRow] = &[
         kind: EdgeKind::AttachedTo,
         fields: NO_FIELDS,
     },
+    EdgeRow {
+        tier: Tier::Layout,
+        kind: EdgeKind::InStore,
+        fields: NO_FIELDS,
+    },
     // ---- notes ----
+    EdgeRow {
+        tier: Tier::Notes,
+        kind: EdgeKind::HasFieldValue,
+        fields: NO_FIELDS,
+    },
     EdgeRow {
         tier: Tier::Notes,
         kind: EdgeKind::HasNote,
@@ -536,11 +583,26 @@ pub fn reading(graph: &Graph, tiers: &BTreeSet<Tier>) -> Result<Reading, &'stati
         .to_snapshot()
         .map_err(|_| "the design could not be read")?;
 
+    // A custom-field value leaves only when it is on a spare (a price, a supplier).
+    let spare_values: BTreeSet<String> = snap
+        .edges
+        .iter()
+        .filter(|e| {
+            e.absent_since.is_none()
+                && e.id.kind == EdgeKind::HasFieldValue
+                && e.from.kind == NodeKind::StockItem
+        })
+        .map(|e| e.to.to_string())
+        .collect();
+
     let mut withheld = 0usize;
     let mut shown = BTreeSet::new();
     let mut nodes = Vec::new();
     for node in &snap.nodes {
         if node.absent_since.is_some() {
+            continue;
+        }
+        if node.id.kind == NodeKind::FieldValue && !spare_values.contains(&node.id.to_string()) {
             continue;
         }
         let Some(allowed) = node_rows.get(&node.id.kind) else {
@@ -551,7 +613,9 @@ pub fn reading(graph: &Graph, tiers: &BTreeSet<Tier>) -> Result<Reading, &'stati
             if let (Some(name), Some(value)) = (allowed.get(&field.key), &field.value) {
                 let mut value = screened(value, &mut withheld);
                 // An optic's serial is a serial number (ADR-0073): the rest of it may leave.
-                if field.key == PhysicalPortField::Transceiver.key() {
+                if field.key == PhysicalPortField::Transceiver.key()
+                    || field.key == StockItemField::Optic.key()
+                {
                     if let Json::Obj(m) = &mut value {
                         m.remove("serial");
                     }
@@ -663,6 +727,9 @@ mod tests {
             PremisesField::Coordinates.key(),
             ExternalPeerField::Contact.key(),
             ExternalPeerField::Address.key(),
+            StockItemField::Serial.key(),
+            StockItemField::Rma.key(),
+            StockItemField::LentTo.key(),
         ];
         for row in NODES {
             for (key, name) in row.fields {
@@ -732,5 +799,150 @@ mod tests {
         assert!(text.contains("core-sw1"), "{text}");
         assert!(!text.contains("s3cr3tR0"), "{text}");
         assert_eq!(out.withheld, 1);
+    }
+
+    /// ADR-0074: a spare reaches an AI by sort, model and state, never by serial; its price
+    /// (a custom-field value) only at the notes tier, and no other owner's custom field at all.
+    #[test]
+    fn a_spare_shows_without_its_serial_and_its_price_only_at_notes() {
+        use fathom_graph::BatchId;
+        use fathom_ir::generated::ir_types::{DeviceField, StockItemPart, StockItemState};
+        use fathom_ir::{scalar, value};
+        let mut g = Graph::new();
+        g.begin_batch(BatchId(fathom_id::Ulid(80)), "ai_reading spares")
+            .expect("open batch");
+        let spare = g
+            .insert_node(NodeKind::StockItem, fathom_id::Ulid(81), prov(8))
+            .expect("spare");
+        g.set_field(
+            spare.into(),
+            StockItemField::Part.key(),
+            StockItemPart::from_token("optic"),
+            prov(8),
+        )
+        .expect("part");
+        g.set_field(
+            spare.into(),
+            StockItemField::State.key(),
+            StockItemState::from_token("spare"),
+            prov(8),
+        )
+        .expect("state");
+        g.set_field(
+            spare.into(),
+            StockItemField::Model.key(),
+            scalar::Identifier("SFP-10G-SR".into()),
+            prov(8),
+        )
+        .expect("model");
+        g.set_field(
+            spare.into(),
+            StockItemField::Serial.key(),
+            scalar::Identifier("AVP19230XYZ".into()),
+            prov(8),
+        )
+        .expect("serial");
+        g.set_field(
+            spare.into(),
+            StockItemField::Optic.key(),
+            value::Transceiver {
+                r#type: Some(scalar::Text("10GBASE-SR".into())),
+                serial: Some(scalar::Identifier("AVP19230XYZ".into())),
+                ..Default::default()
+            },
+            prov(8),
+        )
+        .expect("optic");
+        g.set_field(
+            spare.into(),
+            StockItemField::LentTo.key(),
+            scalar::Text("Sam Field".into()),
+            prov(8),
+        )
+        .expect("lent to");
+        let price = g
+            .insert_node(NodeKind::FieldValue, fathom_id::Ulid(82), prov(8))
+            .expect("price");
+        g.set_field(
+            price.into(),
+            FieldValueField::Definition.key(),
+            scalar::Text("01JPRICE0000000000000000AA".into()),
+            prov(8),
+        )
+        .expect("definition");
+        g.set_field(
+            price.into(),
+            FieldValueField::Value.key(),
+            scalar::Text("41.50".into()),
+            prov(8),
+        )
+        .expect("value");
+        g.insert_edge(
+            EdgeKind::HasFieldValue,
+            fathom_id::Ulid(83),
+            spare,
+            price,
+            prov(8),
+        )
+        .expect("has price");
+        let device = g
+            .insert_node(NodeKind::Device, fathom_id::Ulid(84), prov(8))
+            .expect("device");
+        g.set_field(
+            device.into(),
+            DeviceField::Hostname.key(),
+            scalar::Identifier("core-sw1".into()),
+            prov(8),
+        )
+        .expect("hostname");
+        let budget = g
+            .insert_node(NodeKind::FieldValue, fathom_id::Ulid(85), prov(8))
+            .expect("budget");
+        g.set_field(
+            budget.into(),
+            FieldValueField::Definition.key(),
+            scalar::Text("01JBUDGET000000000000000AA".into()),
+            prov(8),
+        )
+        .expect("definition");
+        g.set_field(
+            budget.into(),
+            FieldValueField::Value.key(),
+            scalar::Text("cost-centre-77".into()),
+            prov(8),
+        )
+        .expect("value");
+        g.insert_edge(
+            EdgeKind::HasFieldValue,
+            fathom_id::Ulid(86),
+            device,
+            budget,
+            prov(8),
+        )
+        .expect("has budget");
+        g.end_batch().expect("close batch");
+
+        let text = |tiers: &[Tier]| {
+            let tiers: BTreeSet<Tier> = tiers.iter().copied().collect();
+            String::from_utf8(
+                reading(&g, &tiers)
+                    .expect("a reading")
+                    .document
+                    .to_canonical_bytes(),
+            )
+            .unwrap()
+        };
+        let layout = text(&[Tier::Layout]);
+        assert!(
+            layout.contains("SFP-10G-SR") && layout.contains("10GBASE-SR"),
+            "{layout}"
+        );
+        assert!(!layout.contains("AVP19230XYZ"), "{layout}");
+        assert!(!layout.contains("Sam Field"), "{layout}");
+        assert!(!layout.contains("41.50"), "{layout}");
+        let notes = text(&[Tier::Layout, Tier::Notes]);
+        assert!(notes.contains("41.50"), "{notes}");
+        assert!(!notes.contains("AVP19230XYZ"), "{notes}");
+        assert!(!notes.contains("cost-centre-77"), "{notes}");
     }
 }
