@@ -53,6 +53,9 @@ export function TraceBadges() {
   return <Badges />;
 }
 
+/** A badge is 22px across; this keeps two of them a hair apart. */
+const BADGE_GAP = 26;
+
 function Badges() {
   const full = useTraceResult()!;
   const revealed = useTraceRevealed();
@@ -73,8 +76,15 @@ function Badges() {
     const put = (n: number, x: number, y: number) => {
       const k = `${Math.round(x)},${Math.round(y)}`;
       const at = placed.get(k);
-      if (at) at.n = `${at.n}·${n}`;
-      else placed.set(k, { n: String(n), x, y });
+      if (at) {
+        at.n = `${at.n}·${n}`;
+        return;
+      }
+      // Neighbouring stops (two units in one rack, the cable between them) would sit on top of each
+      // other: step this badge out to the left until it is clear of the ones already placed.
+      let bx = x;
+      while ([...placed.values()].some((o) => Math.abs(o.x - bx) < BADGE_GAP && Math.abs(o.y - y) < BADGE_GAP)) bx -= BADGE_GAP;
+      placed.set(k, { n: String(n), x: bx, y });
     };
     for (const hop of result.hops) {
       if (hop.kind === 'stop') continue;

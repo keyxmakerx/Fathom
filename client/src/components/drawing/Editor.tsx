@@ -385,6 +385,9 @@ const LINK_STYLE: CSSProperties = {
   textDecoration: 'underline',
   cursor: 'pointer',
   font: 'inherit',
+  // A name as typed: base.css capitalises a bare <button>.
+  textTransform: 'none',
+  letterSpacing: 'normal',
 };
 
 function SelectLink({ label, onSelect }: { label: string; onSelect?: () => void }) {
