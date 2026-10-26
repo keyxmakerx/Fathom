@@ -50,4 +50,18 @@ describe('cards and optics through the engine', () => {
     const bad = { ...doc, nodes: doc.nodes.map((n) => (n.id === portId ? { ...n, fields: { ...n.fields, 'PhysicalPort.transceiver': { ...n.fields['PhysicalPort.transceiver'], value: { colour: 'blue' } } } } : n)) };
     expect(() => new Mirror(engine).load(bad)).toThrow();
   });
+
+  it("a path trace says which card a hop's port is on and what optic is in it", async () => {
+    const { buildSample, sample } = await import('../components/home/sampleNetwork');
+    const { deviceByHostname } = await import('../components/lessons/lessonModel');
+    const doc = buildSample(sample('parts-lab'), new Map()).doc;
+    const mirror = new Mirror(engine);
+    mirror.load(doc);
+    const id = (h: string) => deviceByHostname(doc, h)!;
+    const result = mirror.trace(id('desktop-2'), id('server-1'));
+    const lines = result.hops.flatMap((h) => h.detail);
+    expect(lines).toContain('core-1 1/2 is on the card in slot 1');
+    expect(lines).toContain('optic in core-1 1/2: 10GBASE-SR, SFP-10G-SR');
+    expect(lines.some((l) => l.includes('OPT-000'))).toBe(false);
+  });
 });
