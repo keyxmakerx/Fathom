@@ -311,7 +311,10 @@ Every site › Site › Building, each drawing the folders a person may read as 
 counts, "You are here", a hub's double border and more than eight small sites of one role folded into a
 counted stack. Boxes sit in a grid until hand placement (ADR-0047) lands, and fold by role until Circuits
 say which hub feeds a site. A design moves between folders from Home, and a NetBox export fills sites,
-buildings and rack designs as a plan to accept. Not built: the room builder, rooms, door labels.
+buildings and rack designs as a plan to accept. The building stop draws the floor plan: a picture
+beneath at the phantom opacity, scaled by two points, rooms traced over it with right-angle snapping
+and named, solid once saved, dashed while drawn; a room named as a closet opens it. Not built: a PDF
+page as the picture, suggested rooms, DXF, furniture and outlets, door labels.
 
 ## The patching surface
 

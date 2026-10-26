@@ -1078,6 +1078,11 @@ export default function App() {
       currentScopeId: view.design.scopeId,
       designScopeIds: orgDesigns.map((d) => d.scopeId),
       onOpenScope: selectScope,
+      floorPlan: {
+        organisationId: view.organisation.organisationId,
+        designs: orgDesigns,
+        onDesignMade: (design: DesignSummary) => setOrgDesigns((current) => [...current, design]),
+      },
     },
   };
 

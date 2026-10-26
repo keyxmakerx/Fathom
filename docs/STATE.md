@@ -254,7 +254,18 @@ breadcrumb does one thing.
   shows as a plan (sites to Sites, locations to Buildings, matched by name to folders already there); accepting
   makes the missing folders and, per location with racks, one "`<location>` racks" design with them in a row.
   A location that already has a design is skipped, so importing again makes nothing twice. Devices go in from
-  that design's own Import. Proven by `scripts/drive-folder-place.mjs` (N1, N2).
+  that design's own Import. Proven by `scripts/drive-folder-place.mjs` (N1, N2). **The building's floor
+  plan** (ADR-0051, ADR-0074 decision 4, schema 0.29, `components/places/BuildingPlan.tsx`,
+  `document/rooms.ts`): the building stop draws it under the closets. A picture of the plan (PNG, JPEG,
+  WebP, GIF; up to 25 MB, stored sealed as a doc file is and checked against its SHA-256) sits beneath at
+  the phantom opacity, scaled by two points a typed distance apart; rooms are traced over it with
+  right-angle snapping and snapping onto corners already drawn, closed on the first corner and named. A
+  room named as a closet folder opens it. The plan is a design in the building folder ("`<building>`
+  floor plan", made on the first save), so who sees or changes it follows the folder and every change
+  is in its history; a save that lost a race says so and reloads. The CSP's `img-src` gains `blob:` for
+  the picture. Not yet: a PDF page (needs a PDF reader argued through the dependency gate; export the
+  page as an image), suggested rooms (ADR-0051: only if a real plan shows they beat tracing), DXF, room
+  furniture and outlets, and door labels (labels are not built). Proven by the same drive (R1 to R4).
   The account menu holds Your account, Signed-in browsers, theme and Sign out; an amber "Admin" pill
   shows beside the initials where the console answers. "New design" goes in the first Site the person may
   draw in. Names start as "Untitled design", sealed under the organisation key (`designs.name_*`); Rename

@@ -28,13 +28,30 @@ const render = (stop: 'building' | 'site' | 'estate', focusId: string | null) =>
   );
 
 describe('the stops above the closet (ADR-0074)', () => {
+  it('the building stop looks for its floor plan when it can draw one (ADR-0051)', () => {
+    const out = renderToStaticMarkup(
+      createElement(PlacesMap, {
+        scopes,
+        currentScopeId: 'IDF-1',
+        stop: 'building',
+        focusId: 'Block A',
+        designScopeIds: ['IDF-1'],
+        onGo: noop,
+        onOpenScope: noop,
+        onBack: noop,
+        floorPlan: { organisationId: 'O1', designs: [], onDesignMade: noop },
+      }),
+    );
+    expect(out).toContain('floor plan');
+  });
+
   it('the building stop: its closets, where you are, and a closet with no design cannot open', () => {
     const out = render('building', 'Block A');
     expect(out).toContain('Every site');
     expect(out).toContain('Northgate');
     expect(out).toContain('You are here');
     expect(out).toMatch(/<button[^>]*disabled=""[^>]*>.*IDF-2/);
-    expect(out).toContain('room builder');
+    expect(out).not.toContain('building-plan');
   });
 
   it('the site stop: its buildings and their kind, the site marked a hub', () => {

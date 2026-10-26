@@ -291,7 +291,12 @@ fn cache_control(rel: &Path) -> &'static str {
 /// `img-src` carries `data:` because Vite inlines small assets as data URIs
 /// at build time, and the print pack's "This view" picture is a `data:` image
 /// made in the browser (`client/src/print/viewImage.ts`, `PrintPreview.tsx`); `connect-src 'self'` is what the signed-request client
-/// needs, with the one origin in 4 beside it.
+/// needs, with the one origin in 4 beside it. It carries `blob:` for the building's floor-plan
+/// picture (ADR-0051, `client/src/components/places/BuildingPlan.tsx`): bytes the page itself
+/// fetched from this server and checked against the plan's SHA-256, shown from memory. A `blob:` URL
+/// names only data already in the page, so it opens no new channel out, and an SVG drawn as an image
+/// runs no script and loads nothing external (W3C SVG Integration, 17 April 2014, "secure animated"
+/// and "secure static" modes; read 2026-10-26).
 ///
 /// # What has been PROVEN and what has only been derived
 ///
@@ -304,7 +309,7 @@ fn cache_control(rel: &Path) -> &'static str {
 /// than on a drive. That is said here rather than left to be assumed, and the
 /// script's own header names the next step.
 pub const CONTENT_SECURITY_POLICY: &str = "default-src 'none'; script-src 'self' \
-     'wasm-unsafe-eval'; connect-src 'self' https://api.pwnedpasswords.com; img-src 'self' data:; style-src 'self'; \
+     'wasm-unsafe-eval'; connect-src 'self' https://api.pwnedpasswords.com; img-src 'self' data: blob:; style-src 'self'; \
      style-src-attr 'unsafe-inline'; font-src 'self'; base-uri 'none'; form-action 'self'; \
      frame-ancestors 'none'";
 

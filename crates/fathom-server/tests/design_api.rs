@@ -510,7 +510,7 @@ fn a_plain_face_payload(seed: u128) -> Vec<u8> {
 /// of writing, whose minor component this is. Kept as its own named constant
 /// rather than a bare `14` at each call site so a future schema bump has one
 /// place to change.
-const CURRENT_SCHEMA_WIRE_VERSION: u32 = 28;
+const CURRENT_SCHEMA_WIRE_VERSION: u32 = 29;
 
 fn save_body(schema_version: u32, payload: &[u8]) -> Vec<u8> {
     let mut out = schema_version.to_le_bytes().to_vec();

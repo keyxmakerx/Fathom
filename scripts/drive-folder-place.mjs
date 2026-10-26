@@ -258,6 +258,51 @@ async function runProof(browser, ctxA, seed) {
   check('Z2. the building stop shows its closet, marked as where you are, with its design', /IDF-2/.test(buildingText) && /You are here/i.test(buildingText) && /1 design/.test(buildingText), buildingText);
   await shot('z1-building-stop');
 
+  // ---- ADR-0051 / ADR-0074 decision 4: the building's floor plan ------------------
+  const planBox = map.getByTestId('building-plan');
+  await planBox.waitFor({ timeout: 10000 });
+  check('R1. the building stop has a floor plan area offering a picture and a room', /No floor plan yet/.test(await planBox.innerText()) && (await planBox.getByRole('button', { name: 'Draw a room' }).count()) === 1);
+  // A picture of a plan: any PNG will do, so a screenshot of the page stands in for a scan.
+  const picture = await A.screenshot({ clip: { x: 0, y: 0, width: 800, height: 500 } });
+  await planBox.getByTestId('building-plan-picture').setInputFiles({ name: 'block-a-ground.png', mimeType: 'image/png', buffer: picture });
+  await planBox.getByText(/Click two points on the picture/).waitFor({ timeout: 30000 });
+  const floor = planBox.locator('svg.building-plan__floor');
+  const fb = await floor.boundingBox();
+  // The picture fills the floor's width; two points 60% of it apart are said to be 20 m.
+  await A.mouse.click(fb.x + fb.width * 0.2, fb.y + fb.height * 0.5);
+  await A.mouse.click(fb.x + fb.width * 0.8, fb.y + fb.height * 0.5);
+  await planBox.getByTestId('building-plan-distance').fill('20 m');
+  await planBox.getByRole('button', { name: 'Save the scale' }).click();
+  await planBox.getByRole('button', { name: 'Draw a room' }).waitFor({ timeout: 20000 });
+  check('R2. the picture went in beneath the plan and is scaled', (await floor.locator('image.building-plan__picture').count()) === 1 && (await planBox.getByRole('button', { name: 'Draw a room' }).isEnabled()));
+  await shot('r1-plan-picture');
+
+  // A room traced corner by corner, closed on its first corner, and named as the closet.
+  await planBox.getByRole('button', { name: 'Draw a room' }).click();
+  const corner = (fx, fy) => A.mouse.click(fb.x + fb.width * fx, fb.y + fb.height * fy);
+  await corner(0.3, 0.3);
+  await corner(0.55, 0.31); // a little off square: snapped
+  await corner(0.55, 0.6);
+  await corner(0.3, 0.6);
+  await corner(0.3, 0.3);
+  await planBox.getByTestId('building-plan-room-name').fill('IDF-2');
+  await planBox.getByRole('button', { name: 'Save the room' }).click();
+  const panel = planBox.getByTestId('building-plan-panel');
+  await panel.waitFor({ timeout: 20000 });
+  const panelText = await panel.innerText();
+  check('R3. the room is saved, square, and opens the closet of the same name', (await floor.getByTestId('building-plan-room').count()) === 1 && /4 corners/.test(panelText) && /Open the closet IDF-2/.test(panelText), panelText);
+  await shot('r2-room-traced');
+
+  // Away and back: the plan is read again from the server.
+  await map.locator('.places-map__crumb', { hasText: 'Northgate' }).click();
+  await A.locator('[data-stop="site"]').waitFor({ timeout: 5000 });
+  await map.locator('.places-box', { hasText: 'Block A' }).click();
+  await A.locator('[data-stop="building"]').waitFor({ timeout: 5000 });
+  await planBox.getByTestId('building-plan-room').first().waitFor({ timeout: 20000 });
+  await floor.locator('image.building-plan__picture').waitFor({ state: 'attached', timeout: 20000 }).catch(() => undefined);
+  await shot('r3-plan-reopened');
+  check('R4. reopened, the building keeps its room and its picture', /IDF-2/.test(await floor.textContent()) && (await floor.locator('image.building-plan__picture').count()) === 1);
+
   await map.locator('.places-map__crumb', { hasText: 'Northgate' }).click();
   await A.locator('[data-stop="site"]').waitFor({ timeout: 5000 });
   const siteText = (await map.innerText()).replace(/\s+/g, ' ');
@@ -282,14 +327,15 @@ async function runProof(browser, ctxA, seed) {
   await A.locator('.shell-bar__path-label--link[title="Home"]').first().click();
   await A.locator('.home').waitFor({ timeout: 20000 });
   await A.getByRole('tab', { name: 'Designs' }).click();
-  const row = A.locator('.home__design-row').first();
+  const idfGroup = A.locator('.home__scope-group', { has: A.locator('.home__scope-name', { hasText: 'IDF-2' }) });
+  const row = idfGroup.locator('.home__design-row').first();
   await row.getByRole('button', { name: 'Move' }).click();
   await row.locator('select').selectOption({ label: 'Block A (Building)' });
   await shot('m1-move-design');
   await row.locator('.home__design-move').getByRole('button', { name: 'Move' }).click();
   const blockGroup = A.locator('.home__scope-group', { has: A.locator('.home__scope-name', { hasText: 'Block A' }) });
-  await blockGroup.locator('.home__design-row').first().waitFor({ timeout: 10000 });
-  check('M1. a steward moves the design from its closet into the building', (await blockGroup.locator('.home__design-row').count()) === 1);
+  await blockGroup.locator('.home__design-row').nth(1).waitFor({ timeout: 10000 });
+  check('M1. a steward moves the design from its closet into the building (beside its floor plan)', (await blockGroup.locator('.home__design-row').count()) === 2 && (await idfGroup.locator('.home__design-row').count()) === 0);
   await shot('m2-moved');
 
   // ---- ADR-0074 §8: a NetBox rack export becomes sites, buildings and rack designs ----

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 
+import type { DesignSummary } from '../../api/designs';
 import type { Scope } from '../../api/scopes';
 
 import type { Lens } from './lens';
@@ -207,6 +208,12 @@ export interface ShellProps {
     designScopeIds: readonly string[];
     /** Open the latest design in a folder. */
     onOpenScope: (scopeId: string) => void;
+    /** ADR-0051: the building stop's floor plan, a design in the building folder. */
+    floorPlan?: {
+      organisationId: string;
+      designs: readonly DesignSummary[];
+      onDesignMade: (design: DesignSummary) => void;
+    };
   };
 
   /** r30-panels: more tabs for the right-hand panel (Checks, a plan, "It's down", a trace). What each draws goes

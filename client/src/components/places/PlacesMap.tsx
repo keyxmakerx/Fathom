@@ -1,7 +1,9 @@
 import { useState } from 'react';
 
+import type { DesignSummary } from '../../api/designs';
 import type { Scope } from '../../api/scopes';
 import { placeFormLabel, placeRoleLabel, takesRole } from '../organisation/place';
+import { BuildingPlan } from './BuildingPlan';
 import { mapView, stopInside, type MapBox, type UpperStop } from './placesMap';
 import './places.css';
 
@@ -28,6 +30,12 @@ export interface PlacesMapProps {
   onOpenScope: (scopeId: string) => void;
   /** Back down to the open design's closet. */
   onBack: () => void;
+  /** ADR-0051: what the building stop's floor plan needs. Absent, no plan is drawn. */
+  floorPlan?: {
+    organisationId: string;
+    designs: readonly DesignSummary[];
+    onDesignMade: (design: DesignSummary) => void;
+  };
 }
 
 /**
@@ -35,7 +43,7 @@ export interface PlacesMapProps {
  * in; a closet opens its design. A hub has a double border, and many small sites fold into a
  * counted stack that unfolds on a click.
  */
-export function PlacesMap({ scopes, currentScopeId, stop, focusId, designScopeIds, onGo, onOpenScope, onBack }: PlacesMapProps) {
+export function PlacesMap({ scopes, currentScopeId, stop, focusId, designScopeIds, onGo, onOpenScope, onBack, floorPlan }: PlacesMapProps) {
   const view = mapView(scopes, stop, focusId, currentScopeId, designScopeIds);
   const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
   const inside = stopInside(stop);
@@ -112,10 +120,16 @@ export function PlacesMap({ scopes, currentScopeId, stop, focusId, designScopeId
         </ul>
       )}
 
-      {stop === 'building' && (
-        <p className="places-map__note">
-          Closets show as boxes for now. Rooms and the floor plan come with the room builder: drop a plan image or PDF page and trace it.
-        </p>
+      {stop === 'building' && view.place?.kind === 'building' && floorPlan && (
+        <BuildingPlan
+          key={view.place.scopeId}
+          organisationId={floorPlan.organisationId}
+          building={view.place}
+          closets={scopes.filter((s) => s.parentScopeId === view.place?.scopeId && s.kind === 'rack')}
+          designs={floorPlan.designs}
+          onDesignMade={floorPlan.onDesignMade}
+          onOpenCloset={(scopeId) => (scopeId === currentScopeId ? onBack() : onOpenScope(scopeId))}
+        />
       )}
     </section>
   );

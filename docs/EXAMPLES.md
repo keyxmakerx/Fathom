@@ -130,6 +130,10 @@ You need to be an admin of the organisation, or a steward of the site you add un
    move is filed in the organisation's history.
 5. Open a design and zoom out past the closet: Building, then Site, then Every site. A box opens one
    level in; **Back to the closet** returns.
+6. At the Building stop, under the closets: **Add a plan picture** (a scan, photo or a PDF page saved
+   as an image). Click two points on it a known distance apart and type the distance. **Draw a room**:
+   click each corner (walls snap square), click the first corner to close it, and name it. Name it as
+   the closet folder (IDF-2) and the room opens that closet. You need Draw on the building.
 
 **Who sees what.** A folder is also a permission. Access given at a site covers every building, closet
 and design inside it; access given at a closet covers only that closet. Zoomed out, you see only the

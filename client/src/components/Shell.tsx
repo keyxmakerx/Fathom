@@ -313,6 +313,7 @@ export function Shell({
               onGo={(stop, focusId) => setAbove({ stop, focusId })}
               onOpenScope={places.onOpenScope}
               onBack={() => setAbove(null)}
+              floorPlan={places.floorPlan}
             />
           )}
           {toolsOnCanvas && (
