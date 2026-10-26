@@ -591,3 +591,13 @@
   flex-basis: 100%;
   margin: 0;
 }
+
+/* ADR-0074: moving a design into another folder, under its row. */
+.home__design-move {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  flex-basis: 100%;
+  padding: var(--s1) 0;
+}

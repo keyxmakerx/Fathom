@@ -276,6 +276,21 @@ async function runProof(browser, ctxA, seed) {
   await A.locator('[data-stop="building"]').waitFor({ timeout: 5000 });
   await map.locator('.places-box', { hasText: 'IDF-2' }).click();
   check('Z5. the closet you are in takes you back down to the canvas', (await A.getByTestId('places-map').count()) === 0);
+
+  // ---- ADR-0074 "How": an existing design moved into another folder -------------
+  // Still in the design: its organisation, first in the path, goes Home.
+  await A.locator('.shell-bar__path-label--link[title="Home"]').first().click();
+  await A.locator('.home').waitFor({ timeout: 20000 });
+  await A.getByRole('tab', { name: 'Designs' }).click();
+  const row = A.locator('.home__design-row').first();
+  await row.getByRole('button', { name: 'Move' }).click();
+  await row.locator('select').selectOption({ label: 'Block A (Building)' });
+  await shot('m1-move-design');
+  await row.locator('.home__design-move').getByRole('button', { name: 'Move' }).click();
+  const blockGroup = A.locator('.home__scope-group', { has: A.locator('.home__scope-name', { hasText: 'Block A' }) });
+  await blockGroup.locator('.home__design-row').first().waitFor({ timeout: 10000 });
+  check('M1. a steward moves the design from its closet into the building', (await blockGroup.locator('.home__design-row').count()) === 1);
+  await shot('m2-moved');
   check('F5. no page errors', errors.length === 0, errors.join(' | '));
 }
 

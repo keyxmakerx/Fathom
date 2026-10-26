@@ -5,6 +5,7 @@ import {
   createDesign,
   designTitle,
   fetchDesigns,
+  moveDesign,
   renameDesign,
   sortDesignsByRecency,
   UNTITLED_DESIGN,
@@ -736,6 +737,16 @@ export function Home({
                     : current,
                 )
               }
+              onMoved={(designId, scopeId) =>
+                setDesigns((current) =>
+                  current.status === 'ready'
+                    ? {
+                        status: 'ready',
+                        value: current.value.map((row) => (row.designId === designId ? { ...row, scopeId } : row)),
+                      }
+                    : current,
+                )
+              }
             />
           )}
         </section>
@@ -823,6 +834,8 @@ interface HomeDesignsProps {
   busyScopeId: string | null;
   /** A rename was saved; `name` is `null` when it was cleared. */
   onRenamed: (designId: string, name: string | null) => void;
+  /** ADR-0074: a move into another folder was saved. */
+  onMoved: (designId: string, scopeId: string) => void;
   /** The same New design the section header offers, for the empty state. */
   onNewDesign?: () => void;
 }
@@ -845,6 +858,7 @@ function HomeDesigns({
   onCreateDesign,
   busyScopeId,
   onRenamed,
+  onMoved,
   onNewDesign,
 }: HomeDesignsProps) {
   const { groups, elsewhere } = groupDesignsByScope(designs, scopes);
@@ -869,6 +883,8 @@ function HomeDesigns({
                 onOpenRacks={onOpenRacks}
                 onOpenInventory={onOpenInventory}
                 onRenamed={onRenamed}
+                folders={scopes}
+                onMoved={onMoved}
               />
             ))}
           </ul>
@@ -892,6 +908,8 @@ function HomeDesigns({
                 onOpenRacks={onOpenRacks}
                 onOpenInventory={onOpenInventory}
                 onRenamed={onRenamed}
+                folders={scopes}
+                onMoved={onMoved}
               />
             ))}
           </ul>
@@ -1023,10 +1041,21 @@ interface DesignRowProps {
   onOpenRacks: (organisation: Organisation, design: DesignSummary) => void;
   onOpenInventory: (organisation: Organisation, design: DesignSummary) => void;
   onRenamed: (designId: string, name: string | null) => void;
+  /** Every folder the person may see; a steward moves the design into one they look after. */
+  folders: readonly Scope[];
+  onMoved: (designId: string, scopeId: string) => void;
 }
 
-function DesignRow({ design, organisation, onOpenRacks, onOpenInventory, onRenamed }: DesignRowProps) {
+const FOLDER_LEVEL: Record<string, string> = { network: 'Site', building: 'Building', rack: 'Closet' };
+
+function DesignRow({ design, organisation, onOpenRacks, onOpenInventory, onRenamed, folders, onMoved }: DesignRowProps) {
   const [editing, setEditing] = useState(false);
+  // ADR-0074: a steward of the design's folder moves it into another folder they look after.
+  const targets = canStewardFor(design.capability)
+    ? folders.filter((f) => f.scopeId !== design.scopeId && canStewardFor(f.capability))
+    : [];
+  const [moving, setMoving] = useState(false);
+  const [moveTo, setMoveTo] = useState('');
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1088,6 +1117,19 @@ function DesignRow({ design, organisation, onOpenRacks, onOpenInventory, onRenam
             Rename
           </button>
         )}
+        {targets.length > 0 && !editing && !moving && (
+          <button
+            type="button"
+            className="home__btn"
+            onClick={() => {
+              setMoveTo(targets[0].scopeId);
+              setError(null);
+              setMoving(true);
+            }}
+          >
+            Move
+          </button>
+        )}
         <button type="button" className="home__btn" onClick={() => onOpenRacks(organisation, design)}>
           Canvas
         </button>
@@ -1095,6 +1137,42 @@ function DesignRow({ design, organisation, onOpenRacks, onOpenInventory, onRenam
           Inventory
         </button>
       </span>
+      {moving && (
+        <form
+          className="home__design-move"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setBusy(true);
+            setError(null);
+            moveDesign(organisation.organisationId, design.designId, moveTo)
+              .then(() => {
+                onMoved(design.designId, moveTo);
+                setMoving(false);
+              })
+              .catch((err: unknown) => setError(describeError(err)))
+              .finally(() => setBusy(false));
+          }}
+        >
+          <label htmlFor={`move-${design.designId}`} className="home__muted">
+            Move to
+          </label>
+          <select id={`move-${design.designId}`} value={moveTo} onChange={(e) => setMoveTo(e.target.value)}>
+            {targets.map((f) => (
+              <option key={f.scopeId} value={f.scopeId}>
+                {f.displayName} ({FOLDER_LEVEL[f.kind] ?? f.kind})
+              </option>
+            ))}
+          </select>
+          <button type="submit" className="home__btn" disabled={busy}>
+            {busy ? 'Moving…' : 'Move'}
+          </button>
+          <button type="button" className="home__btn" disabled={busy} onClick={() => setMoving(false)}>
+            Cancel
+          </button>
+          <span className="home__muted">Who may read and draw it changes to the new folder's people.</span>
+          {error && <span className="home__error">{error}</span>}
+        </form>
+      )}
     </li>
   );
 }

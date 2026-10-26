@@ -246,6 +246,10 @@ pub fn router(state: DesignApiState) -> Router {
             post(rename_design_handler),
         )
         .route(
+            "/organisations/{organisation}/designs/{design}/folder",
+            post(move_design_handler),
+        )
+        .route(
             "/organisations/{organisation}/designs/{design}/versions",
             post(save_design_handler),
         )
@@ -2538,6 +2542,108 @@ async fn rename_design_handler(
 
     let mut map = BTreeMap::new();
     map.insert("design_id".to_string(), Json::Str(design_id.to_string()));
+    Ok(json_response(Json::Obj(map)))
+}
+
+/// `POST /organisations/{organisation}/designs/{design}/folder`: ADR-0074 "How", **a steward
+/// moves a design into another folder** (an existing design dragged into a new closet). Body:
+/// the target folder's id, as text.
+///
+/// A move changes who may read and draw the design, so it needs `steward` on the folder it
+/// leaves **and** on the one it joins: a steward of one closet cannot hand a design to people
+/// who could not see it, nor pull one out of a folder they do not look after. A missing or
+/// foreign design or folder gets the same `403` as a refusal. Filed on the organisation chain
+/// as `design_moved` (design, from, to, actor), in the same transaction as the move. Moving
+/// to the folder it is already in changes nothing and files nothing.
+async fn move_design_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, design)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let tenant = parse_organisation(&organisation)?;
+    let design_id = parse_design(&design)?;
+    let to: ScopeId = core::str::from_utf8(&signed.body)
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .ok_or(SessionError::Malformed("folder id"))?;
+
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = sessions::open_tenant_context(&tx, tenant, &session).await?;
+    let tenant_key = crate::keys::tenant_key(&tx, &state.ring, &ctx)
+        .await
+        .map_err(SessionError::Keys)?;
+    let from = design_scope(&tx, &ctx, design_id).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    // Authorise on both before saying whether either exists.
+    grants::authorise_account(&tx, &auth, from, Capability::Steward)
+        .await
+        .map_err(SessionError::Authority)?;
+    grants::authorise_account(&tx, &auth, Some(to), Capability::Steward)
+        .await
+        .map_err(SessionError::Authority)?;
+    let from = from.ok_or(DesignError::NoSuchDesign)?;
+
+    let mut changed_seq = Json::Null;
+    if from != to {
+        let moved = tx
+            .execute(
+                "UPDATE designs SET scope_id = $1 \
+                 WHERE id = $2 AND organisation_id = $3 \
+                   AND EXISTS (SELECT 1 FROM scopes WHERE id = $1 AND organisation_id = $3)",
+                &[
+                    &to.to_string(),
+                    &design_id.to_string(),
+                    &ctx.tenant().to_string(),
+                ],
+            )
+            .await
+            .map_err(SessionError::Db)?;
+        if moved == 0 {
+            return Err(DesignError::NoSuchScope.into());
+        }
+        let mut meta = BTreeMap::new();
+        meta.insert("actor".to_string(), Json::Str(ctx.actor().to_string()));
+        meta.insert("design".to_string(), Json::Str(design_id.to_string()));
+        meta.insert(
+            "entry_type".to_string(),
+            Json::Str(chain::EntryType::DesignMoved.as_str().to_string()),
+        );
+        meta.insert("from".to_string(), Json::Str(from.to_string()));
+        meta.insert(
+            "organisation".to_string(),
+            Json::Str(ctx.tenant().to_string()),
+        );
+        meta.insert("to".to_string(), Json::Str(to.to_string()));
+        let appended = crate::chains::append_org(
+            &tx,
+            &state.ring,
+            &ctx,
+            &tenant_key,
+            chain::EntryType::DesignMoved,
+            &Json::Obj(meta).to_canonical_bytes(),
+        )
+        .await
+        .map_err(SessionError::Chain)?;
+        changed_seq = Json::Int(appended.seq);
+    }
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    let mut map = BTreeMap::new();
+    map.insert("design_id".to_string(), Json::Str(design_id.to_string()));
+    map.insert("scope_id".to_string(), Json::Str(to.to_string()));
+    map.insert("changed_seq".to_string(), changed_seq);
     Ok(json_response(Json::Obj(map)))
 }
 

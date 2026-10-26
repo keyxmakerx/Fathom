@@ -3429,6 +3429,118 @@ async fn a_steward_sets_a_folders_place_kind_and_hub_role_and_a_drawer_may_not()
     );
 }
 
+#[tokio::test]
+async fn a_steward_of_both_folders_moves_a_design_and_the_move_is_filed() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let mk = |parent: Option<ScopeId>, kind: ScopeKind, name: &'static str| {
+        let pool = pool.clone();
+        let estate = &estate;
+        async move {
+            repo::create_scope(
+                &pool,
+                estate.organisation,
+                estate.steward.account,
+                parent,
+                kind,
+                &unique(name),
+            )
+            .await
+            .expect("scope")
+            .id
+        }
+    };
+    let site = mk(None, ScopeKind::Network, "site").await;
+    let building = mk(Some(site), ScopeKind::Building, "building").await;
+    let closet = mk(Some(building), ScopeKind::Rack, "closet").await;
+    let design = designs::create_design(&pool, estate.organisation, estate.steward.account, site)
+        .await
+        .expect("design");
+    let closet_steward = a_member_with_scope(
+        &pool,
+        &ring,
+        &estate,
+        "closet steward",
+        closet,
+        Capability::Steward,
+    )
+    .await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = format!(
+        "/organisations/{}/designs/{design}/folder",
+        estate.organisation
+    );
+    let to_closet = closet.to_string();
+
+    // A steward of the closet alone may not pull a design out of the site above it, and a
+    // drawer may not move one at all.
+    for who in [&closet_steward, &drawer] {
+        let (status, body) = call(addr, who, "POST", &path, to_closet.as_bytes()).await;
+        assert_eq!(status, "403", "{}", String::from_utf8_lossy(&body));
+    }
+
+    let moves_before = org_entries_of(estate.organisation, "design_moved").await;
+    let (status, body) = call(addr, &estate.steward, "POST", &path, to_closet.as_bytes()).await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let text = String::from_utf8_lossy(&body).into_owned();
+    assert!(
+        text.contains(&format!("\"scope_id\":\"{closet}\"")),
+        "{text}"
+    );
+    assert!(text.contains("\"changed_seq\":"), "{text}");
+    assert!(!text.contains("\"changed_seq\":null"), "{text}");
+    assert_eq!(
+        org_entries_of(estate.organisation, "design_moved").await,
+        moves_before + 1
+    );
+
+    // The design list now files it in the closet.
+    let (_, body) = call(
+        addr,
+        &estate.steward,
+        "GET",
+        &format!("/organisations/{}/designs", estate.organisation),
+        &[],
+    )
+    .await;
+    let listed = String::from_utf8_lossy(&body).into_owned();
+    assert!(
+        listed.contains(&format!("\"design_id\":\"{design}\""))
+            && listed.contains(&format!("\"scope_id\":\"{closet}\"")),
+        "{listed}"
+    );
+
+    // Moving it where it already is changes and files nothing; a body that is no id is 400.
+    let (status, body) = call(addr, &estate.steward, "POST", &path, to_closet.as_bytes()).await;
+    assert_eq!(status, "200");
+    assert!(String::from_utf8_lossy(&body).contains("\"changed_seq\":null"));
+    assert_eq!(
+        org_entries_of(estate.organisation, "design_moved").await,
+        moves_before + 1
+    );
+    let (status, _) = call(addr, &estate.steward, "POST", &path, b"not an id").await;
+    assert_eq!(status, "400");
+}
+
+/// How many entries of `entry_type` the organisation's chain holds, read as the superuser
+/// (the runtime role's tenant policy is not set outside a request).
+async fn org_entries_of(organisation: OrganisationId, entry_type: &str) -> i64 {
+    support::superuser_client_on_test_database()
+        .await
+        .query_one(
+            "SELECT count(*) FROM chain_entries WHERE chain_kind = 'org' AND chain_id = $1 \
+             AND entry_type = $2",
+            &[&organisation.to_string(), &entry_type],
+        )
+        .await
+        .expect("count")
+        .get(0)
+}
+
 // ---------------------------------------------------------------------------
 // This session's brief, item 4: a Capture or a Note carrying a credential
 // ---------------------------------------------------------------------------

@@ -425,6 +425,10 @@ pub enum EntryType {
     /// "Type it yourself" was set for a member (`0041`): `account`, `on`, and the
     /// `actor` who set it, who may be the member switching it on for themselves.
     TypeItYourselfSet,
+    /// A steward moved a design into another folder (ADR-0074, migration `0051`): the
+    /// `design`, the folder it left (`from`) and the one it joined (`to`), and the `actor`.
+    /// Filed because a move changes who may read and draw it; never the design's name.
+    DesignMoved,
 
     // ---- The password vault, Mode A (migration 0041, storage §13.4) ---------
     //
@@ -635,6 +639,7 @@ impl EntryType {
             Self::InvitationIssued => "invitation_issued",
             Self::InvitationClosed => "invitation_closed",
             Self::TypeItYourselfSet => "type_it_yourself_set",
+            Self::DesignMoved => "design_moved",
             Self::VaultKeyEnrolled => "vault_key_enrolled",
             Self::VaultKeySuperseded => "vault_key_superseded",
             Self::VaultEntryCreated => "vault_entry_created",
@@ -725,6 +730,7 @@ impl EntryType {
             "invitation_issued" => Some(Self::InvitationIssued),
             "invitation_closed" => Some(Self::InvitationClosed),
             "type_it_yourself_set" => Some(Self::TypeItYourselfSet),
+            "design_moved" => Some(Self::DesignMoved),
             "vault_key_enrolled" => Some(Self::VaultKeyEnrolled),
             "vault_key_superseded" => Some(Self::VaultKeySuperseded),
             "vault_entry_created" => Some(Self::VaultEntryCreated),
@@ -831,6 +837,7 @@ impl EntryType {
             | Self::InvitationIssued
             | Self::InvitationClosed
             | Self::TypeItYourselfSet
+            | Self::DesignMoved
             | Self::VaultKeyEnrolled
             | Self::VaultKeySuperseded
             | Self::VaultEntryCreated

@@ -247,7 +247,9 @@ breadcrumb does one thing.
   site's buildings, every site, with counts, "You are here", a hub's double border, and more than eight
   branch or customer sites of one role folded into a counted stack. A box opens one level in; a closet
   opens its latest design. Boxes are laid out in a grid for now, not placed by hand (ADR-0047), and
-  rooms wait for the room builder (ADR-0051). A design cannot yet be moved into another folder.
+  rooms wait for the room builder (ADR-0051). **A steward of both folders moves a design** into another
+  (Home's Move on a design row, `POST …/designs/{design}/folder`), filed on the organisation chain as
+  `design_moved` (design, from, to, actor; migration 0051).
   The account menu holds Your account, Signed-in browsers, theme and Sign out; an amber "Admin" pill
   shows beside the initials where the console answers. "New design" goes in the first Site the person may
   draw in. Names start as "Untitled design", sealed under the organisation key (`designs.name_*`); Rename

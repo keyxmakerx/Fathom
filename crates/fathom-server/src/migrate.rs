@@ -311,6 +311,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0050_scope_place.sql",
         sql: include_str!("../migrations/0050_scope_place.sql"),
     },
+    // A steward moves a design into another folder, and the move is filed (ADR-0074).
+    Migration {
+        version: 51,
+        name: "0051_design_moved.sql",
+        sql: include_str!("../migrations/0051_design_moved.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.
