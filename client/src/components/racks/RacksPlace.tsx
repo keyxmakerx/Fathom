@@ -2,6 +2,7 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState, type Rea
 
 import { listOverlays } from '../../document/overlays';
 import { captureOf } from '../../document/capture';
+import { previewSwapIn } from '../../document/swapModel';
 import { completeCable, connectPorts, disconnect, IncompatibleConnectorError, PortAlreadyTerminatedError, type Sheath } from '../../document/cables';
 import {
   SURFACE_FORMS,
@@ -1848,6 +1849,7 @@ export function RacksPlace(props: RacksPlaceProps) {
             // `canDraw`.
             isCableHidden: handleIsCableHidden,
             onToggleCableHidden: handleToggleCableHidden,
+            previewSwap: (chassisId, m) => previewSwapIn(doc, catalogue, chassisId, m),
           },
           paletteFromCatalogue(catalogue),
           // r31 pictures: the two ways on at the panel's foot; the rest in its ⋯ menu.

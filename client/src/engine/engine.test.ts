@@ -19,9 +19,10 @@ import { ERRORS, OPCODES } from './protocol.constants';
 import { fileLoader } from './wasm';
 import { connectOneEnd, connectPorts } from '../document/cables';
 import { firstRefusal } from '../components/checks/checksModel';
-import { addSketchPort, createRack, createSketchDevice, movePlacement, removeChassis } from '../document/commands';
+import { addSketchPort, createRack, createSketchDevice, movePlacement, placeChassis, removeChassis } from '../document/commands';
 import { createPremises } from '../components/racks/emptyDesign';
-import { setDeviceField } from '../document/edit';
+import { setChassisField, setDeviceField } from '../document/edit';
+import { swapModel } from '../document/swapModel';
 import { addContainer, addContainerNetwork, addPublishedPort, attachContainerToNetwork } from '../document/docker';
 import { edgesIn, edgesOut, emptyDocument, text, type Document } from '../document/model';
 import { addSubnet, addVlan, removeVlanNetwork } from '../document/networks';
@@ -534,6 +535,44 @@ describe('a design stays saveable after undo', () => {
     expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
     doc = movePlacement(doc, chassis, at(30), step());
     expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
+  });
+
+  // Sign-off r28-swap: a swap keeps some ports, drops one with a cable (a loose end), adds one,
+  // grows the box a unit and clears the serial, all in one batch. It and its undo must load.
+  it('swapping a placed device for another model loads through the Rust reader, and so does its undo', () => {
+    const actor = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+    let now = 1_790_200_000_000;
+    const step = () => ({ actor, now: (now += 1000) });
+    const port = (number: number, kind = 'RJ45') => ({ kind, number, uplink: false, row: 'single' as const, column: number, groupGapBefore: false });
+    const model = (name: string, rackUnits: number, numbers: number[], kind?: string) => ({
+      vendor: 'test',
+      model: name,
+      rackUnits,
+      reviewedBy: 'reviewer',
+      source: { cite: 'fixture', readOn: '2026-10-23' },
+      psuSlots: [{ name: 'PSU', hotSwap: false, face: 'rear' as const, position: { row: 'single' as const, column: 0 } }],
+      faceplates: [{ face: 'front' as const, portCount: numbers.length, ports: numbers.map((n) => port(n, kind)) }],
+    });
+    const OLD = model('OLD-3', 1, [1, 2, 3]);
+    const NEW = model('NEW-2', 2, [1, 2, 4], 'SFP+');
+
+    const premises = createPremises(emptyDocument(), step());
+    let doc = createRack(premises.doc, premises.premisesId, { label: 'R1', heightU: 42, unitNumbering: 'ascending', ...step() });
+    const rack = doc.nodes.find((n) => n.id.startsWith('rack:'))!.id;
+    doc = placeChassis(doc, rack, OLD, 1, 'front', step());
+    const box = edgesIn(doc, rack, 'MountedIn')[0].from;
+    doc = placeChassis(doc, rack, OLD, 10, 'front', step());
+    const peer = edgesIn(doc, rack, 'MountedIn').find((e) => e.from !== box)!.from;
+    const portOf = (chassis: string, label: string) => edgesOut(doc, chassis, 'HasPort').map((e) => e.to).find((id) => doc.nodes.find((n) => n.id === id)!.fields['PhysicalPort.label']?.value === label)!;
+    doc = connectPorts(doc, portOf(box, '1'), portOf(peer, '1'), {}, step());
+    doc = connectPorts(doc, portOf(box, '3'), portOf(peer, '3'), {}, step());
+    doc = setChassisField(doc, box, 'serial', 'SN-1', step());
+    expect(() => engine.loadPlain(writePlain(doc))).not.toThrow();
+
+    const swapped = swapModel(doc, box, NEW, { catalogue: [OLD, NEW], ...step() });
+    expect(() => engine.loadPlain(writePlain(swapped))).not.toThrow();
+    const undone = undo(swapped, swapped.batches.at(-1)!.id, step());
+    expect(() => engine.loadPlain(writePlain(undone))).not.toThrow();
   });
 
   it('free boxes, a line, a label and an area load through the Rust reader, before and after removal', () => {

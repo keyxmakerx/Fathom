@@ -23,6 +23,7 @@ import { SHEATH_VAR, needsHairlineOutline, sheathsFor } from './sheath';
 // this file still never reads or writes a `Document`.
 import type { FixtureView, Placement, RackView } from '../../document/view';
 import { FIELD_TYPES, FIELD_TYPE_LABEL, type FieldType } from '../../document/fields';
+import type { SwapPlan } from '../../document/swapModel';
 import { TagChips } from '../TagChips';
 import { DocsSection } from '../docs/DocsSection';
 import { DevicePhoto } from '../docs/DevicePhoto';
@@ -1519,6 +1520,101 @@ function DuplicateDeviceControl({ chassisId, actions }: { chassisId: string; act
   );
 }
 
+export function swapModelChange(chassisId: string, model: { vendor: string; model: string }): EditorChange {
+  return { kind: 'swap-model', chassisId, model };
+}
+
+/** What a swap would do, in sentences, for the panel to show before the person confirms. */
+export function swapSummary(plan: SwapPlan): string[] {
+  const lines: string[] = [];
+  const cabled = plan.kept.filter((p) => p.cabled).length;
+  const n = (k: number, one: string) => `${k} ${one}${k === 1 ? '' : 's'}`;
+  if (plan.kept.length > 0) {
+    lines.push(`${n(plan.kept.length, 'port')} ${plan.kept.length === 1 ? 'carries' : 'carry'} over${cabled > 0 ? `, ${cabled} with ${cabled === 1 ? 'its cable' : 'their cables'}` : ''}.`);
+  }
+  const renamed = plan.kept.filter((p) => p.newLabel != null);
+  if (renamed.length > 0) lines.push(`Renamed to the new model's numbering: ${renamed.map((p) => `${p.label || ABSENT} to ${p.newLabel}`).join(', ')}.`);
+  const changed = plan.kept.filter((p) => p.cabled && p.connectorChanged);
+  if (changed.length > 0) lines.push(`New connector on ${changed.map((p) => p.label).join(', ')}: Checks will say if a cable no longer fits.`);
+  if (plan.added.length > 0) lines.push(`${n(plan.added.length, 'new port')}.`);
+  const loose = plan.dropped.filter((p) => p.cableId != null);
+  const bare = plan.dropped.length - loose.length;
+  if (loose.length > 0) {
+    lines.push(`Not on the new model: ${loose.map((p) => p.label || ABSENT).join(', ')}. ${loose.length === 1 ? 'Its cable stays as a loose end' : 'Their cables stay as loose ends'} in Missing links.`);
+  }
+  if (bare > 0) lines.push(`${n(bare, 'empty port')} the new model lacks will go.`);
+  if (plan.height) lines.push(`${plan.height.from}U becomes ${plan.height.to}U, from the same bottom unit.`);
+  if (plan.serial != null) lines.push(`Serial ${plan.serial} is cleared: a new box has its own.`);
+  lines.push('One undo puts the old box back.');
+  return lines;
+}
+
+/** Sign-off r28-swap — "Swap model…": pick a catalogue model, see what carries over, confirm. */
+function SwapModelControl({ chassisId, current, catalogue, actions }: { chassisId: string; current: string; catalogue: readonly PaletteItem[]; actions: EditorActions }) {
+  const [open, setIsOpen] = useState(false);
+  const [modelKey, setModelKey] = useState('');
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const onEdit = actions.onEdit;
+  if (!onEdit) return null;
+  const choices = catalogue.filter((item) => item.model !== current);
+  if (choices.length === 0) return null;
+
+  if (!open) {
+    return (
+      <button type="button" className="btn-quiet" onClick={() => setIsOpen(true)}>
+        {current ? 'Swap model…' : 'Give it a catalogue model…'}
+      </button>
+    );
+  }
+
+  const [vendor, ...rest] = modelKey.split('|');
+  const picked = modelKey !== '' ? { vendor: vendor!, model: rest.join('|') } : null;
+  const plan = picked ? actions.previewSwap?.(chassisId, picked) ?? null : null;
+
+  function close() {
+    setIsOpen(false);
+    setModelKey('');
+    setRefusal(null);
+  }
+
+  function commit() {
+    if (!picked) return;
+    const result = onEdit!(swapModelChange(chassisId, picked));
+    if (result?.refused) {
+      setRefusal(result.refused);
+      return;
+    }
+    close();
+  }
+
+  return (
+    <div className="drawing-editor__field">
+      <select aria-label="New model" value={modelKey} onChange={(e) => { setModelKey(e.target.value); setRefusal(null); }}>
+        <option value="">pick the new model</option>
+        {choices.map((item) => (
+          <option key={`${item.vendor}/${item.model}`} value={`${item.vendor}|${item.model}`}>
+            {item.vendor} {item.model} ({item.rackUnits}U)
+          </option>
+        ))}
+      </select>
+      {plan ? (
+        <ul className="drawing-editor__swap-plan">
+          {swapSummary(plan).map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+      <button type="button" className="btn-main" disabled={!picked} onClick={commit}>
+        Swap
+      </button>
+      <button type="button" onClick={close}>
+        cancel
+      </button>
+      {refusal != null ? <div style={CAUTION_STYLE}>{refusal}</div> : null}
+    </div>
+  );
+}
+
 /** ADR-0051 §1, brief item 3 — a rack's own "+ add a shelf": a unit and an
  * optional catalogue model drawn from the same list the palette itself
  * offers (`racks/palette.ts`'s `paletteFromCatalogue`) — never a hard-coded
@@ -2200,6 +2296,7 @@ function panelFor(
                       hand.
                     </div>
                   ) : null}
+                  <SwapModelControl chassisId={chassis.id} current={chassis.model} catalogue={catalogue} actions={actions} />
                   <div className="drawing-editor__field">
                     <div className="drawing-editor__field-label">Role</div>
                     <EditableValue
