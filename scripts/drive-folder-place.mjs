@@ -291,6 +291,27 @@ async function runProof(browser, ctxA, seed) {
   await blockGroup.locator('.home__design-row').first().waitFor({ timeout: 10000 });
   check('M1. a steward moves the design from its closet into the building', (await blockGroup.locator('.home__design-row').count()) === 1);
   await shot('m2-moved');
+
+  // ---- ADR-0074 §8: a NetBox rack export becomes sites, buildings and rack designs ----
+  await A.getByRole('tab', { name: 'Organisation' }).click();
+  await A.locator('.org-rail__item', { hasText: 'Folders' }).click();
+  await A.getByRole('button', { name: 'Import from NetBox' }).click();
+  const csv = ['name,site,location,status,u_height', 'A01,LON1,Hall 1,active,48', 'A02,LON1,Hall 1,active,42', 'B01,Northgate,Block A,active,42'].join('\n');
+  await A.getByTestId('estate-import-file').setInputFiles({ name: 'netbox-racks.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  const importer = A.getByTestId('estate-import');
+  const make = importer.getByRole('button', { name: /^Make / });
+  await make.waitFor({ timeout: 30000 });
+  const planText = await importer.innerText();
+  check('N1. the plan matches Northgate and Block A, skips Block A (it has a design) and offers LON1 new', /LON1[\s\S]*new/i.test(planText) && /Block A[\s\S]*already there/i.test(planText) && /skipped/i.test(planText) && /Make 1 site, 1 building and 1 design/i.test(await make.innerText()), planText);
+  await shot('n1-netbox-plan');
+  await make.click();
+  await importer.locator('.estate-import__done').waitFor({ timeout: 30000 });
+  await A.reload();
+  await A.getByRole('tab', { name: 'Designs' }).click();
+  const hallGroup = A.locator('.home__scope-group', { has: A.locator('.home__scope-name', { hasText: 'Hall 1' }) });
+  await hallGroup.locator('.home__design-row').first().waitFor({ timeout: 10000 });
+  check('N2. after a reload Hall 1 holds the new "Hall 1 racks" design', /Hall 1 racks/.test(await hallGroup.innerText()));
+  await shot('n2-imported');
   check('F5. no page errors', errors.length === 0, errors.join(' | '));
 }
 

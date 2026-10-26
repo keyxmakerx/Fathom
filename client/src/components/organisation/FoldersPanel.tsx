@@ -1,8 +1,10 @@
 import { useState, type ReactNode } from 'react';
 
+import type { DesignSummary } from '../../api/designs';
 import type { Place, Scope } from '../../api/scopes';
 import { canStewardFor } from '../home/capabilities';
 import { EmptyState } from '../ui/EmptyState';
+import { EstateImport } from './EstateImport';
 import { PLACE_ROLES, placeFormLabel, placeFormsFor, placeRoleLabel, takesRole } from './place';
 
 /** The interface's names for the server's scope kinds (the owner, 2026-09-23). */
@@ -22,11 +24,18 @@ export interface FoldersPanelProps {
   /** ADR-0074: a steward sets what kind of place a folder is and its role. Absent, the
    * words are shown but cannot be changed here. */
   onSetPlace?: (scopeId: string, place: Place) => Promise<void>;
+  /** ADR-0074 §8: import sites, buildings and racks from a NetBox export. Absent, no button. */
+  estate?: {
+    organisationId: string;
+    designScopeIds: readonly string[];
+    onImported: (made: { scopes: Scope[]; designs: DesignSummary[] }) => void;
+  };
 }
 
 /** The organisation's folders: Sites, Buildings and Closets, and where to make more. */
-export function FoldersPanel({ organisationName, scopes, onCreateScope, scopeForm, onSetPlace }: FoldersPanelProps) {
+export function FoldersPanel({ organisationName, scopes, onCreateScope, scopeForm, onSetPlace, estate }: FoldersPanelProps) {
   const [editing, setEditing] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   return (
     <section className="home__section">
       <div className="home__section-head">
@@ -34,12 +43,26 @@ export function FoldersPanel({ organisationName, scopes, onCreateScope, scopeFor
         <button type="button" className="home__btn home__btn--small" onClick={() => onCreateScope(null, organisationName, 'site')}>
           New site
         </button>
+        {estate && !importing && (
+          <button type="button" className="home__btn home__btn--small" onClick={() => setImporting(true)}>
+            Import from NetBox
+          </button>
+        )}
       </div>
       <p className="home__muted">
         Sites, Buildings and Closets sort designs, and say who may read, draw or look after them. None is needed to start one.
         Zoomed out, Fathom draws them as the map of your estate, with hubs in a double border.
       </p>
       {scopeForm}
+      {estate && importing && scopes.status === 'ready' && (
+        <EstateImport
+          organisationId={estate.organisationId}
+          scopes={scopes.value}
+          designScopeIds={estate.designScopeIds}
+          onImported={estate.onImported}
+          onClose={() => setImporting(false)}
+        />
+      )}
       {scopes.status === 'loading' && <p className="home__muted">Loading…</p>}
       {scopes.status === 'error' && <p className="home__error">{scopes.message}</p>}
       {scopes.status === 'ready' && scopes.value.length === 0 && (

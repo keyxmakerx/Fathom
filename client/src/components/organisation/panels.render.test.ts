@@ -449,5 +449,12 @@ describe('Folders (ADR-0074)', () => {
     const out = html(createElement(FoldersPanel, { organisationName: 'Northwind', scopes, onCreateScope: noop, scopeForm: null }));
     expect(out).toContain('Central office');
     expect(out).not.toContain('Kind and role');
+    expect(out).not.toContain('Import from NetBox');
+  });
+
+  it('offers the NetBox import only when it can be saved', () => {
+    const estate = { organisationId: 'O1', designScopeIds: [], onImported: noop };
+    const out = html(createElement(FoldersPanel, { organisationName: 'Northwind', scopes, onCreateScope: noop, scopeForm: null, estate }));
+    expect(out).toContain('>Import from NetBox<');
   });
 });

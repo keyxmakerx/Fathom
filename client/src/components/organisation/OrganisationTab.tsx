@@ -18,7 +18,7 @@ import type { Place, Scope } from '../../api/scopes';
 import { shareWith } from '../../api/share';
 import { AiPanel } from '../ai/AiPanel';
 import { canStewardFor } from '../home/capabilities';
-import { FoldersPanel, type Loadable } from './FoldersPanel';
+import { FoldersPanel, type FoldersPanelProps, type Loadable } from './FoldersPanel';
 import { InviteForm, LinkCard } from './InvitePanel';
 import { accessWords, dateTimeLabel } from './model';
 import { setTypeItYourself } from '../../api/organisations';
@@ -44,6 +44,8 @@ export interface OrganisationTabProps {
   scopeForm: ReactNode;
   /** ADR-0074: a steward sets a folder's kind of place and role. */
   onSetPlace?: (scopeId: string, place: Place) => Promise<void>;
+  /** ADR-0074 §8: what the NetBox import needs; absent, the Folders page has no import. */
+  estate?: FoldersPanelProps['estate'];
   /** Someone a Steward named to connect AI apps, who is not an admin here: the tab is AI
    * alone (ADR-0072). */
   aiOnly?: boolean;
@@ -56,7 +58,7 @@ export interface OrganisationTabProps {
  * server refuses anyone else before it reads a row, and this tab then shows
  * that refusal in place of the list, with no Waiting entry and no emails.
  */
-export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm, onSetPlace, aiOnly = false }: OrganisationTabProps) {
+export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm, onSetPlace, estate, aiOnly = false }: OrganisationTabProps) {
   const org = organisation.organisationId;
   const [page, setPage] = useState<Page>({ kind: aiOnly ? 'ai' : 'people' });
   const [people, setPeople] = useState<Loadable<People>>({ status: 'loading' });
@@ -155,7 +157,7 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
       );
     }
     if (page.kind === 'folders') {
-      return <FoldersPanel organisationName={organisation.displayName} scopes={scopes} onCreateScope={onCreateScope} scopeForm={scopeForm} onSetPlace={onSetPlace} />;
+      return <FoldersPanel organisationName={organisation.displayName} scopes={scopes} onCreateScope={onCreateScope} scopeForm={scopeForm} onSetPlace={onSetPlace} estate={estate} />;
     }
     if (page.kind === 'invite') {
       return (

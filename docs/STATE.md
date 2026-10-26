@@ -249,7 +249,12 @@ breadcrumb does one thing.
   opens its latest design. Boxes are laid out in a grid for now, not placed by hand (ADR-0047), and
   rooms wait for the room builder (ADR-0051). **A steward of both folders moves a design** into another
   (Home's Move on a design row, `POST …/designs/{design}/folder`), filed on the organisation chain as
-  `design_moved` (design, from, to, actor; migration 0051).
+  `design_moved` (design, from, to, actor; migration 0051). **Import from NetBox** on Folders (ADR-0074 §8,
+  `import/estate.ts`, `EstateImport.tsx`): a NetBox rack or device export passes the redaction gate, then
+  shows as a plan (sites to Sites, locations to Buildings, matched by name to folders already there); accepting
+  makes the missing folders and, per location with racks, one "`<location>` racks" design with them in a row.
+  A location that already has a design is skipped, so importing again makes nothing twice. Devices go in from
+  that design's own Import. Proven by `scripts/drive-folder-place.mjs` (N1, N2).
   The account menu holds Your account, Signed-in browsers, theme and Sign out; an amber "Admin" pill
   shows beside the initials where the console answers. "New design" goes in the first Site the person may
   draw in. Names start as "Untitled design", sealed under the organisation key (`designs.name_*`); Rename

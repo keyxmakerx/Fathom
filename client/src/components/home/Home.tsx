@@ -643,6 +643,14 @@ export function Home({
             scopes={scopes}
             onCreateScope={openScopeForm}
             onSetPlace={setPlace}
+            estate={{
+              organisationId: selectedOrganisation.organisationId,
+              designScopeIds: designs.status === 'ready' ? designs.value.map((d) => d.scopeId) : [],
+              onImported: (made) => {
+                setScopes((current) => (current.status === 'ready' ? { status: 'ready', value: [...current.value, ...made.scopes] } : current));
+                setDesigns((current) => (current.status === 'ready' ? { status: 'ready', value: [...current.value, ...made.designs] } : current));
+              },
+            }}
             scopeForm={
               scopeFormParent && (
                 <ScopeForm
