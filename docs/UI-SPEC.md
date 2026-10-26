@@ -298,6 +298,12 @@ between rooms a counted bundle, a floor-plan image as an optional background. St
 plan cannot say it is current or the right building, would be missing from every export, and needs a
 size cap.
 
+**ADR-0074 (2026-10-26).** The building, site and estate stops draw the Site › Building › Closet
+folders Home already has, with their permissions; a folder gains a kind and a hand-set role, a hub
+drawn with a double border. Rooms come from ADR-0051's room builder (plan image or PDF page, traced
+with snapping, suggested rooms accepted or rejected). Small sites fold behind their hub as a counted
+stack. No 2.5D view. A rack dragged by hand keeps its place.
+
 ## The patching surface
 
 At the faceplate zoom **plates pull in and push out, as many as needed**, arranged by hand, cabled

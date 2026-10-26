@@ -326,7 +326,9 @@ breadcrumb does one thing.
   flight, the latest queued, a refusal shown and never rolled back. A rack's height is 42U, 24U, 12U or
   typed, refused below what is mounted.
 - **Rear elevation** (ADR-0050): every rack has front and rear; supplies are parts in slots with their own
-  serials; *single-fed* and *one fitted* are derived. Racks have a row and bay.
+  serials; *single-fed* and *one fitted* are derived. Racks have a row and bay. A rack dragged by hand keeps its
+  place (its `LayoutPin`, saved as seen from the front, mirrored when the row shows the rear; undo returns it
+  to its bay slot; ADR-0074 decision 5, `scripts/drive-rack-place.mjs`). A read-only viewer's drag lasts the session.
 - **Shelves, surfaces, sketches** (ADR-0051): shelves take units and slots; devices fix to a wall, floor,
   desk, ceiling or board. A device with no model carries ports typed by hand and says so. Outlet boxes and
   panels get pass-through pairs and a lit path.
@@ -587,7 +589,7 @@ failures, staleness and an out-of-date keys file reach the console banner.
 ## Never built
 
 Walkthrough view (the teaching half of the product); Config view; the building and room stops
-(decided: UI-SPEC "The building", ADR-0051); engine manager (how equipment types are registered and
+(decided: UI-SPEC "The building", ADR-0051, ADR-0074: the folders drawn, rooms from ADR-0051's room builder); engine manager (how equipment types are registered and
 kept current); automatic correlation across separately-pasted configs; anything that discovers a
 network live (everything today comes from pasted text).
 
