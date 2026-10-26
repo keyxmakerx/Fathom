@@ -208,7 +208,7 @@ fn schema_version_is_the_trees() {
     // 0.26 -> 0.27: the lesson builder. Two node kinds (`Lesson`, `LessonStep`), two edge kinds
     // (`HasLesson`, `HasLessonStep`), twenty-two field keys (486-507); all MINOR.
     //
-    // 0.27 -> 0.28: cards and optics. One node kind (`Card`), one edge kind (`HasCard`), one class
+    // 0.27 -> 0.28: cards and optics. One node kind (`Card`), two edge kinds (`HasCard`, `OnCard`), one class
     // (`CardHost`), four field keys (508-511), and `Transceiver` gains its shape; all MINOR.
     assert_eq!(SCHEMA_VERSION, "0.28");
 }

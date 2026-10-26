@@ -138,7 +138,7 @@ const EDGE_KINDS_SINCE_0_27: &[EdgeKind] = &[EdgeKind::HasLesson, EdgeKind::HasL
 
 /// Kinds `0.28` (cards and optics) added; every accepted older header is too old for them.
 const NODE_KINDS_SINCE_0_28: &[NodeKind] = &[NodeKind::Card];
-const EDGE_KINDS_SINCE_0_28: &[EdgeKind] = &[EdgeKind::HasCard];
+const EDGE_KINDS_SINCE_0_28: &[EdgeKind] = &[EdgeKind::HasCard, EdgeKind::OnCard];
 
 /// Refuse a payload declared at `declared` that holds a kind newer than that
 /// version — decision 6's (ADR-0058) and decision 9's (ADR-0059) second

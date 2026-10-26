@@ -447,10 +447,14 @@ mod body {
         /// ids, one per line where there can be several.
         LessonStep,
         /// A field-replaceable card that occupies a slot: a line card, a network module, a NIM, an
-        /// expansion card (ADR-0073). PowerSupply's shape exactly: a part with its own model and
-        /// serial, seated by HasCard in a Chassis or in another Card's sub-slot, and a PortHost, so
-        /// its ports go with it when it is pulled. An empty slot has no Card. A device whose ports
-        /// are fixed has no Card at all.
+        /// expansion card (ADR-0073). PowerSupply's shape: a part with its own model and serial,
+        /// seated by HasCard in a Chassis or in another Card's sub-slot. An empty slot has no Card.
+        /// A device whose ports are fixed has no Card at all.
+        ///
+        /// NOT a PortHost, unlike PowerSupply: a card's ports stay owned by the chassis (HasPort)
+        /// and say which card they are on through OnCard. Every reader that walks a port up to its
+        /// device (cables, path trace, Checks, the faceplate) then keeps working unchanged, and
+        /// pulling a card is the command's job: it takes the ports OnCard names with it.
         ///
         /// Origin::Hand, or a suggestion from a pasted inventory the person ticks (ADR-0046).
         Card,
@@ -1417,12 +1421,15 @@ mod body {
         /// ADR-0073. Seats a Card in the chassis, or the card, whose slot it occupies. CONTAINMENT,
         /// FittedIn's reason: nothing else contains a card, and `[owner(CardHost), slot]` needs it.
         HasCard,
+        /// ADR-0073. A port on a card's faceplate. A REFERENCE EDGE because the port already has
+        /// its containment parent, the chassis (HasPort); see Card's doc for why it stays there.
+        OnCard,
     }
 
     impl EdgeKind {
-        pub const COUNT: usize = 121;
+        pub const COUNT: usize = 122;
         /// Every kind, declaration order.
-        pub const ALL: [EdgeKind; 121] = [
+        pub const ALL: [EdgeKind; 122] = [
             EdgeKind::HasDevice,
             EdgeKind::HasChassis,
             EdgeKind::HasRedundancyGroup,
@@ -1544,6 +1551,7 @@ mod body {
             EdgeKind::HasLesson,
             EdgeKind::HasLessonStep,
             EdgeKind::HasCard,
+            EdgeKind::OnCard,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -1671,6 +1679,7 @@ mod body {
                 EdgeKind::HasLesson => "HasLesson",
                 EdgeKind::HasLessonStep => "HasLessonStep",
                 EdgeKind::HasCard => "HasCard",
+                EdgeKind::OnCard => "OnCard",
             }
         }
         pub fn from_name(name: &str) -> Option<EdgeKind> {
@@ -1796,6 +1805,7 @@ mod body {
                 "HasLesson" => Some(EdgeKind::HasLesson),
                 "HasLessonStep" => Some(EdgeKind::HasLessonStep),
                 "HasCard" => Some(EdgeKind::HasCard),
+                "OnCard" => Some(EdgeKind::OnCard),
                 _ => None,
             }
         }
@@ -1923,6 +1933,7 @@ mod body {
                 EdgeKind::HasLesson => EdgeClass::Containment,
                 EdgeKind::HasLessonStep => EdgeClass::Containment,
                 EdgeKind::HasCard => EdgeClass::Containment,
+                EdgeKind::OnCard => EdgeClass::Reference,
             }
         }
     }
@@ -2051,7 +2062,7 @@ mod body {
                 EdgeKind::HasExternalPeer => &[NodeKind::Site, NodeKind::Premises],
                 EdgeKind::HasTunnel => &[],
                 EdgeKind::HasPremises => &[],
-                EdgeKind::HasPort => &[NodeKind::Chassis, NodeKind::PassiveNode, NodeKind::PowerSupply, NodeKind::Card],
+                EdgeKind::HasPort => &[NodeKind::Chassis, NodeKind::PassiveNode, NodeKind::PowerSupply],
                 EdgeKind::HasPassiveNode => &[NodeKind::Premises],
                 EdgeKind::HasCable => &[],
                 EdgeKind::HasTenant => &[],
@@ -2140,6 +2151,7 @@ mod body {
                 EdgeKind::HasLesson => &[],
                 EdgeKind::HasLessonStep => &[NodeKind::Lesson],
                 EdgeKind::HasCard => &[NodeKind::Chassis, NodeKind::Card],
+                EdgeKind::OnCard => &[NodeKind::PhysicalPort],
             }
         }
         /// The declared `to:` kind set, class names expanded (62 §6.2).
@@ -2266,6 +2278,7 @@ mod body {
                 EdgeKind::HasLesson => &[NodeKind::Lesson],
                 EdgeKind::HasLessonStep => &[NodeKind::LessonStep],
                 EdgeKind::HasCard => &[NodeKind::Card],
+                EdgeKind::OnCard => &[NodeKind::Card],
             }
         }
         /// The `out:` bound at L0 — edges leaving a `from` node (11 §7.1).
@@ -2392,6 +2405,7 @@ mod body {
                 EdgeKind::HasLesson => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasLessonStep => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasCard => EdgeCardBound { min: 0, max: None },
+                EdgeKind::OnCard => EdgeCardBound { min: 0, max: Some(1) },
             }
         }
         /// The `in:` bound at L0 — edges arriving at a `to` node (11 §7.1).
@@ -2518,6 +2532,7 @@ mod body {
                 EdgeKind::HasLesson => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::HasLessonStep => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::HasCard => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::OnCard => EdgeCardBound { min: 0, max: None },
             }
         }
         /// `true` means `(a,b)` and `(b,a)` are the same edge: one stored
@@ -2645,6 +2660,7 @@ mod body {
                 EdgeKind::HasLesson => false,
                 EdgeKind::HasLessonStep => false,
                 EdgeKind::HasCard => false,
+                EdgeKind::OnCard => false,
             }
         }
         /// `from: [root]` — containment by the workspace root (11 §7.2).
@@ -2771,6 +2787,7 @@ mod body {
                 EdgeKind::HasLesson => true,
                 EdgeKind::HasLessonStep => false,
                 EdgeKind::HasCard => false,
+                EdgeKind::OnCard => false,
             }
         }
         /// The edge's declared field keys, declaration order (62 §6.2).
@@ -2897,6 +2914,7 @@ mod body {
                 EdgeKind::HasLesson => &[],
                 EdgeKind::HasLessonStep => &[],
                 EdgeKind::HasCard => &[],
+                EdgeKind::OnCard => &[],
             }
         }
     }

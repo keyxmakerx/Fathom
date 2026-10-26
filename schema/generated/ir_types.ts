@@ -284,7 +284,8 @@ export type EdgeKind =
   | "OverlayMember"
   | "HasLesson"
   | "HasLessonStep"
-  | "HasCard";
+  | "HasCard"
+  | "OnCard";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -407,6 +408,7 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasLesson",
   "HasLessonStep",
   "HasCard",
+  "OnCard",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */

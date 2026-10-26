@@ -106,7 +106,7 @@ const EDGE_KINDS_SINCE_0_27: ReadonlySet<EdgeKind> = new Set(['HasLesson', 'HasL
 
 // Kinds 0.28 (cards and optics) added; every accepted older header is too old for them.
 const NODE_KINDS_SINCE_0_28: ReadonlySet<NodeKind> = new Set(['Card']);
-const EDGE_KINDS_SINCE_0_28: ReadonlySet<EdgeKind> = new Set(['HasCard']);
+const EDGE_KINDS_SINCE_0_28: ReadonlySet<EdgeKind> = new Set(['HasCard', 'OnCard']);
 
 // A kind first added at minor `m` is too new for any header below `m`. Mirrors the Rust table.
 const NODES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<NodeKind>]> = [

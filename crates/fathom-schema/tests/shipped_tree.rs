@@ -87,10 +87,10 @@ fn shipped_tree_declaration_counts_hold() {
     // `OverlayMember`), +7 keys (479-485).
     // The lesson builder (schema 0.27): +2 kinds (`Lesson`, `LessonStep`), +2 edges (`HasLesson`,
     // `HasLessonStep`), +22 keys (486-507).
-    // Cards and optics (schema 0.28): +1 kind (`Card`), +1 edge (`HasCard`), +1 class (`CardHost`),
+    // Cards and optics (schema 0.28): +1 kind (`Card`), +2 edges (`HasCard`, `OnCard`), +1 class (`CardHost`),
     // +4 keys (508-511).
     assert_eq!(tree.kinds.len(), 76, "kind count");
-    assert_eq!(tree.edges.len(), 129, "edge count (107 + 8 derived)");
+    assert_eq!(tree.edges.len(), 130, "edge count (107 + 8 derived)");
     // Custom-field values (2026-10-02, schema 0.16): +1 kind (`FieldValue`), +1 edge
     // (`HasFieldValue`), +1 CLASS (`Fieldable`), +2 field keys (380 -> 382).
     assert_eq!(tree.scalars.len(), 61, "scalar count");
@@ -193,7 +193,7 @@ fn shipped_tree_declaration_counts_hold() {
     // 0.24 -> 0.25 is the LAG plan step: one variant, `lag`, on `PlanStep.kind`.
     // 0.25 -> 0.26 is mesh VPNs: one kind, two edges, seven field keys (479-485).
     // 0.26 -> 0.27 is the lesson builder: two kinds, two edges, twenty-two field keys (486-507).
-    // 0.27 -> 0.28 is cards and optics: one kind, one edge, one class, four field keys (508-511).
+    // 0.27 -> 0.28 is cards and optics: one kind, two edges, one class, four field keys (508-511).
     assert_eq!(tree.version.as_deref(), Some("0.28"));
 }
 

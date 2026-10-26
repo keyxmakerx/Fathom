@@ -331,8 +331,8 @@ schema:
                     #
                     # 0.28 is cards and optics (ADR-0073, sign-off r35-cards, 2026-10-26), all
                     # additive: one node kind, Card (a line card, module or NIM in a slot), seated
-                    # by HasCard (containment) in a Chassis or in another Card's sub-slot, joining
-                    # PortHost so a card owns its ports, PowerSupply's own shape; one class,
+                    # by HasCard (containment) in a Chassis or in another Card's sub-slot, and
+                    # OnCard (reference, port to card) saying which ports are on it; one class,
                     # CardHost. Transceiver, unit until now, gains its shape (type, vendor, part,
                     # serial, wavelength_nm, all optional); it was never writable except as {},
                     # which still reads. Four field keys (508-511). 62 §16.2: new kinds, edges
@@ -438,14 +438,12 @@ classes:
     doc: |
       Cross-vendor rules address this, never the kinds — 11 §12.1's reth/LAG split.
   - class: PortHost
-    members: [Chassis, PassiveNode, PowerSupply, Card]
+    members: [Chassis, PassiveNode, PowerSupply]
     doc: |
       The owners of PhysicalPort. 19 §3.3, carried per 19 §7.4 row 5. ADR-0050 added
       PowerSupply: on a hot-swappable unit the inlet socket is on the supply, not the
       chassis, so the supply is a PortHost exactly as Chassis and PassiveNode are. A
       device whose supply is fixed keeps its inlet on the Chassis directly, unchanged.
-      ADR-0073 added Card: a line card's ports are on the card, so pulling the card takes
-      its ports with it.
   - class: CardHost
     members: [Chassis, Card]
     doc: |
@@ -2267,10 +2265,14 @@ kinds:
     emits: false
     doc: |
       A field-replaceable card that occupies a slot: a line card, a network module, a NIM, an
-      expansion card (ADR-0073). PowerSupply's shape exactly: a part with its own model and
-      serial, seated by HasCard in a Chassis or in another Card's sub-slot, and a PortHost, so
-      its ports go with it when it is pulled. An empty slot has no Card. A device whose ports
-      are fixed has no Card at all.
+      expansion card (ADR-0073). PowerSupply's shape: a part with its own model and serial,
+      seated by HasCard in a Chassis or in another Card's sub-slot. An empty slot has no Card.
+      A device whose ports are fixed has no Card at all.
+
+      NOT a PortHost, unlike PowerSupply: a card's ports stay owned by the chassis (HasPort)
+      and say which card they are on through OnCard. Every reader that walks a port up to its
+      device (cables, path trace, Checks, the faceplate) then keeps working unchanged, and
+      pulling a card is the command's job: it takes the ports OnCard names with it.
 
       Origin::Hand, or a suggestion from a pasted inventory the person ticks (ADR-0046).
     fields:
@@ -2651,7 +2653,7 @@ edges:
     doc: 19 §5.1.
   - edge: HasPort
     class: containment
-    from: [Chassis, PassiveNode, PowerSupply, Card]
+    from: [Chassis, PassiveNode, PowerSupply]
     to: [PhysicalPort]
     out: "0..n"
     in: "1"
@@ -3929,6 +3931,19 @@ edges:
     doc: |
       ADR-0073. Seats a Card in the chassis, or the card, whose slot it occupies. CONTAINMENT,
       FittedIn's reason: nothing else contains a card, and `[owner(CardHost), slot]` needs it.
+  - edge: OnCard
+    class: reference
+    from: [PhysicalPort]
+    to: [Card]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      ADR-0073. A port on a card's faceplate. A REFERENCE EDGE because the port already has
+      its containment parent, the chassis (HasPort); see Card's doc for why it stays there.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load
