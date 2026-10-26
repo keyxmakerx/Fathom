@@ -48,6 +48,7 @@ import { findChassis, findFixture, findOccupant, findRack, findShelf, findUnplac
 import { connectorName, describePorts, faceplateLayoutFor } from './faceplate';
 import { EmptyState } from '../ui/EmptyState';
 import { Fold } from './Fold';
+import { CardsSection, OpticSection } from './Parts';
 import { LoginsTab, LoginsTabLabel } from '../vault/Screens';
 
 // `DEVICE_ROLES` is `Device.role`'s own enum vocabulary (`schema/schema.yaml`,
@@ -84,7 +85,7 @@ function NumberField({ label, value, onCommit }: { label: string; value: number;
   );
 }
 
-function Field({ label, value }: { label: string; value: ReactNode }) {
+export function Field({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="drawing-editor__field">
       <div className="drawing-editor__field-label">{label}</div>
@@ -115,7 +116,7 @@ const IDLE_STYLE: CSSProperties = {
   cursor: 'pointer',
 };
 
-const TYPED_NOTE_STYLE: CSSProperties = {
+export const TYPED_NOTE_STYLE: CSSProperties = {
   fontSize: 'var(--t-micro)',
   color: 'var(--muted)',
   lineHeight: 1.4,
@@ -127,7 +128,7 @@ const TYPED_NOTE_STYLE: CSSProperties = {
 // `.racks-place__refusal` already uses for the server's own refusal path,
 // applied inline because this file does not touch `drawing.css` (see the
 // file header).
-const CAUTION_STYLE: CSSProperties = {
+export const CAUTION_STYLE: CSSProperties = {
   display: 'block',
   marginTop: 'var(--s1)',
   border: 'var(--rule-hair) solid var(--danger)',
@@ -166,7 +167,7 @@ interface EditableValueProps {
  * `<input>`/`<select>` is ever rendered, only the same text a writer sees at
  * rest.
  */
-function EditableValue({ value, placeholder, placeholderClassName, editorKind, options, onCommit }: EditableValueProps) {
+export function EditableValue({ value, placeholder, placeholderClassName, editorKind, options, onCommit }: EditableValueProps) {
   const [state, setState] = useState<FieldState>('idle');
   const [draft, setDraft] = useState(value);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -268,7 +269,7 @@ function EditableValue({ value, placeholder, placeholderClassName, editorKind, o
  * (`document/supplies.ts`'s `UnknownSlotError`/`SlotAlreadyFittedError`/
  * `FixedSlotError`, via `racks/RacksPlace.tsx`'s own `refusalFor`) beside
  * the button, the same way a refused field edit shows beside its field. */
-function SupplyAction({
+export function SupplyAction({
   label,
   onCommit,
   className,
@@ -2417,6 +2418,8 @@ function panelFor(
                     </div>
                   ) : null}
 
+                  <CardsSection chassis={chassis} actions={actions} />
+
                 </>
               ),
             },
@@ -2714,6 +2717,7 @@ function panelFor(
         <Field label="Uplink" value={port.uplink ? 'yes' : 'no'} />
         <Field label="Rack" value={rack.label} />
         <PortCableSection view={view} port={port} actions={actions} />
+        <OpticSection port={port} siblings={chassis.ports} actions={actions} />
         {/* ADR-0053 §5 — PhysicalPort is one of the three `Notable` kinds,
             wherever the port sits (a rack chassis, a shelf occupant or a
             surface fixture — `port.id` is the same `PhysicalPort` node id
@@ -2738,6 +2742,7 @@ function panelFor(
         <Field label="Uplink" value={port.uplink ? 'yes' : 'no'} />
         <Field label="Shelf" value={`${shelf.label || shelf.id} · ${rack.label}`} />
         <PortCableSection view={view} port={port} actions={actions} />
+        <OpticSection port={port} siblings={occupant.ports} actions={actions} />
         <PortMacField port={port} actions={actions} />
         <FieldsSection ownerId={port.id} actions={actions} />
         <NotesSection ownerId={port.id} actions={actions} />
@@ -2757,6 +2762,7 @@ function panelFor(
       <Field label="Uplink" value={port.uplink ? 'yes' : 'no'} />
       <Field label="Surface" value={surface.label || surface.id} />
       <PortCableSection view={view} port={port} actions={actions} />
+      <OpticSection port={port} siblings={fixture.ports} actions={actions} />
       <PortMacField port={port} actions={actions} />
       <FieldsSection ownerId={port.id} actions={actions} />
       <NotesSection ownerId={port.id} actions={actions} />

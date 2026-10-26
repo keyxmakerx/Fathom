@@ -54,6 +54,7 @@ import type { TagChip, TagSummary } from '../../document/tags';
 import type { FieldFor, FieldRow, FieldType } from '../../document/fields';
 import type { PortFace } from '../../document/compat';
 import type { SwapPlan } from '../../document/swapModel';
+import type { CardView, Optic } from '../../document/cards';
 
 export type {
   CableEnd,
@@ -68,6 +69,7 @@ export type {
   RackView,
   Sheath,
 } from '../../document/view';
+export type { CardView, Optic } from '../../document/cards';
 export type { NoteHow, NoteView } from '../../document/notes';
 export type { TagChip, TagSummary } from '../../document/tags';
 export type { FieldRow } from '../../document/fields';
@@ -269,7 +271,23 @@ export type EditorChange =
   | { kind: 'cable-run-remove'; id: string }
   | { kind: 'cable-tie-add'; runId: string; at: number; cableIds: readonly string[] }
   | { kind: 'cable-tie-move'; id: string; at: number }
-  | { kind: 'cable-tie-remove'; id: string };
+  | { kind: 'cable-tie-remove'; id: string }
+  /** Cards and optics (schema 0.28, `document/cards.ts`). `hostId` is a chassis or, for a
+   * sub-slot, a card. */
+  | {
+      kind: 'card-fit';
+      hostId: string;
+      slot: string;
+      name?: string;
+      model?: string;
+      serial?: string;
+      ports?: { prefix: string; first: number; last: number; connector: string };
+    }
+  | { kind: 'card-remove'; id: string }
+  | { kind: 'card'; id: string; field: 'name' | 'model' | 'serial'; value: string | null }
+  /** `optic: null` records an empty cage. */
+  | { kind: 'optic'; portId: string; optic: Optic | null }
+  | { kind: 'optic-move'; fromPortId: string; toPortId: string };
 
 /** What the editor raises. Like `DrawingActions`, it never acts on the graph
  * itself — the caller turns a change into a real edit through

@@ -95,6 +95,40 @@ function positioned(ports: PortView[], kinds: Map<string, PortKind>): Cell[] {
   }));
 }
 
+/** Each card's ports as their own flowed block, cards in the order their ports first appear
+ * (the view lists them by label), each block starting a new group. */
+function cardBlocks(ports: readonly PortView[], kinds: Map<string, PortKind>, startCol: number): Cell[] {
+  const byCard = new Map<string, PortView[]>();
+  for (const p of ports) {
+    if (p.cardId == null) continue;
+    const list = byCard.get(p.cardId) ?? [];
+    list.push(p);
+    byCard.set(p.cardId, list);
+  }
+  const out: Cell[] = [];
+  let col = startCol;
+  for (const members of byCard.values()) {
+    const block = flowed(members, kinds);
+    if (block.length === 0) continue;
+    block.forEach((c, i) => out.push({ ...c, col: c.col + col, gap: i === 0 && col > 0 ? true : c.gap }));
+    col += Math.max(...block.map((c) => c.col)) + 1;
+  }
+  return out;
+}
+
+/** The outline of each card's block on the plate: the box around its ports, for the bay frame. */
+export function cardFrames(layout: FaceplateLayout, ports: readonly PortView[]): Array<{ cardId: string; x: number; y: number; w: number; h: number }> {
+  const frames = new Map<string, { x0: number; y0: number; x1: number; y1: number }>();
+  for (const p of ports) {
+    if (p.cardId == null) continue;
+    const b = layout.byId.get(p.id);
+    if (!b) continue;
+    const f = frames.get(p.cardId) ?? { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+    frames.set(p.cardId, { x0: Math.min(f.x0, b.x), y0: Math.min(f.y0, b.y), x1: Math.max(f.x1, b.x + b.w), y1: Math.max(f.y1, b.y + b.h) });
+  }
+  return [...frames].map(([cardId, f]) => ({ cardId, x: f.x0 - 2, y: f.y0 - 2, w: f.x1 - f.x0 + 4, h: f.y1 - f.y0 + 4 }));
+}
+
 /** A plate coordinate's span: thousandths of the plate (schema 0.20, `PhysicalPort.plate_x`). */
 export const PLATE_SPAN = 1000;
 
@@ -119,8 +153,12 @@ export function layoutFaceplate(ports: readonly PortView[], heightU: number, nam
   if (drawable.length === 0) {
     return { boxes: [], byId: new Map(), scale: 1, name: nameW <= RACK_INNER_PX - 2 * PAD_X ? { mode: 'inline', x: PAD_X, y: 0, w: RACK_INNER_PX - 2 * PAD_X } : { mode: 'tab' } };
   }
-  const placed = drawable.some((p) => p.row !== drawable[0]!.row || p.column !== drawable[0]!.column);
-  const cells = placed ? positioned(drawable, kinds) : flowed(drawable, kinds);
+  // Schema 0.28: a card's ports are flowed in their own block after the fixed ports, one block
+  // per card in slot order (`cardBlocks`), so a card reads as one bay on the plate.
+  const fixed0 = drawable.filter((p) => p.cardId == null);
+  const placed = fixed0.some((p) => p.row !== fixed0[0]!.row || p.column !== fixed0[0]!.column);
+  const cells = [...(placed ? positioned(fixed0, kinds) : flowed(fixed0, kinds))];
+  cells.push(...cardBlocks(drawable, kinds, cells.length > 0 ? Math.max(...cells.map((c) => c.col)) + 1 : 0));
 
   // One column slot per distinct column index, as wide as its widest glyph.
   const cols = [...new Set(cells.map((c) => c.col))].sort((a, b) => a - b);
