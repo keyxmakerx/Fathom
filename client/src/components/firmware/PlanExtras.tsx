@@ -8,6 +8,8 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from 're
 import type { FetchLink } from '../../api/firmware';
 import { deviceFirmware, targetOfDevice } from '../../document/firmware';
 import { touchedBy, type Plan, type PlanStep } from '../../document/plans';
+import { CommandToType, TypeItYourselfNote } from '../typing/CommandToType';
+import { useTypeItYourself } from '../typing/typeItYourself';
 import { FirmwareContext } from './context';
 import { HowItGetsThere } from './ByHand';
 import { CommandNotes, CopyButton, copyText } from './parts';
@@ -79,7 +81,18 @@ export function StepCopy({ step }: { step: PlanStep }) {
 
 function CommandCopy({ step, scope }: { step: PlanStep; scope: LinkState }) {
   const [said, setSaid] = useState<string | null>(null);
+  const typing = useTypeItYourself();
   const needsLink = step.after.includes(LINK_PLACEHOLDER);
+  if (typing) {
+    // Shown to be typed. The link part stays a placeholder: the link has its own Copy link below.
+    return (
+      <div className="plans-step__actions" data-testid="plans-step-typed">
+        <TypeItYourselfNote />
+        <CommandToType command={step.after} />
+        {needsLink ? <span className="plans-note">Get the one-time link below, copy it, and put it where the link part is.</span> : null}
+      </div>
+    );
+  }
   return (
     <p className="plans-step__actions">
       <button

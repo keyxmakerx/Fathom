@@ -422,6 +422,9 @@ pub enum EntryType {
     /// A steward closed an invitation: `reason` is `confirmed` (with the grant,
     /// and for a batch the `batch_id` and its size), `refused` or `cancelled`.
     InvitationClosed,
+    /// "Type it yourself" was set for a member (`0041`): `account`, `on`, and the
+    /// `actor` who set it, who may be the member switching it on for themselves.
+    TypeItYourselfSet,
 
     /// **A re-wrap happened** (§12.6): custody changed, exposure did not. The
     /// entry names the old and new master identity, which key rows moved, who
@@ -549,6 +552,7 @@ impl EntryType {
             Self::FirmwareModelsChanged => "firmware_models_changed",
             Self::InvitationIssued => "invitation_issued",
             Self::InvitationClosed => "invitation_closed",
+            Self::TypeItYourselfSet => "type_it_yourself_set",
             // ADR-0055 stream (c)
             Self::ConsolePlacementRequested => "console_placement_requested",
             Self::ConsolePlacementConfirmed => "console_placement_confirmed",
@@ -619,6 +623,7 @@ impl EntryType {
             "firmware_models_changed" => Some(Self::FirmwareModelsChanged),
             "invitation_issued" => Some(Self::InvitationIssued),
             "invitation_closed" => Some(Self::InvitationClosed),
+            "type_it_yourself_set" => Some(Self::TypeItYourselfSet),
             // ADR-0055 stream (c)
             "console_placement_requested" => Some(Self::ConsolePlacementRequested),
             "console_placement_confirmed" => Some(Self::ConsolePlacementConfirmed),
@@ -695,7 +700,8 @@ impl EntryType {
             | Self::FirmwareFetchRedeemed
             | Self::FirmwareModelsChanged
             | Self::InvitationIssued
-            | Self::InvitationClosed => &[ChainKind::Org],
+            | Self::InvitationClosed
+            | Self::TypeItYourselfSet => &[ChainKind::Org],
             // **Two types are filed on two kinds.** `rewrap` because the master key
             // is deployment-wide (§7.2). `grant_suspended` because §1.1 gives the
             // operator plane this one authority-adjacent verb: the organisation

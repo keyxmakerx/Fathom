@@ -1206,6 +1206,7 @@ pub async fn people(
     // Added at once and link not yet used (ADR-0065): already a member, so they
     // are listed once, as a member, with a state that says they have not been in.
     let (views, waiting_count) = open_invitations(tx, ring, auth, &verified, &mut check).await?;
+    let typing = crate::teaching::on_in_organisation(tx, &organisation).await?;
     let added: BTreeSet<&str> = views
         .iter()
         .filter(|v| v.row.state == State::Added)
@@ -1239,6 +1240,7 @@ pub async fn people(
             ("asked", Json::Null),
             ("expired", Json::Bool(false)),
             ("access", Json::Arr(access)),
+            ("type_it_yourself", Json::Bool(typing.contains(&id))),
         ]));
     }
 
