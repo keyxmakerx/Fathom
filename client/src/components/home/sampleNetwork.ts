@@ -19,10 +19,12 @@ import {
 import { connectorTokenOf } from '../../document/compat';
 import { isDeviceRole, setDeviceField } from '../../document/edit';
 import {
+  asString,
   boolField,
   edgesIn,
   edgesOut,
   emptyDocument,
+  fieldValue,
   findNode,
   identifier,
   ipAddr,
@@ -33,9 +35,12 @@ import {
   token,
   uint,
   type Document,
+  type GraphNode,
 } from '../../document/model';
 import { addEdge, addNode, begin, finish } from '../../document/freeform';
 import { addSubnet, addVlan, type Actor } from '../../document/networks';
+import { tiePorts } from '../../document/portTies';
+import type { PastePlatform } from '../../engine/frames';
 import { createPremises } from '../racks/emptyDesign';
 
 export interface SamplePort {
@@ -81,6 +86,9 @@ export interface SampleSpec {
   vlans: { id: number; name: string; description?: string; access: string[] }[];
   /** `gateway` gives every other host on the subnet a default route through it, as DHCP would. */
   subnets: { prefix: string; gateway?: string; hosts: { port: string; address: string; name?: string }[] }[];
+  /** Device configs pasted through the redaction gate, the way a person pastes one; `ties` names the port each
+   * pasted interface sits on. Building a sample that has any needs the engine (`buildSample`'s `paste`). */
+  configs?: SampleConfig[];
   /** Two devices a trace runs between, end to end; the sample's own test holds it to that. */
   trace: { from: string; to: string };
   /** Zones on one device's ports, and a rule per zone pair, so a trace shows a VLAN is not a firewall. */
@@ -103,6 +111,17 @@ export interface SampleQuestion {
   to: string;
   flow?: string;
 }
+
+export interface SampleConfig {
+  device: string;
+  platform: PastePlatform;
+  /** Interface name to port label. */
+  ties: Record<string, string>;
+  lines: string[];
+}
+
+/** Pastes `text` into the device, through the wasm redaction gate (`Mirror.pasteInto`), and returns the design. */
+export type SamplePaste = (doc: Document, deviceId: string, text: string, platform: PastePlatform) => Document;
 
 const sampleFiles = import.meta.glob('../../../../corpus/samples/*.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
 
@@ -176,7 +195,8 @@ function portOf(doc: Document, devices: Map<string, string>, spec: SampleSpec, r
  * The sample as a fresh Document. `models` is whatever the catalogue answered, keyed by `modelKey`; a device whose
  * model is missing or lacks a port the sample uses is drawn as a sketch instead.
  */
-export function buildSample(spec: SampleSpec, models: ReadonlyMap<string, CatalogueModel>, opts?: Actor): BuiltSample {
+export function buildSample(spec: SampleSpec, models: ReadonlyMap<string, CatalogueModel>, opts?: Actor, paste?: SamplePaste): BuiltSample {
+  if ((spec.configs ?? []).length > 0 && paste === undefined) throw new Error(`the sample "${spec.id}" pastes configs and needs the engine`);
   const premises = createPremises(emptyDocument(), opts);
   let doc = premises.doc;
 
@@ -264,6 +284,19 @@ export function buildSample(spec: SampleSpec, models: ReadonlyMap<string, Catalo
 
   doc = addDefaultRoutes(doc, devices, spec, opts);
   if (spec.firewall) doc = addFirewall(doc, devices, spec, spec.firewall, opts);
+  for (const c of spec.configs ?? []) {
+    const deviceId = devices.get(c.device);
+    if (deviceId === undefined) throw new Error(`the sample pastes into an unknown device "${c.device}"`);
+    doc = paste!(doc, deviceId, c.lines.join('\n'), c.platform);
+    const pairs = Object.entries(c.ties).map(([name, label]) => {
+      const iface = doc.nodes.find(
+        (n) => n.absentSince === undefined && parseNodeId(n.id).kind === 'Interface' && edgesIn(doc, n.id, 'HasInterface').some((e) => e.from === deviceId) && interfaceNameOf(n) === name,
+      );
+      if (iface === undefined) throw new Error(`the pasted config on "${c.device}" has no interface "${name}"`);
+      return { interfaceId: iface.id, portId: portOf(doc, devices, spec, `${c.device}:${label}`) };
+    });
+    doc = tiePorts(doc, deviceId, pairs, opts);
+  }
 
   return { doc, devices, catalogued };
 }
@@ -346,6 +379,8 @@ function unitsOn(doc: Document, portId: string): string[] {
   }
   return units;
 }
+
+const interfaceNameOf = (n: GraphNode): string | undefined => asString(fieldValue(n.fields, 'Interface.name'));
 
 /** An interface named for its port: `eth0` stays `eth0`, a numbered port `1` becomes `port1`. */
 function interfaceName(ref: string): string {

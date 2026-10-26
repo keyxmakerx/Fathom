@@ -60,7 +60,7 @@ use std::collections::BTreeSet;
 const PINNED: &str = concat!(
     "fathom-plain 1\n",
     "THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n",
-    "schema 0.26\n",
+    "schema 0.27\n",
     "\n",
     r#"{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}"#,
     "\n",
@@ -1002,6 +1002,27 @@ fn a_0_25_header_opens_and_older_ones_refuse_a_vpn() {
             }
             other => panic!("a 0.26-only kind under a {old_version} header must refuse: {other:?}"),
         }
+    }
+}
+
+/// The lesson builder (0.27) adds kinds: a 0.26 design opens, and no older header may hold a lesson.
+#[test]
+fn a_0_26_header_opens_but_cannot_hold_a_lesson() {
+    use fathom_ir::generated::ir_types::SCHEMA_VERSION;
+    let older = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.26", 1);
+    assert_ne!(older, PINNED, "the substitution must have landed");
+    read_plain(older.as_bytes()).expect("a 0.26 payload opens");
+    for kind in [NodeKind::Lesson, NodeKind::LessonStep] {
+        let mut g = Graph::new();
+        g.begin_batch(BatchId(ulid(0)), "build").expect("open");
+        g.insert_node(kind, ulid(1), prov(1)).expect("lesson");
+        g.end_batch().expect("close");
+        let text = String::from_utf8(write_plain(&g).expect("writes")).expect("UTF-8");
+        let old = text.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.26", 1);
+        assert!(
+            read_plain(old.as_bytes()).is_err(),
+            "a 0.26 header cannot hold {kind:?}"
+        );
     }
 }
 

@@ -88,7 +88,7 @@ import { useChecksController } from '../checks/useChecksController';
 import { TracePanel } from '../trace/TracePanel';
 import { InSideSlot, type SideTab } from '../shell/sideSlot';
 import { TraceContext } from '../trace/traceStore';
-import { useTraceController } from '../trace/useTraceController';
+import { useTraceController, type TraceEnd } from '../trace/useTraceController';
 import { recordFirstSteps, sampleOfDesign } from '../home/firstSteps';
 import { sample as sampleSpec } from '../home/sampleNetwork';
 import { SampleChip } from '../home/SampleChip';
@@ -277,6 +277,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   initialUpgrade?: { template: UpgradeTemplate } | null;
   /** A plan to open on arrival (a link on the Firmware pages). */
   initialPlan?: { id: string } | null;
+  /** A trace to show, already filled in (a lesson's trace step); a fresh object per ask. */
+  traceRequest?: { from: TraceEnd; to: TraceEnd; flowText: string } | null;
   onRequestsHandled?: () => void;
   /** This session's brief item 5's reverse — "Open in inventory," rendered
    * beside the editor for a selected chassis. Omitted (no button at all)
@@ -339,6 +341,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     initialIssue,
     initialUpgrade,
     initialPlan,
+    traceRequest,
     onRequestsHandled,
     onOpenInventory,
     accountId,
@@ -945,6 +948,13 @@ export function RacksPlace(props: RacksPlaceProps) {
 
   // Path trace (ADR-0061 item 9): the same module; opened from a device's right-click.
   const trace = useTraceController({ doc, view: realView, boot: ensureMirror, mirrorNow });
+  const traceHandled = useRef<unknown>(null);
+  useEffect(() => {
+    if (traceRequest == null || traceHandled.current === traceRequest) return;
+    traceHandled.current = traceRequest;
+    trace.openWith(traceRequest.from, traceRequest.to, traceRequest.flowText);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per ask: the object's identity is the signal
+  }, [traceRequest]);
 
   // Getting started (r15-start): Home's five first steps tick from what the person does here.
   const traced = trace.result != null && trace.result.hops.length > 0;

@@ -1,0 +1,53 @@
+{
+  "id": "single-points-of-failure",
+  "title": "Single points of failure",
+  "summary": "Find the one device and the one cable that would cut the office off, and give a switch a second way out.",
+  "sample": "small-office",
+  "sources": [
+    {
+      "claim": "Loops between Ethernet switches cause broadcast storms; spanning tree keeps redundant links in standby and uses them when the main path fails.",
+      "cite": "Juniper Networks, Spanning Tree Protocol Overview (Junos OS 25.4; the page shows no date)",
+      "url": "https://www.juniper.net/documentation/us/en/software/junos/stp-l2/topics/topic-map/spanning-tree-overview.html",
+      "read_on": "2026-10-25"
+    }
+  ],
+  "steps": [
+    {
+      "kind": "read",
+      "title": "One box, many casualties",
+      "body": "A single point of failure is one device or one cable whose loss cuts others off. Every network has some. Finding them is how you decide which ones are worth a second path."
+    },
+    {
+      "kind": "click",
+      "title": "The device",
+      "prompt": "Click the device that would cut off the most others if it failed.",
+      "answer": { "device": "switch-1" },
+      "hint": "Count what reaches fw-1 only through it.",
+      "after": "Every desk, the NAS, the Wi-Fi and both cameras reach fw-1 through switch-1. If it fails, the whole office is cut off."
+    },
+    {
+      "kind": "click",
+      "title": "The cable",
+      "prompt": "Click the one cable that every desk's traffic crosses.",
+      "answer": { "cable": "switch-2:1" },
+      "hint": "Follow desktop-1 back towards switch-1.",
+      "after": "The desk run, from switch-1 port 5 to switch-2 port 1. Cut it and desktop-1 and printer-1 lose the NAS and the internet."
+    },
+    {
+      "kind": "trace",
+      "title": "Walk the path",
+      "prompt": "Trace from desktop-1 to nas-1 and look at each hop.",
+      "from": { "device": "desktop-1" },
+      "to": { "device": "nas-1" },
+      "expect": { "reaches": true, "crosses": ["switch-2", "switch-1"] },
+      "after": "Each hop is one device or one cable, and none has a second way round."
+    },
+    {
+      "kind": "change",
+      "title": "A second way out",
+      "prompt": "Checks has an idea about switch-3 in the meeting room: it has only one cable. Cable switch-3 port 2 to switch-2 port 4 and watch the idea clear.",
+      "expect": { "rule": "topo.switch.single-cable", "now": "clears" },
+      "after": "switch-3 can now lose one link and stay connected. On real switches a second link makes a loop, and loops cause broadcast storms, so switches run spanning tree, which keeps the extra link in standby until the main one fails."
+    }
+  ]
+}

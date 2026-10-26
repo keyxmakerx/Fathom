@@ -24,8 +24,8 @@ use fathom_graph::{
 use fathom_ir::canon::CanonError;
 use fathom_ir::generated::accessors::slot_from_canon;
 use fathom_ir::generated::ir_types::{
-    CaptureField, DeviceField, DocField, DocLinkField, EdgeKind, FirmwareTargetField, NodeKind,
-    NoteField, OverlayMemberField, OverlayNetworkField, SCHEMA_VERSION,
+    CaptureField, DeviceField, DocField, DocLinkField, EdgeKind, FirmwareTargetField, LessonField,
+    LessonStepField, NodeKind, NoteField, OverlayMemberField, OverlayNetworkField, SCHEMA_VERSION,
 };
 use fathom_ir::scalar::Text;
 
@@ -545,6 +545,34 @@ fn gated_fields() -> Vec<(NodeKind, fathom_ir::bag::FieldKey, &'static str, Read
     // the thing this check exists to refuse.
     for f in [OverlayNetworkField::Name, OverlayNetworkField::Note] {
         v.push((NodeKind::OverlayNetwork, f.key(), "OverlayNetwork", prose));
+    }
+    // A lesson and its steps (0.27): typed prose, same check as an issue; the fields naming
+    // what a step points at hold design ids only, one per line.
+    use LessonField as L;
+    use LessonStepField as LS;
+    for f in [L::Title, L::Summary, L::Author, L::PublishedAt] {
+        v.push((NodeKind::Lesson, f.key(), "Lesson", prose));
+    }
+    for f in [
+        LS::Title,
+        LS::Body,
+        LS::Hint,
+        LS::After,
+        LS::Explainer,
+        LS::Flow,
+        LS::ExpectFirstMatch,
+        LS::ExpectRule,
+    ] {
+        v.push((NodeKind::LessonStep, f.key(), "LessonStep", prose));
+    }
+    for f in [
+        LS::Answer,
+        LS::TraceFrom,
+        LS::TraceTo,
+        LS::ExpectCrosses,
+        LS::ExpectStop,
+    ] {
+        v.push((NodeKind::LessonStep, f.key(), "LessonStep", Read::Targets));
     }
     v
 }

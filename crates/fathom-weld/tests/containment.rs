@@ -154,7 +154,9 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // (Surface, CableRun), +2; `HasCableTie` (CableRun, CableTie), +1; both join `Placeable`, +2.
     // 145 -> 146 (mesh VPNs, schema 0.26): `HasOverlay` reads `from: [root]`, +0;
     // `OverlayNetwork` joins `Placeable`, +1 (its pin).
-    assert_eq!(resolved, 146, "the containment pair set moved");
+    // 146 -> 149 (the lesson builder, schema 0.27): `HasLesson` reads `from: [root]`, +0;
+    // `HasLessonStep`, +1; `Lesson` and `LessonStep` join `Placeable`, +2 (their pins).
+    assert_eq!(resolved, 149, "the containment pair set moved");
 
     // The 43 containment kinds are all still containment kinds, and every
     // kind but `LearnedRoute` and `Site` is somebody's containment child.
@@ -191,7 +193,8 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // `HasCableTie` (CableRun -> CableTie). `Ties` is REFERENCE and does not count here.
     // 66 (mesh VPNs, schema 0.26): `HasOverlay` (root -> OverlayNetwork). `OverlayMember` is
     // REFERENCE and does not count here.
-    assert_eq!(containment, 66);
+    // 68 (the lesson builder, schema 0.27): `HasLesson` (root -> Lesson), `HasLessonStep`.
+    assert_eq!(containment, 68);
     let orphans: Vec<&str> = NodeKind::ALL
         .into_iter()
         .filter(|child| {
@@ -228,7 +231,9 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
             // schema 0.19: `HasFirmwareTarget` reads `from: [root]`.
             "FirmwareTarget",
             // schema 0.26: `HasOverlay` reads `from: [root]`.
-            "OverlayNetwork"
+            "OverlayNetwork",
+            // schema 0.27: `HasLesson` reads `from: [root]`.
+            "Lesson"
         ],
         "the set of kinds no node kind contains moved"
     );

@@ -204,7 +204,10 @@ fn schema_version_is_the_trees() {
     //
     // 0.25 -> 0.26: mesh VPNs. One node kind (`OverlayNetwork`), two edge kinds (`HasOverlay`,
     // `OverlayMember`), seven field keys (479-485); all MINOR.
-    assert_eq!(SCHEMA_VERSION, "0.26");
+    //
+    // 0.26 -> 0.27: the lesson builder. Two node kinds (`Lesson`, `LessonStep`), two edge kinds
+    // (`HasLesson`, `HasLessonStep`), twenty-two field keys (486-507); all MINOR.
+    assert_eq!(SCHEMA_VERSION, "0.27");
 }
 
 #[test]
@@ -735,7 +738,8 @@ fn dispatch_names_every_registry_key() {
     // 413 -> 417: cable runs and ties (414-417).
     // One more: missing links' `Cable.needs_finishing` (478, schema 0.24).
     // 413 -> 420: mesh VPNs (479-485).
-    assert_eq!(FIELD_KEYS.len(), 420, "the registry grew or shrank");
+    // 420 -> 442: the lesson builder (486-507, schema 0.27).
+    assert_eq!(FIELD_KEYS.len(), 442, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

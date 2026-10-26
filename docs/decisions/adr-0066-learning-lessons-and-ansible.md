@@ -48,6 +48,23 @@ showed. The owner also asked for Ansible support, with learning on it.
    simulated copy of the sample network in the browser, which answers with `--check --diff`
    output computed from the design. "Run it on your own lab" is an optional last step.
 
+## How the builder stores a lesson (2026-10-25, built on the recommended default)
+
+This was not a card; it follows from §2 and can be reopened on the Sign-offs page.
+
+- A lesson is written **in the design it teaches**: a `Lesson` node with ordered `LessonStep`
+  children (schema 0.27). Steps name what they point at by design id, so they stay true in a copy.
+  Every text field of both kinds goes through the server's credential check on save, as a note's
+  does (CLAUDE.md rule 4).
+- **Publish** writes a new design in the same folder, named `Lesson: <title>`: a whole copy of the
+  author's design holding only that lesson, marked with the time and the design it came from. That
+  copy is the frozen one; a published lesson refuses edits, and publishing again makes a new copy.
+- **Start** (Home) copies the published design again as `Practice: <title>` for the learner, so
+  nobody's attempt touches the published copy or anyone else's. Copies of the sample lessons are
+  named `Practice: …` too.
+- Home finds published lessons by the `Lesson: ` name among the designs the person can open. The
+  Run Ansible step waits for the Ansible work (§3, §5).
+
 ## Wording
 
 Say "Fathom writes the files; you run them." Never imply Fathom reaches a device. Once the
