@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 
 import type { FetchLink, FirmwareCommands } from '../../api/firmware';
 import { MAX_REASON, STATE_WORD, type FwState } from '../../document/firmware';
+import { CommandToType, TypeItYourselfNote } from '../typing/CommandToType';
+import { useTypeItYourself } from '../typing/typeItYourself';
 import type { FirmwareApi } from './context';
 import { commandWithLink, maskedLink } from './upgradePlan';
 
@@ -98,6 +100,7 @@ export function LinkView({ link, detail }: { link: FetchLink; detail?: string })
   }, []);
   const left = link.expiresAtUnix * 1000 - now;
   const ends = new Date(link.expiresAtUnix * 1000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const typing = useTypeItYourself();
   const steps = link.commands?.steps ?? [];
   const all = steps.map((s) => commandWithLink(s.command, link.url)).join('\n');
   return (
@@ -105,8 +108,8 @@ export function LinkView({ link, detail }: { link: FetchLink; detail?: string })
       <div className="fw-link-box__url">{maskedLink(link.url)}</div>
       <div className="fw-link-box__row">
         <CopyButton text={link.url} label="Copy link" />
-        {detail ? <CopyButton text={commandWithLink(detail, link.url)} label="Copy command" /> : null}
-        {all ? <CopyButton text={all} label="Copy all commands" className="fw-btn fw-btn--quiet" /> : null}
+        {detail && !typing ? <CopyButton text={commandWithLink(detail, link.url)} label="Copy command" /> : null}
+        {all && !typing ? <CopyButton text={all} label="Copy all commands" className="fw-btn fw-btn--quiet" /> : null}
       </div>
       <p className="fw-muted" role="status">
         {left > 0 ? `Works once, then expires: 15 minutes, until ${ends}.` : 'This link has expired. Get another.'} Fathom never logs in to the device.
@@ -114,7 +117,18 @@ export function LinkView({ link, detail }: { link: FetchLink; detail?: string })
       <p className="fw-muted">
         Expected SHA-256 <span className="fw-mono fw-hash">{link.sha256}</span> <CopyButton text={link.sha256} label="Copy" className="fw-btn fw-btn--quiet" />
       </p>
-      {steps.length > 0 ? (
+      {typing && (detail || steps.length > 0) ? (
+        <div className="fw-link-box__typed">
+          <TypeItYourselfNote />
+          {detail ? <CommandToType command={commandWithLink(detail, link.url)} link={link.url} shownLink={maskedLink(link.url)} /> : null}
+          {steps.map((s) => (
+            <div key={s.step}>
+              <div className="fw-muted">{s.step}</div>
+              <CommandToType command={commandWithLink(s.command, link.url)} link={link.url} shownLink={maskedLink(link.url)} />
+            </div>
+          ))}
+        </div>
+      ) : steps.length > 0 ? (
         <pre className="fw-link-box__cmd">{steps.map((s) => `${s.step}\n  ${commandWithLink(s.command, link.url).split(link.url).join(maskedLink(link.url))}`).join('\n')}</pre>
       ) : null}
       <CommandNotes commands={link.commands} />

@@ -15,6 +15,7 @@ import { Popover, PopoverRow } from './Popover';
 import { pathToItems } from './path';
 import type { PathItem, PathPart } from './path';
 import { SearchBox } from './SearchBox';
+import { shortcutText } from './shortcuts';
 import { ThemeMenu } from './ThemeMenu';
 import type { AccountInfo, MainView, Place, PresenceUser, ShellProps, ShellSearch, ShowAids } from './types';
 
@@ -493,17 +494,17 @@ export function Bar({
         {place === 'racks' && !toolsOnCanvas && !editsFolded && (
           <>
             <div className="shell-bar__zoom">
-              <button type="button" className="shell-zoom-btn" aria-label="Zoom out" title="Zoom out" onClick={onZoomOut}>
+              <button type="button" className="shell-zoom-btn" aria-label="Zoom out" title={`Zoom out (${shortcutText('zoom-out')})`} onClick={onZoomOut}>
                 &minus;
               </button>
               {onZoomFit ? (
-                <button type="button" className="shell-zoom-value" aria-label="Fit to view" title="Fit to view" onClick={onZoomFit}>
+                <button type="button" className="shell-zoom-value" aria-label="Fit to view" title={`Fit to view (${shortcutText('zoom-fit')})`} onClick={onZoomFit}>
                   {zoom}%
                 </button>
               ) : (
                 <span className="shell-zoom-value">{zoom}%</span>
               )}
-              <button type="button" className="shell-zoom-btn" aria-label="Zoom in" title="Zoom in" onClick={onZoomIn}>
+              <button type="button" className="shell-zoom-btn" aria-label="Zoom in" title={`Zoom in (${shortcutText('zoom-in')})`} onClick={onZoomIn}>
                 +
               </button>
             </div>

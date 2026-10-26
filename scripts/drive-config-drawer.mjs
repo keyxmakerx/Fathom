@@ -46,7 +46,7 @@ const { chromium } = pw.default ?? pw;
 const ROOT = process.env.FATHOM_ROOT
   || resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CHROME = process.env.PW_CHROMIUM
-  || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+  || '/opt/pw-browsers/chromium';
 const CLIENT = ROOT + '/client';
 const DRIVE_LIB = ROOT + '/scripts/drive-lib';
 const PORT = 5199;
@@ -298,13 +298,19 @@ try {
   // name, so the drawer's own "click a line and the port it built lights"
   // (UI-SPEC "Config") has a real port to try to light.
   await page.locator('.drawing-editor__panel button', { hasText: '+ Add a port' }).click();
-  await page.locator('.drawing-editor__panel').getByLabel('Label', { exact: true }).fill('ge-0/0/0');
+  await page.locator('.drawing-editor__panel').getByLabel('Name, or a pattern').fill('ge-0/0/0');
   await page.locator('.drawing-editor__panel').getByRole('button', { name: 'Add port', exact: true }).click();
   await page.waitForTimeout(300);
   check('the ge-0/0/0 port typed onto the faceplate', (await page.locator('.drawing-editor__panel').innerText()).includes('ge-0/0/0'));
 
   // Zoom never opens the drawer (ADR-0061); a double-click on the device does.
   await page.locator('.react-flow__node-chassis').first().dblclick({ position: { x: 6, y: 8 } });
+  // A double-click opens the device large (jot mode), or its card's Open does; Config shows the drawer.
+  await page.waitForTimeout(500);
+  if ((await page.getByRole('button', { name: 'Config', exact: true }).count()) === 0) {
+    await page.getByRole('button', { name: 'Open', exact: true }).click();
+  }
+  await page.getByRole('button', { name: 'Config', exact: true }).click();
   await page.waitForSelector('.config-drawer', { timeout: 10_000 });
   check('the config drawer opened on a double-click', (await page.locator('.config-drawer').count()) === 1);
 
@@ -314,6 +320,9 @@ try {
   await page.locator('.config-drawer__paste-input').fill(PASTE_ONE);
   await page.locator('.config-drawer__paste-button').click();
   await page.waitForSelector('.config-drawer__lines', { timeout: 20_000 });
+  check('the paste is seen to land: its built lines pulse once', (await page.locator('.config-drawer--arrived').count()) === 1);
+  const pastedNotice = await page.getByTestId('pasted-note').innerText().catch(() => '');
+  check('the canvas says the config was pasted, with counts and no values', /^Config pasted: \d+ lines, \d+ interfaces?; \d+ values? destroyed at the gate\.$/.test(pastedNotice), pastedNotice);
   await page.waitForTimeout(300);
 
   const blockTexts = await page.locator('.config-drawer__block').allTextContents();
@@ -396,6 +405,12 @@ try {
   await page.keyboard.press('Escape');
   await page.waitForSelector('.drawing-inside-stop', { state: 'detached', timeout: 10_000 });
   await page.locator('.react-flow__node-chassis').first().dblclick({ position: { x: 6, y: 8 } });
+  // A double-click opens the device large (jot mode), or its card's Open does; Config shows the drawer.
+  await page.waitForTimeout(500);
+  if ((await page.getByRole('button', { name: 'Config', exact: true }).count()) === 0) {
+    await page.getByRole('button', { name: 'Open', exact: true }).click();
+  }
+  await page.getByRole('button', { name: 'Config', exact: true }).click();
   await page.waitForSelector('.config-drawer', { timeout: 10_000 });
 
   // -------------------------------------------------------------------------

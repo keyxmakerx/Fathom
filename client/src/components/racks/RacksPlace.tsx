@@ -2,6 +2,7 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState, type Rea
 
 import { listOverlays } from '../../document/overlays';
 import { captureOf } from '../../document/capture';
+import { previewSwapIn } from '../../document/swapModel';
 import { completeCable, connectPorts, disconnect, IncompatibleConnectorError, PortAlreadyTerminatedError, type Sheath } from '../../document/cables';
 import {
   SURFACE_FORMS,
@@ -45,6 +46,7 @@ import { looksLikeMacTable } from '../../document/hosts';
 import { looksLikeNeighbours } from '../../document/neighbours';
 import type { PastePlatform } from '../../engine/frames';
 import { devicePlatform, platformChoices, previewPaste, worthReading } from '../paste/pasteConfig';
+import { countsOfCapture, pastedNotice } from '../paste/pastedNotice';
 import { ConfigDrawer } from '../config/ConfigDrawer';
 import { canDrawFor, refusalFor, type DesignSession } from '../design/useDesignSession';
 import { MultiDevicePanel } from '../drawing/MultiDevicePanel';
@@ -435,6 +437,13 @@ export function RacksPlace(props: RacksPlaceProps) {
     const t = setTimeout(() => setCanvasNotice(null), 5000);
     return () => clearTimeout(t);
   }, [canvasNotice]);
+  // The same kind of note for a paste that landed: what was read, in counts. Clears itself.
+  const [pastedNote, setPastedNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (pastedNote == null) return;
+    const t = setTimeout(() => setPastedNote(null), 5000);
+    return () => clearTimeout(t);
+  }, [pastedNote]);
 
   // "Show on rack" (`InventoryPlace.tsx`): a caller landing here with
   // something already chosen selects it and asks
@@ -684,6 +693,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           // happened.
           mirrorLoadedDocRef.current = nextDoc;
           applyDocChange(nextDoc);
+          const pasted = captureOf(nextDoc, deviceId);
+          if (pasted != null) setPastedNote(pastedNotice(countsOfCapture(pasted)));
           if ((tiePlan(nextDoc, deviceId)?.rows.length ?? 0) > 0) setTieFor(deviceId);
         })
         // `mirror.ts`'s own `refusalSentence` — the one place an
@@ -1370,6 +1381,14 @@ export function RacksPlace(props: RacksPlaceProps) {
       applyDocChange(next);
       if (chassisId !== null) setSelection({ kind: 'chassis', id: chassisId });
       setPasteState(null);
+      setPastedNote(
+        pastedNotice({
+          hostname: preview.hostname,
+          lines: preview.lineCount,
+          interfaces: preview.interfaces.length,
+          destroyed: preview.destroyed.reduce((n, d) => n + d.count, 0),
+        }),
+      );
       const attached = choice === 'attach' ? (preview.match?.deviceId ?? null) : null;
       if (attached !== null && (tiePlan(next, attached)?.rows.length ?? 0) > 0) setTieFor(attached);
     },
@@ -1858,6 +1877,7 @@ export function RacksPlace(props: RacksPlaceProps) {
             // `canDraw`.
             isCableHidden: handleIsCableHidden,
             onToggleCableHidden: handleToggleCableHidden,
+            previewSwap: (chassisId, m) => previewSwapIn(doc, catalogue, chassisId, m),
           },
           paletteFromCatalogue(catalogue),
           // r31 pictures: the two ways on at the panel's foot; the rest in its ⋯ menu.
@@ -2198,6 +2218,11 @@ export function RacksPlace(props: RacksPlaceProps) {
       {canvasNotice != null ? (
         <div className="racks-place__notice" role="status" data-testid="canvas-notice">
           {canvasNotice}
+        </div>
+      ) : null}
+      {pastedNote != null ? (
+        <div className="racks-place__notice racks-place__notice--done" role="status" data-testid="pasted-note">
+          {pastedNote}
         </div>
       ) : null}
       {doc != null ? <ChecksSurface controller={checks} canShow={jot == null} /> : null}

@@ -306,6 +306,11 @@ breadcrumb does one thing.
   ports, one undo step, and keeps it in this browser under **Your models** at the top of the list.
   A side or top port draws in neither rack elevation; the opened device shows every face, captioned.
   Not built: PoE marking (no schema field), a model kept on the server for the whole organisation.
+- **Swap a device's model, keep its ports** (sign-off r28-swap, defaults pending the owner's pick).
+  "Swap model…" on a device's Details tab (`document/swapModel.ts`) keeps the device and every port the
+  new model has by name, same face first; a kept port keeps its cable, tie and notes. A port the new
+  model lacks goes and its cable stays as a loose end in Missing links. The serial is cleared; in a rack
+  the box keeps its bottom unit or refuses. Also gives a hand-typed box a catalogue model. One undo step.
 - **Right-click menus:** device (Details, Duplicate, Remove, Open, Inside, Paste config), rack (Details,
   Add a device), cable (Details, Disconnect), empty canvas (42U, 24U, 12U rack, wall). A reader gets Details.
 - **Open a device, paste a config anywhere** (ADR-0060 step 8). Right-click Open or double-click enters
@@ -374,6 +379,15 @@ device fetches its image with a one-time link. The fetch step and the image page
 and **From Linux**: the same job by hand: over SSH (hash on the computer, `scp -O`, or for EOS the switch pulling
 from you), on a USB stick, or by TFTP with a warning, each where the vendor documents it and each step
 with its source (`firmware_by_hand.rs`). Fathom link is the default. On in compose once `FATHOM_FIRMWARE_FETCH_BASE_URL` is set.
+
+**Type it yourself** (sign-off card r30-nocopy; migration 0041, `teaching.rs`, `components/typing/`). A
+teaching setting per person per organisation. While it is on, commands are shown to be typed: no copy
+button on them, the text not selectable, each command in labelled parts (command, word, option, path,
+file, value, link). Links and hashes still copy. A steward sets it either way on the person's page; a person
+turns it on for themselves under Your account, and only a steward turns it off. Read with `GET
+/organisations`, set with `POST /organisations/{o}/people/{account}/type-it-yourself`, each change sealed on
+the organisation chain as `type_it_yourself_set`. It covers the firmware link box, by-hand steps and plan
+step commands. It is a teaching aid, not a control: the page's text can still be read another way.
 
 **View sharing** (ADR-0061 round 9, #102). A steward's **Share** button in the bar opens a panel with
 PERSON / CAN rows: **View** (see everything, change nothing) or **Draw**. Only people already in the
@@ -486,8 +500,6 @@ Remove device in red). Inventory's toolbar has a role filter, written into the f
 - Wire shapes have no cross-language vector yet.
 - Unbuilt: saved filters and grids for racks, cables and ports; unreachable-policy hatching; the
   assistant panel; optics (ADR-0047 §5); a Proxmox dictionary.
-- Rough edges: the drawer tags every built line; no confirmation pulse after a paste; the opened
-  occupant can sit under the editor.
 - The old Rust-assembled HTML client is retired, on disk under `crates/fathom-artifact/`, not served.
 
 ---

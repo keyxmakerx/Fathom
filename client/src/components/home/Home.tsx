@@ -32,6 +32,7 @@ import { HomeTabs } from './HomeTabs';
 import { homeTabs, type HomeTab } from './homeTabs';
 import { newDesignTarget } from './newDesign';
 import { RecentRow } from './RecentRow';
+import { whenLabel } from '../history/HistoryPanel';
 import { loadFirstSteps, rememberSample, setFirstStepsHidden, type FirstStepsState } from './firstSteps';
 import { GettingStarted, SampleCard } from './GettingStarted';
 import { HOME_SAMPLE, modelsFor } from './sampleModels';
@@ -997,14 +998,12 @@ function DesignRow({ design, organisation, onOpenRacks, onOpenInventory, onRenam
           {error && <span className="home__error">{error}</span>}
         </form>
       ) : (
-        <span className="home__design-name" title={design.designId}>
+        <button type="button" className="home__design-name" onClick={() => onOpenRacks(organisation, design)}>
           {designTitle(design)}
-        </span>
+        </button>
       )}
-      <span className="home__design-meta">v{design.latestVersion}</span>
-      <span className="home__design-meta">{design.capability}</span>
       <span className="home__design-meta">
-        {formatCreatedAt(design.createdAtUnix)} · {design.createdBy}
+        v{design.latestVersion} · {design.capability} · started {whenLabel(design.createdAtUnix).toLowerCase()}
       </span>
       <span className="home__design-actions">
         {canDrawFor(design.capability) && !editing && (
@@ -1046,6 +1045,3 @@ function describeError(error: unknown): string {
   return 'That request did not complete.';
 }
 
-function formatCreatedAt(unixSeconds: number): string {
-  return new Date(unixSeconds * 1000).toLocaleString();
-}
