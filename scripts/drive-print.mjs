@@ -462,7 +462,7 @@ try {
       return null;
     }
   }
-  const zoomBefore = await readOrMissing(page.locator('.shell-zoom-value'));
+  const zoomBefore = await readOrMissing(page.locator('.shell-zoom-value, .shell-pill__value'));
   const transformBefore = await page.locator('.react-flow__viewport').getAttribute('style');
   const editorBefore = await readOrMissing(page.locator('.drawing-editor__panel'));
 
@@ -472,7 +472,7 @@ try {
   await page.locator('[data-testid="print-preview-close"]').click();
   await page.waitForSelector('[data-testid="print-preview"]', { state: 'detached', timeout: 5_000 });
 
-  const zoomAfter = await readOrMissing(page.locator('.shell-zoom-value'));
+  const zoomAfter = await readOrMissing(page.locator('.shell-zoom-value, .shell-pill__value'));
   const transformAfter = await page.locator('.react-flow__viewport').getAttribute('style');
   const editorAfter = await readOrMissing(page.locator('.drawing-editor__panel'));
   check('the preview does not disturb zoom', zoomBefore != null && zoomAfter === zoomBefore, `${zoomBefore} -> ${zoomAfter}`);

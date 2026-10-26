@@ -2,19 +2,21 @@
 // each with a way into the whole thing (ADR-0066 item 1.1). Nothing shows for a device with no
 // platform recorded or a platform nobody has written about yet.
 
+import { Fold } from '../drawing/Fold';
 import { useLearn } from './context';
 import { aboutPlatform, titleOf } from './explainers';
 import { Prose, UnreviewedMark } from './LearnOverlay';
 
-export function AboutSection({ deviceId }: { deviceId: string }) {
+/** `folded`: the canvas panel shows it as one line (r30-device), the first explainer's title. */
+export function AboutSection({ deviceId, folded = false }: { deviceId: string; folded?: boolean }) {
   const api = useLearn();
   if (!api || api.status !== 'ready') return null;
   const entries = aboutPlatform(api.explainers, api.platformOf(deviceId));
   if (entries.length === 0) return null;
   const [first, ...rest] = entries;
-  return (
+  const body = (
     <div className="drawing-editor__field learn-about" data-testid="learn-about">
-      <div className="drawing-editor__group">Learn</div>
+      {folded ? null : <div className="drawing-editor__group">Learn</div>}
       <div className="learn-about__title">
         {titleOf(first!)} <UnreviewedMark e={first!} />
       </div>
@@ -38,5 +40,11 @@ export function AboutSection({ deviceId }: { deviceId: string }) {
         </ul>
       ) : null}
     </div>
+  );
+  if (!folded) return body;
+  return (
+    <Fold title="Learn" summary={titleOf(first!)} testId="learn-fold">
+      {body}
+    </Fold>
   );
 }

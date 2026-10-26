@@ -37,6 +37,8 @@ import { JotView } from '../jot/JotView';
 import { deviceChassis, jotPlates, jotSpot, originOf } from '../jot/jotLayout';
 import { PasteCard, type PasteState } from '../paste/PasteCard';
 import { SuggestCard } from '../suggest/SuggestCard';
+import { FolderCard } from '../paste/FolderCard';
+import { applyFolder, dragHasFiles, filesFromDrop, planFolder, type FolderFile, type FolderRow } from '../paste/configFolder';
 import { createSuggestStore, SuggestContext } from '../suggest/suggestStore';
 import { looksLikeFacts } from '../../document/facts';
 import { looksLikeMacTable } from '../../document/hosts';
@@ -75,21 +77,28 @@ import { loadDiagramStyle, saveDiagramStyle, type DiagramStyle } from '../drawin
 import { loadCableStyle, saveCableStyle, type CableStyle } from '../drawing/cableStyle';
 import { loadLook, saveLook, type Look } from '../drawing/look';
 import { InsideStop } from '../inside/InsideStop';
-import { ChecksBarChip, ChecksSurface } from '../checks/ChecksPanel';
+import { ChecksSurface } from '../checks/ChecksPanel';
+import { totalCount } from '../checks/checksModel';
 import { MissingLinksChip } from '../drawing/MissingLinksChip';
 import { missingLinksOf } from '../drawing/missingLinks';
 import { mediaCandidates } from '../checks/checksModel';
 import { CheckMarksContext, ChecksContext } from '../checks/checksStore';
 import { useChecksController } from '../checks/useChecksController';
 import { TracePanel } from '../trace/TracePanel';
+import { InSideSlot, type SideTab } from '../shell/sideSlot';
 import { TraceContext } from '../trace/traceStore';
 import { useTraceController } from '../trace/useTraceController';
 import { recordFirstSteps, sampleOfDesign } from '../home/firstSteps';
 import { sample as sampleSpec } from '../home/sampleNetwork';
+import { SampleChip } from '../home/SampleChip';
+import { restoreTo } from '../../document/restore';
 import { readyQuestions } from '../home/sampleQuestions';
 import { PracticeNote, ReadyQuestions } from '../trace/ReadyQuestions';
 import { TieCard } from '../ties/TieCard';
-import { PlanBand, PlansBarChip } from '../plans/PlanBand';
+import { PlanBand } from '../plans/PlanBand';
+import { STAGE_WORD } from '../plans/plansModel';
+import { headerText } from '../troubleshoot/troubleModel';
+import { saveSheet } from '../inventory/sheetPref';
 import { PlansSurface } from '../plans/PlansSurface';
 import { PlansContext } from '../plans/plansStore';
 import { usePlansController } from '../plans/usePlansController';
@@ -299,6 +308,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   onSelectedChange?: (id: string | null) => void;
   /** A device was opened (double-click): Home's Recent row remembers it. */
   onDeviceOpened?: (chassisId: string, name: string) => void;
+  /** The design as it was first saved: Reset sample puts the sample back to it (r30-small). */
+  loadFirstSave?: () => Promise<Document>;
 }
 
 /**
@@ -339,6 +350,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     designId,
     onSelectedChange,
     onDeviceOpened,
+    loadFirstSave,
     ...shellProps
   } = props;
   const { doc, catalogue, loadError, saveRefusal, canDraw, applyDocChange, handleEdit, reloadDesign } = session;
@@ -949,8 +961,19 @@ export function RacksPlace(props: RacksPlaceProps) {
       return null;
     }
   }, [accountId, designId]);
+  const isSample = sampleOfDesign(accountId, designId) != null;
   const questions = useMemo(() => (fromSample != null && doc != null ? readyQuestions(doc, [fromSample]) : []), [fromSample, doc]);
   const planted = fromSample?.mistakes?.length ?? 0;
+  // Reset sample (r30-small): one new save that puts back what the first save held; History keeps the rest.
+  const docNowRef = useRef(doc);
+  docNowRef.current = doc;
+  const resetSample = async () => {
+    if (loadFirstSave == null || accountId == null) return;
+    const first = await loadFirstSave();
+    const current = docNowRef.current;
+    if (current == null) return;
+    applyDocChange(restoreTo(current, first, 'Reset the sample', { actor: accountId, now: Date.now() }));
+  };
 
   // Resolves the current selection to a rack id, however it was reached;
   // anything not rack-shaped reports `null`.
@@ -1210,12 +1233,23 @@ export function RacksPlace(props: RacksPlaceProps) {
   // ADR-0061 §7: a config pasted anywhere on the canvas. The gate runs in the module (`previewPaste`)
   // before the card shows; the card's choice is the only thing that writes. The raw text is never kept.
   const [pasteState, setPasteState] = useState<PasteState | null>(null);
-  const openSpot = useCallback(() => {
-    const taken = [...realView.free.map((f) => ({ x: f.x, y: f.y, w: BOX_W, h: BOX_H })), ...realView.labels.map((l) => ({ x: l.x, y: l.y, w: l.form === 'area' ? l.w : 64, h: l.form === 'area' ? l.h : 22 }))];
-    // With racks or surfaces drawn, the grid starts to their right so a new box never lands on top of them.
-    const right = realView.racks.length > 0 || realView.surfaces.length > 0 ? closetRightPx(realView, RACK_NODE_WIDTH, U_PX) : 0;
-    return right > 0 ? nextFreeSpot(taken, undefined, undefined, { x: right + 96, y: 0 }) : nextFreeSpot(taken);
-  }, [realView]);
+  // `n` free spots for new boxes, each clear of the ones before it.
+  const openSpots = useCallback(
+    (n: number) => {
+      const taken = [...realView.free.map((f) => ({ x: f.x, y: f.y, w: BOX_W, h: BOX_H })), ...realView.labels.map((l) => ({ x: l.x, y: l.y, w: l.form === 'area' ? l.w : 64, h: l.form === 'area' ? l.h : 22 }))];
+      // With racks or surfaces drawn, the grid starts to their right so a new box never lands on top of them.
+      const right = realView.racks.length > 0 || realView.surfaces.length > 0 ? closetRightPx(realView, RACK_NODE_WIDTH, U_PX) : 0;
+      const spots: { x: number; y: number }[] = [];
+      for (let i = 0; i < n; i += 1) {
+        const spot = right > 0 ? nextFreeSpot(taken, undefined, undefined, { x: right + 96, y: 0 }) : nextFreeSpot(taken);
+        spots.push(spot);
+        taken.push({ ...spot, w: BOX_W, h: BOX_H });
+      }
+      return spots;
+    },
+    [realView],
+  );
+  const openSpot = useCallback(() => openSpots(1)[0]!, [openSpots]);
   // Held only while the card asks "which device is this from?"; cleared on every other outcome.
   const pendingPasteRef = useRef<string | null>(null);
   // Cable suggestions (r15-cables): the device the neighbour list was read on (null asks), and text already pasted.
@@ -1255,6 +1289,64 @@ export function RacksPlace(props: RacksPlaceProps) {
     },
     [doc, canDraw, withMirror, openSpot, accountId, selectedChassis],
   );
+  // A folder of configs dropped on the canvas (r29-pull A): each file read as a paste, matched by hostname. One file
+  // dropped is a paste. The texts are held only while the card is open.
+  const [folder, setFolder] = useState<{ files: FolderFile[]; rows: FolderRow[]; base: Document; refusal?: string } | null>(null);
+  const startFolder = useCallback(
+    (files: FolderFile[]) => {
+      if (doc == null || !canDraw || files.length === 0) return;
+      const only = files.length === 1 ? files[0]! : null;
+      if (only !== null && only.tooLarge !== true && worthReading(only.text)) return startPaste(only.text);
+      setPasteState(null);
+      withMirror()
+        .then((mirror) => {
+          const rows = planFolder(mirror, doc, files);
+          mirrorLoadedDocRef.current = null;
+          setFolder({ files, rows, base: doc });
+        })
+        .catch((error: unknown) => {
+          mirrorLoadedDocRef.current = null;
+          setPasteState({ kind: 'refused', message: tidySentence(refusalFor(error)?.refused ?? refusalSentence(error)) });
+        });
+    },
+    [doc, canDraw, withMirror, startPaste],
+  );
+  const handleFolderAdd = useCallback(
+    (rows: FolderRow[]) => {
+      if (folder == null || doc == null) return;
+      if (folder.base !== doc) return setFolder({ ...folder, refusal: 'The design changed while this was open. Drop the folder again.' });
+      withMirror()
+        .then((mirror) => {
+          const next = applyFolder(mirror, doc, folder.files, rows, openSpots, actorOpts(accountId));
+          mirrorLoadedDocRef.current = null;
+          if (next !== doc) applyDocChange(next);
+          setFolder(null);
+        })
+        .catch((error: unknown) => {
+          mirrorLoadedDocRef.current = null;
+          setFolder({ ...folder, refusal: tidySentence(refusalFor(error)?.refused ?? refusalSentence(error)) });
+        });
+    },
+    [folder, doc, withMirror, openSpots, accountId, applyDocChange],
+  );
+  useEffect(() => {
+    if (!canDraw || doc == null) return;
+    const onOver = (event: DragEvent) => {
+      if (!event.defaultPrevented && dragHasFiles(event.dataTransfer)) event.preventDefault();
+    };
+    const onDrop = (event: DragEvent) => {
+      // A dialog with its own drop box (the importer) takes its files first.
+      if (event.defaultPrevented || event.dataTransfer === null || !dragHasFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      filesFromDrop(event.dataTransfer).then(startFolder, () => setPasteState({ kind: 'refused', message: 'Those files could not be read.' }));
+    };
+    document.addEventListener('dragover', onOver);
+    document.addEventListener('drop', onDrop);
+    return () => {
+      document.removeEventListener('dragover', onOver);
+      document.removeEventListener('drop', onDrop);
+    };
+  }, [canDraw, doc, startFolder]);
   const handlePasteConfig = useCallback(() => {
     // A right-click is a gesture, so the browser may let the page read the clipboard; if not, the card has a box.
     const read = navigator.clipboard?.readText?.bind(navigator.clipboard);
@@ -1776,6 +1868,17 @@ export function RacksPlace(props: RacksPlaceProps) {
             onToggleCableHidden: handleToggleCableHidden,
           },
           paletteFromCatalogue(catalogue),
+          // r31 pictures: the two ways on at the panel's foot; the rest in its ⋯ menu.
+          selection?.kind === 'chassis' ? (
+            <>
+              <button type="button" className="btn-main" onClick={() => handleOpenDevice(selection.id, true, null)} data-testid="device-open-inside">
+                Open inside
+              </button>
+              <button type="button" onClick={() => trace.openFrom(selection.id)} data-testid="device-trace-from">
+                Trace from here
+              </button>
+            </>
+          ) : undefined,
           selection?.kind === 'chassis' ? (
             <>
               {onOpenInventory ? (
@@ -1829,6 +1932,82 @@ export function RacksPlace(props: RacksPlaceProps) {
     </>
   ) : null;
 
+  // r31-bar A: the four views. Diagram and Canvas are this place's two looks; Inventory and Sheet are the other place.
+  const mainView: ShellProps['mainView'] = {
+    value: look === 'diagram' ? 'diagram' : 'canvas',
+    onChange: (next) => {
+      if (next === 'diagram' || next === 'canvas') {
+        changeLook(next === 'diagram' ? 'diagram' : 'rack');
+        return;
+      }
+      saveSheet(next === 'sheet');
+      shellProps.onPlaceChange('inventory');
+    },
+  };
+  // The Doing ▾ menu: what you can set about from here. A job that needs a device says so until one is chosen.
+  const needsDevice = selectedChassis == null ? 'select a device first' : undefined;
+  const doing: NonNullable<ShellProps['doing']> = [
+    { id: 'plan', label: 'Plan a change', onSelect: () => plans.setBandOpen(true) },
+    { id: 'down', label: "It's down", onSelect: canDraw && selectedChassis != null ? () => trouble.start(selectedChassis) : undefined, hint: canDraw ? needsDevice : 'needs Draw' },
+    { id: 'trace', label: 'Trace a path', onSelect: selectedChassis != null ? () => trace.openFrom(selectedChassis) : undefined, hint: needsDevice },
+  ];
+  // The zoom stops the bottom pill opens upward with: the camera keeps its middle and takes the stop's zoom.
+  const zoomStops: ShellProps['zoomStops'] = {
+    stops: [
+      { id: 'closet', label: 'Closet' },
+      { id: 'rack', label: 'Rack' },
+      { id: 'faceplate', label: 'Faceplate' },
+      { id: 'inside', label: 'Inside' },
+    ],
+    current: cameraStopAt(shellProps.zoom),
+    onGo: (id) => {
+      const control = cameraHub.control;
+      const box = document.querySelector('.shell__drawing .react-flow')?.getBoundingClientRect();
+      if (control == null || box == null) return;
+      const vp = control.get();
+      const zoom = CAMERA_STOPS[id as keyof typeof CAMERA_STOPS] / 100;
+      const cx = (box.width / 2 - vp.x) / vp.zoom;
+      const cy = (box.height / 2 - vp.y) / vp.zoom;
+      control.set({ x: box.width / 2 - cx * zoom, y: box.height / 2 - cy * zoom, zoom }, true);
+    },
+  };
+
+  // r31-motion: a job under way takes the bar, in its colour: an open plan, an "It's down" session, a trace.
+  const task: ShellProps['task'] =
+    doc == null
+      ? null
+      : plans.plan != null && plans.bandOpen
+        ? {
+            label: plans.plan.title,
+            stage: STAGE_WORD[plans.plan.stage],
+            tone: plans.plan.stage === 'doing' ? 'do' : 'plan',
+            onExit: () => {
+              plans.openPlan(null);
+              plans.setBandOpen(false);
+            },
+          }
+        : trouble.draft != null || trouble.viewing != null
+          ? { label: trouble.draft != null ? headerText(trouble.draft, trouble.focus) : (trouble.viewing?.title ?? "It's down"), stage: "IT'S DOWN", tone: 'down', onExit: () => trouble.close() }
+          : trace.open && trace.from != null
+            ? { label: `Trace from ${trace.from.label}`, stage: 'TRACE', tone: 'trace', onExit: trace.close }
+            : null;
+
+  // r30-panels: Checks, the open plan, "It's down" and a trace are tabs of the right-hand panel.
+  const sideTabs: SideTab[] | undefined =
+    doc == null
+      ? undefined
+      : [
+          { id: 'checks', label: 'Checks', count: checks.result != null ? totalCount(checks.result) : 0, open: checks.open, onOpen: () => checks.setOpen(true), onClose: () => checks.setOpen(false) },
+          ...(plans.plan != null && !plans.listMode
+            ? [{ id: 'plan', label: 'Plan', open: plans.panelOpen, onOpen: () => plans.setPanelOpen(true), onClose: () => plans.setPanelOpen(false) }]
+            : []),
+          ...(trouble.draft != null || trouble.viewing != null
+            ? [{ id: 'down', label: "It's down", open: trouble.panelOpen, onOpen: () => trouble.setPanelOpen(true), onClose: () => trouble.setPanelOpen(false) }]
+            : []),
+          ...(trace.open && jot == null ? [{ id: 'trace', label: 'Trace', open: true, onOpen: () => {}, onClose: trace.close }] : []),
+          ...(shellProps.sideTabs ?? []),
+        ];
+
   // The bar's path gains the open device; the part before it leads back out.
   const jotDevice = jot != null ? deviceChassis(realView, jot.id) : undefined;
   const jotPath: PathPart[] =
@@ -1841,13 +2020,9 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
-    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, cables: look === 'diagram' ? undefined : { value: cableStyle, onChange: changeCableStyle }, aids: showAids }} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} autoEquipment={autoOpenEquipment(doc != null, canDraw, realView)} equipmentRequest={equipmentRequest} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} barExtra={
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, cables: look === 'diagram' ? undefined : { value: cableStyle, onChange: changeCableStyle }, aids: { ...showAids, items: showAids.items.filter((a) => a.id !== 'colourKey') } }} layersExtra={doc != null && look === 'rack' && keyRows.length > 0 ? <ColourKey rows={keyRows} onHighlight={setKeyCableIds} /> : undefined} mainView={mainView} designExtra={doc != null && isSample ? <SampleChip onReset={canDraw && loadFirstSave != null ? resetSample : undefined} /> : undefined} doing={doc != null ? doing : undefined} zoomStops={look === 'rack' ? zoomStops : undefined} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} autoEquipment={autoOpenEquipment(doc != null, canDraw, realView)} equipmentRequest={equipmentRequest} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} sideTabs={sideTabs} task={task} barExtra={
         doc != null ? (
-          <div className="shell-bar__undoredo">
-            <MissingLinksChip found={missingLinks} onGo={handleGoToMissingLink} />
-            <PlansBarChip controller={plans} />
-            <ChecksBarChip controller={checks} />
-          </div>
+          <MissingLinksChip found={missingLinks} onGo={handleGoToMissingLink} />
         ) : undefined
       }
       band={doc != null && plans.bandOpen ? <PlanBand controller={plans} /> : undefined}
@@ -1893,11 +2068,12 @@ export function RacksPlace(props: RacksPlaceProps) {
           fitRequest={fitRequest}
           lookSwitched={lookSwitched}
           cameraHub={cameraHub}
-          keyCableIds={keyOn ? keyCableIds : null}
+          keyCableIds={keyCableIds}
           minimap={canvasAids.prefs.minimap}
           cableStyle={cableStyle}
           onEdit={canDraw ? handleEdit : undefined}
           initialViewport={resumeView.initialViewport}
+          fitWholeOnOpen={isSample}
           onViewportSettled={resumeView.onViewportSettled}
           onPlace={handlePlace}
           onMove={handleMove}
@@ -1983,8 +2159,11 @@ export function RacksPlace(props: RacksPlaceProps) {
           onApplyTemplate={canDraw ? handleApplyTemplate : undefined}
         />
       ) : null}
-      {doc != null && look === 'rack' && keyOn && keyRows.length > 0 ? <ColourKey rows={keyRows} onHighlight={setKeyCableIds} /> : null}
-      {doc != null ? <JumpTrail trail={jump.trail} backLabel={jump.backLabel} onBack={jump.goBack} levels={jumpLevels} onGo={(level) => level.target != null && jumpGo(level.target, null)} /> : null}
+      {doc != null ? (
+        <InSideSlot id="jump-trail">
+          <JumpTrail trail={jump.trail} backLabel={jump.backLabel} onBack={jump.goBack} levels={jumpLevels} onGo={(level) => level.target != null && jumpGo(level.target, null)} />
+        </InSideSlot>
+      ) : null}
       {doc != null ? <PortPeek doc={doc} view={displayView} /> : null}
       {drawerAsk != null && pasteState == null ? (
         <PasteCard
@@ -2010,6 +2189,9 @@ export function RacksPlace(props: RacksPlaceProps) {
           }}
         />
       ) : null}
+      {folder != null && pasteState == null ? (
+        <FolderCard key={folder.rows.map((r) => r.file).join('\n')} rows={folder.rows} refusal={folder.refusal} onAdd={handleFolderAdd} onClose={() => setFolder(null)} />
+      ) : null}
       {suggest != null && doc != null && canDraw && pasteState == null ? (
         <SuggestCard key={suggest.text ?? suggest.deviceId ?? 'any'} doc={doc} deviceId={suggest.deviceId} text={suggest.text} actor={accountId ?? undefined} spot={openSpot} onApply={(next, deviceId) => {
             applyDocChange(next);
@@ -2031,12 +2213,20 @@ export function RacksPlace(props: RacksPlaceProps) {
           {pastedNote}
         </div>
       ) : null}
-      {doc != null && !trace.open ? <ChecksSurface controller={checks} canShow={jot == null} /> : null}
+      {doc != null ? <ChecksSurface controller={checks} canShow={jot == null} /> : null}
       {doc != null ? <PlansSurface controller={plans} besideChecks={checks.open} /> : null}
-      {doc != null && (trouble.draft != null || trouble.viewing != null) ? <TroublePanel controller={trouble} besideChecks={checks.open} besidePlans={plans.plan != null && plans.panelOpen && !plans.listMode} onTie={canDraw ? setTieFor : undefined} /> : null}
+      {doc != null && (trouble.draft != null || trouble.viewing != null) ? (
+        <InSideSlot id="down">
+          <TroublePanel controller={trouble} besideChecks={checks.open} besidePlans={plans.plan != null && plans.panelOpen && !plans.listMode} onTie={canDraw ? setTieFor : undefined} />
+        </InSideSlot>
+      ) : null}
       {doc != null && jot == null && !trace.open ? <ReadyQuestions questions={questions} onAsk={(q) => trace.ask(q.chassisId, q.to, q.flow)} /> : null}
       {doc != null && jot == null && !trace.open && !checks.open && planted > 0 ? <PracticeNote count={planted} onOpenChecks={() => checks.setOpen(true)} /> : null}
-      {doc != null && jot == null ? <TracePanel controller={trace} onTie={canDraw ? setTieFor : undefined} /> : null}
+      {doc != null && jot == null ? (
+        <InSideSlot id="trace">
+          <TracePanel controller={trace} onTie={canDraw ? setTieFor : undefined} />
+        </InSideSlot>
+      ) : null}
       </TraceContext.Provider>
       </TroubleContext.Provider>
       </SuggestContext.Provider>

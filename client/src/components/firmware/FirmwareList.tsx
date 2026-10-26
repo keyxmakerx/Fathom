@@ -87,7 +87,7 @@ export function FirmwareList({ api, onOpenImage, onOpenModel, onOpenDevices, onU
           ))}
         </div>
         <span className="fw-toolbar__grow" />
-        {api.canEdit && status !== 'off' ? (
+        {api.isSteward && status !== 'off' ? (
           <button type="button" className="fw-btn" onClick={onUpload}>
             + Upload image
           </button>

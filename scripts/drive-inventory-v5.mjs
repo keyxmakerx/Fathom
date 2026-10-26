@@ -11,6 +11,20 @@ import { fileURLToPath } from 'node:url';
 const pw = await import(
   process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js'
 );
+
+// The filter line is folded behind the toolbar's Filter button until it is asked for (r30-small).
+async function openFilter(p, label) {
+  const line = p.getByLabel(label);
+  if ((await line.count()) === 0) await p.getByRole('button', { name: 'Filter', exact: true }).click();
+  return line;
+}
+// The name box opens from + Device (r30-small).
+async function openAdder(p) {
+  const box = p.getByLabel(/Name of the new/);
+  if ((await box.count()) === 0) await p.getByRole('button', { name: '+ Device', exact: true }).click();
+  return box;
+}
+
 const { chromium } = pw.default ?? pw;
 
 const ROOT = process.env.FATHOM_ROOT
@@ -168,7 +182,7 @@ try {
   await shot('v5-01-list.png');
 
   // 1 — a page replaces the list; Back restores scroll, filter and the address.
-  const line = page.getByLabel('Filter devices');
+  const line = (await openFilter(page, 'Filter devices'));
   await line.fill('role:server');
   await page.waitForTimeout(400);
   const switches = await page.locator('.inv-table__scroll').evaluate((el) => el.scrollHeight);
@@ -270,7 +284,7 @@ try {
   await shot('v5-07-column-menu.png');
   await menu.getByRole('group', { name: 'Sheath values' }).getByRole('checkbox').first().check();
   await page.waitForTimeout(300);
-  const cableLine = page.getByLabel('Filter cables');
+  const cableLine = (await openFilter(page, 'Filter cables'));
   check('picking a value writes the filter line', /^sheath:/.test(await cableLine.inputValue()), await cableLine.inputValue());
   await page.keyboard.press('Escape');
   await cableLine.fill('');
@@ -296,7 +310,7 @@ try {
   // 6 — select all matching, then a bulk change with a preview, one Undo step.
   await rail.getByRole('button', { name: /^Devices/ }).first().click();
   await page.waitForSelector('.inv-table__row', { timeout: 30_000 });
-  const devLine = page.getByLabel('Filter devices');
+  const devLine = (await openFilter(page, 'Filter devices'));
   await devLine.fill('role:server rack:LON1-A03');
   await page.waitForTimeout(300);
   const servers = Number(/(\d[\d,]*)(?: of [\d,]+)? devices/.exec(await page.locator('.inv-foot').innerText())?.[1].replace(/,/g, ''));
@@ -326,7 +340,7 @@ try {
   // 7 — pages: a cable's run through patch panels, a device's "Plugged into" and port map, a rack.
   await rail.getByRole('button', { name: /^Cables/ }).first().click();
   await page.waitForSelector('.inv-table__row', { timeout: 30_000 });
-  const cabLine2 = page.getByLabel('Filter cables');
+  const cabLine2 = (await openFilter(page, 'Filter cables'));
   await cabLine2.fill('device:lon1-a02-pp1 device:lon1-a01-cpp1');
   await page.waitForTimeout(400);
   await page.locator('.inv-table__row').first().locator('[role=gridcell]').nth(1).click();
@@ -437,7 +451,7 @@ try {
   if (await page.locator('.inv-bulk').count()) await page.getByRole('button', { name: 'Clear', exact: true }).first().click();
 
   // 10 — pasted text goes through the gate; typed text is stored as typed.
-  const adder = page.getByLabel(/Name of the new/);
+  const adder = await openAdder(page);
   const SECRET = 'Sup3rS3cret!';
   await adder.focus();
   await page.evaluate((text) => {
@@ -507,8 +521,8 @@ try {
 
   // A save writes the whole estate through the real engine: proof the made-up document is a real one.
   if (WRITES) {
-    await page.getByLabel(/Name of the new/).fill('v5-added');
-    await page.getByRole('button', { name: '+ Device', exact: true }).click();
+    await (await openAdder(page)).fill('v5-added');
+    await page.getByRole('button', { name: 'Add', exact: true }).click();
     await page.waitForSelector('.inv-page', { timeout: 30_000 });
     await page.waitForFunction(() => (window.__saveCount__ ?? 0) > 0, null, { timeout: 60_000 });
   }
@@ -539,7 +553,7 @@ try {
     await phShot('v5-phone-list.png');
     const o1 = await overflow();
     check('phone: the list fits the width', o1.scrollW <= o1.w + 1 && o1.wide.length === 0, JSON.stringify(o1));
-    const phLine = ph.getByLabel('Filter devices');
+    const phLine = (await openFilter(ph, 'Filter devices'));
     await phLine.fill('role:switch rack:LON1-A02');
     await ph.waitForTimeout(500);
     await phShot('v5-phone-filter.png');

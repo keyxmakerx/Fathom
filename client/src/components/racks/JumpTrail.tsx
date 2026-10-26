@@ -49,8 +49,10 @@ export function swallowNextClick(doc: Pick<Document, 'addEventListener' | 'remov
 }
 
 export function JumpTrail({ trail, backLabel, onBack, levels, onGo, defaultOpen = false }: JumpTrailProps) {
-  const canBack = canGoBack(trail) && backLabel != null;
   const hasTree = levels.length > 1;
+  // r30-device: Back shows only once you are deeper than the design itself. At the top the breadcrumb is the
+  // way around, and a reload that lands on the top has no stale "Back to" left over.
+  const canBack = canGoBack(trail) && backLabel != null && hasTree;
   const [open, setOpen] = useState(defaultOpen);
   const [expanded, setExpanded] = useState(false);
   const rootRef = useRef<HTMLElement>(null);

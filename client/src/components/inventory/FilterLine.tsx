@@ -19,12 +19,14 @@ export interface FilterLineProps {
   rows: readonly InvRow[];
   parsed: Parsed;
   kindLabel: string;
+  /** Put the cursor in the line when it opens. */
+  autoFocus?: boolean;
 }
 
 const fmt = (n: number): string => n.toLocaleString('en-GB');
 
 export function FilterLine(props: FilterLineProps) {
-  const { q, onQ, schema, rows, parsed, kindLabel } = props;
+  const { q, onQ, schema, rows, parsed, kindLabel, autoFocus } = props;
   const [open, setOpen] = useState<'help' | 'panel' | null>(null);
   const [focused, setFocused] = useState(false);
   const [cursor, setCursor] = useState(0);
@@ -83,6 +85,7 @@ export function FilterLine(props: FilterLineProps) {
           <input
             ref={input}
             type="text"
+            autoFocus={autoFocus}
             spellCheck={false}
             autoComplete="off"
             aria-label={`Filter ${kindLabel.toLowerCase()}`}

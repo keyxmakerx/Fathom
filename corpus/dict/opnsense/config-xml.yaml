@@ -1,0 +1,104 @@
+# corpus/dict/opnsense/config-xml.yaml -- OPNsense `config.xml` (System >
+# Configuration > Backups), read by crates/fathom-ingest/src/xml.rs when the
+# root is <opnsense>. Path shape as corpus/dict/pfsense/config.yaml: the element
+# path below the root, a repeating record's identity leaf spliced in after its
+# tag, then the leaf and its text.
+#
+# THIS DICTIONARY IS AN ALLOWLIST, as pfSense's is: the XML front end destroys
+# every value no entry describes. It shares this directory with the rules CSV
+# (firewall-rules.yaml); a CSV row's first segment is a uuid, and every path
+# here starts with a literal element name, so neither reads the other's.
+# Sources and dates: README-config-xml.md section 5.
+platform: opnsense
+source: { cite: "opnsense/core master: src/etc/config.xml.sample, models/OPNsense/Interfaces/Vlan.xml; see corpus/dict/opnsense/README-config-xml.md section 5", read_on: "2026-10-25" }
+reviewed_by: <named human>
+entries:
+  - id: opnsense/xml.system.hostname
+    path: [system, hostname, "$h"]
+    binds:
+      nodes:
+        - { as: n0, kind: Device, fields: [ { field: hostname, from: "$h", scalar: Identifier } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `<interfaces><lan><if>igb1</if>…`: the assignment (`lan`, `wan`, `opt1`) is
+  # the tag, the port is `if`.
+  - id: opnsense/xml.interfaces.if
+    path: [interfaces, "$role", if, "$i"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: opnsense/xml.interfaces.descr
+    path: [interfaces, "$role", if, "$i", descr, "$d"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName }, { field: description, from: "$d", scalar: Text } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # OPNsense writes the flag with a value, `<enable>1</enable>` (config.xml.sample).
+  - id: opnsense/xml.interfaces.enable
+    path: [interfaces, "$role", if, "$i", enable, "1"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName }, { field: admin_up, const_bool: true } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # Kept readable, not yet bound: the address and its prefix length are two
+  # elements, and an Address needs them as one value (README, "Not bound").
+  - id: opnsense/xml.interfaces.ipaddr
+    path: [interfaces, "$role", if, "$i", ipaddr, "$a"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: opnsense/xml.interfaces.subnet
+    path: [interfaces, "$role", if, "$i", subnet, "$p"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$i", fields: [ { field: name, from: "$i", scalar: InterfaceName } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # `<vlans><vlan uuid="…"><if>igb1</if><tag>10</tag><pcp>0</pcp><proto/><descr/><vlanif>vlan0.10</vlanif>`
+  # (Vlan.xml, mount /vlans). The uuid attribute is not described, so it is destroyed.
+  - id: opnsense/xml.vlans.vlan
+    path: [vlans, vlan, vlanif, "$v"]
+    partial: true
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$v", fields: [ { field: name, from: "$v", scalar: InterfaceName } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: opnsense/xml.vlans.vlan.tag
+    path: [vlans, vlan, vlanif, "$v", tag, "$t"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$v", fields: [ { field: name, from: "$v", scalar: InterfaceName } ] }
+        - { as: n1, kind: Vlan, key: "$v", fields: [ { field: name, from: "$v", scalar: Identifier }, { field: vlan_id, from: "$t", scalar: VlanId } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: opnsense/xml.vlans.vlan.if
+    path: [vlans, vlan, vlanif, "$v", if, "$p"]
+    binds:
+      nodes:
+        - { as: n0, kind: Interface, key: "$p", fields: [ { field: name, from: "$p", scalar: InterfaceName } ] }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: opnsense/xml.vlans.vlan.descr
+    path: [vlans, vlan, vlanif, "$v", descr, "$d"]
+    binds:
+      nodes:
+        - { as: n1, kind: Vlan, key: "$v", fields: [ { field: name, from: "$v", scalar: Identifier }, { field: description, from: "$d", scalar: Text } ] }
+    versions: "*"
+    reviewed_by: <named human>

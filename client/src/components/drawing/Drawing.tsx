@@ -78,6 +78,7 @@ import { ColourPicker } from './ColourPicker';
 import { ContextMenu } from './ContextMenu';
 import { parseFreeNodeId } from './freeLayout';
 import { CanvasTools, type CanvasTool } from './CanvasTools';
+import { InSideSlot } from '../shell/sideSlot';
 import { useWheelMode } from './canvasPrefs';
 import { FREE_EDGE_TYPES, FREE_NODE_TYPES, useFreeLayer } from './useFreeLayer';
 import { menuItemsFor, type MenuActions, type MenuTarget } from './contextMenuItems';
@@ -344,6 +345,9 @@ export interface DrawingProps extends DrawingActions {
   /** Where this person left the camera last time (kept in this browser). Replaces the first fit
    * rather than fighting it; ignored if it no longer shows any rack. */
   initialViewport?: Viewport | null;
+  /** The first fit takes in every surface too, not only the racks: the sample, whose walls and desk would
+   * otherwise open off screen. */
+  fitWholeOnOpen?: boolean;
   /** Called with the camera when a pan or zoom ends. */
   onViewportSettled?: (vp: Viewport) => void;
   /** The place's handle on the camera, for the Views menu. */
@@ -423,6 +427,7 @@ function DrawingInner({
   fitRequest,
   lookSwitched,
   initialViewport,
+  fitWholeOnOpen = false,
   onViewportSettled,
   cameraHub,
   onPlace,
@@ -859,8 +864,9 @@ function DrawingInner({
       }
       restoredCameraRef.current = false;
     }
+    const whole = isFirstRun && fitWholeOnOpen;
     const raf = requestAnimationFrame(() => {
-      void rf.fitView(rackFitViewOptions(view.racks, free.fitIds));
+      void rf.fitView(whole ? closetFitViewOptions(view.racks, view.surfaces ?? [], free.fitIds) : rackFitViewOptions(view.racks, free.fitIds));
     });
     return () => cancelAnimationFrame(raf);
     // `view.racks` itself is deliberately not a dependency: `rackIdsKey` is
@@ -2079,7 +2085,9 @@ function DrawingInner({
         )}
       </ReactFlow>
       {free.overlay}
-      <CanvasTools tool={tool} onTool={setTool} wheel={wheel} onWheel={setWheel} />
+      <InSideSlot id="canvas-tools">
+        <CanvasTools tool={tool} onTool={setTool} wheel={wheel} onWheel={setWheel} />
+      </InSideSlot>
       <ChecksCanvasBridge />
       <TraceBadges />
       <PlansCanvasBridge />

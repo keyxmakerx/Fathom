@@ -12,6 +12,20 @@ import { barAction } from './drive-lib/bar.mjs';
 const pw = await import(
   process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js'
 );
+
+// The filter line is folded behind the toolbar's Filter button until it is asked for (r30-small).
+async function openFilter(p, label) {
+  const line = p.getByLabel(label);
+  if ((await line.count()) === 0) await p.getByRole('button', { name: 'Filter', exact: true }).click();
+  return line;
+}
+// The name box opens from + Device (r30-small).
+async function openAdder(p) {
+  const box = p.getByLabel(/Name of the new/);
+  if ((await box.count()) === 0) await p.getByRole('button', { name: '+ Device', exact: true }).click();
+  return box;
+}
+
 const { chromium } = pw.default ?? pw;
 
 const ROOT = process.env.FATHOM_ROOT
@@ -130,7 +144,7 @@ try {
   await shot('inventory-01-table.png');
 
   // 2 — filter by name.
-  const line = page.getByLabel('Filter devices');
+  const line = (await openFilter(page, 'Filter devices'));
   await line.fill('name~bulk-0042');
   check('a filter narrows to one row', (await page.locator('.inv-table__row').count()) === 1);
   check('the line is read back in words', (await page.locator('.inv-fq__reading').innerText()).includes('Name contains bulk-0042'));
@@ -138,8 +152,8 @@ try {
   check('removing the chip empties the line', (await line.inputValue()) === '');
 
   // 3 — add by name, then the page opens on it.
-  await page.getByLabel(/Name of the new/).fill('edge-fw');
-  await page.getByRole('button', { name: '+ Device', exact: true }).click();
+  await (await openAdder(page)).fill('edge-fw');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.waitForSelector('.inv-page', { timeout: 5_000 });
   check('adding by name opens its page', (await page.locator('.inv-page').innerText()).includes('edge-fw'));
   check('the page replaces the list', (await page.locator('.inv-table__row').count()) === 0);
@@ -215,7 +229,7 @@ try {
   await shot('inventory-05-bulk.png');
 
   // 8b — the tag: filter token, then the Inventory page of the print pack.
-  await page.getByLabel('Filter devices').fill('tag:lab');
+  await (await openFilter(page, 'Filter devices')).fill('tag:lab');
   await page.waitForTimeout(400);
   check('tag:lab filters to the tagged row', (await page.locator('.inv-table__row').count()) === 1);
   await barAction(page, 'print');

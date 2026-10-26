@@ -242,7 +242,7 @@ try {
   console.log('    wrote ' + DOCKER_OPEN_SHOT);
 
   // --- undo the second attach, then redo it — one batch, no orphan --------
-  await page.locator('.shell-chip', { hasText: 'Undo' }).click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await page.waitForTimeout(300);
   members = await page.locator('.networks-grid__member').allInnerTexts();
   check('undo removes grafana, gitea remains', !members.some((t) => t.includes('grafana')) && members.some((t) => t.includes('gitea')), members.join(' | '));
