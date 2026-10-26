@@ -590,3 +590,56 @@
   color: var(--sheath-purple);
   border-color: var(--sheath-purple);
 }
+
+/* Connect an AI app › It uses a key: the helper's four steps. */
+.ai-how .ai-seg {
+  margin-top: var(--s2);
+}
+
+.ai-helper {
+  margin-top: var(--s3);
+}
+
+.ai-helper .ai-steps li > .ai-input,
+.ai-helper .ai-steps li > .ai-muted {
+  margin-top: var(--s2);
+}
+
+.ai-helper__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  margin-top: var(--s2);
+}
+
+.ai-input--key {
+  height: auto;
+  min-height: calc(var(--control-h-sm) * 3);
+  padding: var(--s1) var(--s2);
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+  word-break: break-all;
+  resize: vertical;
+}
+
+.ai-copy--block {
+  align-items: flex-start;
+}
+
+.ai-copy--block pre {
+  margin: 0;
+  flex: 1;
+  overflow-x: auto;
+  padding: var(--s2);
+  border: var(--rule-hair) solid var(--hairline);
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+}
+
+.ai-helper a {
+  color: inherit;
+}
+
+.ai-how__blocked {
+  margin-top: var(--s2);
+}

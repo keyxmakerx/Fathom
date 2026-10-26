@@ -4,7 +4,7 @@
 //
 //   node fathom-ai.mjs pair https://fathom.example.org
 //       Makes a key on this computer (~/.fathom-ai/key.json, readable by you only) and
-//       prints the public half to paste into Fathom: Your account > AI access > New AI key.
+//       prints the public half to paste into Fathom: Organisation > AI > Connect an AI app > It uses a key.
 //   node fathom-ai.mjs pair --for-cloud https://fathom.example.org
 //       The same, and also prints the FATHOM_AI_KEY value to put in a cloud environment's
 //       secrets (for an AI that runs in the cloud, such as Claude Code on the web).
@@ -331,7 +331,7 @@ async function main(args) {
       chmodSync(KEY_FILE, 0o600);
       console.log(`Made a key in ${KEY_FILE} (only your account can read it).`);
     }
-    console.log(`\nPaste this into Fathom (Organisation > AI > New AI key):\n\n${pub.toString('hex')}\n`);
+    console.log(`\nPaste this into Fathom (Organisation > AI > Connect an AI app > It uses a key):\n\n${pub.toString('hex')}\n`);
     console.log(`Its key id will be ${keyIdOf(pub)}; Fathom shows the same.`);
     if (cloud) {
       console.log(

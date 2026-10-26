@@ -23,12 +23,12 @@ import {
 } from "../../api/ai";
 import { fetchPeople, type Person } from "../../api/people";
 import type { Scope } from "../../api/scopes";
+import { HowToConnect } from "./HowToConnect";
 import {
   aiError,
   ago,
   DAY_WORDS,
   FolderChips,
-  Info,
   PlainWords,
   Ticks,
   TIER_WORDS,
@@ -130,7 +130,13 @@ export function AiPanel({
               here works until they turn it back on.
             </p>
           )}
-          <HowToConnect overview={o} />
+          <HowToConnect
+            organisationId={organisationId}
+            organisationName={organisationName}
+            overview={o}
+            folders={folders}
+            onMade={() => reload()}
+          />
           {notice && (
             <p className="ai-muted" role="status">
               {notice}
@@ -176,65 +182,6 @@ export function AiPanel({
           />
         )}
       </div>
-    </div>
-  );
-}
-
-function HowToConnect({ overview }: { overview: AiOverview }) {
-  const [copied, setCopied] = useState(false);
-  const url = overview.connector;
-  return (
-    <div className="ai-how">
-      <div className="ai-label">
-        Connect an AI app{" "}
-        <Info label="How AI apps connect to Fathom">
-          You add Fathom in your AI app as a connector, with the address below.
-          The app then sends you to Fathom to sign in, and you choose which
-          designs it may read and how much of them. Fathom gives the app a
-          sign-in that only reads, only in this organisation, only what you can
-          see, and never passwords or the vault. Ideas it sends wait here for a
-          person to accept.
-        </Info>
-      </div>
-      {url ? (
-        <>
-          <div className="ai-copy">
-            <code data-testid="ai-connector-url">{url}</code>
-            <button
-              type="button"
-              className="ai-btn ai-btn--small"
-              onClick={() => {
-                void navigator.clipboard
-                  ?.writeText(url)
-                  .then(() => setCopied(true));
-              }}
-            >
-              {copied ? "Copied" : "Copy"}
-            </button>
-          </div>
-          <ul className="ai-how__list">
-            <li>
-              <strong>Claude</strong> (claude.ai, desktop, phone): Customize ›
-              Connectors › Add custom connector, and paste the address.
-            </li>
-            <li>
-              <strong>Claude Code</strong>:{" "}
-              <code>claude mcp add --transport http fathom {url}</code>, then{" "}
-              <code>/mcp</code> to sign in.
-            </li>
-            <li>
-              <strong>Another app</strong> that takes a remote MCP server with
-              sign-in: the same address, if a Steward allows other apps.
-            </li>
-          </ul>
-        </>
-      ) : (
-        <p className="ai-muted">
-          AI apps can’t sign in to this Fathom yet: whoever runs it has not
-          given it an address they can reach (<code>FATHOM_AI_PUBLIC_URL</code>
-          ).
-        </p>
-      )}
     </div>
   );
 }
@@ -509,8 +456,8 @@ function KeyTable({
       </div>
       {keys.length === 0 ? (
         <p className="ai-muted">
-          None yet. Connect an AI app with the address above; it shows here once
-          you press Allow.
+          None yet. Connect an AI app above; it shows here once you press
+          Allow or make a key.
         </p>
       ) : (
         <table className="ai-table">
