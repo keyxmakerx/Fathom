@@ -835,19 +835,89 @@ fn pairs(fields: Vec<(&str, Json)>) -> Json {
     )
 }
 
-/// `POST .../vault/outside/prepare`: sign in to the outside vault with the API key, and hand the
-/// person's browser what it needs to open the account's keys with the master password, which
-/// never comes here. Body: `{url, clientId, clientSecret}`. Answers the protected keys, how they
-/// are derived, the organisations and collections the account sees (names still sealed) and the
-/// checks as far as they can run before a collection is chosen.
+/// The body's `provider`, Vaultwarden when it is left out (the first one built).
+fn provider_of(m: &mut BTreeMap<String, Json>) -> Result<outside::Provider, RouteError> {
+    match str_field(m, "provider")? {
+        None => Ok(outside::Provider::Vaultwarden),
+        Some(p) => Ok(outside::Provider::parse(&p)?),
+    }
+}
+
+/// A Secret Server application account: `username` and `password`.
+fn account(m: &mut BTreeMap<String, Json>) -> Result<(String, String), RouteError> {
+    let user = req_str(m, "username", "the account's user name")?;
+    let password = req_str(m, "password", "the account's password")?;
+    outside::check_account(&user, &password)?;
+    Ok((user, password))
+}
+
+fn folders_json(answer: &outside::delinea::Answer) -> Json {
+    Json::Arr(
+        answer
+            .folders
+            .iter()
+            .map(|f| {
+                pairs(vec![
+                    ("id", Json::Str(f.id.clone())),
+                    ("name", Json::Str(f.name.clone())),
+                ])
+            })
+            .collect(),
+    )
+}
+
+/// `POST .../vault/outside/prepare`: sign in to the outside vault, and hand the person's browser
+/// what it needs to go on.
+///
+/// Vaultwarden, body `{url, clientId, clientSecret}`: the protected keys, how they are derived, the
+/// organisations and collections the account sees (names still sealed) and the checks as far as
+/// they can run before a collection is chosen; the master password that opens them never comes
+/// here. Secret Server, body `{provider: "delinea", url, username, password}`: the folders the
+/// account sees, by name, and the checks.
 async fn outside_prepare_handler(
     State(state): State<DesignApiState>,
     PathExtractor(organisation): PathExtractor<String>,
     signed: Signed,
 ) -> Result<Response, RouteError> {
-    let mut m = object_body(&signed.body, &["url", "clientId", "clientSecret"])?;
+    let mut m = object_body(
+        &signed.body,
+        &[
+            "provider",
+            "url",
+            "clientId",
+            "clientSecret",
+            "username",
+            "password",
+        ],
+    )?;
+    let provider = provider_of(&mut m)?;
     let url = outside_url(&mut m)?;
+    if provider == outside::Provider::Delinea {
+        let (user, password) = account(&mut m)?;
+        if !m.is_empty() {
+            return Err(malformed("request body"));
+        }
+        state.outside.check_host(&url)?;
+        let mut client = state
+            .sessions
+            .pool()
+            .get()
+            .await
+            .map_err(SessionError::Pool)?;
+        let ((), _session) = first_session!(state, signed, client, organisation, |tx, _auth| ());
+        let answer = outside::dl_read(&state.outside, &url, &user, &password, None).await?;
+        let lines = outside::delinea::checks(&answer, None, None);
+        return Ok(json_response(pairs(vec![
+            ("provider", Json::Str("delinea".to_string())),
+            ("url", Json::Str(url.to_text())),
+            ("folders", folders_json(&answer)),
+            ("checks", outside::checks_json(&lines)),
+        ])));
+    }
     let (client_id, secret) = api_key(&mut m)?;
+    if !m.is_empty() {
+        return Err(malformed("request body"));
+    }
     state.outside.check_host(&url)?;
     let mut client = state
         .sessions
@@ -931,6 +1001,7 @@ async fn outside_connect_handler(
     let mut m = object_body(
         &signed.body,
         &[
+            "provider",
             "url",
             "clientId",
             "clientSecret",
@@ -938,9 +1009,51 @@ async fn outside_connect_handler(
             "collectionId",
             "collectionName",
             "orgKey",
+            "username",
+            "password",
+            "folderName",
         ],
     )?;
+    let provider = provider_of(&mut m)?;
     let url = outside_url(&mut m)?;
+    if provider == outside::Provider::Delinea {
+        let (user, password) = account(&mut m)?;
+        let folder_name = req_str(&mut m, "folderName", "the folder's name")?;
+        if !m.is_empty() {
+            return Err(malformed("request body"));
+        }
+        state.outside.check_host(&url)?;
+        let mut client = state
+            .sessions
+            .pool()
+            .get()
+            .await
+            .map_err(SessionError::Pool)?;
+        let ((), session) = first_session!(state, signed, client, organisation, |tx, _auth| ());
+        let answer = outside::dl_read(&state.outside, &url, &user, &password, None).await?;
+        // The one folder the account sees; when it sees another number, the checks in
+        // `connect` refuse and say so.
+        let folder_id = match answer.folders.as_slice() {
+            [f] => f.id.clone(),
+            _ => String::new(),
+        };
+        let fk = std::sync::Arc::clone(&state.fathom_key);
+        let input = outside::ConnectIn {
+            provider,
+            url,
+            client_id: user,
+            client_secret: password,
+            device_id: outside::new_device_id()?,
+            collection_id: folder_id,
+            collection_name: folder_name,
+            org_key: None,
+        };
+        let answer = outside::Answer::Delinea(answer);
+        let view = with_session!(state, session, client, organisation, |tx, auth| {
+            outside::connect(&tx, &auth, &fk, input, &answer).await?
+        });
+        return Ok(json_response(view.to_json()));
+    }
     let (client_id, secret) = api_key(&mut m)?;
     let device_id = req_str(&mut m, "deviceId", "device id")?;
     outside::check_device_id(&device_id)?;
@@ -950,6 +1063,9 @@ async fn outside_connect_handler(
     let org_key = BwKey::from_slice(&raw).ok_or_else(|| malformed("organisation key"));
     vault_fathom::wipe(&mut raw);
     let org_key = org_key?;
+    if !m.is_empty() {
+        return Err(malformed("request body"));
+    }
     state.outside.check_host(&url)?;
     let mut client = state
         .sessions
@@ -961,16 +1077,18 @@ async fn outside_connect_handler(
     let (_, sync) = outside::vw_read(&state.outside, &url, &client_id, &secret, &device_id).await?;
     let fk = std::sync::Arc::clone(&state.fathom_key);
     let input = outside::ConnectIn {
+        provider,
         url,
         client_id,
         client_secret: secret,
         device_id,
         collection_id,
         collection_name,
-        org_key,
+        org_key: Some(org_key),
     };
+    let answer = outside::Answer::from(sync);
     let view = with_session!(state, session, client, organisation, |tx, auth| {
-        outside::connect(&tx, &auth, &fk, input, &sync).await?
+        outside::connect(&tx, &auth, &fk, input, &answer).await?
     });
     Ok(json_response(view.to_json()))
 }
@@ -995,15 +1113,14 @@ async fn outside_check_handler(
     let (plan, session) = first_session!(state, signed, client, organisation, |tx, auth| {
         outside::plan(&tx, &auth, &fk, &connection, outside::Why::Check).await?
     });
-    let read = outside::vw_read(
+    let read = outside::read(
         &state.outside,
         &plan.url,
-        &plan.secrets.client_id,
-        &plan.secrets.client_secret,
+        &plan.secrets,
         &plan.device_id,
+        None,
     )
-    .await
-    .map(|(_, s)| s);
+    .await;
     let checked = with_session!(state, session, client, organisation, |tx, auth| {
         outside::after_check(&tx, &auth, &fk, &plan, read).await?
     })?;
@@ -1039,16 +1156,16 @@ async fn outside_pull_handler(
     let (plan, session) = first_session!(state, signed, client, organisation, |tx, auth| {
         outside::plan(&tx, &auth, &fk, &connection, outside::Why::Pull).await?
     });
-    let (_, sync) = outside::vw_read(
+    let answer = outside::read(
         &state.outside,
         &plan.url,
-        &plan.secrets.client_id,
-        &plan.secrets.client_secret,
+        &plan.secrets,
         &plan.device_id,
+        None,
     )
     .await?;
     let view = with_session!(state, session, client, organisation, |tx, auth| {
-        outside::pull(&tx, &auth, &fk, &plan, &sync, &cipher_id, &kind, used_on).await?
+        outside::pull(&tx, &auth, &fk, &plan, &answer, &cipher_id, &kind, used_on).await?
     })?;
     Ok(json_response(view.to_json()))
 }

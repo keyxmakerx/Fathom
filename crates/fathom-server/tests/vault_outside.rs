@@ -1,5 +1,6 @@
 //! Outside vaults — the vault's Mode C, `src/vault_outside/` and
-//! `migrations/0045_vault_outside.sql` — against a real PostgreSQL and a stand-in Vaultwarden.
+//! `migrations/0045_vault_outside.sql` and `0046_vault_delinea.sql` — against a real PostgreSQL
+//! and a stand-in Vaultwarden and Delinea Secret Server.
 //!
 //! ADR-0071 part four is the rule: a member connects their own outside vault, and what is
 //! pulled through it is theirs; every admin sees every connection, disconnects any, and removes
@@ -8,8 +9,9 @@
 //! stops the connection on the organisation's history, and Fathom reads a password only for a
 //! device the login is marked on, for someone who may draw there, after filing the read.
 //!
-//! The stand-in answers the two calls Fathom makes with values sealed exactly as Bitwarden
-//! clients seal them (`bitwarden::seal_type2`, pinned to the SDK's own vector).
+//! The Vaultwarden stand-in answers the two calls Fathom makes with values sealed exactly as
+//! Bitwarden clients seal them (`bitwarden::seal_type2`, pinned to the SDK's own vector). The
+//! Secret Server stand-in answers the four, in the shapes `vault_outside::delinea` cites.
 //!
 //! **Each test's name is its claim** (CLAUDE.md rule 2).
 
@@ -27,9 +29,9 @@ use fathom_server::repo::{self, AccountId, OrganisationId, ScopeKind};
 use fathom_server::vault::VaultError;
 use fathom_server::vault_fathom::FathomKey;
 use fathom_server::vault_outside::bitwarden::{seal_type2, BwKey};
-use fathom_server::vault_outside::vaultwarden::SyncAnswer;
 use fathom_server::vault_outside::{
-    self as outside, ConnectIn, HttpAnswer, HttpRequest, Net, NetFuture, Outside, OutsideUrl, Why,
+    self as outside, Answer, ConnectIn, HttpAnswer, HttpRequest, Net, NetFuture, Outside,
+    OutsideUrl, Provider, Why,
 };
 
 const MASTER: [u8; 32] = [21; 32];
@@ -356,10 +358,134 @@ impl Account {
     }
 }
 
-struct StandIn(Arc<Mutex<Account>>);
+// ---------------------------------------------------------------------------
+// A stand-in Delinea Secret Server
+// ---------------------------------------------------------------------------
+
+const DL_USER: &str = "fathom-reader";
+const DL_PASSWORD: &str = "Vq7#nR2pX9";
+const FOLDER: &str = "Fathom";
+
+/// What the stand-in Secret Server account sees; a test changes it between rounds.
+struct DlAccount {
+    extra_folder: bool,
+    stray_secret: bool,
+    refuse_login: bool,
+    two_passwords: bool,
+    moved_out: bool,
+}
+
+impl DlAccount {
+    fn sound() -> Self {
+        Self {
+            extra_folder: false,
+            stray_secret: false,
+            refuse_login: false,
+            two_passwords: false,
+            moved_out: false,
+        }
+    }
+
+    fn folders(&self) -> String {
+        let mut f = vec![format!(
+            r#"{{"id":5,"folderName":"{FOLDER}","parentFolderId":-1}}"#
+        )];
+        if self.extra_folder {
+            f.push(r#"{"id":6,"folderName":"Everything","parentFolderId":-1}"#.to_string());
+        }
+        format!(r#"{{"records":[{}],"total":{}}}"#, f.join(","), f.len())
+    }
+
+    fn secrets(&self) -> String {
+        let home = if self.moved_out { 7 } else { 5 };
+        let mut s = vec![
+            format!(r#"{{"id":12,"name":"core-sw1 admin","folderId":{home}}}"#),
+            r#"{"id":13,"name":"edge-fw1 admin","folderId":5}"#.to_string(),
+        ];
+        if self.stray_secret {
+            s.push(r#"{"id":40,"name":"domain admin","folderId":-1}"#.to_string());
+        }
+        format!(r#"{{"records":[{}],"total":{}}}"#, s.join(","), s.len())
+    }
+
+    fn secret(&self, id: &str) -> Option<String> {
+        let (user, password) = match id {
+            "12" => ("admin", "p4ss"),
+            "13" => ("netops", "fw-k3y"),
+            _ => return None,
+        };
+        let home = if self.moved_out && id == "12" { 7 } else { 5 };
+        let pin = if self.two_passwords {
+            r#",{"slug":"pin","itemValue":"0000","isPassword":true}"#
+        } else {
+            ""
+        };
+        Some(format!(
+            r#"{{"id":{id},"name":"x","folderId":{home},"items":[
+                {{"fieldName":"Username","slug":"username","itemValue":"{user}","isPassword":false}},
+                {{"fieldName":"Password","slug":"password","itemValue":"{password}","isPassword":true}},
+                {{"fieldName":"Notes","slug":"notes","itemValue":"rack 4","isPassword":false}}{pin}]}}"#
+        ))
+    }
+}
+
+struct StandIn(Arc<Mutex<Account>>, Arc<Mutex<DlAccount>>);
+
+impl StandIn {
+    fn delinea(&self, req: &HttpRequest) -> Option<HttpAnswer> {
+        let d = self.1.lock().unwrap();
+        let ok = |body: String| HttpAnswer {
+            status: 200,
+            body: body.into_bytes(),
+        };
+        let bearer = req
+            .headers
+            .iter()
+            .any(|(k, v)| *k == "Authorization" && v == "Bearer dtok");
+        let path = req.path.as_str();
+        Some(match (req.method, path) {
+            ("POST", "/oauth2/token") => {
+                let body = String::from_utf8(req.body.clone()).unwrap();
+                if !d.refuse_login
+                    && body.contains("grant_type=password")
+                    && body.contains(&format!("username={DL_USER}"))
+                    && body.contains("password=Vq7%23nR2pX9")
+                {
+                    ok(r#"{"access_token":"dtok","token_type":"bearer","expires_in":1199}"#.into())
+                } else {
+                    HttpAnswer {
+                        status: 400,
+                        body: br#"{"error":"invalid_grant"}"#.to_vec(),
+                    }
+                }
+            }
+            _ if !path.starts_with("/api/v1/") => return None,
+            _ if !bearer => HttpAnswer {
+                status: 401,
+                body: Vec::new(),
+            },
+            ("GET", "/api/v1/folders?take=500") => ok(d.folders()),
+            ("GET", "/api/v1/secrets?take=500") => ok(d.secrets()),
+            ("GET", p) => match p
+                .strip_prefix("/api/v1/secrets/")
+                .and_then(|id| d.secret(id))
+            {
+                Some(body) => ok(body),
+                None => HttpAnswer {
+                    status: 404,
+                    body: Vec::new(),
+                },
+            },
+            _ => return None,
+        })
+    }
+}
 
 impl Net for StandIn {
     fn send(&self, req: HttpRequest) -> NetFuture<'_> {
+        if let Some(answer) = self.delinea(&req) {
+            return Box::pin(async move { Ok(answer) });
+        }
         let a = self.0.lock().unwrap();
         let answer = match (req.method, req.path.as_str()) {
             ("POST", "/identity/connect/token") => {
@@ -401,19 +527,28 @@ impl Net for StandIn {
 }
 
 struct Vault {
+    provider: Provider,
     account: Arc<Mutex<Account>>,
+    dl: Arc<Mutex<DlAccount>>,
     outside: Arc<Outside>,
     url: OutsideUrl,
 }
 
 fn a_vault() -> Vault {
+    a_vault_of(Provider::Vaultwarden)
+}
+
+fn a_vault_of(provider: Provider) -> Vault {
     let account = Arc::new(Mutex::new(Account::sound()));
+    let dl = Arc::new(Mutex::new(DlAccount::sound()));
     Vault {
+        provider,
         outside: Arc::new(Outside {
-            net: Box::new(StandIn(account.clone())),
+            net: Box::new(StandIn(account.clone(), dl.clone())),
             allowed_hosts: None,
         }),
         account,
+        dl,
         url: OutsideUrl::parse("https://vault.example.test").unwrap(),
     }
 }
@@ -423,10 +558,36 @@ impl Vault {
         f(&mut self.account.lock().unwrap());
     }
 
-    async fn read(&self, device: &str) -> Result<SyncAnswer, VaultError> {
-        outside::vw_read(&self.outside, &self.url, CLIENT_ID, SECRET, device)
-            .await
-            .map(|(_, s)| s)
+    fn set_dl(&self, f: impl FnOnce(&mut DlAccount)) {
+        f(&mut self.dl.lock().unwrap());
+    }
+
+    /// The read before a connection exists, with the credentials the person typed.
+    async fn first_read(&self, device: &str) -> Result<Answer, VaultError> {
+        match self.provider {
+            Provider::Vaultwarden => {
+                outside::vw_read(&self.outside, &self.url, CLIENT_ID, SECRET, device)
+                    .await
+                    .map(|(_, s)| s.into())
+            }
+            Provider::Delinea => {
+                outside::dl_read(&self.outside, &self.url, DL_USER, DL_PASSWORD, None)
+                    .await
+                    .map(Answer::Delinea)
+            }
+        }
+    }
+
+    /// A connection's read, with the secrets the server sealed for it.
+    async fn read(&self, plan: &outside::Plan, item: Option<&str>) -> Result<Answer, VaultError> {
+        outside::read(
+            &self.outside,
+            &self.url,
+            &plan.secrets,
+            &plan.device_id,
+            item,
+        )
+        .await
     }
 }
 
@@ -450,19 +611,37 @@ impl World {
         name: &str,
     ) -> Result<outside::ConnectionView, VaultError> {
         let device = outside::new_device_id().unwrap();
-        let sync = v.read(&device).await?;
+        let answer = v.first_read(&device).await?;
         let fk = self.fk.clone();
-        let input = ConnectIn {
-            url: v.url.clone(),
-            client_id: CLIENT_ID.to_string(),
-            client_secret: SECRET.to_string(),
-            device_id: device,
-            collection_id: "col1".to_string(),
-            collection_name: name.to_string(),
-            org_key: BwKey::from_slice(&key).unwrap(),
+        let input = match v.provider {
+            Provider::Vaultwarden => ConnectIn {
+                provider: Provider::Vaultwarden,
+                url: v.url.clone(),
+                client_id: CLIENT_ID.to_string(),
+                client_secret: SECRET.to_string(),
+                device_id: device,
+                collection_id: "col1".to_string(),
+                collection_name: name.to_string(),
+                org_key: Some(BwKey::from_slice(&key).unwrap()),
+            },
+            // As the route does: the one folder the account sees, or none for the checks to
+            // refuse.
+            Provider::Delinea => ConnectIn {
+                provider: Provider::Delinea,
+                url: v.url.clone(),
+                client_id: DL_USER.to_string(),
+                client_secret: DL_PASSWORD.to_string(),
+                device_id: device,
+                collection_id: match &answer {
+                    Answer::Delinea(a) if a.folders.len() == 1 => a.folders[0].id.clone(),
+                    _ => String::new(),
+                },
+                collection_name: name.to_string(),
+                org_key: None,
+            },
         };
         with_auth(&self.pool, &self.ring, self.org, who, move |tx, auth| {
-            Box::pin(async move { outside::connect(tx, auth, &fk, input, &sync).await })
+            Box::pin(async move { outside::connect(tx, auth, &fk, input, &answer).await })
         })
         .await
     }
@@ -489,7 +668,7 @@ impl World {
         connection: &str,
     ) -> Result<Result<outside::Checked, VaultError>, VaultError> {
         let plan = self.plan(who, connection, Why::Check).await?;
-        let read = v.read(&plan.device_id).await;
+        let read = v.read(&plan, None).await;
         let fk = self.fk.clone();
         with_auth(&self.pool, &self.ring, self.org, who, move |tx, auth| {
             Box::pin(async move { outside::after_check(tx, auth, &fk, &plan, read).await })
@@ -506,12 +685,12 @@ impl World {
         used_on: Vec<(String, String)>,
     ) -> Result<Result<outside::ConnectionView, VaultError>, VaultError> {
         let plan = self.plan(who, connection, Why::Pull).await?;
-        let sync = v.read(&plan.device_id).await?;
+        let answer = v.read(&plan, None).await?;
         let fk = self.fk.clone();
         let cipher = cipher.to_string();
         with_auth(&self.pool, &self.ring, self.org, who, move |tx, auth| {
             Box::pin(async move {
-                outside::pull(tx, auth, &fk, &plan, &sync, &cipher, "login", used_on).await
+                outside::pull(tx, auth, &fk, &plan, &answer, &cipher, "login", used_on).await
             })
         })
         .await
@@ -568,7 +747,7 @@ impl World {
             )
         })
         .await?;
-        let read = v.read(&up.plan.device_id).await;
+        let read = v.read(&up.plan, Some(&up.cipher_id)).await;
         let fk = self.fk.clone();
         let used = with_auth(&self.pool, &self.ring, self.org, who, move |tx, auth| {
             Box::pin(async move { outside::use_finish(tx, auth, &fk, &up, read).await })
@@ -886,7 +1065,7 @@ async fn a_key_that_does_not_open_the_collection_or_a_host_not_allowed_never_con
         "an owner of the outside organisation sees every collection"
     );
     let fenced = Outside {
-        net: Box::new(StandIn(v.account.clone())),
+        net: Box::new(StandIn(v.account.clone(), v.dl.clone())),
         allowed_hosts: Some(vec!["vault.internal.test".to_string()]),
     };
     assert!(matches!(
@@ -902,4 +1081,171 @@ async fn a_key_that_does_not_open_the_collection_or_a_host_not_allowed_never_con
     ));
     assert!(w.list(estate.steward.account).await.is_empty());
     assert_eq!(count(&chain_types(w.org).await, "vault_outside_changed"), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Delinea Secret Server
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_secret_server_account_connects_to_its_one_folder_and_fathom_reads_a_secret_only_where_it_is_marked(
+) {
+    let (w, estate) = a_world().await;
+    let alice = a_member(&w.pool, &w.ring, &estate, "alice", Some(Capability::Draw)).await;
+    let bob = a_member(&w.pool, &w.ring, &estate, "bob", None).await;
+    let design = a_design(&w.pool, &estate).await;
+    let v = a_vault_of(Provider::Delinea);
+
+    assert!(
+        matches!(
+            w.connect(&v, alice.account, ORG_KEY, "Other").await,
+            Err(VaultError::OutsideRefused(_))
+        ),
+        "the folder's name is checked against the one the account sees"
+    );
+    v.set_dl(|d| d.extra_folder = true);
+    assert!(matches!(
+        w.connect(&v, alice.account, ORG_KEY, FOLDER).await,
+        Err(VaultError::OutsideRefused(_))
+    ));
+    v.set_dl(|d| *d = DlAccount::sound());
+    v.set_dl(|d| d.refuse_login = true);
+    assert!(matches!(
+        w.connect(&v, alice.account, ORG_KEY, FOLDER).await,
+        Err(VaultError::OutsideRefused(_))
+    ));
+    v.set_dl(|d| *d = DlAccount::sound());
+
+    let c = w
+        .connect(&v, alice.account, ORG_KEY, FOLDER)
+        .await
+        .expect("connects");
+    assert_eq!(
+        (c.state.as_str(), c.collection_name.as_str()),
+        ("on", FOLDER)
+    );
+    let su = support::superuser_client_on_test_database().await;
+    let provider: String = su
+        .query_one(
+            "SELECT provider FROM vault.outside_connections WHERE id = $1",
+            &[&c.id],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(provider, "delinea");
+    assert!(w.list(bob.account).await.is_empty());
+
+    let checked = w
+        .check(&v, alice.account, &c.id)
+        .await
+        .unwrap()
+        .expect("passes");
+    let names: Vec<_> = checked.logins.iter().map(|l| l.name.as_str()).collect();
+    assert_eq!(names, ["core-sw1 admin", "edge-fw1 admin"]);
+
+    let view = w
+        .pull(&v, alice.account, &c.id, "12", on(&design, "dev-1"))
+        .await
+        .unwrap()
+        .expect("pulled");
+    let item = view.items[0].id.clone();
+    assert!(matches!(
+        w.pull(&v, alice.account, &c.id, "40", on(&design, "dev-1"))
+            .await,
+        Ok(Err(VaultError::NotAllowed(_)))
+    ));
+
+    let before = count(&chain_types(w.org).await, "vault_outside_read");
+    assert_eq!(
+        w.use_it(&v, alice.account, &item, &design, "dev-1")
+            .await
+            .expect("used"),
+        ("admin".to_string(), "p4ss".to_string())
+    );
+    assert!(matches!(
+        w.use_it(&v, alice.account, &item, &design, "dev-2").await,
+        Err(VaultError::NotAllowed(_))
+    ));
+    assert!(matches!(
+        w.use_it(&v, bob.account, &item, &design, "dev-1").await,
+        Err(VaultError::NotAllowed(_))
+    ));
+    // A secret with two password fields is not guessed at, and one moved out of the folder is
+    // not read; neither is filed as a read.
+    v.set_dl(|d| d.two_passwords = true);
+    assert!(w
+        .use_it(&v, alice.account, &item, &design, "dev-1")
+        .await
+        .is_err());
+    v.set_dl(|d| *d = DlAccount::sound());
+    v.set_dl(|d| d.moved_out = true);
+    assert!(w
+        .use_it(&v, alice.account, &item, &design, "dev-1")
+        .await
+        .is_err());
+    assert_eq!(
+        count(&chain_types(w.org).await, "vault_outside_read"),
+        before + 1
+    );
+}
+
+#[tokio::test]
+async fn a_secret_server_check_that_fails_stops_the_connection_and_a_passing_one_resumes_it() {
+    let (w, estate) = a_world().await;
+    let alice = a_member(&w.pool, &w.ring, &estate, "alice", Some(Capability::Draw)).await;
+    let design = a_design(&w.pool, &estate).await;
+    let v = a_vault_of(Provider::Delinea);
+    let c = w.connect(&v, alice.account, ORG_KEY, FOLDER).await.unwrap();
+    let item = w
+        .pull(&v, alice.account, &c.id, "13", on(&design, "dev-1"))
+        .await
+        .unwrap()
+        .unwrap()
+        .items[0]
+        .id
+        .clone();
+
+    for (what, breaks) in [
+        (
+            "a second folder",
+            Box::new(|d: &mut DlAccount| d.extra_folder = true) as Box<dyn Fn(&mut DlAccount)>,
+        ),
+        (
+            "a secret outside the folder",
+            Box::new(|d: &mut DlAccount| d.stray_secret = true),
+        ),
+        (
+            "a refused sign-in",
+            Box::new(|d: &mut DlAccount| d.refuse_login = true),
+        ),
+    ] {
+        v.set_dl(|d| breaks(d));
+        match w.check(&v, estate.steward.account, &c.id).await {
+            Ok(Err(VaultError::OutsideRefused(_))) => {}
+            other => panic!("{what}: {:?}", other.map(|r| r.map(|_| ()))),
+        }
+        assert_eq!(w.state_of(alice.account, &c.id).await, "stopped", "{what}");
+        assert!(
+            matches!(
+                w.use_it(&v, alice.account, &item, &design, "dev-1").await,
+                Err(VaultError::NotAllowed(_))
+            ),
+            "{what}: nothing is read through a stopped connection"
+        );
+        v.set_dl(|d| *d = DlAccount::sound());
+        w.check(&v, alice.account, &c.id)
+            .await
+            .unwrap()
+            .expect("a sound account passes");
+        assert_eq!(w.state_of(alice.account, &c.id).await, "on", "{what}");
+    }
+    assert_eq!(
+        w.use_it(&v, alice.account, &item, &design, "dev-1")
+            .await
+            .expect("used"),
+        ("netops".to_string(), "fw-k3y".to_string())
+    );
+    // connected, the pull, three stops, three resumes.
+    assert_eq!(count(&chain_types(w.org).await, "vault_outside_changed"), 8);
 }

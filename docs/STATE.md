@@ -146,9 +146,12 @@ collection, nothing personal) before every read, stops it on a failed check, and
 login only for a marked device after filing `vault_outside_read`. Admins see, check, disconnect and
 remove across everyone's. The server's one outbound HTTPS client is rustls over `ring`, C7's one
 exception. `tests/vault_outside.rs` runs it against a stand-in; `scripts/drive-vault-outside.mjs`
-drives it in browsers against a stand-in over HTTPS with a private CA.
-**Not built yet:** Passbolt and Delinea, and the chain verifier's check that a `vault_read` names a
-login then in Mode B.
+drives it in browsers against a stand-in over HTTPS with a private CA. **Delinea Secret Server**
+(`0046_vault_delinea.sql`, `src/vault_outside/delinea.rs`) is the second provider: an application
+account's user name and password, one folder, two checks (exactly that folder; every secret it sees
+is in it), the same stop, pull and use; tested and driven against a stand-in of its documented
+shapes, not a real Secret Server. **Not built yet:** Passbolt, and the chain verifier's check that a
+`vault_read` names a login then in Mode B.
 
 **Tenant isolation holds at two layers:** an application filter in every repository function, and
 PostgreSQL row-level security driven by a transaction-local setting (never session-level: a pooled

@@ -4,8 +4,11 @@
 // (an owner role fails the checks); his browser opens the organisation key with his master
 // password; he lists and pulls two logins, one with its own item key. Ann, the admin, sees his
 // connection, removes one login (Bob cannot undo it), stops the connection with a failed check
-// when the account is given a second collection, and disconnects it. Then the database is swept
-// for the master password, the API key's secret and both passwords, which must appear nowhere.
+// when the account is given a second collection, and disconnects it. Cy connects a Delinea Secret
+// Server (the same stand-in answers its calls) after one refused attempt (the account sees two
+// folders), lists the folder's secrets and pulls one. Then the database is swept for the master
+// password, the API key's secret, the Secret Server account's password and the passwords, which
+// must appear nowhere.
 //
 //   node scripts/drive-vault-outside.mjs
 //
@@ -223,8 +226,39 @@ function makeCerts() {
  * Bitwarden clients seal one (`drive-lib/bitwarden-account.mjs`). `vw.state` changes the account
  * between rounds; `vw.asked` records what Fathom sent.
  */
+/** The Secret Server account Cy connects; its password may not reach the database either. */
+const DELINEA = {
+  user: 'fathom-reader',
+  password: 'Dl-Account-Pass-6621!',
+  folder: 'Fathom Network',
+  secrets: [
+    { id: 31, name: 'core-rtr1 enable' },
+    { id: 32, name: 'dist-sw2 admin' },
+  ],
+};
+
+/** Secret Server's four calls, in the shapes `vault_outside/delinea.rs` cites. */
+function delinea(vw, req, body, send) {
+  const dl = vw.dl;
+  if (req.method === 'POST' && req.url === '/oauth2/token') {
+    const form = new URLSearchParams(body);
+    if (form.get('grant_type') !== 'password' || form.get('username') !== DELINEA.user || form.get('password') !== DELINEA.password) return send(400, { error: 'invalid_grant' });
+    return send(200, { access_token: 'dl-token', token_type: 'bearer', expires_in: 1199 });
+  }
+  if (!req.url.startsWith('/api/v1/')) return false;
+  if (req.headers.authorization !== 'Bearer dl-token') return send(401, {});
+  const folders = [{ id: 7, folderName: DELINEA.folder, parentFolderId: -1 }];
+  if (dl.extraFolder) folders.push({ id: 8, folderName: 'Everything', parentFolderId: -1 });
+  if (req.url === '/api/v1/folders?take=500') return send(200, { records: folders, total: folders.length });
+  if (req.url === '/api/v1/secrets?take=500') {
+    const records = DELINEA.secrets.map((x) => ({ id: x.id, name: x.name, folderId: 7 }));
+    return send(200, { records, total: records.length });
+  }
+  return send(404, {});
+}
+
 async function startStandIn() {
-  const vw = { asked: [], extraCollection: false, role: 2 };
+  const vw = { asked: [], extraCollection: false, role: 2, dl: { extraFolder: false } };
   const build = async () => {
     const collections = [{ id: 'col-fathom', name: OUTSIDE.collection, logins: OUTSIDE.logins }];
     if (vw.extraCollection) collections.push({ id: 'col-all', name: 'everything', logins: [] });
@@ -244,7 +278,9 @@ async function startStandIn() {
       const send = (status, obj) => {
         res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify(obj));
+        return true;
       };
+      if (delinea(vw, req, body, send) !== false) return;
       if (req.method === 'POST' && req.url === '/identity/connect/token') {
         const form = new URLSearchParams(body);
         if (form.get('client_id') !== OUTSIDE.clientId || form.get('client_secret') !== OUTSIDE.secret) return send(400, { error: 'invalid_client' });
@@ -319,13 +355,13 @@ async function main() {
 
 async function runProof(ctx) {
   const page = {};
-  for (const k of ['ann', 'bob']) {
+  for (const k of ['ann', 'bob', 'cy']) {
     page[k] = await ctx[k].newPage();
     page[k].on('pageerror', (e) => console.log(`[${k} pageerror] ${e}`));
     page[k].on('console', (m) => { if (m.type() === 'error') console.log(`[${k} console.error] ${m.text()}`); });
     page[k].on('dialog', (d) => d.accept());
   }
-  const { ann: A, bob: B } = page;
+  const { ann: A, bob: B, cy: C } = page;
   const shot = (p, name) => p.screenshot({ path: `${SHOTS}${name}.png`, fullPage: true });
   const conn = (p) => p.getByTestId('outside-connection').first();
   const stateOf = async (p) => (await conn(p).getAttribute('data-state')) ?? '';
@@ -417,15 +453,58 @@ async function runProof(ctx) {
   check('7. the admin disconnected it', !!(await until(async () => (await stateOf(A)) === 'disconnected', 15000)));
   await shot(A, '08-disconnected');
 
-  // ---- 8. the sweep ---------------------------------------------------------------------
+  // ---- 8. Cy connects a Delinea Secret Server, limited to one folder ----------------------
+  await signIn(C, PEOPLE.cy);
+  await openMyPasswords(C);
+  await setUpVault(C, PEOPLE.cy, null);
+  await C.getByTestId('outside-vaults').waitFor({ timeout: 15000 });
+  const fillDl = async () => {
+    await C.getByTestId('outside-connect-open').click();
+    await C.getByTestId('outside-provider-delinea').click();
+    await C.getByTestId('outside-url').fill(VW_URL);
+    await C.getByTestId('outside-dl-user').fill(DELINEA.user);
+    await C.getByTestId('outside-dl-password').fill(DELINEA.password);
+    await C.getByTestId('outside-collection').fill(DELINEA.folder);
+  };
+  vw.dl.extraFolder = true;
+  await fillDl();
+  check('8. the dialog asks Secret Server for an account, not an API key or a master password', (await C.getByTestId('outside-master').count()) === 0 && (await C.getByTestId('outside-client-id').count()) === 0);
+  await shot(C, '09-delinea-dialog');
+  await C.getByTestId('outside-connect-go').click();
+  const dlRefused = await until(async () => /sees 2/.test(await C.getByRole('alert').first().innerText()), 30000);
+  check('8. an account that sees two folders is refused, and the reason says so', !!dlRefused);
+  await shot(C, '10-delinea-refused-two-folders');
+  check('8. nothing was connected', (await C.getByTestId('outside-connection').count()) === 0);
+  await C.keyboard.press('Escape');
+  await C.reload();
+  await openMyPasswords(C);
+  vw.dl.extraFolder = false;
+  await fillDl();
+  await C.getByTestId('outside-connect-go').click();
+  check('8. Cy\'s Secret Server connects', !!(await until(() => conn(C).isVisible(), 60000)));
+  check('8. its card names the provider and the folder', (await conn(C).innerText()).includes(`Secret Server · ${DELINEA.folder}`), await conn(C).innerText());
+  await conn(C).getByTestId('outside-check').click();
+  await until(async () => (await C.getByTestId('outside-login').count()) === 2, 30000);
+  check('8. Check now lists the folder\'s two secrets by name', (await C.getByTestId('outside-logins').innerText()).includes('dist-sw2 admin'));
+  await C.getByTestId('outside-pull').first().click();
+  check('8. a secret is pulled into Fathom', !!(await until(async () => (await C.getByTestId('outside-item').count()) === 1, 30000)));
+  await shot(C, '11-delinea-connected-pulled');
+  const dlSignIns = vw.asked.filter((a) => a.path === '/oauth2/token');
+  check('8. Fathom signed in to Secret Server with the password grant on every round', dlSignIns.length >= 4 && dlSignIns.every((a) => new URLSearchParams(a.body).get('grant_type') === 'password'));
+  check('8. Fathom never asked Secret Server for a password while connecting, checking or pulling', vw.asked.every((a) => !/^\/api\/v1\/secrets\/\d/.test(a.path)));
+  await A.reload();
+  await openAdminPasswords(A);
+  check('8. the admin sees Cy\'s Secret Server beside Bob\'s Vaultwarden', !!(await until(async () => (await A.getByTestId('outside-connection').count()) === 2, 15000)));
+
+  // ---- 9. the sweep ---------------------------------------------------------------------
   const dump = sh('sudo', ['-n', '-u', 'postgres', 'pg_dump', '--data-only', '--schema=public', '--schema=vault', '-d', DB_NAME], { maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
   const hexOf = (s) => Buffer.from(s, 'utf8').toString('hex');
-  for (const [what, value] of [['the master password', OUTSIDE.master], ['the API key\'s secret', OUTSIDE.secret], ['a pulled password', OUTSIDE.logins[0].password], ['the own-key password', OUTSIDE.logins[1].password], ['a login\'s name', 'core-sw1 admin']]) {
-    check(`8. ${what} is nowhere in the database, as text or as hex`, !dump.includes(value) && !dump.toLowerCase().includes(hexOf(value)));
+  for (const [what, value] of [['the master password', OUTSIDE.master], ['the API key\'s secret', OUTSIDE.secret], ['a pulled password', OUTSIDE.logins[0].password], ['the own-key password', OUTSIDE.logins[1].password], ['a login\'s name', 'core-sw1 admin'], ['the Secret Server account\'s password', DELINEA.password], ['a pulled secret\'s name', DELINEA.secrets[0].name]]) {
+    check(`9. ${what} is nowhere in the database, as text or as hex`, !dump.includes(value) && !dump.toLowerCase().includes(hexOf(value)));
   }
-  check('8. the sweep can see the outside tables (positive control: the chain names an outside act)', dump.includes('vault_outside_changed'));
-  const rows = sh('sudo', ['-n', '-u', 'postgres', 'psql', '-At', '-d', DB_NAME, '-c', "SELECT state || ':' || octet_length(secret_ct) FROM vault.outside_connections"], { stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  check('8. the disconnected row keeps its history and no sealed secret', rows === 'disconnected:0', rows);
+  check('9. the sweep can see the outside tables (positive control: the chain names an outside act)', dump.includes('vault_outside_changed'));
+  const rows = sh('sudo', ['-n', '-u', 'postgres', 'psql', '-At', '-d', DB_NAME, '-c', "SELECT state || ':' || octet_length(secret_ct) FROM vault.outside_connections WHERE provider = 'vaultwarden'"], { stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  check('9. the disconnected row keeps its history and no sealed secret', rows === 'disconnected:0', rows);
 
   console.log(fails.length === 0 ? '\nALL PASS' : `\n${fails.length} FAILED:\n  ${fails.join('\n  ')}`);
   process.exitCode = fails.length === 0 ? 0 : 1;
