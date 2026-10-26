@@ -86,35 +86,42 @@ export function Account({ address, purpose = 'settings', onDone, onClose, focus,
     };
   }, []);
 
+  // The settings screen is long: on a wide window its sections sit in two
+  // columns rather than one tall strip, the page scrolls instead of clipping
+  // its top, and Back is at the top where it is seen first.
+  const settings = purpose === 'settings';
   return (
-    <div className="signin">
-      <div className="signin__card">
-        <h1 className="signin__title">Fathom</h1>
+    <div className={settings ? 'signin signin--account' : 'signin'}>
+      <div className={settings ? 'signin__card account__card' : 'signin__card'}>
+        <div className="account__head">
+          <h1 className="signin__title">{settings ? 'Your account' : 'Fathom'}</h1>
+          {settings && onClose && (
+            <button type="button" className="account__back" onClick={onClose}>
+              Back
+            </button>
+          )}
+        </div>
         <p className="signin__subtitle">
           {purpose === 'app-code'
             ? 'This account holds the operator custody, so it needs an authenticator app before anything else.'
             : `Your credentials, ${address}.`}
         </p>
 
-        {purpose === 'settings' && <Appearance />}
+        <div className={settings ? 'account__grid' : undefined}>
+          {settings && <Appearance />}
 
-        {purpose === 'settings' && <PasswordForm address={address} />}
+          {settings && <PasswordForm address={address} />}
 
-        {purpose === 'settings' && <SignedInBrowsers />}
+          {settings && <SignedInBrowsers />}
 
-        {purpose === 'settings' && <TypeItYourselfSettings onTurnedOn={onTypeItYourself} />}
+          {settings && <TypeItYourselfSettings onTurnedOn={onTypeItYourself} />}
 
-        <AuthenticatorEnrolment
-          address={address}
-          onDone={() => onDone?.()}
-          requiresReauth={hasAuthenticator === true}
-        />
-
-        {purpose === 'settings' && onClose && (
-          <button type="button" className="signin__switch" onClick={onClose}>
-            Back
-          </button>
-        )}
+          <AuthenticatorEnrolment
+            address={address}
+            onDone={() => onDone?.()}
+            requiresReauth={hasAuthenticator === true}
+          />
+        </div>
       </div>
     </div>
   );

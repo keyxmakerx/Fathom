@@ -212,6 +212,12 @@ export default function App() {
     if (!session && door === 'enrol' && invitationToken !== null) enrolDoorShown.current = true;
   }, [session, door, invitationToken]);
   const [view, setView] = useState<View>({ kind: 'home' });
+  // The design last open, so Home and Admin can go straight back to it: the
+  // bar's Canvas and Inventory are the way back rather than dead words.
+  const [lastPlace, setLastPlace] = useState<Extract<View, { kind: 'place' }> | null>(null);
+  useEffect(() => {
+    if (view.kind === 'place') setLastPlace(view);
+  }, [view]);
 
   // ADR-0055 client (a): what the sign-in door is told by whatever sent the
   // person back to it — a finished reset, or a first run that set the
@@ -266,6 +272,7 @@ export default function App() {
   const accountSessionId = getSessionOn(ACCOUNT_PLANE)?.sessionId ?? null;
   useEffect(() => {
     setView({ kind: 'home' });
+    setLastPlace(null);
     setHomeTab('designs');
     setAccountOpen(false);
     setClaiming(null);
@@ -822,6 +829,19 @@ export default function App() {
   };
   // "Claim it now" (ADR-0057 decision 5): switches to the account plane and
   // carries the freshly minted claim across so ClaimOrganisation needs no typing.
+  // The bar's Canvas or Inventory from Home or Admin: the design last open,
+  // in that place, back on the account plane (ADR-0055 decision 1: the
+  // account session is still there, so this is a change of plane, not a
+  // sign-in). Absent with nothing to go back to.
+  const returnToPlace =
+    lastPlace !== null && (session.kind !== 'operator' || accountSessionOpen)
+      ? (place: Place) => {
+          if (!LENSES_IN[place].includes(lens)) setLens('cables');
+          setView({ ...lastPlace, place, openDevice: undefined });
+          setPlane(ACCOUNT_PLANE);
+        }
+      : undefined;
+  const returnTo = returnToPlace && lastPlace ? designTitle(lastPlace.design) : undefined;
   const claimNow = (claim: OrganisationClaim) => {
     setView({ kind: 'home' });
     setPlane(ACCOUNT_PLANE);
@@ -926,7 +946,8 @@ export default function App() {
         place={null}
         path={[{ label: 'Admin' }]}
         tree={null}
-        onPlaceChange={() => {}}
+        onPlaceChange={returnToPlace ?? (() => {})}
+        returnTo={returnTo}
         // ADR-0055 decision 1: the account session did not end when this one
         // began, so Home is a change of plane, not a sign-in.
         onHome={accountSessionOpen ? () => backToHome() : undefined}
@@ -957,10 +978,10 @@ export default function App() {
         place={null}
         path={[]}
         tree={null}
-        onPlaceChange={() => {
-          // Neither place is reachable from Home until something is chosen
-          // to open: a place needs a design, and Home is where you pick one.
-        }}
+        // Neither place is reachable from Home until a design has been open:
+        // a place needs a design, and Home is where you pick one.
+        onPlaceChange={returnToPlace ?? (() => {})}
+        returnTo={returnTo}
       >
         <Home
           address={session.address}
