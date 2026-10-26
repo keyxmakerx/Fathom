@@ -1,7 +1,7 @@
 {
   "id": "cards-and-optics",
   "title": "Cards and optics: the parts inside a switch",
-  "summary": "Find the card the closets hang off, the optic one link needs, and what a swap takes down.",
+  "summary": "Find the card the closets hang off, the optic one link needs, what a swap takes down, and the spare that makes it quick.",
   "sample": "parts-lab",
   "sources": [
     {
@@ -14,6 +14,12 @@
       "claim": "A modular device reports each card in its slot and each optic under the card it sits in, each with its own part number and serial.",
       "cite": "Juniper Networks, show chassis hardware, Junos CLI reference, MX960 sample output",
       "url": "https://www.juniper.net/documentation/us/en/software/junos/cli-reference/Other/show-chassis-hardware.html",
+      "read_on": "2026-10-26"
+    },
+    {
+      "claim": "A failed part goes back to the vendor under a Return Material Authorization (RMA) number, and asking for one needs the part's serial number.",
+      "cite": "Juniper Networks, Contact Customer Support and Return Components, QFX5140 Switch Hardware Guide (the page shows no date)",
+      "url": "https://www.juniper.net/documentation/us/en/hardware/qfx5140/topics/topic-map/contact-support-and-return-components.html",
       "read_on": "2026-10-26"
     }
   ],
@@ -52,6 +58,11 @@
       "kind": "read",
       "title": "Keeping track",
       "body": "Inventory's Parts list holds every card, power supply and optic with where it sits and its serial. Paste show inventory or show chassis hardware onto a device and Fathom offers what it reports. When a part fails, a maintenance plan's Swap a part step says which ports go down and records the new serial when you mark it done."
+    },
+    {
+      "kind": "read",
+      "title": "The spare on the shelf",
+      "body": "Switch Parts to On hand: the Comms cupboard holds a spare SFP-10G-SR in bin 1 and a spare card on shelf 2, and the design keeps at least two of that optic, so Checks says one more is needed. A Swap a part step can take the spare from stock and keep it for the job; marking the step done fits it and puts the failed optic in stock with where it came from. Send it for repair with the vendor's RMA number: the vendor asks for its serial, which is why every part keeps one."
     }
   ]
 }

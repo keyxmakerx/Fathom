@@ -233,5 +233,8 @@ describe('cards and optics on the link (r35)', () => {
     expect(link.suspects.map((s) => s.label)).toEqual(['the cable', '1/3 on core-1', 'the optic in core-1 1/3', 'the card in slot 1']);
     expect(link.tests.some((t) => t.includes('other ports on the card in slot 1'))).toBe(true);
     expect(link.how.some((h) => h.includes('SFP-10G-SR'))).toBe(true);
+    // ADR-0074: the sample's cupboard holds a spare of each, so the test says where it is.
+    expect(link.tests).toContain('Swap the optic in core-1 1/3 for a spare of the same kind (one on hand in Comms cupboard, bin 1)');
+    expect(link.tests.some((t) => t.endsWith('(one on hand in Comms cupboard, shelf 2)'))).toBe(true);
   });
 });

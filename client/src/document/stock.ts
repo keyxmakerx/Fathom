@@ -13,7 +13,7 @@
 // are custom fields on the item (r38: "A custom fields"), not fields here. All pure, one undoable
 // batch per call, `Origin::Hand`.
 
-import { encodeOptic, opticOf, setCardField, setOptic, chassisOfCard, slotPath, type Optic } from './cards';
+import { encodeOptic, opticOf, removeCard, setCardField, setOptic, chassisOfCard, slotPath, type Optic } from './cards';
 import { addEdge, addNode, begin, finish, foldFrom, setNodeField, tombstone, type Build } from './freeform';
 import {
   archiveField,
@@ -39,7 +39,7 @@ import {
   type GraphNode,
 } from './model';
 import type { DeviceFacts } from './facts';
-import { setSupplyField } from './supplies';
+import { removeSupply, setSupplyField } from './supplies';
 
 interface Actor {
   actor?: string;
@@ -805,6 +805,18 @@ export function stockFromFitted(doc: Document, partId: string, state: StockState
     optic: (port && opticOf(port)) || undefined,
   });
   return { doc: finish(b, 'into stock'), id };
+}
+
+/** Takes a fitted part out of the drawing and into stock in one undo step: the card (and its ports) or power supply
+ * comes out, an optic's cage is marked empty, and the part becomes an item that remembers where it was. */
+export function takeOutToStock(doc: Document, partId: string, state: StockState, opts?: Actor & { storeId?: string | null; bin?: string }): { doc: Document; id: string } {
+  const from = doc.batches.length;
+  const now = opts?.now ?? Date.now();
+  const at = { ...opts, now };
+  const kept = stockFromFitted(doc, partId, state, at);
+  const kind = parseNodeId(partId).kind;
+  const out = kind === 'Card' ? removeCard(kept.doc, partId, at) : kind === 'PowerSupply' ? removeSupply(kept.doc, partId, at) : setOptic(kept.doc, partId, null, at);
+  return { doc: relabel(foldFrom(out, from), from, 'take out into stock'), id: kept.id };
 }
 
 /** The item reserved for a plan step, if one is. */

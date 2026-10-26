@@ -29,6 +29,7 @@ import {
   stockFromFitted,
   stockItem,
   stockLevels,
+  takeOutToStock,
   storeView,
   swapFromStock,
   takeFromStock,
@@ -197,6 +198,17 @@ describe('stock', () => {
     expect(stockItem(kept.doc, kept.id)).toMatchObject({ part: 'card', serial: 'FJZ9', cameFrom: 'slot 1' });
   });
 
+  it('takes a card out of the drawing into stock as one undo step', () => {
+    const { doc, chassisId, storeId } = cupboard();
+    const withCard = fitCard(doc, chassisId, '2', { model: 'LC-8SFP', serial: 'CARD7' });
+    const cardId = cardsOf(withCard, chassisId)[0].id;
+    const from = withCard.batches.length;
+    const out = takeOutToStock(withCard, cardId, 'spare', { ...by, storeId, bin: 'shelf 1' });
+    expect(out.doc.batches.length).toBe(from + 1);
+    expect(cardsOf(out.doc, chassisId)).toEqual([]);
+    expect(stockItem(out.doc, out.id)).toMatchObject({ part: 'card', serial: 'CARD7', cameFrom: 'slot 2', storeId, bin: 'shelf 1', state: 'spare' });
+  });
+
   it('removes a store and keeps what was in it', () => {
     const { doc, storeId } = cupboard();
     const gone = removeStore(doc, storeId, by);
@@ -230,7 +242,7 @@ describe('reading a list or a file into stock', () => {
   });
 
   it('refuses a model with a space, line by line, and reads a bare list of model and serial', () => {
-    const { rows, skipped } = readStockRows('SFP-10G-SR AVP1\nSFP-10G-LR AVP2 spare from the old core\n');
+    const { rows } = readStockRows('SFP-10G-SR AVP1\nSFP-10G-LR AVP2 spare from the old core\n');
     expect(rows.map((r) => [r.part, r.model, r.serial, r.name])).toEqual([
       ['optic', 'SFP-10G-SR', 'AVP1', undefined],
       ['optic', 'SFP-10G-LR', 'AVP2', 'spare from the old core'],

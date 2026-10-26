@@ -80,6 +80,7 @@ import './inventory.css';
 import { EmptyState } from '../ui/EmptyState';
 import { SkeletonRows } from '../ui/Skeleton';
 import { loadSheet, saveSheet } from './sheetPref';
+import { StockPanel } from './StockPanel';
 import { saveLook } from '../drawing/look';
 import { PasswordsPage, useVaultCount } from '../vault/Screens';
 import { VaultPlaceContext } from '../vault/useVault';
@@ -166,6 +167,8 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const { ls, go, back: stepBack, backLabel, moves } = useListState();
   // r31-bar A: the Sheet face, kept in this browser (`sheetPref.ts`).
   const [sheet, setSheet] = useState(loadSheet);
+  // ADR-0074: Parts shows what is fitted, or what is on hand (spares, on order, away for repair).
+  const [onHand, setOnHand] = useState(false);
   const kind: Kind = isKind(ls.kind) ? ls.kind : 'devices';
   const openKey = ls.open || null;
   const q = ls.q;
@@ -791,6 +794,11 @@ export function InventoryPlace(props: InventoryPlaceProps) {
             <div className="inventory-place__main">
               <IssuesList doc={doc} onShowOnCanvas={onShowIssue} />
             </div>
+          ) : kind === 'parts' && onHand && doc && !openKey ? (
+            <div className="inventory-place__main">
+              <PartsSwitch onHand={onHand} onChange={setOnHand} />
+              <StockPanel doc={doc} canDraw={canDraw} applyDocChange={applyDocChange} redact={redact} />
+            </div>
           ) : kind === 'passwords' ? (
             <div className="inventory-place__main">
               {vaultPlace ? (
@@ -827,6 +835,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
           ) : (
             <div className="inv-list">
               {refusal}
+              {kind === 'parts' ? <PartsSwitch onHand={onHand} onChange={setOnHand} /> : null}
               <ListHead
                 title={currentView ? `${kindLabel} › ${currentView.name}` : kindLabel}
                 shown={rows.length}
@@ -1024,6 +1033,20 @@ export function InventoryPlace(props: InventoryPlaceProps) {
         </PasteGateBoundary>
       )}
     </Shell>
+  );
+}
+
+/** Parts: what is fitted in the devices, or what is on hand and not fitted (ADR-0074). */
+function PartsSwitch({ onHand, onChange }: { onHand: boolean; onChange: (onHand: boolean) => void }) {
+  return (
+    <div className="parts-switch" role="group" aria-label="Which parts" data-testid="parts-switch">
+      <button type="button" className="parts-switch__btn" aria-pressed={!onHand} onClick={() => onChange(false)}>
+        Fitted
+      </button>
+      <button type="button" className="parts-switch__btn" aria-pressed={onHand} onClick={() => onChange(true)}>
+        On hand
+      </button>
+    </div>
   );
 }
 

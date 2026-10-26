@@ -1,0 +1,315 @@
+/* Spares on hand (ADR-0074): Inventory, Parts, On hand, and a store's own page. The VPN section's shapes. */
+
+.stock {
+  padding: var(--s3);
+}
+
+.stock__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+}
+
+.stock__title {
+  margin: 0;
+  font-size: var(--t-head);
+  font-weight: 700;
+}
+
+.stock__count,
+.stock__note {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.stock__note {
+  margin: var(--s1) 0 var(--s2);
+  max-width: var(--measure);
+}
+
+.stock__short,
+.stock__notice {
+  margin: var(--s1) 0 var(--s2);
+  padding: var(--s1) var(--s2);
+  border-left: 3px solid var(--warn, var(--ink));
+  background: var(--surface-2);
+  font-size: var(--t-small);
+}
+
+.stock__notice {
+  border-left-color: var(--ink);
+}
+
+.stock__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  margin-bottom: var(--s2);
+}
+
+.stock__chips,
+.stock__ways,
+.parts-switch {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+}
+
+.stock__chip,
+.stock__way,
+.parts-switch__btn {
+  height: var(--control-h-sm);
+  padding: 0 var(--s2);
+  border: var(--rule-hair) solid var(--control-line);
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-small);
+  cursor: pointer;
+}
+
+.stock__chip[aria-pressed='true'],
+.stock__way[aria-selected='true'],
+.parts-switch__btn[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--page);
+}
+
+.stock__chip[aria-pressed='true'] .stock__count {
+  color: inherit;
+}
+
+.parts-switch {
+  margin: 0 var(--s3) var(--s2);
+}
+
+.stock__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.stock__row {
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.stock__row[data-state='retired'] {
+  color: var(--muted);
+}
+
+.stock__row-head {
+  display: grid;
+  grid-template-columns: minmax(160px, 2fr) 1fr 1fr 1fr minmax(140px, 1.5fr);
+  gap: var(--s3);
+  width: 100%;
+  min-height: var(--row-min);
+  padding: var(--s1) var(--s2);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stock__row-head:hover {
+  background: var(--control-bg-hover);
+}
+
+.stock__row-name {
+  font-weight: 700;
+}
+
+.stock__mono,
+.stock__input--mono {
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+}
+
+.stock__state {
+  font-size: var(--t-small);
+  font-weight: 700;
+}
+
+.stock__detail,
+.stock__add {
+  padding: var(--s2) var(--s2) var(--s3);
+  background: var(--surface-2);
+}
+
+.stock__add {
+  margin-bottom: var(--s3);
+  border: var(--rule-hair) solid var(--hairline);
+}
+
+.stock__grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--s2) var(--s3);
+  margin-top: var(--s2);
+}
+
+.stock__field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+.stock__field--wide {
+  flex: 1 1 240px;
+}
+
+.stock__input {
+  height: var(--control-h-sm);
+  padding: 0 var(--s1);
+  border: var(--rule-hair) solid var(--control-line);
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+}
+
+.stock__input--num {
+  width: 7ch;
+}
+
+.stock__textarea {
+  height: auto;
+  min-height: 7em;
+  padding: var(--s1);
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+}
+
+.stock__actions,
+.stock__verbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
+}
+
+.stock__verbs {
+  margin-top: var(--s2);
+}
+
+.stock__primary {
+  font-weight: 700;
+}
+
+.stock__danger {
+  color: var(--danger);
+  margin-left: auto;
+}
+
+.stock__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.stock__error {
+  width: 100%;
+  margin: var(--s1) 0 0;
+  color: var(--danger);
+  font-size: var(--t-small);
+}
+
+.stock__section {
+  margin-top: var(--s5);
+  padding-top: var(--s3);
+  border-top: var(--rule-hair) solid var(--hairline);
+}
+
+.stock__sub {
+  margin: var(--s3) 0 var(--s1);
+  font-size: var(--t-tab);
+  letter-spacing: var(--control-track);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.stock__stores {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.stock__stores li {
+  display: flex;
+  gap: var(--s2);
+  align-items: baseline;
+  padding: var(--s1) 0;
+}
+
+.stock__table {
+  border-collapse: collapse;
+  font-size: var(--t-small);
+}
+
+.stock__table th,
+.stock__table td {
+  padding: 2px var(--s2) 2px 0;
+  text-align: left;
+}
+
+.stock__table tr[data-short='yes'] td:nth-child(2) {
+  font-weight: 700;
+}
+
+.stock__parts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  border: 0;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+}
+
+.stock__check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  font-size: var(--t-small);
+}
+
+/* The global `input { appearance: none }` collapses checkboxes; restore the native control. */
+.stock__check input[type='checkbox'] {
+  appearance: auto;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--ink);
+}
+
+/* A phone (ADR-0068 point 8: a bin label opens this page): one column, the row's cells stack. */
+@media (max-width: 600px) {
+  .stock {
+    padding: var(--s2);
+  }
+
+  .stock__row-head {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .stock__field,
+  .stock__field--wide {
+    flex: 1 1 100%;
+  }
+
+  .stock__input {
+    height: 44px;
+  }
+}
