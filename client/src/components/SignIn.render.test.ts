@@ -136,6 +136,18 @@ describe('the second step’s own markup', () => {
     expect(html).toContain('owner@example.test');
   });
 
+  it('keeps the hint out of the input’s siblings, so Bitwarden fills the field', () => {
+    // Bitwarden takes the text after an input, inside the same parent, as
+    // its label, and will not fill a field labelled "recovery" or "backup"
+    // even when it is marked one-time-code (bitwarden/clients 2026-10-23,
+    // `createAutofillFieldRightLabel`, `isTotpField`). The hint names
+    // recovery codes, so the input sits alone in its own box.
+    const html = step(null);
+    expect(html).toMatch(/<div class="signin__control"><input [^>]*id="signin-code"[^>]*\/><\/div>/);
+    expect(VERIFICATION_CODE_HINT).toMatch(/recovery/);
+    expect(html).toMatch(/aria-describedby="signin-code-hint"/);
+  });
+
   it('keeps a way back to the first step', () => {
     expect(step(null)).toMatch(/Sign in as someone else/);
   });

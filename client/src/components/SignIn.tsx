@@ -191,7 +191,9 @@ export interface SignInProps {
  * and should not also have to guess where it goes. The field is
  * `autocomplete="one-time-code"`, which is what a password manager looks for
  * first, and its `inputMode` stays `text`: a numeric keypad would hide the
- * letters a recovery code is made of.
+ * letters a recovery code is made of. The hint is kept out of the input's
+ * siblings, because Bitwarden reads them as the label and passes over a field
+ * labelled with the word "recovery".
  *
  * **No setup door.** The server says whether this deployment has been set up
  * (ADR-0056 decision 1), so `App.tsx` shows the first-run flow or this card,
@@ -405,22 +407,34 @@ export function SecondFactorStep({
           <label className="signin__label" htmlFor="signin-code">
             Verification code
           </label>
-          <input
-            id="signin-code"
-            name="totp"
-            className="signin__input signin__input--mono"
-            type="text"
-            inputMode="text"
-            autoComplete="one-time-code"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            value={code}
-            onChange={(event) => onCode(event.target.value)}
-            disabled={busy}
-            required
-          />
-          <p className="signin__hint">{VERIFICATION_CODE_HINT}</p>
+          {/* The input sits alone in its own box. Bitwarden reads the text
+              of an input's following siblings as its label, and refuses to
+              fill a field whose label says "recovery" or "backup" -- even
+              one marked one-time-code. The hint names recovery codes, so
+              beside the input it hid this field from Bitwarden. Its source,
+              bitwarden/clients 2026-10-23: `createAutofillFieldRightLabel`
+              and `isTotpField`. */}
+          <div className="signin__control">
+            <input
+              id="signin-code"
+              name="totp"
+              className="signin__input signin__input--mono"
+              type="text"
+              inputMode="text"
+              autoComplete="one-time-code"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              aria-describedby="signin-code-hint"
+              value={code}
+              onChange={(event) => onCode(event.target.value)}
+              disabled={busy}
+              required
+            />
+          </div>
+          <p id="signin-code-hint" className="signin__hint">
+            {VERIFICATION_CODE_HINT}
+          </p>
         </div>
 
         <button className="signin__submit" type="submit" disabled={busy || code.trim().length === 0}>

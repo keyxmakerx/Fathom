@@ -40,6 +40,13 @@
   text-transform: uppercase;
 }
 
+/* A box of its own for an input, so a hint after it is not read as its label
+ * by a password manager. It stretches the input the way the field does. */
+.signin__control {
+  display: flex;
+  flex-direction: column;
+}
+
 .signin__input {
   border: var(--rule-hair) solid var(--hairline);
   background: var(--page);
