@@ -3528,6 +3528,25 @@ fn json_of_model(m: &Model) -> Json {
         "psu_slots".to_string(),
         Json::Arr(m.psu_slots.iter().map(json_of_psu_slot).collect()),
     );
+    if !m.card_slots.is_empty() {
+        map.insert(
+            "card_slots".to_string(),
+            Json::Arr(
+                m.card_slots
+                    .iter()
+                    .map(|s| {
+                        let mut slot = BTreeMap::new();
+                        slot.insert("name".to_string(), Json::Str(s.name.clone()));
+                        slot.insert(
+                            "face".to_string(),
+                            Json::Str(json_of_face(s.face).to_string()),
+                        );
+                        Json::Obj(slot)
+                    })
+                    .collect(),
+            ),
+        );
+    }
 
     map.insert(
         "faceplates".to_string(),

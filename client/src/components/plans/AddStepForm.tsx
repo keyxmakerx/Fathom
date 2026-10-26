@@ -7,6 +7,7 @@ import {
   KIND_WORD,
   cablesOf,
   devicesOf,
+  partsOfDevice,
   portsOfDevice,
   racksOf,
   type Choice,
@@ -111,6 +112,7 @@ export function AddStepForm({ controller, stepCount }: { controller: PlansContro
   const portsA = useMemo(() => (doc && form.device !== '' ? portsOfDevice(doc, canon, form.device) : []), [doc, canon, form.device]);
   const portsB = useMemo(() => (doc && form.deviceB !== '' ? portsOfDevice(doc, canon, form.deviceB) : []), [doc, canon, form.deviceB]);
   const members = useMemo(() => (doc && form.kind === 'lag' && form.device !== '' ? lagMembers(doc, form.device) : []), [doc, form.kind, form.device]);
+  const parts = useMemo(() => (doc && form.kind === 'swap' && form.device !== '' ? partsOfDevice(doc, canon, form.device) : []), [doc, canon, form.kind, form.device]);
   const lagDefault = useMemo(() => (doc && form.kind === 'lag' && form.device !== '' ? nextLagName(doc, form.device) : ''), [doc, form.kind, form.device]);
   const kindId = useId();
   const lacpId = useId();
@@ -232,6 +234,19 @@ export function AddStepForm({ controller, stepCount }: { controller: PlansContro
             <option value="off">Off (static bundle)</option>
             <option value="">Not set</option>
           </select>
+        </>
+      )}
+
+      {form.kind === 'swap' && (
+        <>
+          <Pick refEl={first} label="Device" value={form.device} onChange={(v) => setForm((f) => ({ ...f, device: v, part: '' }))} choices={devices} />
+          {form.device !== '' && parts.length === 0 ? (
+            <p className="plans-members__none">This device has no cards, swappable power supplies or optics drawn yet.</p>
+          ) : (
+            <Pick label="Part" value={form.part} onChange={(v) => set('part', v)} choices={parts} />
+          )}
+          <Field label="New serial" value={form.value} onChange={(v) => set('value', v)} onPaste={paste.onPaste} />
+          <Field label="New model or part no. (if it changes)" value={form.partModel} onChange={(v) => set('partModel', v)} onPaste={paste.onPaste} />
         </>
       )}
 

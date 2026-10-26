@@ -308,6 +308,8 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     row for it either, and the rear elevation — a separate renderer,
         //     like the rack elevation — is where a fitted supply actually draws.
         | NodeKind::PowerSupply
+        //     `Card` (ADR-0073), PowerSupply's rule again: drawn inside its chassis.
+        | NodeKind::Card
         //     `Surface` (ADR-0051 §1) joins them by the same rule again: `56`
         //     has no row for a wall, floor, desk or ceiling either, and a
         //     surface's elevation — a flat panel beside the rack rows — is,

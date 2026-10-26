@@ -1,0 +1,251 @@
+{
+  "id": "parts-lab",
+  "name": "Parts lab",
+  "summary": "A core switch with a four-port card in slot 1, optics in three of its cages, and two closets hanging off it.",
+  "sources": [
+    {
+      "claim": "Optics (transceivers) are hot-removable and hot-insertable field-replaceable units: they come out and go in without powering the device off.",
+      "cite": "Juniper Networks, Maintain Transceivers, EX4400 Switch Hardware Guide (the page shows no date)",
+      "url": "https://www.juniper.net/documentation/us/en/hardware/ex4400/Other/maintaining-transceivers.html",
+      "read_on": "2026-10-26"
+    },
+    {
+      "claim": "A modular device reports each card in its slot (FPC, PIC) and each optic under the card it sits in (Xcvr), each with its own part number and serial.",
+      "cite": "Juniper Networks, show chassis hardware, Junos CLI reference, MX960 sample output",
+      "url": "https://www.juniper.net/documentation/us/en/software/junos/cli-reference/Other/show-chassis-hardware.html",
+      "read_on": "2026-10-26"
+    },
+    {
+      "claim": "Every address in this sample is private address space (10.0.0.0/8).",
+      "cite": "RFC 1918, Address Allocation for Private Internets, section 3, Private Address Space",
+      "url": "https://www.rfc-editor.org/rfc/rfc1918.html",
+      "read_on": "2026-10-10"
+    }
+  ],
+  "rack": {
+    "label": "Core rack",
+    "heightU": 12,
+    "numbering": "ascending"
+  },
+  "shelves": [],
+  "surfaces": [
+    {
+      "key": "closets",
+      "label": "Closets",
+      "form": "wall",
+      "widthMm": 2000,
+      "heightMm": 2400
+    },
+    {
+      "key": "desks",
+      "label": "Desks",
+      "form": "desk",
+      "widthMm": 2400,
+      "heightMm": 750
+    }
+  ],
+  "devices": [
+    {
+      "hostname": "core-1",
+      "role": "switch",
+      "place": {
+        "rack": 8
+      },
+      "ports": [
+        {
+          "label": "mgmt",
+          "connector": "rj45"
+        }
+      ],
+      "face": "front",
+      "cards": [
+        {
+          "slot": "1",
+          "name": "4 x SFP+",
+          "model": "LC-4SFPP",
+          "serial": "CARD-0001",
+          "ports": {
+            "prefix": "1/",
+            "first": 1,
+            "last": 4,
+            "connector": "sfp_plus"
+          }
+        }
+      ],
+      "optics": [
+        {
+          "port": "1/1",
+          "type": "10GBASE-SR",
+          "part": "SFP-10G-SR",
+          "serial": "OPT-0001"
+        },
+        {
+          "port": "1/2",
+          "type": "10GBASE-SR",
+          "part": "SFP-10G-SR",
+          "serial": "OPT-0002"
+        },
+        {
+          "port": "1/3",
+          "type": "10GBASE-SR",
+          "part": "SFP-10G-SR",
+          "serial": "OPT-0003"
+        }
+      ]
+    },
+    {
+      "hostname": "server-1",
+      "role": "server",
+      "place": {
+        "rack": 4
+      },
+      "ports": [
+        {
+          "label": "p1",
+          "connector": "sfp_plus"
+        }
+      ],
+      "face": "front"
+    },
+    {
+      "hostname": "sw-a",
+      "role": "switch",
+      "place": {
+        "surface": "closets",
+        "x": 300,
+        "y": 1500
+      },
+      "ports": [
+        {
+          "label": "1",
+          "connector": "rj45"
+        },
+        {
+          "label": "25",
+          "connector": "sfp_plus"
+        }
+      ],
+      "face": "front"
+    },
+    {
+      "hostname": "sw-b",
+      "role": "switch",
+      "place": {
+        "surface": "closets",
+        "x": 1200,
+        "y": 1500
+      },
+      "ports": [
+        {
+          "label": "1",
+          "connector": "rj45"
+        },
+        {
+          "label": "25",
+          "connector": "sfp_plus"
+        }
+      ],
+      "face": "front"
+    },
+    {
+      "hostname": "desktop-1",
+      "role": "other",
+      "place": {
+        "surface": "desks",
+        "x": 400,
+        "y": 100
+      },
+      "ports": [
+        {
+          "label": "eth0",
+          "connector": "rj45"
+        }
+      ],
+      "face": "rear"
+    },
+    {
+      "hostname": "desktop-2",
+      "role": "other",
+      "place": {
+        "surface": "desks",
+        "x": 1600,
+        "y": 100
+      },
+      "ports": [
+        {
+          "label": "eth0",
+          "connector": "rj45"
+        }
+      ],
+      "face": "rear"
+    }
+  ],
+  "cables": [
+    {
+      "a": "core-1:1/1",
+      "b": "sw-a:25",
+      "sheath": "aqua",
+      "label": "Closet A uplink"
+    },
+    {
+      "a": "core-1:1/2",
+      "b": "sw-b:25",
+      "sheath": "aqua",
+      "label": "Closet B uplink"
+    },
+    {
+      "a": "core-1:1/3",
+      "b": "server-1:p1",
+      "sheath": "aqua",
+      "label": "Server"
+    },
+    {
+      "a": "sw-a:1",
+      "b": "desktop-1:eth0",
+      "sheath": "blue"
+    },
+    {
+      "a": "sw-b:1",
+      "b": "desktop-2:eth0",
+      "sheath": "blue"
+    }
+  ],
+  "vlans": [
+    {
+      "id": 10,
+      "name": "office",
+      "access": [
+        "core-1:1/1",
+        "core-1:1/2",
+        "core-1:1/3",
+        "sw-a:1",
+        "sw-a:25",
+        "sw-b:1",
+        "sw-b:25"
+      ]
+    }
+  ],
+  "subnets": [
+    {
+      "prefix": "10.0.10.0/24",
+      "hosts": [
+        {
+          "port": "server-1:p1",
+          "address": "10.0.10.10/24"
+        },
+        {
+          "port": "desktop-1:eth0",
+          "address": "10.0.10.50/24"
+        },
+        {
+          "port": "desktop-2:eth0",
+          "address": "10.0.10.51/24"
+        }
+      ]
+    }
+  ],
+  "trace": {
+    "from": "desktop-2",
+    "to": "server-1"
+  }
+}

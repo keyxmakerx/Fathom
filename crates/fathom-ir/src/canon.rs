@@ -541,7 +541,6 @@ unit_canon! {
     value::OspfArea,
     value::VpnMonitor,
     value::PortPosition,
-    value::Transceiver,
     value::SplitRatio,
     value::AttributeDecl,
     value::FieldPath,
@@ -562,6 +561,29 @@ impl CanonicalValue for value::Mtu {
         known_keys(m, &["bytes"])?;
         Ok(value::Mtu {
             bytes: u32::from_canon(required(m, "bytes")?)?,
+        })
+    }
+}
+
+impl CanonicalValue for value::Transceiver {
+    fn to_canon(&self) -> Result<Json, CanonError> {
+        let mut m = BTreeMap::new();
+        put_opt(&mut m, "type", &self.r#type)?;
+        put_opt(&mut m, "vendor", &self.vendor)?;
+        put_opt(&mut m, "part", &self.part)?;
+        put_opt(&mut m, "serial", &self.serial)?;
+        put_opt(&mut m, "wavelength_nm", &self.wavelength_nm)?;
+        Ok(Json::Obj(m))
+    }
+    fn from_canon(j: &Json) -> Result<Self, CanonError> {
+        let m = expect_obj(j, "a Transceiver object")?;
+        known_keys(m, &["part", "serial", "type", "vendor", "wavelength_nm"])?;
+        Ok(value::Transceiver {
+            r#type: optional(m, "type")?,
+            vendor: optional(m, "vendor")?,
+            part: optional(m, "part")?,
+            serial: optional(m, "serial")?,
+            wavelength_nm: optional(m, "wavelength_nm")?,
         })
     }
 }

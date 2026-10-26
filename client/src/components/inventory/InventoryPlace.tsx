@@ -67,6 +67,7 @@ import {
   defaultColumnKeys,
   deviceRows,
   portRows,
+  partRows,
   prefixRows,
   rackRows,
   vlanKindRows,
@@ -89,7 +90,7 @@ const EMPTY_IPAM: IpamDerived = { prefixes: [], vlans: [] };
 /** Kinds read off the network derivation. */
 const NETWORK_KINDS: ReadonlySet<Kind> = new Set<Kind>(['networks', 'addresses', 'prefixes', 'vlans']);
 /** r31-bar A: the lists the Sheet shows as tabs along the bottom, one spreadsheet each. */
-const SHEET_KINDS: ReadonlySet<Kind> = new Set<Kind>(['devices', 'ports', 'racks', 'cables', 'models', 'prefixes', 'vlans', 'addresses']);
+const SHEET_KINDS: ReadonlySet<Kind> = new Set<Kind>(['devices', 'ports', 'parts', 'racks', 'cables', 'models', 'prefixes', 'vlans', 'addresses']);
 
 export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'children'> {
   session: DesignSession;
@@ -253,6 +254,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
       racks: rackRows(doc, view, fieldDefs, placeIdx),
       cables: cableRows(doc, view, placeIdx, fieldDefs),
       ports: portRows(doc, view, placeIdx, fieldDefs),
+      parts: partRows(doc, view, placeIdx),
     } as Record<string, InvRow[]>;
   }, [doc, view, placeIdx, fieldDefs]);
 
@@ -313,6 +315,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     racks: scoped.racks?.length ?? 0,
     cables: scoped.cables?.length ?? 0,
     ports: scoped.ports?.length ?? 0,
+    parts: scoped.parts?.length ?? 0,
     networks: kind === 'networks' ? networksDerived.vlanRows.length + networksDerived.subnetRows.length + networksDerived.dockerNetworkRows.length : (background?.networks ?? null),
     prefixes: kind === 'prefixes' ? baseRows.length : scopedCount(background?.prefixes),
     vlans: kind === 'vlans' ? baseRows.length : scopedCount(background?.vlans),

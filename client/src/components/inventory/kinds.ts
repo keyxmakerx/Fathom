@@ -10,7 +10,8 @@ import type { CatalogueModel } from '../../api/catalogue';
 import { SHEATH_VALUES, OWNERSHIP_VALUES } from '../../document/cables';
 import { DEVICE_ROLES } from '../../document/edit';
 import { FIELD_TYPE_LABEL, fieldsOf, listFieldDefs, setFieldValues, type FieldDefView, type FieldFor, type FieldSet, type FieldType } from '../../document/fields';
-import { edgesIn, findNode, parseNodeId, readChassisFields, readDeviceFields, readPhysicalPortFields, type Document } from '../../document/model';
+import { edgesIn, edgesOut, findNode, parseNodeId, readChassisFields, readDeviceFields, readPhysicalPortFields, readPowerSupplyFields, type Document } from '../../document/model';
+import { opticOf, slotPath, type CardView, type Optic } from '../../document/cards';
 import { tagObject, tagsOf, untagObject } from '../../document/tags';
 import { STATE_WORD, deviceFirmware, listTargets, stateOf } from '../../document/firmware';
 import type { SubnetRow, VlanRow } from '../../document/networks-derive';
@@ -22,12 +23,13 @@ import { formatLastChange, groupDeviceRows, whereText, type DeviceRow } from './
 import type { Place, PlaceIndex } from './placeIndex';
 import type { FacetSpec } from './rowQuery';
 
-export type Kind = 'devices' | 'ports' | 'racks' | 'cables' | 'networks' | 'prefixes' | 'vlans' | 'addresses' | 'models' | 'firmware' | 'passwords' | 'issues';
+export type Kind = 'devices' | 'ports' | 'parts' | 'racks' | 'cables' | 'networks' | 'prefixes' | 'vlans' | 'addresses' | 'models' | 'firmware' | 'passwords' | 'issues';
 /** The side list's kinds in quiet groups. Docs and Maintenance are not built, so not listed. Issues has its own body. */
 export const KIND_GROUPS: ReadonlyArray<ReadonlyArray<{ key: Kind; label: string }>> = [
   [
     { key: 'devices', label: 'Devices' },
     { key: 'ports', label: 'Ports' },
+    { key: 'parts', label: 'Parts' },
     { key: 'racks', label: 'Racks' },
     { key: 'cables', label: 'Cables' },
     { key: 'models', label: 'Models' },
@@ -77,7 +79,7 @@ export interface InvRow {
   cells: Readonly<Record<string, string>>;
   tags: readonly string[];
   /** Ids a core edit needs. */
-  ids: { deviceId?: string; chassisId?: string; rackId?: string; cableId?: string };
+  ids: { deviceId?: string; chassisId?: string; rackId?: string; cableId?: string; part?: PartRef };
   /** Words for the page header. */
   title: string;
   /** Numbers to sort a column by when its text sorts badly (a prefix, a fill). */
@@ -203,6 +205,15 @@ const CORE_COLUMNS: Record<Kind, readonly Column[]> = {
     core('cable', 'Cable to', 190),
     core('mac', 'MAC', 140, { editable: true }),
   ],
+  parts: [
+    core('part', 'Part', 150),
+    core('kind', 'Kind', 100),
+    core('device', 'Device', 140),
+    core('in', 'In', 150),
+    core('model', 'Model or part no.', 140, { editable: true }),
+    core('serial', 'Serial', 130, { editable: true }),
+    core('where', 'Where', 150),
+  ],
   networks: [],
   issues: [],
   firmware: [],
@@ -247,6 +258,7 @@ export function defaultColumnKeys(kind: Kind, lens: Lens): string[] {
   if (kind === 'racks') return ['name', 'height', 'row', 'bay', 'used', 'devices', 'tags'];
   if (kind === 'cables') return ['name', 'kind', 'sheath', 'length', 'endA', 'endB', 'tags'];
   if (kind === 'ports') return ['name', 'device', 'connector', 'face', 'cable', 'tags'];
+  if (kind === 'parts') return ['part', 'kind', 'device', 'in', 'model', 'serial', 'where'];
   if (kind === 'addresses') return ['address', 'interface', 'device', 'subnet'];
   if (kind === 'prefixes') return ['prefix', 'vlan', 'site', 'used', 'gateway'];
   if (kind === 'vlans') return ['vlan', 'label', 'prefixes', 'site', 'devices', 'members'];
@@ -257,7 +269,7 @@ export function defaultColumnKeys(kind: Kind, lens: Lens): string[] {
 /** Every column the kind can show: core, tags, then one per custom field. */
 export function allColumns(kind: Kind, defs: readonly FieldDefView[]): Column[] {
   const cols: Column[] = [...CORE_COLUMNS[kind]];
-  if (kind === 'addresses' || kind === 'networks' || kind === 'prefixes' || kind === 'vlans' || kind === 'models' || kind === 'firmware') return cols;
+  if (kind === 'parts' || kind === 'addresses' || kind === 'networks' || kind === 'prefixes' || kind === 'vlans' || kind === 'models' || kind === 'firmware') return cols;
   cols.push(TAGS_COLUMN);
   const fieldFor = FIELD_FOR_KIND[kind];
   if (fieldFor) {
@@ -481,6 +493,107 @@ export function portRows(doc: Document, view: ClosetView, idx: PlaceIndex, defs:
   });
 }
 
+/** What a Parts row is, so an edit can find it: a card, a swappable power supply, or the optic in a port. */
+export type PartRef = { kind: 'card'; id: string } | { kind: 'supply'; id: string } | { kind: 'optic'; id: string; optic: Optic };
+
+export const PART_KIND_WORD: Readonly<Record<PartRef['kind'], string>> = { card: 'Card', supply: 'Power supply', optic: 'Optic' };
+
+/**
+ * Every part fitted in the design (r35): cards and sub-cards with their slot, swappable power supplies
+ * with theirs, and every optic in a cage. A card or supply opens its device; an optic opens its port.
+ * An empty cage is not a part and is not listed.
+ */
+export function partRows(doc: Document, view: ClosetView, idx: PlaceIndex): InvRow[] {
+  const out: InvRow[] = [];
+  const chassis = [...view.rows.flatMap((r) => r.racks.flatMap((k) => k.chassis)), ...view.unplaced];
+  const whereOf = (place: Place | null | undefined) =>
+    place ? [place.site, place.rack, place.u != null ? `U${place.u}` : ''].filter(Boolean).join(' · ') : '';
+  for (const c of chassis) {
+    const device = c.hostname || UNNAMED_HOSTNAME;
+    const place = idx.hosts.get(c.id) ?? null;
+    const places = place ? [place] : [];
+    const walk = (cards: readonly CardView[]) => {
+      for (const card of cards) {
+        const cells = {
+          part: card.name ?? card.model ?? `Card in slot ${card.slot}`,
+          kind: PART_KIND_WORD.card,
+          device,
+          in: slotPath(doc, card.id),
+          model: card.model ?? '',
+          serial: card.serial ?? '',
+          where: whereOf(place),
+        };
+        out.push({
+          key: `part:${card.id}`,
+          selection: { kind: 'chassis', id: c.id },
+          ownerId: card.id,
+          cells,
+          tags: [],
+          ids: { chassisId: c.id, part: { kind: 'card', id: card.id } },
+          title: `${device} · ${cells.in}`,
+          places,
+          facets: placeFacets(places),
+        });
+        walk(card.cards);
+      }
+    };
+    walk(c.cards ?? []);
+    for (const e of edgesOut(doc, c.id, 'FittedIn')) {
+      const supply = findNode(doc, e.to);
+      if (!supply || supply.absentSince !== undefined) continue;
+      const f = readPowerSupplyFields(supply);
+      const cells = {
+        part: f.model ?? `Power supply ${f.slot ?? ''}`.trim(),
+        kind: PART_KIND_WORD.supply,
+        device,
+        in: f.slot ? `PSU slot ${f.slot}` : 'PSU slot',
+        model: f.model ?? '',
+        serial: f.serial ?? '',
+        where: whereOf(place),
+      };
+      out.push({
+        key: `part:${supply.id}`,
+        selection: { kind: 'chassis', id: c.id },
+        ownerId: supply.id,
+        cells,
+        tags: [],
+        ids: { chassisId: c.id, part: { kind: 'supply', id: supply.id } },
+        title: `${device} · ${cells.in}`,
+        places,
+        facets: placeFacets(places),
+      });
+    }
+  }
+  for (const port of idx.ports) {
+    const node = findNode(doc, port.id);
+    const optic = node ? opticOf(node) : undefined;
+    if (!optic) continue;
+    const device = port.hostKind === 'chassis' || port.hostKind === 'unplaced' ? port.hostName || UNNAMED_HOSTNAME : port.hostName;
+    const cells = {
+      part: [optic.type, optic.vendor].filter(Boolean).join(' · ') || 'Optic',
+      kind: PART_KIND_WORD.optic,
+      device,
+      in: port.label,
+      model: optic.part ?? '',
+      serial: optic.serial ?? '',
+      where: whereOf(port.place),
+    };
+    const places = port.place ? [port.place] : [];
+    out.push({
+      key: `part:optic:${port.id}`,
+      selection: { kind: 'port', id: port.id },
+      ownerId: port.id,
+      cells,
+      tags: [],
+      ids: { part: { kind: 'optic', id: port.id, optic } },
+      title: `${device} · ${port.label} optic`,
+      places,
+      facets: placeFacets(places),
+    });
+  }
+  return out;
+}
+
 /** Every address on a device. An address on a VLAN's member is listed under that VLAN's row by the
  * derivation, not under a subnet row, so both are read here; without the VLAN rows a design whose
  * addresses all sit in VLANs (the sample home lab) listed none. */
@@ -617,6 +730,15 @@ function coreChange(kind: Kind, row: InvRow, colKey: string, value: string): imp
     }
   } else if (kind === 'ports' && row.selection?.kind === 'port') {
     if (colKey === 'mac') return { kind: 'port', id: row.selection.id, field: 'mac', value: v };
+  } else if (kind === 'parts' && row.ids.part && (colKey === 'serial' || colKey === 'model')) {
+    const part = row.ids.part;
+    if (part.kind === 'card') return { kind: 'card', id: part.id, field: colKey, value: v };
+    if (part.kind === 'supply') return { kind: 'supply', id: part.id, field: colKey, value: v };
+    const optic: Optic = { ...part.optic };
+    const key = colKey === 'model' ? 'part' : 'serial';
+    if (v === null) delete optic[key];
+    else optic[key] = v;
+    return { kind: 'optic', portId: part.id, optic };
   } else if (kind === 'cables' && row.ids.cableId) {
     const field = colKey === 'name' ? 'label' : colKey === 'sheath' ? 'sheath' : colKey === 'length' ? 'length_m' : colKey === 'ownership' ? 'ownership' : null;
     if (field) return { kind: 'cable', id: row.ids.cableId, field, value: v };

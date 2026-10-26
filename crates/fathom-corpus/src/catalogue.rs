@@ -70,6 +70,9 @@ const MAX_RACK_UNITS: u32 = 60;
 /// chassis is anywhere close; same "fail fast on a malformed file" spirit as
 /// [`MAX_PORTS_PER_GROUP`].
 const MAX_PSU_SLOTS: u32 = 8;
+/// Cap on how many card slots `card_slots` may list (r35): a large modular
+/// chassis has a few dozen at most.
+const MAX_CARD_SLOTS: u32 = 32;
 /// Cap on a slot's `position.column` — a PSU bay's column is a small integer
 /// by construction (a handful of bays side by side), so this is generous
 /// headroom, not an expected value.
@@ -517,6 +520,16 @@ pub struct PsuSlot {
     pub position: SlotPosition,
 }
 
+/// A slot a card fits into (r35, ADR-0073). `name` is the vendor's own word
+/// ("FPC 0", "Slot 1", "Uplink module"), and is what the drawing writes into
+/// `Card.slot` when a card is fitted from the catalogue's list. A model with
+/// no card slot omits `card_slots`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CardSlot {
+    pub name: String,
+    pub face: Face,
+}
+
 /// Where a claim in this file came from — CLAUDE.md rule 1, made a field
 /// rather than a comment so a catalogue entry cannot exist without one.
 #[derive(Debug, Clone)]
@@ -537,6 +550,8 @@ pub struct Model {
     /// [`PsuSlot`]) — never `None` vs. `Some(vec![])`, since an absent
     /// `psu_slots:` key and an explicit empty list mean the same thing here.
     pub psu_slots: Vec<PsuSlot>,
+    /// Empty for a fixed-configuration model (r35).
+    pub card_slots: Vec<CardSlot>,
     /// `None` for every model whose faceplates and PSU slots already say
     /// enough on their own (module doc on [`ModelForm`]).
     pub form: Option<ModelForm>,
@@ -764,12 +779,14 @@ const MODEL_KEYS: &[&str] = &[
     "source",
     "faceplates",
     "psu_slots",
+    "card_slots",
     "form",
 ];
 const SOURCE_KEYS: &[&str] = &["cite", "read_on"];
 const FACEPLATE_KEYS: &[&str] = &["face", "port_count", "port_groups"];
 const GROUP_KEYS: &[&str] = &["kind", "role", "layout", "count", "start_number", "names"];
 const PSU_SLOT_KEYS: &[&str] = &["name", "hot_swap", "face", "position"];
+const CARD_SLOT_KEYS: &[&str] = &["name", "face"];
 const POSITION_KEYS: &[&str] = &["row", "column"];
 
 fn load_model(
@@ -845,6 +862,11 @@ fn load_model(
         Some(n) => load_psu_slots(file, n)?,
     };
 
+    let card_slots = match root.get("card_slots") {
+        None => Vec::new(),
+        Some(n) => load_card_slots(file, n)?,
+    };
+
     let form = match root.get("form") {
         None => None,
         Some(n) => {
@@ -870,8 +892,55 @@ fn load_model(
         source,
         faceplates,
         psu_slots,
+        card_slots,
         form,
     })
+}
+
+fn load_card_slots(file: &str, node: &Node) -> Result<Vec<CardSlot>, CatalogueError> {
+    let seq = node.as_seq().ok_or_else(|| {
+        err(
+            file,
+            node.line,
+            CatalogueGate::Parse,
+            "`card_slots` is not a list",
+        )
+    })?;
+    if seq.len() > MAX_CARD_SLOTS as usize {
+        return Err(err(
+            file,
+            node.line,
+            CatalogueGate::Parse,
+            format!(
+                "`card_slots` has {} entries, more than {MAX_CARD_SLOTS}",
+                seq.len()
+            ),
+        ));
+    }
+    let mut out: Vec<CardSlot> = Vec::new();
+    for item in seq {
+        refuse_unknown_keys(file, item, CARD_SLOT_KEYS)?;
+        let name = req_str(file, item, "name")?;
+        if name.trim().is_empty() || out.iter().any(|s| s.name == name) {
+            return Err(err(
+                file,
+                item.line,
+                CatalogueGate::Parse,
+                "a `card_slots` entry's `name` must be non-empty and unique",
+            ));
+        }
+        let face_tok = req_str(file, item, "face")?;
+        let face = Face::from_token(&face_tok).ok_or_else(|| {
+            err(
+                file,
+                item.line,
+                CatalogueGate::FaceUnknown,
+                format!("`{face_tok}` is not `front`, `rear`, `left`, `right` or `top`"),
+            )
+        })?;
+        out.push(CardSlot { name, face });
+    }
+    Ok(out)
 }
 
 fn load_source(file: &str, node: &Node) -> Result<Source, CatalogueError> {
@@ -1773,6 +1842,33 @@ mod tests {
             .expect("a model with no psu_slots key loads");
         let m = cat.model("TEST-12P").expect("model present");
         assert!(m.psu_slots.is_empty());
+    }
+
+    #[test]
+    fn card_slots_load_and_refuse_a_repeated_name() {
+        let text = good_model_text(
+            "card_slots:\n  - { name: \"FPC 0\", face: front }\n  - { name: \"FPC 1\", face: front }\n",
+        );
+        let cat = Catalogue::from_sources(&source(&text), "juniper", &juniper_vendors())
+            .expect("a model with card slots loads");
+        let m = cat.model("TEST-12P").expect("model present");
+        assert_eq!(
+            m.card_slots
+                .iter()
+                .map(|s| s.name.as_str())
+                .collect::<Vec<_>>(),
+            ["FPC 0", "FPC 1"]
+        );
+        assert!(cat.model("TEST-12P").is_some());
+
+        let twice = good_model_text(
+            "card_slots:\n  - { name: \"1\", face: front }\n  - { name: \"1\", face: rear }\n",
+        );
+        Catalogue::from_sources(&source(&twice), "juniper", &juniper_vendors())
+            .expect_err("two slots with one name are refused");
+        let unknown = good_model_text("card_slots:\n  - { name: \"1\", face: front, ports: 4 }\n");
+        Catalogue::from_sources(&source(&unknown), "juniper", &juniper_vendors())
+            .expect_err("an unknown key is refused");
     }
 
     #[test]

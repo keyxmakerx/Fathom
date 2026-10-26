@@ -14,6 +14,7 @@
 // this module's write-side mirror: exactly one of the three survives.
 
 import { cableRunsOf, type CableRunView } from './cableRuns';
+import { cardOfPort, cardsOf, opticOf, type CardView, type Optic } from './cards';
 import { connectorTokenOf, isPortFace, type PortFace } from './compat';
 import { labelView, lineEnds, lineLabelOf, liveLabelNodes, liveLineNodes, pinOf } from './freeform';
 import type {
@@ -142,6 +143,10 @@ export interface PortView {
   plate?: { x: number; y: number } | null;
   /** Schema 0.21 — the hardware address seen on this port, `aa:bb:cc:dd:ee:ff`. */
   mac?: string;
+  /** Schema 0.28 — the card this port is on (`OnCard`), absent for a port fixed to the chassis. */
+  cardId?: string;
+  /** Schema 0.28 — the optic in the cage: absent when nobody looked, `null` for an empty cage. */
+  optic?: Optic | null;
 }
 
 /** One PSU slot (ADR-0050 §3/§4), joining the catalogue's own `psuSlots`
@@ -215,6 +220,12 @@ export interface ChassisView {
    * (`Chassis.model` absent) and at least one port: its ports were typed by
    * hand (`commands.ts`'s `addSketchPort`), not read off a faceplate. */
   sketch: boolean;
+  /** Schema 0.28 — the cards in this chassis's slots, each with its own sub-slots. Optional so
+   * a `ChassisView` literal written before it still type-checks; absent reads as none. */
+  cards?: CardView[];
+  /** r35 — the slot names the catalogue gives this model (`card_slots`), in its order. Absent
+   * for a model with none, or with no catalogue entry: then any slot name is typed by hand. */
+  cardSlots?: string[];
 }
 
 export interface RackView {
@@ -576,6 +587,12 @@ function portView(
   const cable = portCableView(doc, portId, closetRackIds);
   const passThroughId = passThroughIdOf(doc, portId);
   const explicit = explicitFaceOf(fields.face);
+  const cardId = cardOfPort(doc, portId);
+  const optic = node ? opticOf(node) : undefined;
+  const extra = {
+    ...(cardId !== null ? { cardId } : {}),
+    ...(optic !== undefined ? { optic } : {}),
+  };
   for (const faceplate of faceplates) {
     const match = faceplatePortMatch(faceplate, label, connector);
     if (match) {
@@ -595,10 +612,12 @@ function portView(
         cable,
         service: fields.service ?? null,
         ...(fields.mac !== undefined ? { mac: fields.mac } : {}),
+        ...extra,
       };
     }
   }
-  if (catalogueModelKnown) return undefined;
+  // A card's ports are never on the catalogue faceplate: they are drawn in the card's own bay.
+  if (catalogueModelKnown && cardId === null) return undefined;
   return {
     id: portId,
     label,
@@ -613,6 +632,7 @@ function portView(
     service: fields.service ?? null,
     ...(fields.plateX !== undefined && fields.plateY !== undefined ? { plate: { x: fields.plateX, y: fields.plateY } } : {}),
     ...(fields.mac !== undefined ? { mac: fields.mac } : {}),
+    ...extra,
   };
 }
 
@@ -846,6 +866,8 @@ function chassisView(
     oneFitted,
     placement,
     sketch: chassisFields.model === undefined && hasPorts.length > 0,
+    cards: cardsOf(doc, chassisId),
+    ...(catalogueModel?.cardSlots?.length ? { cardSlots: catalogueModel.cardSlots.map((s) => s.name) } : {}),
   };
 }
 

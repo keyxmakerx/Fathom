@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.27"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.28"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -328,6 +328,17 @@ schema:
                     # HasLessonStep, twenty-two field keys (486-507). A lesson is written in the
                     # design it teaches; publishing copies the whole design, so its steps keep
                     # naming design ids. Whole change = MINOR. The reader still opens 0.10 to 0.26.
+                    #
+                    # 0.28 is cards and optics (ADR-0073, sign-off r35-cards, 2026-10-26), all
+                    # additive: one node kind, Card (a line card, module or NIM in a slot), seated
+                    # by HasCard (containment) in a Chassis or in another Card's sub-slot, and
+                    # OnCard (reference, port to card) saying which ports are on it; one class,
+                    # CardHost. Transceiver, unit until now, gains its shape (type, vendor, part,
+                    # serial, wavelength_nm, all optional); it was never writable except as {},
+                    # which still reads. Four field keys (508-511). PlanStep.kind gains `swap`, a
+                    # part replaced in a maintenance window. 62 §16.2: new kinds, edges
+                    # and a class member are minor. Whole change = MINOR. The reader still opens
+                    # 0.10 to 0.27.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -434,6 +445,11 @@ classes:
       PowerSupply: on a hot-swappable unit the inlet socket is on the supply, not the
       chassis, so the supply is a PortHost exactly as Chassis and PassiveNode are. A
       device whose supply is fixed keeps its inlet on the Chassis directly, unchanged.
+  - class: CardHost
+    members: [Chassis, Card]
+    doc: |
+      What a Card is seated in (ADR-0073): a chassis slot, or a sub-slot of another card
+      (a MIC in an MPC, a PIC in an FPC).
   # ADR-0035. Every kind the diagram can draw as a box — which today is every declared kind,
   # because `fathom-layout` draws every live node and `56` §4.1's projection table leaves 23
   # kinds untabled and therefore drawn at every layer. The list is written out rather than
@@ -565,6 +581,8 @@ classes:
       # The lesson builder (0.27): a lesson and its steps are drawn by the lesson panel.
       - Lesson
       - LessonStep
+      # Cards and optics (0.28): a card is drawn inside its chassis, PowerSupply's precedent.
+      - Card
       # Custom-field values (0.16): joins Placeable as Tag does; the client draws no box.
       - FieldValue
     doc: |
@@ -1339,6 +1357,8 @@ kinds:
         doc: |
           Absent means we looked and the cage is empty; Unknown means nobody looked. A
           catalogue-populated port is Unknown and may not be Absent (11 §8.5).
+          ADR-0073 gives the value its shape: { type, vendor, part, serial, wavelength_nm },
+          every member optional, so {} is "an optic is fitted, nothing more is known".
       - { name: notes, type: Text, card: "0..1", emit: "—" }
       # 62 §11.2's derived-field example, verbatim.
       - name: occupied
@@ -2069,12 +2089,12 @@ kinds:
       step is marked done. `targets` names what it touches, one design id per line.
     fields:
       - { name: ordinal, type: u32, card: "1", emit: "—", doc: Position in the plan. Steps run in this order. }
-      - { name: kind, type: "enum { address, route, cable, move, other, lag }", card: "1", emit: "—", doc: "What sort of change. `lag` (0.25) bundles ports into a LAG." }
+      - { name: kind, type: "enum { address, route, cable, move, other, lag, swap }", card: "1", emit: "—", doc: "What sort of change. `lag` (0.25) bundles ports into a LAG. `swap` (0.28) replaces a card, power supply or optic with another." }
       - { name: targets, type: Text, card: "0..1", emit: "—", doc: "Design ids of what the step touches, one per line." }
       - { name: change, type: Text, card: "1", emit: "—", doc: The step in a sentence. }
       - { name: before, type: Text, card: "0..1", emit: "—", doc: How it is now. }
       - { name: after, type: Text, card: "0..1", emit: "—", doc: How it will be. }
-      - { name: edit, type: Text, card: "0..1", emit: "—", doc: "The edit applied on Done: one line, tab-separated, `field`, `cable`, `cut`, `move` or `lag` first. Absent for a step done by hand." }
+      - { name: edit, type: Text, card: "0..1", emit: "—", doc: "The edit applied on Done: one line, tab-separated, `field`, `cable`, `cut`, `move`, `lag`, `unlag` or `part` first. Absent for a step done by hand." }
       - { name: state, type: "enum { planned, done, went_differently }", card: "1", emit: "—", doc: Where the step is. }
       - { name: note, type: Text, card: "0..1", emit: "—", doc: What happened instead; required for went_differently. }
       - { name: done_at, type: Text, card: "0..1", emit: "—", doc: "When it was marked, as an ISO time." }
@@ -2239,6 +2259,30 @@ kinds:
       - { name: expect_rule, type: Text, card: "0..1", emit: "—", doc: "Id of the Checks rule a change step watches." }
       - { name: expect_now, type: "enum { fires, clears }", card: "0..1", emit: "—", doc: "Whether that rule should fire or clear once the change is made." }
     identity: []
+
+  # Cards and optics (ADR-0073, 2026-10-26). Appended at the tail (62 §13).
+  - kind: Card
+    layer: physical
+    emits: false
+    doc: |
+      A field-replaceable card that occupies a slot: a line card, a network module, a NIM, an
+      expansion card (ADR-0073). PowerSupply's shape: a part with its own model and serial,
+      seated by HasCard in a Chassis or in another Card's sub-slot. An empty slot has no Card.
+      A device whose ports are fixed has no Card at all.
+
+      NOT a PortHost, unlike PowerSupply: a card's ports stay owned by the chassis (HasPort)
+      and say which card they are on through OnCard. Every reader that walks a port up to its
+      device (cables, path trace, Checks, the faceplate) then keeps working unchanged, and
+      pulling a card is the command's job: it takes the ports OnCard names with it.
+
+      Origin::Hand, or a suggestion from a pasted inventory the person ticks (ADR-0046).
+    fields:
+      - { name: slot, type: Text, card: "1", emit: "—", doc: "The slot's name in the vendor's own words: \"0\", \"FPC 2\", \"NIM 1\"." }
+      - { name: name, type: Text, card: "0..1", emit: "—", doc: "What the card is, in words: \"24 x SFP+\"." }
+      - { name: model, type: Identifier, card: "0..1", emit: "—" }
+      - { name: serial, type: Identifier, card: "0..1", emit: "—", doc: Inventory. Sensitive-ish; never leaves the workspace -- Chassis.serial's own doc. }
+    identity:
+      - [ owner(CardHost), slot ]   # tier 1 -- a physical coordinate, PowerSupply's precedent
 
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
@@ -3873,6 +3917,34 @@ edges:
     fields: []
     emit_dict: null
     doc: ADR-0066 §2. A lesson's steps; their order is LessonStep.ordinal.
+
+  # Cards and optics (ADR-0073, 2026-10-26). Appended at the tail (62 §13).
+  - edge: HasCard
+    class: containment
+    from: [Chassis, Card]
+    to: [Card]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      ADR-0073. Seats a Card in the chassis, or the card, whose slot it occupies. CONTAINMENT,
+      FittedIn's reason: nothing else contains a card, and `[owner(CardHost), slot]` needs it.
+  - edge: OnCard
+    class: reference
+    from: [PhysicalPort]
+    to: [Card]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: |
+      ADR-0073. A port on a card's faceplate. A REFERENCE EDGE because the port already has
+      its containment parent, the chassis (HasPort); see Card's doc for why it stays there.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load

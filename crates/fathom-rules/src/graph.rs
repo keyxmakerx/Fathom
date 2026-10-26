@@ -456,7 +456,7 @@ pub fn box_from_text(key: FieldKey, text: &str) -> Result<Box<dyn Any>, String> 
             .parse::<u32>()
             .map(|b| Box::new(b) as Box<dyn Any>)
             .map_err(|e| e.to_string()),
-        "Transceiver" => Ok(Box::new(fathom_ir::value::Transceiver)),
+        "Transceiver" => Ok(Box::new(fathom_ir::value::Transceiver::default())),
         other => Err(format!("fixtures cannot set a {other} yet")),
     }
 }

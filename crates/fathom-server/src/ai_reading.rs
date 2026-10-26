@@ -36,9 +36,9 @@ use fathom_canon::Json;
 use fathom_graph::Graph;
 use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{
-    AddressField, AggregateInterfaceField, CableField, CableRunField, CableTieField, ChassisField,
-    ContainerField, ContainerNetworkField, DeviceField, EdgeKind, ExternalPeerField, FixedToField,
-    InterfaceField, LabelField, LineEndField, LineField, LinkField, LogicalUnitField,
+    AddressField, AggregateInterfaceField, CableField, CableRunField, CableTieField, CardField,
+    ChassisField, ContainerField, ContainerNetworkField, DeviceField, EdgeKind, ExternalPeerField,
+    FixedToField, InterfaceField, LabelField, LineEndField, LineField, LinkField, LogicalUnitField,
     MountedInField, NodeKind, NoteField, OccupiesField, PassiveNodeField, PhysicalPortField,
     PowerSupplyField, PremisesField, PublishedPortField, RackField, SiteField, SitsOnField,
     SurfaceField, TagField, TerminatesField, VlanField, VlanMemberField,
@@ -126,6 +126,11 @@ const NODES: &[NodeRow] = &[
         tier: Tier::Layout,
         kind: NodeKind::PowerSupply,
         fields: fields!(PowerSupplyField: Slot, Model),
+    },
+    NodeRow {
+        tier: Tier::Layout,
+        kind: NodeKind::Card,
+        fields: fields!(CardField: Slot, Name, Model),
     },
     NodeRow {
         tier: Tier::Layout,
@@ -544,7 +549,14 @@ pub fn reading(graph: &Graph, tiers: &BTreeSet<Tier>) -> Result<Reading, &'stati
         let mut fields = BTreeMap::new();
         for field in &node.fields {
             if let (Some(name), Some(value)) = (allowed.get(&field.key), &field.value) {
-                fields.insert((*name).to_string(), screened(value, &mut withheld));
+                let mut value = screened(value, &mut withheld);
+                // An optic's serial is a serial number (ADR-0073): the rest of it may leave.
+                if field.key == PhysicalPortField::Transceiver.key() {
+                    if let Json::Obj(m) = &mut value {
+                        m.remove("serial");
+                    }
+                }
+                fields.insert((*name).to_string(), value);
             }
         }
         let id = node.id.to_string();
@@ -646,6 +658,7 @@ mod tests {
             ChassisField::Serial.key(),
             PassiveNodeField::Serial.key(),
             PowerSupplyField::Serial.key(),
+            CardField::Serial.key(),
             PremisesField::Street.key(),
             PremisesField::Coordinates.key(),
             ExternalPeerField::Contact.key(),

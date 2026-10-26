@@ -46,6 +46,7 @@ import { FieldValueError } from '../../document/edit';
 import type { Document } from '../../document/model';
 import { readPlain, writePlain } from '../../document/plain';
 import { FixedSlotError, SlotAlreadyFittedError, UnknownSlotError } from '../../document/supplies';
+import { CageTakenError, SlotTakenByCardError } from '../../document/cards';
 import { SwapDoesNotFitError } from '../../document/swapModel';
 import { getSession } from '../../state/sessionState';
 import { SaveQueue } from '../racks/saveQueue';
@@ -91,6 +92,7 @@ export function refusalFor(error: unknown): { refused: string } | undefined {
   ) {
     return { refused: error.message };
   }
+  if (error instanceof SlotTakenByCardError || error instanceof CageTakenError) return { refused: error.message };
   if (error instanceof RackRangeError || error instanceof RackOverlapError || error instanceof SwapDoesNotFitError) {
     return { refused: error.message };
   }

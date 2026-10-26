@@ -301,6 +301,17 @@ breadcrumb does one thing.
   lists it under Lessons as Written here, and Start copies it again as `Practice: <title>` with the runner
   open. Lesson text is in the server's credential check. `client/src/engine/lessons.test.ts` runs a written
   lesson in its published copy; `scripts/drive-lesson-builder.mjs` writes, publishes and finishes one.
+- **Cards and optics** (ADR-0073, schema 0.28). A `Card` sits in a slot of a chassis or of another card
+  (`HasCard`); its ports stay on the chassis and point at it (`OnCard`). An optic is the port's
+  `transceiver` value (type, vendor, part, serial, wavelength), Absent for an empty cage. The device's
+  Ports tab fits, edits and takes out cards (with the catalogue's `card_slots` offered where a model lists
+  them; none does yet) and each port panel fits, edits, takes out or moves its optic, by a drag onto a port
+  on the plate or from a list. The plate frames each card's ports. Inventory's Parts kind lists every
+  card, swappable supply and optic with where it sits and its serial. A pasted `show inventory` or `show
+  chassis hardware` offers the parts it reports (`document/facts.ts`). A plan's Swap a part step changes
+  a part's serial and model in place and backs out. Lesson `cards-and-optics` on sample `parts-lab`.
+  It's down's link step and the path trace name the card and optic; neither shows a serial, nor does the
+  AI reading. Spares are not built.
 - **Inventory table with pages and shared custom fields** (schema 0.16, ADR-0062). Field definitions are an organisation-wide server store (migration 0035); a value is a `FieldValue` node in the design. Private fields are not built.
 - **IP and VLAN tables, file importer** (ADR-0067): Inventory Prefix and VLAN kinds derived from the drawing, and one importer (CSV, NetBox, Proxmox, nmap).
 - **Suggestions from what a switch knows** (ADR-0046: suggestions, never facts; one undo step; the pasted text is never kept). A neighbour list (`show lldp neighbors` on Junos, Cisco, Arista; `lldpcli show neighbors`; Cisco `show cdp neighbors` and its `detail` form) suggests cables between drawn ports (`document/neighbours.ts`, round 15). A MAC table (`show mac address-table` on Cisco IOS and NX-OS, `show ethernet-switching table` on Junos non-ELS), with an optional ARP table (`show ip arp`, Junos `show arp`, `ip neigh`) or DHCP leases (ISC `dhcpd.leases`, `dnsmasq.leases`, Kea `kea-leases4.csv`) for addresses and names, suggests who is plugged in where: a port that learned one MAC is cabled to a drawn port carrying that MAC, or gets a new sketch device with that MAC and address; a port with several is left (`document/hosts.ts`, round 29, card r29-fill). A device's own report (`show version` on Junos, Cisco IOS and Arista; Cisco `show inventory`; Junos `show chassis hardware`) offers its serial and running version (`Device.os_version`) where the drawing has none, a difference unticked, and only says the model and hostname (`document/facts.ts`). Paste any of these onto the canvas, or right-click a switch. Not read: the Junos ELS table form. `scripts/drive-suggest.mjs` and `scripts/drive-hosts.mjs` drive them.

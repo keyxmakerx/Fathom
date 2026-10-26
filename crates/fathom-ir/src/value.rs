@@ -260,9 +260,18 @@ pub struct VpnMonitor;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PortPosition;
 
-/// Transceiver description (19 §3.3). Shape stated nowhere read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Transceiver;
+/// The optic in a cage (19 §3.3; shape from ADR-0073). Every member is
+/// optional: `{}` means an optic is fitted and nothing more is known.
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Transceiver {
+    /// What it is, in the label's words: "10GBASE-SR", "1000BASE-T".
+    pub r#type: Option<scalar::Text>,
+    pub vendor: Option<scalar::Text>,
+    /// The part number.
+    pub part: Option<scalar::Identifier>,
+    pub serial: Option<scalar::Identifier>,
+    pub wavelength_nm: Option<u16>,
+}
 
 /// Optical split ratio (19 §3.5). Shape stated nowhere read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
