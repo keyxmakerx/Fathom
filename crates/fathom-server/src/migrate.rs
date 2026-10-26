@@ -258,6 +258,23 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0041_type_it_yourself.sql",
         sql: include_str!("../migrations/0041_type_it_yourself.sql"),
     },
+    // The password vault, Mode A, in its own schema (ADR-0071).
+    Migration {
+        version: 42,
+        name: "0042_vault.sql",
+        sql: include_str!("../migrations/0042_vault.sql"),
+    },
+    // Logins Fathom itself can use: the vault's Mode B (ADR-0071 part two).
+    Migration {
+        version: 43,
+        name: "0043_vault_fathom.sql",
+        sql: include_str!("../migrations/0043_vault_fathom.sql"),
+    },
+    Migration {
+        version: 44,
+        name: "0044_vault_breach.sql",
+        sql: include_str!("../migrations/0044_vault_breach.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

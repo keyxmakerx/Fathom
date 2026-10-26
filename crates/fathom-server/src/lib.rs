@@ -86,6 +86,9 @@ pub mod rls;
 pub mod secret;
 pub mod sessions;
 pub mod teaching;
+pub mod vault;
+pub mod vault_breach;
+pub mod vault_fathom;
 // ADR-0055 stream (a): the person's credential — a password, an app code, ten
 // backup codes and the two ways back in. Added at the END of this list so the
 // other two ADR-0055 streams' additions land beside it and the merge is

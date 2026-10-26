@@ -1029,6 +1029,7 @@ export default function App() {
       <DesignPlace
         {...shellPlaceProps}
         organisationId={view.organisation.organisationId}
+        organisationName={view.organisation.displayName}
         designId={view.design.designId}
         onZoomChange={setZoom}
         capability={view.design.capability}

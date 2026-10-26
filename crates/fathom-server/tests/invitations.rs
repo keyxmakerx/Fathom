@@ -413,6 +413,9 @@ async fn app(pool: &Pool, ring: Arc<KeyRing>, limits: Limits) -> axum::Router {
         sessions,
         watch,
         ring,
+        fathom_key: Arc::new(fathom_server::vault_fathom::FathomKey::from_key(
+            fathom_server::crypto::Key32::from_bytes([77; 32]),
+        )),
         catalogue: Arc::new(Vec::new()),
         explainers: Arc::new(Vec::new()),
         client_address: ClientAddress::peer(),
@@ -1412,8 +1415,10 @@ async fn a_steward_invites_someone_and_every_part_of_it_is_recorded() {
     assert!(String::from_utf8_lossy(&invited.answer).contains(&token_hex));
     let tables: Vec<String> = superuser
         .query(
-            "SELECT table_name FROM information_schema.tables \
-              WHERE table_schema = 'public' AND table_type = 'BASE TABLE'",
+            "SELECT quote_ident(table_schema) || '.' || quote_ident(table_name) \
+               FROM information_schema.tables \
+              WHERE table_schema NOT IN ('pg_catalog', 'information_schema') \
+                AND table_type = 'BASE TABLE'",
             &[],
         )
         .await

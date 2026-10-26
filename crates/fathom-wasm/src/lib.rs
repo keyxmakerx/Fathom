@@ -18,6 +18,7 @@ pub mod dictframe;
 pub mod plan;
 pub mod protocol;
 pub mod shell;
+pub mod vaultkdf;
 pub mod wasmbin;
 
 use std::cell::RefCell;
@@ -398,6 +399,19 @@ pub const SYNC_FRAME_MAX: usize = 32 << 20;
 /// copy through the same writes the canvas uses, so a step that cannot apply says why and the
 /// later ones still run. An id that is not a live plan answers with no rows.
 pub const OP_PLAN_PREVIEW: u32 = 35;
+
+/// The password vault's key derivation (ADR-0043 §6, ADR-0071): Argon2id over the person's
+/// passphrase with the 128-bit vault key as Argon2's SECRET input, so the two are combined in
+/// the derivation rather than being two ways in. The browser has no Argon2 of its own
+/// (WebCrypto offers PBKDF2 only), and the redaction gate's rule that security code stays in
+/// Rust applies here too, so it runs in this module.
+///
+/// Request: `u32_le(m_cost_kib) ‖ u32_le(t_cost) ‖ u32_le(p_cost) ‖ LP(passphrase) ‖ LP(salt)
+/// ‖ LP(secret)`, `LP(x) = u32_le(len(x)) ‖ x`. Reply: one `FACE_VAULT_KEY` row, the 32-byte
+/// output as 64 lowercase hex characters. Parameters outside [`vaultkdf::BOUNDS`] are
+/// `ERR_BAD_FRAME`, so a hostile caller cannot ask for gigabytes. Needs no estate, writes
+/// nothing, keeps nothing: the passphrase lives only for the call.
+pub const OP_VAULT_KDF: u32 = 37;
 
 // There is deliberately no OP_RACK_LIST. A rack is inventory -- it has a
 // label, a capacity and a count of what is in it -- so it is an `InvKind` and

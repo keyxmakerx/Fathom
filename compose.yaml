@@ -613,7 +613,8 @@ configs:
       # service's own comment in `compose.yaml` for why this is a container of its
       # own and what it replaced.
       #
-      # The two root keys: 32 raw bytes from the kernel CSPRNG, owned by the
+      # The three root keys (master, chain, and since ADR-0071 the vault's): 32
+      # raw bytes from the kernel CSPRNG, owned by the
       # server's uid (65532, distroless nonroot), mode 0400 -- the server refuses
       # anything looser (`docs/OPERATING.md`, "Permissions"). The three database
       # passwords: 64 hex characters, mode 0444, because the postgres image and the
@@ -651,6 +652,7 @@ configs:
       # ADR-0070: seals the nightly data file. It travels in the keys file,
       # never in a data file.
       key backup.key
+      key vault.key
       password db_bootstrap.pw
       password db_migrate.pw
       password db_app.pw

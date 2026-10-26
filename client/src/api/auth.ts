@@ -33,6 +33,7 @@ import {
 import { registerBrowserKey } from './credentials';
 import { ApiRefusal, refusalFrom } from './errors';
 import { signedFetchOn } from './signedFetch';
+import { lockVault } from '../vault/session';
 
 /**
  * Thrown when this browser holds no enrolled key -- and no pending one
@@ -538,6 +539,8 @@ export async function signOut(): Promise<void> {
     held.map(({ plane }) => signedFetchOn(plane, 'DELETE', '/session')),
   );
   setSession(null);
+  // An opened vault key never outlives the session it was opened in.
+  lockVault();
   // ADR-0057 decision 4: the record clears even when `DELETE /session`
   // timed out and never told the server — a forgotten session must not
   // keep offering itself to a reload. Best effort, never re-thrown.

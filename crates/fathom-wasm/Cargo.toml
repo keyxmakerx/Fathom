@@ -34,6 +34,11 @@ fathom-ir = { path = "../fathom-ir" }
 fathom-rules = { path = "../fathom-rules" }
 fathom-weld = { path = "../fathom-weld" }
 fathom-workspace = { path = "../fathom-workspace" }
+# The password vault's key derivation (`src/vaultkdf.rs`). `deps/decisions/argon2.md` already
+# records this crate as shipping in this module; the version is the server's, so the lockfile
+# gains an edge and no package. `alloc` only: no `password-hash`, no RNG (the caller supplies
+# the salt), so the import section stays empty.
+argon2 = { version = "0.6", default-features = false, features = ["alloc"] }
 
 # A package depending on itself: the only way to turn one of its own features on
 # for its own test targets. `tests/face.rs` and `tests/equip.rs` drive

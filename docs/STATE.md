@@ -116,7 +116,30 @@ makes it irrelevant.
 protects the database, backups and disk, not the running process. `tests/no_key_protected_data.rs`
 requires every table to declare whether it holds key-protected material and under which key, and a
 marker written through the real write path must appear in no column of any table (a positive control
-proves the sweep can find one). The credential vault is not built.
+proves the sweep can find one). It walks every non-system schema, and the schemas must be exactly
+`public` and `vault`.
+
+**The password vault, part one** (ADR-0071): device logins sealed in the browser (ADR-0042 Mode A),
+in the `vault` schema (`crates/fathom-server/src/vault.rs`, `client/src/vault/`,
+`client/src/components/vault/`). Emergency Kit and passphrase (Argon2id in the engine), a recovery
+sheet held by every login and logged on use, holder lists signed by the sharer, the Logins tab,
+Inventory › Passwords, Home or Organisation › Passwords, and the lock badge on the avatar.
+`scripts/drive-vault.mjs` drives three people's own browsers against the real server and sweeps a
+superuser `pg_dump` for every password, note, name, passphrase and recovery code.
+
+**Part two, logins Fathom itself can use** (Mode B, migration `0043_vault_fathom.sql`,
+`crates/fathom-server/src/vault_fathom.rs`): the owner signs a consent over the login's fresh
+epoch, a second admin countersigns when it is shared, the server seals its copy under `vault.key`,
+and `vault_fathom::use_login` opens it only for a marked device, writing `vault_read` to the
+organisation's history first. The card and table say "Fathom can use it" or "Waiting for an
+admin" and how often Fathom used it. 
+
+**Part three, breach checks** (migration `0044_vault_breach.sql`, `src/vault_breach.rs`,
+`client/src/vault/breach.ts`): the policy at three levels (a login marked critical, a kind of
+login, the organisation), the check in a holder's browser against the Have I Been Pwned range API
+with five hash characters and padding, paced, at unlock and at save, and the "Breach list" column.
+**Not built yet:** external vaults, and the chain verifier's check that a `vault_read` names a
+login then in Mode B.
 
 **Tenant isolation holds at two layers:** an application filter in every repository function, and
 PostgreSQL row-level security driven by a transaction-local setting (never session-level: a pooled

@@ -22,7 +22,7 @@ import { formatLastChange, groupDeviceRows, whereText, type DeviceRow } from './
 import type { Place, PlaceIndex } from './placeIndex';
 import type { FacetSpec } from './rowQuery';
 
-export type Kind = 'devices' | 'ports' | 'racks' | 'cables' | 'networks' | 'prefixes' | 'vlans' | 'addresses' | 'models' | 'firmware' | 'issues';
+export type Kind = 'devices' | 'ports' | 'racks' | 'cables' | 'networks' | 'prefixes' | 'vlans' | 'addresses' | 'models' | 'firmware' | 'passwords' | 'issues';
 /** The side list's kinds in quiet groups. Docs and Maintenance are not built, so not listed. Issues has its own body. */
 export const KIND_GROUPS: ReadonlyArray<ReadonlyArray<{ key: Kind; label: string }>> = [
   [
@@ -40,6 +40,7 @@ export const KIND_GROUPS: ReadonlyArray<ReadonlyArray<{ key: Kind; label: string
   ],
   [
     { key: 'firmware', label: 'Firmware' },
+    { key: 'passwords', label: 'Passwords' },
     { key: 'issues', label: 'Issues' },
   ],
 ];
@@ -205,6 +206,7 @@ const CORE_COLUMNS: Record<Kind, readonly Column[]> = {
   networks: [],
   issues: [],
   firmware: [],
+  passwords: [],
   models: [
     core('model', 'Model', 170),
     core('platform', 'Platform', 110),

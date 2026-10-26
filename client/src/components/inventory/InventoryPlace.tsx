@@ -80,6 +80,8 @@ import { EmptyState } from '../ui/EmptyState';
 import { SkeletonRows } from '../ui/Skeleton';
 import { loadSheet, saveSheet } from './sheetPref';
 import { saveLook } from '../drawing/look';
+import { PasswordsPage, useVaultCount } from '../vault/Screens';
+import { VaultPlaceContext } from '../vault/useVault';
 
 const EMPTY_VIEW: ClosetView = { premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [], free: [], lines: [], labels: [] };
 const EMPTY_NETWORKS_DERIVED: NetworksDerived = { vlanRows: [], subnetRows: [], dockerNetworkRows: [], dockerUnattachedContainers: [] };
@@ -302,6 +304,8 @@ export function InventoryPlace(props: InventoryPlaceProps) {
 
   const modelCount = useMemo(() => (doc ? modelRows(doc).length : 0), [doc]);
   const firmwareCount = useMemo(() => (doc ? imageRows({ doc, images: firmware?.server.images ?? [] }).length : 0), [doc, firmware?.server.images]);
+  const vaultPlace = useContext(VaultPlaceContext);
+  const vaultCount = useVaultCount(vaultPlace?.organisation ?? '');
   const counts: Record<Kind, number | null> = {
     devices: scoped.devices?.length ?? 0,
     racks: scoped.racks?.length ?? 0,
@@ -314,6 +318,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     issues: doc ? listIssues(doc).length : 0,
     models: modelCount,
     firmware: firmwareCount,
+    passwords: vaultCount,
   };
 
   // Find anything reads the whole design, Where applied afterwards so it can say what it hid.
@@ -416,7 +421,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
 
   useEffect(() => {
     if (!onPrintableChange) return undefined;
-    if (doc == null || kind === 'networks' || kind === 'issues' || kind === 'firmware') {
+    if (doc == null || kind === 'networks' || kind === 'issues' || kind === 'firmware' || kind === 'passwords') {
       onPrintableChange(null);
       return undefined;
     }
@@ -780,6 +785,14 @@ export function InventoryPlace(props: InventoryPlaceProps) {
           ) : kind === 'issues' ? (
             <div className="inventory-place__main">
               <IssuesList doc={doc} onShowOnCanvas={onShowIssue} />
+            </div>
+          ) : kind === 'passwords' ? (
+            <div className="inventory-place__main">
+              {vaultPlace ? (
+                <PasswordsPage organisation={vaultPlace.organisation} organisationName={vaultPlace.organisationName} mode="mine" />
+              ) : (
+                <p className="inventory-place__muted">Passwords are kept with a saved design.</p>
+              )}
             </div>
           ) : kind === 'firmware' && !adding && !openKey ? (
             <div className="inventory-place__main">

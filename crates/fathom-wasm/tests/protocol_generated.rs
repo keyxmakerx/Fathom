@@ -158,6 +158,10 @@ fn opcodes() -> Vec<Entry> {
             name: "OP_TRACE",
             code: m::OP_TRACE,
         },
+        Entry {
+            name: "OP_VAULT_KDF",
+            code: m::OP_VAULT_KDF,
+        },
     ]
 }
 
@@ -564,6 +568,11 @@ fn faces() -> Vec<FaceEntry> {
             columns: &[
                 "hop", "id", "ordinal", "name", "action", "state", "reason", "placed",
             ],
+        },
+        FaceEntry {
+            name: "FACE_VAULT_KEY",
+            code: p::FACE_VAULT_KEY as u32,
+            columns: &["key_hex", "", "", "", "", "", "", ""],
         },
         FaceEntry {
             name: "FACE_INV_KEY",

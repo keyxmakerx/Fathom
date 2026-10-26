@@ -358,11 +358,11 @@ jobs:
       - name: A restart keeps its keys
         run: |
           before=$(docker compose logs --no-log-prefix keys-init | grep -c "generated")
-          test "$before" -eq 6 || { echo "expected six secrets generated at first start, saw $before"; exit 1; }
+          test "$before" -eq 7 || { echo "expected seven secrets generated at first start (backup.key and vault.key since 2026-10-25), saw $before"; exit 1; }
           docker compose restart server
           docker compose up --detach --wait --wait-timeout 120
           after=$(docker compose logs --no-log-prefix keys-init | grep -c "generated")
-          test "$after" -eq 6 || { echo "a restart regenerated a secret: $after generated lines"; exit 1; }
+          test "$after" -eq 7 || { echo "a restart regenerated a secret: $after generated lines"; exit 1; }
           curl -fs http://localhost:8080/health > /dev/null
       - name: Logs, on failure
         if: failure()

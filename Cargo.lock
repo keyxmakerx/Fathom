@@ -512,6 +512,7 @@ dependencies = [
 name = "fathom-wasm"
 version = "0.1.0"
 dependencies = [
+ "argon2",
  "fathom-corpus",
  "fathom-find",
  "fathom-graph",

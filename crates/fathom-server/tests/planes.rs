@@ -188,7 +188,12 @@ async fn the_operator_plane_may_read_exactly_the_allowlist_and_write_none() {
 
     let tables: Vec<String> = client
         .query(
-            "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename",
+            // Every schema, not only `public`: a table in `vault` (0041) or any schema added
+            // later is held to the same allowlist, so a new schema cannot route around it.
+            "SELECT CASE WHEN schemaname = 'public' THEN tablename \
+                    ELSE schemaname || '.' || tablename END AS name \
+               FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema') \
+              ORDER BY name",
             &[],
         )
         .await
@@ -200,7 +205,11 @@ async fn the_operator_plane_may_read_exactly_the_allowlist_and_write_none() {
 
     let mut readable = Vec::new();
     for table in &tables {
-        let qualified = format!("public.{table}");
+        let qualified = if table.contains('.') {
+            table.clone()
+        } else {
+            format!("public.{table}")
+        };
         let row = client
             .query_one(
                 "SELECT has_table_privilege($1, $2, 'SELECT')",
@@ -359,7 +368,8 @@ async fn every_operator_plane_policy_is_for_select_and_states_no_write_rule() {
         .query(
             "SELECT tablename, policyname, cmd, roles::text[], with_check IS NOT NULL \
              FROM pg_policies \
-             WHERE schemaname = 'public' AND policyname LIKE '%_by_operator_plane' \
+             WHERE schemaname NOT IN ('pg_catalog', 'information_schema') \
+               AND policyname LIKE '%_by_operator_plane' \
              ORDER BY tablename",
             &[],
         )

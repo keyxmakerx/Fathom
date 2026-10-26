@@ -325,6 +325,33 @@ async fn main() -> ExitCode {
         }
     };
 
+    // ADR-0071: the vault's own root, for Fathom's copies of the logins people let it use. A
+    // third key so that the database and the master key together still open no login; refused
+    // if it is either of the other two.
+    let fathom_key = match fathom_server::vault_fathom::FathomKey::load(&config.vault_key, true) {
+        Ok(k) if k.id() == ring.master_key_id() || k.id() == ring.chain_key_id() => {
+            tracing::error!(
+                vault_key = %config.vault_key.describe(),
+                "refusing to start: vault.key is the same 32 bytes as the master key or the chain key"
+            );
+            return ExitCode::from(10);
+        }
+        Ok(k) => Arc::new(k),
+        Err(e) => {
+            tracing::error!(
+                error = %e,
+                vault_key = %config.vault_key.describe(),
+                "refusing to start: the vault key could not be loaded"
+            );
+            return ExitCode::from(10);
+        }
+    };
+    tracing::info!(
+        vault_key_id = %fathom_key.id(),
+        vault_key_source = %fathom_key.describe_source(),
+        "vault key loaded"
+    );
+
     {
         let (master_source, chain_source) = ring.describe_sources();
         // ADR-0043 §10: the key file gets its own named volume and a startup log line
@@ -571,6 +598,7 @@ async fn main() -> ExitCode {
         sessions: Arc::clone(&sessions),
         watch,
         ring: Arc::clone(&ring),
+        fathom_key,
         catalogue,
         explainers,
         client_address: client_address.clone(),
