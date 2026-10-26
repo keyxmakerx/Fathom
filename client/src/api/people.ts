@@ -45,6 +45,8 @@ export interface Person {
   asked: { capability: Asked; scopeId: string | null; scopeLabel: string } | null;
   expired: boolean;
   access: AccessRow[];
+  /** "Type it yourself" is on for them (sign-off card r30-nocopy). Absent reads as off. */
+  typeItYourself: boolean;
 }
 
 export interface People {
@@ -98,6 +100,7 @@ export function parsePeople(bytes: Uint8Array): People {
             suspended: a.suspended === true,
           };
         }),
+        typeItYourself: p.type_it_yourself === true,
       };
     }),
   };

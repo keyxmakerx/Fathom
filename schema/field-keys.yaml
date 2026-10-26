@@ -524,3 +524,26 @@ fields:
   OverlayMember.address: 483
   OverlayMember.exit_node: 484
   OverlayMember.routes: 485
+  # The lesson builder (schema 0.27, 2026-10-25). Appended after 0.26's 485.
+  Lesson.title: 486
+  Lesson.summary: 487
+  Lesson.author: 488
+  Lesson.published_at: 489
+  Lesson.source_design: 490
+  LessonStep.ordinal: 491
+  LessonStep.kind: 492
+  LessonStep.title: 493
+  LessonStep.body: 494
+  LessonStep.hint: 495
+  LessonStep.after: 496
+  LessonStep.explainer: 497
+  LessonStep.answer: 498
+  LessonStep.trace_from: 499
+  LessonStep.trace_to: 500
+  LessonStep.flow: 501
+  LessonStep.expect_trace: 502
+  LessonStep.expect_crosses: 503
+  LessonStep.expect_stop: 504
+  LessonStep.expect_first_match: 505
+  LessonStep.expect_rule: 506
+  LessonStep.expect_now: 507

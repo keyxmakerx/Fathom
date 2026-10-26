@@ -113,7 +113,6 @@
 }
 
 .home__scope-actions {
-  margin-left: auto;
   display: flex;
   gap: var(--s2);
   flex-shrink: 0;
@@ -170,8 +169,10 @@
   color: var(--muted);
 }
 
+/* Beside its New design button (which takes the auto margin), not adrift mid-row. */
 .home__scope-count {
   margin-left: auto;
+  margin-right: var(--s2);
   font-size: var(--t-micro);
   color: var(--muted);
 }
@@ -184,16 +185,31 @@
 
 .home__design-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--s3);
+  gap: var(--s2) var(--s3);
   padding: var(--s2) 0;
   border-bottom: var(--rule-hair) solid var(--hairline);
   font-size: var(--t-small);
 }
 
+/* The name opens the design on the canvas, like a Recent card. */
 .home__design-name {
-  flex-shrink: 0;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  font: inherit;
   font-weight: 600;
+  color: var(--ink);
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.home__design-name:hover {
+  text-decoration: underline;
 }
 
 .home__design-rename {

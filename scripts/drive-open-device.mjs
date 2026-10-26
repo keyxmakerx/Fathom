@@ -16,7 +16,7 @@ const { chromium } = pw.default ?? pw;
 const ROOT = process.env.FATHOM_ROOT
   || resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CHROME = process.env.PW_CHROMIUM
-  || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+  || '/opt/pw-browsers/chromium';
 const CLIENT = ROOT + '/client';
 const DRIVE_LIB = ROOT + '/scripts/drive-lib';
 const PORT = 5338;
@@ -279,9 +279,9 @@ set security ike policy ike-two pre-shared-key ascii-text hunter22
     await page.waitForSelector('[data-testid=jot]');
     check('right-click Open goes into the device', (await page.locator('[data-testid=jot-box]').count()) >= 0);
     check('the path names the device', (await page.locator('.shell-bar__path-label--current').innerText()).length > 0);
-    await page.getByRole('button', { name: '← Canvas' }).click();
+    await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
-    check('the back button leaves too', (await page.locator('[data-testid=jot]').count()) === 0);
+    check('Esc leaves too', (await page.locator('[data-testid=jot]').count()) === 0);
     await page.locator('.react-flow__node-chassis').first().dblclick();
     await page.waitForSelector('[data-testid=jot]');
     await page.locator('.shell-bar__path-label').nth(-2).click();

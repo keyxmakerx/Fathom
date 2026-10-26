@@ -998,6 +998,13 @@ export function seedHostsScene(me: string): Document {
   return setPortMac(doc, port.id, '000f.fe84.bb73', { actor: me });
 }
 
+/** A dropped folder of configs (r29-pull A): srx-edge is drawn with no config yet, nas-1 beside it. */
+export function seedFolderScene(me: string): Document {
+  let doc = createPremises(emptyDocument(), { actor: me }).doc;
+  doc = createFreeBox(doc, { hostname: 'srx-edge', x: 80, y: 80, actor: me }).doc;
+  return createFreeBox(doc, { hostname: 'nas-1', x: 520, y: 80, actor: me }).doc;
+}
+
 /** The cable-suggestions mockup (r15-f3): switch-1 and four neighbours as boxes on the canvas, no cables yet.
  * ap-office has a numbered port, so its line from an LLDP list is left for the person. */
 export function seedSuggestScene(me: string): Document {

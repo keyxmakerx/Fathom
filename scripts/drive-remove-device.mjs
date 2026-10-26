@@ -18,7 +18,7 @@ const { chromium } = pw.default ?? pw;
 const ROOT = process.env.FATHOM_ROOT
   || resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CHROME = process.env.PW_CHROMIUM
-  || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+  || '/opt/pw-browsers/chromium';
 const CLIENT = ROOT + '/client';
 const DRIVE_LIB = ROOT + '/scripts/drive-lib';
 const PORT = 5331;
@@ -172,6 +172,8 @@ try {
     const coreNode = page.locator('.react-flow__node-chassis').filter({ hasText: 'core-01' });
     await coreNode.click();
     await page.waitForSelector('.drawing-editor__panel', { timeout: 10_000 });
+    // Remove device sits in the panel's ⋯ menu.
+    await page.locator('[data-testid="device-more"] > summary').click();
     const removeButton = page.locator('.drawing-editor__panel button', { hasText: 'Remove device' });
     check('the panel offers "Remove device"', (await removeButton.count()) === 1);
     await removeButton.scrollIntoViewIfNeeded();

@@ -7,6 +7,8 @@
 import { useId, useState, type ReactNode } from 'react';
 
 import type { ByHand, ByHandStep, ByHandWay } from '../../api/firmware';
+import { CommandToType, TypeItYourselfNote } from '../typing/CommandToType';
+import { useTypeItYourself } from '../typing/typeItYourself';
 import { CopyButton } from './parts';
 import './firmware.css';
 
@@ -44,9 +46,11 @@ const sentence = (s: string): string => (s === '' ? s : s[0]!.toUpperCase() + s.
 
 export function ByHandSteps({ way, os, couldNotEstablish = [] }: { way: ByHandWay; os: 'windows' | 'linux'; couldNotEstablish?: string[] }) {
   const steps = way[os];
+  const typing = useTypeItYourself();
   const all = steps.filter((s) => s.command !== '').map((s) => s.command).join('\n');
   return (
     <div className="fw-hand" data-testid="fw-by-hand">
+      {typing && all !== '' ? <TypeItYourselfNote /> : null}
       {way.warning ? (
         <p className="fw-hand__warning" role="note">
           {way.warning}
@@ -59,14 +63,20 @@ export function ByHandSteps({ way, os, couldNotEstablish = [] }: { way: ByHandWa
             <span className="fw-hand__title">{sentence(s.step)}</span>
             {s.command !== '' ? (
               <span className="fw-hand__cmd">
-                <code className="fw-mono">{s.command}</code> <CopyButton text={s.command} label="Copy" className="fw-btn fw-btn--quiet" />
+                {typing ? (
+                  <CommandToType command={s.command} />
+                ) : (
+                  <>
+                    <code className="fw-mono">{s.command}</code> <CopyButton text={s.command} label="Copy" className="fw-btn fw-btn--quiet" />
+                  </>
+                )}
               </span>
             ) : null}
             <span className="fw-muted fw-hand__why">{s.note}</span>
           </li>
         ))}
       </ol>
-      {all !== '' ? <CopyButton text={all} label="Copy all" /> : null}
+      {all !== '' && !typing ? <CopyButton text={all} label="Copy all" /> : null}
       <p className="fw-muted">Then carry on with the next step: the check on the device is the same whichever way the file came.</p>
       {couldNotEstablish.map((line) => (
         <p key={line} className="fw-muted fw-not-established">{`Not established: ${line}`}</p>

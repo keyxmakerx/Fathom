@@ -15,7 +15,7 @@ const { chromium } = pw.default ?? pw;
 const ROOT = process.env.FATHOM_ROOT
   || resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CHROME = process.env.PW_CHROMIUM
-  || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+  || '/opt/pw-browsers/chromium';
 const CLIENT = ROOT + '/client';
 const DRIVE_LIB = ROOT + '/scripts/drive-lib';
 const PORT = 5333;
@@ -462,7 +462,7 @@ try {
       return null;
     }
   }
-  const zoomBefore = await readOrMissing(page.locator('.shell-zoom-value'));
+  const zoomBefore = await readOrMissing(page.locator('.shell-zoom-value, .shell-pill__value'));
   const transformBefore = await page.locator('.react-flow__viewport').getAttribute('style');
   const editorBefore = await readOrMissing(page.locator('.drawing-editor__panel'));
 
@@ -472,7 +472,7 @@ try {
   await page.locator('[data-testid="print-preview-close"]').click();
   await page.waitForSelector('[data-testid="print-preview"]', { state: 'detached', timeout: 5_000 });
 
-  const zoomAfter = await readOrMissing(page.locator('.shell-zoom-value'));
+  const zoomAfter = await readOrMissing(page.locator('.shell-zoom-value, .shell-pill__value'));
   const transformAfter = await page.locator('.react-flow__viewport').getAttribute('style');
   const editorAfter = await readOrMissing(page.locator('.drawing-editor__panel'));
   check('the preview does not disturb zoom', zoomBefore != null && zoomAfter === zoomBefore, `${zoomBefore} -> ${zoomAfter}`);

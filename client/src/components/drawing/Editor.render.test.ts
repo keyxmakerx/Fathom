@@ -506,6 +506,60 @@ describe('EditorFor', () => {
 // `ClosetView.unplaced`) — the same `'chassis'` selection kind a rack-mounted
 // device uses, but found nowhere in `view.racks` (issue: the editor rendered
 // nothing at all for one).
+describe('EditorFor — the device panel as the r31 pictures', () => {
+  const rack = VIEW.racks[0]!;
+  const core = rack.chassis[0]!;
+  const CABLED: ClosetView = {
+    ...VIEW,
+    cables: [{ id: 'cable-1', kind: 'copper', media: 'cat6', sheath: 'blue', label: 'core run', ends: [] }],
+    racks: [
+      {
+        ...rack,
+        chassis: [
+          { ...core, ports: [{ ...core.ports[0]!, cable: { cableId: 'cable-1', farPortId: 'port-9', farChassisId: 'chassis-2', outsideCloset: false } }] },
+          {
+            ...core,
+            id: 'chassis-2',
+            deviceId: 'device-2',
+            hostname: 'edge-01',
+            positionU: 36,
+            ports: [{ ...core.ports[0]!, id: 'port-9', label: 'eth0', cable: { cableId: 'cable-1', farPortId: 'port-1', farChassisId: 'chassis-1', outsideCloset: false } }],
+          },
+        ],
+      },
+    ],
+  };
+
+  it('says what and where in one line, and what the device carries under its name', () => {
+    const markup = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-1' }, CABLED, NOOP_ACTIONS) as never);
+    expect(markup).toContain('switch · A-04, U38');
+    expect(markup).toContain('juniper EX4300-48P · 1 × RJ45');
+    expect(markup).toContain('data-testid="device-face"');
+  });
+
+  it('lists each connection with the far device and port', () => {
+    const markup = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-1' }, CABLED, { ...NOOP_ACTIONS, onSelect: () => {} }) as never);
+    expect(markup).toContain('Connections · 1');
+    expect(markup).toContain('edge-01');
+    expect(markup).toContain(' · eth0');
+    expect(markup).toContain('core run');
+    expect(markup).toContain('var(--sheath-blue)');
+  });
+
+  it('keeps Duplicate and Remove device in the ⋯ menu, and the caller\'s ways on at the foot', () => {
+    const markup = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-1' }, CABLED, NOOP_ACTIONS, [], 'Open inside') as never);
+    const menu = markup.slice(markup.indexOf('data-testid="device-more"'));
+    expect(menu).toContain('Duplicate');
+    expect(menu).toContain('Remove device');
+    expect(markup).toMatch(/dev-panel__foot[^>]*>Open inside/);
+  });
+
+  it('shows no ⋯ menu to a reader with nothing to add', () => {
+    const markup = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-1' }, CABLED, {}) as never);
+    expect(markup).not.toContain('device-more');
+  });
+});
+
 describe('EditorFor — a chassis with no placement at all', () => {
   const UNPLACED_VIEW: ClosetView = {
     ...VIEW,
@@ -666,5 +720,18 @@ describe('the PLACED ON / sketch-port / add-shelf / add-surface change shapes', 
     expect(line).toContain('router-1 and switch-1');
     expect(line).toContain('trunk');
     expect(line).toContain('Remove line');
+  });
+
+  it('offers "Swap model…" to a writer when the catalogue has another model, and nothing to a reader', () => {
+    const palette = [
+      { vendor: 'juniper', model: 'EX4300-48P', rackUnits: 1, summary: '' },
+      { vendor: 'juniper', model: 'EX4400-48P', rackUnits: 1, summary: '' },
+    ];
+    const writer = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-1' }, VIEW, NOOP_ACTIONS, palette) as never);
+    expect(writer).toContain('Swap model…');
+    const reader = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-1' }, VIEW, {}, palette) as never);
+    expect(reader).not.toContain('Swap model');
+    const onlyItself = renderToStaticMarkup(EditorFor({ kind: 'chassis', id: 'chassis-1' }, VIEW, NOOP_ACTIONS, palette.slice(0, 1)) as never);
+    expect(onlyItself).not.toContain('Swap model');
   });
 });

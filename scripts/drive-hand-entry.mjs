@@ -28,7 +28,7 @@ const { chromium } = pw.default ?? pw;
 const ROOT = process.env.FATHOM_ROOT
   || resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CHROME = process.env.PW_CHROMIUM
-  || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+  || '/opt/pw-browsers/chromium';
 const CLIENT = ROOT + '/client';
 const DRIVE_LIB = ROOT + '/scripts/drive-lib';
 const PORT = 5330;
@@ -216,7 +216,8 @@ try {
   check('and edit the field instead', (await noteBox.inputValue()) === '');
   await noteBox.blur();
 
-  // Duplicate the device (`duplicateDevice`).
+  // Duplicate the device (`duplicateDevice`), from the panel's ⋯ menu.
+  await page.locator('[data-testid="device-more"] > summary').click();
   await page.locator('.drawing-editor__panel button', { hasText: 'Duplicate' }).click();
   await page.waitForTimeout(400);
   check('a second chassis appeared', (await page.locator('.react-flow__node-chassis').count()) === 2);

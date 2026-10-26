@@ -20,7 +20,7 @@ const { chromium } = pw.default ?? pw;
 const ROOT = process.env.FATHOM_ROOT
   || resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CHROME = process.env.PW_CHROMIUM
-  || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+  || '/opt/pw-browsers/chromium';
 const CLIENT = ROOT + '/client';
 const DRIVE_LIB = ROOT + '/scripts/drive-lib';
 const PORT = 5199;
@@ -242,7 +242,7 @@ try {
   console.log('    wrote ' + DOCKER_OPEN_SHOT);
 
   // --- undo the second attach, then redo it — one batch, no orphan --------
-  await page.locator('.shell-chip', { hasText: 'Undo' }).click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await page.waitForTimeout(300);
   members = await page.locator('.networks-grid__member').allInnerTexts();
   check('undo removes grafana, gitea remains', !members.some((t) => t.includes('grafana')) && members.some((t) => t.includes('gitea')), members.join(' | '));

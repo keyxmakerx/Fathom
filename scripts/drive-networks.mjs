@@ -19,7 +19,7 @@ const { chromium } = pw.default ?? pw;
 const ROOT = process.env.FATHOM_ROOT
   || resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CHROME = process.env.PW_CHROMIUM
-  || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+  || '/opt/pw-browsers/chromium';
 const CLIENT = ROOT + '/client';
 const DRIVE_LIB = ROOT + '/scripts/drive-lib';
 const PORT = 5198;
@@ -234,7 +234,7 @@ try {
     await joinedRow.click(); // collapse again
 
     // undo the sketch-b attach, then redo it
-    await page.locator('.shell-chip', { hasText: 'Undo' }).click();
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
     await page.waitForTimeout(300);
     await joinedRow.click();
     let afterUndo = await page.locator('.networks-grid__member').allInnerTexts();
@@ -261,7 +261,7 @@ try {
     check('networks: 3 networks total (1 joined vlan 10 + 2 unjoined vlan 20 rows)', (await summaryText(page)).includes('3 networks'), await summaryText(page));
 
     // undo sketch-d's vlan 20 attach, then redo it
-    await page.locator('.shell-chip', { hasText: 'Undo' }).click();
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
     await page.waitForTimeout(300);
     check('vlan 20: undo leaves one row', (await page.locator('.networks-grid__cell--name', { hasText: 'VLAN 20' }).count()) === 1);
     await page.locator('.shell-chip', { hasText: 'Redo' }).click();
@@ -277,7 +277,7 @@ try {
     const railOnArrival = await page.locator('.inventory-place__kind', { hasText: 'Networks' }).locator('.inventory-place__count').innerText();
     check('rail: Networks reads 3 on arrival at Devices, not 0 or "…"', railOnArrival === '3', railOnArrival);
 
-    await page.locator('.shell-chip', { hasText: 'Undo' }).click(); // drops one VLAN 20 row: 3 -> 2
+    await page.getByRole('button', { name: 'Undo', exact: true }).click(); // drops one VLAN 20 row: 3 -> 2
     await page.waitForTimeout(400);
     const railAfterUndo = await page.locator('.inventory-place__kind', { hasText: 'Networks' }).locator('.inventory-place__count').innerText();
     check('rail: Networks follows an undo made while still on Devices', railAfterUndo === '2', railAfterUndo);
@@ -294,7 +294,7 @@ try {
     const subnetRowText = await page.locator('.networks-grid__cell--name', { hasText: 'wg0' }).innerText();
     check('subnet row names the interface and the description', subnetRowText.includes('wg0') && subnetRowText.includes('Road warriors'), subnetRowText);
 
-    await page.locator('.shell-chip', { hasText: 'Undo' }).click();
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
     await page.waitForTimeout(300);
     check('subnet: undo removes it', (await summaryText(page)).includes('0 subnets'), await summaryText(page));
     await page.locator('.shell-chip', { hasText: 'Redo' }).click();

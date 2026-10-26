@@ -93,12 +93,14 @@ export interface PersonPageProps {
   onGive: (capability: Exclude<Asked, 'steward'>, scopeId: string) => void;
   onWithdraw: () => void;
   onOpenWaiting: () => void;
+  /** Switch "type it yourself" on or off for them. */
+  onSetTyping?: (on: boolean) => void;
   /** Draw the page with the Withdraw question already asked (a test seam, like `refusing`). */
   withdrawing?: boolean;
 }
 
 /** One person: exactly what they can do, in the folders you steward. */
-export function PersonPage({ person, folders, busy, error, notice, onBack, onRemove, onGive, onWithdraw, onOpenWaiting, withdrawing: withdrawingFirst = false }: PersonPageProps) {
+export function PersonPage({ person, folders, busy, error, notice, onBack, onRemove, onGive, onWithdraw, onOpenWaiting, onSetTyping, withdrawing: withdrawingFirst = false }: PersonPageProps) {
   const [removing, setRemoving] = useState<string | null>(null);
   const [withdrawing, setWithdrawing] = useState(withdrawingFirst);
   const [giving, setGiving] = useState(false);
@@ -179,6 +181,23 @@ export function PersonPage({ person, folders, busy, error, notice, onBack, onRem
               </button>
             </div>
           )}
+          {onSetTyping && (
+            <div className="org-box" data-testid="person-typing">
+              <div className="home__label">Type it yourself</div>
+              <p className="org-note">
+                {person.typeItYourself
+                  ? `On. Commands are shown to ${person.you ? 'you' : person.name} to be typed by hand, in labelled parts, with no copy button. Links and hashes still copy.`
+                  : `Off. Turn it on and commands are shown to ${person.you ? 'you' : person.name} to be typed by hand, in labelled parts, with no copy button. Links and hashes still copy.`}{' '}
+                {person.you ? '' : 'They can turn it on for themselves, but only a steward turns it off.'}
+              </p>
+              <div className="org-actions">
+                <button type="button" className="org-btn" disabled={busy} onClick={() => onSetTyping(!person.typeItYourself)}>
+                  {person.typeItYourself ? 'Turn off' : 'Turn on'}
+                </button>
+              </div>
+            </div>
+          )}
+
           {giving && (
             <form
               className="org-form"

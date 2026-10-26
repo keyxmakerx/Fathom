@@ -16,7 +16,7 @@ const { chromium } = pw.default ?? pw;
 const ROOT = process.env.FATHOM_ROOT
   || resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CHROME = process.env.PW_CHROMIUM
-  || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+  || '/opt/pw-browsers/chromium';
 const CLIENT = ROOT + '/client';
 const DRIVE_LIB = ROOT + '/scripts/drive-lib';
 const PORT = 5339;
@@ -202,7 +202,7 @@ try {
     await page.waitForTimeout(1200);
 
     // The standing run: the bar chip is there, the panel follows the findings.
-    check(`[${w}x${h}] the bar carries a Checks chip`, (await page.locator('[data-testid=checks-chip]').count()) === 1);
+    check(`[${w}x${h}] the right panel carries a Checks tab`, (await page.locator('[data-testid=dock-checks]').count()) === 1);
     check(`[${w}x${h}] the engine ran once the design settled`, (await page.locator('[data-testid=checks-panel]').count()) === 0 || (await page.locator('[data-testid=checks-panel]').innerText()).length > 0);
     await shot(page, `${tag}-01-canvas`);
 
@@ -258,13 +258,13 @@ try {
     await page.keyboard.press('Escape');
     await page.waitForTimeout(1200);
     check(`[${w}x${h}] Esc leads back to the canvas`, (await page.locator('[data-testid=jot]').count()) === 0);
-    if ((await page.locator('[data-testid=checks-panel]').count()) === 0) await page.locator('[data-testid=checks-chip]').click();
+    if ((await page.locator('[data-testid=checks-panel]').count()) === 0) await page.locator('[data-testid=dock-checks]').click();
     await page.waitForSelector('[data-testid=checks-panel]');
     await page.waitForTimeout(600);
     const rows = await page.locator('[data-testid=checks-row]').allInnerTexts();
     check(`[${w}x${h}] the panel lists the single-cable idea`, rows.some((r) => /only one cable/i.test(r)), rows.join(' | ').replace(/\s+/g, ' '));
     check(`[${w}x${h}] rows carry a glyph and a word`, rows.every((r) => /[✕▲○]/.test(r) && /can't work|warning|idea/i.test(r)));
-    const chip = await page.locator('[data-testid=checks-chip]').innerText();
+    const chip = await page.locator('[data-testid=dock-checks]').innerText();
     check(`[${w}x${h}] the chip shows the count`, /Checks \d+/.test(chip), chip);
     const badgeCount = await page.locator('[data-testid=checks-badge]').count();
     check(`[${w}x${h}] an idea is listed but not badged on the device`, badgeCount === 0, String(badgeCount));
@@ -331,33 +331,12 @@ try {
     await page.waitForTimeout(300);
     check(`[${w}x${h}] a click on empty canvas clears the fade`, (await page.locator('.checks-faded').count()) === 0);
 
-    // Drag the panel by its header; the place is remembered for this browser.
-    const head = await page.locator('.checks-panel__head').boundingBox();
-    await page.mouse.move(head.x + 40, head.y + 10);
-    await page.mouse.down();
-    await page.mouse.move(head.x - 60, head.y + 60, { steps: 6 });
-    await page.mouse.up();
-    await page.waitForTimeout(200);
-    const moved = await page.locator('[data-testid=checks-panel]').boundingBox();
-    check(`[${w}x${h}] the header drags the panel`, Math.abs(moved.x - panel.x) > 20, `${panel.x} -> ${moved.x}`);
-    const stored = await page.evaluate(() => localStorage.getItem('fathom.checks.panel'));
-    check(`[${w}x${h}] the place is remembered`, stored != null && JSON.parse(stored).x !== 0, String(stored));
-    await shot(page, `${tag}-06-dragged`);
-    const area = await page.locator('.shell__drawing').boundingBox();
-    for (const [name, dx, dy] of [['left', -3000, 0], ['bottom', 0, 3000], ['right', 3000, 0], ['top', 0, -3000], ['bottom-left', -3000, 3000], ['top-right', 3000, -3000]]) {
-      const hd = await page.locator('.checks-panel__head').boundingBox();
-      await page.mouse.move(hd.x + 30, hd.y + 10);
-      await page.mouse.down();
-      await page.mouse.move(Math.max(1, Math.min(w - 1, hd.x + 30 + dx)), Math.max(1, Math.min(h - 1, hd.y + 10 + dy)), { steps: 8 });
-      await page.mouse.up();
-      await page.waitForTimeout(150);
-      const pb = await page.locator('[data-testid=checks-panel]').boundingBox();
-      check(`[${w}x${h}] dragged to the ${name}, the panel stays on the canvas`, pb.x >= area.x - 1 && pb.y >= area.y - 1 && pb.x + pb.width <= area.x + area.width + 1 && pb.y + pb.height <= area.y + area.height + 1, JSON.stringify({ pb, area }));
-    }
-    await shot(page, `${tag}-07-dragged-extreme`);
+    // r30-panels: the panel is a tab of the right-hand panel, not a card dragged about the canvas.
+    check(`[${w}x${h}] the panel sits in the right-hand panel, not over the canvas`, (await page.locator('.dock-side [data-testid=checks-panel]').count()) === 1);
+    await shot(page, `${tag}-06-in-dock`);
     await page.locator('.checks-panel__head').getByRole('button', { name: 'Fold the Checks panel' }).click();
     await page.waitForTimeout(200);
-    check(`[${w}x${h}] Fold leaves only the count in the bar`, (await page.locator('[data-testid=checks-panel]').count()) === 0 && (await page.locator('[data-testid=checks-chip]').count()) === 1);
+    check(`[${w}x${h}] Fold leaves only the count on the tab`, (await page.locator('[data-testid=checks-panel]').count()) === 0 && (await page.locator('[data-testid=dock-checks]').count()) === 1);
 
     check(`[${w}x${h}] no uncaught page errors`, pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
@@ -370,7 +349,7 @@ try {
     await page.goto(`${BASE}/drive.html?scene=canvas`);
     await page.waitForSelector('.react-flow__pane', { timeout: 15_000 });
     await page.waitForTimeout(1500);
-    const chip = await page.locator('[data-testid=checks-chip]').innerText();
+    const chip = await page.locator('[data-testid=dock-checks]').innerText();
     const canvasW = (await page.locator('.shell__drawing').boundingBox()).width;
     const open = (await page.locator('[data-testid=checks-panel]').count()) === 1;
     console.log(`    [${w}x${h}] fresh: chip "${chip}", canvas ${canvasW}px, panel ${open ? 'open' : 'folded'}`);
@@ -389,7 +368,7 @@ try {
     console.log(`    [${w}x${h}] rail and editor open: canvas ${narrowerW}px`);
     if (narrowerW < 720) check(`[${w}x${h}] with the rail and the editor open the panel stays folded`, (await page.locator('[data-testid=checks-panel]').count()) === 0, `${narrowerW}`);
     // An explicit open is remembered and wins.
-    await page.locator('[data-testid=checks-chip]').click();
+    await page.locator('[data-testid=dock-checks]').click();
     await page.waitForTimeout(300);
     check(`[${w}x${h}] an explicit open wins over the narrow default`, (await page.locator('[data-testid=checks-panel]').count()) === 1);
     const area = await page.locator('.shell__drawing').boundingBox();

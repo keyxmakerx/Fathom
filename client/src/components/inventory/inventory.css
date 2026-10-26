@@ -729,6 +729,12 @@
   flex: 1 1 auto;
 }
 
+/* The editor's sticky foot sits on the scroller's very bottom edge, not a padding's height above
+   it with the page showing through underneath. */
+.inv-page__body .drawing-editor__footer {
+  bottom: calc(-1 * var(--s3));
+}
+
 .inv-page__list {
   list-style: none;
   margin: 0;
@@ -2049,8 +2055,12 @@ button.inv-path__host,
 .inv-path__cable button,
 .inv-plug button,
 .inv-rackp button.inv-link,
-.inv-rackp .inv-page__list button {
+.inv-rackp .inv-page__list button,
+.inv-page__list--plug li > button {
   font: inherit;
+  /* A name or a label as typed: base.css capitalises a bare <button>. */
+  text-transform: none;
+  letter-spacing: normal;
   background: none;
   border: none;
   padding: 0;
@@ -2266,4 +2276,44 @@ button.inv-path__host {
 .inv-toolbar__kinds {
   flex-wrap: wrap;
   max-width: 100%;
+}
+
+/* r31-bar A: the Sheet. The lists take the whole width, and their tabs sit along the bottom like a spreadsheet's. */
+.inv-sheet-tabs {
+  flex: none;
+  display: flex;
+  gap: 0;
+  overflow-x: auto;
+  border-top: var(--rule-hair) solid var(--hairline);
+  background: var(--surface);
+}
+.inv-sheet-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s4);
+  border: 0;
+  border-right: var(--rule-hair) solid var(--hairline);
+  border-top: var(--rule-accent) solid transparent;
+  background: none;
+  font: inherit;
+  font-size: var(--t-small);
+  color: var(--muted);
+  white-space: nowrap;
+  box-shadow: none;
+  cursor: pointer;
+}
+.inv-sheet-tab:hover {
+  color: var(--ink);
+}
+.inv-sheet-tab[aria-current='page'] {
+  color: var(--ink);
+  font-weight: 700;
+  background: var(--page);
+  border-top-color: var(--ink);
+}
+.inv-sheet-tab__n {
+  font-family: var(--mono);
+  font-weight: 400;
+  color: var(--muted);
 }

@@ -2,10 +2,12 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { signOut } from '../../api/auth';
+import { useWindowWidth } from './Dock';
 import { nextFoldLevel } from './layout';
-import { DIAGRAM_STYLES, DIAGRAM_STYLE_LABEL, type DiagramStyle } from '../drawing/diagramStyle';
-import { CABLE_STYLES, CABLE_STYLE_HINT, CABLE_STYLE_LABEL, type CableStyle } from '../drawing/cableStyle';
-import { LAYERS, type LayerId, type LayerSet } from '../drawing/layers';
+import type { DiagramStyle } from '../drawing/diagramStyle';
+import type { CableStyle } from '../drawing/cableStyle';
+import type { LayerId, LayerSet } from '../drawing/layers';
+import { LayersMenu, LensGroup } from './CanvasBar';
 import { LOOKS, LOOK_LABEL, type Look } from '../drawing/look';
 import { LENSES_IN, LENS_LABEL } from './lens';
 import type { Lens } from './lens';
@@ -13,8 +15,9 @@ import { Popover, PopoverRow } from './Popover';
 import { pathToItems } from './path';
 import type { PathItem, PathPart } from './path';
 import { SearchBox } from './SearchBox';
+import { shortcutText } from './shortcuts';
 import { ThemeMenu } from './ThemeMenu';
-import type { AccountInfo, Place, PresenceUser, ShellSearch, ShowAids } from './types';
+import type { AccountInfo, MainView, Place, PresenceUser, ShellProps, ShellSearch, ShowAids } from './types';
 
 // The bar's own `gap` and side padding, counted when measuring its row.
 const BAR_GAP = 12;
@@ -82,6 +85,16 @@ export interface BarProps {
    * this closet is hidden one at a time. Zero or absent renders nothing. */
   hiddenCablesCount?: number;
   onShowAllHiddenCables?: () => void;
+  /** r31-bar A: the four views as the bar's tabs. Without it the two places are the tabs. */
+  mainView?: ShellProps['mainView'];
+  /** Right after the design's name: the Sample chip. */
+  designExtra?: ReactNode;
+  /** The Doing ▾ menu: what you can set about doing now. */
+  doing?: ShellProps['doing'];
+  /** The lens, Layers, Undo, Redo, zoom, Docs, History and Print are on the drawing and the right panel, not here. */
+  toolsOnCanvas?: boolean;
+  /** A job under way: it takes the bar. */
+  task?: ShellProps['task'];
 }
 
 /** The bar — BRIEF.md "The bar": one row, 44px, a 3px ink rule beneath, and
@@ -122,6 +135,11 @@ export function Bar({
   cablesGroupsSummary,
   hiddenCablesCount,
   onShowAllHiddenCables,
+  mainView,
+  designExtra,
+  doing,
+  toolsOnCanvas = false,
+  task = null,
 }: BarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const leadingRef = useRef<HTMLDivElement>(null);
@@ -158,7 +176,9 @@ export function Bar({
     if (trailingRef.current) observer.observe(trailingRef.current);
     return () => observer.disconnect();
   }, [fold, contentKey]);
-  const searchCollapsed = fold >= 1;
+  // r31-motion: on the drawing, search folds to its magnifier below 1440px (Ctrl K still opens it).
+  const windowWidth = useWindowWidth();
+  const searchCollapsed = fold >= 1 || (toolsOnCanvas && windowWidth < 1440);
   const actionsFolded = fold >= 2;
   const pathFolded = fold >= 3;
   const lensesFolded = fold >= 4;
@@ -174,7 +194,7 @@ export function Bar({
   const pathItems = pathFolded ? allPathItems.slice(switcherAt >= 0 ? switcherAt : Math.max(0, allPathItems.length - 2)) : allPathItems;
 
   return (
-    <div className="shell-bar" ref={containerRef}>
+    <div className={task != null ? 'shell-bar shell-bar--task' : 'shell-bar'} data-tone={task?.tone} ref={containerRef}>
       <div className="shell-bar__leading" ref={leadingRef}>
         {onHome ? (
           <button type="button" className="shell-bar__brand" onClick={onHome}>
@@ -187,6 +207,9 @@ export function Bar({
         {/* With no design open (Home, Site) the two places are named but are
             not controls: a place needs a design, and Home is where you pick
             one. */}
+        {mainView != null ? (
+          <ViewTabs view={mainView.value} onChange={mainView.onChange} folded={task != null} />
+        ) : (
         <div className="shell-bar__tabs">
           {place === null ? (
             <>
@@ -212,6 +235,7 @@ export function Bar({
             </>
           )}
         </div>
+        )}
         <Sep />
         {/* Earlier crumbs go somewhere; the design's own crumb opens the
             list of places to switch to. */}
@@ -224,10 +248,21 @@ export function Bar({
                   &rsaquo;
                 </span>
               )}
-              <PathCrumb item={item} tree={tree} />
+              <PathCrumb item={item} tree={tree} onPrint={toolsOnCanvas ? onPrint : undefined} />
             </span>
           ))}
         </div>
+        {designExtra}
+        {task != null && (
+          <div className="shell-task" role="status" data-testid="shell-task">
+            <span className="shell-task__dot" aria-hidden="true" />
+            <span className="shell-task__label">{task.label}</span>
+            {task.stage != null && <span className="shell-task__stage">{task.stage}</span>}
+            <button type="button" className="shell-task__exit" onClick={task.onExit} data-testid="shell-task-exit">
+              Exit
+            </button>
+          </div>
+        )}
         {/* Others in this view: a round dot with their initials; the full name is its label. */}
         {presence.length > 0 && (
           <div className="shell-bar__people" role="group" aria-label="Also in this view">
@@ -243,7 +278,7 @@ export function Bar({
             (`place === null`) there is nothing for a lens to act on, and
             the approved Home board carries no lens row — the same reason
             the People and Site boards carry no zoom. ADR-0047 §1. */}
-        {place !== null && (
+        {place !== null && !toolsOnCanvas && (
           <>
             <Sep />
             {lensesFolded ? (
@@ -291,60 +326,7 @@ export function Bar({
               </Popover>
             ) : (
             <>
-            <div className="shell-bar__lenses">
-              {LENSES_IN[place].map((candidate) =>
-                candidate === 'cables' && cablesGroupsPopover != null ? (
-                  <Popover
-                    key={candidate}
-                    align="left"
-                    renderTrigger={({ toggle, triggerRef, triggerProps }) => (
-                      <button
-                        type="button"
-                        aria-pressed={candidate === lens}
-                        className={candidate === lens ? 'shell-lens shell-lens--on' : 'shell-lens'}
-                        aria-haspopup={triggerProps['aria-haspopup']}
-                        aria-expanded={candidate === lens ? triggerProps['aria-expanded'] : false}
-                        aria-controls={triggerProps['aria-controls']}
-                        onClick={(event) => {
-                          triggerRef.current = event.currentTarget;
-                          // Clicking the Cables lens while it is lit opens
-                          // the list; while it is some other lens's turn, a
-                          // click only switches to Cables, the same as any
-                          // other lens button — it never also opens the
-                          // popover in the same click.
-                          if (candidate !== lens) {
-                            onLensChange(candidate);
-                            return;
-                          }
-                          toggle();
-                        }}
-                      >
-                        {LENS_LABEL[candidate]}
-                        {cablesGroupsSummary != null && ` · ${cablesGroupsSummary}`}
-                        {candidate === lens && (
-                          <span className="shell-lens__caret" aria-hidden="true">
-                            {' '}
-                            ▾
-                          </span>
-                        )}
-                      </button>
-                    )}
-                  >
-                    {cablesGroupsPopover}
-                  </Popover>
-                ) : (
-                  <button
-                    key={candidate}
-                    type="button"
-                    aria-pressed={candidate === lens}
-                    className={candidate === lens ? 'shell-lens shell-lens--on' : 'shell-lens'}
-                    onClick={() => onLensChange(candidate)}
-                  >
-                    {LENS_LABEL[candidate]}
-                  </button>
-                ),
-              )}
-            </div>
+            <LensGroup place={place} lens={lens} onLensChange={onLensChange} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} />
             {look != null && <Sep />}
             {look != null && (
               <div className="shell-bar__lenses" role="group" aria-label="Look">
@@ -375,103 +357,7 @@ export function Bar({
               </>
             )}
             {layers != null && <Sep />}
-            {layers != null && (
-              <Popover
-                renderTrigger={({ open, triggerProps, triggerRef }) => (
-                  <button
-                    type="button"
-                    className={open ? 'shell-lens shell-lens--on' : 'shell-lens'}
-                    data-testid="shell-show"
-                    ref={(el) => {
-                      triggerRef.current = el;
-                    }}
-                    {...triggerProps}
-                  >
-                    Show ▾
-                  </button>
-                )}
-              >
-                <div className="shell-show" role="group" aria-label="Show on the drawing">
-                  <div className="shell-show__head">Show on the drawing</div>
-                  {LAYERS.filter((l) => l.available).map((l) => (
-                    <button
-                      key={l.id}
-                      type="button"
-                      role="menuitemcheckbox"
-                      aria-checked={layers.value[l.id]}
-                      className="shell-show__row"
-                      data-testid={`show-${l.id}`}
-                      onClick={() => layers.onToggle(l.id)}
-                    >
-                      <span className="shell-show__tick" aria-hidden="true">{layers.value[l.id] ? '✓' : ''}</span>
-                      <span>{l.label}</span>
-                      {l.onByDefault && <span className="shell-show__note">on by default</span>}
-                    </button>
-                  ))}
-                  {layers.aids?.items.map((a) => (
-                    <button
-                      key={a.id}
-                      type="button"
-                      role="menuitemcheckbox"
-                      aria-checked={a.on}
-                      className="shell-show__row"
-                      data-testid={`show-${a.id}`}
-                      onClick={() => layers.aids!.onToggle(a.id)}
-                    >
-                      <span aria-hidden="true">{a.on ? '☑' : '☐'}</span>
-                      <span>{a.label}</span>
-                      {a.note != null && <span className="shell-show__note">{a.note}</span>}
-                    </button>
-                  ))}
-                  {look?.value === 'rack' && <p className="shell-show__hint">The words and icons are drawn in the Diagram look.</p>}
-                  <p className="shell-show__hint">Each layer adds words in ink, placed so they never overlap. Yours, per browser.</p>
-                  {layers.style != null && (
-                    <div className="shell-show__style" role="group" aria-label="Device style">
-                      <span className="shell-show__head">Device style</span>
-                      <span className="btn-group">
-                      {DIAGRAM_STYLES.map((st) => (
-                        <button
-                          key={st}
-                          type="button"
-                          role="menuitemradio"
-                          aria-checked={layers.style!.value === st}
-                          className={layers.style!.value === st ? 'shell-lens shell-lens--on' : 'shell-lens'}
-                          data-testid={`style-${st}`}
-                          onClick={() => layers.style!.onChange(st)}
-                        >
-                          {DIAGRAM_STYLE_LABEL[st]}
-                        </button>
-                      ))}
-                      </span>
-                    </div>
-                  )}
-                  {layers.cables != null && (
-                    <div className="shell-show__style" role="group" aria-label="Cable style">
-                      <span className="shell-show__head">Cable style</span>
-                      <span className="btn-group">
-                      {CABLE_STYLES.map((st) => (
-                        <button
-                          key={st}
-                          type="button"
-                          role="menuitemradio"
-                          aria-checked={layers.cables!.value === st}
-                          className={layers.cables!.value === st ? 'shell-lens shell-lens--on' : 'shell-lens'}
-                          data-testid={`cable-style-${st}`}
-                          title={CABLE_STYLE_HINT[st]}
-                          onClick={() => layers.cables!.onChange(st)}
-                        >
-                          {CABLE_STYLE_LABEL[st]}
-                        </button>
-                      ))}
-                      </span>
-                      <p className="shell-show__hint" data-testid="cable-style-hint">{CABLE_STYLE_HINT[layers.cables.value]}</p>
-                    </div>
-                  )}
-                  {/* Saved views give way before the lenses do: once the action chips fold, they sit in here. */}
-                  {layers != null && actionsFolded && viewsFolded}
-                </div>
-              </Popover>
-            )}
+            {layers != null && <LayersMenu layers={layers} look={look} extra={actionsFolded ? viewsFolded : undefined} />}
             {layers != null && !actionsFolded && views}
           </>
         )}
@@ -505,7 +391,13 @@ export function Bar({
 
         {/* Undo and Redo act on an open design; zoom acts on the drawing,
             so it is Racks only (Inventory is lists). */}
-        {place !== null && !editsFolded && (
+        {doing != null && doing.length > 0 && task == null && <DoingMenu items={doing} />}
+        {toolsOnCanvas && onShare && (
+          <button type="button" className="shell-chip shell-chip--ink" onClick={onShare} data-testid="shell-share">
+            Share
+          </button>
+        )}
+        {place !== null && !toolsOnCanvas && !editsFolded && (
           <>
             <div className="shell-bar__undoredo">
               <button type="button" className="shell-chip shell-chip--ink" disabled={!canUndo} onClick={onUndo}>
@@ -518,7 +410,7 @@ export function Bar({
             <Sep />
           </>
         )}
-        {actionsFolded && (onDocs || onHistory || onShare || onPrint || editsFolded) ? (
+        {toolsOnCanvas ? null : actionsFolded && (onDocs || onHistory || onShare || onPrint || editsFolded) ? (
           <>
             <Popover
               align="right"
@@ -599,20 +491,20 @@ export function Bar({
             </>
           )
         )}
-        {place === 'racks' && !editsFolded && (
+        {place === 'racks' && !toolsOnCanvas && !editsFolded && (
           <>
             <div className="shell-bar__zoom">
-              <button type="button" className="shell-zoom-btn" aria-label="Zoom out" title="Zoom out" onClick={onZoomOut}>
+              <button type="button" className="shell-zoom-btn" aria-label="Zoom out" title={`Zoom out (${shortcutText('zoom-out')})`} onClick={onZoomOut}>
                 &minus;
               </button>
               {onZoomFit ? (
-                <button type="button" className="shell-zoom-value" aria-label="Fit to view" title="Fit to view" onClick={onZoomFit}>
+                <button type="button" className="shell-zoom-value" aria-label="Fit to view" title={`Fit to view (${shortcutText('zoom-fit')})`} onClick={onZoomFit}>
                   {zoom}%
                 </button>
               ) : (
                 <span className="shell-zoom-value">{zoom}%</span>
               )}
-              <button type="button" className="shell-zoom-btn" aria-label="Zoom in" title="Zoom in" onClick={onZoomIn}>
+              <button type="button" className="shell-zoom-btn" aria-label="Zoom in" title={`Zoom in (${shortcutText('zoom-in')})`} onClick={onZoomIn}>
                 +
               </button>
             </div>
@@ -659,7 +551,7 @@ export function Bar({
   );
 }
 
-function PathCrumb({ item, tree }: { item: PathItem; tree: ReactNode }) {
+function PathCrumb({ item, tree, onPrint }: { item: PathItem; tree: ReactNode; onPrint?: () => void }) {
   const className = item.current ? 'shell-bar__path-label shell-bar__path-label--current' : 'shell-bar__path-label';
   if (item.opensTree) {
     return (
@@ -688,6 +580,12 @@ function PathCrumb({ item, tree }: { item: PathItem; tree: ReactNode }) {
         )}
       >
         {tree}
+        {/* r31-bar A: Print is the design's own business, so it sits in the design's menu. */}
+        {onPrint && (
+          <PopoverRow onSelect={onPrint} testId="shell-print">
+            Print or export…
+          </PopoverRow>
+        )}
       </Popover>
     );
   }
@@ -716,5 +614,66 @@ function Sep() {
     <span className="shell-bar__sep-wrap">
       <span className="shell-bar__sep" aria-hidden="true" />
     </span>
+  );
+}
+
+const VIEW_LABEL: Record<MainView, string> = { diagram: 'Diagram', canvas: 'Canvas', inventory: 'Inventory', sheet: 'Sheet' };
+const VIEWS: readonly MainView[] = ['diagram', 'canvas', 'inventory', 'sheet'];
+
+/** r31-bar A: the four views. The ink underline slides to the one you choose (r31-motion). */
+function ViewTabs({ view, onChange, folded = false }: { view: MainView; onChange: (view: MainView) => void; folded?: boolean }) {
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [mark, setMark] = useState<{ left: number; width: number } | null>(null);
+  useLayoutEffect(() => {
+    const on = rowRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (on != null) setMark({ left: on.offsetLeft, width: on.offsetWidth });
+  }, [view, folded]);
+  return (
+    <div className={folded ? 'shell-bar__tabs shell-bar__tabs--views shell-bar__tabs--folded' : 'shell-bar__tabs shell-bar__tabs--views'} ref={rowRef} role="tablist" aria-label="Views">
+      {VIEWS.map((v) => (
+        <button
+          key={v}
+          type="button"
+          role="tab"
+          aria-selected={v === view}
+          aria-current={v === view ? 'page' : undefined}
+          className={v === view ? 'shell-bar__tab shell-bar__tab--on' : 'shell-bar__tab'}
+          data-testid={`view-${v}`}
+          onClick={() => onChange(v)}
+        >
+          {VIEW_LABEL[v]}
+        </button>
+      ))}
+      {mark != null && <span className="shell-bar__tabs-mark" aria-hidden="true" style={{ left: mark.left, width: mark.width }} />}
+    </div>
+  );
+}
+
+/** Doing ▾: the jobs you can set about from here. A row that needs something first says what. */
+function DoingMenu({ items }: { items: NonNullable<ShellProps['doing']> }) {
+  return (
+    <Popover
+      align="right"
+      renderTrigger={({ open, triggerProps, triggerRef }) => (
+        <button
+          type="button"
+          className={open ? 'shell-chip shell-chip--ink shell-chip--on' : 'shell-chip shell-chip--ink'}
+          data-testid="shell-doing"
+          ref={(el) => {
+            triggerRef.current = el;
+          }}
+          {...triggerProps}
+        >
+          Doing ▾
+        </button>
+      )}
+    >
+      {items.map((item) => (
+        <PopoverRow key={item.id} onSelect={item.onSelect ?? (() => {})} disabled={item.onSelect == null} testId={`doing-${item.id}`}>
+          {item.label}
+          {item.hint != null && <span className="shell-doing__hint">{item.hint}</span>}
+        </PopoverRow>
+      ))}
+    </Popover>
   );
 }

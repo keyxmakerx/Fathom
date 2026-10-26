@@ -19,6 +19,7 @@ import {
   seedCanvasScene,
   seedSuggestScene,
   seedHostsScene,
+  seedFolderScene,
   seedLookScene,
   seedCableGroupsScene,
   seedCableGroupsSpeedScene,
@@ -176,6 +177,7 @@ async function main() {
   else if (scene === 'canvas') doc = seedCanvasScene(catalogue, ME);
   else if (scene === 'suggest') doc = seedSuggestScene(ME);
   else if (scene === 'hosts') doc = seedHostsScene(ME);
+  else if (scene === 'folder') doc = seedFolderScene(ME);
   else if (scene === 'look') doc = seedLookScene(catalogue, ME);
   else if (scene === 'show') doc = seedShowScene(catalogue, ME);
   else if (scene === 'conflict') doc = seedConflictingChange(catalogue, ME, COLLEAGUE);
@@ -385,7 +387,7 @@ async function main() {
       }
       const nextVersion = entry.version + 1;
       const nextBytes = requestBody.slice(4);
-      designs.set(versionsMatch[1], { version: nextVersion, bytes: nextBytes });
+      designs.set(versionsMatch[1], { ...entry, version: nextVersion, bytes: nextBytes });
       if (versionsMatch[1] === DESIGN_ID) log.push({ bytes: nextBytes, atUnix: Math.floor(Date.now() / 1000), actor: ME });
       window.__saveCount__ += 1;
       if (verifyEngine) {

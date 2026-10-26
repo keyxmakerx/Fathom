@@ -9,7 +9,9 @@ import {
   type TotpEnrolment,
 } from '../api/credentials';
 import { ApiRefusal } from '../api/errors';
+import { fetchOrganisations, setTypeItYourself, type Organisation } from '../api/organisations';
 import { endOtherSessions, endSession, listSessions, type SessionSummary } from '../api/sessions';
+import { getSession } from '../state/sessionState';
 import { formatLastChange } from './inventory/rows';
 import { QrCode } from '../qr';
 import { Appearance } from './Appearance';
@@ -40,6 +42,9 @@ export interface AccountProps {
   /** Opens scrolled to one section: the account menu's "Signed-in browsers"
    * (ADR-0060 decision 7). */
   focus?: 'browsers';
+  /** Called when the person turns "type it yourself" on in an organisation, so an open design can
+   * show commands to be typed without being opened again. */
+  onTypeItYourself?: (organisationId: string) => void;
 }
 
 /**
@@ -58,7 +63,7 @@ export interface AccountProps {
  * once, on open, so the authenticator section knows whether it is a first
  * enrolment or a replacement that needs re-authenticating.
  */
-export function Account({ address, purpose = 'settings', onDone, onClose, focus }: AccountProps) {
+export function Account({ address, purpose = 'settings', onDone, onClose, focus, onTypeItYourself }: AccountProps) {
   useEffect(() => {
     if (focus === 'browsers') document.getElementById('account-browsers')?.scrollIntoView();
   }, [focus]);
@@ -97,6 +102,8 @@ export function Account({ address, purpose = 'settings', onDone, onClose, focus 
 
         {purpose === 'settings' && <SignedInBrowsers />}
 
+        {purpose === 'settings' && <TypeItYourselfSettings onTurnedOn={onTypeItYourself} />}
+
         <AuthenticatorEnrolment
           address={address}
           onDone={() => onDone?.()}
@@ -110,6 +117,93 @@ export function Account({ address, purpose = 'settings', onDone, onClose, focus 
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * "Type it yourself" (sign-off card r30-nocopy), per organisation: commands shown to be typed by hand,
+ * in labelled parts, with no copy button. A person may turn it on for themselves; only a steward turns
+ * it off, so the button asks once before it does.
+ */
+export function TypeItYourselfSettings({ onTurnedOn }: { onTurnedOn?: (organisationId: string) => void }) {
+  const [orgs, setOrgs] = useState<Organisation[] | null>(null);
+  const [asking, setAsking] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchOrganisations()
+      .then((got) => {
+        if (!cancelled) setOrgs(got);
+      })
+      .catch(() => {
+        if (!cancelled) setOrgs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  if (orgs === null || orgs.length === 0) return null;
+  const me = getSession();
+  return (
+    <section className="signin__section" data-testid="account-typing">
+      <h2 className="signin__heading">Type it yourself</h2>
+      <p className="signin__hint">
+        Commands are shown to be typed by hand, in labelled parts, with no copy button, so you learn them. Links and
+        hashes still copy. You can turn it on; only a steward turns it off.
+      </p>
+      {error && (
+        <p className="signin__refusal" role="alert">
+          {error}
+        </p>
+      )}
+      <ul className="signin__body">
+        {orgs.map((o) => (
+          <li key={o.organisationId}>
+            <strong>{o.displayName}</strong>:{' '}
+            {o.typeItYourself ? (
+              'on'
+            ) : asking === o.organisationId ? (
+              <>
+                Only a steward can turn it off again.{' '}
+                <button
+                  type="button"
+                  className="signin__switch"
+                  disabled={busy || me === null}
+                  onClick={async () => {
+                    if (me === null) return;
+                    setBusy(true);
+                    setError(null);
+                    try {
+                      const on = await setTypeItYourself(o.organisationId, me.accountId, true);
+                      setOrgs((all) => all && all.map((x) => (x.organisationId === o.organisationId ? { ...x, typeItYourself: on } : x)));
+                      if (on) onTurnedOn?.(o.organisationId);
+                      setAsking(null);
+                    } catch (e) {
+                      setError(describe(e));
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  Turn it on
+                </button>{' '}
+                <button type="button" className="signin__switch" onClick={() => setAsking(null)}>
+                  Not now
+                </button>
+              </>
+            ) : (
+              <>
+                off{' '}
+                <button type="button" className="signin__switch" onClick={() => setAsking(o.organisationId)}>
+                  Turn on
+                </button>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

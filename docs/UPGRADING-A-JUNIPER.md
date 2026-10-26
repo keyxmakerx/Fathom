@@ -97,7 +97,7 @@ If `-O` fails, the device has SFTP enabled and you do not need it. If the transf
 its own transfer stack:
 
 ```
-file copy https://your-host/path/junos-install-....tgz /var/tmp/
+file copy https://your-host/path/junos-install-....tgz /var/tmp/junos-install-....tgz
 ```
 
 Junos `file copy` accepts local paths, `ftp://`, `http://`, `https://`, `scp://` and `sftp://`

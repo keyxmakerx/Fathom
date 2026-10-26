@@ -311,7 +311,8 @@ button.shell-search {
   -webkit-backdrop-filter: var(--pop-blur);
   box-shadow: var(--shadow-pop);
   animation: fathom-pop-in var(--m-pop) var(--m-ease);
-  z-index: var(--z-egress);
+  /* Over the canvas's floating cards (Checks, Plans, trace: --z-modal + 1 to + 3), under toasts. */
+  z-index: calc(var(--z-modal) + 3);
 }
 
 .shell-search__group {
@@ -623,7 +624,7 @@ button.shell-admin-pill {
   position: absolute;
   top: 100%;
   left: 0;
-  z-index: var(--z-egress);
+  z-index: calc(var(--z-modal) + 3); /* as .shell-search__results */
   margin-top: 4px;
   border: var(--rule-hair) solid var(--control-line);
   background: var(--pop-bg);
@@ -907,7 +908,9 @@ button.shell-admin-pill {
 }
 .shell-show__style {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 6px 8px;
   padding: var(--s2) 8px;
   margin-top: 4px;
   border-top: var(--rule-hair) solid var(--hairline);
@@ -918,6 +921,26 @@ button.shell-admin-pill {
 }
 .shell-show__style .btn-group {
   height: var(--control-h-sm);
+}
+/* Four cable styles do not fit the menu's width in one row: two by two, inside the menu. */
+.shell-show__style[aria-label='Cable style'] .btn-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  flex-basis: 100%;
+  height: auto;
+}
+.shell-show__style[aria-label='Cable style'] .btn-group > button {
+  min-height: var(--control-h-sm);
+}
+.shell-show__style[aria-label='Cable style'] .btn-group > :nth-child(2n + 1) {
+  border-left: 0;
+}
+.shell-show__style[aria-label='Cable style'] .btn-group > :nth-child(n + 3) {
+  border-top: var(--rule-hair) solid var(--control-line);
+}
+.shell-show__style .shell-show__hint {
+  flex-basis: 100%;
+  margin: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -942,4 +965,303 @@ button.shell-admin-pill {
 }
 .shell-show:has(.shell-bar__fold-groups) {
   min-width: 300px;
+}
+
+/* The bar's Sample chip (r30-small): what the sample is, and Reset. */
+.sample-chip {
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s2) 8px;
+  font-size: var(--t-small);
+}
+.sample-chip p {
+  margin: 0;
+  line-height: 1.4;
+}
+.sample-chip__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.sample-chip__confirm .btn-group {
+  align-self: flex-start;
+}
+.sample-chip__error {
+  color: var(--danger);
+}
+
+/* r31-bar A: the four views. One ink underline slides to the chosen view instead of each tab drawing its own. */
+.shell-bar__tabs--views {
+  position: relative;
+}
+.shell-bar__tabs--views .shell-bar__tab--on {
+  border-bottom-color: transparent;
+}
+.shell-bar__tabs-mark {
+  position: absolute;
+  bottom: 0;
+  height: var(--rule-accent);
+  background: var(--ink);
+  transition:
+    left var(--m-layout, 260ms) var(--m-ease, ease),
+    width var(--m-layout, 260ms) var(--m-ease, ease);
+  pointer-events: none;
+}
+
+.shell-doing__hint {
+  margin-left: var(--s2);
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+/* A menu that opens upward (the zoom pill's stops). */
+.shell-popover.shell-popover--above {
+  top: auto;
+  bottom: 100%;
+  left: 50%;
+  margin-top: 0;
+  margin-bottom: 6px;
+  transform: translateX(-50%);
+}
+
+/* r31-bar A: the drawing's tools, top left on the drawing. Select and Pan (drawn by the canvas) and the Back trail are
+   moved into the two slots, so their own corner placement is undone here. */
+.shell-canvas-bar {
+  position: absolute;
+  top: var(--s2);
+  left: var(--s2);
+  right: var(--s2);
+  z-index: 6;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2);
+  pointer-events: none;
+  transition: opacity var(--m-layout, 260ms) var(--m-ease, ease);
+}
+.shell-canvas-bar__group {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 2px var(--s2) 2px 2px;
+  background: var(--page);
+  border: var(--rule-hair) solid var(--control-line);
+  border-radius: var(--radius-pop);
+  box-shadow: var(--shadow-pop);
+  pointer-events: auto;
+}
+.shell-canvas-bar__slot {
+  display: contents;
+}
+.shell-canvas-bar__slot > * {
+  pointer-events: auto;
+}
+.shell-canvas-bar .canvas-tools {
+  position: static;
+  border: 0;
+  padding: 0;
+  box-shadow: none;
+}
+.shell-canvas-bar .jump-trail {
+  position: static;
+  pointer-events: auto;
+}
+.shell-canvas-bar__group:has(> .shell-canvas-bar__slot:empty) {
+  padding-left: var(--s2);
+}
+/* The colour key lives in Layers now (r30-panels): it sits in the menu, not over the drawing. */
+.shell-popover .colour-key {
+  position: static;
+  margin-top: var(--s2);
+  max-width: none;
+  border: 0;
+  box-shadow: none;
+  background: none;
+  animation: none;
+}
+
+/* Undo, Redo and zoom: one pill at the bottom of the drawing. */
+.shell-pill {
+  position: absolute;
+  left: 50%;
+  bottom: var(--s3);
+  z-index: 6;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px var(--s1);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--control-line);
+  border-radius: var(--radius-pop);
+  box-shadow: var(--shadow-pop);
+  transition: opacity var(--m-layout, 260ms) var(--m-ease, ease);
+}
+.shell-pill__btn,
+.shell-pill__value {
+  min-width: var(--control-h);
+  height: var(--control-h);
+  padding: 0 var(--s1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-small);
+  box-shadow: none;
+  cursor: pointer;
+}
+.shell-pill__value {
+  min-width: 52px;
+  font-family: var(--mono);
+}
+.shell-pill__btn:hover:not(:disabled),
+.shell-pill__value:hover,
+.shell-pill__value--on {
+  background: var(--control-bg-hover);
+}
+.shell-pill__btn:disabled {
+  color: var(--muted);
+  opacity: 0.5;
+  cursor: default;
+}
+.shell-pill__rule {
+  width: var(--rule-hair);
+  height: 16px;
+  margin: 0 var(--s1);
+  background: var(--hairline);
+}
+.shell-pill__stops {
+  display: flex;
+  gap: var(--s1);
+  padding: var(--s1);
+}
+.shell-pill__stop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s1);
+  padding: var(--s1) var(--s2);
+  border: 0;
+  background: none;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  box-shadow: none;
+  cursor: pointer;
+}
+.shell-pill__stop[aria-pressed='true'] {
+  color: var(--ink);
+  font-weight: 700;
+}
+.shell-pill__stop-dot {
+  width: 8px;
+  height: 8px;
+  border: var(--rule-hair) solid var(--ink);
+}
+.shell-pill__stop[aria-pressed='true'] .shell-pill__stop-dot {
+  background: var(--ink);
+}
+
+/* r31-motion: the tools step back while something is dragged on the drawing. */
+.shell__drawing:has(.react-flow__pane.dragging, .react-flow__node.dragging) .shell-canvas-bar,
+.shell__drawing:has(.react-flow__pane.dragging, .react-flow__node.dragging) .shell-pill {
+  opacity: 0.25;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-bar__tabs-mark,
+  .shell-canvas-bar,
+  .shell-pill {
+    transition: none;
+  }
+}
+
+/* r31-motion: a job under way takes the bar. The other views fold away, the job sits after the design, and the rule
+   under the bar takes the job's colour. */
+.shell-bar {
+  --task-tone: var(--ink);
+  transition: border-color var(--m-layout, 260ms) var(--m-ease, ease);
+}
+.shell-bar[data-tone='plan'] {
+  --task-tone: var(--m-plan, var(--ink));
+}
+.shell-bar[data-tone='do'] {
+  --task-tone: var(--m-do, var(--ink));
+}
+.shell-bar[data-tone='down'] {
+  --task-tone: var(--danger);
+}
+.shell-bar[data-tone='trace'] {
+  --task-tone: var(--sheath-blue);
+}
+.shell-bar--task {
+  border-bottom-color: var(--task-tone);
+}
+.shell-bar__tabs--views .shell-bar__tab {
+  transition:
+    max-width var(--m-layout, 260ms) var(--m-ease, ease),
+    opacity var(--m-layout, 260ms) var(--m-ease, ease),
+    padding var(--m-layout, 260ms) var(--m-ease, ease);
+  max-width: 160px;
+  overflow: hidden;
+}
+.shell-bar__tabs--folded .shell-bar__tab:not(.shell-bar__tab--on) {
+  max-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.shell-task {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  height: var(--control-h);
+  padding: 0 var(--s1) 0 var(--s2);
+  border: var(--rule-hair) solid var(--task-tone);
+  background: color-mix(in srgb, var(--task-tone) 8%, var(--page));
+  font-size: var(--t-small);
+  white-space: nowrap;
+}
+.shell-task__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--task-tone);
+}
+.shell-task__label {
+  font-weight: 700;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.shell-task__stage {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  color: var(--task-tone);
+  font-weight: 700;
+}
+.shell-task__exit {
+  height: calc(var(--control-h) - 6px);
+  padding: 0 var(--s2);
+  border: var(--rule-hair) solid var(--control-line);
+  background: var(--page);
+  font: inherit;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  box-shadow: none;
+  cursor: pointer;
+}
+@media (prefers-reduced-motion: reduce) {
+  .shell-bar,
+  .shell-bar__tabs--views .shell-bar__tab {
+    transition: none;
+  }
 }

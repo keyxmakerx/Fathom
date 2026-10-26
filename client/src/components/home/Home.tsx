@@ -12,10 +12,11 @@ import {
 } from '../../api/designs';
 import { ApiRefusal } from '../../api/errors';
 import { fetchOrganisations, type Organisation } from '../../api/organisations';
-import { fetchCatalogue, fetchModel, type CatalogueModel } from '../../api/catalogue';
 import { createScope, fetchScopes, type Scope } from '../../api/scopes';
+import { openDesign } from '../../api/payload';
+import { publishedLesson } from '../../document/lessons';
 import { emptyDocument } from '../../document/model';
-import { writePlain } from '../../document/plain';
+import { readPlain, writePlain } from '../../document/plain';
 import { About } from '../about/About';
 import { getSession } from '../../state/sessionState';
 import { clearJoinedFromInvitation, stillWaitingInvitee, wasJoinedFromInvitation } from '../../state/waitingInvitee';
@@ -31,9 +32,14 @@ import { HomeTabs } from './HomeTabs';
 import { homeTabs, type HomeTab } from './homeTabs';
 import { newDesignTarget } from './newDesign';
 import { RecentRow } from './RecentRow';
+import { whenLabel } from '../history/HistoryPanel';
 import { loadFirstSteps, rememberSample, setFirstStepsHidden, type FirstStepsState } from './firstSteps';
 import { GettingStarted, SampleCard } from './GettingStarted';
-import { buildSample, modelKey, sample, sampleModels } from './sampleNetwork';
+import { HOME_SAMPLE, modelsFor } from './sampleModels';
+import { buildSample, sample, sampleModels, type SamplePaste, type SampleSpec } from './sampleNetwork';
+import { LessonsList } from '../lessons/LessonsList';
+import { lessons, loadRuns, publishedLessonDesigns, saveRun, type Lesson, type LessonRun, type WrittenLesson } from '../lessons/lessonModel';
+import { bootLessonMirror } from '../lessons/useLessonChecks';
 import './home.css';
 import { EmptyState } from '../ui/EmptyState';
 import { SkeletonRows } from '../ui/Skeleton';
@@ -105,19 +111,8 @@ const LEVEL: Record<string, string> = { network: 'Site', building: 'Building', r
 /** The busy marker while the home screen's own New design is making a Site. */
 const NEW_SITE_PENDING = 'new-site-pending';
 
-/** The sample Home offers (r15-start); its file is `corpus/samples/home-lab.json`. */
-const HOME_SAMPLE = 'home-lab';
 /** The same network with mistakes planted for Checks (card nu-why A); `corpus/samples/practice-lab.json`. */
 const PRACTICE_SAMPLE = 'practice-lab';
-
-/** The catalogue models a sample names, each fetched once; one the catalogue does not hold is left out, and the
- * sample draws that device as a sketch. Never a refusal: the sample opens whatever the catalogue answers. */
-async function modelsFor(names: readonly { vendor: string; model: string }[]): Promise<Map<string, CatalogueModel>> {
-  const list = await fetchCatalogue().catch(() => []);
-  const held = list.filter((e) => names.some((n) => modelKey(n.vendor, n.model) === modelKey(e.vendor, e.model)));
-  const models = await Promise.all(held.map((e) => fetchModel(e.vendor, e.model).catch(() => null)));
-  return new Map(models.filter((m): m is CatalogueModel => m !== null).map((m) => [modelKey(m.vendor, m.model), m]));
-}
 
 export function Home({
   address,
@@ -145,6 +140,9 @@ export function Home({
   const [firstSteps, setFirstSteps] = useState<FirstStepsState>(() => loadFirstSteps(accountId));
   const [sampleBusy, setSampleBusy] = useState(false);
   const [sampleError, setSampleError] = useState<string | null>(null);
+  const [lessonRuns, setLessonRuns] = useState<LessonRun[]>(() => loadRuns(accountId));
+  const [lessonBusy, setLessonBusy] = useState<string | null>(null);
+  const [lessonError, setLessonError] = useState<string | null>(null);
 
   // "New design" (ADR-0054 §2, draw creates a design): which scope's button
   // is mid-request, and the last refusal, if any. Never more than one
@@ -372,27 +370,89 @@ export function Home({
     setSampleBusy(true);
     try {
       const spec = sample(sampleId);
-      const target = newDesignTarget(scopes.value);
-      let scope: Scope;
-      if (target.kind === 'scope') {
-        scope = target.scope;
-      } else {
-        scope = await createScope(organisation.organisationId, null, organisation.displayName);
-        setScopes((current) => (current.status === 'ready' ? { status: 'ready', value: [...current.value, scope] } : current));
-      }
-      const built = buildSample(spec, await modelsFor(sampleModels(spec)), accountId != null ? { actor: accountId } : undefined);
-      const design = await createDesign(organisation.organisationId, scope.scopeId, writePlain(built.doc));
-      rememberSample(accountId, design.designId, sampleId);
-      // The name is a nicety; a refused rename still opens the sample, untitled.
-      const named = await renameDesign(organisation.organisationId, design.designId, spec.name).then(
-        () => ({ ...design, name: spec.name }),
-        () => design,
-      );
+      const named = await copySample(organisation, spec, spec.name);
+      rememberSample(accountId, named.designId, sampleId);
       onOpenRacks(organisation, named);
     } catch (error: unknown) {
       setSampleError(describeError(error));
       setSampleBusy(false);
     }
+  }
+
+  /** A fresh copy of a sample as a design of the person's own, in the place New design puts one, named `name`. */
+  async function copySample(organisation: Organisation, spec: SampleSpec, name: string): Promise<DesignSummary> {
+    if (scopes.status !== 'ready') throw new Error('The folders have not loaded yet.');
+    const target = newDesignTarget(scopes.value);
+    let scope: Scope;
+    if (target.kind === 'scope') {
+      scope = target.scope;
+    } else {
+      scope = await createScope(organisation.organisationId, null, organisation.displayName);
+      setScopes((current) => (current.status === 'ready' ? { status: 'ready', value: [...current.value, scope] } : current));
+    }
+    const actor = accountId != null ? { actor: accountId } : undefined;
+    // A sample with a pasted config goes through the redaction gate in the engine, the way a person's paste does.
+    const mirror = (spec.configs ?? []).length > 0 ? await bootLessonMirror() : null;
+    const paste: SamplePaste | undefined =
+      mirror == null
+        ? undefined
+        : (doc, deviceId, text, platform) => {
+            mirror.load(doc);
+            return mirror.pasteInto(deviceId, text, platform).doc;
+          };
+    const built = buildSample(spec, await modelsFor(sampleModels(spec)), actor, paste);
+    const design = await createDesign(organisation.organisationId, scope.scopeId, writePlain(built.doc));
+    // The name is a nicety; a refused rename still opens the copy, untitled.
+    return renameDesign(organisation.organisationId, design.designId, name).then(
+      () => ({ ...design, name }),
+      () => design,
+    );
+  }
+
+  /** Round 10 lessons B: every start is a new copy of the lesson's sample, so a lesson never touches a real design. */
+  async function startLesson(organisation: Organisation, lesson: Lesson) {
+    setLessonError(null);
+    setLessonBusy(lesson.id);
+    try {
+      const named = await copySample(organisation, sample(lesson.sample), `Practice: ${lesson.title}`);
+      setLessonRuns(saveRun(accountId, { lessonId: lesson.id, designId: named.designId, step: 0 }));
+      onOpenRacks(organisation, named);
+    } catch (error: unknown) {
+      setLessonError(describeError(error));
+      setLessonBusy(null);
+    }
+  }
+
+  /** A lesson someone published (ADR-0066 §2): every start is a new copy of the published design, named Practice. */
+  async function startWrittenLesson(organisation: Organisation, written: WrittenLesson) {
+    if (scopes.status !== 'ready') return;
+    setLessonError(null);
+    setLessonBusy(written.lessonId);
+    try {
+      const opened = await openDesign(organisation.organisationId, written.designId);
+      const doc = readPlain(opened.bytes);
+      const lesson = publishedLesson(doc);
+      if (lesson == null) throw new Error('That design holds no published lesson.');
+      const target = newDesignTarget(scopes.value);
+      const scope = target.kind === 'scope' ? target.scope : await createScope(organisation.organisationId, null, organisation.displayName);
+      const design = await createDesign(organisation.organisationId, scope.scopeId, writePlain(doc));
+      const name = `Practice: ${lesson.title}`;
+      const named = await renameDesign(organisation.organisationId, design.designId, name).then(
+        () => ({ ...design, name }),
+        () => design,
+      );
+      setLessonRuns(saveRun(accountId, { lessonId: written.lessonId, designId: named.designId, step: 0, of: lesson.steps.length }));
+      onOpenRacks(organisation, named);
+    } catch (error: unknown) {
+      setLessonError(describeError(error));
+      setLessonBusy(null);
+    }
+  }
+
+  function continueLesson(organisation: Organisation, run: LessonRun) {
+    if (designs.status !== 'ready') return;
+    const design = designs.value.find((d) => d.designId === run.designId);
+    if (design != null) onOpenRacks(organisation, design);
   }
 
   function hideFirstSteps(hidden: boolean) {
@@ -569,7 +629,8 @@ export function Home({
         <section className="home__section">
           <div className="home__section-head">
             <div className="home__label">Designs you may open</div>
-            {selectedOrganisation && (
+            {/* With no designs yet, the empty state's own New design is the one button (r30-small). */}
+            {selectedOrganisation && !(designs.status === 'ready' && designs.value.length === 0) && (
               <button
                 type="button"
                 className="home__btn home__btn--small"
@@ -613,6 +674,21 @@ export function Home({
             />
           )}
         </section>
+        )}
+
+        {shownTab === 'designs' && !waitingInvitee && selectedOrganisation && (
+          <LessonsList
+            lessons={lessons()}
+            written={designs.status === 'ready' ? publishedLessonDesigns(designs.value, lessonRuns) : []}
+            onStartWritten={(w) => void startWrittenLesson(selectedOrganisation, w)}
+            runs={lessonRuns}
+            openable={new Set(designs.status === 'ready' ? designs.value.map((d) => d.designId) : [])}
+            busyId={lessonBusy}
+            error={lessonError}
+            disabled={scopes.status !== 'ready' || designs.status !== 'ready'}
+            onStart={(lesson) => void startLesson(selectedOrganisation, lesson)}
+            onContinue={(run) => continueLesson(selectedOrganisation, run)}
+          />
         )}
       </main>
       )}
@@ -922,14 +998,12 @@ function DesignRow({ design, organisation, onOpenRacks, onOpenInventory, onRenam
           {error && <span className="home__error">{error}</span>}
         </form>
       ) : (
-        <span className="home__design-name" title={design.designId}>
+        <button type="button" className="home__design-name" onClick={() => onOpenRacks(organisation, design)}>
           {designTitle(design)}
-        </span>
+        </button>
       )}
-      <span className="home__design-meta">v{design.latestVersion}</span>
-      <span className="home__design-meta">{design.capability}</span>
       <span className="home__design-meta">
-        {formatCreatedAt(design.createdAtUnix)} · {design.createdBy}
+        v{design.latestVersion} · {design.capability} · started {whenLabel(design.createdAtUnix).toLowerCase()}
       </span>
       <span className="home__design-actions">
         {canDrawFor(design.capability) && !editing && (
@@ -971,6 +1045,3 @@ function describeError(error: unknown): string {
   return 'That request did not complete.';
 }
 
-function formatCreatedAt(unixSeconds: number): string {
-  return new Date(unixSeconds * 1000).toLocaleString();
-}

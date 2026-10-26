@@ -2,6 +2,7 @@ import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getSession } from '../../state/sessionState';
 import { viewOfAll, type ClosetView } from '../../document/view';
+import { previewSwapIn } from '../../document/swapModel';
 import { deriveNetworks, type NetworksDerived } from '../../document/networks-derive';
 import { deriveIpam, type IpamDerived } from '../../document/ipam';
 import { pastePrefixRows, pasteVlanRows } from '../../document/ipam-write';
@@ -77,12 +78,16 @@ import {
 import './inventory.css';
 import { EmptyState } from '../ui/EmptyState';
 import { SkeletonRows } from '../ui/Skeleton';
+import { loadSheet, saveSheet } from './sheetPref';
+import { saveLook } from '../drawing/look';
 
 const EMPTY_VIEW: ClosetView = { premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [], free: [], lines: [], labels: [] };
 const EMPTY_NETWORKS_DERIVED: NetworksDerived = { vlanRows: [], subnetRows: [], dockerNetworkRows: [], dockerUnattachedContainers: [] };
 const EMPTY_IPAM: IpamDerived = { prefixes: [], vlans: [] };
 /** Kinds read off the network derivation. */
 const NETWORK_KINDS: ReadonlySet<Kind> = new Set<Kind>(['networks', 'addresses', 'prefixes', 'vlans']);
+/** r31-bar A: the lists the Sheet shows as tabs along the bottom, one spreadsheet each. */
+const SHEET_KINDS: ReadonlySet<Kind> = new Set<Kind>(['devices', 'ports', 'racks', 'cables', 'models', 'prefixes', 'vlans', 'addresses']);
 
 export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'children'> {
   session: DesignSession;
@@ -154,6 +159,8 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const { doc, catalogue, loadError, saveRefusal, canDraw, handleEdit, applyDocChange, reloadDesign } = session;
 
   const { ls, go, back: stepBack, backLabel, moves } = useListState();
+  // r31-bar A: the Sheet face, kept in this browser (`sheetPref.ts`).
+  const [sheet, setSheet] = useState(loadSheet);
   const kind: Kind = isKind(ls.kind) ? ls.kind : 'devices';
   const openKey = ls.open || null;
   const q = ls.q;
@@ -176,6 +183,8 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   }
   const [prefs, setPrefs] = useState<string[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // The filter line stays folded until Filter is pressed or a filter is set (r30-small).
+  const [filterShown, setFilterShown] = useState(false);
   const [pasteText, setPasteText] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   // The design as it was when the importer opened, and as it is now (the dialog's callback is old by
@@ -556,6 +565,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     onSetField: canDraw ? fieldsActions.onSetField : undefined,
     onAddFieldDef: canDraw ? fieldsActions.onAddFieldDef : undefined,
     onRemoveFieldDef: canDraw ? fieldsActions.onRemoveFieldDef : undefined,
+    previewSwap: (chassisId: string, m: { vendor: string; model: string }) => (doc ? previewSwapIn(doc, catalogue, chassisId, m) : null),
   };
 
   const actorOpts = ctx.actor ? { actor: ctx.actor } : undefined;
@@ -717,17 +727,38 @@ export function InventoryPlace(props: InventoryPlaceProps) {
       </div>
     ) : null;
 
+  // r31-bar A: Inventory and Sheet are this place's two faces; Diagram and Canvas open the drawing in that look.
+  const mainView: ShellProps['mainView'] = {
+    value: sheet ? 'sheet' : 'inventory',
+    onChange: (next) => {
+      if (next === 'inventory' || next === 'sheet') {
+        const on = next === 'sheet';
+        saveSheet(on);
+        setSheet(on);
+        if (on && !SHEET_KINDS.has(kind)) switchKind('devices');
+        return;
+      }
+      saveLook(accountId, session.designId, next === 'diagram' ? 'diagram' : 'rack');
+      shellProps.onPlaceChange('racks');
+    },
+  };
+
   return (
-    <Shell {...shellProps} lens={lens} editor={null} viewOnly={!canDraw}>
+    <Shell {...shellProps} lens={lens} editor={null} viewOnly={!canDraw} mainView={mainView}>
       {doc == null ? (
         <div className="inventory-place__loading">{loadError ?? <SkeletonRows label="Opening the design…" rows={9} />}</div>
       ) : (
         <PasteGateBoundary redact={redact}>
-        <div className="inventory-place">
+        <div className={sheet ? 'inventory-place inventory-place--sheet' : 'inventory-place'}>
+          {sheet ? null : (
+          <>
           <FindBox index={searchIndex} arm={() => setFindArmed(true)} value={ls.find} onValue={(v) => go({ find: v })} where={where} onOpen={openHit} onClearWhere={() => go({ where: NO_WHERE })} slot={findSlot} />
           <WhereBar where={where} options={whereOpts} onChange={(w) => go({ where: w })} />
           <div className="inv-find-slot" ref={setFindSlot} />
+          </>
+          )}
           <div className="inventory-place__body">
+          {sheet ? null : (
           <SideList
             kind={kind}
             viewId={currentView?.id ?? ''}
@@ -740,6 +771,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
             onRemoveView={onRemoveView}
             waiting={canDraw ? { count: waitingCount, onOpen: openWaiting } : undefined}
           />
+          )}
 
           {kind === 'networks' ? (
             <div className="inventory-place__main inventory-place__main--flush">
@@ -816,8 +848,11 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                 notice={notice}
                 progress={bulkProgress}
                 undo={bulkUndo && bulkUndo.notice === notice && bulkStillUndoable(doc, bulkUndo.id) ? { run: runBulkUndo } : null}
+                filter={{ shown: filterShown || q !== '', onToggle: () => setFilterShown(!filterShown) }}
               />
-              <FilterLine q={q} onQ={(next) => go({ q: next })} schema={schema} rows={baseRows} parsed={filtered.parsed} kindLabel={kindLabel} />
+              {filterShown || q !== '' ? (
+                <FilterLine q={q} onQ={(next) => go({ q: next })} schema={schema} rows={baseRows} parsed={filtered.parsed} kindLabel={kindLabel} autoFocus={filterShown && q === ''} />
+              ) : null}
               <div
                 className="inv-list__grid"
                 onPaste={(e) => {
@@ -872,9 +907,9 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                         }
                       >
                         {kind === 'devices'
-                          ? 'Type a name in the box above to add one, or import a list.'
+                          ? 'Press + above to name one, or import a list.'
                           : kind === 'racks'
-                            ? 'Type a name in the box above to add a rack.'
+                            ? 'Press + above to name a rack.'
                             : kind === 'cables'
                               ? 'Draw cables on the canvas and they are listed here.'
                               : kind === 'ports'
@@ -901,6 +936,16 @@ export function InventoryPlace(props: InventoryPlaceProps) {
             </div>
           )}
           </div>
+          {sheet ? (
+            <nav className="inv-sheet-tabs" aria-label="Sheets">
+              {KINDS.filter((k) => SHEET_KINDS.has(k.key)).map((k) => (
+                <button key={k.key} type="button" className="inv-sheet-tab" aria-current={k.key === kind ? 'page' : undefined} data-testid={`sheet-tab-${k.key}`} onClick={() => switchKind(k.key)}>
+                  {k.label}
+                  {counts[k.key] != null ? <span className="inv-sheet-tab__n">{counts[k.key]}</span> : null}
+                </button>
+              ))}
+            </nav>
+          ) : null}
           {importing && doc ? (
             <ImportDialog
               doc={doc}

@@ -19,6 +19,7 @@ import type { Organisation } from './api/organisations';
 import { buildScopeForest, fetchScopes, pathTo, type Scope, type ScopeTreeNode } from './api/scopes';
 import { Account } from './components/Account';
 import { ClaimOrganisation } from './components/claim';
+import { TypeItYourself } from './components/typing/typeItYourself';
 import { Console } from './components/console/Console';
 import { Enrol, invitationFromLocation } from './components/Enrol';
 import { FirstRun } from './components/FirstRun';
@@ -727,6 +728,13 @@ export default function App() {
           setAccountOpen(false);
           setAccountFocus(undefined);
         }}
+        onTypeItYourself={(organisationId) =>
+          setView((v) =>
+            v.kind === 'place' && v.organisation.organisationId === organisationId
+              ? { ...v, organisation: { ...v.organisation, typeItYourself: true } }
+              : v,
+          )
+        }
       />
     );
   }
@@ -740,7 +748,11 @@ export default function App() {
         accountId={session.accountId}
         initialToken={claiming.token}
         initialNoticeAddress={claiming.noticeAddress}
-        onDone={() => setClaiming(null)}
+        onDone={() => {
+          setClaiming(null);
+          // A claimed organisation is somewhere to draw: land on its designs, not back in the console (r30-small).
+          setHomeTab('designs');
+        }}
         onCancel={() => setClaiming(null)}
       />
     );
@@ -1013,15 +1025,17 @@ export default function App() {
   // `Document`/`SaveQueue` (`useDesignSession`) the two share, so choosing
   // between them here never reloads the design or drops a queued save.
   return (
-    <DesignPlace
-      {...shellPlaceProps}
-      organisationId={view.organisation.organisationId}
-      designId={view.design.designId}
-      onZoomChange={setZoom}
-      capability={view.design.capability}
-      scopeId={view.design.scopeId}
-      openDevice={view.openDevice}
-    />
+    <TypeItYourself.Provider value={view.organisation.typeItYourself}>
+      <DesignPlace
+        {...shellPlaceProps}
+        organisationId={view.organisation.organisationId}
+        designId={view.design.designId}
+        onZoomChange={setZoom}
+        capability={view.design.capability}
+        scopeId={view.design.scopeId}
+        openDevice={view.openDevice}
+      />
+    </TypeItYourself.Provider>
   );
 }
 

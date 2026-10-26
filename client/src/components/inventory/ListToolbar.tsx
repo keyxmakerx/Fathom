@@ -36,6 +36,8 @@ export interface ListToolbarProps {
   progress?: { done: number; total: number } | null;
   /** Shown beside the notice after a bulk change. */
   undo?: { run: () => void } | null;
+  /** The filter line is folded until asked for (r30-small): Find is the one box on show. */
+  filter?: { shown: boolean; onToggle: () => void };
 }
 
 export interface KindFilter {
@@ -47,7 +49,9 @@ export interface KindFilter {
 }
 
 export function ListToolbar(props: ListToolbarProps) {
-  const { kindLabel, columnsAll, columns, onColumns, canAdd, addHint, onAdd, addAction, onPaste, onImport, kindFilter, checkedRows, bulkColumns, onBulkApply, bulkCheck, matching, onSelectAllMatching, onClearChecked, notice, undo, progress } = props;
+  const { kindLabel, columnsAll, columns, onColumns, canAdd, addHint, onAdd, addAction, onPaste, onImport, kindFilter, checkedRows, bulkColumns, onBulkApply, bulkCheck, matching, onSelectAllMatching, onClearChecked, notice, undo, progress, filter } = props;
+  // The name box opens from + Device rather than standing in the toolbar (r30-small).
+  const [naming, setNaming] = useState(false);
   const [name, setName] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
   const nameBox = useRef<HTMLInputElement>(null);
@@ -66,6 +70,7 @@ export function ListToolbar(props: ListToolbarProps) {
     else {
       setName('');
       setAddError(null);
+      setNaming(false);
     }
   };
 
@@ -130,10 +135,19 @@ export function ListToolbar(props: ListToolbarProps) {
             Paste rows
           </button>
         ) : null}
+        {filter ? (
+          <button type="button" className="btn-quiet" aria-expanded={filter.shown} onClick={filter.onToggle}>
+            Filter
+          </button>
+        ) : null}
         <button type="button" className="btn-quiet" aria-expanded={open === 'columns'} onClick={() => setOpen(open === 'columns' ? null : 'columns')}>
           Columns
         </button>
-        {canAdd ? (
+        {canAdd && !naming ? (
+          <button type="button" className="btn-main" onClick={() => setNaming(true)}>
+            + {kindLabel.replace(/s$/, '')}
+          </button>
+        ) : canAdd ? (
           <form
             className="inv-toolbar__add"
             onSubmit={(e) => {
@@ -143,13 +157,24 @@ export function ListToolbar(props: ListToolbarProps) {
           >
             <input
               ref={nameBox}
+              autoFocus
               aria-label={`Name of the new ${kindLabel.toLowerCase().replace(/s$/, '')}`}
               placeholder="Name"
               value={name}
               onChange={(e) => setName(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.stopPropagation();
+                  setNaming(false);
+                  setAddError(null);
+                }
+              }}
+              onBlur={() => {
+                if (name.trim() === '') setNaming(false);
+              }}
             />
             <button type="submit" className="btn-main">
-              + {kindLabel.replace(/s$/, '')}
+              Add
             </button>
           </form>
         ) : addAction ? (

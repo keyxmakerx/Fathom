@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.26";
+export const SCHEMA_VERSION = "0.27";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -79,7 +79,9 @@ export type NodeKind =
   | "FirmwareTarget"
   | "CableRun"
   | "CableTie"
-  | "OverlayNetwork";
+  | "OverlayNetwork"
+  | "Lesson"
+  | "LessonStep";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -154,6 +156,8 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "CableRun",
   "CableTie",
   "OverlayNetwork",
+  "Lesson",
+  "LessonStep",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -275,7 +279,9 @@ export type EdgeKind =
   | "HasCableTie"
   | "Ties"
   | "HasOverlay"
-  | "OverlayMember";
+  | "OverlayMember"
+  | "HasLesson"
+  | "HasLessonStep";
 export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasDevice",
   "HasChassis",
@@ -395,6 +401,8 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "Ties",
   "HasOverlay",
   "OverlayMember",
+  "HasLesson",
+  "HasLessonStep",
 ];
 
 /** Derived edge kinds — separate arena, never serialised (62 §11.4). */
@@ -551,6 +559,8 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   CableRun: ["form", "side", "label"],
   CableTie: ["at"],
   OverlayNetwork: ["name", "provider", "range", "note"],
+  Lesson: ["title", "summary", "author", "published_at", "source_design"],
+  LessonStep: ["ordinal", "kind", "title", "body", "hint", "after", "explainer", "answer", "trace_from", "trace_to", "flow", "expect_trace", "expect_crosses", "expect_stop", "expect_first_match", "expect_rule", "expect_now"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -975,4 +985,26 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "OverlayMember.address": 483,
   "OverlayMember.exit_node": 484,
   "OverlayMember.routes": 485,
+  "Lesson.title": 486,
+  "Lesson.summary": 487,
+  "Lesson.author": 488,
+  "Lesson.published_at": 489,
+  "Lesson.source_design": 490,
+  "LessonStep.ordinal": 491,
+  "LessonStep.kind": 492,
+  "LessonStep.title": 493,
+  "LessonStep.body": 494,
+  "LessonStep.hint": 495,
+  "LessonStep.after": 496,
+  "LessonStep.explainer": 497,
+  "LessonStep.answer": 498,
+  "LessonStep.trace_from": 499,
+  "LessonStep.trace_to": 500,
+  "LessonStep.flow": 501,
+  "LessonStep.expect_trace": 502,
+  "LessonStep.expect_crosses": 503,
+  "LessonStep.expect_stop": 504,
+  "LessonStep.expect_first_match": 505,
+  "LessonStep.expect_rule": 506,
+  "LessonStep.expect_now": 507,
 };

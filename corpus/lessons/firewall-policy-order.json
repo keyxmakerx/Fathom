@@ -1,0 +1,59 @@
+{
+  "id": "firewall-policy-order",
+  "title": "Firewall policy order",
+  "summary": "Why a policy that looks right never takes effect, and how to fix it.",
+  "sample": "small-office",
+  "sources": [
+    {
+      "claim": "Junos reads security policies from the top of the list and stops at the first match; a policy higher in the list can shadow one below it, and `insert ... before policy` moves a policy up.",
+      "cite": "Juniper Networks, Reordering Security Policies (page dated 13 November 2024)",
+      "url": "https://juniper.net/documentation/en_US/junos/topics/topic-map/security-reordering-policies.html",
+      "read_on": "2026-10-25"
+    },
+    {
+      "claim": "RTSP, the protocol camera viewers use for video, uses port 554 when no other is given.",
+      "cite": "RFC 7826, Real-Time Streaming Protocol Version 2.0, section 4.2",
+      "url": "https://www.rfc-editor.org/rfc/rfc7826.html",
+      "read_on": "2026-10-25"
+    }
+  ],
+  "steps": [
+    {
+      "kind": "read",
+      "title": "Zones and policies",
+      "body": "fw-1 puts each network in a zone: trust for the office, cameras for the cameras, untrust for the internet. Traffic from one zone to another is checked against the policies for that pair of zones. Junos reads them from the top of the list and stops at the first one that matches.",
+      "explainer": "explain:concept:basics.firewall-zones"
+    },
+    {
+      "kind": "click",
+      "title": "Where it is decided",
+      "prompt": "Click the device whose policies decide whether the office can reach the cameras.",
+      "answer": {
+        "device": "fw-1"
+      },
+      "hint": "The cameras are on their own network. Which device sits between the two networks?",
+      "after": "fw-1. Its office port and its cameras port are in different zones, so everything between the office and the cameras crosses its policies."
+    },
+    {
+      "kind": "trace",
+      "title": "Read the policies",
+      "prompt": "Trace from desktop-1 to camera-1 on TCP 554, the port camera viewers use for video (RTSP). Look at the policies on the fw-1 hop.",
+      "from": {
+        "device": "desktop-1"
+      },
+      "to": {
+        "device": "camera-1"
+      },
+      "flow": "TCP 554",
+      "expect": {
+        "firstMatch": "block-cameras"
+      },
+      "after": "Two policies sit between trust and cameras. block-cameras comes first and matches any traffic, so it matches this flow. allow-viewer, below it, was meant to let the viewer through, but Junos stops at the first match and never reaches it. (Fathom says can't tell for allow-viewer because junos-rtsp is one of Junos's built-in applications, whose ports the config does not state.)"
+    },
+    {
+      "kind": "read",
+      "title": "The fix",
+      "body": "Move allow-viewer above block-cameras: `insert security policies from-zone trust to-zone cameras policy allow-viewer before policy block-cameras`. Junos lists policies hidden like this with `show security shadow-policies`. A broad policy belongs below the narrow ones it would otherwise hide."
+    }
+  ]
+}

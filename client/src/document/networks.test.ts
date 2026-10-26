@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { addSketchPort, createSketchDevice } from './commands';
 import {
   NetworkRefusalError,
+  attachTargetForPort,
   addSubnet,
   addVlan,
   attachToSubnet,
@@ -439,3 +440,20 @@ function findEdgeLive(doc: Document, id: string) {
   const e = doc.edges.find((x) => x.id === id);
   return e && e.absentSince === undefined ? e : undefined;
 }
+
+describe('attachTargetForPort', () => {
+  it('moves a port to another VLAN by hand: detach it, then add it to the other one through its own unit', () => {
+    const { doc, portIds } = deviceWithPorts(['1']);
+    expect(attachTargetForPort(doc, portIds[0], 'port1')).toEqual({ kind: 'port', portId: portIds[0], interfaceName: 'port1' });
+    const in10 = addVlan(doc, { vlanId: 10, attach: [{ target: attachTargetForPort(doc, portIds[0], 'port1') }] }, { now: NOW });
+    const unit = in10.nodes.find((n) => n.absentSince === undefined && parseNodeId(n.id).kind === 'LogicalUnit')!;
+    expect(attachTargetForPort(in10, portIds[0], 'port1')).toEqual({ kind: 'unit', unitId: unit.id });
+    // The old way (a new interface on the port) is refused: the port already has one.
+    expect(() => addVlan(in10, { vlanId: 30, attach: [{ target: { kind: 'port', portId: portIds[0], interfaceName: 'port1' } }] }, { now: NOW })).toThrow(NetworkRefusalError);
+    const out = detachVlanMember(in10, edgesOut(in10, unit.id, 'VlanMember')[0].id, { now: NOW });
+    const in30 = addVlan(out, { vlanId: 30, attach: [{ target: attachTargetForPort(out, portIds[0], 'port1') }] }, { now: NOW });
+    const live = edgesOut(in30, unit.id, 'VlanMember').filter((e) => e.absentSince === undefined);
+    expect(live).toHaveLength(1);
+    expect(findNode(in30, live[0].to)?.fields['Vlan.vlan_id']?.value).toBe('30');
+  });
+});

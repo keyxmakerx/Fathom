@@ -1,0 +1,480 @@
+{
+  "id": "small-office",
+  "name": "Sample small office",
+  "summary": "A firewall, a PoE switch, two desk switches, Wi-Fi, a NAS and two cameras on their own VLAN, already cabled. The lessons run in a copy of it.",
+  "sources": [
+    {
+      "claim": "Every inside address in this sample is private address space (192.168.0.0/16).",
+      "cite": "RFC 1918, Address Allocation for Private Internets, section 3, Private Address Space",
+      "url": "https://www.rfc-editor.org/rfc/rfc1918.html",
+      "read_on": "2026-10-10"
+    },
+    {
+      "claim": "The firewall's outside address, 203.0.113.2, is in TEST-NET-3, kept for documentation, so nothing here names a real network.",
+      "cite": "RFC 5737, IPv4 Address Blocks Reserved for Documentation, section 3",
+      "url": "https://www.rfc-editor.org/rfc/rfc5737.html",
+      "read_on": "2026-10-25"
+    },
+    {
+      "claim": "The firewall's configuration uses Junos set statements for interfaces, security zones and policies between zones, the forms Fathom's SRX dictionary reads (corpus/dict/junos-srx, each file citing its own page).",
+      "cite": "Juniper Networks, policies (Security), Junos CLI reference",
+      "url": "https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/security-edit-policies.html",
+      "read_on": "2026-08-15"
+    },
+    {
+      "claim": "Device models, their port counts and which switch ports give PoE are the catalogue's, and cite their own sources there.",
+      "cite": "corpus/catalogue/ (each model's own source block)",
+      "url": "",
+      "read_on": "2026-10-25"
+    }
+  ],
+  "rack": {
+    "label": "Comms cabinet",
+    "heightU": 12,
+    "numbering": "ascending"
+  },
+  "shelves": [
+    {
+      "key": "shelf",
+      "label": "Shelf",
+      "positionU": 6
+    }
+  ],
+  "surfaces": [
+    {
+      "key": "desks",
+      "label": "Office desks",
+      "form": "desk",
+      "widthMm": 2400,
+      "heightMm": 750
+    },
+    {
+      "key": "meeting",
+      "label": "Meeting room table",
+      "form": "desk",
+      "widthMm": 1800,
+      "heightMm": 750
+    },
+    {
+      "key": "ceiling",
+      "label": "Office ceiling",
+      "form": "ceiling",
+      "widthMm": 1200,
+      "heightMm": 1200
+    },
+    {
+      "key": "wall",
+      "label": "Outside wall",
+      "form": "wall",
+      "widthMm": 2000,
+      "heightMm": 2400
+    }
+  ],
+  "devices": [
+    {
+      "hostname": "fw-1",
+      "role": "firewall",
+      "catalogue": {
+        "vendor": "juniper",
+        "model": "SRX300"
+      },
+      "place": {
+        "rack": 10
+      },
+      "ports": [
+        {
+          "label": "0",
+          "connector": "rj45"
+        },
+        {
+          "label": "1",
+          "connector": "rj45"
+        },
+        {
+          "label": "2",
+          "connector": "rj45"
+        }
+      ],
+      "face": "front"
+    },
+    {
+      "hostname": "switch-1",
+      "role": "switch",
+      "catalogue": {
+        "vendor": "ubiquiti",
+        "model": "USW-24-PoE"
+      },
+      "place": {
+        "rack": 8
+      },
+      "ports": [
+        {
+          "label": "1",
+          "connector": "rj45"
+        },
+        {
+          "label": "2",
+          "connector": "rj45"
+        },
+        {
+          "label": "3",
+          "connector": "rj45"
+        },
+        {
+          "label": "4",
+          "connector": "rj45"
+        },
+        {
+          "label": "5",
+          "connector": "rj45"
+        },
+        {
+          "label": "6",
+          "connector": "rj45"
+        },
+        {
+          "label": "7",
+          "connector": "rj45"
+        },
+        {
+          "label": "8",
+          "connector": "rj45"
+        },
+        {
+          "label": "10",
+          "connector": "rj45"
+        }
+      ],
+      "face": "front"
+    },
+    {
+      "hostname": "nas-1",
+      "role": "server",
+      "catalogue": {
+        "vendor": "synology",
+        "model": "DS224+"
+      },
+      "place": {
+        "shelf": "shelf",
+        "slot": 1
+      },
+      "ports": [
+        {
+          "label": "1",
+          "connector": "rj45"
+        },
+        {
+          "label": "2",
+          "connector": "rj45"
+        }
+      ],
+      "face": "rear"
+    },
+    {
+      "hostname": "ap-1",
+      "role": "access_point",
+      "catalogue": {
+        "vendor": "ubiquiti",
+        "model": "U6-Lite"
+      },
+      "place": {
+        "surface": "ceiling",
+        "x": 600,
+        "y": 600
+      },
+      "ports": [
+        {
+          "label": "1",
+          "connector": "rj45"
+        }
+      ],
+      "face": "rear"
+    },
+    {
+      "hostname": "switch-2",
+      "role": "switch",
+      "catalogue": {
+        "vendor": "tplink",
+        "model": "TL-SG108E"
+      },
+      "place": {
+        "surface": "desks",
+        "x": 200,
+        "y": 100
+      },
+      "ports": [
+        {
+          "label": "1",
+          "connector": "rj45"
+        },
+        {
+          "label": "2",
+          "connector": "rj45"
+        },
+        {
+          "label": "3",
+          "connector": "rj45"
+        },
+        {
+          "label": "4",
+          "connector": "rj45"
+        }
+      ],
+      "face": "front"
+    },
+    {
+      "hostname": "switch-3",
+      "role": "switch",
+      "catalogue": {
+        "vendor": "tplink",
+        "model": "TL-SG108E"
+      },
+      "place": {
+        "surface": "meeting",
+        "x": 300,
+        "y": 100
+      },
+      "ports": [
+        {
+          "label": "1",
+          "connector": "rj45"
+        },
+        {
+          "label": "2",
+          "connector": "rj45"
+        }
+      ],
+      "face": "front"
+    },
+    {
+      "hostname": "desktop-1",
+      "role": "other",
+      "place": {
+        "surface": "desks",
+        "x": 900,
+        "y": 100
+      },
+      "ports": [
+        {
+          "label": "eth0",
+          "connector": "rj45"
+        }
+      ],
+      "face": "rear"
+    },
+    {
+      "hostname": "printer-1",
+      "role": "other",
+      "place": {
+        "surface": "desks",
+        "x": 1800,
+        "y": 100
+      },
+      "ports": [
+        {
+          "label": "eth0",
+          "connector": "rj45"
+        }
+      ],
+      "face": "rear"
+    },
+    {
+      "hostname": "camera-1",
+      "role": "other",
+      "place": {
+        "surface": "wall",
+        "x": 300,
+        "y": 2200
+      },
+      "ports": [
+        {
+          "label": "eth0",
+          "connector": "rj45"
+        }
+      ],
+      "face": "rear"
+    },
+    {
+      "hostname": "camera-2",
+      "role": "other",
+      "place": {
+        "surface": "wall",
+        "x": 1700,
+        "y": 2200
+      },
+      "ports": [
+        {
+          "label": "eth0",
+          "connector": "rj45"
+        }
+      ],
+      "face": "rear"
+    }
+  ],
+  "cables": [
+    {
+      "a": "fw-1:0",
+      "outside": "ISP modem",
+      "sheath": "black",
+      "label": "WAN"
+    },
+    {
+      "a": "fw-1:1",
+      "b": "switch-1:1",
+      "sheath": "blue",
+      "label": "Office uplink"
+    },
+    {
+      "a": "fw-1:2",
+      "b": "switch-1:2",
+      "sheath": "yellow",
+      "label": "Cameras uplink"
+    },
+    {
+      "a": "switch-1:3",
+      "b": "nas-1:1",
+      "sheath": "blue"
+    },
+    {
+      "a": "switch-1:4",
+      "b": "ap-1:1",
+      "sheath": "white",
+      "label": "Office AP"
+    },
+    {
+      "a": "switch-1:5",
+      "b": "switch-2:1",
+      "sheath": "blue",
+      "label": "Desk run"
+    },
+    {
+      "a": "switch-1:7",
+      "b": "camera-1:eth0",
+      "sheath": "yellow"
+    },
+    {
+      "a": "switch-1:8",
+      "b": "camera-2:eth0",
+      "sheath": "yellow"
+    },
+    {
+      "a": "switch-1:10",
+      "b": "switch-3:1",
+      "sheath": "blue",
+      "label": "Meeting room run"
+    },
+    {
+      "a": "switch-2:2",
+      "b": "desktop-1:eth0",
+      "sheath": "grey"
+    },
+    {
+      "a": "switch-2:3",
+      "b": "printer-1:eth0",
+      "sheath": "grey"
+    }
+  ],
+  "vlans": [
+    {
+      "id": 10,
+      "name": "office",
+      "description": "Desks, printer, NAS and Wi-Fi",
+      "access": [
+        "switch-1:1",
+        "switch-1:3",
+        "switch-1:4",
+        "switch-1:5",
+        "switch-1:10",
+        "switch-2:1",
+        "switch-2:2",
+        "switch-2:3",
+        "switch-3:1"
+      ]
+    },
+    {
+      "id": 30,
+      "name": "cameras",
+      "description": "Cameras, kept apart from the office",
+      "access": [
+        "switch-1:2",
+        "switch-1:7",
+        "switch-1:8"
+      ]
+    }
+  ],
+  "subnets": [
+    {
+      "prefix": "192.168.10.0/24",
+      "gateway": "192.168.10.1",
+      "hosts": [
+        {
+          "port": "ap-1:1",
+          "address": "192.168.10.5/24"
+        },
+        {
+          "port": "nas-1:1",
+          "address": "192.168.10.10/24"
+        },
+        {
+          "port": "desktop-1:eth0",
+          "address": "192.168.10.50/24"
+        },
+        {
+          "port": "printer-1:eth0",
+          "address": "192.168.10.60/24"
+        }
+      ]
+    },
+    {
+      "prefix": "192.168.30.0/24",
+      "gateway": "192.168.30.1",
+      "hosts": [
+        {
+          "port": "camera-1:eth0",
+          "address": "192.168.30.21/24"
+        },
+        {
+          "port": "camera-2:eth0",
+          "address": "192.168.30.22/24"
+        }
+      ]
+    }
+  ],
+  "configs": [
+    {
+      "device": "fw-1",
+      "platform": "junos-srx",
+      "ties": {
+        "ge-0/0/0": "0",
+        "ge-0/0/1": "1",
+        "ge-0/0/2": "2"
+      },
+      "lines": [
+        "set system host-name fw-1",
+        "set interfaces ge-0/0/0 unit 0 family inet address 203.0.113.2/30",
+        "set interfaces ge-0/0/1 unit 0 family inet address 192.168.10.1/24",
+        "set interfaces ge-0/0/2 unit 0 family inet address 192.168.30.1/24",
+        "set routing-options static route 0.0.0.0/0 next-hop 203.0.113.1",
+        "set security zones security-zone untrust interfaces ge-0/0/0.0",
+        "set security zones security-zone trust interfaces ge-0/0/1.0",
+        "set security zones security-zone cameras interfaces ge-0/0/2.0",
+        "set security policies from-zone trust to-zone untrust policy office-out match source-address any",
+        "set security policies from-zone trust to-zone untrust policy office-out match destination-address any",
+        "set security policies from-zone trust to-zone untrust policy office-out match application any",
+        "set security policies from-zone trust to-zone untrust policy office-out then permit",
+        "set security policies from-zone trust to-zone cameras policy block-cameras match source-address any",
+        "set security policies from-zone trust to-zone cameras policy block-cameras match destination-address any",
+        "set security policies from-zone trust to-zone cameras policy block-cameras match application any",
+        "set security policies from-zone trust to-zone cameras policy block-cameras then deny",
+        "set security policies from-zone trust to-zone cameras policy allow-viewer match source-address any",
+        "set security policies from-zone trust to-zone cameras policy allow-viewer match destination-address any",
+        "set security policies from-zone trust to-zone cameras policy allow-viewer match application junos-rtsp",
+        "set security policies from-zone trust to-zone cameras policy allow-viewer then permit"
+      ]
+    }
+  ],
+  "trace": {
+    "from": "desktop-1",
+    "to": "nas-1"
+  }
+}

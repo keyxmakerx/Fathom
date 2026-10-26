@@ -1,6 +1,6 @@
 // The Checks panel (ADR-0061 §5, mockup r4-checks-a): docked right, draggable, folds to a count in the bar.
 // Severity is a word and a glyph, never a colour.
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 
 import type { CheckFinding } from '../../engine/engine';
@@ -8,6 +8,7 @@ import { anchorName, clampOffset, findingKey, panelNotes, SEVERITY, sourceView, 
 import type { ChecksController } from './useChecksController';
 import { RefusalCard } from './RefusalCard';
 import { Glossed } from '../learn/Glossed';
+import { InSideSlot, InSlot } from '../shell/sideSlot';
 import './checks.css';
 
 /** The bar's "Checks 2": toggles the panel. */
@@ -106,6 +107,8 @@ function Row({ finding, controller, canShow }: { finding: CheckFinding; controll
 
 /** `canShow` is false while the open-device view covers the canvas: Show would change nothing anyone can see. */
 export function ChecksPanel({ controller, canShow = true }: { controller: ChecksController; canShow?: boolean }) {
+  // In the right-hand panel (r30-panels) the card has a place already; its header does not drag it.
+  const inSlot = useContext(InSlot);
   const ref = useRef<HTMLElement>(null);
   const drag = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null);
   const { result, unavailable, prefs, setOffset, api } = controller;
@@ -192,7 +195,7 @@ export function ChecksPanel({ controller, canShow = true }: { controller: Checks
       aria-label="Checks"
       data-testid="checks-panel"
     >
-      <header className="checks-panel__head" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
+      <header className="checks-panel__head" {...(inSlot ? {} : { onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerCancel: onUp })}>
         <h2 className="checks-panel__title">Checks</h2>
         <button type="button" className="checks-link" aria-label="Fold the Checks panel" onClick={() => controller.setOpen(false)}>
           Fold
@@ -244,7 +247,11 @@ export function ChecksSurface({ controller, canShow = true }: { controller: Chec
   return (
     <>
       <span ref={probe} className="checks-probe" aria-hidden="true" />
-      {controller.open && <ChecksPanel controller={controller} canShow={canShow} />}
+      {controller.open && (
+        <InSideSlot id="checks">
+          <ChecksPanel controller={controller} canShow={canShow} />
+        </InSideSlot>
+      )}
       {controller.refusal != null && (
         <RefusalCard
           finding={controller.refusal.finding}
