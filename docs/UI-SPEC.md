@@ -366,13 +366,17 @@ Built in part one. Pictures from the real-server drive: `reviews/vault/` in the 
   it anyway". After an unlock, a note says what was checked and names anything found.
 - **Outside vaults** (part four). Home or Organisation › Passwords has an "Outside vaults" section;
   a member's shows their own and "+ Connect an outside vault", an admin's is "Outside vaults,
-  everyone's". The connect dialog lists Vaultwarden and Delinea Secret Server to choose from, and
-  Passbolt (Next, not selectable). For Vaultwarden: the address, the API key's client id and secret,
+  everyone's". The connect dialog lists Vaultwarden, Delinea Secret Server and Passbolt to choose
+  from; Passbolt is greyed with "Not on this server" when its helper is not running. For Vaultwarden: the address, the API key's client id and secret,
   the master password ("Used in this browser to open the account once. It is never sent to Fathom's
   server."), the e-mail when the vault does not say it, and the collection's name, with the three
   checks listed and ticked or crossed. For Secret Server: the address, the account's user name and
   password, and the folder's name, with its two checks, and a note that Fathom checks what the
-  account can see, not what it may do. A card is titled "Vaultwarden · collection" or "Secret
+  account can see, not what it may do. For Passbolt: the invitation link and the folder's name;
+  "Read the invitation" then shows Passbolt's server key fingerprint with "This is the fingerprint
+  Passbolt's administrator gave me", which must be ticked before "Set up Fathom's account". Its card
+  starts Waiting, with its four checks ticked or crossed, until the folder and metadata key are
+  shared, then turns On. A card is titled "Vaultwarden · collection" or "Secret
   Server · folder". A connection card shows its state (On,
   Stopped with the reason, Disconnected), each pulled login with its kind, "used N times",
   and Remove or Restore; "Check now and list its logins" lists the collection with "Pull into

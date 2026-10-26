@@ -1,0 +1,26 @@
+# The Passbolt helper (ADR-0071 part four, Passbolt; owner's answers 2026-10-26: r34-passbolt
+# v2 B, r34-passbolt-crates A "but let this be an optional thing").
+#
+# Its own workspace and its own Cargo.lock, so the 124 packages rpgp brings never enter Fathom's
+# lock, its gates or its server image. It builds only when an operator switches the `passbolt`
+# compose profile on. It runs with no network, a read-only filesystem and no capabilities, and
+# answers the server over one Unix socket (README.md here).
+[workspace]
+
+[package]
+name = "fathom-passbolt-helper"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+# Default features off: no bzip2. Fathom never asks it to use RSA or a NIST curve with a private
+# key (src/lib.rs, `curve25519_only`).
+pgp = { version = "=0.21.0", default-features = false }
+# The versions rpgp itself takes; no second copy.
+rand = "=0.8.8"
+serde_json = "=1.0.154"
+
+[profile.release]
+panic = "abort"

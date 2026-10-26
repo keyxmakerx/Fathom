@@ -474,7 +474,9 @@ pub enum EntryType {
     //
     // Written by `vault_outside.rs`.
     /// A connection to an outside vault, or one login pulled through it,
-    /// changed: `stage` is `connected`, `stopped` (a check failed on a read),
+    /// changed: `stage` is `connected`, `set_up` (Passbolt: Fathom made its
+    /// key, with both fingerprints), `bound` (Passbolt: the first passing
+    /// check), `stopped` (a check failed on a read), `resumed`,
     /// `disconnected`, `pulled`, `changed`, `removed` or `restored`. Names the
     /// connection, the item when there is one, its owner and who acted; never
     /// a login's name or value.

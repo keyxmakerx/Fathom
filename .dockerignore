@@ -8,6 +8,7 @@
 # Build output. The container builds its own from source; a host-built target/
 # would also be for the wrong libc.
 target/
+helpers/passbolt/target/
 out/
 
 # Version control and CI.

@@ -95,6 +95,9 @@ RUN mkdir -p /firmware-seed && \
     printf '%s\n' "Staged firmware images (ADR-0045). Fathom writes them; switches fetch them." \
       > /firmware-seed/README
 # The backups volume's seed (ADR-0070), for the same reason again.
+RUN mkdir -p /passbolt-seed && \
+    printf '%s\n' "The Passbolt helper's socket (ADR-0071 part four). Nothing else is kept here." \
+      > /passbolt-seed/README
 RUN mkdir -p /backups-seed && \
     printf '%s\n' "Nightly Fathom data files (ADR-0070). No key is kept here; the keys file goes elsewhere." \
       > /backups-seed/README
@@ -252,6 +255,10 @@ COPY --from=build --chown=65532:65532 /firmware-seed /var/lib/fathom/firmware
 # for the same reason: whichever container mounts a fresh named volume first
 # seeds its ownership, and the backup service, which writes it, is not root.
 COPY --from=build --chown=65532:65532 /backups-seed /var/lib/fathom/backups
+# The Passbolt helper's socket directory, read-only here and owned by 65532 for the same
+# reason: the optional `passbolt-helper` service (compose profile `passbolt`) makes its socket
+# in it, and either container may be the one that seeds a fresh volume.
+COPY --from=build --chown=65532:65532 /passbolt-seed /run/fathom-passbolt
 
 # 65532:65532 is distroless's `nonroot`. The compose file says so as well; both
 # say it so that neither alone is load-bearing.

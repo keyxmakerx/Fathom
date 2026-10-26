@@ -20,6 +20,11 @@
 //! the two [`delinea::checks`] run on what the account can see, and a use reads the one secret.
 //! Secret Server names folders and secrets in the clear, so nothing is opened in a browser.
 //!
+//! **Passbolt** ([`passbolt`]) is the third, and optional: it seals everything with OpenPGP, which
+//! the server leaves to a separate helper process. Fathom finishes an invited account's setup
+//! with a key of its own, the connection **waits** until one folder is shared with that account,
+//! and the first passing check binds it ([`set_up`], [`after_check`]).
+//!
 //! # What enforces what, by function
 //!
 //! - [`connect`]: any member, for themselves. The checks pass, and the organisation key opens the
@@ -43,6 +48,7 @@
 pub mod bitwarden;
 pub mod delinea;
 pub mod https;
+pub mod passbolt;
 pub mod vaultwarden;
 
 use std::collections::BTreeMap;
@@ -207,6 +213,8 @@ pub struct Outside {
     pub net: Box<dyn Net>,
     /// `FATHOM_OUTSIDE_VAULT_HOSTS`: when set, the only hosts a person may connect to.
     pub allowed_hosts: Option<Vec<String>>,
+    /// `FATHOM_PASSBOLT_HELPER`: the Passbolt helper, when the operator runs one.
+    pub pgp: Option<Box<dyn passbolt::Pgp>>,
 }
 
 struct Refusing;
@@ -223,6 +231,7 @@ impl Outside {
         Self {
             net: Box::new(Refusing),
             allowed_hosts: None,
+            pgp: None,
         }
     }
 
@@ -529,6 +538,7 @@ pub async fn dl_read(
 pub enum Answer {
     Vaultwarden(SyncAnswer),
     Delinea(delinea::Answer),
+    Passbolt(passbolt::Answer),
 }
 
 impl From<SyncAnswer> for Answer {
@@ -543,6 +553,7 @@ impl Answer {
         match self {
             Self::Vaultwarden(s) => vaultwarden::checks(s, collection, name),
             Self::Delinea(a) => delinea::checks(a, collection, name),
+            Self::Passbolt(a) => passbolt::checks(a, collection, name),
         }
     }
 }
@@ -564,6 +575,9 @@ pub async fn read(
         Provider::Delinea => dl_read(outside, url, &s.client_id, &s.client_secret, item)
             .await
             .map(Answer::Delinea),
+        Provider::Passbolt => passbolt::read(outside, url, s, item)
+            .await
+            .map(Answer::Passbolt),
     }
 }
 
@@ -576,6 +590,7 @@ pub async fn read(
 pub enum Provider {
     Vaultwarden,
     Delinea,
+    Passbolt,
 }
 
 impl Provider {
@@ -583,6 +598,7 @@ impl Provider {
         match self {
             Self::Vaultwarden => "vaultwarden",
             Self::Delinea => "delinea",
+            Self::Passbolt => "passbolt",
         }
     }
 
@@ -590,6 +606,7 @@ impl Provider {
         match s {
             "vaultwarden" => Ok(Self::Vaultwarden),
             "delinea" => Ok(Self::Delinea),
+            "passbolt" => Ok(Self::Passbolt),
             _ => Err(VaultError::Malformed("provider")),
         }
     }
@@ -597,12 +614,17 @@ impl Provider {
 
 /// A connection's secrets as the server holds them while it uses them. No `Debug`, `Clone`;
 /// wiped on drop. `client_id` and `client_secret` are a Vaultwarden personal API key, or a Secret Server
-/// application account's user name and password. `org_key` is Vaultwarden's alone.
+/// application account's user name and password, or a Passbolt account's user id and Fathom's
+/// own private key for it, armored. `org_key` is Vaultwarden's alone; the two pins Passbolt's.
 pub struct Secrets {
     pub provider: Provider,
     pub client_id: String,
     pub client_secret: String,
     pub org_key: Option<BwKey>,
+    /// Passbolt: the server key's fingerprint, as the person confirmed it at setup.
+    pub server_fp: Option<String>,
+    /// Passbolt: the shared metadata key's fingerprint, pinned when the connection was bound.
+    pub metadata_fp: Option<String>,
 }
 
 impl Drop for Secrets {
@@ -682,6 +704,12 @@ fn seal_secrets(
     if let Some(k) = &s.org_key {
         m.insert("ok".to_string(), Json::Str(hex(k.expose())));
     }
+    if let Some(f) = &s.server_fp {
+        m.insert("sf".to_string(), Json::Str(f.clone()));
+    }
+    if let Some(f) = &s.metadata_fp {
+        m.insert("mf".to_string(), Json::Str(f.clone()));
+    }
     let plain = Json::Obj(m).to_canonical_bytes();
     seal(
         fk,
@@ -732,14 +760,26 @@ fn open_secrets(
             wipe(&mut raw);
             Some(k?)
         }
-        (Provider::Delinea, None) => None,
+        (Provider::Delinea | Provider::Passbolt, None) => None,
         _ => return Err(VaultError::Corrupt("outside vault secrets")),
     };
+    let fp = |v: Option<Json>| match v {
+        None => Ok(None),
+        Some(Json::Str(f)) if provider == Provider::Passbolt => Ok(Some(f)),
+        _ => Err(VaultError::Corrupt("outside vault secrets")),
+    };
+    let server_fp = fp(m.remove("sf"))?;
+    let metadata_fp = fp(m.remove("mf"))?;
+    if provider == Provider::Passbolt && server_fp.is_none() {
+        return Err(VaultError::Corrupt("outside vault secrets"));
+    }
     Ok(Secrets {
         provider,
         client_id: ci,
         client_secret: cs,
         org_key,
+        server_fp,
+        metadata_fp,
     })
 }
 
@@ -825,6 +865,20 @@ fn logins_in(
                     cipher_id: s.id.clone(),
                     name: s.name.clone(),
                     // A summary does not say; the read at use does.
+                    has_password: true,
+                })
+                .collect();
+            out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            Ok(out)
+        }
+        Answer::Passbolt(a) => {
+            let mut out: Vec<OutsideLogin> = a
+                .items
+                .iter()
+                .filter(|i| i.folder_id.as_deref() == Some(collection) && !i.personal)
+                .map(|i| OutsideLogin {
+                    cipher_id: i.id.clone(),
+                    name: i.name.clone().unwrap_or_default(),
                     has_password: true,
                 })
                 .collect();
@@ -1209,6 +1263,7 @@ pub async fn connect(
         }
         // Secret Server names its folders in the clear; the checks compared the name.
         (Answer::Delinea(_), Provider::Delinea, None) => input.collection_id.clone(),
+        // Passbolt connects through `set_up`, and binds at its first passing check.
         _ => return Err(VaultError::Malformed("provider")),
     };
     let id = format!("out_{}", crate::ids::new_ulid());
@@ -1217,6 +1272,8 @@ pub async fn connect(
         client_id: input.client_id.clone(),
         client_secret: input.client_secret.clone(),
         org_key: input.org_key,
+        server_fp: None,
+        metadata_fp: None,
     };
     // Every login in it opens, so a later read will not fail half way.
     logins_in(answer, &input.collection_id, &secrets)?;
@@ -1257,6 +1314,81 @@ pub async fn connect(
             &nonce,
             &ct,
             &input.provider.as_str(),
+        ],
+    )
+    .await?;
+    view_of(tx, fk, &tenant, &id).await
+}
+
+/// Passbolt: record the account Fathom has just set up there, with its own key, as a connection
+/// that **waits** for one folder to be shared with it. Its owner is the person who pasted the
+/// invitation; the server key's fingerprint is the one they were shown and confirmed.
+#[allow(clippy::too_many_arguments)]
+pub async fn set_up(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    fk: &FathomKey,
+    url: &OutsideUrl,
+    user_id: &str,
+    done: &passbolt::SetUp,
+    server_fp: &str,
+    folder_name: &str,
+) -> Result<ConnectionView, VaultError> {
+    let tenant = auth.ctx.tenant().to_string();
+    let me = auth.ctx.actor().to_string();
+    let name = folder_name.split_whitespace().collect::<Vec<_>>().join(" ");
+    if name.is_empty() || name.chars().count() > 200 {
+        return Err(VaultError::Malformed("the folder's name"));
+    }
+    let id = format!("out_{}", crate::ids::new_ulid());
+    let secrets = Secrets {
+        provider: Provider::Passbolt,
+        client_id: user_id.to_string(),
+        client_secret: done.secret.clone(),
+        org_key: None,
+        server_fp: Some(server_fp.to_string()),
+        metadata_fp: None,
+    };
+    let (ct, nonce, key_id) = seal_secrets(fk, &tenant, &id, &secrets)?;
+    drop(secrets);
+    file_changed(
+        tx,
+        auth,
+        &changed(
+            "set_up",
+            &id,
+            &me,
+            &me,
+            vec![
+                (
+                    "provider",
+                    Json::Str(Provider::Passbolt.as_str().to_string()),
+                ),
+                ("url", Json::Str(url.to_text())),
+                ("outside_account", Json::Str(user_id.to_string())),
+                ("account_key", Json::Str(done.fingerprint.clone())),
+                ("outside_server_key", Json::Str(server_fp.to_string())),
+                ("server_key", Json::Str(key_id.clone())),
+            ],
+        ),
+    )
+    .await?;
+    tx.execute(
+        "INSERT INTO vault.outside_connections (organisation_id, id, owner, provider, base_url, \
+            outside_org_id, collection_id, collection_name, device_id, state, server_key_id, \
+            secret_nonce, secret_ct, updated_by) \
+         VALUES ($1, $2, $3, 'passbolt', $4, $5, NULL, $6, $7, 'waiting', $8, $9, $10, $3)",
+        &[
+            &tenant,
+            &id,
+            &me,
+            &url.to_text(),
+            &user_id,
+            &name,
+            &new_device_id()?,
+            &key_id,
+            &nonce,
+            &ct,
         ],
     )
     .await?;
@@ -1325,7 +1457,8 @@ async fn load_plan(
             url: OutsideUrl::parse(&r.get::<_, String>(1))
                 .map_err(|_| VaultError::Corrupt("a stored outside vault address"))?,
             device_id: r.get(2),
-            collection_id: r.get(3),
+            // Empty while a Passbolt connection waits for its folder.
+            collection_id: r.get::<_, Option<String>>(3).unwrap_or_default(),
             collection_name: r.get(4),
             secrets,
         },
@@ -1375,6 +1508,9 @@ pub struct Checked {
 /// Record a check's outcome. A failed check stops the connection, on the history, and the
 /// outer `Err` carries why; **the transaction is committed either way** (the caller commits
 /// before it returns the inner error).
+///
+/// A Passbolt connection that is **waiting** is not stopped by a failed check: it answers the
+/// lines, and the first check that passes binds it to the one folder it sees.
 pub async fn after_check(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
@@ -1386,23 +1522,9 @@ pub async fn after_check(
     let me = auth.ctx.actor().to_string();
     // The connection may have been disconnected while the network round ran.
     let (_, state) = load_plan(tx, fk, &tenant, &plan.connection, true).await?;
-    let (lines, logins, failure) = match read {
-        Err(VaultError::OutsideRefused(why)) => (Vec::new(), Vec::new(), Some(why)),
-        Err(e) => return Ok(Err(e)),
-        Ok(answer) => {
-            let lines = answer.checks(Some(&plan.collection_id), Some(&plan.collection_name));
-            match vaultwarden::first_failure(&lines) {
-                Some(why) => (lines, Vec::new(), Some(why)),
-                None => match logins_in(&answer, &plan.collection_id, &plan.secrets) {
-                    Ok(l) => (lines, l, None),
-                    Err(VaultError::OutsideRefused(why)) => (lines, Vec::new(), Some(why)),
-                    Err(e) => return Ok(Err(e)),
-                },
-            }
-        }
-    };
-    match failure {
-        Some(why) => {
+    let waiting = state == "waiting";
+    let answer = match read {
+        Err(VaultError::OutsideRefused(why)) if !waiting => {
             stop(
                 tx,
                 auth,
@@ -1414,31 +1536,119 @@ pub async fn after_check(
                 &state,
             )
             .await?;
-            Ok(Err(VaultError::OutsideRefused(why)))
+            return Ok(Err(VaultError::OutsideRefused(why)));
         }
-        None => {
-            if state == "stopped" {
-                file_changed(
-                    tx,
-                    auth,
-                    &changed("resumed", &plan.connection, &plan.owner, &me, vec![]),
-                )
-                .await?;
-            }
-            tx.execute(
-                "UPDATE vault.outside_connections SET state = 'on', stopped_reason = NULL, \
-                    checked_at = now(), updated_by = $3, updated_at = now() \
-                 WHERE organisation_id = $1 AND id = $2",
-                &[&tenant, &plan.connection, &me],
-            )
-            .await?;
-            Ok(Ok(Checked {
+        Err(e) => return Ok(Err(e)),
+        Ok(answer) => answer,
+    };
+    let collection = (!waiting).then_some(plan.collection_id.as_str());
+    let lines = answer.checks(collection, Some(&plan.collection_name));
+    let failure = vaultwarden::first_failure(&lines);
+    if waiting {
+        let bound = match (&answer, failure) {
+            (Answer::Passbolt(a), None) => Some((
+                a.folders[0].id.clone(),
+                a.metadata_key.as_ref().map(|k| k.fingerprint.clone()),
+            )),
+            _ => None,
+        };
+        let Some((folder, metadata_fp)) = bound else {
+            return Ok(Ok(Checked {
                 view: view_of(tx, fk, &tenant, &plan.connection).await?,
                 lines,
-                logins,
-            }))
-        }
+                logins: Vec::new(),
+            }));
+        };
+        let logins = match logins_in(&answer, &folder, &plan.secrets) {
+            Ok(l) => l,
+            Err(e) => return Ok(Err(e)),
+        };
+        let pinned = Secrets {
+            provider: plan.secrets.provider,
+            client_id: plan.secrets.client_id.clone(),
+            client_secret: plan.secrets.client_secret.clone(),
+            org_key: None,
+            server_fp: plan.secrets.server_fp.clone(),
+            metadata_fp,
+        };
+        let (ct, nonce, key_id) = seal_secrets(fk, &tenant, &plan.connection, &pinned)?;
+        drop(pinned);
+        file_changed(
+            tx,
+            auth,
+            &changed(
+                "bound",
+                &plan.connection,
+                &plan.owner,
+                &me,
+                vec![("collection", Json::Str(folder.clone()))],
+            ),
+        )
+        .await?;
+        tx.execute(
+            "UPDATE vault.outside_connections SET state = 'on', collection_id = $3, \
+                server_key_id = $4, secret_nonce = $5, secret_ct = $6, checked_at = now(), \
+                updated_by = $7, updated_at = now() \
+             WHERE organisation_id = $1 AND id = $2",
+            &[
+                &tenant,
+                &plan.connection,
+                &folder,
+                &key_id,
+                &nonce,
+                &ct,
+                &me,
+            ],
+        )
+        .await?;
+        return Ok(Ok(Checked {
+            view: view_of(tx, fk, &tenant, &plan.connection).await?,
+            lines,
+            logins,
+        }));
     }
+    let failure = match failure {
+        Some(why) => Some(why),
+        None => match logins_in(&answer, &plan.collection_id, &plan.secrets) {
+            Ok(logins) => {
+                if state == "stopped" {
+                    file_changed(
+                        tx,
+                        auth,
+                        &changed("resumed", &plan.connection, &plan.owner, &me, vec![]),
+                    )
+                    .await?;
+                }
+                tx.execute(
+                    "UPDATE vault.outside_connections SET state = 'on', stopped_reason = NULL, \
+                        checked_at = now(), updated_by = $3, updated_at = now() \
+                     WHERE organisation_id = $1 AND id = $2",
+                    &[&tenant, &plan.connection, &me],
+                )
+                .await?;
+                return Ok(Ok(Checked {
+                    view: view_of(tx, fk, &tenant, &plan.connection).await?,
+                    lines,
+                    logins,
+                }));
+            }
+            Err(VaultError::OutsideRefused(why)) => Some(why),
+            Err(e) => return Ok(Err(e)),
+        },
+    };
+    let why = failure.unwrap_or_default();
+    stop(
+        tx,
+        auth,
+        &tenant,
+        &plan.connection,
+        &plan.owner,
+        &me,
+        &why,
+        &state,
+    )
+    .await?;
+    Ok(Err(VaultError::OutsideRefused(why)))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1758,6 +1968,7 @@ pub async fn disconnect(
 enum Found<'a> {
     Vaultwarden(&'a vaultwarden::Cipher),
     Delinea(&'a delinea::Secret),
+    Passbolt(&'a passbolt::Item, &'a passbolt::Secret),
 }
 
 pub struct UsePlan {
@@ -1941,6 +2152,17 @@ pub async fn use_finish(
             }
             Found::Delinea(secret)
         }
+        Answer::Passbolt(a) => {
+            let found = a.item(&up.cipher_id).filter(|i| {
+                i.folder_id.as_deref() == Some(up.plan.collection_id.as_str()) && !i.personal
+            });
+            let (Some(item), Some(secret)) =
+                (found, a.secret.as_ref().filter(|x| x.id == up.cipher_id))
+            else {
+                return gone();
+            };
+            Found::Passbolt(item, secret)
+        }
     };
     let appended = chains::append_org(
         tx,
@@ -1986,6 +2208,10 @@ pub async fn use_finish(
         Found::Delinea(secret) => (
             secret.user.clone().unwrap_or_default(),
             secret.password.clone().unwrap_or_default(),
+        ),
+        Found::Passbolt(item, secret) => (
+            item.user.clone().unwrap_or_default(),
+            secret.password.clone(),
         ),
         Found::Vaultwarden(cipher) => {
             let Some(org) = up.plan.secrets.org_key.as_ref() else {
@@ -2084,6 +2310,8 @@ mod tests {
             client_id: "user.abc".into(),
             client_secret: "secret".into(),
             org_key: Some(BwKey::from_slice(&[5u8; 64]).unwrap()),
+            server_fp: None,
+            metadata_fp: None,
         };
         let (ct, nonce, key_id) = seal_secrets(&fk, "01JORG", "out_X", &s).unwrap();
         let back = open_secrets(&fk, "01JORG", "out_X", &key_id, &nonce, &ct).unwrap();
@@ -2097,6 +2325,8 @@ mod tests {
             client_id: "svc-fathom".into(),
             client_secret: "pw".into(),
             org_key: None,
+            server_fp: None,
+            metadata_fp: None,
         };
         let (ct2, nonce2, _) = seal_secrets(&fk, "01JORG", "out_D", &d).unwrap();
         let back = open_secrets(&fk, "01JORG", "out_D", &key_id, &nonce2, &ct2).unwrap();

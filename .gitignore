@@ -1,4 +1,5 @@
 /target
+/helpers/passbolt/target
 
 # Scratch git worktrees created by tooling for parallel agent runs. These are
 # full checkouts of this repository -- 30 MB at the time of writing, and the

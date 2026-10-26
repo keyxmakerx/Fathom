@@ -1,0 +1,10 @@
+# OSV.dev allow-list for the Passbolt helper's lockfile only (scripts/gate-passbolt-helper.sh).
+# Fathom's own is deps/osv-allow.txt, and stays as it is. The format and rules are that file's.
+#
+# The two advisories the owner was shown on sign-off card r34-passbolt v2 (answered B,
+# 2026-10-26), with their aliases as OSV.dev's crates.io export lists them (read 2026-10-26).
+# Why each is accepted is in helpers/passbolt/deny.toml: no private-key step uses either crate.
+RUSTSEC-2023-0071 | 2026-10-26 | rsa 0.9.10, Marvin. Private-key timing; the helper does no RSA private-key step (r34-passbolt v2 B).
+GHSA-c38w-74pg-36hr | 2026-10-26 | Alias of RUSTSEC-2023-0071 (rsa 0.9.10), same reason.
+GHSA-4grx-2x9w-596c | 2026-10-26 | Alias of RUSTSEC-2023-0071 (rsa 0.9.10), same reason.
+RUSTSEC-2026-0387 | 2026-10-26 | crypto-bigint 0.5.5, timing. Reached only through the NIST curves and cx448, never with a private key (r34-passbolt v2 B).

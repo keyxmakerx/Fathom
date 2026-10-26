@@ -150,7 +150,14 @@ drives it in browsers against a stand-in over HTTPS with a private CA. **Delinea
 (`0047_vault_delinea.sql`, `src/vault_outside/delinea.rs`) is the second provider: an application
 account's user name and password, one folder, two checks (exactly that folder; every secret it sees
 is in it), the same stop, pull and use; tested and driven against a stand-in of its documented
-shapes, not a real Secret Server. **Not built yet:** Passbolt, and the chain verifier's check that a
+shapes, not a real Secret Server. **Passbolt** (`0048_vault_passbolt.sql`,
+`src/vault_outside/passbolt.rs`, ADR-0071 25–30) is the third and optional one: OpenPGP runs in a
+separate helper (`helpers/passbolt/`, its own lockfile and gates, compose profile `passbolt`, no
+network, a Unix socket), Curve25519 only for every private-key step. Fathom takes an invitation,
+pins Passbolt's server key once the person confirms its fingerprint, makes its own key, waits until
+one folder and the metadata key are shared, then binds; four checks before every read. The helper
+is tested against GnuPG; the server against a stand-in helper; the drive with the real helper
+against a stand-in Passbolt. Not tried against a real Passbolt. **Not built yet:** the chain verifier's check that a
 `vault_read` names a login then in Mode B.
 
 **Tenant isolation holds at two layers:** an application filter in every repository function, and

@@ -1,6 +1,6 @@
 //! Outside vaults — the vault's Mode C, `src/vault_outside/` and
-//! `migrations/0045_vault_outside.sql` and `0047_vault_delinea.sql` — against a real PostgreSQL
-//! and a stand-in Vaultwarden and Delinea Secret Server.
+//! `migrations/0045_vault_outside.sql`, `0047_vault_delinea.sql` and `0048_vault_passbolt.sql` —
+//! against a real PostgreSQL and a stand-in Vaultwarden, Delinea Secret Server and Passbolt.
 //!
 //! ADR-0071 part four is the rule: a member connects their own outside vault, and what is
 //! pulled through it is theirs; every admin sees every connection, disconnects any, and removes
@@ -546,6 +546,7 @@ fn a_vault_of(provider: Provider) -> Vault {
         outside: Arc::new(Outside {
             net: Box::new(StandIn(account.clone(), dl.clone())),
             allowed_hosts: None,
+            pgp: None,
         }),
         account,
         dl,
@@ -575,6 +576,7 @@ impl Vault {
                     .await
                     .map(Answer::Delinea)
             }
+            Provider::Passbolt => unreachable!("Passbolt sets up, it does not connect"),
         }
     }
 
@@ -639,6 +641,7 @@ impl World {
                 collection_name: name.to_string(),
                 org_key: None,
             },
+            Provider::Passbolt => unreachable!("Passbolt sets up, it does not connect"),
         };
         with_auth(&self.pool, &self.ring, self.org, who, move |tx, auth| {
             Box::pin(async move { outside::connect(tx, auth, &fk, input, &answer).await })
@@ -1067,6 +1070,7 @@ async fn a_key_that_does_not_open_the_collection_or_a_host_not_allowed_never_con
     let fenced = Outside {
         net: Box::new(StandIn(v.account.clone(), v.dl.clone())),
         allowed_hosts: Some(vec!["vault.internal.test".to_string()]),
+        pgp: None,
     };
     assert!(matches!(
         outside::vw_read(
@@ -1248,4 +1252,685 @@ async fn a_secret_server_check_that_fails_stops_the_connection_and_a_passing_one
     );
     // connected, the pull, three stops, three resumes.
     assert_eq!(count(&chain_types(w.org).await, "vault_outside_changed"), 8);
+}
+
+// ---------------------------------------------------------------------------
+// A stand-in Passbolt, and a stand-in for its helper
+// ---------------------------------------------------------------------------
+//
+// The helper's real OpenPGP is tested in `helpers/passbolt/tests/steps.rs`, against GnuPG. Here a
+// stand-in keeps its shape: a "key" is `FAKE-SECRET:<fingerprint>:<1 if Curve25519>` or
+// `FAKE-PUBLIC:…`, and a "message" names who it is to and who signed it. It refuses, as the
+// helper does, to open with a key that is not Curve25519.
+
+use fathom_canon::Json;
+use fathom_server::foreign_json::{self, get, get_str};
+use fathom_server::vault_outside::passbolt::{self, Pgp, PgpFuture};
+
+fn hexs(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+fn unhexs(s: &str) -> Vec<u8> {
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .collect()
+}
+
+fn fake_key(text: &str) -> Option<(bool, String, bool)> {
+    let (secret, rest) = if let Some(r) = text.strip_prefix("FAKE-SECRET:") {
+        (true, r)
+    } else {
+        (false, text.strip_prefix("FAKE-PUBLIC:")?)
+    };
+    let (fp, curve) = rest.split_once(':')?;
+    Some((secret, fp.to_string(), curve == "1"))
+}
+
+fn fake_seal(to_fp: &str, from_fp: &str, plain: &str) -> String {
+    format!("FAKE-MSG:{to_fp}:{from_fp}:{}", hexs(plain.as_bytes()))
+}
+
+fn obj(fields: Vec<(&str, Json)>) -> Json {
+    Json::Obj(
+        fields
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+    )
+}
+
+fn st(v: &str) -> Json {
+    Json::Str(v.to_string())
+}
+
+struct FakePgp(Mutex<u32>);
+
+impl FakePgp {
+    fn step(&self, r: &Json) -> Result<Json, String> {
+        let f = |k: &str| get_str(r, k).map(str::to_string).ok_or(format!("no {k}"));
+        match f("op")?.as_str() {
+            "ping" => Ok(obj(vec![])),
+            "make_key" => {
+                let mut n = self.0.lock().unwrap();
+                *n += 1;
+                let fp = format!("{:040x}", 0xfa7_0000u32 + *n);
+                Ok(obj(vec![
+                    ("secret", st(&format!("FAKE-SECRET:{fp}:1"))),
+                    ("public", st(&format!("FAKE-PUBLIC:{fp}:1"))),
+                    ("fingerprint", st(&fp)),
+                ]))
+            }
+            "key_info" => {
+                let (secret, fp, curve) = fake_key(&f("key")?).ok_or("not a key")?;
+                Ok(obj(vec![
+                    ("fingerprint", st(&fp)),
+                    ("secret", Json::Bool(secret)),
+                    ("curve25519", Json::Bool(curve)),
+                ]))
+            }
+            "seal_for" => {
+                let (_, from, curve) = fake_key(&f("secret")?).ok_or("not a key")?;
+                let (_, to, _) = fake_key(&f("to")?).ok_or("not a key")?;
+                if !curve {
+                    return Err("the private key is not Curve25519".into());
+                }
+                Ok(obj(vec![(
+                    "data",
+                    st(&fake_seal(&to, &from, &f("plain")?)),
+                )]))
+            }
+            "open" => {
+                let (_, me, curve) = fake_key(&f("secret")?).ok_or("not a key")?;
+                if !curve {
+                    return Err("the private key is not Curve25519".into());
+                }
+                let data = f("data")?;
+                let parts: Vec<&str> = data.splitn(4, ':').collect();
+                let ["FAKE-MSG", to, from, plain] = parts.as_slice() else {
+                    return Err("not an OpenPGP message".into());
+                };
+                if *to != me {
+                    return Err("the message did not open with this key".into());
+                }
+                let signed = match get_str(r, "signer") {
+                    None => false,
+                    Some(k) => {
+                        if fake_key(k).map(|x| x.1).as_deref() != Some(*from) {
+                            return Err("the message is not signed by the key it should be".into());
+                        }
+                        true
+                    }
+                };
+                Ok(obj(vec![
+                    ("plain", st(&String::from_utf8(unhexs(plain)).unwrap())),
+                    ("signed", Json::Bool(signed)),
+                ]))
+            }
+            _ => Err("unknown step".into()),
+        }
+    }
+}
+
+impl Pgp for FakePgp {
+    fn call(&self, request: Json) -> PgpFuture<'_> {
+        let out = match self.step(&request) {
+            Ok(Json::Obj(mut m)) => {
+                m.insert("ok".into(), Json::Bool(true));
+                Json::Obj(m)
+            }
+            Ok(_) => unreachable!(),
+            Err(e) => obj(vec![("ok", Json::Bool(false)), ("error", st(&e))]),
+        };
+        Box::pin(async move { Ok(out) })
+    }
+}
+
+const PB_USER: &str = "6f1c2a8e-4b1d-4c8e-9a51-2f0e7d3b9c10";
+const PB_TOKEN: &str = "7a2d3b9f-5c2e-4d9f-8b62-3f1e8e4cad21";
+const PB_FOLDER: &str = "8b3e4ca0-6d3f-4ea0-9c73-4a2f9f5dbe32";
+const PB_R1: &str = "9c4f5db1-7e40-4fb1-8d84-5b30a06ecf43";
+const PB_R2: &str = "ad506ec2-8f51-40c2-9e95-6c41b17fd054";
+const PB_STRAY: &str = "be617fd3-9062-41d3-8fa6-7d52c28ae165";
+const PB_MKEY: &str = "cf7280e4-a173-42e4-90b7-8e63d39bf276";
+const PB_SERVER: &str = "5e7e7000000000000000000000000000000000aa";
+
+/// What the stand-in Passbolt does; a test changes it between rounds.
+struct PbAccount {
+    user_key: Option<String>,
+    shared: bool,
+    key_given: bool,
+    role: &'static str,
+    extra_folder: bool,
+    personal_item: bool,
+    mfa: bool,
+    metadata_fp: &'static str,
+    metadata_curve: bool,
+    server_fp: &'static str,
+}
+
+impl PbAccount {
+    fn invited() -> Self {
+        Self {
+            user_key: None,
+            shared: false,
+            key_given: false,
+            role: "user",
+            extra_folder: false,
+            personal_item: false,
+            mfa: false,
+            metadata_fp: "3e7a000000000000000000000000000000000001",
+            metadata_curve: true,
+            server_fp: PB_SERVER,
+        }
+    }
+
+    fn user_fp(&self) -> String {
+        fake_key(self.user_key.as_deref().unwrap_or("FAKE-PUBLIC:none:1"))
+            .unwrap()
+            .1
+    }
+
+    fn mkey(&self) -> String {
+        format!(
+            "{}:{}",
+            self.metadata_fp,
+            if self.metadata_curve { 1 } else { 0 }
+        )
+    }
+
+    fn sealed_meta(&self, plain: &str) -> String {
+        fake_seal(self.metadata_fp, "0000", plain)
+    }
+
+    fn folders(&self) -> Json {
+        if !self.shared {
+            return Json::Arr(vec![]);
+        }
+        let mut f = vec![obj(vec![
+            ("id", st(PB_FOLDER)),
+            ("name", Json::Null),
+            (
+                "metadata",
+                st(&self
+                    .sealed_meta(r#"{"object_type":"PASSBOLT_FOLDER_METADATA","name":"Fathom"}"#)),
+            ),
+            ("metadata_key_id", st(PB_MKEY)),
+            ("metadata_key_type", st("shared_key")),
+            ("folder_parent_id", Json::Null),
+            ("personal", Json::Bool(false)),
+        ])];
+        if self.extra_folder {
+            f.push(obj(vec![
+                ("id", st(PB_STRAY)),
+                ("name", st("Everything")),
+                ("folder_parent_id", Json::Null),
+            ]));
+        }
+        Json::Arr(f)
+    }
+
+    fn resources(&self) -> Json {
+        if !self.shared {
+            return Json::Arr(vec![]);
+        }
+        let mut r = vec![
+            // Passbolt 5: the name and user name are sealed with the shared metadata key.
+            obj(vec![
+                ("id", st(PB_R1)),
+                ("name", Json::Null),
+                ("metadata", st(&self.sealed_meta(
+                    r#"{"object_type":"PASSBOLT_RESOURCE_METADATA","name":"core-sw1","username":"admin","uris":[]}"#,
+                ))),
+                ("metadata_key_id", st(PB_MKEY)),
+                ("metadata_key_type", st("shared_key")),
+                ("folder_parent_id", st(PB_FOLDER)),
+                ("personal", Json::Bool(false)),
+            ]),
+            // Passbolt 4: in the clear.
+            obj(vec![
+                ("id", st(PB_R2)),
+                ("name", st("edge-fw1")),
+                ("username", st("netops")),
+                ("metadata", Json::Null),
+                ("folder_parent_id", st(PB_FOLDER)),
+                ("personal", Json::Bool(false)),
+            ]),
+        ];
+        if self.personal_item {
+            r.push(obj(vec![
+                ("id", st(PB_STRAY)),
+                ("name", st("my own")),
+                ("folder_parent_id", st(PB_FOLDER)),
+                ("personal", Json::Bool(true)),
+            ]));
+        }
+        Json::Arr(r)
+    }
+
+    fn metadata_keys(&self) -> Json {
+        let given = if self.key_given {
+            let plain = format!(
+                r#"{{"object_type":"PASSBOLT_METADATA_PRIVATE_KEY","domain":"https://pb.example.test","fingerprint":"{}","armored_key":"FAKE-SECRET:{}","passphrase":""}}"#,
+                self.metadata_fp,
+                self.mkey()
+            );
+            vec![obj(vec![
+                ("user_id", st(PB_USER)),
+                ("data", st(&fake_seal(&self.user_fp(), "0000", &plain))),
+            ])]
+        } else {
+            vec![]
+        };
+        Json::Arr(vec![obj(vec![
+            ("id", st(PB_MKEY)),
+            ("fingerprint", st(self.metadata_fp)),
+            ("armored_key", st(&format!("FAKE-PUBLIC:{}", self.mkey()))),
+            ("deleted", Json::Null),
+            ("expired", Json::Null),
+            ("metadata_private_keys", Json::Arr(given)),
+        ])])
+    }
+}
+
+struct PbStandIn(Arc<Mutex<PbAccount>>);
+
+fn pb_ok(body: Json) -> HttpAnswer {
+    HttpAnswer {
+        status: 200,
+        body: obj(vec![
+            ("header", obj(vec![("status", st("success"))])),
+            ("body", body),
+        ])
+        .to_canonical_bytes(),
+    }
+}
+
+fn pb_err(status: u16, body: Json) -> HttpAnswer {
+    HttpAnswer {
+        status,
+        body: obj(vec![
+            (
+                "header",
+                obj(vec![("status", st("error")), ("message", st("refused"))]),
+            ),
+            ("body", body),
+        ])
+        .to_canonical_bytes(),
+    }
+}
+
+impl PbStandIn {
+    fn answer(&self, req: &HttpRequest) -> HttpAnswer {
+        let mut a = self.0.lock().unwrap();
+        let body = foreign_json::parse(&req.body).unwrap_or(Json::Null);
+        let bearer = req
+            .headers
+            .iter()
+            .any(|(k, v)| *k == "Authorization" && v == "Bearer pbtok");
+        let server_pub = format!("FAKE-PUBLIC:{}:0", a.server_fp);
+        match (req.method, req.path.as_str()) {
+            ("GET", "/auth/verify.json") => pb_ok(obj(vec![
+                ("fingerprint", st(&a.server_fp.to_uppercase())),
+                ("keydata", st(&server_pub)),
+            ])),
+            ("POST", p) if p == format!("/setup/complete/{PB_USER}.json") => {
+                let token = get(&body, "authentication_token").and_then(|t| get_str(t, "token"));
+                let key = get(&body, "gpgkey").and_then(|g| get_str(g, "armored_key"));
+                match (token, key, &a.user_key) {
+                    (Some(PB_TOKEN), Some(k), None) => {
+                        a.user_key = Some(k.to_string());
+                        pb_ok(Json::Null)
+                    }
+                    _ => pb_err(400, Json::Null),
+                }
+            }
+            ("POST", "/auth/jwt/login.json") => {
+                let Some(user_key) = a.user_key.clone() else {
+                    return pb_err(404, Json::Null);
+                };
+                let user_fp = a.user_fp();
+                let challenge = get_str(&body, "challenge").unwrap_or("");
+                let parts: Vec<&str> = challenge.splitn(4, ':').collect();
+                let ok = get_str(&body, "user_id") == Some(PB_USER)
+                    && parts.len() == 4
+                    && parts[1] == a.server_fp
+                    && parts[2] == user_fp;
+                if !ok {
+                    return pb_err(400, Json::Null);
+                }
+                let c = foreign_json::parse(&unhexs(parts[3])).unwrap();
+                assert_eq!(get_str(&c, "domain"), Some("https://pb.example.test"));
+                let reply = obj(vec![
+                    ("version", st("1.0.0")),
+                    ("domain", st("https://pb.example.test/")),
+                    ("access_token", st("pbtok")),
+                    ("refresh_token", st("pbref")),
+                    ("verify_token", st(get_str(&c, "verify_token").unwrap())),
+                ]);
+                let to = fake_key(&user_key).unwrap().1;
+                pb_ok(obj(vec![(
+                    "challenge",
+                    st(&fake_seal(
+                        &to,
+                        a.server_fp,
+                        &String::from_utf8(reply.to_canonical_bytes()).unwrap(),
+                    )),
+                )]))
+            }
+            _ if !bearer => pb_err(401, Json::Null),
+            _ if a.mfa => pb_err(
+                403,
+                obj(vec![("mfa_providers", Json::Arr(vec![st("totp")]))]),
+            ),
+            ("GET", "/users/me.json") => pb_ok(obj(vec![
+                ("id", st(PB_USER)),
+                ("role", obj(vec![("name", st(a.role))])),
+                (
+                    "gpgkey",
+                    obj(vec![("fingerprint", st(&a.user_fp().to_uppercase()))]),
+                ),
+            ])),
+            ("GET", "/metadata/keys.json?contain%5Bmetadata_private_keys%5D=1") => {
+                pb_ok(a.metadata_keys())
+            }
+            ("GET", "/folders.json") => pb_ok(a.folders()),
+            ("GET", "/resources.json") => pb_ok(a.resources()),
+            ("GET", p) if p.starts_with("/secrets/resource/") => {
+                let plain = match p {
+                    _ if p.contains(PB_R1) => {
+                        r#"{"object_type":"PASSBOLT_SECRET_DATA","password":"p4ss","description":""}"#
+                    }
+                    _ if p.contains(PB_R2) => "fw-k3y",
+                    _ => return pb_err(404, Json::Null),
+                };
+                pb_ok(obj(vec![(
+                    "data",
+                    st(&fake_seal(&a.user_fp(), "0000", plain)),
+                )]))
+            }
+            _ => pb_err(404, Json::Null),
+        }
+    }
+}
+
+impl Net for PbStandIn {
+    fn send(&self, req: HttpRequest) -> NetFuture<'_> {
+        let answer = self.answer(&req);
+        Box::pin(async move { Ok(answer) })
+    }
+}
+
+struct Pb {
+    account: Arc<Mutex<PbAccount>>,
+    outside: Arc<Outside>,
+}
+
+fn a_passbolt() -> Pb {
+    let account = Arc::new(Mutex::new(PbAccount::invited()));
+    Pb {
+        outside: Arc::new(Outside {
+            net: Box::new(PbStandIn(account.clone())),
+            allowed_hosts: None,
+            pgp: Some(Box::new(FakePgp(Mutex::new(0)))),
+        }),
+        account,
+    }
+}
+
+fn invite() -> passbolt::Invite {
+    passbolt::parse_invite(&format!(
+        "https://pb.example.test/setup/start/{PB_USER}/{PB_TOKEN}"
+    ))
+    .unwrap()
+}
+
+impl Pb {
+    fn set(&self, f: impl FnOnce(&mut PbAccount)) {
+        f(&mut self.account.lock().unwrap());
+    }
+
+    fn as_vault(&self) -> Vault {
+        Vault {
+            provider: Provider::Passbolt,
+            account: Arc::new(Mutex::new(Account::sound())),
+            dl: Arc::new(Mutex::new(DlAccount::sound())),
+            outside: self.outside.clone(),
+            url: invite().url,
+        }
+    }
+}
+
+impl World {
+    /// The route's two halves: Fathom's key into Passbolt, then the waiting row.
+    async fn set_up_passbolt(
+        &self,
+        pb: &Pb,
+        who: AccountId,
+        server_fp: &str,
+        folder: &str,
+    ) -> Result<outside::ConnectionView, VaultError> {
+        let i = invite();
+        let done = passbolt::set_up(&pb.outside, &i, server_fp).await?;
+        let fk = self.fk.clone();
+        let folder = folder.to_string();
+        let fp = server_fp.to_string();
+        with_auth(&self.pool, &self.ring, self.org, who, move |tx, auth| {
+            Box::pin(async move {
+                outside::set_up(tx, auth, &fk, &i.url, &i.user_id, &done, &fp, &folder).await
+            })
+        })
+        .await
+    }
+}
+
+#[tokio::test]
+async fn a_passbolt_invitation_gets_fathoms_own_key_waits_for_one_folder_and_binds_at_the_first_passing_check(
+) {
+    let (w, estate) = a_world().await;
+    let alice = a_member(&w.pool, &w.ring, &estate, "alice", Some(Capability::Draw)).await;
+    let design = a_design(&w.pool, &estate).await;
+    let pb = a_passbolt();
+    let v = pb.as_vault();
+    assert!(passbolt::available(&pb.outside).await);
+
+    // What the person is shown and compares before the invitation is spent.
+    let (_, fp) = passbolt::server_key(&pb.outside, &invite().url)
+        .await
+        .unwrap();
+    assert_eq!(fp, PB_SERVER);
+    assert!(
+        matches!(
+            w.set_up_passbolt(&pb, alice.account, "00".repeat(20).as_str(), FOLDER)
+                .await,
+            Err(VaultError::OutsideRefused(_))
+        ),
+        "a server key other than the one shown is refused before the invitation is used"
+    );
+    assert!(pb.account.lock().unwrap().user_key.is_none());
+
+    let c = w
+        .set_up_passbolt(&pb, alice.account, PB_SERVER, FOLDER)
+        .await
+        .expect("set up");
+    assert_eq!(c.state, "waiting");
+    let key = pb.account.lock().unwrap().user_key.clone().unwrap();
+    assert!(
+        key.starts_with("FAKE-PUBLIC:"),
+        "Passbolt holds only Fathom's public key"
+    );
+    assert!(
+        w.set_up_passbolt(&pb, alice.account, PB_SERVER, FOLDER)
+            .await
+            .is_err(),
+        "an invitation is used once"
+    );
+
+    // Nothing shared yet: the check answers why, and the connection keeps waiting.
+    let checked = w
+        .check(&v, alice.account, &c.id)
+        .await
+        .unwrap()
+        .expect("answers");
+    assert_eq!(checked.view.state, "waiting");
+    assert!(checked
+        .lines
+        .iter()
+        .any(|l| l.id == "collection" && !l.passed && l.text.contains("sees none yet")));
+    assert!(matches!(
+        w.pull(&v, alice.account, &c.id, PB_R1, on(&design, "dev-1"))
+            .await,
+        Err(VaultError::NotAllowed(_))
+    ));
+
+    // The folder is shared, but not yet the key its names are sealed with.
+    pb.set(|a| a.shared = true);
+    let checked = w.check(&v, alice.account, &c.id).await.unwrap().unwrap();
+    assert_eq!(checked.view.state, "waiting");
+    assert!(checked
+        .lines
+        .iter()
+        .any(|l| l.id == "metadata" && !l.passed));
+
+    pb.set(|a| a.key_given = true);
+    let checked = w.check(&v, alice.account, &c.id).await.unwrap().unwrap();
+    assert_eq!(checked.view.state, "on", "{:?}", checked.lines);
+    let names: Vec<_> = checked.logins.iter().map(|l| l.name.as_str()).collect();
+    assert_eq!(names, ["core-sw1", "edge-fw1"]);
+
+    let view = w
+        .pull(&v, alice.account, &c.id, PB_R1, on(&design, "dev-1"))
+        .await
+        .unwrap()
+        .expect("pulled");
+    let r1 = view.items[0].id.clone();
+    let view = w
+        .pull(&v, alice.account, &c.id, PB_R2, on(&design, "dev-1"))
+        .await
+        .unwrap()
+        .expect("pulled");
+    let r2 = view.items[1].id.clone();
+    assert_eq!(
+        w.use_it(&v, alice.account, &r1, &design, "dev-1")
+            .await
+            .expect("used"),
+        ("admin".to_string(), "p4ss".to_string())
+    );
+    assert_eq!(
+        w.use_it(&v, alice.account, &r2, &design, "dev-1")
+            .await
+            .expect("used"),
+        ("netops".to_string(), "fw-k3y".to_string())
+    );
+    let types = chain_types(w.org).await;
+    assert_eq!(
+        (
+            count(&types, "vault_outside_changed"),
+            count(&types, "vault_outside_read")
+        ),
+        (4, 2),
+        "set up, bound, two pulls; two reads"
+    );
+}
+
+#[tokio::test]
+async fn a_passbolt_check_stops_on_an_admin_a_personal_item_a_new_or_rsa_metadata_key_a_new_server_key_or_mfa(
+) {
+    let (w, estate) = a_world().await;
+    let alice = a_member(&w.pool, &w.ring, &estate, "alice", Some(Capability::Draw)).await;
+    let design = a_design(&w.pool, &estate).await;
+    let pb = a_passbolt();
+    let v = pb.as_vault();
+    let c = w
+        .set_up_passbolt(&pb, alice.account, PB_SERVER, FOLDER)
+        .await
+        .unwrap();
+    pb.set(|a| {
+        a.shared = true;
+        a.key_given = true;
+    });
+    w.check(&v, alice.account, &c.id).await.unwrap().unwrap();
+    let item = w
+        .pull(&v, alice.account, &c.id, PB_R2, on(&design, "dev-1"))
+        .await
+        .unwrap()
+        .unwrap()
+        .items[0]
+        .id
+        .clone();
+
+    type Break = Box<dyn Fn(&mut PbAccount)>;
+    let breaks: Vec<(&str, Break)> = vec![
+        ("an administrator", Box::new(|a| a.role = "admin")),
+        ("a second folder", Box::new(|a| a.extra_folder = true)),
+        ("a personal item", Box::new(|a| a.personal_item = true)),
+        (
+            "a new metadata key",
+            Box::new(|a| a.metadata_fp = "3e7a000000000000000000000000000000000002"),
+        ),
+        (
+            "an RSA metadata key",
+            Box::new(|a| a.metadata_curve = false),
+        ),
+        (
+            "a new server key",
+            Box::new(|a| a.server_fp = "5e7e7000000000000000000000000000000000bb"),
+        ),
+        ("multi-factor sign-in", Box::new(|a| a.mfa = true)),
+    ];
+    let n = breaks.len();
+    for (what, breaks) in breaks {
+        pb.set(|a| breaks(a));
+        match w.check(&v, estate.steward.account, &c.id).await {
+            Ok(Err(VaultError::OutsideRefused(_))) => {}
+            other => panic!("{what}: {:?}", other.map(|r| r.map(|c| c.lines))),
+        }
+        assert_eq!(w.state_of(alice.account, &c.id).await, "stopped", "{what}");
+        assert!(
+            matches!(
+                w.use_it(&v, alice.account, &item, &design, "dev-1").await,
+                Err(VaultError::NotAllowed(_))
+            ),
+            "{what}: nothing is read through a stopped connection"
+        );
+        pb.set(|a| {
+            let key = a.user_key.take();
+            *a = PbAccount::invited();
+            a.user_key = key;
+            a.shared = true;
+            a.key_given = true;
+        });
+        w.check(&v, alice.account, &c.id)
+            .await
+            .unwrap()
+            .expect("a sound account passes");
+    }
+    assert_eq!(
+        w.use_it(&v, alice.account, &item, &design, "dev-1")
+            .await
+            .expect("used"),
+        ("netops".to_string(), "fw-k3y".to_string())
+    );
+    // set up, bound, the pull, a stop and a resume for each.
+    assert_eq!(
+        count(&chain_types(w.org).await, "vault_outside_changed"),
+        3 + 2 * n
+    );
+}
+
+#[tokio::test]
+async fn without_a_helper_passbolt_is_not_offered_and_nothing_is_sent() {
+    let pb = a_passbolt();
+    let bare = Outside {
+        net: Box::new(PbStandIn(pb.account.clone())),
+        allowed_hosts: None,
+        pgp: None,
+    };
+    assert!(!passbolt::available(&bare).await);
+    assert!(matches!(
+        passbolt::set_up(&bare, &invite(), PB_SERVER).await,
+        Err(VaultError::NotAllowed(_))
+    ));
+    assert!(pb.account.lock().unwrap().user_key.is_none());
 }

@@ -6,9 +6,13 @@
 // connection, removes one login (Bob cannot undo it), stops the connection with a failed check
 // when the account is given a second collection, and disconnects it. Cy connects a Delinea Secret
 // Server (the same stand-in answers its calls) after one refused attempt (the account sees two
-// folders), lists the folder's secrets and pulls one. Then the database is swept for the master
-// password, the API key's secret, the Secret Server account's password and the passwords, which
-// must appear nowhere.
+// folders), lists the folder's secrets and pulls one. Cy then sets up a Passbolt from its
+// invitation link, through the REAL Passbolt helper (helpers/passbolt, over its socket): the
+// stand-in Passbolt does its own OpenPGP through the same helper, so every message both ways is
+// real OpenPGP. The connection waits until a folder and the metadata key are shared, then binds,
+// lists and pulls. Then the database is swept for the master password, the API key's secret, the
+// Secret Server account's password, Fathom's Passbolt private key and the passwords, which must
+// appear nowhere.
 //
 //   node scripts/drive-vault-outside.mjs
 //
@@ -17,6 +21,7 @@
 // Screenshots: FATHOM_SHOTS (default /mnt/project-files/reviews/vault-outside/).
 
 import { execFileSync, spawn } from 'node:child_process';
+import { connect as connectSocket } from 'node:net';
 import { createServer } from 'node:https';
 import { copyFileSync, createWriteStream, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -31,6 +36,7 @@ const ROOT = process.env.FATHOM_ROOT || resolve(dirname(fileURLToPath(import.met
 const CHROME = process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium';
 const TARGET_DIR = process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target');
 const SERVER_BIN = process.env.FATHOM_SERVER_BIN ?? resolve(TARGET_DIR, 'debug', 'fathom-server');
+const HELPER_BIN = resolve(ROOT, 'helpers/passbolt/target/debug/fathom-passbolt-helper');
 const SHOTS = (process.env.FATHOM_SHOTS ?? '/mnt/project-files/reviews/vault-outside') + '/';
 const WORK = process.env.FATHOM_DRIVE_DIR ?? join(process.env.TMPDIR ?? '/tmp', 'fathom-drive-vault-outside');
 mkdirSync(SHOTS, { recursive: true });
@@ -50,6 +56,7 @@ const CA_PEM = join(WORK, 'ca.pem');
 const SEED_SRC = join(ROOT, 'scripts/drive-lib/seed_vault.rs');
 const SEED_DST = join(ROOT, 'crates/fathom-server/tests/seed_vault.rs');
 const SETUP_PASSWORD = 'amber-kestrel-harbour-0057';
+const HELPER_SOCKET = join(WORK, 'passbolt-helper.sock');
 const OPERATOR = 'operator@fathom.invalid';
 const VIEWPORT = { width: 1440, height: 900 };
 
@@ -156,6 +163,8 @@ async function startServer() {
       FATHOM_BIND: `127.0.0.1:${PORT}`,
       // The stand-in's private CA, as an operator with a vault on a home network would set it.
       FATHOM_OUTSIDE_VAULT_CA: CA_PEM,
+      // The optional Passbolt helper, as compose's `passbolt` profile would run it.
+      FATHOM_PASSBOLT_HELPER: HELPER_SOCKET,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -257,6 +266,122 @@ function delinea(vw, req, body, send) {
   return send(404, {});
 }
 
+// ---- Passbolt ---------------------------------------------------------------------------
+
+let helperProc = null;
+
+/** One request to the real helper, over its socket: four bytes of length, then the JSON. */
+function pgp(req) {
+  return new Promise((res, rej) => {
+    const s = connectSocket(HELPER_SOCKET);
+    const b = Buffer.from(JSON.stringify(req));
+    const h = Buffer.alloc(4);
+    h.writeUInt32BE(b.length);
+    let buf = Buffer.alloc(0);
+    s.on('connect', () => s.write(Buffer.concat([h, b])));
+    s.on('data', (d) => {
+      buf = Buffer.concat([buf, d]);
+      if (buf.length >= 4 && buf.length >= 4 + buf.readUInt32BE(0)) {
+        s.end();
+        const a = JSON.parse(buf.subarray(4, 4 + buf.readUInt32BE(0)).toString('utf8'));
+        if (a.ok) res(a);
+        else rej(new Error(`helper: ${a.error}`));
+      }
+    });
+    s.on('error', rej);
+  });
+}
+
+async function startHelper() {
+  console.log('==> building and starting the Passbolt helper');
+  sh('cargo', ['build', '--locked', '--manifest-path', join(ROOT, 'helpers/passbolt/Cargo.toml')], { stdio: 'inherit' });
+  rmSync(HELPER_SOCKET, { force: true });
+  helperProc = spawn(HELPER_BIN, [], { env: { FATHOM_PASSBOLT_SOCKET: HELPER_SOCKET }, stdio: ['ignore', 'inherit', 'inherit'] });
+  check('the Passbolt helper answers on its socket', !!(await until(async () => (await pgp({ op: 'ping' })).ok, 10000)));
+}
+
+/** The Passbolt Cy sets up: one invited user, one folder, two items (one Passbolt 5, one 4). */
+const PASSBOLT = {
+  user: '3f2c6a1e-5b4d-4e8f-9a71-0c2d3e4f5a6b',
+  token: '4a3d7b2f-6c5e-4f90-8b82-1d3e4f5a6b7c',
+  folderId: '5b4e8c3a-7d6f-4a01-9c93-2e4f5a6b7c8d',
+  folder: 'Fathom Passbolt',
+  keyId: '6c5f9d4b-8e70-4b12-8da4-3f5a6b7c8d9e',
+  items: [
+    { id: '7d60ae5c-9f81-4c23-9eb5-4a6b7c8d9eaf', name: 'core-fw9 admin', username: 'fwadmin', password: 'Pb-Core-Fw9-Secret-3302!', v5: true },
+    { id: '8e71bf6d-a092-4d34-afc6-5b7c8d9eafb0', name: 'oob-console', username: 'console', password: 'Pb-Oob-Console-7781!', v5: false },
+  ],
+};
+
+async function makePassbolt() {
+  const pb = { asked: [], shared: false, keyGiven: false, userKey: null };
+  pb.server = await pgp({ op: 'make_key', uid: 'Passbolt stand-in server' });
+  pb.meta = await pgp({ op: 'make_key', uid: 'Passbolt stand-in metadata key' });
+  const sealMeta = async (o) => (await pgp({ op: 'seal_for', secret: pb.server.secret, to: pb.meta.public, plain: JSON.stringify(o) })).data;
+  pb.folderMeta = await sealMeta({ object_type: 'PASSBOLT_FOLDER_METADATA', name: PASSBOLT.folder });
+  for (const it of PASSBOLT.items) {
+    if (it.v5) it.metadata = await sealMeta({ object_type: 'PASSBOLT_RESOURCE_METADATA', resource_type_id: '00000000-0000-4000-8000-000000000000', name: it.name, username: it.username, uris: [] });
+  }
+  return pb;
+}
+
+/** Passbolt's calls, in the shapes `vault_outside/passbolt.rs` cites; OpenPGP through the helper. */
+async function passbolt(vw, req, body, send) {
+  const pb = vw.pb;
+  if (!pb) return false;
+  const ok = (b) => send(200, { header: { status: 'success' }, body: b });
+  const err = (status, b = null) => send(status, { header: { status: 'error', message: 'refused' }, body: b });
+  const url = req.url;
+  const toUser = async (o) => (await pgp({ op: 'seal_for', secret: pb.server.secret, to: pb.userKey, plain: typeof o === 'string' ? o : JSON.stringify(o) })).data;
+  if (req.method === 'GET' && url === '/auth/verify.json') return ok({ fingerprint: pb.server.fingerprint.toUpperCase(), keydata: pb.server.public });
+  if (req.method === 'POST' && url === `/setup/complete/${PASSBOLT.user}.json`) {
+    const b = JSON.parse(body || '{}');
+    if (pb.userKey || b.authentication_token?.token !== PASSBOLT.token || typeof b.gpgkey?.armored_key !== 'string') return err(400);
+    pb.userKey = b.gpgkey.armored_key;
+    pb.userFp = (await pgp({ op: 'key_info', key: pb.userKey })).fingerprint;
+    return ok(null);
+  }
+  if (req.method === 'POST' && url === '/auth/jwt/login.json') {
+    const b = JSON.parse(body || '{}');
+    if (!pb.userKey || b.user_id !== PASSBOLT.user) return err(404);
+    let c;
+    try {
+      c = JSON.parse((await pgp({ op: 'open', secret: pb.server.secret, data: b.challenge, signer: pb.userKey })).plain);
+    } catch {
+      return err(400);
+    }
+    pb.lastDomain = c.domain;
+    if (c.version !== '1.0.0' || c.domain.replace(/\/$/, '') !== VW_URL) return err(400);
+    return ok({ challenge: await toUser({ version: '1.0.0', domain: `${VW_URL}/`, access_token: 'pb-token', refresh_token: 'pb-refresh', verify_token: c.verify_token }) });
+  }
+  const known = ['/users/me.json', '/folders.json', '/resources.json', '/metadata/keys.json?contain%5Bmetadata_private_keys%5D=1'];
+  if (!known.includes(url) && !url.startsWith('/secrets/resource/')) return false;
+  if (req.headers.authorization !== 'Bearer pb-token') return err(401);
+  if (url === '/users/me.json') return ok({ id: PASSBOLT.user, role: { name: 'user' }, gpgkey: { fingerprint: pb.userFp.toUpperCase() } });
+  if (url.startsWith('/metadata/keys.json')) {
+    const shares = pb.keyGiven
+      ? [{ user_id: PASSBOLT.user, data: await toUser({ object_type: 'PASSBOLT_METADATA_PRIVATE_KEY', domain: VW_URL, fingerprint: pb.meta.fingerprint, armored_key: pb.meta.secret, passphrase: '' }) }]
+      : [];
+    return ok([{ id: PASSBOLT.keyId, fingerprint: pb.meta.fingerprint, armored_key: pb.meta.public, deleted: null, expired: null, metadata_private_keys: shares }]);
+  }
+  if (url === '/folders.json') {
+    return ok(pb.shared ? [{ id: PASSBOLT.folderId, name: null, metadata: pb.folderMeta, metadata_key_id: PASSBOLT.keyId, metadata_key_type: 'shared_key', folder_parent_id: null, personal: false }] : []);
+  }
+  if (url === '/resources.json') {
+    if (!pb.shared) return ok([]);
+    return ok(
+      PASSBOLT.items.map((it) =>
+        it.v5
+          ? { id: it.id, name: null, metadata: it.metadata, metadata_key_id: PASSBOLT.keyId, metadata_key_type: 'shared_key', folder_parent_id: PASSBOLT.folderId, personal: false }
+          : { id: it.id, name: it.name, username: it.username, metadata: null, folder_parent_id: PASSBOLT.folderId, personal: false },
+      ),
+    );
+  }
+  const it = PASSBOLT.items.find((x) => url === `/secrets/resource/${x.id}.json`);
+  if (!it || !pb.shared) return err(404);
+  return ok({ id: '9f82c07e-b1a3-4e45-b0d7-6c8d9eafb0c1', resource_id: it.id, user_id: PASSBOLT.user, data: await toUser(it.v5 ? { object_type: 'PASSBOLT_SECRET_DATA', password: it.password, description: '' } : it.password) });
+}
+
 async function startStandIn() {
   const vw = { asked: [], extraCollection: false, role: 2, dl: { extraFolder: false } };
   const build = async () => {
@@ -273,7 +398,7 @@ async function startStandIn() {
   const server = createServer({ key: readFileSync(join(WORK, 'vw.key')), cert: readFileSync(join(WORK, 'vw.pem')) }, (req, res) => {
     let body = '';
     req.on('data', (d) => (body += d));
-    req.on('end', () => {
+    req.on('end', async () => {
       vw.asked.push({ method: req.method, path: req.url, body, auth: req.headers.authorization ?? null });
       const send = (status, obj) => {
         res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
@@ -281,6 +406,12 @@ async function startStandIn() {
         return true;
       };
       if (delinea(vw, req, body, send) !== false) return;
+      try {
+        if ((await passbolt(vw, req, body, send)) !== false) return;
+      } catch (e) {
+        console.log(`[passbolt stand-in] ${e}`);
+        return send(500, {});
+      }
       if (req.method === 'POST' && req.url === '/identity/connect/token') {
         const form = new URLSearchParams(body);
         if (form.get('client_id') !== OUTSIDE.clientId || form.get('client_secret') !== OUTSIDE.secret) return send(400, { error: 'invalid_client' });
@@ -341,13 +472,16 @@ async function main() {
       rmSync(SEED_DST, { force: true });
     }
     makeCerts();
+    await startHelper();
     vw = await startStandIn();
+    vw.pb = await makePassbolt();
     await startServer();
     await runProof(ctx);
   } finally {
     await browser.close();
     if (serverProc) serverProc.kill();
     if (vw) vw.close();
+    if (helperProc) helperProc.kill();
     try { sh('fuser', ['-k', `${PORT}/tcp`]); } catch {}
     resetSchema();
   }
@@ -496,15 +630,62 @@ async function runProof(ctx) {
   await openAdminPasswords(A);
   check('8. the admin sees Cy\'s Secret Server beside Bob\'s Vaultwarden', !!(await until(async () => (await A.getByTestId('outside-connection').count()) === 2, 15000)));
 
-  // ---- 9. the sweep ---------------------------------------------------------------------
+  // ---- 9. Cy sets up a Passbolt from its invitation; it waits, then binds ------------------
+  const pb = vw.pb;
+  await C.reload();
+  await openMyPasswords(C);
+  await C.getByTestId('outside-connect-open').click();
+  check('9. Passbolt is offered, because this server\'s helper answers', (await C.getByTestId('outside-provider-passbolt').getAttribute('aria-disabled')) !== 'true');
+  await C.getByTestId('outside-provider-passbolt').click();
+  check('9. the dialog asks for the invitation link, not a password or an API key', (await C.getByTestId('outside-pb-invite').count()) === 1 && (await C.getByTestId('outside-dl-password').count()) === 0 && (await C.getByTestId('outside-master').count()) === 0);
+  await C.getByTestId('outside-pb-invite').fill(`${VW_URL}/setup/start/${PASSBOLT.user}/${PASSBOLT.token}`);
+  await C.getByTestId('outside-collection').fill(PASSBOLT.folder);
+  await C.getByTestId('outside-connect-go').click();
+  await C.getByTestId('outside-pb-fingerprint').waitFor({ timeout: 20000 });
+  const shown = (await C.getByTestId('outside-pb-fingerprint').innerText()).replace(/\s+/g, '').toLowerCase();
+  check('9. the dialog shows the Passbolt server key\'s fingerprint, as the helper reads it', shown.includes(pb.server.fingerprint), pb.server.fingerprint);
+  check('9. reading the invitation did not use it', pb.userKey == null);
+  check('9. setting up waits for the person to confirm the fingerprint', await C.getByTestId('outside-connect-go').isDisabled());
+  await shot(C, '12-passbolt-fingerprint');
+  await C.getByTestId('outside-pb-confirm').check();
+  await C.getByTestId('outside-connect-go').click();
+  const pbConn = C.locator('[data-testid="outside-connection"]', { hasText: 'Passbolt' });
+  check('9. the account is set up and the connection waits', !!(await until(async () => (await pbConn.getAttribute('data-state')) === 'waiting', 60000)));
+  check('9. Passbolt was given a public key, and only that', /BEGIN PGP PUBLIC KEY BLOCK/.test(pb.userKey ?? '') && !vw.asked.some((a) => a.body.includes('PRIVATE KEY')));
+  const fathomKey = await pgp({ op: 'key_info', key: pb.userKey });
+  check('9. Fathom\'s Passbolt key is Curve25519 throughout', fathomKey.curve25519 === true);
+  await pbConn.getByTestId('outside-check').click();
+  check('9. with nothing shared, Check now keeps it waiting and says why', !!(await until(async () => /sees none yet/.test(await pbConn.innerText()), 30000)));
+  check('9. Fathom signed in with a challenge for this address', pb.lastDomain === VW_URL, pb.lastDomain);
+  await shot(C, '13-passbolt-waiting');
+  pb.shared = true;
+  await pbConn.getByTestId('outside-check').click();
+  check('9. with the folder shared but not its metadata key, it still waits', !!(await until(async () => /metadata key/.test(await pbConn.innerText()), 30000)));
+  pb.keyGiven = true;
+  await pbConn.getByTestId('outside-check').click();
+  check('9. once both are shared, the first passing check binds it', !!(await until(async () => (await pbConn.getAttribute('data-state')) === 'on', 30000)));
+  await pbConn.getByTestId('outside-check').click();
+  await until(async () => (await pbConn.getByTestId('outside-login').count()) === 2, 30000);
+  const pbLogins = await pbConn.getByTestId('outside-logins').innerText();
+  check('9. Check now lists both items by name, the Passbolt 5 one opened with the metadata key', pbLogins.includes('core-fw9 admin') && pbLogins.includes('oob-console'));
+  await pbConn.getByTestId('outside-pull').first().click();
+  check('9. an item is pulled into Fathom', !!(await until(async () => (await pbConn.getByTestId('outside-item').count()) === 1, 30000)));
+  check('9. Fathom never asked Passbolt for a secret while setting up, checking or pulling', vw.asked.every((a) => !a.path.startsWith('/secrets/resource/')));
+  await shot(C, '14-passbolt-bound-pulled');
+  const squeezed = await C.getByTestId('vault-passwords').evaluate((el) => ({ shown: el.clientHeight, needs: el.scrollHeight }));
+  check('9. the Passwords tab shows its whole list, not a box that scrolls', squeezed.needs <= squeezed.shown + 1 && squeezed.shown > 200, JSON.stringify(squeezed));
+
+  // ---- 10. the sweep --------------------------------------------------------------------
   const dump = sh('sudo', ['-n', '-u', 'postgres', 'pg_dump', '--data-only', '--schema=public', '--schema=vault', '-d', DB_NAME], { maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
   const hexOf = (s) => Buffer.from(s, 'utf8').toString('hex');
-  for (const [what, value] of [['the master password', OUTSIDE.master], ['the API key\'s secret', OUTSIDE.secret], ['a pulled password', OUTSIDE.logins[0].password], ['the own-key password', OUTSIDE.logins[1].password], ['a login\'s name', 'core-sw1 admin'], ['the Secret Server account\'s password', DELINEA.password], ['a pulled secret\'s name', DELINEA.secrets[0].name]]) {
-    check(`9. ${what} is nowhere in the database, as text or as hex`, !dump.includes(value) && !dump.toLowerCase().includes(hexOf(value)));
+  for (const [what, value] of [['the master password', OUTSIDE.master], ['the API key\'s secret', OUTSIDE.secret], ['a pulled password', OUTSIDE.logins[0].password], ['the own-key password', OUTSIDE.logins[1].password], ['a login\'s name', 'core-sw1 admin'], ['the Secret Server account\'s password', DELINEA.password], ['a pulled secret\'s name', DELINEA.secrets[0].name], ['a Passbolt password', PASSBOLT.items[0].password], ['a Passbolt item\'s name', PASSBOLT.items[0].name], ['a PGP private key', 'PRIVATE KEY BLOCK']]) {
+    check(`10. ${what} is nowhere in the database, as text or as hex`, !dump.includes(value) && !dump.toLowerCase().includes(hexOf(value)));
   }
-  check('9. the sweep can see the outside tables (positive control: the chain names an outside act)', dump.includes('vault_outside_changed'));
+  check('10. the sweep can see the outside tables (positive control: the chain names an outside act)', dump.includes('vault_outside_changed'));
   const rows = sh('sudo', ['-n', '-u', 'postgres', 'psql', '-At', '-d', DB_NAME, '-c', "SELECT state || ':' || octet_length(secret_ct) FROM vault.outside_connections WHERE provider = 'vaultwarden'"], { stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  check('9. the disconnected row keeps its history and no sealed secret', rows === 'disconnected:0', rows);
+  check('10. the disconnected row keeps its history and no sealed secret', rows === 'disconnected:0', rows);
+  const pbRow = sh('sudo', ['-n', '-u', 'postgres', 'psql', '-At', '-d', DB_NAME, '-c', "SELECT state || ':' || (collection_id IS NOT NULL) FROM vault.outside_connections WHERE provider = 'passbolt'"], { stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  check('10. the Passbolt row is on and bound to its folder', pbRow === 'on:true', pbRow);
 
   console.log(fails.length === 0 ? '\nALL PASS' : `\n${fails.length} FAILED:\n  ${fails.join('\n  ')}`);
   process.exitCode = fails.length === 0 ? 0 : 1;

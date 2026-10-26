@@ -403,6 +403,9 @@ services:
       FATHOM_FIRMWARE_DIR: ${FATHOM_FIRMWARE_FETCH_BASE_URL:+/var/lib/fathom/firmware}
       FATHOM_FIRMWARE_MAX_BYTES: ${FATHOM_FIRMWARE_MAX_BYTES:-}
       FATHOM_BACKUP_DIR: /var/lib/fathom/backups
+      # ADR-0071 part four: where the optional Passbolt helper answers. Passbolt is offered
+      # only while it does, so without the `passbolt` profile nothing is listening here.
+      FATHOM_PASSBOLT_HELPER: /run/fathom-passbolt/helper.sock
     volumes:
       # Read-only: the server reads the generated database password and, later,
       # the master key. It writes neither. **Unchanged, and deliberately so** --
@@ -421,6 +424,9 @@ services:
       # Read-only: the nightly backup service's status, for Admin's Backups
       # panel (ADR-0070). The server makes no backup and holds no keys file.
       - backups:/var/lib/fathom/backups:ro
+      # Read-only: the Passbolt helper's socket, when the `passbolt` profile runs it.
+      # Connecting to a socket needs no write on its directory.
+      - passbolt-socket:/run/fathom-passbolt:ro
     tmpfs:
       - /tmp:size=64m,mode=1777,noexec,nosuid,nodev
     healthcheck:
@@ -493,6 +499,39 @@ services:
     volumes:
       - keys:/var/lib/fathom/keys:ro
       - backups:/var/lib/fathom/backups
+
+  # ADR-0071 part four, Passbolt: the helper that does Passbolt's OpenPGP for the server.
+  # Off unless asked for: `docker compose --profile passbolt up -d` (or COMPOSE_PROFILES=passbolt).
+  # Owner's answer r34-passbolt-crates, 2026-10-26: "let this be an optional thing ... after the
+  # admin clarifies they do want this support". Its 124 packages are in its own image, built from
+  # helpers/passbolt/ with its own lockfile, never in the server's.
+  #
+  # It reaches nothing: no network at all (`network_mode: none`), a read-only filesystem, no
+  # capabilities, no new privileges, Docker's default seccomp profile, and one volume, shared
+  # with the server, holding its socket. It holds no key between requests. What this does not
+  # cover: building it runs its packages' build scripts, as any build does.
+  passbolt-helper:
+    build:
+      context: .
+      dockerfile: deploy/passbolt-helper.Dockerfile
+      target: helper
+    image: ghcr.io/keyxmakerx/fathom-passbolt-helper:${FATHOM_TAG:-latest}${FATHOM_PASSBOLT_DIGEST:+@${FATHOM_PASSBOLT_DIGEST}}
+    profiles: [passbolt]
+    pull_policy: always
+    restart: unless-stopped
+    network_mode: none
+    read_only: true
+    user: "65532:65532"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 32
+    mem_limit: 256m
+    volumes:
+      - passbolt-socket:/run/fathom-passbolt
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "3" }
 
   # ADR-0070, the owner's fourth extra: a copy of the data files on
   # S3-compatible storage (AWS, Backblaze B2, Wasabi, MinIO, Cloudflare R2 and
@@ -740,3 +779,6 @@ volumes:
   # **Holds no key**: copy it anywhere, off the machine is the point. The keys
   # file that opens these goes somewhere else.
   backups:
+  # The Passbolt helper's socket, and nothing else (ADR-0071 part four). Empty unless the
+  # `passbolt` profile is on.
+  passbolt-socket:
