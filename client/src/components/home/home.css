@@ -507,3 +507,40 @@
 .home__label--spaced {
   margin-top: var(--s4);
 }
+
+/* ADR-0057 decision 2's step-up code prompt in the Admin tab. Drawn like the
+   sign-in card's field: the label above in small spaced capitals, the code in
+   monospace, the button beside it. The input has a box of its own so a
+   password manager does not read the button as its label. */
+.admin-code {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding: var(--s2) 0;
+}
+
+.admin-code__label {
+  font-size: var(--t-small);
+  color: var(--muted);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.admin-code__row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
+.admin-code__control {
+  display: flex;
+}
+
+.admin-code__input {
+  width: 14ch;
+  padding: var(--s2) var(--s3);
+  font-family: var(--mono);
+  font-size: var(--t-mono);
+  letter-spacing: 0.1em;
+}
