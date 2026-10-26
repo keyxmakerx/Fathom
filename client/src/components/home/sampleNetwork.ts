@@ -103,7 +103,7 @@ export interface SampleSpec {
   questions?: SampleQuestion[];
   /** A practice sample's planted mistakes, each the Check rule that finds it; the sample's test holds Checks to it. */
   mistakes?: { rule: string; where: string; what: string }[];
-  /** Spares on hand (ADR-0074): stores with what is in them, and the fewest of a model to keep. */
+  /** Spares on hand (ADR-0075): stores with what is in them, and the fewest of a model to keep. */
   stores?: { name: string; place?: string; items: Omit<NewStock, 'storeId'>[] }[];
   levels?: { model: string; at_least: number }[];
 }

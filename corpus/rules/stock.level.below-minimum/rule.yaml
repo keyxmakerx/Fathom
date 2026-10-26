@@ -14,7 +14,7 @@ acceptable_when: >
 reviewed_by: "pending: Key Maker"
 reviewed_on: 2026-10-26
 sources_note: >
-  The design's own record: the level is what the people who keep this design decided, not a vendor claim (ADR-0074). The rule counts spares tracked one by one; a model with a counted spare ("6 of them") is judged on the Inventory, which adds the counts up, since a check cannot add them.
+  The design's own record: the level is what the people who keep this design decided, not a vendor claim (ADR-0075). The rule counts spares tracked one by one; a model with a counted spare ("6 of them") is judged on the Inventory, which adds the counts up, since a check cannot add them.
 applies_to:
   kind: StockLevel
   with:

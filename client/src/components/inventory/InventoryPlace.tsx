@@ -167,7 +167,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const { ls, go, back: stepBack, backLabel, moves } = useListState();
   // r31-bar A: the Sheet face, kept in this browser (`sheetPref.ts`).
   const [sheet, setSheet] = useState(loadSheet);
-  // ADR-0074: Parts shows what is fitted, or what is on hand (spares, on order, away for repair).
+  // ADR-0075: Parts shows what is fitted, or what is on hand (spares, on order, away for repair).
   const [onHand, setOnHand] = useState(false);
   const kind: Kind = isKind(ls.kind) ? ls.kind : 'devices';
   const openKey = ls.open || null;
@@ -1036,7 +1036,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   );
 }
 
-/** Parts: what is fitted in the devices, or what is on hand and not fitted (ADR-0074). */
+/** Parts: what is fitted in the devices, or what is on hand and not fitted (ADR-0075). */
 function PartsSwitch({ onHand, onChange }: { onHand: boolean; onChange: (onHand: boolean) => void }) {
   return (
     <div className="parts-switch" role="group" aria-label="Which parts" data-testid="parts-switch">

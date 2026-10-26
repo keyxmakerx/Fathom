@@ -1,4 +1,4 @@
-# ADR-0074: Spares and stores — what is on hand but not fitted
+# ADR-0075: Spares and stores — what is on hand but not fitted
 
 **Status:** accepted 2026-10-26. The owner approved sign-off card r36-stock (state plus store; a named
 store listed, not drawn; every hook, including paste and CSV, prices, suppliers and orders), then card

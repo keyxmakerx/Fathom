@@ -340,7 +340,7 @@ schema:
                     # and a class member are minor. Whole change = MINOR. The reader still opens
                     # 0.10 to 0.27.
                     #
-                    # 0.29 is available inventory (ADR-0074, sign-offs r36-stock and r38-stock-how,
+                    # 0.29 is available inventory (ADR-0075, sign-offs r36-stock and r38-stock-how,
                     # 2026-10-26), all additive: three node kinds hung off the root, Store (a
                     # cupboard, shelf or room spares sit in), StockItem (a part on hand but not
                     # fitted: spare, reserved, on order, in repair, lent or retired) and
@@ -619,7 +619,7 @@ classes:
     members: [Device, PhysicalPort, Cable, Rack, Vlan, ContainerNetwork, StockItem]
     doc: |
       The owners of FieldValue (custom fields, 0.16): the inventory things a field can apply to.
-      StockItem joined in 0.29 so a spare carries its price and supplier (ADR-0074).
+      StockItem joined in 0.29 so a spare carries its price and supplier (ADR-0075).
 
   - class: Docable
     members: [Device, PassiveNode, PhysicalPort, Cable, Rack]
@@ -2301,7 +2301,7 @@ kinds:
     identity:
       - [ owner(CardHost), slot ]   # tier 1 -- a physical coordinate, PowerSupply's precedent
 
-  # Available inventory (ADR-0074, 2026-10-26). Appended at the tail (62 §13).
+  # Available inventory (ADR-0075, 2026-10-26). Appended at the tail (62 §13).
   - kind: Store
     layer: physical
     emits: false
@@ -2319,7 +2319,7 @@ kinds:
     layer: physical
     emits: false
     doc: |
-      Something on hand but not fitted (ADR-0074): a spare card, optic, power supply, device,
+      Something on hand but not fitted (ADR-0075): a spare card, optic, power supply, device,
       lead or anything else; or one on order, away for repair, lent out or retired. Hung off the
       root through HasStock. A thing with a serial is one item; a thing without one may be a
       count of the same ("37 blue 2 m leads"). Fitting a spare turns it into the Card, the
@@ -2346,7 +2346,7 @@ kinds:
     layer: physical
     emits: false
     doc: |
-      The fewest spares of one model to keep on hand (ADR-0074). Hung off the root through
+      The fewest spares of one model to keep on hand (ADR-0075). Hung off the root through
       HasStockLevel; one per model, the editor keeps that, as FirmwareTarget does. The rule
       `stock.below-minimum` reads it against the spare StockItems of that model.
     fields:
@@ -4017,7 +4017,7 @@ edges:
       ADR-0073. A port on a card's faceplate. A REFERENCE EDGE because the port already has
       its containment parent, the chassis (HasPort); see Card's doc for why it stays there.
 
-  # Available inventory (ADR-0074, 2026-10-26). Appended at the tail (62 §13).
+  # Available inventory (ADR-0075, 2026-10-26). Appended at the tail (62 §13).
   - edge: HasStore
     class: containment
     from: [root]
@@ -4061,7 +4061,7 @@ edges:
     symmetric: false
     fields: []
     emit_dict: null
-    doc: ADR-0074. The store an item sits in. None while it is on order, away for repair or lent.
+    doc: ADR-0075. The store an item sits in. None while it is on order, away for repair or lent.
   - edge: ReservedFor
     class: reference
     from: [StockItem]
@@ -4072,7 +4072,7 @@ edges:
     symmetric: false
     fields: []
     emit_dict: null
-    doc: ADR-0074. The plan step that will fit a reserved item. Back out or a removed step frees it.
+    doc: ADR-0075. The plan step that will fit a reserved item. Back out or a removed step frees it.
   - edge: ForIssue
     class: reference
     from: [StockItem]
@@ -4083,7 +4083,7 @@ edges:
     symmetric: false
     fields: []
     emit_dict: null
-    doc: ADR-0074. The issue a part went away for repair under.
+    doc: ADR-0075. The issue a part went away for repair under.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load

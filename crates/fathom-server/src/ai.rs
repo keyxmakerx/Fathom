@@ -2236,7 +2236,7 @@ pub async fn ai_reading(
     let (scope, _) = readable_place(tx, auth, &session.key, design).await?;
     let stored = designs::read_version_in_tx(tx, auth, heads, design, Some(scope), None).await?;
     let tiers = tiers(&session.key, &session.policy);
-    // ADR-0074: a spare's custom-field values say only their definition's id; name the
+    // ADR-0075: a spare's custom-field values say only their definition's id; name the
     // organisation's `part` fields (Price, Supplier) so the values read. Notes tier only, as the
     // values are, and each name through the same credential check. Read before the graph is
     // built: the graph is not `Send` and must not be held across an await.

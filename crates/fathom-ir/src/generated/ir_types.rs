@@ -462,7 +462,7 @@ mod body {
         /// off the root through HasStore, listed rather than drawn until Sites and rooms are built.
         /// A store's bins are not nodes: a StockItem names its bin in words.
         Store,
-        /// Something on hand but not fitted (ADR-0074): a spare card, optic, power supply, device,
+        /// Something on hand but not fitted (ADR-0075): a spare card, optic, power supply, device,
         /// lead or anything else; or one on order, away for repair, lent out or retired. Hung off the
         /// root through HasStock. A thing with a serial is one item; a thing without one may be a
         /// count of the same ("37 blue 2 m leads"). Fitting a spare turns it into the Card, the
@@ -470,7 +470,7 @@ mod body {
         /// an item, with where it came from frozen in `came_from`, so the serial's history reads on.
         /// An optic keeps its Transceiver value so fitting it sets the cage exactly.
         StockItem,
-        /// The fewest spares of one model to keep on hand (ADR-0074). Hung off the root through
+        /// The fewest spares of one model to keep on hand (ADR-0075). Hung off the root through
         /// HasStockLevel; one per model, the editor keeps that, as FirmwareTarget does. The rule
         /// `stock.below-minimum` reads it against the spare StockItems of that model.
         StockLevel,
@@ -1467,11 +1467,11 @@ mod body {
         HasStock,
         /// Stock levels hang off the design root as FirmwareTarget does.
         HasStockLevel,
-        /// ADR-0074. The store an item sits in. None while it is on order, away for repair or lent.
+        /// ADR-0075. The store an item sits in. None while it is on order, away for repair or lent.
         InStore,
-        /// ADR-0074. The plan step that will fit a reserved item. Back out or a removed step frees it.
+        /// ADR-0075. The plan step that will fit a reserved item. Back out or a removed step frees it.
         ReservedFor,
-        /// ADR-0074. The issue a part went away for repair under.
+        /// ADR-0075. The issue a part went away for repair under.
         ForIssue,
     }
 

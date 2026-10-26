@@ -107,7 +107,7 @@ const EDGE_KINDS_SINCE_0_27: ReadonlySet<EdgeKind> = new Set(['HasLesson', 'HasL
 // Kinds 0.28 (cards and optics) added; every accepted older header is too old for them.
 const NODE_KINDS_SINCE_0_28: ReadonlySet<NodeKind> = new Set(['Card']);
 const EDGE_KINDS_SINCE_0_28: ReadonlySet<EdgeKind> = new Set(['HasCard', 'OnCard']);
-// Kinds 0.29 (spares and stores, ADR-0074) added; every accepted older header is too old for them.
+// Kinds 0.29 (spares and stores, ADR-0075) added; every accepted older header is too old for them.
 const NODE_KINDS_SINCE_0_29: ReadonlySet<NodeKind> = new Set(['Store', 'StockItem', 'StockLevel']);
 const EDGE_KINDS_SINCE_0_29: ReadonlySet<EdgeKind> = new Set([
   'HasStore',
