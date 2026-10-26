@@ -20,7 +20,9 @@ v2, option D) and chose rpgp in a locked-down helper (v2 B).
 ## Approval
 
 The owner, 2026-10-26: r34-passbolt v2, answer B (Curve25519 only, rpgp in a locked-down helper),
-and r34-passbolt-crates, answer A (the 124 packages, as an optional thing).
+and r34-passbolt-crates, answer A (the 124 packages, as an optional thing). Then, on 2026-10-26
+after PR #202 stated it, "Approved" for the closure as measured in the helper's own lockfile: 152
+packages, 17 with a `build.rs`, past C4.
 
 ## The rule it runs under
 

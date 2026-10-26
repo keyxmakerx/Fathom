@@ -233,7 +233,8 @@ let this be an optional thing ... after the admin clarifies they do want this su
     someone runs it against one. The helper's closure is 152 packages (the crates card offered 124
     and the owner approved "124 and etc"), 17 with a `build.rs` and 12 proc macros, so in the
     helper's image it is past ADR-0032's C4 (12) as Fathom's own closure is (22); C2 is within its
-    number there. No script enforces either cap.
+    number there. No script enforces either cap. The owner approved the closure as measured, the
+    152 packages and the C4 overrun, on 2026-10-26 ("Approved", after PR #202 stated both).
 
 **Departures from mockup r32-vault-external.** The mockup's provider list shows Passbolt and Delinea
 as "Next" and not selectable; both are now selectable, Passbolt only where its helper answers. Marking a pulled login on devices is on the device's Logins tab, as for
