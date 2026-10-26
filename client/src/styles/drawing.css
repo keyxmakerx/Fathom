@@ -2568,3 +2568,22 @@
 .drawing-parts__optic-chip[draggable='false'] {
   cursor: default;
 }
+
+.drawing-parts__empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.drawing-parts__slot-button {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  padding: 1px 6px;
+  color: var(--ink);
+  border: 1px dashed var(--muted);
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+}

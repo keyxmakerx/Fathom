@@ -117,6 +117,12 @@ describe('parseCatalogueModel', () => {
     });
   });
 
+  it('parses card slots when the model has them, and leaves them out when not', () => {
+    const body = { ...wellFormed, card_slots: [{ name: 'FPC 0', face: 'front' }] };
+    expect(parseCatalogueModel(bytesOf(body)).cardSlots).toEqual([{ name: 'FPC 0', face: 'front' }]);
+    expect(parseCatalogueModel(bytesOf(wellFormed)).cardSlots).toBeUndefined();
+  });
+
   it('parses an empty psu_slots list', () => {
     const body = { ...wellFormed, psu_slots: [] };
     expect(parseCatalogueModel(bytesOf(body)).psuSlots).toEqual([]);

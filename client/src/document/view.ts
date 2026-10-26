@@ -223,6 +223,9 @@ export interface ChassisView {
   /** Schema 0.28 — the cards in this chassis's slots, each with its own sub-slots. Optional so
    * a `ChassisView` literal written before it still type-checks; absent reads as none. */
   cards?: CardView[];
+  /** r35 — the slot names the catalogue gives this model (`card_slots`), in its order. Absent
+   * for a model with none, or with no catalogue entry: then any slot name is typed by hand. */
+  cardSlots?: string[];
 }
 
 export interface RackView {
@@ -864,6 +867,7 @@ function chassisView(
     placement,
     sketch: chassisFields.model === undefined && hasPorts.length > 0,
     cards: cardsOf(doc, chassisId),
+    ...(catalogueModel?.cardSlots?.length ? { cardSlots: catalogueModel.cardSlots.map((s) => s.name) } : {}),
   };
 }
 

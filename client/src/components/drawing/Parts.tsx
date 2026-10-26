@@ -2,7 +2,7 @@
 // and the port panel's Optic section. Every write is an `EditorChange` through `actions.onEdit`,
 // refused beside the control the same way a field edit is.
 
-import { useEffect, useState, type DragEvent } from 'react';
+import { useEffect, useId, useState, type DragEvent } from 'react';
 
 import { PORT_CONNECTOR_VALUES } from '../../document/compat';
 import { ABSENT, type CardView, type ChassisView, type EditorActions, type EditorChange, type Optic, type PortView } from './contract';
@@ -149,8 +149,24 @@ export function OpticSection({ port, siblings, actions }: { port: PortView; sibl
 // ---------------------------------------------------------------------------
 // The device panel's Cards section
 
-function FitCardForm({ hostId, sub, actions, onDone }: { hostId: string; sub: boolean; actions: EditorActions; onDone: () => void }) {
-  const [slot, setSlot] = useState('');
+function FitCardForm({
+  hostId,
+  sub,
+  actions,
+  onDone,
+  slots,
+  initialSlot = '',
+}: {
+  hostId: string;
+  sub: boolean;
+  actions: EditorActions;
+  onDone: () => void;
+  /** The catalogue's empty slots, offered as the slot's choices; anything may still be typed. */
+  slots?: readonly string[];
+  initialSlot?: string;
+}) {
+  const [slot, setSlot] = useState(initialSlot);
+  const listId = useId();
   const [name, setName] = useState('');
   const [model, setModel] = useState('');
   const [serial, setSerial] = useState('');
@@ -184,12 +200,13 @@ function FitCardForm({ hostId, sub, actions, onDone }: { hostId: string; sub: bo
     onDone();
   }
 
-  const cell = (label: string, value: string, set: (v: string) => void, placeholder = '', wide = false) => (
+  const cell = (label: string, value: string, set: (v: string) => void, placeholder = '', wide = false, list?: string) => (
     <label className={wide ? 'drawing-ports__cell drawing-ports__cell--wide' : 'drawing-ports__cell'}>
       <span>{label}</span>
       <input
         value={value}
         placeholder={placeholder}
+        list={list}
         onChange={(e) => {
           set(e.target.value);
           setRefusal(null);
@@ -203,7 +220,14 @@ function FitCardForm({ hostId, sub, actions, onDone }: { hostId: string; sub: bo
 
   return (
     <div className="drawing-ports__form" data-testid="fit-card-form">
-      {cell(sub ? 'Sub-slot' : 'Slot', slot, setSlot, sub ? '0' : '1, or FPC 2')}
+      {cell(sub ? 'Sub-slot' : 'Slot', slot, setSlot, slots?.[0] ?? (sub ? '0' : '1, or FPC 2'), false, slots?.length ? listId : undefined)}
+      {slots?.length ? (
+        <datalist id={listId}>
+          {slots.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+      ) : null}
       {cell('What it is', name, setName, '24 x SFP+')}
       {cell('Model', model, setModel)}
       {cell('Serial', serial, setSerial)}
@@ -272,24 +296,41 @@ function CardRow({ card, depth, actions }: { card: CardView; depth: number; acti
 }
 
 export function CardsSection({ chassis, actions }: { chassis: ChassisView; actions: EditorActions }) {
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState<string | null>(null);
   const cards = chassis.cards ?? [];
-  if (cards.length === 0 && !actions.onEdit) return null;
+  const empty = (chassis.cardSlots ?? []).filter((name) => !cards.some((c) => c.slot === name));
+  if (cards.length === 0 && empty.length === 0 && !actions.onEdit) return null;
   return (
     <div className="drawing-editor__field" data-testid="cards-section">
       <div className="drawing-editor__group">Cards</div>
-      {cards.length === 0 ? <div style={TYPED_NOTE_STYLE}>No cards. A modular device's line cards and modules go here, each in its slot.</div> : null}
+      {cards.length === 0 && empty.length === 0 ? <div style={TYPED_NOTE_STYLE}>No cards. A modular device's line cards and modules go here, each in its slot.</div> : null}
       {cards.map((c) => (
         <CardRow key={c.id} card={c} depth={0} actions={actions} />
       ))}
       {actions.onEdit ? (
-        adding ? (
-          <FitCardForm hostId={chassis.id} sub={false} actions={actions} onDone={() => setAdding(false)} />
+        adding !== null ? (
+          <FitCardForm hostId={chassis.id} sub={false} actions={actions} onDone={() => setAdding(null)} slots={empty} initialSlot={adding} />
         ) : (
-          <button type="button" className="drawing-ports__add" onClick={() => setAdding(true)}>
+          <button type="button" className="drawing-ports__add" onClick={() => setAdding(empty[0] ?? '')}>
             + Fit a card
           </button>
         )
+      ) : null}
+      {empty.length > 0 ? (
+        <div className="drawing-parts__empty" data-testid="empty-card-slots">
+          <span style={TYPED_NOTE_STYLE}>Empty {empty.length === 1 ? 'slot' : 'slots'}:</span>
+          {empty.map((name) =>
+            actions.onEdit ? (
+              <button key={name} type="button" className="drawing-parts__slot-button" onClick={() => setAdding(name)} title={`Fit a card in ${name}`}>
+                {name}
+              </button>
+            ) : (
+              <span key={name} className="drawing-parts__slot">
+                {name}
+              </span>
+            ),
+          )}
+        </div>
       ) : null}
     </div>
   );

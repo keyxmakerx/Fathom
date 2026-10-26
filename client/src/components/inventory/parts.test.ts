@@ -64,3 +64,15 @@ describe('the Parts list', () => {
     expect(again[1]!.cells.model).toBe('FTLX1471');
   });
 });
+
+describe('card slots from the catalogue', () => {
+  it('the device lists the slots its model has, so the panel can show the empty ones', () => {
+    const { doc, chassisId } = estate();
+    const withSlots: CatalogueModel = { ...MODEL, cardSlots: [{ name: '0', face: 'front' }, { name: '1', face: 'front' }] };
+    const chassis = viewOf(doc, [withSlots]).rows.flatMap((r) => r.racks.flatMap((k) => k.chassis)).find((c) => c.id === chassisId)!;
+    expect(chassis.cardSlots).toEqual(['0', '1']);
+    expect(chassis.cards!.map((c) => c.slot)).toEqual(['0']);
+    const plain = viewOf(doc, [MODEL]).rows.flatMap((r) => r.racks.flatMap((k) => k.chassis)).find((c) => c.id === chassisId)!;
+    expect(plain.cardSlots).toBeUndefined();
+  });
+});
