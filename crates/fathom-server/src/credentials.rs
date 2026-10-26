@@ -276,6 +276,10 @@ pub enum CredentialError {
     /// Contains the account's own address. ADR-0055 decision 10.
     PasswordContainsAddress,
 
+    /// A name that is empty once trimmed, longer than [`NAME_MAX`] characters, or
+    /// holds a control character (a line break included).
+    NameRefused,
+
     /// The current password did not verify, on `/credentials/password` or on
     /// an authenticator change (ADR-0057 decision 3, ASVS 6.2.3 and 7.5.1).
     /// Rendered exactly as a wrong sign-in password.
@@ -373,6 +377,7 @@ impl core::fmt::Display for CredentialError {
                  by this server. This is not a permission error and must never render as one"
             ),
             Self::Malformed(what) => write!(f, "the {what} is not the shape it must be"),
+            Self::NameRefused => write!(f, "a name must be 1 to {NAME_MAX} characters on one line"),
             Self::Corrupt(what) => write!(f, "a stored {what} is not consistent"),
         }
     }
@@ -1754,6 +1759,75 @@ impl CredentialStore {
         leave_custody(&tx).await?;
         tx.commit().await?;
         Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // GET and POST /credentials/name
+    // -----------------------------------------------------------------------
+
+    /// The session's own account's name, as others see it.
+    pub async fn display_name(&self, session: &VerifiedSession) -> Result<String, CredentialError> {
+        let account = self.acting_account(session)?;
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_credential_custody(&tx, &account).await?;
+        let row = tx
+            .query_opt(
+                "SELECT display_name FROM accounts WHERE id = $1",
+                &[&account],
+            )
+            .await?
+            .ok_or(CredentialError::Corrupt("account"))?;
+        let name: String = row.get(0);
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(name)
+    }
+
+    /// Change the session's own account's name. Trimmed; refused when empty,
+    /// longer than [`NAME_MAX`] characters, or holding a control character.
+    /// Filed on the site chain as `account_renamed`, with the account and not
+    /// the name (`0049`). Returns the name as stored.
+    pub async fn set_display_name(
+        &self,
+        session: &VerifiedSession,
+        name: &str,
+    ) -> Result<String, CredentialError> {
+        let account = self.acting_account(session)?;
+        let name = checked_name(name)?;
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_credential_custody(&tx, &account).await?;
+
+        let Some(row) = read_credentials(&tx, &self.ring, &account).await? else {
+            return Err(CredentialError::Corrupt("account"));
+        };
+        self.refuse_a_setup_session(&tx, &account, &row).await?;
+
+        chains::append_site(
+            &tx,
+            &self.ring,
+            &self.deployment,
+            EntryType::AccountRenamed,
+            &entry_metadata(
+                EntryType::AccountRenamed,
+                &[("account", Json::Str(account.clone()))],
+            ),
+        )
+        .await?;
+        let updated = tx
+            .execute(
+                "UPDATE accounts SET display_name = $2 WHERE id = $1",
+                &[&account, &name],
+            )
+            .await?;
+        if updated != 1 {
+            return Err(CredentialError::Corrupt("account"));
+        }
+
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(name)
     }
 
     // -----------------------------------------------------------------------
@@ -3393,6 +3467,19 @@ async fn leave_custody(tx: &Transaction<'_>) -> Result<(), CredentialError> {
 // ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
+
+/// The longest name a person may give themselves, in characters.
+pub const NAME_MAX: usize = 80;
+
+/// A name as it will be stored: trimmed, one line, 1 to [`NAME_MAX`] characters.
+pub fn checked_name(name: &str) -> Result<String, CredentialError> {
+    let name = name.trim();
+    let count = name.chars().count();
+    if count == 0 || count > NAME_MAX || name.chars().any(char::is_control) {
+        return Err(CredentialError::NameRefused);
+    }
+    Ok(name.to_string())
+}
 
 fn entry_metadata(entry_type: EntryType, fields: &[(&str, Json)]) -> Vec<u8> {
     let mut map = BTreeMap::new();

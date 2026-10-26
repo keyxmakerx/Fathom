@@ -2242,3 +2242,94 @@ fn read_lp(bytes: &[u8]) -> (&[u8], &[u8]) {
 /// `Purpose::Setup` is named here so that a rename on the operator plane fails
 /// this suite rather than leaving it quietly testing nothing.
 const _: Purpose = Purpose::Setup;
+
+// ---------------------------------------------------------------------------
+// A person's own name (`0049`)
+// ---------------------------------------------------------------------------
+
+/// **A person changes their own name, it is stored trimmed, the act is on the
+/// site chain, and a name that is empty, too long or on two lines is refused.**
+/// Through the runtime role, so `0049`'s column grant is what is tested.
+#[tokio::test]
+async fn a_person_changes_their_own_name_and_only_their_own() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions = sessions_store(&pool, Arc::clone(&ring)).await;
+    let creds = credential_store(&pool, Arc::clone(&ring)).await;
+    let enrolled = an_enrolled_account(&pool, &ring, &sessions, &creds, "renamer").await;
+    let bystander = an_account(&pool, "bystander").await;
+
+    let code = wait_for_a_fresh_code(&enrolled.secret).await;
+    let (signed_in, key) = sign_in_with(&sessions, &enrolled.person, A_REAL_PASSWORD, &code)
+        .await
+        .expect("a password and a live app code sign in");
+    let before = site_entries_of("account_renamed").await;
+
+    let session = verify(&sessions, &signed_in, &key, "GET", "/credentials/name", b"").await;
+    assert_eq!(
+        creds.display_name(&session).await.expect("read own name"),
+        "renamer"
+    );
+
+    let session = verify(
+        &sessions,
+        &signed_in,
+        &key,
+        "POST",
+        "/credentials/name",
+        b"",
+    )
+    .await;
+    let stored = creds
+        .set_display_name(&session, "  Kim Marsh  ")
+        .await
+        .expect("a one-line name is accepted");
+    assert_eq!(stored, "Kim Marsh", "stored trimmed");
+    let session = verify(&sessions, &signed_in, &key, "GET", "/credentials/name", b"").await;
+    assert_eq!(
+        creds.display_name(&session).await.expect("read own name"),
+        "Kim Marsh"
+    );
+    assert_eq!(site_entries_of("account_renamed").await, before + 1);
+
+    for refused in [
+        "",
+        "   ",
+        "Kim\nMarsh",
+        &"x".repeat(credentials::NAME_MAX + 1),
+    ] {
+        let session = verify(
+            &sessions,
+            &signed_in,
+            &key,
+            "POST",
+            "/credentials/name",
+            b"",
+        )
+        .await;
+        assert!(
+            matches!(
+                creds.set_display_name(&session, refused).await,
+                Err(CredentialError::NameRefused)
+            ),
+            "refused: {refused:?}"
+        );
+    }
+    assert_eq!(
+        site_entries_of("account_renamed").await,
+        before + 1,
+        "a refused name files nothing"
+    );
+
+    let other: String = superuser()
+        .await
+        .query_one(
+            "SELECT display_name FROM accounts WHERE id = $1",
+            &[&bystander.account.to_string()],
+        )
+        .await
+        .expect("read the bystander")
+        .get(0);
+    assert_eq!(other, "bystander", "nobody else's name moved");
+}

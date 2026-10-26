@@ -565,6 +565,9 @@ pub enum EntryType {
     AiRecommendationDecided,
     /// An operator turned AI on or off for the whole server.
     AiSwitchChanged,
+    // ---- Account name (migration 0049) -------------------------------------
+    /// A person changed their own name. Names the account, not the name.
+    AccountRenamed,
 }
 
 impl EntryType {
@@ -654,6 +657,7 @@ impl EntryType {
             Self::AiKeyDisabled => "ai_key_disabled",
             Self::AiRecommendationDecided => "ai_recommendation_decided",
             Self::AiSwitchChanged => "ai_switch_changed",
+            Self::AccountRenamed => "account_renamed",
         }
     }
 
@@ -743,6 +747,7 @@ impl EntryType {
             "ai_key_disabled" => Some(Self::AiKeyDisabled),
             "ai_recommendation_decided" => Some(Self::AiRecommendationDecided),
             "ai_switch_changed" => Some(Self::AiSwitchChanged),
+            "account_renamed" => Some(Self::AccountRenamed),
             _ => None,
         }
     }
@@ -803,6 +808,8 @@ impl EntryType {
             | Self::ConsolePlacementReverted => &[ChainKind::Site],
             // ADR-0072 (`0046` §F).
             Self::AiSwitchChanged => &[ChainKind::Site],
+            // `0049` §B.
+            Self::AccountRenamed => &[ChainKind::Site],
             Self::AiPolicyChanged
             | Self::AiKeyMade
             | Self::AiKeyChanged

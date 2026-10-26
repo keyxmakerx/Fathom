@@ -299,6 +299,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0048_vault_passbolt.sql",
         sql: include_str!("../migrations/0048_vault_passbolt.sql"),
     },
+    // A person may change their own name.
+    Migration {
+        version: 49,
+        name: "0049_account_name.sql",
+        sql: include_str!("../migrations/0049_account_name.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

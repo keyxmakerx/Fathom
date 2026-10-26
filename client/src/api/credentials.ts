@@ -15,6 +15,8 @@
 // | `POST /enrolment/operator/setup` | no | `LP(token) ‖ LP(password)` | empty |
 // | `POST /credentials/password` | yes | `LP(current_password) ‖ LP(password) ‖ LP(session_pubkey) ‖ LP(nonce) ‖ LP(evidence_sig)` | empty |
 // | `GET /credentials/status` | yes | empty | `LP("yes"\|"no")` |
+// | `GET /credentials/name` | yes | empty | `LP(name)` |
+// | `POST /credentials/name` | yes | `LP(name)` | `LP(name)` as stored |
 // | `POST /credentials/totp/enrol` | yes | `LP(current_password) ‖ LP(code)` | `LP(otpauth_uri) ‖ LP(secret)` |
 // | `POST /credentials/totp/confirm` | yes | `LP(app_code)` | ten `LP(backup_code)` |
 // | `POST /credentials/key` | yes | `LP(public_key)` | `LP(key_id)` |
@@ -298,6 +300,18 @@ export async function hasAuthenticator(): Promise<boolean> {
   const answer = await signedFetch('GET', '/credentials/status');
   const { value } = readLp(answer);
   return decoder.decode(value) === 'yes';
+}
+
+/** `GET /credentials/name` — the name others see beside this person's work. */
+export async function fetchOwnName(): Promise<string> {
+  const { value } = readLp(await signedFetch('GET', '/credentials/name'));
+  return decoder.decode(value);
+}
+
+/** `POST /credentials/name` — change it. Answers the name as stored (trimmed). */
+export async function setOwnName(name: string): Promise<string> {
+  const { value } = readLp(await signedFetch('POST', '/credentials/name', lp(utf8(name))));
+  return decoder.decode(value);
 }
 
 /** `POST /credentials/totp/enrol` — draw a secret. A first enrolment needs
