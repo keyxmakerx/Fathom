@@ -48,6 +48,9 @@
 
 pub mod admin;
 pub mod admin_exposure;
+pub mod ai;
+pub mod ai_api;
+pub mod ai_reading;
 pub mod api;
 pub mod audit;
 pub mod authority;
@@ -77,10 +80,13 @@ pub mod health;
 pub mod healthcheck;
 pub mod ids;
 pub mod invitations;
+pub mod json_in;
 pub mod keyprovider;
 pub mod keys;
 pub mod live;
+pub mod mcp;
 pub mod migrate;
+pub mod oauth;
 pub mod operators;
 pub mod repo;
 pub mod rls;

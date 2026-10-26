@@ -18,6 +18,7 @@ import { designTitle, fetchDesigns, sortDesignsByRecency, type DesignSummary } f
 import type { Organisation } from './api/organisations';
 import { buildScopeForest, fetchScopes, pathTo, type Scope, type ScopeTreeNode } from './api/scopes';
 import { Account } from './components/Account';
+import { ConnectAiApp } from './components/ai/ConnectAiApp';
 import { ClaimOrganisation } from './components/claim';
 import { TypeItYourself } from './components/typing/typeItYourself';
 import { Console } from './components/console/Console';
@@ -165,6 +166,12 @@ export default function App() {
   // render, for the same reason the reset token is.
   const [invitationToken] = useState<string | null>(() =>
     typeof window === 'undefined' ? null : invitationFromLocation(window.location),
+  );
+  // ADR-0072 decision 15: an AI app sends the person to `/oauth/authorize?…` to sign in
+  // and choose what it may read. Read once, before sign-in can change the address; the
+  // page shows after sign-in, in place of Home.
+  const [connectQuery, setConnectQuery] = useState<string | null>(() =>
+    typeof window !== 'undefined' && window.location.pathname === '/oauth/authorize' ? window.location.search : null,
   );
   const [door, setDoor] = useState<Door>(
     invitationToken ? 'enrol' : resetToken ? 'reset' : 'sign-in',
@@ -709,6 +716,18 @@ export default function App() {
           void signOut()
             .catch(console.error)
             .finally(() => setLeavingForInvite(false));
+        }}
+      />
+    );
+  }
+
+  if (connectQuery !== null && session.kind === 'steward') {
+    return (
+      <ConnectAiApp
+        query={connectQuery}
+        onLeave={() => {
+          window.history.replaceState(null, '', '/');
+          setConnectQuery(null);
         }}
       />
     );

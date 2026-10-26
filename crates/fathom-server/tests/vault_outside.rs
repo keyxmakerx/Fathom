@@ -1,5 +1,5 @@
 //! Outside vaults — the vault's Mode C, `src/vault_outside/` and
-//! `migrations/0045_vault_outside.sql` and `0046_vault_delinea.sql` — against a real PostgreSQL
+//! `migrations/0045_vault_outside.sql` and `0047_vault_delinea.sql` — against a real PostgreSQL
 //! and a stand-in Vaultwarden and Delinea Secret Server.
 //!
 //! ADR-0071 part four is the rule: a member connects their own outside vault, and what is

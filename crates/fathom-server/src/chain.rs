@@ -546,6 +546,23 @@ pub enum EntryType {
     /// The window ran out unconfirmed, or `fathom-server console-placement
     /// --reset` cleared a placement from the host. The entry's `reason` says which.
     ConsolePlacementReverted,
+    // ---- AI access keys (migration 0046, ADR-0072) ------------------------
+    /// A Steward changed the organisation's AI policy: on or off, who may make
+    /// keys, the ceiling, the longest key, the second-person folders.
+    AiPolicyChanged,
+    /// A person made an AI key. Names the key, its fingerprint, what it may see
+    /// and until when; never anything it read.
+    AiKeyMade,
+    /// The key's owner (or a Steward, narrowing) changed what it may do.
+    AiKeyChanged,
+    /// A key was stopped: by its owner, a Steward or an operator, with the
+    /// reason. **Filed on two kinds** when an operator does it, as
+    /// `grant_suspended` is, so neither plane's record hides the act.
+    AiKeyDisabled,
+    /// A person accepted or dismissed an AI's recommendation.
+    AiRecommendationDecided,
+    /// An operator turned AI on or off for the whole server.
+    AiSwitchChanged,
 }
 
 impl EntryType {
@@ -629,6 +646,12 @@ impl EntryType {
             Self::ConsolePlacementRequested => "console_placement_requested",
             Self::ConsolePlacementConfirmed => "console_placement_confirmed",
             Self::ConsolePlacementReverted => "console_placement_reverted",
+            Self::AiPolicyChanged => "ai_policy_changed",
+            Self::AiKeyMade => "ai_key_made",
+            Self::AiKeyChanged => "ai_key_changed",
+            Self::AiKeyDisabled => "ai_key_disabled",
+            Self::AiRecommendationDecided => "ai_recommendation_decided",
+            Self::AiSwitchChanged => "ai_switch_changed",
         }
     }
 
@@ -712,6 +735,12 @@ impl EntryType {
             "console_placement_requested" => Some(Self::ConsolePlacementRequested),
             "console_placement_confirmed" => Some(Self::ConsolePlacementConfirmed),
             "console_placement_reverted" => Some(Self::ConsolePlacementReverted),
+            "ai_policy_changed" => Some(Self::AiPolicyChanged),
+            "ai_key_made" => Some(Self::AiKeyMade),
+            "ai_key_changed" => Some(Self::AiKeyChanged),
+            "ai_key_disabled" => Some(Self::AiKeyDisabled),
+            "ai_recommendation_decided" => Some(Self::AiRecommendationDecided),
+            "ai_switch_changed" => Some(Self::AiSwitchChanged),
             _ => None,
         }
     }
@@ -770,6 +799,13 @@ impl EntryType {
             | Self::ConsolePlacementRequested
             | Self::ConsolePlacementConfirmed
             | Self::ConsolePlacementReverted => &[ChainKind::Site],
+            // ADR-0072 (`0046` §F).
+            Self::AiSwitchChanged => &[ChainKind::Site],
+            Self::AiPolicyChanged
+            | Self::AiKeyMade
+            | Self::AiKeyChanged
+            | Self::AiRecommendationDecided => &[ChainKind::Org],
+            Self::AiKeyDisabled => &[ChainKind::Site, ChainKind::Org],
             Self::OrgGenesis
             | Self::AccountKeyEnrolled
             | Self::AccountKeySuperseded

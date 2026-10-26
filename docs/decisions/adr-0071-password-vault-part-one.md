@@ -169,7 +169,7 @@ xsoar.pan.dev Secret Server integration. Each is cited where it is used, in
     browser to open: the server signs in (`POST /oauth2/token`, `grant_type=password`), reads the
     folders and secrets the account sees, and reads one secret only when a use asks for it. The
     account's user name and password are sealed under `vault.key` as Vaultwarden's API key is.
-    Migration `0046_vault_delinea.sql` widens the provider list; nothing new is stored.
+    Migration `0047_vault_delinea.sql` widens the provider list; nothing new is stored.
 23. **Two checks, on what the account can see.** It sees exactly one folder and it is the
     connected one by id and the typed name; every secret it sees is in that folder. A failure stops
     the connection as in 18. A partial page (a `total` above what was listed) is refused rather

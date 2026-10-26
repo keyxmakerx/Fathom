@@ -23,6 +23,7 @@ import { clearJoinedFromInvitation, stillWaitingInvitee, wasJoinedFromInvitation
 import { AwaitingSteward } from './AwaitingSteward';
 import { PracticeWelcome, type PracticeOffer } from './PracticeWelcome';
 import { type Loadable } from '../organisation/FoldersPanel';
+import { fetchAi } from '../../api/ai';
 import { OrganisationTab } from '../organisation/OrganisationTab';
 import { PasswordsPage } from '../vault/Screens';
 import { canDrawFor } from '../design/useDesignSession';
@@ -290,9 +291,26 @@ export function Home({
     (organisations.status === 'ready' &&
       organisations.value.some((org) => org.organisationId === selectedOrgId && org.role === 'admin')) ||
     (scopes.status === 'ready' && scopes.value.some((scope) => canStewardFor(scope.capability)));
+  // ADR-0072: someone a Steward named to connect AI apps gets the Organisation tab with AI
+  // alone, so their connections have a home without People, Waiting and Folders.
+  const [aiMaker, setAiMaker] = useState(false);
+  useEffect(() => {
+    setAiMaker(false);
+    if (organisationAdmin || selectedOrgId === null) return;
+    let cancelled = false;
+    fetchAi(selectedOrgId).then(
+      (o) => {
+        if (!cancelled) setAiMaker(o.canMake || o.keys.some((k) => k.mine));
+      },
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [organisationAdmin, selectedOrgId]);
   const member =
     organisations.status === 'ready' && organisations.value.some((org) => org.organisationId === selectedOrgId && !org.practice);
-  const tabs = homeTabs({ organisationAdmin, admin: admin !== undefined, waitingInvitee, member });
+  const tabs = homeTabs({ organisationAdmin: organisationAdmin || aiMaker, admin: admin !== undefined, waitingInvitee, member });
   const shownTab: HomeTab = tabs.includes(tab) ? tab : 'designs';
   const tabsKey = tabs.join(' ');
   useEffect(() => {
@@ -586,6 +604,7 @@ export function Home({
         {shownTab === 'organisation' && selectedOrganisation && (
           <OrganisationTab
             organisation={selectedOrganisation}
+            aiOnly={!organisationAdmin}
             scopes={scopes}
             onCreateScope={openScopeForm}
             scopeForm={

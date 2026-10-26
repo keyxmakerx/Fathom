@@ -139,6 +139,14 @@ pub fn router(state: AdminState) -> Router {
             "/admin/settings/{change}/test-send",
             post(test_send_setting),
         )
+        // ADR-0072 decision 9: "No AI on this server" and stopping one key. Neither
+        // grants anything, and nothing here reads a design.
+        .route("/admin/ai", get(ai_overview))
+        .route("/admin/ai/switch", post(set_ai_switch))
+        .route(
+            "/admin/ai/keys/{organisation}/{key}/disable",
+            post(disable_ai_key),
+        )
         .with_state(state)
 }
 
@@ -296,6 +304,71 @@ async fn suspend_grant(
     state
         .operators
         .suspend_grant(&session, &organisation, &grant)
+        .await
+        .map_err(AdminRefusal)?;
+    Ok(ok())
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0072 — AI access
+// ---------------------------------------------------------------------------
+
+/// `GET /admin/ai`: the server switch and every AI key, by id. JSON.
+async fn ai_overview(State(state): State<AdminState>, signed: Signed) -> Result<Response, Refusal> {
+    let session = verify(&state, &signed).await?;
+    let page = state
+        .operators
+        .ai_overview(&session)
+        .await
+        .map_err(AdminRefusal)?;
+    Ok((
+        StatusCode::OK,
+        [
+            (axum::http::header::CONTENT_TYPE, "application/json"),
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+        ],
+        page.to_canonical_bytes(),
+    )
+        .into_response())
+}
+
+/// `POST /admin/ai/switch`: `LP("yes"|"no") ‖ LP(reason, may be empty) ‖ LP(if_version)`.
+async fn set_ai_switch(
+    State(state): State<AdminState>,
+    signed: Signed,
+) -> Result<Response, Refusal> {
+    let session = verify(&state, &signed).await?;
+    let fields = read_fields(&signed.body, 3)?;
+    let allowed = match text(&fields[0], "allowed flag")?.as_str() {
+        "yes" => true,
+        "no" => false,
+        _ => return Err(SessionError::Malformed("allowed flag").into()),
+    };
+    let reason = Some(text(&fields[1], "reason")?).filter(|r| !r.is_empty());
+    let if_version: i32 = text(&fields[2], "version")?
+        .parse()
+        .map_err(|_| Refusal::from(SessionError::Malformed("version")))?;
+    state
+        .operators
+        .set_ai_switch(&session, allowed, reason, if_version)
+        .await
+        .map_err(AdminRefusal)?;
+    Ok(ok())
+}
+
+/// `POST /admin/ai/keys/{organisation}/{key}/disable`: `LP(reason)`. The owner and the
+/// organisation's Stewards see the reason.
+async fn disable_ai_key(
+    State(state): State<AdminState>,
+    Path((organisation, key)): Path<(String, String)>,
+    signed: Signed,
+) -> Result<Response, Refusal> {
+    let session = verify(&state, &signed).await?;
+    let fields = read_fields(&signed.body, 1)?;
+    let reason = text(&fields[0], "reason")?;
+    state
+        .operators
+        .disable_ai_key(&session, &organisation, &key, &reason)
         .await
         .map_err(AdminRefusal)?;
     Ok(ok())

@@ -21,6 +21,7 @@ import { describeConsoleError } from './describeConsoleError';
 import { InvitationHandover } from './InvitationHandover';
 import { NoticesBanner } from './NoticesBanner';
 import { ConsoleTabs, consoleSections, type ConsoleSection } from './ConsoleTabs';
+import { AiSection } from './AiSection';
 import { Operators } from './Operators';
 import { PlacementForm } from './PlacementForm';
 import { BackupsPanel } from './BackupsPanel';
@@ -257,6 +258,15 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
           <button type="button" className="console__btn console__btn--quiet" onClick={refresh}>
             Refresh
           </button>
+        </section>
+      )}
+
+      {section === 'ai' && (
+        <section className="console__section" aria-labelledby="console-ai">
+          <h2 id="console-ai" className="console__h2">
+            AI on this server
+          </h2>
+          <AiSection organisations={organisations.status === 'ready' ? organisations.value : []} />
         </section>
       )}
 

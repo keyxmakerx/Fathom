@@ -1,4 +1,4 @@
--- 0046 -- Delinea Secret Server as a second kind of outside vault (ADR-0071 part four, Delinea).
+-- 0047 -- Delinea Secret Server as a second kind of outside vault (ADR-0071 part four, Delinea).
 --
 -- Nothing new is stored. A Secret Server connection keeps the same row as a Vaultwarden one: the
 -- application account's user name and password are sealed under vault.key in `secret_ct`, its

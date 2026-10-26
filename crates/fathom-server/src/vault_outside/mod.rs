@@ -2,7 +2,7 @@
 //! Server** (ADR-0071 part four; owner's answers 2026-10-26: r34-vault-read A, "Make sure this is
 //! per user, but the Admin can reject/pull whatever as needed", r34-vault-crates, r34-vault-ring
 //! A). `migrations/0045_vault_outside.sql` carries the reasoning for the tables;
-//! `0046_vault_delinea.sql` adds the second provider.
+//! `0047_vault_delinea.sql` adds the second provider.
 //!
 //! # The shape
 //!

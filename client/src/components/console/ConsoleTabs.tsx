@@ -1,12 +1,13 @@
 import './console.css';
 
 /** The console's sections, in the order they are offered. */
-export type ConsoleSection = 'accounts' | 'organisations' | 'operators' | 'settings' | 'issued';
+export type ConsoleSection = 'accounts' | 'organisations' | 'operators' | 'ai' | 'settings' | 'issued';
 
 const LABEL: Record<ConsoleSection, string> = {
   accounts: 'Accounts',
   organisations: 'Organisations',
   operators: 'Operators',
+  ai: 'AI',
   settings: 'Settings',
   issued: 'Issued',
 };
@@ -16,7 +17,7 @@ const LABEL: Record<ConsoleSection, string> = {
  * then it would be an empty tab. A function so a runner with no DOM can check
  * the order. */
 export function consoleSections(anyMinted: boolean): ConsoleSection[] {
-  const base: ConsoleSection[] = ['accounts', 'organisations', 'operators', 'settings'];
+  const base: ConsoleSection[] = ['accounts', 'organisations', 'operators', 'ai', 'settings'];
   return anyMinted ? [...base, 'issued'] : base;
 }
 

@@ -604,6 +604,11 @@
   background: var(--surface-2, var(--hairline));
 }
 
+/* A row an open AI idea names (ADR-0072 decision 7): the AI's colour beside it. */
+.inv-table__row--ai {
+  box-shadow: inset var(--rule-accent) 0 0 var(--sheath-purple);
+}
+
 .inv-table__check {
   flex: none;
   display: flex;

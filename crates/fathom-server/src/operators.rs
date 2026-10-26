@@ -7250,6 +7250,106 @@ fn now_unix() -> i64 {
         .as_secs() as i64
 }
 
+// ---------------------------------------------------------------------------
+// ADR-0072: the operator's two AI verbs and the page they sit on
+// ---------------------------------------------------------------------------
+
+impl From<crate::ai::AiError> for OperatorError {
+    fn from(e: crate::ai::AiError) -> Self {
+        use crate::ai::AiError as A;
+        match e {
+            A::Pool(e) => Self::Pool(e),
+            A::Db(e) => Self::Db(e),
+            A::Repo(e) => Self::Repo(e),
+            A::Chain(e) => Self::Chain(e),
+            A::Authority(e) => Self::Authority(e),
+            A::Crypto(e) => Self::Crypto(e),
+            A::NotFound => Self::NotFound("AI key"),
+            A::Malformed(why) | A::NotAllowed(why) => Self::Malformed(why),
+            A::Conflict { .. } => Self::Malformed("that changed; reload and try again"),
+            A::LooksSecret => {
+                Self::Malformed("that reason looks as if it carries a password or key")
+            }
+            A::Unverifiable(what) => Self::Unverifiable(what),
+            _ => Self::Unverifiable("AI plane"),
+        }
+    }
+}
+
+impl OperatorStore {
+    /// `GET /admin/ai`: the server switch and every key on the server, ids only. Recorded as
+    /// an operator read, as every register page is.
+    pub async fn ai_overview(&self, operator: &VerifiedSession) -> Result<Json, OperatorError> {
+        self.record_read(operator, "ai").await?;
+        let acting = self.acting_operator(operator)?;
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_operator_custody(&tx).await?;
+        self.check_operator_live(&tx, &acting).await?;
+        let page = crate::ai::operator_overview(&tx, &self.ring).await?;
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(page)
+    }
+
+    /// `POST /admin/ai/switch`: AI on or off for the whole server (ADR-0072 decision 9).
+    pub async fn set_ai_switch(
+        &self,
+        operator: &VerifiedSession,
+        allowed: bool,
+        reason: Option<String>,
+        if_version: i32,
+    ) -> Result<(), OperatorError> {
+        let acting = self.acting_operator(operator)?;
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_operator_custody(&tx).await?;
+        self.check_operator_live(&tx, &acting).await?;
+        crate::ai::operator_set_switch(
+            &tx,
+            &self.ring,
+            &self.deployment,
+            &acting,
+            allowed,
+            reason,
+            if_version,
+        )
+        .await?;
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// `POST /admin/ai/keys/{organisation}/{key}/disable`: stop one key, with a reason.
+    pub async fn disable_ai_key(
+        &self,
+        operator: &VerifiedSession,
+        organisation: &str,
+        key: &str,
+        reason: &str,
+    ) -> Result<(), OperatorError> {
+        let acting = self.acting_operator(operator)?;
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_operator_custody(&tx).await?;
+        self.check_operator_live(&tx, &acting).await?;
+        crate::ai::operator_disable_key(
+            &tx,
+            &self.ring,
+            &self.deployment,
+            &acting,
+            operator.id(),
+            organisation,
+            key,
+            reason,
+        )
+        .await?;
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
