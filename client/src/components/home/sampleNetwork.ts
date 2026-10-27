@@ -37,7 +37,7 @@ import {
   type Document,
   type GraphNode,
 } from '../../document/model';
-import { fitCard, setOptic, type CardPorts } from '../../document/cards';
+import { fitCard, setOptic } from '../../document/cards';
 import { expandPortPattern } from '../../document/portPattern';
 import { addStock, addStore, setStockLevel, type NewStock } from '../../document/stock';
 import { addEdge, addNode, begin, finish } from '../../document/freeform';
