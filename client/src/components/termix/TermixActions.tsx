@@ -7,7 +7,7 @@ import { useState } from 'react';
 
 import type { TermixOff } from '../../api/termix';
 import './termix.css';
-import { TermixError, addHost, forgetKey, isTermixKey, listHosts, matchHost, readKey, saveKey, terminalUrl } from './termix';
+import { TermixError, addHost, forgetKey, isHostAddress, isTermixKey, listHosts, matchHost, readKey, saveKey, terminalUrl } from './termix';
 import { offWords, useTermix } from './useTermix';
 
 interface Props {
@@ -38,6 +38,14 @@ export function TermixActions({ name, address, origin: given, off: givenOff }: P
     );
   }
   if (!origin) return null;
+  if (!isHostAddress(address)) {
+    return (
+      <div className="drawing-editor__field" data-testid="termix-actions">
+        <div className="drawing-editor__field-label">Termix</div>
+        <p className="termix__hint">This management address is not an IP address or host name, so it is not sent to Termix.</p>
+      </div>
+    );
+  }
 
   // Opened before any await, so the browser counts it as the click's own window.
   const open = async (k: string, add: boolean) => {

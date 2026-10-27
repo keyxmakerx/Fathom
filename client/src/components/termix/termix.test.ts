@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { addHost, bareAddress, folderFor, sendHosts, sendSummary, isTermixKey, listHosts, matchHost, newHostBody, readKey, saveKey, forgetKey, terminalUrl, TermixError } from './termix';
+import { addHost, bareAddress, folderFor, isHostAddress, sendHosts, sendSummary, isTermixKey, listHosts, matchHost, newHostBody, readKey, saveKey, forgetKey, terminalUrl, TermixError } from './termix';
 
 const KEY = 'tmx_' + 'a1'.repeat(32);
 const ORIGIN = 'https://termix.example.lan';
@@ -55,6 +55,13 @@ describe('addresses and links', () => {
     expect(bareAddress(' 10.0.0.1/24 ')).toBe('10.0.0.1');
     expect(bareAddress('[fd00::1]')).toBe('fd00::1');
     expect(bareAddress('switch1.lan')).toBe('switch1.lan');
+  });
+
+  it('sends Termix only an IP address or a host name', () => {
+    for (const ok of ['10.0.0.1', '10.0.0.1/24', '[fd00::1]', 'fe80::1', '2001:db8:0:0:0:0:0:1', '::ffff:10.0.0.1', 'switch1.lan', 'core-sw1', 'SW1.Example.COM'])
+      expect(isHostAddress(ok), ok).toBe(true);
+    for (const bad of ['', '  ', '999.1.1.1', 'a b', 'host;rm -rf', '-sw1', 'sw1-', 'evil.example/path', 'user@host', 'host:22', '1::2::3', '<img src=x>', 'javascript:alert(1)', 'a'.repeat(254)])
+      expect(isHostAddress(bad), bad).toBe(false);
   });
 
   it('opens the full-screen terminal for one host', () => {
@@ -137,16 +144,19 @@ describe('sending many devices', () => {
         { name: 'a-twin', address: '10.0.0.2' },
         { name: 'none', address: '' },
         { name: 'bad', address: '10.0.0.4' },
+        { name: 'typed', address: 'evil.example/path' },
       ],
       'Fathom / HQ',
       f,
       (done) => steps.push(done),
     );
-    expect(r).toEqual({ added: 1, already: 1, repeated: 1, failed: ['bad: Termix answered 500.'] });
+    expect(r).toEqual({ added: 1, already: 1, repeated: 1, failed: ['bad: Termix answered 500.', 'typed: not an IP address or host name'] });
     expect(posted.map((b) => b.ip)).toEqual(['10.0.0.2', '10.0.0.4']);
     expect(posted[0]!.folder).toBe('Fathom / HQ');
-    expect(steps).toEqual([1, 2, 3, 4]);
-    expect(sendSummary(r)).toBe('Added 1 to Termix; 1 was already there; 1 shared an address with another device; 1 not added (bad: Termix answered 500.).');
+    expect(steps).toEqual([1, 2, 3, 4, 5]);
+    expect(sendSummary(r)).toBe(
+      'Added 1 to Termix; 1 was already there; 1 shared an address with another device; 2 not added (bad: Termix answered 500.; typed: not an IP address or host name).',
+    );
   });
 
   it('stops when the key is refused', async () => {

@@ -63,6 +63,21 @@ export function bareAddress(address: string): string {
   return a.startsWith('[') && a.endsWith(']') ? a.slice(1, -1) : a;
 }
 
+/**
+ * Whether a management address is one Termix can connect to: an IPv4 or IPv6 address or a DNS
+ * host name. Anyone who can draw can type any text there, so nothing else is sent to Termix.
+ */
+export function isHostAddress(address: string): boolean {
+  const a = bareAddress(address);
+  if (a === '' || a.length > 253) return false;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(a)) return a.split('.').every((p) => Number(p) <= 255);
+  if (a.includes(':')) {
+    const groups = a.split(':').length;
+    return /^[0-9a-f:.]+$/i.test(a) && (a.match(/::/g)?.length ?? 0) <= 1 && groups >= 3 && groups <= 8;
+  }
+  return /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/i.test(a);
+}
+
 /** The full-screen terminal for one Termix host. */
 export function terminalUrl(origin: string, hostId: number): string {
   const u = new URL('/', origin);
@@ -187,7 +202,8 @@ export async function sendHosts(
   let done = 0;
   for (const d of todo) {
     const at = bareAddress(d.address).toLowerCase();
-    if (seen.has(at)) out.repeated++;
+    if (!isHostAddress(at)) out.failed.push(`${d.name || at}: not an IP address or host name`);
+    else if (seen.has(at)) out.repeated++;
     else if (matchHost(hosts, at)) out.already++;
     else {
       try {

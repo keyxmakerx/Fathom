@@ -16,6 +16,12 @@ describe('TermixActions (render-to-string)', () => {
     expect(render(null, '10.0.0.1')).toBe('');
     expect(render('https://termix.example.lan', '  ')).toBe('');
   });
+
+  it('offers no button for an address that is not one', () => {
+    const html = render('https://termix.example.lan', 'evil.example/path');
+    expect(html).not.toContain('Open in Termix');
+    expect(html).toContain('not an IP address or host name');
+  });
 });
 
 describe('TermixActions when a steward turned Termix off', () => {
