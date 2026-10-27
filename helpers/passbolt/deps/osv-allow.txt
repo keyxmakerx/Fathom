@@ -8,3 +8,10 @@ RUSTSEC-2023-0071 | 2026-10-26 | rsa 0.9.10, Marvin. Private-key timing; the hel
 GHSA-c38w-74pg-36hr | 2026-10-26 | Alias of RUSTSEC-2023-0071 (rsa 0.9.10), same reason.
 GHSA-4grx-2x9w-596c | 2026-10-26 | Alias of RUSTSEC-2023-0071 (rsa 0.9.10), same reason.
 RUSTSEC-2026-0387 | 2026-10-26 | crypto-bigint 0.5.5, timing. Reached only through the NIST curves and cx448, never with a private key (r34-passbolt v2 B).
+#
+# Added 2026-10-27; the owner chose A on card r35-osv-block-buffer the same day. OSV.dev's export
+# (read 2026-10-27) lists GHSA-qwgh-2vcv-g2f7 against block_buffer for every version below 0.12.1.
+# No fix reaches the helper: rpgp's every release through 0.21.0 needs digest 0.10, whose
+# block-buffer line ends at 0.10.4 (crates.io index, read 2026-10-27). Review by 2027-01-27, or as
+# soon as an rpgp release on digest 0.11 lets block-buffer 0.12.1 in, and delete this row then.
+GHSA-qwgh-2vcv-g2f7 | 2026-10-27 | block-buffer 0.10.4. The advisory is a cursor kept inside the block (0.11 onward) that input bytes overwrite before a caught panic; 0.10.4 keeps `pos` in its own field (src/lib.rs, `BlockBuffer { buffer, pos }`), so input never reaches it and a panicking `compress` leaves the old valid cursor, and it has no `ReadBuffer`. The helper also builds with `panic = "abort"` and nothing in its closure catches a panic around a hash. Review by 2027-01-27.
