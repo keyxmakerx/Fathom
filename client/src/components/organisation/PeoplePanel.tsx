@@ -12,10 +12,13 @@ export interface PeopleListProps {
   onOpenPerson: (account: string) => void;
   onInvite: () => void;
   onOpenWaiting: () => void;
+  /** Turn Termix off, or back on, for everyone here (ADR-0078 decision 6). */
+  onSetTermixEveryone?: (off: boolean) => void;
+  busy?: boolean;
 }
 
 /** Everyone, what they can do where, and whether they are in yet. */
-export function PeopleList({ people, needsYou, onOpenPerson, onInvite, onOpenWaiting }: PeopleListProps) {
+export function PeopleList({ people, needsYou, onOpenPerson, onInvite, onOpenWaiting, onSetTermixEveryone, busy = false }: PeopleListProps) {
   const waitingLines = needsYou.joined.length + needsYou.seconding.length;
   return (
     <section className="org-page">
@@ -77,6 +80,23 @@ export function PeopleList({ people, needsYou, onOpenPerson, onInvite, onOpenWai
           </tbody>
         </table>
       )}
+
+      {people.termix && onSetTermixEveryone && (
+        <div className="org-box" data-testid="people-termix">
+          <div className="home__label">Termix</div>
+          <p className="org-note">
+            {people.termixOff
+              ? 'Off for everyone here. Nobody in this organisation sees Open in Termix or Send to Termix.'
+              : 'On. Each person opens devices in Termix with their own Termix key. You can turn it off for everyone here, or for one person on their page.'}{' '}
+            This hides it in Fathom; taking Termix from someone is done in Termix, by revoking their key.
+          </p>
+          <div className="org-actions">
+            <button type="button" className="org-btn" disabled={busy} onClick={() => onSetTermixEveryone(!people.termixOff)}>
+              {people.termixOff ? 'Turn on for everyone' : 'Turn off for everyone'}
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -95,12 +115,16 @@ export interface PersonPageProps {
   onOpenWaiting: () => void;
   /** Switch "type it yourself" on or off for them. */
   onSetTyping?: (on: boolean) => void;
+  /** Turn Termix off, or back on, for them (ADR-0078 decision 6). Absent when there is no Termix. */
+  onSetTermix?: (off: boolean) => void;
+  /** A steward turned Termix off for everyone here, which outranks this person's own switch. */
+  termixOffForEveryone?: boolean;
   /** Draw the page with the Withdraw question already asked (a test seam, like `refusing`). */
   withdrawing?: boolean;
 }
 
 /** One person: exactly what they can do, in the folders you steward. */
-export function PersonPage({ person, folders, busy, error, notice, onBack, onRemove, onGive, onWithdraw, onOpenWaiting, onSetTyping, withdrawing: withdrawingFirst = false }: PersonPageProps) {
+export function PersonPage({ person, folders, busy, error, notice, onBack, onRemove, onGive, onWithdraw, onOpenWaiting, onSetTyping, onSetTermix, termixOffForEveryone = false, withdrawing: withdrawingFirst = false }: PersonPageProps) {
   const [removing, setRemoving] = useState<string | null>(null);
   const [withdrawing, setWithdrawing] = useState(withdrawingFirst);
   const [giving, setGiving] = useState(false);
@@ -195,6 +219,27 @@ export function PersonPage({ person, folders, busy, error, notice, onBack, onRem
                   {person.typeItYourself ? 'Turn off' : 'Turn on'}
                 </button>
               </div>
+            </div>
+          )}
+
+          {onSetTermix && (
+            <div className="org-box" data-testid="person-termix">
+              <div className="home__label">Termix</div>
+              <p className="org-note">
+                {termixOffForEveryone
+                  ? 'Off for everyone in this organisation, which covers them too. Turn it back on from People.'
+                  : person.termixOff
+                    ? `Off for ${person.you ? 'you' : person.name}. Open in Termix and Send to Termix are hidden from ${person.you ? 'you' : 'them'} here.`
+                    : `On. ${person.you ? 'You open' : `${person.name} opens`} devices in Termix with ${person.you ? 'your' : 'their'} own Termix key.`}{' '}
+                Taking Termix from someone is done in Termix, by revoking their key.
+              </p>
+              {!termixOffForEveryone && (
+                <div className="org-actions">
+                  <button type="button" className="org-btn" disabled={busy} onClick={() => onSetTermix(!person.termixOff)}>
+                    {person.termixOff ? 'Turn on' : 'Turn off'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

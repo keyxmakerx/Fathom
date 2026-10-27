@@ -295,6 +295,12 @@ with a management address gets "Open in Termix", and that one origin is added to
   browsers are refused. Unset, Termix allows any origin.
 - Fathom adds hosts to Termix with no user name and no password, tagged `fathom`: one device in the
   folder `Fathom`, or many from Inventory › Devices (Send to Termix) in `Fathom / <design>`. Credentials are Termix's to keep.
+- **Who may use it.** Each person uses their own Termix key, so each sees what their Termix user
+  can. Leaving `FATHOM_TERMIX_URL` unset turns it off for the whole deployment. Inside an
+  organisation a steward turns it off for everyone (Organisation › People, the Termix box) or for one
+  person (their page); each change is on the organisation's history as `termix_access_set`. That
+  hides Termix in Fathom and stops the server giving out its address; it does not stop someone who
+  knows the address opening Termix themselves. To take Termix from a person, revoke their key in Termix.
 
 ## Restore
 

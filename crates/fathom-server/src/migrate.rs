@@ -341,6 +341,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0055_ai_design_changes.sql",
         sql: include_str!("../migrations/0055_ai_design_changes.sql"),
     },
+    // A steward switches Termix off, for everyone or for one person (ADR-0078 decision 6).
+    Migration {
+        version: 56,
+        name: "0056_termix_access.sql",
+        sql: include_str!("../migrations/0056_termix_access.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

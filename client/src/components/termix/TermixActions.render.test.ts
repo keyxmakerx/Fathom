@@ -18,6 +18,17 @@ describe('TermixActions (render-to-string)', () => {
   });
 });
 
+describe('TermixActions when a steward turned Termix off', () => {
+  const off = (who: 'everyone' | 'you') =>
+    renderToStaticMarkup(createElement(TermixActions, { name: 'core-sw1', address: '10.0.0.1', origin: 'https://termix.example.lan', off: who }));
+
+  it('says who it is off for and offers no button', () => {
+    expect(off('everyone')).toContain('turned Termix off for everyone in this organisation');
+    expect(off('you')).toContain('turned Termix off for you');
+    expect(off('you')).not.toContain('Open in Termix');
+  });
+});
+
 describe('TermixSend (render-to-string)', () => {
   const send = (origin: string | null, addresses: string[]) =>
     renderToStaticMarkup(createElement(TermixSend, { design: 'HQ', origin, devices: addresses.map((address, i) => ({ name: `d${i}`, address })) }));

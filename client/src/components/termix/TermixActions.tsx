@@ -1,41 +1,43 @@
 // "Open in Termix" under a device's management address (ADR-0078). Shown only when the operator
-// named a Termix (`FATHOM_TERMIX_URL`) and the device has an address. The person's Termix API key
+// named a Termix (`FATHOM_TERMIX_URL`) and the device has an address; when a steward turned it
+// off here, one line says so instead (decision 6). The person's Termix API key
 // is asked for once and kept in this tab only; it goes to Termix and nowhere else.
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
-import { fetchTermixUrl } from '../../api/termix';
+import type { TermixOff } from '../../api/termix';
 import './termix.css';
 import { TermixError, addHost, forgetKey, isTermixKey, listHosts, matchHost, readKey, saveKey, terminalUrl } from './termix';
+import { offWords, useTermix } from './useTermix';
 
 interface Props {
   name: string;
   address: string;
   /** For tests: the operator's Termix without asking the server. */
   origin?: string | null;
+  /** For tests: a steward turned it off. */
+  off?: TermixOff | null;
 }
 
 type Step = { at: 'idle' } | { at: 'key' } | { at: 'busy' } | { at: 'missing' } | { at: 'error'; message: string };
 
-export function TermixActions({ name, address, origin: given }: Props) {
-  const [origin, setOrigin] = useState<string | null>(given ?? null);
+export function TermixActions({ name, address, origin: given, off: givenOff }: Props) {
+  const { url: origin, off } = useTermix(given, givenOff);
   const [key, setKey] = useState<string | null>(() => readKey());
   const [typed, setTyped] = useState('');
   const [step, setStep] = useState<Step>({ at: 'idle' });
 
-  useEffect(() => {
-    if (given !== undefined) return;
-    let live = true;
-    fetchTermixUrl().then(
-      (u) => live && setOrigin(u),
-      () => undefined,
+  if (address.trim() === '') return null;
+  const why = offWords(off);
+  if (why) {
+    return (
+      <div className="drawing-editor__field" data-testid="termix-actions">
+        <div className="drawing-editor__field-label">Termix</div>
+        <p className="termix__hint">{why}</p>
+      </div>
     );
-    return () => {
-      live = false;
-    };
-  }, [given]);
-
-  if (!origin || address.trim() === '') return null;
+  }
+  if (!origin) return null;
 
   // Opened before any await, so the browser counts it as the click's own window.
   const open = async (k: string, add: boolean) => {

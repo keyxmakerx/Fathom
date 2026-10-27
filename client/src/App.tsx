@@ -23,6 +23,7 @@ import { buildScopeForest, fetchScopes, pathTo, type Scope, type ScopeTreeNode }
 import { Account } from './components/Account';
 import { ConnectAiApp } from './components/ai/ConnectAiApp';
 import { ClaimOrganisation } from './components/claim';
+import { TermixOrganisation } from './components/termix/useTermix';
 import { TypeItYourself } from './components/typing/typeItYourself';
 import { Console } from './components/console/Console';
 import { Enrol, invitationFromLocation } from './components/Enrol';
@@ -1142,6 +1143,7 @@ export default function App() {
   // between them here never reloads the design or drops a queued save.
   return (
     <TypeItYourself.Provider value={view.organisation.typeItYourself}>
+      <TermixOrganisation.Provider value={view.organisation.organisationId}>
       <DesignPlace
         {...shellPlaceProps}
         organisationId={view.organisation.organisationId}
@@ -1154,6 +1156,7 @@ export default function App() {
         scanRequest={scanRequest}
         onOpenScan={setPendingScan}
       />
+      </TermixOrganisation.Provider>
     </TypeItYourself.Provider>
   );
 }

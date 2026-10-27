@@ -1702,16 +1702,31 @@ async fn the_termix_address_needs_a_session_and_is_the_origin_alone() {
     let ring = ring();
     let estate = bootstrap(&pool, &ring).await;
     let addr = serve(app(&pool, ring, Vec::new()).await).await;
+    let path = format!("/organisations/{}/termix", estate.organisation);
 
-    let (status, _) = raw_request(addr, "GET", "/integrations/termix", &[], b"").await;
+    let (status, _) = raw_request(addr, "GET", &path, &[], b"").await;
     assert_eq!(status, "401");
 
-    let (status, body) = call(addr, &estate.steward, "GET", "/integrations/termix", b"").await;
+    let (status, body) = call(addr, &estate.steward, "GET", &path, b"").await;
     assert_eq!(status, "200");
     assert_eq!(
         String::from_utf8_lossy(&body),
-        "{\"url\":\"https://termix.example.lan\"}\n"
+        "{\"off\":null,\"url\":\"https://termix.example.lan\"}\n"
     );
+
+    // Turned off by a steward, the address is not given out (ADR-0078 decision 6).
+    let (status, _) = call(addr, &estate.steward, "POST", &path, b"{\"off\":true}\n").await;
+    assert_eq!(status, "200");
+    let (_, body) = call(addr, &estate.steward, "GET", &path, b"").await;
+    assert_eq!(
+        String::from_utf8_lossy(&body),
+        "{\"off\":\"everyone\",\"url\":null}\n"
+    );
+    let people = format!("/organisations/{}/people", estate.organisation);
+    let (_, body) = call(addr, &estate.steward, "GET", &people, b"").await;
+    let text = String::from_utf8_lossy(&body);
+    assert!(text.contains("\"termix\":true"), "{text}");
+    assert!(text.contains("\"termix_off\":true"), "{text}");
 }
 
 // ---------------------------------------------------------------------------

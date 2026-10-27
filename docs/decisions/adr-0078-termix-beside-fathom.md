@@ -1,7 +1,8 @@
 # ADR-0078: Termix beside Fathom — open a device's terminal, Fathom never connects
 
 **Status:** accepted 2026-10-27. The owner approved sign-off card r43-termix with all three
-recommended picks (questions 1 to 3, A) and the "send a whole design" tick (decision 5).
+recommended picks (questions 1 to 3, A) and the "send a whole design" tick (decision 5). Decision 6
+added the same day from the owner's follow-up.
 
 **Keeps** invariant 2 ("the application never touches a network device"), invariant 1 (no egress
 the operator did not configure), rule 4 and ADR-0042 (no credential leaves Fathom without being
@@ -40,7 +41,8 @@ Read from Termix's source at commit 73c15f7 (22 October 2026), on 27 October 202
      and a port (`src/termix.rs`), because it is written into a header.
    - That origin added to `connect-src` in the content security policy (`client.rs`). Unset, the
      policy is byte-for-byte what it was.
-   - `GET /integrations/termix`, behind a session, telling the browser the address.
+   - `GET /organisations/{o}/termix`, behind a session and a membership, telling the browser the
+     address, or that a steward turned it off (decision 6).
 2. **No credential goes to Termix** (card r43-termix, question 2, A). A host Fathom adds carries a name
    (the device's host name), the management address, port 22, the folder `Fathom` and the tag
    `fathom`. No user name, no password, no key. The person picks one of Termix's own credentials
@@ -59,6 +61,23 @@ Read from Termix's source at commit 73c15f7 (22 October 2026), on 27 October 202
    same core route (Termix's bulk import is a plugin a Termix may not run), into the folder
    `Fathom / <design>`. Devices without an address are not counted; two devices with one address
    are sent once; a refused key stops the run, any other refusal is counted and the run goes on.
+
+6. **Per person, and a steward or the operator can turn it off** (the owner, 27 October 2026:
+   "termix would also be per user, but disallowable per admin or the steward").
+   - *Per person* already holds: each person uses their own Termix API key, so each sees and opens
+     what their own Termix user can, and Fathom holds no key that acts for anyone else.
+   - *The operator* turns it off for the whole deployment by leaving `FATHOM_TERMIX_URL` unset: no
+     `connect-src`, no address, no buttons.
+   - *A steward* of any folder in an organisation turns it off for everyone there
+     (`organisation_termix`) or for one person (`member_termix`), migration `0056`, from Organisation
+     › People. Off for everyone outranks a person's own switch. A person cannot turn back on what a
+     steward turned off. Each change is sealed on the organisation chain as `termix_access_set`.
+     While it is off the server answers `{"url": null, "off": "everyone" | "you"}` and the client
+     shows one line saying so instead of the buttons.
+   - **This is a product switch, not a security boundary.** The content security policy is the
+     deployment's, not the organisation's, and the address is not a secret; someone who knows it can
+     open Termix in another tab with their own key. Taking Termix from a person is done in Termix,
+     by revoking their key. The page says so beside each switch.
 
 ## Why invariant 2 still holds
 
@@ -82,3 +101,6 @@ chose.
 - **Server-side sync with an organisation-wide key** (option B on the shape card). It needs the
   owner to widen the outbound HTTPS exception, and a key that acts for everyone.
 - **Opening Termix inside Fathom.** `frame-src` stays closed; a new tab is enough.
+- **A live switch for the operator in the admin console.** The operator's switch is
+  `FATHOM_TERMIX_URL`, read at startup. A console switch would go through the operator quorum like
+  the AI site switch (ADR-0072); left on sign-off card r44-termix-off.

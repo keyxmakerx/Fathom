@@ -1207,6 +1207,8 @@ pub async fn people(
     // are listed once, as a member, with a state that says they have not been in.
     let (views, waiting_count) = open_invitations(tx, ring, auth, &verified, &mut check).await?;
     let typing = crate::teaching::on_in_organisation(tx, &organisation).await?;
+    let termix_off = crate::termix::off_in_organisation(tx, &organisation).await?;
+    let termix_off_everyone = crate::termix::off_for_everyone(tx, &organisation).await?;
     let added: BTreeSet<&str> = views
         .iter()
         .filter(|v| v.row.state == State::Added)
@@ -1241,6 +1243,7 @@ pub async fn people(
             ("expired", Json::Bool(false)),
             ("access", Json::Arr(access)),
             ("type_it_yourself", Json::Bool(typing.contains(&id))),
+            ("termix_off", Json::Bool(termix_off.contains(&id))),
         ]));
     }
 
@@ -1285,6 +1288,7 @@ pub async fn people(
     Ok(obj(vec![
         ("people", Json::Arr(out)),
         ("waiting_count", Json::Int(waiting_count)),
+        ("termix_off", Json::Bool(termix_off_everyone)),
     ]))
 }
 

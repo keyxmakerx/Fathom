@@ -1,12 +1,13 @@
 // "Send to Termix" on Inventory's ticked devices (ADR-0078, card r43-termix: "send a whole design").
 // Select all matching, then Send, adds every device with a management address that Termix does
-// not have yet, in the folder `Fathom / <design>`. Same key, same rules as Open in Termix.
+// not have yet, in the folder `Fathom / <design>`. Same key, same rules as Open in Termix, and
+// gone when a steward turned Termix off here.
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
-import { fetchTermixUrl } from '../../api/termix';
 import './termix.css';
 import { TermixError, folderFor, forgetKey, isTermixKey, readKey, saveKey, sendHosts, sendSummary } from './termix';
+import { useTermix } from './useTermix';
 
 interface Props {
   devices: readonly { name: string; address: string }[];
@@ -16,23 +17,11 @@ interface Props {
 }
 
 export function TermixSend({ devices, design, origin: given }: Props) {
-  const [origin, setOrigin] = useState<string | null>(given ?? null);
+  const { url: origin } = useTermix(given);
   const [asking, setAsking] = useState(false);
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState<{ done: number; total: number } | null>(null);
   const [said, setSaid] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (given !== undefined) return;
-    let live = true;
-    fetchTermixUrl().then(
-      (u) => live && setOrigin(u),
-      () => undefined,
-    );
-    return () => {
-      live = false;
-    };
-  }, [given]);
 
   const withAddress = devices.filter((d) => d.address.trim() !== '');
   if (!origin) return null;
