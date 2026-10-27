@@ -10,20 +10,24 @@
 //! Three tiers, matching the key's ticks:
 //!
 //! * `layout`, always: places, racks, devices and their models, ports, cables,
-//!   tags, interfaces by name, containers, and spares on hand (ADR-0076): each
-//!   store's name, each spare's sort, model, state, count and bin, and the
-//!   levels kept.
+//!   tags, interfaces by name, containers; maintenance plans and "It's down"
+//!   issues with their steps (what, when, where each stands, what it touches);
+//!   and spares on hand (ADR-0076): each store's name, each spare's sort, model,
+//!   state, count and bin, and the levels kept.
 //! * `addresses`: what pasted configs set and an AI needs to reason about a
 //!   network: IP addresses, VLANs, logical units, interface descriptions, a
 //!   device's management address and domain.
 //! * `notes`: shared notes, free-text labels and the notes fields on ports,
-//!   cables and premises; a store's place and note, a spare's note, and the
-//!   custom-field values on spares (prices and suppliers, r38-stock-how).
+//!   cables and premises; what a plan's steps say before and after, what was
+//!   typed while doing a plan or answering an issue, and where an issue pointed;
+//!   a store's place and note, a spare's note, and the custom-field values on
+//!   spares (prices and suppliers, r38-stock-how).
 //!
 //! **Never, at any tier:** history, provenance, the batch log, file contents,
 //! serial numbers, street addresses and coordinates, contacts (who a spare is
-//! lent to), RMA numbers, custom-field values on anything but a spare, and every
-//! security, NAT, IKE and IPsec kind. A tombstoned element is not shown.
+//! lent to), RMA numbers, custom-field values on anything but a spare, who wrote
+//! a plan or ran an issue, a plan step's stored edit, and every security, NAT,
+//! IKE and IPsec kind. A tombstoned element is not shown.
 //!
 //! **Belt and braces on text.** Every string value that leaves is run through
 //! the redaction gate's bare check (`fathom_ingest::redact::looks_like_credential_bare`),
@@ -42,11 +46,12 @@ use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{
     AddressField, AggregateInterfaceField, CableField, CableRunField, CableTieField, CardField,
     ChassisField, ContainerField, ContainerNetworkField, DeviceField, EdgeKind, ExternalPeerField,
-    FieldValueField, FixedToField, InterfaceField, LabelField, LineEndField, LineField, LinkField,
-    LogicalUnitField, MountedInField, NodeKind, NoteField, OccupiesField, PassiveNodeField,
-    PhysicalPortField, PowerSupplyField, PremisesField, PublishedPortField, RackField, SiteField,
-    SitsOnField, StockItemField, StockLevelField, StoreField, SurfaceField, TagField,
-    TerminatesField, VlanField, VlanMemberField,
+    FieldValueField, FixedToField, InterfaceField, IssueField, IssueStepField, LabelField,
+    LineEndField, LineField, LinkField, LogicalUnitField, MaintenancePlanField, MountedInField,
+    NodeKind, NoteField, OccupiesField, PassiveNodeField, PhysicalPortField, PlanStepField,
+    PowerSupplyField, PremisesField, PublishedPortField, RackField, SiteField, SitsOnField,
+    StockItemField, StockLevelField, StoreField, SurfaceField, TagField, TerminatesField,
+    VlanField, VlanMemberField,
 };
 
 /// The three things a key may be allowed to see.
@@ -264,6 +269,27 @@ const NODES: &[NodeRow] = &[
         kind: NodeKind::PhysicalPort,
         fields: fields!(PhysicalPortField: Mac),
     },
+    // ---- layout: maintenance plans and "It's down" issues (ADR-0061) ----
+    NodeRow {
+        tier: Tier::Layout,
+        kind: NodeKind::MaintenancePlan,
+        fields: fields!(MaintenancePlanField: Title, WindowStart, WindowEnd, Stage, Outcome),
+    },
+    NodeRow {
+        tier: Tier::Layout,
+        kind: NodeKind::PlanStep,
+        fields: fields!(PlanStepField: Ordinal, Kind, Targets, Change, State, DoneAt),
+    },
+    NodeRow {
+        tier: Tier::Layout,
+        kind: NodeKind::Issue,
+        fields: fields!(IssueField: Title, Device, OpenedAt, Stage, Plan),
+    },
+    NodeRow {
+        tier: Tier::Layout,
+        kind: NodeKind::IssueStep,
+        fields: fields!(IssueStepField: Ordinal, Topic, Question, Targets, Answer, AnsweredAt),
+    },
     // ---- notes ----
     NodeRow {
         tier: Tier::Notes,
@@ -280,6 +306,26 @@ const NODES: &[NodeRow] = &[
         tier: Tier::Notes,
         kind: NodeKind::FieldValue,
         fields: fields!(FieldValueField: Definition, Value),
+    },
+    NodeRow {
+        tier: Tier::Notes,
+        kind: NodeKind::MaintenancePlan,
+        fields: fields!(MaintenancePlanField: Record),
+    },
+    NodeRow {
+        tier: Tier::Notes,
+        kind: NodeKind::PlanStep,
+        fields: fields!(PlanStepField: Before, After, Note),
+    },
+    NodeRow {
+        tier: Tier::Notes,
+        kind: NodeKind::Issue,
+        fields: fields!(IssueField: Outcome),
+    },
+    NodeRow {
+        tier: Tier::Notes,
+        kind: NodeKind::IssueStep,
+        fields: fields!(IssueStepField: Detail, Note),
     },
     NodeRow {
         tier: Tier::Notes,
@@ -313,6 +359,17 @@ const NO_FIELDS: &[(FieldKey, &str)] = &[];
 /// Every edge kind an AI may be shown, by tier. An edge leaves only when both
 /// its ends do.
 const EDGES: &[EdgeRow] = &[
+    // ---- layout: a plan's and an issue's steps ----
+    EdgeRow {
+        tier: Tier::Layout,
+        kind: EdgeKind::HasStep,
+        fields: NO_FIELDS,
+    },
+    EdgeRow {
+        tier: Tier::Layout,
+        kind: EdgeKind::HasIssueStep,
+        fields: NO_FIELDS,
+    },
     // ---- layout: containment, placement and cabling ----
     EdgeRow {
         tier: Tier::Layout,
@@ -558,6 +615,106 @@ fn allowed_edges(tiers: &BTreeSet<Tier>) -> BTreeMap<EdgeKind, BTreeMap<FieldKey
     out
 }
 
+/// The tiers an AI change may set fields at (ADR-0073, build step 2): the key's own, cut to
+/// `layout` and `notes`. Addresses wait until the sweep has looked at what a changed address
+/// can break.
+fn settable_tiers(tiers: &BTreeSet<Tier>) -> BTreeSet<Tier> {
+    let mut out: BTreeSet<Tier> = tiers
+        .iter()
+        .copied()
+        .filter(|t| matches!(t, Tier::Layout | Tier::Notes))
+        .collect();
+    out.insert(Tier::Layout);
+    out
+}
+
+/// Whether the reading at `tiers` shows nodes of `kind` at all.
+pub fn shows_node_kind(tiers: &BTreeSet<Tier>, kind: NodeKind) -> bool {
+    let mut tiers = tiers.clone();
+    tiers.insert(Tier::Layout);
+    allowed_nodes(&tiers).contains_key(&kind)
+}
+
+/// The field named `name` on a node of `kind`, when an AI change may set it: it is on this
+/// allowlist at a tier the key sees (ADR-0073 decision 4). `None` for anything else, so a
+/// field nobody listed here cannot be written by an AI any more than it can be read.
+pub fn settable_node_field(tiers: &BTreeSet<Tier>, kind: NodeKind, name: &str) -> Option<FieldKey> {
+    allowed_nodes(&settable_tiers(tiers))
+        .get(&kind)?
+        .iter()
+        .find(|(_, n)| **n == name)
+        .map(|(k, _)| *k)
+}
+
+/// Whether an AI change may add a node of `kind`: the reading shows it at a tier changes
+/// reach (ADR-0073 decision 4).
+pub fn settable_node_kind(tiers: &BTreeSet<Tier>, kind: NodeKind) -> bool {
+    allowed_nodes(&settable_tiers(tiers)).contains_key(&kind)
+}
+
+/// Whether an AI change may add an edge of `kind`.
+pub fn settable_edge_kind(tiers: &BTreeSet<Tier>, kind: EdgeKind) -> bool {
+    allowed_edges(&settable_tiers(tiers)).contains_key(&kind)
+}
+
+/// Whether the reading at `tiers` shows edges of `kind` at all.
+pub fn shows_edge_kind(tiers: &BTreeSet<Tier>, kind: EdgeKind) -> bool {
+    let mut tiers = tiers.clone();
+    tiers.insert(Tier::Layout);
+    allowed_edges(&tiers).contains_key(&kind)
+}
+
+/// What an AI change may add and set at `tiers`, for the reading to hand an AI that may
+/// change designs: each node kind with its settable fields, and each edge kind with the
+/// node kinds at its ends that the reading shows, and its settable fields.
+pub fn change_vocabulary(tiers: &BTreeSet<Tier>) -> Json {
+    let settable = settable_tiers(tiers);
+    let names = |fields: &BTreeMap<FieldKey, &'static str>| {
+        let mut n: Vec<&str> = fields.values().copied().collect();
+        n.sort_unstable();
+        Json::Arr(n.into_iter().map(|f| Json::Str(f.to_string())).collect())
+    };
+    let nodes = allowed_nodes(&settable);
+    let ends = |kinds: &[NodeKind]| {
+        Json::Arr(
+            kinds
+                .iter()
+                .filter(|k| nodes.contains_key(k))
+                .map(|k| Json::Str(k.name().to_string()))
+                .collect(),
+        )
+    };
+    let mut edges = BTreeMap::new();
+    for (kind, fields) in allowed_edges(&settable) {
+        let mut m = BTreeMap::new();
+        m.insert("from".to_string(), ends(kind.from_kinds()));
+        m.insert("to".to_string(), ends(kind.to_kinds()));
+        m.insert("fields".to_string(), names(&fields));
+        edges.insert(kind.name().to_string(), Json::Obj(m));
+    }
+    let mut out = BTreeMap::new();
+    out.insert(
+        "nodes".to_string(),
+        Json::Obj(
+            nodes
+                .iter()
+                .map(|(k, f)| (k.name().to_string(), names(f)))
+                .collect(),
+        ),
+    );
+    out.insert("edges".to_string(), Json::Obj(edges));
+    Json::Obj(out)
+}
+
+/// [`settable_node_field`] for an edge.
+pub fn settable_edge_field(tiers: &BTreeSet<Tier>, kind: EdgeKind, name: &str) -> Option<FieldKey> {
+    allowed_edges(&settable_tiers(tiers))
+        .get(&kind)?
+        .iter()
+        .find(|(_, n)| **n == name)
+        .map(|(k, _)| *k)
+}
+
 /// A value as it may leave: every string inside it checked, a flagged one
 /// replaced by `null`.
 fn screened(value: &Json, withheld: &mut usize) -> Json {
@@ -728,7 +885,7 @@ mod tests {
     }
 
     #[test]
-    fn no_serial_street_coordinate_or_contact_field_is_listed() {
+    fn no_serial_street_coordinate_contact_author_or_stored_edit_field_is_listed() {
         let banned = [
             ChassisField::Serial.key(),
             PassiveNodeField::Serial.key(),
@@ -741,6 +898,9 @@ mod tests {
             StockItemField::Serial.key(),
             StockItemField::Rma.key(),
             StockItemField::LentTo.key(),
+            MaintenancePlanField::Author.key(),
+            IssueField::Author.key(),
+            PlanStepField::Edit.key(),
         ];
         for row in NODES {
             for (key, name) in row.fields {
@@ -1024,5 +1184,57 @@ mod tests {
         assert!(notes.contains("41.50"), "{notes}");
         assert!(!notes.contains("AVP19230XYZ"), "{notes}");
         assert!(!notes.contains("cost-centre-77"), "{notes}");
+    }
+
+    /// A plan and its steps are read at `layout`; what a step says before and after only at
+    /// `notes`; who wrote it and the stored edit never.
+    #[test]
+    fn a_plan_is_read_without_its_author_or_stored_edit() {
+        use fathom_graph::BatchId;
+        use fathom_ir::scalar;
+        let mut g = Graph::new();
+        g.begin_batch(BatchId(fathom_id::Ulid(80)), "ai_reading plan fixture")
+            .expect("open batch");
+        let plan = g
+            .insert_node(NodeKind::MaintenancePlan, fathom_id::Ulid(81), prov(8))
+            .expect("plan");
+        for (key, text) in [
+            (MaintenancePlanField::Title.key(), "Move uplinks to sw2"),
+            (MaintenancePlanField::Author.key(), "Dana Writer"),
+        ] {
+            g.set_field(plan.into(), key, scalar::Text(text.into()), prov(8))
+                .expect("plan field");
+        }
+        let step = g
+            .insert_node(NodeKind::PlanStep, fathom_id::Ulid(82), prov(8))
+            .expect("step");
+        for (key, text) in [
+            (PlanStepField::Change.key(), "Recable port 1"),
+            (PlanStepField::Before.key(), "On sw1 port 1"),
+            (PlanStepField::Edit.key(), "cable\tstored-edit-line"),
+        ] {
+            g.set_field(step.into(), key, scalar::Text(text.into()), prov(8))
+                .expect("step field");
+        }
+        g.insert_edge(EdgeKind::HasStep, fathom_id::Ulid(83), plan, step, prov(8))
+            .expect("has step");
+        g.end_batch().expect("close batch");
+
+        let layout: BTreeSet<Tier> = [Tier::Layout].into_iter().collect();
+        let text =
+            String::from_utf8(reading(&g, &layout).unwrap().document.to_canonical_bytes()).unwrap();
+        assert!(text.contains("Move uplinks to sw2"), "{text}");
+        assert!(text.contains("Recable port 1"), "{text}");
+        assert!(text.contains("HasStep"), "{text}");
+        assert!(!text.contains("On sw1 port 1"), "{text}");
+        assert!(!text.contains("Dana Writer"), "{text}");
+        assert!(!text.contains("stored-edit-line"), "{text}");
+
+        let notes: BTreeSet<Tier> = [Tier::Notes].into_iter().collect();
+        let text =
+            String::from_utf8(reading(&g, &notes).unwrap().document.to_canonical_bytes()).unwrap();
+        assert!(text.contains("On sw1 port 1"), "{text}");
+        assert!(!text.contains("Dana Writer"), "{text}");
+        assert!(!text.contains("stored-edit-line"), "{text}");
     }
 }

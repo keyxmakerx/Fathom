@@ -100,7 +100,8 @@ Set `FATHOM_FIRMWARE_FETCH_BASE_URL` first (`docs/RUNNING-IT.md`); firmware is o
 ## 9. Connect Claude or another AI app
 
 An AI app reads designs you can read, in one organisation, and sends ideas a person accepts. It never
-sees passwords or the vault, and it cannot change a design (ADR-0072).
+sees passwords or the vault, and it changes a design only where both your organisation and you said it
+may (ADR-0072, ADR-0073).
 
 First, once per organisation: a Steward opens **Organisation › AI**, ticks **AI access allowed**, adds
 the people who may connect under **Who may connect AI apps**, and presses **Save**.
@@ -121,7 +122,23 @@ Then, under **Connect an AI app**, pick how your app connects:
   The private half of the key never leaves your computer; Fathom keeps only the public half.
 
 Either way the connection is listed under **Organisation › AI**, where you or a Steward can narrow it or
-turn it off; it also ends on its own after 30, 90 or 365 days.
+turn it off; it also ends on its own after 30, 90 or 365 days. Connect the AI account your organisation
+gave you, not a personal one: Fathom cannot see which account it is, so it asks you to type it, and
+your Stewards and admins see what you typed beside the connection.
+
+The AI can read the design's maintenance plans and "It's down" issues too, so you can ask it to look
+over a plan or an issue. To have it draft a change, ask it to recommend one: the idea shows under
+**AI ideas**, and **Make it a plan** turns its steps into a draft plan you change, schedule and work
+through like any other.
+
+To let an AI change designs directly, a Steward ticks **AI apps may change designs** under
+**Organisation › AI**, and you tick **May change designs** when you press **Allow** or **Make key** (or
+later, on the connection). The AI then gets a `change_design` tool: each call is one change in your
+name, against the version it read, shown in History as "AI (<connection>), for <you>". It sets fields,
+adds devices, racks, ports, cables and notes, connects them, and removes up to 20 things at a time,
+only of the kinds the reading shows it; it never removes a place that still holds things. It is
+refused in folders that need a second person, past 10 changes a minute, and if the design moved since
+it read it. To undo one, use History's **Restore this version**.
 
 ## 10. Fit a card and an optic
 
@@ -185,4 +202,3 @@ the same folders, and no more than its key allows.
 4. Plan it: a **Swap a part** step, the port, then **From stock**. The spare is kept for the step.
 5. **Done** fits it. The dead optic goes into stock as retired, with where it came from; open it on
    On hand and **Send for repair** with the vendor's RMA number and the issue it was for.
-

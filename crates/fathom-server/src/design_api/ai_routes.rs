@@ -164,7 +164,7 @@ async fn overview_handler(
     Ok(json_response(page))
 }
 
-/// `POST /organisations/{o}/ai/policy`: `{allowed, makers, ceiling, maxDays,
+/// `POST /organisations/{o}/ai/policy`: `{allowed, makers, ceiling, maxDays, mayChange,
 /// secondPersonScopes, ifVersion}`, `ifVersion` 0 for the first. Steward.
 async fn set_policy_handler(
     State(state): State<DesignApiState>,
@@ -180,6 +180,7 @@ async fn set_policy_handler(
             "maxDays",
             "secondPersonScopes",
             "apps",
+            "mayChange",
             "ifVersion",
         ],
     )?;
@@ -193,6 +194,8 @@ async fn set_policy_handler(
         second_person_scopes: take_strs(&mut m, "secondPersonScopes")?.unwrap_or_default(),
         // Absent: Claude only, as a policy with no row reads.
         apps: take_strs(&mut m, "apps")?.unwrap_or_else(|| vec!["claude".to_string()]),
+        // Absent: off, the safe reading of a client that does not know the tick.
+        may_change: take_bool(&mut m, "mayChange")?.unwrap_or(false),
     };
     let if_version = i32::try_from(version(&mut m)?).map_err(|_| malformed())?;
     let mut client = state
@@ -226,9 +229,11 @@ async fn make_key_handler(
         &[
             "publicKey",
             "label",
+            "aiAccount",
             "scopes",
             "sees",
             "mayRecommend",
+            "mayChange",
             "days",
         ],
     )?;
@@ -239,9 +244,11 @@ async fn make_key_handler(
                 "that is not a key the Fathom AI helper made",
             )))?,
         label: take_str(&mut m, "label")?.ok_or_else(malformed)?,
+        ai_account: take_str(&mut m, "aiAccount")?.unwrap_or_default(),
         scopes: take_strs(&mut m, "scopes")?.unwrap_or_default(),
         sees: take_strs(&mut m, "sees")?.unwrap_or_default(),
         may_recommend: take_bool(&mut m, "mayRecommend")?.unwrap_or(false),
+        may_change: take_bool(&mut m, "mayChange")?.unwrap_or(false),
         days: take_int(&mut m, "days")?
             .and_then(|d| i32::try_from(d).ok())
             .ok_or_else(malformed)?,
@@ -288,9 +295,11 @@ async fn connect_handler(
             "request",
             "allow",
             "label",
+            "aiAccount",
             "scopes",
             "sees",
             "mayRecommend",
+            "mayChange",
             "days",
         ],
     )?;
@@ -323,9 +332,11 @@ async fn connect_handler(
                 .take(ai::MAX_LABEL_CHARS)
                 .collect()
         }),
+        ai_account: take_str(&mut m, "aiAccount")?.unwrap_or_default(),
         scopes: take_strs(&mut m, "scopes")?.unwrap_or_default(),
         sees: take_strs(&mut m, "sees")?.unwrap_or_default(),
         may_recommend: take_bool(&mut m, "mayRecommend")?.unwrap_or(false),
+        may_change: take_bool(&mut m, "mayChange")?.unwrap_or(false),
         days: take_int(&mut m, "days")?
             .and_then(|d| i32::try_from(d).ok())
             .ok_or_else(malformed)?,
@@ -366,6 +377,7 @@ async fn change_key_handler(
             "scopes",
             "sees",
             "mayRecommend",
+            "mayChange",
             "endsInDays",
         ],
     )?;
@@ -375,6 +387,7 @@ async fn change_key_handler(
         scopes: take_strs(&mut m, "scopes")?,
         sees: take_strs(&mut m, "sees")?,
         may_recommend: take_bool(&mut m, "mayRecommend")?,
+        may_change: take_bool(&mut m, "mayChange")?,
         ends_in_days: take_int(&mut m, "endsInDays")?
             .map(|d| i32::try_from(d).map_err(|_| malformed()))
             .transpose()?,

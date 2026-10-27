@@ -10,6 +10,7 @@ import {
   APP_NAME,
   answerConnect,
   checkConnect,
+  cleanAccount,
   fetchAi,
   plainWords,
   safeRedirect,
@@ -42,7 +43,9 @@ export function ConnectAiApp({ query, onLeave, go = (url) => window.location.ass
   const [scopes, setScopes] = useState<string[]>([]);
   const [sees, setSees] = useState<Tier[]>(['layout']);
   const [mayRecommend, setMayRecommend] = useState(true);
+  const [mayChange, setMayChange] = useState(false);
   const [days, setDays] = useState(90);
+  const [account, setAccount] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -100,7 +103,7 @@ export function ConnectAiApp({ query, onLeave, go = (url) => window.location.ass
       const { redirect } = await answerConnect(
         orgId,
         query,
-        allow ? { allow: true, scopes, sees, mayRecommend, days } : { allow: false },
+        allow ? { allow: true, aiAccount: cleanAccount(account) ?? '', scopes, sees, mayRecommend, mayChange: changeAllowed && mayChange, days } : { allow: false },
       );
       if (!safeRedirect(redirect)) throw new Error('The app’s return address is not one Fathom will send you to.');
       go(redirect);
@@ -145,8 +148,9 @@ export function ConnectAiApp({ query, onLeave, go = (url) => window.location.ass
 
   const ready = overview.status === 'ready' ? overview.value : null;
   const ceiling = ready?.policy.ceiling ?? [];
+  const changeAllowed = ready?.policy.mayChange === true;
   const folderName = (id: string) => folders.find((f) => f.scopeId === id)?.displayName ?? 'a folder';
-  const words = plainWords({ scopes, sees, mayRecommend }, folderName).map((l) =>
+  const words = plainWords({ scopes, sees, mayRecommend, mayChange: changeAllowed && mayChange }, folderName).map((l) =>
     l === 'What it reads goes to the company behind your AI app.' && app?.kind !== 'other'
       ? `What it reads goes to Anthropic, the company behind ${APP_NAME[app?.kind ?? 'claude']}.`
       : l,
@@ -212,6 +216,29 @@ export function ConnectAiApp({ query, onLeave, go = (url) => window.location.ass
             It shows up under Organisation › AI as <strong>{appName}</strong>, where you or a Steward can narrow it or turn it off.
           </li>
         </ol>
+        <div className="ai-warn" data-testid="connect-work-account">
+          Use the {app?.kind === 'other' ? `account your organisation gave you for ${appName}` : 'Claude account your organisation gave you'}, not a
+          personal one. What {appName} reads from Fathom ends up in that account’s chats, and a personal account is outside your
+          organisation’s control. Fathom cannot see which {app?.kind === 'other' ? '' : 'Claude '}account you are signed in to, so it cannot check
+          this for you.
+        </div>
+        <label className="ai-label" htmlFor="connect-ai-account">
+          Which {app?.kind === 'other' ? appName : 'Claude'} account is it signed in to?
+        </label>
+        <input
+          id="connect-ai-account"
+          className="ai-input"
+          type="email"
+          autoComplete="off"
+          placeholder="you@yourcompany.com"
+          maxLength={254}
+          value={account}
+          onChange={(e) => setAccount(e.target.value)}
+        />
+        <p className="ai-muted">
+          Your organisation’s Stewards and admins see this beside the connection, with your Fathom sign-in. Fathom can’t check it,
+          so give the one you’re really using.
+        </p>
         {app?.kind === 'claude' && (
           <div className="ai-warn">
             Claude connects from Anthropic’s cloud, not from your computer, so this Fathom has to be reachable from Anthropic’s addresses
@@ -240,7 +267,7 @@ export function ConnectAiApp({ query, onLeave, go = (url) => window.location.ass
           <button
             type="button"
             className="ai-btn ai-btn--primary"
-            disabled={busy || ready === null || blocked !== null}
+            disabled={busy || ready === null || blocked !== null || cleanAccount(account) === null}
             onClick={() => void answer(true)}
           >
             Allow
@@ -265,6 +292,12 @@ export function ConnectAiApp({ query, onLeave, go = (url) => window.location.ass
           <input type="checkbox" checked={mayRecommend} onChange={(e) => setMayRecommend(e.target.checked)} />
           <span>Send ideas for a person to accept</span>
         </label>
+        {changeAllowed && (
+          <label className="ai-tick">
+            <input type="checkbox" data-testid="connect-may-change" checked={mayChange} onChange={(e) => setMayChange(e.target.checked)} />
+            <span>May change designs</span>
+          </label>
+        )}
 
         <div className="ai-label">Stops working after</div>
         <DayChoice days={days} maxDays={ready?.policy.maxDays ?? 90} onChange={setDays} />

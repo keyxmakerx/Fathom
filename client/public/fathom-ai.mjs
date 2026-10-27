@@ -199,7 +199,8 @@ const TOOLS = [
   {
     name: 'fathom_read_design',
     description:
-      'One design: its devices, ports, cables, racks, places and tags, and addresses or notes if this key may see them. ' +
+      'One design: its devices, ports, cables, racks, places and tags, its maintenance plans and "It\'s down" issues ' +
+      'with their steps, and addresses or notes if this key may see them. ' +
       'Never passwords. Anything that looked like a secret was left out and counted in "withheld".',
     inputSchema: {
       type: 'object',
@@ -224,7 +225,8 @@ const TOOLS = [
     name: 'fathom_recommend',
     description:
       'Recommend a change to a design. Nothing changes until a person accepts it in Fathom. ' +
-      'Write it for a person: a short title, why, and 1 to 20 plain steps. Never include a password or key.',
+      'Write it for a person: a short title, why, and 1 to 20 plain steps in the order they should be done, one change each; ' +
+      'a person can turn it into a maintenance plan. Never include a password or key.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -253,6 +255,59 @@ const TOOLS = [
         title: a.title,
         why: a.why ?? '',
         steps: (a.steps ?? []).map((s) => ({ action: s.action, target: s.target ?? null, text: s.text })),
+      }),
+  },
+  {
+    // Listed only when whoami says mayChange: the organisation and the key's owner both allowed it.
+    name: 'fathom_change_design',
+    mayChange: true,
+    description:
+      'Change a design now, as one change. It is made in the name of the person who made this key, marked as made by an ' +
+      'AI, and History can restore the version before it. Give the version fathom_read_design gave: if the design moved ' +
+      'since, nothing changes and you are told to read it again. Operations run in order: set a field (null clears it), ' +
+      'add_node, add_edge or remove. The reading\'s mayChange lists the kinds and fields you may add and set. Name existing ' +
+      'elements by the reading\'s ids, or give an add an `as` name for later operations. A removal takes what the element ' +
+      'holds: at most 20 things, never a place still holding things, never anything holding what you cannot see. ' +
+      'Never include a password or key; a change carrying one is refused whole. Prefer fathom_recommend when a person should decide.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        design: { type: 'string' },
+        version: { type: 'integer', minimum: 1, description: 'The version fathom_read_design gave.' },
+        summary: { type: 'string', maxLength: 120, description: 'What the change does, in one line. History shows it.' },
+        operations: {
+          type: 'array', minItems: 1, maxItems: 200,
+          items: {
+            type: 'object',
+            properties: {
+              op: { type: 'string', enum: ['set', 'add_node', 'add_edge', 'remove'] },
+              element: { type: 'string', description: 'set, remove: an id from the reading (kind:ID), or a name an earlier add gave.' },
+              field: { type: 'string', description: 'set: a field name as the reading shows it.' },
+              value: { description: 'set: the new value, in the shape the reading shows; null clears it.' },
+              kind: { type: 'string', description: 'add_node, add_edge: a kind from the reading\'s mayChange.' },
+              from: { type: 'string', description: 'add_edge: the node it starts at, an id or a name.' },
+              to: { type: 'string', description: 'add_edge: the node it ends at, an id or a name.' },
+              as: { type: 'string', description: 'add_node, add_edge: a name for later operations.' },
+              fields: { type: 'object', description: 'add_node, add_edge: field name to value.' },
+            },
+            required: ['op'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['design', 'version', 'summary', 'operations'],
+      additionalProperties: false,
+    },
+    run: (key, a) =>
+      call(key, 'POST', `/ai/v1/designs/${id(a.design)}/changes`, {
+        version: a.version,
+        summary: a.summary,
+        operations: (a.operations ?? []).map((o) => {
+          const out = {};
+          for (const k of ['op', 'element', 'field', 'kind', 'from', 'to', 'as', 'fields']) if (o[k] !== undefined) out[k] = o[k];
+          if (o.op === 'set') out.value = o.value ?? null;
+          return out;
+        }),
       }),
   },
 ];
@@ -285,15 +340,24 @@ function serve() {
           serverInfo: { name: 'fathom-ai', version: VERSION },
           instructions:
             'Fathom is a network documentation tool. These tools read designs as the person who made this key, and ' +
-            'send recommendations a person accepts or dismisses. They cannot change a design, and never return passwords.',
+            'send recommendations a person accepts or dismisses. Only if fathom_whoami says mayChange can they change a ' +
+            'design, as one change a person can undo. They never return passwords.',
         });
         return;
       case 'ping':
         reply({});
         return;
-      case 'tools/list':
-        reply({ tools: TOOLS.map(({ run, ...t }) => t) });
+      case 'tools/list': {
+        let mayChange = false;
+        try {
+          if (!key) key = loadKey();
+          mayChange = (await call(key, 'GET', '/ai/v1/whoami')).mayChange === true;
+        } catch {
+          // Unreachable or refused: list what reads and recommends, and let those calls say why.
+        }
+        reply({ tools: TOOLS.filter((t) => mayChange || !t.mayChange).map(({ run, mayChange: _, ...t }) => t) });
         return;
+      }
       case 'tools/call': {
         const tool = TOOLS.find((t) => t.name === msg.params?.name);
         if (!tool) return fail(-32602, `no tool named ${msg.params?.name}`);

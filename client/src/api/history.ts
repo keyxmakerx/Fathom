@@ -12,6 +12,8 @@ export interface HistoryEntry {
   atUnix: number;
   /** The account that saved; `null` when the entry's metadata would not read. */
   actor: string | null;
+  /** The AI connection that made this change in the actor's name (ADR-0073), by its label. */
+  viaAi: string | null;
 }
 
 export type VerifyOutcome =
@@ -38,6 +40,7 @@ export function parseHistory(bytes: Uint8Array): HistoryEntry[] {
       designVersion: r.design_version,
       atUnix: r.at_unix,
       actor: typeof r.actor === 'string' ? r.actor : null,
+      viaAi: typeof r.via_ai === 'string' ? r.via_ai : null,
     };
   });
 }

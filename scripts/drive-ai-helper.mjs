@@ -256,6 +256,8 @@ async function runProof(browser, ctxA, seed) {
   check('K5. a wrong paste is named and Make key stays off', (await A.getByRole('button', { name: 'Make key' }).isDisabled()) && /130 characters/.test(await A.getByTestId('ai-helper').innerText()));
   await A.getByLabel('The helper’s public key').fill(pub);
   await A.locator('#ai-helper-label').fill('Helper on the drive laptop');
+  check('K5b. Make key waits for the AI account the app uses', await A.getByRole('button', { name: 'Make key' }).isDisabled());
+  await A.locator('#ai-helper-account').fill('ann@example.org');
   await A.getByTestId('ai-helper').locator('.ai-tick', { hasText: 'Addresses, VLANs' }).locator('input').check();
   await shot('k5-filled');
   await A.getByRole('button', { name: 'Make key' }).click();

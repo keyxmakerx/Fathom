@@ -603,8 +603,24 @@ and presses Make key; the page then gives the Claude Code line and an `mcpServer
 longest, second-person folders) and every connection with narrow and turn-off; a named person who is not
 an admin sees that tab with AI alone. Admin › AI turns AI off for the server and turns any connection off
 with a reason. AI ideas are a side tab on the Canvas, Racks and Inventory; an Inventory row an open idea
-names is marked. Accepting marks the idea; the change is the person's own edit. Not yet: dashed "would be
-added" rows and marks on the drawing itself.
+names is marked. Accepting marks the idea; the change is the person's own edit. "Make it a plan" turns an
+idea into a draft maintenance plan with no edits in it and accepts the idea (ADR-0072 decision 22). The
+reading includes maintenance plans and "It's down" issues, without who wrote them or a step's stored edit.
+Both connect pages warn against a personal AI account; Fathom cannot check which account it is (decision
+23), so Allow and Make key ask for it, and Stewards and Admin › AI see it with the owner's sign-in address
+(decision 24, migration 0049). ADR-0073 (proposed, being built on PR #217): an AI connection may change
+designs only with two ticks, Organisation › AI's "AI apps may change designs" and the connection's own
+"May change designs" at Allow, Make key or later by its owner (migration 0050). Steps 1 to 3 are built: the
+ticks and screens, and `change_design` (`POST /ai/v1/designs/{d}/changes`, the Claude tool and the
+helper's) setting fields, adding nodes and edges (named with `as` for later operations) and removing,
+all at kinds and fields the reading shows at `layout` and `notes`; one change in the owner's name
+against the version read, 200 operations, 10 a minute and 300 a day, at most 20 things removed, never a
+place still holding things or anything holding what the AI cannot see, refused in second-person
+folders, every string through the server's gate. The reading lists what may be added under
+`mayChange`. History marks it "AI (<connection>), for <person>" from `ai_design_changes` (migration
+0051). Not yet: Undo of an AI change by someone other than its owner (History's Restore does it), and
+merging, which waits on the owner (the sweep is in ADR-0073). Not yet: dashed "would be added"
+rows and marks on the drawing itself.
 
 **Device panel** (r14 A1, A2): Details, Ports and Notes tabs, actions at the foot (Duplicate the main one,
 Remove device in red). Inventory's toolbar has a role filter, written into the filter line as `role:...`.

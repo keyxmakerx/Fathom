@@ -15,6 +15,8 @@ import { Engine } from '../../engine/engine';
 import { refusalSentence } from '../../engine/mirror';
 import { buildCsv } from '../../print/csv';
 import { AiIdeasPanel, aiIdeasTab, useAiIdeas } from '../ai/AiIdeas';
+import { decideIdea } from '../../api/ai';
+import type { IdeaForPlan } from '../../document/plans';
 import { buildCanon } from '../checks/checksModel';
 import { nameOf as planNameOf } from '../plans/plansModel';
 import { buildCableScheduleRows, cableScheduleHeaderRow, CABLE_SCHEDULE_WIDTHS } from '../../print/cableSchedule';
@@ -148,6 +150,7 @@ export function DesignPlace(props: DesignPlaceProps) {
   // Firmware asks that the canvas must carry out (it holds the plans): a fresh object per ask.
   const [upgradeRequest, setUpgradeRequest] = useState<{ template: UpgradeTemplate } | null>(null);
   const [planRequest, setPlanRequest] = useState<{ id: string } | null>(null);
+  const [ideaPlanRequest, setIdeaPlanRequest] = useState<{ idea: IdeaForPlan; onPlanned: () => void } | null>(null);
 
   const accountId = getSession()?.accountId ?? null;
   const accountAddress = getSession()?.address ?? null;
@@ -994,6 +997,15 @@ export function DesignPlace(props: DesignPlaceProps) {
           if (phone) setAiIdeasOpen(false);
           showIssue(id);
         }}
+        onPlan={(idea) => {
+          // Making the plan is taking the idea up, so it is accepted once the plan is made.
+          if (phone) setAiIdeasOpen(false);
+          setIdeaPlanRequest({
+            idea,
+            onPlanned: () => void decideIdea(organisationId, designId, idea, 'accept').then(aiIdeas.reload, aiIdeas.reload),
+          });
+          onPlaceChange('racks');
+        }}
       />
     ) : null;
   // On a phone the ideas are a bottom tab and a full-screen sheet instead (ADR-0075).
@@ -1014,10 +1026,12 @@ export function DesignPlace(props: DesignPlaceProps) {
         initialIssue={issueRequest}
         initialUpgrade={upgradeRequest}
         initialPlan={planRequest}
+        initialIdeaPlan={ideaPlanRequest}
         traceRequest={traceRequest}
         onRequestsHandled={() => {
           setUpgradeRequest(null);
           setPlanRequest(null);
+          setIdeaPlanRequest(null);
         }}
         onOpenInventory={openInInventory}
         accountId={accountId}

@@ -323,6 +323,24 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0052_field_part.sql",
         sql: include_str!("../migrations/0052_field_part.sql"),
     },
+    // Which AI account a connection uses, as its owner gave it.
+    Migration {
+        version: 53,
+        name: "0053_ai_key_account.sql",
+        sql: include_str!("../migrations/0053_ai_key_account.sql"),
+    },
+    // May an AI connection change designs: the organisation's tick and the connection's.
+    Migration {
+        version: 54,
+        name: "0054_ai_may_change.sql",
+        sql: include_str!("../migrations/0054_ai_may_change.sql"),
+    },
+    // Which changes to a design an AI connection made, for History and the limits.
+    Migration {
+        version: 55,
+        name: "0055_ai_design_changes.sql",
+        sql: include_str!("../migrations/0055_ai_design_changes.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.
