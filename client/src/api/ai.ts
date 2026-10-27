@@ -92,6 +92,8 @@ export interface AiIdea {
   title: string;
   why: string;
   steps: IdeaStep[];
+  /** How many operations Accept makes in the design; null when the idea is steps only. */
+  changes: number | null;
   createdAt: number;
   state: 'open' | 'accepted' | 'dismissed';
   decidedBy: string | null;
@@ -184,6 +186,7 @@ export function parseIdea(raw: unknown): AiIdea {
     title: str(o.title),
     why: str(o.why),
     steps,
+    changes: num(o.changes),
     createdAt: num(o.createdAt) ?? 0,
     state,
     decidedBy: typeof o.decidedBy === 'string' ? o.decidedBy : null,
@@ -267,8 +270,9 @@ export async function fetchIdeas(organisationId: string, designId: string): Prom
   return list.map(parseIdea);
 }
 
-/** Accepting marks the idea; the edit itself is the accepter's own, made in the design. A
- * dismissal keeps nothing of what the AI wrote. */
+/** Accepting an idea that carries a change makes it, on the server, as the accepter's own
+ * edit; one that is steps only is marked, and the accepter makes the edit. A dismissal keeps
+ * nothing of what the AI wrote. */
 export async function decideIdea(
   organisationId: string,
   designId: string,

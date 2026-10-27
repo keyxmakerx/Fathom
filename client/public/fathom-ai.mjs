@@ -226,7 +226,9 @@ const TOOLS = [
     description:
       'Recommend a change to a design. Nothing changes until a person accepts it in Fathom. ' +
       'Write it for a person: a short title, why, and 1 to 20 plain steps in the order they should be done, one change each; ' +
-      'a person can turn it into a maintenance plan. Never include a password or key.',
+      'a person can turn it into a maintenance plan. You may also send the change itself as change: the version ' +
+      'fathom_read_design gave and operations in the shape fathom_change_design takes; it is checked now, and when a ' +
+      'person accepts the idea Fathom makes it in their name. Never include a password or key.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -246,6 +248,16 @@ const TOOLS = [
             additionalProperties: false,
           },
         },
+        change: {
+          type: 'object',
+          description: 'Optional: what accepting it makes. The version the reading gave, and operations as fathom_change_design takes them.',
+          properties: {
+            version: { type: 'integer', minimum: 1 },
+            operations: { type: 'array', minItems: 1, maxItems: 200, items: { type: 'object' } },
+          },
+          required: ['version', 'operations'],
+          additionalProperties: false,
+        },
       },
       required: ['design', 'title', 'steps'],
       additionalProperties: false,
@@ -255,6 +267,7 @@ const TOOLS = [
         title: a.title,
         why: a.why ?? '',
         steps: (a.steps ?? []).map((s) => ({ action: s.action, target: s.target ?? null, text: s.text })),
+        ...(a.change ? { change: { version: a.change.version, operations: a.change.operations } } : {}),
       }),
   },
   {

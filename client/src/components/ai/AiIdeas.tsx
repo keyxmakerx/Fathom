@@ -1,7 +1,8 @@
 // AI ideas on a design (ADR-0072 decision 7; mockup r33-ai-recs2-a, approved 2026-10-25):
 // one panel, the same on the Canvas, Racks and Inventory, so deciding in one place is one
-// decision everywhere. An idea changes nothing by itself. Accepting marks it accepted and
-// the person makes the change, as their own edit; dismissing keeps nothing the AI wrote.
+// decision everywhere. An idea changes nothing by itself. Accepting one that carries a
+// change makes it, as the person's own edit (amended 2026-10-27); one that is steps only is
+// marked done and the person makes the edit. Dismissing keeps nothing the AI wrote.
 // Make it a plan turns the steps into a draft maintenance plan (no edits in it) and accepts.
 
 import { useCallback, useEffect, useState } from 'react';
@@ -93,10 +94,11 @@ export function AiIdeasPanel({ organisationId, designId, state, nameOf, onShow, 
       <p className="ai-muted">
         Ideas an AI app sent for this design.{' '}
         <Info label="What an AI idea is">
-          Someone connected an AI app to Fathom and let it send ideas. An idea changes nothing in the design. Accept marks it as
-          accepted, and you make the change yourself, as your own edit, so it is in the history under your name. Make it a plan
-          turns its steps into a draft maintenance plan you can change, schedule and work through, and accepts it. Dismiss throws the
-          idea away. In some folders a Steward asks for a second person to accept.
+          Someone connected an AI app to Fathom and let it send ideas. An idea changes nothing in the design until you decide.
+          When the AI sent the change itself, Accept and apply makes it, as your own edit, so it is in the history under your name
+          and History can restore the version before it. When it sent only steps, Mark done records that you accepted it, and you
+          make the change yourself. Make it a plan turns its steps into a draft maintenance plan you can change, schedule and work
+          through, and accepts it. Dismiss throws the idea away. In some folders a Steward asks for a second person to accept.
         </Info>
       </p>
       {error && (
@@ -113,6 +115,11 @@ export function AiIdeasPanel({ organisationId, designId, state, nameOf, onShow, 
           </div>
           <div className="ai-idea__title">{idea.title}</div>
           {idea.why && <p className="ai-body">{idea.why}</p>}
+          <p className="ai-muted" data-testid="ai-idea-applies">
+            {idea.changes !== null
+              ? `Accept and apply makes ${idea.changes === 1 ? '1 change' : `${idea.changes} changes`} in this design, as your edit.`
+              : 'Steps only: accepting changes nothing, you make the edit.'}
+          </p>
           <ul className="ai-idea__steps">
             {idea.steps.map((step, n) => {
               const target = step.target !== null ? nameOf(step.target) : null;
@@ -137,7 +144,7 @@ export function AiIdeasPanel({ organisationId, designId, state, nameOf, onShow, 
           {canDraw ? (
             <div className="ai-actions">
               <button type="button" className="ai-btn ai-btn--primary" disabled={busy !== null} onClick={() => void decide(idea, 'accept')}>
-                Accept
+                {idea.changes !== null ? 'Accept and apply' : 'Mark done'}
               </button>
               {onPlan && (
                 <button type="button" className="ai-btn" disabled={busy !== null} onClick={() => onPlan(idea)}>

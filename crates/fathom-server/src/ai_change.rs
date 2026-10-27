@@ -42,7 +42,7 @@ use crate::audit;
 use crate::designs::{self, DesignError};
 use crate::grants::Authority;
 use crate::heads::HeadStore;
-use crate::repo::DesignId;
+use crate::repo::{DesignId, ScopeId};
 
 /// The most operations one change may hold.
 pub const MAX_OPERATIONS: usize = 200;
@@ -53,6 +53,8 @@ pub const PER_DAY: i64 = 300;
 pub const MAX_SUMMARY_CHARS: usize = 120;
 /// What History shows before the summary. A batch label is at most 60 bytes.
 const LABEL_PREFIX: &str = "AI: ";
+/// What an accepted idea's change is labelled: the person's edit, from an AI's idea.
+const IDEA_LABEL_PREFIX: &str = "AI idea: ";
 const LABEL_MAX_BYTES: usize = 60;
 
 /// The most things one change may remove, counting what a removal takes with it.
@@ -316,9 +318,9 @@ pub fn read_ask(body: &[u8]) -> Result<Asked, AiError> {
     })
 }
 
-/// The change's label: the summary after [`LABEL_PREFIX`], cut on a character boundary.
-fn label_of(summary: &str) -> String {
-    let mut label = String::from(LABEL_PREFIX);
+/// The change's label: the summary after `prefix`, cut on a character boundary.
+fn label_of(prefix: &str, summary: &str) -> String {
+    let mut label = String::from(prefix);
     for c in summary.chars() {
         if label.len() + c.len_utf8() > LABEL_MAX_BYTES {
             break;
@@ -568,6 +570,7 @@ pub struct Built {
 pub fn build(
     graph: &Graph,
     tiers: &BTreeSet<Tier>,
+    label_prefix: &str,
     asked: &Asked,
     actor: Ulid,
     now_ms: u64,
@@ -586,7 +589,7 @@ pub fn build(
         removed: 0,
     };
     b.graph
-        .begin_batch(batch_id, &label_of(&asked.summary))
+        .begin_batch(batch_id, &label_of(label_prefix, &asked.summary))
         .map_err(|_| AiError::Unverifiable("a stored design with a batch open"))?;
     for (index, ask) in asked.ops.iter().enumerate() {
         b.run(index, ask)?;
@@ -615,6 +618,140 @@ pub fn build(
             .map(|(k, v)| (k, v.to_string()))
             .collect(),
     })
+}
+
+/// Read the design, run `asked` on it as the caller and write the result through the
+/// browser's write path (ADR-0063). With `exact`, the design must still be at
+/// `asked.version`; without it the operations run on the design as it is now, and the
+/// graph's rules refuse whatever no longer fits.
+#[allow(clippy::too_many_arguments)]
+async fn build_and_write(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    heads: &HeadStore,
+    design: DesignId,
+    scope: ScopeId,
+    tiers: &BTreeSet<Tier>,
+    label_prefix: &str,
+    asked: &Asked,
+    exact: bool,
+) -> Result<(Built, designs::ChangeWritten), AiError> {
+    let stored =
+        designs::read_version_in_tx(tx, auth, Some(heads), design, Some(scope), None).await?;
+    if exact && stored.version != asked.version {
+        return Err(AiError::Moved {
+            read: asked.version,
+            current: stored.version,
+        });
+    }
+    let built = {
+        let graph = fathom_workspace::read_plain(&stored.payload)
+            .map_err(|_| AiError::Unverifiable("a stored design that does not parse"))?;
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        build(
+            &graph,
+            tiers,
+            label_prefix,
+            asked,
+            auth.ctx.actor().0,
+            now_ms,
+            crate::ids::new_ulid,
+        )?
+    };
+    let schema_minor: i32 = fathom_ir::generated::ir_types::SCHEMA_VERSION
+        .strip_prefix("0.")
+        .and_then(|minor| minor.parse().ok())
+        .ok_or(AiError::Unverifiable("this server's schema version"))?;
+    let written = designs::write_change_in_tx(
+        tx,
+        auth,
+        heads,
+        design,
+        Some(scope),
+        &built.doc,
+        schema_minor,
+        stored.version,
+        true,
+        &audit::SpoolBounds::from_env(),
+    )
+    .await
+    .map_err(|e| match e {
+        DesignError::ChangeAhead { current, .. } => AiError::Moved {
+            read: stored.version,
+            current,
+        },
+        DesignError::ChangeRefused(why) if why.contains("credential") => AiError::LooksSecret,
+        DesignError::ChangeRefused(_) => AiError::NotAllowed(
+            "the design's own rules refused this change; read it again and check each operation",
+        ),
+        // The person's own grant refused it: the same answer as any act they may not do.
+        DesignError::Authority(e) => AiError::Authority(e),
+        other => AiError::Design(other),
+    })?;
+    Ok((built, written))
+}
+
+/// The change an idea carries (ADR-0072 decision 7, amended): read and run on the design
+/// as it is now, without writing, so an idea that cannot be made is refused when it is sent.
+pub async fn check_idea_change(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    heads: Option<&HeadStore>,
+    design: DesignId,
+    scope: ScopeId,
+    tiers: &BTreeSet<Tier>,
+    asked: &Asked,
+) -> Result<(), AiError> {
+    let stored = designs::read_version_in_tx(tx, auth, heads, design, Some(scope), None).await?;
+    if stored.version != asked.version {
+        return Err(AiError::Moved {
+            read: asked.version,
+            current: stored.version,
+        });
+    }
+    let graph = fathom_workspace::read_plain(&stored.payload)
+        .map_err(|_| AiError::Unverifiable("a stored design that does not parse"))?;
+    build(
+        &graph,
+        tiers,
+        IDEA_LABEL_PREFIX,
+        asked,
+        auth.ctx.actor().0,
+        0,
+        crate::ids::new_ulid,
+    )
+    .map(|_| ())
+}
+
+/// Accepting an idea that carries a change: the change made now, as the person accepting
+/// it, on the design as it is now. It is their own edit, labelled as from an AI's idea, and
+/// not counted against the connection's limits.
+#[allow(clippy::too_many_arguments)]
+pub async fn apply_idea_change(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    heads: &HeadStore,
+    design: DesignId,
+    scope: ScopeId,
+    tiers: &BTreeSet<Tier>,
+    asked: &Asked,
+) -> Result<designs::ChangeWritten, AiError> {
+    build_and_write(
+        tx,
+        auth,
+        heads,
+        design,
+        scope,
+        tiers,
+        IDEA_LABEL_PREFIX,
+        asked,
+        false,
+    )
+    .await
+    .map(|(_, written)| written)
 }
 
 /// `POST /ai/v1/designs/{d}/changes`: make one change to a design, as the connection's
@@ -674,61 +811,19 @@ pub async fn change_design(
         ));
     }
 
-    let stored =
-        designs::read_version_in_tx(tx, auth, Some(heads), design, Some(scope), None).await?;
-    if stored.version != asked.version {
-        return Err(AiError::Moved {
-            read: asked.version,
-            current: stored.version,
-        });
-    }
-    let built = {
-        let graph = fathom_workspace::read_plain(&stored.payload)
-            .map_err(|_| AiError::Unverifiable("a stored design that does not parse"))?;
-        let tiers = ai::tiers(&session.key, &session.policy);
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
-        build(
-            &graph,
-            &tiers,
-            &asked,
-            auth.ctx.actor().0,
-            now_ms,
-            crate::ids::new_ulid,
-        )?
-    };
-    let schema_minor: i32 = fathom_ir::generated::ir_types::SCHEMA_VERSION
-        .strip_prefix("0.")
-        .and_then(|minor| minor.parse().ok())
-        .ok_or(AiError::Unverifiable("this server's schema version"))?;
-    let written = designs::write_change_in_tx(
+    let tiers = ai::tiers(&session.key, &session.policy);
+    let (built, written) = build_and_write(
         tx,
         auth,
         heads,
         design,
-        Some(scope),
-        &built.doc,
-        schema_minor,
-        asked.version,
+        scope,
+        &tiers,
+        LABEL_PREFIX,
+        &asked,
         true,
-        &audit::SpoolBounds::from_env(),
     )
-    .await
-    .map_err(|e| match e {
-        DesignError::ChangeAhead { current, .. } => AiError::Moved {
-            read: asked.version,
-            current,
-        },
-        DesignError::ChangeRefused(why) if why.contains("credential") => AiError::LooksSecret,
-        DesignError::ChangeRefused(_) => AiError::NotAllowed(
-            "the design's own rules refused this change; read it again and check each operation",
-        ),
-        // The owner's own grant refused it: the same answer as any act they may not do.
-        DesignError::Authority(e) => AiError::Authority(e),
-        other => AiError::Design(other),
-    })?;
+    .await?;
     let operations: usize = asked.ops.iter().map(Ask::weight).sum();
     // The head holds the applied change until the caller commits or aborts it, so a
     // failure from here on lets it go before answering.
@@ -815,9 +910,9 @@ mod tests {
 
     #[test]
     fn the_label_is_the_summary_cut_to_sixty_bytes() {
-        assert_eq!(label_of("Name it"), "AI: Name it");
+        assert_eq!(label_of(LABEL_PREFIX, "Name it"), "AI: Name it");
         let long = "é".repeat(100);
-        let l = label_of(&long);
+        let l = label_of(LABEL_PREFIX, &long);
         assert!(l.len() <= LABEL_MAX_BYTES && l.starts_with(LABEL_PREFIX));
     }
 
@@ -892,7 +987,7 @@ mod tests {
             }
             .to_string()
         ));
-        let built = build(&g, &layout(), &a, Ulid(9_999), 5, ids()).expect("built");
+        let built = build(&g, &layout(), LABEL_PREFIX, &a, Ulid(9_999), 5, ids()).expect("built");
         let change = fathom_workspace::read_change(&built.doc).expect("reads back");
         assert!(built.named["core"].starts_with("device:"));
         // Add, set hostname, clear role, add the chassis, two edges: six operations, six
@@ -919,7 +1014,15 @@ mod tests {
                 "may not change",
             ),
         ] {
-            match build(&g, &layout(), &ask(ops), Ulid(9_999), 5, ids()) {
+            match build(
+                &g,
+                &layout(),
+                LABEL_PREFIX,
+                &ask(ops),
+                Ulid(9_999),
+                5,
+                ids(),
+            ) {
                 Err(AiError::Operation { index: 0, why: w }) => assert!(w.contains(why), "{w}"),
                 Err(e) => panic!("{ops}: {e}"),
                 Ok(_) => panic!("{ops} was let through"),
@@ -930,6 +1033,7 @@ mod tests {
         assert!(build(
             &g,
             &notes,
+            LABEL_PREFIX,
             &ask(r#"{"op":"add_node","kind":"Note"}"#),
             Ulid(9_999),
             5,
@@ -949,6 +1053,7 @@ mod tests {
         match build(
             &g,
             &layout(),
+            LABEL_PREFIX,
             &ask(&format!(r#"{{"op":"remove","element":{premises:?}}}"#)),
             Ulid(9_999),
             5,
@@ -965,16 +1070,41 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join(",")
         };
-        assert!(build(&g, &layout(), &ask(&removes(20)), Ulid(9_999), 5, ids()).is_ok());
+        assert!(build(
+            &g,
+            &layout(),
+            LABEL_PREFIX,
+            &ask(&removes(20)),
+            Ulid(9_999),
+            5,
+            ids()
+        )
+        .is_ok());
         let hidden = format!(r#"{{"op":"remove","element":{:?}}}"#, device(24));
-        match build(&g, &layout(), &ask(&hidden), Ulid(9_999), 5, ids()) {
+        match build(
+            &g,
+            &layout(),
+            LABEL_PREFIX,
+            &ask(&hidden),
+            Ulid(9_999),
+            5,
+            ids(),
+        ) {
             Err(AiError::Operation { why, .. }) => assert!(why.contains("cannot see"), "{why}"),
             other => panic!(
                 "a device holding what the AI cannot see went: {:?}",
                 other.is_ok()
             ),
         }
-        match build(&g, &layout(), &ask(&removes(21)), Ulid(9_999), 5, ids()) {
+        match build(
+            &g,
+            &layout(),
+            LABEL_PREFIX,
+            &ask(&removes(21)),
+            Ulid(9_999),
+            5,
+            ids(),
+        ) {
             Err(AiError::Operation { index, why }) => {
                 assert_eq!(index, 20);
                 assert!(why.contains("20 removals"), "{why}");

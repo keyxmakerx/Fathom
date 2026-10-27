@@ -16,6 +16,7 @@ const idea = (over: Partial<AiIdea> = {}): AiIdea => ({
   title: 'Give core-sw-02 its own uplink',
   why: 'One link is a single point of failure.',
   steps: [{ action: 'connect', target: 'D1', text: 'Connect core-sw-02 to edge-fw-01' }],
+  changes: null,
   createdAt: 0,
   state: 'open',
   decidedBy: null,
@@ -48,15 +49,25 @@ describe('AI ideas on a design', () => {
     expect(out).toContain('>Make it a plan<');
     expect(out).toContain('Key Maker’s connection');
     expect(out).toContain('Show core-sw-02');
-    expect(out).toContain('>Accept<');
+    expect(out).toContain('>Mark done<');
+    expect(out).toContain('accepting changes nothing');
     expect(out).toContain('>Dismiss<');
+  });
+
+  it('says Accept and apply, and how much it makes, when the idea carries the change', () => {
+    const out = renderToStaticMarkup(
+      createElement(AiIdeasPanel, { organisationId: 'O', designId: 'D', state: state([idea({ changes: 3 })]), nameOf: () => null, canDraw: true }),
+    );
+    expect(out).toContain('>Accept and apply<');
+    expect(out).toContain('makes 3 changes in this design, as your edit');
+    expect(out).not.toContain('>Mark done<');
   });
 
   it('gives a reader no buttons, and says who decides', () => {
     const out = renderToStaticMarkup(
       createElement(AiIdeasPanel, { organisationId: 'O', designId: 'D', state: state([idea()]), nameOf: () => null, canDraw: false }),
     );
-    expect(out).not.toContain('>Accept<');
+    expect(out).not.toContain('>Mark done<');
     expect(out).not.toContain('Make it a plan<');
     expect(out).toContain('Someone who can draw here');
   });

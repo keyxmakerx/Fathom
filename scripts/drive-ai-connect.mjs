@@ -325,6 +325,18 @@ async function runProof(browser, ctxA, seed) {
     arguments: { design: designId, version: version + 5, summary: 'From a reading that never was', operations: [{ op: 'set', element: 'device:01ARZ3NDEKTSV4RRFFQ69G5FAV', field: 'hostname', value: 'core-1' }] },
   });
   check('M10. change_design against a version that is not the design\'s is refused before anything else', stale.body.result?.isError === true && /read it again/.test(stale.body.result.content[0].text), JSON.stringify(stale.body).slice(0, 300));
+  // An idea may carry the change itself, which Accept makes (ADR-0072 decision 7, amended 2026-10-27).
+  const firstDevice = (read.body.result.structuredContent.nodes ?? []).find((n) => n.kind === 'Device');
+  const carried = await rpc('tools/call', {
+    name: 'recommend',
+    arguments: {
+      design: designId,
+      title: 'Give the placeholder its real name',
+      steps: [{ action: 'label', target: firstDevice?.id, text: 'Rename it to lab-core-real.' }],
+      change: { version, operations: [{ op: 'set', element: firstDevice?.id, field: 'hostname', value: 'lab-core-real' }] },
+    },
+  });
+  check('M11. recommend takes an idea that carries its change', carried.body.result?.isError === false && carried.body.result.structuredContent.changes === 1, JSON.stringify(carried.body).slice(0, 300));
 
   // ---- The idea in the design --------------------------------------------------------
   await A.unroute('http://localhost:53999/**');
@@ -346,6 +358,20 @@ async function runProof(browser, ctxA, seed) {
   await shot('d2-ai-idea-plan');
   const planText = (await A.locator('body').innerText()).replace(/\s+/g, ' ');
   check('D2. Make it a plan opens a draft plan named after the idea, with its steps', planText.includes('Add a second uplink to the core') && planText.includes('Connect the two switches with a second cable.'));
+  // Accept and apply: the idea that carries its change is made, and the design shows it.
+  await A.goto(URL_, { waitUntil: 'domcontentloaded' });
+  await A.locator('.drawing').waitFor({ timeout: 20000 });
+  const tab2 = A.getByRole('tab', { name: /AI ideas/ }).or(A.locator('[data-side-tab="ai-ideas"]')).or(A.getByText(/^AI ideas/)).first();
+  await tab2.waitFor({ timeout: 15000 });
+  await tab2.click();
+  const carriedIdea = A.getByTestId('ai-ideas').locator('.ai-idea', { hasText: 'Give the placeholder its real name' });
+  await carriedIdea.waitFor({ timeout: 10000 });
+  check('D3. an idea that carries its change says Accept and apply, and how much it makes', (await carriedIdea.getByRole('button', { name: 'Accept and apply' }).count()) === 1 && (await carriedIdea.innerText()).includes('makes 1 change'));
+  await shot('d3-ai-idea-apply');
+  await carriedIdea.getByRole('button', { name: 'Accept and apply' }).click();
+  await A.getByText('lab-core-real').first().waitFor({ timeout: 20000 }).catch(() => {});
+  check('D4. after Accept and apply the device has its new name in the open design', (await A.getByText('lab-core-real').count()) > 0);
+  await shot('d4-ai-idea-applied');
 
   // ---- Steward › AI lists it -------------------------------------------------------
   await A.locator('.shell-bar__brand').first().click();

@@ -283,7 +283,15 @@ async fn recommend_handler(
         tenant_key: &session.tenant_key,
         watch: &state.watch,
     };
-    let made = ai::recommend(&tx, &auth, &session, design, &signed.body).await?;
+    let made = ai::recommend(
+        &tx,
+        &auth,
+        Some(&state.live.heads),
+        &session,
+        design,
+        &signed.body,
+    )
+    .await?;
     tx.commit().await?;
     Ok(json(made.to_json()))
 }
