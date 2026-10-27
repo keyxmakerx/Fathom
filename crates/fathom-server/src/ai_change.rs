@@ -41,6 +41,7 @@ use fathom_ir::generated::ir_types::{EdgeKind, NodeKind};
 
 use crate::ai::{self, AiError, AiSession};
 use crate::ai_reading::{self, Tier};
+use crate::ai_work::{self, Level, Rules, Work};
 use crate::audit;
 use crate::authority::Capability;
 use crate::designs::{self, DesignError};
@@ -50,9 +51,9 @@ use crate::repo::{DesignId, ScopeId};
 
 /// The most operations one change may hold.
 pub const MAX_OPERATIONS: usize = 200;
-/// Changes one connection may make in a minute, and in a day.
-pub const PER_MINUTE: i64 = 10;
-pub const PER_DAY: i64 = 300;
+/// Changes one connection may propose in a minute, and in a day, at most; a Steward may set less.
+pub const PER_MINUTE: i64 = ai_work::MAX_PER_MINUTE as i64;
+pub const PER_DAY: i64 = ai_work::MAX_PER_DAY as i64;
 /// The summary, which becomes the change's label in History.
 pub const MAX_SUMMARY_CHARS: usize = 120;
 /// What an accepted idea's change is labelled in History: the person's edit, from an AI's
@@ -60,8 +61,6 @@ pub const MAX_SUMMARY_CHARS: usize = 120;
 const IDEA_LABEL_PREFIX: &str = "AI idea: ";
 const LABEL_MAX_BYTES: usize = 60;
 
-/// The most things one change may remove, counting what a removal takes with it.
-pub const MAX_REMOVALS: usize = 20;
 /// The longest name an operation may give what it adds, for later operations to use.
 const MAX_NAME_CHARS: usize = 40;
 
@@ -317,12 +316,15 @@ fn live_nodes(graph: &Graph) -> BTreeSet<NodeId> {
 struct Builder<'a, F: FnMut() -> Ulid> {
     graph: Graph,
     tiers: &'a BTreeSet<Tier>,
+    rules: &'a Rules,
     by: Actor,
     at: Timestamp,
     next_id: F,
     provenance: Vec<ProvenanceRecord>,
     values: Vec<Json>,
     named: BTreeMap<String, ElementId>,
+    /// What this change itself adds: a field set on one is part of adding it.
+    added: BTreeSet<ElementId>,
     removed: usize,
 }
 
@@ -338,6 +340,33 @@ impl<F: FnMut() -> Ulid> Builder<'_, F> {
         };
         self.provenance.push(rec.clone());
         rec
+    }
+
+    /// Whether the organisation, the connection and the server all let an AI propose `work`.
+    fn permit(&self, index: usize, work: Work) -> Result<(), AiError> {
+        if self.rules.levels.get(work) == Level::Propose {
+            Ok(())
+        } else {
+            Err(op_refused(
+                index,
+                format!(
+                    "is {}, which this connection may not propose; send steps only",
+                    work.words()
+                ),
+            ))
+        }
+    }
+
+    /// Whether the Steward's list of the only kinds lets this kind be added or removed.
+    fn only_kind(&self, index: usize, kind: &str) -> Result<(), AiError> {
+        if self.rules.only.kind(kind) {
+            Ok(())
+        } else {
+            Err(op_refused(
+                index,
+                format!("touches a {kind}, which this organisation keeps from AI apps"),
+            ))
+        }
     }
 
     /// An element the reading gave, live and of a kind it shows, or one this change added.
@@ -397,6 +426,20 @@ impl<F: FnMut() -> Ulid> Builder<'_, F> {
                 format!("sets {field:?}, which this connection may not change"),
             )
         })?;
+        let (kind, work) = match element {
+            ElementId::Node(n) if self.added.contains(&element) => {
+                (n.kind.name(), ai_work::work_of_node(n.kind))
+            }
+            ElementId::Node(n) => (n.kind.name(), ai_work::work_of_node_field(n.kind, field)),
+            ElementId::Edge(e) => (e.kind.name(), ai_work::work_of_edge(e.kind)),
+        };
+        self.permit(index, work)?;
+        if !self.rules.only.field(kind, field) {
+            return Err(op_refused(
+                index,
+                format!("sets {field:?} on a {kind}, which this organisation keeps from AI apps"),
+            ));
+        }
         let rec = self.record();
         if *value == Json::Null {
             return self
@@ -440,11 +483,14 @@ impl<F: FnMut() -> Ulid> Builder<'_, F> {
                 let kind = NodeKind::from_name(kind)
                     .filter(|k| ai_reading::settable_node_kind(self.tiers, *k))
                     .ok_or_else(|| op_refused(index, "adds a kind this connection may not add"))?;
+                self.permit(index, ai_work::work_of_node(kind))?;
+                self.only_kind(index, kind.name())?;
                 let rec = self.record();
                 let ulid = (self.next_id)();
                 let node = self.graph.insert_node(kind, ulid, rec).map_err(|e| {
                     op_refused(index, format!("is refused by the design's rules: {e}"))
                 })?;
+                self.added.insert(node.into());
                 self.name(index, name, node.into())?;
                 for (field, value) in fields {
                     self.set(index, node.into(), field, value)?;
@@ -461,6 +507,8 @@ impl<F: FnMut() -> Ulid> Builder<'_, F> {
                 let kind = EdgeKind::from_name(kind)
                     .filter(|k| ai_reading::settable_edge_kind(self.tiers, *k))
                     .ok_or_else(|| op_refused(index, "adds a kind this connection may not add"))?;
+                self.permit(index, ai_work::work_of_edge(kind))?;
+                self.only_kind(index, kind.name())?;
                 let from = self.resolve_node(index, from)?;
                 let to = self.resolve_node(index, to)?;
                 let rec = self.record();
@@ -471,6 +519,7 @@ impl<F: FnMut() -> Ulid> Builder<'_, F> {
                     .map_err(|e| {
                         op_refused(index, format!("is refused by the design's rules: {e}"))
                     })?;
+                self.added.insert(edge.into());
                 self.name(index, name, edge.into())?;
                 for (field, value) in fields {
                     self.set(index, edge.into(), field, value)?;
@@ -479,6 +528,12 @@ impl<F: FnMut() -> Ulid> Builder<'_, F> {
             }
             Ask::Remove { element } => {
                 let element = self.resolve(index, element)?;
+                let (kind, work) = match element {
+                    ElementId::Node(n) => (n.kind.name(), ai_work::work_of_node(n.kind)),
+                    ElementId::Edge(e) => (e.kind.name(), ai_work::work_of_edge(e.kind)),
+                };
+                self.permit(index, work)?;
+                self.only_kind(index, kind)?;
                 let before = live_nodes(&self.graph);
                 self.graph
                     .tombstone(element, self.at, self.by)
@@ -509,11 +564,14 @@ impl<F: FnMut() -> Ulid> Builder<'_, F> {
                     ));
                 }
                 self.removed += gone.len().max(1);
-                if self.removed > MAX_REMOVALS {
+                if self.removed > self.rules.max_removals {
                     return Err(op_refused(
                         index,
-                        "takes this change past 20 removals, counting what each takes with \
-                         it; split it, or send an idea",
+                        format!(
+                            "takes this change past {} removals, counting what each takes with \
+                             it; split it, or send steps only",
+                            self.rules.max_removals
+                        ),
                     ));
                 }
                 Ok(())
@@ -531,11 +589,14 @@ pub struct Built {
 /// Run a request on a copy of `graph`, as `actor`, and write what it did as one
 /// `fathom-change 1` document. The graph's own rules refuse what a browser's change would
 /// be refused for; on top of them every element must be one the reading shows, every
-/// field and kind on the allowlist at `tiers`, and a removal within [`MAX_REMOVALS`].
+/// field and kind on the allowlist at `tiers`, each kind of work at a level `rules` lets it be proposed, and removals within
+/// `rules.max_removals`.
 /// `next_id` hands out every id the change mints.
+#[allow(clippy::too_many_arguments)]
 pub fn build(
     graph: &Graph,
     tiers: &BTreeSet<Tier>,
+    rules: &Rules,
     label_prefix: &str,
     asked: &Asked,
     actor: Ulid,
@@ -546,12 +607,14 @@ pub fn build(
     let mut b = Builder {
         graph: graph.clone(),
         tiers,
+        rules,
         by: Actor::User(UserId(actor)),
         at: Timestamp(now_ms),
         next_id,
         provenance: Vec::new(),
         values: Vec::new(),
         named: BTreeMap::new(),
+        added: BTreeSet::new(),
         removed: 0,
     };
     b.graph
@@ -597,6 +660,7 @@ async fn build_and_write(
     design: DesignId,
     scope: ScopeId,
     tiers: &BTreeSet<Tier>,
+    rules: &Rules,
     label_prefix: &str,
     asked: &Asked,
 ) -> Result<(Built, designs::ChangeWritten), AiError> {
@@ -612,6 +676,7 @@ async fn build_and_write(
         build(
             &graph,
             tiers,
+            rules,
             label_prefix,
             asked,
             auth.ctx.actor().0,
@@ -661,6 +726,7 @@ pub async fn check_idea_change(
     design: DesignId,
     scope: ScopeId,
     tiers: &BTreeSet<Tier>,
+    rules: &Rules,
     asked: &Asked,
 ) -> Result<(), AiError> {
     // A connection lends no more than its owner holds: a change its owner could not make
@@ -678,6 +744,7 @@ pub async fn check_idea_change(
     build(
         &graph,
         tiers,
+        rules,
         IDEA_LABEL_PREFIX,
         asked,
         auth.ctx.actor().0,
@@ -707,6 +774,7 @@ pub async fn apply_idea_change(
         design,
         scope,
         tiers,
+        &Rules::open(),
         IDEA_LABEL_PREFIX,
         asked,
     )
@@ -720,6 +788,7 @@ pub async fn within_rate(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
     key_id: &str,
+    policy: &ai::Policy,
 ) -> Result<(), AiError> {
     let tenant = auth.ctx.tenant().to_string();
     tx.execute(
@@ -736,15 +805,18 @@ pub async fn within_rate(
         )
         .await?;
     let (minute, day): (i64, i64) = (counts.get(0), counts.get(1));
-    if minute >= PER_MINUTE {
-        return Err(AiError::NotAllowed(
-            "this connection sent 10 ideas in the last minute; try again in a minute",
-        ));
+    // A Steward may lower the limits, never raise them past the fixed ones.
+    let per_minute = (policy.per_minute as i64).clamp(1, PER_MINUTE);
+    let per_day = (policy.per_day as i64).clamp(1, PER_DAY);
+    if minute >= per_minute {
+        return Err(AiError::LimitReached(format!(
+            "this connection sent {per_minute} ideas in the last minute; try again in a minute"
+        )));
     }
-    if day >= PER_DAY {
-        return Err(AiError::NotAllowed(
-            "this connection sent 300 ideas today; try again tomorrow",
-        ));
+    if day >= per_day {
+        return Err(AiError::LimitReached(format!(
+            "this connection sent {per_day} ideas today; try again tomorrow"
+        )));
     }
     Ok(())
 }
@@ -838,6 +910,7 @@ pub async fn change_design(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai_work::Levels;
 
     fn body(j: &str) -> Vec<u8> {
         crate::json_in::parse(j.as_bytes())
@@ -959,8 +1032,17 @@ mod tests {
             }
             .to_string()
         ));
-        let built =
-            build(&g, &layout(), IDEA_LABEL_PREFIX, &a, Ulid(9_999), 5, ids()).expect("built");
+        let built = build(
+            &g,
+            &layout(),
+            &Rules::open(),
+            IDEA_LABEL_PREFIX,
+            &a,
+            Ulid(9_999),
+            5,
+            ids(),
+        )
+        .expect("built");
         let change = fathom_workspace::read_change(&built.doc).expect("reads back");
         assert!(built.named["core"].starts_with("device:"));
         // Add, set hostname, clear role, add the chassis, two edges: six operations, six
@@ -971,6 +1053,85 @@ mod tests {
         let mut applied = g.clone();
         fathom_workspace::apply_change(&mut applied, &change, Actor::User(UserId(Ulid(9_999))))
             .expect("the head would take it");
+    }
+
+    fn refusal(rules: &Rules, ops: &str) -> String {
+        match build(
+            &fixture(),
+            &layout(),
+            rules,
+            IDEA_LABEL_PREFIX,
+            &ask(ops),
+            Ulid(9_999),
+            5,
+            ids(),
+        ) {
+            Err(AiError::Operation { why, .. }) => why,
+            Err(other) => panic!("refused for the wrong reason: {other}"),
+            Ok(_) => panic!("let through"),
+        }
+    }
+
+    #[test]
+    fn a_kind_of_work_below_propose_is_refused_whatever_the_reading_allows() {
+        let mut rules = Rules::open();
+        rules.levels = Levels([Level::Ideas, Level::Propose, Level::Propose, Level::Off]);
+        let why = refusal(&rules, r#"{"op":"add_node","kind":"Device"}"#);
+        assert!(why.contains("editing the design"), "{why}");
+        let rename = format!(
+            r#"{{"op":"set","element":{:?},"field":"hostname","value":"core-1"}}"#,
+            device(1)
+        );
+        assert!(refusal(&rules, &rename).contains("editing the design"));
+        let remove = format!(r#"{{"op":"remove","element":{:?}}}"#, device(1));
+        assert!(refusal(&rules, &remove).contains("editing the design"));
+    }
+
+    #[test]
+    fn the_only_list_keeps_every_other_kind_and_field_out() {
+        let mut rules = Rules::open();
+        rules.only = ai_work::Only::parse(&["Device.hostname".into()]).unwrap();
+        let rename = format!(
+            r#"{{"op":"set","element":{:?},"field":"hostname","value":"core-1"}}"#,
+            device(1)
+        );
+        assert!(build(
+            &fixture(),
+            &layout(),
+            &rules,
+            IDEA_LABEL_PREFIX,
+            &ask(&rename),
+            Ulid(9_999),
+            5,
+            ids(),
+        )
+        .is_ok());
+        let role = format!(
+            r#"{{"op":"set","element":{:?},"field":"role","value":null}}"#,
+            device(1)
+        );
+        assert!(refusal(&rules, &role).contains("keeps from AI apps"));
+        // A field on the list does not let the kind be added or removed.
+        assert!(
+            refusal(&rules, r#"{"op":"add_node","kind":"Device"}"#).contains("keeps from AI apps")
+        );
+        let remove = format!(r#"{{"op":"remove","element":{:?}}}"#, device(1));
+        assert!(refusal(&rules, &remove).contains("keeps from AI apps"));
+    }
+
+    #[test]
+    fn a_steward_may_lower_the_removals_one_change_takes() {
+        let mut rules = Rules::open();
+        rules.max_removals = 1;
+        let two = format!(
+            r#"{{"op":"remove","element":{:?}}},{{"op":"remove","element":{:?}}}"#,
+            device(1),
+            device(2)
+        );
+        assert!(refusal(&rules, &two).contains("past 1 removals"));
+        rules.max_removals = 0;
+        let one = format!(r#"{{"op":"remove","element":{:?}}}"#, device(1));
+        assert!(refusal(&rules, &one).contains("past 0 removals"));
     }
 
     #[test]
@@ -990,6 +1151,7 @@ mod tests {
             match build(
                 &g,
                 &layout(),
+                &Rules::open(),
                 IDEA_LABEL_PREFIX,
                 &ask(ops),
                 Ulid(9_999),
@@ -1006,6 +1168,7 @@ mod tests {
         assert!(build(
             &g,
             &notes,
+            &Rules::open(),
             IDEA_LABEL_PREFIX,
             &ask(r#"{"op":"add_node","kind":"Note"}"#),
             Ulid(9_999),
@@ -1026,6 +1189,7 @@ mod tests {
         match build(
             &g,
             &layout(),
+            &Rules::open(),
             IDEA_LABEL_PREFIX,
             &ask(&format!(r#"{{"op":"remove","element":{premises:?}}}"#)),
             Ulid(9_999),
@@ -1046,6 +1210,7 @@ mod tests {
         assert!(build(
             &g,
             &layout(),
+            &Rules::open(),
             IDEA_LABEL_PREFIX,
             &ask(&removes(20)),
             Ulid(9_999),
@@ -1057,6 +1222,7 @@ mod tests {
         match build(
             &g,
             &layout(),
+            &Rules::open(),
             IDEA_LABEL_PREFIX,
             &ask(&hidden),
             Ulid(9_999),
@@ -1072,6 +1238,7 @@ mod tests {
         match build(
             &g,
             &layout(),
+            &Rules::open(),
             IDEA_LABEL_PREFIX,
             &ask(&removes(21)),
             Ulid(9_999),

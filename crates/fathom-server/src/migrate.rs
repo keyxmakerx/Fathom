@@ -341,6 +341,13 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0055_ai_design_changes.sql",
         sql: include_str!("../migrations/0055_ai_design_changes.sql"),
     },
+    // What an AI may do, by kind of work: the admin's ceiling, the organisation's levels,
+    // folder rules, the only kinds and fields, limits, and the connection's own levels.
+    Migration {
+        version: 56,
+        name: "0056_ai_work.sql",
+        sql: include_str!("../migrations/0056_ai_work.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

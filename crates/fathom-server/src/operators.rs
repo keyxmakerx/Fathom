@@ -7305,6 +7305,7 @@ impl OperatorStore {
         operator: &VerifiedSession,
         allowed: bool,
         reason: Option<String>,
+        work: Option<crate::ai_work::Levels>,
         if_version: i32,
     ) -> Result<(), OperatorError> {
         let acting = self.acting_operator(operator)?;
@@ -7319,6 +7320,7 @@ impl OperatorStore {
             &acting,
             allowed,
             reason,
+            work,
             if_version,
         )
         .await?;

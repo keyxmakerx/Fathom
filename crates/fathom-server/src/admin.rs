@@ -332,13 +332,27 @@ async fn ai_overview(State(state): State<AdminState>, signed: Signed) -> Result<
         .into_response())
 }
 
-/// `POST /admin/ai/switch`: `LP("yes"|"no") ‖ LP(reason, may be empty) ‖ LP(if_version)`.
+/// `POST /admin/ai/switch`: `LP("yes"|"no") ‖ LP(reason, may be empty) ‖ LP(if_version)`,
+/// and optionally `‖ LP(levels)`: the ceiling on what an AI may do by kind of work, as
+/// `design:propose,plans:propose,issues:propose,doing:off` (card r47-ai-controls). Left out,
+/// the ceiling stays as it is.
 async fn set_ai_switch(
     State(state): State<AdminState>,
     signed: Signed,
 ) -> Result<Response, Refusal> {
     let session = verify(&state, &signed).await?;
-    let fields = read_fields(&signed.body, 3)?;
+    let fields = read_fields(&signed.body, 4).or_else(|_| read_fields(&signed.body, 3))?;
+    let work = match fields.get(3) {
+        Some(f) => {
+            let raw = text(f, "levels")?;
+            let parts: Vec<String> = raw.split(',').map(str::to_string).collect();
+            Some(
+                crate::ai_work::Levels::from_strs(&parts)
+                    .ok_or(Refusal::from(SessionError::Malformed("levels")))?,
+            )
+        }
+        None => None,
+    };
     let allowed = match text(&fields[0], "allowed flag")?.as_str() {
         "yes" => true,
         "no" => false,
@@ -350,7 +364,7 @@ async fn set_ai_switch(
         .map_err(|_| Refusal::from(SessionError::Malformed("version")))?;
     state
         .operators
-        .set_ai_switch(&session, allowed, reason, if_version)
+        .set_ai_switch(&session, allowed, reason, work, if_version)
         .await
         .map_err(AdminRefusal)?;
     Ok(ok())

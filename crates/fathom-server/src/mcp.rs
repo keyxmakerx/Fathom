@@ -415,6 +415,7 @@ fn tool_error_text(e: &AiError) -> Option<String> {
             "AI access, or this app, is turned off for this person in this organisation".into()
         }
         AiError::Limited => "this connection is limited to 60 requests a minute".into(),
+        AiError::LimitReached(why) => why.clone(),
         AiError::NotAllowed(why) | AiError::Malformed(why) => (*why).into(),
         AiError::NotFound | AiError::Design(DesignError::NoSuchDesign) => {
             "not found, or not inside what this connection may read".into()
@@ -488,7 +489,7 @@ async fn call(
     };
     let answer = match (name, design) {
         ("whoami", _) => ai::whoami(&session),
-        ("list_designs", _) => ai::ai_designs(&tx, &auth, &session.key, within).await?,
+        ("list_designs", _) => ai::ai_designs(&tx, &auth, &session, within).await?,
         ("read_design", Some(d)) => {
             ai::ai_reading(&tx, &auth, Some(&state.live.heads), &session, d).await?
         }

@@ -52,6 +52,7 @@ pub mod ai;
 pub mod ai_api;
 pub mod ai_change;
 pub mod ai_reading;
+pub mod ai_work;
 pub mod api;
 pub mod audit;
 pub mod authority;

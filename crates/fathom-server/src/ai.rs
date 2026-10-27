@@ -36,6 +36,7 @@ use fathom_canon::Json;
 use sha2::{Digest, Sha256};
 
 use crate::ai_reading::{self, Tier};
+use crate::ai_work::{self, Levels, Rules};
 use crate::authority::{self, Capability, RowFacts};
 use crate::chain::EntryType;
 use crate::chains::{self, ChainStoreError};
@@ -132,6 +133,9 @@ pub enum AiError {
     OrganisationOff,
     /// A key used more than [`REQUESTS_PER_WINDOW`] times in [`WINDOW_SECS`].
     Limited,
+    /// One of the organisation's limits on AI ideas (per minute, per day) is used up; the
+    /// sentence says which and when it frees.
+    LimitReached(String),
     /// A rule refused the act; the sentence says which.
     NotAllowed(&'static str),
     Malformed(&'static str),
@@ -172,6 +176,7 @@ impl std::fmt::Display for AiError {
             Self::SiteOff => f.write_str("AI is off on this server"),
             Self::OrganisationOff => f.write_str("AI is off in this organisation"),
             Self::Limited => f.write_str("limited"),
+            Self::LimitReached(why) => f.write_str(why),
             Self::NotAllowed(why) | Self::Malformed(why) => f.write_str(why),
             Self::NotFound => f.write_str("not found"),
             Self::Conflict { version } => write!(f, "changed (now {version})"),
@@ -240,6 +245,12 @@ impl AiError {
                 StatusCode::TOO_MANY_REQUESTS,
                 [(axum::http::header::RETRY_AFTER, "60")],
                 "this key is limited to 60 requests a minute\n",
+            )
+                .into_response(),
+            Self::LimitReached(why) => (
+                StatusCode::TOO_MANY_REQUESTS,
+                [(axum::http::header::RETRY_AFTER, "60")],
+                format!("{why}\n"),
             )
                 .into_response(),
             Self::NotAllowed(why) => text(StatusCode::FORBIDDEN, format!("{why}\n")),
@@ -476,8 +487,20 @@ pub struct Policy {
     pub second_person_scopes: Vec<String>,
     /// Which of [`APPS`] may connect through the sign-in.
     pub apps: Vec<String>,
-    /// Whether a connection here may change designs at all (ADR-0077 decision 1).
+    /// Whether a connection here may propose changes at all (ADR-0077 decision 1): any kind
+    /// of work at `propose`, once `work` is set.
     pub may_change: bool,
+    /// The organisation's levels as stored (`ai_work`), empty for a row from before them.
+    pub work: Vec<String>,
+    /// Folders where an AI may send ideas but not propose changes.
+    pub ideas_only_scopes: Vec<String>,
+    /// Folders an AI does not see at all.
+    pub no_ai_scopes: Vec<String>,
+    /// The only kinds and fields an AI may touch; empty for all the reading allows.
+    pub only_kinds: Vec<String>,
+    pub per_minute: i32,
+    pub per_day: i32,
+    pub max_removals: i32,
     pub changed_by: Option<String>,
     pub changed_unix: Option<i64>,
     changed_seq: i64,
@@ -495,11 +518,33 @@ impl Policy {
             second_person_scopes: Vec::new(),
             apps: vec!["claude".to_string()],
             may_change: false,
+            work: Vec::new(),
+            ideas_only_scopes: Vec::new(),
+            no_ai_scopes: Vec::new(),
+            only_kinds: Vec::new(),
+            per_minute: ai_work::MAX_PER_MINUTE,
+            per_day: ai_work::MAX_PER_DAY,
+            max_removals: ai_work::MAX_REMOVALS,
             changed_by: None,
             changed_unix: None,
             changed_seq: 0,
             version: 0,
         }
+    }
+
+    /// The organisation's levels: as set, or from its one tick for a row from before them.
+    pub fn levels(&self) -> Levels {
+        Levels::from_strs(&self.work).unwrap_or_else(|| Levels::from_tick(self.may_change))
+    }
+
+    /// Whether `path` is in a folder where an AI sees nothing.
+    pub fn hides(&self, path: &str) -> bool {
+        !self.no_ai_scopes.is_empty() && covers(&self.no_ai_scopes, path)
+    }
+
+    /// Whether `path` is in a folder where an AI may send ideas only.
+    pub fn ideas_only(&self, path: &str) -> bool {
+        !self.ideas_only_scopes.is_empty() && covers(&self.ideas_only_scopes, path)
     }
 
     fn state(&self, organisation: &str) -> Vec<u8> {
@@ -517,6 +562,26 @@ impl Policy {
         // Only when on, so a row written before migration 0050 still verifies.
         if self.may_change {
             m.insert("may_change".into(), Json::Bool(true));
+        }
+        // Each only when set, so a row written before migration 0056 still verifies.
+        for (name, list) in [
+            ("work", &self.work),
+            ("ideas_only_scopes", &self.ideas_only_scopes),
+            ("no_ai_scopes", &self.no_ai_scopes),
+            ("only_kinds", &self.only_kinds),
+        ] {
+            if !list.is_empty() {
+                m.insert(name.into(), strs(list));
+            }
+        }
+        for (name, value, default) in [
+            ("per_minute", self.per_minute, ai_work::MAX_PER_MINUTE),
+            ("per_day", self.per_day, ai_work::MAX_PER_DAY),
+            ("max_removals", self.max_removals, ai_work::MAX_REMOVALS),
+        ] {
+            if value != default {
+                m.insert(name.into(), Json::Int(value as i64));
+            }
         }
         m.insert("changed_by".into(), opt_str(&self.changed_by));
         Json::Obj(m).to_canonical_bytes()
@@ -548,6 +613,13 @@ impl Policy {
         );
         m.insert("apps".into(), strs(&self.apps));
         m.insert("mayChange".into(), Json::Bool(self.may_change));
+        m.insert("work".into(), self.levels().to_json());
+        m.insert("ideasOnlyScopes".into(), strs(&self.ideas_only_scopes));
+        m.insert("noAiScopes".into(), strs(&self.no_ai_scopes));
+        m.insert("only".into(), strs(&self.only_kinds));
+        m.insert("perMinute".into(), Json::Int(self.per_minute as i64));
+        m.insert("perDay".into(), Json::Int(self.per_day as i64));
+        m.insert("maxRemovals".into(), Json::Int(self.max_removals as i64));
         m.insert("changedBy".into(), opt_str(&self.changed_by));
         m.insert("changedAt".into(), opt_int(self.changed_unix));
         m.insert("version".into(), Json::Int(self.version as i64));
@@ -565,7 +637,8 @@ pub(crate) async fn read_policy(
         .query_opt(
             &format!(
                 "SELECT allowed, makers, ceiling, max_days, second_person_scopes, apps, changed_by, \
-                        extract(epoch FROM changed_at)::bigint, changed_seq, row_version, row_seal, may_change \
+                        extract(epoch FROM changed_at)::bigint, changed_seq, row_version, row_seal, may_change, \
+                        work, ideas_only_scopes, no_ai_scopes, only_kinds, per_minute, per_day, max_removals \
                  FROM ai_policies WHERE organisation_id = $1{}",
                 if lock { " FOR UPDATE" } else { "" }
             ),
@@ -587,6 +660,13 @@ pub(crate) async fn read_policy(
         changed_seq: row.get(8),
         version: row.get(9),
         may_change: row.get(11),
+        work: row.get(12),
+        ideas_only_scopes: row.get(13),
+        no_ai_scopes: row.get(14),
+        only_kinds: row.get(15),
+        per_minute: row.get(16),
+        per_day: row.get(17),
+        max_removals: row.get(18),
     };
     let stored: Vec<u8> = row.get(10);
     if !crypto::ct_eq(&p.seal(ring, organisation), &stored) {
@@ -600,6 +680,8 @@ pub(crate) async fn read_policy(
 pub struct Switch {
     pub allowed: bool,
     pub reason: Option<String>,
+    /// The admin's ceiling for every organisation, as stored; empty for the default.
+    pub work: Vec<String>,
     pub changed_by: Option<String>,
     pub changed_unix: Option<i64>,
     changed_seq: i64,
@@ -611,6 +693,7 @@ impl Switch {
         Self {
             allowed: true,
             reason: None,
+            work: Vec::new(),
             changed_by: None,
             changed_unix: None,
             changed_seq: 0,
@@ -622,8 +705,17 @@ impl Switch {
         let mut m = BTreeMap::new();
         m.insert("allowed".into(), Json::Bool(self.allowed));
         m.insert("reason".into(), opt_str(&self.reason));
+        // Only when set, so a row written before migration 0056 still verifies.
+        if !self.work.is_empty() {
+            m.insert("work".into(), strs(&self.work));
+        }
         m.insert("changed_by".into(), opt_str(&self.changed_by));
         Json::Obj(m).to_canonical_bytes()
+    }
+
+    /// The most any organisation may allow: as the admin set it, or the server's default.
+    pub fn levels(&self) -> Levels {
+        Levels::from_strs(&self.work).unwrap_or(Levels::SITE_DEFAULT)
     }
 
     async fn seal(&self, tx: &Transaction<'_>, ring: &KeyRing) -> Result<[u8; 32], AiError> {
@@ -645,6 +737,7 @@ impl Switch {
         let mut m = BTreeMap::new();
         m.insert("allowed".into(), Json::Bool(self.allowed));
         m.insert("reason".into(), opt_str(&self.reason));
+        m.insert("work".into(), self.levels().to_json());
         m.insert("changedAt".into(), opt_int(self.changed_unix));
         m.insert("version".into(), Json::Int(self.version as i64));
         Json::Obj(m)
@@ -655,7 +748,7 @@ pub(crate) async fn read_switch(tx: &Transaction<'_>, ring: &KeyRing) -> Result<
     let row = tx
         .query_opt(
             "SELECT allowed, reason, changed_by, extract(epoch FROM changed_at)::bigint, \
-                    changed_seq, row_version, row_seal \
+                    changed_seq, row_version, row_seal, work \
              FROM ai_site_switch WHERE id = 'site'",
             &[],
         )
@@ -670,6 +763,7 @@ pub(crate) async fn read_switch(tx: &Transaction<'_>, ring: &KeyRing) -> Result<
         changed_unix: Some(row.get(3)),
         changed_seq: row.get(4),
         version: row.get(5),
+        work: row.get(7),
     };
     let stored: Vec<u8> = row.get(6);
     if !crypto::ct_eq(&s.seal(tx, ring).await?, &stored) {
@@ -709,8 +803,11 @@ pub struct AiKey {
     pub ai_account: Option<String>,
     /// The owner's Fathom sign-in email, for the people who look after the organisation.
     pub owner_email: String,
-    /// The connection's own "May change designs" tick (ADR-0077 decision 1).
+    /// The connection's own "May propose changes" tick (ADR-0077 decision 1): any kind of
+    /// work at `propose`, once `work` is set.
     pub may_change: bool,
+    /// The connection's own levels as stored (`ai_work`), empty for a key from before them.
+    pub work: Vec<String>,
 }
 
 const KEY_COLUMNS: &str = "k.organisation_id, k.id, k.owner, \
@@ -720,10 +817,10 @@ const KEY_COLUMNS: &str = "k.organisation_id, k.id, k.owner, \
      extract(epoch FROM k.expires_at)::bigint, k.state, k.changed_seq, \
      extract(epoch FROM k.disabled_at)::bigint, k.disabled_by, k.disabled_by_kind, \
      k.disabled_reason, k.row_version, k.row_seal, k.ai_account, \
-     coalesce((SELECT a.email FROM accounts a WHERE a.id = k.owner), ''), k.may_change";
+     coalesce((SELECT a.email FROM accounts a WHERE a.id = k.owner), ''), k.may_change, k.work";
 
 /// How many columns [`KEY_COLUMNS`] selects; a query's own columns follow.
-const KEY_COLUMN_COUNT: usize = 25;
+const KEY_COLUMN_COUNT: usize = 26;
 
 impl AiKey {
     fn from_row(row: &tokio_postgres::Row) -> (Self, Vec<u8>) {
@@ -753,6 +850,7 @@ impl AiKey {
                 ai_account: row.get(22),
                 owner_email: row.get(23),
                 may_change: row.get(24),
+                work: row.get(25),
             },
             row.get(21),
         )
@@ -792,7 +890,16 @@ impl AiKey {
         if self.may_change {
             m.insert("may_change".into(), Json::Bool(true));
         }
+        // Only when set, so a row written before migration 0056 still verifies.
+        if !self.work.is_empty() {
+            m.insert("work".into(), strs(&self.work));
+        }
         Json::Obj(m).to_canonical_bytes()
+    }
+
+    /// The connection's own levels: as set, or from its one tick for a key from before them.
+    pub fn levels(&self) -> Levels {
+        Levels::from_strs(&self.work).unwrap_or_else(|| Levels::from_tick(self.may_change))
     }
 
     fn seal(&self, ring: &KeyRing) -> [u8; 32] {
@@ -836,6 +943,7 @@ impl AiKey {
         m.insert("sees".into(), strs(&self.sees));
         m.insert("mayRecommend".into(), Json::Bool(self.may_recommend));
         m.insert("mayChange".into(), Json::Bool(self.may_change));
+        m.insert("work".into(), self.levels().to_json());
         m.insert("createdAt".into(), Json::Int(self.created_unix));
         m.insert("expiresAt".into(), Json::Int(self.expires_unix));
         let state = if self.state == "on" && self.expires_unix <= now {
@@ -892,7 +1000,7 @@ async fn write_key(tx: &Transaction<'_>, ring: &KeyRing, key: &AiKey) -> Result<
                  disabled_at = CASE WHEN $10::bigint IS NULL THEN NULL \
                                     ELSE to_timestamp($10::bigint) END, \
                  disabled_by = $11, disabled_by_kind = $12, disabled_reason = $13, \
-                 row_version = $14, row_seal = $15, may_change = $16 \
+                 row_version = $14, row_seal = $15, may_change = $16, work = $17 \
              WHERE organisation_id = $1 AND id = $2 AND row_version = $14 - 1",
             &[
                 &key.organisation,
@@ -911,6 +1019,7 @@ async fn write_key(tx: &Transaction<'_>, ring: &KeyRing, key: &AiKey) -> Result<
                 &key.version,
                 &seal.to_vec(),
                 &key.may_change,
+                &key.work,
             ],
         )
         .await?;
@@ -1072,6 +1181,7 @@ pub async fn overview(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<Json
 }
 
 /// What a Steward sets.
+#[derive(Default)]
 pub struct PolicyInput {
     pub allowed: bool,
     pub makers: Vec<String>,
@@ -1080,6 +1190,15 @@ pub struct PolicyInput {
     pub second_person_scopes: Vec<String>,
     pub apps: Vec<String>,
     pub may_change: bool,
+    /// Each of these left out keeps what is set (card r47-ai-controls). Given, `work` decides
+    /// `may_change`: any kind at propose.
+    pub work: Option<Levels>,
+    pub ideas_only_scopes: Option<Vec<String>>,
+    pub no_ai_scopes: Option<Vec<String>>,
+    pub only_kinds: Option<Vec<String>>,
+    pub per_minute: Option<i32>,
+    pub per_day: Option<i32>,
+    pub max_removals: Option<i32>,
 }
 
 /// One spelling of a policy's apps: known names only, each once, in [`APPS`] order.
@@ -1116,6 +1235,48 @@ pub async fn set_policy(
     )?;
     let ceiling = clean_sees(&input.ceiling)?;
     let apps = clean_apps(&input.apps)?;
+    let current = read_policy(tx, auth.ring, &organisation, true).await?;
+    let ideas_only = match &input.ideas_only_scopes {
+        Some(v) => clean_ids(v, MAX_SECOND_PERSON_SCOPES, "folders are scope ids")?,
+        None => current.ideas_only_scopes.clone(),
+    };
+    let no_ai = match &input.no_ai_scopes {
+        Some(v) => clean_ids(v, MAX_SECOND_PERSON_SCOPES, "folders are scope ids")?,
+        None => current.no_ai_scopes.clone(),
+    };
+    let only_kinds = match &input.only_kinds {
+        Some(v) => ai_work::Only::parse(v)
+            .map_err(AiError::Malformed)?
+            .to_vec(),
+        None => current.only_kinds.clone(),
+    };
+    let per_minute = input.per_minute.unwrap_or(current.per_minute);
+    let per_day = input.per_day.unwrap_or(current.per_day);
+    let max_removals = input.max_removals.unwrap_or(current.max_removals);
+    if !(1..=ai_work::MAX_PER_MINUTE).contains(&per_minute)
+        || !(1..=ai_work::MAX_PER_DAY).contains(&per_day)
+        || !(0..=ai_work::MAX_REMOVALS).contains(&max_removals)
+    {
+        return Err(AiError::Malformed(
+            "proposals a minute are 1 to 10, a day 1 to 300, and removals in one 0 to 20",
+        ));
+    }
+    let (work, may_change) = match input.work {
+        Some(levels) => {
+            if !levels.within(&read_switch(tx, auth.ring).await?.levels()) {
+                return Err(AiError::NotAllowed(
+                    "this server's administrator allows less than that; lower the kinds of work \
+                     marked as capped",
+                ));
+            }
+            (levels.to_strs(), levels.any_propose())
+        }
+        // Left out: the tick decides, and levels set earlier stand while it agrees with them.
+        None if current.levels().any_propose() == input.may_change => {
+            (current.work.clone(), input.may_change)
+        }
+        None => (Vec::new(), input.may_change),
+    };
     if !DAYS.contains(&input.max_days) {
         return Err(AiError::Malformed(
             "the longest a key lasts is 30, 90 or 365 days",
@@ -1134,13 +1295,14 @@ pub async fn set_policy(
             ));
         }
     }
-    if !all_scopes_here(tx, &organisation, &second).await? {
-        return Err(AiError::Malformed(
-            "every folder is a folder of this organisation",
-        ));
+    for folders in [&second, &ideas_only, &no_ai] {
+        if !all_scopes_here(tx, &organisation, folders).await? {
+            return Err(AiError::Malformed(
+                "every folder is a folder of this organisation",
+            ));
+        }
     }
 
-    let current = read_policy(tx, auth.ring, &organisation, true).await?;
     if current.version != if_version {
         return Err(AiError::Conflict {
             version: current.version as i64,
@@ -1161,7 +1323,14 @@ pub async fn set_policy(
                 ("max_days", Json::Int(input.max_days as i64)),
                 ("second_person_scopes", strs(&second)),
                 ("apps", strs(&apps)),
-                ("may_change", Json::Bool(input.may_change)),
+                ("may_change", Json::Bool(may_change)),
+                ("work", strs(&work)),
+                ("ideas_only_scopes", strs(&ideas_only)),
+                ("no_ai_scopes", strs(&no_ai)),
+                ("only_kinds", strs(&only_kinds)),
+                ("per_minute", Json::Int(per_minute as i64)),
+                ("per_day", Json::Int(per_day as i64)),
+                ("max_removals", Json::Int(max_removals as i64)),
                 ("by", Json::Str(me.clone())),
             ],
         ),
@@ -1174,7 +1343,14 @@ pub async fn set_policy(
         max_days: input.max_days,
         second_person_scopes: second,
         apps,
-        may_change: input.may_change,
+        may_change,
+        work,
+        ideas_only_scopes: ideas_only,
+        no_ai_scopes: no_ai,
+        only_kinds,
+        per_minute,
+        per_day,
+        max_removals,
         changed_by: Some(me.clone()),
         changed_unix: Some(now_unix()),
         changed_seq: appended.seq,
@@ -1185,8 +1361,10 @@ pub async fn set_policy(
         tx.execute(
             "INSERT INTO ai_policies (organisation_id, allowed, makers, ceiling, max_days, \
                  second_person_scopes, changed_by, changed_seq, row_version, row_seal, apps, \
-                 may_change) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+                 may_change, work, ideas_only_scopes, no_ai_scopes, only_kinds, per_minute, \
+                 per_day, max_removals) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, \
+                 $17, $18, $19)",
             &[
                 &organisation,
                 &next.allowed,
@@ -1200,6 +1378,13 @@ pub async fn set_policy(
                 &seal,
                 &next.apps,
                 &next.may_change,
+                &next.work,
+                &next.ideas_only_scopes,
+                &next.no_ai_scopes,
+                &next.only_kinds,
+                &next.per_minute,
+                &next.per_day,
+                &next.max_removals,
             ],
         )
         .await?
@@ -1208,7 +1393,8 @@ pub async fn set_policy(
             "UPDATE ai_policies SET allowed = $2, makers = $3, ceiling = $4, max_days = $5, \
                  second_person_scopes = $6, changed_by = $7, changed_at = now(), \
                  changed_seq = $8, row_version = $9, row_seal = $10, apps = $11, \
-                 may_change = $12 \
+                 may_change = $12, work = $13, ideas_only_scopes = $14, no_ai_scopes = $15, \
+                 only_kinds = $16, per_minute = $17, per_day = $18, max_removals = $19 \
              WHERE organisation_id = $1 AND row_version = $9 - 1",
             &[
                 &organisation,
@@ -1223,6 +1409,13 @@ pub async fn set_policy(
                 &seal,
                 &next.apps,
                 &next.may_change,
+                &next.work,
+                &next.ideas_only_scopes,
+                &next.no_ai_scopes,
+                &next.only_kinds,
+                &next.per_minute,
+                &next.per_day,
+                &next.max_removals,
             ],
         )
         .await?
@@ -1407,11 +1600,18 @@ async fn register(
             "this organisation does not let a key see that much",
         ));
     }
-    if input.may_change && !policy.may_change {
+    if input.may_change && !policy.levels().any_propose() {
         return Err(AiError::NotAllowed(
             "this organisation does not let AI apps propose changes",
         ));
     }
+    // Ticked, a new connection may do whatever the organisation and the server allow, and
+    // follows them as they change; unticked, it sends ideas only. Its owner narrows it after.
+    let work = if input.may_change {
+        Levels([ai_work::Level::Propose; 4])
+    } else {
+        Levels([ai_work::Level::Ideas; 4])
+    };
     if !DAYS.contains(&input.days) || input.days > policy.max_days {
         return Err(AiError::NotAllowed(
             "a key lasts 30, 90 or 365 days, and no longer than this organisation allows",
@@ -1476,6 +1676,7 @@ async fn register(
                 ("sees", strs(&sees)),
                 ("may_recommend", Json::Bool(input.may_recommend)),
                 ("may_change", Json::Bool(input.may_change)),
+                ("work", strs(&work.to_strs())),
                 ("expires", Json::Int(expires)),
             ],
         ),
@@ -1506,13 +1707,14 @@ async fn register(
         ai_account: Some(ai_account),
         owner_email: String::new(),
         may_change: input.may_change,
+        work: work.to_strs(),
     };
     tx.execute(
         "INSERT INTO ai_keys (organisation_id, id, owner, kind, public_key, client_id, label, \
              scopes, sees, may_recommend, created_at, created_seq, expires_at, state, \
-             changed_seq, row_version, row_seal, ai_account, may_change) \
+             changed_seq, row_version, row_seal, ai_account, may_change, work) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11::bigint), $12, \
-                 to_timestamp($13::bigint), 'on', $12, 1, $14, $15, $16)",
+                 to_timestamp($13::bigint), 'on', $12, 1, $14, $15, $16, $17)",
         &[
             &key.organisation,
             &key.id,
@@ -1530,6 +1732,7 @@ async fn register(
             &key.seal(auth.ring).to_vec(),
             &key.ai_account,
             &key.may_change,
+            &key.work,
         ],
     )
     .await?;
@@ -1551,6 +1754,8 @@ pub struct KeyChange {
     pub sees: Option<Vec<String>>,
     pub may_recommend: Option<bool>,
     pub may_change: Option<bool>,
+    /// What it may do by kind of work (card r47-ai-controls). Given, it decides `may_change`.
+    pub work: Option<Levels>,
     /// End the key this many days from now, if that is sooner than its end.
     pub ends_in_days: Option<i32>,
 }
@@ -1632,6 +1837,17 @@ pub async fn change_key(
             widens = true;
         }
         key.may_change = may;
+        // The tick alone: levels set earlier stand while they agree with it.
+        if key.levels().any_propose() != may {
+            key.work = Levels::from_tick(may).to_strs();
+        }
+    }
+    if let Some(levels) = change.work {
+        if !levels.within(&key.levels()) {
+            widens = true;
+        }
+        key.may_change = levels.any_propose();
+        key.work = levels.to_strs();
     }
     if let Some(days) = change.ends_in_days {
         if !(0..=365).contains(&days) {
@@ -1659,7 +1875,7 @@ pub async fn change_key(
                 "this organisation does not let a key see that much",
             ));
         }
-        if key.may_change && !policy.may_change {
+        if key.may_change && !policy.levels().any_propose() {
             return Err(AiError::NotAllowed(
                 "this organisation does not let AI apps propose changes",
             ));
@@ -1686,6 +1902,7 @@ pub async fn change_key(
                 ("sees", strs(&key.sees)),
                 ("may_recommend", Json::Bool(key.may_recommend)),
                 ("may_change", Json::Bool(key.may_change)),
+                ("work", strs(&key.work)),
                 ("expires", Json::Int(key.expires_unix)),
             ],
         ),
@@ -1831,6 +2048,7 @@ pub(crate) async fn operator_set_switch(
     operator: &str,
     allowed: bool,
     reason: Option<String>,
+    work: Option<Levels>,
     if_version: i32,
 ) -> Result<Switch, AiError> {
     let reason = match reason {
@@ -1854,6 +2072,10 @@ pub(crate) async fn operator_set_switch(
                 ("allowed", Json::Bool(allowed)),
                 ("operator", Json::Str(operator.to_string())),
                 ("reason", opt_str(&reason)),
+                (
+                    "work",
+                    strs(&work.map_or_else(|| current.work.clone(), |l| l.to_strs())),
+                ),
             ],
         ),
     )
@@ -1861,6 +2083,7 @@ pub(crate) async fn operator_set_switch(
     let next = Switch {
         allowed,
         reason,
+        work: work.map_or_else(|| current.work.clone(), |l| l.to_strs()),
         changed_by: Some(operator.to_string()),
         changed_unix: Some(now_unix()),
         changed_seq: appended.seq,
@@ -1870,7 +2093,7 @@ pub(crate) async fn operator_set_switch(
     let changed = if current.version == 0 {
         tx.execute(
             "INSERT INTO ai_site_switch (id, allowed, reason, changed_by, changed_seq, \
-                 row_version, row_seal) VALUES ('site', $1, $2, $3, $4, $5, $6)",
+                 row_version, row_seal, work) VALUES ('site', $1, $2, $3, $4, $5, $6, $7)",
             &[
                 &next.allowed,
                 &next.reason,
@@ -1878,13 +2101,15 @@ pub(crate) async fn operator_set_switch(
                 &next.changed_seq,
                 &next.version,
                 &seal,
+                &next.work,
             ],
         )
         .await?
     } else {
         tx.execute(
             "UPDATE ai_site_switch SET allowed = $1, reason = $2, changed_by = $3, \
-                 changed_at = now(), changed_seq = $4, row_version = $5, row_seal = $6 \
+                 changed_at = now(), changed_seq = $4, row_version = $5, row_seal = $6, \
+                 work = $7 \
              WHERE id = 'site' AND row_version = $5 - 1",
             &[
                 &next.allowed,
@@ -1893,6 +2118,7 @@ pub(crate) async fn operator_set_switch(
                 &next.changed_seq,
                 &next.version,
                 &seal,
+                &next.work,
             ],
         )
         .await?
@@ -2151,6 +2377,22 @@ pub struct AiSession {
     pub tenant_key: keys::DataKey,
     pub key: AiKey,
     pub policy: Policy,
+    /// What this connection may do now, kind by kind: the strictest of the admin's ceiling,
+    /// the organisation's levels and its own (`ai_work`).
+    pub levels: Levels,
+}
+
+impl AiSession {
+    /// What a proposal is checked against beyond the reading's tiers.
+    pub fn rules(&self) -> Rules {
+        Rules {
+            levels: self.levels,
+            // Checked when the Steward saved it; read as it stands, a list that no longer
+            // parses narrows rather than opens.
+            only: ai_work::Only(self.policy.only_kinds.iter().cloned().collect()),
+            max_removals: self.policy.max_removals.clamp(0, ai_work::MAX_REMOVALS) as usize,
+        }
+    }
 }
 
 /// Open the owner's tenant context for a verified request, re-reading everything that
@@ -2165,7 +2407,8 @@ pub async fn open(
         &[],
     )
     .await?;
-    if !read_switch(tx, ring).await?.allowed {
+    let site = read_switch(tx, ring).await?;
+    if !site.allowed {
         return Err(AiError::SiteOff);
     }
     let tenant: OrganisationId = verified
@@ -2206,11 +2449,13 @@ pub async fn open(
         &[&verified.organisation, &verified.key_id, &verified.address],
     )
     .await?;
+    let levels = site.levels().min(&policy.levels()).min(&key.levels());
     Ok(AiSession {
         ctx,
         tenant_key,
         key,
         policy,
+        levels,
     })
 }
 
@@ -2229,7 +2474,7 @@ pub fn tiers(key: &AiKey, policy: &Policy) -> BTreeSet<Tier> {
 /// Whether this connection may change designs now: its own tick and its organisation's
 /// (ADR-0077 decision 1).
 pub fn may_change(session: &AiSession) -> bool {
-    session.key.may_change && session.policy.may_change
+    session.levels.any_propose()
 }
 
 /// `GET /ai/v1/whoami`: what this key is, so the app can tell its person.
@@ -2256,6 +2501,7 @@ pub fn whoami(session: &AiSession) -> Json {
     // mayChange: it may propose changes, which wait for a person. An AI never writes to a
     // design itself (owner, 2026-10-27), so every connection is read-only.
     m.insert("mayChange".into(), Json::Bool(may_change(session)));
+    m.insert("work".into(), session.levels.to_json());
     m.insert("expiresAt".into(), Json::Int(session.key.expires_unix));
     m.insert("readOnly".into(), Json::Bool(true));
     Json::Obj(m)
@@ -2326,9 +2572,10 @@ async fn folder_chain(
 pub async fn ai_designs(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
-    key: &AiKey,
+    session: &AiSession,
     within: Option<ScopeId>,
 ) -> Result<Json, AiError> {
+    let key = &session.key;
     let verified = grants::verify_authority_state(tx, auth).await?;
     let within = within.map(|w| w.to_string());
     let rows = tx
@@ -2352,7 +2599,7 @@ pub async fn ai_designs(
         let id: String = row.get(0);
         let scope_text: String = row.get(1);
         let path: String = row.get(2);
-        if !covers(&key.scopes, &path) {
+        if !covers(&key.scopes, &path) || session.policy.hides(&path) {
             continue;
         }
         let scope = parse_scope(&scope_text)?;
@@ -2407,14 +2654,18 @@ pub async fn ai_designs(
 pub(crate) async fn readable_place(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
-    key: &AiKey,
+    session: &AiSession,
     design: DesignId,
 ) -> Result<(ScopeId, String), AiError> {
     let organisation = auth.ctx.tenant().to_string();
     let (scope, path) = design_place(tx, &organisation, design)
         .await?
         .ok_or(AiError::NotFound)?;
-    if !covers(&key.scopes, &path) || !holds(tx, auth, Some(scope), Capability::Read).await? {
+    // A folder a Steward keeps from AI reads as one the key does not reach.
+    if !covers(&session.key.scopes, &path)
+        || session.policy.hides(&path)
+        || !holds(tx, auth, Some(scope), Capability::Read).await?
+    {
         return Err(AiError::NotFound);
     }
     Ok((scope, path))
@@ -2428,7 +2679,7 @@ pub async fn ai_reading(
     session: &AiSession,
     design: DesignId,
 ) -> Result<Json, AiError> {
-    let (scope, path) = readable_place(tx, auth, &session.key, design).await?;
+    let (scope, path) = readable_place(tx, auth, session, design).await?;
     let stored = designs::read_version_in_tx(tx, auth, heads, design, Some(scope), None).await?;
     // Before the reading is built: what it holds is not `Send`, so no await may follow it.
     let verified = grants::verify_authority_state(tx, auth).await?;
@@ -2938,7 +3189,12 @@ pub async fn recommend(
             "this key may read but not recommend; its owner can change that",
         ));
     }
-    let (scope, _) = readable_place(tx, auth, &session.key, design).await?;
+    let (scope, path) = readable_place(tx, auth, session, design).await?;
+    if !session.levels.any_ideas() {
+        return Err(AiError::NotAllowed(
+            "AI ideas are off for this connection; its owner or a Steward can change that",
+        ));
+    }
     let CleanIdea {
         title,
         why,
@@ -2949,22 +3205,41 @@ pub async fn recommend(
     let change = match (change, operations) {
         (Some(asked), Some(operations)) => {
             // An AI never changes a design itself (owner, 2026-10-27): a change it sends waits
-            // in the idea for a person's Accept, and only a connection both ticks allow may
-            // send one.
-            if !session.policy.may_change {
+            // in the idea for a person's Accept. Each kind of work it touches must be at
+            // `propose` for the admin, the organisation and the connection (`ai_work`).
+            if !session.policy.levels().any_propose() {
                 return Err(AiError::NotAllowed(
                     "this organisation does not let AI apps propose changes; send steps only",
                 ));
             }
-            if !session.key.may_change {
+            if !session.key.levels().any_propose() {
                 return Err(AiError::NotAllowed(
                     "this connection may not propose changes; send steps only, or ask its owner",
                 ));
             }
-            crate::ai_change::within_rate(tx, auth, &session.key.id).await?;
+            if !session.levels.any_propose() {
+                return Err(AiError::NotAllowed(
+                    "this server does not let AI apps propose changes; send steps only",
+                ));
+            }
+            if session.policy.ideas_only(&path) {
+                return Err(AiError::NotAllowed(
+                    "in this folder an AI may send steps but not propose changes",
+                ));
+            }
+            crate::ai_change::within_rate(tx, auth, &session.key.id, &session.policy).await?;
             let tiers = tiers(&session.key, &session.policy);
-            crate::ai_change::check_idea_change(tx, auth, heads, design, scope, &tiers, &asked)
-                .await?;
+            crate::ai_change::check_idea_change(
+                tx,
+                auth,
+                heads,
+                design,
+                scope,
+                &tiers,
+                &session.rules(),
+                &asked,
+            )
+            .await?;
             Some(IdeaChange {
                 version: asked.version,
                 operations: operations.to_canonical_bytes(),
@@ -3057,7 +3332,7 @@ pub async fn ai_own_ideas(
     session: &AiSession,
     design: DesignId,
 ) -> Result<Vec<Idea>, AiError> {
-    readable_place(tx, auth, &session.key, design).await?;
+    readable_place(tx, auth, session, design).await?;
     let rows = tx
         .query(
             &format!(
@@ -3389,6 +3664,7 @@ mod tests {
             ai_account: None,
             owner_email: String::new(),
             may_change: false,
+            work: Vec::new(),
         };
         let t = tiers(&key, &policy);
         assert!(t.contains(&Tier::Addresses));
