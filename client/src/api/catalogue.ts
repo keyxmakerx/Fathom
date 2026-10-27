@@ -14,7 +14,7 @@
 // port — the silkscreen number or the name is the label. `name` and `role`
 // are typed optional here even though the server always sends them: the
 // document and drawing builders that will consume them are next round's work
-// (this task's brief), and this file must not force every existing fixture
+// (the original brief), and this file must not force every existing fixture
 // in `client/src/document`/`client/src/components` that already builds a
 // `CataloguePort` literal without them to be edited outside this task's
 // files. `parsePort` below still reads both off every real response.

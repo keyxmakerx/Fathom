@@ -1495,7 +1495,7 @@
   outline-offset: 1px;
 }
 
-/* This session's brief item 3 — "while a cable is selected its two ports
+/* "while a cable is selected its two ports
    carry a hairline ring on the plate." A true hairline (`--rule-hair`, 1px)
    at a wider offset than `.drawing-port--lit`'s own 2px ink outline above,
    so the two marks stay legible apart on the rare port that could carry
@@ -1505,7 +1505,7 @@
   outline-offset: 2px;
 }
 
-/* UI-SPEC "Motion" #2, this session's brief item 4 — "Wrong drop: target
+/* UI-SPEC "Motion" #2 — "Wrong drop: target
    shakes once sideways." The same `drawing-shake` keyframe the rack frame's
    own wrong-drop shake already plays (above), reused for a port a refused
    cable drop landed on — one event, one play, never a loop. */

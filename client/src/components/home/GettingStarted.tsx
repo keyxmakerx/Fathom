@@ -29,7 +29,7 @@ export function SampleCard({ summary, busy, disabled, error, onOpen, practice }:
             <p className="home-sample__body">
               <strong>Practice home lab.</strong> {practice.summary}
             </p>
-            <button type="button" className="home__btn home__btn--small" onClick={practice.onOpen} disabled={busy || disabled}>
+            <button type="button" className="home__btn btn-small" onClick={practice.onOpen} disabled={busy || disabled}>
               Open practice lab
             </button>
           </div>

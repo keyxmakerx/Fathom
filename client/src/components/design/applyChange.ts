@@ -80,7 +80,7 @@ export function applyEditorChange(
   } else if (change.kind === 'optic-move') {
     next = moveOptic(doc, change.fromPortId, change.toPortId, opts);
   } else if (change.kind === 'cable') {
-    // UI-SPEC "Cables", this session's brief — the cable panel's own
+    // UI-SPEC "Cables", the cable panel's own
     // fields. `value` is always the raw text a field holds
     // (`contract.ts`'s own doc on this `EditorChange` kind); `length_m`
     // is parsed here, the same "the caller parses before the write-

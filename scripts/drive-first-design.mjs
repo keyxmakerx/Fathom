@@ -15,7 +15,7 @@
 // `crypto.subtle.generateKey(..., false, ...)` — a NON-EXTRACTABLE key this
 // script cannot hand a chosen private scalar to. Reaching that route for two
 // accounts needs a real operator session (`admin.rs`'s two-role plane), and
-// this task's brief points at the OTHER path `tests/design_api.rs`'s own
+// the original brief points at the OTHER path `tests/design_api.rs`'s own
 // fixtures use instead: seed accounts, keys and organisation-wide capability
 // straight into the database (`crates/fathom-server/tests/
 // seed_first_design.rs`, written and deleted by this script, mirrors
@@ -23,7 +23,7 @@
 //
 // **Since ADR-0056, sign-in is a password (and, only for an account with a
 // confirmed authenticator, a verification code too) — the smaller of the two
-// changes this task's brief offers.** Rather than reach for the browser's
+// changes the original brief offers.** Rather than reach for the browser's
 // non-extractable key machinery at all, the seed now also sets a real
 // password on each account directly against the `accounts` table, the same
 // shape `crates/fathom-server/tests/credentials.rs`'s own
@@ -57,6 +57,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrateUrl, runtimeUrl, superuserUrl } from './drive-lib/db.mjs';
 import { applyDriveCpuThrottle } from './drive-lib/cpuThrottle.mjs';
+import { check, fails } from './drive-lib/kit.mjs';
 
 const pw = await import(
   process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js'
@@ -99,12 +100,6 @@ const RUNTIME_URL = runtimeUrl(DB_NAME);
 // either of these for a verification code (`sessions.rs` branch 2's "A0").
 const STEWARD_PASSWORD = 'session-seven-steward-passphrase-kept-for-this-proof-only';
 const DRAWER_PASSWORD = 'session-seven-drawer-passphrase-kept-for-this-proof-only';
-
-const fails = [];
-function check(name, ok, detail) {
-  console.log((ok ? 'PASS  ' : 'FAIL  ') + name + (detail ? '  [' + detail + ']' : ''));
-  if (!ok) fails.push(name);
-}
 
 function sh(cmd, args, opts = {}) {
   return execFileSync(cmd, args, { encoding: 'utf8', ...opts });

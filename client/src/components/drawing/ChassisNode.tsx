@@ -42,7 +42,7 @@ export interface ChassisNodeData extends Record<string, unknown> {
   chassis: ChassisView;
   /** This elevation's own faceplate ports (`elevation.ts`'s `faceplateItem`
    * — ADR-0050 §1) — never `chassis.ports` directly, which now carries both
-   * faceplates' ports at once (this session's contract). */
+   * faceplates' ports at once (`contract.ts`). */
   ports: PortView[];
   /** This elevation's own inlets, same filtering as `ports` — drawn in the
    * inlet strip only when `elevation === 'rear'` (`elevation` below); the
@@ -57,7 +57,7 @@ export interface ChassisNodeData extends Record<string, unknown> {
   elevation: Facing;
   onSelectPort: (portId: string) => void;
   /** UI-SPEC "Cables": "the port a cable fills takes the sheath colour."
-   * `PortView.cable` (this session's contract) names *which* cable fills a
+   * `PortView.cable` (`contract.ts`) names *which* cable fills a
    * port, not its sheath — the sheath lives on the `CableView` the cable's
    * own edge draws from — so `Drawing.tsx` builds this lookup once from
    * `view.cables` and hands it down rather than this component reaching

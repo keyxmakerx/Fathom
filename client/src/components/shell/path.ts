@@ -1,4 +1,4 @@
-/** One step of the breadcrumb under the tabs (BRIEF.md "The bar", point 3):
+/** One step of the breadcrumb under the tabs (UI-SPEC "The bar", point 3):
  * `Northwind › HQ › Building A › IDF-2`. `onSelect`, if given, fires when
  * this specific part is clicked; only the part marked `opensTree` opens the
  * tree popover (the owner, 2026-10-10: every crumb opening the same menu read
@@ -18,7 +18,7 @@ export interface PathItem extends PathPart {
   current: boolean;
 }
 
-/** Pure: mark the last part of the path current, the rest not — BRIEF.md
+/** Pure: mark the last part of the path current, the rest not — the shell brief
  * "separators muted, the last part ink 700, the rest muted". An empty path
  * (Home; nothing is in scope yet) returns an empty list. */
 export function pathToItems(path: readonly PathPart[]): PathItem[] {

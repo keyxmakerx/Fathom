@@ -119,24 +119,6 @@
 
 .console__btn {
   align-self: flex-start;
-  border: var(--rule-hair) solid var(--ink);
-  background: var(--ink);
-  color: var(--page);
-  padding: var(--s2) var(--s3);
-  font-size: var(--t-body);
-  cursor: pointer;
-  box-shadow: none;
-}
-
-.console__btn--quiet {
-  background: transparent;
-  color: var(--ink);
-  box-shadow: none;
-}
-
-.console__btn:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 .console__minted {
@@ -243,10 +225,6 @@
 }
 
 /* Admin › AI (ADR-0072 decision 9). */
-.console__btn--danger {
-  color: var(--danger);
-  border-color: var(--danger);
-}
 
 .console-ai {
   display: flex;

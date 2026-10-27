@@ -138,7 +138,7 @@ export class Mirror {
 
   /** `OP_INSIDE`, decoded by `engine.ts`'s own `inside` (the inside stop's
    * builder) — forwarded here so a caller that already holds a `Mirror`
-   * rather than a raw `Engine` has one object for every door this session's
+   * rather than a raw `Engine` has one object for every door the
    * drawer and inside stop both open. */
   inside(deviceId: string): InsideFaces {
     return this.engine.inside(deviceId);

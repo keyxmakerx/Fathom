@@ -746,13 +746,13 @@ function requireFixedToTarget(doc: Document, targetId: string): GraphNode {
 export interface CreateShelfOptions extends Actor {
   positionU: number;
   /** `PassiveNode.label` (schema card "1" — required, `schema/schema.yaml`'s
-   * own doc on `PassiveNode`). This session's brief item 1: a shelf is named
+   * own doc on `PassiveNode`). A shelf is named
    * at creation, the same moment `createSurface`'s own `label` already asks
    * for one, rather than left absent the way an unmodelled `Device.hostname`
    * still is (`placeChassis`'s own reason does not apply here — nothing
    * else ever supplies a shelf's name, since it has no catalogue model to
    * read one off, and the editor has nothing to show but the node id until
-   * this is set — brief item 1's own "today it is set to something [absent]
+   * this is set — "today it is set to something [absent]
    * ... and the editor prints the node id"). */
   label: string;
   /** Only `rackUnits` is read — a shelf has no ports/PSU slots of its own
@@ -766,7 +766,7 @@ export interface CreateShelfOptions extends Actor {
  * `positionU`; `heightU` from `opts.model.rackUnits` when given, else `1`
  * (the same "absent renders as 1U, marked unstated" rule `placeChassis`'s
  * own `MountedIn.height_u` follows). `PassiveNode.label` is written from
- * `opts.label` (this session's brief item 1 — see `CreateShelfOptions.label`'s
+ * `opts.label` (See `CreateShelfOptions.label`'s
  * own doc on why a shelf, unlike a device, is named at creation). Refuses an
  * out-of-range or overlapping run exactly as `placeChassis` does
  * (`checkPlacement`, shared).
@@ -1426,7 +1426,7 @@ export function removeSketchPort(doc: Document, chassisId: string, portId: strin
 }
 
 // ---------------------------------------------------------------------------
-// ADR-0051 §1/§2, this session's brief item 2 — "a box with no catalogue
+// ADR-0051 §1/§2 — "a box with no catalogue
 // entry" and "a board", the palette's own two new rows beside the
 // catalogue's models (`racks/palette.ts`). Both return a `Document` only,
 // like every other command in this file (this module's own header): the
@@ -1463,15 +1463,14 @@ export function equipFromCatalogue(doc: Document, chassisId: string, model: Cata
 }
 
 /**
- * ADR-0051 §1, this session's brief item 2 — a `Device` with a `Chassis`
+ * ADR-0051 §1, A `Device` with a `Chassis`
  * (`HasChassis`), no `Chassis.model` at all: the first command in this file
  * that can produce one (`placeChassis` always sets a model). Unplaced —
  * unlike `placeChassis`'s atomic create-and-place, there is no catalogue
  * height to check a placement against yet, so the caller places it
  * afterwards with the existing `movePlacement` (a rack unit, a shelf slot or
- * a surface — brief item 2's own "placed where dropped"). No ports either:
- * `addSketchPort`, from the editor, is "afterwards" too (brief item 2's own
- * words) — this command writes only the two bare nodes and the edge between
+ * a surface — "placed where dropped"). No ports either:
+ * `addSketchPort`, from the editor, is "afterwards" too — this command writes only the two bare nodes and the edge between
  * them.
  */
 export function createSketchDevice(doc: Document, opts: CreateSketchDeviceOptions = {}): Document {
@@ -1725,15 +1724,14 @@ export function duplicateDevice(doc: Document, sourceChassisId: string, opts: Du
 
 export interface CreateBoardOptions extends Actor {
   /** `PassiveNode.label` (schema card "1" — required), the same "named at
-   * creation" rule `CreateShelfOptions.label`'s own doc gives (this
-   * session's brief item 1). */
+   * creation" rule `CreateShelfOptions.label`'s own doc gives. */
   label: string;
   xMm?: number;
   yMm?: number;
 }
 
 /**
- * ADR-0051 §1, this session's brief item 2 — "a board": a `PassiveNode` of
+ * ADR-0051 §1 — "a board": a `PassiveNode` of
  * form `board`, `FixedTo` `surfaceId` in the same one step (unlike
  * `createSketchDevice` above, a board's placement — the surface it is fixed
  * to — is exactly what makes it a board rather than a bare passive, so

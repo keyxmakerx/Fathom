@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { ClosetView, EditorActions } from './contract';
 import { EditorFor } from './Editor';
 
-// ADR-0052 §5, this session's brief item 1: "the editor renders every value
+// ADR-0052 §5 — "the editor renders every value
 // as text with no inputs and no actions when onEdit is absent." Render-to-
 // string smoke tests, the same shape `Editor.render.test.ts` already uses
 // (no DOM testing library is installed — its own file header) — this checks

@@ -24,7 +24,7 @@ import type {
   CataloguePsuSlot,
   CatalogueSlotPosition,
 } from '../api/catalogue';
-// This session's brief — the cable panel's own "length in metres and
+// the cable panel's own "length in metres and
 // ownership as editable values": `OWNERSHIP_VALUES` names the enum
 // `cableView` below checks a stray `Cable.ownership` value against
 // (`ownership` reads `null` for anything not in this list, the same guard
@@ -96,7 +96,7 @@ export interface CableEndView {
  * ADR-0051 §1: `face` now reads `PhysicalPort.face` FIRST when the document
  * itself asserts one (`commands.ts`'s `placeChassis` and `addSketchPort`
  * both write it), falls back to the catalogue faceplate's own face when a
- * match is found (the rule this session's predecessor used exclusively),
+ * match is found (the rule used alone before),
  * and defaults to `'front'` when neither is available — never the chassis's
  * own mounting face, which is a fact about the RACK, not the port. */
 export interface PortView {
@@ -129,7 +129,7 @@ export interface PortView {
   /** `PhysicalPort.service` (`schema/schema.yaml`; `document/compat.ts`'s
    * `PORT_SERVICE_VALUES`) — what the cage is for: `ethernet`, `pon`, `rf`,
    * `serial`, `console`, `management`, `power`, `other`. `null` when unset.
-   * This session's brief — the selected port's own panel: "connector,
+   * the selected port's own panel: "connector,
    * service, face." Typed optional, the same reason `CableView.lengthM`/
    * `.ownership` are (this file's own doc on that pattern, just above): a
    * `PortView` literal written before this session (several test fixtures'
@@ -168,7 +168,7 @@ export interface InletView extends PortView {
   /** `PowerSupply.serial`/`.model` — present only when `supplyId` is (a
    * fixed slot's inlet has no `PowerSupply` node to read them off). Not in
    * the brief's own `InletView` sketch, added because the editor
-   * (`Editor.tsx`, this session's brief item 5: "serial editable") has
+   * (`Editor.tsx`, "serial editable") has
    * nothing else to read a supply's serial from. */
   serial: string | null;
   model: string | null;
@@ -189,7 +189,7 @@ export interface ChassisView {
    * `null` when the schema field is absent (UI-SPEC "Absent is drawn as
    * absent"; never an empty string standing in for unset). Read straight off
    * `node.fields` rather than through `readDeviceFields`/`readChassisFields`
-   * (`document/model.ts`), which this session's brief does not extend. */
+   * (`document/model.ts`), which does not extend. */
   role: string | null;
   managementAddress: string | null;
   serial: string | null;
@@ -446,8 +446,7 @@ function catalogueMatch(catalogue: readonly CatalogueModel[], model: string): Ca
 /** A field's string value straight off a node's `fields` map, or `null` when
  * it is absent or the node itself was not found — `document/model.ts`'s own
  * `fieldValue`/`asString` are private to that file, so this is a local,
- * read-only equivalent rather than a change to a module outside this
- * session's brief. */
+ * read-only equivalent rather than a change to that module. */
 function fieldString(node: GraphNode | undefined, key: string): string | null {
   const entry = node?.fields[key];
   if (!entry || entry.presence !== 'set') return null;
@@ -648,7 +647,7 @@ function fittedSupplies(doc: Document, chassisId: string): GraphEdge[] {
  * a `PhysicalPort` directly on the chassis (`commands.ts`'s `placeChassis`),
  * matched by `label`. Always `fitted: true` (ADR-0050 §4: nothing to fit or
  * remove); a synthetic id only if the port itself is somehow missing (a
- * document this session's own writer never produces, but `view.ts` never
+ * document Fathom's own writer never produces, but `view.ts` never
  * assumes it is the only writer). */
 function fixedInletView(
   doc: Document,
@@ -1226,7 +1225,7 @@ function cableEnd(doc: Document, edge: GraphEdge): CableEnd | undefined {
 
 /** One `Cable` node, reduced for the drawing — `kind` from `media`,
  * `sheath` only when it is one of `SHEATH_VALUES` (`cables.ts`; a document
- * holding anything else is a shape this session's writer never produces),
+ * holding anything else is a shape Fathom's writer never produces),
  * `ends` from whatever live `Terminates` edges this cable actually has
  * (0, 1 — a one-ended or planned cable, 19 §3.4 — or 2). */
 function cableView(doc: Document, node: GraphNode): CableView {

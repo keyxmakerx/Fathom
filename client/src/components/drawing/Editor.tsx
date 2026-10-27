@@ -10,20 +10,19 @@ import { PORT_CONNECTOR_VALUES, PORT_FACE_VALUES, PORT_SERVICE_VALUES, faceWords
 import { expandPortPattern, previewLabels } from '../../document/portPattern';
 // `OWNERSHIP_VALUES` (`Cable.ownership`'s own enum) — the same "mirrored
 // once, never guessed" reasoning `DEVICE_ROLES` above already gives, for
-// this session's own cable panel.
+// the cable panel.
 import { OWNERSHIP_VALUES } from '../../document/cables';
 import { SHEATH_VAR, needsHairlineOutline, sheathsFor } from './sheath';
 // `FixtureView`/`Placement` are not in `contract.ts`'s own re-export list
 // (frozen this session — that file's header: "the view re-exports stay"),
 // but they are `document/view.ts`'s own read-side shapes, the same ones
 // `ChassisView.placement` and `SurfaceView.fixtures` already carry
-// structurally; named here so the "PLACED ON" control (ADR-0051 §1, this
-// session's brief item 1) can walk a board's nested fixtures and build the
+// structurally; named here so the "PLACED ON" control (ADR-0051 §1)
+// can walk a board's nested fixtures and build the
 // right `Placement` literal. Type-only, the same as `DEVICE_ROLES` above —
 // this file still never reads or writes a `Document`.
 import type { FixtureView, Placement, RackView } from '../../document/view';
 import { FIELD_TYPES, FIELD_TYPE_LABEL, type FieldType } from '../../document/fields';
-import type { SwapPlan } from '../../document/swapModel';
 import { TagChips } from '../TagChips';
 import { DocsSection } from '../docs/DocsSection';
 import { DevicePhoto } from '../docs/DevicePhoto';
@@ -33,7 +32,6 @@ import { TermixActions } from '../termix/TermixActions';
 import {
   ABSENT,
   UNNAMED_HOSTNAME,
-  type CableEnd,
   type CableView,
   type ChassisView,
   type ClosetView,
@@ -51,6 +49,8 @@ import { EmptyState } from '../ui/EmptyState';
 import { Fold } from './Fold';
 import { CardsSection, OpticSection } from './Parts';
 import { LoginsTab, LoginsTabLabel } from '../vault/Screens';
+import { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, rackHeightBlocker, swapModelChange, swapSummary } from './editorChanges';
+export { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, rackHeightBlocker, swapModelChange, swapSummary };
 
 // `DEVICE_ROLES` is `Device.role`'s own enum vocabulary (`schema/schema.yaml`,
 // mirrored once in `document/edit.ts` rather than guessed here — CLAUDE.md
@@ -404,7 +404,7 @@ function SelectLink({ label, onSelect }: { label: string; onSelect?: () => void 
 }
 
 // ===========================================================================
-// This session's brief item 2 — a selected port's own panel: the device and
+// A selected port's own panel: the device and
 // port label (each of the three placement branches below already carries
 // this), connector, service, face, its cable if any (this section) with the
 // far end in words and the cable's sheath swatch, and two actions — Select
@@ -563,153 +563,8 @@ const MANAGEMENT_ADDRESS_NOTE =
 // rendering or simulating a click — this project's tests have no DOM
 // environment to drive one (`Editor.render.test.ts`'s own header).
 
-export function moveToRackChange(itemId: string, rackId: string, positionU: number, face: 'front' | 'rear' = 'front'): EditorChange {
-  return { kind: 'move-placement', itemId, placement: { kind: 'rack', rackId, positionU, face } };
-}
-
-export function moveToShelfChange(itemId: string, shelfId: string, slot: number): EditorChange {
-  return { kind: 'move-placement', itemId, placement: { kind: 'shelf', shelfId, slot } };
-}
-
-/** `target.kind` tells a board (`FixedTo` another `PassiveNode`) from a
- * surface (`FixedTo` a `Surface`) — `view.ts`'s own `placementOf` reads the
- * same distinction back off which kind of node `FixedTo.to` names. */
-export function moveToSurfaceChange(
-  itemId: string,
-  target: { id: string; kind: 'surface' | 'board' },
-  xMm: number | null,
-  yMm: number | null,
-): EditorChange {
-  return {
-    kind: 'move-placement',
-    itemId,
-    placement:
-      target.kind === 'board' ? { kind: 'board', boardId: target.id, xMm, yMm } : { kind: 'surface', surfaceId: target.id, xMm, yMm },
-  };
-}
-
-export function addSketchPortChange(
-  chassisId: string,
-  label: string,
-  connector: string,
-  service: string | null,
-  face: PortFace,
-): EditorChange {
-  return { kind: 'add-sketch-port', chassisId, label, connector, service, face };
-}
-
-export function removeSketchPortChange(chassisId: string, portId: string): EditorChange {
-  return { kind: 'remove-sketch-port', chassisId, portId };
-}
-
-export function addSketchPortRangeChange(
-  chassisId: string,
-  labelPrefix: string,
-  first: number,
-  last: number,
-  connector: string,
-  service: string | null,
-  face: PortFace,
-): EditorChange {
-  return { kind: 'add-sketch-port-range', chassisId, labelPrefix, first, last, connector, service, face };
-}
-
-export function duplicateDeviceChange(chassisId: string): EditorChange {
-  return { kind: 'duplicate-device', chassisId };
-}
-
-export function createShelfChange(
-  rackId: string,
-  positionU: number,
-  label: string,
-  model: { vendor: string; model: string } | null,
-): EditorChange {
-  return { kind: 'create-shelf', rackId, positionU, label, model };
-}
-
-export function createSurfaceChange(premisesId: string, label: string, form: string): EditorChange {
-  return { kind: 'create-surface', premisesId, label, form };
-}
-
-// ===========================================================================
-// UI-SPEC "Cables" — the selected cable's own panel (this session's brief).
-// `cableEndText` is pulled out pure, same reasoning as `moveToRackChange`
-// and its siblings above: no DOM to render or click to simulate in this
-// project's tests, so the wording a caller would see is asserted directly.
-// `setCableFieldChange`/`disconnectCableChange` are the panel's own change-
-// shape builders, the same pattern.
-
-/** One end of the SELECTED cable, in words — UI-SPEC "Cables"' own panel
- * brief: "the two ends in words (device and port each side, or the outside
- * label)". `end` is one of `CableView.ends` (`document/view.ts`'s own
- * reduction of a `Terminates` edge, `contract.ts`'s re-export); `outside`
- * names the far side directly (`ExternalPeer.label`), everything else is
- * resolved through `locatePort` — the one entry point that finds a port
- * wherever this view draws one (a rack chassis, a shelf occupant or a
- * surface fixture, the same three the port panels below already read).
- * `ABSENT` when this view cannot resolve the port at all — never invented. */
-export function cableEndText(view: ClosetView, end: CableEnd): string {
-  if ('outside' in end) return end.label || ABSENT;
-  const located = locatePort(view, end.portId);
-  if (located == null) return ABSENT;
-  const portLabel = located.port.label || ABSENT;
-  if (located.place === 'chassis') return `${located.chassis.hostname || UNNAMED_HOSTNAME} · ${portLabel}`;
-  if (located.place === 'shelf') return `${located.occupant.label || ABSENT} · ${portLabel}`;
-  return `${located.fixture.label || ABSENT} · ${portLabel}`;
-}
-
-/** This session's brief items 2/3 — a selected port's own far end: the
- * OTHER end of the cable filling it (`CableView.ends` holds 0, 1 or 2 —
- * `document/view.ts`'s own doc on `Terminates`'s "0..2" cardinality), found
- * by excluding the end that IS `thisPortId`. `undefined` when this view
- * carries no such cable (never invented) or the cable has no other end yet
- * — the call site falls back to `ABSENT`, the same "search, never guess"
- * rule `lookup.ts` already keeps throughout this module. */
-export function farEndOf(view: ClosetView, cableId: string, thisPortId: string): CableEnd | undefined {
-  const cable = view.cables.find((c) => c.id === cableId);
-  if (cable == null) return undefined;
-  return cable.ends.find((e) => !('portId' in e) || e.portId !== thisPortId);
-}
-
-/** `document/cables.ts`'s `setCableField`, through `EditorActions.onEdit` —
- * `value` is always the raw text a field holds (`contract.ts`'s own doc on
- * `EditorChange`'s `'cable'` kind: `length_m` is parsed to a number by the
- * caller, `useDesignSession.ts`'s `handleEdit`, before `setCableField` gets
- * a chance to refuse it). */
-export function setCableFieldChange(
-  id: string,
-  field: 'label' | 'sheath' | 'length_m' | 'ownership',
-  value: string | null,
-): EditorChange {
-  return { kind: 'cable', id, field, value };
-}
-
-/** The panel's own "Disconnect" action — `document/cables.ts`'s
- * `disconnect`, an action rather than a field edit, the same shape
- * `'supply-remove'` already is. */
-export function disconnectCableChange(id: string): EditorChange {
-  return { kind: 'cable-disconnect', id };
-}
-
-/** Missing links: a cable from this free port with its far end open. */
-export function oneEndCableChange(portId: string): EditorChange {
-  return { kind: 'cable-one-end', portId };
-}
-
-/** Missing links: the cable panel's "Needs finishing" toggle. */
-export function needsFinishingChange(id: string, on: boolean): EditorChange {
-  return { kind: 'cable-needs-finishing', id, on };
-}
-
-/** UI-SPEC's cable-delete rule — the device panel's "Remove device"
- * action: `document/commands.ts`'s `removeChassis`, the same shape
- * `disconnectCableChange` above already is. */
-export function removeDeviceChange(chassisId: string): EditorChange {
-  return { kind: 'device-remove', chassisId };
-}
-
 /** The sheath colour selector — UI-SPEC "Cables": "Colour is the real
- * sheath," and this session's brief: "a colour selector using the same
+ * sheath," and "a colour selector using the same
  * lists as the connect-time picker for that kind (power fixed to grey)
  * showing the current one marked and each swatch as the token's colour
  * with its name." `sheathsFor`/`SHEATH_VAR` (`./sheath.ts`) are the exact
@@ -823,19 +678,6 @@ interface PlacedOnControlProps {
 
 /** The first sizes offered for a rack (ADR-0060 decision 5); any other height is typed. */
 const RACK_SIZES: readonly number[] = [42, 24, 12];
-
-/** Pure: why `rack` can't be `heightU` tall, naming the highest thing in the way, or null. */
-export function rackHeightBlocker(rack: Pick<RackView, 'chassis' | 'shelves'>, heightU: number): string | null {
-  let worst: { name: string; top: number } | null = null;
-  const consider = (name: string, positionU: number, unitHeight: number) => {
-    const top = positionU + unitHeight - 1;
-    if (top > heightU && (worst === null || top > worst.top)) worst = { name, top };
-  };
-  for (const c of rack.chassis) consider(c.hostname || c.model || 'a device', c.positionU, c.heightU);
-  for (const s of rack.shelves) consider(s.label || 'a shelf', s.positionU, s.heightU);
-  const found = worst as { name: string; top: number } | null;
-  return found ? `It can't go below ${found.top}U, because ${found.name} reaches U${found.top}.` : null;
-}
 
 /** A rack's height (ADR-0060 decision 5): three common sizes, or a typed one. A reader sees the height only. */
 function RackHeightControl({ rack, actions }: { rack: RackView; actions: EditorActions }) {
@@ -1127,7 +969,7 @@ function PlacedOnControl({ itemId, placement, view, actions }: PlacedOnControlPr
   );
 }
 
-/** ADR-0051 §1, brief item 2 — "+ add a port" on a sketch: label, connector
+/** ADR-0051 §1 — "+ add a port" on a sketch: label, connector
  * (the schema's own `PhysicalPort.connector` enum, `document/compat.ts`'s
  * `PORT_CONNECTOR_VALUES`), service (optional, blank means unset) and face.
  * Round 15, ports by pattern: the one name field also takes a pattern, so
@@ -1293,7 +1135,7 @@ function PortsInWords({ chassis }: { chassis: ChassisView }) {
   );
 }
 
-/** ADR-0051 §1, brief item 2 — a sketch's own ports, each marked TYPED
+/** ADR-0051 §1 — a sketch's own ports, each marked TYPED
  * under a "typed by hand" heading with a remove action, plus "+ Add a port". A
  * chassis WITH a catalogue model shows its ports read-only "as today" (the
  * brief's own words) — this section is never rendered for one. */
@@ -1536,35 +1378,6 @@ function DuplicateDeviceControl({ chassisId, actions }: { chassisId: string; act
   );
 }
 
-export function swapModelChange(chassisId: string, model: { vendor: string; model: string }): EditorChange {
-  return { kind: 'swap-model', chassisId, model };
-}
-
-/** What a swap would do, in sentences, for the panel to show before the person confirms. */
-export function swapSummary(plan: SwapPlan): string[] {
-  const lines: string[] = [];
-  const cabled = plan.kept.filter((p) => p.cabled).length;
-  const n = (k: number, one: string) => `${k} ${one}${k === 1 ? '' : 's'}`;
-  if (plan.kept.length > 0) {
-    lines.push(`${n(plan.kept.length, 'port')} ${plan.kept.length === 1 ? 'carries' : 'carry'} over${cabled > 0 ? `, ${cabled} with ${cabled === 1 ? 'its cable' : 'their cables'}` : ''}.`);
-  }
-  const renamed = plan.kept.filter((p) => p.newLabel != null);
-  if (renamed.length > 0) lines.push(`Renamed to the new model's numbering: ${renamed.map((p) => `${p.label || ABSENT} to ${p.newLabel}`).join(', ')}.`);
-  const changed = plan.kept.filter((p) => p.cabled && p.connectorChanged);
-  if (changed.length > 0) lines.push(`New connector on ${changed.map((p) => p.label).join(', ')}: Checks will say if a cable no longer fits.`);
-  if (plan.added.length > 0) lines.push(`${n(plan.added.length, 'new port')}.`);
-  const loose = plan.dropped.filter((p) => p.cableId != null);
-  const bare = plan.dropped.length - loose.length;
-  if (loose.length > 0) {
-    lines.push(`Not on the new model: ${loose.map((p) => p.label || ABSENT).join(', ')}. ${loose.length === 1 ? 'Its cable stays as a loose end' : 'Their cables stay as loose ends'} in Missing links.`);
-  }
-  if (bare > 0) lines.push(`${n(bare, 'empty port')} the new model lacks will go.`);
-  if (plan.height) lines.push(`${plan.height.from}U becomes ${plan.height.to}U, from the same bottom unit.`);
-  if (plan.serial != null) lines.push(`Serial ${plan.serial} is cleared: a new box has its own.`);
-  lines.push('One undo puts the old box back.');
-  return lines;
-}
-
 /** Sign-off r28-swap — "Swap model…": pick a catalogue model, see what carries over, confirm. */
 function SwapModelControl({ chassisId, current, catalogue, actions }: { chassisId: string; current: string; catalogue: readonly PaletteItem[]; actions: EditorActions }) {
   const [open, setIsOpen] = useState(false);
@@ -1631,7 +1444,7 @@ function SwapModelControl({ chassisId, current, catalogue, actions }: { chassisI
   );
 }
 
-/** ADR-0051 §1, brief item 3 — a rack's own "+ add a shelf": a unit and an
+/** ADR-0051 §1 — a rack's own "+ add a shelf": a unit and an
  * optional catalogue model drawn from the same list the palette itself
  * offers (`racks/palette.ts`'s `paletteFromCatalogue`) — never a hard-coded
  * list (BRIEF's own "no sample data in component source"). */
@@ -1663,8 +1476,8 @@ function AddShelfControl({ rackId, catalogue, actions }: { rackId: string; catal
       setRefusal('unit must be a whole number, 1 or more');
       return;
     }
-    // `PassiveNode.label` is schema card "1" — required (this session's
-    // brief item 1, `commands.ts`'s `CreateShelfOptions.label`'s own doc):
+    // `PassiveNode.label` is schema card "1" — required
+    // (`commands.ts`'s `CreateShelfOptions.label`'s own doc):
     // refused here, before `createShelf` ever gets a chance to write an
     // empty string, the same "parse before the write side sees it" shape
     // `commitRack`'s own unit check already follows.
@@ -2107,7 +1920,7 @@ function panelFor(
         </div>
         <TypedNote shown={rack.bay != null} />
 
-        {/* ADR-0051 §1, brief item 3 — "a rack's editor gains '+ add a
+        {/* ADR-0051 §1 — "a rack's editor gains '+ add a
             shelf'". */}
         <AddShelfControl rackId={rack.id} catalogue={catalogue} actions={actions} />
         <RackTidyControl rack={rack} actions={actions} />
@@ -2304,7 +2117,7 @@ function panelFor(
               body: (
                 <>
                   <div className="drawing-editor__group">Device</div>
-                  {/* ADR-0051 §1, brief item 2 — "a box with no catalogue entry draws
+                  {/* ADR-0051 §1 — "a box with no catalogue entry draws
                       from ports typed by hand and says so." */}
                   {chassisSketch ? (
                     <div style={TYPED_NOTE_STYLE}>
@@ -2345,7 +2158,7 @@ function panelFor(
                       `PlacedOnControl` below already draws "Placed on: none" for. */}
                   {rack ? <Field label="Rack" value={`${rack.label} · ${uRange}`} /> : null}
                   {rack ? <Field label="Face" value={chassis.face} /> : null}
-                  {/* ADR-0051 §1, brief item 1 — "PLACED ON" as three choices, the
+                  {/* ADR-0051 §1 — "PLACED ON" as three choices, the
                       current one marked. */}
                   <PlacedOnControl itemId={chassis.id} placement={chassis.placement} view={view} actions={actions} />
 
@@ -2385,7 +2198,7 @@ function panelFor(
                   <Field label="Ports" value={`${chassis.ports.filter((p) => p.cable != null).length} of ${chassis.ports.length} cabled`} />
                   <PortsInWords chassis={chassis} />
 
-                  {/* ADR-0051 §1, brief item 2 — a sketch's own ports, typed by hand,
+                  {/* ADR-0051 §1 — a sketch's own ports, typed by hand,
                       each marked TYPED, with add/remove. A catalogued chassis keeps
                       its read-only "Ports" count above, unchanged. */}
                   {chassisSketch ? <SketchPortsSection chassisId={chassis.id} ports={chassis.ports} actions={actions} /> : null}
@@ -2615,7 +2428,7 @@ function panelFor(
     );
   }
 
-  // UI-SPEC "Cables" — this session's brief: a selected cable's own panel.
+  // UI-SPEC "Cables" — a selected cable's own panel.
   // `view.cables` (`ClosetView`, `contract.ts`'s re-export) is the one place
   // a `Cable` lives in this view, the same "scan by kind" `document/view.ts`'s
   // own file header gives `viewOf` for a root-level node — `null` when this
@@ -2637,7 +2450,7 @@ function panelFor(
         <TypedNote shown={(cable.label ?? '').length > 0} />
 
         {/* "its two ends in words (device and port each side, or the
-            outside label)". This session's brief item 3 — "Go to end A and
+            outside label)". "Go to end A and
             Go to end B, each selecting that port and panning to it" —
             offered only for a real port end; an outside end has no port to
             go to. */}
@@ -2726,7 +2539,7 @@ function panelFor(
         <div className="drawing-editor__title">{port.label || ABSENT}</div>
         <Field label="Device" value={chassis.hostname || UNNAMED_HOSTNAME} />
         <Field label="Connector" value={port.connector} />
-        {/* This session's brief item 2 — "connector, service, face". */}
+        {/* "connector, service, face". */}
         <Field label="Service" value={port.service ?? ABSENT} />
         <Field label="Face" value={port.face} />
         <Field label="Uplink" value={port.uplink ? 'yes' : 'no'} />

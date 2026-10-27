@@ -326,7 +326,7 @@ async fn store(pool: &Pool, ring: Arc<KeyRing>) -> SessionStore {
 /// A scope (a root network) and one design hung off it, created by the
 /// estate's steward — plain repository calls, exactly as `create_design`'s
 /// own doc says a caller reaches it: no HTTP surface builds a design yet, and
-/// this task's brief does not ask for one.
+/// the original brief does not ask for one.
 async fn a_scope_and_design(pool: &Pool, estate: &Estate) -> (ScopeId, DesignId) {
     let scope = repo::create_scope(
         pool,
@@ -1579,7 +1579,7 @@ async fn a_reader_cannot_save_but_can_still_open_and_verify() {
     let text = String::from_utf8_lossy(&body);
     assert!(text.contains("\"outcome\":\"verified\""), "{text}");
 
-    // ADR-0052 §5, this session's brief item 1 ("canDraw = capability !==
+    // ADR-0052 §5 ("canDraw = capability !==
     // 'read'"): the client gate the drawing/editor apply is proven honest
     // only if the server refuses the save it is meant to stop a reader from
     // ever reaching in the first place — this function's own name has
@@ -3578,7 +3578,7 @@ async fn org_entries_of(organisation: OrganisationId, entry_type: &str) -> i64 {
 }
 
 // ---------------------------------------------------------------------------
-// This session's brief, item 4: a Capture or a Note carrying a credential
+// A Capture or a Note carrying a credential
 // ---------------------------------------------------------------------------
 
 fn a_graph_prov(seed: u128) -> ProvenanceRecord {

@@ -164,7 +164,7 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
                 spellCheck={false}
                 data-testid="vault-password"
               />
-              <button type="button" className="vault-btn vault-btn--quiet" onClick={() => setShown(!shown)}>
+              <button type="button" className="vault-btn btn-quiet" onClick={() => setShown(!shown)}>
                 {shown ? 'Hide' : 'Show'}
               </button>
               <button
@@ -273,7 +273,7 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
           </p>
         )}
         <div className="vault-actions">
-          <button type="submit" className="vault-btn vault-btn--solid" disabled={!valid || busy || (entry != null && !secretChanged && !holdersChanged && !detailsChanged)} data-testid="vault-save">
+          <button type="submit" className="vault-btn btn-main" disabled={!valid || busy || (entry != null && !secretChanged && !holdersChanged && !detailsChanged)} data-testid="vault-save">
             {busy ? 'Locking and saving…' : 'Save'}
           </button>
           <button type="button" className="vault-btn" onClick={onClose} disabled={busy}>

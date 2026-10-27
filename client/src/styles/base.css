@@ -42,11 +42,11 @@
 
 /* A button's label is small spaced capitals. Opt-in, so a link, a list
    row or a menu row that happens to be a <button> keeps its own case. */
-:where(button:not(.react-flow *, [class]), .btn, .btn-main, .btn-quiet, .btn-danger),
+:where(button:not(.react-flow *, [class]),.btn,.btn-main,.btn-quiet,.btn-danger,.btn-small),
 :where(.checks-btn, .config-drawer__paste-button, .live-notice__btn, .home__btn,
   .inv-where__clear, .networks-panel__add, .networks-editor__save,
   .networks-editor__cancel, .org-btn, .plans-btn, .trouble-btn, .signin__submit,
-  .enrol__submit, .imp__primary, .console__btn, .history__btn, .drawing-ports__primary,
+ .enrol__submit,.imp__primary,.console__btn,.vault-btn,.fw-btn,.ai-btn,.history__btn,.drawing-ports__primary,
   .drawing-ports__add, .shell-chip--ink, .canvas-add),
 :where(.btn-group) > :where(button),
 :where(.btn-group) > * > :where(button) {
@@ -59,6 +59,12 @@
   background: var(--ink);
   color: var(--page);
   border-color: var(--ink);
+}
+
+/* A smaller button, for a row of them inside a list. */
+:where(button.btn-small) {
+  padding: 1px var(--s2);
+  font-size: var(--t-micro);
 }
 
 /* A quiet action: no box until pointed at. */

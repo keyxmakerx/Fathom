@@ -13,6 +13,7 @@ import { DocsContext, type DocsApi, type DocsView } from './context';
 import { Markdown } from './markdown';
 import './docs.css';
 import { EmptyState } from '../ui/EmptyState';
+import { useModal } from '../shell/useModal';
 
 const TYPED_SENTENCE = 'Stored as typed. Fathom does not redact what you type, only what you paste.';
 
@@ -45,29 +46,12 @@ export function DocsOverlay({
   const ref = useRef<HTMLDivElement>(null);
   // Set by the add and edit forms while they hold text that is not saved.
   const dirty = useRef(new Set<string>());
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
   const guard = (go: () => void) => () => {
     if (dirty.current.size > 0 && !window.confirm('Discard what you typed?')) return;
     dirty.current.clear();
     go();
   };
-  useEffect(() => {
-    const back = document.activeElement as HTMLElement | null;
-    ref.current?.focus();
-    // On the document, not the dialog: a disabled field drops focus to the page, and Esc must still close.
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.isComposing) return;
-      e.stopPropagation();
-      guard(() => closeRef.current())();
-    };
-    document.addEventListener('keydown', onKey, true);
-    return () => {
-      document.removeEventListener('keydown', onKey, true);
-      back?.focus?.();
-    };
-    // Mount only; onClose is a plain closer.
-  }, []);
+  useModal(ref, guard(onClose), { focus: 'container' });
   if (!api) return null;
   return (
     <DirtyContext.Provider value={dirty}>

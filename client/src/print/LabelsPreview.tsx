@@ -3,7 +3,7 @@
 // flag sized to the cable. The preview is the print: what is on screen is what the browser sends to
 // the printer's driver.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { QR_QUIET_ZONE, encodeQr, qrPath, qrSide } from '../qr';
@@ -25,6 +25,7 @@ import {
 } from './labels';
 import './labels.css';
 import { readPref, writePref } from '../prefs';
+import { useModal } from '../components/shell/useModal';
 
 // Cables keep their own choice, so a wrap picked for cables is not what a rack's label opens with.
 const PRESET_KEY = 'fathom-label-preset';
@@ -61,15 +62,10 @@ export function LabelsPreview({ items, note, cables = false, onClose }: LabelsPr
   // While this is open, printing prints only the labels (`labels.css`).
   useEffect(() => {
     document.body.classList.add('labels-open');
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.body.classList.remove('labels-open');
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [onClose]);
+    return () => document.body.classList.remove('labels-open');
+  }, []);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModal(dialogRef, onClose);
 
   const choose = (id: LabelPresetId) => {
     setPresetId(id);
@@ -81,7 +77,7 @@ export function LabelsPreview({ items, note, cables = false, onClose }: LabelsPr
   };
 
   return createPortal(
-    <div className="labels-preview" role="dialog" aria-modal="true" aria-label="Print labels">
+    <div className="labels-preview" role="dialog" aria-modal="true" aria-label="Print labels" ref={dialogRef}>
       <div className="labels-preview__bar">
         <b>
           {items.length.toLocaleString('en-GB')} label{items.length === 1 ? '' : 's'}

@@ -24,7 +24,7 @@ export function PeopleList({ people, needsYou, onOpenPerson, onInvite, onOpenWai
     <section className="org-page">
       <div className="home__section-head">
         <div className="org-page__title">People</div>
-        <button type="button" className="org-btn org-btn--primary" onClick={onInvite}>
+        <button type="button" className="org-btn btn-main" onClick={onInvite}>
           Add someone
         </button>
       </div>
@@ -44,7 +44,7 @@ export function PeopleList({ people, needsYou, onOpenPerson, onInvite, onOpenWai
               </li>
             ))}
           </ul>
-          <button type="button" className="org-btn org-btn--primary" onClick={onOpenWaiting}>
+          <button type="button" className="org-btn btn-main" onClick={onOpenWaiting}>
             See all ({waitingLines})
           </button>
         </div>
@@ -177,7 +177,7 @@ export function PersonPage({ person, folders, busy, error, notice, onBack, onRem
                       <>
                         <button
                           type="button"
-                          className="org-btn org-btn--primary"
+                          className="org-btn btn-main"
                           disabled={busy}
                           onClick={() => {
                             setRemoving(null);
@@ -275,7 +275,7 @@ export function PersonPage({ person, folders, busy, error, notice, onBack, onRem
                 when you invite them.
               </p>
               <div className="org-actions">
-                <button type="submit" className="org-btn org-btn--primary" disabled={busy || scope === ''}>
+                <button type="submit" className="org-btn btn-main" disabled={busy || scope === ''}>
                   Sign and give access
                 </button>
                 <button type="button" className="org-btn" onClick={() => setGiving(false)}>
@@ -296,13 +296,13 @@ export function PersonPage({ person, folders, busy, error, notice, onBack, onRem
           </p>
           <div className="org-actions">
             {person.state === 'waiting' && (
-              <button type="button" className="org-btn org-btn--primary" onClick={onOpenWaiting}>
+              <button type="button" className="org-btn btn-main" onClick={onOpenWaiting}>
                 Go to Waiting for you
               </button>
             )}
             {withdrawing ? (
               <>
-                <button type="button" className="org-btn org-btn--primary" disabled={busy} onClick={onWithdraw}>
+                <button type="button" className="org-btn btn-main" disabled={busy} onClick={onWithdraw}>
                   Withdraw it for {person.name}
                 </button>
                 <button type="button" className="org-btn" onClick={() => setWithdrawing(false)}>

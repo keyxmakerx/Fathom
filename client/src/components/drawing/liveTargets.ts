@@ -21,7 +21,7 @@ import { isLoosePort } from './missingLinks';
  * end on: not the origin itself, not already cabled, and `compatible` with
  * the origin's own connector. Empty if `fromPortId` names nothing in this
  * view or is itself already cabled — starting a second cable from a full
- * port is not this session's feature (UI-SPEC "One cable per port").
+ * port is not a feature (UI-SPEC "One cable per port").
  *
  * ADR-0051 §1/§2 — searched everywhere a port can actually be: a rack
  * chassis's own faceplate, a shelf occupant's, and a surface fixture's

@@ -50,23 +50,6 @@
   font-weight: 700;
 }
 
-.org-btn {
-  padding: var(--s1) var(--s3);
-  font-size: var(--t-small);
-  cursor: pointer;
-}
-
-.org-btn--primary {
-  background: var(--ink);
-  color: var(--page);
-  box-shadow: none;
-}
-
-.org-btn:disabled {
-  opacity: var(--phantom);
-  cursor: not-allowed;
-}
-
 .org-link {
   background: none;
   border: none;

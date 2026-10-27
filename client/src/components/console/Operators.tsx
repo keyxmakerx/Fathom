@@ -95,19 +95,19 @@ function DisableButton({ operatorId, onChanged }: { operatorId: string; onChange
 
   if (!confirming) {
     return (
-      <button type="button" className="console__btn console__btn--quiet" onClick={() => setConfirming(true)}>
+      <button type="button" className="console__btn" onClick={() => setConfirming(true)}>
         Disable
       </button>
     );
   }
   return (
     <>
-      <button type="button" className="console__btn" disabled={busy} onClick={act}>
+      <button type="button" className="console__btn btn-main" disabled={busy} onClick={act}>
         {busy ? 'Disabling…' : 'Disable, and there is no re-enable'}
       </button>
       <button
         type="button"
-        className="console__btn console__btn--quiet"
+        className="console__btn"
         disabled={busy}
         onClick={() => setConfirming(false)}
       >
@@ -194,7 +194,7 @@ function AddColleague({
       />
       <button
         type="submit"
-        className="console__btn"
+        className="console__btn btn-main"
         disabled={busy || displayName.trim().length === 0 || address.trim().length < 3}
       >
         {busy ? 'Requesting…' : 'Request this colleague'}

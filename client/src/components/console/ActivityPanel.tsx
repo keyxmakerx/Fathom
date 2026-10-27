@@ -166,11 +166,11 @@ export function ActivityPanel() {
       </div>
       <ActivityView loaded={loaded} filter={filter} />
       <div>
-        <button type="button" className="console__btn console__btn--quiet" onClick={refresh}>
+        <button type="button" className="console__btn" onClick={refresh}>
           Refresh
         </button>
         {more && loaded.status === 'ready' && (
-          <button type="button" className="console__btn console__btn--quiet" onClick={older}>
+          <button type="button" className="console__btn" onClick={older}>
             Older
           </button>
         )}

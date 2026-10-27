@@ -1,7 +1,6 @@
 // ADR-0053 §1/§4 — the fifth op (`revive`) and the two optional batch keys
 // (`comment`, `reverses`) round-trip through the plain face byte for byte.
-// Not named `plain.test.ts`: that file belongs to another agent's session in
-// this worktree (per this session's own ownership split).
+// Not named `plain.test.ts`: that name was already taken.
 
 import { describe, expect, it } from 'vitest';
 

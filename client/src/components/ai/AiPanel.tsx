@@ -222,7 +222,7 @@ export function AiPanel({
             {o.steward && onOpenRules && (
               <button
                 type="button"
-                className="ai-btn ai-btn--small"
+                className="ai-btn btn-small"
                 data-testid="ai-open-rules"
                 onClick={onOpenRules}
               >
@@ -587,7 +587,7 @@ function PolicyForm({
       <div className="ai-actions ai-rules__save">
         <button
           type="button"
-          className="ai-btn ai-btn--primary"
+          className="ai-btn btn-main"
           disabled={!changed || busy || badOnly.length > 0}
           onClick={() => void save()}
         >
@@ -802,7 +802,7 @@ function KeyPage({
         <div className="ai-kicker">{keyAppName(aiKey)}</div>
         <button
           type="button"
-          className="ai-btn ai-btn--small"
+          className="ai-btn btn-small"
           onClick={onClose}
         >
           Close
@@ -886,7 +886,7 @@ function KeyPage({
         <div className="ai-actions">
           <button
             type="button"
-            className="ai-btn ai-btn--primary"
+            className="ai-btn btn-main"
             disabled={!changed || busy}
             onClick={() =>
               void act(() =>
@@ -905,7 +905,7 @@ function KeyPage({
           </button>
           <button
             type="button"
-            className="ai-btn ai-btn--danger"
+            className="ai-btn btn-danger"
             disabled={busy}
             onClick={() => setStopping(true)}
           >
@@ -940,7 +940,7 @@ function KeyPage({
           <div className="ai-actions">
             <button
               type="button"
-              className="ai-btn ai-btn--danger"
+              className="ai-btn btn-danger"
               disabled={busy || (narrowOnly && reason.trim() === "")}
               onClick={() =>
                 void act(() =>

@@ -366,7 +366,7 @@ export function ConnectOutsideDialog({
             <button type="button" className="vault-btn" onClick={onClose}>
               Cancel
             </button>
-            <button type="button" className="vault-btn vault-btn--solid" disabled={!ready || busy != null} onClick={() => void connect()} data-testid="outside-connect-go">
+            <button type="button" className="vault-btn btn-main" disabled={!ready || busy != null} onClick={() => void connect()} data-testid="outside-connect-go">
               {busy ?? (pb ? (serverFp ? 'Set up Fathom’s account' : 'Read the invitation') : 'Connect')}
             </button>
           </div>
@@ -456,12 +456,12 @@ function ConnectionCard({ organisation, overview, conn, onChanged }: { organisat
                 {i.state === 'removed' && <span className="vault-caution"> · removed by {i.removedByName ?? 'someone'}</span>}
               </span>
               {can && i.state === 'on' && (
-                <button type="button" className="vault-btn vault-btn--quiet" disabled={busy} onClick={() => void run(() => outsideRemove(organisation, i.id), `${i.name} is removed; Fathom no longer reads it.`)} data-testid="outside-remove">
+                <button type="button" className="vault-btn btn-quiet" disabled={busy} onClick={() => void run(() => outsideRemove(organisation, i.id), `${i.name} is removed; Fathom no longer reads it.`)} data-testid="outside-remove">
                   Remove
                 </button>
               )}
               {i.state === 'removed' && (overview.steward || (mine && i.removedBy === overview.me)) && (
-                <button type="button" className="vault-btn vault-btn--quiet" disabled={busy} onClick={() => void run(() => outsideRestore(organisation, i.id))} data-testid="outside-restore">
+                <button type="button" className="vault-btn btn-quiet" disabled={busy} onClick={() => void run(() => outsideRestore(organisation, i.id))} data-testid="outside-restore">
                   Restore
                 </button>
               )}
@@ -538,7 +538,7 @@ function ConnectionCard({ organisation, overview, conn, onChanged }: { organisat
           </button>
           <button
             type="button"
-            className="vault-btn vault-btn--quiet"
+            className="vault-btn btn-quiet"
             disabled={busy}
             onClick={() => {
               if (window.confirm('Disconnect this vault? Fathom forgets its API key and stops reading it. The key itself still works in the vault until someone makes a new one there.'))
@@ -641,7 +641,7 @@ export function OutsideOnDevice({ organisation, overview, here, onChanged }: { o
             <strong>{i.name}</strong> <span className="vault-tag vault-tag--fathom">{PROVIDER_LABELS[c.provider]} · {c.collectionName}</span>
           </span>
           {c.owner === overview.me && (
-            <button type="button" className="vault-btn vault-btn--quiet" disabled={busy} onClick={() => void set(c, i, i.usedOn.filter((u) => !(u.design === here.design && u.element === here.element)))}>
+            <button type="button" className="vault-btn btn-quiet" disabled={busy} onClick={() => void set(c, i, i.usedOn.filter((u) => !(u.design === here.design && u.element === here.element)))}>
               Not on this device
             </button>
           )}

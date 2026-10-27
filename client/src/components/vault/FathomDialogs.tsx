@@ -86,7 +86,7 @@ export function FathomDialog({
         <p className="vault-note vault-note--caution">{FATHOM_OFF_TEXT}</p>
         {failed}
         <div className="vault-actions">
-          <button type="button" className="vault-btn vault-btn--solid" disabled={busy} onClick={() => run(() => stopFathomUse(organisation, entry.id))} data-testid="vault-fathom-off-go">
+          <button type="button" className="vault-btn btn-main" disabled={busy} onClick={() => run(() => stopFathomUse(organisation, entry.id))} data-testid="vault-fathom-off-go">
             {busy ? 'Stopping…' : 'Stop Fathom using it'}
           </button>
           <button type="button" className="vault-btn" onClick={onClose}>
@@ -118,7 +118,7 @@ export function FathomDialog({
         </label>
         {failed}
         <div className="vault-actions">
-          <button type="button" className="vault-btn vault-btn--solid" disabled={busy || !read || changed} onClick={() => run(() => countersignFathomUse(organisation, entry))} data-testid="vault-fathom-countersign-go">
+          <button type="button" className="vault-btn btn-main" disabled={busy || !read || changed} onClick={() => run(() => countersignFathomUse(organisation, entry))} data-testid="vault-fathom-countersign-go">
             {busy ? 'Signing…' : 'Sign'}
           </button>
           <button type="button" className="vault-btn" onClick={onClose}>
@@ -155,7 +155,7 @@ export function FathomDialog({
       </label>
       {failed}
       <div className="vault-actions">
-        <button type="button" className="vault-btn vault-btn--solid" disabled={busy || !read || overview.fathomKeyId == null} onClick={() => run(() => letFathomUse(organisation, overview, entry))} data-testid="vault-fathom-on-go">
+        <button type="button" className="vault-btn btn-main" disabled={busy || !read || overview.fathomKeyId == null} onClick={() => run(() => letFathomUse(organisation, overview, entry))} data-testid="vault-fathom-on-go">
           {busy ? 'Signing…' : 'Let Fathom use it'}
         </button>
         <button type="button" className="vault-btn" onClick={onClose}>

@@ -116,7 +116,7 @@ function useVaultActs(vault: Vault, organisationName: string, place: VaultPlace 
           </p>
           <KitSheet kind="sheet" organisationName={organisationName} code={dialog.code} fingerprint={overview.recovery?.fpr} />
           <div className="vault-actions">
-            <button type="button" className="vault-btn vault-btn--solid" onClick={() => setDialog(null)} data-testid="vault-sheet-done">
+            <button type="button" className="vault-btn btn-main" onClick={() => setDialog(null)} data-testid="vault-sheet-done">
               I have printed it
             </button>
           </div>
@@ -180,7 +180,7 @@ function VaultStrip({ vault, overview, onSetup, onUnlock }: { vault: Vault; over
     return (
       <div className="vault-strip" data-testid="vault-strip-setup">
         <span>Set up your vault to store and read logins. It takes a minute: an Emergency Kit to save, and a passphrase.</span>
-        <button type="button" className="vault-btn vault-btn--solid" onClick={onSetup} data-testid="vault-setup-open">
+        <button type="button" className="vault-btn btn-main" onClick={onSetup} data-testid="vault-setup-open">
           Set up your vault
         </button>
       </div>
@@ -191,7 +191,7 @@ function VaultStrip({ vault, overview, onSetup, onUnlock }: { vault: Vault; over
     return (
       <div className={due ? 'vault-strip vault-strip--caution' : 'vault-strip'} data-testid="vault-strip-locked">
         <span>{due ? 'Check you still have your passphrase: unlock once, now, while forgetting it costs nothing.' : 'Locked. Passwords show once you unlock.'}</span>
-        <button type="button" className="vault-btn vault-btn--solid" onClick={onUnlock} data-testid="vault-unlock-open">
+        <button type="button" className="vault-btn btn-main" onClick={onUnlock} data-testid="vault-unlock-open">
           Unlock
         </button>
       </div>
@@ -226,12 +226,12 @@ function SecretLine({ vault, entry, onChange }: { vault: Vault; entry: VaultEntr
       ) : (
         <span className="vault-mask">••••••••••••••</span>
       )}
-      <button type="button" className="vault-btn vault-btn--quiet" onClick={() => (secret ? setSecret(null) : void open())} data-testid="vault-show">
+      <button type="button" className="vault-btn btn-quiet" onClick={() => (secret ? setSecret(null) : void open())} data-testid="vault-show">
         {secret ? 'Hide' : 'Show'}
       </button>
       <button
         type="button"
-        className="vault-btn vault-btn--quiet"
+        className="vault-btn btn-quiet"
         onClick={() =>
           void open().then((s) => {
             if (!s) return;
@@ -246,7 +246,7 @@ function SecretLine({ vault, entry, onChange }: { vault: Vault; entry: VaultEntr
         {copied ? 'Copied' : 'Copy'}
       </button>
       {onChange && (
-        <button type="button" className="vault-btn vault-btn--quiet" onClick={() => void open().then((s) => s && onChange(s))} data-testid="vault-change">
+        <button type="button" className="vault-btn btn-quiet" onClick={() => void open().then((s) => s && onChange(s))} data-testid="vault-change">
           Change
         </button>
       )}
@@ -366,7 +366,7 @@ function LoginCard({
       {fathomActs.length > 0 && (
         <div className="vault-card__acts">
           {fathomActs.map((a) => (
-            <button key={a.act} type="button" className="vault-btn vault-btn--quiet" onClick={() => onFathom?.(a.act)} data-testid={a.testId}>
+            <button key={a.act} type="button" className="vault-btn btn-quiet" onClick={() => onFathom?.(a.act)} data-testid={a.testId}>
               {a.label}
             </button>
           ))}
@@ -564,7 +564,7 @@ export function PasswordsPage({ organisation, organisationName, mode: asked }: {
                 .map((h) => (
                   <div key={h.keyId} className="vault-holder">
                     <span>{h.name}</span> <Fingerprint fpr={h.fpr} />
-                    <button type="button" className="vault-btn vault-btn--quiet" onClick={() => void act(() => takeAwayCopy(organisation, open.id, open.version, h.keyId))}>
+                    <button type="button" className="vault-btn btn-quiet" onClick={() => void act(() => takeAwayCopy(organisation, open.id, open.version, h.keyId))}>
                       Remove
                     </button>
                   </div>
@@ -621,7 +621,7 @@ function RecoveryCard({ overview, onMake }: { overview: VaultOverview; onMake: (
           ) : (
             <p className="vault-small">Never used.</p>
           )}
-          <button type="button" className="vault-btn vault-btn--quiet" onClick={onMake}>
+          <button type="button" className="vault-btn btn-quiet" onClick={onMake}>
             Replace the sheet…
           </button>
         </>
@@ -631,7 +631,7 @@ function RecoveryCard({ overview, onMake }: { overview: VaultOverview; onMake: (
             Without one, a login whose holders all forget their passphrase, or leave, is gone for good. Make one, print it, and keep it
             in the safe. Using it needs the sheet and an admin signed in, and every use is written to the organisation’s history.
           </p>
-          <button type="button" className="vault-btn vault-btn--solid" onClick={onMake} data-testid="vault-make-sheet">
+          <button type="button" className="vault-btn btn-main" onClick={onMake} data-testid="vault-make-sheet">
             Make the recovery sheet
           </button>
         </>
@@ -672,7 +672,7 @@ function RecoverDialog({ vault, overview, entry, onClose, onDone }: { vault: Vau
       <div className="vault-actions">
         <button
           type="button"
-          className="vault-btn vault-btn--solid"
+          className="vault-btn btn-main"
           disabled={busy || code.trim() === '' || to.length === 0}
           onClick={() => {
             setBusy(true);

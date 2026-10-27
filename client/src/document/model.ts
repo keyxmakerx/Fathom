@@ -460,7 +460,7 @@ export function assertHand(
 
 // ---------------------------------------------------------------------------
 // Scalar encoders — `crates/fathom-ir/src/canon.rs`'s rules for the types
-// this session's fields use. `Text` accepts any string (its `Scalar::parse`
+// these fields use. `Text` accepts any string (its `Scalar::parse`
 // never refuses); `Identifier` is non-empty, printable ASCII with no space
 // (`0x21..=0x7E`); an integer field is refused outside its declared bit
 // width; a generated enum's wire form is its bare token, including an

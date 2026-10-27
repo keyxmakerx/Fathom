@@ -18,7 +18,7 @@
 // door" and names unreachable-policy hatching separately as not this
 // session's work. The board's lit end-to-end trace ("in → zone → policy →
 // route → out") is not built either — the only lighting this component
-// does is `litPortLabel` on the edge jacks, which is this session's own
+// does is `litPortLabel` on the edge jacks, which is the
 // contract (`ConfigDrawer`'s "click a line and the port it built lights"
 // reaching this stop too).
 import type { JSX } from 'react';

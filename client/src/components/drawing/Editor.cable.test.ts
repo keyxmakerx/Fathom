@@ -5,7 +5,7 @@ import type { ClosetView, EditorActions } from './contract';
 import { EditorFor, cableEndText, disconnectCableChange, setCableFieldChange } from './Editor';
 import { COPPER_SHEATHS, FIBRE_SHEATHS, POWER_SHEATHS } from './sheath';
 
-// UI-SPEC "Cables" — the selected cable's own panel (this session's brief).
+// UI-SPEC "Cables" — the selected cable's own panel.
 // Render-to-string smoke tests only, the same shape `Editor.render.test.ts`'s
 // own file header gives every other panel here (no DOM testing library is
 // installed, so a click is never simulated, only the markup a given state

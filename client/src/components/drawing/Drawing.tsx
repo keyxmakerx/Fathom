@@ -168,7 +168,7 @@ function ConnectionLine({ fromX, fromY, toX, toY }: ConnectionLineComponentProps
  * Matches `drawing.css`'s `--drawing-shake-ms`. */
 const SHAKE_MS = 220;
 
-/** This session's brief item 5, the "Show on rack" fix — whether the
+/** The "Show on rack" fix — whether the
  * mount-time "fit every rack" camera move (the `allRacksPositioned` effect,
  * below) should run. `RacksPlace.tsx`'s own `initialFocus` effect lands a
  * chosen chassis at the faceplate stop through a SEPARATE, edge-triggered
@@ -295,7 +295,7 @@ export interface DrawingProps extends DrawingActions {
    * caller never to raise `onPlace` (`handleDrop`, below): a reader that
    * somehow still fires a native drag-and-drop event gets no placement. */
   canDraw: boolean;
-  /** ADR-0052 §1/§4, this session's brief item 2 — "the drawer opens
+  /** ADR-0052 §1/§4 — "the drawer opens
    * beneath the faceplate." This component knows the camera stop and the
    * selection; it does not know the `Document`, the Mirror or the save path
    * the drawer itself needs (`contract.ts`'s own file header: this drawing
@@ -307,13 +307,13 @@ export interface DrawingProps extends DrawingActions {
    * (ADR-0052 §5's "canDraw or a capture exists" gate lives with the
    * caller, which is the one place that knows whether a capture exists). */
   renderConfigDrawer?: (chassis: ChassisView) => ReactNode;
-  /** ADR-0051 "Inside a box" / this session's brief item 3 — the stop
+  /** ADR-0051 "Inside a box" — the stop
    * beyond faceplate. Same shape as `renderConfigDrawer` above, called once
    * the camera reads as the `'inside'` stop for the selected chassis. */
   renderInsideStop?: (chassis: ChassisView) => ReactNode;
   /** Starts a path trace from this device (ADR-0061 item 9); absent where there is nothing to trace. */
   onTraceFrom?: (chassisId: string) => void;
-  /** ADR-0052 §1, this session's brief item 2 — "click a line and the port
+  /** ADR-0052 §1 — "click a line and the port
    * it built lights, tagged with which line built it." The caller
    * (`racks/RacksPlace.tsx`) tracks the drawer's own hover/select state and
    * resolves it to a port label on the selected chassis; this component
@@ -696,7 +696,7 @@ function DrawingInner({
   // Writes straight to `liveStore.ts` rather than to component state, so
   // hovering a cable or a rail hexagon never re-renders this component.
   const handleHoverCable = useCallback((cableId: string | null) => liveStore.setState({ hoveredCableId: cableId, hoverStack: [] }), [liveStore]);
-  // This session's brief items 3/4 — the selected cable's two ports (a
+  // The selected cable's two ports (a
   // hairline ring) and the port a refused cable drop landed on (a shake),
   // both toggled as a DOM class on the SAME `data-port-id` element
   // `litPortId`'s own effect below already targets, rather than threading a
@@ -866,7 +866,7 @@ function DrawingInner({
   const rackIdsKey = view.racks.map((r) => r.id).join('|');
   const allRacksPositioned = view.racks.every((r) => rackPositions[r.id] != null);
 
-  // This session's brief item 5: guards the race `shouldFitOnMount` above
+  // Guards the race `shouldFitOnMount` above
   // documents — flips true on the first qualifying run and stays there, so
   // only that first run can ever be skipped.
   const hasFitOnceRef = useRef(false);
@@ -1037,7 +1037,7 @@ function DrawingInner({
     return rowFacing[rowKey(rowViews[rowIndex]!, rowIndex)] ?? 'front';
   }
 
-  // ADR-0052 §1/§4/§5, this session's brief items 2/3 — the config drawer
+  // ADR-0052 §1/§4/§5 — the config drawer
   // (item 2, `renderConfigDrawer`) and the inside stop (item 3,
   // `renderInsideStop`) both key off "a chassis is selected" and "the
   // camera reads at a particular stop," which this component already
@@ -1088,7 +1088,7 @@ function DrawingInner({
     matches.forEach((el) => el.classList.add('drawing-port--lit'));
   }, [litPortId]);
 
-  // This session's brief item 3 — "while a cable is selected its two ports
+  // "while a cable is selected its two ports
   // carry a hairline ring on the plate." Both real ends of the SELECTED
   // cable, wherever each sits (a rack chassis, a shelf occupant, a surface
   // fixture) — `null`/empty whenever the selection is not a cable, or that
@@ -1115,7 +1115,7 @@ function DrawingInner({
     });
   }, [ringedPortIds]);
 
-  // UI-SPEC "Motion" #2, this session's brief item 4 — "Wrong drop: target
+  // UI-SPEC "Motion" #2 — "Wrong drop: target
   // shakes once sideways, lead springs back to your hand." The chassis-drop
   // shake above (`triggerShake`/`shakingId`, `RackNode.tsx`) already covers
   // a device dropped nowhere or overlapping; a cable dropped on an
@@ -1836,7 +1836,7 @@ function DrawingInner({
   // `isValidConnection` above — so it falls through to the same "nothing
   // recorded" path as a drop on empty canvas.
   //
-  // UI-SPEC "Motion" #2, this session's brief item 4 — "Wrong drop: target
+  // UI-SPEC "Motion" #2 — "Wrong drop: target
   // shakes once sideways, lead springs back to your hand." Previously true
   // only for a chassis dropped nowhere or overlapping (`overlapsRack`'s own
   // shake below); a wrong CABLE drop had no shake at all. The lead itself
@@ -1919,7 +1919,7 @@ function DrawingInner({
   // React Flow's delete handling stays off (`deleteKeyCode={null}` below)
   // for racks, which have no delete feature yet.
   //
-  // ADR-0053 §1/§3, this session's brief item 2 — Ctrl Z / Ctrl Shift Z, at
+  // ADR-0053 §1/§3 — ctrl Z / Ctrl Shift Z, at
   // this SAME listener (the brief's own words: "at the existing keydown
   // site"), ignored while focus sits in an input, textarea, select or any
   // `contenteditable` — the Trail's own comment box and the Notes editor's
@@ -2095,7 +2095,7 @@ function DrawingInner({
         // `ChassisNode.tsx`) both start and receive a connection.
         connectionMode={ConnectionMode.Loose}
         connectionLineComponent={ConnectionLine}
-        // This session's brief item 2 — "a click without movement selects,
+        // "a click without movement selects,
         // a drag connects." React Flow's own threshold (`connectThreshold.ts`'s
         // own file header): `onConnectStart` never fires until the pointer
         // has moved this many flow px past the port glyph's own `onClick`

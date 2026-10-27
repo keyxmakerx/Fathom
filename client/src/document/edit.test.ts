@@ -231,7 +231,7 @@ function docWithShelf(): { doc: Document; shelfId: string } {
   return { doc: withShelf, shelfId };
 }
 
-// This session's brief item 1 — a shelf's own editor commits its name
+// A shelf's own editor commits its name
 // through `setPassiveNodeField`, the same shape every other field setter in
 // this file already has.
 describe('setPassiveNodeField — label', () => {
@@ -275,7 +275,7 @@ describe('setDeviceField / setPassiveNodeField archive the replaced value', () =
     const newProv = findNode(twice, shelfId)!.fields['PassiveNode.label'].prov;
 
     // `createShelf` (`commands.ts`) already wrote `PassiveNode.label` once
-    // (this session's brief item 1: a shelf is named at creation), so
+    // (A shelf is named at creation), so
     // `once`'s own write already archived THAT value — checking the tail
     // entry, not the whole array, keeps this test honest about which write
     // it is asserting on.

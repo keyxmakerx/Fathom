@@ -233,12 +233,12 @@ export function PlacementForm({
           ))}
         </ul>
         <div className="console__row">
-          <button type="button" className="console__btn" disabled={busy} onClick={save}>
+          <button type="button" className="console__btn btn-main" disabled={busy} onClick={save}>
             {busy ? 'Moving…' : `Move the console to ${normalisePlacementHosts(hosts)}`}
           </button>
           <button
             type="button"
-            className="console__btn console__btn--quiet"
+            className="console__btn"
             disabled={busy}
             onClick={() => setStage({ kind: 'form' })}
           >
@@ -316,7 +316,7 @@ export function PlacementForm({
         {MIN_WINDOW_MINUTES} to {MAX_WINDOW_MINUTES} minutes; it cannot be turned off, because a move nobody has
         to confirm is a lockout nobody can undo.
       </p>
-      <button type="submit" className="console__btn" disabled={busy || hosts.trim().length === 0}>
+      <button type="submit" className="console__btn btn-main" disabled={busy || hosts.trim().length === 0}>
         Review this move
       </button>
       {error && (

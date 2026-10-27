@@ -49,45 +49,6 @@
   color: var(--caution);
 }
 
-.vault-btn {
-  box-sizing: border-box;
-  height: 28px;
-  padding: 0 var(--s3);
-  border: var(--rule-hair) solid var(--ink);
-  border-radius: 0;
-  background: var(--page);
-  color: var(--ink);
-  font: inherit;
-  font-size: var(--t-tab);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.vault-btn--solid {
-  background: var(--ink);
-  color: var(--page);
-}
-
-.vault-btn--quiet {
-  border-color: transparent;
-  background: none;
-  padding: 0 var(--s1);
-  color: var(--muted);
-  height: auto;
-}
-
-.vault-btn--quiet:hover {
-  color: var(--ink);
-}
-
-.vault-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.vault-btn:focus-visible,
 .vault-link:focus-visible,
 .vault-input:focus-visible {
   outline: var(--focus-width, 2px) solid var(--focus-colour, var(--ink));

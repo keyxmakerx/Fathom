@@ -141,7 +141,7 @@ export function BackupsPanel() {
     <div className="console__form" aria-label="Backups">
       <div className="console__form-title">Backups</div>
       <BackupsView loaded={loaded} />
-      <button type="button" className="console__btn console__btn--quiet" onClick={refresh}>
+      <button type="button" className="console__btn" onClick={refresh}>
         Refresh
       </button>
     </div>

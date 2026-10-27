@@ -82,7 +82,7 @@ export function InviteForm({ folders, organisationName, busy, error, onSubmit, o
         </p>
       )}
       <div className="org-actions">
-        <button type="submit" className="org-btn org-btn--primary" disabled={busy || name.trim() === ''}>
+        <button type="submit" className="org-btn btn-main" disabled={busy || name.trim() === ''}>
           {busy ? 'Adding…' : capability === 'steward' ? 'Make the link' : 'Add'}
         </button>
         <button type="button" className="org-btn" onClick={onCancel} disabled={busy}>
@@ -174,7 +174,7 @@ export function LinkCard({ invitation, access, name, added, notAddedBecause, ori
         </li>
       </ul>
       <div className="org-actions">
-        <button type="button" className="org-btn org-btn--primary" onClick={onDone}>
+        <button type="button" className="org-btn btn-main" onClick={onDone}>
           Done
         </button>
         <button type="button" className="org-btn" onClick={onAnother}>

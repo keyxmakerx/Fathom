@@ -4,7 +4,7 @@ import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import '../../styles/shelf.css';
 
 import { PORT_GLYPHS } from '../ports';
-// `ShelfView`/`OccupantView` are this session's own new shapes (ADR-0051
+// `ShelfView`/`OccupantView` are new shapes (ADR-0051
 // §1) — read straight off `document/view.ts` for the same reason
 // `elevation.ts`'s own file header gives: `./contract.ts` (off limits this
 // session) has not widened its re-export list to carry them yet.
@@ -26,7 +26,7 @@ const OCCUPANT_LABEL_BASE_PX = 9;
 const OCCUPANT_GLYPH_BUDGET_CAP = glyphScaleBudgetCap(Math.max(0, U_PX - OCCUPANT_LABEL_BASE_PX));
 
 /** See the file header on `elevation.ts`'s own `shelfOccupantFaceplateItem`:
- * `OccupantView` (this session's CONTRACT) carries no catalogue "role"
+ * `OccupantView` (`contract.ts`) carries no catalogue "role"
  * finer than `kind: 'chassis' | 'passive'` — nothing that names a switch a
  * switch. UI-SPEC "Ports": "Patch-facing gear (switches, panels) shows
  * ports always; everything else reveals on hover or selection." A passive
@@ -298,10 +298,10 @@ function OccupantInset({
  * React Flow node aligned to the rack's own frame exactly as `ChassisNode.tsx` is
  * (`RackNode.tsx`'s own file header: "Chassis are not drawn here... sibling
  * React Flow nodes positioned to align with this rack's frame") — this
- * session's own wiring note (the handback report) is that a caller lays
+ * session's own wiring note is that a caller lays
  * this node out the same way, from `ShelfView.positionU`/`.heightU`, never
- * from `RackView.chassis` (a shelf is never in that list, this session's
- * own CONTRACT). */
+ * from `RackView.chassis` (a shelf is never in that list, per
+ * `contract.ts`). */
 
 /**
  * `design/places/renders/Shelf.png`'s own 2U example gives the plate a

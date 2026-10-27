@@ -1,10 +1,11 @@
 // Paste rows from a spreadsheet (ADR-0062): TSV or CSV, a header row optional. Shows what will be
 // added and updated, runs every cell through the redaction gate, then hands the plan back.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 import type { Column, InvRow } from './kinds';
 import { gatePastedTable, parseTable, planPaste, splitRowNote, withoutUntickedSplitRows, type GatedTable, type PastePlan } from './paste';
+import { useModal } from '../shell/useModal';
 
 /** A kind whose rows are not matched by Name (prefixes, VLANs): it reads the pasted table itself. */
 export interface CustomPaste {
@@ -46,13 +47,8 @@ export function PasteDialog(props: PasteDialogProps) {
   const table = useMemo(() => parseTable(text), [text]);
   const plan = useMemo(() => planPaste(table, custom ? [] : columns, rows, { canAdd }), [table, columns, rows, canAdd, custom]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onCancel]);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModal(dialogRef, onCancel);
 
   const edit = (v: string) => {
     setText(v);
@@ -82,7 +78,7 @@ export function PasteDialog(props: PasteDialogProps) {
 
   const nothing = custom ? table.length === 0 : plan.adds.length + plan.updates.length === 0;
   return (
-    <div className="inv-paste" role="dialog" aria-modal="true" aria-label={`Paste ${kindLabel}`}>
+    <div className="inv-paste" role="dialog" aria-modal="true" aria-label={`Paste ${kindLabel}`} ref={dialogRef}>
       <div className="inv-paste__box">
         <h2>Paste {kindLabel.toLowerCase()}</h2>
         <p className="inv-paste__muted">

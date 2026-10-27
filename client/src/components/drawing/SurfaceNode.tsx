@@ -409,7 +409,7 @@ function FixtureBox({
   );
 }
 
-/** ADR-0051 §1/§2, this session's brief item 3 — a board fixed with no
+/** ADR-0051 §1/§2, A board fixed with no
  * position still shows what it carries: every OTHER unmeasured fixture in
  * the "not measured" strip (`Panel`/`FloorBand`/`FixtureBox`'s own nested
  * `unmeasuredChildren`, below) draws as its bare name, since there is
