@@ -1,7 +1,7 @@
 {
   "id": "parts-lab",
   "name": "Parts lab",
-  "summary": "A core switch with a four-port card in slot 1, optics in three of its cages, and two closets hanging off it.",
+  "summary": "A core switch with a four-port card in slot 1, optics in three of its cages, two closets hanging off it, and a spares cupboard.",
   "sources": [
     {
       "claim": "Optics (transceivers) are hot-removable and hot-insertable field-replaceable units: they come out and go in without powering the device off.",
@@ -245,5 +245,41 @@
   "trace": {
     "from": "desktop-2",
     "to": "server-1"
-  }
+  },
+  "stores": [
+    {
+      "name": "Comms cupboard",
+      "place": "Next to the core rack",
+      "items": [
+        {
+          "part": "optic",
+          "model": "SFP-10G-SR",
+          "serial": "OPT-0101",
+          "bin": "bin 1",
+          "optic": {
+            "type": "10GBASE-SR"
+          }
+        },
+        {
+          "part": "card",
+          "model": "LC-4SFPP",
+          "serial": "CARD-0102",
+          "bin": "shelf 2",
+          "name": "4 x SFP+"
+        },
+        {
+          "part": "cable",
+          "name": "Fibre patch lead, OM3, LC-LC, 3 m",
+          "count": 6,
+          "bin": "bin 4"
+        }
+      ]
+    }
+  ],
+  "levels": [
+    {
+      "model": "SFP-10G-SR",
+      "at_least": 2
+    }
+  ]
 }

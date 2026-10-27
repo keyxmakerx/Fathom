@@ -3,6 +3,7 @@
 // is missing the step says Fathom does not know, and is still answerable. Fathom never names a cause: a step
 // carries the parts that would be suspect if it fails and the tests that would tell them apart (pointing.ts).
 import { cardOfPort, opticOf, slotPath } from '../../document/cards';
+import { listStores, sparesFor } from '../../document/stock';
 import { deriveNetworks } from '../../document/networks-derive';
 import { tiePlan } from '../../document/portTies';
 import {
@@ -350,6 +351,17 @@ function networkFacts(doc: Document, deviceId: string, cableId: string, switchId
 
 const bare = (address: string): string => address.split('/')[0];
 
+/** Whether a spare for a part is on hand, and where (ADR-0075): ", one on hand in Comms cupboard, bin 3". */
+function spareWords(doc: Document, partId: string): string {
+  const spares = sparesFor(doc, partId).filter((i) => i.state === 'spare');
+  if (spares.length === 0) return ' (none on hand in stock)';
+  const n = spares.reduce((sum, i) => sum + i.count, 0);
+  const stores = new Map(listStores(doc).map((s) => [s.id, s.name]));
+  const first = spares[0]!;
+  const where = [first.storeId ? stores.get(first.storeId) : '', first.bin].filter(Boolean).join(', ');
+  return ` (${n === 1 ? 'one' : n} on hand${where ? ` in ${where}` : ''})`;
+}
+
 /** The parts in a link's ends (r35): the optic in each cage, and the card each port is on. Each is a suspect when the
  * link is dark, with the look and the test that tell it apart. */
 function partsOnLink(doc: Document, ends: readonly { port: string; where: string }[]): { suspects: Suspect[]; how: string[]; tests: string[] } {
@@ -362,7 +374,7 @@ function partsOnLink(doc: Document, ends: readonly { port: string; where: string
       const what = [optic.type, optic.part].filter(Boolean).join(', ');
       out.suspects.push({ label: `the optic in ${where}`, id: port });
       out.how.push(`Check the optic in ${where}${what ? ` (${what})` : ''} is pushed fully home and is the kind the cable needs.`);
-      out.tests.push(`Swap the optic in ${where} for a spare of the same kind`);
+      out.tests.push(`Swap the optic in ${where} for a spare of the same kind${spareWords(doc, port)}`);
     } else if (optic === null) {
       out.suspects.push({ label: `the empty cage at ${where}`, id: port });
       out.how.push(`Fathom has ${where} recorded as an empty cage: a fibre or DAC port gives no link without an optic or cable in it.`);
@@ -371,7 +383,7 @@ function partsOnLink(doc: Document, ends: readonly { port: string; where: string
     if (card !== null && live(doc, card)) {
       const slot = slotPath(doc, card);
       out.suspects.push({ label: `the card in ${slot}`, id: card });
-      out.tests.push(`Look at the other ports on the card in ${slot}: if they are dark too, that points at the card`);
+      out.tests.push(`Look at the other ports on the card in ${slot}: if they are dark too, that points at the card${spareWords(doc, card)}`);
     }
   }
   return out;

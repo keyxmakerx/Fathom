@@ -37,8 +37,9 @@ import {
   type Document,
   type GraphNode,
 } from '../../document/model';
-import { fitCard, setOptic } from '../../document/cards';
+import { fitCard, setOptic, type CardPorts } from '../../document/cards';
 import { expandPortPattern } from '../../document/portPattern';
+import { addStock, addStore, setStockLevel, type NewStock } from '../../document/stock';
 import { addEdge, addNode, begin, finish } from '../../document/freeform';
 import { addSubnet, addVlan, type Actor } from '../../document/networks';
 import { tiePorts } from '../../document/portTies';
@@ -103,6 +104,9 @@ export interface SampleSpec {
   questions?: SampleQuestion[];
   /** A practice sample's planted mistakes, each the Check rule that finds it; the sample's test holds Checks to it. */
   mistakes?: { rule: string; where: string; what: string }[];
+  /** Spares on hand (ADR-0075): stores with what is in them, and the fewest of a model to keep. */
+  stores?: { name: string; place?: string; items: Omit<NewStock, 'storeId'>[] }[];
+  levels?: { model: string; at_least: number }[];
 }
 
 export interface SampleFirewall {
@@ -308,6 +312,12 @@ export function buildSample(spec: SampleSpec, models: ReadonlyMap<string, Catalo
       opts,
     );
   }
+
+  for (const st of spec.stores ?? []) {
+    const made = addStore(doc, { name: st.name, place: st.place }, opts);
+    doc = addStock(made.doc, st.items.map((i) => ({ ...i, storeId: made.id })), opts).doc;
+  }
+  for (const l of spec.levels ?? []) doc = setStockLevel(doc, l.model, l.at_least, opts);
 
   doc = addDefaultRoutes(doc, devices, spec, opts);
   if (spec.firewall) doc = addFirewall(doc, devices, spec, spec.firewall, opts);

@@ -317,6 +317,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0051_design_moved.sql",
         sql: include_str!("../migrations/0051_design_moved.sql"),
     },
+    // Custom fields on a spare: definitions may apply to `part` (ADR-0075).
+    Migration {
+        version: 52,
+        name: "0052_field_part.sql",
+        sql: include_str!("../migrations/0052_field_part.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

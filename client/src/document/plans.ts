@@ -42,6 +42,7 @@ import {
   type GraphNode,
 } from './model';
 import { memberInterfaces } from './portTies';
+import { reservedFor, swapFromStock, type OldPartTo } from './stock';
 import { truncateUtf8 } from './undo';
 
 interface Actor {
@@ -748,9 +749,13 @@ function relabelLast(doc: Document, from: number, label: string): Document {
 export interface MarkDoneOptions extends Actor {
   /** Dry-runs the step's edit against the checks (`OP_CHECK_GESTURE`). Required, so no caller skips it. */
   check: StepCheck;
+  /** A swap step with a spare reserved for it (ADR-0075): where the part that comes out goes. Left out, it is
+   * retired, so it is never counted as a spare nobody checked; the Inventory moves it on. */
+  oldPartTo?: OldPartTo;
 }
 
-/** Applies the step's edit through the normal command, then marks it done: one undo step. */
+/** Applies the step's edit through the normal command, then marks it done: one undo step. A swap step with a
+ * spare reserved for it fits that spare from stock, so the spare leaves stock and the old part goes in. */
 export function markDone(doc: Document, stepId: string, opts: MarkDoneOptions): Document {
   const { plan, step } = requireTurn(doc, stepId);
   if (step.edit) {
@@ -760,7 +765,13 @@ export function markDone(doc: Document, stepId: string, opts: MarkDoneOptions): 
   }
   const from = doc.batches.length;
   const now = opts.now ?? Date.now();
-  const applied = step.edit ? applyEdit(doc, step.edit, { actor: opts.actor, now }) : doc;
+  const spare = step.edit?.t === 'part' ? reservedFor(doc, stepId) : null;
+  const applied =
+    spare && step.edit?.t === 'part'
+      ? swapFromStock(doc, step.edit.id, spare.id, { actor: opts.actor, now, oldTo: opts.oldPartTo ?? 'retired' })
+      : step.edit
+        ? applyEdit(doc, step.edit, { actor: opts.actor, now })
+        : doc;
   const b = begin(applied, { actor: opts.actor, now });
   setNodeField(b, stepId, 'PlanStep.state', token('done'));
   setNodeField(b, stepId, 'PlanStep.done_at', text(new Date(now).toISOString()));

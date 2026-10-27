@@ -362,6 +362,8 @@ export interface StepForm {
   /** swap: the part (a card, a power supply, or the port an optic is in) and the new one's model and serial. */
   part: string;
   partModel: string;
+  /** swap: the spare chosen from stock (ADR-0075), kept for this step when it is added; '' for none. */
+  spare: string;
 }
 
 export const EMPTY_FORM: StepForm = {
@@ -384,6 +386,7 @@ export const EMPTY_FORM: StepForm = {
   lacp: 'active',
   part: '',
   partModel: '',
+  spare: '',
 };
 
 export interface BuiltStep {

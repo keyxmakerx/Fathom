@@ -1,0 +1,6 @@
+# A counted spare of the model: the Inventory adds the counts up, the check stays quiet.
+nodes:
+  - { id: l1, kind: StockLevel, set: { model: LC-LC-OM3-3M, at_least: 10 } }
+  - { id: s1, kind: StockItem, set: { part: cable, model: LC-LC-OM3-3M, count: 6, state: spare } }
+edges: []
+anchor: l1

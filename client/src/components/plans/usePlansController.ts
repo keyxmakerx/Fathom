@@ -7,6 +7,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FIELD_KEYS } from '../../../../schema/generated/ir_types';
 import { IncompatibleConnectorError, PortAlreadyTerminatedError } from '../../document/cables';
 import type { Document } from '../../document/model';
+import { foldFrom } from '../../document/freeform';
+import { reserve } from '../../document/stock';
 import {
   PlanRefusal,
   addStep,
@@ -444,6 +446,8 @@ export function usePlansController({ doc, boot, mirrorNow, loadCostMs, redact, a
         if ('error' in built) throw new PlanRefusal('bad-edit', built.error);
         const out = addStep(doc0, plan.id, { ...built, gate, ...stamp() });
         setPrefill(null);
+        // A spare picked from stock is kept for the step in the same undo step (ADR-0075).
+        if (form.kind === 'swap' && form.spare !== '') return foldFrom(reserve(out.doc, form.spare, out.id, stamp()), doc0.batches.length);
         return out.doc;
       }, howOf(pasted)),
     removeStep: (stepId) => run((doc0) => removeStep(doc0, stepId, stamp())),

@@ -1066,6 +1066,26 @@ fn a_0_28_header_opens_but_cannot_hold_a_room() {
     );
 }
 
+/// Stock (0.30) adds kinds: a 0.29 design opens, and no older header may hold a spare.
+#[test]
+fn a_0_29_header_opens_but_cannot_hold_a_spare() {
+    use fathom_ir::generated::ir_types::SCHEMA_VERSION;
+    let older = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.29", 1);
+    assert_ne!(older, PINNED, "the substitution must have landed");
+    read_plain(older.as_bytes()).expect("a 0.29 payload opens");
+    let mut g = Graph::new();
+    g.begin_batch(BatchId(ulid(0)), "build").expect("open");
+    g.insert_node(NodeKind::StockItem, ulid(1), prov(1))
+        .expect("stock item");
+    g.end_batch().expect("close");
+    let text = String::from_utf8(write_plain(&g).expect("writes")).expect("UTF-8");
+    let old = text.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.29", 1);
+    assert!(
+        read_plain(old.as_bytes()).is_err(),
+        "a 0.29 header cannot hold a StockItem"
+    );
+}
+
 /// A 0.15 design holds plans, and a 0.14 one does not (the plan kinds arrived at 0.15).
 #[test]
 fn a_0_15_header_holds_a_plan_and_a_0_16_one_too() {

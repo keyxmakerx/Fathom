@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.29"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.30"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -347,6 +347,18 @@ schema:
                     # HasFloorPlan and HasRoom from Premises and HasRoomCorner from Room. Twelve
                     # field keys (512-523). 62 §16.2: new kinds and edges are minor. Whole change =
                     # MINOR. The reader still opens 0.10 to 0.28.
+                    #
+                    # 0.30 is available inventory (ADR-0075, sign-offs r36-stock and r38-stock-how,
+                    # 2026-10-26), all additive: three node kinds hung off the root, Store (a
+                    # cupboard, shelf or room spares sit in), StockItem (a part on hand but not
+                    # fitted: spare, reserved, on order, in repair, lent or retired) and
+                    # StockLevel (the fewest spares of one model to keep); their root
+                    # containment edges HasStore, HasStock and HasStockLevel; and three reference
+                    # edges, InStore (item to store), ReservedFor (item to the plan step that
+                    # will fit it) and ForIssue (item to the issue it went for repair under).
+                    # StockItem joins Fieldable so custom fields (price, supplier) fill on it.
+                    # Eighteen field keys (524-541). 62 §16.2: new kinds, edges and class members
+                    # are minor. Whole change = MINOR. The reader still opens 0.10 to 0.29.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -596,6 +608,10 @@ classes:
       - FloorPlan
       - Room
       - RoomCorner
+      # Available inventory (0.30): stores, stock and levels are lists; the client draws no box.
+      - Store
+      - StockItem
+      - StockLevel
       # Custom-field values (0.16): joins Placeable as Tag does; the client draws no box.
       - FieldValue
     doc: |
@@ -613,9 +629,10 @@ classes:
     doc: |
       The owners of TaggedWith (ADR-0059 decision 2). Widens later, as Placeable has.
   - class: Fieldable
-    members: [Device, PhysicalPort, Cable, Rack, Vlan, ContainerNetwork]
+    members: [Device, PhysicalPort, Cable, Rack, Vlan, ContainerNetwork, StockItem]
     doc: |
       The owners of FieldValue (custom fields, 0.16): the inventory things a field can apply to.
+      StockItem joined in 0.30 so a spare carries its price and supplier (ADR-0075).
 
   - class: Docable
     members: [Device, PassiveNode, PhysicalPort, Cable, Rack]
@@ -2351,6 +2368,60 @@ kinds:
       - { name: seq, type: u16, card: "1", emit: "—", doc: "The corner's place in the outline, from 0." }
     identity: []
 
+  # Available inventory (ADR-0075, schema 0.30). Appended at the tail (62 §13).
+  - kind: Store
+    layer: physical
+    emits: false
+    doc: |
+      Somewhere spares are kept that is not a rack: a cupboard, a shelf, a drawer, a room. Hung
+      off the root through HasStore, listed rather than drawn until Sites and rooms are built.
+      A store's bins are not nodes: a StockItem names its bin in words.
+    fields:
+      - { name: name, type: Text, card: "1", emit: "—", doc: "What the store is called: \"Comms cupboard\"." }
+      - { name: place, type: Text, card: "0..1", emit: "—", doc: "Where it is, in words: \"2nd floor, by the lifts\"." }
+      - { name: note, type: Text, card: "0..1", emit: "—", doc: Words for it. }
+    identity: []
+
+  - kind: StockItem
+    layer: physical
+    emits: false
+    doc: |
+      Something on hand but not fitted (ADR-0075): a spare card, optic, power supply, device,
+      lead or anything else; or one on order, away for repair, lent out or retired. Hung off the
+      root through HasStock. A thing with a serial is one item; a thing without one may be a
+      count of the same ("37 blue 2 m leads"). Fitting a spare turns it into the Card, the
+      PowerSupply or the port's transceiver it becomes and ends the item; taking a part out makes
+      an item, with where it came from frozen in `came_from`, so the serial's history reads on.
+      An optic keeps its Transceiver value so fitting it sets the cage exactly.
+    fields:
+      - { name: part, type: "enum { card, optic, power_supply, device, cable, other }", card: "1", emit: "—", doc: What sort of thing it is. }
+      - { name: model, type: Identifier, card: "0..1", emit: "—", doc: "Its model or part number, as the catalogue or the label writes it." }
+      - { name: name, type: Text, card: "0..1", emit: "—", doc: "What it is, in words: \"Patch lead, Cat6, 2 m, blue\"." }
+      - { name: serial, type: Identifier, card: "0..1", emit: "—", doc: Inventory. Sensitive-ish; never leaves the workspace -- Chassis.serial's own doc. }
+      - { name: count, type: u32, card: "0..1", emit: "—", doc: "How many, for things without a serial. Absent means one." }
+      - { name: state, type: "enum { spare, reserved, on_order, in_repair, lent, retired }", card: "1", emit: "—", doc: "Where it stands. A reserved item names its step through ReservedFor." }
+      - { name: bin, type: Text, card: "0..1", emit: "—", doc: "Where in its store: \"bin 3\", \"top drawer\"." }
+      - { name: optic, type: Transceiver, card: "0..1", emit: "—", doc: "For an optic: what fitting it puts in the cage (PhysicalPort.transceiver's shape)." }
+      - { name: due, type: Text, card: "0..1", emit: "—", doc: "When it is due: an order's delivery, a repair's return, a loan's end. An ISO date." }
+      - { name: rma, type: Text, card: "0..1", emit: "—", doc: "The vendor's RMA or ticket number while it is away for repair." }
+      - { name: lent_to, type: Text, card: "0..1", emit: "—", doc: "Who has it, while it is lent." }
+      - { name: came_from, type: Text, card: "0..1", emit: "—", doc: "Where it was fitted before it came here, frozen in words when it was taken out: \"core-sw1 · slot 1\"." }
+      - { name: note, type: Text, card: "0..1", emit: "—", doc: Words for it. }
+    identity: []
+
+  - kind: StockLevel
+    layer: physical
+    emits: false
+    doc: |
+      The fewest spares of one model to keep on hand (ADR-0075). Hung off the root through
+      HasStockLevel; one per model, the editor keeps that, as FirmwareTarget does. The rule
+      `stock.below-minimum` reads it against the spare StockItems of that model.
+    fields:
+      - { name: model, type: Identifier, card: "1", emit: "—", doc: "The model, matched against StockItem.model." }
+      - { name: at_least, type: u32, card: "1", emit: "—", doc: How many spares to keep. }
+    identity:
+      - [ model ]
+
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope
   # require reverse adjacency, and ADR-0007's reverse index already guarantees it (11 §14.3).
@@ -4047,6 +4118,74 @@ edges:
     fields: []
     emit_dict: null
     doc: ADR-0051. A room's outline, corner by corner; their order is RoomCorner.seq.
+
+  # Available inventory (ADR-0075, schema 0.30). Appended at the tail (62 §13).
+  - edge: HasStore
+    class: containment
+    from: [root]
+    to: [Store]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: Stores hang off the design root as Tag does.
+  - edge: HasStock
+    class: containment
+    from: [root]
+    to: [StockItem]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: Stock hangs off the design root as Tag does.
+  - edge: HasStockLevel
+    class: containment
+    from: [root]
+    to: [StockLevel]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: Stock levels hang off the design root as FirmwareTarget does.
+  - edge: InStore
+    class: reference
+    from: [StockItem]
+    to: [Store]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ADR-0075. The store an item sits in. None while it is on order, away for repair or lent.
+  - edge: ReservedFor
+    class: reference
+    from: [StockItem]
+    to: [PlanStep]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ADR-0075. The plan step that will fit a reserved item. Back out or a removed step frees it.
+  - edge: ForIssue
+    class: reference
+    from: [StockItem]
+    to: [Issue]
+    out: "0..1"
+    in: "0..n"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: ADR-0075. The issue a part went away for repair under.
 
 derived_edges:
   # Contract: separate arena, never serialised, never merged, never edited; rebuilt on load

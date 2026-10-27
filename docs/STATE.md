@@ -341,7 +341,18 @@ breadcrumb does one thing.
   chassis hardware` offers the parts it reports (`document/facts.ts`). A plan's Swap a part step changes
   a part's serial and model in place and backs out. Lesson `cards-and-optics` on sample `parts-lab`.
   It's down's link step and the path trace name the card and optic; neither shows a serial, nor does the
-  AI reading. Spares are not built.
+  AI reading. Spares are built since (ADR-0075, below).
+- **Spares and stores** (ADR-0075, schema 0.29). `Store`, `StockItem` and `StockLevel` hang off the root.
+  Inventory › Parts › On hand lists what is on hand, on order, away for repair, lent and retired, says
+  which models are below the level kept, and holds the stores (each with its own page, bin by bin) and the
+  levels. Add to stock takes one typed, a pasted list or `show inventory` (through the redaction gate), a
+  CSV, or parts out of a drawn device. A Swap a part step picks its spare from stock and keeps it; Done
+  fits it, and the old part goes into stock with where it came from (`document/stock.ts`). Custom fields
+  apply to `part` (migration 0049); a starter set offers Price, Supplier, Order number and Warranty end.
+  Check `stock.level.below-minimum`. It's down says whether a spare is on hand. The AI reading lists
+  spares without serials, their custom fields only at the notes tier. Parts-lab has a cupboard; the Cards
+  and optics lesson and the explainer `basics.spares` teach it. Not built: labels, the phone's scan
+  button (the phone-view work), the firmware check on spares.
 - **Inventory table with pages and shared custom fields** (schema 0.16, ADR-0062). Field definitions are an organisation-wide server store (migration 0035); a value is a `FieldValue` node in the design. Private fields are not built.
 - **IP and VLAN tables, file importer** (ADR-0067): Inventory Prefix and VLAN kinds derived from the drawing, and one importer (CSV, NetBox, Proxmox, nmap).
 - **Suggestions from what a switch knows** (ADR-0046: suggestions, never facts; one undo step; the pasted text is never kept). A neighbour list (`show lldp neighbors` on Junos, Cisco, Arista; `lldpcli show neighbors`; Cisco `show cdp neighbors` and its `detail` form) suggests cables between drawn ports (`document/neighbours.ts`, round 15). A MAC table (`show mac address-table` on Cisco IOS and NX-OS, `show ethernet-switching table` on Junos non-ELS), with an optional ARP table (`show ip arp`, Junos `show arp`, `ip neigh`) or DHCP leases (ISC `dhcpd.leases`, `dnsmasq.leases`, Kea `kea-leases4.csv`) for addresses and names, suggests who is plugged in where: a port that learned one MAC is cabled to a drawn port carrying that MAC, or gets a new sketch device with that MAC and address; a port with several is left (`document/hosts.ts`, round 29, card r29-fill). A device's own report (`show version` on Junos, Cisco IOS and Arista; Cisco `show inventory`; Junos `show chassis hardware`) offers its serial and running version (`Device.os_version`) where the drawing has none, a difference unticked, and only says the model and hostname (`document/facts.ts`). Paste any of these onto the canvas, or right-click a switch. Not read: the Junos ELS table form. `scripts/drive-suggest.mjs` and `scripts/drive-hosts.mjs` drive them.
@@ -573,7 +584,8 @@ port"; it offers jacks only, and shows and unties ties.
 
 **AI access** (ADR-0072; migration 0046; `src/ai.rs`, `src/oauth.rs`, `src/mcp.rs`, `components/ai/`). A
 person a Steward names lets an AI app read designs they can read, in one organisation, at the tiers the
-organisation allows (layout; addresses; notes), and send ideas a person accepts or dismisses. Never
+organisation allows (layout, which includes spares without serials; addresses; notes, which includes a
+spare's custom fields, ADR-0075), and send ideas a person accepts or dismisses. Never
 passwords or the vault. Two ways in, one grant row (`ai_keys`, kind `helper` or `connector`) and one set of
 rules checked at every request: (a) the **connector**: with `FATHOM_AI_PUBLIC_URL` set, the server is its
 own OAuth 2.1 authorization server and serves `/mcp` (Streamable HTTP, five tools; since ADR-0074 a design

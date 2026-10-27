@@ -10,9 +10,9 @@ import type { Scope } from '../../api/scopes';
 import './ai.css';
 
 export const TIER_WORDS: Record<Tier, string> = {
-  layout: 'Devices, ports, cables, racks, places and tags',
+  layout: 'Devices, ports, cables, racks, places, tags and spares on hand (never a serial number)',
   addresses: 'Addresses, VLANs and what pasted configs set',
-  notes: 'Notes',
+  notes: "Notes, and a spare's custom fields such as its price and supplier",
 };
 
 export const DAY_WORDS: Record<number, string> = { 30: '30 days', 90: '90 days', 365: '1 year' };

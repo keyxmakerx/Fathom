@@ -272,3 +272,46 @@ entries:
     - { publisher: "Ethernet Alliance", doc: "Overview of 802.3bt, Power over Ethernet standard (Yseboodt and Abramson, December 2019), tables 3 and 4", url: "https://ethernetalliance.org/wp-content/uploads/2019/12/WP_EA_Overview8023bt_V2p1_FINAL.pdf", read_on: "2026-10-25", note: "PD maximum power: Type 1 13 W, Type 2 25.5 W, Type 3 51 W, Type 4 71.3 W; PSE and PD named as power sourcing equipment and powered device" }
 
   terminal: true
+
+- id: explain:concept:basics.spares
+  class: concept
+  subject: { path: basics.spares }
+  title: "Spares and RMAs: what to keep on the shelf, and what happens to the part that failed"
+  entry_version: 1.0.0
+  status: active
+  platforms: ["*"]
+  versions: "*"
+  grounding: documented
+  reviewed_by: <named human>
+  reviewed_on: 2026-10-26
+  voice_reviewed_by: <named human>
+
+  terse: >
+    A spare of the same part number on the shelf turns a failure into a swap; the failed part goes back under an RMA.
+
+  explained: >
+    Optics, cards and power supplies are field-replaceable: they come out and go in on their own,
+    and an optic can be swapped with the switch powered. A spare of the same part number on hand
+    means a dead one is replaced in minutes instead of waiting for a delivery. The failed part goes
+    back to the vendor under a Return Material Authorization (RMA) number, which the vendor uses to
+    track it; asking for one needs the part's serial number.
+
+  teaching:
+    body: >
+      In Fathom, Inventory › Parts › On hand lists the spares and where they are kept, and Keep at
+      least says how many of each model to hold; Checks says when stock falls below that. A Swap a
+      part step can keep a spare for the job, and marking the step done fits it and puts the old part
+      in stock with where it came from. Send it for repair with the vendor's RMA number and the issue
+      it was for. Juniper asks for the RMA number written on the outside of the box, and Cisco's
+      advance replacement wants the failed part back within ten calendar days of receiving the new one.
+
+    breaks_if_wrong: >
+      Counting a part that is away for repair, or lent, as a spare. The shelf looks covered until the
+      day it is needed.
+
+  sources:
+    - { vendor: "Juniper Networks", doc: "Contact Customer Support and Return Components, QFX5140 Switch Hardware Guide", url: "https://www.juniper.net/documentation/us/en/hardware/qfx5140/topics/topic-map/contact-support-and-return-components.html", read_on: "2026-10-26", note: "no date on the page: \"you need a Return Material Authorization (RMA) number and the equipment serial number\"; \"Write the RMA number on the exterior of the box to ensure proper tracking\"" }
+    - { vendor: "Cisco", doc: "Cisco RMA Policy for Warranty and Hardware Support Contract Returns (EDCS-23258637)", url: "https://www.cisco.com/c/en/us/products/warranties/warranty-doc-3070973.html", read_on: "2026-10-26", note: "updated 21 June 2023: Cisco issues RMA numbers \"to track authorized returns\"; failed product returned \"within ten (10) calendar days of receipt of the replacement parts\"" }
+    - { vendor: "Juniper Networks", doc: "Maintain Transceivers, EX4400 Switch Hardware Guide", url: "https://www.juniper.net/documentation/us/en/hardware/ex4400/Other/maintaining-transceivers.html", read_on: "2026-10-26", note: "no date on the page: transceivers are hot-removable and hot-insertable field-replaceable units" }
+
+  terminal: true

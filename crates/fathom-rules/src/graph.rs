@@ -83,6 +83,8 @@ enums!(
     ServiceReach,
     ServiceTypeUniScope,
     SiteCriticality,
+    StockItemPart,
+    StockItemState,
     TenantKind,
     TunnelEndpointSide,
     TunnelIntendedState,
@@ -435,7 +437,9 @@ pub fn box_from_text(key: FieldKey, text: &str) -> Result<Box<dyn Any>, String> 
             PhysicalPortConnector,
             PhysicalPortService,
             VlanMemberMode,
-            InterfaceDuplex
+            InterfaceDuplex,
+            StockItemPart,
+            StockItemState
         );
         return Err(format!("fixtures cannot set {} yet", row.name));
     }
