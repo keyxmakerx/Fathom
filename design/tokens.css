@@ -71,6 +71,7 @@
   --cable-power:   3.4px;      /* one heavy stroke */
   --cable-lit:     2.6px;      /* the selected path's core, over --cable-halo */
   --cable-halo:    9px;
+  --cable-plain:   color-mix(in srgb, var(--muted) 45%, var(--page)); /* every cable not pointed at, under "Only the one I point at": faint ink, never a sheath */
   --cable-dash:    5px 3px;    /* a VLAN group's trunk member, GitHub issue #54 */
   --phantom:       0.28;       /* everything off the lit path */
 

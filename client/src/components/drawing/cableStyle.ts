@@ -51,3 +51,43 @@ export function saveCableStyle(accountId: string | null, style: CableStyle): voi
     // best effort only
   }
 }
+
+/** Cable colour (Key Maker's note on the cables card, 2026-10-27): every cable in its sheath
+ * colour, or only the cable pointed at or selected, with the rest in plain grey. Kept like the
+ * style: per person, in this browser, never in the design. */
+export const CABLE_COLOURS = ['all', 'pointed'] as const;
+
+export type CableColour = (typeof CABLE_COLOURS)[number];
+
+export const CABLE_COLOUR_LABEL: Record<CableColour, string> = {
+  all: 'Every cable',
+  pointed: 'Only the one I point at',
+};
+
+export const DEFAULT_CABLE_COLOUR: CableColour = 'all';
+
+export function isCableColour(raw: unknown): raw is CableColour {
+  return typeof raw === 'string' && (CABLE_COLOURS as readonly string[]).includes(raw);
+}
+
+function colourKeyFor(accountId: string | null): string {
+  return `fathom.cableColour.${accountId ?? 'anon'}`;
+}
+
+export function loadCableColour(accountId: string | null): CableColour {
+  try {
+    const raw = localStorage.getItem(colourKeyFor(accountId));
+    if (isCableColour(raw)) return raw;
+  } catch {
+    // storage unavailable: the default is the honest fallback
+  }
+  return DEFAULT_CABLE_COLOUR;
+}
+
+export function saveCableColour(accountId: string | null, colour: CableColour): void {
+  try {
+    localStorage.setItem(colourKeyFor(accountId), colour);
+  } catch {
+    // best effort only
+  }
+}

@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import type { Edge } from '@xyflow/react';
+import { useEffect, type RefObject } from 'react';
+import { ViewportPortal, type Edge } from '@xyflow/react';
 
 import { cycle } from './cableHover';
 import { visualGroupId } from './CableEdge';
@@ -20,6 +20,45 @@ export function CableOverlayEdge() {
   const top = useLive((s) => s.hoveredCableId ?? s.litCableId);
   if (top == null) return null;
   return <use href={`#${visualGroupId(top)}`} pointerEvents="none" className="drawing-cable-overlay" data-testid="cable-overlay" />;
+}
+
+/** The same cable drawn once more above the devices (Key Maker's note on the cables card,
+ * 2026-10-27): pointed at or selected, a cable runs over every box between its ends instead of
+ * under them. It takes no pointer events, so hover and click still reach what is underneath. */
+export function CableTopLayer() {
+  const top = useLive((s) => s.hoveredCableId ?? s.litCableId);
+  if (top == null) return null;
+  return (
+    <ViewportPortal>
+      <svg className="drawing-cable-top" width={1} height={1} aria-hidden="true" data-testid="cable-top">
+        <use href={`#${visualGroupId(top)}`} />
+      </svg>
+    </ViewportPortal>
+  );
+}
+
+/** While a cable is pointed at or selected, the drawing says so (`data-cable-focus`) and every
+ * piece of equipment not on that cable's path dims (`drawing.css`). Set straight on the element,
+ * so a hover re-renders nothing but this. */
+export function CableFocus({ container }: { container: RefObject<HTMLDivElement | null> }) {
+  const focused = useLive((s) => s.litCableId != null);
+  useEffect(() => {
+    const el = container.current;
+    if (el == null) return;
+    if (focused) el.dataset.cableFocus = '';
+    else delete el.dataset.cableFocus;
+  }, [container, focused]);
+  return null;
+}
+
+/** Marks a node that holds a cable on the lit path, so it stays bright while the rest dims. */
+export function LitPathMark({ cableIds }: { cableIds: ReadonlySet<string> }) {
+  const on = useLive((s) => {
+    if (s.litCableIdSet.size === 0) return false;
+    for (const id of cableIds) if (s.litCableIdSet.has(id)) return true;
+    return false;
+  });
+  return on ? <span className="drawing-lit-mark" data-lit-path="" hidden /> : null;
 }
 
 /** Tab while the pointer rests where cables cross moves to the next one under it; Shift+Tab goes

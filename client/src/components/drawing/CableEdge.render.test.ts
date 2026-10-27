@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { CableView } from './contract';
 import { CableEdge, type CableEdgeData, type CableEdgeType } from './CableEdge';
-import { CableCrossingKeys, CableOverlayEdge } from './CableOverlayEdge';
+import { CableCrossingKeys, CableOverlayEdge, LitPathMark } from './CableOverlayEdge';
 import type { CableStyle } from './cableStyle';
 import { createLiveStore, LiveStoreProvider, type LiveState, type LiveStore } from './liveStore';
 
@@ -119,5 +119,41 @@ describe('the top cable layer', () => {
 describe('ties belong to the cable-tied style', () => {
   it('draws no ties in another style, even if handed some', () => {
     expect(renderCable('square', {}, { ties: [{ x1: 0, y1: 50, x2: 10, y2: 50 }] })).not.toContain('drawing-cable__tie');
+  });
+});
+
+describe('colour only the cable pointed at', () => {
+  it('draws every other cable plain, never in its sheath', () => {
+    const html = renderCable('physics', { cableColour: 'pointed' });
+    expect(html).toContain('var(--cable-plain)');
+    expect(html).not.toContain('var(--sheath-blue)');
+  });
+  it('gives the pointed-at or selected cable its own colour back', () => {
+    expect(renderCable('physics', { cableColour: 'pointed', hoveredCableId: 'c1' })).toContain('var(--sheath-blue)');
+    expect(renderCable('physics', { cableColour: 'pointed', litCableId: 'c1', litCableIdSet: new Set(['c1']) })).toContain('var(--sheath-blue)');
+  });
+  it('colours every cable by default', () => {
+    expect(renderCable('physics')).toContain('var(--sheath-blue)');
+  });
+});
+
+describe('each end marks its port while the ports are too small to draw', () => {
+  it('draws the two port boxes zoomed out, held at their size on screen', () => {
+    const html = renderCable('physics', { showPortGlyphs: false });
+    expect(html.match(/drawing-cable__pip/g)?.length).toBe(2);
+    expect(html).toContain('scale(var(--cable-k, 1))');
+  });
+  it('leaves it to the ports themselves once they are drawn', () => {
+    expect(renderCable('physics', { showPortGlyphs: true })).not.toContain('drawing-cable__pip');
+  });
+});
+
+describe('equipment on the lit path stays bright', () => {
+  it('marks a node holding a cable on the lit path, and no other', () => {
+    const store = createLiveStore();
+    store.setState({ litCableId: 'c1', litCableIdSet: new Set(['c1', 'c2']) });
+    expect(wrap(store, createElement(LitPathMark, { cableIds: new Set(['c2']) }))).toContain('data-lit-path');
+    expect(wrap(store, createElement(LitPathMark, { cableIds: new Set(['c7']) }))).toBe('');
+    expect(wrap(createLiveStore(), createElement(LitPathMark, { cableIds: new Set(['c2']) }))).toBe('');
   });
 });

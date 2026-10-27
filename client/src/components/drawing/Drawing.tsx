@@ -68,13 +68,13 @@ import {
 import { ChassisNode, INLET_ANCHOR_HANDLE_ID, type ChassisNodeData, type ChassisNodeType } from './ChassisNode';
 import { BundleEdge, type BundleEdgeData, type BundleEdgeType } from './BundleEdge';
 import { CableEdge, type CableEdgeData, type CableEdgeType } from './CableEdge';
-import { CableCrossingKeys, CableOverlayEdge, CABLE_OVERLAY_EDGE_ID, type CableOverlayEdgeType } from './CableOverlayEdge';
+import { CableCrossingKeys, CableFocus, CableOverlayEdge, CableTopLayer, CABLE_OVERLAY_EDGE_ID, type CableOverlayEdgeType } from './CableOverlayEdge';
 import { planTies, type TieInput, type Waypoint } from './cableRoute';
 import { CableRunActionsContext, type CableRunActions } from './CableRunMarks';
 import { pointOnRun, rackRunLine, runUnder, type RackBox, type RunSegment } from './runGeometry';
 import type { CableRunView } from '../../document/cableRuns';
 import type { EditorChange } from './contract';
-import { DEFAULT_CABLE_STYLE, type CableStyle } from './cableStyle';
+import { DEFAULT_CABLE_COLOUR, DEFAULT_CABLE_STYLE, type CableColour, type CableStyle } from './cableStyle';
 import { ColourPicker } from './ColourPicker';
 import { ContextMenu } from './ContextMenu';
 import { parseFreeNodeId } from './freeLayout';
@@ -361,6 +361,8 @@ export interface DrawingProps extends DrawingActions {
   minimap?: boolean;
   /** This person's cable style (`cableStyle.ts`); physics when absent. */
   cableStyle?: CableStyle;
+  /** Every cable in its sheath colour, or only the one pointed at (`cableStyle.ts`). */
+  cableColour?: CableColour;
   /** Edits the drawing makes itself: cable runs and ties (schema 0.23). Absent for a reader. */
   onEdit?: (change: EditorChange) => { refused: string } | void;
 }
@@ -487,6 +489,7 @@ function DrawingInner({
   keyCableIds,
   minimap,
   cableStyle = DEFAULT_CABLE_STYLE,
+  cableColour = DEFAULT_CABLE_COLOUR,
   onEdit,
 }: DrawingProps) {
   const rf = useReactFlow<FlowNode>();
@@ -2003,8 +2006,9 @@ function DrawingInner({
       splitBundles,
       keyCableIds: keyCableIds ?? null,
       cableStyle,
+      cableColour,
     });
-  }, [liveStore, selected, dragFromPortId, livePortIds, dropPreview, shakingId, dimmedChassisId, cameraStop, showPortGlyphs, splitBundles, keyCableIds, cableStyle]);
+  }, [liveStore, selected, dragFromPortId, livePortIds, dropPreview, shakingId, dimmedChassisId, cameraStop, showPortGlyphs, splitBundles, keyCableIds, cableStyle, cableColour]);
 
   const allNodes = useMemo(() => [...nodes, ...free.nodes, ...looseNodes], [nodes, free.nodes, looseNodes]);
   const marks = useMemo(
@@ -2050,6 +2054,7 @@ function DrawingInner({
       {...free.containerProps}
     >
       <CableCrossingKeys />
+      <CableFocus container={containerRef} />
       <ReactFlow
         nodes={shown.nodes}
         edges={shown.edges}
@@ -2124,6 +2129,7 @@ function DrawingInner({
             ))}
           </ViewportPortal>
         )}
+        <CableTopLayer />
       </ReactFlow>
       {free.overlay}
       <InSideSlot id="canvas-tools">
