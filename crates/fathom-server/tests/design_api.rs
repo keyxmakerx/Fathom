@@ -466,7 +466,9 @@ async fn app(
         live,
         invitation_limits: fathom_server::invitations::Limits::STANDARD,
         ai_connector: None,
-        termix: None,
+        termix: Some(
+            fathom_server::termix::Termix::parse("https://termix.example.lan").expect("an origin"),
+        ),
     };
     fathom_server::api::router(api_state).merge(design_api::router(design_state))
 }
@@ -1687,6 +1689,29 @@ fn repo_root() -> std::path::PathBuf {
         .nth(2)
         .expect("the crate lives two levels under the repo root")
         .to_path_buf()
+}
+
+// ---------------------------------------------------------------------------
+// Termix (ADR-0078)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn the_termix_address_needs_a_session_and_is_the_origin_alone() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let addr = serve(app(&pool, ring, Vec::new()).await).await;
+
+    let (status, _) = raw_request(addr, "GET", "/integrations/termix", &[], b"").await;
+    assert_eq!(status, "401");
+
+    let (status, body) = call(addr, &estate.steward, "GET", "/integrations/termix", b"").await;
+    assert_eq!(status, "200");
+    assert_eq!(
+        String::from_utf8_lossy(&body),
+        "{\"url\":\"https://termix.example.lan\"}\n"
+    );
 }
 
 // ---------------------------------------------------------------------------
