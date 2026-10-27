@@ -64,6 +64,7 @@ function useVaultActs(vault: Vault, organisationName: string, place: VaultPlace 
     if (!overview) return;
     if (!vaultReady(overview)) setDialog({ kind: 'setup' });
     else if (vaultUnlocked(vault.organisation)) act();
+    // eslint-disable-next-line unicorn/no-thenable -- `then` is the dialog's next step, never awaited.
     else setDialog({ kind: 'unlock', then: act });
   };
 

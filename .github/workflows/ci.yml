@@ -360,7 +360,7 @@ jobs:
         run: |
           docker run --rm -v "$PWD":/w -w /w/client \
             node@sha256:f1127b82781601ca2a57c96811cf6be9da3d1f77d58ec13bab49e5f79cf8c84c \
-            sh -c 'npm ci --ignore-scripts && npm run typecheck && npm test'
+            sh -c 'npm ci --ignore-scripts && npm run typecheck && npm run lint && npm test'
 
   # THE STACK, END TO END. Added 2026-09-19: until this job, nobody had ever
   # run `compose.yaml`, because the environment this repository is developed

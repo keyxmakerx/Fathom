@@ -465,9 +465,9 @@ export function RacksPlace(props: RacksPlaceProps) {
     setSelection(initialFocus);
     if (initialFocus.kind === 'chassis') setOpenRequest({ id: initialFocus.id, view: 'config' });
     onZoomChange(CAMERA_STOPS.faceplate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- edge-triggered
-    // on the `initialFocus` object identity and `doc` becoming available;
+    // Edge-triggered on the `initialFocus` object identity and `doc` becoming available;
     // `onZoomChange` is a stable setter from `App.tsx`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialFocus, doc]);
   useEffect(() => {
     if (selectRequest != null) setSelection(selectRequest.selection);
