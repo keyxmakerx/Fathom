@@ -5,9 +5,11 @@
 
 import {
   archiveField,
+  asString,
   assertHand,
   edgesIn,
   edgesOut,
+  fieldValue,
   findNode,
   formatEdgeId,
   formatNodeId,
@@ -64,15 +66,6 @@ function setField(
     entry: { presence: 'set', prov: prov.id, value },
     op: { type: 'set_field', element: elementId, key, presence: 'set', prov: prov.id },
   };
-}
-
-function fieldValue(fields: Readonly<Record<string, FieldEntry>>, name: string): FieldEntry['value'] | undefined {
-  const e = fields[name];
-  return e && e.presence === 'set' ? e.value : undefined;
-}
-
-function asString(v: FieldEntry['value'] | undefined): string | undefined {
-  return typeof v === 'string' ? v : undefined;
 }
 
 // ---------------------------------------------------------------------------

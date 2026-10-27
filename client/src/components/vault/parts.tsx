@@ -4,17 +4,12 @@ import { useEffect, useState } from 'react';
 
 import { KIND_LABELS, type VaultEntry, type VaultOverview } from '../../api/vault';
 import { fingerprintText } from '../../vault/crypto';
+import { readPref, writePref } from '../../prefs';
 
 const DAY = 86_400_000;
 
-function store(key: string, value: string | null): void {
-  try {
-    if (value === null) localStorage.removeItem(key);
-    else localStorage.setItem(key, value);
-  } catch {
-    // Without storage the check simply never comes due.
-  }
-}
+// Without storage the check simply never comes due.
+const store = writePref;
 
 const checkSlot = (organisation: string, account: string) => `fathom.vault.check.${organisation}.${account}`;
 
@@ -24,12 +19,8 @@ export function rememberCheck(organisation: string, account: string): void {
 }
 
 export function checkDue(organisation: string, account: string): boolean {
-  try {
-    const at = Number(localStorage.getItem(checkSlot(organisation, account)) ?? '');
-    return Number.isFinite(at) && at > 0 && Date.now() >= at;
-  } catch {
-    return false;
-  }
+  const at = Number(readPref(checkSlot(organisation, account)) ?? '');
+  return Number.isFinite(at) && at > 0 && Date.now() >= at;
 }
 
 export function clearCheck(organisation: string, account: string): void {

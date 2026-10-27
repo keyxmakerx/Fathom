@@ -1,6 +1,6 @@
 # ADR-0077: An AI connection may change a design, when the organisation and the person both say so
 
-**Status:** proposed 2026-10-27. The owner approved sign-off card r41-ai-write, option B ("A 'May
+**Status:** accepted 2026-10-27 (owner, sign-off card r49); built, see `crates/fathom-server/src/ai_change.rs`. Proposed 2026-10-27. The owner approved sign-off card r41-ai-write, option B ("A 'May
 change designs' tick on a connection, off by default"), and answered its question in a note:
 "So to clarify this is per user and per org, or only per org? I was thinking both". Both it is.
 Steps 1 to 3 below are built (migrations 0050 and 0051, `src/ai_change.rs`) and the sweep is

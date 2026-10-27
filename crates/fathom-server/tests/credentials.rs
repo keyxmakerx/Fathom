@@ -90,12 +90,7 @@ async fn superuser() -> tokio_postgres::Client {
     support::superuser_on_isolated(TAG).await
 }
 
-fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64
-}
+use fathom_server::crypto::now_unix;
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now()

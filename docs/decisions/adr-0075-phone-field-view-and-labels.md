@@ -1,6 +1,6 @@
 # ADR-0075: The phone field view, scanning, and printed labels
 
-**Status:** proposed 2026-10-26. The owner approved sign-off card 6 (r39-phone) as picked on 26
+**Status:** accepted 2026-10-27 (owner, sign-off card r49); built, see `client/src/components/phone/`. Proposed 2026-10-26. The owner approved sign-off card 6 (r39-phone) as picked on 26
 October, after noting on card 5 (available inventory with camera scanning): "we need a mobile view now
 as well with the app. I don't think we are gonna go native app though". They then asked: "Could we
 even connect it to QR codes for printing brother label printers?" Built as a draft PR.

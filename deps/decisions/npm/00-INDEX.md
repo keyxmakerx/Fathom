@@ -24,6 +24,7 @@ source.
 | `@types/react` | Type declarations for `react` | 2026-09-11 (stack decision, consequence) | 0 vulnerabilities, 2026-09-16 |
 | `@types/react-dom` | Type declarations for `react-dom` | 2026-09-11 (stack decision, consequence) | 0 vulnerabilities, 2026-09-16 |
 | `@xyflow/react` | The diagram surface (React Flow) | 2026-09-11 (`CLAUDE.md` "The stack"; `docs/REBUILD-PLAN.md`) | 0 vulnerabilities, 2026-09-16 |
+| `oxlint` | Lints the client (TypeScript and React hook rules) | 2026-10-27 (sign-off card r48) | nothing against it, 2026-10-27 |
 
 **The nine records above were written 2026-09-16, after their packages had already been in
 `client/package.json` since the client was scaffolded, with no record and no gate reading

@@ -8,7 +8,6 @@ import { makeAccount } from '../../../scripts/drive-lib/bitwarden-account.mjs';
 import type { OutsidePrepared } from '../api/vault';
 import { openForConnect } from './outside';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function prepared(token: Record<string, any>, sync: Record<string, any>): OutsidePrepared {
   return {
     url: 'https://vault.example.org',
@@ -17,10 +16,8 @@ function prepared(token: Record<string, any>, sync: Record<string, any>): Outsid
     protectedPrivateKey: token.PrivateKey,
     kdf: { type: token.Kdf, iterations: token.KdfIterations, memory: null, parallelism: null },
     salt: token.UserDecryptionOptions.MasterPasswordUnlock.Salt,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    organisations: sync.profile.organizations.map((o: any) => ({ id: o.id, name: o.name, role: o.type, status: o.status, protectedKey: o.key })),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    collections: sync.collections.map((c: any) => ({ id: c.id, organisationId: c.organizationId, protectedName: c.name })),
+        organisations: sync.profile.organizations.map((o: any) => ({ id: o.id, name: o.name, role: o.type, status: o.status, protectedKey: o.key })),
+        collections: sync.collections.map((c: any) => ({ id: c.id, organisationId: c.organizationId, protectedName: c.name })),
     checks: [],
   };
 }

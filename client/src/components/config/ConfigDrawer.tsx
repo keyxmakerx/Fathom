@@ -202,7 +202,6 @@ export function ConfigDrawer(props: ConfigDrawerProps): JSX.Element {
           {shown.map((line) => {
             const showNoPortNote = notes.has(line.ordinal);
             return (
-              // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
               <div
                 key={line.ordinal}
                 role="listitem"

@@ -18,6 +18,7 @@ import {
   assertHand,
   edgesIn,
   edgesOut,
+  fieldValue,
   findNode,
   formatEdgeId,
   formatNodeId,
@@ -172,11 +173,6 @@ export interface NoteView {
    * neither field (schema's own doc on why). */
   who: string;
   when: number;
-}
-
-function fieldValue(fields: Readonly<Record<string, FieldEntry>>, key: string): FieldEntry['value'] | undefined {
-  const e = fields[key];
-  return e && e.presence === 'set' ? e.value : undefined;
 }
 
 function readNoteView(doc: Document, noteId: string): NoteView | undefined {

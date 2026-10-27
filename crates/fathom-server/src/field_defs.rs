@@ -278,12 +278,11 @@ async fn require_draw(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<(), 
         candidates.push(Some(id.parse().map_err(|_| bad("corrupt scope id"))?));
     }
     for scope in candidates {
-        match grants::authorise_in_verified_state(tx, auth, &verified, scope, Capability::Draw)
+        if grants::holds_in_verified_state(tx, auth, &verified, scope, Capability::Draw)
             .await
+            .map_err(DesignError::Authority)?
         {
-            Ok(_) => return Ok(()),
-            Err(AuthorityError::NotAuthorised) | Err(AuthorityError::QuorumNotMet { .. }) => {}
-            Err(other) => return Err(DesignError::Authority(other)),
+            return Ok(());
         }
     }
     Err(DesignError::Authority(AuthorityError::NotAuthorised))

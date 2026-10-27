@@ -1,6 +1,7 @@
 /** "Recently opened by me on this browser": designs, and devices opened in a design. Kept per
  * account in localStorage, never on the server and never a document field. */
 import type { DesignSummary } from '../../api/designs';
+import { loadJsonPref, saveJsonPref } from '../../prefs';
 
 export interface RecentDesign {
   organisationId: string;
@@ -100,21 +101,11 @@ export function pruneRecent(accountId: string | null, organisationId: string, li
 }
 
 export function loadRecent(accountId: string | null): Recent {
-  try {
-    const raw = localStorage.getItem(recentKey(accountId));
-    if (raw != null) return parseRecent(JSON.parse(raw));
-  } catch {
-    // storage unavailable or damaged: nothing recent
-  }
-  return EMPTY_RECENT;
+  return loadJsonPref(recentKey(accountId), parseRecent, EMPTY_RECENT);
 }
 
 function save(accountId: string | null, recent: Recent): void {
-  try {
-    localStorage.setItem(recentKey(accountId), JSON.stringify(recent));
-  } catch {
-    // not remembered
-  }
+  saveJsonPref(recentKey(accountId), recent);
 }
 
 export function recordDesignOpen(accountId: string | null, organisationId: string, designId: string, now: number = Math.floor(Date.now() / 1000)): void {

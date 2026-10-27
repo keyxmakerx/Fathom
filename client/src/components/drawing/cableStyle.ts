@@ -1,3 +1,4 @@
+import { readPref, writePref } from '../../prefs';
 /** The cable style (round 15, signed off 2026-10-10): how a cable's line is drawn between its
  * ports. Physics (the default), cable-tied, right-angle or faded. Each person picks their own in
  * the Show menu; kept in this browser per account, never a document field, so switching changes
@@ -35,21 +36,12 @@ function keyFor(accountId: string | null): string {
 
 /** Best effort: private mode or a blocked store gives the default. */
 export function loadCableStyle(accountId: string | null): CableStyle {
-  try {
-    const raw = localStorage.getItem(keyFor(accountId));
-    if (isCableStyle(raw)) return raw;
-  } catch {
-    // storage unavailable: the default is the honest fallback
-  }
-  return DEFAULT_CABLE_STYLE;
+  const raw = readPref(keyFor(accountId));
+  return isCableStyle(raw) ? raw : DEFAULT_CABLE_STYLE;
 }
 
 export function saveCableStyle(accountId: string | null, style: CableStyle): void {
-  try {
-    localStorage.setItem(keyFor(accountId), style);
-  } catch {
-    // best effort only
-  }
+  writePref(keyFor(accountId), style);
 }
 
 /** Cable colour (Key Maker's note on the cables card, 2026-10-27): every cable in its sheath

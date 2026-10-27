@@ -13,7 +13,7 @@ use fathom_id::Ulid;
 use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{EdgeKind, NodeKind, FIELD_KEYS};
 use fathom_schema::subset::{parse_profile, Profile};
-use fathom_schema::value::{Node, Value};
+use fathom_schema::value::Node;
 
 use crate::engine::Pack;
 use crate::eval::eval_rule;
@@ -184,6 +184,3 @@ fn name_of(ids: &BTreeMap<String, NodeId>, n: NodeId) -> String {
         .find(|(_, v)| **v == n)
         .map_or_else(|| n.to_string(), |(k, _)| k.clone())
 }
-
-#[allow(dead_code)]
-fn _value_is_used(_: &Value) {}

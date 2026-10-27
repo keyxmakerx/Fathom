@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-10-02: 1561 Rust tests and 1531 client tests on commit 3b10bfc, read off the runs. Prose brought up to main (3bd5ba9) on 2026-10-25; counts not re-read. Read numbers off a real run, not off this page.
+**Last confirmed:** prose brought up to main (3bd5ba9) on 2026-10-25. Test counts are not kept here: read them off a real run.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 

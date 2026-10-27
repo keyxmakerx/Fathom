@@ -268,13 +268,16 @@ async function runDrive(tab) {
   await tab.waitForSelector('.home', { timeout: 30000 });
   await tab.waitForTimeout(1000);
   check('2. sign in: the first run landed signed in, on Home', (await tab.locator('.home').count()) === 1);
+  // The person who ran the first start runs the server, so Home offers them a
+  // practice space (ADR-0069) and says having no organisation is fine, rather
+  // than pushing them to claim one.
   check(
-    '2. sign in: a fresh account belongs to no organisations yet',
-    (await tab.getByText('You belong to no organisations yet.').count()) === 1,
+    '2. sign in: a fresh account belongs to no organisations yet, and Home says that is fine',
+    (await tab.getByText("None. That's fine", { exact: false }).count()) === 1,
   );
   check(
-    '2. sign in: Home offers "Claim an organisation" for a pasted token',
-    (await tab.getByRole('button', { name: 'Claim an organisation' }).count()) === 1,
+    '2. sign in: Home does not push the person who runs the server to claim an organisation',
+    (await tab.getByRole('button', { name: 'Claim an organisation' }).count()) === 0,
   );
 
   // -------------------------------------------------------------------
@@ -354,7 +357,8 @@ async function runDrive(tab) {
   // who claimed the organisation is its admin.
   const siteName = 'Weekend HQ';
   await tab.getByRole('tab', { name: 'Steward' }).click();
-  await tab.getByRole('button', { name: 'New site' }).click();
+  await tab.locator('.org-rail__item', { hasText: 'Folders' }).click();
+  await tab.getByRole('button', { name: 'New site' }).first().click();
   await tab.locator('#home-new-scope-label').fill(siteName);
   await tab.getByRole('button', { name: 'Create', exact: true }).click();
   await tab.getByText(siteName).waitFor({ timeout: 10000 });

@@ -561,7 +561,7 @@ export function planProblems(plan: Plan): string[] {
 
 function gated(gate: TextGate, value: string | undefined, what: string): string {
   const out = gate(value ?? '');
-  if (/\u0000/.test(out)) throw new PlanRefusal('bad-text', `${what} holds a character that cannot be stored`);
+  if (out.includes('\u0000')) throw new PlanRefusal('bad-text', `${what} holds a character that cannot be stored`);
   return out;
 }
 

@@ -8,16 +8,13 @@ import { createPortal } from 'react-dom';
 import { QR_QUIET_ZONE, encodeQr, qrPath, qrSide } from '../qr';
 import { LABEL_PRESETS, DEFAULT_PRESET, pagesOf, presetOf, type LabelItem, type LabelPreset, type LabelPresetId } from './labels';
 import './labels.css';
+import { readPref, writePref } from '../prefs';
 
 const PRESET_KEY = 'fathom-label-preset';
 
 function savedPreset(): LabelPresetId {
-  try {
-    const v = localStorage.getItem(PRESET_KEY);
-    return LABEL_PRESETS.some((p) => p.id === v) ? (v as LabelPresetId) : DEFAULT_PRESET;
-  } catch {
-    return DEFAULT_PRESET;
-  }
+  const v = readPref(PRESET_KEY);
+  return LABEL_PRESETS.some((p) => p.id === v) ? (v as LabelPresetId) : DEFAULT_PRESET;
 }
 
 export interface LabelsPreviewProps {
@@ -47,11 +44,7 @@ export function LabelsPreview({ items, note, onClose }: LabelsPreviewProps) {
 
   const choose = (id: LabelPresetId) => {
     setPresetId(id);
-    try {
-      localStorage.setItem(PRESET_KEY, id);
-    } catch {
-      // the choice just is not remembered
-    }
+    writePref(PRESET_KEY, id);
   };
 
   return createPortal(

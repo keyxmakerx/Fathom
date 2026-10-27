@@ -1,3 +1,4 @@
+import { loadJsonPref, saveJsonPref } from '../../prefs';
 /** The Show menu's layers (ADR-0061 round 10): words added to the canvas, per
  * person, per design, kept in this browser — never a document field. A layer
  * with `available: false` has no data on main yet; flip it when its PR lands
@@ -50,21 +51,11 @@ function keyFor(accountId: string | null, designId: string | undefined): string 
 
 /** Best effort: private mode or a blocked store gives the defaults. */
 export function loadLayers(accountId: string | null, designId: string | undefined): LayerSet {
-  try {
-    const raw = localStorage.getItem(keyFor(accountId, designId));
-    if (raw != null) return parseLayers(JSON.parse(raw));
-  } catch {
-    // storage unavailable or damaged: defaults
-  }
-  return defaultLayers();
+  return loadJsonPref(keyFor(accountId, designId), parseLayers, defaultLayers());
 }
 
 export function saveLayers(accountId: string | null, designId: string | undefined, layers: LayerSet): void {
-  try {
-    localStorage.setItem(keyFor(accountId, designId), JSON.stringify(layers));
-  } catch {
-    // best effort only
-  }
+  saveJsonPref(keyFor(accountId, designId), layers);
 }
 
 /** Whether a layer is both ticked and has data to draw. */

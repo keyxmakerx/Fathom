@@ -187,8 +187,22 @@ export function guidesFor(moving: Rect, others: readonly Rect[], threshold: numb
   let bestX = threshold + 1;
   let bestY = threshold + 1;
   for (const o of others) {
-    for (const a of xsOf(moving)) for (const b of xsOf(o)) if (Math.abs(b - a) < bestX) ((bestX = Math.abs(b - a)), (dx = b - a));
-    for (const a of ysOf(moving)) for (const b of ysOf(o)) if (Math.abs(b - a) < bestY) ((bestY = Math.abs(b - a)), (dy = b - a));
+    for (const a of xsOf(moving)) {
+      for (const b of xsOf(o)) {
+        if (Math.abs(b - a) < bestX) {
+          bestX = Math.abs(b - a);
+          dx = b - a;
+        }
+      }
+    }
+    for (const a of ysOf(moving)) {
+      for (const b of ysOf(o)) {
+        if (Math.abs(b - a) < bestY) {
+          bestY = Math.abs(b - a);
+          dy = b - a;
+        }
+      }
+    }
   }
   if (bestX > threshold) dx = 0;
   if (bestY > threshold) dy = 0;

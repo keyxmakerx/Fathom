@@ -58,7 +58,13 @@ cargo test --workspace --locked
 cargo run --locked -p fathom-schema --bin fathom-schema-check
 ./scripts/gate-zero.sh
 ./scripts/gate-npm.sh
+./scripts/forbidden-claims.sh
+bash scripts/build-wasm.sh                     # the client tests load the real redaction gate
+(cd client && npm ci --ignore-scripts && npm run typecheck && npm run lint && npm test)
 ```
+
+**This block is the one list.** `CLAUDE.md`, `README.md` and the agent briefs point here; change the
+commands here and nowhere else.
 
 The schema check exits 0 with **zero failures and zero warnings**. That is the standing baseline
 since 2026-08-09, and a test pins it: any new warning, of any code, fails

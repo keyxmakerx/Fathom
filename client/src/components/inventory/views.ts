@@ -4,6 +4,7 @@
 //   Shared  - reserved. Sharing a view with the team needs somewhere on the server to keep it.
 
 import type { SortKey } from './listState';
+import { saveJsonPref } from '../../prefs';
 
 export type Who = 'Mine' | 'Shared' | 'Pinned';
 
@@ -58,11 +59,7 @@ export function loadMine(): SavedView[] {
 }
 
 export function saveMine(views: readonly SavedView[]): void {
-  try {
-    window.localStorage.setItem(STORE, JSON.stringify(views.filter((v) => v.who === 'Mine')));
-  } catch {
-    // Storage can be blocked; the view then lasts only this visit.
-  }
+  saveJsonPref(STORE, views.filter((v) => v.who === 'Mine'));
 }
 
 export function addMine(views: readonly SavedView[], kind: string, name: string, q: string, sorts: readonly SortKey[], id: string): SavedView[] {

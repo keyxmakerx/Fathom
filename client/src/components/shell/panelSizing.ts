@@ -1,3 +1,4 @@
+import { readPref, writePref } from '../../prefs';
 /** Side-panel widths: the drag limits, the "canvas never gets squeezed" rule, and the
  * per-panel width this browser remembers. Pure apart from the two storage functions. */
 
@@ -103,23 +104,14 @@ const storageKey = (id: PanelId) => `fathom.panel-width.${id}`;
 
 /** Best effort: private mode or a blocked store gives the default. */
 export function loadPanelWidth(id: PanelId): number {
-  try {
-    const raw = localStorage.getItem(storageKey(id));
-    if (raw != null) {
-      const n = Number(raw);
-      if (Number.isFinite(n) && n >= PANEL_MIN && n <= 4000) return Math.round(n);
-    }
-  } catch {
-    // storage unavailable: default
+  const raw = readPref(storageKey(id));
+  if (raw != null) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= PANEL_MIN && n <= 4000) return Math.round(n);
   }
   return PANEL_DEFAULT[id];
 }
 
 export function savePanelWidth(id: PanelId, width: number): void {
-  try {
-    if (width === PANEL_DEFAULT[id]) localStorage.removeItem(storageKey(id));
-    else localStorage.setItem(storageKey(id), String(Math.round(width)));
-  } catch {
-    // not remembered
-  }
+  writePref(storageKey(id), width === PANEL_DEFAULT[id] ? null : String(Math.round(width)));
 }

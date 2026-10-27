@@ -3,7 +3,7 @@
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
 // The server's deny set (field_defs.rs is_unsafe_char) except newline, which notes keep: C0/C1
 // controls, soft hyphen, fillers, bidi and zero-width marks, variation selectors, private use, tags.
-// eslint-disable-next-line no-control-regex
+// eslint-disable-next-line no-control-regex, no-misleading-character-class -- refusing these characters is the point.
 const UNSAFE = /[\u0000-\u0009\u000B-\u001F\u007F-\u009F\u00AD\u034F\u061C\u0600-\u0605\u115F\u1160\u180E\u200B-\u200F\u2028-\u202E\u2060-\u206F\u3164\uE000-\uF8FF\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB\u{1D173}-\u{1D17A}\u{E0000}-\u{E0FFF}\u{F0000}-\u{10FFFF}]/gu;
 
 /** The server's invisible and control characters out; CR and U+2028/9 become newlines; tabs a space. */

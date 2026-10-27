@@ -32,7 +32,6 @@ describe('cascadeRemoval — performance', () => {
     const result = cascadeRemoval(doc, deviceId);
     const elapsed = performance.now() - start;
 
-    // eslint-disable-next-line no-console
     console.log(`cascadeRemoval: a 5,000-node device inside a ${edges.length}-edge design in ${elapsed.toFixed(1)} ms`);
 
     expect(result.nodeIds.size).toBe(5_002); // device + chassis + 5,000 ports

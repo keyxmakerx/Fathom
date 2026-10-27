@@ -92,6 +92,8 @@ use crate::authority::Capability;
 use crate::chain;
 use crate::corrections;
 use crate::crypto;
+use crate::crypto::hex;
+use crate::crypto::unhex;
 use crate::designs::{self, DesignError};
 use crate::field_defs;
 use crate::grants::{self, Authority, EpochWatch};
@@ -563,20 +565,6 @@ fn header_number(headers: &HeaderMap, name: &'static str) -> Result<i64, Session
     header_text(headers, name)?
         .parse::<i64>()
         .map_err(|_| SessionError::Malformed("request headers"))
-}
-
-fn unhex(text: &str) -> Option<Vec<u8>> {
-    if !text.len().is_multiple_of(2) {
-        return None;
-    }
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(text.len() / 2);
-    for pair in bytes.chunks(2) {
-        let hi = (pair[0] as char).to_digit(16)?;
-        let lo = (pair[1] as char).to_digit(16)?;
-        out.push((hi * 16 + lo) as u8);
-    }
-    Some(out)
 }
 
 // ---- Errors ----
@@ -1632,14 +1620,6 @@ async fn create_design_handler(
 /// A revoke signature is accepted for a time within this many seconds of now.
 const REVOKE_SKEW_SECONDS: i64 = 300;
 
-fn to_hex(bytes: &[u8]) -> String {
-    use core::fmt::Write;
-    bytes.iter().fold(String::new(), |mut out, b| {
-        let _ = write!(out, "{b:02x}");
-        out
-    })
-}
-
 fn lp_text<'a>(rest: &mut &'a [u8], what: &'static str) -> Result<&'a str, SessionError> {
     let (field, tail) = crypto::read_lp(rest).ok_or(SessionError::Malformed("request body"))?;
     *rest = tail;
@@ -1847,17 +1827,17 @@ async fn propose_share_handler(
     );
     map.insert(
         "granter_key_fpr".to_string(),
-        Json::Str(to_hex(&proposal.granter_key_fpr)),
+        Json::Str(hex(&proposal.granter_key_fpr)),
     );
     map.insert(
         "subject_key_fpr".to_string(),
-        Json::Str(to_hex(&proposal.subject_key_fpr)),
+        Json::Str(hex(&proposal.subject_key_fpr)),
     );
     map.insert(
         "root_pubkey_fpr".to_string(),
-        Json::Str(to_hex(&proposal.root_pubkey_fpr)),
+        Json::Str(hex(&proposal.root_pubkey_fpr)),
     );
-    map.insert("bytes".to_string(), Json::Str(to_hex(&proposal.bytes)));
+    map.insert("bytes".to_string(), Json::Str(hex(&proposal.bytes)));
     Ok(json_response(Json::Obj(map)))
 }
 
@@ -1968,7 +1948,7 @@ async fn revoke_bytes_handler(
 
     let mut map = BTreeMap::new();
     map.insert("at".to_string(), Json::Int(at));
-    map.insert("bytes".to_string(), Json::Str(to_hex(&view.bytes)));
+    map.insert("bytes".to_string(), Json::Str(hex(&view.bytes)));
     // When it would bite: a day later for removing another steward (§3.5).
     map.insert("steward".to_string(), Json::Bool(view.steward));
     map.insert(
