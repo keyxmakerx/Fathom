@@ -12,8 +12,12 @@ import {
   APPS,
   APP_NAME,
   KEY_DAYS,
+  MAX_PER_DAY,
+  MAX_PER_MINUTE,
+  MAX_REMOVALS,
   changeKey,
   fetchAi,
+  parseOnly,
   plainWords,
   setPolicy,
   stopKey,
@@ -22,10 +26,12 @@ import {
   type AiPolicy,
   type App,
   type Tier,
+  type WorkLevels,
 } from "../../api/ai";
 import { fetchPeople, type Person } from "../../api/people";
 import type { Scope } from "../../api/scopes";
 import { HowToConnect } from "./HowToConnect";
+import { lowerAll, WorkTable, workInWords } from "./WorkTable";
 import {
   aiError,
   ago,
@@ -94,7 +100,7 @@ export function rulesInWords(policy: AiPolicy, steward: boolean): string {
   ]);
   const people =
     policy.makers.length === 1 ? "1 person" : `${policy.makers.length} people`;
-  return `AI is on. ${appWords}, for ${people}, seeing at most ${sees}, for up to ${DAY_WORDS[policy.maxDays] ?? `${policy.maxDays} days`}.`;
+  return `AI is on. ${appWords}, for ${people}, seeing at most ${sees}, for up to ${DAY_WORDS[policy.maxDays] ?? `${policy.maxDays} days`}. ${workInWords(policy.work)}`;
 }
 
 export function AiPanel({
@@ -179,6 +185,7 @@ export function AiPanel({
               key={o.policy.version}
               organisationId={organisationId}
               policy={o.policy}
+              serverWork={o.server.work}
               people={people}
               folders={folders}
               onSaved={() => {
@@ -244,6 +251,7 @@ export function AiPanel({
             organisationId={organisationId}
             aiKey={key}
             policy={o.policy}
+            serverWork={o.server.work}
             steward={o.steward}
             folders={folders}
             onClose={() => setSelected(null)}
@@ -258,12 +266,15 @@ export function AiPanel({
 function PolicyForm({
   organisationId,
   policy,
+  serverWork,
   people,
   folders,
   onSaved,
 }: {
   organisationId: string;
   policy: AiPolicy;
+  /** The server administrator's ceiling: no kind of work may be set above it. */
+  serverWork: WorkLevels;
   people: Person[];
   folders: Scope[];
   onSaved: () => void;
@@ -272,6 +283,8 @@ function PolicyForm({
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [onlyText, setOnlyText] = useState(policy.only.join("\n"));
+  const badOnly = parseOnly(onlyText).bad;
   const nameOf = (id: string) =>
     people.find((p) => p.account === id)?.name ?? "Someone";
   const changed = JSON.stringify(draft) !== JSON.stringify(policy);
@@ -469,25 +482,101 @@ function PolicyForm({
         <p className="ai-muted">
           Elsewhere anyone with Draw accepts, including the connection’s owner.
         </p>
-        <label className="ai-tick">
-          <input
-            type="checkbox"
-            data-testid="ai-policy-may-change"
-            checked={draft.mayChange}
-            onChange={(e) =>
-              setDraft({ ...draft, mayChange: e.target.checked })
-            }
-          />
-          <span>
-            AI apps may propose changes
-            <span className="ai-tick__why">
-              {" "}
-              · only connections whose owner also ticks it, and only where that
-              person can draw. An AI never changes a design itself: its change is
-              shown on the canvas and waits for a person to accept it.
-            </span>
-          </span>
-        </label>
+      </section>
+
+      <section className="ai-rule">
+        <h3 className="ai-rule__head">What an AI may do</h3>
+        <WorkTable
+          testId="ai-policy-work"
+          value={draft.work}
+          cap={serverWork}
+          capWho="This server"
+          onChange={(work) => setDraft({ ...draft, work })}
+        />
+        <p className="ai-muted">
+          Ideas are steps a person carries out. Proposes means the AI sends the
+          change itself: it is shown on the canvas in the plan colour and waits
+          for a person to accept it. An AI never changes a design itself, and
+          only proposes where its owner can draw. A connection’s owner can set
+          less for their own.
+        </p>
+      </section>
+
+      <section className="ai-rule">
+        <h3 className="ai-rule__head">Folders</h3>
+        <div className="ai-label">Ideas only, no proposed changes, in</div>
+        <FolderChips
+          chosen={draft.ideasOnlyScopes}
+          folders={folders}
+          everyLabel="No folder"
+          onChange={(next) => setDraft({ ...draft, ideasOnlyScopes: next })}
+        />
+        <div className="ai-label">AI sees nothing in</div>
+        <FolderChips
+          chosen={draft.noAiScopes}
+          folders={folders}
+          everyLabel="No folder"
+          onChange={(next) => setDraft({ ...draft, noAiScopes: next })}
+        />
+        <p className="ai-muted">
+          A folder counts with everything inside it. A connection never reads a
+          design in a folder it may not see, nor lists it.
+        </p>
+      </section>
+
+      <section className="ai-rule">
+        <h3 className="ai-rule__head">Only these kinds and fields</h3>
+        <textarea
+          className="ai-input ai-only"
+          data-testid="ai-policy-only"
+          rows={3}
+          value={onlyText}
+          placeholder={"Empty: everything a connection may see.\nDevice\nPort.description"}
+          aria-label="Only these kinds and fields"
+          onChange={(e) => {
+            setOnlyText(e.target.value);
+            setDraft({ ...draft, only: parseOnly(e.target.value).entries });
+          }}
+        />
+        <p className={badOnly.length > 0 ? "ai-error" : "ai-muted"}>
+          {badOnly.length > 0
+            ? `Not a kind or a kind and field: ${badOnly.join(", ")}`
+            : "One per line. A kind (Device) lets an AI add, remove and change it; a kind and a field (Device.hostname) lets it change that field only."}
+        </p>
+      </section>
+
+      <section className="ai-rule">
+        <h3 className="ai-rule__head">Limits</h3>
+        <div className="ai-limits">
+          {(
+            [
+              ["perMinute", "Proposals a minute", 1, MAX_PER_MINUTE],
+              ["perDay", "Proposals a day", 1, MAX_PER_DAY],
+              ["maxRemovals", "Removals in one proposal", 0, MAX_REMOVALS],
+            ] as const
+          ).map(([field, words, min, max]) => (
+            <label key={field} className="ai-limit">
+              <span>{words}</span>
+              <input
+                type="number"
+                className="ai-input ai-input--num"
+                data-testid={`ai-policy-${field}`}
+                min={min}
+                max={max}
+                value={draft[field]}
+                onChange={(e) => {
+                  const n = Math.round(Number(e.target.value));
+                  if (Number.isFinite(n))
+                    setDraft({
+                      ...draft,
+                      [field]: Math.min(max, Math.max(min, n)),
+                    });
+                }}
+              />
+              <span className="ai-tick__why">at most {max}</span>
+            </label>
+          ))}
+        </div>
       </section>
 
       {error && (
@@ -499,7 +588,7 @@ function PolicyForm({
         <button
           type="button"
           className="ai-btn ai-btn--primary"
-          disabled={!changed || busy}
+          disabled={!changed || busy || badOnly.length > 0}
           onClick={() => void save()}
         >
           Save
@@ -509,7 +598,10 @@ function PolicyForm({
             type="button"
             className="ai-btn"
             disabled={busy}
-            onClick={() => setDraft(policy)}
+            onClick={() => {
+              setDraft(policy);
+              setOnlyText(policy.only.join("\n"));
+            }}
           >
             Undo changes
           </button>
@@ -646,6 +738,7 @@ function KeyPage({
   organisationId,
   aiKey,
   policy,
+  serverWork,
   steward,
   folders,
   onClose,
@@ -654,6 +747,7 @@ function KeyPage({
   organisationId: string;
   aiKey: AiKeyView;
   policy: AiPolicy;
+  serverWork: WorkLevels;
   steward: boolean;
   folders: Scope[];
   onClose: () => void;
@@ -662,7 +756,11 @@ function KeyPage({
   const [sees, setSees] = useState<Tier[]>(aiKey.sees);
   const [scopes, setScopes] = useState<string[]>(aiKey.scopes);
   const [mayRecommend, setMayRecommend] = useState(aiKey.mayRecommend);
-  const [mayChange, setMayChange] = useState(aiKey.mayChange);
+  // The most this connection may be set to: what the organisation and the server allow, and
+  // for a Steward narrowing someone else's, no more than it has now.
+  const allowed = lowerAll(policy.work, serverWork);
+  const shown = lowerAll(aiKey.work, allowed);
+  const [work, setWork] = useState<WorkLevels>(shown);
   const [reason, setReason] = useState("");
   const [stopping, setStopping] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -675,9 +773,8 @@ function KeyPage({
     JSON.stringify(sees) !== JSON.stringify(aiKey.sees) ||
     JSON.stringify(scopes) !== JSON.stringify(aiKey.scopes) ||
     mayRecommend !== aiKey.mayRecommend ||
-    mayChange !== aiKey.mayChange;
-  // Changing designs is shown where it is on, or where its owner may turn it on.
-  const showChange = aiKey.mayChange || (policy.mayChange && !narrowOnly);
+    JSON.stringify(work) !== JSON.stringify(shown);
+  const mayPropose = Object.values(work).includes("propose");
   const folderName = (id: string) =>
     folders.find((f) => f.scopeId === id)?.displayName ?? "a folder";
   // A Steward narrowing folders may only pick inside the ones already chosen.
@@ -754,26 +851,14 @@ function KeyPage({
             />
             <span>Send ideas for a person to accept</span>
           </label>
-          {showChange && (
-            <label className="ai-tick">
-              <input
-                type="checkbox"
-                data-testid="ai-key-may-change"
-                checked={mayChange}
-                disabled={!aiKey.mayChange && (narrowOnly || !policy.mayChange)}
-                onChange={(e) => setMayChange(e.target.checked)}
-              />
-              <span>
-                May propose changes
-                {!policy.mayChange && (
-                  <span className="ai-tick__why">
-                    {" "}
-                    · the organisation has this off, so it changes nothing
-                  </span>
-                )}
-              </span>
-            </label>
-          )}
+          <div className="ai-label">What it may do</div>
+          <WorkTable
+            testId="ai-key-work"
+            value={work}
+            cap={narrowOnly ? shown : allowed}
+            capWho={narrowOnly ? undefined : "The organisation"}
+            onChange={setWork}
+          />
           <p className="ai-muted">
             {narrowOnly
               ? "You can narrow this connection or turn it off. Only its owner can widen it."
@@ -785,7 +870,7 @@ function KeyPage({
                 scopes,
                 sees,
                 mayRecommend,
-                mayChange: mayChange && policy.mayChange,
+                mayChange: mayPropose,
               },
               folderName,
             )}
@@ -809,7 +894,9 @@ function KeyPage({
                   sees,
                   scopes,
                   mayRecommend,
-                  ...(mayChange !== aiKey.mayChange ? { mayChange } : {}),
+                  ...(JSON.stringify(work) !== JSON.stringify(shown)
+                    ? { work }
+                    : {}),
                 }),
               )
             }

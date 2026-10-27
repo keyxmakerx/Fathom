@@ -719,6 +719,7 @@ async fn build_and_write(
 
 /// The change an idea carries (ADR-0072 decision 7, amended): read and run on the design
 /// as it is now, without writing, so an idea that cannot be made is refused when it is sent.
+#[allow(clippy::too_many_arguments)]
 pub async fn check_idea_change(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,

@@ -2041,6 +2041,7 @@ pub(crate) async fn operator_overview(
 /// Turn AI on or off for the whole server. Off stops every key at its next request and
 /// stops new ones being made; on gives nothing back that an organisation had not turned on.
 /// On the site chain. The caller holds operator custody.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn operator_set_switch(
     tx: &Transaction<'_>,
     ring: &KeyRing,

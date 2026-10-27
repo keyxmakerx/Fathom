@@ -623,8 +623,12 @@ a day per connection. The idea carries `preview`; the ideas panel's Show on canv
 plan, in the plan colour with AI CHANGES / AI REMOVES / AI ADDS tags, removals greyed. Accept and apply
 makes it on the current design as the accepting person's own edit. `whoami` is `readOnly: true` for
 every connection. `ai_design_changes` (migration 0051) holds only rows from before the amendment. Not
-yet: drawing a node the change adds (the panel names it), and the per-kind controls proposed on
-sign-off card r47-ai-controls.
+yet: drawing a node the change adds (the panel names it). What an AI may do is set by kind of work
+(editing the design, drafting plans, troubleshooting, working through a plan), each Off, Ideas or
+Proposes, at three places whose strictest wins: Admin › AI's ceiling, Steward › AI rules and each
+connection (migration 0056, card r47-ai-controls). A Steward also marks folders ideas-only or out of an
+AI's sight, keeps it to a list of kinds and fields, and lowers the limits (proposals a minute and a day,
+removals in one); 429 past a limit.
 
 **Device panel** (r14 A1, A2): Details, Ports and Notes tabs, actions at the foot (Duplicate the main one,
 Remove device in red). Inventory's toolbar has a role filter, written into the filter line as `role:...`.

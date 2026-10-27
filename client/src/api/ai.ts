@@ -28,6 +28,17 @@ export interface AiPolicy {
   apps: App[];
   /** The organisation's tick: AI apps may propose changes, which a person accepts (ADR-0077 decision 1). */
   mayChange: boolean;
+  /** What an AI may do here, by kind of work (sign-off card r47-ai-controls). */
+  work: WorkLevels;
+  /** Folders where an AI may send ideas but not propose changes. */
+  ideasOnlyScopes: string[];
+  /** Folders an AI does not see at all. */
+  noAiScopes: string[];
+  /** The only kinds (`Device`) and fields (`Device.hostname`) an AI may touch; empty for all. */
+  only: string[];
+  perMinute: number;
+  perDay: number;
+  maxRemovals: number;
   changedBy: string | null;
   changedAt: number | null;
   version: number;
@@ -51,6 +62,8 @@ export interface AiKeyView {
   mayRecommend: boolean;
   /** The connection's own tick to propose changes; it needs the organisation's too. */
   mayChange: boolean;
+  /** The connection's own levels; what it may do is the stricter of these, the organisation's and the server's. */
+  work: WorkLevels;
   /** Seconds since the epoch, like the rest of this file's times. */
   createdAt: number;
   expiresAt: number;
@@ -67,7 +80,8 @@ export interface AiKeyView {
 }
 
 export interface AiOverview {
-  server: { allowed: boolean; reason: string | null };
+  /** `work` is the server administrator's ceiling. */
+  server: { allowed: boolean; reason: string | null; work: WorkLevels };
   policy: AiPolicy;
   steward: boolean;
   canMake: boolean;
@@ -91,6 +105,11 @@ export const WORKS: readonly AiWork[] = ['design', 'plans', 'issues', 'doing'];
 export type AiLevel = 'off' | 'ideas' | 'propose';
 export const LEVELS: readonly AiLevel[] = ['off', 'ideas', 'propose'];
 export type WorkLevels = Record<AiWork, AiLevel>;
+
+/** The fixed most a Steward may set: proposals a minute, a day, and removals in one. */
+export const MAX_PER_MINUTE = 10;
+export const MAX_PER_DAY = 300;
+export const MAX_REMOVALS = 20;
 
 /** The server's own default ceiling: proposals at all but working through a plan. */
 export const SITE_DEFAULT_WORK: WorkLevels = { design: 'propose', plans: 'propose', issues: 'propose', doing: 'off' };
@@ -155,6 +174,13 @@ export function parsePolicy(raw: unknown): AiPolicy {
     secondPersonScopes: strs(o.secondPersonScopes),
     apps: Array.isArray(o.apps) ? strs(o.apps).filter((a): a is App => (APPS as readonly string[]).includes(a)) : ['claude'],
     mayChange: o.mayChange === true,
+    work: o.work == null ? (o.mayChange === true ? SITE_DEFAULT_WORK : { design: 'ideas', plans: 'ideas', issues: 'ideas', doing: 'off' }) : parseWork(o.work),
+    ideasOnlyScopes: strs(o.ideasOnlyScopes),
+    noAiScopes: strs(o.noAiScopes),
+    only: strs(o.only),
+    perMinute: num(o.perMinute) ?? MAX_PER_MINUTE,
+    perDay: num(o.perDay) ?? MAX_PER_DAY,
+    maxRemovals: num(o.maxRemovals) ?? MAX_REMOVALS,
     changedBy: typeof o.changedBy === 'string' ? o.changedBy : null,
     changedAt: num(o.changedAt),
     version: num(o.version) ?? 0,
@@ -180,6 +206,7 @@ export function parseKey(raw: unknown): AiKeyView {
     sees: tiers(o.sees),
     mayRecommend: o.mayRecommend === true,
     mayChange: o.mayChange === true,
+    work: parseWork(o.work),
     createdAt: num(o.createdAt) ?? 0,
     expiresAt: num(o.expiresAt) ?? 0,
     state: ['on', 'disabled', 'deleted', 'expired'].includes(state) ? state : 'disabled',
@@ -241,7 +268,11 @@ export function parseOverview(raw: unknown): AiOverview {
   const o = (raw ?? {}) as Record<string, unknown>;
   const server = (o.server ?? {}) as Record<string, unknown>;
   return {
-    server: { allowed: server.allowed !== false, reason: typeof server.reason === 'string' ? server.reason : null },
+    server: {
+      allowed: server.allowed !== false,
+      reason: typeof server.reason === 'string' ? server.reason : null,
+      work: server.work == null ? SITE_DEFAULT_WORK : parseWork(server.work),
+    },
     policy: parsePolicy(o.policy),
     steward: o.steward === true,
     canMake: o.canMake === true,
@@ -255,16 +286,35 @@ export async function fetchAi(organisationId: string): Promise<AiOverview> {
   return parseOverview(parse(await signedFetch('GET', org(organisationId))));
 }
 
-export async function setPolicy(
-  organisationId: string,
-  policy: Pick<AiPolicy, 'allowed' | 'makers' | 'ceiling' | 'maxDays' | 'secondPersonScopes' | 'apps' | 'mayChange'>,
-  ifVersion: number,
-): Promise<AiPolicy> {
+export type PolicyChoice = Pick<
+  AiPolicy,
+  'allowed' | 'makers' | 'ceiling' | 'maxDays' | 'secondPersonScopes' | 'apps' | 'mayChange' | 'work' | 'ideasOnlyScopes' | 'noAiScopes' | 'only' | 'perMinute' | 'perDay' | 'maxRemovals'
+>;
+
+export async function setPolicy(organisationId: string, policy: PolicyChoice, ifVersion: number): Promise<AiPolicy> {
   // Only the fields the route takes: it refuses any other, and a whole `AiPolicy` carries more.
-  const { allowed, makers, ceiling, maxDays, secondPersonScopes, apps, mayChange } = policy;
+  const { allowed, makers, ceiling, maxDays, secondPersonScopes, apps, work, ideasOnlyScopes, noAiScopes, only, perMinute, perDay, maxRemovals } = policy;
+  // The levels decide the old tick: any kind of work at propose.
+  const mayChange = WORKS.some((w) => work[w] === 'propose');
   return parsePolicy(
-    parse(await signedFetch('POST', `${org(organisationId)}/policy`, body({ allowed, makers, ceiling, maxDays, secondPersonScopes, apps, mayChange, ifVersion }))),
+    parse(
+      await signedFetch(
+        'POST',
+        `${org(organisationId)}/policy`,
+        body({ allowed, makers, ceiling, maxDays, secondPersonScopes, apps, mayChange, work, ideasOnlyScopes, noAiScopes, only, perMinute, perDay, maxRemovals, ifVersion }),
+      ),
+    ),
   );
+}
+
+/** A Steward's typed list of kinds and fields, one per line or comma: blanks dropped, each once. */
+export function parseOnly(raw: string): { entries: string[]; bad: string[] } {
+  const parts = raw
+    .split(/[\n,]/)
+    .map((p) => p.trim())
+    .filter((p) => p !== '');
+  const entries = [...new Set(parts)];
+  return { entries, bad: entries.filter((e) => !/^[A-Za-z]{1,64}(\.[a-z0-9_]{1,64})?$/.test(e)) };
 }
 
 /** The public half as the helper's pair step prints it: 130 hex characters, starting 04. */
@@ -284,7 +334,7 @@ export async function makeKey(
 export async function changeKey(
   organisationId: string,
   key: Pick<AiKeyView, 'id' | 'version'>,
-  change: Partial<{ label: string; scopes: string[]; sees: Tier[]; mayRecommend: boolean; mayChange: boolean; endsInDays: number }>,
+  change: Partial<{ label: string; scopes: string[]; sees: Tier[]; mayRecommend: boolean; mayChange: boolean; work: WorkLevels; endsInDays: number }>,
 ): Promise<AiKeyView> {
   const path = `${org(organisationId)}/keys/${encodeURIComponent(key.id)}`;
   return parseKey(parse(await signedFetch('POST', path, body({ ...change, ifVersion: key.version }))));
