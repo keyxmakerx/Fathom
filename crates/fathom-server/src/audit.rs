@@ -861,7 +861,78 @@ where
     Ok(())
 }
 
+/// The advisory-lock key the shipping process holds, arbitrary but stable
+/// ("FATHMSHP", read as bytes), beside `migrate::MIGRATION_LOCK_KEY`.
+pub const SHIPPER_LOCK_KEY: i64 = 0x4641_5448_4d53_4850;
+
+/// The connection that makes this process the one that ships.
+///
+/// # One shipper however many servers run
+///
+/// Every server process starts a shipper, and replicas share one spool. Two
+/// shippers would read the same batch, send it twice and race each other's
+/// `DELETE`, so the stream at the destination would interleave out of
+/// `spool_seq` order. The process that holds [`SHIPPER_LOCK_KEY`] ships and
+/// records the thresholds; the others wait and try again each interval.
+///
+/// The lock is session-level on a connection of its own, outside the pool, so
+/// it is never handed back to the pool with the lock still held. When the
+/// process dies the connection goes and PostgreSQL releases the lock, and
+/// another process takes over within an interval. A leader whose connection
+/// broke without its knowing can overlap the next one for at most one batch;
+/// the far end sees a duplicate `seq`, which is detectable, and never a gap.
+pub struct ShipperLock {
+    client: tokio_postgres::Client,
+    driver: tokio::task::JoinHandle<()>,
+}
+
+impl ShipperLock {
+    /// Connect and try the lock once. `Ok(None)`: another process ships.
+    pub async fn try_take(config: &tokio_postgres::Config) -> Result<Option<Self>, String> {
+        let (client, connection) = config
+            .connect(tokio_postgres::NoTls)
+            .await
+            .map_err(|e| e.to_string())?;
+        let driver = tokio::spawn(async move {
+            let _ = connection.await;
+        });
+        let held: bool = match client
+            .query_one("SELECT pg_try_advisory_lock($1)", &[&SHIPPER_LOCK_KEY])
+            .await
+        {
+            Ok(row) => row.get(0),
+            Err(e) => {
+                driver.abort();
+                return Err(e.to_string());
+            }
+        };
+        if held {
+            Ok(Some(Self { client, driver }))
+        } else {
+            driver.abort();
+            Ok(None)
+        }
+    }
+
+    /// The connection still answers, so the lock is still ours.
+    pub async fn still_held(&self) -> bool {
+        !self.client.is_closed() && self.client.simple_query("SELECT 1").await.is_ok()
+    }
+}
+
+impl Drop for ShipperLock {
+    fn drop(&mut self) {
+        // Closing the connection releases the lock.
+        self.driver.abort();
+    }
+}
+
 /// Run the shipper until the process ends.
+///
+/// `leader`, when given, is the connection settings for [`ShipperLock`]: this
+/// process ships only while it holds [`SHIPPER_LOCK_KEY`]. `None` ships
+/// unconditionally, which is right only where one process is the whole
+/// deployment.
 ///
 /// **Never blocks a write.** It holds its own pooled connection and reads a
 /// shared table; the write path does one `INSERT` and touches no socket. A
@@ -875,10 +946,13 @@ pub fn spawn(
     bounds: SpoolBounds,
     ring: std::sync::Arc<crate::keys::KeyRing>,
     deployment: String,
+    leader: Option<tokio_postgres::Config>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        // Per process, and it says so: see `ThresholdsSeen`.
+        // Per process, and it says so: see `ThresholdsSeen`. A new leader
+        // starts with none seen, so a takeover can repeat one threshold entry.
         let mut seen = ThresholdsSeen::new();
+        let mut lead: Option<ShipperLock> = None;
         // Logged on transitions only. A destination that is down for a day at
         // a five-second cadence would otherwise write seventeen thousand
         // identical lines, and an operator who has learned to filter them out
@@ -886,6 +960,34 @@ pub fn spawn(
         let mut reachable = true;
         loop {
             tokio::time::sleep(interval).await;
+
+            if let Some(config) = &leader {
+                if let Some(held) = &lead {
+                    if !held.still_held().await {
+                        tracing::warn!(
+                            "the audit shipper lost its lock connection; another server may \
+                             ship now"
+                        );
+                        lead = None;
+                        seen = ThresholdsSeen::new();
+                    }
+                }
+                if lead.is_none() {
+                    match ShipperLock::try_take(config).await {
+                        Ok(Some(held)) => {
+                            tracing::info!(
+                                "this server ships the audit spool; any other server waits"
+                            );
+                            lead = Some(held);
+                        }
+                        Ok(None) => continue,
+                        Err(e) => {
+                            tracing::debug!(error = %e, "could not try the audit shipper lock");
+                            continue;
+                        }
+                    }
+                }
+            }
 
             let client = match pool.get().await {
                 Ok(c) => c,
