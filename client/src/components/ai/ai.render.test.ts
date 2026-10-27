@@ -2,9 +2,10 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import type { AiIdea, AiKeyView } from '../../api/ai';
+import { helperAppConfig, helperPairCommand, type AiIdea, type AiKeyView, type AiOverview } from '../../api/ai';
 import { AiIdeasPanel, aiIdeasTab } from './AiIdeas';
 import { keyAppName, stateWords } from './AiPanel';
+import { HowToConnect, whyCannotConnect } from './HowToConnect';
 import { ago, Info, until } from './parts';
 
 const idea = (over: Partial<AiIdea> = {}): AiIdea => ({
@@ -109,5 +110,67 @@ describe('the words the AI screens use', () => {
     expect(out).toContain('aria-label="What a connection is"');
     expect(out).toContain('aria-expanded="false"');
     expect(out).not.toContain('Hidden until pressed');
+  });
+});
+
+describe('Connect an AI app', () => {
+  const overview = (over: Partial<AiOverview> = {}): AiOverview => ({
+    server: { allowed: true, reason: null },
+    policy: {
+      allowed: true,
+      makers: [],
+      ceiling: ['layout', 'addresses'],
+      apps: ['claude'],
+      maxDays: 90,
+      secondPersonScopes: [],
+      changedBy: null,
+      changedAt: null,
+      version: 1,
+    },
+    steward: false,
+    canMake: true,
+    keys: [],
+    deployment: 'dep',
+    connector: null,
+    ...over,
+  });
+  const draw = (o: AiOverview) =>
+    renderToStaticMarkup(
+      createElement(HowToConnect, {
+        organisationId: 'O',
+        organisationName: 'Acme',
+        overview: o,
+        folders: [],
+        origin: 'https://fathom.example.org',
+        onMade: () => undefined,
+      }),
+    );
+
+  it('offers the helper key when apps cannot sign in, with the line to run and the form', () => {
+    const out = draw(overview());
+    expect(out).toContain('node fathom-ai.mjs pair https://fathom.example.org');
+    expect(out).toContain('href="/fathom-ai.mjs"');
+    expect(out).toContain('>Make key<');
+    expect(out).toContain('claude mcp add fathom -- node /path/to/fathom-ai.mjs');
+  });
+
+  it('opens on the sign-in address when the connector is on', () => {
+    const out = draw(overview({ connector: 'https://fathom.example.org/mcp' }));
+    expect(out).toContain('data-testid="ai-connector-url">https://fathom.example.org/mcp<');
+    expect(out).not.toContain('>Make key<');
+  });
+
+  it('shows no form, and says who can change it, when the person may not connect', () => {
+    const out = draw(overview({ canMake: false }));
+    expect(out).not.toContain('>Make key<');
+    expect(out).toContain('has to name you');
+    expect(whyCannotConnect(overview({ server: { allowed: false, reason: null } }), 'Acme')).toContain('whole server');
+    expect(whyCannotConnect(overview(), 'Acme')).toBeNull();
+  });
+
+  it('writes the app settings with the path the person gives', () => {
+    expect(helperPairCommand('https://f.example')).toBe('node fathom-ai.mjs pair https://f.example');
+    const c = helperAppConfig('/home/me/fathom-ai.mjs');
+    expect(JSON.parse(c.json)).toEqual({ mcpServers: { fathom: { command: 'node', args: ['/home/me/fathom-ai.mjs'] } } });
   });
 });

@@ -97,7 +97,33 @@ Set `FATHOM_FIRMWARE_FETCH_BASE_URL` first (`docs/RUNNING-IT.md`); firmware is o
 2. Pick a save to see the design as it was, its changes outlined. **Back to now** returns.
 3. **Restore this version** (Draw) makes a new save; both stay listed.
 
-## 9. Fit a card and an optic
+## 9. Connect Claude or another AI app
+
+An AI app reads designs you can read, in one organisation, and sends ideas a person accepts. It never
+sees passwords or the vault, and it cannot change a design (ADR-0072).
+
+First, once per organisation: a Steward opens **Organisation › AI**, ticks **AI access allowed**, adds
+the people who may connect under **Who may connect AI apps**, and presses **Save**.
+
+Then, under **Connect an AI app**, pick how your app connects:
+
+- **It signs in (Claude, Claude Code).** Copy the address shown (it ends in `/mcp`). In Claude
+  (claude.ai, desktop, phone, and Claude Code on the web): Customize › Connectors › Add custom
+  connector, paste it; a Claude Code web session started after that has Fathom's tools. In Claude Code:
+  `claude mcp add --transport http fathom <address>`, then `/mcp`. The app sends you to Fathom; choose
+  the organisation, what it may see and for how long, and press **Allow**. This needs the server's
+  `FATHOM_AI_PUBLIC_URL` (docs/OPERATING.md, "AI connections"); without it the page says so.
+- **It uses a key (any app on your computer).** For an app that only starts a local MCP server, or a
+  Fathom no AI company can reach. Download the helper from the link (Node 20 or later), run the
+  `node fathom-ai.mjs pair <address>` line shown, paste the line it prints, choose what the key may
+  read and press **Make key**. Fathom shows the key id the helper printed, and the settings to paste
+  into Claude Code or an app's `mcpServers` list. `node fathom-ai.mjs check` shows what the key may do.
+  The private half of the key never leaves your computer; Fathom keeps only the public half.
+
+Either way the connection is listed under **Organisation › AI**, where you or a Steward can narrow it or
+turn it off; it also ends on its own after 30, 90 or 365 days.
+
+## 10. Fit a card and an optic
 
 You need Draw. A card is a module in a slot (a line card, NIM or FPC); an optic is the SFP in a port.
 
@@ -115,7 +141,7 @@ You need Draw. A card is a module in a slot (a line card, NIM or FPC); an optic 
 The Cards and optics lesson walks the same steps on a sample network. An AI assistant sees each card's
 slot and model and which ports are on it, never a serial.
 
-## 10. Add a building and its closets
+## 11. Add a building and its closets
 
 You need to be an admin of the organisation, or a steward of the site you add under.
 

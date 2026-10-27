@@ -343,3 +343,19 @@ export function safeRedirect(url: string): boolean {
     return false;
   }
 }
+
+// ---- The helper, for an app that cannot sign in (ADR-0072 decision 3) ----
+
+/** Where the helper is served: Fathom serves its own copy, so the file matches this server. */
+export const HELPER_PATH = '/fathom-ai.mjs';
+
+/** The line a person runs to make a key on their computer. `origin` is this Fathom's address. */
+export function helperPairCommand(origin: string): string {
+  return `node fathom-ai.mjs pair ${origin}`;
+}
+
+/** The lines a person adds to an app that starts MCP servers itself, with the helper's path. */
+export function helperAppConfig(file: string): { json: string; claudeCode: string } {
+  const json = JSON.stringify({ mcpServers: { fathom: { command: 'node', args: [file] } } }, null, 2);
+  return { json, claudeCode: `claude mcp add fathom -- node ${file}` };
+}
