@@ -709,3 +709,71 @@
 .ai-how__blocked {
   margin-top: var(--s2);
 }
+
+/* What an AI may do, by kind of work (card r47-ai-controls): one row a kind, Off, Ideas,
+   Proposes. The same table is the admin's ceiling, a Steward's rules and a connection's own. */
+.ai-work {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--t-body);
+}
+
+.ai-work th,
+.ai-work td {
+  border-bottom: var(--rule-hair) solid var(--control-line);
+  padding: var(--s1) var(--s2);
+  text-align: left;
+  font-weight: normal;
+}
+
+.ai-work thead th {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.ai-work td,
+.ai-work thead th + th {
+  text-align: center;
+  width: 4.5rem;
+}
+
+.ai-work input[type="radio"] {
+  margin: 0;
+}
+
+.ai-work input[type="radio"]:disabled {
+  opacity: 0.35;
+}
+
+.ai-only.ai-input {
+  height: auto;
+  padding: var(--s1) var(--s2);
+  font-family: var(--mono, monospace);
+  resize: vertical;
+}
+
+.ai-limits {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+
+.ai-limit {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+  font-size: var(--t-body);
+}
+
+.ai-limit > span:first-child {
+  min-width: 12rem;
+}
+
+.ai-input.ai-input--num {
+  width: 5rem;
+}
+
+.console-ai__ceiling {
+  margin: var(--s3) 0;
+  max-width: 40rem;
+}

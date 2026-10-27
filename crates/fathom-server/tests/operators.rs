@@ -8345,7 +8345,7 @@ async fn an_operator_stops_an_ai_key_or_turns_ai_off_and_widens_nothing() {
     let (allowed, version) = switch_version(&page);
     if !allowed {
         operators_store
-            .set_ai_switch(&acting().await, true, None, version)
+            .set_ai_switch(&acting().await, true, None, None, version)
             .await
             .expect("back on");
     }
@@ -8418,6 +8418,7 @@ async fn an_operator_stops_an_ai_key_or_turns_ai_off_and_widens_nothing() {
                 second_person_scopes: vec![],
                 apps: vec!["claude".into()],
                 may_change: false,
+                ..Default::default()
             },
             0,
         )
@@ -8530,6 +8531,7 @@ async fn an_operator_stops_an_ai_key_or_turns_ai_off_and_widens_nothing() {
             &acting().await,
             false,
             Some("Reviewing AI access".into()),
+            None,
             version,
         )
         .await
@@ -8541,11 +8543,65 @@ async fn an_operator_stops_an_ai_key_or_turns_ai_off_and_widens_nothing() {
         Err(ai::AiError::SiteOff)
     ));
     operators_store
-        .set_ai_switch(&acting().await, true, None, version + 1)
+        .set_ai_switch(&acting().await, true, None, None, version + 1)
         .await
         .expect("on again");
     make("A third").await.expect("a key once AI is back on");
     signed_whoami(&pool, &ring, &second_key, &second)
         .await
         .expect("and the key that was never stopped reads again");
+
+    // The admin's ceiling by kind of work (card r47-ai-controls): an organisation may not set
+    // more than it allows.
+    use fathom_server::ai_work::{Level, Levels};
+    let ceiling = Levels([Level::Ideas, Level::Propose, Level::Propose, Level::Off]);
+    operators_store
+        .set_ai_switch(&acting().await, true, None, Some(ceiling), version + 2)
+        .await
+        .expect("a ceiling");
+    let page = operators_store
+        .ai_overview(&acting().await)
+        .await
+        .expect("the AI page");
+    assert!(
+        String::from_utf8(page.to_canonical_bytes())
+            .unwrap()
+            .contains("\"design\":\"ideas\""),
+        "the page shows the ceiling"
+    );
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    let ctx = repo::open_tenant_context(&tx, organisation, steward)
+        .await
+        .expect("tenant context");
+    let tenant_key = keys::tenant_key(&tx, &ring, &ctx)
+        .await
+        .expect("tenant key");
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let above = ai::set_policy(
+        &tx,
+        &auth,
+        ai::PolicyInput {
+            allowed: true,
+            makers: vec![steward.to_string()],
+            ceiling: vec!["layout".into()],
+            max_days: 90,
+            apps: vec!["claude".into()],
+            may_change: true,
+            work: Some(Levels([Level::Propose; 4])),
+            ..Default::default()
+        },
+        1,
+    )
+    .await;
+    assert!(
+        matches!(above, Err(ai::AiError::NotAllowed(why)) if why.contains("administrator")),
+        "{:?}",
+        above.err().map(|e| e.to_string())
+    );
 }

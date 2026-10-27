@@ -36,6 +36,37 @@ now a change it **proposes**:
 - The limits count proposals: 10 a minute and 300 a day per connection, from the ideas it sent.
 - `ai_design_changes` keeps the rows written before this amendment; nothing new is written to it.
 
+## Amended 27 October 2026: what an AI may do, set by kind of work
+
+The owner asked that "admin can control what it can and can't do, if it's planning only, or
+maintenance, or troubleshooting, or editing, or if it needs to sign off each change independently
+... stewards get similar rules ... not too finely grained", and approved sign-off card
+r47-ai-controls the same day with "three levels | kinds of work | admin ceiling | folder rules |
+limits | show settings | work through plans | per field". Migration 0057.
+
+- **Four kinds of work, three levels.** Editing the design (everything not below), drafting
+  maintenance plans (`MaintenancePlan`, `PlanStep`, `HasStep`), troubleshooting (`Issue`,
+  `IssueStep`, `HasIssueStep`), and working through a plan (a plan's stage, outcome and record, a
+  step's state, done-at, before and after, an issue's stage and outcome). Each is Off, Ideas (steps a
+  person carries out) or Proposes (the change itself, which waits for a person to accept it, as
+  above). Fields set on something the same change adds count as adding it.
+- **Three places, the strictest wins** at every request: the admin's ceiling (Admin › AI;
+  `ai_site_switch.work`; by default Proposes for all but working through a plan, which is Off), the
+  organisation's (Steward › AI rules; `ai_policies.work`, refused above the ceiling), and the
+  connection's own (`ai_keys.work`; its owner raises or lowers it, a Steward only lowers it). A new
+  connection ticked "May propose changes" follows whatever the organisation allows; unticked, Ideas.
+  Rows from before keep their tick: ticked reads as Proposes, unticked as Ideas, working through a
+  plan Off. The old ticks are now "any kind at Proposes".
+- **Folder rules.** A Steward marks folders ideas-only (an AI sends steps there, never a change) and
+  folders an AI does not see at all (never listed, never read). A folder counts with what it holds.
+- **Only these kinds and fields.** An optional list, `Device` or `Device.hostname`, at most 100: a
+  kind lets an AI add, remove and set it; a kind and field lets it set that field only. Empty is
+  everything the reading allows.
+- **Limits.** A Steward may lower proposals a minute (at most 10), a day (at most 300) and removals in
+  one proposal (at most 20). Past one, the answer is 429 with when to try again.
+- Accept and apply is not narrowed again: the change was checked against the rules when it was sent,
+  and a person accepting it makes it as their own edit, under their own grants.
+
 ## What the owner asked for
 
 > so claude code via web ui can push and pull things?

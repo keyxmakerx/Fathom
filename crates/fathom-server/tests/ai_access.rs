@@ -2751,7 +2751,7 @@ async fn an_ai_proposal_changes_nothing_until_a_person_accepts_it() {
         &a_change(now, "One too many", vec![(&device, hostname, s("core-x"))]),
     )
     .await;
-    assert_eq!(status, "403", "{}", text(&answer));
+    assert_eq!(status, "429", "{}", text(&answer));
     assert!(
         text(&answer).contains("10 ideas in the last minute"),
         "{}",
@@ -2775,6 +2775,278 @@ async fn an_ai_proposal_changes_nothing_until_a_person_accepts_it() {
     .await;
     assert_eq!(status, "403", "{}", text(&answer));
     assert!(text(&answer).contains("does not let AI apps propose changes"));
+}
+
+/// Sign-off card r47-ai-controls (approved 2026-10-27): a Steward sets, by kind of work,
+/// whether an AI may do nothing, send ideas, or propose changes; marks folders ideas-only or
+/// out of sight; keeps it to a list of kinds and fields; and lowers its limits. A connection's
+/// owner narrows it further. Each binds at the next request.
+#[tokio::test]
+async fn a_steward_sets_what_an_ai_may_do_by_kind_of_work_folder_and_field() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let place = a_place(&pool, &estate).await;
+    let owner = a_member(
+        &pool,
+        &ring,
+        &estate,
+        "drawer",
+        Some(place.network),
+        Capability::Draw,
+    )
+    .await;
+    let addr = serve(app(&pool, Arc::clone(&ring)).await).await;
+    let steward = sign_in(addr, &estate.steward).await;
+    saved(addr, &steward, estate.organisation, place.design_a, 71).await;
+    saved(addr, &steward, estate.organisation, place.design_b, 72).await;
+    let o = estate.organisation;
+    let owner_id = owner.account.to_string();
+    let building_a = place.building_a.to_string();
+    let building_b = {
+        let client = pool.get().await.unwrap();
+        client
+            .execute(
+                "SELECT set_config('app.tenant_id', $1, false)",
+                &[&o.to_string()],
+            )
+            .await
+            .unwrap();
+        let row = client
+            .query_one(
+                "SELECT scope_id FROM designs WHERE id = $1",
+                &[&place.design_b.to_string()],
+            )
+            .await
+            .unwrap();
+        client
+            .execute("SELECT set_config('app.tenant_id', '', false)", &[])
+            .await
+            .unwrap();
+        row.get::<_, String>(0)
+    };
+    let policy_path = format!("/organisations/{o}/ai/policy");
+    let work = |design: &str| {
+        canon_obj(vec![
+            ("design", s(design)),
+            ("plans", s("propose")),
+            ("issues", s("propose")),
+            ("doing", s("off")),
+        ])
+    };
+    let policy = |version: i64, extra: Vec<(&str, Json)>| {
+        let mut fields = vec![
+            ("allowed", Json::Bool(true)),
+            ("makers", strs(&[&owner_id])),
+            ("ceiling", strs(&["layout", "addresses", "notes"])),
+            ("maxDays", Json::Int(90)),
+            ("mayChange", Json::Bool(true)),
+            ("ifVersion", Json::Int(version)),
+        ];
+        fields.extend(extra);
+        canon(fields)
+    };
+    let (status, body) = browser(addr, &steward, "POST", &policy_path, &policy(0, vec![])).await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let owner_session = sign_in(addr, &owner).await;
+    let app_key = a_changing_key(addr, &owner_session, o, &["layout"]).await;
+    let a = place.design_a;
+    let path = format!("/ai/v1/designs/{a}/changes");
+    let path_b = format!("/ai/v1/designs/{}/changes", place.design_b);
+    let hostname = DeviceField::Hostname.name();
+    let (va, device, _) = read_for_change(addr, &app_key, a, "Device").await;
+    let (vb, device_b, _) = read_for_change(addr, &app_key, place.design_b, "Device").await;
+    let rename = |n: &str| a_change(va, "Rename", vec![(&device, hostname, s(n))]);
+
+    // Editing the design at ideas: the rename is refused, naming the kind of work.
+    let (status, body) = browser(
+        addr,
+        &steward,
+        "POST",
+        &policy_path,
+        &policy(1, vec![("work", work("ideas"))]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    assert!(
+        text(&body).contains("\"design\":\"ideas\""),
+        "{}",
+        text(&body)
+    );
+    let (status, answer) = ai_call(addr, &app_key, "POST", &path, &rename("core-1")).await;
+    assert_eq!(status, "422", "{}", text(&answer));
+    assert!(
+        text(&answer).contains("is editing the design, which this connection may not propose"),
+        "{}",
+        text(&answer)
+    );
+    let (_, who) = ai_call(addr, &app_key, "GET", "/ai/v1/whoami", b"").await;
+    assert!(
+        text(&who).contains("\"design\":\"ideas\""),
+        "{}",
+        text(&who)
+    );
+
+    // Back at propose, with building B ideas-only: a proposal there is refused, here it waits.
+    let (status, body) = browser(
+        addr,
+        &steward,
+        "POST",
+        &policy_path,
+        &policy(
+            2,
+            vec![
+                ("work", work("propose")),
+                ("ideasOnlyScopes", strs(&[&building_b])),
+            ],
+        ),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let (status, answer) = ai_call(
+        addr,
+        &app_key,
+        "POST",
+        &path_b,
+        &a_change(vb, "Rename", vec![(&device_b, hostname, s("edge-1"))]),
+    )
+    .await;
+    assert_eq!(status, "403", "{}", text(&answer));
+    assert!(
+        text(&answer).contains("in this folder"),
+        "{}",
+        text(&answer)
+    );
+    let (status, answer) = ai_call(addr, &app_key, "POST", &path, &rename("core-2")).await;
+    assert_eq!(status, "200", "{}", text(&answer));
+
+    // Building B out of sight: the AI cannot even read it. Left out, the other lists stand.
+    let (status, body) = browser(
+        addr,
+        &steward,
+        "POST",
+        &policy_path,
+        &policy(3, vec![("noAiScopes", strs(&[&building_b]))]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    assert!(text(&body).contains(&building_b), "{}", text(&body));
+    let (status, _) = ai_call(
+        addr,
+        &app_key,
+        "GET",
+        &format!("/ai/v1/designs/{}", place.design_b),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "404");
+    let (status, _) = ai_call(addr, &app_key, "GET", &format!("/ai/v1/designs/{a}"), b"").await;
+    assert_eq!(status, "200");
+
+    // Only a device's role: its hostname is kept from the AI.
+    let (status, body) = browser(
+        addr,
+        &steward,
+        "POST",
+        &policy_path,
+        &policy(
+            4,
+            vec![
+                ("noAiScopes", strs(&[])),
+                ("ideasOnlyScopes", strs(&[])),
+                ("only", strs(&["Device.role"])),
+            ],
+        ),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let (status, answer) = ai_call(addr, &app_key, "POST", &path, &rename("core-3")).await;
+    assert_eq!(status, "422", "{}", text(&answer));
+    assert!(
+        text(&answer).contains("keeps from AI apps"),
+        "{}",
+        text(&answer)
+    );
+
+    // Limits past the fixed ones, an unknown kind, or a folder from elsewhere: refused whole.
+    for (extra, why) in [
+        (vec![("perMinute", Json::Int(11))], "1 to 10"),
+        (vec![("maxRemovals", Json::Int(21))], "0 to 20"),
+        (vec![("only", strs(&["Dragon"]))], "a kind"),
+        (
+            vec![("ideasOnlyScopes", strs(&[&a.to_string()]))],
+            "folder of this organisation",
+        ),
+    ] {
+        let (status, body) = browser(addr, &steward, "POST", &policy_path, &policy(5, extra)).await;
+        assert_eq!(status, "400", "{}", text(&body));
+        assert!(text(&body).contains(why), "{why}: {}", text(&body));
+    }
+
+    // The owner narrows their own connection: editing the design back to ideas.
+    let (status, body) = browser(
+        addr,
+        &owner_session,
+        "POST",
+        &policy_path,
+        &policy(5, vec![]),
+    )
+    .await;
+    assert_eq!(
+        status,
+        "403",
+        "a drawer does not set the policy: {}",
+        text(&body)
+    );
+    let (status, body) = browser(
+        addr,
+        &steward,
+        "POST",
+        &policy_path,
+        &policy(5, vec![("only", strs(&[])), ("perMinute", Json::Int(2))]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let key_path = format!("/organisations/{o}/ai/keys/{}", app_key.id);
+    let (status, body) = browser(
+        addr,
+        &owner_session,
+        "POST",
+        &key_path,
+        &canon(vec![("ifVersion", Json::Int(1)), ("work", work("ideas"))]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let (status, answer) = ai_call(addr, &app_key, "POST", &path, &rename("core-4")).await;
+    assert_eq!(status, "422", "{}", text(&answer));
+    assert!(
+        text(&answer).contains("editing the design"),
+        "{}",
+        text(&answer)
+    );
+
+    // Raised again by its owner, and the Steward's two a minute: one went through above, so
+    // one more does, and the next waits for the minute.
+    let (status, body) = browser(
+        addr,
+        &owner_session,
+        "POST",
+        &key_path,
+        &canon(vec![("ifVersion", Json::Int(2)), ("work", work("propose"))]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let (status, answer) = ai_call(addr, &app_key, "POST", &path, &rename("core-5")).await;
+    assert_eq!(status, "200", "{}", text(&answer));
+    let (status, answer) = ai_call(addr, &app_key, "POST", &path, &rename("core-6")).await;
+    assert_eq!(status, "429", "{}", text(&answer));
+    assert!(
+        text(&answer).contains("2 ideas in the last minute"),
+        "{}",
+        text(&answer)
+    );
+    let _ = building_a;
 }
 
 /// ADR-0077 step 3: in one proposal an AI adds a device under a name it chose, sets its

@@ -15,6 +15,7 @@
 // `min(2, live)`), and any route that lists accounts, so this board still
 // shows only the accounts it created itself in this session.
 
+import { parseWork, SITE_DEFAULT_WORK, WORKS, type WorkLevels } from './ai';
 import { concatBytes, lp, readLp, readU64LE, utf8 } from '../crypto/bytes';
 import { ApiRefusal } from './errors';
 import { deploymentId, signOperatorAssertion } from './placement';
@@ -480,6 +481,8 @@ export interface ServerAiKey {
 export interface ServerAi {
   allowed: boolean;
   reason: string | null;
+  /** The ceiling on what an AI may do in any organisation, by kind of work (card r47-ai-controls). */
+  work: WorkLevels;
   version: number;
   keys: ServerAiKey[];
 }
@@ -496,6 +499,7 @@ export function parseServerAi(bytes: Uint8Array): ServerAi {
   return {
     allowed: server.allowed !== false,
     reason: typeof server.reason === 'string' ? server.reason : null,
+    work: server.work == null ? SITE_DEFAULT_WORK : parseWork(server.work),
     version: typeof server.version === 'number' ? server.version : 0,
     keys: (Array.isArray(o.keys) ? o.keys : []).map((raw) => {
       const k = (raw ?? {}) as Record<string, unknown>;
@@ -521,8 +525,11 @@ export async function fetchServerAi(): Promise<ServerAi> {
   return parseServerAi(await signedFetch('GET', '/admin/ai'));
 }
 
-export async function setServerAi(allowed: boolean, reason: string, ifVersion: number): Promise<void> {
-  await signedFetch('POST', '/admin/ai/switch', concatBytes(lp(utf8(allowed ? 'yes' : 'no')), lp(utf8(reason)), lp(utf8(String(ifVersion)))));
+/** Turn AI on or off for the server and, given `work`, set the ceiling by kind of work. */
+export async function setServerAi(allowed: boolean, reason: string, ifVersion: number, work?: WorkLevels): Promise<void> {
+  const fields = [lp(utf8(allowed ? 'yes' : 'no')), lp(utf8(reason)), lp(utf8(String(ifVersion)))];
+  if (work) fields.push(lp(utf8(WORKS.map((w) => `${w}:${work[w]}`).join(','))));
+  await signedFetch('POST', '/admin/ai/switch', concatBytes(...fields));
 }
 
 export async function disableAiKeyAsAdmin(organisation: string, key: string, reason: string): Promise<void> {

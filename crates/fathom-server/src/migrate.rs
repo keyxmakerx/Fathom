@@ -347,6 +347,13 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0056_termix_access.sql",
         sql: include_str!("../migrations/0056_termix_access.sql"),
     },
+    // What an AI may do, by kind of work: the admin's ceiling, the organisation's levels,
+    // folder rules, the only kinds and fields, limits, and the connection's own levels.
+    Migration {
+        version: 57,
+        name: "0057_ai_work.sql",
+        sql: include_str!("../migrations/0057_ai_work.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.
