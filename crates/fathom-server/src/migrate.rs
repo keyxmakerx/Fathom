@@ -317,7 +317,7 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0051_design_moved.sql",
         sql: include_str!("../migrations/0051_design_moved.sql"),
     },
-    // Custom fields on a spare: definitions may apply to `part` (ADR-0075).
+    // Custom fields on a spare: definitions may apply to `part` (ADR-0076).
     Migration {
         version: 52,
         name: "0052_field_part.sql",

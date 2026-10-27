@@ -1,4 +1,4 @@
-// Spares and stores (ADR-0075, schema 0.29, sign-offs r36-stock and r38-stock-how). A `StockItem` is
+// Spares and stores (ADR-0076, schema 0.30, sign-offs r36-stock and r38-stock-how). A `StockItem` is
 // something on hand but not fitted: a spare card, optic, power supply, device or lead, or one on order,
 // away for repair, lent out or retired. A `Store` is where spares are kept that is not a rack; an item
 // names its store (`InStore`) and its bin in words. A `StockLevel` is the fewest spares of one model to

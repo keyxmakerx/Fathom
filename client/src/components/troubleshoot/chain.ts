@@ -351,7 +351,7 @@ function networkFacts(doc: Document, deviceId: string, cableId: string, switchId
 
 const bare = (address: string): string => address.split('/')[0];
 
-/** Whether a spare for a part is on hand, and where (ADR-0075): ", one on hand in Comms cupboard, bin 3". */
+/** Whether a spare for a part is on hand, and where (ADR-0076): ", one on hand in Comms cupboard, bin 3". */
 function spareWords(doc: Document, partId: string): string {
   const spares = sparesFor(doc, partId).filter((i) => i.state === 'spare');
   if (spares.length === 0) return ' (none on hand in stock)';

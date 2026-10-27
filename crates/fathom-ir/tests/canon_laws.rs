@@ -216,7 +216,7 @@ fn schema_version_is_the_trees() {
     // 0.29 -> 0.30: available inventory. Three node kinds (`Store`, `StockItem`, `StockLevel`), six
     // edge kinds (`HasStore`, `HasStock`, `HasStockLevel`, `InStore`, `ReservedFor`, `ForIssue`),
     // eighteen field keys (524-541); all MINOR.
-    assert_eq!(SCHEMA_VERSION, "0.29");
+    assert_eq!(SCHEMA_VERSION, "0.30");
 }
 
 #[test]

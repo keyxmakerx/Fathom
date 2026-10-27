@@ -2313,7 +2313,7 @@ pub async fn ai_reading(
     let verified = grants::verify_authority_state(tx, auth).await?;
     let place = folder_chain(tx, auth, &verified, &session.key, &path).await?;
     let tiers = tiers(&session.key, &session.policy);
-    // ADR-0075: a spare's custom-field values say only their definition's id; name the
+    // ADR-0076: a spare's custom-field values say only their definition's id; name the
     // organisation's `part` fields (Price, Supplier) so the values read. Notes tier only, as the
     // values are, and each name through the same credential check. Read before the graph is
     // built: the graph is not `Send` and must not be held across an await.

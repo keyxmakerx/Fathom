@@ -10,7 +10,7 @@
 //! Three tiers, matching the key's ticks:
 //!
 //! * `layout`, always: places, racks, devices and their models, ports, cables,
-//!   tags, interfaces by name, containers, and spares on hand (ADR-0075): each
+//!   tags, interfaces by name, containers, and spares on hand (ADR-0076): each
 //!   store's name, each spare's sort, model, state, count and bin, and the
 //!   levels kept.
 //! * `addresses`: what pasted configs set and an AI needs to reason about a
@@ -137,7 +137,7 @@ const NODES: &[NodeRow] = &[
         kind: NodeKind::Card,
         fields: fields!(CardField: Slot, Name, Model),
     },
-    // Spares on hand (ADR-0075). Never the serial, the RMA number or who it is lent to.
+    // Spares on hand (ADR-0076). Never the serial, the RMA number or who it is lent to.
     NodeRow {
         tier: Tier::Layout,
         kind: NodeKind::Store,
@@ -881,7 +881,7 @@ mod tests {
         assert!(!text.contains("FOC2231X0QZ"), "{text}");
     }
 
-    /// ADR-0075: a spare reaches an AI by sort, model and state, never by serial; its price
+    /// ADR-0076: a spare reaches an AI by sort, model and state, never by serial; its price
     /// (a custom-field value) only at the notes tier, and no other owner's custom field at all.
     #[test]
     fn a_spare_shows_without_its_serial_and_its_price_only_at_notes() {

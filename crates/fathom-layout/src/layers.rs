@@ -406,7 +406,7 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         | NodeKind::CableTie
         //     Mesh VPNs (0.26): drawn by the client's VPNs layer, never as a box.
         | NodeKind::OverlayNetwork
-        //     Available inventory (0.29): stores, stock and levels are lists in
+        //     Available inventory (0.30): stores, stock and levels are lists in
         //     Inventory, never laid out.
         | NodeKind::Store
         | NodeKind::StockItem

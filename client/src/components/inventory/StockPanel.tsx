@@ -1,4 +1,4 @@
-// Spares on hand (ADR-0075, sign-offs r36-stock and r38-stock-how): Inventory, Parts, On hand. What is in stock
+// Spares on hand (ADR-0076, sign-offs r36-stock and r38-stock-how): Inventory, Parts, On hand. What is in stock
 // and where it stands, the stores it is kept in, and the fewest of each model to keep. Four ways in: type it,
 // paste a list or a device's own `show inventory`, import a CSV, or take a part out of a drawn device. Calls
 // `document/stock.ts` directly and hands the result to `applyDocChange`, as the VPN section does.

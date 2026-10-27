@@ -749,7 +749,7 @@ function relabelLast(doc: Document, from: number, label: string): Document {
 export interface MarkDoneOptions extends Actor {
   /** Dry-runs the step's edit against the checks (`OP_CHECK_GESTURE`). Required, so no caller skips it. */
   check: StepCheck;
-  /** A swap step with a spare reserved for it (ADR-0075): where the part that comes out goes. Left out, it is
+  /** A swap step with a spare reserved for it (ADR-0076): where the part that comes out goes. Left out, it is
    * retired, so it is never counted as a spare nobody checked; the Inventory moves it on. */
   oldPartTo?: OldPartTo;
 }

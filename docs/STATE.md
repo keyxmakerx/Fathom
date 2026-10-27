@@ -341,8 +341,8 @@ breadcrumb does one thing.
   chassis hardware` offers the parts it reports (`document/facts.ts`). A plan's Swap a part step changes
   a part's serial and model in place and backs out. Lesson `cards-and-optics` on sample `parts-lab`.
   It's down's link step and the path trace name the card and optic; neither shows a serial, nor does the
-  AI reading. Spares are built since (ADR-0075, below).
-- **Spares and stores** (ADR-0075, schema 0.29). `Store`, `StockItem` and `StockLevel` hang off the root.
+  AI reading. Spares are built since (ADR-0076, below).
+- **Spares and stores** (ADR-0076, schema 0.29). `Store`, `StockItem` and `StockLevel` hang off the root.
   Inventory › Parts › On hand lists what is on hand, on order, away for repair, lent and retired, says
   which models are below the level kept, and holds the stores (each with its own page, bin by bin) and the
   levels. Add to stock takes one typed, a pasted list or `show inventory` (through the redaction gate), a
@@ -585,7 +585,7 @@ port"; it offers jacks only, and shows and unties ties.
 **AI access** (ADR-0072; migration 0046; `src/ai.rs`, `src/oauth.rs`, `src/mcp.rs`, `components/ai/`). A
 person a Steward names lets an AI app read designs they can read, in one organisation, at the tiers the
 organisation allows (layout, which includes spares without serials; addresses; notes, which includes a
-spare's custom fields, ADR-0075), and send ideas a person accepts or dismisses. Never
+spare's custom fields, ADR-0076), and send ideas a person accepts or dismisses. Never
 passwords or the vault. Two ways in, one grant row (`ai_keys`, kind `helper` or `connector`) and one set of
 rules checked at every request: (a) the **connector**: with `FATHOM_AI_PUBLIC_URL` set, the server is its
 own OAuth 2.1 authorization server and serves `/mcp` (Streamable HTTP, five tools; since ADR-0074 a design
