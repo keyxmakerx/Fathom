@@ -1,6 +1,6 @@
 # ADR-0023 — A local, read-only corpus MCP server ships with the CLI
 
-> **Status:** Proposed
+> **Status:** Superseded by ADR-0072 (2026-10-27). Never built; ADR-0072 reopened it on merit and replaced it.
 > **Date:** 2026-07-28
 > **Register entry:** new — raised by `84` P3 and §14 item 4
 > **Reversal cost:** R1 — a separate binary surface over an existing index

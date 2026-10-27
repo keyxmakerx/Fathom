@@ -1,6 +1,6 @@
 # ADR-0072: AI access keys — an AI reads a design as you, and recommends
 
-**Status:** proposed 2026-10-25. Owner answered sign-off cards ai-reach ("connector signed in as
+**Status:** accepted 2026-10-27 (owner, sign-off card r49); built, see `crates/fathom-server/src/ai.rs` and `crates/fathom-server/src/mcp.rs`. Proposed 2026-10-25. Owner answered sign-off cards ai-reach ("connector signed in as
 you"), ai-key ("read and propose", all three data ticks), ai-accept ("anyone with Draw, a Steward can
 require a second person") and ai-when ("after beta, ADR now") on 25 October, then added requirements
 the same day (below). Built as a draft PR that is not merged until the owner says so. Cards

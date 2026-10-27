@@ -2,7 +2,7 @@
 
 **Status:** REVISED AFTER ATTACK, 2026-09-11. Majors 1, 4 and 7 resolved 2026-09-12 (§11);
 major 5 and the primitives settled 2026-09-12 (§12).
-**Not accepted. Not built.** All seven majors resolved (§§11–13). Major 6 is presentation. The
+**Accepted as the record, 2026-10-27 (owner, sign-off card r49). Largely built.** The code cites it as the record. Encryption at rest (§2a), the sealed change chains (§§4, 11.2, 12) and part one of the vault (ADR-0071, migration 0042) are on main. Treat any section that no code cites as design only, and check `docs/STATE.md` before relying on it. Original text follows. All seven majors resolved (§§11–13). Major 6 is presentation. The
 per-recipient wrap primitive is decided (§13.7, 2026-09-12); nothing blocks the vault migration
 except the build order in §13.6.
 **Review:** `PHASE-2-ATTACK-REPORT.md` — 6 lenses, 36 findings, 20 survived verification, 16

@@ -1,6 +1,6 @@
 # Phase 2 — The administrator model and the sealed audit trail
 
-**Status:** Design, 2026-09-12. Written to be built from.
+**Status:** accepted as the record, 2026-10-27 (owner, sign-off card r49). Largely built: grants (§3, `src/grants.rs`), sessions (§4, `src/sessions.rs`), the administrator surface (§1, `src/admin.rs`, `src/operators.rs`) and the audit trail (§7, `src/audit.rs`, `src/chain.rs`) are on main. Treat any section that no code cites as design only, and check `docs/STATE.md` before relying on it. Designed 2026-09-12.
 **Answers:** `docs/REBUILD-PLAN.md` Phase 2 "Operational foundations" items 2 and 3, and
 `docs/OPEN-QUESTIONS.md` A2 (an audit log ships in the first release, because item 3 depends on it).
 **Owns:** the principal model, scope grants, session assurance, the administrative surface, the site
