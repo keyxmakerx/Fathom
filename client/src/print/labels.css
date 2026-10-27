@@ -1,0 +1,131 @@
+/* Labels (ADR-0075). Each label size is a named page, so the printer gets pages the size of the label.
+   `page` property: Chrome 85+, Firefox 110+, Safari 1+ (css.properties.page). `@page` size: Chrome 15+,
+   Firefox 95+, Safari 18.2+ (css.at-rules.page.size). Both read from mdn/browser-compat-data on
+   2026-10-26. Where `size` is not honoured, the page block is still that size and the person picks the
+   matching paper in the print dialog, which the preview says. Black on white in both themes: a code
+   needs dark modules on a light field. */
+
+@page label-tze-24 { size: 64mm 24mm; margin: 0; }
+@page label-tze-18 { size: 56mm 18mm; margin: 0; }
+@page label-tze-12 { size: 48mm 12mm; margin: 0; }
+@page label-ql-62 { size: 62mm 29mm; margin: 0; }
+@page label-ql-29 { size: 90mm 29mm; margin: 0; }
+@page label-a4 { size: 210mm 297mm; margin: 0; }
+
+.labels-page--tze-24 { page: label-tze-24; }
+.labels-page--tze-18 { page: label-tze-18; }
+.labels-page--tze-12 { page: label-tze-12; }
+.labels-page--ql-62 { page: label-ql-62; }
+.labels-page--ql-29 { page: label-ql-29; }
+.labels-page--a4 { page: label-a4; }
+
+.labels-preview {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  color: var(--ink);
+  overflow: auto;
+}
+.labels-preview__bar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s2) var(--s4);
+  background: var(--page);
+  border-bottom: var(--rule-mast) solid var(--ink);
+}
+.labels-preview__bar label {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.labels-preview__bar label span {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: var(--control-track);
+  text-transform: uppercase;
+}
+.labels-preview__grow {
+  flex: 1;
+}
+.labels-preview__help {
+  margin: var(--s3) var(--s4) 0;
+  max-width: 80ch;
+  color: var(--muted);
+}
+.labels-preview__pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s4);
+  padding: var(--s4);
+  align-items: flex-start;
+}
+.labels-page {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  box-sizing: border-box;
+  background: #ffffff;
+  outline: var(--rule-hair) solid var(--hairline);
+  overflow: hidden;
+}
+.label {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  background: #ffffff;
+  color: #000000;
+  font-family: var(--sans);
+  overflow: hidden;
+}
+.label--cut {
+  outline: 0.2mm dashed #9fa4a9;
+  outline-offset: -0.1mm;
+}
+.label__qr {
+  flex-shrink: 0;
+  display: block;
+}
+.label__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+.label__text b,
+.label__text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media print {
+  body.labels-open #root {
+    display: none;
+  }
+  body.labels-open .labels-preview {
+    position: static;
+    display: block;
+    overflow: visible;
+    background: none;
+  }
+  body.labels-open .labels-preview__bar,
+  body.labels-open .labels-preview__help {
+    display: none;
+  }
+  body.labels-open .labels-preview__pages {
+    display: block;
+    padding: 0;
+  }
+  body.labels-open .labels-page {
+    outline: none;
+    break-after: page;
+    print-color-adjust: exact;
+  }
+}

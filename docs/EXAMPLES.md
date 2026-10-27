@@ -165,3 +165,12 @@ You need to be an admin of the organisation, or a steward of the site you add un
 and design inside it; access given at a closet covers only that closet. Zoomed out, you see only the
 folders you may read, so a person with one closet sees that closet and the path to it. An AI app sees
 the same folders, and no more than its key allows.
+
+## 12. Label cables and check one from a phone
+
+1. **Inventory › Cables**, tick the cables, **Print labels**. Pick the label size your printer has
+   (Brother 24 mm tape is the default) and print; set the print dialog's paper to the same size, margins none.
+   Each cable gets two labels, one for each end.
+2. On a phone, point the Camera app at a label and open the link, or open Fathom and press **Scan**.
+   After sign-in the cable's page opens: its two ends, and **Label wrong** / **Not here** for a reader.
+3. **Add to Home Screen** from the phone browser's share menu keeps Fathom one tap away.

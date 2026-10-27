@@ -2327,7 +2327,9 @@ pub async fn ai_reading(
         Json::Str(
             "Read-only. Fields that looked like a password or key were left out and counted \
              in `withheld`. Recommend changes with POST .../recommendations; a person \
-             accepts or dismisses each."
+             accepts or dismisses each. A printed label's code holds this server's \
+             address, `/scan#`, this design's id, `/` and an id from here (a rack, \
+             cable, port or device); a person who scans it opens that item."
                 .into(),
         ),
     );

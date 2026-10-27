@@ -46,7 +46,9 @@ const INSTRUCTIONS: &str = "Fathom holds network designs. This connection reads 
     port (the port's transceiver). Passwords, device secrets, serial numbers and the vault are \
     never part of a reading. You cannot change a design. You can recommend a \
     change with the recommend tool; a person sees it in Fathom, marked as an AI idea, and \
-    accepts or dismisses it. Start with list_designs, then read_design.";
+    accepts or dismisses it, on a computer or a phone. If someone gives you a Fathom label's \
+    link (`.../scan#<design>/<id>`), the part after `#` is a design id and an id inside that \
+    design. Start with list_designs, then read_design.";
 
 /// The five tools, as `tools/list` gives them. Plain JSON so it reads as the protocol does;
 /// a test checks it parses and names exactly the tools [`call`] runs.

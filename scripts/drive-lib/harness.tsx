@@ -136,6 +136,8 @@ declare global {
     __cableIds__: string[];
     /** A drive sets this to make every save answer 503, to prove what the client does then. */
     __failSaves__?: boolean;
+    /** The design's AI ideas, as the server lists them (ADR-0072); none unless a script sets some. */
+    __aiIdeas__?: unknown[];
   }
 }
 
@@ -337,6 +339,9 @@ async function main() {
     }
     if (method === 'GET' && p === `${org}/designs/${DESIGN_ID}/history`) {
       return json(log.map((e, i) => ({ seq: i + 1, entry_type: i === 0 ? 'create' : 'update', chain_key_epoch: 1, design_version: i + 1, at_unix: e.atUnix, actor: e.actor })));
+    }
+    if (method === 'GET' && p === `${org}/designs/${DESIGN_ID}/ai-ideas`) {
+      return json(window.__aiIdeas__ ?? []);
     }
     if (method === 'GET' && p === `${org}/designs/${DESIGN_ID}/verify`) {
       return json({ outcome: 'verified', entries: log.length });

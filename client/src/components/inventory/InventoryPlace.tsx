@@ -83,6 +83,8 @@ import { loadSheet, saveSheet } from './sheetPref';
 import { saveLook } from '../drawing/look';
 import { PasswordsPage, useVaultCount } from '../vault/Screens';
 import { VaultPlaceContext } from '../vault/useVault';
+import { LabelsPreview } from '../../print/LabelsPreview';
+import { isLabelListKind, type LabelListKind } from '../../print/labels';
 
 const EMPTY_VIEW: ClosetView = { premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [], free: [], lines: [], labels: [] };
 const EMPTY_NETWORKS_DERIVED: NetworksDerived = { vlanRows: [], subnetRows: [], dockerNetworkRows: [], dockerUnattachedContainers: [] };
@@ -190,6 +192,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const [notice, setNotice] = useState<string | null>(null);
   // The filter line stays folded until Filter is pressed or a filter is set (r30-small).
   const [filterShown, setFilterShown] = useState(false);
+  const [labelRows, setLabelRows] = useState<{ kind: LabelListKind; rows: readonly InvRow[] } | null>(null);
   const [pasteText, setPasteText] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   // The design as it was when the importer opened, and as it is now (the dialog's callback is old by
@@ -867,7 +870,9 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                 progress={bulkProgress}
                 undo={bulkUndo && bulkUndo.notice === notice && bulkStillUndoable(doc, bulkUndo.id) ? { run: runBulkUndo } : null}
                 filter={{ shown: filterShown || q !== '', onToggle: () => setFilterShown(!filterShown) }}
+                onPrintLabels={isLabelListKind(kind) && session.designId ? () => setLabelRows({ kind, rows: checkedRows }) : undefined}
               />
+              {labelRows ? <LabelsPreview kind={labelRows.kind} rows={labelRows.rows} designId={session.designId ?? ''} onClose={() => setLabelRows(null)} /> : null}
               {filterShown || q !== '' ? (
                 <FilterLine q={q} onQ={(next) => go({ q: next })} schema={schema} rows={baseRows} parsed={filtered.parsed} kindLabel={kindLabel} autoFocus={filterShown && q === ''} />
               ) : null}

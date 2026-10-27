@@ -403,6 +403,19 @@ Built in part one. Pictures from the real-server drive: `reviews/vault/` in the 
   Fathom"; Disconnect confirms that the API key still works in the vault until a new one is made
   there. A device's Logins tab marks a pulled login as used on that device.
 
+## On a phone (ADR-0075; mockup r39-phone)
+
+- Under 760px wide. The same pages, with the tool row, minimap, side-panel strip, view tabs, Inventory's
+  import/paste/columns/add and tick boxes folded away. Tabs along the bottom, 52px plus the safe area:
+  **Scan · Find · Canvas**, and **Ideas N** while an AI idea waits. A design opens on Find.
+- Canvas on a phone is to look at: "View only", Undo off.
+- **Scan** is a full-screen sheet: camera with a frame where the browser can read codes, otherwise the
+  reason in one line; always "Or type the label or serial" and **Go**. Home on a phone starts with
+  **Scan a label**. Ideas open as the same kind of sheet.
+- **Print labels** (Inventory bulk bar, desk): a preview that is the print. A label is the code on the
+  left at full label height less 2 mm, the name in bold and one line of detail. Black on white in both
+  themes. Size picker remembered per browser.
+
 ## Owed to the boards, and two numbers not named
 
 - `Legend` needs a fifth column in band 1 at true size (40×13, no bail), captioned "wide cage, four
