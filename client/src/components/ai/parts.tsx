@@ -1,6 +1,6 @@
 // Pieces the AI screens share (ADR-0072): what a connection may see, which folders, how
 // long, and the plain-words box. Each one is the same on the "Connect an AI app" page, on
-// Organisation › AI and on a key's own page, so a person reads one vocabulary everywhere.
+// Steward › AI and on a key's own page, so a person reads one vocabulary everywhere.
 
 import { useState, type ReactNode } from 'react';
 

@@ -1,4 +1,4 @@
-// The breach-check policy on Organisation › Passwords (ADR-0071 part three; owner's round-32
+// The breach-check policy on Steward › Passwords (ADR-0071 part three; owner's round-32
 // answer: "make sure the checks can be per org, or even like per type of passwords"). Three levels,
 // the most specific winning: a login marked critical, a kind of login, the organisation.
 

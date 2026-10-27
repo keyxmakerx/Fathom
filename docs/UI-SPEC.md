@@ -2,7 +2,7 @@
 
 **Partly replaced by ADR-0060 (2026-09-27).** It sets these: one canvas with detail added by
 degrees, the places named Canvas and Inventory, a labelled side panel, right-click menus, and
-Organisation and Admin tabs on the home screen. Where this page and ADR-0060 disagree, ADR-0060 wins; the same holds for the later rounds in
+Steward and Admin tabs (Steward was called Organisation until 2026-10-27) on the home screen. Where this page and ADR-0060 disagree, ADR-0060 wins; the same holds for the later rounds in
 ADR-0061 and ADR-0068 (for example the one Back button with its tree, ADR-0068 point 2).
 
 **Sources.** Read this page by default; open a picture only when building the surface it shows.
@@ -358,7 +358,7 @@ Built in part one. Pictures from the real-server drive: `reviews/vault/` in the 
   Fathom keeps it, changed, breach list).
 - **Home › Passwords** for every member, admins included, with their own vault and "Set up your
   vault" (admins too since 2026-10-26: the owner could not find it under Organisation alone);
-  **Organisation › Passwords** for an admin:
+  **Steward › Passwords** for an admin:
   every login in the organisation, "Can read" or "Can't read", Remove someone, Delete, and the
   recovery-sheet card (fingerprint, every use listed, Replace the sheet).
 - **Locked and unlocked.** A strip says "Locked. Passwords show once you unlock." An unlocked
@@ -377,14 +377,14 @@ Built in part one. Pictures from the real-server drive: `reviews/vault/` in the 
   times · last …, for Auto-populate". Another admin sees "Sign as the second admin…"; the owner or
   any admin sees "Stop Fathom using it…", whose confirm carries the B-to-A sentence.
 
-- **Breach checks** (part three). Organisation › Passwords has a Breach checks card: the
+- **Breach checks** (part three). Steward › Passwords has a Breach checks card: the
   organisation's level (Check, how often, warn or refuse) and a row per kind, "Same as the
   organisation" or "Its own". Each card says "Breach list: Not found · today", "Not checked yet",
   "Checks off" or "Found in a breach · change it on the device", with Mark critical (owner or admin)
   and a red "Critical" tag. Saving a breached password shows how many times it was seen and either
   refuses ("this login is marked critical" or "your organisation refuses those") or asks for "Save
   it anyway". After an unlock, a note says what was checked and names anything found.
-- **Outside vaults** (part four). Home or Organisation › Passwords has an "Outside vaults" section;
+- **Outside vaults** (part four). Home or Steward › Passwords has an "Outside vaults" section;
   a member's shows their own and "+ Connect an outside vault", an admin's is "Outside vaults,
   everyone's". The connect dialog lists Vaultwarden, Delinea Secret Server and Passbolt to choose
   from; Passbolt is greyed with "Not on this server" when its helper is not running. For Vaultwarden: the address, the API key's client id and secret,
@@ -402,6 +402,20 @@ Built in part one. Pictures from the real-server drive: `reviews/vault/` in the 
   and Remove or Restore; "Check now and list its logins" lists the collection with "Pull into
   Fathom"; Disconnect confirms that the API key still works in the vault until a new one is made
   there. A device's Logins tab marks a pulled login as used on that device.
+
+## Home's tabs and the AI pages (ADR-0060 decision 7, ADR-0072; owner's note 2026-10-27)
+
+- **Tabs, one per role:** Designs · Passwords · **Steward** · **Admin**, each only for someone who
+  holds it. Steward is the organisation's own work (People, Waiting for you, Folders, Passwords,
+  AI, AI rules) and was called Organisation until 2026-10-27. Admin is the server's console and
+  shows only on the host it answers on, so an organiser outside the reverse proxy's `/admin` allow
+  list still has Steward. Someone a Steward named to connect AI apps, who stewards nothing, gets an
+  **AI** tab holding the AI page alone.
+- **Steward › AI:** one line saying what the rules allow (with **Change the rules** for a
+  Steward), then Connect an AI app, then the connections. No rules on this page.
+- **Steward › AI rules** (Stewards only): one column, one question per section, in this order: AI
+  access allowed; who may connect; which apps; the most a connection may see; longest a
+  connection lasts; ideas and changes from AI. Save sits at the foot and stays in view.
 
 ## On a phone (ADR-0075; mockup r39-phone)
 

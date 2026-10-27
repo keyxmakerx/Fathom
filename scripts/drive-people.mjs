@@ -235,7 +235,7 @@ async function runProof(browser, ctxA, seed) {
 
   // ---- Ann makes two folders ------------------------------------------------
   await signIn(A, seed.steward, STEWARD_PASSWORD);
-  await A.getByRole('tab', { name: 'Organisation' }).click();
+  await A.getByRole('tab', { name: 'Steward' }).click();
   await A.locator('.org-rail__item', { hasText: 'Folders' }).click();
   for (const folder of ['LON1', 'MAN1']) {
     await A.getByRole('button', { name: 'New site' }).click();
@@ -298,7 +298,7 @@ async function runProof(browser, ctxA, seed) {
 
   // ---- Waiting for you -----------------------------------------------------------
   await A.reload({ waitUntil: 'domcontentloaded' });
-  await A.getByRole('tab', { name: 'Organisation' }).click();
+  await A.getByRole('tab', { name: 'Steward' }).click();
   await A.getByTestId('people-waiting-box').waitFor({ timeout: 15000 });
   await shotA('w1-people-with-waiting-box');
   const railText = (await A.locator('[data-testid=rail-waiting]').innerText()).trim();

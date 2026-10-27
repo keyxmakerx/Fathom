@@ -1,4 +1,4 @@
-// "Connect an AI app" on Organisation › AI (ADR-0072 decisions 3 and 13). Two ways in, one
+// "Connect an AI app" on Steward › AI (ADR-0072 decisions 3 and 13). Two ways in, one
 // kind of grant: an app that signs in (Claude, Claude Code, other remote MCP apps) is given
 // the connector's address; an app that only starts a local MCP server uses the Fathom AI
 // helper, whose key the person makes on their own computer and registers here. Fathom only
@@ -26,7 +26,7 @@ type Way = 'sign-in' | 'key';
 /** Why this person cannot connect an app here, in words that say who can change it. */
 export function whyCannotConnect(o: AiOverview, organisationName: string): string | null {
   if (!o.server.allowed) return 'Whoever runs this Fathom has turned AI access off for the whole server.';
-  if (!o.policy.allowed) return `AI access is off in ${organisationName}. A Steward can turn it on below.`;
+  if (!o.policy.allowed) return `AI access is off in ${organisationName}. A Steward can turn it on in AI rules.`;
   if (!o.canMake) return `A Steward in ${organisationName} has to name you as someone who may connect AI apps.`;
   return null;
 }

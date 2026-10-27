@@ -294,8 +294,8 @@ export function Home({
     (organisations.status === 'ready' &&
       organisations.value.some((org) => org.organisationId === selectedOrgId && org.role === 'admin')) ||
     (scopes.status === 'ready' && scopes.value.some((scope) => canStewardFor(scope.capability)));
-  // ADR-0072: someone a Steward named to connect AI apps gets the Organisation tab with AI
-  // alone, so their connections have a home without People, Waiting and Folders.
+  // ADR-0072: someone a Steward named to connect AI apps, who stewards nothing, gets an AI
+  // tab, so their connections have a home without People, Waiting and Folders.
   const [aiMaker, setAiMaker] = useState(false);
   useEffect(() => {
     setAiMaker(false);
@@ -313,7 +313,7 @@ export function Home({
   }, [organisationAdmin, selectedOrgId]);
   const member =
     organisations.status === 'ready' && organisations.value.some((org) => org.organisationId === selectedOrgId && !org.practice);
-  const tabs = homeTabs({ organisationAdmin: organisationAdmin || aiMaker, admin: admin !== undefined, waitingInvitee, member });
+  const tabs = homeTabs({ organisationAdmin, aiMaker, admin: admin !== undefined, waitingInvitee, member });
   const shownTab: HomeTab = tabs.includes(tab) ? tab : 'designs';
   const tabsKey = tabs.join(' ');
   useEffect(() => {
@@ -636,7 +636,7 @@ export function Home({
         {organisations.status === 'ready' && organisations.value.length === 0 && waitingInvitee && <AwaitingSteward address={address} />}
         <HomeTabs tabs={tabs} current={shownTab} onSelect={selectTab} testIds={{ admin: 'console-entry' }} />
 
-        {shownTab === 'organisation' && selectedOrganisation && (
+        {(shownTab === 'organisation' || shownTab === 'ai') && selectedOrganisation && (
           <OrganisationTab
             organisation={selectedOrganisation}
             aiOnly={!organisationAdmin}

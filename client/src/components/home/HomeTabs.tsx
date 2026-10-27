@@ -1,7 +1,7 @@
 import type { HomeTab } from './homeTabs';
 import './home.css';
 
-const LABEL: Record<HomeTab, string> = { designs: 'Designs', passwords: 'Passwords', organisation: 'Organisation', admin: 'Admin' };
+const LABEL: Record<HomeTab, string> = { designs: 'Designs', passwords: 'Passwords', organisation: 'Steward', ai: 'AI', admin: 'Admin' };
 
 export interface HomeTabsProps {
   tabs: readonly HomeTab[];
@@ -11,7 +11,7 @@ export interface HomeTabsProps {
   testIds?: Partial<Record<HomeTab, string>>;
 }
 
-/** Designs · Organisation · Admin (ADR-0060 decision 7). Drawn only when there
+/** Designs · Passwords · Steward · Admin (ADR-0060 decision 7). Drawn only when there
  * is more than one to choose between. */
 export function HomeTabs({ tabs, current, onSelect, testIds }: HomeTabsProps) {
   if (tabs.length < 2) return null;

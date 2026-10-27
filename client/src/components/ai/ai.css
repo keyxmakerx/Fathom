@@ -1,4 +1,4 @@
-/* AI access (ADR-0072): Organisation › AI, the "Connect an AI app" page, and the AI ideas
+/* AI access (ADR-0072): Steward › AI and AI rules, the "Connect an AI app" page, and the AI ideas
    panel. Ink and weight, every size a token from design/tokens.css. An AI idea is marked
    with --sheath-purple, the one colour no other surface uses for state. */
 
@@ -358,24 +358,68 @@
 .ai-policy {
   display: flex;
   flex-direction: column;
+}
+
+/* AI rules: one question per section, one column, ruled off from the next. */
+.ai-rules-page {
+  max-width: var(--sheet-card);
+}
+
+.ai-rule {
+  display: flex;
+  flex-direction: column;
   gap: var(--s2);
+  padding: var(--s3) 0;
+  border-top: var(--rule-hair) solid var(--hairline);
 }
 
-.ai-policy__cols {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--s5);
+.ai-rule--first {
+  border-top: none;
+  padding-top: 0;
 }
 
-@media (max-width: 860px) {
-  .ai-policy__cols {
-    grid-template-columns: 1fr;
-  }
+.ai-rule__head {
+  margin: 0;
+  font-size: var(--t-body);
+  font-weight: 700;
 }
 
-/* The Organisation tab already has its rail, so the room that matters is the panel's own:
-   with a connection open beside a policy that cannot keep two columns, the connection goes
-   under it, ruled off, rather than squeezing both. */
+.ai-rule .ai-label {
+  margin-top: 0;
+}
+
+.ai-rules__save {
+  position: sticky;
+  bottom: 0;
+  padding: var(--s2) 0;
+  background: var(--page);
+  border-top: var(--rule-hair) solid var(--hairline);
+  align-items: center;
+}
+
+/* The top of the AI page: what the rules allow, and the way to change them. */
+.ai-rules-line {
+  display: flex;
+  gap: var(--s3);
+  align-items: baseline;
+  flex-wrap: wrap;
+  font-size: var(--t-small);
+  max-width: var(--sheet-card);
+}
+
+.ai-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--ink);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+
+/* The Steward tab already has its rail, so the room that matters is the panel's own:
+   with a connection open beside the list, the connection goes under it, ruled off,
+   rather than squeezing both. */
 @container (max-width: 980px) {
   .ai-org {
     flex-direction: column;

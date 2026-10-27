@@ -7,7 +7,7 @@ describe('homeTabs', () => {
     expect(homeTabs({ organisationAdmin: false, admin: false })).toEqual(['designs']);
   });
 
-  it("adds Organisation for the organisation's admins", () => {
+  it("adds Steward for the organisation's admins", () => {
     expect(homeTabs({ organisationAdmin: true, admin: false })).toEqual(['designs', 'organisation']);
   });
 
@@ -21,6 +21,16 @@ describe('homeTabs', () => {
     expect(homeTabs({ organisationAdmin: false, admin: true, member: true })).toEqual(['designs', 'passwords', 'admin']);
     expect(homeTabs({ organisationAdmin: true, admin: false, member: true })).toEqual(['designs', 'passwords', 'organisation']);
     expect(homeTabs({ organisationAdmin: true, admin: true, member: true })).toEqual(['designs', 'passwords', 'organisation', 'admin']);
+  });
+
+  it('gives someone named to connect AI apps an AI tab, and a steward Steward alone', () => {
+    expect(homeTabs({ organisationAdmin: false, aiMaker: true, admin: false, member: true })).toEqual(['designs', 'passwords', 'ai']);
+    expect(homeTabs({ organisationAdmin: true, aiMaker: true, admin: false, member: true })).toEqual(['designs', 'passwords', 'organisation']);
+  });
+
+  it('keeps Steward for an organiser outside the console allow list, and Admin beside it inside it', () => {
+    expect(homeTabs({ organisationAdmin: true, admin: false, member: true })).toContain('organisation');
+    expect(homeTabs({ organisationAdmin: true, admin: true, member: true }).slice(-2)).toEqual(['organisation', 'admin']);
   });
 
   it('gives someone who joined from an invitation and still waits no tabs to choose between', () => {

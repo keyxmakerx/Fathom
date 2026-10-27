@@ -1,6 +1,6 @@
 // Drives the REAL built client against the REAL server and the REAL helper
 // (ADR-0072 decision 3), with the connector OFF (no FATHOM_AI_PUBLIC_URL), as on
-// a Fathom no AI vendor can reach: a Steward turns AI on in Organisation › AI,
+// a Fathom no AI vendor can reach: a Steward turns AI on in Steward › AI,
 // downloads the helper Fathom serves, runs its pair line, pastes what it prints
 // under "It uses a key" and presses Make key; the helper then answers `check`
 // and, started as an MCP server over stdio the way an AI app starts it, lists
@@ -208,7 +208,7 @@ async function runProof(browser, ctxA, seed) {
 
   await signIn(A, seed.steward, STEWARD_PASSWORD);
   const openAi = async () => {
-    await A.getByRole('tab', { name: 'Organisation' }).click();
+    await A.getByRole('tab', { name: 'Steward' }).click();
     await A.getByTestId('rail-ai').click();
     await A.getByTestId('ai-panel').waitFor({ timeout: 10000 });
   };
@@ -221,6 +221,9 @@ async function runProof(browser, ctxA, seed) {
   check('K2. before AI is on there is no Make key, and it says why', (await A.getByRole('button', { name: 'Make key' }).count()) === 0 && (await A.getByTestId('ai-how-blocked').count()) === 1);
   await shot('k2-off');
 
+  check('R1. the AI page says AI is off here and opens AI rules', /AI is off here/.test(await A.getByTestId('ai-rules-line').innerText()));
+  await A.getByTestId('ai-open-rules').click();
+  await A.getByTestId('ai-rules').waitFor({ timeout: 10000 });
   await A.locator('.ai-switch input').check();
   await A.getByRole('button', { name: '+ Person' }).click();
   await A.locator('select[aria-label="Add a person"]').selectOption({ index: 1 });

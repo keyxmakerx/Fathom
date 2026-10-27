@@ -1,8 +1,10 @@
-// Organisation › AI (ADR-0072; mockups r33-ai-org-a and r33-ai-keys, approved). For a
-// Steward: whether AI is on here, who may connect, the most any connection may see, which
-// apps may connect, and every connection with a way to narrow or stop it. For anyone else
-// a Steward named: their own connections. The server decides all of it again on every
-// request; this page only shows and asks.
+// Steward › AI and Steward › AI rules (ADR-0072; mockups r33-ai-org-a and r33-ai-keys,
+// approved; split in two after the owner's note of 2026-10-27 that the connect tabs hid the
+// rules beneath them). AI: one line saying what the rules allow, Connect an AI app, and the
+// connections, every one for a Steward and their own for anyone else. AI rules, a Steward's
+// alone: whether AI is on here, who may connect, which apps, the most any connection may
+// see, how long one lasts, and who accepts its ideas. The server decides all of it again on
+// every request; these pages only show and ask.
 
 import { useCallback, useEffect, useState } from "react";
 
@@ -36,9 +38,15 @@ import {
 } from "./parts";
 
 export interface AiPanelProps {
+  /** `connections`: Connect an AI app and the connections. `rules`: the Steward's policy. */
+  view?: "connections" | "rules";
   organisationId: string;
   organisationName: string;
   folders: Scope[];
+  /** Opens AI rules; absent where the person has no rules page. */
+  onOpenRules?: () => void;
+  /** Back from AI rules to the connections. */
+  onOpenConnections?: () => void;
 }
 
 type Load<T> =
@@ -67,10 +75,30 @@ export function stateWords(key: AiKeyView): string {
   return "Off";
 }
 
+/** What the rules allow, in one sentence, for the top of the AI page. */
+export function rulesInWords(policy: AiPolicy, steward: boolean): string {
+  if (!policy.allowed)
+    return steward
+      ? "AI is off here. Nobody can connect an AI app until you turn it on in AI rules."
+      : "AI is off here. A Steward can turn it on.";
+  const apps = policy.apps.map((a) => APP_NAME[a]);
+  const appWords =
+    apps.length === 0
+      ? "No AI app is allowed yet"
+      : `${apps.length === 1 ? apps[0] : `${apps.slice(0, -1).join(", ")} and ${apps[apps.length - 1]}`} may connect`;
+  const sees = ["the layout", ...policy.ceiling.filter((t) => t !== "layout")].join(", ");
+  const people =
+    policy.makers.length === 1 ? "1 person" : `${policy.makers.length} people`;
+  return `AI is on. ${appWords}, for ${people}, seeing at most ${sees}, for up to ${DAY_WORDS[policy.maxDays] ?? `${policy.maxDays} days`}.`;
+}
+
 export function AiPanel({
+  view = "connections",
   organisationId,
   organisationName,
   folders,
+  onOpenRules,
+  onOpenConnections,
 }: AiPanelProps) {
   const [overview, setOverview] = useState<Load<AiOverview>>({
     status: "loading",
@@ -114,32 +142,31 @@ export function AiPanel({
   const o = overview.value;
   const key = o.keys.find((k) => k.id === selected) ?? null;
 
-  return (
-    <div className="ai-org-frame">
-      <div className="ai-org" data-testid="ai-panel">
-        <section className="ai-org__main">
-          <div className="ai-kicker">
-            {organisationName}
-            {o.steward ? " · Stewards only" : ""}
-          </div>
-          <h2 className="ai-title">AI in {organisationName}</h2>
+  if (view === "rules") {
+    return (
+      <div className="ai-org-frame">
+        <section className="ai-org__main ai-rules-page" data-testid="ai-rules">
+          <div className="ai-kicker">{organisationName} · Stewards only</div>
+          <h2 className="ai-title">AI rules in {organisationName}</h2>
           {!o.server.allowed && (
             <p className="ai-warn" role="alert">
               Whoever runs this Fathom has turned AI access off for the whole
-              server{o.server.reason ? `: “${o.server.reason}”` : "."} Nothing
-              here works until they turn it back on.
+              server{o.server.reason ? `: “${o.server.reason}”` : "."} These
+              rules wait until they turn it back on.
             </p>
           )}
-          <HowToConnect
-            organisationId={organisationId}
-            organisationName={organisationName}
-            overview={o}
-            folders={folders}
-            onMade={() => reload()}
-          />
           {notice && (
             <p className="ai-muted" role="status">
-              {notice}
+              {notice}{" "}
+              {onOpenConnections && (
+                <button
+                  type="button"
+                  className="ai-link"
+                  onClick={onOpenConnections}
+                >
+                  See the connections
+                </button>
+              )}
             </p>
           )}
           {o.steward ? (
@@ -156,11 +183,48 @@ export function AiPanel({
             />
           ) : (
             <p className="ai-muted">
-              {o.policy.allowed
-                ? `A Steward lets you connect AI apps here, seeing at most: ${o.policy.ceiling.map((t) => TIER_WORDS[t].toLowerCase()).join("; ")}.`
-                : "AI access is off in this organisation. A Steward can turn it on."}
+              Only a Steward of the whole organisation changes these.{" "}
+              {rulesInWords(o.policy, false)}
             </p>
           )}
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="ai-org-frame">
+      <div className="ai-org" data-testid="ai-panel">
+        <section className="ai-org__main">
+          <div className="ai-kicker">{organisationName}</div>
+          <h2 className="ai-title">AI in {organisationName}</h2>
+          {!o.server.allowed && (
+            <p className="ai-warn" role="alert">
+              Whoever runs this Fathom has turned AI access off for the whole
+              server{o.server.reason ? `: “${o.server.reason}”` : "."} Nothing
+              here works until they turn it back on.
+            </p>
+          )}
+          <div className="ai-rules-line" data-testid="ai-rules-line">
+            <span>{rulesInWords(o.policy, o.steward)}</span>
+            {o.steward && onOpenRules && (
+              <button
+                type="button"
+                className="ai-btn ai-btn--small"
+                data-testid="ai-open-rules"
+                onClick={onOpenRules}
+              >
+                {o.policy.allowed ? "Change the rules" : "Open AI rules"}
+              </button>
+            )}
+          </div>
+          <HowToConnect
+            organisationId={organisationId}
+            organisationName={organisationName}
+            overview={o}
+            folders={folders}
+            onMade={() => reload()}
+          />
           <KeyTable
             keys={o.keys}
             steward={o.steward}
@@ -223,200 +287,210 @@ function PolicyForm({
     }
   }
 
+  // One column, one question per section, in the order a Steward decides them: on or off,
+  // who, which apps, how much, how long, and what an AI may do with ideas and changes.
   return (
     <div className="ai-policy">
-      <label className="ai-switch">
-        <input
-          type="checkbox"
-          checked={draft.allowed}
-          onChange={(e) => setDraft({ ...draft, allowed: e.target.checked })}
-        />
-        <span className="ai-switch__label">AI access allowed</span>
-        <span className="ai-muted">
+      <section className="ai-rule ai-rule--first">
+        <label className="ai-switch">
+          <input
+            type="checkbox"
+            checked={draft.allowed}
+            onChange={(e) => setDraft({ ...draft, allowed: e.target.checked })}
+          />
+          <span className="ai-switch__label">AI access allowed</span>
+        </label>
+        <p className="ai-muted">
           Off by default. Turning it off stops every connection here at once.
-        </span>
-      </label>
-      <div className="ai-policy__cols">
-        <div>
-          <div className="ai-label">Who may connect AI apps</div>
-          <div className="ai-chips">
-            {draft.makers.length === 0 && (
-              <span className="ai-chip ai-chip--plain">Nobody yet</span>
-            )}
-            {draft.makers.map((id) => (
-              <span key={id} className="ai-chip">
-                {nameOf(id)}
-                <button
-                  type="button"
-                  className="ai-chip__x"
-                  aria-label={`Remove ${nameOf(id)}`}
-                  onClick={() =>
-                    setDraft({
-                      ...draft,
-                      makers: draft.makers.filter((m) => m !== id),
-                    })
-                  }
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-            {!adding && candidates.length > 0 && (
+          {!draft.allowed &&
+            " You can set the rules below first; they apply once it is on."}
+        </p>
+      </section>
+
+      <section className="ai-rule">
+        <h3 className="ai-rule__head">Who may connect AI apps</h3>
+        <div className="ai-chips">
+          {draft.makers.length === 0 && (
+            <span className="ai-chip ai-chip--plain">Nobody yet</span>
+          )}
+          {draft.makers.map((id) => (
+            <span key={id} className="ai-chip">
+              {nameOf(id)}
               <button
                 type="button"
-                className="ai-chip ai-chip--add"
-                onClick={() => setAdding(true)}
-              >
-                + Person
-              </button>
-            )}
-            {adding && (
-              <select
-                className="ai-select"
-                autoFocus
-                defaultValue=""
-                aria-label="Add a person"
-                onBlur={() => setAdding(false)}
-                onChange={(e) => {
-                  if (e.target.value)
-                    setDraft({
-                      ...draft,
-                      makers: [...draft.makers, e.target.value],
-                    });
-                  setAdding(false);
-                }}
-              >
-                <option value="" disabled>
-                  Choose a person
-                </option>
-                {candidates.map((p) => (
-                  <option key={p.account} value={p.account}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-          <p className="ai-muted">
-            Nobody else sees AI access. A person still needs Read on a folder
-            for their connection to see it.
-          </p>
-
-          <div className="ai-label">The most any connection may see</div>
-          <div className="ai-ticks">
-            {(["layout", "addresses", "notes"] as Tier[]).map((t) => (
-              <label key={t} className="ai-tick">
-                <input
-                  type="checkbox"
-                  checked={t === "layout" || draft.ceiling.includes(t)}
-                  disabled={t === "layout"}
-                  onChange={(e) =>
-                    setDraft({
-                      ...draft,
-                      ceiling: e.target.checked
-                        ? [...draft.ceiling, t]
-                        : draft.ceiling.filter((c) => c !== t),
-                    })
-                  }
-                />
-                <span>{TIER_WORDS[t]}</span>
-              </label>
-            ))}
-          </div>
-          <p className="ai-muted">
-            Narrowing this narrows every connection at its next request.
-          </p>
-        </div>
-        <div>
-          <div className="ai-label">Which AI apps may connect</div>
-          <div className="ai-ticks">
-            {APPS.map((a) => (
-              <label key={a} className="ai-tick">
-                <input
-                  type="checkbox"
-                  checked={draft.apps.includes(a)}
-                  onChange={(e) =>
-                    setDraft({
-                      ...draft,
-                      apps: e.target.checked
-                        ? [...draft.apps, a]
-                        : draft.apps.filter((x) => x !== a),
-                    })
-                  }
-                />
-                <span>
-                  {APP_NAME[a]}
-                  <span className="ai-tick__why"> · {APP_NOTE[a]}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-
-          <div className="ai-label">Longest a connection lasts</div>
-          <div
-            className="ai-seg"
-            role="radiogroup"
-            aria-label="Longest a connection lasts"
-          >
-            {KEY_DAYS.map((d) => (
-              <button
-                key={d}
-                type="button"
-                role="radio"
-                aria-checked={draft.maxDays === d}
-                className={
-                  draft.maxDays === d
-                    ? "ai-seg__item ai-seg__item--on"
-                    : "ai-seg__item"
+                className="ai-chip__x"
+                aria-label={`Remove ${nameOf(id)}`}
+                onClick={() =>
+                  setDraft({
+                    ...draft,
+                    makers: draft.makers.filter((m) => m !== id),
+                  })
                 }
-                onClick={() => setDraft({ ...draft, maxDays: d })}
               >
-                {DAY_WORDS[d]}
+                ×
               </button>
-            ))}
-          </div>
+            </span>
+          ))}
+          {!adding && candidates.length > 0 && (
+            <button
+              type="button"
+              className="ai-chip ai-chip--add"
+              onClick={() => setAdding(true)}
+            >
+              + Person
+            </button>
+          )}
+          {adding && (
+            <select
+              className="ai-select"
+              autoFocus
+              defaultValue=""
+              aria-label="Add a person"
+              onBlur={() => setAdding(false)}
+              onChange={(e) => {
+                if (e.target.value)
+                  setDraft({
+                    ...draft,
+                    makers: [...draft.makers, e.target.value],
+                  });
+                setAdding(false);
+              }}
+            >
+              <option value="" disabled>
+                Choose a person
+              </option>
+              {candidates.map((p) => (
+                <option key={p.account} value={p.account}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+        <p className="ai-muted">
+          Nobody else sees AI access. A person still needs Read on a folder for
+          their connection to see it.
+        </p>
+      </section>
 
-          <div className="ai-label">A second person accepts AI ideas in</div>
-          <FolderChips
-            chosen={draft.secondPersonScopes}
-            folders={folders}
-            everyLabel="No folder"
-            onChange={(next) =>
-              setDraft({ ...draft, secondPersonScopes: next })
+      <section className="ai-rule">
+        <h3 className="ai-rule__head">Which AI apps may connect</h3>
+        <div className="ai-ticks">
+          {APPS.map((a) => (
+            <label key={a} className="ai-tick">
+              <input
+                type="checkbox"
+                checked={draft.apps.includes(a)}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    apps: e.target.checked
+                      ? [...draft.apps, a]
+                      : draft.apps.filter((x) => x !== a),
+                  })
+                }
+              />
+              <span>
+                {APP_NAME[a]}
+                <span className="ai-tick__why"> · {APP_NOTE[a]}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </section>
+
+      <section className="ai-rule">
+        <h3 className="ai-rule__head">The most any connection may see</h3>
+        <div className="ai-ticks">
+          {(["layout", "addresses", "notes"] as Tier[]).map((t) => (
+            <label key={t} className="ai-tick">
+              <input
+                type="checkbox"
+                checked={t === "layout" || draft.ceiling.includes(t)}
+                disabled={t === "layout"}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    ceiling: e.target.checked
+                      ? [...draft.ceiling, t]
+                      : draft.ceiling.filter((c) => c !== t),
+                  })
+                }
+              />
+              <span>{TIER_WORDS[t]}</span>
+            </label>
+          ))}
+        </div>
+        <p className="ai-muted">
+          Narrowing this narrows every connection at its next request.
+        </p>
+      </section>
+
+      <section className="ai-rule">
+        <h3 className="ai-rule__head">Longest a connection lasts</h3>
+        <div
+          className="ai-seg"
+          role="radiogroup"
+          aria-label="Longest a connection lasts"
+        >
+          {KEY_DAYS.map((d) => (
+            <button
+              key={d}
+              type="button"
+              role="radio"
+              aria-checked={draft.maxDays === d}
+              className={
+                draft.maxDays === d
+                  ? "ai-seg__item ai-seg__item--on"
+                  : "ai-seg__item"
+              }
+              onClick={() => setDraft({ ...draft, maxDays: d })}
+            >
+              {DAY_WORDS[d]}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="ai-rule">
+        <h3 className="ai-rule__head">Ideas and changes from AI</h3>
+        <div className="ai-label">A second person accepts AI ideas in</div>
+        <FolderChips
+          chosen={draft.secondPersonScopes}
+          folders={folders}
+          everyLabel="No folder"
+          onChange={(next) => setDraft({ ...draft, secondPersonScopes: next })}
+        />
+        <p className="ai-muted">
+          Elsewhere anyone with Draw accepts, including the connection’s owner.
+        </p>
+        <label className="ai-tick">
+          <input
+            type="checkbox"
+            data-testid="ai-policy-may-change"
+            checked={draft.mayChange}
+            onChange={(e) =>
+              setDraft({ ...draft, mayChange: e.target.checked })
             }
           />
-          <p className="ai-muted">
-            Elsewhere anyone with Draw accepts, including the connection’s
-            owner.
-          </p>
-
-          <label className="ai-tick">
-            <input
-              type="checkbox"
-              data-testid="ai-policy-may-change"
-              checked={draft.mayChange}
-              onChange={(e) =>
-                setDraft({ ...draft, mayChange: e.target.checked })
-              }
-            />
-            <span>
-              AI apps may change designs
-              <span className="ai-tick__why">
-                {" "}
-                · only connections whose owner also ticks it, and only where
-                that person can draw. Text inside a design can steer an AI,
-                so changes are marked as the AI’s and undo in one step.
-              </span>
+          <span>
+            AI apps may change designs
+            <span className="ai-tick__why">
+              {" "}
+              · only connections whose owner also ticks it, and only where that
+              person can draw. Text inside a design can steer an AI, so changes
+              are marked as the AI’s and undo in one step.
             </span>
-          </label>
-        </div>
-      </div>
+          </span>
+        </label>
+      </section>
+
       {error && (
         <p className="ai-error" role="alert">
           {error}
         </p>
       )}
-      <div className="ai-actions">
+      <div className="ai-actions ai-rules__save">
         <button
           type="button"
           className="ai-btn ai-btn--primary"
@@ -435,6 +509,7 @@ function PolicyForm({
             Undo changes
           </button>
         )}
+        {changed && <span className="ai-muted">Not saved yet.</span>}
       </div>
     </div>
   );
