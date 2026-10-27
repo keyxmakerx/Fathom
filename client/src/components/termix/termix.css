@@ -1,0 +1,4 @@
+/* "Open in Termix" in the device panel's Management fold (ADR-0078). */
+.termix__hint { margin: 4px 0; font-size: 12px; color: var(--muted); }
+.termix__hint--error { color: var(--danger, var(--ink)); }
+.termix__key { width: 100%; box-sizing: border-box; margin: 2px 0 6px; font-family: var(--mono, monospace); }

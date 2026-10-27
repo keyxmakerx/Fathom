@@ -138,6 +138,9 @@ pub struct DesignApiState {
     /// The AI connector's settings (ADR-0072 decision 13), for Allow on its sign-in page;
     /// `None` when `FATHOM_AI_PUBLIC_URL` is unset.
     pub ai_connector: Option<Arc<crate::oauth::Connector>>,
+    /// ADR-0078: the operator's Termix, told to a signed-in browser; `None` when
+    /// `FATHOM_TERMIX_URL` is unset.
+    pub termix: Option<crate::termix::Termix>,
 }
 
 /// Read every vendor directory under `<root>/corpus/catalogue/` into one flat
@@ -238,6 +241,14 @@ pub fn router(state: DesignApiState) -> Router {
         .route(
             "/organisations/{organisation}/people/{account}/type-it-yourself",
             post(type_it_yourself_handler),
+        )
+        .route(
+            "/organisations/{organisation}/people/{account}/termix",
+            post(member_termix_handler),
+        )
+        .route(
+            "/organisations/{organisation}/termix",
+            get(termix_handler).post(organisation_termix_handler),
         )
         .route(
             "/organisations/{organisation}/designs/{design}",
@@ -2129,8 +2140,12 @@ async fn people_handler(
         tenant_key: &tenant_key,
         watch: &state.watch,
     };
-    let answer = invitations::people(&tx, &state.ring, &auth).await?;
+    let mut answer = invitations::people(&tx, &state.ring, &auth).await?;
     tx.commit().await.map_err(SessionError::Db)?;
+    // Whether the steward's Termix switches mean anything here (ADR-0078 decision 6).
+    if let Json::Obj(map) = &mut answer {
+        map.insert("termix".to_string(), Json::Bool(state.termix.is_some()));
+    }
     Ok(json_response(answer))
 }
 
@@ -3698,6 +3713,89 @@ async fn explainers_handler(
     Ok(json_response(Json::Arr(
         state.explainers.iter().map(json_of_explainer).collect(),
     )))
+}
+
+/// `GET /organisations/{o}/termix`: the operator's Termix for this person in this organisation
+/// (ADR-0078). `{"url": <origin> | null, "off": null | "everyone" | "you"}`. `url` is null when
+/// the operator named no Termix, and when a steward turned it off (`off` says for whom).
+async fn termix_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, _) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let off = crate::termix::off_for(&tx, &ctx.tenant().to_string(), &ctx.actor().to_string())
+        .await
+        .map_err(SessionError::Db)?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    let url = match (&state.termix, off) {
+        (Some(t), None) => Json::Str(t.origin().to_string()),
+        _ => Json::Null,
+    };
+    let mut body = BTreeMap::new();
+    body.insert("url".to_string(), url);
+    body.insert(
+        "off".to_string(),
+        off.map_or(Json::Null, |o| Json::Str(o.to_string())),
+    );
+    Ok(json_response(Json::Obj(body)))
+}
+
+/// `POST /organisations/{o}/termix`: body `{"off": bool}`. A steward turns Termix off, or back
+/// on, for everyone in the organisation. See [`crate::termix::set`].
+async fn organisation_termix_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    termix_switch(state, organisation, None, signed).await
+}
+
+/// `POST /organisations/{o}/people/{account}/termix`: body `{"off": bool}`. A steward turns
+/// Termix off, or back on, for one member. See [`crate::termix::set`].
+async fn member_termix_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, account)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let account: repo::AccountId = account
+        .parse()
+        .map_err(|_| SessionError::Malformed("account id"))?;
+    termix_switch(state, organisation, Some(account.to_string()), signed).await
+}
+
+async fn termix_switch(
+    state: DesignApiState,
+    organisation: String,
+    account: Option<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let mut m = object_body(&signed.body, &["off"])?;
+    let Some(Json::Bool(off)) = m.remove("off") else {
+        return Err(SessionError::Malformed("request body").into());
+    };
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let answer = crate::termix::set(&tx, &auth, account.as_deref(), off).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(json_response(answer))
 }
 
 // ---- Catalogue: public reference data, behind a session and nothing else ----

@@ -47,11 +47,17 @@ export interface Person {
   access: AccessRow[];
   /** "Type it yourself" is on for them (sign-off card r30-nocopy). Absent reads as off. */
   typeItYourself: boolean;
+  /** A steward turned Termix off for them (ADR-0078 decision 6). Absent reads as on. */
+  termixOff: boolean;
 }
 
 export interface People {
   waitingCount: number;
   people: Person[];
+  /** The operator named a Termix, so its switches mean something. Absent reads as no. */
+  termix: boolean;
+  /** A steward turned Termix off for everyone here. */
+  termixOff: boolean;
 }
 
 const CAPS = ['read', 'draw', 'steward'] as const;
@@ -60,6 +66,8 @@ export function parsePeople(bytes: Uint8Array): People {
   const r = jsonObject(bytes, 'people');
   return {
     waitingCount: int(r, 'waiting_count', 'people'),
+    termix: r.termix === true,
+    termixOff: r.termix_off === true,
     people: arrayOf(r, 'people', 'people').map((entry, i): Person => {
       const what = `person ${i}`;
       const p = asRec(entry, what);
@@ -101,6 +109,7 @@ export function parsePeople(bytes: Uint8Array): People {
           };
         }),
         typeItYourself: p.type_it_yourself === true,
+        termixOff: p.termix_off === true,
       };
     }),
   };

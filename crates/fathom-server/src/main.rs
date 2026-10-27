@@ -662,6 +662,7 @@ async fn main() -> ExitCode {
         live,
         invitation_limits: fathom_server::invitations::Limits::STANDARD,
         ai_connector,
+        termix: config.termix.clone(),
     };
 
     // The operator plane. ADR-0055 decision 3: the quorum is `min(2, live
@@ -1310,7 +1311,8 @@ async fn main() -> ExitCode {
     // fallback serving the client's files.
     let app = fathom_server::client::with_security_headers(
         app,
-        fathom_server::client::SecurityHeaders::new(client_address.clone()),
+        fathom_server::client::SecurityHeaders::new(client_address.clone())
+            .with_termix(config.termix.as_ref()),
     );
     let served = axum::serve(
         listener,

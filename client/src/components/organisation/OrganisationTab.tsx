@@ -22,6 +22,7 @@ import { FoldersPanel, type FoldersPanelProps, type Loadable } from './FoldersPa
 import { InviteForm, LinkCard } from './InvitePanel';
 import { accessWords, dateTimeLabel } from './model';
 import { setTypeItYourself } from '../../api/organisations';
+import { setTermixOff } from '../../api/termix';
 import { PeopleList, PersonPage } from './PeoplePanel';
 import { WaitingPanel } from './WaitingPanel';
 import { PasswordsPage } from '../vault/Screens';
@@ -141,6 +142,13 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
         onOpenPerson={(account) => go({ kind: 'person', account })}
         onInvite={() => go({ kind: 'invite' })}
         onOpenWaiting={() => go({ kind: 'waiting' })}
+        busy={busy}
+        onSetTermixEveryone={(off) =>
+          void act(async () => {
+            await setTermixOff(org, null, off);
+            reload();
+          })
+        }
       />
     );
   };
@@ -265,6 +273,17 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
               );
               reload();
             })
+          }
+          termixOffForEveryone={people.value.termixOff}
+          onSetTermix={
+            people.value.termix
+              ? (off) =>
+                  void act(async () => {
+                    await setTermixOff(org, person.account, off);
+                    setNotice(off ? `Termix is off for ${person.name}. It is in the organisation’s history.` : `Termix is on again for ${person.name}. It is in the organisation’s history.`);
+                    reload();
+                  })
+              : undefined
           }
           onGive={(capability, scopeId) =>
             void act(async () => {

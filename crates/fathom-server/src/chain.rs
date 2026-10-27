@@ -429,6 +429,9 @@ pub enum EntryType {
     /// `design`, the folder it left (`from`) and the one it joined (`to`), and the `actor`.
     /// Filed because a move changes who may read and draw it; never the design's name.
     DesignMoved,
+    /// A steward switched Termix off or back on (ADR-0078 decision 6, migration `0056`): for
+    /// `everyone` in the organisation, or for one `account`; `off`, and the `actor`.
+    TermixAccessSet,
 
     // ---- The password vault, Mode A (migration 0041, storage §13.4) ---------
     //
@@ -640,6 +643,7 @@ impl EntryType {
             Self::InvitationClosed => "invitation_closed",
             Self::TypeItYourselfSet => "type_it_yourself_set",
             Self::DesignMoved => "design_moved",
+            Self::TermixAccessSet => "termix_access_set",
             Self::VaultKeyEnrolled => "vault_key_enrolled",
             Self::VaultKeySuperseded => "vault_key_superseded",
             Self::VaultEntryCreated => "vault_entry_created",
@@ -731,6 +735,7 @@ impl EntryType {
             "invitation_closed" => Some(Self::InvitationClosed),
             "type_it_yourself_set" => Some(Self::TypeItYourselfSet),
             "design_moved" => Some(Self::DesignMoved),
+            "termix_access_set" => Some(Self::TermixAccessSet),
             "vault_key_enrolled" => Some(Self::VaultKeyEnrolled),
             "vault_key_superseded" => Some(Self::VaultKeySuperseded),
             "vault_entry_created" => Some(Self::VaultEntryCreated),
@@ -838,6 +843,7 @@ impl EntryType {
             | Self::InvitationClosed
             | Self::TypeItYourselfSet
             | Self::DesignMoved
+            | Self::TermixAccessSet
             | Self::VaultKeyEnrolled
             | Self::VaultKeySuperseded
             | Self::VaultEntryCreated

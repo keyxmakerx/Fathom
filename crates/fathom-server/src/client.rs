@@ -301,6 +301,10 @@ fn cache_control(rel: &Path) -> &'static str {
 ///    The Scan camera needs nothing here: `media-src` *"restricts the URLs from which video,
 ///    audio, and associated text track resources may be loaded"* (same source), and a camera
 ///    stream is handed to the `<video>` element as an object, not loaded from a URL.
+/// 6. **The operator's Termix, when `FATHOM_TERMIX_URL` names one** (ADR-0078), appended to
+///    `connect-src` by [`content_security_policy`]. One origin the operator chose, so a browser
+///    can ask that Termix which host is a device's management address with the person's own API
+///    key. Unset, the policy is exactly this constant.
 ///
 /// `img-src` carries `data:` because Vite inlines small assets as data URIs
 /// at build time, and the print pack's "This view" picture is a `data:` image
@@ -341,11 +345,37 @@ pub const STRICT_TRANSPORT_SECURITY: &str = "max-age=63072000; includeSubDomains
 #[derive(Clone, Debug, Default)]
 pub struct SecurityHeaders {
     client_address: crate::client_address::ClientAddress,
+    /// [`CONTENT_SECURITY_POLICY`], with the Termix origin when one is named.
+    policy: Option<HeaderValue>,
+}
+
+/// [`CONTENT_SECURITY_POLICY`] with `termix`'s origin added to `connect-src` (ADR-0078). The
+/// origin is [`crate::termix::Termix::parse`]'s, which admits no space, quote or semicolon, so it
+/// can add a source and nothing else.
+pub fn content_security_policy(termix: Option<&crate::termix::Termix>) -> String {
+    match termix {
+        None => CONTENT_SECURITY_POLICY.to_string(),
+        Some(t) => CONTENT_SECURITY_POLICY.replacen(
+            "connect-src 'self'",
+            &format!("connect-src 'self' {}", t.origin()),
+            1,
+        ),
+    }
 }
 
 impl SecurityHeaders {
     pub fn new(client_address: crate::client_address::ClientAddress) -> Self {
-        Self { client_address }
+        Self {
+            client_address,
+            policy: None,
+        }
+    }
+
+    /// The same layer, with `termix` in `connect-src`.
+    pub fn with_termix(mut self, termix: Option<&crate::termix::Termix>) -> Self {
+        self.policy =
+            termix.and_then(|t| HeaderValue::from_str(&content_security_policy(Some(t))).ok());
+        self
     }
 
     /// Whether this request arrived over TLS **as a proxy this deployment
@@ -428,7 +458,10 @@ pub async fn security_headers(
     }
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(CONTENT_SECURITY_POLICY),
+        policy
+            .policy
+            .clone()
+            .unwrap_or(HeaderValue::from_static(CONTENT_SECURITY_POLICY)),
     );
     if over_tls {
         headers.insert(
@@ -442,6 +475,21 @@ pub async fn security_headers(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn termix_adds_one_connect_source_and_nothing_else() {
+        assert_eq!(content_security_policy(None), CONTENT_SECURITY_POLICY);
+        let t = crate::termix::Termix::parse("https://termix.example.lan").unwrap();
+        let p = content_security_policy(Some(&t));
+        assert!(p.contains(
+            "connect-src 'self' https://termix.example.lan https://api.pwnedpasswords.com;"
+        ));
+        assert_eq!(
+            p.len(),
+            CONTENT_SECURITY_POLICY.len() + " https://termix.example.lan".len()
+        );
+        assert!(HeaderValue::from_str(&p).is_ok());
+    }
 
     #[test]
     fn the_root_is_index_html() {

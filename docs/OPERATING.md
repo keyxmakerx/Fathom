@@ -280,6 +280,28 @@ member types; your firewall must let the server reach it.
   one exception, `deps/decisions/ring.md`). Building from source needs a C compiler; the published
   image's build stage has one.
 
+### Termix (ADR-0078)
+
+**`FATHOM_TERMIX_URL`** names one Termix (the self-hosted SSH manager), as an origin:
+`https://termix.example.lan`, or `http://localhost:8080` for one on the same machine. A path, a user
+name or anything else is refused at startup (exit code 2, like any malformed setting). Set, a device
+with a management address gets "Open in Termix", and that one origin is added to the client's
+`connect-src`. Unset, nothing changes.
+
+- **The server never calls Termix.** People's browsers do, with their own Termix API keys, which a
+  Termix admin makes (Termix › Users › API keys) and which never reach Fathom's server. So the
+  browsers must reach Termix; the server need not.
+- If Termix's operator set `CORS_ALLOWED_ORIGINS`, Fathom's own address must be in that list, or
+  browsers are refused. Unset, Termix allows any origin.
+- Fathom adds hosts to Termix with no user name and no password, tagged `fathom`: one device in the
+  folder `Fathom`, or many from Inventory › Devices (Send to Termix) in `Fathom / <design>`. Credentials are Termix's to keep.
+- **Who may use it.** Each person uses their own Termix key, so each sees what their Termix user
+  can. Leaving `FATHOM_TERMIX_URL` unset turns it off for the whole deployment. Inside an
+  organisation a steward turns it off for everyone (Organisation › People, the Termix box) or for one
+  person (their page); each change is on the organisation's history as `termix_access_set`. That
+  hides Termix in Fathom and stops the server giving out its address; it does not stop someone who
+  knows the address opening Termix themselves. To take Termix from a person, revoke their key in Termix.
+
 ## Restore
 
 ADR-0043 §4's stamp is what tells a wrong-key restore from corruption. The configured master key's

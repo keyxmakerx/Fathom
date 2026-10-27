@@ -590,6 +590,15 @@ sits on (`Occupies`). The person makes every tie; Fathom suggests only from a ci
 card opens after a paste onto a drawn device and from a trace or "It's down" stop that reads "not tied to a
 port"; it offers jacks only, and shows and unties ties.
 
+**Termix** (ADR-0078; `src/termix.rs`, `components/termix/`). With `FATHOM_TERMIX_URL` set, a
+device's Management fold offers "Open in Termix": the browser finds the Termix host at the management
+address with the person's own Termix API key (kept in the tab, never sent to Fathom) and opens its
+terminal in a new tab, or adds the host first with no credentials. Inventory › Devices sends the ticked
+devices at once ("Send N to Termix"), skipping hosts Termix already has. The server only names the origin
+and adds it to `connect-src`; it never calls Termix. A steward turns it off for everyone in the organisation or
+for one person (migration 0056, Organisation › People); the address is then not given out and the buttons are
+gone. Not tried against a running Termix.
+
 **AI access** (ADR-0072; migration 0046; `src/ai.rs`, `src/oauth.rs`, `src/mcp.rs`, `components/ai/`). A
 person a Steward names lets an AI app read designs they can read, in one organisation, at the tiers the
 organisation allows (layout, which includes spares without serials; addresses; notes, which includes a
