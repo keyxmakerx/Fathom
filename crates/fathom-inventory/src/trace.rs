@@ -19,8 +19,8 @@ use std::net::IpAddr;
 
 use fathom_graph::{ElementId, Graph, NodeId, Origin};
 use fathom_ir::generated::accessors::{
-    address, address_object, address_set, application, logical_unit, policy_set, security_policy,
-    static_route, vlan,
+    address, address_object, address_set, application, card, logical_unit, physical_port,
+    policy_set, security_policy, static_route, vlan,
 };
 use fathom_ir::generated::ir_types::{EdgeKind, NodeKind, PolicyAction};
 use fathom_ir::scalar::{IpPrefix, IpRange};
@@ -618,6 +618,47 @@ impl Walk<'_> {
         out
     }
 
+    /// The parts a cable end sits in (ADR-0073): the card the port is on, and the optic in
+    /// its cage, each as one line of the hop. Serials are left out; the trace says what, not
+    /// which one.
+    fn parts_at(&self, port: NodeId) -> Vec<String> {
+        let mut out = Vec::new();
+        let at = format!("{} {}", self.dev_name(port), display_name(self.g, port));
+        if let Some(card) = self
+            .g
+            .out(port, EdgeKind::OnCard)
+            .filter(|e| e.absent_since.is_none())
+            .map(|e| e.to)
+            .find(|c| live(self.g, *c))
+        {
+            let slot = self
+                .g
+                .node(card)
+                .and_then(|n| card::slot(n).ok())
+                .map_or(String::new(), |t| format!(" in slot {}", t.0.as_str()));
+            out.push(format!("{at} is on the card{slot}"));
+        }
+        if let Some(optic) = self
+            .g
+            .node(port)
+            .and_then(|n| physical_port::transceiver(n).ok())
+        {
+            let what: Vec<&str> = [
+                optic.r#type.as_ref().map(|t| t.0.as_str()),
+                optic.part.as_ref().map(|p| p.0.as_str()),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            out.push(if what.is_empty() {
+                format!("optic in {at}")
+            } else {
+                format!("optic in {at}: {}", what.join(", "))
+            });
+        }
+        out
+    }
+
     /// Follow the cable from `from_port` through any patch panels to the port
     /// where it meets a device that is not a panel. The steps are cable hops.
     fn cable_chain(&self, from_port: NodeId) -> Result<(Vec<Hop>, NodeId), String> {
@@ -633,16 +674,19 @@ impl Walk<'_> {
                         .map_or(String::new(), |d| display_name(self.g, d))
                 ));
             };
+            let mut detail = vec![format!(
+                "{} {} to {} {}",
+                self.dev_name(here),
+                display_name(self.g, here),
+                self.dev_name(far),
+                display_name(self.g, far)
+            )];
+            detail.extend(self.parts_at(here));
+            detail.extend(self.parts_at(far));
             hops.push(Hop {
                 kind: "cable",
                 title: "cable".to_owned(),
-                detail: vec![format!(
-                    "{} {} to {} {}",
-                    self.dev_name(here),
-                    display_name(self.g, here),
-                    self.dev_name(far),
-                    display_name(self.g, far)
-                )],
+                detail,
                 nodes: vec![here.to_string(), cable.to_string(), far.to_string()],
                 why: "The cable recorded between these two ports.".to_owned(),
                 source: self.source_of(cable, "Cable.label"),

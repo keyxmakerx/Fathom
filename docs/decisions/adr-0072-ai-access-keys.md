@@ -187,6 +187,63 @@ Sources, all read 2026-10-25:
     Claude's connectors are, it is short-lived, audience-bound, revocable by three people, and
     checked against the policy on every request.
 
+## Added 27 October: plans, issues, and which account
+
+The owner asked whether an AI can "setup maintenances, plans, troubleshoot", and said a connection
+should be per person but people should be warned off personal accounts: "I wish there was a way to
+verify that".
+
+21. **Plans and issues are read like the rest of a design.** At `layout`: a maintenance plan's title,
+    window, stage and outcome, and each step's order, kind, what it touches, its sentence and where it
+    stands; an "It's down" issue's title, device, when it opened, stage and the plan made from it, and
+    each check's question, what it lights and the answer. At `notes`: what a step says before and
+    after, what was typed while doing or answering, a plan's record and where an issue pointed.
+    **Never:** who wrote a plan or ran an issue (a person's name), and a step's stored `edit` (the
+    machine line Done applies, which can carry a typed value). Decision 2 stands: the AI still only
+    reads and sends ideas.
+22. **A person can make an idea a plan.** "Make it a plan" on an AI idea makes a draft maintenance
+    plan, one step per idea step (`connect` becomes a cable step, `move` a move step, anything else
+    "other"), in one undo step, and accepts the idea. No step carries an edit: nothing changes until a
+    person adds the edits and marks steps done. The AI's words are not typed by the person, so they
+    go through the redaction gate, as pasted text does (ADR-0053 section 6). A target no longer in
+    the design is left off.
+23. **Fathom cannot tell which Claude account connects, and says so.** The connection page and
+    Organisation › AI tell the person to use the account their organisation gave them, not a personal
+    one, and that Fathom cannot check. The way that would prove it (Enterprise Managed Auth, below)
+    is a choice on the sign-off page (r42-ai-account), not built.
+
+24. **The person says which AI account it is, and the people who look after the organisation see
+    it.** The owner approved card r42-ai-account (A, the check after beta) and asked: "maybe we do
+    opt in for who can add. Can the users email be displayed to the org managers and admins?" Who
+    may connect is already opt-in (decision 1: only people a Steward names). Allow and Make key now
+    ask "Which AI account is it signed in to?", as an email address, and will not go ahead without
+    one. It is stored on the key (`ai_keys.ai_account`, migration 0049), inside the row seal when
+    present, and never put in the tamper-evident chain, so a person's address is not kept forever.
+    Stewards see it and the owner's Fathom sign-in address beside each connection, and so does Admin
+    › AI, which reads the address under the account custody beside the operator one, as the
+    operator register does. Every screen says Fathom cannot check it. Keys made before this have
+    none and say so.
+
+Sources checked (rule 1), all read 2026-10-27:
+
+- **Authentication for connectors**, https://claude.com/docs/connectors/building/authentication.
+  Claude identifies itself to the authorization server as a client (a Client ID Metadata Document,
+  Dynamic Client Registration, or a client Anthropic holds); the user signs in to the service with
+  their own account. Nothing on the page sends the Claude user's identity or organisation to the
+  server. Of the shared request-header credential it says: "Treat it as the organization's
+  credential, not a person's ... don't use it to identify which user is calling." Traffic comes from
+  `160.79.104.0/21`, which proves the request came through Anthropic, not whose account it was.
+- **Get started with custom connectors using remote MCP**, https://support.claude.com/en/articles/11175166.
+  On Team and Enterprise plans an Owner adds a custom connector for the organisation and each member
+  connects it; the page does not say any user or organisation identity reaches the server.
+- **Enterprise Managed Auth for connectors**, https://claude.com/docs/connectors/building/enterprise-managed-auth.md.
+  On Team and Enterprise plans, Claude can present "a signed JSON Web Token (JWT), issued by the
+  customer's identity provider, that vouches for the user's identity", exchanged at the token
+  endpoint with the JWT bearer grant (RFC 7523). The authorization server must keep "an explicit
+  allowlist of trusted issuer URLs per tenant" and reject any other issuer. DCR is not supported
+  with it. This is the only way found by which Fathom could know the person came through their
+  organisation's own sign-in.
+
 ## What this rules out
 
 A pasted key shared by a whole Claude organisation (static request headers); fetching a client

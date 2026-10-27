@@ -38,6 +38,8 @@ export interface ListToolbarProps {
   undo?: { run: () => void } | null;
   /** The filter line is folded until asked for (r30-small): Find is the one box on show. */
   filter?: { shown: boolean; onToggle: () => void };
+  /** Labels with a QR code for the ticked rows (ADR-0075); absent for kinds that take none. */
+  onPrintLabels?: () => void;
 }
 
 export interface KindFilter {
@@ -49,7 +51,7 @@ export interface KindFilter {
 }
 
 export function ListToolbar(props: ListToolbarProps) {
-  const { kindLabel, columnsAll, columns, onColumns, canAdd, addHint, onAdd, addAction, onPaste, onImport, kindFilter, checkedRows, bulkColumns, onBulkApply, bulkCheck, matching, onSelectAllMatching, onClearChecked, notice, undo, progress, filter } = props;
+  const { kindLabel, columnsAll, columns, onColumns, canAdd, addHint, onAdd, addAction, onPaste, onImport, kindFilter, checkedRows, bulkColumns, onBulkApply, bulkCheck, matching, onSelectAllMatching, onClearChecked, notice, undo, progress, filter, onPrintLabels } = props;
   // The name box opens from + Device rather than standing in the toolbar (r30-small).
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState('');
@@ -240,6 +242,11 @@ export function ListToolbar(props: ListToolbarProps) {
                 Remove tag
               </button>
             </>
+          ) : null}
+          {onPrintLabels ? (
+            <button type="button" onClick={onPrintLabels}>
+              Print labels
+            </button>
           ) : null}
           {checkedRows.length < matching ? (
             <button type="button" onClick={onSelectAllMatching}>

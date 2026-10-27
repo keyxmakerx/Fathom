@@ -26,6 +26,8 @@ export interface AiPolicy {
   maxDays: number;
   secondPersonScopes: string[];
   apps: App[];
+  /** The organisation's tick: AI apps may change designs (ADR-0077 decision 1). */
+  mayChange: boolean;
   changedBy: string | null;
   changedAt: number | null;
   version: number;
@@ -38,11 +40,17 @@ export interface AiKeyView {
   app: App | 'helper';
   owner: string;
   ownerName: string;
+  /** The owner's Fathom sign-in address (ADR-0072 decision 24). */
+  ownerEmail: string;
+  /** The AI account the owner said it uses: what they typed, never checked. Null on older keys. */
+  aiAccount: string | null;
   label: string;
   /** Empty: every folder the owner can read. */
   scopes: string[];
   sees: Tier[];
   mayRecommend: boolean;
+  /** The connection's own tick to change designs; it needs the organisation's too. */
+  mayChange: boolean;
   /** Seconds since the epoch, like the rest of this file's times. */
   createdAt: number;
   expiresAt: number;
@@ -115,6 +123,7 @@ export function parsePolicy(raw: unknown): AiPolicy {
     maxDays: num(o.maxDays) ?? 90,
     secondPersonScopes: strs(o.secondPersonScopes),
     apps: Array.isArray(o.apps) ? strs(o.apps).filter((a): a is App => (APPS as readonly string[]).includes(a)) : ['claude'],
+    mayChange: o.mayChange === true,
     changedBy: typeof o.changedBy === 'string' ? o.changedBy : null,
     changedAt: num(o.changedAt),
     version: num(o.version) ?? 0,
@@ -133,10 +142,13 @@ export function parseKey(raw: unknown): AiKeyView {
     app: (APPS as readonly string[]).includes(app) ? (app as App) : 'helper',
     owner: str(o.owner),
     ownerName: str(o.ownerName) || 'Someone',
+    ownerEmail: str(o.ownerEmail),
+    aiAccount: typeof o.aiAccount === 'string' && o.aiAccount !== '' ? o.aiAccount : null,
     label: str(o.label),
     scopes: strs(o.scopes),
     sees: tiers(o.sees),
     mayRecommend: o.mayRecommend === true,
+    mayChange: o.mayChange === true,
     createdAt: num(o.createdAt) ?? 0,
     expiresAt: num(o.expiresAt) ?? 0,
     state: ['on', 'disabled', 'deleted', 'expired'].includes(state) ? state : 'disabled',
@@ -200,13 +212,13 @@ export async function fetchAi(organisationId: string): Promise<AiOverview> {
 
 export async function setPolicy(
   organisationId: string,
-  policy: Pick<AiPolicy, 'allowed' | 'makers' | 'ceiling' | 'maxDays' | 'secondPersonScopes' | 'apps'>,
+  policy: Pick<AiPolicy, 'allowed' | 'makers' | 'ceiling' | 'maxDays' | 'secondPersonScopes' | 'apps' | 'mayChange'>,
   ifVersion: number,
 ): Promise<AiPolicy> {
   // Only the fields the route takes: it refuses any other, and a whole `AiPolicy` carries more.
-  const { allowed, makers, ceiling, maxDays, secondPersonScopes, apps } = policy;
+  const { allowed, makers, ceiling, maxDays, secondPersonScopes, apps, mayChange } = policy;
   return parsePolicy(
-    parse(await signedFetch('POST', `${org(organisationId)}/policy`, body({ allowed, makers, ceiling, maxDays, secondPersonScopes, apps, ifVersion }))),
+    parse(await signedFetch('POST', `${org(organisationId)}/policy`, body({ allowed, makers, ceiling, maxDays, secondPersonScopes, apps, mayChange, ifVersion }))),
   );
 }
 
@@ -218,7 +230,7 @@ export function cleanPublicKey(raw: string): string | null {
 
 export async function makeKey(
   organisationId: string,
-  key: { publicKey: string; label: string; scopes: string[]; sees: Tier[]; mayRecommend: boolean; days: number },
+  key: { publicKey: string; label: string; aiAccount: string; scopes: string[]; sees: Tier[]; mayRecommend: boolean; mayChange: boolean; days: number },
 ): Promise<{ key: AiKeyView; deployment: string }> {
   const o = parse(await signedFetch('POST', `${org(organisationId)}/keys`, body(key))) as Record<string, unknown>;
   return { key: parseKey(o.key), deployment: str(o.deployment) };
@@ -227,7 +239,7 @@ export async function makeKey(
 export async function changeKey(
   organisationId: string,
   key: Pick<AiKeyView, 'id' | 'version'>,
-  change: Partial<{ label: string; scopes: string[]; sees: Tier[]; mayRecommend: boolean; endsInDays: number }>,
+  change: Partial<{ label: string; scopes: string[]; sees: Tier[]; mayRecommend: boolean; mayChange: boolean; endsInDays: number }>,
 ): Promise<AiKeyView> {
   const path = `${org(organisationId)}/keys/${encodeURIComponent(key.id)}`;
   return parseKey(parse(await signedFetch('POST', path, body({ ...change, ifVersion: key.version }))));
@@ -269,7 +281,7 @@ export async function decideIdea(
 
 /** "In plain words": what a key does, for the person about to make or change one. */
 export function plainWords(
-  key: { scopes: string[]; sees: Tier[]; mayRecommend: boolean },
+  key: { scopes: string[]; sees: Tier[]; mayRecommend: boolean; mayChange?: boolean },
   folderName: (id: string) => string,
 ): string[] {
   const where = key.scopes.length === 0 ? 'every design you can read' : `designs in ${key.scopes.map(folderName).join(', ')}`;
@@ -278,7 +290,12 @@ export function plainWords(
   if (key.sees.includes('notes')) sees.push('notes');
   return [
     `Reads ${where}, as you: ${sees.join(', ')}.`,
-    key.mayRecommend ? 'Can send ideas. Nothing changes until a person accepts one.' : 'Can only read. It cannot send ideas or change anything.',
+    key.mayChange
+      ? 'Can change designs you can draw in, in your name and marked as the AI\'s. Each change is one undo.'
+      : key.mayRecommend
+        ? 'Can send ideas. Nothing changes until a person accepts one.'
+        : 'Can only read. It cannot send ideas or change anything.',
+    ...(key.mayChange ? ['Text inside a design can steer an AI. Only tick this for an AI you watch.'] : []),
     'Never sees passwords, the vault, or anything you cannot see.',
     'What it reads goes to the company behind your AI app.',
   ];
@@ -324,13 +341,21 @@ export async function checkConnect(query: string): Promise<ConnectCheck> {
 export async function answerConnect(
   organisationId: string,
   request: string,
-  answer: { allow: false } | { allow: true; label?: string; scopes: string[]; sees: Tier[]; mayRecommend: boolean; days: number },
+  answer:
+    | { allow: false }
+    | { allow: true; label?: string; aiAccount: string; scopes: string[]; sees: Tier[]; mayRecommend: boolean; mayChange: boolean; days: number },
 ): Promise<{ redirect: string; key: AiKeyView | null }> {
   const o = parse(await signedFetch('POST', `${org(organisationId)}/connect`, body({ request: request.replace(/^\?/, ''), ...answer }))) as Record<
     string,
     unknown
   >;
   return { redirect: str(o.redirect), key: o.key ? parseKey(o.key) : null };
+}
+
+/** The AI account as the server will keep it, or null when it is not one address. Mirrors `ai::clean_account`. */
+export function cleanAccount(raw: string): string | null {
+  const t = raw.trim().toLowerCase();
+  return /^[^@\s]+@[^@\s]+$/.test(t) && t.length >= 3 && t.length <= 254 ? t : null;
 }
 
 /** Where a sign-in may send the browser back to: https anywhere, or http on this computer. */

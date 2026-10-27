@@ -87,13 +87,19 @@ fn shipped_tree_declaration_counts_hold() {
     // `OverlayMember`), +7 keys (479-485).
     // The lesson builder (schema 0.27): +2 kinds (`Lesson`, `LessonStep`), +2 edges (`HasLesson`,
     // `HasLessonStep`), +22 keys (486-507).
-    assert_eq!(tree.kinds.len(), 75, "kind count");
-    assert_eq!(tree.edges.len(), 128, "edge count (107 + 8 derived)");
+    // Cards and optics (schema 0.28): +1 kind (`Card`), +2 edges (`HasCard`, `OnCard`), +1 class (`CardHost`),
+    // +4 keys (508-511).
+    // The room builder (schema 0.29): +3 kinds (`FloorPlan`, `Room`, `RoomCorner`), +3 edges
+    // (`HasFloorPlan`, `HasRoom`, `HasRoomCorner`), +12 keys (512-523).
+    // Available inventory (schema 0.30): +3 kinds (`Store`, `StockItem`, `StockLevel`), +6 edges
+    // (`HasStore`, `HasStock`, `HasStockLevel`, `InStore`, `ReservedFor`, `ForIssue`).
+    assert_eq!(tree.kinds.len(), 82, "kind count");
+    assert_eq!(tree.edges.len(), 139, "edge count (107 + 8 derived)");
     // Custom-field values (2026-10-02, schema 0.16): +1 kind (`FieldValue`), +1 edge
     // (`HasFieldValue`), +1 CLASS (`Fieldable`), +2 field keys (380 -> 382).
     assert_eq!(tree.scalars.len(), 61, "scalar count");
     assert_eq!(tree.enums.len(), 10, "enum file count");
-    assert_eq!(tree.classes.len(), 8, "class count");
+    assert_eq!(tree.classes.len(), 9, "class count");
     assert_eq!(tree.import_scopes.len(), 4, "import scope count");
     let fk = tree.field_keys.as_ref().expect("registry loads");
     // The owner's ticked ideas (schema 0.20): +2 field keys (`PhysicalPort.plate_x`, `.plate_y`,
@@ -103,7 +109,9 @@ fn shipped_tree_declaration_counts_hold() {
     // Missing links (schema 0.24): +1 field key (`Cable.needs_finishing`, 478).
     // Mesh VPNs (schema 0.26): +7 field keys (479-485).
     // The lesson builder (schema 0.27): +22 field keys (486-507).
-    assert_eq!(fk.entries.len(), 442, "field-key registry entries");
+    // Cards and optics (schema 0.28): +4 field keys (508-511).
+    // The room builder (schema 0.29): +12 field keys (512-523). Stock (0.30): +18 (524-541).
+    assert_eq!(fk.entries.len(), 476, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -190,7 +198,10 @@ fn shipped_tree_declaration_counts_hold() {
     // 0.24 -> 0.25 is the LAG plan step: one variant, `lag`, on `PlanStep.kind`.
     // 0.25 -> 0.26 is mesh VPNs: one kind, two edges, seven field keys (479-485).
     // 0.26 -> 0.27 is the lesson builder: two kinds, two edges, twenty-two field keys (486-507).
-    assert_eq!(tree.version.as_deref(), Some("0.27"));
+    // 0.27 -> 0.28 is cards and optics: one kind, two edges, one class, four field keys (508-511).
+    // 0.28 -> 0.29 is the room builder: three kinds, three edges, twelve field keys (512-523).
+    // 0.29 -> 0.30 is available inventory: three kinds, six edges, eighteen field keys (524-541).
+    assert_eq!(tree.version.as_deref(), Some("0.30"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

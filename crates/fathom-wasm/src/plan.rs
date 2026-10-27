@@ -7,6 +7,8 @@
 //!   `cable` port id, port id        `cut` cable id        `move` chassis id, rack id
 //!   `lag` device id, LAG name, LACP mode, member interface ids (two or more)
 //!   `unlag` LAG id (a back-out step: the LAG goes, its members stay)
+//!   `part` card, power supply or port id, new model, new serial (a swap: the part's place,
+//!   ports and cables stay)
 //! A value may not hold a tab or a line break; the client refuses one when the step is made.
 
 use std::collections::BTreeMap;
@@ -41,6 +43,9 @@ pub enum Edit {
     },
     Unlag {
         lag: String,
+    },
+    Part {
+        id: String,
     },
 }
 
@@ -99,6 +104,9 @@ impl Edit {
             }
             ["unlag", lag] => Edit::Unlag {
                 lag: (*lag).to_owned(),
+            },
+            ["part", id, _model, _serial] => Edit::Part {
+                id: (*id).to_owned(),
             },
             _ => Edit::None,
         }
@@ -308,6 +316,41 @@ pub fn impact(g: &Graph, edit: &Edit) -> (Vec<String>, Vec<(String, String)>) {
                 }
             }
         }
+        Edit::Part { id } => {
+            let Some(p) = live(g, id) else {
+                return (lines, touches);
+            };
+            touches.push(touch(g, p));
+            if let Some(d) = g.device_of(p) {
+                touches.push(touch(g, d));
+            }
+            // What goes dark while the part is out: a card's cabled ports, or the link on an optic's port.
+            let ports: Vec<NodeId> = match p.kind {
+                NodeKind::Card => g
+                    .inn(p, EdgeKind::OnCard)
+                    .filter(|e| e.absent_since.is_none())
+                    .map(|e| e.from)
+                    .collect(),
+                NodeKind::PhysicalPort => vec![p],
+                _ => Vec::new(),
+            };
+            let cabled = ports
+                .iter()
+                .filter(|q| !cables_at(g, **q).is_empty())
+                .count();
+            if p.kind == NodeKind::Card && !ports.is_empty() {
+                lines.push(format!(
+                    "{} port{} on this card, {cabled} cabled, go down while it is out",
+                    ports.len(),
+                    if ports.len() == 1 { "" } else { "s" }
+                ));
+            } else if p.kind == NodeKind::PhysicalPort && cabled > 0 {
+                lines.push(format!(
+                    "the link on {} goes down while the optic is out",
+                    name(g, p)
+                ));
+            }
+        }
         Edit::Unlag { lag } => {
             let Some(ae) = live(g, lag) else {
                 return (lines, touches);
@@ -401,9 +444,15 @@ mod tests {
             "lag\tdevice:X",
             "unlag",
             "unlag\ta\tb",
+            "part\tcard:X",
+            "part\tcard:X\tmodel",
         ] {
             assert!(matches!(Edit::parse(line), Edit::None), "{line:?}");
         }
+        assert!(matches!(
+            Edit::parse("part\tcard:X\t\tSERIAL2"),
+            Edit::Part { ref id } if id == "card:X"
+        ));
         assert!(matches!(
             Edit::parse("cable\ta\tb\textra"),
             Edit::Cable { .. }

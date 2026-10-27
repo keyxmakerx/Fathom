@@ -13,4 +13,7 @@ the editor uses, so a sample can hold nothing a person could not draw by hand.
   so Home starts it first. `firewall` instead draws zones and rules by hand, as the home lab does.
 - `trace` names two devices a path trace must cross end to end; `client/src/engine/sample.trace.test.ts` holds
   the sample to it, with and without catalogue models.
+- `devices[].cards` fits line cards (ADR-0073): each names its `slot` and `model` and lists its `ports` as one
+  pattern, the same one the editor's port field takes (`{"pattern":"1/{1-4}","connector":"sfp_plus"}`).
+  `devices[].optics` puts an optic in a cage by port label. `parts-lab.json` is the sample that uses both.
 - Every factual claim names its source in `sources` (CLAUDE.md rule 1).

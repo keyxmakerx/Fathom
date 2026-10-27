@@ -299,6 +299,48 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0048_vault_passbolt.sql",
         sql: include_str!("../migrations/0048_vault_passbolt.sql"),
     },
+    // A person may change their own name.
+    Migration {
+        version: 49,
+        name: "0049_account_name.sql",
+        sql: include_str!("../migrations/0049_account_name.sql"),
+    },
+    // A folder says what kind of place it is, and whether it is a hub (ADR-0074).
+    Migration {
+        version: 50,
+        name: "0050_scope_place.sql",
+        sql: include_str!("../migrations/0050_scope_place.sql"),
+    },
+    // A steward moves a design into another folder, and the move is filed (ADR-0074).
+    Migration {
+        version: 51,
+        name: "0051_design_moved.sql",
+        sql: include_str!("../migrations/0051_design_moved.sql"),
+    },
+    // Custom fields on a spare: definitions may apply to `part` (ADR-0076).
+    Migration {
+        version: 52,
+        name: "0052_field_part.sql",
+        sql: include_str!("../migrations/0052_field_part.sql"),
+    },
+    // Which AI account a connection uses, as its owner gave it.
+    Migration {
+        version: 53,
+        name: "0053_ai_key_account.sql",
+        sql: include_str!("../migrations/0053_ai_key_account.sql"),
+    },
+    // May an AI connection change designs: the organisation's tick and the connection's.
+    Migration {
+        version: 54,
+        name: "0054_ai_may_change.sql",
+        sql: include_str!("../migrations/0054_ai_may_change.sql"),
+    },
+    // Which changes to a design an AI connection made, for History and the limits.
+    Migration {
+        version: 55,
+        name: "0055_ai_design_changes.sql",
+        sql: include_str!("../migrations/0055_ai_design_changes.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

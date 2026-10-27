@@ -506,11 +506,11 @@ fn a_plain_face_payload(seed: u128) -> Vec<u8> {
 }
 
 /// ADR-0049 #4's wire number for the schema version currently declared on
-/// line 3 of every payload [`a_plain_face_payload`] writes -- `"0.27"` at time
+/// line 3 of every payload [`a_plain_face_payload`] writes -- `"0.30"` at time
 /// of writing, whose minor component this is. Kept as its own named constant
 /// rather than a bare `14` at each call site so a future schema bump has one
 /// place to change.
-const CURRENT_SCHEMA_WIRE_VERSION: u32 = 27;
+const CURRENT_SCHEMA_WIRE_VERSION: u32 = 30;
 
 fn save_body(schema_version: u32, payload: &[u8]) -> Vec<u8> {
     let mut out = schema_version.to_le_bytes().to_vec();
@@ -3268,6 +3268,277 @@ async fn a_steward_creates_scopes_down_the_tree_and_a_drawer_is_refused() {
     )
     .await;
     assert_eq!(status, "403", "{}", String::from_utf8_lossy(&body));
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0074 §1 and §2: a folder says what kind of place it is, and whether it is a hub
+// ---------------------------------------------------------------------------
+
+fn place_body(form: &str, role: &str) -> Vec<u8> {
+    let mut body = Vec::new();
+    lp(&mut body, form.as_bytes());
+    lp(&mut body, role.as_bytes());
+    body
+}
+
+fn scope_id_in(text: &str) -> ScopeId {
+    text.split("\"scope_id\":\"")
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .expect("a scope_id")
+        .parse()
+        .expect("a well-formed scope id")
+}
+
+#[tokio::test]
+async fn a_steward_sets_a_folders_place_kind_and_hub_role_and_a_drawer_may_not() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let scopes = format!("/organisations/{}/scopes", estate.organisation);
+
+    // A site made with its kind and role in the same request.
+    let mut body = scope_create_body(None, &unique("hub site"));
+    body.extend(place_body("central_office", "hub"));
+    let (status, reply) = call(addr, &estate.steward, "POST", &scopes, &body).await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&reply));
+    let text = String::from_utf8_lossy(&reply).into_owned();
+    assert!(text.contains("\"place_form\":\"central_office\""), "{text}");
+    assert!(text.contains("\"place_role\":\"hub\""), "{text}");
+    let site = scope_id_in(&text);
+
+    // An older client's two-field create still works, with no place words.
+    let (status, reply) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &scopes,
+        &scope_create_body(Some(site), &unique("building")),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&reply));
+    let text = String::from_utf8_lossy(&reply).into_owned();
+    assert!(text.contains("\"place_form\":null"), "{text}");
+    assert!(text.contains("\"place_role\":null"), "{text}");
+    let building = scope_id_in(&text);
+
+    let (status, reply) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &scopes,
+        &scope_create_body(Some(building), &unique("closet")),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&reply));
+    let closet = scope_id_in(&String::from_utf8_lossy(&reply));
+
+    let place = |scope: ScopeId| format!("{scopes}/{scope}/place");
+
+    // The steward sets the building's kind and role afterwards.
+    let (status, reply) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &place(building),
+        &place_body("data_centre", "branch"),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&reply));
+    let text = String::from_utf8_lossy(&reply).into_owned();
+    assert!(text.contains("\"place_form\":\"data_centre\""), "{text}");
+    assert!(text.contains("\"place_role\":\"branch\""), "{text}");
+    assert!(text.contains("\"kind\":\"building\""), "{text}");
+
+    // A closet takes a room kind, and never a role.
+    let (status, reply) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &place(closet),
+        &place_body("ups_room", ""),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&reply));
+    for (form, role) in [("ups_room", "hub"), ("central_office", ""), ("", "boss")] {
+        let (status, reply) = call(
+            addr,
+            &estate.steward,
+            "POST",
+            &place(closet),
+            &place_body(form, role),
+        )
+        .await;
+        assert_eq!(
+            status,
+            "400",
+            "{form}/{role}: {}",
+            String::from_utf8_lossy(&reply)
+        );
+    }
+    // A site may not take a room kind.
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &place(site),
+        &place_body("closet", ""),
+    )
+    .await;
+    assert_eq!(status, "400");
+
+    // A drawer may not change a folder's place.
+    let (status, _) = call(
+        addr,
+        &drawer,
+        "POST",
+        &place(building),
+        &place_body("hut", "hub"),
+    )
+    .await;
+    assert_eq!(status, "403");
+
+    // The list carries both words; empty fields clear them.
+    let (status, reply) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &place(building),
+        &place_body("", ""),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&reply));
+    let (status, reply) = call(addr, &estate.steward, "GET", &scopes, &[]).await;
+    assert_eq!(status, "200");
+    let text = String::from_utf8_lossy(&reply).into_owned();
+    let row_of = |id: ScopeId| {
+        text.split('{')
+            .find(|row| row.contains(&format!("\"scope_id\":\"{id}\"")))
+            .expect("the folder is listed")
+            .to_string()
+    };
+    assert!(row_of(site).contains("\"place_role\":\"hub\""), "{text}");
+    assert!(row_of(building).contains("\"place_form\":null"), "{text}");
+    assert!(
+        row_of(closet).contains("\"place_form\":\"ups_room\""),
+        "{text}"
+    );
+}
+
+#[tokio::test]
+async fn a_steward_of_both_folders_moves_a_design_and_the_move_is_filed() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let mk = |parent: Option<ScopeId>, kind: ScopeKind, name: &'static str| {
+        let pool = pool.clone();
+        let estate = &estate;
+        async move {
+            repo::create_scope(
+                &pool,
+                estate.organisation,
+                estate.steward.account,
+                parent,
+                kind,
+                &unique(name),
+            )
+            .await
+            .expect("scope")
+            .id
+        }
+    };
+    let site = mk(None, ScopeKind::Network, "site").await;
+    let building = mk(Some(site), ScopeKind::Building, "building").await;
+    let closet = mk(Some(building), ScopeKind::Rack, "closet").await;
+    let design = designs::create_design(&pool, estate.organisation, estate.steward.account, site)
+        .await
+        .expect("design");
+    let closet_steward = a_member_with_scope(
+        &pool,
+        &ring,
+        &estate,
+        "closet steward",
+        closet,
+        Capability::Steward,
+    )
+    .await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let path = format!(
+        "/organisations/{}/designs/{design}/folder",
+        estate.organisation
+    );
+    let to_closet = closet.to_string();
+
+    // A steward of the closet alone may not pull a design out of the site above it, and a
+    // drawer may not move one at all.
+    for who in [&closet_steward, &drawer] {
+        let (status, body) = call(addr, who, "POST", &path, to_closet.as_bytes()).await;
+        assert_eq!(status, "403", "{}", String::from_utf8_lossy(&body));
+    }
+
+    let moves_before = org_entries_of(estate.organisation, "design_moved").await;
+    let (status, body) = call(addr, &estate.steward, "POST", &path, to_closet.as_bytes()).await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let text = String::from_utf8_lossy(&body).into_owned();
+    assert!(
+        text.contains(&format!("\"scope_id\":\"{closet}\"")),
+        "{text}"
+    );
+    assert!(text.contains("\"changed_seq\":"), "{text}");
+    assert!(!text.contains("\"changed_seq\":null"), "{text}");
+    assert_eq!(
+        org_entries_of(estate.organisation, "design_moved").await,
+        moves_before + 1
+    );
+
+    // The design list now files it in the closet.
+    let (_, body) = call(
+        addr,
+        &estate.steward,
+        "GET",
+        &format!("/organisations/{}/designs", estate.organisation),
+        &[],
+    )
+    .await;
+    let listed = String::from_utf8_lossy(&body).into_owned();
+    assert!(
+        listed.contains(&format!("\"design_id\":\"{design}\""))
+            && listed.contains(&format!("\"scope_id\":\"{closet}\"")),
+        "{listed}"
+    );
+
+    // Moving it where it already is changes and files nothing; a body that is no id is 400.
+    let (status, body) = call(addr, &estate.steward, "POST", &path, to_closet.as_bytes()).await;
+    assert_eq!(status, "200");
+    assert!(String::from_utf8_lossy(&body).contains("\"changed_seq\":null"));
+    assert_eq!(
+        org_entries_of(estate.organisation, "design_moved").await,
+        moves_before + 1
+    );
+    let (status, _) = call(addr, &estate.steward, "POST", &path, b"not an id").await;
+    assert_eq!(status, "400");
+}
+
+/// How many entries of `entry_type` the organisation's chain holds, read as the superuser
+/// (the runtime role's tenant policy is not set outside a request).
+async fn org_entries_of(organisation: OrganisationId, entry_type: &str) -> i64 {
+    support::superuser_client_on_test_database()
+        .await
+        .query_one(
+            "SELECT count(*) FROM chain_entries WHERE chain_kind = 'org' AND chain_id = $1 \
+             AND entry_type = $2",
+            &[&organisation.to_string(), &entry_type],
+        )
+        .await
+        .expect("count")
+        .get(0)
 }
 
 // ---------------------------------------------------------------------------

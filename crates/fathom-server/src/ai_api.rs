@@ -48,7 +48,7 @@ use crate::live::Live;
 use crate::oauth::{BearerRefusal, Connector, OAuthError, Refusal};
 use crate::repo::DesignId;
 
-/// The most an AI request body may be: one recommendation is a few kilobytes.
+/// The most an AI request body may be: one recommendation or one change is a few kilobytes.
 pub const MAX_BODY: usize = 64 * 1024;
 
 #[derive(Clone)]
@@ -71,7 +71,8 @@ pub fn router(state: AiApiState) -> Router {
         .route(
             "/ai/v1/designs/{design}/recommendations",
             get(own_ideas_handler).post(recommend_handler),
-        );
+        )
+        .route("/ai/v1/designs/{design}/changes", post(change_handler));
     if state.connector.is_some() {
         router = router
             .route(
@@ -220,7 +221,7 @@ async fn designs_handler(
         tenant_key: &session.tenant_key,
         watch: &state.watch,
     };
-    let answer = ai::ai_designs(&tx, &auth, &session.key).await?;
+    let answer = ai::ai_designs(&tx, &auth, &session.key, None).await?;
     tx.commit().await?;
     Ok(json(answer))
 }
@@ -285,6 +286,58 @@ async fn recommend_handler(
     let made = ai::recommend(&tx, &auth, &session, design, &signed.body).await?;
     tx.commit().await?;
     Ok(json(made.to_json()))
+}
+
+async fn change_handler(
+    State(state): State<AiApiState>,
+    Path(design): Path<String>,
+    signed: AiSigned,
+) -> Result<Response, AiError> {
+    let design = parse_design(&design)?;
+    Ok(json(
+        change_design(&state, &signed.verified, design, &signed.body).await?,
+    ))
+}
+
+/// One AI change, start to finish (ADR-0077): its own transaction, then the head and every
+/// open browser told, as a browser's change is (`design_api::post_change_handler`).
+pub async fn change_design(
+    state: &AiApiState,
+    verified: &VerifiedAi,
+    design: DesignId,
+    body: &[u8],
+) -> Result<Json, AiError> {
+    let mut client = state.pool.get().await?;
+    let tx = client.transaction().await?;
+    let session = ai::open(&tx, &state.ring, verified).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &session.ctx,
+        tenant_key: &session.tenant_key,
+        watch: &state.watch,
+    };
+    let (made, written) =
+        crate::ai_change::change_design(&tx, &auth, &state.live.heads, &session, design, body)
+            .await?;
+    let design_text = design.to_string();
+    match tx.commit().await {
+        Ok(()) => {
+            if let Some(applied) = written.applied {
+                state
+                    .live
+                    .heads
+                    .commit(&design_text, applied.ticket, written.version, applied.tip);
+                state.live.hub.wake_design(&design_text);
+            }
+        }
+        Err(e) => {
+            if let Some(applied) = written.applied {
+                state.live.heads.abort(&design_text, applied.ticket);
+            }
+            return Err(e.into());
+        }
+    }
+    Ok(made.to_json(design))
 }
 
 // ---------------------------------------------------------------------------

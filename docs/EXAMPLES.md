@@ -100,7 +100,8 @@ Set `FATHOM_FIRMWARE_FETCH_BASE_URL` first (`docs/RUNNING-IT.md`); firmware is o
 ## 9. Connect Claude or another AI app
 
 An AI app reads designs you can read, in one organisation, and sends ideas a person accepts. It never
-sees passwords or the vault, and it cannot change a design (ADR-0072).
+sees passwords or the vault, and it changes a design only where both your organisation and you said it
+may (ADR-0072, ADR-0077).
 
 First, once per organisation: a Steward opens **Organisation › AI**, ticks **AI access allowed**, adds
 the people who may connect under **Who may connect AI apps**, and presses **Save**.
@@ -121,4 +122,83 @@ Then, under **Connect an AI app**, pick how your app connects:
   The private half of the key never leaves your computer; Fathom keeps only the public half.
 
 Either way the connection is listed under **Organisation › AI**, where you or a Steward can narrow it or
-turn it off; it also ends on its own after 30, 90 or 365 days.
+turn it off; it also ends on its own after 30, 90 or 365 days. Connect the AI account your organisation
+gave you, not a personal one: Fathom cannot see which account it is, so it asks you to type it, and
+your Stewards and admins see what you typed beside the connection.
+
+The AI can read the design's maintenance plans and "It's down" issues too, so you can ask it to look
+over a plan or an issue. To have it draft a change, ask it to recommend one: the idea shows under
+**AI ideas**, and **Make it a plan** turns its steps into a draft plan you change, schedule and work
+through like any other.
+
+To let an AI change designs directly, a Steward ticks **AI apps may change designs** under
+**Organisation › AI**, and you tick **May change designs** when you press **Allow** or **Make key** (or
+later, on the connection). The AI then gets a `change_design` tool: each call is one change in your
+name, against the version it read, shown in History as "AI (<connection>), for <you>". It sets fields,
+adds devices, racks, ports, cables and notes, connects them, and removes up to 20 things at a time,
+only of the kinds the reading shows it; it never removes a place that still holds things. It is
+refused in folders that need a second person, past 10 changes a minute, and if the design moved since
+it read it. To undo one, use History's **Restore this version**.
+
+## 10. Fit a card and an optic
+
+You need Draw. A card is a module in a slot (a line card, NIM or FPC); an optic is the SFP in a port.
+
+1. Right-click a device, **Fit a card** (or type "fit a card" in the palette). The Ports tab opens at
+   the first empty slot; the catalogue's slot names are offered when the model lists them.
+2. Give the slot, model and serial, and its ports as a name or a pattern, as adding a port takes it:
+   `1/{1-4}`, SFP+. The ports appear on the device and say which card they are on.
+3. Click a port and set its optic (type, part, serial). Drag it onto another cage to move it.
+4. Or paste the device's `show inventory` (Cisco) or `show chassis hardware` (Junos): the facts card
+   offers each card, optic and supply it read.
+5. **Inventory › Parts** lists every card, supply and optic with its serial; edit model and serial in place.
+6. To replace one, add a **Swap a part** step to a maintenance. It says which ports go down while the
+   part is out, and Back out puts the old serial back.
+
+The Cards and optics lesson walks the same steps on a sample network. An AI assistant sees each card's
+slot and model and which ports are on it, never a serial.
+
+## 11. Add a building and its closets
+
+You need to be an admin of the organisation, or a steward of the site you add under.
+
+1. **Home › Organisation › Folders**, **New site**. Name it and, if you like, say what kind of place it
+   is (central office, datacenter, hut…) and its role (Hub, Branch, Customer). A hub has a double border.
+2. On the site's row, **New building**; on the building's row, **New closet**, with a kind of room
+   (closet, data hall, UPS room…). **Kind and role** on a row changes them later.
+3. Or **Import from NetBox**: drop a rack or device export. After the redaction gate it shows the sites,
+   locations and racks as a plan, matched by name to folders you already have. Accept it to make the
+   missing folders and one rack design per location; importing again makes nothing twice.
+4. **Designs**, **Move** on a design's row puts it in another folder. You need steward on both; the
+   move is filed in the organisation's history.
+5. Open a design and zoom out past the closet: Building, then Site, then Every site. A box opens one
+   level in; **Back to the closet** returns.
+6. At the Building stop, under the closets: **Add a plan picture** (a scan, photo or a PDF page saved
+   as an image). Click two points on it a known distance apart and type the distance. **Draw a room**:
+   click each corner (walls snap square), click the first corner to close it, and name it. Name it as
+   the closet folder (IDF-2) and the room opens that closet. You need Draw on the building.
+
+**Who sees what.** A folder is also a permission. Access given at a site covers every building, closet
+and design inside it; access given at a closet covers only that closet. Zoomed out, you see only the
+folders you may read, so a person with one closet sees that closet and the path to it. An AI app sees
+the same folders, and no more than its key allows.
+
+## 12. Label cables and check one from a phone
+
+1. **Inventory › Cables**, tick the cables, **Print labels**. Pick the label size your printer has
+   (Brother 24 mm tape is the default) and print; set the print dialog's paper to the same size, margins none.
+   Each cable gets two labels, one for each end.
+2. On a phone, point the Camera app at a label and open the link, or open Fathom and press **Scan**.
+   After sign-in the cable's page opens: its two ends, and **Label wrong** / **Not here** for a reader.
+3. **Add to Home Screen** from the phone browser's share menu keeps Fathom one tap away.
+
+## 13. Swap a dead optic from stock
+
+1. **Inventory › Parts**, switch to **On hand**. **+ Add to stock** if the cupboard is not listed yet:
+   type the spare's model and serial, or paste the list from its box.
+2. **Keep at least** one or two of the model, so Checks says when the shelf runs short.
+3. On the canvas, right-click the device, **It's down**: the link step says whether a spare optic is on
+   hand and in which bin.
+4. Plan it: a **Swap a part** step, the port, then **From stock**. The spare is kept for the step.
+5. **Done** fits it. The dead optic goes into stock as retired, with where it came from; open it on
+   On hand and **Send for repair** with the vendor's RMA number and the issue it was for.

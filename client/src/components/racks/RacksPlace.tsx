@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
+import { FIT_CARD_EVENT } from '../drawing/Parts';
 import { listOverlays } from '../../document/overlays';
 import { captureOf } from '../../document/capture';
 import { previewSwapIn } from '../../document/swapModel';
@@ -123,6 +124,7 @@ import { DEFAULT_FACEPLATES, SKETCH_DEVICE_PALETTE_ITEM, isBoardPaletteItem, isS
 import { highestFreeU, hostnamesOf, nextHostname, rackSpotForPick, racksInPickOrder } from './pick';
 import { FirmwareContext } from '../firmware/context';
 import type { UpgradeTemplate } from '../firmware/upgradePlan';
+import type { IdeaForPlan } from '../../document/plans';
 import { deviceFirmware, deviceOfChassis, targetOfDevice } from '../../document/firmware';
 import './racks.css';
 import { SkeletonRacks } from '../ui/Skeleton';
@@ -277,6 +279,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   initialUpgrade?: { template: UpgradeTemplate } | null;
   /** A plan to open on arrival (a link on the Firmware pages). */
   initialPlan?: { id: string } | null;
+  /** A draft plan to make from an AI idea on arrival; `onPlanned` runs once it is made. */
+  initialIdeaPlan?: { idea: IdeaForPlan; onPlanned: () => void } | null;
   /** A trace to show, already filled in (a lesson's trace step); a fresh object per ask. */
   traceRequest?: { from: TraceEnd; to: TraceEnd; flowText: string } | null;
   onRequestsHandled?: () => void;
@@ -341,6 +345,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     initialIssue,
     initialUpgrade,
     initialPlan,
+    initialIdeaPlan,
     traceRequest,
     onRequestsHandled,
     onOpenInventory,
@@ -615,6 +620,16 @@ export function RacksPlace(props: RacksPlaceProps) {
     onRequestsHandled?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per ask: the object's identity is the signal
   }, [initialPlan, doc]);
+  const ideaHandled = useRef<unknown>(null);
+  useEffect(() => {
+    if (initialIdeaPlan == null || doc == null || ideaHandled.current === initialIdeaPlan) return;
+    ideaHandled.current = initialIdeaPlan;
+    void plans.planIdea(initialIdeaPlan.idea).then((made) => {
+      if (made) initialIdeaPlan.onPlanned();
+      onRequestsHandled?.();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per ask: the object's identity is the signal
+  }, [initialIdeaPlan, doc]);
   const planFirmwareFor = useCallback(
     (chassisId: string) => {
       const dev = doc ? deviceOfChassis(doc, chassisId) : null;
@@ -1767,6 +1782,12 @@ export function RacksPlace(props: RacksPlaceProps) {
     [doc, handleEdit],
   );
 
+  // "Fit a card" (palette and right-click): open the device's details on its Ports tab with the card form started.
+  const fitCard = useCallback((chassisId: string) => {
+    setSelection({ kind: 'chassis', id: chassisId });
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent(FIT_CARD_EVENT, { detail: { chassisId } })), 80);
+  }, []);
+
   // What the command palette (Ctrl+K) can do with the selection. Asked for each time it opens.
   usePaletteActions('racks', (): PaletteAction[] => {
     if (!canDraw && selection?.kind !== 'chassis') return [];
@@ -1808,6 +1829,13 @@ export function RacksPlace(props: RacksPlaceProps) {
           setSelection({ kind: 'chassis', id: chassisId });
           window.setTimeout(() => window.dispatchEvent(new CustomEvent('fathom:add-port', { detail: { chassisId } })), 80);
         },
+      },
+      {
+        id: 'fit-card',
+        label: deviceName === '' ? 'Fit a card in a device' : `Fit a card in ${deviceName}`,
+        keywords: ['module', 'line card', 'slot', 'linecard', 'nim', 'fpc'],
+        disabled: chassisId === null ? needDevice : undefined,
+        run: () => chassisId !== null && fitCard(chassisId),
       },
       {
         id: 'rename',
@@ -2122,6 +2150,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           firmwareNeedsVersion={firmwareNeedsVersion}
           onItsDown={canDraw ? trouble.start : undefined}
           onSuggestCables={canDraw ? (chassisId) => setSuggest({ deviceId: chassisId ?? selectedChassis }) : undefined}
+          onFitCard={canDraw ? fitCard : undefined}
           onCalloutChange={setCalloutId}
           onGroupChange={setGroupIds}
           groupClearRequest={groupClear}

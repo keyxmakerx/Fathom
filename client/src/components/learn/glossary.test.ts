@@ -18,6 +18,10 @@ describe('glossPieces', () => {
     expect(words('A cable joins them into one broadcast domain.')).toEqual(['broadcast domain=broadcast domain']);
   });
 
+  it('marks the words a trace uses for cards and optics', () => {
+    expect(words('The optic in 1/3 is an SFP on the line card in slot 1.')).toEqual(['optic=optic', 'SFP=sfp', 'line card=line card']);
+  });
+
   it('leaves addresses and words inside other words alone', () => {
     expect(words('192.168.10.10 holds a prefixed name and a subnetwork')).toEqual([]);
   });

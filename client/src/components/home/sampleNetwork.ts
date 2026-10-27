@@ -37,6 +37,9 @@ import {
   type Document,
   type GraphNode,
 } from '../../document/model';
+import { fitCard, setOptic } from '../../document/cards';
+import { expandPortPattern } from '../../document/portPattern';
+import { addStock, addStore, setStockLevel, type NewStock } from '../../document/stock';
 import { addEdge, addNode, begin, finish } from '../../document/freeform';
 import { addSubnet, addVlan, type Actor } from '../../document/networks';
 import { tiePorts } from '../../document/portTies';
@@ -56,6 +59,10 @@ export interface SampleDevice {
   place: { rack: number } | { shelf: string; slot: number } | { surface: string; x?: number; y?: number };
   ports: SamplePort[];
   face: 'front' | 'rear';
+  /** Cards in the device's slots, each with its own ports (r35), fitted the way the Cards panel fits one. */
+  cards?: { slot: string; name?: string; model?: string; serial?: string; ports?: { pattern: string; connector: string } }[];
+  /** Optics in the device's cages, by port label. */
+  optics?: { port: string; type?: string; part?: string; serial?: string }[];
 }
 
 export interface SampleCable {
@@ -97,6 +104,9 @@ export interface SampleSpec {
   questions?: SampleQuestion[];
   /** A practice sample's planted mistakes, each the Check rule that finds it; the sample's test holds Checks to it. */
   mistakes?: { rule: string; where: string; what: string }[];
+  /** Spares on hand (ADR-0076): stores with what is in them, and the fewest of a model to keep. */
+  stores?: { name: string; place?: string; items: Omit<NewStock, 'storeId'>[] }[];
+  levels?: { model: string; at_least: number }[];
 }
 
 export interface SampleFirewall {
@@ -173,13 +183,29 @@ function chassisOf(doc: Document, deviceId: string): string {
   return edge.to;
 }
 
+function cardLabels(pattern: string): string[] {
+  const expanded = expandPortPattern(pattern);
+  if (!expanded.ok) throw new Error(`a sample card's ports "${pattern}": ${expanded.reason}`);
+  return expanded.labels;
+}
+
+/** The ports a device's cards bring, labelled as `fitCard` labels them. */
+function cardPortsOf(device: SampleDevice): SamplePort[] {
+  const out: SamplePort[] = [];
+  for (const c of device.cards ?? []) {
+    if (!c.ports) continue;
+    for (const label of cardLabels(c.ports.pattern)) out.push({ label, connector: c.ports.connector });
+  }
+  return out;
+}
+
 /** `hostname:label` to a PhysicalPort id; an RJ45 or named port before any other with the same label. */
 function portOf(doc: Document, devices: Map<string, string>, spec: SampleSpec, ref: string): string {
   const [hostname, label] = ref.split(':');
   const deviceId = devices.get(hostname);
   const device = spec.devices.find((d) => d.hostname === hostname);
   if (!deviceId || !device || label === undefined) throw new Error(`the sample names an unknown port "${ref}"`);
-  const want = device.ports.find((p) => p.label === label);
+  const want = device.ports.find((p) => p.label === label) ?? cardPortsOf(device).find((p) => p.label === label);
   if (!want) throw new Error(`the sample uses port "${ref}" without listing it`);
   const chassisId = chassisOf(doc, deviceId);
   for (const e of edgesOut(doc, chassisId, 'HasPort')) {
@@ -245,6 +271,11 @@ export function buildSample(spec: SampleSpec, models: ReadonlyMap<string, Catalo
       else if ('shelf' in place) doc = movePlacement(doc, chassisId, { kind: 'shelf', shelfId: shelves.get(place.shelf)!, slot: place.slot }, opts);
       else doc = movePlacement(doc, chassisId, { kind: 'surface', surfaceId: surfaces.get(place.surface)!, xMm: place.x ?? null, yMm: place.y ?? null }, opts);
     }
+    for (const card of d.cards ?? []) {
+      const { slot, ports, ...fields } = card;
+      doc = fitCard(doc, chassisOf(doc, deviceId), slot, { ...fields, ...(ports ? { ports: { labels: cardLabels(ports.pattern), connector: ports.connector } } : {}) }, opts);
+    }
+    for (const { port, ...optic } of d.optics ?? []) doc = setOptic(doc, portOf(doc, new Map([[d.hostname, deviceId]]), spec, `${d.hostname}:${port}`), optic, opts);
     if (fits) catalogued.push(d.hostname);
     doc = setDeviceField(doc, deviceId, 'hostname', d.hostname, opts);
     if (isDeviceRole(d.role)) doc = setDeviceField(doc, deviceId, 'role', d.role, opts);
@@ -281,6 +312,12 @@ export function buildSample(spec: SampleSpec, models: ReadonlyMap<string, Catalo
       opts,
     );
   }
+
+  for (const st of spec.stores ?? []) {
+    const made = addStore(doc, { name: st.name, place: st.place }, opts);
+    doc = addStock(made.doc, st.items.map((i) => ({ ...i, storeId: made.id })), opts).doc;
+  }
+  for (const l of spec.levels ?? []) doc = setStockLevel(doc, l.model, l.at_least, opts);
 
   doc = addDefaultRoutes(doc, devices, spec, opts);
   if (spec.firewall) doc = addFirewall(doc, devices, spec, spec.firewall, opts);

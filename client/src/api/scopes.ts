@@ -31,6 +31,17 @@ export interface Scope {
   depth: number;
   path: string;
   capability: string;
+  /** ADR-0074 §1: what kind of place this folder is (`place.ts` names the words). Absent
+   * or `null` until a steward says. */
+  placeForm?: string | null;
+  /** ADR-0074 §2: hub, branch, customer or other, set by hand; never on a closet. */
+  placeRole?: string | null;
+}
+
+/** ADR-0074: a folder's place kind and role, `null` for none. */
+export interface Place {
+  form: string | null;
+  role: string | null;
 }
 
 const REQUIRED_STRING_FIELDS = ['scope_id', 'kind', 'display_name', 'path', 'capability'] as const;
@@ -58,6 +69,12 @@ export function parseScope(entry: unknown, label: string): Scope {
   if (typeof record.depth !== 'number') {
     throw new Error(`malformed scopes response: ${label} has no depth`);
   }
+  // A server from before ADR-0074 sends neither place word; that reads as none.
+  for (const field of ['place_form', 'place_role'] as const) {
+    if (record[field] !== undefined && record[field] !== null && typeof record[field] !== 'string') {
+      throw new Error(`malformed scopes response: ${label} has a bad ${field}`);
+    }
+  }
   return {
     scopeId: record.scope_id as string,
     parentScopeId: record.parent_scope_id as string | null,
@@ -66,6 +83,8 @@ export function parseScope(entry: unknown, label: string): Scope {
     depth: record.depth,
     path: record.path as string,
     capability: record.capability as string,
+    ...(typeof record.place_form === 'string' ? { placeForm: record.place_form } : {}),
+    ...(typeof record.place_role === 'string' ? { placeRole: record.place_role } : {}),
   };
 }
 
@@ -114,18 +133,44 @@ export function parseScopes(bytes: Uint8Array): Scope[] {
  * `auth.ts` and `enrolment.ts` already use for this server's other
  * length-prefixed routes.
  */
-export async function createScope(organisationId: string, parent: string | null, label: string): Promise<Scope> {
+export async function createScope(
+  organisationId: string,
+  parent: string | null,
+  label: string,
+  place?: Place,
+): Promise<Scope> {
   const path = `/organisations/${encodeURIComponent(organisationId)}/scopes`;
-  const body = concatBytes(lp(utf8(parent ?? '')), lp(utf8(label)));
+  // ADR-0074: the place kind and role follow the label when given, each empty for none.
+  const body = place
+    ? concatBytes(lp(utf8(parent ?? '')), lp(utf8(label)), placeBody(place))
+    : concatBytes(lp(utf8(parent ?? '')), lp(utf8(label)));
   const response = await signedFetch('POST', path, body);
-  const text = new TextDecoder().decode(response);
+  return parseOne(response, 'the create response');
+}
+
+/**
+ * `POST /organisations/{organisation}/scopes/{scope}/place`: ADR-0074 §1 and §2, a
+ * steward of the folder sets what kind of place it is and its role. Two length-prefixed
+ * fields, each empty to clear. Answers the folder in the list's shape.
+ */
+export async function setScopePlace(organisationId: string, scopeId: string, place: Place): Promise<Scope> {
+  const path = `/organisations/${encodeURIComponent(organisationId)}/scopes/${encodeURIComponent(scopeId)}/place`;
+  const response = await signedFetch('POST', path, placeBody(place));
+  return parseOne(response, 'the place response');
+}
+
+function placeBody(place: Place): Uint8Array {
+  return concatBytes(lp(utf8(place.form ?? '')), lp(utf8(place.role ?? '')));
+}
+
+function parseOne(bytes: Uint8Array, label: string): Scope {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
-    throw new Error('malformed create-scope response: body is not JSON');
+    throw new Error(`malformed scopes response: ${label} is not JSON`);
   }
-  return parseScope(parsed, 'the create response');
+  return parseScope(parsed, label);
 }
 
 /** Every scope the signed-in account may at least read within

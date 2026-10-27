@@ -5,7 +5,8 @@ import { PORT_GLYPHS } from '../ports';
 import { CheckBadge } from '../checks/CheckBadge';
 import { ABSENT, UNNAMED_HOSTNAME, type ChassisView, type InletView, type PortView, type Sheath } from './contract';
 import type { Facing } from './elevation';
-import { connectorName, faceplateLayoutFor, plateItems, portWhere, type PortBox } from './faceplate';
+import { cardFrames, connectorName, faceplateLayoutFor, plateItems, portWhere, type PortBox } from './faceplate';
+import { onOpticDragOver, onOpticDrop } from './Parts';
 import { RAIL_PX, U_PX } from './geometry';
 import { useLive, useLiveStore } from './liveStore';
 import { EditableName } from './NameEdit';
@@ -159,14 +160,19 @@ function PlatePort({
   }
   const Glyph = PORT_GLYPHS[box.kind];
   const unfitted = inlet != null && !inlet.fitted;
+  const portClass = ['drawing-chassis__port', cabled ? 'drawing-chassis__port--cabled' : '', port.optic ? 'drawing-chassis__port--optic' : '', 'nodrag']
+    .filter(Boolean)
+    .join(' ');
   return (
     <button
       type="button"
       data-port-id={port.id}
       title={tip}
-      className={cabled ? 'drawing-chassis__port drawing-chassis__port--cabled nodrag' : 'drawing-chassis__port nodrag'}
+      className={portClass}
       style={style}
       {...reveal}
+      onDragOver={(e) => onOpticDragOver(port, e)}
+      onDrop={(e) => onOpticDrop(port, e)}
       onClick={(event: MouseEvent) => {
         event.stopPropagation();
         onSelectPort(port.id);
@@ -187,7 +193,8 @@ function portTip(port: PortView, layout: ReturnType<typeof faceplateLayoutFor>, 
   const where = portWhere(layout, port.id);
   const state = port.cable != null ? 'cabled' : 'free';
   const label = inlet != null ? inlet.slot || inlet.label : port.label ? `Port ${port.label}` : 'Port';
-  return [label, connectorName(port.connector), where, inlet != null && !inlet.fitted ? 'not fitted' : state]
+  const optic = port.optic ? `optic ${port.optic.type ?? port.optic.part ?? 'fitted'}` : port.optic === null ? 'empty cage' : '';
+  return [label, connectorName(port.connector), where, optic, inlet != null && !inlet.fitted ? 'not fitted' : state]
     .filter(Boolean)
     .join(' · ');
 }
@@ -215,6 +222,17 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
   const items = plateItems(ports, inlets, elevation);
   const inletIds = useMemo(() => new Map(inlets.map((i) => [i.id, i])), [inlets]);
   const itemById = useMemo(() => new Map(items.map((p) => [p.id, p])), [items]);
+  const cardById = useMemo(() => {
+    const m = new Map<string, NonNullable<ChassisView['cards']>[number]>();
+    const walk = (cards: ChassisView['cards']): void => {
+      for (const c of cards ?? []) {
+        m.set(c.id, c);
+        walk(c.cards);
+      }
+    };
+    walk(chassis.cards);
+    return m;
+  }, [chassis.cards]);
   const layout = faceplateLayoutFor(items, chassis.heightU, shownName);
   const passive = isPanel(chassis);
   const usage = pduUsage({ ports });
@@ -276,6 +294,20 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
               </div>
             )}
             <div className="drawing-chassis__ports">
+              {cardFrames(layout, items).map((f) => {
+                const card = cardById.get(f.cardId);
+                return (
+                  <div
+                    key={f.cardId}
+                    className="drawing-chassis__card"
+                    data-card-id={f.cardId}
+                    title={card ? [`Slot ${card.slot}`, card.name, card.model].filter(Boolean).join(' · ') : undefined}
+                    style={{ left: f.x, top: f.y, width: f.w, height: f.h }}
+                  >
+                    {glyphs && card ? <span className="drawing-chassis__card-slot">{card.slot}</span> : null}
+                  </div>
+                );
+              })}
               {layout.boxes.map((box: PortBox) => {
                 const port = itemById.get(box.id)!;
                 const inlet = inletIds.get(port.id) ?? null;

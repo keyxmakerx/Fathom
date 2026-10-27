@@ -61,7 +61,8 @@ export function HistoryPanel({ history, accountId, accountAddress, canDraw, rest
                 }}
               >
                 <span className="history__when">
-                  <b>{whenLabel(s.atUnix)}</b> · {s.actor == null ? 'unknown' : s.actor === accountId ? (accountAddress ?? 'you') : 'a colleague'}
+                  <b>{whenLabel(s.atUnix)}</b> · {s.viaAi != null && <span className="history__ai">AI ({s.viaAi}), for </span>}
+                  {s.actor == null ? 'unknown' : s.actor === accountId ? (accountAddress ?? 'you') : 'a colleague'}
                 </span>
                 <span className="history__what">{history.summaries.get(s.designVersion) ?? '…'}</span>
               </button>

@@ -389,6 +389,26 @@ function PolicyForm({
             Elsewhere anyone with Draw accepts, including the connection’s
             owner.
           </p>
+
+          <label className="ai-tick">
+            <input
+              type="checkbox"
+              data-testid="ai-policy-may-change"
+              checked={draft.mayChange}
+              onChange={(e) =>
+                setDraft({ ...draft, mayChange: e.target.checked })
+              }
+            />
+            <span>
+              AI apps may change designs
+              <span className="ai-tick__why">
+                {" "}
+                · only connections whose owner also ticks it, and only where
+                that person can draw. Text inside a design can steer an AI,
+                so changes are marked as the AI’s and undo in one step.
+              </span>
+            </span>
+          </label>
         </div>
       </div>
       {error && (
@@ -490,7 +510,12 @@ function KeyTable({
               >
                 <td className="ai-table__name">{k.label}</td>
                 <td>{keyAppName(k)}</td>
-                {steward && <td>{k.ownerName}</td>}
+                {steward && (
+                  <td>
+                    {k.ownerName}
+                    {k.aiAccount && <div className="ai-muted">uses {k.aiAccount}</div>}
+                  </td>
+                )}
                 <td>
                   {k.sees
                     .map((t) =>
@@ -557,6 +582,7 @@ function KeyPage({
   const [sees, setSees] = useState<Tier[]>(aiKey.sees);
   const [scopes, setScopes] = useState<string[]>(aiKey.scopes);
   const [mayRecommend, setMayRecommend] = useState(aiKey.mayRecommend);
+  const [mayChange, setMayChange] = useState(aiKey.mayChange);
   const [reason, setReason] = useState("");
   const [stopping, setStopping] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -568,7 +594,10 @@ function KeyPage({
   const changed =
     JSON.stringify(sees) !== JSON.stringify(aiKey.sees) ||
     JSON.stringify(scopes) !== JSON.stringify(aiKey.scopes) ||
-    mayRecommend !== aiKey.mayRecommend;
+    mayRecommend !== aiKey.mayRecommend ||
+    mayChange !== aiKey.mayChange;
+  // Changing designs is shown where it is on, or where its owner may turn it on.
+  const showChange = aiKey.mayChange || (policy.mayChange && !narrowOnly);
   const folderName = (id: string) =>
     folders.find((f) => f.scopeId === id)?.displayName ?? "a folder";
   // A Steward narrowing folders may only pick inside the ones already chosen.
@@ -605,7 +634,16 @@ function KeyPage({
       <h3 className="ai-subtitle">{aiKey.label}</h3>
       <dl className="ai-facts">
         <dt>Person</dt>
-        <dd>{aiKey.ownerName}</dd>
+        <dd>
+          {aiKey.ownerName}
+          {aiKey.ownerEmail ? ` (${aiKey.ownerEmail})` : ""}
+        </dd>
+        <dt>AI account</dt>
+        <dd data-testid="ai-key-account">
+          {aiKey.aiAccount
+            ? `${aiKey.aiAccount}, as ${aiKey.mine ? "you" : aiKey.ownerName} gave it. Fathom can’t check it.`
+            : "Not given: made before Fathom asked."}
+        </dd>
         <dt>Made</dt>
         <dd>{ago(aiKey.createdAt)}</dd>
         <dt>Used</dt>
@@ -636,13 +674,41 @@ function KeyPage({
             />
             <span>Send ideas for a person to accept</span>
           </label>
+          {showChange && (
+            <label className="ai-tick">
+              <input
+                type="checkbox"
+                data-testid="ai-key-may-change"
+                checked={mayChange}
+                disabled={!aiKey.mayChange && (narrowOnly || !policy.mayChange)}
+                onChange={(e) => setMayChange(e.target.checked)}
+              />
+              <span>
+                May change designs
+                {!policy.mayChange && (
+                  <span className="ai-tick__why">
+                    {" "}
+                    · the organisation has this off, so it changes nothing
+                  </span>
+                )}
+              </span>
+            </label>
+          )}
           <p className="ai-muted">
             {narrowOnly
               ? "You can narrow this connection or turn it off. Only its owner can widen it."
               : "Seeing less takes effect at once. Seeing more is checked against what the organisation allows."}
           </p>
           <PlainWords
-            lines={plainWords({ scopes, sees, mayRecommend }, folderName)}
+            lines={plainWords(
+              {
+                scopes,
+                sees,
+                mayRecommend,
+                mayChange: mayChange && policy.mayChange,
+              },
+              folderName,
+            )}
           />
         </>
       )}
@@ -663,6 +729,7 @@ function KeyPage({
                   sees,
                   scopes,
                   mayRecommend,
+                  ...(mayChange !== aiKey.mayChange ? { mayChange } : {}),
                 }),
               )
             }

@@ -547,3 +547,37 @@ fields:
   LessonStep.expect_first_match: 505
   LessonStep.expect_rule: 506
   LessonStep.expect_now: 507
+  Card.slot: 508
+  Card.name: 509
+  Card.model: 510
+  Card.serial: 511
+  FloorPlan.floor: 512
+  FloorPlan.name: 513
+  FloorPlan.file_id: 514
+  FloorPlan.sha256: 515
+  FloorPlan.width_px: 516
+  FloorPlan.height_px: 517
+  FloorPlan.um_per_px: 518
+  Room.label: 519
+  Room.floor: 520
+  RoomCorner.x_mm: 521
+  RoomCorner.y_mm: 522
+  RoomCorner.seq: 523
+  Store.name: 524
+  Store.place: 525
+  Store.note: 526
+  StockItem.part: 527
+  StockItem.model: 528
+  StockItem.name: 529
+  StockItem.serial: 530
+  StockItem.count: 531
+  StockItem.state: 532
+  StockItem.bin: 533
+  StockItem.optic: 534
+  StockItem.due: 535
+  StockItem.rma: 536
+  StockItem.lent_to: 537
+  StockItem.came_from: 538
+  StockItem.note: 539
+  StockLevel.model: 540
+  StockLevel.at_least: 541

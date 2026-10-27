@@ -22,6 +22,7 @@ import {
   markDone,
   markWentDifferently,
   moveStep,
+  planFromIdea,
   planProblems,
   readPlan,
   recordPlan,
@@ -688,5 +689,88 @@ describe('backing out', () => {
     const p = plan(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
     expect(() => backOut(p.doc, p.id, tick())).toThrow(PlanRefusal);
     expect(() => backOut(startPlan(p.doc, p.id, tick()), p.id, tick())).toThrow(PlanRefusal);
+  });
+});
+
+// r35: a part swapped in a maintenance window.
+describe('swap a part', () => {
+  it('swaps a card and an optic in place, keeps the ports and cable, and backs out to the old serials', async () => {
+    const { fitCard, cardsOf, setOptic, opticOf } = await import('./cards');
+    const { doc: d0, ports } = lab();
+    const chassis = edgesIn(d0, ports[3], 'HasPort')[0]!.from;
+    let doc = fitCard(d0, chassis, '1', { model: 'NM-4X', serial: 'OLD1' }, tick());
+    doc = setOptic(doc, ports[3], { type: '10GBASE-SR', part: 'SFP-10G-SR', serial: 'OPT-OLD' }, tick());
+    const card = cardsOf(doc, chassis)[0]!.id;
+
+    const edits: StepEdit[] = [
+      { t: 'part', id: card, model: '', serial: 'NEW1' },
+      { t: 'part', id: ports[3], model: '', serial: 'OPT-NEW' },
+    ];
+    for (const e of edits) expect(decodeEdit(encodeEdit(e))).toEqual(e);
+    expect(() => applyEdit(doc, { t: 'part', id: card, model: '', serial: '' })).toThrow(PlanRefusal);
+    expect(() => applyEdit(doc, { t: 'part', id: card, model: '', serial: 'two words' })).toThrow(PlanRefusal);
+
+    let made = createPlan(doc, { title: 'Swap parts', gate, ...tick() });
+    const steps: string[] = [];
+    for (const edit of edits) {
+      const s = addStep(made.doc, made.id, { kind: 'swap', change: 'swap', edit, gate, ...tick() });
+      made = { doc: s.doc, id: made.id };
+      steps.push(s.id);
+    }
+    let d = startPlan(made.doc, made.id, tick());
+    for (const s of steps) d = markDone(d, s, { check: allow, ...tick() });
+    expect(cardsOf(d, chassis)[0]).toMatchObject({ model: 'NM-4X', serial: 'NEW1' });
+    expect(opticOf(findNode(d, ports[3])!)).toEqual({ type: '10GBASE-SR', part: 'SFP-10G-SR', serial: 'OPT-NEW' });
+    expect(edgesIn(d, ports[3], 'Terminates').filter((e) => e.absentSince === undefined)).toHaveLength(1);
+
+    const back = backOutSteps(d, readPlan(d, made.id));
+    expect(back.map((s) => s.edit)).toEqual([
+      { t: 'part', id: ports[3], model: 'SFP-10G-SR', serial: 'OPT-OLD' },
+      { t: 'part', id: card, model: '', serial: 'OLD1' },
+    ]);
+  });
+
+  it('fits the spare reserved for a swap step from stock, and the old optic goes in as retired', async () => {
+    const { setOptic, opticOf } = await import('./cards');
+    const { addStock, listStock, reserve, stockItem } = await import('./stock');
+    const { doc: d0, ports } = lab();
+    let doc = setOptic(d0, ports[3], { type: '10GBASE-SR', part: 'SFP-10G-SR', serial: 'OPT-OLD' }, tick());
+    const spare = addStock(doc, { part: 'optic', model: 'SFP-10G-SR', serial: 'OPT-SPARE', optic: { type: '10GBASE-SR' } }, tick());
+    const made = createPlan(spare.doc, { title: 'Swap the optic', gate, ...tick() });
+    const s = addStep(made.doc, made.id, { kind: 'swap', change: 'swap', edit: { t: 'part', id: ports[3], model: 'SFP-10G-SR', serial: 'OPT-SPARE' }, gate, ...tick() });
+    doc = reserve(s.doc, spare.ids[0]!, s.id, tick());
+    const d = markDone(startPlan(doc, made.id, tick()), s.id, { check: allow, ...tick() });
+    expect(opticOf(findNode(d, ports[3])!)).toEqual({ type: '10GBASE-SR', part: 'SFP-10G-SR', serial: 'OPT-SPARE' });
+    expect(stockItem(d, spare.ids[0]!)).toBeNull();
+    expect(listStock(d).map((i) => [i.serial, i.state])).toEqual([['OPT-OLD', 'retired']]);
+  });
+});
+
+describe('a plan from an AI idea', () => {
+  it('makes a draft plan with one step per idea step, no edits, in one undo step', () => {
+    const { doc, device } = lab();
+    const made = planFromIdea(
+      doc,
+      {
+        title: 'Give the core switch a second uplink',
+        steps: [
+          { action: 'connect', text: 'Cable Et1 to the spare router port', target: device },
+          { action: 'label', text: 'Label the new cable hunter2-abc', target: 'device:01ARZ3NDEKTSV4RRFFQ69G5FZZ' },
+          { action: 'change', text: '   ', target: null },
+        ],
+      },
+      { gate, author: 'Ada', ...tick() },
+    );
+    expect(made.doc.batches.length).toBe(doc.batches.length + 1);
+    expect(made.doc.batches[made.doc.batches.length - 1]!.label).toMatch(/^AI idea planned: Give the core switch/);
+    const plan = readPlan(made.doc, made.id);
+    expect(plan.stage).toBe('planned');
+    expect(plan.steps.map((s) => [s.kind, s.change, s.targets, s.edit])).toEqual([
+      ['cable', 'Cable Et1 to the spare router port', [device], null],
+      ['other', 'Label the new cable <REDACTED>', [], null],
+    ]);
+    expect(undo(made.doc, made.doc.batches[made.doc.batches.length - 1]!.id, tick()).nodes.filter((n) => n.absentSince === undefined).length).toBe(
+      doc.nodes.filter((n) => n.absentSince === undefined).length,
+    );
   });
 });

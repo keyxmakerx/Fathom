@@ -51,6 +51,7 @@ const OWNER_KIND_FOR: Partial<Record<NodeKind, FieldFor>> = {
   PhysicalPort: 'port',
   Vlan: 'network',
   ContainerNetwork: 'network',
+  StockItem: 'part',
 };
 
 /** Which field kind a node takes, or undefined for a node outside `Fieldable`. */

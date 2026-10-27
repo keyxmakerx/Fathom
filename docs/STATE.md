@@ -236,6 +236,36 @@ breadcrumb does one thing.
   (Health first, a left-hand section list, Engines) is decided, not built.
 - **Home** has tabs (ADR-0060 decision 7): Designs, Organisation (admins and folder stewards; a rail of
   People, Waiting for you (N) and Folders), and Admin (the console, only where it answers). Each shows only to someone who may use it.
+  **Folders say what kind of place they are** (ADR-0074 §1 and §2, migration 0050): a steward gives a site
+  or building a kind of place (central office, datacenter, hut, street cabinet, headend, customer premises,
+  other) and a role set by hand (Hub, Branch, Customer, Other; a hub has a double border), and a closet a
+  kind of room (closet, data hall, UPS room, meet-me room, other). Both are optional, set when the folder
+  is made or afterwards from its row (`POST …/scopes/{scope}/place`, steward only), plaintext beside
+  `display_name` (OPEN-QUESTIONS V2). **Above the closet** (`components/places/`, `Shell.tsx`): the zoom
+  stops start Every site, Site, Building, and zooming out past the closet goes up a stop. Each draws the
+  folders the person may read as boxes over the canvas (which stays mounted): a building's closets, a
+  site's buildings, every site, with counts, "You are here", a hub's double border, and more than eight
+  branch or customer sites of one role folded into a counted stack. A box opens one level in; a closet
+  opens its latest design. Boxes are laid out in a grid for now, not placed by hand (ADR-0047), and
+  rooms wait for the room builder (ADR-0051). **A steward of both folders moves a design** into another
+  (Home's Move on a design row, `POST …/designs/{design}/folder`), filed on the organisation chain as
+  `design_moved` (design, from, to, actor; migration 0051). **Import from NetBox** on Folders (ADR-0074 §8,
+  `import/estate.ts`, `EstateImport.tsx`): a NetBox rack or device export passes the redaction gate, then
+  shows as a plan (sites to Sites, locations to Buildings, matched by name to folders already there); accepting
+  makes the missing folders and, per location with racks, one "`<location>` racks" design with them in a row.
+  A location that already has a design is skipped, so importing again makes nothing twice. Devices go in from
+  that design's own Import. Proven by `scripts/drive-folder-place.mjs` (N1, N2). **The building's floor
+  plan** (ADR-0051, ADR-0074 decision 4, schema 0.29, `components/places/BuildingPlan.tsx`,
+  `document/rooms.ts`): the building stop draws it under the closets. A picture of the plan (PNG, JPEG,
+  WebP, GIF; up to 25 MB, stored sealed as a doc file is and checked against its SHA-256) sits beneath at
+  the phantom opacity, scaled by two points a typed distance apart; rooms are traced over it with
+  right-angle snapping and snapping onto corners already drawn, closed on the first corner and named. A
+  room named as a closet folder opens it. The plan is a design in the building folder ("`<building>`
+  floor plan", made on the first save), so who sees or changes it follows the folder and every change
+  is in its history; a save that lost a race says so and reloads. The CSP's `img-src` gains `blob:` for
+  the picture. Not yet: a PDF page (needs a PDF reader argued through the dependency gate; export the
+  page as an image), suggested rooms (ADR-0051: only if a real plan shows they beat tracing), DXF, room
+  furniture and outlets, and door labels (labels are not built). Proven by the same drive (R1 to R4).
   The account menu holds Your account, Signed-in browsers, theme and Sign out; an amber "Admin" pill
   shows beside the initials where the console answers. "New design" goes in the first Site the person may
   draw in. Names start as "Untitled design", sealed under the organisation key (`designs.name_*`); Rename
@@ -301,6 +331,28 @@ breadcrumb does one thing.
   lists it under Lessons as Written here, and Start copies it again as `Practice: <title>` with the runner
   open. Lesson text is in the server's credential check. `client/src/engine/lessons.test.ts` runs a written
   lesson in its published copy; `scripts/drive-lesson-builder.mjs` writes, publishes and finishes one.
+- **Cards and optics** (ADR-0073, schema 0.28). A `Card` sits in a slot of a chassis or of another card
+  (`HasCard`); its ports stay on the chassis and point at it (`OnCard`). An optic is the port's
+  `transceiver` value (type, vendor, part, serial, wavelength), Absent for an empty cage. The device's
+  Ports tab fits, edits and takes out cards (with the catalogue's `card_slots` offered where a model lists
+  them; none does yet) and each port panel fits, edits, takes out or moves its optic, by a drag onto a port
+  on the plate or from a list. The plate frames each card's ports. Inventory's Parts kind lists every
+  card, swappable supply and optic with where it sits and its serial. A pasted `show inventory` or `show
+  chassis hardware` offers the parts it reports (`document/facts.ts`). A plan's Swap a part step changes
+  a part's serial and model in place and backs out. Lesson `cards-and-optics` on sample `parts-lab`.
+  It's down's link step and the path trace name the card and optic; neither shows a serial, nor does the
+  AI reading. Spares are built since (ADR-0076, below).
+- **Spares and stores** (ADR-0076, schema 0.29). `Store`, `StockItem` and `StockLevel` hang off the root.
+  Inventory › Parts › On hand lists what is on hand, on order, away for repair, lent and retired, says
+  which models are below the level kept, and holds the stores (each with its own page, bin by bin) and the
+  levels. Add to stock takes one typed, a pasted list or `show inventory` (through the redaction gate), a
+  CSV, or parts out of a drawn device. A Swap a part step picks its spare from stock and keeps it; Done
+  fits it, and the old part goes into stock with where it came from (`document/stock.ts`). Custom fields
+  apply to `part` (migration 0049); a starter set offers Price, Supplier, Order number and Warranty end.
+  Check `stock.level.below-minimum`. It's down says whether a spare is on hand. The AI reading lists
+  spares without serials, their custom fields only at the notes tier. Parts-lab has a cupboard; the Cards
+  and optics lesson and the explainer `basics.spares` teach it. Not built: labels, the phone's scan
+  button (the phone-view work), the firmware check on spares.
 - **Inventory table with pages and shared custom fields** (schema 0.16, ADR-0062). Field definitions are an organisation-wide server store (migration 0035); a value is a `FieldValue` node in the design. Private fields are not built.
 - **IP and VLAN tables, file importer** (ADR-0067): Inventory Prefix and VLAN kinds derived from the drawing, and one importer (CSV, NetBox, Proxmox, nmap).
 - **Suggestions from what a switch knows** (ADR-0046: suggestions, never facts; one undo step; the pasted text is never kept). A neighbour list (`show lldp neighbors` on Junos, Cisco, Arista; `lldpcli show neighbors`; Cisco `show cdp neighbors` and its `detail` form) suggests cables between drawn ports (`document/neighbours.ts`, round 15). A MAC table (`show mac address-table` on Cisco IOS and NX-OS, `show ethernet-switching table` on Junos non-ELS), with an optional ARP table (`show ip arp`, Junos `show arp`, `ip neigh`) or DHCP leases (ISC `dhcpd.leases`, `dnsmasq.leases`, Kea `kea-leases4.csv`) for addresses and names, suggests who is plugged in where: a port that learned one MAC is cabled to a drawn port carrying that MAC, or gets a new sketch device with that MAC and address; a port with several is left (`document/hosts.ts`, round 29, card r29-fill). A device's own report (`show version` on Junos, Cisco IOS and Arista; Cisco `show inventory`; Junos `show chassis hardware`) offers its serial and running version (`Device.os_version`) where the drawing has none, a difference unticked, and only says the model and hostname (`document/facts.ts`). Paste any of these onto the canvas, or right-click a switch. Not read: the Junos ELS table form. `scripts/drive-suggest.mjs` and `scripts/drive-hosts.mjs` drive them.
@@ -315,7 +367,9 @@ breadcrumb does one thing.
   flight, the latest queued, a refusal shown and never rolled back. A rack's height is 42U, 24U, 12U or
   typed, refused below what is mounted.
 - **Rear elevation** (ADR-0050): every rack has front and rear; supplies are parts in slots with their own
-  serials; *single-fed* and *one fitted* are derived. Racks have a row and bay.
+  serials; *single-fed* and *one fitted* are derived. Racks have a row and bay. A rack dragged by hand keeps its
+  place (its `LayoutPin`, saved as seen from the front, mirrored when the row shows the rear; undo returns it
+  to its bay slot; ADR-0074 decision 5, `scripts/drive-rack-place.mjs`). A read-only viewer's drag lasts the session.
 - **Shelves, surfaces, sketches** (ADR-0051): shelves take units and slots; devices fix to a wall, floor,
   desk, ceiling or board. A device with no model carries ports typed by hand and says so. Outlet boxes and
   panels get pass-through pairs and a lit path.
@@ -443,6 +497,15 @@ own Save as PDF. A4 or Letter; cables none, all or as shown on screen; serials a
 optional; black and white with colours as words; title block and page x of y. Port map also as .csv or
 .xlsx. From Inventory the pack also prints the table as shown (its columns, filters and sort).
 
+**Phone field view and labels** (ADR-0075, card r39-phone). Under 760px wide: tabs Scan, Find (Inventory)
+and Canvas (read-only), plus Ideas while an AI idea waits; desk chrome folded away; a design opens on Find.
+A label's QR code is `/scan#<design>/<id>`; scanning it (phone Camera app, or Scan with `BarcodeDetector`
+or typing) opens the item's Inventory page after sign-in. Same-server links only; other text goes to Find.
+Add to Home Screen (manifest, no service worker). Inventory › tick rows › Print labels: devices, racks,
+cables (two each) and ports on Brother TZe 24/18/12 mm, QL 62 mm or 29 × 90 mm, or A4 thirty a sheet.
+A store's bin label opens its page (Print bin label there); a Scan button fills serial fields on a phone.
+Not yet: door labels (rooms). Drive: `scripts/drive-phone.mjs`.
+
 **Cables list** (#54). From the lit Cables lens: groups by VLAN, tag, type or device, a count each; a ticked
 VLAN's trunks draw dashed; "Hide this cable" with a "n hidden · show" chip. Per browser and design, never
 saved; both looks. Quick search also finds cables, VLANs and containers by name or tag.
@@ -522,10 +585,13 @@ port"; it offers jacks only, and shows and unties ties.
 
 **AI access** (ADR-0072; migration 0046; `src/ai.rs`, `src/oauth.rs`, `src/mcp.rs`, `components/ai/`). A
 person a Steward names lets an AI app read designs they can read, in one organisation, at the tiers the
-organisation allows (layout; addresses; notes), and send ideas a person accepts or dismisses. Never
+organisation allows (layout, which includes spares without serials; addresses; notes, which includes a
+spare's custom fields, ADR-0076), and send ideas a person accepts or dismisses. Never
 passwords or the vault. Two ways in, one grant row (`ai_keys`, kind `helper` or `connector`) and one set of
 rules checked at every request: (a) the **connector**: with `FATHOM_AI_PUBLIC_URL` set, the server is its
-own OAuth 2.1 authorization server and serves `/mcp` (Streamable HTTP, five tools). Claude and Claude Code
+own OAuth 2.1 authorization server and serves `/mcp` (Streamable HTTP, five tools; since ADR-0074 a design
+says `where` it sits, site › building › closet with kind and hub role, as far as the person may read,
+and `list_designs` takes a `folder`). Claude and Claude Code
 are pinned by their published client ids and redirects; other apps register (RFC 7591) and are off until a
 Steward allows them. S256 PKCE, one-minute single-use codes, one-hour access tokens, rotating refresh
 tokens with reuse detection, hashes only. A Claude grant is used only from Anthropic's published range
@@ -538,8 +604,24 @@ and presses Make key; the page then gives the Claude Code line and an `mcpServer
 longest, second-person folders) and every connection with narrow and turn-off; a named person who is not
 an admin sees that tab with AI alone. Admin › AI turns AI off for the server and turns any connection off
 with a reason. AI ideas are a side tab on the Canvas, Racks and Inventory; an Inventory row an open idea
-names is marked. Accepting marks the idea; the change is the person's own edit. Not yet: dashed "would be
-added" rows and marks on the drawing itself.
+names is marked. Accepting marks the idea; the change is the person's own edit. "Make it a plan" turns an
+idea into a draft maintenance plan with no edits in it and accepts the idea (ADR-0072 decision 22). The
+reading includes maintenance plans and "It's down" issues, without who wrote them or a step's stored edit.
+Both connect pages warn against a personal AI account; Fathom cannot check which account it is (decision
+23), so Allow and Make key ask for it, and Stewards and Admin › AI see it with the owner's sign-in address
+(decision 24, migration 0049). ADR-0077 (proposed, being built on PR #217): an AI connection may change
+designs only with two ticks, Organisation › AI's "AI apps may change designs" and the connection's own
+"May change designs" at Allow, Make key or later by its owner (migration 0050). Steps 1 to 3 are built: the
+ticks and screens, and `change_design` (`POST /ai/v1/designs/{d}/changes`, the Claude tool and the
+helper's) setting fields, adding nodes and edges (named with `as` for later operations) and removing,
+all at kinds and fields the reading shows at `layout` and `notes`; one change in the owner's name
+against the version read, 200 operations, 10 a minute and 300 a day, at most 20 things removed, never a
+place still holding things or anything holding what the AI cannot see, refused in second-person
+folders, every string through the server's gate. The reading lists what may be added under
+`mayChange`. History marks it "AI (<connection>), for <person>" from `ai_design_changes` (migration
+0051). Not yet: Undo of an AI change by someone other than its owner (History's Restore does it), and
+merging, which waits on the owner (the sweep is in ADR-0077). Not yet: dashed "would be added"
+rows and marks on the drawing itself.
 
 **Device panel** (r14 A1, A2): Details, Ports and Notes tabs, actions at the foot (Duplicate the main one,
 Remove device in red). Inventory's toolbar has a role filter, written into the filter line as `role:...`.
@@ -579,7 +661,7 @@ failures, staleness and an out-of-date keys file reach the console banner.
 ## Never built
 
 Walkthrough view (the teaching half of the product); Config view; the building and room stops
-(decided: UI-SPEC "The building", ADR-0051); engine manager (how equipment types are registered and
+(decided: UI-SPEC "The building", ADR-0051, ADR-0074: the folders drawn, rooms from ADR-0051's room builder); engine manager (how equipment types are registered and
 kept current); automatic correlation across separately-pasted configs; anything that discovers a
 network live (everything today comes from pasted text).
 

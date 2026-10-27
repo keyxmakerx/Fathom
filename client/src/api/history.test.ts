@@ -22,7 +22,9 @@ describe('verify wording', () => {
 describe('parseHistory', () => {
   it('reads when and who', () => {
     const [e] = parseHistory(bytes([{ seq: 1, entry_type: 'create', chain_key_epoch: 1, design_version: 1, at_unix: 1_700_000_000, actor: 'ACC' }]));
-    expect(e).toMatchObject({ seq: 1, designVersion: 1, atUnix: 1_700_000_000, actor: 'ACC' });
+    expect(e).toMatchObject({ seq: 1, designVersion: 1, atUnix: 1_700_000_000, actor: 'ACC', viaAi: null });
+    const [ai] = parseHistory(bytes([{ seq: 2, entry_type: 'change', design_version: 2, at_unix: 6, actor: 'ACC', via_ai: 'Claude' }]));
+    expect(ai.viaAi).toBe('Claude');
   });
 
   it('reads an unknown actor as null and refuses a row with no time', () => {

@@ -49,7 +49,7 @@ mod tests {
             98,
             "the seed bundle is 98 entries"
         );
-        assert_eq!(idx.corpus.explainers.len(), 62);
+        assert_eq!(idx.corpus.explainers.len(), 63);
         assert!(!idx.terms.is_empty());
         assert!(idx.concepts.by_id.contains_key("concept:obj.tunnel"));
         // The flagship trace's own join: p2.installed is narrower of

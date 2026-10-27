@@ -2,6 +2,7 @@
 // one panel, the same on the Canvas, Racks and Inventory, so deciding in one place is one
 // decision everywhere. An idea changes nothing by itself. Accepting marks it accepted and
 // the person makes the change, as their own edit; dismissing keeps nothing the AI wrote.
+// Make it a plan turns the steps into a draft maintenance plan (no edits in it) and accepts.
 
 import { useCallback, useEffect, useState } from 'react';
 
@@ -64,9 +65,11 @@ export interface AiIdeasPanelProps {
   /** Show a target where the person is (select it on the canvas or in the list). */
   onShow?: (id: string) => void;
   canDraw: boolean;
+  /** Make a draft maintenance plan from the idea (its steps become the plan's), then accept it. */
+  onPlan?: (idea: AiIdea) => void;
 }
 
-export function AiIdeasPanel({ organisationId, designId, state, nameOf, onShow, canDraw }: AiIdeasPanelProps) {
+export function AiIdeasPanel({ organisationId, designId, state, nameOf, onShow, canDraw, onPlan }: AiIdeasPanelProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showDecided, setShowDecided] = useState(false);
@@ -91,7 +94,8 @@ export function AiIdeasPanel({ organisationId, designId, state, nameOf, onShow, 
         Ideas an AI app sent for this design.{' '}
         <Info label="What an AI idea is">
           Someone connected an AI app to Fathom and let it send ideas. An idea changes nothing in the design. Accept marks it as
-          accepted, and you make the change yourself, as your own edit, so it is in the history under your name. Dismiss throws the
+          accepted, and you make the change yourself, as your own edit, so it is in the history under your name. Make it a plan
+          turns its steps into a draft maintenance plan you can change, schedule and work through, and accepts it. Dismiss throws the
           idea away. In some folders a Steward asks for a second person to accept.
         </Info>
       </p>
@@ -135,6 +139,11 @@ export function AiIdeasPanel({ organisationId, designId, state, nameOf, onShow, 
               <button type="button" className="ai-btn ai-btn--primary" disabled={busy !== null} onClick={() => void decide(idea, 'accept')}>
                 Accept
               </button>
+              {onPlan && (
+                <button type="button" className="ai-btn" disabled={busy !== null} onClick={() => onPlan(idea)}>
+                  Make it a plan
+                </button>
+              )}
               <button type="button" className="ai-btn" disabled={busy !== null} onClick={() => void decide(idea, 'dismiss')}>
                 Dismiss
               </button>

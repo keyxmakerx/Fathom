@@ -222,3 +222,19 @@ describe('the Why? texts are the Checks rules word for word', () => {
     expect(findNode(l.doc, l.nas.device)).toBeDefined();
   });
 });
+
+describe('cards and optics on the link (r35)', () => {
+  it("names the optic in the cage and the card the far port is on as suspects when server-1's link is dark", async () => {
+    const { buildSample, sample } = await import('../home/sampleNetwork');
+    const { deviceByHostname } = await import('../lessons/lessonModel');
+    const doc = buildSample(sample('parts-lab'), new Map()).doc;
+    const chain = buildChain(doc, deviceByHostname(doc, 'server-1')!);
+    const link = chain.steps.find((s) => s.topic === 'link')!;
+    expect(link.suspects.map((s) => s.label)).toEqual(['the cable', '1/3 on core-1', 'the optic in core-1 1/3', 'the card in slot 1']);
+    expect(link.tests.some((t) => t.includes('other ports on the card in slot 1'))).toBe(true);
+    expect(link.how.some((h) => h.includes('SFP-10G-SR'))).toBe(true);
+    // ADR-0076: the sample's cupboard holds a spare of each, so the test says where it is.
+    expect(link.tests).toContain('Swap the optic in core-1 1/3 for a spare of the same kind (one on hand in Comms cupboard, bin 1)');
+    expect(link.tests.some((t) => t.endsWith('(one on hand in Comms cupboard, shelf 2)'))).toBe(true);
+  });
+});

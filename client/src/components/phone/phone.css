@@ -1,0 +1,184 @@
+/* The field view (ADR-0075): a phone, or any window narrower than 760px. The same pages as on a
+   computer, with what belongs on a desk folded away and three tabs in reach of a thumb. Flat look:
+   ink and hairline, no radius, no shadow (UI-SPEC "Look"). */
+
+.phone-tabs {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .phone-tabs {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: var(--z-egress);
+    display: grid;
+    grid-auto-columns: 1fr;
+    grid-auto-flow: column;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--page);
+    border-top: var(--rule-hair) solid var(--hairline);
+  }
+  .phone-tabs__tab {
+    min-height: 52px;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 11px;
+    letter-spacing: var(--control-track);
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .phone-tabs__tab--on {
+    color: var(--ink);
+    font-weight: 700;
+    box-shadow: inset 0 var(--rule-mast) 0 var(--ink);
+  }
+  /* The page stops above the tabs. */
+  :root:has(.phone-tabs) #root {
+    height: calc(100dvh - 52px - env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Desk-only parts of the drawing: the tool row, the side panels' strip and their panels. The
+     canvas still pans and zooms; on a phone it is to look at (the session is read-only there). */
+  :root:has(.phone-tabs) .shell-canvas-bar__group,
+  :root:has(.phone-tabs) .canvas-minimap,
+  :root:has(.phone-tabs) .dock-strip,
+  :root:has(.phone-tabs) .dock-right {
+    display: none;
+  }
+  /* The bar keeps the brand and where you are; the views are the tabs at the bottom. */
+  :root:has(.phone-tabs) .shell-bar__tabs--views,
+  :root:has(.phone-tabs) .shell-bar__tabs {
+    display: none;
+  }
+  /* Inventory: lists to read and find in. Import, paste, columns, add and the tick boxes are a
+     desk's job; the kind buttons stay. */
+  :root:has(.phone-tabs) .inv-toolbar__row > :not(.inv-toolbar__kinds),
+  :root:has(.phone-tabs) .inv-table__check {
+    display: none;
+  }
+}
+
+/* ---- Scan ---------------------------------------------------------------------------------- */
+
+.phone-scan {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: calc(var(--s3) + env(safe-area-inset-top, 0px)) var(--s4) calc(var(--s4) + env(safe-area-inset-bottom, 0px));
+  background: var(--page);
+  color: var(--ink);
+  overflow-y: auto;
+}
+.phone-scan__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: var(--rule-mast) solid var(--ink);
+  padding-bottom: var(--s2);
+}
+.phone-scan__title {
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.phone-scan__close,
+.phone-scan__row button {
+  min-height: 44px;
+  padding: 0 var(--s4);
+  border: var(--rule-hair) solid var(--ink);
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.phone-scan__row button:disabled {
+  border-color: var(--hairline);
+  color: var(--muted);
+  cursor: default;
+}
+.phone-scan__camera {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  max-height: 55dvh;
+  background: var(--surface);
+  border: var(--rule-hair) solid var(--hairline);
+  overflow: hidden;
+}
+.phone-scan__camera video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.phone-scan__frame {
+  position: absolute;
+  inset: 25% 12%;
+  border: 2px dashed var(--page);
+  outline: 1px solid var(--ink);
+}
+.phone-scan__say,
+.phone-scan__message,
+.phone-scan__note {
+  margin: 0;
+}
+.phone-scan__message {
+  padding: var(--s2) var(--s3);
+  border: var(--rule-hair) solid var(--caution);
+  background: var(--caution-wash);
+}
+.phone-scan__note {
+  color: var(--muted);
+  font-size: 12px;
+}
+.phone-scan__type {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.phone-scan__type label {
+  color: var(--muted);
+  font-size: 12px;
+}
+.phone-scan__row {
+  display: flex;
+  gap: var(--s2);
+}
+.phone-scan__row input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 var(--s3);
+  border: var(--rule-hair) solid var(--control-line);
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--mono, monospace);
+  font-size: 16px; /* 16px stops iOS Safari zooming the page on focus */
+}
+
+/* ---- Home ---------------------------------------------------------------------------------- */
+
+.phone-home {
+  padding: var(--s3) var(--s4) 0;
+}
+.phone-home__scan {
+  width: 100%;
+  min-height: 52px;
+  border: var(--rule-hair) solid var(--ink);
+  background: var(--ink);
+  color: var(--page);
+  font: inherit;
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+/* A Scan button beside a serial field (phone only). */
+.phone-scan-into {
+  align-self: flex-start;
+  min-height: 40px;
+}

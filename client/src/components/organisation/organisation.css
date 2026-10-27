@@ -307,3 +307,51 @@
   white-space: nowrap;
   border: 0;
 }
+
+/* ADR-0074 §8: a NetBox export as one plan of sites, buildings and racks. */
+.estate-import {
+  border: var(--rule-hair) solid var(--hairline);
+  padding: var(--s3);
+  margin-bottom: var(--s3);
+}
+
+.estate-import__drop {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  cursor: pointer;
+}
+
+.estate-import__plan,
+.estate-import__plan ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.estate-import__plan > li {
+  padding: var(--s2) 0;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+}
+
+.estate-import__plan ul {
+  padding-left: var(--s4);
+}
+
+.estate-import__plan ul li {
+  padding: var(--s1) 0;
+  font-size: var(--t-small);
+}
+
+.estate-import__tag {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.estate-import__actions {
+  display: flex;
+  gap: var(--s2);
+  margin-top: var(--s3);
+}

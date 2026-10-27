@@ -787,6 +787,13 @@ const TABLES: &[TableClaim] = &[
               place. The design id, state, who decided and `step_count` are not secret.",
     },
     TableClaim {
+        name: "ai_design_changes",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "that an AI connection made a change to a design (ADR-0077): the design, batch and \
+              version, the connection and its owner, how many operations and when. No text: \
+              the summary is the batch label inside the sealed change.",
+    },
+    TableClaim {
         name: "ai_oauth_clients",
         protection: Protection::NoKeyProtectedMaterial,
         why: "an AI app that registered itself for the connector sign-in (RFC 7591): the id this \

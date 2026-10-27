@@ -3,8 +3,10 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import {
   confirmAppCode,
   enrolAppCode,
+  fetchOwnName,
   hasAuthenticator as fetchHasAuthenticator,
   registerBrowserKey,
+  setOwnName,
   setPassword,
   type TotpEnrolment,
 } from '../api/credentials';
@@ -86,35 +88,44 @@ export function Account({ address, purpose = 'settings', onDone, onClose, focus,
     };
   }, []);
 
+  // The settings screen is long: on a wide window its sections sit in two
+  // columns rather than one tall strip, the page scrolls instead of clipping
+  // its top, and Back is at the top where it is seen first.
+  const settings = purpose === 'settings';
   return (
-    <div className="signin">
-      <div className="signin__card">
-        <h1 className="signin__title">Fathom</h1>
+    <div className={settings ? 'signin signin--account' : 'signin'}>
+      <div className={settings ? 'signin__card account__card' : 'signin__card'}>
+        <div className="account__head">
+          <h1 className="signin__title">{settings ? 'Your account' : 'Fathom'}</h1>
+          {settings && onClose && (
+            <button type="button" className="account__back" onClick={onClose}>
+              Back
+            </button>
+          )}
+        </div>
         <p className="signin__subtitle">
           {purpose === 'app-code'
             ? 'This account holds the operator custody, so it needs an authenticator app before anything else.'
             : `Your credentials, ${address}.`}
         </p>
 
-        {purpose === 'settings' && <Appearance />}
+        <div className={settings ? 'account__grid' : undefined}>
+          {settings && <NameForm />}
 
-        {purpose === 'settings' && <PasswordForm address={address} />}
+          {settings && <Appearance />}
 
-        {purpose === 'settings' && <SignedInBrowsers />}
+          {settings && <PasswordForm address={address} />}
 
-        {purpose === 'settings' && <TypeItYourselfSettings onTurnedOn={onTypeItYourself} />}
+          {settings && <SignedInBrowsers />}
 
-        <AuthenticatorEnrolment
-          address={address}
-          onDone={() => onDone?.()}
-          requiresReauth={hasAuthenticator === true}
-        />
+          {settings && <TypeItYourselfSettings onTurnedOn={onTypeItYourself} />}
 
-        {purpose === 'settings' && onClose && (
-          <button type="button" className="signin__switch" onClick={onClose}>
-            Back
-          </button>
-        )}
+          <AuthenticatorEnrolment
+            address={address}
+            onDone={() => onDone?.()}
+            requiresReauth={hasAuthenticator === true}
+          />
+        </div>
       </div>
     </div>
   );
@@ -204,6 +215,83 @@ export function TypeItYourselfSettings({ onTurnedOn }: { onTurnedOn?: (organisat
         ))}
       </ul>
     </section>
+  );
+}
+
+/** The name other people see beside this person's work: the people list,
+ * history, the dots of who else is here. Set from the address when the account
+ * was made; changed here. */
+function NameForm() {
+  const [name, setName] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchOwnName()
+      .then((current) => {
+        if (!cancelled) setName(current);
+      })
+      .catch((error) => {
+        console.error(error);
+        if (!cancelled) setRefusal('Could not load your name.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (name === null) return;
+    setRefusal(null);
+    setDone(false);
+    setBusy(true);
+    try {
+      setName(await setOwnName(name));
+      setDone(true);
+    } catch (error) {
+      console.error(error);
+      setRefusal(describe(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="signin__section" onSubmit={handleSubmit} data-testid="account-name">
+      <h2 className="signin__heading">Name</h2>
+      <div className="signin__field">
+        <label className="signin__label" htmlFor="account-name">
+          Your name
+        </label>
+        <input
+          id="account-name"
+          className="signin__input"
+          type="text"
+          autoComplete="name"
+          maxLength={80}
+          value={name ?? ''}
+          onChange={(event) => {
+            setName(event.target.value);
+            setDone(false);
+          }}
+          disabled={busy || name === null}
+          required
+        />
+        <p className="signin__hint">What other people see beside your work, in place of your email address.</p>
+      </div>
+      <button className="signin__submit" type="submit" disabled={busy || name === null || name.trim() === ''}>
+        {busy ? 'Saving…' : 'Save name'}
+      </button>
+      {done && <p className="signin__note">Saved.</p>}
+      {refusal && (
+        <div className="signin__refusal" role="alert">
+          {refusal}
+        </div>
+      )}
+    </form>
   );
 }
 

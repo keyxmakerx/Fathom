@@ -2,11 +2,13 @@
 //! connector (ADR-0072 decisions 13 to 20).
 //!
 //! The token is checked first, on every request, by `oauth::Connector::verify_bearer`;
-//! this file only reads the JSON-RPC message and runs one of five tools, each of which is
+//! this file only reads the JSON-RPC message and runs one of six tools, each of which is
 //! a `/ai/v1/*` route under another name, through the same `ai::open` and the same rules:
 //!
 //! - `whoami`, `list_designs`, `read_design`, `list_recommendations`: reads;
-//! - `recommend`: the one write, an idea a person accepts or dismisses in Fathom.
+//! - `recommend`: an idea a person accepts or dismisses in Fathom;
+//! - `change_design`: a change made at once, listed only for a connection that both its
+//!   organisation and its owner let change designs (ADR-0077).
 //!
 //! What the transport needs (MCP "Transports", 2025-11-25, read 2026-10-25):
 //!
@@ -41,32 +43,42 @@ const INTERNAL_ERROR: i64 = -32603;
 /// What the app is told at `initialize`, for its model to read.
 const INSTRUCTIONS: &str = "Fathom holds network designs. This connection reads the designs \
     in one organisation that the person who signed in chose, with only the detail they \
-    allowed: layout, and if allowed addresses and notes. Passwords, device secrets and the \
-    vault are never part of a reading. You cannot change a design. You can recommend a \
-    change with the recommend tool; a person sees it in Fathom, marked as an AI idea, and \
-    accepts or dismisses it. Start with list_designs, then read_design.";
+    allowed: layout, and if allowed addresses and notes. Layout includes each device's \
+    cards (Card, seated by HasCard; its ports say OnCard), power supplies, and the optic in a \
+    port (the port's transceiver). Passwords, device secrets, serial numbers and the vault are \
+    never part of a reading. You can recommend a change with the recommend tool; a person \
+    sees it in Fathom, marked as an AI idea, and accepts or dismisses it, on a computer or a \
+    phone. Only if whoami says mayChange can you change a design directly, with \
+    change_design: one call is one change, made in the person's name, marked as yours, and \
+    undone in one step. Prefer an idea when a person should decide. If someone gives you a \
+    Fathom label's link (`.../scan#<design>/<id>`), the part after `#` is a design id and an \
+    id inside that design. Start with list_designs, then read_design.";
 
-/// The five tools, as `tools/list` gives them. Plain JSON so it reads as the protocol does;
+/// The six tools, as `tools/list` gives them. Plain JSON so it reads as the protocol does;
 /// a test checks it parses and names exactly the tools [`call`] runs.
 const TOOLS: &str = r#"[
   {
     "name": "whoami",
     "title": "Who this connection is",
-    "description": "The organisation this connection reads, whose sign-in it is, what it may see, which folders, whether it may recommend, and when it ends.",
+    "description": "The organisation this connection reads, whose sign-in it is, what it may see, which folders, whether it may recommend or change designs, and when it ends.",
     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
     "annotations": {"readOnlyHint": true, "openWorldHint": false}
   },
   {
     "name": "list_designs",
     "title": "List designs",
-    "description": "The designs this connection may read, with their ids and names. Use an id with read_design.",
-    "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
+    "description": "The designs this connection may read, with their ids, names and where each sits: its site, building and closet, with each place's kind and role (a hub is the site others hang from). Give folder to list only the designs in one site, building or closet. Use an id with read_design.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {"folder": {"type": "string", "description": "A site, building or closet id from a design's where; only designs inside it."}},
+      "additionalProperties": false
+    },
     "annotations": {"readOnlyHint": true, "openWorldHint": false}
   },
   {
     "name": "read_design",
     "title": "Read a design",
-    "description": "One design: its devices, links, sites and racks, with addresses and notes only where the person allowed them. Never passwords or device secrets.",
+    "description": "One design: where it sits (site, building, closet, with kind and hub role), its devices, links, sites and racks, the cards, power supplies and optics fitted in each device, its maintenance plans and \"It's down\" issues with their steps, and the spares on hand (stores, each spare's sort, model, state and count, and the fewest of a model kept), with addresses and notes only where the person allowed them. With notes allowed, a spare's custom fields such as its price and supplier, named in field_names. Never passwords, device secrets or serial numbers.",
     "inputSchema": {
       "type": "object",
       "properties": {"design": {"type": "string", "description": "The design's id, from list_designs."}},
@@ -90,7 +102,7 @@ const TOOLS: &str = r#"[
   {
     "name": "recommend",
     "title": "Recommend a change",
-    "description": "Recommend a change to one design. Nothing in the design changes: a person sees the idea in Fathom, marked as an AI idea, and accepts or dismisses it. Name devices and links in targets by the ids read_design gave. Do not put passwords, keys or secrets in any text; text that looks like one is refused.",
+    "description": "Recommend a change to one design. Nothing in the design changes: a person sees the idea in Fathom, marked as an AI idea, and accepts or dismisses it. An idea may add a room, a rack or a link between buildings as plain steps. Name devices, cards, ports, links, stores and spares in targets by the ids read_design gave; a stock idea (keep more of a model, order one, send one for repair) targets the store or spare it is about. Write steps in the order they should be done, one change each: a person can turn the idea into a maintenance plan. Do not put passwords, keys or secrets in any text; text that looks like one is refused.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -105,7 +117,7 @@ const TOOLS: &str = r#"[
             "type": "object",
             "properties": {
               "action": {"type": "string", "enum": ["add", "change", "remove", "connect", "move", "label"]},
-              "target": {"type": "string", "description": "The id of the device, link, site or rack the step is about, if any."},
+              "target": {"type": "string", "description": "The id of the device, card, port, link, site, rack, store or spare the step is about, if any."},
               "text": {"type": "string", "description": "What to do, up to 300 characters."}
             },
             "required": ["action", "text"],
@@ -117,17 +129,58 @@ const TOOLS: &str = r#"[
       "additionalProperties": false
     },
     "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false}
+  },
+  {
+    "name": "change_design",
+    "title": "Change a design",
+    "description": "Change one design now, as one change. It is made in the name of the person who signed in, marked as made by an AI, and History can restore the version before it. Give the version read_design gave: if the design moved since, nothing changes and you are told to read it again. Operations run in order: set a field (or clear it with null), add_node, add_edge, or remove. read_design's mayChange lists the node kinds and fields you may add and set, and each edge kind's ends. Name existing elements by the ids read_design gave; give an add an `as` name and later operations can use that name, and the answer says what each name became. A removal takes what the element holds with it: at most 20 things in one change, never a place that still holds things, never anything that holds what you cannot see. Do not put passwords, keys or secrets in any value; a change that carries one is refused whole. Prefer recommend when a person should decide.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "design": {"type": "string", "description": "The design's id."},
+        "version": {"type": "integer", "minimum": 1, "description": "The version read_design gave."},
+        "summary": {"type": "string", "description": "What the change does, one line up to 120 characters. History shows it."},
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "properties": {
+              "op": {"type": "string", "enum": ["set", "add_node", "add_edge", "remove"]},
+              "element": {"type": "string", "description": "set, remove: an id from read_design, or a name an earlier add gave."},
+              "field": {"type": "string", "description": "set: a field name as read_design shows it."},
+              "value": {"description": "set: the new value, in the shape read_design shows; null clears it."},
+              "kind": {"type": "string", "description": "add_node, add_edge: a kind from read_design's mayChange."},
+              "from": {"type": "string", "description": "add_edge: the node it starts at, an id or a name."},
+              "to": {"type": "string", "description": "add_edge: the node it ends at, an id or a name."},
+              "as": {"type": "string", "description": "add_node, add_edge: a name for later operations, 1 to 40 letters, digits, - or _."},
+              "fields": {"type": "object", "description": "add_node, add_edge: field name to value."}
+            },
+            "required": ["op"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["design", "version", "summary", "operations"],
+      "additionalProperties": false
+    },
+    "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false}
   }
 ]"#;
 
 /// The tool names [`call`] runs, in [`TOOLS`] order.
-pub const TOOL_NAMES: [&str; 5] = [
+pub const TOOL_NAMES: [&str; 6] = [
     "whoami",
     "list_designs",
     "read_design",
     "list_recommendations",
     "recommend",
+    "change_design",
 ];
+
+/// The tool only a connection that may change designs is shown.
+const CHANGE_TOOL: &str = "change_design";
 
 /// What `/mcp` answers: a status and, unless `202`, a JSON body.
 pub enum Answer {
@@ -180,9 +233,35 @@ pub fn negotiate(asked: Option<&str>) -> &'static str {
         .unwrap_or(PROTOCOL_VERSIONS[0])
 }
 
-/// The tool list, parsed.
-pub fn tools() -> Json {
-    crate::json_in::parse(TOOLS.as_bytes()).unwrap_or(Json::Arr(Vec::new()))
+/// The tool list, parsed: all six, or without `change_design` when `may_change` is false.
+pub fn tools(may_change: bool) -> Json {
+    match crate::json_in::parse(TOOLS.as_bytes()) {
+        Ok(Json::Arr(all)) => Json::Arr(
+            all.into_iter()
+                .filter(|t| {
+                    may_change
+                        || !matches!(t, Json::Obj(m) if m.get("name") == Some(&Json::Str(CHANGE_TOOL.into())))
+                })
+                .collect(),
+        ),
+        _ => Json::Arr(Vec::new()),
+    }
+}
+
+/// Whether this connection may change designs right now: both ticks, read in a
+/// transaction of its own. Anything that stops the read stops the tool being listed.
+async fn may_change(state: &AiApiState, verified: &VerifiedAi) -> bool {
+    let Ok(mut client) = state.pool.get().await else {
+        return false;
+    };
+    let Ok(tx) = client.transaction().await else {
+        return false;
+    };
+    let Ok(session) = ai::open(&tx, &state.ring, verified).await else {
+        return false;
+    };
+    let may = ai::may_change(&session);
+    tx.commit().await.is_ok() && may
 }
 
 /// Read one message and answer it. `verified` is the bearer token's, already checked.
@@ -253,7 +332,10 @@ pub async fn handle(state: &AiApiState, verified: &VerifiedAi, body: &[u8]) -> A
             )
         }
         "ping" => result(id, Json::Obj(BTreeMap::new())),
-        "tools/list" => result(id, obj(vec![("tools", tools())])),
+        "tools/list" => {
+            let may = may_change(state, verified).await;
+            result(id, obj(vec![("tools", tools(may))]))
+        }
         "tools/call" => {
             let name = match params.get("name") {
                 Some(Json::Str(n)) if TOOL_NAMES.contains(&n.as_str()) => n.clone(),
@@ -326,6 +408,7 @@ fn tool_error_text(e: &AiError) -> Option<String> {
             "not found, or not inside what this connection may read".into()
         }
         AiError::Conflict { .. } => "that changed while it was being read; try again".into(),
+        e @ (AiError::Operation { .. } | AiError::Moved { .. }) => e.to_string(),
         AiError::LooksSecret => "that looks as if it carries a password or key, so it was not \
             taken; reword it without the value"
             .into(),
@@ -353,15 +436,32 @@ async fn call(
     name: &str,
     mut args: BTreeMap<String, Json>,
 ) -> Result<Json, AiError> {
+    // ADR-0074 §8: list_designs may name a folder; one the key does not reach matches nothing.
+    let mut within = None;
+    if name == "list_designs" {
+        match args.remove("folder") {
+            None => {}
+            Some(Json::Str(f)) => {
+                within = Some(f.trim().parse().map_err(|_| AiError::NotFound)?);
+            }
+            Some(_) => return Err(AiError::Malformed("folder is an id from a design's where")),
+        }
+    }
     let design = match name {
         "whoami" | "list_designs" => {
             if !args.is_empty() {
-                return Err(AiError::Malformed("this tool takes no arguments"));
+                return Err(AiError::Malformed("this tool takes no other arguments"));
             }
             None
         }
         _ => Some(design_arg(&mut args)?),
     };
+    if let ("change_design", Some(d)) = (name, design) {
+        // The rest of the arguments are the change, in the shape `/ai/v1` takes, and
+        // `ai_change::read_ask` refuses anything else in them.
+        let body = Json::Obj(args).to_canonical_bytes();
+        return crate::ai_api::change_design(state, verified, d, &body).await;
+    }
     if name != "recommend" && !args.is_empty() {
         return Err(AiError::Malformed("this tool takes only a design"));
     }
@@ -376,7 +476,7 @@ async fn call(
     };
     let answer = match (name, design) {
         ("whoami", _) => ai::whoami(&session),
-        ("list_designs", _) => ai::ai_designs(&tx, &auth, &session.key).await?,
+        ("list_designs", _) => ai::ai_designs(&tx, &auth, &session.key, within).await?,
         ("read_design", Some(d)) => {
             ai::ai_reading(&tx, &auth, Some(&state.live.heads), &session, d).await?
         }
@@ -421,15 +521,32 @@ mod tests {
             })
             .collect();
         assert_eq!(names, TOOL_NAMES);
-        // Only `recommend` writes, and it says so.
+        // Only `recommend` and `change_design` write, and they say so; only the second
+        // changes what is there.
         for t in &tools {
             let Json::Obj(m) = t else { unreachable!() };
             let Json::Obj(a) = &m["annotations"] else {
                 panic!("annotations")
             };
-            let writes = m["name"] == Json::Str("recommend".into());
+            let name = &m["name"];
+            let writes =
+                *name == Json::Str("recommend".into()) || *name == Json::Str(CHANGE_TOOL.into());
             assert_eq!(a["readOnlyHint"], Json::Bool(!writes));
+            if writes {
+                assert_eq!(
+                    a["destructiveHint"],
+                    Json::Bool(*name == Json::Str(CHANGE_TOOL.into()))
+                );
+            }
         }
+        // A connection that may not change designs is not shown the tool.
+        let Json::Arr(fewer) = super::tools(false) else {
+            panic!("not a list")
+        };
+        assert_eq!(fewer.len(), TOOL_NAMES.len() - 1);
+        assert!(!fewer
+            .iter()
+            .any(|t| matches!(t, Json::Obj(m) if m["name"] == Json::Str(CHANGE_TOOL.into()))));
     }
 
     #[test]

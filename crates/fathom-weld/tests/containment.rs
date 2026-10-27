@@ -156,7 +156,15 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // `OverlayNetwork` joins `Placeable`, +1 (its pin).
     // 146 -> 149 (the lesson builder, schema 0.27): `HasLesson` reads `from: [root]`, +0;
     // `HasLessonStep`, +1; `Lesson` and `LessonStep` join `Placeable`, +2 (their pins).
-    assert_eq!(resolved, 149, "the containment pair set moved");
+    // 149 -> 152 (cards, schema 0.28): `HasCard` (Chassis, Card) and (Card, Card), +2; `Card`
+    // joins `Placeable`, +1 (its pin). `OnCard` is REFERENCE.
+    // 152 -> 158 (the room builder, schema 0.29): `HasFloorPlan`, `HasRoom`, `HasRoomCorner`, +3;
+    // `FloorPlan`, `Room` and `RoomCorner` join `Placeable`, +3 (their pins).
+    // 158 -> 162 (spares and stores, schema 0.30): `HasStore`, `HasStock` and `HasStockLevel` read
+    // `from: [root]`, +0; `Store`, `StockItem` and `StockLevel` join `Placeable`, +3 (their pins);
+    // `StockItem` joins `Fieldable`, +1 (`HasFieldValue`). `InStore`, `ReservedFor` and `ForIssue`
+    // are REFERENCE.
+    assert_eq!(resolved, 162, "the containment pair set moved");
 
     // The 43 containment kinds are all still containment kinds, and every
     // kind but `LearnedRoute` and `Site` is somebody's containment child.
@@ -194,7 +202,11 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // 66 (mesh VPNs, schema 0.26): `HasOverlay` (root -> OverlayNetwork). `OverlayMember` is
     // REFERENCE and does not count here.
     // 68 (the lesson builder, schema 0.27): `HasLesson` (root -> Lesson), `HasLessonStep`.
-    assert_eq!(containment, 68);
+    // 69 (cards, schema 0.28): `HasCard` (Chassis/Card -> Card).
+    // 72 (the room builder, schema 0.29): `HasFloorPlan`, `HasRoom`, `HasRoomCorner`.
+    // 75 (spares and stores, schema 0.30): `HasStore`, `HasStock`, `HasStockLevel` (root ->
+    // Store, StockItem, StockLevel). `InStore`, `ReservedFor`, `ForIssue` are REFERENCE.
+    assert_eq!(containment, 75);
     let orphans: Vec<&str> = NodeKind::ALL
         .into_iter()
         .filter(|child| {
@@ -233,7 +245,11 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
             // schema 0.26: `HasOverlay` reads `from: [root]`.
             "OverlayNetwork",
             // schema 0.27: `HasLesson` reads `from: [root]`.
-            "Lesson"
+            "Lesson",
+            // schema 0.30: `HasStore`, `HasStock`, `HasStockLevel` read `from: [root]`.
+            "Store",
+            "StockItem",
+            "StockLevel"
         ],
         "the set of kinds no node kind contains moved"
     );

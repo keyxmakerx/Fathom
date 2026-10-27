@@ -1959,9 +1959,11 @@ impl Shell {
             let g = scratch.estate.as_ref().unwrap();
             let (lines, touches) = plan::impact(g, &step.edit);
             let reply = match &step.edit {
-                Edit::None | Edit::Move { .. } | Edit::Lag { .. } | Edit::Unlag { .. } => {
-                    Vec::new()
-                }
+                Edit::None
+                | Edit::Move { .. }
+                | Edit::Lag { .. }
+                | Edit::Unlag { .. }
+                | Edit::Part { .. } => Vec::new(),
                 // An empty value clears the field (a back-out step putting back "none"): nothing to parse or try.
                 Edit::Field { value, .. } if value.is_empty() => Vec::new(),
                 Edit::Field { id, key, value } => {

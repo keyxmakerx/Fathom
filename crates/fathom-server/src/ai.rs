@@ -41,7 +41,7 @@ use crate::chain::EntryType;
 use crate::chains::{self, ChainStoreError};
 use crate::crypto::{self, CryptoError};
 use crate::designs::{self, DesignError};
-use crate::field_defs::is_unsafe_char;
+use crate::field_defs::{self, is_unsafe_char};
 use crate::grants::{self, Authority, AuthorityError};
 use crate::heads::HeadStore;
 use crate::keys::{self, KeyRing, KeyStoreError};
@@ -142,6 +142,16 @@ pub enum AiError {
     },
     /// Text that reads as a password or key was not taken.
     LooksSecret,
+    /// One operation of an AI's change was refused; the sentence says why, never the value.
+    Operation {
+        index: usize,
+        why: String,
+    },
+    /// An AI's change named a version the design has moved on from (ADR-0077 decision 6).
+    Moved {
+        read: i64,
+        current: i64,
+    },
     /// A stored row does not verify: not a permission answer (§3.4), an alarm.
     Unverifiable(&'static str),
 }
@@ -166,6 +176,12 @@ impl std::fmt::Display for AiError {
             Self::NotFound => f.write_str("not found"),
             Self::Conflict { version } => write!(f, "changed (now {version})"),
             Self::LooksSecret => f.write_str("looks secret"),
+            Self::Operation { index, why } => write!(f, "operation {} {why}", index + 1),
+            Self::Moved { read, current } => write!(
+                f,
+                "the design is at version {current}, not {read}, the version this change names; \
+                 read it again and make the change against what is there now"
+            ),
             Self::Unverifiable(what) => write!(f, "unverifiable: {what}"),
         }
     }
@@ -239,6 +255,8 @@ impl AiError {
                  without the value.\n"
                     .into(),
             ),
+            e @ Self::Operation { .. } => text(StatusCode::UNPROCESSABLE_ENTITY, format!("{e}\n")),
+            e @ Self::Moved { .. } => text(StatusCode::CONFLICT, format!("{e}\n")),
             Self::Authority(AuthorityError::NotAuthorised)
             | Self::Authority(AuthorityError::QuorumNotMet { .. }) => text(
                 StatusCode::FORBIDDEN,
@@ -343,6 +361,23 @@ pub fn clean_line(raw: &str, max: usize, empty_ok: bool) -> Result<String, AiErr
     Ok(t)
 }
 
+/// The AI account a person says an app uses: one address, as typed, in lower case. Fathom never
+/// checks it (ADR-0072 decision 24); it is only shown to the owner, Stewards and admins.
+pub fn clean_account(raw: &str) -> Result<String, AiError> {
+    let t = raw.trim().to_lowercase();
+    let ok = (3..=254).contains(&t.chars().count())
+        && t.matches('@').count() == 1
+        && !t.starts_with('@')
+        && !t.ends_with('@')
+        && !t.chars().any(|c| c.is_whitespace() || is_unsafe_char(c));
+    if !ok {
+        return Err(AiError::Malformed(
+            "say which AI account the app is signed in to, as an email address",
+        ));
+    }
+    Ok(t)
+}
+
 /// What a key may see, as stored: `layout` always, the rest in [`Tier::ALL`]'s order.
 pub fn clean_sees(raw: &[String]) -> Result<Vec<String>, AiError> {
     let mut set = BTreeSet::new();
@@ -441,6 +476,8 @@ pub struct Policy {
     pub second_person_scopes: Vec<String>,
     /// Which of [`APPS`] may connect through the sign-in.
     pub apps: Vec<String>,
+    /// Whether a connection here may change designs at all (ADR-0077 decision 1).
+    pub may_change: bool,
     pub changed_by: Option<String>,
     pub changed_unix: Option<i64>,
     changed_seq: i64,
@@ -457,6 +494,7 @@ impl Policy {
             max_days: 90,
             second_person_scopes: Vec::new(),
             apps: vec!["claude".to_string()],
+            may_change: false,
             changed_by: None,
             changed_unix: None,
             changed_seq: 0,
@@ -476,6 +514,10 @@ impl Policy {
             strs(&self.second_person_scopes),
         );
         m.insert("apps".into(), strs(&self.apps));
+        // Only when on, so a row written before migration 0050 still verifies.
+        if self.may_change {
+            m.insert("may_change".into(), Json::Bool(true));
+        }
         m.insert("changed_by".into(), opt_str(&self.changed_by));
         Json::Obj(m).to_canonical_bytes()
     }
@@ -505,6 +547,7 @@ impl Policy {
             strs(&self.second_person_scopes),
         );
         m.insert("apps".into(), strs(&self.apps));
+        m.insert("mayChange".into(), Json::Bool(self.may_change));
         m.insert("changedBy".into(), opt_str(&self.changed_by));
         m.insert("changedAt".into(), opt_int(self.changed_unix));
         m.insert("version".into(), Json::Int(self.version as i64));
@@ -522,7 +565,7 @@ pub(crate) async fn read_policy(
         .query_opt(
             &format!(
                 "SELECT allowed, makers, ceiling, max_days, second_person_scopes, apps, changed_by, \
-                        extract(epoch FROM changed_at)::bigint, changed_seq, row_version, row_seal \
+                        extract(epoch FROM changed_at)::bigint, changed_seq, row_version, row_seal, may_change \
                  FROM ai_policies WHERE organisation_id = $1{}",
                 if lock { " FOR UPDATE" } else { "" }
             ),
@@ -543,6 +586,7 @@ pub(crate) async fn read_policy(
         changed_unix: Some(row.get(7)),
         changed_seq: row.get(8),
         version: row.get(9),
+        may_change: row.get(11),
     };
     let stored: Vec<u8> = row.get(10);
     if !crypto::ct_eq(&p.seal(ring, organisation), &stored) {
@@ -661,6 +705,12 @@ pub struct AiKey {
     pub disabled_by_kind: Option<String>,
     pub disabled_reason: Option<String>,
     pub version: i32,
+    /// The AI account the owner said it uses (migration `0049`). What they typed; never checked.
+    pub ai_account: Option<String>,
+    /// The owner's Fathom sign-in email, for the people who look after the organisation.
+    pub owner_email: String,
+    /// The connection's own "May change designs" tick (ADR-0077 decision 1).
+    pub may_change: bool,
 }
 
 const KEY_COLUMNS: &str = "k.organisation_id, k.id, k.owner, \
@@ -669,10 +719,11 @@ const KEY_COLUMNS: &str = "k.organisation_id, k.id, k.owner, \
      extract(epoch FROM k.created_at)::bigint, k.created_seq, \
      extract(epoch FROM k.expires_at)::bigint, k.state, k.changed_seq, \
      extract(epoch FROM k.disabled_at)::bigint, k.disabled_by, k.disabled_by_kind, \
-     k.disabled_reason, k.row_version, k.row_seal";
+     k.disabled_reason, k.row_version, k.row_seal, k.ai_account, \
+     coalesce((SELECT a.email FROM accounts a WHERE a.id = k.owner), ''), k.may_change";
 
 /// How many columns [`KEY_COLUMNS`] selects; a query's own columns follow.
-const KEY_COLUMN_COUNT: usize = 22;
+const KEY_COLUMN_COUNT: usize = 25;
 
 impl AiKey {
     fn from_row(row: &tokio_postgres::Row) -> (Self, Vec<u8>) {
@@ -699,6 +750,9 @@ impl AiKey {
                 disabled_by_kind: row.get(18),
                 disabled_reason: row.get(19),
                 version: row.get(20),
+                ai_account: row.get(22),
+                owner_email: row.get(23),
+                may_change: row.get(24),
             },
             row.get(21),
         )
@@ -730,6 +784,14 @@ impl AiKey {
         m.insert("disabled_by".into(), opt_str(&self.disabled_by));
         m.insert("disabled_by_kind".into(), opt_str(&self.disabled_by_kind));
         m.insert("disabled_reason".into(), opt_str(&self.disabled_reason));
+        // Only when given, so a row made before migration 0049 still verifies.
+        if let Some(account) = &self.ai_account {
+            m.insert("ai_account".into(), Json::Str(account.clone()));
+        }
+        // Only when on, so a row written before migration 0050 still verifies.
+        if self.may_change {
+            m.insert("may_change".into(), Json::Bool(true));
+        }
         Json::Obj(m).to_canonical_bytes()
     }
 
@@ -765,12 +827,15 @@ impl AiKey {
         m.insert("id".into(), Json::Str(self.id.clone()));
         m.insert("owner".into(), Json::Str(self.owner.clone()));
         m.insert("ownerName".into(), Json::Str(self.owner_name.clone()));
+        m.insert("ownerEmail".into(), Json::Str(self.owner_email.clone()));
+        m.insert("aiAccount".into(), opt_str(&self.ai_account));
         m.insert("kind".into(), Json::Str(self.kind.clone()));
         m.insert("app".into(), Json::Str(self.app().to_string()));
         m.insert("label".into(), Json::Str(self.label.clone()));
         m.insert("scopes".into(), strs(&self.scopes));
         m.insert("sees".into(), strs(&self.sees));
         m.insert("mayRecommend".into(), Json::Bool(self.may_recommend));
+        m.insert("mayChange".into(), Json::Bool(self.may_change));
         m.insert("createdAt".into(), Json::Int(self.created_unix));
         m.insert("expiresAt".into(), Json::Int(self.expires_unix));
         let state = if self.state == "on" && self.expires_unix <= now {
@@ -827,7 +892,7 @@ async fn write_key(tx: &Transaction<'_>, ring: &KeyRing, key: &AiKey) -> Result<
                  disabled_at = CASE WHEN $10::bigint IS NULL THEN NULL \
                                     ELSE to_timestamp($10::bigint) END, \
                  disabled_by = $11, disabled_by_kind = $12, disabled_reason = $13, \
-                 row_version = $14, row_seal = $15 \
+                 row_version = $14, row_seal = $15, may_change = $16 \
              WHERE organisation_id = $1 AND id = $2 AND row_version = $14 - 1",
             &[
                 &key.organisation,
@@ -845,6 +910,7 @@ async fn write_key(tx: &Transaction<'_>, ring: &KeyRing, key: &AiKey) -> Result<
                 &key.disabled_reason,
                 &key.version,
                 &seal.to_vec(),
+                &key.may_change,
             ],
         )
         .await?;
@@ -1013,6 +1079,7 @@ pub struct PolicyInput {
     pub max_days: i32,
     pub second_person_scopes: Vec<String>,
     pub apps: Vec<String>,
+    pub may_change: bool,
 }
 
 /// One spelling of a policy's apps: known names only, each once, in [`APPS`] order.
@@ -1094,6 +1161,7 @@ pub async fn set_policy(
                 ("max_days", Json::Int(input.max_days as i64)),
                 ("second_person_scopes", strs(&second)),
                 ("apps", strs(&apps)),
+                ("may_change", Json::Bool(input.may_change)),
                 ("by", Json::Str(me.clone())),
             ],
         ),
@@ -1106,6 +1174,7 @@ pub async fn set_policy(
         max_days: input.max_days,
         second_person_scopes: second,
         apps,
+        may_change: input.may_change,
         changed_by: Some(me.clone()),
         changed_unix: Some(now_unix()),
         changed_seq: appended.seq,
@@ -1115,8 +1184,9 @@ pub async fn set_policy(
     let changed = if current.version == 0 {
         tx.execute(
             "INSERT INTO ai_policies (organisation_id, allowed, makers, ceiling, max_days, \
-                 second_person_scopes, changed_by, changed_seq, row_version, row_seal, apps) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+                 second_person_scopes, changed_by, changed_seq, row_version, row_seal, apps, \
+                 may_change) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
             &[
                 &organisation,
                 &next.allowed,
@@ -1129,6 +1199,7 @@ pub async fn set_policy(
                 &next.version,
                 &seal,
                 &next.apps,
+                &next.may_change,
             ],
         )
         .await?
@@ -1136,7 +1207,8 @@ pub async fn set_policy(
         tx.execute(
             "UPDATE ai_policies SET allowed = $2, makers = $3, ceiling = $4, max_days = $5, \
                  second_person_scopes = $6, changed_by = $7, changed_at = now(), \
-                 changed_seq = $8, row_version = $9, row_seal = $10, apps = $11 \
+                 changed_seq = $8, row_version = $9, row_seal = $10, apps = $11, \
+                 may_change = $12 \
              WHERE organisation_id = $1 AND row_version = $9 - 1",
             &[
                 &organisation,
@@ -1150,6 +1222,7 @@ pub async fn set_policy(
                 &next.version,
                 &seal,
                 &next.apps,
+                &next.may_change,
             ],
         )
         .await?
@@ -1170,9 +1243,13 @@ pub async fn set_policy(
 pub struct NewKey {
     pub public_key: Vec<u8>,
     pub label: String,
+    /// The AI account the app is signed in to, as the person gives it.
+    pub ai_account: String,
     pub scopes: Vec<String>,
     pub sees: Vec<String>,
     pub may_recommend: bool,
+    /// Ticked "May change designs" (ADR-0077 decision 1).
+    pub may_change: bool,
     pub days: i32,
 }
 
@@ -1203,9 +1280,11 @@ pub async fn make_key(
             public_key: Some(input.public_key),
             client_id: None,
             label: input.label,
+            ai_account: input.ai_account,
             scopes: input.scopes,
             sees: input.sees,
             may_recommend: input.may_recommend,
+            may_change: input.may_change,
             days: input.days,
         },
     )
@@ -1217,9 +1296,13 @@ pub struct NewConnector {
     /// The app's client id, already checked against the pinned apps or a registration.
     pub client_id: String,
     pub label: String,
+    /// The AI account the app is signed in to, as the person gives it.
+    pub ai_account: String,
     pub scopes: Vec<String>,
     pub sees: Vec<String>,
     pub may_recommend: bool,
+    /// Ticked "May change designs" (ADR-0077 decision 1).
+    pub may_change: bool,
     pub days: i32,
 }
 
@@ -1271,9 +1354,11 @@ pub(crate) async fn make_connector(
             public_key: None,
             client_id: Some(input.client_id),
             label: input.label,
+            ai_account: input.ai_account,
             scopes: input.scopes,
             sees: input.sees,
             may_recommend: input.may_recommend,
+            may_change: input.may_change,
             days: input.days,
         },
     )
@@ -1286,9 +1371,11 @@ struct Registration {
     public_key: Option<Vec<u8>>,
     client_id: Option<String>,
     label: String,
+    ai_account: String,
     scopes: Vec<String>,
     sees: Vec<String>,
     may_recommend: bool,
+    may_change: bool,
     days: i32,
 }
 
@@ -1312,11 +1399,17 @@ async fn register(
         ));
     }
     let label = clean_line(&input.label, MAX_LABEL_CHARS, false)?;
+    let ai_account = clean_account(&input.ai_account)?;
     let scopes = clean_ids(&input.scopes, MAX_KEY_SCOPES, "folders are scope ids")?;
     let sees = clean_sees(&input.sees)?;
     if !is_subset(&sees, &policy.ceiling) {
         return Err(AiError::NotAllowed(
             "this organisation does not let a key see that much",
+        ));
+    }
+    if input.may_change && !policy.may_change {
+        return Err(AiError::NotAllowed(
+            "this organisation does not let AI apps change designs",
         ));
     }
     if !DAYS.contains(&input.days) || input.days > policy.max_days {
@@ -1382,6 +1475,7 @@ async fn register(
                 ("scopes", strs(&scopes)),
                 ("sees", strs(&sees)),
                 ("may_recommend", Json::Bool(input.may_recommend)),
+                ("may_change", Json::Bool(input.may_change)),
                 ("expires", Json::Int(expires)),
             ],
         ),
@@ -1409,13 +1503,16 @@ async fn register(
         disabled_by_kind: None,
         disabled_reason: None,
         version: 1,
+        ai_account: Some(ai_account),
+        owner_email: String::new(),
+        may_change: input.may_change,
     };
     tx.execute(
         "INSERT INTO ai_keys (organisation_id, id, owner, kind, public_key, client_id, label, \
              scopes, sees, may_recommend, created_at, created_seq, expires_at, state, \
-             changed_seq, row_version, row_seal) \
+             changed_seq, row_version, row_seal, ai_account, may_change) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11::bigint), $12, \
-                 to_timestamp($13::bigint), 'on', $12, 1, $14)",
+                 to_timestamp($13::bigint), 'on', $12, 1, $14, $15, $16)",
         &[
             &key.organisation,
             &key.id,
@@ -1431,6 +1528,8 @@ async fn register(
             &key.created_seq,
             &key.expires_unix,
             &key.seal(auth.ring).to_vec(),
+            &key.ai_account,
+            &key.may_change,
         ],
     )
     .await?;
@@ -1451,6 +1550,7 @@ pub struct KeyChange {
     pub scopes: Option<Vec<String>>,
     pub sees: Option<Vec<String>>,
     pub may_recommend: Option<bool>,
+    pub may_change: Option<bool>,
     /// End the key this many days from now, if that is sooner than its end.
     pub ends_in_days: Option<i32>,
 }
@@ -1527,6 +1627,12 @@ pub async fn change_key(
         }
         key.may_recommend = may;
     }
+    if let Some(may) = change.may_change {
+        if may && !key.may_change {
+            widens = true;
+        }
+        key.may_change = may;
+    }
     if let Some(days) = change.ends_in_days {
         if !(0..=365).contains(&days) {
             return Err(AiError::Malformed("a key ends 0 to 365 days from now"));
@@ -1553,6 +1659,11 @@ pub async fn change_key(
                 "this organisation does not let a key see that much",
             ));
         }
+        if key.may_change && !policy.may_change {
+            return Err(AiError::NotAllowed(
+                "this organisation does not let AI apps change designs",
+            ));
+        }
     }
 
     let appended = chains::append_org(
@@ -1574,6 +1685,7 @@ pub async fn change_key(
                 ("scopes", strs(&key.scopes)),
                 ("sees", strs(&key.sees)),
                 ("may_recommend", Json::Bool(key.may_recommend)),
+                ("may_change", Json::Bool(key.may_change)),
                 ("expires", Json::Int(key.expires_unix)),
             ],
         ),
@@ -2114,6 +2226,12 @@ pub fn tiers(key: &AiKey, policy: &Policy) -> BTreeSet<Tier> {
     out
 }
 
+/// Whether this connection may change designs now: its own tick and its organisation's
+/// (ADR-0077 decision 1).
+pub fn may_change(session: &AiSession) -> bool {
+    session.key.may_change && session.policy.may_change
+}
+
 /// `GET /ai/v1/whoami`: what this key is, so the app can tell its person.
 pub fn whoami(session: &AiSession) -> Json {
     let mut m = BTreeMap::new();
@@ -2135,18 +2253,82 @@ pub fn whoami(session: &AiSession) -> Json {
     );
     m.insert("scopes".into(), strs(&session.key.scopes));
     m.insert("mayRecommend".into(), Json::Bool(session.key.may_recommend));
+    m.insert("mayChange".into(), Json::Bool(may_change(session)));
     m.insert("expiresAt".into(), Json::Int(session.key.expires_unix));
-    m.insert("readOnly".into(), Json::Bool(true));
+    m.insert("readOnly".into(), Json::Bool(!may_change(session)));
     Json::Obj(m)
 }
 
-/// `GET /ai/v1/designs`: every design the owner can read that the key's folders reach.
+/// ADR-0074 §8: where a design sits, as its folders root first (site, building, closet), each
+/// with its kind of place and hand-set role. Only a folder this key reaches **and** its owner
+/// may read is named: an ancestor above the key's folders is left out, as `/scopes` leaves out
+/// one its caller cannot read, so a reading never names a place the key was not given.
+async fn folder_chain(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    verified: &grants::VerifiedAuthorityState,
+    key: &AiKey,
+    path: &str,
+) -> Result<Json, AiError> {
+    let ids: Vec<String> = path.split('.').map(str::to_string).collect();
+    let rows = tx
+        .query(
+            "SELECT id, kind, display_name, path, place_form, place_role FROM scopes \
+             WHERE organisation_id = $1 AND id = ANY($2) ORDER BY depth",
+            &[&auth.ctx.tenant().to_string(), &ids],
+        )
+        .await?;
+    let mut out = Vec::new();
+    for row in rows {
+        let id: String = row.get(0);
+        let folder_path: String = row.get(3);
+        if !covers(&key.scopes, &folder_path) {
+            continue;
+        }
+        match grants::authorise_in_verified_state(
+            tx,
+            auth,
+            verified,
+            Some(parse_scope(&id)?),
+            Capability::Read,
+        )
+        .await
+        {
+            Ok(_) => {}
+            Err(AuthorityError::NotAuthorised) | Err(AuthorityError::QuorumNotMet { .. }) => {
+                continue
+            }
+            Err(other) => return Err(other.into()),
+        }
+        let kind: String = row.get(1);
+        let level = match kind.as_str() {
+            "network" => "site",
+            "building" => "building",
+            _ => "closet",
+        };
+        let opt = |v: Option<String>| v.map_or(Json::Null, Json::Str);
+        let mut m = BTreeMap::new();
+        m.insert("id".into(), Json::Str(id));
+        m.insert("level".into(), Json::Str(level.into()));
+        m.insert("name".into(), Json::Str(row.get(2)));
+        m.insert("kind".into(), opt(row.get(4)));
+        m.insert("role".into(), opt(row.get(5)));
+        out.push(Json::Obj(m));
+    }
+    Ok(Json::Arr(out))
+}
+
+/// `GET /ai/v1/designs`: every design the owner can read that the key's folders reach, each
+/// with where it sits ([`folder_chain`]). `within`, when given, keeps only the designs in that
+/// folder or one inside it (ADR-0074 §8), as the key sees the folders.
 pub async fn ai_designs(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
     key: &AiKey,
+    within: Option<ScopeId>,
 ) -> Result<Json, AiError> {
     let verified = grants::verify_authority_state(tx, auth).await?;
+    let within = within.map(|w| w.to_string());
     let rows = tx
         .query(
             "SELECT d.id, d.scope_id, s.path, d.name_ciphertext, d.name_nonce, d.name_key_epoch, \
@@ -2195,11 +2377,22 @@ pub async fn ai_designs(
             (Some(c), Some(n), Some(e)) => Some((c, n, e)),
             _ => None,
         };
+        // Filter by a folder only as the key sees it: one it does not reach, or an ancestor its
+        // owner cannot read, matches nothing rather than confirming what is inside it.
+        let place = folder_chain(tx, auth, &verified, key, &path).await?;
+        if let Some(w) = &within {
+            let named = matches!(&place, Json::Arr(fs) if fs.iter().any(|f|
+                matches!(f, Json::Obj(m) if m.get("id") == Some(&Json::Str(w.clone())))));
+            if !named {
+                continue;
+            }
+        }
         let name = names.open(tx, &id, sealed).await?;
         let mut m = BTreeMap::new();
         m.insert("id".into(), Json::Str(id));
         m.insert("name".into(), name.map_or(Json::Null, Json::Str));
         m.insert("folder".into(), Json::Str(scope_text));
+        m.insert("where".into(), place);
         m.insert("version".into(), Json::Int(row.get(6)));
         out.push(Json::Obj(m));
     }
@@ -2209,7 +2402,7 @@ pub async fn ai_designs(
 /// The design's scope, when this key and its owner may read it; [`AiError::NotFound`] for a
 /// design that is not there, outside the key's folders, or that the owner cannot read, so
 /// the three are one answer.
-async fn readable_place(
+pub(crate) async fn readable_place(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
     key: &AiKey,
@@ -2233,25 +2426,63 @@ pub async fn ai_reading(
     session: &AiSession,
     design: DesignId,
 ) -> Result<Json, AiError> {
-    let (scope, _) = readable_place(tx, auth, &session.key, design).await?;
+    let (scope, path) = readable_place(tx, auth, &session.key, design).await?;
     let stored = designs::read_version_in_tx(tx, auth, heads, design, Some(scope), None).await?;
+    // Before the reading is built: what it holds is not `Send`, so no await may follow it.
+    let verified = grants::verify_authority_state(tx, auth).await?;
+    let place = folder_chain(tx, auth, &verified, &session.key, &path).await?;
     let tiers = tiers(&session.key, &session.policy);
+    // ADR-0076: a spare's custom-field values say only their definition's id; name the
+    // organisation's `part` fields (Price, Supplier) so the values read. Notes tier only, as the
+    // values are, and each name through the same credential check. Read before the graph is
+    // built: the graph is not `Send` and must not be held across an await.
+    let field_names = if tiers.contains(&Tier::Notes) {
+        let mut names = BTreeMap::new();
+        for def in field_defs::list(tx, auth).await? {
+            if def.kind == "part"
+                && !def.archived
+                && !fathom_ingest::redact::looks_like_credential_bare(&def.name)
+            {
+                names.insert(def.id, Json::Str(def.name));
+            }
+        }
+        Some(Json::Obj(names))
+    } else {
+        None
+    };
     let graph = fathom_workspace::read_plain(&stored.payload)
         .map_err(|_| AiError::Unverifiable("a stored design that does not parse"))?;
     let reading = ai_reading::reading(&graph, &tiers).map_err(AiError::Unverifiable)?;
     let Json::Obj(mut m) = reading.document else {
         return Err(AiError::Unverifiable("a reading that is not an object"));
     };
+    if let Some(names) = field_names {
+        m.insert("field_names".into(), names);
+    }
     m.insert("design".into(), Json::Str(design.to_string()));
     m.insert("version".into(), Json::Int(stored.version));
+    m.insert("where".into(), place);
+    if may_change(session) {
+        m.insert("mayChange".into(), ai_reading::change_vocabulary(&tiers));
+    }
     m.insert(
         "about".into(),
-        Json::Str(
+        Json::Str(if may_change(session) {
+            "Fields that looked like a password or key were left out and counted in \
+             `withheld`. Change the design with POST .../changes naming this version, one \
+             change a person can undo; or recommend with POST .../recommendations for a \
+             person to accept or dismiss. A printed label's code holds this server's \
+             address, `/scan#`, this design's id, `/` and an id from here (a rack, \
+             cable, port, device or store); a person who scans it opens that item."
+                .into()
+        } else {
             "Read-only. Fields that looked like a password or key were left out and counted \
              in `withheld`. Recommend changes with POST .../recommendations; a person \
-             accepts or dismisses each."
-                .into(),
-        ),
+             accepts or dismisses each. A printed label's code holds this server's \
+             address, `/scan#`, this design's id, `/` and an id from here (a rack, \
+             cable, port, device or store); a person who scans it opens that item."
+                .into()
+        }),
     );
     Ok(Json::Obj(m))
 }
@@ -2889,6 +3120,24 @@ mod tests {
     }
 
     #[test]
+    fn the_ai_account_is_one_address_in_lower_case() {
+        assert_eq!(
+            clean_account("  Dana@Example.ORG ").unwrap(),
+            "dana@example.org"
+        );
+        for bad in [
+            "",
+            "dana",
+            "@example.org",
+            "dana@",
+            "a@b@c",
+            "dana smith@example.org",
+        ] {
+            assert!(clean_account(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
     fn what_a_key_sees_always_includes_layout_and_has_one_spelling() {
         assert_eq!(clean_sees(&[]).unwrap(), vec!["layout"]);
         assert_eq!(
@@ -2926,6 +3175,9 @@ mod tests {
             disabled_by_kind: None,
             disabled_reason: None,
             version: 1,
+            ai_account: None,
+            owner_email: String::new(),
+            may_change: false,
         };
         let t = tiers(&key, &policy);
         assert!(t.contains(&Tier::Addresses));

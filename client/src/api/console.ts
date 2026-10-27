@@ -464,6 +464,10 @@ export interface ServerAiKey {
   id: string;
   organisation: string;
   ownerName: string;
+  /** The owner's Fathom sign-in address. */
+  ownerEmail: string;
+  /** The AI account the owner said it uses; never checked. */
+  aiAccount: string | null;
   app: string;
   kind: 'helper' | 'connector';
   sees: string[];
@@ -499,6 +503,8 @@ export function parseServerAi(bytes: Uint8Array): ServerAi {
         id: s(k.id),
         organisation: s(k.organisation),
         ownerName: s(k.ownerName) || 'Someone',
+        ownerEmail: s(k.ownerEmail),
+        aiAccount: typeof k.aiAccount === 'string' ? k.aiAccount : null,
         app: s(k.app),
         kind: k.kind === 'connector' ? 'connector' : 'helper',
         sees: Array.isArray(k.sees) ? k.sees.filter((x): x is string => typeof x === 'string') : [],

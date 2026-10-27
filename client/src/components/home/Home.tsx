@@ -5,6 +5,7 @@ import {
   createDesign,
   designTitle,
   fetchDesigns,
+  moveDesign,
   renameDesign,
   sortDesignsByRecency,
   UNTITLED_DESIGN,
@@ -12,7 +13,7 @@ import {
 } from '../../api/designs';
 import { ApiRefusal } from '../../api/errors';
 import { fetchOrganisations, type Organisation } from '../../api/organisations';
-import { createScope, fetchScopes, type Scope } from '../../api/scopes';
+import { createScope, fetchScopes, setScopePlace, type Place, type Scope } from '../../api/scopes';
 import { openDesign } from '../../api/payload';
 import { publishedLesson } from '../../document/lessons';
 import { emptyDocument } from '../../document/model';
@@ -22,7 +23,8 @@ import { getSession } from '../../state/sessionState';
 import { clearJoinedFromInvitation, stillWaitingInvitee, wasJoinedFromInvitation } from '../../state/waitingInvitee';
 import { AwaitingSteward } from './AwaitingSteward';
 import { PracticeWelcome, type PracticeOffer } from './PracticeWelcome';
-import { type Loadable } from '../organisation/FoldersPanel';
+import { PlaceFields, type Loadable } from '../organisation/FoldersPanel';
+import { kindForLevel } from '../organisation/place';
 import { fetchAi } from '../../api/ai';
 import { OrganisationTab } from '../organisation/OrganisationTab';
 import { PasswordsPage } from '../vault/Screens';
@@ -161,6 +163,7 @@ export function Home({
   // success or cancel.
   const [scopeFormParent, setScopeFormParent] = useState<{ id: string | null; label: string; child: string } | null>(null);
   const [scopeLabelInput, setScopeLabelInput] = useState('');
+  const [scopeFormPlace, setScopeFormPlace] = useState<Place>({ form: null, role: null });
   const [scopeFormBusy, setScopeFormBusy] = useState(false);
   const [scopeFormError, setScopeFormError] = useState<string | null>(null);
 
@@ -483,6 +486,7 @@ export function Home({
   function openScopeForm(parentId: string | null, parentLabel: string, child: string) {
     setScopeFormParent({ id: parentId, label: parentLabel, child });
     setScopeLabelInput('');
+    setScopeFormPlace({ form: null, role: null });
     setScopeFormError(null);
   }
 
@@ -509,7 +513,8 @@ export function Home({
     }
     setScopeFormBusy(true);
     setScopeFormError(null);
-    createScope(selectedOrgId, scopeFormParent.id, label)
+    const place = scopeFormPlace.form || scopeFormPlace.role ? scopeFormPlace : undefined;
+    createScope(selectedOrgId, scopeFormParent.id, label, place)
       .then((scope) => {
         setScopes((current) =>
           current.status === 'ready' ? { status: 'ready', value: [...current.value, scope] } : current,
@@ -521,6 +526,36 @@ export function Home({
         setScopeFormError(describeError(error));
         setScopeFormBusy(false);
       });
+  }
+
+  /** ADR-0074: a steward changed a folder's kind of place or role; the answer replaces
+   * the folder in the loaded list. A refusal is thrown in words for the row to show. */
+  async function setPlace(scopeId: string, place: Place) {
+    if (selectedOrgId === null) return;
+    let scope: Scope;
+    try {
+      scope = await setScopePlace(selectedOrgId, scopeId, place);
+    } catch (error: unknown) {
+      throw new Error(describeError(error));
+    }
+    setScopes((current) =>
+      current.status === 'ready'
+        ? { status: 'ready', value: current.value.map((s) => (s.scopeId === scopeId ? scope : s)) }
+        : current,
+    );
+  }
+
+  // **Home waits while it may be about to leave.** Until the direct-entry rule
+  // can decide, drawing Home's loading rows would show a page the person is
+  // then carried away from in the same breath (owner, 2026-10-26: loading
+  // "feels weird"). An empty frame, then wherever they land.
+  const decidingDirectEntry =
+    onDirectEntry !== undefined &&
+    (landed ||
+      organisations.status === 'loading' ||
+      (organisations.status === 'ready' && organisations.value.length === 1 && designs.status === 'loading'));
+  if (decidingDirectEntry) {
+    return <div className="home" aria-busy="true" />;
   }
 
   return (
@@ -607,6 +642,15 @@ export function Home({
             aiOnly={!organisationAdmin}
             scopes={scopes}
             onCreateScope={openScopeForm}
+            onSetPlace={setPlace}
+            estate={{
+              organisationId: selectedOrganisation.organisationId,
+              designScopeIds: designs.status === 'ready' ? designs.value.map((d) => d.scopeId) : [],
+              onImported: (made) => {
+                setScopes((current) => (current.status === 'ready' ? { status: 'ready', value: [...current.value, ...made.scopes] } : current));
+                setDesigns((current) => (current.status === 'ready' ? { status: 'ready', value: [...current.value, ...made.designs] } : current));
+              },
+            }}
             scopeForm={
               scopeFormParent && (
                 <ScopeForm
@@ -614,6 +658,8 @@ export function Home({
                   child={scopeFormParent.child}
                   value={scopeLabelInput}
                   onChange={setScopeLabelInput}
+                  place={scopeFormPlace}
+                  onPlaceChange={setScopeFormPlace}
                   onSubmit={submitScopeForm}
                   onCancel={closeScopeForm}
                   busy={scopeFormBusy}
@@ -695,6 +741,16 @@ export function Home({
                     ? {
                         status: 'ready',
                         value: current.value.map((row) => (row.designId === designId ? { ...row, name } : row)),
+                      }
+                    : current,
+                )
+              }
+              onMoved={(designId, scopeId) =>
+                setDesigns((current) =>
+                  current.status === 'ready'
+                    ? {
+                        status: 'ready',
+                        value: current.value.map((row) => (row.designId === designId ? { ...row, scopeId } : row)),
                       }
                     : current,
                 )
@@ -786,6 +842,8 @@ interface HomeDesignsProps {
   busyScopeId: string | null;
   /** A rename was saved; `name` is `null` when it was cleared. */
   onRenamed: (designId: string, name: string | null) => void;
+  /** ADR-0074: a move into another folder was saved. */
+  onMoved: (designId: string, scopeId: string) => void;
   /** The same New design the section header offers, for the empty state. */
   onNewDesign?: () => void;
 }
@@ -808,6 +866,7 @@ function HomeDesigns({
   onCreateDesign,
   busyScopeId,
   onRenamed,
+  onMoved,
   onNewDesign,
 }: HomeDesignsProps) {
   const { groups, elsewhere } = groupDesignsByScope(designs, scopes);
@@ -832,6 +891,8 @@ function HomeDesigns({
                 onOpenRacks={onOpenRacks}
                 onOpenInventory={onOpenInventory}
                 onRenamed={onRenamed}
+                folders={scopes}
+                onMoved={onMoved}
               />
             ))}
           </ul>
@@ -855,6 +916,8 @@ function HomeDesigns({
                 onOpenRacks={onOpenRacks}
                 onOpenInventory={onOpenInventory}
                 onRenamed={onRenamed}
+                folders={scopes}
+                onMoved={onMoved}
               />
             ))}
           </ul>
@@ -938,6 +1001,9 @@ interface ScopeFormProps {
   child: string;
   value: string;
   onChange: (value: string) => void;
+  /** ADR-0074: the new folder's kind of place and role, both optional. */
+  place: Place;
+  onPlaceChange: (place: Place) => void;
   onSubmit: () => void;
   onCancel: () => void;
   busy: boolean;
@@ -945,7 +1011,7 @@ interface ScopeFormProps {
 }
 
 /** ADR-0054 §3's label field, opened by any "New site/building/closet" button. */
-function ScopeForm({ parentLabel, child, value, onChange, onSubmit, onCancel, busy, error }: ScopeFormProps) {
+function ScopeForm({ parentLabel, child, value, onChange, place, onPlaceChange, onSubmit, onCancel, busy, error }: ScopeFormProps) {
   return (
     <form
       className="home__scope-form"
@@ -965,6 +1031,7 @@ function ScopeForm({ parentLabel, child, value, onChange, onSubmit, onCancel, bu
         placeholder="label"
         autoFocus
       />
+      <PlaceFields kind={kindForLevel(child)} place={place} onChange={onPlaceChange} idPrefix="home-new-scope" />
       <button type="submit" className="home__btn" disabled={busy}>
         {busy ? 'Creating…' : 'Create'}
       </button>
@@ -982,10 +1049,21 @@ interface DesignRowProps {
   onOpenRacks: (organisation: Organisation, design: DesignSummary) => void;
   onOpenInventory: (organisation: Organisation, design: DesignSummary) => void;
   onRenamed: (designId: string, name: string | null) => void;
+  /** Every folder the person may see; a steward moves the design into one they look after. */
+  folders: readonly Scope[];
+  onMoved: (designId: string, scopeId: string) => void;
 }
 
-function DesignRow({ design, organisation, onOpenRacks, onOpenInventory, onRenamed }: DesignRowProps) {
+const FOLDER_LEVEL: Record<string, string> = { network: 'Site', building: 'Building', rack: 'Closet' };
+
+function DesignRow({ design, organisation, onOpenRacks, onOpenInventory, onRenamed, folders, onMoved }: DesignRowProps) {
   const [editing, setEditing] = useState(false);
+  // ADR-0074: a steward of the design's folder moves it into another folder they look after.
+  const targets = canStewardFor(design.capability)
+    ? folders.filter((f) => f.scopeId !== design.scopeId && canStewardFor(f.capability))
+    : [];
+  const [moving, setMoving] = useState(false);
+  const [moveTo, setMoveTo] = useState('');
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1047,6 +1125,19 @@ function DesignRow({ design, organisation, onOpenRacks, onOpenInventory, onRenam
             Rename
           </button>
         )}
+        {targets.length > 0 && !editing && !moving && (
+          <button
+            type="button"
+            className="home__btn"
+            onClick={() => {
+              setMoveTo(targets[0].scopeId);
+              setError(null);
+              setMoving(true);
+            }}
+          >
+            Move
+          </button>
+        )}
         <button type="button" className="home__btn" onClick={() => onOpenRacks(organisation, design)}>
           Canvas
         </button>
@@ -1054,6 +1145,42 @@ function DesignRow({ design, organisation, onOpenRacks, onOpenInventory, onRenam
           Inventory
         </button>
       </span>
+      {moving && (
+        <form
+          className="home__design-move"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setBusy(true);
+            setError(null);
+            moveDesign(organisation.organisationId, design.designId, moveTo)
+              .then(() => {
+                onMoved(design.designId, moveTo);
+                setMoving(false);
+              })
+              .catch((err: unknown) => setError(describeError(err)))
+              .finally(() => setBusy(false));
+          }}
+        >
+          <label htmlFor={`move-${design.designId}`} className="home__muted">
+            Move to
+          </label>
+          <select id={`move-${design.designId}`} value={moveTo} onChange={(e) => setMoveTo(e.target.value)}>
+            {targets.map((f) => (
+              <option key={f.scopeId} value={f.scopeId}>
+                {f.displayName} ({FOLDER_LEVEL[f.kind] ?? f.kind})
+              </option>
+            ))}
+          </select>
+          <button type="submit" className="home__btn" disabled={busy}>
+            {busy ? 'Moving…' : 'Move'}
+          </button>
+          <button type="button" className="home__btn" disabled={busy} onClick={() => setMoving(false)}>
+            Cancel
+          </button>
+          <span className="home__muted">Who may read and draw it changes to the new folder's people.</span>
+          {error && <span className="home__error">{error}</span>}
+        </form>
+      )}
     </li>
   );
 }

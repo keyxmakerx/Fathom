@@ -2,6 +2,8 @@
 // first, as questions. Pure: read off the Document, nothing stored. Only what the graph holds is used; where a link
 // is missing the step says Fathom does not know, and is still answerable. Fathom never names a cause: a step
 // carries the parts that would be suspect if it fails and the tests that would tell them apart (pointing.ts).
+import { cardOfPort, opticOf, slotPath } from '../../document/cards';
+import { listStores, sparesFor } from '../../document/stock';
 import { deriveNetworks } from '../../document/networks-derive';
 import { tiePlan } from '../../document/portTies';
 import {
@@ -349,6 +351,44 @@ function networkFacts(doc: Document, deviceId: string, cableId: string, switchId
 
 const bare = (address: string): string => address.split('/')[0];
 
+/** Whether a spare for a part is on hand, and where (ADR-0076): ", one on hand in Comms cupboard, bin 3". */
+function spareWords(doc: Document, partId: string): string {
+  const spares = sparesFor(doc, partId).filter((i) => i.state === 'spare');
+  if (spares.length === 0) return ' (none on hand in stock)';
+  const n = spares.reduce((sum, i) => sum + i.count, 0);
+  const stores = new Map(listStores(doc).map((s) => [s.id, s.name]));
+  const first = spares[0]!;
+  const where = [first.storeId ? stores.get(first.storeId) : '', first.bin].filter(Boolean).join(', ');
+  return ` (${n === 1 ? 'one' : n} on hand${where ? ` in ${where}` : ''})`;
+}
+
+/** The parts in a link's ends (r35): the optic in each cage, and the card each port is on. Each is a suspect when the
+ * link is dark, with the look and the test that tell it apart. */
+function partsOnLink(doc: Document, ends: readonly { port: string; where: string }[]): { suspects: Suspect[]; how: string[]; tests: string[] } {
+  const out = { suspects: [] as Suspect[], how: [] as string[], tests: [] as string[] };
+  for (const { port, where } of ends) {
+    const node = live(doc, port);
+    if (!node) continue;
+    const optic = opticOf(node);
+    if (optic) {
+      const what = [optic.type, optic.part].filter(Boolean).join(', ');
+      out.suspects.push({ label: `the optic in ${where}`, id: port });
+      out.how.push(`Check the optic in ${where}${what ? ` (${what})` : ''} is pushed fully home and is the kind the cable needs.`);
+      out.tests.push(`Swap the optic in ${where} for a spare of the same kind${spareWords(doc, port)}`);
+    } else if (optic === null) {
+      out.suspects.push({ label: `the empty cage at ${where}`, id: port });
+      out.how.push(`Fathom has ${where} recorded as an empty cage: a fibre or DAC port gives no link without an optic or cable in it.`);
+    }
+    const card = cardOfPort(doc, port);
+    if (card !== null && live(doc, card)) {
+      const slot = slotPath(doc, card);
+      out.suspects.push({ label: `the card in ${slot}`, id: card });
+      out.tests.push(`Look at the other ports on the card in ${slot}: if they are dark too, that points at the card${spareWords(doc, card)}`);
+    }
+  }
+  return out;
+}
+
 /** The built chain for a device: the steps nearest first, ready to ask. */
 export function buildChain(doc: Document, deviceId: string): Chain {
   const canon = buildCanon(doc);
@@ -396,24 +436,31 @@ export function buildChain(doc: Document, deviceId: string): Chain {
     // The link on the far-end port.
     const free = farDevice !== '' ? freePorts(doc, farDevice, up.far.port) : 0;
     const through = up.far.via.filter((v) => kindOf(v) === 'PassiveNode');
+    const parts = partsOnLink(doc, [
+      ...(farDevice !== '' ? [{ port: up.far.port, where: `${sw} ${farWord}` }] : []),
+      { port: up.near, where: nearWord },
+    ]);
     steps.push({
       topic: 'link',
       question: farDevice !== '' ? `Link light on ${sw} ${farWord}?` : `Link light on ${nearWord}?`,
       detail: `${cableWord(doc, up.cable)}, to ${nearWord}${through.length > 0 ? `, through ${listNames(through.map((p) => n.name(p)))}` : ''}`,
       targets: unique([deviceId, up.near, up.cable, up.far.port, up.far.owner.id, ...up.far.via]),
       why: [FIXED.link, WHY_RULES['phy.link.speed-mismatch']],
-      how: [HOW.linkLight(farDevice !== '' ? `${sw} ${farWord}` : nearWord), `Check the other end too, on ${nearWord}.`],
+      how: [HOW.linkLight(farDevice !== '' ? `${sw} ${farWord}` : nearWord), `Check the other end too, on ${nearWord}.`, ...parts.how],
       known: true,
-      suspects:
-        farDevice !== ''
+      suspects: [
+        ...(farDevice !== ''
           ? [
               { label: 'the cable', id: up.cable },
               { label: `${farWord} on ${sw}`, id: up.far.port },
             ]
-          : [{ label: 'the cable', id: up.cable }],
+          : [{ label: 'the cable', id: up.cable }]),
+        ...parts.suspects,
+      ],
       tests: [
         ...(farDevice !== '' && free > 0 ? [`Try ${dev} on a free port (${sw} has ${free})`] : []),
         'Try another cable between them',
+        ...parts.tests,
       ],
     });
     // The port's state and VLAN.

@@ -29,21 +29,16 @@ export function SkeletonRows({ label = 'Loading…', rows = 4, className }: Skel
   );
 }
 
-/** A few rack outlines on the canvas, where the drawing will be. */
+/**
+ * Where the drawing will be: an empty canvas, and after a beat one quiet line.
+ * It once drew grey rack outlines, and a design that took just over the wait
+ * flashed "rows of racks" that were not the person's (owner, 2026-10-26): a
+ * placeholder shaped like content reads as content. Text cannot be mistaken.
+ */
 export function SkeletonRacks({ label = 'Opening the design…' }: { label?: string }) {
-  const heights = [78, 96, 64, 88];
   return (
     <div className="skeleton skeleton--racks" role="status" aria-busy="true" aria-live="polite">
-      <Said label={label} />
-      <div className="skeleton__racks" aria-hidden="true">
-        {heights.map((h, i) => (
-          <div key={i} className="skeleton__rack" style={{ height: `${h}%`, animationDelay: `${i * 120}ms` } as CSSProperties}>
-            {Array.from({ length: 5 }, (_, j) => (
-              <span key={j} className="skeleton__unit" />
-            ))}
-          </div>
-        ))}
-      </div>
+      <span className="skeleton__line">{label}</span>
     </div>
   );
 }

@@ -1,0 +1,23 @@
+id: stock.level.below-minimum
+rule_version: 1.0.0
+status: active
+severity: idea
+category: operability
+title: "Fewer spares of a model on hand than the design keeps"
+why: >
+  The design says to keep at least this many spares of the model, and fewer are on the shelf. Parts away for repair, lent out, on order or kept for a plan do not count, so the next failure of this model waits for a delivery.
+fix: >
+  Order more, bring one back from repair or a loan, or lower the level if fewer will do. Inventory › Parts › On hand lists them.
+concept: check.stock.below-minimum
+acceptable_when: >
+  An order is already placed and due soon, or the level is being lowered.
+reviewed_by: "pending: Key Maker"
+reviewed_on: 2026-10-26
+sources_note: >
+  The design's own record: the level is what the people who keep this design decided, not a vendor claim (ADR-0076). The rule counts spares tracked one by one; a model with a counted spare ("6 of them") is judged on the Inventory, which adds the counts up, since a check cannot add them.
+applies_to:
+  kind: StockLevel
+  with:
+    spares: { all: StockItem, card: many }
+condition: >
+  !spares.exists(s, has(s.model) && s.model == model && enum_is(s.state, "spare") && has(s.count)) && spares.count(s, has(s.model) && s.model == model && enum_is(s.state, "spare")) < at_least

@@ -9,6 +9,8 @@
 // `TYPED_AS_WRITTEN` otherwise. Order and stage are checked here by the client's own commands; the UI only calls these.
 
 import { connectPorts, disconnect, setCableField, type CableFieldKey } from './cables';
+import { opticOf, setCardField, setOptic } from './cards';
+import { setSupplyField } from './supplies';
 import { movePlacement } from './commands';
 import {
   setChassisField,
@@ -40,6 +42,7 @@ import {
   type GraphNode,
 } from './model';
 import { memberInterfaces } from './portTies';
+import { reservedFor, swapFromStock, type OldPartTo } from './stock';
 import { truncateUtf8 } from './undo';
 
 interface Actor {
@@ -54,11 +57,11 @@ export type TextGate = (text: string) => string;
 export const TYPED_AS_WRITTEN: TextGate = (text) => text;
 
 export type PlanStage = 'planned' | 'doing' | 'recorded';
-export type StepKind = 'address' | 'route' | 'cable' | 'move' | 'other' | 'lag';
+export type StepKind = 'address' | 'route' | 'cable' | 'move' | 'other' | 'lag' | 'swap';
 export type StepState = 'planned' | 'done' | 'went_differently';
 export type PlanOutcome = 'succeeded' | 'partial' | 'failed';
 
-export const STEP_KINDS: readonly StepKind[] = ['address', 'route', 'cable', 'move', 'lag', 'other'];
+export const STEP_KINDS: readonly StepKind[] = ['address', 'route', 'cable', 'move', 'lag', 'swap', 'other'];
 export const OUTCOMES: readonly PlanOutcome[] = ['succeeded', 'partial', 'failed'];
 
 export type PlanRefusalCode =
@@ -94,7 +97,13 @@ export type StepEdit =
   | { t: 'cut'; cable: string }
   | { t: 'move'; chassis: string; rack: string; positionU: number; face: 'front' | 'rear' }
   | { t: 'lag'; device: string; name: string; lacp: LacpMode; members: string[] }
-  | { t: 'unlag'; lag: string };
+  | { t: 'unlag'; lag: string }
+  /** r35: a part swapped for another. `id` is a Card, a PowerSupply, or the PhysicalPort an optic sits in; the
+   * new part's model (an optic's part number) and serial. An empty model keeps the one it has. */
+  | { t: 'part'; id: string; model: string; serial: string };
+
+/** The node kinds a part swap may name. */
+export const PART_KINDS: readonly string[] = ['Card', 'PowerSupply', 'PhysicalPort'];
 
 /** `lacp_mode` (schema/enums/lacp_mode.yaml); '' leaves it unset. `off` is a static bundle. */
 export type LacpMode = 'active' | 'passive' | 'off' | '';
@@ -119,6 +128,8 @@ export function encodeEdit(e: StepEdit): string {
       return ['lag', clean(e.device, 'an id'), clean(e.name, 'a name'), e.lacp, ...e.members.map((m) => clean(m, 'an id'))].join('\t');
     case 'unlag':
       return ['unlag', clean(e.lag, 'an id')].join('\t');
+    case 'part':
+      return ['part', clean(e.id, 'an id'), clean(e.model, 'a model'), clean(e.serial, 'a serial')].join('\t');
   }
 }
 
@@ -144,6 +155,8 @@ export function decodeEdit(line: string | undefined): StepEdit | null {
         : null;
     case 'unlag':
       return p.length === 2 ? { t: 'unlag', lag: p[1] } : null;
+    case 'part':
+      return p.length === 4 ? { t: 'part', id: p[1], model: p[2], serial: p[3] } : null;
     default:
       return null;
   }
@@ -165,6 +178,8 @@ export function targetsOf(e: StepEdit | null): string[] {
       return [e.device, ...e.members];
     case 'unlag':
       return [e.lag];
+    case 'part':
+      return [e.id];
   }
 }
 
@@ -224,6 +239,8 @@ function slotsOf(e: StepEdit): [string, string][] {
       return [[e.device, 'Device'], ...e.members.map((m): [string, string] => [m, 'Interface'])];
     case 'unlag':
       return [[e.lag, 'AggregateInterface']];
+    case 'part':
+      return [[e.id, nodeKindOf(e.id) ?? 'Card']];
   }
 }
 
@@ -239,6 +256,41 @@ function assertWellFormed(doc: Document, e: StepEdit): void {
   if (e.t === 'move' && e.face !== 'front' && e.face !== 'rear') throw new PlanRefusal('bad-edit', 'a face is front or rear');
   if (e.t === 'lag') assertLag(doc, e);
   if (e.t === 'unlag') lagEdges(doc, e.lag);
+  if (e.t === 'part') assertPart(e);
+}
+
+function assertPart(e: Extract<StepEdit, { t: 'part' }>): void {
+  if (!PART_KINDS.includes(nodeKindOf(e.id) ?? '')) throw new PlanRefusal('bad-edit', 'a swap names a card, a power supply, or the port an optic is in');
+  if (e.serial.trim() === '' && e.model.trim() === '') throw new PlanRefusal('bad-edit', "give the new part's serial or model");
+  for (const v of [e.model, e.serial]) {
+    if (v !== '' && !/^[\x21-\x7e]+$/.test(v)) throw new PlanRefusal('bad-edit', 'a model or serial is one word with no spaces');
+  }
+}
+
+/** Swaps the part in place: its serial, and its model when one is given. The part's ports and cables stay. One undo step. */
+function swapPart(doc: Document, e: Extract<StepEdit, { t: 'part' }>, opts?: Actor): Document {
+  assertPart(e);
+  const from = doc.batches.length;
+  const model = e.model.trim();
+  const serial = e.serial.trim();
+  let working = doc;
+  switch (nodeKindOf(e.id)) {
+    case 'Card':
+      if (serial !== '') working = setCardField(working, e.id, 'serial', serial, opts);
+      if (model !== '') working = setCardField(working, e.id, 'model', model, opts);
+      break;
+    case 'PowerSupply':
+      if (serial !== '') working = setSupplyField(working, e.id, 'serial', serial, opts);
+      if (model !== '') working = setSupplyField(working, e.id, 'model', model, opts);
+      break;
+    default: {
+      const had = opticOf(findNode(doc, e.id)!) ?? {};
+      working = setOptic(working, e.id, { ...had, ...(model !== '' ? { part: model } : {}), ...(serial !== '' ? { serial } : {}) }, opts);
+    }
+  }
+  const folded = foldFrom(working, from);
+  const last = folded.batches.length - 1;
+  return { ...folded, batches: [...folded.batches.slice(0, last), { ...folded.batches[last]!, label: 'swap part' }] };
 }
 
 // ---------------------------------------------------------------------------
@@ -353,6 +405,8 @@ export function applyEdit(doc: Document, e: StepEdit, opts?: Actor): Document {
       return makeLag(doc, e, opts);
     case 'unlag':
       return removeLag(doc, e.lag, opts);
+    case 'part':
+      return swapPart(doc, e, opts);
     case 'field': {
       const value = e.value === '' ? null : e.value;
       const [kind, key] = e.key.split('.');
@@ -695,9 +749,13 @@ function relabelLast(doc: Document, from: number, label: string): Document {
 export interface MarkDoneOptions extends Actor {
   /** Dry-runs the step's edit against the checks (`OP_CHECK_GESTURE`). Required, so no caller skips it. */
   check: StepCheck;
+  /** A swap step with a spare reserved for it (ADR-0076): where the part that comes out goes. Left out, it is
+   * retired, so it is never counted as a spare nobody checked; the Inventory moves it on. */
+  oldPartTo?: OldPartTo;
 }
 
-/** Applies the step's edit through the normal command, then marks it done: one undo step. */
+/** Applies the step's edit through the normal command, then marks it done: one undo step. A swap step with a
+ * spare reserved for it fits that spare from stock, so the spare leaves stock and the old part goes in. */
 export function markDone(doc: Document, stepId: string, opts: MarkDoneOptions): Document {
   const { plan, step } = requireTurn(doc, stepId);
   if (step.edit) {
@@ -707,7 +765,13 @@ export function markDone(doc: Document, stepId: string, opts: MarkDoneOptions): 
   }
   const from = doc.batches.length;
   const now = opts.now ?? Date.now();
-  const applied = step.edit ? applyEdit(doc, step.edit, { actor: opts.actor, now }) : doc;
+  const spare = step.edit?.t === 'part' ? reservedFor(doc, stepId) : null;
+  const applied =
+    spare && step.edit?.t === 'part'
+      ? swapFromStock(doc, step.edit.id, spare.id, { actor: opts.actor, now, oldTo: opts.oldPartTo ?? 'retired' })
+      : step.edit
+        ? applyEdit(doc, step.edit, { actor: opts.actor, now })
+        : doc;
   const b = begin(applied, { actor: opts.actor, now });
   setNodeField(b, stepId, 'PlanStep.state', token('done'));
   setNodeField(b, stepId, 'PlanStep.done_at', text(new Date(now).toISOString()));
@@ -801,6 +865,24 @@ function priorValue(doc: Document, id: string, key: string): string {
   return typeof v === 'number' ? String(v) : (asString(v) ?? '');
 }
 
+/** The model and serial a part had before its latest swap, or null when nothing is known of it. */
+function priorPart(doc: Document, id: string): { model: string; serial: string } | null {
+  const kind = nodeKindOf(id);
+  if (!liveNode(doc, id)) return null;
+  if (kind === 'Card' || kind === 'PowerSupply') {
+    const serial = priorValue(doc, id, `${kind}.serial`);
+    const model = priorValue(doc, id, `${kind}.model`);
+    return serial === '' && model === '' ? null : { model, serial };
+  }
+  const h = doc.history.find((r) => r.element === id && r.field === 'PhysicalPort.transceiver');
+  const last = h?.entries[h.entries.length - 1];
+  const v = last?.presence === 'set' ? last.value : undefined;
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  const s = (x: unknown): string => (typeof x === 'string' ? x : '');
+  return s(o.serial) === '' && s(o.part) === '' ? null : { model: s(o.part), serial: s(o.serial) };
+}
+
 /** The reverse of one marked step, read against the design as it is now. */
 export function reverseOf(doc: Document, step: PlanStep): ReverseStep {
   const n = step.ordinal + 1;
@@ -844,6 +926,10 @@ export function reverseOf(doc: Document, step: PlanStep): ReverseStep {
         (h) => parseNodeId(h.to).kind === 'AggregateInterface' && liveNode(doc, h.to) && asString(fieldValue(findNode(doc, h.to)!.fields, 'AggregateInterface.name')) === e.name,
       );
       return ae ? by({ t: 'unlag', lag: ae.to }) : byHand(words);
+    }
+    case 'part': {
+      const was = priorPart(doc, e.id);
+      return was !== null ? by({ t: 'part', id: e.id, ...was }) : byHand(words);
     }
     case 'unlag': {
       const ae = findNode(doc, e.lag);
@@ -904,6 +990,41 @@ export function backOut(doc: Document, planId: string, opts: Actor & { author?: 
   next = made.doc;
   for (const s of steps) next = addStep(next, made.id, { ...s, gate: TYPED_AS_WRITTEN, ...at }).doc;
   return { doc: relabelLast(next, from, truncateUtf8(`${plan.title}: backed out`)), id: made.id };
+}
+
+/** An AI idea as the plan needs it (ADR-0072 decision 7): what the AI app sent, already screened by the server. */
+export interface IdeaForPlan {
+  title: string;
+  steps: readonly { action: string; text: string; target: string | null }[];
+}
+
+/** What sort of plan step an idea's step becomes. The AI never chooses an edit; a person adds one. */
+const IDEA_STEP_KIND: Readonly<Record<string, StepKind>> = { connect: 'cable', move: 'move' };
+
+/**
+ * A draft plan made from an AI idea, one undo step. The AI's words are text nobody typed here, so every one goes
+ * through `gate` (the caller passes the real redaction gate). No step carries an edit: the plan changes nothing until
+ * a person adds the edits and marks steps done, as with any plan. A target no longer in the design is left off.
+ */
+export function planFromIdea(doc: Document, idea: IdeaForPlan, opts: Actor & { gate: TextGate; author?: string }): { doc: Document; id: string } {
+  const from = doc.batches.length;
+  const title = truncateUtf8(idea.title, 200);
+  const made = createPlan(doc, { title, gate: opts.gate, ...(opts.author ? { author: opts.author } : {}), actor: opts.actor, now: opts.now });
+  let next = made.doc;
+  for (const step of idea.steps) {
+    if (step.text.trim() === '') continue;
+    const node = step.target !== null && nodeKindOf(step.target) !== null ? findNode(next, step.target) : undefined;
+    const live = node !== undefined && node.absentSince === undefined;
+    next = addStep(next, made.id, {
+      kind: IDEA_STEP_KIND[step.action] ?? 'other',
+      change: step.text,
+      ...(live ? { targets: [step.target as string] } : {}),
+      gate: opts.gate,
+      actor: opts.actor,
+      now: opts.now,
+    }).doc;
+  }
+  return { doc: relabelLast(next, from, truncateUtf8(`AI idea planned: ${title}`)), id: made.id };
 }
 
 /** Unknown ids in a plan's steps, for the list view to flag: a thing deleted since planning. */

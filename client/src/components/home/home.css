@@ -544,3 +544,70 @@
   font-size: var(--t-mono);
   letter-spacing: 0.1em;
 }
+
+/* ADR-0074: a folder's kind of place, and its hand-set role. A hub has a double border,
+   the same mark the zoomed-out estate draws around it. */
+.home-folders__form {
+  font-size: var(--t-micro);
+  color: var(--muted);
+}
+
+.home-folders__role {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  border: var(--rule-hair) solid var(--hairline);
+  padding: 0 var(--s1);
+}
+
+.home-folders__role--hub {
+  border: 3px double var(--ink);
+  font-weight: 700;
+}
+
+.home-folders__place-btn {
+  margin-left: auto;
+}
+
+.home-folders__place-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  flex-basis: 100%;
+  padding: var(--s1) 0;
+}
+
+.home-folders__row {
+  flex-wrap: wrap;
+}
+
+.home-folders__place-label {
+  font-size: var(--t-micro);
+  color: var(--muted);
+}
+
+.home-folders__place-note {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+/* ADR-0074: moving a design into another folder, under its row. */
+.home__design-move {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  flex-basis: 100%;
+  padding: var(--s1) 0;
+}
+
+.home-folders__why {
+  margin: 0 0 12px;
+}
+
+.home-folders__why summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+}

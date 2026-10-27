@@ -15,7 +15,10 @@ import {
 import { useSetupState } from './api/setup';
 import type { OrganisationClaim } from './api/console';
 import { designTitle, fetchDesigns, sortDesignsByRecency, type DesignSummary } from './api/designs';
-import type { Organisation } from './api/organisations';
+import { fetchOrganisations, type Organisation } from './api/organisations';
+import { scanFromLocation, type ScanTarget } from './components/phone/scan';
+import { isPhoneNow } from './components/phone/usePhone';
+import { PhoneHomeScan } from './components/phone/PhoneHomeScan';
 import { buildScopeForest, fetchScopes, pathTo, type Scope, type ScopeTreeNode } from './api/scopes';
 import { Account } from './components/Account';
 import { ConnectAiApp } from './components/ai/ConnectAiApp';
@@ -187,6 +190,16 @@ export default function App() {
   const [connectQuery, setConnectQuery] = useState<string | null>(() =>
     typeof window !== 'undefined' && window.location.pathname === '/oauth/authorize' ? window.location.search : null,
   );
+  // ADR-0075: a label's QR opens `/scan#<design>/<node>`. Read once, like the invitation, and the
+  // address cleared at once; the item opens after sign-in, in its design, if this account may read it.
+  const [pendingScan, setPendingScan] = useState<ScanTarget | null>(() =>
+    typeof window === 'undefined' ? null : scanFromLocation(window.location),
+  );
+  const [scanRequest, setScanRequest] = useState<{ designId: string; nodeId: string } | null>(null);
+  const [scanNotice, setScanNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof window !== 'undefined' && scanFromLocation(window.location) !== null) window.history.replaceState(null, '', '/');
+  }, []);
   const [door, setDoor] = useState<Door>(
     invitationToken ? 'enrol' : resetToken ? 'reset' : 'sign-in',
   );
@@ -212,6 +225,12 @@ export default function App() {
     if (!session && door === 'enrol' && invitationToken !== null) enrolDoorShown.current = true;
   }, [session, door, invitationToken]);
   const [view, setView] = useState<View>({ kind: 'home' });
+  // The design last open, so Home and Admin can go straight back to it: the
+  // bar's Canvas and Inventory are the way back rather than dead words.
+  const [lastPlace, setLastPlace] = useState<Extract<View, { kind: 'place' }> | null>(null);
+  useEffect(() => {
+    if (view.kind === 'place') setLastPlace(view);
+  }, [view]);
 
   // ADR-0055 client (a): what the sign-in door is told by whatever sent the
   // person back to it — a finished reset, or a first run that set the
@@ -266,6 +285,7 @@ export default function App() {
   const accountSessionId = getSessionOn(ACCOUNT_PLANE)?.sessionId ?? null;
   useEffect(() => {
     setView({ kind: 'home' });
+    setLastPlace(null);
     setHomeTab('designs');
     setAccountOpen(false);
     setClaiming(null);
@@ -578,11 +598,47 @@ export default function App() {
     setView((current) => (current.kind === 'place' ? { ...current, design } : current));
   }
 
+  // On a phone a design opens on Find, the field view's first tab (ADR-0075); the canvas is a tab away.
   const openIn = useCallback(
     (place: Place) => (organisation: Organisation, design: DesignSummary) =>
-      setView({ kind: 'place', place, organisation, design }),
+      setView({ kind: 'place', place: place === 'racks' && isPhoneNow() ? 'inventory' : place, organisation, design }),
     [],
   );
+
+  // A scanned label, once signed in: find its design among this account's organisations and open
+  // the item there. A design this account cannot read is simply not found; nothing says it exists.
+  useEffect(() => {
+    if (!session || pendingScan === null) return undefined;
+    let cancelled = false;
+    const target = pendingScan;
+    void (async () => {
+      try {
+        for (const organisation of await fetchOrganisations()) {
+          const designs = await fetchDesigns(organisation.organisationId).catch(() => [] as DesignSummary[]);
+          const design = designs.find((d) => d.designId === target.designId);
+          if (design && !cancelled) {
+            setPendingScan(null);
+            setScanNotice(null);
+            setScanRequest({ designId: target.designId, nodeId: target.nodeId });
+            setView({ kind: 'place', place: 'inventory', organisation, design });
+            return;
+          }
+        }
+        if (!cancelled) {
+          setPendingScan(null);
+          setScanNotice("That label is for a design you can't open. Ask a steward of that design for access.");
+        }
+      } catch {
+        if (!cancelled) {
+          setPendingScan(null);
+          setScanNotice('Fathom could not open that label just now. Scan it again.');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session, pendingScan]);
 
   // Home's Recent row: a device opened lately, on the rack, in its design.
   const openDevice = useCallback(
@@ -603,7 +659,7 @@ export default function App() {
     setDirectEntrySession(getSessionOn(ACCOUNT_PLANE)?.sessionId ?? null);
     setView({
       kind: 'place',
-      place: 'racks',
+      place: isPhoneNow() ? 'inventory' : 'racks',
       organisation: entry.organisation,
       design: entry.design,
     });
@@ -822,6 +878,19 @@ export default function App() {
   };
   // "Claim it now" (ADR-0057 decision 5): switches to the account plane and
   // carries the freshly minted claim across so ClaimOrganisation needs no typing.
+  // The bar's Canvas or Inventory from Home or Admin: the design last open,
+  // in that place, back on the account plane (ADR-0055 decision 1: the
+  // account session is still there, so this is a change of plane, not a
+  // sign-in). Absent with nothing to go back to.
+  const returnToPlace =
+    lastPlace !== null && (session.kind !== 'operator' || accountSessionOpen)
+      ? (place: Place) => {
+          if (!LENSES_IN[place].includes(lens)) setLens('cables');
+          setView({ ...lastPlace, place, openDevice: undefined });
+          setPlane(ACCOUNT_PLANE);
+        }
+      : undefined;
+  const returnTo = returnToPlace && lastPlace ? designTitle(lastPlace.design) : undefined;
   const claimNow = (claim: OrganisationClaim) => {
     setView({ kind: 'home' });
     setPlane(ACCOUNT_PLANE);
@@ -926,7 +995,8 @@ export default function App() {
         place={null}
         path={[{ label: 'Admin' }]}
         tree={null}
-        onPlaceChange={() => {}}
+        onPlaceChange={returnToPlace ?? (() => {})}
+        returnTo={returnTo}
         // ADR-0055 decision 1: the account session did not end when this one
         // began, so Home is a change of plane, not a sign-in.
         onHome={accountSessionOpen ? () => backToHome() : undefined}
@@ -957,11 +1027,12 @@ export default function App() {
         place={null}
         path={[]}
         tree={null}
-        onPlaceChange={() => {
-          // Neither place is reachable from Home until something is chosen
-          // to open: a place needs a design, and Home is where you pick one.
-        }}
+        // Neither place is reachable from Home until a design has been open:
+        // a place needs a design, and Home is where you pick one.
+        onPlaceChange={returnToPlace ?? (() => {})}
+        returnTo={returnTo}
       >
+        <PhoneHomeScan onScan={setPendingScan} />
         <Home
           address={session.address}
           // A design the person opened from Home (their first, or the sample) is a choice made here: coming back
@@ -979,7 +1050,7 @@ export default function App() {
             openDevice(organisation, design, chassisId);
           }}
           onDirectEntry={directEntrySession === accountSessionId ? undefined : handleDirectEntry}
-          notice={consoleRefusal}
+          notice={consoleRefusal ?? scanNotice}
           onClaimOrganisation={() => setClaiming({})}
           initialTab={homeTab}
           onTabChange={setHomeTab}
@@ -1051,6 +1122,18 @@ export default function App() {
       setView({ ...view, place });
     },
     onHome: () => setView({ kind: 'home' }),
+    // ADR-0074: zooming out of the closet draws these folders as the building, site and estate.
+    places: {
+      scopes,
+      currentScopeId: view.design.scopeId,
+      designScopeIds: orgDesigns.map((d) => d.scopeId),
+      onOpenScope: selectScope,
+      floorPlan: {
+        organisationId: view.organisation.organisationId,
+        designs: orgDesigns,
+        onDesignMade: (design: DesignSummary) => setOrgDesigns((current) => [...current, design]),
+      },
+    },
   };
 
   // ADR-0046 §8: Inventory is basic-but-real now, not a placeholder — both
@@ -1068,6 +1151,8 @@ export default function App() {
         capability={view.design.capability}
         scopeId={view.design.scopeId}
         openDevice={view.openDevice}
+        scanRequest={scanRequest}
+        onOpenScan={setPendingScan}
       />
     </TypeItYourself.Provider>
   );

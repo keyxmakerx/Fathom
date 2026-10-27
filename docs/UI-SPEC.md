@@ -60,7 +60,9 @@ not a second picture.
 
 **Optics.** A cage takes an optic before it takes a cable. Drag cage to cage; on release say what is
 between them (a DAC, or two optics and a fibre pair), defaulting to the last answer. Compatibility
-follows the optic, not the cage. Schema first: `Transceiver` has no fields yet.
+follows the optic, not the cage. Built (ADR-0073): `Transceiver` has its shape, an optic drags from the
+port panel onto another cage, and a line card is fitted from a device's Ports tab or its right-click
+**Fit a card**. The Parts list in Inventory lists every card, swappable supply and optic.
 
 **Tracked changes.** A maintenance record's *Show these changes* draws them as a document does: added
 solid, removed faded and struck, changed as old and new, everything else at 0.28. A view over the
@@ -267,7 +269,7 @@ ADR-0046 is the decision; this is the list.
 | Sign in and enrol | everyone | built |
 | **Home**: organisations, the closets and designs you may open, what changed | everyone | built |
 | **Canvas**: the drawing on this page | everyone | approved; built |
-| **Inventory**: lists with filters, a page per device, rack and cable that *is* the editor, bulk edit, paste from a spreadsheet (export not built; ADR-0062), change history from the chain, *show on rack* | everyone | built (basic: lists, page, show on rack, notes, undo) |
+| **Inventory**: lists with filters, a page per device, rack and cable that *is* the editor, bulk edit, paste from a spreadsheet (export not built; ADR-0062), change history from the chain, *show on rack*; Parts › Fitted / On hand, the spares, stores and levels kept (ADR-0076, mockups r36-stock and r38-stock-how) | everyone | built (basic: lists, page, show on rack, notes, undo); On hand built |
 | Search: an overlay, never a page | everyone | not drawn (the patching board's far-end picker is the same box) |
 | Findings and the config checker | everyone | not drawn |
 | Walkthrough: the teaching half | everyone | low-fi sketch; never built |
@@ -297,6 +299,22 @@ One more stop above the closet: floors down the side, rooms as boxes you drag, t
 between rooms a counted bundle, a floor-plan image as an optional background. Still open: a scanned
 plan cannot say it is current or the right building, would be missing from every export, and needs a
 size cap.
+
+**ADR-0074 (2026-10-26).** The building, site and estate stops draw the Site › Building › Closet
+folders Home already has, with their permissions; a folder gains a kind and a hand-set role, a hub
+drawn with a double border. Rooms come from ADR-0051's room builder (plan image or PDF page, traced
+with snapping, suggested rooms accepted or rejected). Small sites fold behind their hub as a counted
+stack. No 2.5D view. A rack dragged by hand keeps its place.
+
+**Built (2026-10-26).** Folders take a kind and role (`Kind and role` on a row); the zoom stops start
+Every site › Site › Building, each drawing the folders a person may read as boxes over the canvas, with
+counts, "You are here", a hub's double border and more than eight small sites of one role folded into a
+counted stack. Boxes sit in a grid until hand placement (ADR-0047) lands, and fold by role until Circuits
+say which hub feeds a site. A design moves between folders from Home, and a NetBox export fills sites,
+buildings and rack designs as a plan to accept. The building stop draws the floor plan: a picture
+beneath at the phantom opacity, scaled by two points, rooms traced over it with right-angle snapping
+and named, solid once saved, dashed while drawn; a room named as a closet opens it. Not built: a PDF
+page as the picture, suggested rooms, DXF, furniture and outlets, door labels.
 
 ## The patching surface
 
@@ -384,6 +402,19 @@ Built in part one. Pictures from the real-server drive: `reviews/vault/` in the 
   and Remove or Restore; "Check now and list its logins" lists the collection with "Pull into
   Fathom"; Disconnect confirms that the API key still works in the vault until a new one is made
   there. A device's Logins tab marks a pulled login as used on that device.
+
+## On a phone (ADR-0075; mockup r39-phone)
+
+- Under 760px wide. The same pages, with the tool row, minimap, side-panel strip, view tabs, Inventory's
+  import/paste/columns/add and tick boxes folded away. Tabs along the bottom, 52px plus the safe area:
+  **Scan · Find · Canvas**, and **Ideas N** while an AI idea waits. A design opens on Find.
+- Canvas on a phone is to look at: "View only", Undo off.
+- **Scan** is a full-screen sheet: camera with a frame where the browser can read codes, otherwise the
+  reason in one line; always "Or type the label or serial" and **Go**. Home on a phone starts with
+  **Scan a label**. Ideas open as the same kind of sheet.
+- **Print labels** (Inventory bulk bar, desk): a preview that is the print. A label is the code on the
+  left at full label height less 2 mm, the name in bold and one line of detail. Black on white in both
+  themes. Size picker remembered per browser.
 
 ## Owed to the boards, and two numbers not named
 

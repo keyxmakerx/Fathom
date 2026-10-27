@@ -165,6 +165,15 @@ export async function renameDesign(organisationId: string, designId: string, nam
   await signedFetch('POST', path, new TextEncoder().encode(name));
 }
 
+/**
+ * `POST …/designs/{design}/folder` (ADR-0074): a steward of both folders moves a design into
+ * another, the body the target folder's id. The move is filed on the organisation chain.
+ */
+export async function moveDesign(organisationId: string, designId: string, scopeId: string): Promise<void> {
+  const path = `/organisations/${encodeURIComponent(organisationId)}/designs/${encodeURIComponent(designId)}/folder`;
+  await signedFetch('POST', path, new TextEncoder().encode(scopeId));
+}
+
 /** The designs the signed-in account may see within `organisationId` — a
  * design it may not is simply absent, per the handler's own doc. */
 export async function fetchDesigns(organisationId: string): Promise<DesignSummary[]> {

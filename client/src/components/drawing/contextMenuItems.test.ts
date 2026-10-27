@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { menuItemsFor, type MenuActions } from './contextMenuItems';
 
-function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'onPlanFirmware' | 'firmwareNeedsVersion' | 'onSuggestCables' | 'onAddCableRun' | 'onRemoveCableRun' | 'cableRunsOn' | 'looseState' | 'onSetNeedsFinishing'>> {
+function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'onPlanFirmware' | 'firmwareNeedsVersion' | 'onSuggestCables' | 'onFitCard' | 'onAddCableRun' | 'onRemoveCableRun' | 'cableRunsOn' | 'looseState' | 'onSetNeedsFinishing'>> {
   return {
     onSelect: vi.fn(),
     onOpen: vi.fn(),
@@ -116,6 +116,13 @@ describe('menuItemsFor', () => {
     // A reader's menu carries no action for it, so no item.
     expect(menuItemsFor({ kind: 'chassis', id: 'c1' }, { onSelect: vi.fn(), onOpen: vi.fn() }).map((i) => i.label)).not.toContain("It's down");
     expect(menuItemsFor({ kind: 'label', id: 'l1' }, a).map((i) => i.label)).not.toContain("It's down");
+  });
+
+  it('offers Fit a card on a device only to someone who can draw', () => {
+    const go = vi.fn();
+    menuItemsFor({ kind: 'chassis', id: 'c1' }, { ...actions(), onFitCard: go }).find((i) => i.label === 'Fit a card')!.onSelect();
+    expect(go).toHaveBeenLastCalledWith('c1');
+    expect(menuItemsFor({ kind: 'chassis', id: 'c1' }, actions()).map((i) => i.label)).not.toContain('Fit a card');
   });
 
   it('offers cable suggestions on a device, a free box and the empty canvas when they can be used', () => {

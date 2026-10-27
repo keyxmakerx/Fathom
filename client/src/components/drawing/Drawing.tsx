@@ -279,6 +279,8 @@ export interface DrawingProps extends DrawingActions {
   onItsDown?: (elementId: string) => void;
   /** Right-click "Suggest cables from its neighbours (LLDP)"; null from the empty canvas. Absent for a reader. */
   onSuggestCables?: (chassisId: string | null) => void;
+  /** Right-click "Fit a card" on a device (ADR-0073). Absent for a reader. */
+  onFitCard?: (chassisId: string) => void;
   /** Bump to fit every rack into view (a counter, so a repeat press fires). */
   fitRequest?: number;
   /** Remounted by a Rack/Diagram switch: no focus is pending, so fit even with a selection. */
@@ -450,6 +452,7 @@ function DrawingInner({
   firmwareNeedsVersion,
   onItsDown,
   onSuggestCables,
+  onFitCard,
   onOpenDevice,
   onResizeShelf,
   onAddFreeBox,
@@ -617,7 +620,7 @@ function DrawingInner({
     onRemoveFree,
   };
   const menuActions: MenuActions = canDraw
-    ? { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onCloseRackGaps, onCopyRack, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, onSuggestCables, ...freeMenuActions, ...cableRunMenuActions, ...looseMenuActions }
+    ? { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onCloseRackGaps, onCopyRack, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, onSuggestCables, onFitCard, ...freeMenuActions, ...cableRunMenuActions, ...looseMenuActions }
     : { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom };
   const menuActionsRef = useRef(menuActions);
   useLayoutEffect(() => {
@@ -811,6 +814,21 @@ function DrawingInner({
         const y = rowBandY(rowLayouts, rowIndex);
         const rowJustFlipped = (prevElevation[key] ?? 'front') !== layout.elevation;
         layout.racks.forEach((rack, bayIndex) => {
+          // A rack a person placed by hand and saved (its `LayoutPin`, kept as
+          // seen from the front): the saved place wins over the bay slot, and
+          // is mirrored across the row while the row shows its rear. Re-read
+          // on every document change, so a colleague's move lands here too.
+          if (rack.pin) {
+            const x = layout.elevation === 'rear'
+              ? mirroredRackX(rack.pin.x, layout.racks.length, RACK_NODE_WIDTH, RACK_GAP_PX)
+              : rack.pin.x;
+            const have = prev[rack.id];
+            if (have == null || have.x !== x || have.y !== rack.pin.y) {
+              next[rack.id] = { x, y: rack.pin.y };
+              changed = true;
+            }
+            return;
+          }
           if (draggedRackIds.has(rack.id)) {
             if (!rowJustFlipped) return; // a dragged rack outside the row that just flipped: untouched
             const have = prev[rack.id];
@@ -1660,6 +1678,19 @@ function DrawingInner({
 
       if (parsed.kind === 'rack') {
         setRackPositions((prev) => ({ ...prev, [parsed.id]: node.position }));
+        // Saved as seen from the front, so a row shown from the rear stores
+        // the mirror of where the rack was dropped. Read-only viewers have no
+        // `onMoveFree`, and their drag lasts only this session.
+        const layout = rowLayouts.find((l) => l.racks.some((r) => r.id === parsed.id));
+        const frontX = layout?.elevation === 'rear'
+          ? mirroredRackX(node.position.x, layout.racks.length, RACK_NODE_WIDTH, RACK_GAP_PX)
+          : node.position.x;
+        if (onMoveFree) {
+          // Saved: the pin now speaks for this rack, and undoing the move
+          // returns it to its bay slot.
+          onMoveFree([{ id: parsed.id, x: frontX, y: node.position.y }]);
+          return;
+        }
         // s6f #3: once a person has placed this rack by hand, the row-flip
         // layout effect (above) stops snapping it to a freshly computed bay
         // slot and mirrors its own position instead.
@@ -1688,7 +1719,7 @@ function DrawingInner({
       onMove(parsed.id, rack.id, positionU);
       settleMoved(parsed.id);
     },
-    [view.racks, rackPositions, onMove, triggerShake, free.onNodeDragStop, settleMoved],
+    [view.racks, rackPositions, rowLayouts, onMove, onMoveFree, triggerShake, free.onNodeDragStop, settleMoved],
   );
 
   const handleDragOver = useCallback(

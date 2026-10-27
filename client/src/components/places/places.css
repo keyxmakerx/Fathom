@@ -1,0 +1,297 @@
+/* ADR-0074: the building, site and estate stops, over the canvas. The canvas stays mounted
+   beneath, so going back down is the same camera, not a page change. */
+.places-map {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  overflow: auto;
+  background: var(--page);
+  padding: var(--s4) var(--s4) calc(var(--s4) * 4);
+}
+
+.places-map__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+  margin-bottom: var(--s4);
+}
+
+.places-map__crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  font-size: var(--t-body);
+}
+
+.places-map__crumb {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.places-map__crumb[aria-current='page'] {
+  font-weight: 700;
+  text-decoration: none;
+  cursor: default;
+}
+
+.places-map__back {
+  margin-left: auto;
+}
+
+.places-map__words {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1);
+  font-size: var(--t-micro);
+  color: var(--muted);
+}
+
+.places-map__level {
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.places-map__role {
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  border: var(--rule-hair) solid var(--hairline);
+  padding: 0 var(--s1);
+  color: var(--ink);
+}
+
+.places-map__role--hub {
+  border: 3px double var(--ink);
+  font-weight: 700;
+}
+
+.places-map__boxes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--s3);
+}
+
+.places-box,
+.places-map__stack {
+  width: 100%;
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s1);
+  padding: var(--s3);
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);
+  cursor: pointer;
+}
+
+.places-box:disabled {
+  cursor: default;
+  border-color: var(--hairline);
+  color: var(--muted);
+}
+
+/* §2: a hub is drawn with a double border. */
+.places-box--hub {
+  border: 4px double var(--ink);
+}
+
+/* The folder the open design is in: a thick rule down its left, as a selected row has. */
+.places-box--here {
+  box-shadow: inset var(--rule-accent) 0 0 var(--ink);
+}
+
+.places-box__name {
+  font-weight: 700;
+  font-size: var(--t-body);
+}
+
+.places-box__counts {
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+.places-box__here {
+  margin-top: auto;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+/* §3: many small sites as one counted stack, drawn as cards behind each other. */
+.places-map__stack {
+  border-style: dashed;
+  box-shadow: 4px 4px 0 -1px var(--page), 4px 4px 0 0 var(--hairline), 8px 8px 0 -1px var(--page), 8px 8px 0 0 var(--hairline);
+}
+
+.places-map__stack-count {
+  font-weight: 700;
+  font-size: var(--t-title);
+}
+
+.places-map__empty,
+.places-map__note {
+  color: var(--muted);
+  font-size: var(--t-small);
+  max-width: 60ch;
+}
+
+.places-map__note {
+  margin-top: var(--s4);
+}
+
+.places-map__error {
+  color: var(--danger);
+  font-size: var(--t-small);
+}
+
+/* ADR-0051 / ADR-0074 decision 4: the building's floor plan. The picture sits beneath at the
+   phantom opacity and is never full black; a room is solid, a room being drawn dashed, so a black
+   and white scan works by construction. */
+.building-plan {
+  margin-top: var(--s5);
+  border-top: var(--rule-hair) solid var(--hairline);
+  padding-top: var(--s4);
+}
+
+.building-plan__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.building-plan__title {
+  font-weight: 700;
+  margin-right: var(--s2);
+}
+
+.building-plan__btn {
+  display: inline-flex;
+  align-items: center;
+  height: var(--control-h);
+  padding: 0 var(--s3);
+  border: var(--rule-hair) solid var(--control-line);
+  background: var(--control-bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-small);
+  cursor: pointer;
+}
+
+.building-plan__btn:hover:not(:disabled) {
+  background: var(--control-bg-hover);
+}
+
+.building-plan__btn:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.building-plan__btn--danger {
+  color: var(--danger);
+}
+
+.building-plan__hint {
+  min-height: 1.4em;
+  margin: var(--s2) 0;
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+.building-plan__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin: var(--s2) 0;
+  font-size: var(--t-small);
+}
+
+.building-plan__floor {
+  display: block;
+  width: 100%;
+  height: min(70vh, 640px);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--hairline);
+  touch-action: none;
+}
+
+.building-plan__floor--drawing {
+  cursor: crosshair;
+}
+
+.building-plan__picture {
+  opacity: var(--phantom);
+}
+
+.building-plan__room polygon {
+  fill: var(--page);
+  fill-opacity: 0.6;
+  stroke: var(--ink);
+  stroke-width: 1.5px;
+  cursor: pointer;
+}
+
+.building-plan__room text {
+  fill: var(--ink);
+  font-family: var(--sans);
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.building-plan__room--closet polygon {
+  stroke-width: 2.5px;
+}
+
+.building-plan__room--selected polygon {
+  stroke-width: 3px;
+  fill: var(--surface);
+  fill-opacity: 0.85;
+}
+
+.building-plan__draft {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.5px;
+  stroke-dasharray: 6 4;
+}
+
+.building-plan__length {
+  fill: var(--muted);
+  font-family: var(--sans);
+}
+
+.building-plan__mark {
+  fill: var(--ink);
+}
+
+.building-plan__panel {
+  margin-top: var(--s3);
+  padding: var(--s3);
+  border: var(--rule-hair) solid var(--hairline);
+  max-width: var(--col);
+}
+
+.building-plan__panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.building-plan__panel-name {
+  font-weight: 700;
+}

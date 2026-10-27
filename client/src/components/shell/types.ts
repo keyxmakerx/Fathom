@@ -1,5 +1,8 @@
 import type { ReactNode } from 'react';
 
+import type { DesignSummary } from '../../api/designs';
+import type { Scope } from '../../api/scopes';
+
 import type { Lens } from './lens';
 import type { PathPart } from './path';
 import type { PaletteAction } from './palette';
@@ -67,6 +70,10 @@ export interface ShellProps {
    * `Racks` nor `Inventory` is marked. */
   place: Place | null;
   onPlaceChange: (place: Place) => void;
+  /** With no design open (Home, Admin): the name of the design last open.
+   * Present, the place words are buttons that go back to it in that place;
+   * absent, they are only named. */
+  returnTo?: string;
 
   /** The breadcrumb, root first, current (ink, 700) last. Empty on Home. */
   path: PathPart[];
@@ -191,6 +198,23 @@ export interface ShellProps {
   layersExtra?: ReactNode;
   /** The zoom stops the bottom pill opens upward with (r31-bar A). */
   zoomStops?: { stops: readonly { id: string; label: string }[]; current: string | null; onGo: (id: string) => void };
+  /** ADR-0074: the folders the building, site and estate stops draw, above the closet. Absent, the
+   * camera stops at the closet. */
+  places?: {
+    scopes: readonly Scope[];
+    /** The folder of the open design. */
+    currentScopeId: string;
+    /** The folder of every design the person may open. */
+    designScopeIds: readonly string[];
+    /** Open the latest design in a folder. */
+    onOpenScope: (scopeId: string) => void;
+    /** ADR-0051: the building stop's floor plan, a design in the building folder. */
+    floorPlan?: {
+      organisationId: string;
+      designs: readonly DesignSummary[];
+      onDesignMade: (design: DesignSummary) => void;
+    };
+  };
 
   /** r30-panels: more tabs for the right-hand panel (Checks, a plan, "It's down", a trace). What each draws goes
    * through `InSideSlot`. */

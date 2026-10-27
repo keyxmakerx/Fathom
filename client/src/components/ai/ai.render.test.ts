@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { helperAppConfig, helperPairCommand, type AiIdea, type AiKeyView, type AiOverview } from '../../api/ai';
+import { helperAppConfig, helperPairCommand, plainWords, type AiIdea, type AiKeyView, type AiOverview } from '../../api/ai';
 import { AiIdeasPanel, aiIdeasTab } from './AiIdeas';
 import { keyAppName, stateWords } from './AiPanel';
 import { HowToConnect, whyCannotConnect } from './HowToConnect';
@@ -41,9 +41,11 @@ describe('AI ideas on a design', () => {
         nameOf: (id: string) => (id === 'D1' ? 'core-sw-02' : null),
         onShow: () => undefined,
         canDraw: true,
+        onPlan: () => undefined,
       }),
     );
     expect(out).toContain('Give core-sw-02 its own uplink');
+    expect(out).toContain('>Make it a plan<');
     expect(out).toContain('Key Maker’s connection');
     expect(out).toContain('Show core-sw-02');
     expect(out).toContain('>Accept<');
@@ -55,6 +57,7 @@ describe('AI ideas on a design', () => {
       createElement(AiIdeasPanel, { organisationId: 'O', designId: 'D', state: state([idea()]), nameOf: () => null, canDraw: false }),
     );
     expect(out).not.toContain('>Accept<');
+    expect(out).not.toContain('Make it a plan<');
     expect(out).toContain('Someone who can draw here');
   });
 
@@ -72,10 +75,13 @@ describe('the words the AI screens use', () => {
     app: 'claude',
     owner: 'A',
     ownerName: 'Key Maker',
+    ownerEmail: 'key@example.org',
+    aiAccount: null,
     label: 'Claude',
     scopes: [],
     sees: ['layout'],
     mayRecommend: true,
+    mayChange: false,
     createdAt: 0,
     expiresAt: 0,
     state: 'on',
@@ -123,6 +129,7 @@ describe('Connect an AI app', () => {
       apps: ['claude'],
       maxDays: 90,
       secondPersonScopes: [],
+      mayChange: false,
       changedBy: null,
       changedAt: null,
       version: 1,
@@ -149,6 +156,8 @@ describe('Connect an AI app', () => {
   it('offers the helper key when apps cannot sign in, with the line to run and the form', () => {
     const out = draw(overview());
     expect(out).toContain('node fathom-ai.mjs pair https://fathom.example.org');
+    expect(out).toContain('not a personal one');
+    expect(out).toContain('Which AI account the app is signed in to');
     expect(out).toContain('href="/fathom-ai.mjs"');
     expect(out).toContain('>Make key<');
     expect(out).toContain('claude mcp add fathom -- node /path/to/fathom-ai.mjs');
@@ -166,6 +175,22 @@ describe('Connect an AI app', () => {
     expect(out).toContain('has to name you');
     expect(whyCannotConnect(overview({ server: { allowed: false, reason: null } }), 'Acme')).toContain('whole server');
     expect(whyCannotConnect(overview(), 'Acme')).toBeNull();
+  });
+
+  it('offers "May change designs" only when the organisation allows it, unticked', () => {
+    expect(draw(overview())).not.toContain('May change designs');
+    const on = overview();
+    on.policy.mayChange = true;
+    const out = draw(on);
+    expect(out).toContain('May change designs');
+    expect(out).not.toMatch(/data-testid="ai-helper-may-change"[^>]*checked/);
+  });
+
+  it('says in plain words that a connection may change designs, and the risk', () => {
+    const words = plainWords({ scopes: [], sees: ['layout'], mayRecommend: true, mayChange: true }, () => 'x');
+    expect(words.join(' ')).toContain('Can change designs you can draw in');
+    expect(words.join(' ')).toContain('Text inside a design can steer an AI');
+    expect(plainWords({ scopes: [], sees: ['layout'], mayRecommend: true }, () => 'x').join(' ')).not.toContain('change designs');
   });
 
   it('writes the app settings with the path the person gives', () => {

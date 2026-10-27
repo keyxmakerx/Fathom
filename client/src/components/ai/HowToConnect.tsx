@@ -8,6 +8,7 @@ import { useState } from 'react';
 
 import {
   HELPER_PATH,
+  cleanAccount,
   cleanPublicKey,
   helperAppConfig,
   helperPairCommand,
@@ -98,6 +99,10 @@ export function HowToConnect({
           It uses a key (any app on your computer)
         </button>
       </div>
+      <p className="ai-warn" data-testid="ai-how-work-account">
+        Connect the AI account your organisation gave you, not a personal one. What the app reads from Fathom ends up in that
+        account’s chats, and Fathom cannot see which account it is.
+      </p>
       {blocked && (
         <p className="ai-muted ai-how__blocked" data-testid="ai-how-blocked">
           {blocked}
@@ -172,9 +177,11 @@ function HelperKey({
   const policy = overview.policy;
   const [publicKey, setPublicKey] = useState('');
   const [label, setLabel] = useState('');
+  const [account, setAccount] = useState('');
   const [scopes, setScopes] = useState<string[]>([]);
   const [sees, setSees] = useState<Tier[]>(['layout']);
   const [mayRecommend, setMayRecommend] = useState(true);
+  const [mayChange, setMayChange] = useState(false);
   const [days, setDays] = useState(Math.min(90, policy.maxDays));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -182,15 +189,16 @@ function HelperKey({
   const [file, setFile] = useState('/path/to/fathom-ai.mjs');
 
   const clean = cleanPublicKey(publicKey);
+  const aiAccount = cleanAccount(account);
   const folderName = (id: string) => folders.find((f) => f.scopeId === id)?.displayName ?? 'a folder';
   const config = helperAppConfig(file.trim() || '/path/to/fathom-ai.mjs');
 
   async function make() {
-    if (clean === null) return;
+    if (clean === null || aiAccount === null) return;
     setBusy(true);
     setError(null);
     try {
-      const { key } = await makeKey(organisationId, { publicKey: clean, label: label.trim() || 'AI helper', scopes, sees, mayRecommend, days });
+      const { key } = await makeKey(organisationId, { publicKey: clean, label: label.trim() || 'AI helper', aiAccount, scopes, sees, mayRecommend, mayChange: policy.mayChange && mayChange, days });
       setMade(key);
       setPublicKey('');
       onMade(key);
@@ -240,6 +248,20 @@ function HelperKey({
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
               />
+              <label className="ai-label" htmlFor="ai-helper-account">
+                Which AI account the app is signed in to
+              </label>
+              <input
+                id="ai-helper-account"
+                className="ai-input"
+                type="email"
+                autoComplete="off"
+                placeholder="you@yourcompany.com"
+                maxLength={254}
+                value={account}
+                onChange={(e) => setAccount(e.target.value)}
+              />
+              <p className="ai-muted">Stewards and admins see it beside the key, with your Fathom sign-in. Fathom can’t check it.</p>
               <div className="ai-label">Which folders</div>
               <FolderChips chosen={scopes} folders={folders} onChange={setScopes} />
               <div className="ai-label">What it can see</div>
@@ -248,16 +270,22 @@ function HelperKey({
                 <input type="checkbox" checked={mayRecommend} onChange={(e) => setMayRecommend(e.target.checked)} />
                 <span>Send ideas for a person to accept</span>
               </label>
+              {policy.mayChange && (
+                <label className="ai-tick">
+                  <input type="checkbox" data-testid="ai-helper-may-change" checked={mayChange} onChange={(e) => setMayChange(e.target.checked)} />
+                  <span>May change designs</span>
+                </label>
+              )}
               <div className="ai-label">Stops working after</div>
               <DayChoice days={days} maxDays={policy.maxDays} onChange={setDays} />
-              <PlainWords lines={plainWords({ scopes, sees, mayRecommend }, folderName)} />
+              <PlainWords lines={plainWords({ scopes, sees, mayRecommend, mayChange: policy.mayChange && mayChange }, folderName)} />
               {error && (
                 <p className="ai-error" role="alert">
                   {error}
                 </p>
               )}
               <div className="ai-actions">
-                <button type="button" className="ai-btn ai-btn--primary" disabled={busy || clean === null} onClick={() => void make()}>
+                <button type="button" className="ai-btn ai-btn--primary" disabled={busy || clean === null || aiAccount === null} onClick={() => void make()}>
                   Make key
                 </button>
               </div>

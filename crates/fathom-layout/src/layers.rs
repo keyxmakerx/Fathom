@@ -308,12 +308,19 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     row for it either, and the rear elevation — a separate renderer,
         //     like the rack elevation — is where a fitted supply actually draws.
         | NodeKind::PowerSupply
+        //     `Card` (ADR-0073), PowerSupply's rule again: drawn inside its chassis.
+        | NodeKind::Card
         //     `Surface` (ADR-0051 §1) joins them by the same rule again: `56`
         //     has no row for a wall, floor, desk or ceiling either, and a
         //     surface's elevation — a flat panel beside the rack rows — is,
         //     like the rack and rear elevations, a separate renderer this
         //     table does not govern.
         | NodeKind::Surface
+        //     The room builder's kinds (ADR-0051, schema 0.29), Surface's rule:
+        //     drawn on the building stop's plan, a renderer this table does not govern.
+        | NodeKind::FloorPlan
+        | NodeKind::Room
+        | NodeKind::RoomCorner
         // (b) `19`'s service model, which `56` does not mention at all.
         | NodeKind::Tenant
         | NodeKind::Service
@@ -399,6 +406,11 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         | NodeKind::CableTie
         //     Mesh VPNs (0.26): drawn by the client's VPNs layer, never as a box.
         | NodeKind::OverlayNetwork
+        //     Available inventory (0.30): stores, stock and levels are lists in
+        //     Inventory, never laid out.
+        | NodeKind::Store
+        | NodeKind::StockItem
+        | NodeKind::StockLevel
         //     Custom fields (0.16): a value is text with no geometry,
         //     UNTABLED like `Tag`.
         | NodeKind::FieldValue

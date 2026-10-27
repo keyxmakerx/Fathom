@@ -38,8 +38,12 @@ months.
 `hyper` 1.11.1, admitted 2026-09-03 for four HTTP/1 parser fixes, cleared the seven-day window on
 its own on 2026-09-04 and the gate reported the row stale that day. Removed the same day, as rule
 3 requires. The row's full reasoning is in this file's history at `3ca19b9`.
-`rustls-webpki` 0.103.16, admitted 2026-10-26 for RUSTSEC-2026-0382 (the distrusted emSign
-intermediates), cleared the window on its own on 2026-10-27 and was removed that day.
+`webpki-roots` 1.0.10, admitted for RUSTSEC-2026-0381 (the emSign ECC Root CA - G3 removal),
+cleared the window on its own on 2026-10-26 and the gate reported the row stale that day. Removed
+the same day. The row's full reasoning is in this file's history at `9a55417`.
+`rustls-webpki` 0.103.16, admitted for RUSTSEC-2026-0382 (paths through the distrusted emSign
+intermediates), cleared the window on its own on 2026-10-27 and the gate reported the row stale that
+day. Removed the same day. The row's full reasoning is in this file's history at `efdca34`.
 
 ## What was NOT excepted, on the same day, and why
 

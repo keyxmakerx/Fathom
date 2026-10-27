@@ -425,6 +425,10 @@ pub enum EntryType {
     /// "Type it yourself" was set for a member (`0041`): `account`, `on`, and the
     /// `actor` who set it, who may be the member switching it on for themselves.
     TypeItYourselfSet,
+    /// A steward moved a design into another folder (ADR-0074, migration `0051`): the
+    /// `design`, the folder it left (`from`) and the one it joined (`to`), and the `actor`.
+    /// Filed because a move changes who may read and draw it; never the design's name.
+    DesignMoved,
 
     // ---- The password vault, Mode A (migration 0041, storage §13.4) ---------
     //
@@ -565,6 +569,9 @@ pub enum EntryType {
     AiRecommendationDecided,
     /// An operator turned AI on or off for the whole server.
     AiSwitchChanged,
+    // ---- Account name (migration 0049) -------------------------------------
+    /// A person changed their own name. Names the account, not the name.
+    AccountRenamed,
 }
 
 impl EntryType {
@@ -632,6 +639,7 @@ impl EntryType {
             Self::InvitationIssued => "invitation_issued",
             Self::InvitationClosed => "invitation_closed",
             Self::TypeItYourselfSet => "type_it_yourself_set",
+            Self::DesignMoved => "design_moved",
             Self::VaultKeyEnrolled => "vault_key_enrolled",
             Self::VaultKeySuperseded => "vault_key_superseded",
             Self::VaultEntryCreated => "vault_entry_created",
@@ -654,6 +662,7 @@ impl EntryType {
             Self::AiKeyDisabled => "ai_key_disabled",
             Self::AiRecommendationDecided => "ai_recommendation_decided",
             Self::AiSwitchChanged => "ai_switch_changed",
+            Self::AccountRenamed => "account_renamed",
         }
     }
 
@@ -721,6 +730,7 @@ impl EntryType {
             "invitation_issued" => Some(Self::InvitationIssued),
             "invitation_closed" => Some(Self::InvitationClosed),
             "type_it_yourself_set" => Some(Self::TypeItYourselfSet),
+            "design_moved" => Some(Self::DesignMoved),
             "vault_key_enrolled" => Some(Self::VaultKeyEnrolled),
             "vault_key_superseded" => Some(Self::VaultKeySuperseded),
             "vault_entry_created" => Some(Self::VaultEntryCreated),
@@ -743,6 +753,7 @@ impl EntryType {
             "ai_key_disabled" => Some(Self::AiKeyDisabled),
             "ai_recommendation_decided" => Some(Self::AiRecommendationDecided),
             "ai_switch_changed" => Some(Self::AiSwitchChanged),
+            "account_renamed" => Some(Self::AccountRenamed),
             _ => None,
         }
     }
@@ -803,6 +814,8 @@ impl EntryType {
             | Self::ConsolePlacementReverted => &[ChainKind::Site],
             // ADR-0072 (`0046` §F).
             Self::AiSwitchChanged => &[ChainKind::Site],
+            // `0049` §B.
+            Self::AccountRenamed => &[ChainKind::Site],
             Self::AiPolicyChanged
             | Self::AiKeyMade
             | Self::AiKeyChanged
@@ -824,6 +837,7 @@ impl EntryType {
             | Self::InvitationIssued
             | Self::InvitationClosed
             | Self::TypeItYourselfSet
+            | Self::DesignMoved
             | Self::VaultKeyEnrolled
             | Self::VaultKeySuperseded
             | Self::VaultEntryCreated

@@ -1165,6 +1165,8 @@ mod body {
         /// `PhysicalPort.transceiver` — `Transceiver`, card `0..1`, emit `—`.
         /// Absent means we looked and the cage is empty; Unknown means nobody looked. A
         /// catalogue-populated port is Unknown and may not be Absent (11 §8.5).
+        /// ADR-0073 gives the value its shape: { type, vendor, part, serial, wavelength_nm },
+        /// every member optional, so {} is "an optic is fitted, nothing more is known".
         pub fn transceiver<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::value::Transceiver, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(213))
         }
@@ -1924,8 +1926,8 @@ mod body {
         pub fn ordinal<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(371))
         }
-        /// `PlanStep.kind` — `enum { address, route, cable, move, other, lag }`, card `1`, emit `—`.
-        /// What sort of change. `lag` (0.25) bundles ports into a LAG.
+        /// `PlanStep.kind` — `enum { address, route, cable, move, other, lag, swap }`, card `1`, emit `—`.
+        /// What sort of change. `lag` (0.25) bundles ports into a LAG. `swap` (0.28) replaces a card, power supply or optic with another.
         pub fn kind<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::PlanStepKind, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(372))
         }
@@ -1950,7 +1952,7 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(376))
         }
         /// `PlanStep.edit` — `Text`, card `0..1`, emit `—`.
-        /// The edit applied on Done: one line, tab-separated, `field`, `cable`, `cut`, `move` or `lag` first. Absent for a step done by hand.
+        /// The edit applied on Done: one line, tab-separated, `field`, `cable`, `cut`, `move`, `lag`, `unlag` or `part` first. Absent for a step done by hand.
         pub fn edit<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(377))
         }
@@ -2260,6 +2262,196 @@ mod body {
         /// Whether that rule should fire or clear once the change is made.
         pub fn expect_now<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::LessonStepExpectNow, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(507))
+        }
+    }
+    /// Typed reads for `Card` fields.
+    pub mod card {
+        /// `Card.slot` — `Text`, card `1`, emit `—`.
+        /// The slot's name in the vendor's own words: "0", "FPC 2", "NIM 1".
+        pub fn slot<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(508))
+        }
+        /// `Card.name` — `Text`, card `0..1`, emit `—`.
+        /// What the card is, in words: "24 x SFP+".
+        pub fn name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(509))
+        }
+        /// `Card.model` — `Identifier`, card `0..1`, emit `—`.
+        pub fn model<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(510))
+        }
+        /// `Card.serial` — `Identifier`, card `0..1`, emit `—`.
+        /// Inventory. Sensitive-ish; never leaves the workspace -- Chassis.serial's own doc.
+        pub fn serial<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(511))
+        }
+    }
+    /// Typed reads for `FloorPlan` fields.
+    pub mod floor_plan {
+        /// `FloorPlan.floor` — `Text`, card `1`, emit `—`.
+        /// The floor it shows, in the building's own words: "Ground", "2", "Basement".
+        pub fn floor<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(512))
+        }
+        /// `FloorPlan.name` — `Text`, card `0..1`, emit `—`.
+        /// The file name as chosen.
+        pub fn name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(513))
+        }
+        /// `FloorPlan.file_id` — `Identifier`, card `0..1`, emit `—`.
+        /// The server's id for the stored image; absent, the floor has rooms and no picture.
+        pub fn file_id<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(514))
+        }
+        /// `FloorPlan.sha256` — `Text`, card `0..1`, emit `—`.
+        /// Lowercase hex SHA-256 of the stored bytes.
+        pub fn sha256<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(515))
+        }
+        /// `FloorPlan.width_px` — `u32`, card `0..1`, emit `—`.
+        /// The image's width in pixels.
+        pub fn width_px<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(516))
+        }
+        /// `FloorPlan.height_px` — `u32`, card `0..1`, emit `—`.
+        /// The image's height in pixels.
+        pub fn height_px<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(517))
+        }
+        /// `FloorPlan.um_per_px` — `u32`, card `0..1`, emit `—`.
+        /// Micrometres per image pixel, from two points marked a known distance apart. Absent, the plan is not yet scaled. An integer, never a float (invariant 9).
+        pub fn um_per_px<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(518))
+        }
+    }
+    /// Typed reads for `Room` fields.
+    pub mod room {
+        /// `Room.label` — `Text`, card `1`, emit `—`.
+        /// The room's name or number as the door says it: "214", "IDF-2".
+        pub fn label<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(519))
+        }
+        /// `Room.floor` — `Text`, card `0..1`, emit `—`.
+        /// The floor it is on, FloorPlan.floor's words; absent reads as the only floor.
+        pub fn floor<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(520))
+        }
+    }
+    /// Typed reads for `RoomCorner` fields.
+    pub mod room_corner {
+        /// `RoomCorner.x_mm` — `i32`, card `1`, emit `—`.
+        /// Millimetres right of the origin.
+        pub fn x_mm<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&i32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(521))
+        }
+        /// `RoomCorner.y_mm` — `i32`, card `1`, emit `—`.
+        /// Millimetres down from the origin.
+        pub fn y_mm<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&i32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(522))
+        }
+        /// `RoomCorner.seq` — `u16`, card `1`, emit `—`.
+        /// The corner's place in the outline, from 0.
+        pub fn seq<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u16, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(523))
+        }
+    }
+    /// Typed reads for `Store` fields.
+    pub mod store {
+        /// `Store.name` — `Text`, card `1`, emit `—`.
+        /// What the store is called: "Comms cupboard".
+        pub fn name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(524))
+        }
+        /// `Store.place` — `Text`, card `0..1`, emit `—`.
+        /// Where it is, in words: "2nd floor, by the lifts".
+        pub fn place<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(525))
+        }
+        /// `Store.note` — `Text`, card `0..1`, emit `—`.
+        /// Words for it.
+        pub fn note<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(526))
+        }
+    }
+    /// Typed reads for `StockItem` fields.
+    pub mod stock_item {
+        /// `StockItem.part` — `enum { card, optic, power_supply, device, cable, other }`, card `1`, emit `—`.
+        /// What sort of thing it is.
+        pub fn part<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::StockItemPart, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(527))
+        }
+        /// `StockItem.model` — `Identifier`, card `0..1`, emit `—`.
+        /// Its model or part number, as the catalogue or the label writes it.
+        pub fn model<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(528))
+        }
+        /// `StockItem.name` — `Text`, card `0..1`, emit `—`.
+        /// What it is, in words: "Patch lead, Cat6, 2 m, blue".
+        pub fn name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(529))
+        }
+        /// `StockItem.serial` — `Identifier`, card `0..1`, emit `—`.
+        /// Inventory. Sensitive-ish; never leaves the workspace -- Chassis.serial's own doc.
+        pub fn serial<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(530))
+        }
+        /// `StockItem.count` — `u32`, card `0..1`, emit `—`.
+        /// How many, for things without a serial. Absent means one.
+        pub fn count<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(531))
+        }
+        /// `StockItem.state` — `enum { spare, reserved, on_order, in_repair, lent, retired }`, card `1`, emit `—`.
+        /// Where it stands. A reserved item names its step through ReservedFor.
+        pub fn state<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::StockItemState, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(532))
+        }
+        /// `StockItem.bin` — `Text`, card `0..1`, emit `—`.
+        /// Where in its store: "bin 3", "top drawer".
+        pub fn bin<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(533))
+        }
+        /// `StockItem.optic` — `Transceiver`, card `0..1`, emit `—`.
+        /// For an optic: what fitting it puts in the cage (PhysicalPort.transceiver's shape).
+        pub fn optic<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::value::Transceiver, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(534))
+        }
+        /// `StockItem.due` — `Text`, card `0..1`, emit `—`.
+        /// When it is due: an order's delivery, a repair's return, a loan's end. An ISO date.
+        pub fn due<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(535))
+        }
+        /// `StockItem.rma` — `Text`, card `0..1`, emit `—`.
+        /// The vendor's RMA or ticket number while it is away for repair.
+        pub fn rma<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(536))
+        }
+        /// `StockItem.lent_to` — `Text`, card `0..1`, emit `—`.
+        /// Who has it, while it is lent.
+        pub fn lent_to<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(537))
+        }
+        /// `StockItem.came_from` — `Text`, card `0..1`, emit `—`.
+        /// Where it was fitted before it came here, frozen in words when it was taken out: "core-sw1 · slot 1".
+        pub fn came_from<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(538))
+        }
+        /// `StockItem.note` — `Text`, card `0..1`, emit `—`.
+        /// Words for it.
+        pub fn note<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(539))
+        }
+    }
+    /// Typed reads for `StockLevel` fields.
+    pub mod stock_level {
+        /// `StockLevel.model` — `Identifier`, card `1`, emit `—`.
+        /// The model, matched against StockItem.model.
+        pub fn model<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(540))
+        }
+        /// `StockLevel.at_least` — `u32`, card `1`, emit `—`.
+        /// How many spares to keep.
+        pub fn at_least<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(541))
         }
     }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
@@ -2710,6 +2902,40 @@ mod body {
             505 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             506 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             507 => Some((core::any::TypeId::of::<crate::generated::ir_types::LessonStepExpectNow>(), "crate::generated::ir_types::LessonStepExpectNow")),
+            508 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            509 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            510 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            511 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            512 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            513 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            514 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            515 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            516 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            517 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            518 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            519 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            520 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            521 => Some((core::any::TypeId::of::<i32>(), "i32")),
+            522 => Some((core::any::TypeId::of::<i32>(), "i32")),
+            523 => Some((core::any::TypeId::of::<u16>(), "u16")),
+            524 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            525 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            526 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            527 => Some((core::any::TypeId::of::<crate::generated::ir_types::StockItemPart>(), "crate::generated::ir_types::StockItemPart")),
+            528 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            529 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            530 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            531 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            532 => Some((core::any::TypeId::of::<crate::generated::ir_types::StockItemState>(), "crate::generated::ir_types::StockItemState")),
+            533 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            534 => Some((core::any::TypeId::of::<crate::value::Transceiver>(), "crate::value::Transceiver")),
+            535 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            536 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            537 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            538 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            539 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            540 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            541 => Some((core::any::TypeId::of::<u32>(), "u32")),
             _ => None,
         }
     }
@@ -3160,6 +3386,40 @@ mod body {
             505 => crate::canon::slot_to::<crate::scalar::Text>(505, "crate::scalar::Text", value),
             506 => crate::canon::slot_to::<crate::scalar::Text>(506, "crate::scalar::Text", value),
             507 => crate::canon::slot_to::<crate::generated::ir_types::LessonStepExpectNow>(507, "crate::generated::ir_types::LessonStepExpectNow", value),
+            508 => crate::canon::slot_to::<crate::scalar::Text>(508, "crate::scalar::Text", value),
+            509 => crate::canon::slot_to::<crate::scalar::Text>(509, "crate::scalar::Text", value),
+            510 => crate::canon::slot_to::<crate::scalar::Identifier>(510, "crate::scalar::Identifier", value),
+            511 => crate::canon::slot_to::<crate::scalar::Identifier>(511, "crate::scalar::Identifier", value),
+            512 => crate::canon::slot_to::<crate::scalar::Text>(512, "crate::scalar::Text", value),
+            513 => crate::canon::slot_to::<crate::scalar::Text>(513, "crate::scalar::Text", value),
+            514 => crate::canon::slot_to::<crate::scalar::Identifier>(514, "crate::scalar::Identifier", value),
+            515 => crate::canon::slot_to::<crate::scalar::Text>(515, "crate::scalar::Text", value),
+            516 => crate::canon::slot_to::<u32>(516, "u32", value),
+            517 => crate::canon::slot_to::<u32>(517, "u32", value),
+            518 => crate::canon::slot_to::<u32>(518, "u32", value),
+            519 => crate::canon::slot_to::<crate::scalar::Text>(519, "crate::scalar::Text", value),
+            520 => crate::canon::slot_to::<crate::scalar::Text>(520, "crate::scalar::Text", value),
+            521 => crate::canon::slot_to::<i32>(521, "i32", value),
+            522 => crate::canon::slot_to::<i32>(522, "i32", value),
+            523 => crate::canon::slot_to::<u16>(523, "u16", value),
+            524 => crate::canon::slot_to::<crate::scalar::Text>(524, "crate::scalar::Text", value),
+            525 => crate::canon::slot_to::<crate::scalar::Text>(525, "crate::scalar::Text", value),
+            526 => crate::canon::slot_to::<crate::scalar::Text>(526, "crate::scalar::Text", value),
+            527 => crate::canon::slot_to::<crate::generated::ir_types::StockItemPart>(527, "crate::generated::ir_types::StockItemPart", value),
+            528 => crate::canon::slot_to::<crate::scalar::Identifier>(528, "crate::scalar::Identifier", value),
+            529 => crate::canon::slot_to::<crate::scalar::Text>(529, "crate::scalar::Text", value),
+            530 => crate::canon::slot_to::<crate::scalar::Identifier>(530, "crate::scalar::Identifier", value),
+            531 => crate::canon::slot_to::<u32>(531, "u32", value),
+            532 => crate::canon::slot_to::<crate::generated::ir_types::StockItemState>(532, "crate::generated::ir_types::StockItemState", value),
+            533 => crate::canon::slot_to::<crate::scalar::Text>(533, "crate::scalar::Text", value),
+            534 => crate::canon::slot_to::<crate::value::Transceiver>(534, "crate::value::Transceiver", value),
+            535 => crate::canon::slot_to::<crate::scalar::Text>(535, "crate::scalar::Text", value),
+            536 => crate::canon::slot_to::<crate::scalar::Text>(536, "crate::scalar::Text", value),
+            537 => crate::canon::slot_to::<crate::scalar::Text>(537, "crate::scalar::Text", value),
+            538 => crate::canon::slot_to::<crate::scalar::Text>(538, "crate::scalar::Text", value),
+            539 => crate::canon::slot_to::<crate::scalar::Text>(539, "crate::scalar::Text", value),
+            540 => crate::canon::slot_to::<crate::scalar::Identifier>(540, "crate::scalar::Identifier", value),
+            541 => crate::canon::slot_to::<u32>(541, "u32", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -3608,6 +3868,40 @@ mod body {
             505 => crate::canon::slot_from::<crate::scalar::Text>(j),
             506 => crate::canon::slot_from::<crate::scalar::Text>(j),
             507 => crate::canon::slot_from::<crate::generated::ir_types::LessonStepExpectNow>(j),
+            508 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            509 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            510 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            511 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            512 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            513 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            514 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            515 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            516 => crate::canon::slot_from::<u32>(j),
+            517 => crate::canon::slot_from::<u32>(j),
+            518 => crate::canon::slot_from::<u32>(j),
+            519 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            520 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            521 => crate::canon::slot_from::<i32>(j),
+            522 => crate::canon::slot_from::<i32>(j),
+            523 => crate::canon::slot_from::<u16>(j),
+            524 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            525 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            526 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            527 => crate::canon::slot_from::<crate::generated::ir_types::StockItemPart>(j),
+            528 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            529 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            530 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            531 => crate::canon::slot_from::<u32>(j),
+            532 => crate::canon::slot_from::<crate::generated::ir_types::StockItemState>(j),
+            533 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            534 => crate::canon::slot_from::<crate::value::Transceiver>(j),
+            535 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            536 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            537 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            538 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            539 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            540 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            541 => crate::canon::slot_from::<u32>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

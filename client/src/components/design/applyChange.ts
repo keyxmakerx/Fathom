@@ -24,6 +24,7 @@ import { FieldValueError, setChassisField, setPortMac, setDeviceField, setPassiv
 import { edgesIn, findNode, readDeviceFields, type Document } from '../../document/model';
 import { copyName, hostnamesOf } from '../racks/pick';
 import { fitSupply, removeSupply, setSupplyField } from '../../document/supplies';
+import { fitCard, moveOptic, removeCard, setCardField, setOptic } from '../../document/cards';
 import { addTemplatePorts } from '../../document/plate';
 import { closeRackGaps, copyRack } from '../../document/rackTidy';
 import { swapModel } from '../../document/swapModel';
@@ -68,6 +69,16 @@ export function applyEditorChange(
     next = removeSupply(doc, change.id, opts);
   } else if (change.kind === 'supply-fit') {
     next = fitSupply(doc, change.chassisId, change.slot, {}, opts);
+  } else if (change.kind === 'card-fit') {
+    next = fitCard(doc, change.hostId, change.slot, { name: change.name, model: change.model, serial: change.serial, ports: change.ports }, opts);
+  } else if (change.kind === 'card-remove') {
+    next = removeCard(doc, change.id, opts);
+  } else if (change.kind === 'card') {
+    next = setCardField(doc, change.id, change.field, change.value, opts);
+  } else if (change.kind === 'optic') {
+    next = setOptic(doc, change.portId, change.optic, opts);
+  } else if (change.kind === 'optic-move') {
+    next = moveOptic(doc, change.fromPortId, change.toPortId, opts);
   } else if (change.kind === 'cable') {
     // UI-SPEC "Cables", this session's brief — the cable panel's own
     // fields. `value` is always the raw text a field holds

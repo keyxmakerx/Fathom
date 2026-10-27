@@ -73,7 +73,14 @@ export interface CatalogueModel {
   reviewedBy: string;
   source: CatalogueSource;
   psuSlots: CataloguePsuSlot[];
+  /** r35 — the slots a card fits into, by the vendor's own name. Absent for a fixed model. */
+  cardSlots?: CatalogueCardSlot[];
   faceplates: CatalogueFaceplate[];
+}
+
+export interface CatalogueCardSlot {
+  name: string;
+  face: PortFace;
 }
 
 /** One row of `GET /catalogue/models` — vendor, model and height only; a
@@ -217,6 +224,14 @@ export function parseCatalogueModel(bytes: Uint8Array): CatalogueModel {
     psuSlots: arr(m.psu_slots, 'catalogue model.psu_slots').map((s, i) =>
       parsePsuSlot(s, `psu_slots[${i}]`),
     ),
+    ...(m.card_slots === undefined
+      ? {}
+      : {
+          cardSlots: arr(m.card_slots, 'catalogue model.card_slots').map((s, i) => {
+            const slot = obj(s, `card_slots[${i}]`);
+            return { name: str(slot.name, `card_slots[${i}].name`), face: parseFace(slot.face, `card_slots[${i}].face`) };
+          }),
+        }),
     faceplates: arr(m.faceplates, 'catalogue model.faceplates').map((f, i) =>
       parseFaceplate(f, `faceplates[${i}]`),
     ),

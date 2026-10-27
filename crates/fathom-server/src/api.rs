@@ -580,6 +580,10 @@ pub fn credential_router(state: CredentialApiState) -> Router {
             "/credentials/status",
             axum::routing::get(credential_status_handler),
         )
+        .route(
+            "/credentials/name",
+            axum::routing::get(get_name_handler).post(set_name_handler),
+        )
         .route("/credentials/key", post(register_key_handler))
         .route("/credentials/totp/enrol", post(enrol_totp_handler))
         .route("/credentials/totp/confirm", post(confirm_totp_handler))
@@ -724,6 +728,43 @@ async fn credential_status_handler(
         .map_err(CredentialRefusal)?;
     let mut out = Vec::with_capacity(8);
     crypto::lp(&mut out, if confirmed { b"yes" } else { b"no" });
+    Ok(bytes_response(out))
+}
+
+/// `GET /credentials/name`: the session's own account's name, as others see it.
+/// No body. Answer: `LP(name)`.
+async fn get_name_handler(
+    State(state): State<CredentialApiState>,
+    signed: Signed,
+) -> Result<Response, CredentialRefusal> {
+    let session = verified(&state, &signed).await?;
+    let _ = read_fields(&signed.body, 0)?;
+    let name = state
+        .credentials
+        .display_name(&session)
+        .await
+        .map_err(CredentialRefusal)?;
+    let mut out = Vec::with_capacity(name.len() + 4);
+    crypto::lp(&mut out, name.as_bytes());
+    Ok(bytes_response(out))
+}
+
+/// `POST /credentials/name`: change the session's own account's name.
+/// Body: `LP(name)`. Answer: `LP(name)` as stored (trimmed).
+async fn set_name_handler(
+    State(state): State<CredentialApiState>,
+    signed: Signed,
+) -> Result<Response, CredentialRefusal> {
+    let session = verified(&state, &signed).await?;
+    let fields = read_fields(&signed.body, 1)?;
+    let name = text(&fields[0], "name")?;
+    let stored = state
+        .credentials
+        .set_display_name(&session, &name)
+        .await
+        .map_err(CredentialRefusal)?;
+    let mut out = Vec::with_capacity(stored.len() + 4);
+    crypto::lp(&mut out, stored.as_bytes());
     Ok(bytes_response(out))
 }
 
@@ -1433,7 +1474,8 @@ impl IntoResponse for CredentialRefusal {
             e @ (E::PasswordTooShort
             | E::PasswordTooLong
             | E::PasswordIsCommon
-            | E::PasswordContainsAddress) => {
+            | E::PasswordContainsAddress
+            | E::NameRefused) => {
                 // Not logged: the sentence is about a password the caller supplied, and logging
                 // which rule it broke is logging about somebody's password.
                 (StatusCode::BAD_REQUEST, format!("{e}\n")).into_response()

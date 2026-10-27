@@ -1,6 +1,7 @@
 // Pure helpers for the plan surface (ADR-0061 round 7): words, marks, the add-step form, names. No React.
 import type { Canon } from '../checks/checksModel';
 import { UNNAMED_HOSTNAME } from '../drawing/contract';
+import { opticOf, slotPath } from '../../document/cards';
 import { compatible } from '../../document/compat';
 import {
   asString,
@@ -41,7 +42,7 @@ export function holdSiblings(page: { parentElement: { children: ArrayLike<Elemen
 
 export const STAGE_WORD: Record<PlanStage, string> = { planned: 'PLANNING', doing: 'DOING', recorded: 'RECORDED' };
 
-export const KIND_WORD: Record<StepKind, string> = { address: 'Address', route: 'Route', cable: 'Cable', move: 'Move', other: 'Other', lag: 'LAG' };
+export const KIND_WORD: Record<StepKind, string> = { address: 'Address', route: 'Route', cable: 'Cable', move: 'Move', other: 'Other', lag: 'LAG', swap: 'Swap a part' };
 
 export const OUTCOME_WORD = { succeeded: 'Succeeded', partial: 'Partial', failed: 'Failed' } as const;
 
@@ -205,6 +206,17 @@ export function nameOf(doc: Document, canon: Canon, id: string): string {
     }
     case 'Rack':
       return field(node, 'Rack.label') || 'rack';
+    case 'Card': {
+      const dev = canon(id);
+      const where = slotPath(doc, id);
+      return dev !== id ? `${nameOf(doc, canon, dev)} · card in ${where}` : `card in ${where}`;
+    }
+    case 'PowerSupply': {
+      const dev = canon(id);
+      const slot = field(node, 'PowerSupply.slot');
+      const words = slot ? `power supply ${slot}` : 'power supply';
+      return dev !== id ? `${nameOf(doc, canon, dev)} · ${words}` : words;
+    }
     case 'PassiveNode':
       return field(node, 'PassiveNode.label') || 'passive';
     default:
@@ -287,6 +299,34 @@ export function portsOfDevice(doc: Document, canon: Canon, deviceId: string): Ch
     .sort(byName);
 }
 
+/** A part's model (an optic's part number) and serial as the design holds them now. */
+export function partNow(doc: Document, id: string): { model: string; serial: string } {
+  const node = findNode(doc, id);
+  if (!node) return { model: '', serial: '' };
+  const kind = parseNodeId(id).kind;
+  if (kind === 'Card' || kind === 'PowerSupply') return { model: field(node, `${kind}.model`), serial: field(node, `${kind}.serial`) };
+  const optic = opticOf(node);
+  return { model: optic?.part ?? '', serial: optic?.serial ?? '' };
+}
+
+/** The parts on one device a Swap step can name: its cards, its fitted power supplies, and every optic in a cage. */
+export function partsOfDevice(doc: Document, canon: Canon, deviceId: string): Choice[] {
+  const out: Choice[] = [];
+  const say = (id: string, words: string) => {
+    const { model, serial } = partNow(doc, id);
+    const what = [model, serial ? `serial ${serial}` : ''].filter(Boolean).join(' · ');
+    out.push({ id, name: what ? `${words} (${what})` : words });
+  };
+  for (const n of liveOfKind(doc, 'Card')) if (canon(n.id) === deviceId) say(n.id, `Card in ${slotPath(doc, n.id)}`);
+  for (const n of liveOfKind(doc, 'PowerSupply')) {
+    if (canon(n.id) === deviceId) say(n.id, `Power supply ${field(n, 'PowerSupply.slot')}`.trim());
+  }
+  for (const n of liveOfKind(doc, 'PhysicalPort')) {
+    if (canon(n.id) === deviceId && opticOf(n)) say(n.id, `Optic in ${field(n, 'PhysicalPort.label') || 'port'}`);
+  }
+  return out.sort(byName);
+}
+
 /** Where a chassis is mounted now, as words; empty when it is not in a rack. */
 export function placementText(doc: Document, canon: Canon, chassisId: string): string {
   const m = edgesOut(doc, chassisId, 'MountedIn')[0];
@@ -319,6 +359,11 @@ export interface StepForm {
   members: string[];
   lagName: string;
   lacp: LacpMode;
+  /** swap: the part (a card, a power supply, or the port an optic is in) and the new one's model and serial. */
+  part: string;
+  partModel: string;
+  /** swap: the spare chosen from stock (ADR-0076), kept for this step when it is added; '' for none. */
+  spare: string;
 }
 
 export const EMPTY_FORM: StepForm = {
@@ -339,6 +384,9 @@ export const EMPTY_FORM: StepForm = {
   members: [],
   lagName: '',
   lacp: 'active',
+  part: '',
+  partModel: '',
+  spare: '',
 };
 
 export interface BuiltStep {
@@ -414,6 +462,22 @@ export function buildStep(doc: Document, canon: Canon, f: StepForm): BuiltStep |
         edit: { t: 'lag', device: f.device, name: lag, lacp: f.lacp, members: f.members },
       };
     }
+    case 'swap': {
+      if (f.part === '') return { error: 'Choose the part to swap.' };
+      const serial = text(f.value);
+      const model = text(f.partModel);
+      if (serial === '' && model === '') return { error: "Type the new part's serial." };
+      if (/\s/.test(serial) || /\s/.test(model)) return { error: 'A serial or model is one word with no spaces.' };
+      const was = partNow(doc, f.part);
+      const now = [model || was.model, serial].filter(Boolean).join(' · serial ');
+      return {
+        kind: 'swap',
+        change: text(f.change) || `Swap ${name(f.part)}`,
+        before: text(f.before) || [was.model, was.serial ? `serial ${was.serial}` : ''].filter(Boolean).join(' · '),
+        after: text(f.after) || now,
+        edit: { t: 'part', id: f.part, model, serial },
+      };
+    }
     case 'route':
     case 'other': {
       if (text(f.change) === '') return { error: 'Say what changes.' };
@@ -442,6 +506,9 @@ export function prefillFor(doc: Document, canon: Canon, elementId: string): Part
       return { kind: 'cable', cableMode: 'connect', device: dev !== elementId ? dev : '', portA: elementId };
     case 'Cable':
       return { kind: 'cable', cableMode: 'cut', cable: elementId };
+    case 'Card':
+    case 'PowerSupply':
+      return { kind: 'swap', device: dev !== elementId ? dev : '', part: elementId };
     default:
       return { kind: 'other' };
   }

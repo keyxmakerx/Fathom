@@ -6,7 +6,7 @@ vi.mock('./signedFetch', () => ({
 
 import { SCHEMA_VERSION } from '../document/plain';
 import { signedFetch } from './signedFetch';
-import { createDesign, designTitle, parseDesignSummary, parseDesigns, sortDesignsByRecency, type DesignSummary } from './designs';
+import { createDesign, designTitle, moveDesign, parseDesignSummary, parseDesigns, sortDesignsByRecency, type DesignSummary } from './designs';
 
 const mockedSignedFetch = vi.mocked(signedFetch);
 const EXPECTED_MINOR = Number.parseInt(SCHEMA_VERSION.slice('0.'.length), 10);
@@ -168,5 +168,16 @@ describe('design names', () => {
     expect(designTitle(named)).toBe('Core switches');
     const bare = parseDesignSummary({ ...ROW_A, name: null }, 'row');
     expect(designTitle(bare)).toBe('Untitled design');
+  });
+});
+
+describe('moveDesign (ADR-0074)', () => {
+  it('POSTs the target folder id, as text, to the design\'s folder route', async () => {
+    mockedSignedFetch.mockResolvedValueOnce(new TextEncoder().encode('{}'));
+    await moveDesign('org-1', 'design-1', 'scope-closet');
+    const [method, path, body] = mockedSignedFetch.mock.calls.at(-1)!;
+    expect(method).toBe('POST');
+    expect(path).toBe('/organisations/org-1/designs/design-1/folder');
+    expect(new TextDecoder().decode(body as Uint8Array)).toBe('scope-closet');
   });
 });

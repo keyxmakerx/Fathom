@@ -67,6 +67,7 @@ import {
   defaultColumnKeys,
   deviceRows,
   portRows,
+  partRows,
   prefixRows,
   rackRows,
   vlanKindRows,
@@ -79,9 +80,13 @@ import './inventory.css';
 import { EmptyState } from '../ui/EmptyState';
 import { SkeletonRows } from '../ui/Skeleton';
 import { loadSheet, saveSheet } from './sheetPref';
+import { StockPanel, StoreBinPage } from './StockPanel';
 import { saveLook } from '../drawing/look';
 import { PasswordsPage, useVaultCount } from '../vault/Screens';
 import { VaultPlaceContext } from '../vault/useVault';
+import { LabelsPreview } from '../../print/LabelsPreview';
+import { isLabelListKind, labelItems, storeLabel, type LabelItem } from '../../print/labels';
+import { isStoreId, storeById } from '../../document/stock';
 
 const EMPTY_VIEW: ClosetView = { premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [], free: [], lines: [], labels: [] };
 const EMPTY_NETWORKS_DERIVED: NetworksDerived = { vlanRows: [], subnetRows: [], dockerNetworkRows: [], dockerUnattachedContainers: [] };
@@ -89,7 +94,7 @@ const EMPTY_IPAM: IpamDerived = { prefixes: [], vlans: [] };
 /** Kinds read off the network derivation. */
 const NETWORK_KINDS: ReadonlySet<Kind> = new Set<Kind>(['networks', 'addresses', 'prefixes', 'vlans']);
 /** r31-bar A: the lists the Sheet shows as tabs along the bottom, one spreadsheet each. */
-const SHEET_KINDS: ReadonlySet<Kind> = new Set<Kind>(['devices', 'ports', 'racks', 'cables', 'models', 'prefixes', 'vlans', 'addresses']);
+const SHEET_KINDS: ReadonlySet<Kind> = new Set<Kind>(['devices', 'ports', 'parts', 'racks', 'cables', 'models', 'prefixes', 'vlans', 'addresses']);
 
 export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'children'> {
   session: DesignSession;
@@ -165,6 +170,8 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const { ls, go, back: stepBack, backLabel, moves } = useListState();
   // r31-bar A: the Sheet face, kept in this browser (`sheetPref.ts`).
   const [sheet, setSheet] = useState(loadSheet);
+  // ADR-0076: Parts shows what is fitted, or what is on hand (spares, on order, away for repair).
+  const [onHand, setOnHand] = useState(false);
   const kind: Kind = isKind(ls.kind) ? ls.kind : 'devices';
   const openKey = ls.open || null;
   const q = ls.q;
@@ -189,6 +196,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const [notice, setNotice] = useState<string | null>(null);
   // The filter line stays folded until Filter is pressed or a filter is set (r30-small).
   const [filterShown, setFilterShown] = useState(false);
+  const [labels, setLabels] = useState<{ items: LabelItem[]; note?: string } | null>(null);
   const [pasteText, setPasteText] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   // The design as it was when the importer opened, and as it is now (the dialog's callback is old by
@@ -253,6 +261,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
       racks: rackRows(doc, view, fieldDefs, placeIdx),
       cables: cableRows(doc, view, placeIdx, fieldDefs),
       ports: portRows(doc, view, placeIdx, fieldDefs),
+      parts: partRows(doc, view, placeIdx),
     } as Record<string, InvRow[]>;
   }, [doc, view, placeIdx, fieldDefs]);
 
@@ -313,6 +322,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     racks: scoped.racks?.length ?? 0,
     cables: scoped.cables?.length ?? 0,
     ports: scoped.ports?.length ?? 0,
+    parts: scoped.parts?.length ?? 0,
     networks: kind === 'networks' ? networksDerived.vlanRows.length + networksDerived.subnetRows.length + networksDerived.dockerNetworkRows.length : (background?.networks ?? null),
     prefixes: kind === 'prefixes' ? baseRows.length : scopedCount(background?.prefixes),
     vlans: kind === 'vlans' ? baseRows.length : scopedCount(background?.vlans),
@@ -752,6 +762,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
 
   return (
     <Shell {...shellProps} lens={lens} editor={null} viewOnly={!canDraw} mainView={mainView}>
+      {labels ? <LabelsPreview items={labels.items} note={labels.note} onClose={() => setLabels(null)} /> : null}
       {doc == null ? (
         <div className="inventory-place__loading">{loadError ?? <SkeletonRows label="Opening the design…" rows={9} />}</div>
       ) : (
@@ -787,6 +798,34 @@ export function InventoryPlace(props: InventoryPlaceProps) {
           ) : kind === 'issues' ? (
             <div className="inventory-place__main">
               <IssuesList doc={doc} onShowOnCanvas={onShowIssue} />
+            </div>
+          ) : kind === 'parts' && doc && openKey && isStoreId(openKey) ? (
+            // A scanned bin label opens here (ADR-0075).
+            <div className="inventory-place__main">
+              {storeById(doc, openKey) ? (
+                <>
+                  {session.designId ? (
+                    <button
+                      type="button"
+                      className="btn-quiet"
+                      onClick={() => {
+                        const store = storeById(doc, openKey);
+                        if (store) setLabels({ items: [storeLabel(store, window.location.origin, session.designId ?? '')] });
+                      }}
+                    >
+                      Print bin label
+                    </button>
+                  ) : null}
+                  <StoreBinPage doc={doc} storeId={openKey} canDraw={canDraw} onChange={applyDocChange} onBack={stepBack} fieldDefs={fieldDefs} />
+                </>
+              ) : (
+                <p className="inventory-place__muted">That store is no longer in this design.</p>
+              )}
+            </div>
+          ) : kind === 'parts' && onHand && doc && !openKey ? (
+            <div className="inventory-place__main">
+              <PartsSwitch onHand={onHand} onChange={setOnHand} />
+              <StockPanel doc={doc} canDraw={canDraw} applyDocChange={applyDocChange} redact={redact} fieldDefs={fieldDefs} createField={createField} onOpenStore={(id) => push({ open: id, tab: '' })} />
             </div>
           ) : kind === 'passwords' ? (
             <div className="inventory-place__main">
@@ -824,6 +863,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
           ) : (
             <div className="inv-list">
               {refusal}
+              {kind === 'parts' ? <PartsSwitch onHand={onHand} onChange={setOnHand} /> : null}
               <ListHead
                 title={currentView ? `${kindLabel} › ${currentView.name}` : kindLabel}
                 shown={rows.length}
@@ -864,6 +904,15 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                 progress={bulkProgress}
                 undo={bulkUndo && bulkUndo.notice === notice && bulkStillUndoable(doc, bulkUndo.id) ? { run: runBulkUndo } : null}
                 filter={{ shown: filterShown || q !== '', onToggle: () => setFilterShown(!filterShown) }}
+                onPrintLabels={
+                  isLabelListKind(kind) && session.designId
+                    ? () =>
+                        setLabels({
+                          items: labelItems(kind, checkedRows, window.location.origin, session.designId ?? ''),
+                          note: kind === 'cables' ? 'Two labels per cable, one for each end.' : undefined,
+                        })
+                    : undefined
+                }
               />
               {filterShown || q !== '' ? (
                 <FilterLine q={q} onQ={(next) => go({ q: next })} schema={schema} rows={baseRows} parsed={filtered.parsed} kindLabel={kindLabel} autoFocus={filterShown && q === ''} />
@@ -932,7 +981,9 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                                 ? 'Ports come with a device.'
                                 : kind === 'addresses'
                                   ? 'Addresses are read from your devices.'
-                                  : 'Add one with the button above.'}
+                                  : kind === 'parts'
+                                    ? "Right-click a device and choose Fit a card, set an optic in a port's panel, or paste the device's show inventory onto the canvas."
+                                    : 'Add one with the button above.'}
                       </EmptyState>
                     ) : (
                       <EmptyState title="Nothing matches the filters." compact action={{ label: 'Clear filters', onClick: () => go({ q: '' }) }}>
@@ -1021,6 +1072,20 @@ export function InventoryPlace(props: InventoryPlaceProps) {
         </PasteGateBoundary>
       )}
     </Shell>
+  );
+}
+
+/** Parts: what is fitted in the devices, or what is on hand and not fitted (ADR-0076). */
+function PartsSwitch({ onHand, onChange }: { onHand: boolean; onChange: (onHand: boolean) => void }) {
+  return (
+    <div className="parts-switch" role="group" aria-label="Which parts" data-testid="parts-switch">
+      <button type="button" className="parts-switch__btn" aria-pressed={!onHand} onClick={() => onChange(false)}>
+        Fitted
+      </button>
+      <button type="button" className="parts-switch__btn" aria-pressed={onHand} onClick={() => onChange(true)}>
+        On hand
+      </button>
+    </div>
   );
 }
 

@@ -7,12 +7,14 @@ import {
   KIND_WORD,
   cablesOf,
   devicesOf,
+  partsOfDevice,
   portsOfDevice,
   racksOf,
   type Choice,
   type StepForm,
 } from './plansModel';
 import { TypedSentence, usePasteMark } from './PlanParts';
+import { STATE_LABEL, itemTitle, sparesFor } from '../../document/stock';
 import type { PlansController } from './usePlansController';
 
 function Pick({
@@ -111,6 +113,18 @@ export function AddStepForm({ controller, stepCount }: { controller: PlansContro
   const portsA = useMemo(() => (doc && form.device !== '' ? portsOfDevice(doc, canon, form.device) : []), [doc, canon, form.device]);
   const portsB = useMemo(() => (doc && form.deviceB !== '' ? portsOfDevice(doc, canon, form.deviceB) : []), [doc, canon, form.deviceB]);
   const members = useMemo(() => (doc && form.kind === 'lag' && form.device !== '' ? lagMembers(doc, form.device) : []), [doc, form.kind, form.device]);
+  const parts = useMemo(() => (doc && form.kind === 'swap' && form.device !== '' ? partsOfDevice(doc, canon, form.device) : []), [doc, canon, form.kind, form.device]);
+  const spares = useMemo(
+    () =>
+      doc && form.kind === 'swap' && form.part !== ''
+        ? sparesFor(doc, form.part).map((i) => ({
+            id: i.id,
+            name: [itemTitle(i), i.serial ? `serial ${i.serial}` : '', i.state === 'spare' ? '' : STATE_LABEL[i.state].toLowerCase()].filter(Boolean).join(' · '),
+            item: i,
+          }))
+        : [],
+    [doc, form.kind, form.part],
+  );
   const lagDefault = useMemo(() => (doc && form.kind === 'lag' && form.device !== '' ? nextLagName(doc, form.device) : ''), [doc, form.kind, form.device]);
   const kindId = useId();
   const lacpId = useId();
@@ -232,6 +246,33 @@ export function AddStepForm({ controller, stepCount }: { controller: PlansContro
             <option value="off">Off (static bundle)</option>
             <option value="">Not set</option>
           </select>
+        </>
+      )}
+
+      {form.kind === 'swap' && (
+        <>
+          <Pick refEl={first} label="Device" value={form.device} onChange={(v) => setForm((f) => ({ ...f, device: v, part: '' }))} choices={devices} />
+          {form.device !== '' && parts.length === 0 ? (
+            <p className="plans-members__none">This device has no cards, swappable power supplies or optics drawn yet.</p>
+          ) : (
+            <Pick label="Part" value={form.part} onChange={(v) => setForm((f) => ({ ...f, part: v, spare: '' }))} choices={parts} />
+          )}
+          {spares.length > 0 ? (
+            <Pick
+              label="From stock"
+              value={form.spare}
+              empty="Not from stock"
+              choices={spares}
+              onChange={(v) => {
+                const pick = spares.find((s) => s.id === v)?.item;
+                setForm((f) => ({ ...f, spare: v, value: pick?.serial ?? f.value, partModel: pick?.model ?? f.partModel }));
+              }}
+            />
+          ) : form.part !== '' ? (
+            <p className="plans-members__none">No spare of this sort in stock. Add one on the Inventory, Parts, On hand.</p>
+          ) : null}
+          <Field label="New serial" value={form.value} onChange={(v) => set('value', v)} onPaste={paste.onPaste} />
+          <Field label="New model or part no. (if it changes)" value={form.partModel} onChange={(v) => set('partModel', v)} onPaste={paste.onPaste} />
         </>
       )}
 

@@ -7286,7 +7286,14 @@ impl OperatorStore {
         let tx = client.transaction().await?;
         enter_operator_custody(&tx).await?;
         self.check_operator_live(&tx, &acting).await?;
+        // ADR-0072 decision 24: the page shows whose each connection is, by name and sign-in
+        // address, which live on the account. As `list_operators`, the read takes the account
+        // custody beside the operator one and drops it again.
+        tx.execute("SELECT set_config('app.account_custody', 'yes', true)", &[])
+            .await?;
         let page = crate::ai::operator_overview(&tx, &self.ring).await?;
+        tx.execute("SELECT set_config('app.account_custody', 'no', true)", &[])
+            .await?;
         leave_custody(&tx).await?;
         tx.commit().await?;
         Ok(page)
