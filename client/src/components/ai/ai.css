@@ -174,6 +174,28 @@
   color: var(--page);
 }
 
+/* The way an app connects: the house button group, not a solid block. The lit one
+   takes a faint fill and an ink underline, so two long labels don't read as two
+   grey slabs (owner's note on card 12, 2026-10-27). */
+.ai-seg--quiet .ai-seg__item {
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: var(--t-small);
+  transition: none;
+}
+
+.ai-seg--quiet .ai-seg__item:hover {
+  background: var(--control-bg-hover);
+  color: var(--ink);
+}
+
+.ai-seg--quiet .ai-seg__item--on {
+  background: var(--control-on);
+  box-shadow: var(--control-on-mark);
+  color: var(--ink);
+}
+
 .ai-seg__item:disabled {
   opacity: var(--phantom);
   cursor: not-allowed;

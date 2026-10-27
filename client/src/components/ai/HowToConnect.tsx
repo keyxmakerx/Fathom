@@ -79,7 +79,7 @@ export function HowToConnect({
           passwords or the vault. Ideas it sends wait here for a person to accept.
         </Info>
       </div>
-      <div className="ai-seg" role="radiogroup" aria-label="How your app connects">
+      <div className="ai-seg ai-seg--quiet" role="radiogroup" aria-label="How your app connects">
         <button
           type="button"
           role="radio"

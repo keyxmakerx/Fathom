@@ -276,6 +276,8 @@ async function runProof(browser, ctxA, seed) {
   check('K8. it is listed as the Fathom AI helper, on', /Fathom AI helper/.test(await A.locator('.ai-table__row', { hasText: 'Helper on the drive laptop' }).innerText()));
   check('R2. the AI page says what the rules allow', /^AI is on\./.test(await A.getByTestId('ai-rules-line').innerText()));
   await A.getByRole('radio', { name: /It signs in/ }).click();
+  await A.mouse.move(0, 0);
+  await A.waitForTimeout(300);
   await A.screenshot({ path: `${SHOTS}r3-ai-page.png` });
   await A.getByRole('radio', { name: /It uses a key/ }).click();
 
