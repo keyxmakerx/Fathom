@@ -543,7 +543,11 @@ idea into a draft maintenance plan with no edits in it and accepts the idea (ADR
 reading includes maintenance plans and "It's down" issues, without who wrote them or a step's stored edit.
 Both connect pages warn against a personal AI account; Fathom cannot check which account it is (decision
 23), so Allow and Make key ask for it, and Stewards and Admin › AI see it with the owner's sign-in address
-(decision 24, migration 0049). Not yet: dashed "would be added" rows and marks on the drawing itself.
+(decision 24, migration 0049). ADR-0073 (proposed, being built on PR #217): an AI connection may change
+designs only with two ticks, Organisation › AI's "AI apps may change designs" and the connection's own
+"May change designs" at Allow, Make key or later by its owner (migration 0050). Step 1 is built: the ticks,
+columns, seals and screens. Nothing can change a design through them yet. Not yet: dashed "would be added"
+rows and marks on the drawing itself.
 
 **Device panel** (r14 A1, A2): Details, Ports and Notes tabs, actions at the foot (Duplicate the main one,
 Remove device in red). Inventory's toolbar has a role filter, written into the filter line as `role:...`.

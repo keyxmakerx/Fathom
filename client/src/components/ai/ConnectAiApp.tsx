@@ -43,6 +43,7 @@ export function ConnectAiApp({ query, onLeave, go = (url) => window.location.ass
   const [scopes, setScopes] = useState<string[]>([]);
   const [sees, setSees] = useState<Tier[]>(['layout']);
   const [mayRecommend, setMayRecommend] = useState(true);
+  const [mayChange, setMayChange] = useState(false);
   const [days, setDays] = useState(90);
   const [account, setAccount] = useState('');
   const [busy, setBusy] = useState(false);
@@ -102,7 +103,7 @@ export function ConnectAiApp({ query, onLeave, go = (url) => window.location.ass
       const { redirect } = await answerConnect(
         orgId,
         query,
-        allow ? { allow: true, aiAccount: cleanAccount(account) ?? '', scopes, sees, mayRecommend, days } : { allow: false },
+        allow ? { allow: true, aiAccount: cleanAccount(account) ?? '', scopes, sees, mayRecommend, mayChange: changeAllowed && mayChange, days } : { allow: false },
       );
       if (!safeRedirect(redirect)) throw new Error('The app’s return address is not one Fathom will send you to.');
       go(redirect);
@@ -147,8 +148,9 @@ export function ConnectAiApp({ query, onLeave, go = (url) => window.location.ass
 
   const ready = overview.status === 'ready' ? overview.value : null;
   const ceiling = ready?.policy.ceiling ?? [];
+  const changeAllowed = ready?.policy.mayChange === true;
   const folderName = (id: string) => folders.find((f) => f.scopeId === id)?.displayName ?? 'a folder';
-  const words = plainWords({ scopes, sees, mayRecommend }, folderName).map((l) =>
+  const words = plainWords({ scopes, sees, mayRecommend, mayChange: changeAllowed && mayChange }, folderName).map((l) =>
     l === 'What it reads goes to the company behind your AI app.' && app?.kind !== 'other'
       ? `What it reads goes to Anthropic, the company behind ${APP_NAME[app?.kind ?? 'claude']}.`
       : l,
@@ -290,6 +292,12 @@ export function ConnectAiApp({ query, onLeave, go = (url) => window.location.ass
           <input type="checkbox" checked={mayRecommend} onChange={(e) => setMayRecommend(e.target.checked)} />
           <span>Send ideas for a person to accept</span>
         </label>
+        {changeAllowed && (
+          <label className="ai-tick">
+            <input type="checkbox" data-testid="connect-may-change" checked={mayChange} onChange={(e) => setMayChange(e.target.checked)} />
+            <span>May change designs</span>
+          </label>
+        )}
 
         <div className="ai-label">Stops working after</div>
         <DayChoice days={days} maxDays={ready?.policy.maxDays ?? 90} onChange={setDays} />

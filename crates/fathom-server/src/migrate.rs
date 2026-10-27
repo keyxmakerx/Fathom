@@ -305,6 +305,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0049_ai_key_account.sql",
         sql: include_str!("../migrations/0049_ai_key_account.sql"),
     },
+    // May an AI connection change designs: the organisation's tick and the connection's.
+    Migration {
+        version: 50,
+        name: "0050_ai_may_change.sql",
+        sql: include_str!("../migrations/0050_ai_may_change.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

@@ -223,10 +223,11 @@ async function runProof(browser, ctxA, seed) {
   await A.locator('select[aria-label="Add a person"]').selectOption({ index: 1 });
   await A.locator('.ai-tick', { hasText: 'Addresses, VLANs' }).first().locator('input').check();
   await A.locator('.ai-tick', { hasText: 'Claude Code' }).locator('input').check();
+  await A.getByTestId('ai-policy-may-change').check();
   await shot('o3-org-ai-policy');
   await A.getByRole('button', { name: 'Save', exact: true }).click();
   await A.getByText('Saved. It is in the organisation’s history.').waitFor({ timeout: 10000 });
-  check('O3. a Steward turns AI on, names a person and allows Claude Code', true);
+  check('O3. a Steward turns AI on, names a person, allows Claude Code and lets AI apps change designs', true);
 
   // A design to read: a new one, which a single design opens straight into from then on.
   await A.getByRole('tab', { name: 'Designs' }).click();
@@ -257,6 +258,8 @@ async function runProof(browser, ctxA, seed) {
   check('C1. it warns that Claude Code cannot be told apart from another program', /cannot tell it apart from another program/.test(pageText));
   await A.locator('.ai-connect__side .ai-tick', { hasText: 'Addresses, VLANs' }).locator('input').check();
   check('C1b. Allow waits for the AI account the app uses', await A.getByRole('button', { name: 'Allow', exact: true }).isDisabled());
+  const changeTick = A.getByTestId('connect-may-change');
+  check('C1c. with the organisation\'s tick on, Allow offers "May change designs", unticked', (await changeTick.count()) === 1 && !(await changeTick.isChecked()));
   await A.locator('#connect-ai-account').fill('Ann@Example.org');
   await A.getByRole('button', { name: 'Allow', exact: true }).click();
   for (let i = 0; i < 50 && landed === null; i++) await sleep(200);
@@ -337,6 +340,7 @@ async function runProof(browser, ctxA, seed) {
   await shot('o4-org-ai-connection');
   check('O4. the connection is listed as Claude Code, on', /\bon\b/i.test(await A.locator('.ai-table__row', { hasText: 'Claude Code' }).innerText()));
   check('O4b. it shows the AI account the person gave, and their sign-in', (await A.getByTestId('ai-key-account').innerText()).includes('ann@example.org') && (await A.locator('.ai-facts').innerText()).includes('@'));
+  check('O4c. its owner sees "May change designs", unticked, to widen later', (await A.getByTestId('ai-key-may-change').count()) === 1 && !(await A.getByTestId('ai-key-may-change').isChecked()));
   await A.getByRole('button', { name: 'Turn off', exact: true }).click();
   await A.getByRole('button', { name: 'Turn off now' }).click();
   await A.locator('.ai-table__row', { hasText: 'Claude Code' }).filter({ hasText: 'Off' }).waitFor({ timeout: 10000 });

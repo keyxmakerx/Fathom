@@ -1574,6 +1574,13 @@ async fn the_database_refuses_the_moves_a_key_may_never_make() {
         )
         .await;
     assert!(r.is_err(), "a stopped key came back on");
+    let r = client
+        .execute(
+            "UPDATE ai_keys SET may_change = true, row_version = row_version + 1 WHERE id = $1",
+            &[&app_key.id],
+        )
+        .await;
+    assert!(r.is_err(), "a stopped key was let change designs");
     client
         .execute("SELECT set_config('app.tenant_id', '', false)", &[])
         .await
@@ -2277,4 +2284,100 @@ async fn a_refresh_token_works_once_and_the_steward_can_stop_any_app() {
     assert_eq!(status, "200");
     let overview = text(&body);
     assert!(overview.contains("\"kind\":\"connector\""), "{overview}");
+}
+
+/// ADR-0073 decision 1: a connection may change designs only with both ticks. The
+/// organisation's is a Steward's; a connection asks for its own and is refused without the
+/// organisation's; a Steward narrows it but never widens it; the organisation's tick off
+/// stops anyone widening.
+#[tokio::test]
+async fn changing_designs_takes_the_organisations_tick_and_the_connections() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let owner = a_member(&pool, &ring, &estate, "owner", None, Capability::Draw).await;
+    let addr = serve(app(&pool, Arc::clone(&ring)).await).await;
+    let steward = sign_in(addr, &estate.steward).await;
+    let owner_session = sign_in(addr, &owner).await;
+    let o = estate.organisation;
+    let owner_id = owner.account.to_string();
+    let policy = |may_change: bool, version: i64| {
+        canon(vec![
+            ("allowed", Json::Bool(true)),
+            ("makers", strs(&[&owner_id])),
+            ("ceiling", strs(&["layout"])),
+            ("maxDays", Json::Int(90)),
+            ("secondPersonScopes", strs(&[])),
+            ("mayChange", Json::Bool(may_change)),
+            ("ifVersion", Json::Int(version)),
+        ])
+    };
+    let policy_path = format!("/organisations/{o}/ai/policy");
+    let make = |key: &SoftwareKey| {
+        canon(vec![
+            ("publicKey", s(&hex(key.public_key()))),
+            ("label", s("Claude Code on the web")),
+            ("aiAccount", s("owner@example.org")),
+            ("scopes", strs(&[])),
+            ("sees", strs(&["layout"])),
+            ("mayRecommend", Json::Bool(true)),
+            ("mayChange", Json::Bool(true)),
+            ("days", Json::Int(30)),
+        ])
+    };
+    let keys_path = format!("/organisations/{o}/ai/keys");
+
+    // The organisation's tick off: asking for it is refused.
+    let (status, _) = browser(addr, &steward, "POST", &policy_path, &policy(false, 0)).await;
+    assert_eq!(status, "200");
+    let first = SoftwareKey::random().unwrap();
+    let (status, body) = browser(addr, &owner_session, "POST", &keys_path, &make(&first)).await;
+    assert_eq!(status, "403", "{}", text(&body));
+    assert!(text(&body).contains("does not let AI apps change designs"));
+
+    // On: the connection gets it, and says so.
+    let (status, body) = browser(addr, &steward, "POST", &policy_path, &policy(true, 1)).await;
+    assert_eq!(status, "200", "{}", text(&body));
+    assert!(
+        text(&body).contains("\"mayChange\":true"),
+        "{}",
+        text(&body)
+    );
+    let (status, body) = browser(addr, &owner_session, "POST", &keys_path, &make(&first)).await;
+    assert_eq!(status, "200", "{}", text(&body));
+    assert!(
+        text(&body).contains("\"mayChange\":true"),
+        "{}",
+        text(&body)
+    );
+    let key_path = format!("{keys_path}/{}", ai::key_id_of(&first.public_key()));
+
+    // A Steward narrows it; a Steward cannot put it back; its owner can.
+    let tick = |may: bool, version: i64| {
+        canon(vec![
+            ("mayChange", Json::Bool(may)),
+            ("ifVersion", Json::Int(version)),
+        ])
+    };
+    let (status, body) = browser(addr, &steward, "POST", &key_path, &tick(false, 1)).await;
+    assert_eq!(status, "200", "{}", text(&body));
+    assert!(
+        text(&body).contains("\"mayChange\":false"),
+        "{}",
+        text(&body)
+    );
+    let (status, _) = browser(addr, &steward, "POST", &key_path, &tick(true, 2)).await;
+    assert_eq!(status, "403");
+    let (status, body) = browser(addr, &owner_session, "POST", &key_path, &tick(true, 2)).await;
+    assert_eq!(status, "200", "{}", text(&body));
+
+    // The organisation's tick off again: nobody widens a connection to it.
+    let (status, _) = browser(addr, &owner_session, "POST", &key_path, &tick(false, 3)).await;
+    assert_eq!(status, "200");
+    let (status, _) = browser(addr, &steward, "POST", &policy_path, &policy(false, 2)).await;
+    assert_eq!(status, "200");
+    let (status, body) = browser(addr, &owner_session, "POST", &key_path, &tick(true, 4)).await;
+    assert_eq!(status, "403", "{}", text(&body));
+    assert!(text(&body).contains("does not let AI apps change designs"));
 }

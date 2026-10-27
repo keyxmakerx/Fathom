@@ -181,6 +181,7 @@ function HelperKey({
   const [scopes, setScopes] = useState<string[]>([]);
   const [sees, setSees] = useState<Tier[]>(['layout']);
   const [mayRecommend, setMayRecommend] = useState(true);
+  const [mayChange, setMayChange] = useState(false);
   const [days, setDays] = useState(Math.min(90, policy.maxDays));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -197,7 +198,7 @@ function HelperKey({
     setBusy(true);
     setError(null);
     try {
-      const { key } = await makeKey(organisationId, { publicKey: clean, label: label.trim() || 'AI helper', aiAccount, scopes, sees, mayRecommend, days });
+      const { key } = await makeKey(organisationId, { publicKey: clean, label: label.trim() || 'AI helper', aiAccount, scopes, sees, mayRecommend, mayChange: policy.mayChange && mayChange, days });
       setMade(key);
       setPublicKey('');
       onMade(key);
@@ -269,9 +270,15 @@ function HelperKey({
                 <input type="checkbox" checked={mayRecommend} onChange={(e) => setMayRecommend(e.target.checked)} />
                 <span>Send ideas for a person to accept</span>
               </label>
+              {policy.mayChange && (
+                <label className="ai-tick">
+                  <input type="checkbox" data-testid="ai-helper-may-change" checked={mayChange} onChange={(e) => setMayChange(e.target.checked)} />
+                  <span>May change designs</span>
+                </label>
+              )}
               <div className="ai-label">Stops working after</div>
               <DayChoice days={days} maxDays={policy.maxDays} onChange={setDays} />
-              <PlainWords lines={plainWords({ scopes, sees, mayRecommend }, folderName)} />
+              <PlainWords lines={plainWords({ scopes, sees, mayRecommend, mayChange: policy.mayChange && mayChange }, folderName)} />
               {error && (
                 <p className="ai-error" role="alert">
                   {error}

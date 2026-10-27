@@ -3,7 +3,8 @@
 **Status:** proposed 2026-10-27. The owner approved sign-off card r41-ai-write, option B ("A 'May
 change designs' tick on a connection, off by default"), and answered its question in a note:
 "So to clarify this is per user and per org, or only per org? I was thinking both". Both it is.
-Not built. A security sweep follows the build, and nothing merges before it.
+Step 1 below is built (migration 0050); steps 2 to 4 are not. A security sweep follows the build, and
+nothing merges before it.
 
 **Reopens** ADR-0072 decision 2 ("read and recommend only") on merit (CLAUDE.md rule 6), for
 connections that are given this power and no others. **Keeps** ADR-0063 (a change is one batch the

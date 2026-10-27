@@ -458,6 +458,8 @@ pub struct Policy {
     pub second_person_scopes: Vec<String>,
     /// Which of [`APPS`] may connect through the sign-in.
     pub apps: Vec<String>,
+    /// Whether a connection here may change designs at all (ADR-0073 decision 1).
+    pub may_change: bool,
     pub changed_by: Option<String>,
     pub changed_unix: Option<i64>,
     changed_seq: i64,
@@ -474,6 +476,7 @@ impl Policy {
             max_days: 90,
             second_person_scopes: Vec::new(),
             apps: vec!["claude".to_string()],
+            may_change: false,
             changed_by: None,
             changed_unix: None,
             changed_seq: 0,
@@ -493,6 +496,10 @@ impl Policy {
             strs(&self.second_person_scopes),
         );
         m.insert("apps".into(), strs(&self.apps));
+        // Only when on, so a row written before migration 0050 still verifies.
+        if self.may_change {
+            m.insert("may_change".into(), Json::Bool(true));
+        }
         m.insert("changed_by".into(), opt_str(&self.changed_by));
         Json::Obj(m).to_canonical_bytes()
     }
@@ -522,6 +529,7 @@ impl Policy {
             strs(&self.second_person_scopes),
         );
         m.insert("apps".into(), strs(&self.apps));
+        m.insert("mayChange".into(), Json::Bool(self.may_change));
         m.insert("changedBy".into(), opt_str(&self.changed_by));
         m.insert("changedAt".into(), opt_int(self.changed_unix));
         m.insert("version".into(), Json::Int(self.version as i64));
@@ -539,7 +547,7 @@ pub(crate) async fn read_policy(
         .query_opt(
             &format!(
                 "SELECT allowed, makers, ceiling, max_days, second_person_scopes, apps, changed_by, \
-                        extract(epoch FROM changed_at)::bigint, changed_seq, row_version, row_seal \
+                        extract(epoch FROM changed_at)::bigint, changed_seq, row_version, row_seal, may_change \
                  FROM ai_policies WHERE organisation_id = $1{}",
                 if lock { " FOR UPDATE" } else { "" }
             ),
@@ -560,6 +568,7 @@ pub(crate) async fn read_policy(
         changed_unix: Some(row.get(7)),
         changed_seq: row.get(8),
         version: row.get(9),
+        may_change: row.get(11),
     };
     let stored: Vec<u8> = row.get(10);
     if !crypto::ct_eq(&p.seal(ring, organisation), &stored) {
@@ -682,6 +691,8 @@ pub struct AiKey {
     pub ai_account: Option<String>,
     /// The owner's Fathom sign-in email, for the people who look after the organisation.
     pub owner_email: String,
+    /// The connection's own "May change designs" tick (ADR-0073 decision 1).
+    pub may_change: bool,
 }
 
 const KEY_COLUMNS: &str = "k.organisation_id, k.id, k.owner, \
@@ -691,10 +702,10 @@ const KEY_COLUMNS: &str = "k.organisation_id, k.id, k.owner, \
      extract(epoch FROM k.expires_at)::bigint, k.state, k.changed_seq, \
      extract(epoch FROM k.disabled_at)::bigint, k.disabled_by, k.disabled_by_kind, \
      k.disabled_reason, k.row_version, k.row_seal, k.ai_account, \
-     coalesce((SELECT a.email FROM accounts a WHERE a.id = k.owner), '')";
+     coalesce((SELECT a.email FROM accounts a WHERE a.id = k.owner), ''), k.may_change";
 
 /// How many columns [`KEY_COLUMNS`] selects; a query's own columns follow.
-const KEY_COLUMN_COUNT: usize = 24;
+const KEY_COLUMN_COUNT: usize = 25;
 
 impl AiKey {
     fn from_row(row: &tokio_postgres::Row) -> (Self, Vec<u8>) {
@@ -723,6 +734,7 @@ impl AiKey {
                 version: row.get(20),
                 ai_account: row.get(22),
                 owner_email: row.get(23),
+                may_change: row.get(24),
             },
             row.get(21),
         )
@@ -757,6 +769,10 @@ impl AiKey {
         // Only when given, so a row made before migration 0049 still verifies.
         if let Some(account) = &self.ai_account {
             m.insert("ai_account".into(), Json::Str(account.clone()));
+        }
+        // Only when on, so a row written before migration 0050 still verifies.
+        if self.may_change {
+            m.insert("may_change".into(), Json::Bool(true));
         }
         Json::Obj(m).to_canonical_bytes()
     }
@@ -801,6 +817,7 @@ impl AiKey {
         m.insert("scopes".into(), strs(&self.scopes));
         m.insert("sees".into(), strs(&self.sees));
         m.insert("mayRecommend".into(), Json::Bool(self.may_recommend));
+        m.insert("mayChange".into(), Json::Bool(self.may_change));
         m.insert("createdAt".into(), Json::Int(self.created_unix));
         m.insert("expiresAt".into(), Json::Int(self.expires_unix));
         let state = if self.state == "on" && self.expires_unix <= now {
@@ -857,7 +874,7 @@ async fn write_key(tx: &Transaction<'_>, ring: &KeyRing, key: &AiKey) -> Result<
                  disabled_at = CASE WHEN $10::bigint IS NULL THEN NULL \
                                     ELSE to_timestamp($10::bigint) END, \
                  disabled_by = $11, disabled_by_kind = $12, disabled_reason = $13, \
-                 row_version = $14, row_seal = $15 \
+                 row_version = $14, row_seal = $15, may_change = $16 \
              WHERE organisation_id = $1 AND id = $2 AND row_version = $14 - 1",
             &[
                 &key.organisation,
@@ -875,6 +892,7 @@ async fn write_key(tx: &Transaction<'_>, ring: &KeyRing, key: &AiKey) -> Result<
                 &key.disabled_reason,
                 &key.version,
                 &seal.to_vec(),
+                &key.may_change,
             ],
         )
         .await?;
@@ -1043,6 +1061,7 @@ pub struct PolicyInput {
     pub max_days: i32,
     pub second_person_scopes: Vec<String>,
     pub apps: Vec<String>,
+    pub may_change: bool,
 }
 
 /// One spelling of a policy's apps: known names only, each once, in [`APPS`] order.
@@ -1124,6 +1143,7 @@ pub async fn set_policy(
                 ("max_days", Json::Int(input.max_days as i64)),
                 ("second_person_scopes", strs(&second)),
                 ("apps", strs(&apps)),
+                ("may_change", Json::Bool(input.may_change)),
                 ("by", Json::Str(me.clone())),
             ],
         ),
@@ -1136,6 +1156,7 @@ pub async fn set_policy(
         max_days: input.max_days,
         second_person_scopes: second,
         apps,
+        may_change: input.may_change,
         changed_by: Some(me.clone()),
         changed_unix: Some(now_unix()),
         changed_seq: appended.seq,
@@ -1145,8 +1166,9 @@ pub async fn set_policy(
     let changed = if current.version == 0 {
         tx.execute(
             "INSERT INTO ai_policies (organisation_id, allowed, makers, ceiling, max_days, \
-                 second_person_scopes, changed_by, changed_seq, row_version, row_seal, apps) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+                 second_person_scopes, changed_by, changed_seq, row_version, row_seal, apps, \
+                 may_change) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
             &[
                 &organisation,
                 &next.allowed,
@@ -1159,6 +1181,7 @@ pub async fn set_policy(
                 &next.version,
                 &seal,
                 &next.apps,
+                &next.may_change,
             ],
         )
         .await?
@@ -1166,7 +1189,8 @@ pub async fn set_policy(
         tx.execute(
             "UPDATE ai_policies SET allowed = $2, makers = $3, ceiling = $4, max_days = $5, \
                  second_person_scopes = $6, changed_by = $7, changed_at = now(), \
-                 changed_seq = $8, row_version = $9, row_seal = $10, apps = $11 \
+                 changed_seq = $8, row_version = $9, row_seal = $10, apps = $11, \
+                 may_change = $12 \
              WHERE organisation_id = $1 AND row_version = $9 - 1",
             &[
                 &organisation,
@@ -1180,6 +1204,7 @@ pub async fn set_policy(
                 &next.version,
                 &seal,
                 &next.apps,
+                &next.may_change,
             ],
         )
         .await?
@@ -1205,6 +1230,8 @@ pub struct NewKey {
     pub scopes: Vec<String>,
     pub sees: Vec<String>,
     pub may_recommend: bool,
+    /// Ticked "May change designs" (ADR-0073 decision 1).
+    pub may_change: bool,
     pub days: i32,
 }
 
@@ -1239,6 +1266,7 @@ pub async fn make_key(
             scopes: input.scopes,
             sees: input.sees,
             may_recommend: input.may_recommend,
+            may_change: input.may_change,
             days: input.days,
         },
     )
@@ -1255,6 +1283,8 @@ pub struct NewConnector {
     pub scopes: Vec<String>,
     pub sees: Vec<String>,
     pub may_recommend: bool,
+    /// Ticked "May change designs" (ADR-0073 decision 1).
+    pub may_change: bool,
     pub days: i32,
 }
 
@@ -1310,6 +1340,7 @@ pub(crate) async fn make_connector(
             scopes: input.scopes,
             sees: input.sees,
             may_recommend: input.may_recommend,
+            may_change: input.may_change,
             days: input.days,
         },
     )
@@ -1326,6 +1357,7 @@ struct Registration {
     scopes: Vec<String>,
     sees: Vec<String>,
     may_recommend: bool,
+    may_change: bool,
     days: i32,
 }
 
@@ -1355,6 +1387,11 @@ async fn register(
     if !is_subset(&sees, &policy.ceiling) {
         return Err(AiError::NotAllowed(
             "this organisation does not let a key see that much",
+        ));
+    }
+    if input.may_change && !policy.may_change {
+        return Err(AiError::NotAllowed(
+            "this organisation does not let AI apps change designs",
         ));
     }
     if !DAYS.contains(&input.days) || input.days > policy.max_days {
@@ -1420,6 +1457,7 @@ async fn register(
                 ("scopes", strs(&scopes)),
                 ("sees", strs(&sees)),
                 ("may_recommend", Json::Bool(input.may_recommend)),
+                ("may_change", Json::Bool(input.may_change)),
                 ("expires", Json::Int(expires)),
             ],
         ),
@@ -1449,13 +1487,14 @@ async fn register(
         version: 1,
         ai_account: Some(ai_account),
         owner_email: String::new(),
+        may_change: input.may_change,
     };
     tx.execute(
         "INSERT INTO ai_keys (organisation_id, id, owner, kind, public_key, client_id, label, \
              scopes, sees, may_recommend, created_at, created_seq, expires_at, state, \
-             changed_seq, row_version, row_seal, ai_account) \
+             changed_seq, row_version, row_seal, ai_account, may_change) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11::bigint), $12, \
-                 to_timestamp($13::bigint), 'on', $12, 1, $14, $15)",
+                 to_timestamp($13::bigint), 'on', $12, 1, $14, $15, $16)",
         &[
             &key.organisation,
             &key.id,
@@ -1472,6 +1511,7 @@ async fn register(
             &key.expires_unix,
             &key.seal(auth.ring).to_vec(),
             &key.ai_account,
+            &key.may_change,
         ],
     )
     .await?;
@@ -1492,6 +1532,7 @@ pub struct KeyChange {
     pub scopes: Option<Vec<String>>,
     pub sees: Option<Vec<String>>,
     pub may_recommend: Option<bool>,
+    pub may_change: Option<bool>,
     /// End the key this many days from now, if that is sooner than its end.
     pub ends_in_days: Option<i32>,
 }
@@ -1568,6 +1609,12 @@ pub async fn change_key(
         }
         key.may_recommend = may;
     }
+    if let Some(may) = change.may_change {
+        if may && !key.may_change {
+            widens = true;
+        }
+        key.may_change = may;
+    }
     if let Some(days) = change.ends_in_days {
         if !(0..=365).contains(&days) {
             return Err(AiError::Malformed("a key ends 0 to 365 days from now"));
@@ -1594,6 +1641,11 @@ pub async fn change_key(
                 "this organisation does not let a key see that much",
             ));
         }
+        if key.may_change && !policy.may_change {
+            return Err(AiError::NotAllowed(
+                "this organisation does not let AI apps change designs",
+            ));
+        }
     }
 
     let appended = chains::append_org(
@@ -1615,6 +1667,7 @@ pub async fn change_key(
                 ("scopes", strs(&key.scopes)),
                 ("sees", strs(&key.sees)),
                 ("may_recommend", Json::Bool(key.may_recommend)),
+                ("may_change", Json::Bool(key.may_change)),
                 ("expires", Json::Int(key.expires_unix)),
             ],
         ),
@@ -2987,6 +3040,7 @@ mod tests {
             version: 1,
             ai_account: None,
             owner_email: String::new(),
+            may_change: false,
         };
         let t = tiers(&key, &policy);
         assert!(t.contains(&Tier::Addresses));

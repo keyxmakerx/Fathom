@@ -8346,6 +8346,7 @@ async fn an_operator_stops_an_ai_key_or_turns_ai_off_and_widens_nothing() {
                     scopes: vec![],
                     sees: vec!["layout".into()],
                     may_recommend: false,
+                    may_change: false,
                     days: 30,
                 },
             )
@@ -8381,6 +8382,7 @@ async fn an_operator_stops_an_ai_key_or_turns_ai_off_and_widens_nothing() {
                 max_days: 90,
                 second_person_scopes: vec![],
                 apps: vec!["claude".into()],
+                may_change: false,
             },
             0,
         )
