@@ -3,8 +3,16 @@
    Firefox 95+, Safari 18.2+ (css.at-rules.page.size). Both read from mdn/browser-compat-data on
    2026-10-26. Where `size` is not honoured, the page block is still that size and the person picks the
    matching paper in the print dialog, which the preview says. Black on white in both themes: a code
-   needs dark modules on a light field. */
+   needs dark modules on a light field. A cable wrap or flag has one page per cable thickness: its length
+   is the tape that goes round the cable (`labels.ts`, `presetOf`), checked against these by a test. */
 
+@page label-tze-36 { size: 80mm 36mm; margin: 0; }
+@page label-wrap-24-slim { size: 21mm 24mm; margin: 0; }
+@page label-wrap-24-cat6 { size: 27mm 24mm; margin: 0; }
+@page label-wrap-24-cat6a { size: 34mm 24mm; margin: 0; }
+@page label-flag-24-slim { size: 113mm 24mm; margin: 0; }
+@page label-flag-24-cat6 { size: 119mm 24mm; margin: 0; }
+@page label-flag-24-cat6a { size: 126mm 24mm; margin: 0; }
 @page label-tze-24 { size: 64mm 24mm; margin: 0; }
 @page label-tze-18 { size: 56mm 18mm; margin: 0; }
 @page label-tze-12 { size: 48mm 12mm; margin: 0; }
@@ -12,6 +20,13 @@
 @page label-ql-29 { size: 90mm 29mm; margin: 0; }
 @page label-a4 { size: 210mm 297mm; margin: 0; }
 
+.labels-page--tze-36 { page: label-tze-36; }
+.labels-page--wrap-24-slim { page: label-wrap-24-slim; }
+.labels-page--wrap-24-cat6 { page: label-wrap-24-cat6; }
+.labels-page--wrap-24-cat6a { page: label-wrap-24-cat6a; }
+.labels-page--flag-24-slim { page: label-flag-24-slim; }
+.labels-page--flag-24-cat6 { page: label-flag-24-cat6; }
+.labels-page--flag-24-cat6a { page: label-flag-24-cat6a; }
 .labels-page--tze-24 { page: label-tze-24; }
 .labels-page--tze-18 { page: label-tze-18; }
 .labels-page--tze-12 { page: label-tze-12; }
@@ -103,6 +118,48 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* A wrap: the name across the tape again and again, each column reading along the cable. */
+.label--wrap {
+  justify-content: space-around;
+}
+.label__wrap-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  writing-mode: vertical-rl;
+  line-height: 1.1;
+}
+.label__wrap-col b,
+.label__wrap-col span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A flag: a printed face, the plain stretch that goes round the cable, and the other face. */
+.label--flag {
+  padding: 0;
+  gap: 0;
+}
+.label__face {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 100%;
+  min-width: 0;
+}
+.label__around {
+  flex-shrink: 0;
+  height: 100%;
+  box-sizing: border-box;
+  border-left: 0.2mm dashed #000000;
+  border-right: 0.2mm dashed #000000;
 }
 
 @media print {

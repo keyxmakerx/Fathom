@@ -188,7 +188,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const [notice, setNotice] = useState<string | null>(null);
   // The filter line stays folded until Filter is pressed or a filter is set (r30-small).
   const [filterShown, setFilterShown] = useState(false);
-  const [labels, setLabels] = useState<{ items: LabelItem[]; note?: string } | null>(null);
+  const [labels, setLabels] = useState<{ items: LabelItem[]; note?: string; cables?: boolean } | null>(null);
   const [pasteText, setPasteText] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   // The design as it was when the importer opened, and as it is now (the dialog's callback is old by
@@ -754,7 +754,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
 
   return (
     <Shell {...shellProps} lens={lens} editor={null} viewOnly={!canDraw} mainView={mainView}>
-      {labels ? <LabelsPreview items={labels.items} note={labels.note} onClose={() => setLabels(null)} /> : null}
+      {labels ? <LabelsPreview items={labels.items} note={labels.note} cables={labels.cables} onClose={() => setLabels(null)} /> : null}
       {doc == null ? (
         <div className="inventory-place__loading">{loadError ?? <SkeletonRows label="Opening the design…" rows={9} />}</div>
       ) : (
@@ -902,6 +902,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                         setLabels({
                           items: labelItems(kind, checkedRows, window.location.origin, session.designId ?? ''),
                           note: kind === 'cables' ? 'Two labels per cable, one for each end.' : undefined,
+                          cables: kind === 'cables',
                         })
                     : undefined
                 }
