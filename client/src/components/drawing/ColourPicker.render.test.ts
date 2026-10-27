@@ -7,7 +7,7 @@ import { ColourPicker } from './ColourPicker';
 // Render-to-string smoke tests only, per `shell/Popover.render.test.ts`'s
 // own precedent: no DOM testing library is installed, so Escape, click-away
 // and Enter (this component's `useEffect`) are not exercised here — see the
-// gap noted in the handback report. This checks the initial markup: which
+// gap noted in the report. This checks the initial markup: which
 // sheaths a kind lists, and which one starts selected.
 
 describe('ColourPicker (render-to-string)', () => {

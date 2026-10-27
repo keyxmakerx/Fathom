@@ -10,7 +10,7 @@
 
 import type { CameraStop } from './geometry';
 import type { ChassisView, InletView, PortView } from './contract';
-// `ShelfView`/`OccupantView` are this session's own new shapes (ADR-0051 §1,
+// `ShelfView`/`OccupantView` are new shapes (ADR-0051 §1,
 // the brief's own CONTRACT block) — not yet in `./contract`'s re-export list
 // (that file is off limits this session; the lead widens it once the shelf
 // track lands for good, the same "switches back to a plain re-export" note
@@ -36,7 +36,7 @@ export function visibleFaceOf(mountingFace: Facing, elevation: Facing): Facing {
 
 /** One chassis, resolved for an elevation: which faceplate faces that way,
  * the ports and inlets that faceplate actually carries (`ChassisView.ports`/
- * `psuInlets` carry both faceplates at once, this session's contract —
+ * `psuInlets` carry both faceplates at once, per `contract.ts` —
  * `PortView.face`/`InletView.face` is what this filters on), and whether
  * there is nothing on that face but the chassis's own name — ADR-0050 §1:
  * "a plain plate carrying its name, never nothing." */
@@ -87,7 +87,7 @@ export function powerLeadHandle(elevation: Facing, cameraStop: CameraStop): 'rai
  * from ADR-0051 §1 and the Shelf board (`design/places/renders/Shelf.png`):
  * a shelf's occupants show in both elevations, front and rear faces per
  * occupant by the same rule as a chassis. `OccupantView`
- * (this session's own CONTRACT) carries no mounting face of its own the way
+ * (`contract.ts`) carries no mounting face of its own the way
  * `ChassisView.face` does: a shelf does not flip independently of the rack
  * it is mounted in (there is no separate `SitsOn`-side "front | rear"
  * control anywhere in ADR-0051 §1 or the Shelf board), so the plainest
@@ -101,7 +101,7 @@ export interface ShelfOccupantFaceplateItem {
   occupant: OccupantView;
   visibleFace: Facing;
   /** `occupant.ports` already carries an occupant's PSU inlet alongside its
-   * ordinary ports (this session's CONTRACT: `OccupantView` has one `ports`
+   * ordinary ports (`contract.ts`: `OccupantView` has one `ports`
    * list, unlike `ChassisView`'s separate `ports`/`psuInlets` — a sketch
    * device's inlet is typed by hand exactly like its data ports, UI-SPEC
    * "Places"'s own `nuc-01` example, C14 inlet included under one

@@ -571,7 +571,7 @@ describe('createShelf', () => {
     expect(readPassiveNodeFields(shelf).model).toBe(shelfModel.model);
   });
 
-  // This session's brief item 1 — `PassiveNode.label` is schema card "1"
+  // `PassiveNode.label` is schema card "1"
   // (required); `createShelf` writes it from `opts.label` rather than
   // leaving it absent, so the shelf's plate and editor have a name to show
   // instead of falling back to the node id.
@@ -717,7 +717,7 @@ describe('fixTo', () => {
   });
 });
 
-// This session's brief item 2 — "a box with no catalogue entry": the
+// "a box with no catalogue entry": the
 // palette's own two new rows, `racks/palette.ts`.
 describe('createSketchDevice', () => {
   it('creates a Device and a Chassis, HasChassis between them, no Chassis.model', () => {
@@ -765,7 +765,7 @@ describe('createSketchDevice', () => {
   });
 });
 
-// This session's brief item 2 — "a board".
+// "a board".
 describe('createBoard', () => {
   it('creates a PassiveNode form board, FixedTo the surface, with optional xMm/yMm', () => {
     const { doc, premisesId } = docWithPremises();

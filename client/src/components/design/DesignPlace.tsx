@@ -113,7 +113,7 @@ export interface DesignPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | '
 }
 
 /**
- * This session's brief item 1 — the parent Racks and Inventory share.
+ * The parent Racks and Inventory share.
  * `useDesignSession` is called exactly ONCE here, above the `if` that picks
  * which of the two place components actually renders: switching `place`
  * only ever swaps which of `RacksPlace`/`InventoryPlace` is mounted, never
@@ -122,8 +122,8 @@ export interface DesignPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | '
  * and a change queued the moment before someone clicked "Inventory" still
  * goes out.
  *
- * Also holds the one thing "Show on rack"/"Open in inventory" (this
- * session's brief item 5) needs to cross the switch: `focus`, the
+ * Also holds the one thing "Show on rack"/"Open in inventory"
+ * needs to cross the switch: `focus`, the
  * `Selection` Racks should open already showing. Each call gets a fresh
  * object (a new `{ kind, id }` literal) so `RacksPlace`'s own edge-triggered
  * effect can tell "asked again" from "the same selection, unchanged" by
@@ -750,7 +750,7 @@ export function DesignPlace(props: DesignPlaceProps) {
   const openInInventory = useCallback(
     (chassisId: string) => {
       // The reverse trip carries no focus today — `InventoryPlace` has no
-      // per-row scroll target of its own yet (its brief item 4 opens the
+      // per-row scroll target of its own yet (its opens the
       // editor by selection, not by a remembered row); the chassis id is
       // still named in case a later session adds one.
       void chassisId;

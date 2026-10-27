@@ -58,7 +58,7 @@ describe('paletteFromCatalogue', () => {
   });
 });
 
-// This session's brief item 2 — the palette's own two rows beside the
+// The palette's own two rows beside the
 // catalogue's models.
 describe('paletteRows', () => {
   it('lists the common devices first, then any device, the backboard, and the catalogue', () => {

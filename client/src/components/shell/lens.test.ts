@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { isLensLit, LENS_LABEL, LENSES } from './lens';
 
 describe('LENSES', () => {
-  it('is fixed in the order BRIEF.md names: Cables, Links, Routing, Power, Owner', () => {
+  it('is fixed in the order the shell brief names: Cables, Links, Routing, Power, Owner', () => {
     expect(LENSES).toEqual(['cables', 'links', 'routing', 'power', 'owner']);
   });
 

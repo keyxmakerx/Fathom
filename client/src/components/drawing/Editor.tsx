@@ -10,15 +10,15 @@ import { PORT_CONNECTOR_VALUES, PORT_FACE_VALUES, PORT_SERVICE_VALUES, faceWords
 import { expandPortPattern, previewLabels } from '../../document/portPattern';
 // `OWNERSHIP_VALUES` (`Cable.ownership`'s own enum) — the same "mirrored
 // once, never guessed" reasoning `DEVICE_ROLES` above already gives, for
-// this session's own cable panel.
+// the cable panel.
 import { OWNERSHIP_VALUES } from '../../document/cables';
 import { SHEATH_VAR, needsHairlineOutline, sheathsFor } from './sheath';
 // `FixtureView`/`Placement` are not in `contract.ts`'s own re-export list
 // (frozen this session — that file's header: "the view re-exports stay"),
 // but they are `document/view.ts`'s own read-side shapes, the same ones
 // `ChassisView.placement` and `SurfaceView.fixtures` already carry
-// structurally; named here so the "PLACED ON" control (ADR-0051 §1, this
-// session's brief item 1) can walk a board's nested fixtures and build the
+// structurally; named here so the "PLACED ON" control (ADR-0051 §1)
+// can walk a board's nested fixtures and build the
 // right `Placement` literal. Type-only, the same as `DEVICE_ROLES` above —
 // this file still never reads or writes a `Document`.
 import type { FixtureView, Placement, RackView } from '../../document/view';
@@ -404,7 +404,7 @@ function SelectLink({ label, onSelect }: { label: string; onSelect?: () => void 
 }
 
 // ===========================================================================
-// This session's brief item 2 — a selected port's own panel: the device and
+// A selected port's own panel: the device and
 // port label (each of the three placement branches below already carries
 // this), connector, service, face, its cable if any (this section) with the
 // far end in words and the cable's sheath swatch, and two actions — Select
@@ -632,7 +632,7 @@ export function createSurfaceChange(premisesId: string, label: string, form: str
 }
 
 // ===========================================================================
-// UI-SPEC "Cables" — the selected cable's own panel (this session's brief).
+// UI-SPEC "Cables" — the selected cable's own panel.
 // `cableEndText` is pulled out pure, same reasoning as `moveToRackChange`
 // and its siblings above: no DOM to render or click to simulate in this
 // project's tests, so the wording a caller would see is asserted directly.
@@ -658,7 +658,7 @@ export function cableEndText(view: ClosetView, end: CableEnd): string {
   return `${located.fixture.label || ABSENT} · ${portLabel}`;
 }
 
-/** This session's brief items 2/3 — a selected port's own far end: the
+/** A selected port's own far end: the
  * OTHER end of the cable filling it (`CableView.ends` holds 0, 1 or 2 —
  * `document/view.ts`'s own doc on `Terminates`'s "0..2" cardinality), found
  * by excluding the end that IS `thisPortId`. `undefined` when this view
@@ -709,7 +709,7 @@ export function removeDeviceChange(chassisId: string): EditorChange {
 }
 
 /** The sheath colour selector — UI-SPEC "Cables": "Colour is the real
- * sheath," and this session's brief: "a colour selector using the same
+ * sheath," and "a colour selector using the same
  * lists as the connect-time picker for that kind (power fixed to grey)
  * showing the current one marked and each swatch as the token's colour
  * with its name." `sheathsFor`/`SHEATH_VAR` (`./sheath.ts`) are the exact
@@ -1127,7 +1127,7 @@ function PlacedOnControl({ itemId, placement, view, actions }: PlacedOnControlPr
   );
 }
 
-/** ADR-0051 §1, brief item 2 — "+ add a port" on a sketch: label, connector
+/** ADR-0051 §1 — "+ add a port" on a sketch: label, connector
  * (the schema's own `PhysicalPort.connector` enum, `document/compat.ts`'s
  * `PORT_CONNECTOR_VALUES`), service (optional, blank means unset) and face.
  * Round 15, ports by pattern: the one name field also takes a pattern, so
@@ -1293,7 +1293,7 @@ function PortsInWords({ chassis }: { chassis: ChassisView }) {
   );
 }
 
-/** ADR-0051 §1, brief item 2 — a sketch's own ports, each marked TYPED
+/** ADR-0051 §1 — a sketch's own ports, each marked TYPED
  * under a "typed by hand" heading with a remove action, plus "+ Add a port". A
  * chassis WITH a catalogue model shows its ports read-only "as today" (the
  * brief's own words) — this section is never rendered for one. */
@@ -1631,7 +1631,7 @@ function SwapModelControl({ chassisId, current, catalogue, actions }: { chassisI
   );
 }
 
-/** ADR-0051 §1, brief item 3 — a rack's own "+ add a shelf": a unit and an
+/** ADR-0051 §1 — a rack's own "+ add a shelf": a unit and an
  * optional catalogue model drawn from the same list the palette itself
  * offers (`racks/palette.ts`'s `paletteFromCatalogue`) — never a hard-coded
  * list (BRIEF's own "no sample data in component source"). */
@@ -1663,8 +1663,8 @@ function AddShelfControl({ rackId, catalogue, actions }: { rackId: string; catal
       setRefusal('unit must be a whole number, 1 or more');
       return;
     }
-    // `PassiveNode.label` is schema card "1" — required (this session's
-    // brief item 1, `commands.ts`'s `CreateShelfOptions.label`'s own doc):
+    // `PassiveNode.label` is schema card "1" — required
+    // (`commands.ts`'s `CreateShelfOptions.label`'s own doc):
     // refused here, before `createShelf` ever gets a chance to write an
     // empty string, the same "parse before the write side sees it" shape
     // `commitRack`'s own unit check already follows.
@@ -2107,7 +2107,7 @@ function panelFor(
         </div>
         <TypedNote shown={rack.bay != null} />
 
-        {/* ADR-0051 §1, brief item 3 — "a rack's editor gains '+ add a
+        {/* ADR-0051 §1 — "a rack's editor gains '+ add a
             shelf'". */}
         <AddShelfControl rackId={rack.id} catalogue={catalogue} actions={actions} />
         <RackTidyControl rack={rack} actions={actions} />
@@ -2304,7 +2304,7 @@ function panelFor(
               body: (
                 <>
                   <div className="drawing-editor__group">Device</div>
-                  {/* ADR-0051 §1, brief item 2 — "a box with no catalogue entry draws
+                  {/* ADR-0051 §1 — "a box with no catalogue entry draws
                       from ports typed by hand and says so." */}
                   {chassisSketch ? (
                     <div style={TYPED_NOTE_STYLE}>
@@ -2345,7 +2345,7 @@ function panelFor(
                       `PlacedOnControl` below already draws "Placed on: none" for. */}
                   {rack ? <Field label="Rack" value={`${rack.label} · ${uRange}`} /> : null}
                   {rack ? <Field label="Face" value={chassis.face} /> : null}
-                  {/* ADR-0051 §1, brief item 1 — "PLACED ON" as three choices, the
+                  {/* ADR-0051 §1 — "PLACED ON" as three choices, the
                       current one marked. */}
                   <PlacedOnControl itemId={chassis.id} placement={chassis.placement} view={view} actions={actions} />
 
@@ -2385,7 +2385,7 @@ function panelFor(
                   <Field label="Ports" value={`${chassis.ports.filter((p) => p.cable != null).length} of ${chassis.ports.length} cabled`} />
                   <PortsInWords chassis={chassis} />
 
-                  {/* ADR-0051 §1, brief item 2 — a sketch's own ports, typed by hand,
+                  {/* ADR-0051 §1 — a sketch's own ports, typed by hand,
                       each marked TYPED, with add/remove. A catalogued chassis keeps
                       its read-only "Ports" count above, unchanged. */}
                   {chassisSketch ? <SketchPortsSection chassisId={chassis.id} ports={chassis.ports} actions={actions} /> : null}
@@ -2615,7 +2615,7 @@ function panelFor(
     );
   }
 
-  // UI-SPEC "Cables" — this session's brief: a selected cable's own panel.
+  // UI-SPEC "Cables" — a selected cable's own panel.
   // `view.cables` (`ClosetView`, `contract.ts`'s re-export) is the one place
   // a `Cable` lives in this view, the same "scan by kind" `document/view.ts`'s
   // own file header gives `viewOf` for a root-level node — `null` when this
@@ -2637,7 +2637,7 @@ function panelFor(
         <TypedNote shown={(cable.label ?? '').length > 0} />
 
         {/* "its two ends in words (device and port each side, or the
-            outside label)". This session's brief item 3 — "Go to end A and
+            outside label)". "Go to end A and
             Go to end B, each selecting that port and panning to it" —
             offered only for a real port end; an outside end has no port to
             go to. */}
@@ -2726,7 +2726,7 @@ function panelFor(
         <div className="drawing-editor__title">{port.label || ABSENT}</div>
         <Field label="Device" value={chassis.hostname || UNNAMED_HOSTNAME} />
         <Field label="Connector" value={port.connector} />
-        {/* This session's brief item 2 — "connector, service, face". */}
+        {/* "connector, service, face". */}
         <Field label="Service" value={port.service ?? ABSENT} />
         <Field label="Face" value={port.face} />
         <Field label="Uplink" value={port.uplink ? 'yes' : 'no'} />

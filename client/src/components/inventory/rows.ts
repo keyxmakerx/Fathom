@@ -71,7 +71,7 @@ export function whereText(placement: Placement, labels: WhereLabels = {}): strin
 
 // ---------------------------------------------------------------------------
 // Last change — "the newest provenance assertedAt among the device's
-// fields, as a date" (this session's brief item 3).
+// fields, as a date".
 
 /** Every node id whose fields count as "the device's own" for the
  * last-change rule: the `Device` node, its `Chassis`, every port on its
@@ -148,8 +148,7 @@ export function portsCabledOfTotal(ports: readonly PortView[]): string {
   return `${cabled} / ${ports.length}`;
 }
 
-/** UI-SPEC "Power" / ADR-0050 §4, read into the four words this session's
- * brief names: `fed` (every fitted inlet is cabled), `single-fed`
+/** UI-SPEC "Power" / ADR-0050 §4, read into four words: `fed` (every fitted inlet is cabled), `single-fed`
  * (`singleFed`), `one fitted` (`oneFitted`), or `ABSENT` — for a chassis
  * with no PSU slots at all, or the one shape those two flags do not cover
  * (a single fitted inlet that is not cabled): "absent" is what an
@@ -268,7 +267,7 @@ export function columnsForLens(lens: Lens): readonly ColumnKey[] {
 }
 
 // ---------------------------------------------------------------------------
-// Device rows and grouping (this session's brief item 3).
+// Device rows and grouping.
 
 export interface DeviceRow {
   /** The exact `Selection` a click on this row raises — `EditorFor`'s own
@@ -288,7 +287,7 @@ export interface DeviceRow {
 }
 
 /** The row a rack-mounted `ChassisView` reduces to — exported so "the row
- * derivation" (this session's brief own list of pure parts to test) is
+ * derivation" (one of the pure parts with its own tests) is
  * exercised directly, against a hand-built `ChassisView` literal, the same
  * "no `Document`, no React" shape `Editor.render.test.ts` already uses for
  * its own view literals. */
@@ -416,7 +415,7 @@ function unplacedDeviceRows(doc: Document): DeviceRow[] {
 }
 
 /** Rows grouped "per rack, then shelves, then surfaces, then unplaced"
- * (this session's brief item 3), each group in the same order `view.rows`/
+ *, each group in the same order `view.rows`/
  * `view.surfaces` already give — never re-sorted here, so a rack row's own
  * row/bay ordering (`document/view.ts`'s `rowsOf`) is the grouping order
  * too. Only `kind: 'chassis'` occupants/fixtures are "Devices" — a passive

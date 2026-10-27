@@ -27,7 +27,7 @@ describe('searchShouldCollapse', () => {
     ).toBe(true);
   });
 
-  it('reflects BRIEF.md: a long path pushes fixedWidth up and forces the collapse at 1440', () => {
+  it('reflects the shell brief: a long path pushes fixedWidth up and forces the collapse at 1440', () => {
     // Estate.dc.html: path is one word ("Northwind"), search stays expanded.
     const shortPathFixedWidth = 1200;
     expect(

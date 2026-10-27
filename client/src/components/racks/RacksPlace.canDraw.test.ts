@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { canDrawFor } from './RacksPlace';
 
-// ADR-0052 §5, this session's brief item 1: "canDraw = capability !== 'read'."
+// ADR-0052 §5 — "canDraw = capability !== 'read'."
 // `canDrawFor` is the pure part `applyDocChange`/`Drawing`'s `canDraw`/the
 // editor's `onEdit` all read off the same call — tested directly, the same
 // "no Document, no React" shape `refusalFor`'s own tests already use

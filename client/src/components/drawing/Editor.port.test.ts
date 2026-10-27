@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { ClosetView, EditorActions } from './contract';
 import { EditorFor, farEndOf } from './Editor';
 
-// This session's brief item 2 — the selected port's own panel: the device
+// The selected port's own panel: the device
 // and port label, connector, service, face, its cable if any with the far
 // end in words and the cable's sheath swatch, two actions (Select cable,
 // Go to far end), and — no cable, canDraw — Connect…. Render-to-string

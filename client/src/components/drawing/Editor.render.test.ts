@@ -174,7 +174,7 @@ const SKETCH_VIEW: ClosetView = {
   ],
 };
 
-// ADR-0051 §1/§2, this session's brief item 3 — a shelf occupant and a
+// ADR-0051 §1/§2, A shelf occupant and a
 // surface fixture (a board included), each with its own port, so
 // `EditorFor`'s new `'occupant'`/`'fixture'` selection kinds — and a port
 // selected on either place — have something real to render.
@@ -333,7 +333,7 @@ describe('EditorFor', () => {
     expect(markup).toContain('core-01');
   });
 
-  // ADR-0051 §1, this session's brief — "PLACED ON", a sketch's typed
+  // ADR-0051 §1 — "PLACED ON", a sketch's typed
   // ports, and a rack's "+ add a shelf".
 
   it('renders the rack fields with "+ add a shelf"', () => {
@@ -371,7 +371,7 @@ describe('EditorFor', () => {
     expect(catalogued).not.toContain('+ Add a port');
   });
 
-  // ADR-0051 §1/§2, this session's brief item 3 — occupant and fixture
+  // ADR-0051 §1/§2 — occupant and fixture
   // selection kinds.
 
   it('returns null for an occupant/fixture id this view does not carry', () => {
@@ -423,7 +423,7 @@ describe('EditorFor', () => {
     expect(markup).toContain('West wall');
   });
 
-  // This session's brief items 1/4 — a shelf itself: its own editable
+  // A shelf itself: its own editable
   // name, and its occupants listed by slot, each a link that selects the
   // occupant.
   it('returns null for a shelf id this view does not carry', () => {
@@ -451,7 +451,7 @@ describe('EditorFor', () => {
     expect(withLink).toContain('nuc-01');
   });
 
-  // This session's brief item 2 — a chicken-and-egg fix: a device with no
+  // A chicken-and-egg fix: a device with no
   // catalogue model and ZERO ports (exactly what `createSketchDevice`
   // mints, before its first port is typed) must still show "+ add a port",
   // not just one that already carries a port (`chassis.sketch`'s own

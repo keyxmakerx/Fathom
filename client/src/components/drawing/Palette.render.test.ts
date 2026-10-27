@@ -8,7 +8,7 @@ import { Palette } from './Palette';
 // Render-to-string smoke test, per the Popover precedent: drag-and-drop is a
 // DOM interaction this environment cannot drive (no jsdom is installed), so
 // only the initial markup is checked here — see the gap noted in the
-// handback report.
+// report.
 
 describe('Palette', () => {
   it('renders one row per catalogue entry, from the prop, not a hard-coded list', () => {

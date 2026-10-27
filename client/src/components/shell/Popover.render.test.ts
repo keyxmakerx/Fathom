@@ -4,13 +4,13 @@ import { describe, expect, it } from 'vitest';
 
 import { Popover, PopoverRow } from './Popover';
 
-// No DOM testing library is installed (BRIEF.md's tests section is explicit
+// No DOM testing library is installed (the shell brief's tests section is explicit
 // that none may be added), so this is a render-to-string smoke test rather
 // than an interaction test: it exercises the *initial* render only, which is
 // enough to check the popover starts closed and the trigger carries the
 // disclosure wiring a screen reader needs. Click-away, Escape and
 // focus-return (Popover.tsx's `useEffect`) are DOM interactions this
-// environment cannot drive — see the gap noted in the handback report.
+// environment cannot drive — a known gap.
 //
 // `children` is passed inside the props object rather than as trailing
 // `createElement` arguments: both are equivalent at runtime, but only the

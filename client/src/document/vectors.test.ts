@@ -1,7 +1,7 @@
 // Cross-language proof, ADR-0049 §3: a Rust test writes small graphs with
 // `write_plain` into fixtures under this tree, and this reader/writer must
 // reproduce them byte for byte. `client/src/document/vectors/*.plain` did
-// not exist when this file was written (see this session's report); the
+// not exist when this file was written; the
 // glob below is written to find zero files gracefully — a documented,
 // visible skip, not a false green — and to exercise every vector it does
 // find without needing another edit once the lead's merge lands them.

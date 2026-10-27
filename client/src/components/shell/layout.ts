@@ -1,4 +1,4 @@
-/** BRIEF.md "The bar": "Measure the row; if it will not fit 1440, search
+/** UI-SPEC "The bar": "Measure the row; if it will not fit 1440, search
  * collapses to the magnifier alone before anything else gives." Everything
  * except search has a width fixed by its content (brand, tabs, path, lens,
  * presence, undo/redo, zoom, account); search is the one element with two
@@ -9,7 +9,7 @@ export interface BarFitInput {
   containerWidth: number;
   /** The combined width of everything in the bar except the search box. */
   fixedWidth: number;
-  /** The search box's width when drawn in full (BRIEF.md: "~180px"). */
+  /** The search box's width when drawn in full (the shell brief: "~180px"). */
   searchExpandedWidth: number;
 }
 

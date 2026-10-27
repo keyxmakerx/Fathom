@@ -30,7 +30,7 @@ export interface PopoverProps {
 
 /**
  * The one popover kind the shell uses everywhere it needs a small menu —
- * BRIEF.md "Under the bar": "Popovers are one kind ... Opened by a click,
+ * the shell brief "Under the bar": "Popovers are one kind... Opened by a click,
  * closed by clicking away or by Escape. Never more than one level." The
  * tree, the account menu, and everything later (ADR-0047 §3: the far-end
  * picker, the colour picker, the release picker, right-click menus) share
@@ -122,7 +122,7 @@ export function Popover({ renderTrigger, children, align = 'left', className }: 
 
 export interface PopoverRowProps {
   children: ReactNode;
-  /** Drawn 700 — BRIEF.md "the current row 700". */
+  /** Drawn 700 — the shell brief "the current row 700". */
   current?: boolean;
   disabled?: boolean;
   muted?: boolean;
@@ -131,7 +131,7 @@ export interface PopoverRowProps {
   testId?: string;
 }
 
-/** One row inside a `Popover` — BRIEF.md "rows of 12px text with 5px 12px
+/** One row inside a `Popover` — the shell brief "rows of 12px text with 5px 12px
  * padding, the current row 700". A real `<button>`, since every row acts. */
 export function PopoverRow({ children, current = false, disabled = false, muted = false, onSelect, testId }: PopoverRowProps) {
   const close = useContext(CloseContext);

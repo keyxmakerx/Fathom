@@ -12,7 +12,7 @@ describe('pathToItems', () => {
     expect(items).toEqual([{ label: 'Northwind', current: true }]);
   });
 
-  it('marks only the last part current, matching BRIEF.md\'s four-part path', () => {
+  it('marks only the last part current, matching the shell brief\'s four-part path', () => {
     const items = pathToItems([
       { label: 'Northwind' },
       { label: 'HQ' },
