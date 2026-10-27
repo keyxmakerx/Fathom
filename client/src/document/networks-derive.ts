@@ -42,7 +42,7 @@
 // and every numeric parse is guarded — an inet6 or otherwise unreadable
 // Address must not take the whole list down, it is skipped.
 
-import { ipv4NetworkOf, kebab, parseEdgeId, parseNodeId, type Document, type FieldEntry, type GraphEdge, type GraphNode, NODE_KINDS, EDGE_KINDS } from './model';
+import { asString, fieldValue, ipv4NetworkOf, kebab, parseEdgeId, parseNodeId, type Document, type FieldEntry, type GraphEdge, type GraphNode, NODE_KINDS, EDGE_KINDS } from './model';
 
 // A node/edge kind, read off its id's own prefix through a plain `Map`
 // lookup rather than `parseNodeId`/`parseEdgeId` — those also canonicalise
@@ -59,15 +59,6 @@ function nodeKindOf(id: string): string | undefined {
 function edgeKindOf(id: string): string | undefined {
   const i = id.indexOf(':');
   return i < 0 ? undefined : EDGE_KIND_BY_PREFIX.get(id.slice(0, i));
-}
-
-function fieldValue(fields: Readonly<Record<string, FieldEntry>>, name: string): FieldEntry['value'] | undefined {
-  const e = fields[name];
-  return e && e.presence === 'set' ? e.value : undefined;
-}
-
-function asString(v: FieldEntry['value'] | undefined): string | undefined {
-  return typeof v === 'string' ? v : undefined;
 }
 
 /** A prefix or host address string, parsed to its numeric network — never

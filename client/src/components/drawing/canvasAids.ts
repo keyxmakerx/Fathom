@@ -3,6 +3,7 @@
 // document field is involved.
 
 import { useCallback, useState } from 'react';
+import { loadJsonPref, saveJsonPref } from '../../prefs';
 
 export interface AidPrefs {
   /** The mini-map shows in the corner of the canvas. */
@@ -28,21 +29,11 @@ export function parseAids(raw: unknown): AidPrefs {
 }
 
 export function loadAids(accountId: string | null): AidPrefs {
-  try {
-    const raw = localStorage.getItem(keyFor(accountId));
-    if (raw != null) return parseAids(JSON.parse(raw));
-  } catch {
-    // storage unavailable or damaged: the defaults
-  }
-  return DEFAULT_AIDS;
+  return loadJsonPref(keyFor(accountId), parseAids, DEFAULT_AIDS);
 }
 
 export function saveAids(accountId: string | null, prefs: AidPrefs): void {
-  try {
-    localStorage.setItem(keyFor(accountId), JSON.stringify(prefs));
-  } catch {
-    // best effort only
-  }
+  saveJsonPref(keyFor(accountId), prefs);
 }
 
 /** Whether the colour key shows: the person's choice, else automatic (two or more colours in use). */

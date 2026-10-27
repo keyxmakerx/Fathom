@@ -33,6 +33,7 @@ import { NameEditContext, type NameEditApi } from './NameEdit';
 import { mediaCandidates } from '../checks/checksModel';
 import { useChecksApi } from '../checks/checksStore';
 import { PlanGhostEdge } from './PlanGhostEdge';
+import { AiPreviewCanvasBridge, useAiPreviewMarks } from './aiPreviewMarks';
 import { PlansCanvasBridge, usePlansFade } from './plansFade';
 import { useSuggestGhosts } from './suggestGhosts';
 import { TroubleCanvasBridge, useTroubleFade } from './troubleFade';
@@ -2021,7 +2022,9 @@ function DrawingInner({
   );
   const allEdges = useMemo(() => [...edges, ...free.edges], [edges, free.edges]);
   // An open plan's marks and focus first; a Checks Show then fades on top and wins, and a trace on top of both.
-  const planned = usePlansFade(allNodes, allEdges, resolvePlanPort);
+  const plansShown = usePlansFade(allNodes, allEdges, resolvePlanPort);
+  // An AI idea being shown: its proposed change, drawn as a plan is, until the person decides.
+  const planned = useAiPreviewMarks(plansShown.nodes, plansShown.edges, resolvePlanPort);
   // An open suggestions card's ticked cables, dashed, under the same fades as everything else.
   const suggestedEdges = useSuggestGhosts(planned.nodes, planned.edges, resolvePlanPort);
   const troubled = useTroubleFade(planned.nodes, suggestedEdges);
@@ -2138,6 +2141,7 @@ function DrawingInner({
       <ChecksCanvasBridge />
       <TraceBadges />
       <PlansCanvasBridge />
+      <AiPreviewCanvasBridge />
       <CollabLayer />
       <TroubleCanvasBridge />
       {selectedChassis != null && callout?.id === selectedChassis.id && opened == null && calloutRack != null ? (

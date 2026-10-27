@@ -680,7 +680,6 @@ describe('deriveNetworks — performance', () => {
     const result120 = deriveNetworks(doc120);
     const t120 = performance.now() - t120Start;
 
-    // eslint-disable-next-line no-console
     console.log(`deriveNetworks: 60 switches (1,440 ports) in ${t60.toFixed(1)} ms; 120 switches (2,880 ports) in ${t120.toFixed(1)} ms`);
 
     expect(result60.vlanRows).toHaveLength(60);

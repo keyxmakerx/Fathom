@@ -74,7 +74,7 @@ export function portKey(label: string): { type: string; path: string } {
 const lastPart = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
 
 // A MAC as stored in a field: colons or dashes, spaces, Cisco dots, HP/H3C `001a-2b3c-4d5e`, or bare.
-const MAC_IN_TEXT = /\b[0-9a-f]{2}(?:[:\- ][0-9a-f]{2}){5}\b|\b(?:[0-9a-f]{4}[.\-]){2}[0-9a-f]{4}\b|\b[0-9a-f]{12}\b/gi;
+const MAC_IN_TEXT = /\b[0-9a-f]{2}(?:[:\- ][0-9a-f]{2}){5}\b|\b(?:[0-9a-f]{4}[.-]){2}[0-9a-f]{4}\b|\b[0-9a-f]{12}\b/gi;
 
 /** Twelve hex digits from a MAC written any way (colons, dashes, Cisco dots, bare), or a start of one. */
 export function macClue(text: string): { hex: string; full: boolean } | null {

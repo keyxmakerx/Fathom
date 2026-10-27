@@ -29,6 +29,7 @@ import { DocsSection } from '../docs/DocsSection';
 import { DevicePhoto } from '../docs/DevicePhoto';
 import { FirmwareChip, FirmwareSection } from '../firmware/FirmwareSection';
 import { AboutSection } from '../learn/AboutSection';
+import { TermixActions } from '../termix/TermixActions';
 import {
   ABSENT,
   UNNAMED_HOSTNAME,
@@ -2366,6 +2367,7 @@ function panelFor(
                       />
                     </div>
                     {(chassis.managementAddress ?? '').length > 0 ? <div style={TYPED_NOTE_STYLE}>{MANAGEMENT_ADDRESS_NOTE}</div> : null}
+                    <TermixActions name={chassis.hostname} address={chassis.managementAddress ?? ''} />
                   </Fold>
 
                   <FirmwareSection deviceId={chassis.deviceId} folded />

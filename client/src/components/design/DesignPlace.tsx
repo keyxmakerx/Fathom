@@ -15,6 +15,7 @@ import { Engine } from '../../engine/engine';
 import { refusalSentence } from '../../engine/mirror';
 import { buildCsv } from '../../print/csv';
 import { AiIdeasPanel, aiIdeasTab, useAiIdeas } from '../ai/AiIdeas';
+import { AiPreviewContext, createAiPreviewStore } from '../ai/aiPreview';
 import { decideIdea } from '../../api/ai';
 import type { IdeaForPlan } from '../../document/plans';
 import { buildCanon } from '../checks/checksModel';
@@ -190,6 +191,8 @@ export function DesignPlace(props: DesignPlaceProps) {
   const history = useHistory(organisationId, designId, historyOpen, session.doc?.batches.length ?? 0);
   const aiIdeas = useAiIdeas(organisationId, designId);
   const [aiIdeasOpen, setAiIdeasOpen] = useState(false);
+  // An AI idea's proposed change shown on the canvas before anyone accepts it.
+  const aiPreview = useMemo(createAiPreviewStore, []);
   const pickedSave = historyOpen ? history.picked : null;
   const outlineKey = pickedSave != null ? pickedSave.outline.join('\n') : '';
   useEffect(() => {
@@ -380,9 +383,9 @@ export function DesignPlace(props: DesignPlaceProps) {
       setUndoRefusal(error instanceof Error ? error.message : 'That undo did not complete.');
       setTrailOpen(true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `undoCandidates`
-    // is recomputed fresh every render from `doc`/`accountId`, both already
+    // `undoCandidates` is recomputed fresh every render from `doc`/`accountId`, both already
     // listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc, accountId, session]);
 
   const handleRedo = useCallback(() => {
@@ -429,9 +432,9 @@ export function DesignPlace(props: DesignPlaceProps) {
       ...current,
       batches: current.batches.map((b) => (b.id === target.id ? { ...b, comment } : b)),
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires off the
-    // batch COUNT changing, not `pendingComment`'s own identity (typing must
-    // not re-run this).
+    // Fires off the batch COUNT changing, not `pendingComment`'s own identity (typing must not
+    // re-run this).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.doc]);
 
   // ------------------------------------------------------------------
@@ -997,6 +1000,12 @@ export function DesignPlace(props: DesignPlaceProps) {
           if (phone) setAiIdeasOpen(false);
           showIssue(id);
         }}
+        onPreview={(idea) => {
+          aiPreview.show(idea);
+          if (idea == null) return;
+          if (phone) setAiIdeasOpen(false);
+          if (props.place !== 'racks') onPlaceChange('racks');
+        }}
         onPlan={(idea) => {
           // Making the plan is taking the idea up, so it is accepted once the plan is made.
           if (phone) setAiIdeasOpen(false);
@@ -1071,6 +1080,7 @@ export function DesignPlace(props: DesignPlaceProps) {
   // `inert`: Firefox 112+, Chrome 102+, Safari 15.5+ (html.global_attributes.inert, read 2026-09-26).
   return (
     <PasteGateBoundary redact={redact}>
+    <AiPreviewContext.Provider value={aiPreview}>
       <div className="print-hide-under-preview" inert={printMode === 'preview' || (docs.view != null && props.place !== 'racks') || learn.view != null}>
         <FirmwareContext.Provider value={firmwareApi}>
           <VaultPlaceContext.Provider value={vaultPlace}>
@@ -1191,6 +1201,7 @@ export function DesignPlace(props: DesignPlaceProps) {
       {sharing && (
         <SharePanel organisationId={organisationId} scopeId={scopeId} title={designLabel} onClose={() => setSharing(false)} />
       )}
+    </AiPreviewContext.Provider>
     </PasteGateBoundary>
   );
 }

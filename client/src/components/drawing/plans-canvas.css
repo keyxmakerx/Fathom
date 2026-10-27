@@ -127,3 +127,14 @@
 .react-flow__edge.trouble-current .drawing-cable__halo {
   stroke: var(--ink);
 }
+
+/* An AI idea's proposed removal (owner, 2026-10-27): greyed, with a muted dashed outline, until a person accepts
+   or dismisses it. The tag says AI REMOVES. */
+.react-flow__node.plan-mark--removed {
+  --plan-tone: var(--muted);
+  outline-style: dashed;
+  opacity: 0.5;
+}
+.react-flow__edge.plan-mark--removed {
+  opacity: 0.4;
+}

@@ -35,16 +35,16 @@
 //!   served and stays on the admin page for everyone to see.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use deadpool_postgres::Transaction;
 use fathom_canon::Json;
 use sha2::{Digest, Sha256};
 
-use crate::authority::{self, Capability};
+use crate::authority;
 use crate::chain::EntryType;
 use crate::chains::{self, ChainStoreError};
 use crate::crypto;
+use crate::crypto::now_unix;
 use crate::field_defs::is_unsafe_char;
 use crate::grants::{self, Authority, AuthorityError};
 use crate::keys::{self, KeyStoreError};
@@ -303,9 +303,7 @@ fn meta_aad(organisation: &str, credential: &str, key_epoch: i32) -> Vec<u8> {
     a
 }
 
-pub fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
+pub use crate::crypto::hex;
 
 /// Lower-case hex of exactly `len` bytes, or the named refusal.
 pub fn unhex(text: &str, len: Option<usize>, what: &'static str) -> Result<Vec<u8>, VaultError> {
@@ -352,13 +350,6 @@ pub fn valid_wrap(wrap: &[u8]) -> bool {
         return false;
     };
     rest.is_empty() && valid_point(eph) && nonce.len() == 12 && ct.len() == 48
-}
-
-pub(crate) fn now_unix() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
 }
 
 pub(crate) fn fresh(at: i64) -> Result<(), VaultError> {
@@ -545,11 +536,7 @@ pub(crate) async fn is_steward(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
 ) -> Result<bool, VaultError> {
-    match grants::authorise_account(tx, auth, None, Capability::Steward).await {
-        Ok(_) => Ok(true),
-        Err(AuthorityError::NotAuthorised) | Err(AuthorityError::QuorumNotMet { .. }) => Ok(false),
-        Err(e) => Err(e.into()),
-    }
+    Ok(grants::is_steward(tx, auth).await?)
 }
 
 pub(crate) async fn require_steward(

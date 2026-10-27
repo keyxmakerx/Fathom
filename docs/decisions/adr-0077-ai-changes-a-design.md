@@ -1,6 +1,6 @@
 # ADR-0077: An AI connection may change a design, when the organisation and the person both say so
 
-**Status:** proposed 2026-10-27. The owner approved sign-off card r41-ai-write, option B ("A 'May
+**Status:** accepted 2026-10-27 (owner, sign-off card r49); built, see `crates/fathom-server/src/ai_change.rs`. Proposed 2026-10-27. The owner approved sign-off card r41-ai-write, option B ("A 'May
 change designs' tick on a connection, off by default"), and answered its question in a note:
 "So to clarify this is per user and per org, or only per org? I was thinking both". Both it is.
 Steps 1 to 3 below are built (migrations 0050 and 0051, `src/ai_change.rs`) and the sweep is
@@ -11,6 +11,30 @@ nothing merges before it.
 connections that are given this power and no others. **Keeps** ADR-0063 (a change is one batch the
 server applies and orders), ADR-0049 §2 and rule 4 (the server refuses a credential in anything
 stored), and ADR-0072's grant, policy, ceiling and three people who can stop a connection.
+
+## Amended 27 October 2026: an AI proposes, a person accepts
+
+The owner, the same day: "Just to confirm the AI shouldn't be able to push directly, it would look
+like the planner that was already there (though it should show you with purple or whatever color we
+went with) of what it is going to do, other colors can be there like if deleted something, or if
+that'll just be greyed out, anyways doesn't matter, like the user still has to accept the changes".
+
+So an AI connection never writes to a design. What decisions 1 to 9 describe as a change it makes is
+now a change it **proposes**:
+
+- `POST /ai/v1/designs/{d}/changes` (the Claude tool, now named `propose_change`, and the helper's
+  `fathom_propose_change`) checks the operations exactly as before (the allowlist, the version read,
+  20 removals, 200 operations, the gate on every string, the owner able to draw there) and keeps them
+  sealed in an AI idea. Nothing in the design moves. `recommend` may carry the same change.
+- The two ticks now say "may propose changes". A connection without both may still send ideas of
+  steps only. `whoami` says `readOnly: true` for every connection.
+- The idea lists what the change touches (`preview`: what it changes, removes, adds and links). The
+  ideas panel's **Show on canvas** draws it as an open plan is drawn, in the plan colour (indigo),
+  tagged AI CHANGES, AI REMOVES or AI ADDS, with removals greyed and the rest faded.
+- **Accept and apply** makes it on the design as it is then, as the accepting person's own edit, in
+  their name; History shows it as theirs. A folder that needs a second person still needs one.
+- The limits count proposals: 10 a minute and 300 a day per connection, from the ideas it sent.
+- `ai_design_changes` keeps the rows written before this amendment; nothing new is written to it.
 
 ## What the owner asked for
 

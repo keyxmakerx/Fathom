@@ -11,6 +11,7 @@ import { CommandToType, TypeItYourselfNote } from '../typing/CommandToType';
 import { useTypeItYourself } from '../typing/typeItYourself';
 import { CopyButton } from './parts';
 import './firmware.css';
+import { readPref, writePref } from '../../prefs';
 
 export type Route = 'fathom' | 'windows' | 'linux';
 
@@ -23,20 +24,12 @@ const ROUTES: { route: Route; label: string }[] = [
 const KEY = 'fathom.firmware.route';
 
 export function readRoute(): Route {
-  try {
-    const v = window.localStorage.getItem(KEY);
-    return v === 'windows' || v === 'linux' ? v : 'fathom';
-  } catch {
-    return 'fathom';
-  }
+  const v = readPref(KEY);
+  return v === 'windows' || v === 'linux' ? v : 'fathom';
 }
 
 function keepRoute(route: Route): void {
-  try {
-    window.localStorage.setItem(KEY, route);
-  } catch {
-    // A private window or blocked storage: the pick lasts until the page closes.
-  }
+  writePref(KEY, route);
 }
 
 const AT_WORD: Record<ByHandStep['at'], string> = { computer: 'On your computer', device: 'On the device' };

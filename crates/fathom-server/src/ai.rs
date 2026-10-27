@@ -39,7 +39,9 @@ use crate::ai_reading::{self, Tier};
 use crate::authority::{self, Capability, RowFacts};
 use crate::chain::EntryType;
 use crate::chains::{self, ChainStoreError};
+use crate::crypto::hex;
 use crate::crypto::{self, CryptoError};
+pub use crate::crypto::{now_unix, unhex};
 use crate::designs::{self, DesignError};
 use crate::field_defs::{self, is_unsafe_char};
 use crate::grants::{self, Authority, AuthorityError};
@@ -280,31 +282,6 @@ impl AiError {
 // ---------------------------------------------------------------------------
 // Small pieces
 // ---------------------------------------------------------------------------
-
-pub(crate) fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-pub fn unhex(text: &str) -> Option<Vec<u8>> {
-    if !text.len().is_multiple_of(2) {
-        return None;
-    }
-    text.as_bytes()
-        .chunks(2)
-        .map(|p| {
-            let hi = (p[0] as char).to_digit(16)?;
-            let lo = (p[1] as char).to_digit(16)?;
-            Some((hi * 16 + lo) as u8)
-        })
-        .collect()
-}
 
 fn strs(items: &[String]) -> Json {
     Json::Arr(items.iter().map(|s| Json::Str(s.clone())).collect())
@@ -934,15 +911,15 @@ async fn holds(
     scope: Option<ScopeId>,
     needed: Capability,
 ) -> Result<bool, AiError> {
-    match grants::authorise_account(tx, auth, scope, needed).await {
-        Ok(_) => Ok(true),
-        Err(AuthorityError::NotAuthorised) | Err(AuthorityError::QuorumNotMet { .. }) => Ok(false),
-        Err(other) => Err(AiError::Authority(other)),
-    }
+    grants::holds(tx, auth, scope, needed)
+        .await
+        .map_err(AiError::Authority)
 }
 
 async fn is_steward(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<bool, AiError> {
-    holds(tx, auth, None, Capability::Steward).await
+    grants::is_steward(tx, auth)
+        .await
+        .map_err(AiError::Authority)
 }
 
 fn parse_scope(text: &str) -> Result<ScopeId, AiError> {
@@ -1409,7 +1386,7 @@ async fn register(
     }
     if input.may_change && !policy.may_change {
         return Err(AiError::NotAllowed(
-            "this organisation does not let AI apps change designs",
+            "this organisation does not let AI apps propose changes",
         ));
     }
     if !DAYS.contains(&input.days) || input.days > policy.max_days {
@@ -1661,7 +1638,7 @@ pub async fn change_key(
         }
         if key.may_change && !policy.may_change {
             return Err(AiError::NotAllowed(
-                "this organisation does not let AI apps change designs",
+                "this organisation does not let AI apps propose changes",
             ));
         }
     }
@@ -2253,9 +2230,11 @@ pub fn whoami(session: &AiSession) -> Json {
     );
     m.insert("scopes".into(), strs(&session.key.scopes));
     m.insert("mayRecommend".into(), Json::Bool(session.key.may_recommend));
+    // mayChange: it may propose changes, which wait for a person. An AI never writes to a
+    // design itself (owner, 2026-10-27), so every connection is read-only.
     m.insert("mayChange".into(), Json::Bool(may_change(session)));
     m.insert("expiresAt".into(), Json::Int(session.key.expires_unix));
-    m.insert("readOnly".into(), Json::Bool(!may_change(session)));
+    m.insert("readOnly".into(), Json::Bool(true));
     Json::Obj(m)
 }
 
@@ -2285,20 +2264,16 @@ async fn folder_chain(
         if !covers(&key.scopes, &folder_path) {
             continue;
         }
-        match grants::authorise_in_verified_state(
+        if !grants::holds_in_verified_state(
             tx,
             auth,
             verified,
             Some(parse_scope(&id)?),
             Capability::Read,
         )
-        .await
+        .await?
         {
-            Ok(_) => {}
-            Err(AuthorityError::NotAuthorised) | Err(AuthorityError::QuorumNotMet { .. }) => {
-                continue
-            }
-            Err(other) => return Err(other.into()),
+            continue;
         }
         let kind: String = row.get(1);
         let level = match kind.as_str() {
@@ -2354,20 +2329,10 @@ pub async fn ai_designs(
             continue;
         }
         let scope = parse_scope(&scope_text)?;
-        match grants::authorise_in_verified_state(
-            tx,
-            auth,
-            &verified,
-            Some(scope),
-            Capability::Read,
-        )
-        .await
+        if !grants::holds_in_verified_state(tx, auth, &verified, Some(scope), Capability::Read)
+            .await?
         {
-            Ok(_) => {}
-            Err(AuthorityError::NotAuthorised) | Err(AuthorityError::QuorumNotMet { .. }) => {
-                continue
-            }
-            Err(other) => return Err(other.into()),
+            continue;
         }
         let sealed = match (
             row.get::<_, Option<Vec<u8>>>(3),
@@ -2469,9 +2434,9 @@ pub async fn ai_reading(
         "about".into(),
         Json::Str(if may_change(session) {
             "Fields that looked like a password or key were left out and counted in \
-             `withheld`. Change the design with POST .../changes naming this version, one \
-             change a person can undo; or recommend with POST .../recommendations for a \
-             person to accept or dismiss. A printed label's code holds this server's \
+             `withheld`. You never change the design yourself: propose a change with POST \
+             .../changes naming this version, which a person sees on the canvas and \
+             accepts or dismisses, or recommend steps with POST .../recommendations. A printed label's code holds this server's \
              address, `/scan#`, this design's id, `/` and an id from here (a rack, \
              cable, port, device or store); a person who scans it opens that item."
                 .into()
@@ -2500,6 +2465,49 @@ pub struct Step {
     pub text: String,
 }
 
+/// The change an idea carries, for Accept to make (ADR-0072 decision 7, amended
+/// 2026-10-27): the operations `change_design` takes, the version they were checked
+/// against, and the tiers the connection saw then, which bound them again at Accept.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IdeaChange {
+    pub version: i64,
+    /// The operations, as canonical JSON.
+    pub operations: Vec<u8>,
+    pub count: usize,
+    pub tiers: Vec<String>,
+}
+
+impl IdeaChange {
+    /// The operations as `ai_change` reads them, under the idea's title.
+    pub fn asked(&self, title: &str) -> Result<crate::ai_change::Asked, AiError> {
+        let operations = Json::parse_canonical(&self.operations)
+            .map_err(|_| AiError::Unverifiable("recommendation body"))?;
+        let mut m = BTreeMap::new();
+        m.insert("version".into(), Json::Int(self.version));
+        m.insert("summary".into(), Json::Str(title.to_string()));
+        m.insert("operations".into(), operations);
+        crate::ai_change::read_ask(&Json::Obj(m).to_canonical_bytes())
+    }
+
+    pub fn tier_set(&self) -> BTreeSet<Tier> {
+        self.tiers.iter().filter_map(|t| Tier::parse(t)).collect()
+    }
+
+    fn to_json(&self) -> Json {
+        let mut m = BTreeMap::new();
+        m.insert("version".into(), Json::Int(self.version));
+        m.insert(
+            "operations".into(),
+            Json::parse_canonical(&self.operations).unwrap_or(Json::Arr(Vec::new())),
+        );
+        m.insert(
+            "tiers".into(),
+            Json::Arr(self.tiers.iter().cloned().map(Json::Str).collect()),
+        );
+        Json::Obj(m)
+    }
+}
+
 /// One recommendation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Idea {
@@ -2511,6 +2519,8 @@ pub struct Idea {
     pub title: String,
     pub why: String,
     pub steps: Vec<Step>,
+    /// What Accept makes, when the AI sent one.
+    pub change: Option<IdeaChange>,
     pub created_unix: i64,
     pub state: String,
     pub decided_by: Option<String>,
@@ -2531,6 +2541,21 @@ impl Idea {
         m.insert(
             "steps".into(),
             Json::Arr(self.steps.iter().map(step_json).collect()),
+        );
+        // How many operations Accept makes, and what they touch, so the canvas can show the
+        // proposal before anyone accepts it. The operations themselves stay on the server.
+        m.insert(
+            "changes".into(),
+            self.change
+                .as_ref()
+                .map_or(Json::Null, |c| Json::Int(c.count as i64)),
+        );
+        m.insert(
+            "preview".into(),
+            self.change
+                .as_ref()
+                .and_then(|c| c.asked(&self.title).ok())
+                .map_or(Json::Null, |a| crate::ai_change::preview(&a)),
         );
         m.insert("createdAt".into(), Json::Int(self.created_unix));
         m.insert("state".into(), Json::Str(self.state.clone()));
@@ -2566,16 +2591,32 @@ fn clean_target(raw: &str) -> Result<String, AiError> {
     }
 }
 
-/// The body of `POST /ai/v1/designs/{d}/recommendations`, checked: `{title, why?, steps}`,
-/// each step `{action, target?, text}`. Every piece of text goes through [`clean_line`].
-pub fn clean_idea(body: &[u8]) -> Result<(String, String, Vec<Step>), AiError> {
-    let bad =
-        || AiError::Malformed("a recommendation is {title, why, steps: [{action, target, text}]}");
+/// What a recommendation's body holds once checked.
+pub struct CleanIdea {
+    pub title: String,
+    pub why: String,
+    pub steps: Vec<Step>,
+    /// The `change` it carries, read as `change_design` reads one, under the title.
+    pub change: Option<crate::ai_change::Asked>,
+    /// That change's operations, as they were sent.
+    pub operations: Option<Json>,
+}
+
+/// The body of `POST /ai/v1/designs/{d}/recommendations`, checked: `{title, why?, steps,
+/// change?}`, each step `{action, target?, text}`, and `change` `{version, operations}` in
+/// the shape `change_design` takes. Every piece of text goes through [`clean_line`].
+pub fn clean_idea(body: &[u8]) -> Result<CleanIdea, AiError> {
+    let bad = || {
+        AiError::Malformed(
+            "a recommendation is {title, why, steps: [{action, target, text}], change?: \
+             {version, operations}}",
+        )
+    };
     let Ok(Json::Obj(mut m)) = Json::parse_canonical(body) else {
         return Err(bad());
     };
     if m.keys()
-        .any(|k| !["title", "why", "steps"].contains(&k.as_str()))
+        .any(|k| !["title", "why", "steps", "change"].contains(&k.as_str()))
     {
         return Err(bad());
     }
@@ -2627,7 +2668,37 @@ pub fn clean_idea(body: &[u8]) -> Result<(String, String, Vec<Step>), AiError> {
             text,
         });
     }
-    Ok((title, why, steps))
+    let (change, operations) = match m.remove("change") {
+        None | Some(Json::Null) => (None, None),
+        Some(Json::Obj(mut c)) => {
+            if c.keys()
+                .any(|k| !["version", "operations"].contains(&k.as_str()))
+            {
+                return Err(AiError::Malformed(
+                    "an idea's change is {version, operations}, as change_design takes",
+                ));
+            }
+            let operations = c.remove("operations").unwrap_or(Json::Null);
+            let mut ask = BTreeMap::new();
+            ask.insert("version".into(), c.remove("version").unwrap_or(Json::Null));
+            ask.insert("summary".into(), Json::Str(title.clone()));
+            ask.insert("operations".into(), operations.clone());
+            let asked = crate::ai_change::read_ask(&Json::Obj(ask).to_canonical_bytes())?;
+            (Some(asked), Some(operations))
+        }
+        Some(_) => {
+            return Err(AiError::Malformed(
+                "an idea's change is {version, operations}, as change_design takes",
+            ))
+        }
+    };
+    Ok(CleanIdea {
+        title,
+        why,
+        steps,
+        change,
+        operations,
+    })
 }
 
 fn idea_aad(
@@ -2649,7 +2720,7 @@ fn idea_aad(
     a
 }
 
-fn idea_body(title: &str, why: &str, steps: &[Step]) -> Vec<u8> {
+fn idea_body(title: &str, why: &str, steps: &[Step], change: Option<&IdeaChange>) -> Vec<u8> {
     let mut m = BTreeMap::new();
     m.insert("title".into(), Json::Str(title.to_string()));
     m.insert("why".into(), Json::Str(why.to_string()));
@@ -2657,6 +2728,10 @@ fn idea_body(title: &str, why: &str, steps: &[Step]) -> Vec<u8> {
         "steps".into(),
         Json::Arr(steps.iter().map(step_json).collect()),
     );
+    // An idea sent before ideas carried changes has no `change` key, and opens the same.
+    if let Some(c) = change {
+        m.insert("change".into(), c.to_json());
+    }
     Json::Obj(m).to_canonical_bytes()
 }
 
@@ -2722,8 +2797,8 @@ impl IdeaOpener<'_> {
             &idea_aad(&tenant, &id, &design, &key_id, &owner, epoch),
         )
         .map_err(|_| AiError::Unverifiable("recommendation body"))?;
-        let (title, why, steps) = if plain.is_empty() {
-            (String::new(), String::new(), Vec::new())
+        let (title, why, steps, change) = if plain.is_empty() {
+            (String::new(), String::new(), Vec::new(), None)
         } else {
             open_body(&plain)?
         };
@@ -2736,6 +2811,7 @@ impl IdeaOpener<'_> {
             title,
             why,
             steps,
+            change,
             created_unix: row.get(10),
             state: row.get(4),
             decided_by: row.get(5),
@@ -2745,7 +2821,9 @@ impl IdeaOpener<'_> {
     }
 }
 
-fn open_body(plain: &[u8]) -> Result<(String, String, Vec<Step>), AiError> {
+type Body = (String, String, Vec<Step>, Option<IdeaChange>);
+
+fn open_body(plain: &[u8]) -> Result<Body, AiError> {
     let corrupt = || AiError::Unverifiable("recommendation body");
     let Ok(Json::Obj(mut m)) = Json::parse_canonical(plain) else {
         return Err(corrupt());
@@ -2774,14 +2852,46 @@ fn open_body(plain: &[u8]) -> Result<(String, String, Vec<Step>), AiError> {
             text,
         });
     }
-    Ok((title, why, steps))
+    let change = match m.remove("change") {
+        None => None,
+        Some(Json::Obj(mut c)) => {
+            let (Some(Json::Int(version)), Some(operations @ Json::Arr(_)), Some(Json::Arr(t))) = (
+                c.remove("version"),
+                c.remove("operations"),
+                c.remove("tiers"),
+            ) else {
+                return Err(corrupt());
+            };
+            let count = match &operations {
+                Json::Arr(ops) => ops.len(),
+                _ => 0,
+            };
+            let mut tiers = Vec::with_capacity(t.len());
+            for tier in t {
+                let Json::Str(tier) = tier else {
+                    return Err(corrupt());
+                };
+                tiers.push(tier);
+            }
+            Some(IdeaChange {
+                version,
+                operations: operations.to_canonical_bytes(),
+                count,
+                tiers,
+            })
+        }
+        Some(_) => return Err(corrupt()),
+    };
+    Ok((title, why, steps, change))
 }
 
 /// `POST /ai/v1/designs/{d}/recommendations`. The key may recommend, and its owner can read
-/// the design; caps counted under an advisory lock; the body sealed.
+/// the design; caps counted under an advisory lock; the body sealed. A `change` it carries
+/// is run on the design without writing, so one that cannot be made is refused now.
 pub async fn recommend(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
+    heads: Option<&HeadStore>,
     session: &AiSession,
     design: DesignId,
     body: &[u8],
@@ -2791,8 +2901,42 @@ pub async fn recommend(
             "this key may read but not recommend; its owner can change that",
         ));
     }
-    readable_place(tx, auth, &session.key, design).await?;
-    let (title, why, steps) = clean_idea(body)?;
+    let (scope, _) = readable_place(tx, auth, &session.key, design).await?;
+    let CleanIdea {
+        title,
+        why,
+        steps,
+        change,
+        operations,
+    } = clean_idea(body)?;
+    let change = match (change, operations) {
+        (Some(asked), Some(operations)) => {
+            // An AI never changes a design itself (owner, 2026-10-27): a change it sends waits
+            // in the idea for a person's Accept, and only a connection both ticks allow may
+            // send one.
+            if !session.policy.may_change {
+                return Err(AiError::NotAllowed(
+                    "this organisation does not let AI apps propose changes; send steps only",
+                ));
+            }
+            if !session.key.may_change {
+                return Err(AiError::NotAllowed(
+                    "this connection may not propose changes; send steps only, or ask its owner",
+                ));
+            }
+            crate::ai_change::within_rate(tx, auth, &session.key.id).await?;
+            let tiers = tiers(&session.key, &session.policy);
+            crate::ai_change::check_idea_change(tx, auth, heads, design, scope, &tiers, &asked)
+                .await?;
+            Some(IdeaChange {
+                version: asked.version,
+                operations: operations.to_canonical_bytes(),
+                count: asked.ops.len(),
+                tiers: tiers.iter().map(|t| t.as_str().to_string()).collect(),
+            })
+        }
+        _ => None,
+    };
     let tenant = auth.ctx.tenant().to_string();
     let design_text = design.to_string();
     tx.execute(
@@ -2827,7 +2971,7 @@ pub async fn recommend(
         &design_text,
         &session.key.id,
         &owner,
-        &idea_body(&title, &why, &steps),
+        &idea_body(&title, &why, &steps, change.as_ref()),
     )
     .await?;
     tx.execute(
@@ -2944,21 +3088,24 @@ pub async fn list_ideas(
 
 /// Accept or dismiss one idea. Needs `draw` on the design's place. Where the organisation
 /// asks for a second person on that folder, the key's owner cannot accept their own AI's
-/// idea. Accepting changes nothing else here: the edit is the accepter's, in the client. A
-/// dismissal re-seals the body empty, so what the AI wrote is not kept.
+/// idea. Accepting an idea that carries a change makes it, as the person accepting, in the
+/// same transaction; one without a change is only marked, and the person makes the edit.
+/// A dismissal re-seals the body empty, so what the AI wrote is not kept. The change
+/// written, if any, is handed back for the caller to commit to the head.
 pub async fn decide_idea(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
+    heads: &HeadStore,
     design: DesignId,
     id: &str,
     if_version: i64,
     accept: bool,
-) -> Result<Idea, AiError> {
+) -> Result<(Idea, Option<crate::designs::ChangeWritten>), AiError> {
     let organisation = auth.ctx.tenant().to_string();
     let me = auth.ctx.actor().to_string();
     let place = design_place(tx, &organisation, design).await?;
     grants::authorise_account(tx, auth, place.as_ref().map(|(s, _)| *s), Capability::Draw).await?;
-    let (_, path) = place.ok_or(AiError::NotFound)?;
+    let (scope, path) = place.ok_or(AiError::NotFound)?;
     let row = tx
         .query_opt(
             &format!(
@@ -3043,7 +3190,34 @@ pub async fn decide_idea(
             version: idea.version,
         });
     }
-    read_idea(tx, auth, id).await
+    let written = match (&idea.change, accept) {
+        (Some(change), true) => {
+            let asked = change.asked(&idea.title)?;
+            Some(
+                crate::ai_change::apply_idea_change(
+                    tx,
+                    auth,
+                    heads,
+                    design,
+                    scope,
+                    &change.tier_set(),
+                    &asked,
+                )
+                .await?,
+            )
+        }
+        _ => None,
+    };
+    match read_idea(tx, auth, id).await {
+        Ok(done) => Ok((done, written)),
+        Err(e) => {
+            // The head holds the applied change until the caller commits; let it go.
+            if let Some(applied) = written.and_then(|w| w.applied) {
+                heads.abort(&design.to_string(), applied.ticket);
+            }
+            Err(e)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -3272,10 +3446,17 @@ mod tests {
                 ]),
             ),
         ]);
-        let (title, why, steps) = clean_idea(&ok).unwrap();
+        let CleanIdea {
+            title,
+            why,
+            steps,
+            change,
+            ..
+        } = clean_idea(&ok).unwrap();
         assert_eq!(title, "Add a patch panel");
         assert_eq!(why, "Rack B3 has none");
         assert_eq!(steps.len(), 1);
+        assert!(change.is_none());
         let add = one(&[("action", "add"), ("text", "x")]);
         for bad in [
             body(&[("title", s("x")), ("steps", Json::Arr(vec![]))]),

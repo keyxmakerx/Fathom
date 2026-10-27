@@ -63,6 +63,7 @@ import {
   type OpenVaultKey,
   type Secret,
 } from './crypto';
+import { readPref, writePref } from '../prefs';
 
 export const UNLOCK_MINUTES = 15;
 
@@ -122,21 +123,9 @@ function need(organisation: string): Unlocked {
 // What this browser remembers
 // ---------------------------------------------------------------------------
 
-function read(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function write(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // A browser that will not store it asks for the kit at each unlock; nothing breaks.
-  }
-}
+// A browser that will not store the kit asks for it at each unlock; nothing breaks.
+const read = readPref;
+const write = writePref;
 
 const kitSlot = (organisation: string, account: string) => `fathom.vault.kit.${organisation}.${account}`;
 const pinSlot = (organisation: string) => `fathom.vault.pins.${organisation}`;

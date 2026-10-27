@@ -1,6 +1,6 @@
 # ADR-0075: The phone field view, scanning, and printed labels
 
-**Status:** proposed 2026-10-26. The owner approved sign-off card 6 (r39-phone) as picked on 26
+**Status:** accepted 2026-10-27 (owner, sign-off card r49); built, see `client/src/components/phone/`. Proposed 2026-10-26. The owner approved sign-off card 6 (r39-phone) as picked on 26
 October, after noting on card 5 (available inventory with camera scanning): "we need a mobile view now
 as well with the app. I don't think we are gonna go native app though". They then asked: "Could we
 even connect it to QR codes for printing brother label printers?" Built as a draft PR.
@@ -40,6 +40,13 @@ plan's steps, to report something down, and later to find a store bin. Drawing s
    a page of its own size (`@page` named pages), so the printer's own driver does the rest; Brother
    publishes Linux LPR and CUPS drivers for its QL printers (support.brother.com, QL-820NWB FAQs, read
    2026-10-26). A code holds the link and nothing else about the network.
+   **Amended 2026-10-27** (the owner: "i wil be using the wrap around the eth kind"): 36 mm TZe tape
+   (the PT-P910BT's widest), and for cables a **wrap** and a **flag** on 24 mm tape, sized to the
+   cable (slim patch about 4 mm, Cat5e/Cat6 about 6 mm, Cat6A about 8 mm). A wrap repeats the name
+   round the cable and carries no code, since a code curved round a 6 mm cable will not scan; a flag
+   wraps once and its two printed ends stick back to back, a code on each. Cables default to the wrap.
+   Brother sells Flexible ID tape (TZe-FX) for wrapping cables, in widths up to 36 mm (Brother UK and
+   Belgium store listings for TZe-FX261 and TZe-FX661, read 2026-10-27).
 6. **Store bins.** A store's label opens its page under Parts › On hand (`#inventory?k=parts&o=<store id>`);
    the store page has **Print bin label**. On a phone, a serial field when adding stock has a **Scan**
    button that fills it from the camera.

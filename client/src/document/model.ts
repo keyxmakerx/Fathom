@@ -86,6 +86,16 @@ export function parseEdgeId(s: string): { kind: EdgeKind; ulid: string } {
   return { kind, ulid };
 }
 
+/** An edge id's kind, read off its prefix alone. For a hot loop over a
+ * document's own edges, whose ids were checked when they came in:
+ * `parseEdgeId` also re-checks the ulid's spelling, which costs a bigint
+ * decode and encode per edge. Throws on an undeclared kind, as that does. */
+export function edgeKindOf(s: string): EdgeKind {
+  const kind = EDGE_KIND_BY_KEBAB.get(s.slice(0, s.indexOf(':')));
+  if (!kind) throw new IdParseError(`id "${s}": not a declared edge kind`);
+  return kind;
+}
+
 /** Ascending (kind declaration order, then ulid) — the store's own iteration
  * order (`id.rs`'s derived `Ord`), and therefore `Snapshot`'s array order. */
 export function compareNodeId(a: string, b: string): number {

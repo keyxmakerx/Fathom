@@ -70,10 +70,6 @@ export interface ShellProps {
    * `Racks` nor `Inventory` is marked. */
   place: Place | null;
   onPlaceChange: (place: Place) => void;
-  /** With no design open (Home, Admin): the name of the design last open.
-   * Present, the place words are buttons that go back to it in that place;
-   * absent, they are only named. */
-  returnTo?: string;
 
   /** The breadcrumb, root first, current (ink, 700) last. Empty on Home. */
   path: PathPart[];
@@ -185,8 +181,9 @@ export interface ShellProps {
   /** Each bump opens the Equipment tab (the "Add equipment" button on the canvas). */
   equipmentRequest?: number;
 
-  /** r31-bar A: the four views as the bar's tabs. */
-  mainView?: { value: MainView; onChange: (view: MainView) => void };
+  /** r31-bar A: the four views as the bar's tabs. With no design open (Home, Admin) `value` is `null`
+   * and the tabs go back to the design last open, `backTo`; without `mainView` there they are only named. */
+  mainView?: { value: MainView | null; onChange: (view: MainView) => void; backTo?: string };
   /** Right after the design's name in the bar: the Sample chip. */
   designExtra?: ReactNode;
   /** The Doing ▾ menu's rows. */

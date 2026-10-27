@@ -448,13 +448,6 @@ pub async fn set_up(
     }
 }
 
-/// Seconds since 1970, for the challenge's expiry.
-fn now_secs() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
-}
-
 /// The JWT sign-in: answers the access token.
 async fn sign_in(
     outside: &Outside,
@@ -469,7 +462,10 @@ async fn sign_in(
         ("version", s("1.0.0")),
         ("domain", s(&domain)),
         ("verify_token", s(&verify)),
-        ("verify_token_expiry", Json::Int(now_secs() + 120)),
+        (
+            "verify_token_expiry",
+            Json::Int(crate::crypto::now_unix() + 120),
+        ),
     ]);
     let sealed = seal_for(
         pgp,

@@ -12,6 +12,7 @@ import {
   assertHand,
   edgesIn,
   edgesOut,
+  fieldValue,
   findNode,
   formatEdgeId,
   formatNodeId,
@@ -124,11 +125,6 @@ export interface DocView {
 /** `Doc.model` is an Identifier: printable ASCII, no space. A catalogue model name is mapped, never refused. */
 export function modelKey(model: string): string {
   return model.trim().replace(/[^\x21-\x7e]+/g, '-');
-}
-
-function fieldValue(fields: Readonly<Record<string, FieldEntry>>, key: string): CanonValue | undefined {
-  const e = fields[key];
-  return e && e.presence === 'set' ? e.value : undefined;
 }
 
 function str(v: unknown): string {

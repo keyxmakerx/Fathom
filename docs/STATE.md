@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-10-02: 1561 Rust tests and 1531 client tests on commit 3b10bfc, read off the runs. Prose brought up to main (3bd5ba9) on 2026-10-25; counts not re-read. Read numbers off a real run, not off this page.
+**Last confirmed:** prose brought up to main (3bd5ba9) on 2026-10-25. Test counts are not kept here: read them off a real run.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -504,7 +504,9 @@ and Canvas (read-only), plus Ideas while an AI idea waits; desk chrome folded aw
 A label's QR code is `/scan#<design>/<id>`; scanning it (phone Camera app, or Scan with `BarcodeDetector`
 or typing) opens the item's Inventory page after sign-in. Same-server links only; other text goes to Find.
 Add to Home Screen (manifest, no service worker). Inventory › tick rows › Print labels: devices, racks,
-cables (two each) and ports on Brother TZe 24/18/12 mm, QL 62 mm or 29 × 90 mm, or A4 thirty a sheet.
+cables (two each) and ports on Brother TZe 36/24/18/12 mm, QL 62 mm or 29 × 90 mm, or A4 thirty a sheet.
+Cables also print as a wrap (the name repeated round the cable, no code) or a flag (a code on each face),
+on 24 mm tape sized to the cable: slim patch, Cat5e/Cat6 or Cat6A. Cables default to the wrap.
 A store's bin label opens its page (Print bin label there); a Scan button fills serial fields on a phone.
 Not yet: door labels (rooms). Drive: `scripts/drive-phone.mjs`.
 
@@ -545,6 +547,11 @@ box; a badge opens a card with range, members, exit node and routes. Not yet: pa
 head through the engine, refusing what the engine or the credential check refuses, then numbers, chains,
 encrypts and streams them to other browsers. Different fields merge; on the same field the later one
 wins, and the overwritten person can **Put mine back**. Others show as initials dots in the bar.
+Since 2026-10-27 the dots and pointers cross server processes through `NOTIFY` on `fathom_presence`,
+as changes already did, so several servers behind one load balancer need no sticky sessions
+(`docs/RUNNING-IT.md`, "Running more than one server"). The audit feed is sent by whichever server
+holds its advisory lock. Every console request and sign-in logs one `access` line with the client's
+address and the proxy's (`access_log.rs`). How big a design goes, measured: `docs/SCALE.md`.
 
 **History panel** (#124, #128). The bar's **History** leads with the chain check in words ("Checked:
 every save is intact", "Broken at save N"), lists saves newest first, shows any save read-only with its
@@ -585,6 +592,15 @@ sits on (`Occupies`). The person makes every tie; Fathom suggests only from a ci
 card opens after a paste onto a drawn device and from a trace or "It's down" stop that reads "not tied to a
 port"; it offers jacks only, and shows and unties ties.
 
+**Termix** (ADR-0078; `src/termix.rs`, `components/termix/`). With `FATHOM_TERMIX_URL` set, a
+device's Management fold offers "Open in Termix": the browser finds the Termix host at the management
+address with the person's own Termix API key (kept in the tab, never sent to Fathom) and opens its
+terminal in a new tab, or adds the host first with no credentials. Inventory › Devices sends the ticked
+devices at once ("Send N to Termix"), skipping hosts Termix already has. The server only names the origin
+and adds it to `connect-src`; it never calls Termix. A steward turns it off for everyone in the organisation or
+for one person (migration 0056, Organisation › People); the address is then not given out and the buttons are
+gone. Not tried against a running Termix.
+
 **AI access** (ADR-0072; migration 0046; `src/ai.rs`, `src/oauth.rs`, `src/mcp.rs`, `components/ai/`). A
 person a Steward names lets an AI app read designs they can read, in one organisation, at the tiers the
 organisation allows (layout, which includes spares without serials; addresses; notes, which includes a
@@ -611,19 +627,20 @@ idea into a draft maintenance plan with no edits in it and accepts the idea (ADR
 reading includes maintenance plans and "It's down" issues, without who wrote them or a step's stored edit.
 Both connect pages warn against a personal AI account; Fathom cannot check which account it is (decision
 23), so Allow and Make key ask for it, and Stewards and Admin › AI see it with the owner's sign-in address
-(decision 24, migration 0049). ADR-0077 (proposed, being built on PR #217): an AI connection may change
-designs only with two ticks, Steward › AI rules' "AI apps may change designs" and the connection's own
-"May change designs" at Allow, Make key or later by its owner (migration 0050). Steps 1 to 3 are built: the
-ticks and screens, and `change_design` (`POST /ai/v1/designs/{d}/changes`, the Claude tool and the
-helper's) setting fields, adding nodes and edges (named with `as` for later operations) and removing,
-all at kinds and fields the reading shows at `layout` and `notes`; one change in the owner's name
-against the version read, 200 operations, 10 a minute and 300 a day, at most 20 things removed, never a
-place still holding things or anything holding what the AI cannot see, refused in second-person
-folders, every string through the server's gate. The reading lists what may be added under
-`mayChange`. History marks it "AI (<connection>), for <person>" from `ai_design_changes` (migration
-0051). Not yet: Undo of an AI change by someone other than its owner (History's Restore does it), and
-merging, which waits on the owner (the sweep is in ADR-0077). Not yet: dashed "would be added"
-rows and marks on the drawing itself.
+(decision 24, migration 0049). ADR-0077 (amended 2026-10-27: an AI proposes, a person accepts): an AI connection never writes to a
+design. With two ticks, Steward › AI rules' "AI apps may propose changes" and the connection's own "May
+propose changes" (migration 0050), `POST /ai/v1/designs/{d}/changes` (the Claude tool `propose_change`,
+the helper's `fathom_propose_change`) and `recommend`'s optional `change` check the operations as they
+would be made (fields set, nodes and edges added and named with `as`, removals; kinds and fields the
+reading shows at `layout` and `notes`; the version read; 200 operations, at most 20 things removed,
+never a place still holding things or anything holding what the AI cannot see; the owner able to draw
+there; every string through the server's gate) and keep them sealed in an AI idea, 10 a minute and 300
+a day per connection. The idea carries `preview`; the ideas panel's Show on canvas draws it as an open
+plan, in the plan colour with AI CHANGES / AI REMOVES / AI ADDS tags, removals greyed. Accept and apply
+makes it on the current design as the accepting person's own edit. `whoami` is `readOnly: true` for
+every connection. `ai_design_changes` (migration 0051) holds only rows from before the amendment. Not
+yet: drawing a node the change adds (the panel names it), and the per-kind controls proposed on
+sign-off card r47-ai-controls.
 
 **Device panel** (r14 A1, A2): Details, Ports and Notes tabs, actions at the foot (Duplicate the main one,
 Remove device in red). Inventory's toolbar has a role filter, written into the filter line as `role:...`.

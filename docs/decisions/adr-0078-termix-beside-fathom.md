@@ -1,0 +1,106 @@
+# ADR-0078: Termix beside Fathom — open a device's terminal, Fathom never connects
+
+**Status:** accepted 2026-10-27. The owner approved sign-off card r43-termix with all three
+recommended picks (questions 1 to 3, A) and the "send a whole design" tick (decision 5). Decision 6
+added the same day from the owner's follow-up.
+
+**Keeps** invariant 2 ("the application never touches a network device"), invariant 1 (no egress
+the operator did not configure), rule 4 and ADR-0042 (no credential leaves Fathom without being
+shown and chosen), and ADR-0071 part four's scope for the server's one outbound HTTPS client
+("to an outside vault and nowhere else").
+
+## What the owner asked for
+
+> what about integration with a termix instance too?
+
+Termix (github.com/Termix-SSH/Termix) is a self-hosted, browser-based SSH manager. The most
+useful reading: from a device in Fathom, get to its terminal in Termix without typing the address
+again.
+
+## What Termix offers
+
+Read from Termix's source at commit 73c15f7 (22 October 2026), on 27 October 2026. Not from memory
+(CLAUDE.md rule 1).
+
+| Fact | Where |
+|---|---|
+| An API key is `tmx_` plus 64 hex characters, made by a Termix admin for one Termix user, sent as `Authorization: Bearer`. It acts as that user, cannot impersonate another, and can expire. | `src/backend/database/routes/user-api-key-routes.ts`; `src/backend/utils/auth-manager.ts`, `handleApiKeyAuth` |
+| `GET /host/db/host` lists the hosts the user can see, with `id`, `name`, `ip`, `port`. `POST /host/db/host` adds one and needs only `ip` and a valid `port`; no user name and no secret are required. | `src/backend/database/routes/host.ts` |
+| `/?view=terminal&hostId=<id>` opens one host's terminal full screen. Signed out, Termix signs the browser in and comes back to the link. | `src/main.tsx` (`FullscreenApp`), `src/ui/lib/view-link-resume.ts`; the `terminal` tab is the bundled ssh-terminal plugin's (`Termix-SSH/Plugin-SSH-Terminal`, `src/frontend/index.tsx`) |
+| Termix's API answers any origin, with `Authorization` allowed, unless its operator sets `CORS_ALLOWED_ORIGINS`; then only the listed origins. | `src/backend/utils/cors-config.ts` |
+| Bulk import (`/plugin-api/import-export/bulk-import`, 100 hosts a call) is a plugin's, not core's. | `Termix-SSH/Plugin-Import-Export`, `src/backend/routes.ts` |
+
+## Decided (the owner's answers on card r43-termix)
+
+1. **The browser talks to Termix; the server does not** (card r43-termix, question 1, A). The server
+   would need its outbound HTTPS client for this, and that client and `ring` under it are allowed
+   for outside vaults only. The browser can reach Termix directly, because Termix allows any
+   origin by default. So the server's whole part is:
+   - `FATHOM_TERMIX_URL`, one origin the operator names (`https://`, or `http://` to a loopback
+     host). It is refused at startup unless it is a bare origin of letters, digits, dots, hyphens
+     and a port (`src/termix.rs`), because it is written into a header.
+   - That origin added to `connect-src` in the content security policy (`client.rs`). Unset, the
+     policy is byte-for-byte what it was.
+   - `GET /organisations/{o}/termix`, behind a session and a membership, telling the browser the
+     address, or that a steward turned it off (decision 6).
+2. **No credential goes to Termix** (card r43-termix, question 2, A). A host Fathom adds carries a name
+   (the device's host name), the management address, port 22, the folder `Fathom` and the tag
+   `fathom`. No user name, no password, no key. The person picks one of Termix's own credentials
+   in Termix. Vault logins stay in the vault.
+3. **The Termix API key stays in the tab** (card r43-termix, question 3, A). The person pastes their own
+   key the first time they open a device; it is kept in `sessionStorage`, sent only to the Termix
+   origin, with `credentials: 'omit'` and redirects refused, and forgotten when the tab closes, on
+   "Forget key", or when Termix refuses it. Fathom's server never sees it.
+4. **Where it shows:** the device panel's Management fold, under the management address, as
+   "Open in Termix". It finds the Termix host at that address (port 22 first), opens its terminal
+   in a new tab, and when there is none offers "Add it to Termix" and then opens it.
+
+5. **Sending many devices at once** (card r43-termix, "Also build"). In Inventory › Devices, tick
+   rows (or "Select all matching") and press **Send N to Termix**. The browser lists Termix's hosts
+   once and adds each device Termix has no host for at that address, one at a time through the
+   same core route (Termix's bulk import is a plugin a Termix may not run), into the folder
+   `Fathom / <design>`. Devices without an address are not counted; two devices with one address
+   are sent once; a refused key stops the run, any other refusal is counted and the run goes on.
+
+6. **Per person, and a steward or the operator can turn it off** (the owner, 27 October 2026:
+   "termix would also be per user, but disallowable per admin or the steward").
+   - *Per person* already holds: each person uses their own Termix API key, so each sees and opens
+     what their own Termix user can, and Fathom holds no key that acts for anyone else.
+   - *The operator* turns it off for the whole deployment by leaving `FATHOM_TERMIX_URL` unset: no
+     `connect-src`, no address, no buttons.
+   - *A steward* of any folder in an organisation turns it off for everyone there
+     (`organisation_termix`) or for one person (`member_termix`), migration `0056`, from Organisation
+     › People. Off for everyone outranks a person's own switch. A person cannot turn back on what a
+     steward turned off. Each change is sealed on the organisation chain as `termix_access_set`.
+     While it is off the server answers `{"url": null, "off": "everyone" | "you"}` and the client
+     shows one line saying so instead of the buttons.
+   - **This is a product switch, not a security boundary.** The content security policy is the
+     deployment's, not the organisation's, and the address is not a secret; someone who knows it can
+     open Termix in another tab with their own key. Taking Termix from a person is done in Termix,
+     by revoking their key. The page says so beside each switch.
+
+## Why invariant 2 still holds
+
+Fathom opens no connection to a device, from the server or the browser. The browser asks Termix
+which host has an address and, when asked, tells Termix to remember one; Termix connects, in a tab
+the person opened, as the Termix user the key belongs to. `management_address` stays "inventory
+only" in the schema: Fathom does not use it to reach anything, it hands it to a tool the operator
+chose.
+
+## What this does not protect against
+
+- A script running in Fathom's page could read the key from `sessionStorage` and use it against
+  Termix. That is the same exposure every other secret in the page has (the vault's unlocked keys
+  included), and the content security policy is what keeps foreign script out.
+- An operator who names the wrong Termix sends people's Termix keys there. The address is the
+  operator's to get right, like `FATHOM_AI_PUBLIC_URL`.
+
+## Not built, and why
+
+- **An "In Termix" column in Inventory.** Left unticked on the card.
+- **Server-side sync with an organisation-wide key** (option B on the shape card). It needs the
+  owner to widen the outbound HTTPS exception, and a key that acts for everyone.
+- **Opening Termix inside Fathom.** `frame-src` stays closed; a new tab is enough.
+- **A live switch for the operator in the admin console.** The operator's switch is
+  `FATHOM_TERMIX_URL`, read at startup. A console switch would go through the operator quorum like
+  the AI site switch (ADR-0072); left on sign-off card r44-termix-off.

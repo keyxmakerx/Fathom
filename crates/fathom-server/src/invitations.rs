@@ -48,7 +48,9 @@ use fathom_canon::Json;
 use crate::authority::{self, Capability, RowFacts};
 use crate::chain::EntryType;
 use crate::chains::{self, ChainStoreError};
+use crate::crypto::hex;
 use crate::crypto::{self, Key32};
+use crate::crypto::{now_unix, unhex};
 use crate::grants::{
     self, AccessLine, AccountKey, Authority, AuthorityError, EpochWatch, Grant, KeyedGrantRequest,
     StewardCheck,
@@ -343,31 +345,6 @@ fn invitation_from_row(row: &tokio_postgres::Row) -> Result<InvitationRow, Invit
         row_version: row.get(21),
         row_seal: row.get(22),
     })
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-fn unhex(text: &str) -> Option<Vec<u8>> {
-    if !text.len().is_multiple_of(2) || !text.is_ascii() {
-        return None;
-    }
-    text.as_bytes()
-        .chunks(2)
-        .map(|pair| {
-            let hi = (pair[0] as char).to_digit(16)?;
-            let lo = (pair[1] as char).to_digit(16)?;
-            Some((hi * 16 + lo) as u8)
-        })
-        .collect()
-}
-
-fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system clock is before 1970")
-        .as_secs() as i64
 }
 
 fn entry_metadata(entry_type: EntryType, fields: &[(&str, Json)]) -> Vec<u8> {
@@ -1207,6 +1184,8 @@ pub async fn people(
     // are listed once, as a member, with a state that says they have not been in.
     let (views, waiting_count) = open_invitations(tx, ring, auth, &verified, &mut check).await?;
     let typing = crate::teaching::on_in_organisation(tx, &organisation).await?;
+    let termix_off = crate::termix::off_in_organisation(tx, &organisation).await?;
+    let termix_off_everyone = crate::termix::off_for_everyone(tx, &organisation).await?;
     let added: BTreeSet<&str> = views
         .iter()
         .filter(|v| v.row.state == State::Added)
@@ -1241,6 +1220,7 @@ pub async fn people(
             ("expired", Json::Bool(false)),
             ("access", Json::Arr(access)),
             ("type_it_yourself", Json::Bool(typing.contains(&id))),
+            ("termix_off", Json::Bool(termix_off.contains(&id))),
         ]));
     }
 
@@ -1285,6 +1265,7 @@ pub async fn people(
     Ok(obj(vec![
         ("people", Json::Arr(out)),
         ("waiting_count", Json::Int(waiting_count)),
+        ("termix_off", Json::Bool(termix_off_everyone)),
     ]))
 }
 

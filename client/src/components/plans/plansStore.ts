@@ -16,6 +16,8 @@ export interface PlanMark {
   ends?: readonly [string, string];
   /** The tag on the mark: PLANNED, STEP 4, ✓ DONE, ≠ WENT DIFFERENTLY. */
   word: string;
+  /** An AI idea's proposed removal: drawn greyed rather than in the stage colour. */
+  removed?: boolean;
 }
 
 export interface PlansState {

@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
 import { viewOf } from '../document/view';
@@ -8,7 +11,11 @@ import { parseScannedText, scanHash } from '../components/phone/scan';
 import { parseHash } from '../components/inventory/listState';
 import { encodeQr } from '../qr';
 import { addStore, storeById } from '../document/stock';
-import { LABEL_PRESETS, labelItems, pagesOf, presetOf, storeLabel } from './labels';
+import { CABLE_THICKNESS, LABEL_PRESETS, aroundMm, labelItems, pageNameOf, pagesOf, presetOf, presetsFor, storeLabel, wrapColumns } from './labels';
+
+
+// Read as text: Vitest hands a stylesheet import back empty.
+const labelsCss = readFileSync(fileURLToPath(new URL('./labels.css', import.meta.url)), 'utf8');
 
 const ORIGIN = 'https://fathom.example.org';
 const DESIGN = '01JQZ0000000000000000000D1';
@@ -67,8 +74,43 @@ describe('pagesOf', () => {
     expect(pagesOf(items, presetOf('a4')).map((p) => p.length)).toEqual([30, 1]);
   });
 
-  it('every preset is a size the stylesheet names', () => {
-    expect(LABEL_PRESETS.map((p) => p.id).sort()).toEqual(['a4', 'ql-29', 'ql-62', 'tze-12', 'tze-18', 'tze-24']);
+  it('every preset, at every cable thickness, is a page the stylesheet names at the same size', () => {
+    for (const p of LABEL_PRESETS) {
+      for (const t of CABLE_THICKNESS) {
+        const sized = presetOf(p.id, t.id);
+        const w = sized.sheet?.widthMm ?? sized.widthMm;
+        const h = sized.sheet?.heightMm ?? sized.heightMm;
+        const name = pageNameOf(p.id, t.id);
+        expect(labelsCss, name).toContain(`@page ${name} { size: ${w}mm ${h}mm; margin: 0; }`);
+        expect(labelsCss, name).toContain(`.labels-page--${name.replace(/^label-/, '')} { page: ${name}; }`);
+      }
+    }
+  });
+});
+
+describe('cable wraps and flags', () => {
+  it('are offered only when printing cables', () => {
+    expect(presetsFor(false).some((p) => p.shape !== 'flat')).toBe(false);
+    expect(presetsFor(true).map((p) => p.id)).toEqual(expect.arrayContaining(['wrap-24', 'flag-24', 'tze-36']));
+    expect(presetsFor(false).map((p) => p.id)).toContain('tze-36');
+  });
+
+  it('go once round the cable, with a little over for a wrap and a face each end for a flag', () => {
+    // Cat6 is about 6 mm across: 19 mm round.
+    expect(aroundMm('cat6')).toBe(19);
+    expect(presetOf('wrap-24', 'cat6').widthMm).toBeGreaterThan(aroundMm('cat6'));
+    expect(presetOf('flag-24', 'cat6a').widthMm).toBeGreaterThan(presetOf('flag-24', 'cat6').widthMm);
+    for (const t of CABLE_THICKNESS) {
+      const wrap = presetOf('wrap-24', t.id);
+      // The name shows at least twice round the cable, in columns wide enough to read.
+      expect(wrapColumns(wrap)).toBeGreaterThanOrEqual(2);
+      expect(wrap.widthMm / wrapColumns(wrap)).toBeGreaterThanOrEqual(7);
+    }
+  });
+
+  it('a flat label is the same at any thickness', () => {
+    expect(presetOf('tze-24', 'slim')).toEqual(presetOf('tze-24', 'cat6a'));
+    expect(pageNameOf('tze-24', 'slim')).toBe('label-tze-24');
   });
 });
 

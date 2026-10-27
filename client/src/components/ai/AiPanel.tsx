@@ -479,12 +479,12 @@ function PolicyForm({
             }
           />
           <span>
-            AI apps may change designs
+            AI apps may propose changes
             <span className="ai-tick__why">
               {" "}
               · only connections whose owner also ticks it, and only where that
-              person can draw. Text inside a design can steer an AI, so changes
-              are marked as the AI’s and undo in one step.
+              person can draw. An AI never changes a design itself: its change is
+              shown on the canvas and waits for a person to accept it.
             </span>
           </span>
         </label>
@@ -764,7 +764,7 @@ function KeyPage({
                 onChange={(e) => setMayChange(e.target.checked)}
               />
               <span>
-                May change designs
+                May propose changes
                 {!policy.mayChange && (
                   <span className="ai-tick__why">
                     {" "}

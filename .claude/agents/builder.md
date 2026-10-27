@@ -28,11 +28,7 @@ history, and reading it is the single largest cost this project has already paid
 
 ## Verify before you claim
 
-    cargo fmt --all --check
-    cargo clippy --all-targets -- -D warnings
-    cargo test --workspace --locked
-    cargo run -p fathom-schema --bin fathom-schema-check
-    ./scripts/gate-zero.sh
+Every command in `CONTRIBUTING.md` §4, the one list.
 
 Green is the gate. Read every count off the run; never quote one from a document.
 

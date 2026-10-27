@@ -122,7 +122,7 @@ async fn backups(
         status.as_deref(),
         record.as_deref(),
         &state.current,
-        now_unix(),
+        crypto::now_unix() as u64,
     );
 
     let mut out = Vec::new();
@@ -141,13 +141,6 @@ async fn backups(
         out,
     )
         .into_response())
-}
-
-fn now_unix() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
 }
 
 /// The data files in the volume, newest first.

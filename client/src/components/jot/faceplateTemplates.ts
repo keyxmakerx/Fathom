@@ -7,6 +7,7 @@ import { useCallback, useSyncExternalStore } from 'react';
 import { PORT_CONNECTOR_VALUES, PORT_SERVICE_VALUES, isPortFace } from '../../document/compat';
 import { clampPlate, type TemplatePort } from '../../document/plate';
 import type { ChassisView } from '../../document/view';
+import { readPref } from '../../prefs';
 
 export interface FaceplateTemplate {
   id: string;
@@ -78,12 +79,7 @@ const cache = new Map<string, { raw: string | null; list: FaceplateTemplate[] }>
 const EMPTY: FaceplateTemplate[] = [];
 
 function read(key: string): FaceplateTemplate[] {
-  let raw: string | null = null;
-  try {
-    raw = window.localStorage.getItem(key);
-  } catch {
-    raw = null;
-  }
+  const raw = readPref(key);
   const hit = cache.get(key);
   if (hit && hit.raw === raw) return hit.list;
   const list = raw === null ? EMPTY : parseTemplates(raw);

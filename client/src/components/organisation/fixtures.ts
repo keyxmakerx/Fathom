@@ -65,5 +65,6 @@ export const person = (over: Partial<Person> = {}): Person => ({
   expired: false,
   access: [access(), access({ grant: 'G2', scopeId: null, label: 'Northwind', capability: 'read', revocable: false })],
   typeItYourself: false,
+  termixOff: false,
   ...over,
 });
