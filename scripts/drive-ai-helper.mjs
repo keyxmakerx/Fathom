@@ -230,6 +230,9 @@ async function runProof(browser, ctxA, seed) {
   await A.locator('.ai-policy .ai-tick', { hasText: 'Addresses, VLANs' }).first().locator('input').check();
   await A.getByRole('button', { name: 'Save', exact: true }).click();
   await A.getByText('Saved. It is in the organisation’s history.').waitFor({ timeout: 10000 });
+  await A.setViewportSize({ width: VIEWPORT.width, height: 1400 });
+  await A.screenshot({ path: `${SHOTS}r2-ai-rules.png` });
+  await A.setViewportSize(VIEWPORT);
 
   await A.getByRole('tab', { name: 'Designs' }).click();
   await A.getByRole('button', { name: 'New design' }).first().click();
@@ -271,6 +274,10 @@ async function runProof(browser, ctxA, seed) {
   check('K7. the app settings carry the path given', (await A.getByTestId('ai-helper-claude-code').innerText()).includes('claude mcp add fathom -- node /home/ann/fathom-ai.mjs'));
   await shot('k6-made');
   check('K8. it is listed as the Fathom AI helper, on', /Fathom AI helper/.test(await A.locator('.ai-table__row', { hasText: 'Helper on the drive laptop' }).innerText()));
+  check('R2. the AI page says what the rules allow', /^AI is on\./.test(await A.getByTestId('ai-rules-line').innerText()));
+  await A.getByRole('radio', { name: /It signs in/ }).click();
+  await A.screenshot({ path: `${SHOTS}r3-ai-page.png` });
+  await A.getByRole('radio', { name: /It uses a key/ }).click();
 
   // The helper, as an AI app runs it.
   const checked = sh('node', [HELPER, 'check'], { env: helperEnv });

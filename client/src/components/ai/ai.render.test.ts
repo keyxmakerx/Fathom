@@ -216,7 +216,7 @@ describe('the line at the top of the AI page', () => {
 
   it('says in one sentence what the rules allow', () => {
     expect(rulesInWords({ ...policy, ceiling: [...policy.ceiling], apps: [...policy.apps] }, true)).toBe(
-      'AI is on. Claude and Claude Code may connect, for 2 people, seeing at most the layout, addresses, for up to 90 days.',
+      'AI is on. Claude and Claude Code may connect, for 2 people, seeing at most the layout and addresses, for up to 90 days.',
     );
   });
 

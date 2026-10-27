@@ -81,12 +81,17 @@ export function rulesInWords(policy: AiPolicy, steward: boolean): string {
     return steward
       ? "AI is off here. Nobody can connect an AI app until you turn it on in AI rules."
       : "AI is off here. A Steward can turn it on.";
+  const list = (words: string[]) =>
+    words.length < 2
+      ? (words[0] ?? "")
+      : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
   const apps = policy.apps.map((a) => APP_NAME[a]);
   const appWords =
-    apps.length === 0
-      ? "No AI app is allowed yet"
-      : `${apps.length === 1 ? apps[0] : `${apps.slice(0, -1).join(", ")} and ${apps[apps.length - 1]}`} may connect`;
-  const sees = ["the layout", ...policy.ceiling.filter((t) => t !== "layout")].join(", ");
+    apps.length === 0 ? "No AI app is allowed yet" : `${list(apps)} may connect`;
+  const sees = list([
+    "the layout",
+    ...policy.ceiling.filter((t) => t !== "layout"),
+  ]);
   const people =
     policy.makers.length === 1 ? "1 person" : `${policy.makers.length} people`;
   return `AI is on. ${appWords}, for ${people}, seeing at most ${sees}, for up to ${DAY_WORDS[policy.maxDays] ?? `${policy.maxDays} days`}.`;
