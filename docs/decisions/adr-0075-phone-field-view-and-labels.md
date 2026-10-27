@@ -40,14 +40,15 @@ plan's steps, to report something down, and later to find a store bin. Drawing s
    a page of its own size (`@page` named pages), so the printer's own driver does the rest; Brother
    publishes Linux LPR and CUPS drivers for its QL printers (support.brother.com, QL-820NWB FAQs, read
    2026-10-26). A code holds the link and nothing else about the network.
-6. **For an AI app:** a design reading says how a label's link is built, and the connector's
+6. **Store bins.** A store's label opens its page under Parts › On hand (`#inventory?k=parts&o=<store id>`);
+   the store page has **Print bin label**. On a phone, a serial field when adding stock has a **Scan**
+   button that fills it from the camera.
+7. **For an AI app:** a design reading says how a label's link is built, and the connector's
    instructions say how to read one, so a person can paste a scanned link and ask about the item.
 
 ## Not yet
 
 - **Room door labels** wait on rooms (sites and rooms are on hold).
-- **Store bins** (available inventory): the scan link opens a store's page once that work lands; its
-  ids are recognised by prefix (`store:`, `stock-item:`).
 - **A public scan view** stays ADR-0068's later idea, behind a security review.
 
 ## Sources checked (rule 1)

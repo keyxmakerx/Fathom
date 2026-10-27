@@ -80,12 +80,13 @@ import './inventory.css';
 import { EmptyState } from '../ui/EmptyState';
 import { SkeletonRows } from '../ui/Skeleton';
 import { loadSheet, saveSheet } from './sheetPref';
-import { StockPanel } from './StockPanel';
+import { StockPanel, StoreBinPage } from './StockPanel';
 import { saveLook } from '../drawing/look';
 import { PasswordsPage, useVaultCount } from '../vault/Screens';
 import { VaultPlaceContext } from '../vault/useVault';
 import { LabelsPreview } from '../../print/LabelsPreview';
-import { isLabelListKind, type LabelListKind } from '../../print/labels';
+import { isLabelListKind, labelItems, storeLabel, type LabelItem } from '../../print/labels';
+import { isStoreId, storeById } from '../../document/stock';
 
 const EMPTY_VIEW: ClosetView = { premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [], free: [], lines: [], labels: [] };
 const EMPTY_NETWORKS_DERIVED: NetworksDerived = { vlanRows: [], subnetRows: [], dockerNetworkRows: [], dockerUnattachedContainers: [] };
@@ -195,7 +196,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const [notice, setNotice] = useState<string | null>(null);
   // The filter line stays folded until Filter is pressed or a filter is set (r30-small).
   const [filterShown, setFilterShown] = useState(false);
-  const [labelRows, setLabelRows] = useState<{ kind: LabelListKind; rows: readonly InvRow[] } | null>(null);
+  const [labels, setLabels] = useState<{ items: LabelItem[]; note?: string } | null>(null);
   const [pasteText, setPasteText] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   // The design as it was when the importer opened, and as it is now (the dialog's callback is old by
@@ -761,6 +762,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
 
   return (
     <Shell {...shellProps} lens={lens} editor={null} viewOnly={!canDraw} mainView={mainView}>
+      {labels ? <LabelsPreview items={labels.items} note={labels.note} onClose={() => setLabels(null)} /> : null}
       {doc == null ? (
         <div className="inventory-place__loading">{loadError ?? <SkeletonRows label="Opening the design…" rows={9} />}</div>
       ) : (
@@ -797,10 +799,33 @@ export function InventoryPlace(props: InventoryPlaceProps) {
             <div className="inventory-place__main">
               <IssuesList doc={doc} onShowOnCanvas={onShowIssue} />
             </div>
+          ) : kind === 'parts' && doc && openKey && isStoreId(openKey) ? (
+            // A scanned bin label opens here (ADR-0075).
+            <div className="inventory-place__main">
+              {storeById(doc, openKey) ? (
+                <>
+                  {session.designId ? (
+                    <button
+                      type="button"
+                      className="btn-quiet"
+                      onClick={() => {
+                        const store = storeById(doc, openKey);
+                        if (store) setLabels({ items: [storeLabel(store, window.location.origin, session.designId ?? '')] });
+                      }}
+                    >
+                      Print bin label
+                    </button>
+                  ) : null}
+                  <StoreBinPage doc={doc} storeId={openKey} canDraw={canDraw} onChange={applyDocChange} onBack={stepBack} fieldDefs={fieldDefs} />
+                </>
+              ) : (
+                <p className="inventory-place__muted">That store is no longer in this design.</p>
+              )}
+            </div>
           ) : kind === 'parts' && onHand && doc && !openKey ? (
             <div className="inventory-place__main">
               <PartsSwitch onHand={onHand} onChange={setOnHand} />
-              <StockPanel doc={doc} canDraw={canDraw} applyDocChange={applyDocChange} redact={redact} fieldDefs={fieldDefs} createField={createField} />
+              <StockPanel doc={doc} canDraw={canDraw} applyDocChange={applyDocChange} redact={redact} fieldDefs={fieldDefs} createField={createField} onOpenStore={(id) => push({ open: id, tab: '' })} />
             </div>
           ) : kind === 'passwords' ? (
             <div className="inventory-place__main">
@@ -879,9 +904,16 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                 progress={bulkProgress}
                 undo={bulkUndo && bulkUndo.notice === notice && bulkStillUndoable(doc, bulkUndo.id) ? { run: runBulkUndo } : null}
                 filter={{ shown: filterShown || q !== '', onToggle: () => setFilterShown(!filterShown) }}
-                onPrintLabels={isLabelListKind(kind) && session.designId ? () => setLabelRows({ kind, rows: checkedRows }) : undefined}
+                onPrintLabels={
+                  isLabelListKind(kind) && session.designId
+                    ? () =>
+                        setLabels({
+                          items: labelItems(kind, checkedRows, window.location.origin, session.designId ?? ''),
+                          note: kind === 'cables' ? 'Two labels per cable, one for each end.' : undefined,
+                        })
+                    : undefined
+                }
               />
-              {labelRows ? <LabelsPreview kind={labelRows.kind} rows={labelRows.rows} designId={session.designId ?? ''} onClose={() => setLabelRows(null)} /> : null}
               {filterShown || q !== '' ? (
                 <FilterLine q={q} onQ={(next) => go({ q: next })} schema={schema} rows={baseRows} parsed={filtered.parsed} kindLabel={kindLabel} autoFocus={filterShown && q === ''} />
               ) : null}

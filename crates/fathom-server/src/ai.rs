@@ -2473,14 +2473,14 @@ pub async fn ai_reading(
              change a person can undo; or recommend with POST .../recommendations for a \
              person to accept or dismiss. A printed label's code holds this server's \
              address, `/scan#`, this design's id, `/` and an id from here (a rack, \
-             cable, port or device); a person who scans it opens that item."
+             cable, port, device or store); a person who scans it opens that item."
                 .into()
         } else {
             "Read-only. Fields that looked like a password or key were left out and counted \
              in `withheld`. Recommend changes with POST .../recommendations; a person \
              accepts or dismisses each. A printed label's code holds this server's \
              address, `/scan#`, this design's id, `/` and an id from here (a rack, \
-             cable, port or device); a person who scans it opens that item."
+             cable, port, device or store); a person who scans it opens that item."
                 .into()
         }),
     );

@@ -5,8 +5,10 @@ import { buildSample, samples } from '../components/home/sampleNetwork';
 import { buildPlaceIndex } from '../components/inventory/placeIndex';
 import { cableRows, deviceRows, portRows, rackRows } from '../components/inventory/kinds';
 import { parseScannedText, scanHash } from '../components/phone/scan';
+import { parseHash } from '../components/inventory/listState';
 import { encodeQr } from '../qr';
-import { LABEL_PRESETS, labelItems, pagesOf, presetOf } from './labels';
+import { addStore, storeById } from '../document/stock';
+import { LABEL_PRESETS, labelItems, pagesOf, presetOf, storeLabel } from './labels';
 
 const ORIGIN = 'https://fathom.example.org';
 const DESIGN = '01JQZ0000000000000000000D1';
@@ -67,5 +69,15 @@ describe('pagesOf', () => {
 
   it('every preset is a size the stylesheet names', () => {
     expect(LABEL_PRESETS.map((p) => p.id).sort()).toEqual(['a4', 'ql-29', 'ql-62', 'tze-12', 'tze-18', 'tze-24']);
+  });
+});
+
+describe('storeLabel', () => {
+  it('a bin label opens its store', () => {
+    const made = addStore(built().doc, { name: 'Cage 3 bin A', place: 'Row C' });
+    const item = storeLabel(storeById(made.doc, made.id)!, ORIGIN, DESIGN);
+    expect(item).toMatchObject({ title: 'Cage 3 bin A', detail: 'Row C' });
+    const target = parseScannedText(item.link, ORIGIN)!;
+    expect(parseHash(scanHash(made.doc, target.nodeId)!)).toMatchObject({ kind: 'parts', open: made.id });
   });
 });

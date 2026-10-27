@@ -19,8 +19,8 @@ export interface ScanTarget {
 const DESIGN_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** The kinds a label is printed for, and so the kinds a scan opens. */
-export type LabelKind = 'Rack' | 'Chassis' | 'Cable' | 'PhysicalPort';
-const LABEL_KINDS: readonly LabelKind[] = ['Rack', 'Chassis', 'Cable', 'PhysicalPort'];
+export type LabelKind = 'Rack' | 'Chassis' | 'Cable' | 'PhysicalPort' | 'Store';
+const LABEL_KINDS: readonly LabelKind[] = ['Rack', 'Chassis', 'Cable', 'PhysicalPort', 'Store'];
 
 function nodeIdOk(id: string): boolean {
   try {
@@ -84,6 +84,8 @@ export function scanHash(doc: Document, nodeId: string): string | null {
   if (isNodeOfKind(nodeId, 'Rack')) return open('racks', `rack:${nodeId}`);
   if (isNodeOfKind(nodeId, 'Cable')) return open('cables', `cable:${nodeId}`);
   if (isNodeOfKind(nodeId, 'PhysicalPort')) return open('ports', `port:${nodeId}`);
+  // A store's bin page lives under Parts › On hand; its own id is the open key.
+  if (isNodeOfKind(nodeId, 'Store')) return open('parts', nodeId);
   if (isNodeOfKind(nodeId, 'Chassis')) {
     // The device row's key names how the box is placed: in a rack, on a shelf, or fixed to a wall.
     const sel = edgesOut(doc, nodeId, 'SitsOn').length > 0 ? 'occupant' : edgesOut(doc, nodeId, 'FixedTo').length > 0 ? 'fixture' : 'chassis';

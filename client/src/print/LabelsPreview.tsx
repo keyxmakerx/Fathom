@@ -5,9 +5,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import type { InvRow } from '../components/inventory/kinds';
 import { QR_QUIET_ZONE, encodeQr, qrPath, qrSide } from '../qr';
-import { LABEL_PRESETS, DEFAULT_PRESET, labelItems, pagesOf, presetOf, type LabelItem, type LabelListKind, type LabelPreset, type LabelPresetId } from './labels';
+import { LABEL_PRESETS, DEFAULT_PRESET, pagesOf, presetOf, type LabelItem, type LabelPreset, type LabelPresetId } from './labels';
 import './labels.css';
 
 const PRESET_KEY = 'fathom-label-preset';
@@ -22,16 +21,15 @@ function savedPreset(): LabelPresetId {
 }
 
 export interface LabelsPreviewProps {
-  kind: LabelListKind;
-  rows: readonly InvRow[];
-  designId: string;
+  items: readonly LabelItem[];
+  /** A line before the printing help, such as why there are two labels per cable. */
+  note?: string;
   onClose(): void;
 }
 
-export function LabelsPreview({ kind, rows, designId, onClose }: LabelsPreviewProps) {
+export function LabelsPreview({ items, note, onClose }: LabelsPreviewProps) {
   const [presetId, setPresetId] = useState<LabelPresetId>(savedPreset);
   const preset = presetOf(presetId);
-  const items = useMemo(() => labelItems(kind, rows, window.location.origin, designId), [kind, rows, designId]);
   const pages = useMemo(() => pagesOf(items, preset), [items, preset]);
 
   // While this is open, printing prints only the labels (`labels.css`).
@@ -81,7 +79,7 @@ export function LabelsPreview({ kind, rows, designId, onClose }: LabelsPreviewPr
         </button>
       </div>
       <p className="labels-preview__help">
-        {kind === 'cables' ? 'Two labels per cable, one for each end. ' : ''}
+        {note ? `${note} ` : ''}
         In the print dialog, pick the printer and the same label size, with margins set to none. Each code opens the item in
         Fathom after sign-in; it holds a link and the item's id, and nothing else about your network.
         {preset.note ? ` ${preset.note}` : ''}

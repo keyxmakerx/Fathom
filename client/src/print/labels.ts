@@ -6,6 +6,7 @@
 
 import type { InvRow } from '../components/inventory/kinds';
 import { scanLink } from '../components/phone/scan';
+import type { StoreView } from '../document/stock';
 
 export type LabelPresetId = 'tze-12' | 'tze-18' | 'tze-24' | 'ql-62' | 'ql-29' | 'a4';
 
@@ -92,6 +93,11 @@ export function labelItems(kind: LabelListKind, rows: readonly InvRow[], origin:
     for (let i = 0; i < copies; i += 1) out.push({ ...item, key: `${row.key}#${i}` });
   }
   return out;
+}
+
+/** The label for a store's bin: scanning it opens the store's page (ADR-0075). */
+export function storeLabel(store: StoreView, origin: string, designId: string): LabelItem {
+  return { key: store.id, title: store.name || '(no name)', detail: store.place ?? '', link: scanLink(origin, { designId, nodeId: store.id }) };
 }
 
 /** Labels laid out on sheets: one per page for a tape or roll, `cols × rows` per page on paper. */

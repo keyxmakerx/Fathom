@@ -503,7 +503,8 @@ A label's QR code is `/scan#<design>/<id>`; scanning it (phone Camera app, or Sc
 or typing) opens the item's Inventory page after sign-in. Same-server links only; other text goes to Find.
 Add to Home Screen (manifest, no service worker). Inventory › tick rows › Print labels: devices, racks,
 cables (two each) and ports on Brother TZe 24/18/12 mm, QL 62 mm or 29 × 90 mm, or A4 thirty a sheet.
-Not yet: door labels (rooms), store bins (waits on available inventory). Drive: `scripts/drive-phone.mjs`.
+A store's bin label opens its page (Print bin label there); a Scan button fills serial fields on a phone.
+Not yet: door labels (rooms). Drive: `scripts/drive-phone.mjs`.
 
 **Cables list** (#54). From the lit Cables lens: groups by VLAN, tag, type or device, a count each; a ticked
 VLAN's trunks draw dashed; "Hide this cable" with a "n hidden · show" chip. Per browser and design, never

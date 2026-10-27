@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { addStore, listStores } from '../../document/stock';
 
 import { viewOf } from '../../document/view';
 import { buildSample, samples } from '../home/sampleNetwork';
@@ -45,6 +46,8 @@ describe('scanHash', () => {
         racks: new Set(rackRows(doc, view, [], idx).map((r) => r.key)),
         cables: new Set(cableRows(doc, view, idx).map((r) => r.key)),
         ports: new Set(portRows(doc, view, idx).map((r) => r.key)),
+        // A store's page is opened by the store's own id (Parts › On hand).
+        parts: new Set(listStores(doc).map((s) => s.id)),
       };
       for (const node of doc.nodes) {
         if (node.absentSince !== undefined) continue;
@@ -59,6 +62,13 @@ describe('scanHash', () => {
       }
     }
     expect(checked).toBeGreaterThan(20);
+  });
+
+  it('opens a store at its bin page', () => {
+    const { doc } = buildSample(samples().find((s) => (s.configs ?? []).length === 0)!, new Map());
+    const made = addStore(doc, { name: 'Cage 3 bin A' });
+    const ls = parseHash(scanHash(made.doc, made.id)!);
+    expect(ls).toMatchObject({ kind: 'parts', open: made.id });
   });
 
   it('is null for a node that is gone or has no page', () => {

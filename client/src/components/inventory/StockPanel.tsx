@@ -49,6 +49,7 @@ import { fieldsOf, listFieldDefs, setFieldValues, type FieldDefView, type FieldF
 import { buildCanon } from '../checks/checksModel';
 import { devicesOf, partsOfDevice } from '../plans/plansModel';
 import { getSession } from '../../state/sessionState';
+import { ScanButton } from '../phone/ScanButton';
 import './stock.css';
 
 function actorOpts(): { actor: string } | undefined {
@@ -169,6 +170,7 @@ function ItemDetail({ doc, item, canDraw, apply, fieldDefs }: { doc: Document; i
         </Field>
         <Field label="Serial">
           <input className="stock__input stock__input--mono" value={form.serial} data-scan-target="serial" onChange={(e) => set('serial', e.target.value)} />
+          <ScanButton onText={(t) => set('serial', t)} />
         </Field>
         {!form.serial ? (
           <Field label="How many">
@@ -596,6 +598,7 @@ function AddStock({
           </Field>
           <Field label="Serial">
             <input className="stock__input stock__input--mono" value={one.serial} data-scan-target="serial" onChange={(e) => setOne({ ...one, serial: e.target.value })} />
+            <ScanButton onText={(t) => setOne({ ...one, serial: t })} />
           </Field>
           {!one.serial ? (
             <Field label="How many">
@@ -1009,11 +1012,14 @@ export function StockPanel({
   redact,
   fieldDefs = [],
   createField,
+  onOpenStore,
 }: {
   doc: Document;
   canDraw: boolean;
   applyDocChange: (next: Document) => void;
   redact: (text: string) => Promise<string>;
+  /** Open a store's page at its own address, the one its bin label opens (ADR-0075); without it the page opens in place. */
+  onOpenStore?: (storeId: string) => void;
   fieldDefs?: readonly FieldDefView[];
   createField?: (kind: FieldFor, name: string, type: FieldType) => Promise<{ refused: string } | void>;
 }) {
@@ -1079,7 +1085,7 @@ export function StockPanel({
         }
       />
       {canDraw && createField && listFieldDefs(fieldDefs, 'part').length === 0 ? <StarterFields createField={createField} /> : null}
-      <StoresSection doc={doc} canDraw={canDraw} apply={applyDocChange} onOpen={setStoreOpen} />
+      <StoresSection doc={doc} canDraw={canDraw} apply={applyDocChange} onOpen={onOpenStore ?? setStoreOpen} />
       <LevelsSection doc={doc} canDraw={canDraw} apply={applyDocChange} />
     </section>
   );

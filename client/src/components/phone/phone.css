@@ -176,3 +176,9 @@
   font-size: 15px;
   cursor: pointer;
 }
+
+/* A Scan button beside a serial field (phone only). */
+.phone-scan-into {
+  align-self: flex-start;
+  min-height: 40px;
+}
