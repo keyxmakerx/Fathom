@@ -7,7 +7,7 @@
 // loose end (a Missing links one) behind that nobody chose.
 
 import schemaJson from '../../../schema/generated/schema.json';
-import { parseEdgeId, type Document, type EdgeKind, type GraphEdge } from './model';
+import { edgeKindOf, type Document, type EdgeKind, type GraphEdge } from './model';
 
 interface SchemaEdgeEntry {
   edge: string;
@@ -50,7 +50,7 @@ export function cascadeRemoval(doc: Document, rootId: string): CascadeResult {
     const next: string[] = [];
     for (const id of frontier) {
       for (const e of liveEdgesByFrom.get(id) ?? []) {
-        if (!CONTAINMENT_EDGE_KINDS.has(parseEdgeId(e.id).kind)) continue;
+        if (!CONTAINMENT_EDGE_KINDS.has(edgeKindOf(e.id))) continue;
         containmentEdgeIds.add(e.id);
         if (!nodeIds.has(e.to)) {
           nodeIds.add(e.to);
@@ -66,7 +66,7 @@ export function cascadeRemoval(doc: Document, rootId: string): CascadeResult {
   const cablesToRemove = new Set<string>();
   for (const e of doc.edges) {
     if (e.absentSince !== undefined) continue;
-    if (parseEdgeId(e.id).kind !== 'Terminates') continue;
+    if (edgeKindOf(e.id) !== 'Terminates') continue;
     if (nodeIds.has(e.to)) cablesToRemove.add(e.from);
   }
   for (const cableId of cablesToRemove) nodeIds.add(cableId);
@@ -74,7 +74,7 @@ export function cascadeRemoval(doc: Document, rootId: string): CascadeResult {
   const edgeIds = new Set<string>(containmentEdgeIds);
   for (const e of doc.edges) {
     if (e.absentSince !== undefined) continue;
-    const kind = parseEdgeId(e.id).kind;
+    const kind = edgeKindOf(e.id);
     if (kind === 'Terminates') {
       if (cablesToRemove.has(e.from)) edgeIds.add(e.id);
       continue;
