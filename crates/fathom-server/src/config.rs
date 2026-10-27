@@ -134,6 +134,16 @@ pub struct Config {
     /// A scheme is REFUSED, not stripped: `audit::TargetError::HasScheme`.
     pub audit_syslog: Option<SyslogTarget>,
 
+    /// Where the access lines (`access_log.rs`: operator console and sign-in
+    /// requests, with the client's real address) are also sent. `FATHOM_ACCESS_SYSLOG`,
+    /// the same bare `host:port`, TCP, RFC 5424. Separate from the audit destination
+    /// because these lines carry addresses and paths and the audit lines carry
+    /// neither; the two may name the same server.
+    ///
+    /// Best effort: a line that cannot be sent is dropped and counted, never spooled.
+    /// The sealed history keeps the same addresses (`chains::append_site`).
+    pub access_syslog: Option<SyslogTarget>,
+
     /// §9's two bounds on the audit spool: `FATHOM_AUDIT_SPOOL_MAX_AGE` (seconds,
     /// default 72 hours) and `FATHOM_AUDIT_SPOOL_MAX_BYTES` (default 1 GiB),
     /// *whichever comes first*.
@@ -533,6 +543,15 @@ impl Config {
             ),
         };
 
+        let access_syslog = match get("FATHOM_ACCESS_SYSLOG").filter(|v| !v.trim().is_empty()) {
+            None => None,
+            Some(v) => Some(
+                SyslogTarget::parse(&v).map_err(|_| ConfigError::Unparseable {
+                    variable: "FATHOM_ACCESS_SYSLOG",
+                })?,
+            ),
+        };
+
         // Both bounds, or the §9 defaults. A malformed value is refused here and
         // nowhere else; the design write path falls back to the default rather than fail
         // a write, since a running server has passed this check.
@@ -725,6 +744,7 @@ impl Config {
             outside_vault_hosts,
             passbolt_helper,
             audit_syslog,
+            access_syslog,
             audit_spool_bounds,
             sign_in_limits,
             session_address_check,
