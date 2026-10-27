@@ -48,7 +48,7 @@ use crate::live::Live;
 use crate::oauth::{BearerRefusal, Connector, OAuthError, Refusal};
 use crate::repo::DesignId;
 
-/// The most an AI request body may be: one recommendation is a few kilobytes.
+/// The most an AI request body may be: one recommendation or one change is a few kilobytes.
 pub const MAX_BODY: usize = 64 * 1024;
 
 #[derive(Clone)]

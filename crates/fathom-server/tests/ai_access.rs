@@ -2827,3 +2827,65 @@ async fn an_ai_adds_and_removes_in_one_change_and_names_what_it_added() {
     assert_eq!(status, "200");
     assert_eq!(text(&body).matches("\"via_ai\"").count(), 1);
 }
+
+/// ADR-0073 decision 2, from the sweep: a connection lends no more than its owner holds.
+/// Both ticks on, but the owner may only read the folder: the change is refused as the
+/// owner's own would be, and the design does not move.
+#[tokio::test]
+async fn an_ai_change_needs_its_owner_to_be_able_to_draw_there() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let place = a_place(&pool, &estate).await;
+    let reader = a_member(
+        &pool,
+        &ring,
+        &estate,
+        "reader",
+        Some(place.network),
+        Capability::Read,
+    )
+    .await;
+    let addr = serve(app(&pool, Arc::clone(&ring)).await).await;
+    let steward = sign_in(addr, &estate.steward).await;
+    saved(addr, &steward, estate.organisation, place.design_a, 81).await;
+    let o = estate.organisation;
+    let reader_id = reader.account.to_string();
+    let (status, body) = browser(
+        addr,
+        &steward,
+        "POST",
+        &format!("/organisations/{o}/ai/policy"),
+        &canon(vec![
+            ("allowed", Json::Bool(true)),
+            ("makers", strs(&[&reader_id])),
+            ("ceiling", strs(&["layout"])),
+            ("maxDays", Json::Int(90)),
+            ("secondPersonScopes", strs(&[])),
+            ("mayChange", Json::Bool(true)),
+            ("ifVersion", Json::Int(0)),
+        ]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let reader_session = sign_in(addr, &reader).await;
+    let app_key = a_changing_key(addr, &reader_session, o, &["layout"]).await;
+    let a = place.design_a;
+    let (version, device, _) = read_for_change(addr, &app_key, a, "Device").await;
+    let (status, answer) = ai_call(
+        addr,
+        &app_key,
+        "POST",
+        &format!("/ai/v1/designs/{a}/changes"),
+        &a_change(
+            version,
+            "Rename",
+            vec![(&device, DeviceField::Hostname.name(), s("x-1"))],
+        ),
+    )
+    .await;
+    assert_eq!(status, "403", "{}", text(&answer));
+    let (still, _, _) = read_for_change(addr, &app_key, a, "Device").await;
+    assert_eq!(still, version);
+}

@@ -554,7 +554,7 @@ place still holding things or anything holding what the AI cannot see, refused i
 folders, every string through the server's gate. The reading lists what may be added under
 `mayChange`. History marks it "AI (<connection>), for <person>" from `ai_design_changes` (migration
 0051). Not yet: Undo of an AI change by someone other than its owner (History's Restore does it), and
-the security sweep. Not yet: dashed "would be added"
+merging, which waits on the owner (the sweep is in ADR-0073). Not yet: dashed "would be added"
 rows and marks on the drawing itself.
 
 **Device panel** (r14 A1, A2): Details, Ports and Notes tabs, actions at the foot (Duplicate the main one,

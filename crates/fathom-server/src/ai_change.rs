@@ -725,12 +725,22 @@ pub async fn change_design(
         DesignError::ChangeRefused(_) => AiError::NotAllowed(
             "the design's own rules refused this change; read it again and check each operation",
         ),
+        // The owner's own grant refused it: the same answer as any act they may not do.
+        DesignError::Authority(e) => AiError::Authority(e),
         other => AiError::Design(other),
     })?;
     let operations: usize = asked.ops.iter().map(Ask::weight).sum();
+    // The head holds the applied change until the caller commits or aborts it, so a
+    // failure from here on lets it go before answering.
+    let release = |e: AiError| {
+        if let Some(applied) = &written.applied {
+            heads.abort(&design.to_string(), applied.ticket);
+        }
+        e
+    };
     let batch = fathom_workspace::read_change(&built.doc)
         .map(|c| c.batch.id.0.encode())
-        .map_err(|_| AiError::Unverifiable("a change this server built"))?;
+        .map_err(|_| release(AiError::Unverifiable("a change this server built")))?;
     tx.execute(
         "INSERT INTO ai_design_changes (organisation_id, design_id, batch_id, key_id, owner, \
              design_version, operations) \
@@ -745,7 +755,8 @@ pub async fn change_design(
             &(operations as i32),
         ],
     )
-    .await?;
+    .await
+    .map_err(|e| release(e.into()))?;
     Ok((
         Made {
             version: written.version,

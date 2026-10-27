@@ -3,8 +3,8 @@
 **Status:** proposed 2026-10-27. The owner approved sign-off card r41-ai-write, option B ("A 'May
 change designs' tick on a connection, off by default"), and answered its question in a note:
 "So to clarify this is per user and per org, or only per org? I was thinking both". Both it is.
-Steps 1 to 3 below are built (migrations 0050 and 0051, `src/ai_change.rs`); the sweep (step 4)
-is not. A security sweep follows the build, and
+Steps 1 to 3 below are built (migrations 0050 and 0051, `src/ai_change.rs`) and the sweep is
+done (below). Nothing merges until the owner says so. A security sweep follows the build, and
 nothing merges before it.
 
 **Reopens** ADR-0072 decision 2 ("read and recommend only") on merit (CLAUDE.md rule 6), for
@@ -84,6 +84,20 @@ grouped? Prevented?" This record answers that in decisions 4 and 6.
 2. `change_design` for set field only, on `layout` and `notes` fields, with decisions 5 to 9.
 3. Add node, add edge and tombstone, with decision 4's limits.
 4. The security sweep, then merge only when the owner says so.
+
+## The sweep (27 October 2026)
+
+Read against decisions 1 to 10 after steps 1 to 3 were built. Two faults found and fixed, each with a
+test: a change refused because its owner may not draw there answered 500 instead of 403
+(`an_ai_change_needs_its_owner_to_be_able_to_draw_there`), and a failure after the head had taken
+the change but before the AI mark was written left the head holding it until its own timeout; it is
+now released at once. Checked and left as they are: the ticks are read in the transaction that writes;
+the version rule is checked after the design is locked; a removal is counted with its cascade and
+refused if the cascade reaches a kind the reading hides; names given by an add cannot be mistaken for
+ids; the mark cannot be written from a browser; every string value and the summary pass the server's
+credential check; the request body is capped at 64 KiB. **Accepted, and said here:** a person with
+ten connections has ten times the limits; text inside a design can still steer an AI that may change
+it (the first negative consequence below).
 
 ## What this rules out
 
