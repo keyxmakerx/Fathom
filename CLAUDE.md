@@ -85,16 +85,8 @@ The single largest cost in this project has been reading things nobody asked for
 
 ## Verifying work
 
-Before claiming anything works:
-
-```
-cargo fmt --all --check
-cargo clippy --all-targets -- -D warnings
-cargo test --workspace --locked
-cargo run -p fathom-schema --bin fathom-schema-check
-./scripts/gate-zero.sh
-./scripts/gate-npm.sh
-```
+Before claiming anything works, run every command in `CONTRIBUTING.md` §4 (the one list: Rust,
+schema, the dependency gates, and the client's typecheck, lint and tests).
 
 Plus the dependency gates in `scripts/` and whatever the current task names. Green is the gate,
 not any particular number — do not quote a count from a document, read it off the run.
