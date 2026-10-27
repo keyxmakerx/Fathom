@@ -62,18 +62,21 @@ describe('Bar — what is present where', () => {
     expect(renderToStaticMarkup(createElement(Bar, { ...BASE, onZoomFit: () => {} }))).toContain('aria-label="Fit to view"');
   });
 
-  it('with nothing open (Home, Site): the place names are not controls, and Undo, Redo and zoom are absent', () => {
+  it('with nothing open (Home, Admin): the four view names are not controls, and Undo, Redo and zoom are absent', () => {
     const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, place: null }));
-    expect(markup).toContain('<span class="shell-bar__tab">Canvas</span>');
+    for (const name of ['Diagram', 'Canvas', 'Inventory', 'Sheet']) expect(markup).toContain(`<span class="shell-bar__tab">${name}</span>`);
     expect(markup).not.toContain('Undo');
     expect(markup).not.toContain('aria-label="Zoom in"');
   });
 
-  it('with nothing open but a design open before (Home, Admin): Canvas and Inventory go back to it, neither marked', () => {
-    const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, place: null, returnTo: 'Main closet' }));
-    expect(markup).toContain('title="Back to Main closet on the canvas">Canvas</button>');
-    expect(markup).toContain('title="Back to Main closet in Inventory">Inventory</button>');
+  it('with nothing open but a design open before (Home, Admin): the same four views go back to it, none marked', () => {
+    const markup = renderToStaticMarkup(
+      createElement(Bar, { ...BASE, place: null, mainView: { value: null, backTo: 'Main closet', onChange: () => {} } }),
+    );
+    expect(markup).toContain('title="Back to Main closet, Diagram"');
+    expect(markup).toContain('title="Back to Main closet, Sheet"');
     expect(markup).not.toContain('shell-bar__tab--on');
+    expect(markup).not.toContain('aria-current');
     expect(markup).not.toContain('Undo');
   });
 

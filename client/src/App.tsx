@@ -32,7 +32,9 @@ import { Reset, tokenFromLocation } from './components/Reset';
 import { Home, type HomeTab } from './components/home';
 import type { DirectEntry } from './components/home';
 import { Shell } from './components/Shell';
-import type { Lens, Place } from './components/Shell';
+import type { Lens, Place, ShellProps } from './components/Shell';
+import { saveLook } from './components/drawing/look';
+import { saveSheet } from './components/inventory/sheetPref';
 import { DesignPlace } from './components/design/DesignPlace';
 import { LENSES_IN } from './components/shell/lens';
 import { PopoverRow, usePopoverClose } from './components/shell/Popover';
@@ -877,19 +879,26 @@ export default function App() {
   };
   // "Claim it now" (ADR-0057 decision 5): switches to the account plane and
   // carries the freshly minted claim across so ClaimOrganisation needs no typing.
-  // The bar's Canvas or Inventory from Home or Admin: the design last open,
-  // in that place, back on the account plane (ADR-0055 decision 1: the
-  // account session is still there, so this is a change of plane, not a
-  // sign-in). Absent with nothing to go back to.
-  const returnToPlace =
-    lastPlace !== null && (session.kind !== 'operator' || accountSessionOpen)
-      ? (place: Place) => {
-          if (!LENSES_IN[place].includes(lens)) setLens('cables');
-          setView({ ...lastPlace, place, openDevice: undefined });
-          setPlane(ACCOUNT_PLANE);
+  // The bar's four views from Home or Admin: the design last open, in that
+  // view, back on the account plane (ADR-0055 decision 1: the account session
+  // is still there, so this is a change of plane, not a sign-in). Absent with
+  // nothing to go back to. The look and the Sheet are chosen the way the
+  // places themselves choose them (`RacksPlace`, `InventoryPlace`).
+  const backToDesign: ShellProps['mainView'] =
+    lastPlace !== null && accountSessionOpen
+      ? {
+          value: null,
+          backTo: designTitle(lastPlace.design),
+          onChange: (next) => {
+            const place: Place = next === 'diagram' || next === 'canvas' ? 'racks' : 'inventory';
+            if (place === 'racks') saveLook(accountSession.accountId, lastPlace.design.designId, next === 'diagram' ? 'diagram' : 'rack');
+            else saveSheet(next === 'sheet');
+            if (!LENSES_IN[place].includes(lens)) setLens('cables');
+            setView({ ...lastPlace, place, openDevice: undefined });
+            setPlane(ACCOUNT_PLANE);
+          },
         }
       : undefined;
-  const returnTo = returnToPlace && lastPlace ? designTitle(lastPlace.design) : undefined;
   const claimNow = (claim: OrganisationClaim) => {
     setView({ kind: 'home' });
     setPlane(ACCOUNT_PLANE);
@@ -1003,10 +1012,10 @@ export default function App() {
         place={null}
         path={[]}
         tree={null}
-        // Neither place is reachable from Home until a design has been open:
-        // a place needs a design, and Home is where you pick one.
-        onPlaceChange={returnToPlace ?? (() => {})}
-        returnTo={returnTo}
+        // No view is reachable from Home until a design has been open: a view
+        // needs a design, and Home is where you pick one.
+        onPlaceChange={() => {}}
+        mainView={backToDesign}
         // ADR-0055 decision 1: the account session did not end when the
         // operator's began, so from Admin, Home is a change of plane.
         onHome={session.kind === 'operator' ? () => backToHome() : undefined}
