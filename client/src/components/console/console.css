@@ -6,18 +6,8 @@
   color: var(--ink);
 }
 
-.console__head {
-  margin-bottom: var(--s6);
-}
-
-.console__title {
-  font-size: var(--t-title);
-  margin: 0 0 var(--s2) 0;
-  letter-spacing: var(--track-head);
-}
-
 .console__who {
-  margin: 0;
+  margin: 0 0 var(--s5) 0;
   color: var(--muted);
   font-size: var(--t-body);
 }
@@ -205,23 +195,13 @@
   font-size: var(--t-small);
 }
 
-/* Admin under Home's own tabs (ADR-0060 decision 7): the tabs, then the
-   console filling what is left. */
-.console-frame {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.console-frame > .console {
-  flex: 1;
-  min-height: 0;
+/* Admin as Home's tab (ADR-0060 decision 7): Home's centre scrolls and pads,
+   so the console takes its own height inside it. */
+.home__section > .console {
   height: auto;
-}
-
-.console-tabs {
-  padding: var(--s2) var(--s6) 0;
-  background: var(--page);
+  overflow: visible;
+  padding: 0;
+  background: none;
 }
 
 /* Section tabs (owner, 2026-10-12): the same row Home's tabs draw

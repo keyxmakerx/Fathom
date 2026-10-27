@@ -283,7 +283,7 @@ async function runDrive(tab) {
   await tab.waitForSelector('[data-testid="console-entry"]', { timeout: 10000 });
   await tab.click('[data-testid="console-entry"]');
   await tab.waitForSelector('.console__section', { timeout: 25000 });
-  check('3. Site: the operator console opened', (await tab.locator('.console__title').count()) === 1);
+  check('3. Site: the operator console opened', (await tab.locator('.console__id').count()) === 1);
 
   await tab.click('[data-testid="console-tab-organisations"]');
   const orgName = 'Owner Networks';
