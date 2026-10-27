@@ -12,6 +12,17 @@
 //! writes. This is the server's own log (stdout, or wherever the operator's
 //! collector takes it), kept as long as the operator keeps it; the sealed
 //! history is separate (`chains.rs`).
+//!
+//! **The same two addresses reach the sealed history.** Every request runs
+//! inside [`Origin`]'s scope, and `chains::append_site` adds `client` and `via`
+//! to the metadata of a site entry written while it runs: an operator's
+//! sign-in, a refused one, and every act on the console. They are sealed and
+//! encrypted with the rest of the entry, so Admin › Activity can show them and
+//! nobody can change them afterwards. Organisation and design entries do not
+//! carry them.
+//!
+//! When `FATHOM_ACCESS_SYSLOG` names a log server, each line is also sent there
+//! ([`crate::access_ship`]).
 
 use std::net::SocketAddr;
 
@@ -23,6 +34,34 @@ use axum::response::Response;
 
 use crate::admin_exposure::AdminExposure;
 use crate::client_address::ClientAddress;
+
+/// The addresses of the request being served, for `chains::append_site`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Origin {
+    /// [`ClientAddress::of`]: the forwarding header from a trusted proxy, or
+    /// the peer.
+    pub client: String,
+    /// The socket's peer.
+    pub via: String,
+}
+
+tokio::task_local! {
+    static ORIGIN: Origin;
+}
+
+impl Origin {
+    /// The request this task is serving, or `None` outside one (startup, the
+    /// background tasks, a test that calls a store directly).
+    pub fn current() -> Option<Self> {
+        ORIGIN.try_with(Clone::clone).ok()
+    }
+
+    /// Run `f` as if serving a request from `self`. For tests and for a
+    /// caller that moves work onto another task.
+    pub async fn scope<F: core::future::Future>(self, f: F) -> F::Output {
+        ORIGIN.scope(self, f).await
+    }
+}
 
 /// Which log a request belongs in, if any.
 pub fn plane_of(path: &str) -> Option<&'static str> {
@@ -41,8 +80,17 @@ pub async fn log(
     request: Request<Body>,
     next: Next,
 ) -> Response {
+    let client = client_address.of(request.headers(), request.extensions());
+    let via = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map_or_else(|| "unknown".to_owned(), |ConnectInfo(a)| a.ip().to_string());
+    let origin = Origin {
+        client: client.clone(),
+        via: via.clone(),
+    };
     let Some(plane) = plane_of(request.uri().path()) else {
-        return next.run(request).await;
+        return origin.scope(next.run(request)).await;
     };
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
@@ -52,17 +100,14 @@ pub async fn log(
         .and_then(|v| v.to_str().ok())
         .map(|h| h.chars().take(255).collect::<String>())
         .unwrap_or_else(|| "-".to_owned());
-    let client = client_address.of(request.headers(), request.extensions());
-    let via = request
-        .extensions()
-        .get::<ConnectInfo<SocketAddr>>()
-        .map_or_else(|| "unknown".to_owned(), |ConnectInfo(a)| a.ip().to_string());
-    let response = next.run(request).await;
+    let response = origin.scope(next.run(request)).await;
+    let status = response.status().as_u16();
+    crate::access_ship::send(plane, method.as_str(), &path, status, &client, &via, &host);
     tracing::info!(
         plane,
         %method,
         path = %path,
-        status = response.status().as_u16(),
+        status,
         client = %client,
         via = %via,
         host = %host,

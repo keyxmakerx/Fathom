@@ -516,6 +516,17 @@ async fn main() -> ExitCode {
         }
     }
 
+    // ---- The access lines, to a log server too, when one is named ----
+    if let Some(target) = &config.access_syslog {
+        tracing::info!(
+            destination = %target,
+            "access lines for the operator console and sign-in are also sent to this log \
+             server, one RFC 5424 line each over TCP, best effort: a line that cannot be sent \
+             is dropped and counted, and this log keeps it."
+        );
+        fathom_server::access_ship::start(target.clone());
+    }
+
     // ---- Sessions, and the first routes that need one ----
     //
     // `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §4. The store holds the pool, the

@@ -3733,6 +3733,18 @@ async fn post_signed(
     operator: &Operator,
     store: &SessionStore,
 ) -> (String, Vec<u8>) {
+    post_signed_with(addr, path, body, operator, store, &[]).await
+}
+
+/// [`post_signed`] with headers of the caller's own beside the signature.
+async fn post_signed_with(
+    addr: std::net::SocketAddr,
+    path: &str,
+    body: &[u8],
+    operator: &Operator,
+    store: &SessionStore,
+    extra: &[(&'static str, String)],
+) -> (String, Vec<u8>) {
     let nonce = store
         .issue_request_nonce(&operator.signed_in.session_id, &operator.signed_in.token)
         .await
@@ -3749,13 +3761,14 @@ async fn post_signed(
         counter,
     );
     let signature = operator.session_key.sign(&message);
-    let headers = [
+    let mut headers = vec![
         (HEADER_SESSION, operator.signed_in.session_id.clone()),
         (HEADER_NONCE, hex(&nonce)),
         (HEADER_TIMESTAMP, unix_ms.to_string()),
         (HEADER_COUNTER, counter.to_string()),
         (HEADER_SIGNATURE, hex(&signature)),
     ];
+    headers.extend(extra.iter().cloned());
     raw_request(addr, "POST", path, &headers, body).await
 }
 
@@ -8604,4 +8617,72 @@ async fn an_operator_stops_an_ai_key_or_turns_ai_off_and_widens_nothing() {
         "{:?}",
         above.err().map(|e| e.to_string())
     );
+}
+
+/// **An operator's act is sealed with the address it came from, and Admin ›
+/// Activity shows it** (sign-offs r52, 2026-10-27).
+///
+/// The router is mounted behind the same access layer `main.rs` mounts, with
+/// `X-Forwarded-For` believed from loopback as a proxy in front would be. The
+/// sealed `account_created` entry carries the forwarded client and the proxy it
+/// came through, and the Activity page reads both back out of the sealed
+/// metadata, not out of a log.
+#[tokio::test]
+async fn an_operator_act_is_sealed_with_the_real_address_and_activity_shows_it() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
+    let operators_store = store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await;
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let state = AdminState {
+        sessions: Arc::new(sessions(&pool, Arc::clone(&ring)).await),
+        operators: Arc::new(store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await),
+        ring: Arc::clone(&ring),
+        client_address: ClientAddress::peer(),
+    };
+    let router = admin::router(state).layer(axum::middleware::from_fn_with_state(
+        ClientAddress::header("X-Forwarded-For"),
+        fathom_server::access_log::log,
+    ));
+    let addr = serve(router).await;
+
+    let display = unique("Seen From");
+    let mut body = Vec::new();
+    lp(&mut body, unique("seen@example.org").as_bytes());
+    lp(&mut body, display.as_bytes());
+    let (status, _) = post_signed_with(
+        addr,
+        "/admin/accounts",
+        &body,
+        &operator,
+        &sessions_store,
+        &[("X-Forwarded-For", "203.0.113.9".to_string())],
+    )
+    .await;
+    assert_eq!(status, "200");
+
+    let (status, _, answer) =
+        get_signed_full(addr, "/admin/activity", &operator, &sessions_store).await;
+    assert_eq!(status, "200");
+    let mut rest = answer.as_slice();
+    let mut lines = Vec::new();
+    while !rest.is_empty() {
+        let len = u32::from_le_bytes(rest[..4].try_into().unwrap()) as usize;
+        lines.push(String::from_utf8(rest[4..4 + len].to_vec()).unwrap());
+        rest = &rest[4 + len..];
+    }
+    let created = lines
+        .iter()
+        .find(|l| l.split('\t').nth(2) == Some("account_created"))
+        .unwrap_or_else(|| panic!("the act is on the page: {lines:#?}"));
+    let fields: Vec<&str> = created.split('\t').collect();
+    assert_eq!(fields[3], "1", "the entry verified: {created}");
+    assert_eq!(
+        fields[6], "203.0.113.9",
+        "the client, from the trusted proxy's header"
+    );
+    assert_eq!(fields[7], "127.0.0.1", "the proxy it came through");
+    assert_eq!(fields.len(), 9, "{created}");
 }

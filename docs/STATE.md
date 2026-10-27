@@ -201,6 +201,12 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   fresh verification code when the last is over 15 minutes old. An address change ends the Site
   session, not the account session. The check (`FATHOM_SESSION_ADDRESS_CHECK`, default `site`)
   applies per IPv4 address or IPv6 /64.
+- **Who did what on the console, from where (sign-offs r52, 2026-10-27).** Every console and sign-in
+  request writes an `access` line with the client's address and the proxy it came through
+  (`access_log.rs`), also sent to `FATHOM_ACCESS_SYSLOG` when set, best effort (`access_ship.rs`).
+  Every site entry written during a request seals the same two addresses (`chains::append_site`).
+  Admin › Activity lists those entries newest first, each checked before it is shown
+  (`GET /admin/activity`, `ActivityPanel.tsx`).
 - **Not built:** sending mail (so no reset or notices by mail); a passkey as the phishing-resistant
   second factor NIST asks for; the console UI for a second operator's own signature on a request that
   needs one; a way for the console to hand a requested colleague their setup token (it is minted and

@@ -646,7 +646,7 @@ pub struct SpooledEntry {
 /// type, a number or hex, so in practice it changes nothing — which is the
 /// point. A sanitiser that fires is a sanitiser somebody will later decide to
 /// remove.
-fn sanitise(value: &str, max: usize) -> String {
+pub(crate) fn sanitise(value: &str, max: usize) -> String {
     let mut out = String::with_capacity(value.len().min(max));
     for ch in value.chars() {
         if out.len() >= max {
