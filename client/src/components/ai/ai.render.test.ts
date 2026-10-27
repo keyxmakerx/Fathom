@@ -17,6 +17,7 @@ const idea = (over: Partial<AiIdea> = {}): AiIdea => ({
   why: 'One link is a single point of failure.',
   steps: [{ action: 'connect', target: 'D1', text: 'Connect core-sw-02 to edge-fw-01' }],
   changes: null,
+  preview: null,
   createdAt: 0,
   state: 'open',
   decidedBy: null,
@@ -61,6 +62,26 @@ describe('AI ideas on a design', () => {
     expect(out).toContain('>Accept and apply<');
     expect(out).toContain('makes 3 changes in this design, as your edit');
     expect(out).not.toContain('>Mark done<');
+  });
+
+  it('offers Show on canvas for a proposed change, and says in words what it would do', () => {
+    const preview = { changes: ['device:D1'], removes: ['cable:C1'], adds: [{ kind: 'Device', name: 'core-sw9' }], links: [] };
+    const out = renderToStaticMarkup(
+      createElement(AiIdeasPanel, {
+        organisationId: 'O',
+        designId: 'D',
+        state: state([idea({ changes: 3, preview })]),
+        nameOf: () => null,
+        canDraw: true,
+        onPreview: () => undefined,
+      }),
+    );
+    expect(out).toContain('>Show on canvas<');
+    expect(out).toContain('It changes 1 thing, removes 1, adds Device “core-sw9”.');
+    const stepsOnly = renderToStaticMarkup(
+      createElement(AiIdeasPanel, { organisationId: 'O', designId: 'D', state: state([idea()]), nameOf: () => null, canDraw: true, onPreview: () => undefined }),
+    );
+    expect(stepsOnly).not.toContain('Show on canvas');
   });
 
   it('gives a reader no buttons, and says who decides', () => {
@@ -188,18 +209,18 @@ describe('Connect an AI app', () => {
     expect(whyCannotConnect(overview(), 'Acme')).toBeNull();
   });
 
-  it('offers "May change designs" only when the organisation allows it, unticked', () => {
-    expect(draw(overview())).not.toContain('May change designs');
+  it('offers "May propose changes" only when the organisation allows it, unticked', () => {
+    expect(draw(overview())).not.toContain('May propose changes');
     const on = overview();
     on.policy.mayChange = true;
     const out = draw(on);
-    expect(out).toContain('May change designs');
+    expect(out).toContain('May propose changes');
     expect(out).not.toMatch(/data-testid="ai-helper-may-change"[^>]*checked/);
   });
 
   it('says in plain words that a connection may change designs, and the risk', () => {
     const words = plainWords({ scopes: [], sees: ['layout'], mayRecommend: true, mayChange: true }, () => 'x');
-    expect(words.join(' ')).toContain('Can change designs you can draw in');
+    expect(words.join(' ')).toContain('propose changes where you can draw');
     expect(words.join(' ')).toContain('Text inside a design can steer an AI');
     expect(plainWords({ scopes: [], sees: ['layout'], mayRecommend: true }, () => 'x').join(' ')).not.toContain('change designs');
   });

@@ -30,6 +30,8 @@ export interface PlanDecor {
   tone: PlanTone;
   word: string;
   dashed: boolean;
+  /** Every mark on it is a proposed removal: greyed. */
+  removed?: boolean;
 }
 
 /** Doing: the step being done wins over the ones before it. */
@@ -43,7 +45,8 @@ export function decorFor(stage: PlanStage, marks: readonly PlanMark[]): PlanDeco
   const first = lead ?? sorted[0]!;
   const tone = toneOf(stage, first.word);
   const word = sorted.length > 1 ? `${first.word} +${sorted.length - 1}` : first.word;
-  return { tone, word, dashed: tone === 'plan' };
+  const removed = sorted.every((m) => m.removed === true);
+  return removed ? { tone, word, dashed: tone === 'plan', removed } : { tone, word, dashed: tone === 'plan' };
 }
 
 /** What an edge carries when a mark touches it (read by CableEdge, BundleEdge and the ghost). */
@@ -193,7 +196,10 @@ export function withFade<T extends { className?: string; data?: unknown }>(item:
 }
 
 function withDecor<T extends { className?: string; style?: unknown }>(item: T, decor: PlanDecor, isNode: boolean): T {
-  const className = addClass(item.className, `plan-mark plan-mark--${decor.tone}${decor.dashed ? ' plan-mark--dashed' : ''}`);
+  const className = addClass(
+    item.className,
+    `plan-mark plan-mark--${decor.tone}${decor.dashed ? ' plan-mark--dashed' : ''}${decor.removed ? ' plan-mark--removed' : ''}`,
+  );
   if (isNode) {
     // The tag is the node's ::after; its text comes through a custom property.
     const style = { ...(item.style as object | undefined), '--plan-word': cssString(decor.word) };

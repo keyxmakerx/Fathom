@@ -230,11 +230,12 @@ async function runProof(browser, ctxA, seed) {
   await shot('o3-org-ai-policy');
   await A.getByRole('button', { name: 'Save', exact: true }).click();
   await A.getByText('Saved. It is in the organisation’s history.').waitFor({ timeout: 10000 });
-  check('O3. a Steward turns AI on, names a person, allows Claude Code and lets AI apps change designs', true);
+  check('O3. a Steward turns AI on, names a person, allows Claude Code and lets AI apps propose changes', true);
 
-  // A design to read: a new one, which a single design opens straight into from then on.
+  // A design to read: the sample home lab, whose devices are drawn on the canvas, and which a single design opens
+  // straight into from then on.
   await A.getByRole('tab', { name: 'Designs' }).click();
-  await A.getByRole('button', { name: 'New design' }).first().click();
+  await A.getByRole('button', { name: 'Open sample' }).click();
   await A.locator('.drawing').waitFor({ timeout: 15000 });
   await A.waitForTimeout(1500);
 
@@ -262,10 +263,10 @@ async function runProof(browser, ctxA, seed) {
   await A.locator('.ai-connect__side .ai-tick', { hasText: 'Addresses, VLANs' }).locator('input').check();
   check('C1b. Allow waits for the AI account the app uses', await A.getByRole('button', { name: 'Allow', exact: true }).isDisabled());
   const changeTick = A.getByTestId('connect-may-change');
-  check('C1c. with the organisation\'s tick on, Allow offers "May change designs", unticked', (await changeTick.count()) === 1 && !(await changeTick.isChecked()));
+  check('C1c. with the organisation\'s tick on, Allow offers "May propose changes", unticked', (await changeTick.count()) === 1 && !(await changeTick.isChecked()));
   await changeTick.check();
   const changeWords = (await A.locator('.ai-connect__side').innerText()).replace(/\s+/g, ' ');
-  check('C1d. ticked, the plain words say it changes designs and name the risk', /Can change designs you can draw in/.test(changeWords) && /Text inside a design can steer an AI/.test(changeWords));
+  check('C1d. ticked, the plain words say it proposes changes and name the risk', /propose changes where you can draw/.test(changeWords) && /Text inside a design can steer an AI/.test(changeWords));
   await A.locator('#connect-ai-account').fill('Ann@Example.org');
   await A.getByRole('button', { name: 'Allow', exact: true }).click();
   for (let i = 0; i < 50 && landed === null; i++) await sleep(200);
@@ -295,9 +296,9 @@ async function runProof(browser, ctxA, seed) {
   const init = await rpc('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'drive', version: '1' } });
   check('M2. initialize answers the version and the tools capability', init.status === 200 && init.body.result.protocolVersion === '2025-11-25' && init.body.result.capabilities.tools != null);
   const listed = await rpc('tools/list', {});
-  check('M3. six tools, change_design among them, since both ticks are on', listed.body.result.tools.length === 6 && listed.body.result.tools.some((t) => t.name === 'change_design'), listed.body.result.tools.map((t) => t.name).join(','));
+  check('M3. six tools, propose_change among them, since both ticks are on', listed.body.result.tools.length === 6 && listed.body.result.tools.some((t) => t.name === 'propose_change'), listed.body.result.tools.map((t) => t.name).join(','));
   const who = await rpc('tools/call', { name: 'whoami', arguments: {} });
-  check('M4. whoami says it reads layout and addresses, and may change designs', JSON.stringify(who.body.result.structuredContent.sees) === '["layout","addresses"]' && who.body.result.structuredContent.mayChange === true && who.body.result.structuredContent.readOnly === false);
+  check('M4. whoami says it reads layout and addresses, may propose changes, and is read-only', JSON.stringify(who.body.result.structuredContent.sees) === '["layout","addresses"]' && who.body.result.structuredContent.mayChange === true && who.body.result.structuredContent.readOnly === true);
   const designs = await rpc('tools/call', { name: 'list_designs', arguments: {} });
   const items = designs.body.result.structuredContent.items ?? [];
   check('M5. list_designs lists the design', items.length >= 1, JSON.stringify(items).slice(0, 200));
@@ -316,27 +317,37 @@ async function runProof(browser, ctxA, seed) {
   check('M8. an idea that carries a password is refused', leaky.body.result && leaky.body.result.isError === true, JSON.stringify(leaky.body).slice(0, 300));
   const version = read.body.result.structuredContent.version;
   const named = await rpc('tools/call', {
-    name: 'change_design',
+    name: 'propose_change',
     arguments: { design: designId, version, summary: 'Rename a device that is not there', operations: [{ op: 'set', element: 'device:01ARZ3NDEKTSV4RRFFQ69G5FAV', field: 'hostname', value: 'core-1' }] },
   });
-  check('M9. change_design refuses an element the reading did not give, by operation number', named.body.result?.isError === true && /operation 1 names nothing/.test(named.body.result.content[0].text), JSON.stringify(named.body).slice(0, 300));
+  check('M9. propose_change refuses an element the reading did not give, by operation number', named.body.result?.isError === true && /operation 1 names nothing/.test(named.body.result.content[0].text), JSON.stringify(named.body).slice(0, 300));
   const stale = await rpc('tools/call', {
-    name: 'change_design',
+    name: 'propose_change',
     arguments: { design: designId, version: version + 5, summary: 'From a reading that never was', operations: [{ op: 'set', element: 'device:01ARZ3NDEKTSV4RRFFQ69G5FAV', field: 'hostname', value: 'core-1' }] },
   });
-  check('M10. change_design against a version that is not the design\'s is refused before anything else', stale.body.result?.isError === true && /read it again/.test(stale.body.result.content[0].text), JSON.stringify(stale.body).slice(0, 300));
+  check('M10. propose_change against a version that is not the design\'s is refused before anything else', stale.body.result?.isError === true && /read it again/.test(stale.body.result.content[0].text), JSON.stringify(stale.body).slice(0, 300));
   // An idea may carry the change itself, which Accept makes (ADR-0072 decision 7, amended 2026-10-27).
-  const firstDevice = (read.body.result.structuredContent.nodes ?? []).find((n) => n.kind === 'Device');
   const carried = await rpc('tools/call', {
     name: 'recommend',
     arguments: {
       design: designId,
-      title: 'Give the placeholder its real name',
-      steps: [{ action: 'label', target: firstDevice?.id, text: 'Rename it to lab-core-real.' }],
-      change: { version, operations: [{ op: 'set', element: firstDevice?.id, field: 'hostname', value: 'lab-core-real' }] },
+      title: 'Add the real core switch',
+      steps: [{ action: 'add', text: 'Add the core switch, lab-core-real.' }],
+      change: { version, operations: [{ op: 'add_node', kind: 'Device', as: 'core', fields: { hostname: 'lab-core-real' } }] },
     },
   });
   check('M11. recommend takes an idea that carries its change', carried.body.result?.isError === false && carried.body.result.structuredContent.changes === 1, JSON.stringify(carried.body).slice(0, 300));
+  // An AI never changes a design itself (owner, 2026-10-27): propose_change waits as an idea.
+  const proposed = await rpc('tools/call', {
+    name: 'propose_change',
+    arguments: { design: designId, version, summary: 'Add a spare switch', operations: [{ op: 'add_node', kind: 'Device', fields: { hostname: 'lab-spare-proposed' } }] },
+  });
+  const unmoved = await rpc('tools/call', { name: 'read_design', arguments: { design: designId } });
+  check(
+    'M12. propose_change keeps the change as an open idea and the design does not move',
+    proposed.body.result?.isError === false && proposed.body.result.structuredContent.state === 'open' && unmoved.body.result.structuredContent.version === version,
+    JSON.stringify(proposed.body).slice(0, 300),
+  );
 
   // ---- The idea in the design --------------------------------------------------------
   await A.unroute('http://localhost:53999/**');
@@ -351,7 +362,7 @@ async function runProof(browser, ctxA, seed) {
   await shot('d1-ai-ideas-canvas');
   check('D1. the idea shows in the AI ideas tab on the canvas', (await A.getByTestId('ai-ideas').innerText()).includes('Add a second uplink to the core'));
   // Make it a plan: a draft plan with the idea's steps opens, and the idea is taken up.
-  await A.getByTestId('ai-ideas').getByRole('button', { name: 'Make it a plan' }).click();
+  await A.getByTestId('ai-ideas').locator('.ai-idea', { hasText: 'Add a second uplink to the core' }).getByRole('button', { name: 'Make it a plan' }).click();
   const band = A.getByTestId('plans-band');
   await band.waitFor({ timeout: 20000 });
   await A.waitForTimeout(800);
@@ -364,14 +375,41 @@ async function runProof(browser, ctxA, seed) {
   const tab2 = A.getByRole('tab', { name: /AI ideas/ }).or(A.locator('[data-side-tab="ai-ideas"]')).or(A.getByText(/^AI ideas/)).first();
   await tab2.waitFor({ timeout: 15000 });
   await tab2.click();
-  const carriedIdea = A.getByTestId('ai-ideas').locator('.ai-idea', { hasText: 'Give the placeholder its real name' });
+  const carriedIdea = A.getByTestId('ai-ideas').locator('.ai-idea', { hasText: 'Add the real core switch' });
   await carriedIdea.waitFor({ timeout: 10000 });
-  check('D3. an idea that carries its change says Accept and apply, and how much it makes', (await carriedIdea.getByRole('button', { name: 'Accept and apply' }).count()) === 1 && (await carriedIdea.innerText()).includes('makes 1 change'));
+  check(
+    'D3. an idea that carries its change says Accept and apply, how much it makes, and what it adds',
+    (await carriedIdea.getByRole('button', { name: 'Accept and apply' }).count()) === 1 &&
+      (await carriedIdea.innerText()).includes('makes 1 change') &&
+      (await carriedIdea.innerText()).includes('adds Device “core”'),
+  );
   await shot('d3-ai-idea-apply');
   await carriedIdea.getByRole('button', { name: 'Accept and apply' }).click();
   await A.getByText('lab-core-real').first().waitFor({ timeout: 20000 }).catch(() => {});
-  check('D4. after Accept and apply the device has its new name in the open design', (await A.getByText('lab-core-real').count()) > 0);
+  check('D4. after Accept and apply the new device is in the open design', (await A.getByText('lab-core-real').count()) > 0);
   await shot('d4-ai-idea-applied');
+  // A proposal on something already there is drawn on the canvas, in the plan colour, before anyone accepts it.
+  const reread = await rpc('tools/call', { name: 'read_design', arguments: { design: designId } });
+  const core = (reread.body.result.structuredContent.nodes ?? []).find((n) => n.kind === 'Device' && JSON.stringify(n).includes('switch-1'));
+  const rename = await rpc('tools/call', {
+    name: 'propose_change',
+    arguments: { design: designId, version: reread.body.result.structuredContent.version, summary: 'Rename the first switch', operations: [{ op: 'set', element: core?.id, field: 'hostname', value: 'lab-core-1' }] },
+  });
+  check('M13. propose_change on a drawn switch waits as an idea', rename.body.result?.isError === false, JSON.stringify(rename.body).slice(0, 300));
+  await A.goto(URL_, { waitUntil: 'domcontentloaded' });
+  await A.locator('.drawing').waitFor({ timeout: 20000 });
+  const tab3 = A.getByRole('tab', { name: /AI ideas/ }).or(A.locator('[data-side-tab="ai-ideas"]')).or(A.getByText(/^AI ideas/)).first();
+  await tab3.waitFor({ timeout: 15000 });
+  await tab3.click();
+  const renameIdea = A.getByTestId('ai-ideas').locator('.ai-idea', { hasText: 'Rename the first switch' });
+  await renameIdea.waitFor({ timeout: 10000 });
+  await renameIdea.getByTestId('ai-idea-preview').click();
+  const marked = A.locator('.react-flow__node.plan-mark--plan');
+  await marked.first().waitFor({ timeout: 10000 }).catch(() => {});
+  await A.waitForTimeout(600);
+  await shot('d5-ai-idea-on-canvas');
+  const word = (await marked.count()) > 0 ? await marked.first().evaluate((el) => getComputedStyle(el).getPropertyValue('--plan-word')) : '';
+  check('D5. Show on canvas marks the switch in the plan colour, tagged AI CHANGES, and nothing has changed yet', /AI CHANGES/.test(word) && (await A.getByText('lab-core-1').count()) === 0, word);
 
   // ---- Steward › AI lists it -------------------------------------------------------
   await A.locator('.shell-bar__brand').first().click();
@@ -383,7 +421,7 @@ async function runProof(browser, ctxA, seed) {
   await shot('o4-org-ai-connection');
   check('O4. the connection is listed as Claude Code, on', /\bon\b/i.test(await A.locator('.ai-table__row', { hasText: 'Claude Code' }).innerText()));
   check('O4b. it shows the AI account the person gave, and their sign-in', (await A.getByTestId('ai-key-account').innerText()).includes('ann@example.org') && (await A.locator('.ai-facts').innerText()).includes('@'));
-  check('O4c. its owner sees "May change designs", ticked, and can take it off', (await A.getByTestId('ai-key-may-change').count()) === 1 && (await A.getByTestId('ai-key-may-change').isChecked()));
+  check('O4c. its owner sees "May propose changes", ticked, and can take it off', (await A.getByTestId('ai-key-may-change').count()) === 1 && (await A.getByTestId('ai-key-may-change').isChecked()));
   await A.getByRole('button', { name: 'Turn off', exact: true }).click();
   await A.getByRole('button', { name: 'Turn off now' }).click();
   await A.locator('.ai-table__row', { hasText: 'Claude Code' }).filter({ hasText: 'Off' }).waitFor({ timeout: 10000 });

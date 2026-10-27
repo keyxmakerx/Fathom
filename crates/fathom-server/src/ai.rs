@@ -1409,7 +1409,7 @@ async fn register(
     }
     if input.may_change && !policy.may_change {
         return Err(AiError::NotAllowed(
-            "this organisation does not let AI apps change designs",
+            "this organisation does not let AI apps propose changes",
         ));
     }
     if !DAYS.contains(&input.days) || input.days > policy.max_days {
@@ -1661,7 +1661,7 @@ pub async fn change_key(
         }
         if key.may_change && !policy.may_change {
             return Err(AiError::NotAllowed(
-                "this organisation does not let AI apps change designs",
+                "this organisation does not let AI apps propose changes",
             ));
         }
     }
@@ -2253,9 +2253,11 @@ pub fn whoami(session: &AiSession) -> Json {
     );
     m.insert("scopes".into(), strs(&session.key.scopes));
     m.insert("mayRecommend".into(), Json::Bool(session.key.may_recommend));
+    // mayChange: it may propose changes, which wait for a person. An AI never writes to a
+    // design itself (owner, 2026-10-27), so every connection is read-only.
     m.insert("mayChange".into(), Json::Bool(may_change(session)));
     m.insert("expiresAt".into(), Json::Int(session.key.expires_unix));
-    m.insert("readOnly".into(), Json::Bool(!may_change(session)));
+    m.insert("readOnly".into(), Json::Bool(true));
     Json::Obj(m)
 }
 
@@ -2469,9 +2471,9 @@ pub async fn ai_reading(
         "about".into(),
         Json::Str(if may_change(session) {
             "Fields that looked like a password or key were left out and counted in \
-             `withheld`. Change the design with POST .../changes naming this version, one \
-             change a person can undo; or recommend with POST .../recommendations for a \
-             person to accept or dismiss. A printed label's code holds this server's \
+             `withheld`. You never change the design yourself: propose a change with POST \
+             .../changes naming this version, which a person sees on the canvas and \
+             accepts or dismisses, or recommend steps with POST .../recommendations. A printed label's code holds this server's \
              address, `/scan#`, this design's id, `/` and an id from here (a rack, \
              cable, port, device or store); a person who scans it opens that item."
                 .into()
@@ -2577,12 +2579,20 @@ impl Idea {
             "steps".into(),
             Json::Arr(self.steps.iter().map(step_json).collect()),
         );
-        // How many operations Accept makes; the operations themselves stay on the server.
+        // How many operations Accept makes, and what they touch, so the canvas can show the
+        // proposal before anyone accepts it. The operations themselves stay on the server.
         m.insert(
             "changes".into(),
             self.change
                 .as_ref()
                 .map_or(Json::Null, |c| Json::Int(c.count as i64)),
+        );
+        m.insert(
+            "preview".into(),
+            self.change
+                .as_ref()
+                .and_then(|c| c.asked(&self.title).ok())
+                .map_or(Json::Null, |a| crate::ai_change::preview(&a)),
         );
         m.insert("createdAt".into(), Json::Int(self.created_unix));
         m.insert("state".into(), Json::Str(self.state.clone()));
@@ -2938,6 +2948,20 @@ pub async fn recommend(
     } = clean_idea(body)?;
     let change = match (change, operations) {
         (Some(asked), Some(operations)) => {
+            // An AI never changes a design itself (owner, 2026-10-27): a change it sends waits
+            // in the idea for a person's Accept, and only a connection both ticks allow may
+            // send one.
+            if !session.policy.may_change {
+                return Err(AiError::NotAllowed(
+                    "this organisation does not let AI apps propose changes; send steps only",
+                ));
+            }
+            if !session.key.may_change {
+                return Err(AiError::NotAllowed(
+                    "this connection may not propose changes; send steps only, or ask its owner",
+                ));
+            }
+            crate::ai_change::within_rate(tx, auth, &session.key.id).await?;
             let tiers = tiers(&session.key, &session.policy);
             crate::ai_change::check_idea_change(tx, auth, heads, design, scope, &tiers, &asked)
                 .await?;

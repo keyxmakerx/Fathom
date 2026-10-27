@@ -1,24 +1,27 @@
-//! **An AI connection changes a design** (ADR-0077).
+//! **An AI connection proposes a change to a design** (ADR-0077, amended 2026-10-27).
 //!
-//! `change_design` takes the version the AI read, a one-line summary and a list of
-//! operations, and turns them into one `fathom-change 1` batch that the server applies
-//! through the same path a browser's change takes (ADR-0063): the same grant check, the
-//! same head, the same graph rules and the same credential refusal, streamed to every open
-//! browser. Nothing is written that a browser could not write.
+//! An AI never changes a design itself (owner, 2026-10-27). `change_design` takes the
+//! version the AI read, a one-line summary and a list of operations, checks them as they
+//! would be made, and keeps them in an idea. The canvas draws the idea in the plan colour
+//! before anyone decides; when a person accepts it, [`apply_idea_change`] turns the
+//! operations into one `fathom-change 1` batch in that person's name and writes it through
+//! the path a browser's change takes (ADR-0063): the same grant check, the same head, the
+//! same graph rules and the same credential refusal, streamed to every open browser.
 //!
 //! What it adds, in order:
 //!
-//! 1. **Both ticks**: the organisation's and the connection's (decision 1), and never in a
-//!    folder a Steward marked for a second person (decision 2).
+//! 1. **Both ticks**: the organisation's and the connection's (decision 1) let an AI
+//!    propose a change at all; a folder marked for a second person still needs one at
+//!    Accept (decision 2).
 //! 2. **The allowlist**: a field may be set, and a node or edge added, only if the reading
 //!    shows it at a tier the key sees, cut to `layout` and `notes` (decision 4). A removal
 //!    takes what the element holds, as a person's does, and is refused past 20 things, for a
 //!    place that still holds anything, and for anything holding what the reading hides.
-//! 3. **Never over a person's work**: the change names the version it read and is refused
-//!    if the design has moved since (decision 6).
-//! 4. **Limits**: 200 operations, 10 changes a minute and 300 a day per connection
-//!    (decision 7), counted from `ai_design_changes`, which is also the mark that an AI
-//!    made the change (decision 5).
+//! 3. **Never over a person's work**: the proposal names the version it read and is refused
+//!    if the design has moved since (decision 6). At Accept it runs on the design as it is
+//!    then, and the graph's rules refuse what no longer fits.
+//! 4. **Limits**: 200 operations, 10 proposals a minute and 300 a day per connection
+//!    (decision 7), and the cap on ideas waiting.
 //! 5. **The server's gate on every string** the AI sent, not only the fields a browser's
 //!    gate covers (decision 9). A refusal names the operation, never the value.
 //!
@@ -39,8 +42,9 @@ use fathom_ir::generated::ir_types::{EdgeKind, NodeKind};
 use crate::ai::{self, AiError, AiSession};
 use crate::ai_reading::{self, Tier};
 use crate::audit;
+use crate::authority::Capability;
 use crate::designs::{self, DesignError};
-use crate::grants::Authority;
+use crate::grants::{self, Authority};
 use crate::heads::HeadStore;
 use crate::repo::{DesignId, ScopeId};
 
@@ -51,9 +55,8 @@ pub const PER_MINUTE: i64 = 10;
 pub const PER_DAY: i64 = 300;
 /// The summary, which becomes the change's label in History.
 pub const MAX_SUMMARY_CHARS: usize = 120;
-/// What History shows before the summary. A batch label is at most 60 bytes.
-const LABEL_PREFIX: &str = "AI: ";
-/// What an accepted idea's change is labelled: the person's edit, from an AI's idea.
+/// What an accepted idea's change is labelled in History: the person's edit, from an AI's
+/// idea. A batch label is at most 60 bytes.
 const IDEA_LABEL_PREFIX: &str = "AI idea: ";
 const LABEL_MAX_BYTES: usize = 60;
 
@@ -108,43 +111,6 @@ pub struct Asked {
     pub version: i64,
     pub summary: String,
     pub ops: Vec<Ask>,
-}
-
-/// What a change made: the design's new version and how many operations it held.
-pub struct Made {
-    pub version: i64,
-    pub batch: String,
-    pub operations: usize,
-    /// What each name the AI gave became, so it can use the ids from now on.
-    pub named: BTreeMap<String, String>,
-}
-
-impl Made {
-    pub fn to_json(&self, design: DesignId) -> Json {
-        let mut m = BTreeMap::new();
-        m.insert("design".into(), Json::Str(design.to_string()));
-        m.insert("version".into(), Json::Int(self.version));
-        m.insert("change".into(), Json::Str(self.batch.clone()));
-        m.insert("operations".into(), Json::Int(self.operations as i64));
-        m.insert(
-            "added".into(),
-            Json::Obj(
-                self.named
-                    .iter()
-                    .map(|(k, v)| (k.clone(), Json::Str(v.clone())))
-                    .collect(),
-            ),
-        );
-        m.insert(
-            "about".into(),
-            Json::Str(
-                "Made as one change, in the connection owner's name and marked as an AI's. \
-                 History can restore the version before it."
-                    .into(),
-            ),
-        );
-        Json::Obj(m)
-    }
 }
 
 fn op_refused(index: usize, why: impl Into<String>) -> AiError {
@@ -621,8 +587,7 @@ pub fn build(
 }
 
 /// Read the design, run `asked` on it as the caller and write the result through the
-/// browser's write path (ADR-0063). With `exact`, the design must still be at
-/// `asked.version`; without it the operations run on the design as it is now, and the
+/// browser's write path (ADR-0063). The operations run on the design as it is now, and the
 /// graph's rules refuse whatever no longer fits.
 #[allow(clippy::too_many_arguments)]
 async fn build_and_write(
@@ -634,16 +599,9 @@ async fn build_and_write(
     tiers: &BTreeSet<Tier>,
     label_prefix: &str,
     asked: &Asked,
-    exact: bool,
 ) -> Result<(Built, designs::ChangeWritten), AiError> {
     let stored =
         designs::read_version_in_tx(tx, auth, Some(heads), design, Some(scope), None).await?;
-    if exact && stored.version != asked.version {
-        return Err(AiError::Moved {
-            read: asked.version,
-            current: stored.version,
-        });
-    }
     let built = {
         let graph = fathom_workspace::read_plain(&stored.payload)
             .map_err(|_| AiError::Unverifiable("a stored design that does not parse"))?;
@@ -705,6 +663,9 @@ pub async fn check_idea_change(
     tiers: &BTreeSet<Tier>,
     asked: &Asked,
 ) -> Result<(), AiError> {
+    // A connection lends no more than its owner holds: a change its owner could not make
+    // is not proposed in their name.
+    grants::authorise_account(tx, auth, Some(scope), Capability::Draw).await?;
     let stored = designs::read_version_in_tx(tx, auth, heads, design, Some(scope), None).await?;
     if stored.version != asked.version {
         return Err(AiError::Moved {
@@ -748,15 +709,94 @@ pub async fn apply_idea_change(
         tiers,
         IDEA_LABEL_PREFIX,
         asked,
-        false,
     )
     .await
     .map(|(_, written)| written)
 }
 
-/// `POST /ai/v1/designs/{d}/changes`: make one change to a design, as the connection's
-/// owner, marked as the AI's. `heads` is the live head store, which the change goes
-/// through and which the caller commits to once the transaction has.
+/// The proposals one connection may send in a minute and a day (decision 7), counted from the
+/// ideas it sent with a change, whatever became of them.
+pub async fn within_rate(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    key_id: &str,
+) -> Result<(), AiError> {
+    let tenant = auth.ctx.tenant().to_string();
+    tx.execute(
+        "SELECT pg_advisory_xact_lock(hashtext($1))",
+        &[&format!("ai_proposals:{key_id}")],
+    )
+    .await?;
+    let counts = tx
+        .query_one(
+            "SELECT count(*) FILTER (WHERE created_at > now() - interval '1 minute'), \
+                    count(*) FILTER (WHERE created_at > now() - interval '1 day') \
+             FROM ai_recommendations WHERE organisation_id = $1 AND key_id = $2",
+            &[&tenant, &key_id],
+        )
+        .await?;
+    let (minute, day): (i64, i64) = (counts.get(0), counts.get(1));
+    if minute >= PER_MINUTE {
+        return Err(AiError::NotAllowed(
+            "this connection sent 10 ideas in the last minute; try again in a minute",
+        ));
+    }
+    if day >= PER_DAY {
+        return Err(AiError::NotAllowed(
+            "this connection sent 300 ideas today; try again tomorrow",
+        ));
+    }
+    Ok(())
+}
+
+/// What a proposed change touches, for the canvas to draw before anyone accepts it: the
+/// elements it sets a field on, the ones it removes, the nodes it adds and the edges it
+/// draws, each end as the reading named it.
+pub fn preview(asked: &Asked) -> Json {
+    let mut changes = BTreeSet::new();
+    let mut removes = BTreeSet::new();
+    let mut adds = Vec::new();
+    let mut links = Vec::new();
+    let name_json = |n: &Option<String>| n.clone().map_or(Json::Null, Json::Str);
+    for op in &asked.ops {
+        match op {
+            Ask::Set { element, .. } => {
+                changes.insert(element.clone());
+            }
+            Ask::Remove { element } => {
+                removes.insert(element.clone());
+            }
+            Ask::AddNode { kind, name, .. } => {
+                let mut m = BTreeMap::new();
+                m.insert("kind".into(), Json::Str(kind.clone()));
+                m.insert("name".into(), name_json(name));
+                adds.push(Json::Obj(m));
+            }
+            Ask::AddEdge { kind, from, to, .. } => {
+                let mut m = BTreeMap::new();
+                m.insert("kind".into(), Json::Str(kind.clone()));
+                m.insert("from".into(), Json::Str(from.clone()));
+                m.insert("to".into(), Json::Str(to.clone()));
+                links.push(Json::Obj(m));
+            }
+        }
+    }
+    // A field set on what the same change removes is the removal, not a change.
+    changes.retain(|e| !removes.contains(e));
+    let ids = |set: BTreeSet<String>| Json::Arr(set.into_iter().map(Json::Str).collect());
+    let mut m = BTreeMap::new();
+    m.insert("changes".into(), ids(changes));
+    m.insert("removes".into(), ids(removes));
+    m.insert("adds".into(), Json::Arr(adds));
+    m.insert("links".into(), Json::Arr(links));
+    Json::Obj(m)
+}
+
+/// `POST /ai/v1/designs/{d}/changes`: propose one change to a design. An AI never changes a
+/// design itself (owner, 2026-10-27): the change is checked as it would be made, then waits
+/// as an idea, drawn on the canvas in the plan colour, until a person accepts it, when it is
+/// made in that person's name. The body is `{version, summary, operations}`; the summary is
+/// the idea's title and its one step.
 pub async fn change_design(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
@@ -764,103 +804,35 @@ pub async fn change_design(
     session: &AiSession,
     design: DesignId,
     body: &[u8],
-) -> Result<(Made, designs::ChangeWritten), AiError> {
-    if !session.policy.may_change {
-        return Err(AiError::NotAllowed(
-            "this organisation does not let AI apps change designs; send an idea instead",
-        ));
-    }
-    if !session.key.may_change {
-        return Err(AiError::NotAllowed(
-            "this connection may not change designs; send an idea instead, or ask its owner",
-        ));
-    }
+) -> Result<ai::Idea, AiError> {
     let asked = read_ask(body)?;
-    let (scope, path) = ai::readable_place(tx, auth, &session.key, design).await?;
-    let second = &session.policy.second_person_scopes;
-    if !second.is_empty() && ai::covers(second, &path) {
-        return Err(AiError::NotAllowed(
-            "this folder needs a second person to accept changes; send an idea instead",
+    let Ok(Json::Obj(mut m)) = Json::parse_canonical(body) else {
+        return Err(AiError::Malformed(
+            "a change is {version, summary, operations}",
         ));
-    }
-
-    let tenant = auth.ctx.tenant().to_string();
-    let key_id = session.key.id.clone();
-    tx.execute(
-        "SELECT pg_advisory_xact_lock(hashtext($1))",
-        &[&format!("ai_design_changes:{key_id}")],
-    )
-    .await?;
-    let counts = tx
-        .query_one(
-            "SELECT count(*) FILTER (WHERE made_at > now() - interval '1 minute'), \
-                    count(*) FILTER (WHERE made_at > now() - interval '1 day') \
-             FROM ai_design_changes WHERE organisation_id = $1 AND key_id = $2",
-            &[&tenant, &key_id],
-        )
-        .await?;
-    let (minute, day): (i64, i64) = (counts.get(0), counts.get(1));
-    if minute >= PER_MINUTE {
-        return Err(AiError::NotAllowed(
-            "this connection made 10 changes in the last minute; try again in a minute",
-        ));
-    }
-    if day >= PER_DAY {
-        return Err(AiError::NotAllowed(
-            "this connection made 300 changes today; try again tomorrow",
-        ));
-    }
-
-    let tiers = ai::tiers(&session.key, &session.policy);
-    let (built, written) = build_and_write(
+    };
+    let mut step = BTreeMap::new();
+    step.insert("action".into(), Json::Str("change".into()));
+    step.insert("text".into(), Json::Str(asked.summary.clone()));
+    let mut change = BTreeMap::new();
+    change.insert("version".into(), Json::Int(asked.version));
+    change.insert(
+        "operations".into(),
+        m.remove("operations").unwrap_or(Json::Null),
+    );
+    let mut idea = BTreeMap::new();
+    idea.insert("title".into(), Json::Str(asked.summary.clone()));
+    idea.insert("steps".into(), Json::Arr(vec![Json::Obj(step)]));
+    idea.insert("change".into(), Json::Obj(change));
+    ai::recommend(
         tx,
         auth,
-        heads,
+        Some(heads),
+        session,
         design,
-        scope,
-        &tiers,
-        LABEL_PREFIX,
-        &asked,
-        true,
-    )
-    .await?;
-    let operations: usize = asked.ops.iter().map(Ask::weight).sum();
-    // The head holds the applied change until the caller commits or aborts it, so a
-    // failure from here on lets it go before answering.
-    let release = |e: AiError| {
-        if let Some(applied) = &written.applied {
-            heads.abort(&design.to_string(), applied.ticket);
-        }
-        e
-    };
-    let batch = fathom_workspace::read_change(&built.doc)
-        .map(|c| c.batch.id.0.encode())
-        .map_err(|_| release(AiError::Unverifiable("a change this server built")))?;
-    tx.execute(
-        "INSERT INTO ai_design_changes (organisation_id, design_id, batch_id, key_id, owner, \
-             design_version, operations) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7)",
-        &[
-            &tenant,
-            &design.to_string(),
-            &batch,
-            &key_id,
-            &auth.ctx.actor().to_string(),
-            &written.version,
-            &(operations as i32),
-        ],
+        &Json::Obj(idea).to_canonical_bytes(),
     )
     .await
-    .map_err(|e| release(e.into()))?;
-    Ok((
-        Made {
-            version: written.version,
-            batch,
-            operations,
-            named: built.named,
-        },
-        written,
-    ))
 }
 
 #[cfg(test)]
@@ -910,10 +882,10 @@ mod tests {
 
     #[test]
     fn the_label_is_the_summary_cut_to_sixty_bytes() {
-        assert_eq!(label_of(LABEL_PREFIX, "Name it"), "AI: Name it");
+        assert_eq!(label_of(IDEA_LABEL_PREFIX, "Name it"), "AI idea: Name it");
         let long = "é".repeat(100);
-        let l = label_of(LABEL_PREFIX, &long);
-        assert!(l.len() <= LABEL_MAX_BYTES && l.starts_with(LABEL_PREFIX));
+        let l = label_of(IDEA_LABEL_PREFIX, &long);
+        assert!(l.len() <= LABEL_MAX_BYTES && l.starts_with(IDEA_LABEL_PREFIX));
     }
 
     fn fixture() -> Graph {
@@ -987,7 +959,8 @@ mod tests {
             }
             .to_string()
         ));
-        let built = build(&g, &layout(), LABEL_PREFIX, &a, Ulid(9_999), 5, ids()).expect("built");
+        let built =
+            build(&g, &layout(), IDEA_LABEL_PREFIX, &a, Ulid(9_999), 5, ids()).expect("built");
         let change = fathom_workspace::read_change(&built.doc).expect("reads back");
         assert!(built.named["core"].starts_with("device:"));
         // Add, set hostname, clear role, add the chassis, two edges: six operations, six
@@ -1017,7 +990,7 @@ mod tests {
             match build(
                 &g,
                 &layout(),
-                LABEL_PREFIX,
+                IDEA_LABEL_PREFIX,
                 &ask(ops),
                 Ulid(9_999),
                 5,
@@ -1033,7 +1006,7 @@ mod tests {
         assert!(build(
             &g,
             &notes,
-            LABEL_PREFIX,
+            IDEA_LABEL_PREFIX,
             &ask(r#"{"op":"add_node","kind":"Note"}"#),
             Ulid(9_999),
             5,
@@ -1053,7 +1026,7 @@ mod tests {
         match build(
             &g,
             &layout(),
-            LABEL_PREFIX,
+            IDEA_LABEL_PREFIX,
             &ask(&format!(r#"{{"op":"remove","element":{premises:?}}}"#)),
             Ulid(9_999),
             5,
@@ -1073,7 +1046,7 @@ mod tests {
         assert!(build(
             &g,
             &layout(),
-            LABEL_PREFIX,
+            IDEA_LABEL_PREFIX,
             &ask(&removes(20)),
             Ulid(9_999),
             5,
@@ -1084,7 +1057,7 @@ mod tests {
         match build(
             &g,
             &layout(),
-            LABEL_PREFIX,
+            IDEA_LABEL_PREFIX,
             &ask(&hidden),
             Ulid(9_999),
             5,
@@ -1099,7 +1072,7 @@ mod tests {
         match build(
             &g,
             &layout(),
-            LABEL_PREFIX,
+            IDEA_LABEL_PREFIX,
             &ask(&removes(21)),
             Ulid(9_999),
             5,

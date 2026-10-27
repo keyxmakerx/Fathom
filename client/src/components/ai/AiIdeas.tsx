@@ -1,13 +1,15 @@
 // AI ideas on a design (ADR-0072 decision 7; mockup r33-ai-recs2-a, approved 2026-10-25):
 // one panel, the same on the Canvas, Racks and Inventory, so deciding in one place is one
-// decision everywhere. An idea changes nothing by itself. Accepting one that carries a
-// change makes it, as the person's own edit (amended 2026-10-27); one that is steps only is
-// marked done and the person makes the edit. Dismissing keeps nothing the AI wrote.
+// decision everywhere. An idea changes nothing by itself: an AI never changes a design
+// (owner, 2026-10-27). One that carries a change can be shown on the canvas in the plan
+// colour first, and accepting it makes it, as the person's own edit; one that is steps only
+// is marked done and the person makes the edit. Dismissing keeps nothing the AI wrote.
 // Make it a plan turns the steps into a draft maintenance plan (no edits in it) and accepts.
 
 import { useCallback, useEffect, useState } from 'react';
 
-import { decideIdea, fetchIdeas, type AiIdea } from '../../api/ai';
+import { decideIdea, fetchIdeas, type AiIdea, type IdeaPreview } from '../../api/ai';
+import { useAiPreview } from './aiPreview';
 import type { SideTab } from '../shell/sideSlot';
 import { aiError, ago, Info } from './parts';
 
@@ -68,9 +70,24 @@ export interface AiIdeasPanelProps {
   canDraw: boolean;
   /** Make a draft maintenance plan from the idea (its steps become the plan's), then accept it. */
   onPlan?: (idea: AiIdea) => void;
+  /** Show an idea's proposed change on the canvas, or null to stop showing it. */
+  onPreview?: (idea: AiIdea | null) => void;
 }
 
-export function AiIdeasPanel({ organisationId, designId, state, nameOf, onShow, canDraw, onPlan }: AiIdeasPanelProps) {
+const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+/** What Accept and apply would do, in words, for beside the canvas marks. */
+export function previewSummary(p: IdeaPreview): string {
+  const parts: string[] = [];
+  if (p.changes.length > 0) parts.push(`changes ${plural(p.changes.length, 'thing', 'things')}`);
+  if (p.removes.length > 0) parts.push(`removes ${p.removes.length}`);
+  if (p.adds.length > 0) parts.push(`adds ${p.adds.map((a) => (a.name ? `${a.kind} “${a.name}”` : `a ${a.kind}`)).join(', ')}`);
+  if (p.links.length > 0) parts.push(`draws ${plural(p.links.length, 'link', 'links')}`);
+  return parts.length > 0 ? `It ${parts.join(', ')}.` : '';
+}
+
+export function AiIdeasPanel({ organisationId, designId, state, nameOf, onShow, canDraw, onPlan, onPreview }: AiIdeasPanelProps) {
+  const shown = useAiPreview().ideaId;
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showDecided, setShowDecided] = useState(false);
@@ -81,6 +98,7 @@ export function AiIdeasPanel({ organisationId, designId, state, nameOf, onShow, 
     setError(null);
     try {
       await decideIdea(organisationId, designId, idea, verb);
+      if (shown === idea.id) onPreview?.(null);
       state.reload();
     } catch (e) {
       setError(aiError(e));
@@ -94,9 +112,10 @@ export function AiIdeasPanel({ organisationId, designId, state, nameOf, onShow, 
       <p className="ai-muted">
         Ideas an AI app sent for this design.{' '}
         <Info label="What an AI idea is">
-          Someone connected an AI app to Fathom and let it send ideas. An idea changes nothing in the design until you decide.
-          When the AI sent the change itself, Accept and apply makes it, as your own edit, so it is in the history under your name
-          and History can restore the version before it. When it sent only steps, Mark done records that you accepted it, and you
+          Someone connected an AI app to Fathom and let it send ideas. An AI never changes the design itself: nothing changes
+          until you decide. When the AI sent the change itself, Show on canvas draws it in the plan colour, with anything it
+          removes greyed out, and Accept and apply makes it, as your own edit, so it is in the history under your name and History
+          can restore the version before it. When it sent only steps, Mark done records that you accepted it, and you
           make the change yourself. Make it a plan turns its steps into a draft maintenance plan you can change, schedule and work
           through, and accepts it. Dismiss throws the idea away. In some folders a Steward asks for a second person to accept.
         </Info>
@@ -119,7 +138,19 @@ export function AiIdeasPanel({ organisationId, designId, state, nameOf, onShow, 
             {idea.changes !== null
               ? `Accept and apply makes ${idea.changes === 1 ? '1 change' : `${idea.changes} changes`} in this design, as your edit.`
               : 'Steps only: accepting changes nothing, you make the edit.'}
+            {idea.preview !== null && ` ${previewSummary(idea.preview)}`}
           </p>
+          {idea.preview !== null && onPreview && (
+            <button
+              type="button"
+              className="ai-btn ai-btn--small"
+              data-testid="ai-idea-preview"
+              aria-pressed={shown === idea.id}
+              onClick={() => onPreview(shown === idea.id ? null : idea)}
+            >
+              {shown === idea.id ? 'Hide from canvas' : 'Show on canvas'}
+            </button>
+          )}
           <ul className="ai-idea__steps">
             {idea.steps.map((step, n) => {
               const target = step.target !== null ? nameOf(step.target) : null;

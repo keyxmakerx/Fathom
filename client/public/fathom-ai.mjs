@@ -227,7 +227,7 @@ const TOOLS = [
       'Recommend a change to a design. Nothing changes until a person accepts it in Fathom. ' +
       'Write it for a person: a short title, why, and 1 to 20 plain steps in the order they should be done, one change each; ' +
       'a person can turn it into a maintenance plan. You may also send the change itself as change: the version ' +
-      'fathom_read_design gave and operations in the shape fathom_change_design takes; it is checked now, and when a ' +
+      'fathom_read_design gave and operations in the shape fathom_propose_change takes; it is checked now, and when a ' +
       'person accepts the idea Fathom makes it in their name. Never include a password or key.',
     inputSchema: {
       type: 'object',
@@ -250,7 +250,7 @@ const TOOLS = [
         },
         change: {
           type: 'object',
-          description: 'Optional: what accepting it makes. The version the reading gave, and operations as fathom_change_design takes them.',
+          description: 'Optional: what accepting it makes. The version the reading gave, and operations as fathom_propose_change takes them.',
           properties: {
             version: { type: 'integer', minimum: 1 },
             operations: { type: 'array', minItems: 1, maxItems: 200, items: { type: 'object' } },
@@ -271,23 +271,25 @@ const TOOLS = [
       }),
   },
   {
-    // Listed only when whoami says mayChange: the organisation and the key's owner both allowed it.
-    name: 'fathom_change_design',
+    // Listed only when whoami says mayChange: the organisation and the key's owner both allowed it. An AI never
+    // changes a design itself (2026-10-27): this keeps the change as an idea until a person accepts it.
+    name: 'fathom_propose_change',
     mayChange: true,
     description:
-      'Change a design now, as one change. It is made in the name of the person who made this key, marked as made by an ' +
-      'AI, and History can restore the version before it. Give the version fathom_read_design gave: if the design moved ' +
+      'Propose one change to a design. Nothing changes now: Fathom checks it as it would be made, keeps it as an AI idea ' +
+      'and shows it on the person\'s canvas in the plan colour. When they accept it, it is made in their name as one ' +
+      'change, and History can restore the version before it. Give the version fathom_read_design gave: if the design moved ' +
       'since, nothing changes and you are told to read it again. Operations run in order: set a field (null clears it), ' +
       'add_node, add_edge or remove. The reading\'s mayChange lists the kinds and fields you may add and set. Name existing ' +
       'elements by the reading\'s ids, or give an add an `as` name for later operations. A removal takes what the element ' +
       'holds: at most 20 things, never a place still holding things, never anything holding what you cannot see. ' +
-      'Never include a password or key; a change carrying one is refused whole. Prefer fathom_recommend when a person should decide.',
+      'Never include a password or key; a change carrying one is refused whole. The answer is the idea.',
     inputSchema: {
       type: 'object',
       properties: {
         design: { type: 'string' },
         version: { type: 'integer', minimum: 1, description: 'The version fathom_read_design gave.' },
-        summary: { type: 'string', maxLength: 120, description: 'What the change does, in one line. History shows it.' },
+        summary: { type: 'string', maxLength: 120, description: 'What the change does, in one line: the idea\'s title.' },
         operations: {
           type: 'array', minItems: 1, maxItems: 200,
           items: {
@@ -353,8 +355,8 @@ function serve() {
           serverInfo: { name: 'fathom-ai', version: VERSION },
           instructions:
             'Fathom is a network documentation tool. These tools read designs as the person who made this key, and ' +
-            'send recommendations a person accepts or dismisses. Only if fathom_whoami says mayChange can they change a ' +
-            'design, as one change a person can undo. They never return passwords.',
+            'send recommendations a person accepts or dismisses. They never change a design: if fathom_whoami says ' +
+            'mayChange they can propose a change, which a person sees on the canvas and accepts. They never return passwords.',
         });
         return;
       case 'ping':

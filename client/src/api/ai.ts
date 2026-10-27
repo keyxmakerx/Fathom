@@ -26,7 +26,7 @@ export interface AiPolicy {
   maxDays: number;
   secondPersonScopes: string[];
   apps: App[];
-  /** The organisation's tick: AI apps may change designs (ADR-0077 decision 1). */
+  /** The organisation's tick: AI apps may propose changes, which a person accepts (ADR-0077 decision 1). */
   mayChange: boolean;
   changedBy: string | null;
   changedAt: number | null;
@@ -49,7 +49,7 @@ export interface AiKeyView {
   scopes: string[];
   sees: Tier[];
   mayRecommend: boolean;
-  /** The connection's own tick to change designs; it needs the organisation's too. */
+  /** The connection's own tick to propose changes; it needs the organisation's too. */
   mayChange: boolean;
   /** Seconds since the epoch, like the rest of this file's times. */
   createdAt: number;
@@ -84,6 +84,33 @@ export interface IdeaStep {
   text: string;
 }
 
+/** A kind of work an AI may be allowed (ADR-0077 amendment, sign-off card r47-ai-controls). */
+export type AiWork = 'design' | 'plans' | 'issues' | 'doing';
+export const WORKS: readonly AiWork[] = ['design', 'plans', 'issues', 'doing'];
+/** How far: off, ideas (steps a person carries out) or propose (the change, which a person accepts). */
+export type AiLevel = 'off' | 'ideas' | 'propose';
+export const LEVELS: readonly AiLevel[] = ['off', 'ideas', 'propose'];
+export type WorkLevels = Record<AiWork, AiLevel>;
+
+/** The server's own default ceiling: proposals at all but working through a plan. */
+export const SITE_DEFAULT_WORK: WorkLevels = { design: 'propose', plans: 'propose', issues: 'propose', doing: 'off' };
+
+/** Levels as the server gives them; anything missing or unknown reads as off. */
+export function parseWork(raw: unknown): WorkLevels {
+  const o = (raw ?? {}) as Record<string, unknown>;
+  const one = (v: unknown): AiLevel => (v === 'ideas' || v === 'propose' ? v : 'off');
+  return { design: one(o.design), plans: one(o.plans), issues: one(o.issues), doing: one(o.doing) };
+}
+
+/** What a proposed change touches, drawn on the canvas in the plan colour before anyone accepts it. Ids are as the
+ * reading gave them (kind:ULID); an add or a link end may instead be a name the change gave something new. */
+export interface IdeaPreview {
+  changes: string[];
+  removes: string[];
+  adds: { kind: string; name: string | null }[];
+  links: { kind: string; from: string; to: string }[];
+}
+
 export interface AiIdea {
   id: string;
   key: string;
@@ -94,6 +121,8 @@ export interface AiIdea {
   steps: IdeaStep[];
   /** How many operations Accept makes in the design; null when the idea is steps only. */
   changes: number | null;
+  /** What Accept and apply would touch; null when the idea is steps only. */
+  preview: IdeaPreview | null;
   createdAt: number;
   state: 'open' | 'accepted' | 'dismissed';
   decidedBy: string | null;
@@ -166,6 +195,18 @@ export function parseKey(raw: unknown): AiKeyView {
   };
 }
 
+function parsePreview(raw: unknown): IdeaPreview | null {
+  if (raw == null || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const objs = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => x != null && typeof x === 'object') : []);
+  return {
+    changes: strs(o.changes),
+    removes: strs(o.removes),
+    adds: objs(o.adds).map((a) => ({ kind: str(a.kind), name: typeof a.name === 'string' ? a.name : null })),
+    links: objs(o.links).map((l) => ({ kind: str(l.kind), from: str(l.from), to: str(l.to) })),
+  };
+}
+
 export function parseIdea(raw: unknown): AiIdea {
   const o = (raw ?? {}) as Record<string, unknown>;
   const state = o.state;
@@ -187,6 +228,7 @@ export function parseIdea(raw: unknown): AiIdea {
     why: str(o.why),
     steps,
     changes: num(o.changes),
+    preview: parsePreview(o.preview),
     createdAt: num(o.createdAt) ?? 0,
     state,
     decidedBy: typeof o.decidedBy === 'string' ? o.decidedBy : null,
@@ -295,11 +337,11 @@ export function plainWords(
   return [
     `Reads ${where}, as you: ${sees.join(', ')}.`,
     key.mayChange
-      ? 'Can change designs you can draw in, in your name and marked as the AI\'s. Each change is one undo.'
+      ? 'Can send ideas and propose changes where you can draw. Nothing changes until a person accepts one.'
       : key.mayRecommend
         ? 'Can send ideas. Nothing changes until a person accepts one.'
         : 'Can only read. It cannot send ideas or change anything.',
-    ...(key.mayChange ? ['Text inside a design can steer an AI. Only tick this for an AI you watch.'] : []),
+    ...(key.mayChange ? ['Text inside a design can steer an AI: look at a proposed change on the canvas before you accept it.'] : []),
     'Never sees passwords, the vault, or anything you cannot see.',
     'What it reads goes to the company behind your AI app.',
   ];

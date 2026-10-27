@@ -307,8 +307,8 @@ async fn change_handler(
     ))
 }
 
-/// One AI change, start to finish (ADR-0077): its own transaction, then the head and every
-/// open browser told, as a browser's change is (`design_api::post_change_handler`).
+/// One AI proposal (ADR-0077, amended 2026-10-27): checked and kept as an idea in its own
+/// transaction. Nothing in the design changes until a person accepts it.
 pub async fn change_design(
     state: &AiApiState,
     verified: &VerifiedAi,
@@ -324,28 +324,11 @@ pub async fn change_design(
         tenant_key: &session.tenant_key,
         watch: &state.watch,
     };
-    let (made, written) =
+    let idea =
         crate::ai_change::change_design(&tx, &auth, &state.live.heads, &session, design, body)
             .await?;
-    let design_text = design.to_string();
-    match tx.commit().await {
-        Ok(()) => {
-            if let Some(applied) = written.applied {
-                state
-                    .live
-                    .heads
-                    .commit(&design_text, applied.ticket, written.version, applied.tip);
-                state.live.hub.wake_design(&design_text);
-            }
-        }
-        Err(e) => {
-            if let Some(applied) = written.applied {
-                state.live.heads.abort(&design_text, applied.ticket);
-            }
-            return Err(e.into());
-        }
-    }
-    Ok(made.to_json(design))
+    tx.commit().await?;
+    Ok(idea.to_json())
 }
 
 // ---------------------------------------------------------------------------

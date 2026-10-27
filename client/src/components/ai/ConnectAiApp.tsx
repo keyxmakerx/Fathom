@@ -295,7 +295,7 @@ export function ConnectAiApp({ query, onLeave, go = (url) => window.location.ass
         {changeAllowed && (
           <label className="ai-tick">
             <input type="checkbox" data-testid="connect-may-change" checked={mayChange} onChange={(e) => setMayChange(e.target.checked)} />
-            <span>May change designs</span>
+            <span>May propose changes</span>
           </label>
         )}
 
