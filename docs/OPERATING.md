@@ -511,6 +511,11 @@ browser and may stay internal (`FATHOM_AI_SIGN_IN_URL`). Claude Code and the hel
 computer and reach Fathom wherever the person can. The source-address check needs the proxy named in
 `FATHOM_TRUSTED_PROXIES`, as the sign-in rate limit does.
 
+**Without the connector.** AI access does not need `FATHOM_AI_PUBLIC_URL`. A person can still connect an
+app on their own computer with the Fathom AI helper, which Fathom serves at `/fathom-ai.mjs` and which
+calls `/ai/v1/*` with a key the person made on that computer (Organisation › AI › Connect an AI app ›
+"It uses a key"; docs/EXAMPLES.md §9). Fathom stores only the key's public half.
+
 **Stopping one.** A person, a Steward (with a reason) or an admin (with a reason) turns a connection off
 at its next request; it cannot be turned back on. Tokens are stored only as hashes: a database copy
 cannot be used to call `/mcp`.

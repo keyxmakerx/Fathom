@@ -531,7 +531,10 @@ Steward allows them. S256 PKCE, one-minute single-use codes, one-hour access tok
 tokens with reuse detection, hashes only. A Claude grant is used only from Anthropic's published range
 (`FATHOM_AI_CLAUDE_RANGES`). The person signs in and chooses on the "Connect an AI app" page at
 `/oauth/authorize`. (b) the **helper** (`client/public/fathom-ai.mjs`): an ES256 key pair on the person's
-computer signs each `/ai/v1/*` request. Organisation › AI holds the policy (on/off, who, ceiling, apps,
+computer signs each `/ai/v1/*` request, and works with the connector off. The person downloads it from
+Organisation › AI › Connect an AI app › "It uses a key", runs the pair line shown, pastes the public half
+and presses Make key; the page then gives the Claude Code line and an `mcpServers` block to paste
+(`scripts/drive-ai-helper.mjs` drives it end to end). Organisation › AI holds the policy (on/off, who, ceiling, apps,
 longest, second-person folders) and every connection with narrow and turn-off; a named person who is not
 an admin sees that tab with AI alone. Admin › AI turns AI off for the server and turns any connection off
 with a reason. AI ideas are a side tab on the Canvas, Racks and Inventory; an Inventory row an open idea
