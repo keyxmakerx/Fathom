@@ -22,6 +22,9 @@ export interface PortalGroup {
   label: string;
   /** Every cable crossing to this tray, near-end first. */
   cables: ReadonlyArray<{ cableId: string; kind: CableKind; nearPortId: string }>;
+  /** A link between sites (ADR-0079 decision 5): where the first linked cable in this tray lands,
+   * so a click on the tray opens that design at that port. Absent for an ordinary outside end. */
+  far?: { design: string; element: string };
 }
 
 /** "naming... how many cross" as the approved board phrases it — "3 fibre
@@ -41,12 +44,16 @@ export function portalCountLabel(group: Pick<PortalGroup, 'cables'>): string {
  * label — `undefined` for a cable that does not leave the closet (both ends
  * real) or that has no real end at all (never produced by a real document,
  * but not this function's place to assume that). */
-function outsideEndOf(cable: CableView): { nearPortId: string; nearChassisId: string; label: string } | undefined {
-  const outside = cable.ends.find((e): e is { outside: true; label: string } => 'outside' in e && e.outside);
+function outsideEndOf(
+  cable: CableView,
+): { nearPortId: string; nearChassisId: string; label: string; far?: { design: string; element: string } } | undefined {
+  const outside = cable.ends.find(
+    (e): e is { outside: true; label: string; far?: { design: string; element: string } } => 'outside' in e && e.outside,
+  );
   if (!outside) return undefined;
   const near = cable.ends.find((e): e is { portId: string; chassisId: string; rackId: string } => 'portId' in e);
   if (!near) return undefined;
-  return { nearPortId: near.portId, nearChassisId: near.chassisId, label: outside.label };
+  return { nearPortId: near.portId, nearChassisId: near.chassisId, label: outside.label, far: outside.far };
 }
 
 export function groupPortals(view: ClosetView): PortalGroup[] {
@@ -77,8 +84,17 @@ export function groupPortals(view: ClosetView): PortalGroup[] {
     const entry = { cableId: cable.id, kind: cable.kind, nearPortId: outside.nearPortId };
     if (existing) {
       existing.cables.push(entry);
+      if (existing.far === undefined && outside.far !== undefined) existing.far = outside.far;
     } else {
-      groups.set(key, { key, rackId, side, label: outside.label, cables: [entry] });
+      const group: PortalGroup & { cables: Array<{ cableId: string; kind: CableKind; nearPortId: string }> } = {
+        key,
+        rackId,
+        side,
+        label: outside.label,
+        cables: [entry],
+      };
+      if (outside.far !== undefined) group.far = outside.far;
+      groups.set(key, group);
     }
   }
 

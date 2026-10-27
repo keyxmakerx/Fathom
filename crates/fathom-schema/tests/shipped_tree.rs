@@ -111,7 +111,8 @@ fn shipped_tree_declaration_counts_hold() {
     // The lesson builder (schema 0.27): +22 field keys (486-507).
     // Cards and optics (schema 0.28): +4 field keys (508-511).
     // The room builder (schema 0.29): +12 field keys (512-523). Stock (0.30): +18 (524-541).
-    assert_eq!(fk.entries.len(), 476, "field-key registry entries");
+    // Links between sites (schema 0.31): +2 field keys (542-543).
+    assert_eq!(fk.entries.len(), 478, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -201,7 +202,8 @@ fn shipped_tree_declaration_counts_hold() {
     // 0.27 -> 0.28 is cards and optics: one kind, two edges, one class, four field keys (508-511).
     // 0.28 -> 0.29 is the room builder: three kinds, three edges, twelve field keys (512-523).
     // 0.29 -> 0.30 is available inventory: three kinds, six edges, eighteen field keys (524-541).
-    assert_eq!(tree.version.as_deref(), Some("0.30"));
+    // 0.30 -> 0.31 is links between sites: two optional `ExternalPeer` fields (542-543).
+    assert_eq!(tree.version.as_deref(), Some("0.31"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

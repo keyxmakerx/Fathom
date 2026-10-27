@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.30";
+export const SCHEMA_VERSION = "0.31";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -526,7 +526,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Device: ["hostname", "platform", "os_version", "role", "domain_name", "management_address", "cluster_id", "default_cross_zone_action", "default_inbound_action", "aggregate_device_count", "reth_count", "name_conformance", "firmware_hold"],
   Chassis: ["member_index", "model", "serial", "slots"],
   RedundancyGroup: ["number", "node_priority", "preempt", "hold_down_interval", "gratuitous_arp_count"],
-  ExternalPeer: ["label", "address", "organisation", "contact", "platform_guess"],
+  ExternalPeer: ["label", "address", "organisation", "contact", "platform_guess", "far_design", "far_element"],
   Interface: ["name", "form", "description", "admin_up", "mtu", "speed", "duplex", "flow_control", "vlan_tagging"],
   AggregateInterface: ["name", "lacp_mode", "lacp_periodic", "minimum_links", "link_speed", "description", "admin_up", "mtu"],
   RethInterface: ["name", "minimum_links", "lacp_mode", "description", "admin_up", "mtu"],
@@ -1084,4 +1084,6 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "StockItem.note": 539,
   "StockLevel.model": 540,
   "StockLevel.at_least": 541,
+  "ExternalPeer.far_design": 542,
+  "ExternalPeer.far_element": 543,
 };

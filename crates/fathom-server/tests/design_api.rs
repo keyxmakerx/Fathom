@@ -508,7 +508,7 @@ fn a_plain_face_payload(seed: u128) -> Vec<u8> {
 /// of writing, whose minor component this is. Kept as its own named constant
 /// rather than a bare `14` at each call site so a future schema bump has one
 /// place to change.
-const CURRENT_SCHEMA_WIRE_VERSION: u32 = 30;
+const CURRENT_SCHEMA_WIRE_VERSION: u32 = 31;
 
 fn save_body(schema_version: u32, payload: &[u8]) -> Vec<u8> {
     let mut out = schema_version.to_le_bytes().to_vec();
@@ -7327,4 +7327,217 @@ async fn the_database_binds_the_sender_and_the_decider_to_the_session_account() 
     run_as(&pool, &org, &ann_id, &[(decide, &[&id1, &ann_id])])
         .await
         .expect("own decision");
+}
+
+// ---------------------------------------------------------------------------
+// The estate index (ADR-0079)
+// ---------------------------------------------------------------------------
+
+/// A design with one named device on a chassis with a serial.
+/// A device with one port; also the port's id, for a link between sites to name.
+fn a_payload_with_a_named_device(seed: u128, hostname: &str, serial: &str) -> (Vec<u8>, String) {
+    use fathom_ir::generated::ir_types::{ChassisField, DeviceField, PhysicalPortField};
+    let prov = ProvenanceRecord {
+        id: ProvenanceId(Ulid(seed * 10 + 2)),
+        origin: Origin::Hand,
+        asserted_at: Timestamp(0),
+        asserted_by: Actor::User(UserId(Ulid(seed * 10 + 3))),
+        confidence: Confidence::Asserted,
+        supersedes: None,
+    };
+    let mut g = Graph::new();
+    g.begin_batch(BatchId(Ulid(seed * 10)), "estate fixture")
+        .expect("open batch");
+    let device = g
+        .insert_node(NodeKind::Device, Ulid(seed * 10 + 1), prov.clone())
+        .expect("device");
+    g.set_field(
+        device.into(),
+        DeviceField::Hostname.key(),
+        scalar::Identifier(hostname.into()),
+        prov.clone(),
+    )
+    .expect("hostname");
+    let chassis = g
+        .insert_node(NodeKind::Chassis, Ulid(seed * 10 + 4), prov.clone())
+        .expect("chassis");
+    g.set_field(
+        chassis.into(),
+        ChassisField::Serial.key(),
+        scalar::Identifier(serial.into()),
+        prov.clone(),
+    )
+    .expect("serial");
+    g.insert_edge(
+        EdgeKind::HasChassis,
+        Ulid(seed * 10 + 5),
+        device,
+        chassis,
+        prov.clone(),
+    )
+    .expect("has chassis");
+    let port = g
+        .insert_node(NodeKind::PhysicalPort, Ulid(seed * 10 + 6), prov.clone())
+        .expect("port");
+    g.set_field(
+        port.into(),
+        PhysicalPortField::Label.key(),
+        scalar::Text("xe-0/0/1".into()),
+        prov.clone(),
+    )
+    .expect("port label");
+    g.insert_edge(EdgeKind::HasPort, Ulid(seed * 10 + 7), chassis, port, prov)
+        .expect("has port");
+    g.end_batch().expect("close batch");
+    (
+        fathom_workspace::write_plain(&g).expect("a graph this crate built must write"),
+        port.to_string(),
+    )
+}
+
+/// **A device saved in one design is found by name and by serial from the estate search,
+/// and not by someone who cannot read that design.** The index stores neither in the clear.
+#[tokio::test]
+async fn a_saved_device_is_found_across_the_estate_and_only_by_those_who_may_read_it() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+    let outsider = a_member_with(&pool, &ring, &estate, "outsider", None).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    let hostname = unique("edge-rtr");
+    let serial = "JN11F2A3BAFC";
+    let (payload, port) = a_payload_with_a_named_device(41, &hostname, serial);
+    let versions_path = format!(
+        "/organisations/{}/designs/{}/versions?base=0",
+        estate.organisation, design
+    );
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &versions_path,
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &payload),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+
+    let search = format!("/organisations/{}/estate/search", estate.organisation);
+    let query = |q: &str| canon(vec![("q", jstr(q))]);
+    // The rebuild runs after the save goes quiet; poll for it.
+    let mut found = String::new();
+    for _ in 0..40 {
+        let (status, body) = call(
+            addr,
+            &estate.steward,
+            "POST",
+            &search,
+            &query(&hostname[..12]),
+        )
+        .await;
+        assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+        found = String::from_utf8_lossy(&body).into_owned();
+        if found.contains(&hostname) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    assert!(
+        found.contains(&hostname),
+        "the device is found by a prefix of its name: {found}"
+    );
+    assert!(found.contains(&design.to_string()), "{found}");
+    assert!(found.contains("\"kind\":\"device\""), "{found}");
+
+    let (_, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &search,
+        &query(&serial.to_lowercase()),
+    )
+    .await;
+    assert!(
+        String::from_utf8_lossy(&body).contains(&hostname),
+        "found by serial"
+    );
+
+    let (status, body) = call(addr, &outsider, "POST", &search, &query(&hostname)).await;
+    assert_eq!(status, "200");
+    assert!(
+        !String::from_utf8_lossy(&body).contains(&hostname),
+        "a member with no grant finds nothing: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let page = format!("/organisations/{}/estate/page", estate.organisation);
+    let (status, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &page,
+        &canon(vec![("kind", jstr("device"))]),
+    )
+    .await;
+    assert_eq!(status, "200");
+    assert!(String::from_utf8_lossy(&body).contains(&hostname));
+
+    let su = support::superuser_client_on_test_database().await;
+    let leaked: i64 = su
+        .query_one(
+            "SELECT count(*) FROM estate_rows WHERE position($1::bytea IN sealed) > 0",
+            &[&hostname.as_bytes()],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(leaked, 0, "the name is not stored in the clear");
+
+    // Links between sites (ADR-0079 decision 5): the far port is found, a port the design
+    // doesn't have is gone, and a design the caller can't read is closed, whether it exists
+    // or not.
+    let far = format!("/organisations/{}/estate/far", estate.organisation);
+    let pair = |d: &str, e: &str| fathom_canon::Json::Arr(vec![jstr(d), jstr(e)]);
+    let ends = canon(vec![(
+        "ends",
+        fathom_canon::Json::Arr(vec![
+            pair(&design.to_string(), &port),
+            pair(
+                &design.to_string(),
+                "physical-port:01JNOSUCHPORT000000000000",
+            ),
+            pair("01JNOSUCHDESIGN00000000000", &port),
+        ]),
+    )]);
+    let (status, body) = call(addr, &estate.steward, "POST", &far, &ends).await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let answer = fathom_canon::Json::parse_canonical(&body).expect("canonical JSON");
+    let fathom_canon::Json::Obj(answer) = answer else {
+        panic!("an object")
+    };
+    let Some(fathom_canon::Json::Arr(got)) = answer.get("ends") else {
+        panic!("ends")
+    };
+    let field = |i: usize, k: &str| match &got[i] {
+        fathom_canon::Json::Obj(m) => match m.get(k) {
+            Some(fathom_canon::Json::Str(v)) => v.clone(),
+            _ => String::new(),
+        },
+        _ => String::new(),
+    };
+    assert_eq!(field(0, "state"), "here");
+    assert_eq!(field(0, "device"), hostname);
+    assert_eq!(field(0, "port"), "xe-0/0/1");
+    assert_eq!(field(1, "state"), "gone");
+    assert_eq!(field(2, "state"), "closed");
+    let (status, body) = call(addr, &outsider, "POST", &far, &ends).await;
+    assert_eq!(status, "200");
+    let text = String::from_utf8_lossy(&body);
+    assert!(
+        !text.contains("\"here\"") && !text.contains(&hostname),
+        "a member with no grant learns nothing about the far end: {text}"
+    );
 }

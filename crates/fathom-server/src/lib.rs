@@ -73,6 +73,7 @@ pub mod db;
 pub mod design_api;
 pub mod designs;
 pub mod engine;
+pub mod estate;
 pub mod field_defs;
 pub mod firmware;
 pub mod firmware_by_hand;

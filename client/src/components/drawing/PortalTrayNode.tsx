@@ -1,5 +1,6 @@
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
+import { openElsewhere } from '../../api/estate';
 import { useLive } from './liveStore';
 
 /**
@@ -20,6 +21,8 @@ export interface PortalTrayNodeData extends Record<string, unknown> {
   /** The `PortalGroup.key`; the tray lights when `litTrayKeySet` holds it
    * (UI-SPEC "Portals"). */
   trayKey: string;
+  /** A link between sites (ADR-0079 decision 5): the tray opens the far design at this port. */
+  far?: { design: string; element: string };
 }
 
 export type PortalTrayNodeType = Node<PortalTrayNodeData, 'tray'>;
@@ -27,7 +30,7 @@ export type PortalTrayNodeType = Node<PortalTrayNodeData, 'tray'>;
 export const PORTAL_TRAY_HEIGHT = 30;
 
 export function PortalTrayNode({ data }: NodeProps<PortalTrayNodeType>) {
-  const { label, countLabel, side, trayKey } = data;
+  const { label, countLabel, side, trayKey, far } = data;
   const lit = useLive((s) => s.litTrayKeySet.has(trayKey));
   return (
     <div className={lit ? 'drawing-tray drawing-tray--lit' : 'drawing-tray'}>
@@ -47,6 +50,21 @@ export function PortalTrayNode({ data }: NodeProps<PortalTrayNodeType>) {
       </span>
       <span className="drawing-tray__label">{label}</span>
       <span className="drawing-tray__count">{countLabel}</span>
+      {far ? (
+        // A link to another site: the far end is a real port in another design, so the tray is
+        // the way there. `nodrag` keeps the press a click rather than the start of a pan.
+        <button
+          type="button"
+          className="drawing-tray__open nodrag nopan"
+          title={`Open ${label} at the far end`}
+          onClick={(e) => {
+            e.stopPropagation();
+            openElsewhere(far.design, far.element);
+          }}
+        >
+          Open there
+        </button>
+      ) : null}
       <Handle
         type="source"
         position={side === 'above' ? Position.Bottom : Position.Top}

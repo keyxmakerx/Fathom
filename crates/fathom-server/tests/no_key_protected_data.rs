@@ -826,6 +826,30 @@ const TABLES: &[TableClaim] = &[
               the token itself exists only in the app that holds it. Beside it: the grant, the \
               sign-in it belongs to, its kind, and when it ends or was spent.",
     },
+    TableClaim {
+        name: "estate_rows",
+        protection: Protection::KeyProtected {
+            columns: &["sealed"],
+            under: "the estate index key, derived from the tenant key by HKDF under its own \
+                    label (ADR-0079 decision 3)",
+        },
+        why: "one row per device, card, optic, power supply or spare in a design: its name, \
+              model, serial, place, addresses and ports, sealed. Beside it in the clear: the \
+              design and element ids, the kind and the design version it was built from.",
+    },
+    TableClaim {
+        name: "estate_terms",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "keyed hashes (HMAC under a key derived from the tenant key) of the words a row is \
+              found by, beside the design and element ids. A hash cannot be read back; what \
+              the database learns is which rows share a term (ADR-0079 decision 3).",
+    },
+    TableClaim {
+        name: "estate_built",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the design version each design's index rows were last built from. Ids and a \
+              number.",
+    },
 ];
 
 /// Schemas a migration may create besides `public`. Each one's tables are named `schema.table`

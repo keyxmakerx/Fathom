@@ -60,7 +60,7 @@ use std::collections::BTreeSet;
 const PINNED: &str = concat!(
     "fathom-plain 1\n",
     "THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n",
-    "schema 0.30\n",
+    "schema 0.31\n",
     "\n",
     r#"{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}"#,
     "\n",
@@ -1084,6 +1084,15 @@ fn a_0_29_header_opens_but_cannot_hold_a_spare() {
         read_plain(old.as_bytes()).is_err(),
         "a 0.29 header cannot hold a StockItem"
     );
+}
+
+/// Links between sites (0.31) add only fields: a 0.30 design opens as it is.
+#[test]
+fn a_0_30_header_opens() {
+    use fathom_ir::generated::ir_types::SCHEMA_VERSION;
+    let older = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.30", 1);
+    assert_ne!(older, PINNED, "the substitution must have landed");
+    read_plain(older.as_bytes()).expect("a 0.30 payload opens");
 }
 
 /// A 0.15 design holds plans, and a 0.14 one does not (the plan kinds arrived at 0.15).

@@ -15,8 +15,9 @@ number of devices is.
 A design is one document. The server stores it whole, encrypted (ADR-0049), and the browser loads it
 whole into the engine. Live changes are small (ADR-0063), but opening a design, a full reload and
 the server's own copy of the head all hold the entire document. One design is capped at 64 MiB
-(`designs::MAX_PAYLOAD_BYTES`). Inventory, Find and Ctrl+K search the open design only; nothing
-searches across designs.
+(`designs::MAX_PAYLOAD_BYTES`). Find searches the open design. Since ADR-0079, Ctrl+K and
+Inventory › Every site also search every other design a person can read, through the server's
+estate index, and a cable can link to a port in another design.
 
 ## Numbers
 
@@ -44,7 +45,8 @@ search across them.
 
 ## What it would take
 
-Three pieces of work, cheapest first. The choice of how far to go is on the Sign-offs page.
+Three pieces of work, cheapest first. The owner chose 1 and 2 (sign-off r51, option A; ADR-0079).
+2 is built. 1 changes how far back Undo reaches, so it is back on the Sign-offs page as r53.
 
 1. **Stop carrying the whole history in every save.** Keep history in the chain and the change
    table, and save the current state plus a checkpoint. About a fourfold cut in document size,
@@ -60,6 +62,7 @@ Three pieces of work, cheapest first. The choice of how far to go is on the Sign
 
 ## What was not measured
 
-Live co-editing under load (many people on one design), import of a large file, and the canvas's
-own drawing time in a browser. The server's live path applies each change to its cached head, so
+Live co-editing under load (many people on one design), import of a large file, the canvas's
+own drawing time in a browser, and how long the estate index takes to rebuild a large design (it
+runs after the save, never in front of it, and search says how many designs are still catching up). The server's live path applies each change to its cached head, so
 its cost follows the head's size above.

@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.30";
+    pub const SCHEMA_VERSION: &str = "0.31";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -1035,7 +1035,7 @@ mod body {
                 NodeKind::Device => &[crate::bag::FieldKey(6), crate::bag::FieldKey(7), crate::bag::FieldKey(8), crate::bag::FieldKey(9), crate::bag::FieldKey(10), crate::bag::FieldKey(11), crate::bag::FieldKey(12), crate::bag::FieldKey(13), crate::bag::FieldKey(14), crate::bag::FieldKey(15), crate::bag::FieldKey(16), crate::bag::FieldKey(17), crate::bag::FieldKey(411)],
                 NodeKind::Chassis => &[crate::bag::FieldKey(18), crate::bag::FieldKey(19), crate::bag::FieldKey(20), crate::bag::FieldKey(21)],
                 NodeKind::RedundancyGroup => &[crate::bag::FieldKey(22), crate::bag::FieldKey(23), crate::bag::FieldKey(24), crate::bag::FieldKey(25), crate::bag::FieldKey(26)],
-                NodeKind::ExternalPeer => &[crate::bag::FieldKey(27), crate::bag::FieldKey(28), crate::bag::FieldKey(29), crate::bag::FieldKey(30), crate::bag::FieldKey(31)],
+                NodeKind::ExternalPeer => &[crate::bag::FieldKey(27), crate::bag::FieldKey(28), crate::bag::FieldKey(29), crate::bag::FieldKey(30), crate::bag::FieldKey(31), crate::bag::FieldKey(542), crate::bag::FieldKey(543)],
                 NodeKind::Interface => &[crate::bag::FieldKey(32), crate::bag::FieldKey(33), crate::bag::FieldKey(34), crate::bag::FieldKey(35), crate::bag::FieldKey(36), crate::bag::FieldKey(37), crate::bag::FieldKey(38), crate::bag::FieldKey(39), crate::bag::FieldKey(40)],
                 NodeKind::AggregateInterface => &[crate::bag::FieldKey(41), crate::bag::FieldKey(42), crate::bag::FieldKey(43), crate::bag::FieldKey(44), crate::bag::FieldKey(45), crate::bag::FieldKey(46), crate::bag::FieldKey(47), crate::bag::FieldKey(48)],
                 NodeKind::RethInterface => &[crate::bag::FieldKey(49), crate::bag::FieldKey(50), crate::bag::FieldKey(51), crate::bag::FieldKey(52), crate::bag::FieldKey(53), crate::bag::FieldKey(54)],
@@ -7267,17 +7267,21 @@ mod body {
         Organisation,
         Contact,
         PlatformGuess,
+        FarDesign,
+        FarElement,
     }
 
     impl ExternalPeerField {
-        pub const COUNT: usize = 5;
+        pub const COUNT: usize = 7;
         /// Every field, declaration order.
-        pub const ALL: [ExternalPeerField; 5] = [
+        pub const ALL: [ExternalPeerField; 7] = [
             ExternalPeerField::Label,
             ExternalPeerField::Address,
             ExternalPeerField::Organisation,
             ExternalPeerField::Contact,
             ExternalPeerField::PlatformGuess,
+            ExternalPeerField::FarDesign,
+            ExternalPeerField::FarElement,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -7289,6 +7293,8 @@ mod body {
                 ExternalPeerField::Organisation => "organisation",
                 ExternalPeerField::Contact => "contact",
                 ExternalPeerField::PlatformGuess => "platform_guess",
+                ExternalPeerField::FarDesign => "far_design",
+                ExternalPeerField::FarElement => "far_element",
             }
         }
         /// The stable wire key (`schema/field-keys.yaml`).
@@ -7299,6 +7305,8 @@ mod body {
                 ExternalPeerField::Organisation => crate::bag::FieldKey(29),
                 ExternalPeerField::Contact => crate::bag::FieldKey(30),
                 ExternalPeerField::PlatformGuess => crate::bag::FieldKey(31),
+                ExternalPeerField::FarDesign => crate::bag::FieldKey(542),
+                ExternalPeerField::FarElement => crate::bag::FieldKey(543),
             }
         }
     }
@@ -11362,7 +11370,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 476] = [
+    pub const FIELD_KEYS: [(&str, u32); 478] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -11839,6 +11847,8 @@ mod body {
         ("StockItem.note", 539),
         ("StockLevel.model", 540),
         ("StockLevel.at_least", 541),
+        ("ExternalPeer.far_design", 542),
+        ("ExternalPeer.far_element", 543),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit

@@ -17,6 +17,7 @@ import type { OrganisationClaim } from './api/console';
 import { designTitle, fetchDesigns, sortDesignsByRecency, type DesignSummary } from './api/designs';
 import { fetchOrganisations, type Organisation } from './api/organisations';
 import { scanFromLocation, type ScanTarget } from './components/phone/scan';
+import { OPEN_ELSEWHERE_EVENT } from './api/estate';
 import { isPhoneNow } from './components/phone/usePhone';
 import { PhoneHomeScan } from './components/phone/PhoneHomeScan';
 import { buildScopeForest, fetchScopes, pathTo, type Scope, type ScopeTreeNode } from './api/scopes';
@@ -202,6 +203,16 @@ export default function App() {
   const [scanNotice, setScanNotice] = useState<string | null>(null);
   useEffect(() => {
     if (typeof window !== 'undefined' && scanFromLocation(window.location) !== null) window.history.replaceState(null, '', '/');
+  }, []);
+  // ADR-0079: a thing found in another design opens the way a scanned label does.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onOpen = (event: Event) => {
+      const detail = (event as CustomEvent<ScanTarget>).detail;
+      if (detail && typeof detail.designId === 'string' && typeof detail.nodeId === 'string') setPendingScan(detail);
+    };
+    window.addEventListener(OPEN_ELSEWHERE_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_ELSEWHERE_EVENT, onOpen);
   }, []);
   const [door, setDoor] = useState<Door>(
     invitationToken ? 'enrol' : resetToken ? 'reset' : 'sign-in',

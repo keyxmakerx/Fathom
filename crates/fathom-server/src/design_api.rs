@@ -334,10 +334,13 @@ pub fn router(state: DesignApiState) -> Router {
         )
         .merge(ai_routes::routes())
         .merge(vault_routes::routes())
+        .merge(estate_routes::routes())
         .with_state(state)
 }
 
 mod ai_routes;
+// The estate index (ADR-0079): search and Inventory across every design.
+mod estate_routes;
 // The password vault's routes (ADR-0071). A child module, so it shares this file's extractor,
 // transaction opening and body helpers without making any of them public.
 mod vault_routes;
@@ -2969,6 +2972,7 @@ async fn save_design_handler(
 
     tx.commit().await.map_err(SessionError::Db)?;
     state.live.hub.wake_design(&design_id.to_string());
+    estate_routes::schedule(&state, tenant, design_id, session);
 
     Ok((
         StatusCode::OK,
@@ -3166,6 +3170,7 @@ async fn post_change_handler(
                     .heads
                     .commit(&design_text, applied.ticket, written.version, applied.tip);
                 state.live.hub.wake_design(&design_text);
+                estate_routes::schedule(&state, tenant, design_id, session);
             }
         }
         Err(e) => {

@@ -872,6 +872,12 @@
   font-variant-numeric: var(--num-tabular);
 }
 
+.drawing-tray__open {
+  flex-shrink: 0;
+  padding: 0 var(--s2);
+  font-size: var(--t-micro);
+}
+
 .drawing-tray__handle {
   position: absolute !important;
   opacity: 0;

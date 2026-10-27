@@ -42,6 +42,9 @@ export interface ShellSearch {
   choose: (selection: SearchHit['selection']) => void;
   /** The command palette's actions, asked for each time it opens so they follow what is selected now. */
   actions?: () => PaletteAction[];
+  /** ADR-0079: the organisation and open design, so the palette also finds things in the other
+   * designs this person may read. */
+  estate?: { organisationId: string; designId: string };
 }
 
 /** One person in "who else is here", drawn as an initials dot. */

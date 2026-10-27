@@ -37,6 +37,7 @@ import {
   findNode,
   formatEdgeId,
   formatNodeId,
+  identifier,
   parseNodeId,
   readPhysicalPortFields,
   replaceNode,
@@ -387,6 +388,16 @@ export function setCableField(
 export interface ConnectToOutsideFields {
   label: string;
   sheath?: Sheath;
+  /** A link between sites (ADR-0079 decision 5, schema 0.31): the far port's design and its id
+   * there, picked from estate search. Only the ids are stored, never anything else copied out of
+   * the far design. */
+  far?: FarEnd;
+}
+
+/** Where a link between sites lands: a port in another design. */
+export interface FarEnd {
+  design: string;
+  element: string;
 }
 
 /**
@@ -421,12 +432,26 @@ export function connectToOutside(
   const peerId = formatNodeId('ExternalPeer', newUlid(now));
   const peerLabel = setField(working, now, actor, peerId, undefined, 'ExternalPeer.label', text(fields.label));
   working = peerLabel.doc;
+  const peerFields: Record<string, FieldEntry> = { 'ExternalPeer.label': peerLabel.entry };
+  const peerOps: Op[] = [peerLabel.op];
+  if (fields.far !== undefined) {
+    if (fields.far.design === '' || fields.far.element === '') {
+      throw new FieldValueError('ExternalPeer.far_element', fields.far.element, 'needs both the far design and the far port');
+    }
+    const design = setField(working, now, actor, peerId, undefined, 'ExternalPeer.far_design', identifier(fields.far.design));
+    working = design.doc;
+    const element = setField(working, now, actor, peerId, undefined, 'ExternalPeer.far_element', identifier(fields.far.element));
+    working = element.doc;
+    peerFields['ExternalPeer.far_design'] = design.entry;
+    peerFields['ExternalPeer.far_element'] = element.entry;
+    peerOps.push(design.op, element.op);
+  }
   working = withNode(working, {
     id: peerId,
     existence: peerExistence.id,
-    fields: { 'ExternalPeer.label': peerLabel.entry },
+    fields: peerFields,
   });
-  ops.push({ type: 'add_node', node: peerId, prov: peerExistence.id }, peerLabel.op);
+  ops.push({ type: 'add_node', node: peerId, prov: peerExistence.id }, ...peerOps);
 
   const hasPeerProv = assertHand(working, { assertedAt: now, assertedBy: actor });
   working = hasPeerProv.doc;
@@ -470,7 +495,7 @@ export function connectToOutside(
   terminate(fromPortId, 'a');
   terminate(peerId, 'b');
 
-  const batch: Batch = { id: newUlid(now), label: 'connect to outside', ops };
+  const batch: Batch = { id: newUlid(now), label: fields.far ? 'link to another site' : 'connect to outside', ops };
   return withBatch(working, batch);
 }
 

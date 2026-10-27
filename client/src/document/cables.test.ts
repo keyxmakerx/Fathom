@@ -34,6 +34,7 @@ import {
 import { readPlain, writePlain } from './plain';
 import { undo } from './undo';
 import { newUlid } from './ulid';
+import { siteLinkTouching, siteLinks } from './siteLinks';
 import { viewOf } from './view';
 
 const NOW = 1_700_000_000_000;
@@ -360,6 +361,40 @@ describe('connectToOutside', () => {
     expect(() =>
       connectToOutside(doc, 'physical-port:01ARZ3NDEKTSV4RRFFQ69G5FAV', { label: 'x' }, { now: NOW }),
     ).toThrow(UnknownReferenceError);
+  });
+
+  // Links between sites (ADR-0079 decision 5, schema 0.31): only the far ids and the label.
+  it('links to a port in another design, stores only its ids, and survives a save and an undo', () => {
+    const { doc, chassisA } = twoChassis();
+    const fromPort = portByConnector(doc, chassisA, 'rj45');
+    const far = { design: '01JDESIGNEAST0000000000000', element: 'physical-port:01JFARPORT000000000000000' };
+    const next = connectToOutside(doc, fromPort, { label: 'DC East · core-sw-02', far }, { now: NOW, actor: 'account-1' });
+
+    const cableId = edgesIn(next, fromPort, 'Terminates')[0].from;
+    const peerId = edgesOut(next, cableId, 'Terminates').map((e) => e.to).find((id) => id !== fromPort)!;
+    const peer = findNode(next, peerId)!;
+    expect(peer.fields['ExternalPeer.far_design']).toMatchObject({ value: far.design });
+    expect(peer.fields['ExternalPeer.far_element']).toMatchObject({ value: far.element });
+    expect(Object.keys(peer.fields).sort()).toEqual(['ExternalPeer.far_design', 'ExternalPeer.far_element', 'ExternalPeer.label']);
+
+    const cable = viewOf(readPlain(writePlain(next)), [PORT_MODEL]).cables.find((c) => c.id === cableId)!;
+    expect(cable.ends).toContainEqual({ outside: true, label: 'DC East · core-sw-02', far });
+
+    expect(siteLinks(next)).toEqual([{ peerId, cableId, nearPortId: fromPort, label: 'DC East · core-sw-02', far }]);
+    expect(siteLinkTouching(next, [cableId])?.far).toEqual(far);
+    expect(siteLinkTouching(next, ['cable:elsewhere'])).toBeUndefined();
+
+    const undone = undo(next, next.batches.at(-1)!.id, { actor: 'account-1', now: NOW + 1 });
+    expect(edgesIn(undone, fromPort, 'Terminates').filter((e) => e.absentSince === undefined)).toHaveLength(0);
+  });
+
+  it('an outside end with no far ids is an ordinary outside end', () => {
+    const { doc, chassisA } = twoChassis();
+    const fromPort = portByConnector(doc, chassisA, 'rj45');
+    const next = connectToOutside(doc, fromPort, { label: 'ISP' }, { now: NOW });
+    const cableId = edgesIn(next, fromPort, 'Terminates')[0].from;
+    const cable = viewOf(next, [PORT_MODEL]).cables.find((c) => c.id === cableId)!;
+    expect(cable.ends).toContainEqual({ outside: true, label: 'ISP' });
   });
 });
 

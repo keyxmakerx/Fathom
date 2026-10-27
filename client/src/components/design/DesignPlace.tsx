@@ -781,6 +781,7 @@ export function DesignPlace(props: DesignPlaceProps) {
   const search = {
     run: (query: string) => (session.doc ? thingsFinder(session.doc, paletteView(session.doc), query) : []),
     choose: (selection: Selection) => showOnRack(selection),
+    estate: { organisationId, designId },
     actions: (): PaletteAction[] => [
       ...paletteRegistry.all(),
       ...(session.canDraw

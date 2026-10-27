@@ -354,6 +354,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0057_ai_work.sql",
         sql: include_str!("../migrations/0057_ai_work.sql"),
     },
+    // The estate index: search and Inventory across every design (ADR-0079).
+    Migration {
+        version: 58,
+        name: "0058_estate_index.sql",
+        sql: include_str!("../migrations/0058_estate_index.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

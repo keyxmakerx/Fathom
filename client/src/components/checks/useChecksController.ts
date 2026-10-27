@@ -18,6 +18,7 @@ import {
   standingDelay,
 } from './checksModel';
 import { createChecksStore, type ChecksApi } from './checksStore';
+import { withSiteLinkFindings } from './siteLinkChecks';
 
 const STORAGE_KEY = 'fathom.checks.panel';
 
@@ -92,11 +93,16 @@ interface Inputs {
   mirrorNow: (load?: boolean) => Mirror | null;
   /** How long the last sync of the module took, ms; null before there has been a measurable one. */
   loadCostMs: () => number | null;
+  /** Findings the engine cannot make because they need another design: links between sites. */
+  extra?: readonly CheckFinding[];
 }
 
-export function useChecksController({ doc, boot, mirrorNow, loadCostMs }: Inputs): ChecksController {
+const NO_EXTRA: readonly CheckFinding[] = [];
+
+export function useChecksController({ doc, boot, mirrorNow, loadCostMs, extra = NO_EXTRA }: Inputs): ChecksController {
   const [store] = useState(createChecksStore);
-  const [result, setResult] = useState<ChecksResult | null>(null);
+  const [engineResult, setResult] = useState<ChecksResult | null>(null);
+  const result = useMemo(() => withSiteLinkFindings(engineResult, extra), [engineResult, extra]);
   const [unavailable, setUnavailable] = useState(false);
   const [prefs, setPrefs] = useState<PanelPrefs>(() => loadPrefs());
   const [why, setWhy] = useState<CheckFinding | null>(null);

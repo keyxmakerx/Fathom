@@ -40,7 +40,7 @@ export function SideList(props: SideListProps) {
                     onClick={() => onKind(k.key)}
                   >
                     <span>{k.label}</span>
-                    <span className="inventory-place__count">{fmt(counts[k.key])}</span>
+                    {counts[k.key] === null && k.key === 'everywhere' ? null : <span className="inventory-place__count">{fmt(counts[k.key])}</span>}
                   </button>
                   {mine.length > 0 ? (
                     <ul className="inventory-place__views">

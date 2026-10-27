@@ -960,6 +960,8 @@ pub fn initials_of(display_name: &str) -> String {
 pub struct Live {
     pub heads: HeadStore,
     pub hub: Hub,
+    /// Designs waiting for their estate index rows to be rebuilt (ADR-0079).
+    pub estate: crate::estate::Scheduler,
 }
 
 impl Live {
@@ -967,6 +969,7 @@ impl Live {
         Arc::new(Self {
             heads: HeadStore::new(threads, head_bytes),
             hub: Hub::default(),
+            estate: crate::estate::Scheduler::default(),
         })
     }
 
