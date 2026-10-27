@@ -38,6 +38,10 @@ export interface AiKeyView {
   app: App | 'helper';
   owner: string;
   ownerName: string;
+  /** The owner's Fathom sign-in address (ADR-0072 decision 24). */
+  ownerEmail: string;
+  /** The AI account the owner said it uses: what they typed, never checked. Null on older keys. */
+  aiAccount: string | null;
   label: string;
   /** Empty: every folder the owner can read. */
   scopes: string[];
@@ -133,6 +137,8 @@ export function parseKey(raw: unknown): AiKeyView {
     app: (APPS as readonly string[]).includes(app) ? (app as App) : 'helper',
     owner: str(o.owner),
     ownerName: str(o.ownerName) || 'Someone',
+    ownerEmail: str(o.ownerEmail),
+    aiAccount: typeof o.aiAccount === 'string' && o.aiAccount !== '' ? o.aiAccount : null,
     label: str(o.label),
     scopes: strs(o.scopes),
     sees: tiers(o.sees),
@@ -218,7 +224,7 @@ export function cleanPublicKey(raw: string): string | null {
 
 export async function makeKey(
   organisationId: string,
-  key: { publicKey: string; label: string; scopes: string[]; sees: Tier[]; mayRecommend: boolean; days: number },
+  key: { publicKey: string; label: string; aiAccount: string; scopes: string[]; sees: Tier[]; mayRecommend: boolean; days: number },
 ): Promise<{ key: AiKeyView; deployment: string }> {
   const o = parse(await signedFetch('POST', `${org(organisationId)}/keys`, body(key))) as Record<string, unknown>;
   return { key: parseKey(o.key), deployment: str(o.deployment) };
@@ -324,13 +330,21 @@ export async function checkConnect(query: string): Promise<ConnectCheck> {
 export async function answerConnect(
   organisationId: string,
   request: string,
-  answer: { allow: false } | { allow: true; label?: string; scopes: string[]; sees: Tier[]; mayRecommend: boolean; days: number },
+  answer:
+    | { allow: false }
+    | { allow: true; label?: string; aiAccount: string; scopes: string[]; sees: Tier[]; mayRecommend: boolean; days: number },
 ): Promise<{ redirect: string; key: AiKeyView | null }> {
   const o = parse(await signedFetch('POST', `${org(organisationId)}/connect`, body({ request: request.replace(/^\?/, ''), ...answer }))) as Record<
     string,
     unknown
   >;
   return { redirect: str(o.redirect), key: o.key ? parseKey(o.key) : null };
+}
+
+/** The AI account as the server will keep it, or null when it is not one address. Mirrors `ai::clean_account`. */
+export function cleanAccount(raw: string): string | null {
+  const t = raw.trim().toLowerCase();
+  return /^[^@\s]+@[^@\s]+$/.test(t) && t.length >= 3 && t.length <= 254 ? t : null;
 }
 
 /** Where a sign-in may send the browser back to: https anywhere, or http on this computer. */

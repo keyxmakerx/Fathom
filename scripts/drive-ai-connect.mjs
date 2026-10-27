@@ -256,6 +256,8 @@ async function runProof(browser, ctxA, seed) {
   check('C1. the page names the app and says nothing is shared until Allow', /Let Claude Code read your designs, as you/.test(pageText) && /Nothing is shared until you press Allow/.test(pageText));
   check('C1. it warns that Claude Code cannot be told apart from another program', /cannot tell it apart from another program/.test(pageText));
   await A.locator('.ai-connect__side .ai-tick', { hasText: 'Addresses, VLANs' }).locator('input').check();
+  check('C1b. Allow waits for the AI account the app uses', await A.getByRole('button', { name: 'Allow', exact: true }).isDisabled());
+  await A.locator('#connect-ai-account').fill('Ann@Example.org');
   await A.getByRole('button', { name: 'Allow', exact: true }).click();
   for (let i = 0; i < 50 && landed === null; i++) await sleep(200);
   check('C2. Allow sends the browser back to the app with a code, the state and the issuer', landed !== null && /[?&]code=fac_/.test(landed) && /state=drive-state/.test(landed) && /iss=/.test(landed), landed ?? 'nothing');
@@ -316,6 +318,14 @@ async function runProof(browser, ctxA, seed) {
   await A.waitForTimeout(400);
   await shot('d1-ai-ideas-canvas');
   check('D1. the idea shows in the AI ideas tab on the canvas', (await A.getByTestId('ai-ideas').innerText()).includes('Add a second uplink to the core'));
+  // Make it a plan: a draft plan with the idea's steps opens, and the idea is taken up.
+  await A.getByTestId('ai-ideas').getByRole('button', { name: 'Make it a plan' }).click();
+  const band = A.getByTestId('plans-band');
+  await band.waitFor({ timeout: 20000 });
+  await A.waitForTimeout(800);
+  await shot('d2-ai-idea-plan');
+  const planText = (await A.locator('body').innerText()).replace(/\s+/g, ' ');
+  check('D2. Make it a plan opens a draft plan named after the idea, with its steps', planText.includes('Add a second uplink to the core') && planText.includes('Connect the two switches with a second cable.'));
 
   // ---- Organisation › AI lists it -------------------------------------------------------
   await A.locator('.shell-bar__brand').first().click();
@@ -326,6 +336,7 @@ async function runProof(browser, ctxA, seed) {
   await A.waitForTimeout(300);
   await shot('o4-org-ai-connection');
   check('O4. the connection is listed as Claude Code, on', /\bon\b/i.test(await A.locator('.ai-table__row', { hasText: 'Claude Code' }).innerText()));
+  check('O4b. it shows the AI account the person gave, and their sign-in', (await A.getByTestId('ai-key-account').innerText()).includes('ann@example.org') && (await A.locator('.ai-facts').innerText()).includes('@'));
   await A.getByRole('button', { name: 'Turn off', exact: true }).click();
   await A.getByRole('button', { name: 'Turn off now' }).click();
   await A.locator('.ai-table__row', { hasText: 'Claude Code' }).filter({ hasText: 'Off' }).waitFor({ timeout: 10000 });

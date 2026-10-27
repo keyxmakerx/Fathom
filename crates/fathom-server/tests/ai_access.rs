@@ -698,6 +698,7 @@ async fn make_key(
         &canon(vec![
             ("publicKey", s(&hex(key.public_key()))),
             ("label", s("Claude on my laptop")),
+            ("aiAccount", s("Dana@Example.org")),
             ("scopes", strs(scopes)),
             ("sees", strs(sees)),
             ("mayRecommend", Json::Bool(may_recommend)),
@@ -1150,6 +1151,26 @@ async fn a_steward_narrows_or_stops_a_key_but_never_widens_it() {
     );
     assert!(
         text(&body).contains("\"stoppedByKind\":\"steward\""),
+        "{}",
+        text(&body)
+    );
+    // The Steward sees whose it is: the owner's sign-in and the AI account they gave (decision 24).
+    let (status, body) = browser(
+        addr,
+        &steward,
+        "GET",
+        &format!("/organisations/{}/ai", estate.organisation),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200");
+    assert!(
+        text(&body).contains("\"aiAccount\":\"dana@example.org\""),
+        "{}",
+        text(&body)
+    );
+    assert!(
+        text(&body).contains(&format!("\"ownerEmail\":\"{}\"", owner.address)),
         "{}",
         text(&body)
     );
@@ -1673,6 +1694,7 @@ async fn consent(
         &canon(vec![
             ("request", s(request)),
             ("allow", Json::Bool(allow)),
+            ("aiAccount", s("dana@example.org")),
             ("scopes", strs(&[])),
             ("sees", strs(&["layout"])),
             ("mayRecommend", Json::Bool(true)),

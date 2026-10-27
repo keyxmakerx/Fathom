@@ -75,6 +75,8 @@ describe('the words the AI screens use', () => {
     app: 'claude',
     owner: 'A',
     ownerName: 'Key Maker',
+    ownerEmail: 'key@example.org',
+    aiAccount: null,
     label: 'Claude',
     scopes: [],
     sees: ['layout'],
@@ -153,6 +155,7 @@ describe('Connect an AI app', () => {
     const out = draw(overview());
     expect(out).toContain('node fathom-ai.mjs pair https://fathom.example.org');
     expect(out).toContain('not a personal one');
+    expect(out).toContain('Which AI account the app is signed in to');
     expect(out).toContain('href="/fathom-ai.mjs"');
     expect(out).toContain('>Make key<');
     expect(out).toContain('claude mcp add fathom -- node /path/to/fathom-ai.mjs');

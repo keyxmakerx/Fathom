@@ -8342,6 +8342,7 @@ async fn an_operator_stops_an_ai_key_or_turns_ai_off_and_widens_nothing() {
                 ai::NewKey {
                     public_key: SoftwareKey::random().unwrap().public_key().to_vec(),
                     label: label.into(),
+                    ai_account: "dana@example.org".into(),
                     scopes: vec![],
                     sees: vec!["layout".into()],
                     may_recommend: false,
@@ -8409,6 +8410,15 @@ async fn an_operator_stops_an_ai_key_or_turns_ai_off_and_widens_nothing() {
     let text = String::from_utf8(page.to_canonical_bytes()).unwrap();
     assert!(text.contains(&first), "{text}");
     assert!(text.contains("\"stoppedByKind\":\"operator\""), "{text}");
+    // The admin sees which AI account the owner said it uses (ADR-0072 decision 24).
+    assert!(
+        text.contains("\"aiAccount\":\"dana@example.org\""),
+        "{text}"
+    );
+    assert!(
+        !text.contains("\"ownerEmail\":\"\""),
+        "the admin sees whose it is: {text}"
+    );
     assert!(
         !text.contains("Claude on a laptop"),
         "the operator plane sees ids, not what a person called their app"

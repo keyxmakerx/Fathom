@@ -212,6 +212,18 @@ verify that".
     one, and that Fathom cannot check. The way that would prove it (Enterprise Managed Auth, below)
     is a choice on the sign-off page (r42-ai-account), not built.
 
+24. **The person says which AI account it is, and the people who look after the organisation see
+    it.** The owner approved card r42-ai-account (A, the check after beta) and asked: "maybe we do
+    opt in for who can add. Can the users email be displayed to the org managers and admins?" Who
+    may connect is already opt-in (decision 1: only people a Steward names). Allow and Make key now
+    ask "Which AI account is it signed in to?", as an email address, and will not go ahead without
+    one. It is stored on the key (`ai_keys.ai_account`, migration 0049), inside the row seal when
+    present, and never put in the tamper-evident chain, so a person's address is not kept forever.
+    Stewards see it and the owner's Fathom sign-in address beside each connection, and so does Admin
+    › AI, which reads the address under the account custody beside the operator one, as the
+    operator register does. Every screen says Fathom cannot check it. Keys made before this have
+    none and say so.
+
 Sources checked (rule 1), all read 2026-10-27:
 
 - **Authentication for connectors**, https://claude.com/docs/connectors/building/authentication.

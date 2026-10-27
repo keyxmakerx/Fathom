@@ -490,7 +490,12 @@ function KeyTable({
               >
                 <td className="ai-table__name">{k.label}</td>
                 <td>{keyAppName(k)}</td>
-                {steward && <td>{k.ownerName}</td>}
+                {steward && (
+                  <td>
+                    {k.ownerName}
+                    {k.aiAccount && <div className="ai-muted">uses {k.aiAccount}</div>}
+                  </td>
+                )}
                 <td>
                   {k.sees
                     .map((t) =>
@@ -605,7 +610,16 @@ function KeyPage({
       <h3 className="ai-subtitle">{aiKey.label}</h3>
       <dl className="ai-facts">
         <dt>Person</dt>
-        <dd>{aiKey.ownerName}</dd>
+        <dd>
+          {aiKey.ownerName}
+          {aiKey.ownerEmail ? ` (${aiKey.ownerEmail})` : ""}
+        </dd>
+        <dt>AI account</dt>
+        <dd data-testid="ai-key-account">
+          {aiKey.aiAccount
+            ? `${aiKey.aiAccount}, as ${aiKey.mine ? "you" : aiKey.ownerName} gave it. Fathom can’t check it.`
+            : "Not given: made before Fathom asked."}
+        </dd>
         <dt>Made</dt>
         <dd>{ago(aiKey.createdAt)}</dd>
         <dt>Used</dt>

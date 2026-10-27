@@ -10,6 +10,7 @@ import {
   APP_NAME,
   answerConnect,
   checkConnect,
+  cleanAccount,
   fetchAi,
   plainWords,
   safeRedirect,
@@ -43,6 +44,7 @@ export function ConnectAiApp({ query, onLeave, go = (url) => window.location.ass
   const [sees, setSees] = useState<Tier[]>(['layout']);
   const [mayRecommend, setMayRecommend] = useState(true);
   const [days, setDays] = useState(90);
+  const [account, setAccount] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -100,7 +102,7 @@ export function ConnectAiApp({ query, onLeave, go = (url) => window.location.ass
       const { redirect } = await answerConnect(
         orgId,
         query,
-        allow ? { allow: true, scopes, sees, mayRecommend, days } : { allow: false },
+        allow ? { allow: true, aiAccount: cleanAccount(account) ?? '', scopes, sees, mayRecommend, days } : { allow: false },
       );
       if (!safeRedirect(redirect)) throw new Error('The app’s return address is not one Fathom will send you to.');
       go(redirect);
@@ -218,6 +220,23 @@ export function ConnectAiApp({ query, onLeave, go = (url) => window.location.ass
           organisation’s control. Fathom cannot see which {app?.kind === 'other' ? '' : 'Claude '}account you are signed in to, so it cannot check
           this for you.
         </div>
+        <label className="ai-label" htmlFor="connect-ai-account">
+          Which {app?.kind === 'other' ? appName : 'Claude'} account is it signed in to?
+        </label>
+        <input
+          id="connect-ai-account"
+          className="ai-input"
+          type="email"
+          autoComplete="off"
+          placeholder="you@yourcompany.com"
+          maxLength={254}
+          value={account}
+          onChange={(e) => setAccount(e.target.value)}
+        />
+        <p className="ai-muted">
+          Your organisation’s Stewards and admins see this beside the connection, with your Fathom sign-in. Fathom can’t check it,
+          so give the one you’re really using.
+        </p>
         {app?.kind === 'claude' && (
           <div className="ai-warn">
             Claude connects from Anthropic’s cloud, not from your computer, so this Fathom has to be reachable from Anthropic’s addresses
@@ -246,7 +265,7 @@ export function ConnectAiApp({ query, onLeave, go = (url) => window.location.ass
           <button
             type="button"
             className="ai-btn ai-btn--primary"
-            disabled={busy || ready === null || blocked !== null}
+            disabled={busy || ready === null || blocked !== null || cleanAccount(account) === null}
             onClick={() => void answer(true)}
           >
             Allow

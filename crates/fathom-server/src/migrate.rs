@@ -299,6 +299,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0048_vault_passbolt.sql",
         sql: include_str!("../migrations/0048_vault_passbolt.sql"),
     },
+    // Which AI account a connection uses, as its owner gave it.
+    Migration {
+        version: 49,
+        name: "0049_ai_key_account.sql",
+        sql: include_str!("../migrations/0049_ai_key_account.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

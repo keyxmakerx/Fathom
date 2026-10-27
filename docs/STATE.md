@@ -542,7 +542,8 @@ names is marked. Accepting marks the idea; the change is the person's own edit. 
 idea into a draft maintenance plan with no edits in it and accepts the idea (ADR-0072 decision 22). The
 reading includes maintenance plans and "It's down" issues, without who wrote them or a step's stored edit.
 Both connect pages warn against a personal AI account; Fathom cannot check which account it is (decision
-23). Not yet: dashed "would be added" rows and marks on the drawing itself.
+23), so Allow and Make key ask for it, and Stewards and Admin › AI see it with the owner's sign-in address
+(decision 24, migration 0049). Not yet: dashed "would be added" rows and marks on the drawing itself.
 
 **Device panel** (r14 A1, A2): Details, Ports and Notes tabs, actions at the foot (Duplicate the main one,
 Remove device in red). Inventory's toolbar has a role filter, written into the filter line as `role:...`.

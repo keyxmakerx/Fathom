@@ -343,6 +343,23 @@ pub fn clean_line(raw: &str, max: usize, empty_ok: bool) -> Result<String, AiErr
     Ok(t)
 }
 
+/// The AI account a person says an app uses: one address, as typed, in lower case. Fathom never
+/// checks it (ADR-0072 decision 24); it is only shown to the owner, Stewards and admins.
+pub fn clean_account(raw: &str) -> Result<String, AiError> {
+    let t = raw.trim().to_lowercase();
+    let ok = (3..=254).contains(&t.chars().count())
+        && t.matches('@').count() == 1
+        && !t.starts_with('@')
+        && !t.ends_with('@')
+        && !t.chars().any(|c| c.is_whitespace() || is_unsafe_char(c));
+    if !ok {
+        return Err(AiError::Malformed(
+            "say which AI account the app is signed in to, as an email address",
+        ));
+    }
+    Ok(t)
+}
+
 /// What a key may see, as stored: `layout` always, the rest in [`Tier::ALL`]'s order.
 pub fn clean_sees(raw: &[String]) -> Result<Vec<String>, AiError> {
     let mut set = BTreeSet::new();
@@ -661,6 +678,10 @@ pub struct AiKey {
     pub disabled_by_kind: Option<String>,
     pub disabled_reason: Option<String>,
     pub version: i32,
+    /// The AI account the owner said it uses (migration `0049`). What they typed; never checked.
+    pub ai_account: Option<String>,
+    /// The owner's Fathom sign-in email, for the people who look after the organisation.
+    pub owner_email: String,
 }
 
 const KEY_COLUMNS: &str = "k.organisation_id, k.id, k.owner, \
@@ -669,10 +690,11 @@ const KEY_COLUMNS: &str = "k.organisation_id, k.id, k.owner, \
      extract(epoch FROM k.created_at)::bigint, k.created_seq, \
      extract(epoch FROM k.expires_at)::bigint, k.state, k.changed_seq, \
      extract(epoch FROM k.disabled_at)::bigint, k.disabled_by, k.disabled_by_kind, \
-     k.disabled_reason, k.row_version, k.row_seal";
+     k.disabled_reason, k.row_version, k.row_seal, k.ai_account, \
+     coalesce((SELECT a.email FROM accounts a WHERE a.id = k.owner), '')";
 
 /// How many columns [`KEY_COLUMNS`] selects; a query's own columns follow.
-const KEY_COLUMN_COUNT: usize = 22;
+const KEY_COLUMN_COUNT: usize = 24;
 
 impl AiKey {
     fn from_row(row: &tokio_postgres::Row) -> (Self, Vec<u8>) {
@@ -699,6 +721,8 @@ impl AiKey {
                 disabled_by_kind: row.get(18),
                 disabled_reason: row.get(19),
                 version: row.get(20),
+                ai_account: row.get(22),
+                owner_email: row.get(23),
             },
             row.get(21),
         )
@@ -730,6 +754,10 @@ impl AiKey {
         m.insert("disabled_by".into(), opt_str(&self.disabled_by));
         m.insert("disabled_by_kind".into(), opt_str(&self.disabled_by_kind));
         m.insert("disabled_reason".into(), opt_str(&self.disabled_reason));
+        // Only when given, so a row made before migration 0049 still verifies.
+        if let Some(account) = &self.ai_account {
+            m.insert("ai_account".into(), Json::Str(account.clone()));
+        }
         Json::Obj(m).to_canonical_bytes()
     }
 
@@ -765,6 +793,8 @@ impl AiKey {
         m.insert("id".into(), Json::Str(self.id.clone()));
         m.insert("owner".into(), Json::Str(self.owner.clone()));
         m.insert("ownerName".into(), Json::Str(self.owner_name.clone()));
+        m.insert("ownerEmail".into(), Json::Str(self.owner_email.clone()));
+        m.insert("aiAccount".into(), opt_str(&self.ai_account));
         m.insert("kind".into(), Json::Str(self.kind.clone()));
         m.insert("app".into(), Json::Str(self.app().to_string()));
         m.insert("label".into(), Json::Str(self.label.clone()));
@@ -1170,6 +1200,8 @@ pub async fn set_policy(
 pub struct NewKey {
     pub public_key: Vec<u8>,
     pub label: String,
+    /// The AI account the app is signed in to, as the person gives it.
+    pub ai_account: String,
     pub scopes: Vec<String>,
     pub sees: Vec<String>,
     pub may_recommend: bool,
@@ -1203,6 +1235,7 @@ pub async fn make_key(
             public_key: Some(input.public_key),
             client_id: None,
             label: input.label,
+            ai_account: input.ai_account,
             scopes: input.scopes,
             sees: input.sees,
             may_recommend: input.may_recommend,
@@ -1217,6 +1250,8 @@ pub struct NewConnector {
     /// The app's client id, already checked against the pinned apps or a registration.
     pub client_id: String,
     pub label: String,
+    /// The AI account the app is signed in to, as the person gives it.
+    pub ai_account: String,
     pub scopes: Vec<String>,
     pub sees: Vec<String>,
     pub may_recommend: bool,
@@ -1271,6 +1306,7 @@ pub(crate) async fn make_connector(
             public_key: None,
             client_id: Some(input.client_id),
             label: input.label,
+            ai_account: input.ai_account,
             scopes: input.scopes,
             sees: input.sees,
             may_recommend: input.may_recommend,
@@ -1286,6 +1322,7 @@ struct Registration {
     public_key: Option<Vec<u8>>,
     client_id: Option<String>,
     label: String,
+    ai_account: String,
     scopes: Vec<String>,
     sees: Vec<String>,
     may_recommend: bool,
@@ -1312,6 +1349,7 @@ async fn register(
         ));
     }
     let label = clean_line(&input.label, MAX_LABEL_CHARS, false)?;
+    let ai_account = clean_account(&input.ai_account)?;
     let scopes = clean_ids(&input.scopes, MAX_KEY_SCOPES, "folders are scope ids")?;
     let sees = clean_sees(&input.sees)?;
     if !is_subset(&sees, &policy.ceiling) {
@@ -1409,13 +1447,15 @@ async fn register(
         disabled_by_kind: None,
         disabled_reason: None,
         version: 1,
+        ai_account: Some(ai_account),
+        owner_email: String::new(),
     };
     tx.execute(
         "INSERT INTO ai_keys (organisation_id, id, owner, kind, public_key, client_id, label, \
              scopes, sees, may_recommend, created_at, created_seq, expires_at, state, \
-             changed_seq, row_version, row_seal) \
+             changed_seq, row_version, row_seal, ai_account) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11::bigint), $12, \
-                 to_timestamp($13::bigint), 'on', $12, 1, $14)",
+                 to_timestamp($13::bigint), 'on', $12, 1, $14, $15)",
         &[
             &key.organisation,
             &key.id,
@@ -1431,6 +1471,7 @@ async fn register(
             &key.created_seq,
             &key.expires_unix,
             &key.seal(auth.ring).to_vec(),
+            &key.ai_account,
         ],
     )
     .await?;
@@ -2889,6 +2930,24 @@ mod tests {
     }
 
     #[test]
+    fn the_ai_account_is_one_address_in_lower_case() {
+        assert_eq!(
+            clean_account("  Dana@Example.ORG ").unwrap(),
+            "dana@example.org"
+        );
+        for bad in [
+            "",
+            "dana",
+            "@example.org",
+            "dana@",
+            "a@b@c",
+            "dana smith@example.org",
+        ] {
+            assert!(clean_account(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
     fn what_a_key_sees_always_includes_layout_and_has_one_spelling() {
         assert_eq!(clean_sees(&[]).unwrap(), vec!["layout"]);
         assert_eq!(
@@ -2926,6 +2985,8 @@ mod tests {
             disabled_by_kind: None,
             disabled_reason: None,
             version: 1,
+            ai_account: None,
+            owner_email: String::new(),
         };
         let t = tiers(&key, &policy);
         assert!(t.contains(&Tier::Addresses));

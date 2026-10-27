@@ -8,6 +8,7 @@ import { useState } from 'react';
 
 import {
   HELPER_PATH,
+  cleanAccount,
   cleanPublicKey,
   helperAppConfig,
   helperPairCommand,
@@ -176,6 +177,7 @@ function HelperKey({
   const policy = overview.policy;
   const [publicKey, setPublicKey] = useState('');
   const [label, setLabel] = useState('');
+  const [account, setAccount] = useState('');
   const [scopes, setScopes] = useState<string[]>([]);
   const [sees, setSees] = useState<Tier[]>(['layout']);
   const [mayRecommend, setMayRecommend] = useState(true);
@@ -186,15 +188,16 @@ function HelperKey({
   const [file, setFile] = useState('/path/to/fathom-ai.mjs');
 
   const clean = cleanPublicKey(publicKey);
+  const aiAccount = cleanAccount(account);
   const folderName = (id: string) => folders.find((f) => f.scopeId === id)?.displayName ?? 'a folder';
   const config = helperAppConfig(file.trim() || '/path/to/fathom-ai.mjs');
 
   async function make() {
-    if (clean === null) return;
+    if (clean === null || aiAccount === null) return;
     setBusy(true);
     setError(null);
     try {
-      const { key } = await makeKey(organisationId, { publicKey: clean, label: label.trim() || 'AI helper', scopes, sees, mayRecommend, days });
+      const { key } = await makeKey(organisationId, { publicKey: clean, label: label.trim() || 'AI helper', aiAccount, scopes, sees, mayRecommend, days });
       setMade(key);
       setPublicKey('');
       onMade(key);
@@ -244,6 +247,20 @@ function HelperKey({
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
               />
+              <label className="ai-label" htmlFor="ai-helper-account">
+                Which AI account the app is signed in to
+              </label>
+              <input
+                id="ai-helper-account"
+                className="ai-input"
+                type="email"
+                autoComplete="off"
+                placeholder="you@yourcompany.com"
+                maxLength={254}
+                value={account}
+                onChange={(e) => setAccount(e.target.value)}
+              />
+              <p className="ai-muted">Stewards and admins see it beside the key, with your Fathom sign-in. Fathom can’t check it.</p>
               <div className="ai-label">Which folders</div>
               <FolderChips chosen={scopes} folders={folders} onChange={setScopes} />
               <div className="ai-label">What it can see</div>
@@ -261,7 +278,7 @@ function HelperKey({
                 </p>
               )}
               <div className="ai-actions">
-                <button type="button" className="ai-btn ai-btn--primary" disabled={busy || clean === null} onClick={() => void make()}>
+                <button type="button" className="ai-btn ai-btn--primary" disabled={busy || clean === null || aiAccount === null} onClick={() => void make()}>
                   Make key
                 </button>
               </div>

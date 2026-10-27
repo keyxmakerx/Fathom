@@ -110,7 +110,13 @@ export function AiSection({ organisations }: { organisations: OrganisationRow[] 
                 {ai.keys.map((k) => (
                   <tr key={k.id}>
                     <td>{APP[k.app] ?? k.app}</td>
-                    <td>{k.ownerName}</td>
+                    <td>
+                      {k.ownerName}
+                      {k.ownerEmail && <div className="console__note">{k.ownerEmail}</div>}
+                      <div className="console__note">
+                        {k.aiAccount ? `AI account ${k.aiAccount}, as given; not checked` : 'AI account not given'}
+                      </div>
+                    </td>
                     <td>{orgName(k.organisation)}</td>
                     <td>{k.sees.join(', ')}</td>
                     <td>{ago(k.lastUsedAt)}</td>

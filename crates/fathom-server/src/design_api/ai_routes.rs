@@ -226,6 +226,7 @@ async fn make_key_handler(
         &[
             "publicKey",
             "label",
+            "aiAccount",
             "scopes",
             "sees",
             "mayRecommend",
@@ -239,6 +240,7 @@ async fn make_key_handler(
                 "that is not a key the Fathom AI helper made",
             )))?,
         label: take_str(&mut m, "label")?.ok_or_else(malformed)?,
+        ai_account: take_str(&mut m, "aiAccount")?.unwrap_or_default(),
         scopes: take_strs(&mut m, "scopes")?.unwrap_or_default(),
         sees: take_strs(&mut m, "sees")?.unwrap_or_default(),
         may_recommend: take_bool(&mut m, "mayRecommend")?.unwrap_or(false),
@@ -288,6 +290,7 @@ async fn connect_handler(
             "request",
             "allow",
             "label",
+            "aiAccount",
             "scopes",
             "sees",
             "mayRecommend",
@@ -323,6 +326,7 @@ async fn connect_handler(
                 .take(ai::MAX_LABEL_CHARS)
                 .collect()
         }),
+        ai_account: take_str(&mut m, "aiAccount")?.unwrap_or_default(),
         scopes: take_strs(&mut m, "scopes")?.unwrap_or_default(),
         sees: take_strs(&mut m, "sees")?.unwrap_or_default(),
         may_recommend: take_bool(&mut m, "mayRecommend")?.unwrap_or(false),
