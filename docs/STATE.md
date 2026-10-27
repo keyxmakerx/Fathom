@@ -504,7 +504,9 @@ and Canvas (read-only), plus Ideas while an AI idea waits; desk chrome folded aw
 A label's QR code is `/scan#<design>/<id>`; scanning it (phone Camera app, or Scan with `BarcodeDetector`
 or typing) opens the item's Inventory page after sign-in. Same-server links only; other text goes to Find.
 Add to Home Screen (manifest, no service worker). Inventory › tick rows › Print labels: devices, racks,
-cables (two each) and ports on Brother TZe 24/18/12 mm, QL 62 mm or 29 × 90 mm, or A4 thirty a sheet.
+cables (two each) and ports on Brother TZe 36/24/18/12 mm, QL 62 mm or 29 × 90 mm, or A4 thirty a sheet.
+Cables also print as a wrap (the name repeated round the cable, no code) or a flag (a code on each face),
+on 24 mm tape sized to the cable: slim patch, Cat5e/Cat6 or Cat6A. Cables default to the wrap.
 A store's bin label opens its page (Print bin label there); a Scan button fills serial fields on a phone.
 Not yet: door labels (rooms). Drive: `scripts/drive-phone.mjs`.
 
