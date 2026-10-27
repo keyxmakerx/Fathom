@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-Index current to ADR-0069 (2026-10-25). Two numbers were issued twice, so the second record of each pair was renumbered: prefixes and VLANs (was 0063) is now 0067, and the work-account sign-off rounds (was 0065) is now 0068. Code citing ADR-0063 means live co-editing; ADR-0065 means one sign-in; ADR-0066 means learning, lessons and Ansible.
+Index current to ADR-0077 (2026-10-27). Two numbers were issued twice, so the second record of each pair was renumbered: prefixes and VLANs (was 0063) is now 0067, and the work-account sign-off rounds (was 0065) is now 0068. Code citing ADR-0063 means live co-editing; ADR-0065 means one sign-in; ADR-0066 means learning, lessons and Ansible.
 
 > **Status:** Accepted
 > **Date:** 2026-07-28
@@ -107,6 +107,13 @@ question was not in the register. *R* is the reversal cost from `73` §1.2 — R
 | **[0068](adr-0068-work-account-sign-offs-rounds-16-to-25.md)** | Sign-off rounds 16 to 27: corporate mapping, circuits, Admin (was 0065) | Accepted |  |  |
 | **[0069](adr-0069-practice-space-and-practice-lab.md)** | A practice space for the operator, and a practice lab | Accepted |  |  |
 | **[0070](adr-0070-backups-a-data-file-and-a-keys-file.md)** | Backups: a sealed data file and a separate keys file | Accepted |  |  |
+| **[0071](adr-0071-password-vault-part-one.md)** | The password vault, part one | Accepted |  |  |
+| **[0072](adr-0072-ai-access-keys.md)** | AI access keys: an AI reads a design as you, and recommends | Proposed (built) |  |  |
+| **[0073](adr-0073-cards-and-optics.md)** | Cards and optics | Accepted |  |  |
+| **[0074](adr-0074-sites-buildings-and-the-zoom-above-the-closet.md)** | Sites, buildings and the zoom above the closet | Accepted |  |  |
+| **[0075](adr-0075-phone-field-view-and-labels.md)** | The phone field view, scanning, and printed labels | Proposed (built) |  |  |
+| **[0076](adr-0076-spares-and-stores.md)** | Spares and stores | Accepted |  |  |
+| **[0077](adr-0077-ai-changes-a-design.md)** | An AI connection may change a design | Proposed (built) |  |  |
 
 ## What is not reopened
 

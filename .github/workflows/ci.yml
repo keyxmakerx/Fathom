@@ -340,6 +340,28 @@ jobs:
           docker logs pbh
           docker rm -f pbh
 
+  # The client's own tests and typecheck. Until this job nothing ran vitest in CI: the image build
+  # typechecks the client, but a red client test reached main unseen. The tests load the real
+  # redaction gate, so the wasm engine is built first, and they run in the same pinned Node image
+  # `deploy/Dockerfile`'s client-build stage uses (keep the two digests together).
+  client:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the pinned toolchain (reads rust-toolchain.toml)
+        run: rustup toolchain install
+
+      - name: Build the wasm engine the tests load
+        run: bash scripts/build-wasm.sh
+
+      - name: Typecheck and test the client
+        run: |
+          docker run --rm -v "$PWD":/w -w /w/client \
+            node@sha256:f1127b82781601ca2a57c96811cf6be9da3d1f77d58ec13bab49e5f79cf8c84c \
+            sh -c 'npm ci --ignore-scripts && npm run typecheck && npm test'
+
   # THE STACK, END TO END. Added 2026-09-19: until this job, nobody had ever
   # run `compose.yaml`, because the environment this repository is developed
   # in has no Docker daemon, and three first-start faults were found only by

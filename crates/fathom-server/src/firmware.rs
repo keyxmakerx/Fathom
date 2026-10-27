@@ -90,6 +90,7 @@ use crate::api;
 use crate::authority::Capability;
 use crate::chain::EntryType;
 use crate::chains::{self, ChainStoreError};
+use crate::crypto::hex;
 use crate::crypto::{self, CryptoError};
 use crate::firmware_commands::commands;
 use crate::grants::{self, Authority, EpochWatch};
@@ -680,10 +681,6 @@ fn unhex(text: &str) -> Option<Vec<u8>> {
         out.push((hi * 16 + lo) as u8);
     }
     Some(out)
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// The stored form of a firmware token: `H(LP(tag) ‖ LP(token))`, as

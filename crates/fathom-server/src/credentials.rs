@@ -66,6 +66,7 @@ use sha2::{Digest, Sha256};
 use crate::authority::{self, RowFacts};
 use crate::chain::EntryType;
 use crate::chains::{self, ChainStoreError, CHAIN_KEY_EPOCH};
+use crate::crypto::hex;
 use crate::crypto::{self, Key32};
 use crate::grants::{self, AuthorityError};
 use crate::ids;
@@ -3491,10 +3492,6 @@ fn entry_metadata(entry_type: EntryType, fields: &[(&str, Json)]) -> Vec<u8> {
         map.insert((*name).to_string(), value.clone());
     }
     Json::Obj(map).to_canonical_bytes()
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn now_unix() -> i64 {

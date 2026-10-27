@@ -68,6 +68,7 @@ use crate::authority::{self, RowFacts, SignatureRefused};
 use crate::chain::EntryType;
 use crate::chains::{self, ChainStoreError};
 use crate::credentials;
+use crate::crypto::hex;
 use crate::crypto::{self, Key32};
 use crate::grants::{self, AuthorityError};
 use crate::ids;
@@ -4639,10 +4640,6 @@ fn same_bytes(a: &[u8], b: &[u8]) -> Result<bool, SessionError> {
         a,
         &crypto::mac(key.expose(), b),
     ))
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn as_32(bytes: &[u8], what: &'static str) -> Result<[u8; 32], SessionError> {

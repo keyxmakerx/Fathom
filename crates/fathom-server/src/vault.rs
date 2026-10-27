@@ -303,9 +303,7 @@ fn meta_aad(organisation: &str, credential: &str, key_epoch: i32) -> Vec<u8> {
     a
 }
 
-pub fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
+pub use crate::crypto::hex;
 
 /// Lower-case hex of exactly `len` bytes, or the named refusal.
 pub fn unhex(text: &str, len: Option<usize>, what: &'static str) -> Result<Vec<u8>, VaultError> {

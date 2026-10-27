@@ -451,6 +451,12 @@ pub(crate) fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
+/// Lower-case hex, two digits a byte: the one spelling every digest, fingerprint and token
+/// the server writes or compares as text uses.
+pub fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// Anything the primitives can refuse to do.
 #[derive(Debug, PartialEq, Eq)]
 pub enum CryptoError {

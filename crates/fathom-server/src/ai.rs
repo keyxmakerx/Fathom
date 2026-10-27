@@ -39,6 +39,7 @@ use crate::ai_reading::{self, Tier};
 use crate::authority::{self, Capability, RowFacts};
 use crate::chain::EntryType;
 use crate::chains::{self, ChainStoreError};
+use crate::crypto::hex;
 use crate::crypto::{self, CryptoError};
 use crate::designs::{self, DesignError};
 use crate::field_defs::{self, is_unsafe_char};
@@ -286,10 +287,6 @@ pub(crate) fn now_unix() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 pub fn unhex(text: &str) -> Option<Vec<u8>> {

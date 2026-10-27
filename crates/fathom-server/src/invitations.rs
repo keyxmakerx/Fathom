@@ -48,6 +48,7 @@ use fathom_canon::Json;
 use crate::authority::{self, Capability, RowFacts};
 use crate::chain::EntryType;
 use crate::chains::{self, ChainStoreError};
+use crate::crypto::hex;
 use crate::crypto::{self, Key32};
 use crate::grants::{
     self, AccessLine, AccountKey, Authority, AuthorityError, EpochWatch, Grant, KeyedGrantRequest,
@@ -343,10 +344,6 @@ fn invitation_from_row(row: &tokio_postgres::Row) -> Result<InvitationRow, Invit
         row_version: row.get(21),
         row_seal: row.get(22),
     })
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn unhex(text: &str) -> Option<Vec<u8>> {

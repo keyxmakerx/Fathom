@@ -39,6 +39,7 @@ use fathom_canon::Json;
 use crate::authority::{self, Capability, GrantFacts, RowFacts, SignatureRefused, ALG_ES256};
 use crate::chain::{self, ChainRef, EntryType};
 use crate::chains::{self, ChainStoreError, CHAIN_KEY_EPOCH};
+use crate::crypto::hex;
 use crate::crypto::Key32;
 use crate::ids;
 use crate::keys::{self, DataKey, KeyRing, KeyStoreError};
@@ -403,10 +404,6 @@ fn seal_key_for(ring: &KeyRing, organisation: &str) -> Key32 {
         CHAIN_KEY_EPOCH,
     );
     chain::Subkeys::derive(&chain_key).seal
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// The canonical state of a grant row, for its seal.

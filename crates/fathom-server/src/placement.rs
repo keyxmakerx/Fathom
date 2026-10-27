@@ -66,6 +66,7 @@ use crate::chain::EntryType;
 use crate::chains;
 use crate::client_address::{Cidr, ClientAddress};
 use crate::crypto;
+use crate::crypto::hex;
 use crate::ids;
 use crate::keys::KeyRing;
 use crate::operators::{self, OperatorError};
@@ -899,10 +900,6 @@ fn entry_metadata(entry_type: EntryType, fields: &[(&str, Json)]) -> Vec<u8> {
         map.insert((*name).to_string(), value.clone());
     }
     Json::Obj(map).to_canonical_bytes()
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn now_unix() -> i64 {
