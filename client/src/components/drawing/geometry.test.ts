@@ -11,6 +11,7 @@ import {
   TEXT_FLOOR_PX,
   U_PX,
   cableSagPath,
+  cableWidthScale,
   cableSagPx,
   cameraStopAt,
   counterScaledFontPx,
@@ -415,5 +416,17 @@ describe('zoomAboutPaneCentre — a bar-driven zoom keeps the pane centre fixed'
   it('an unchanged zoom is a no-op on x/y', () => {
     const viewport = { x: 17, y: -5, zoom: 1.5 };
     expect(zoomAboutPaneCentre(viewport, 1.5, 800, 600)).toEqual(viewport);
+  });
+});
+
+describe('cableWidthScale', () => {
+  it('keeps a cable as thick on screen as at 100% when zoomed out', () => {
+    expect(cableWidthScale(0.25)).toBe(4);
+    expect(cableWidthScale(0.5) * 0.5).toBe(1);
+  });
+  it('never thins a cable at 100% and above, nor on a bad zoom', () => {
+    expect(cableWidthScale(1)).toBe(1);
+    expect(cableWidthScale(3)).toBe(1);
+    expect(cableWidthScale(0)).toBe(1);
   });
 });

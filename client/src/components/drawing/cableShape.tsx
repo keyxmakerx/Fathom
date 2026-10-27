@@ -6,7 +6,7 @@ import {
   fadeTips,
   laneOffsetPx,
   offsetCubic,
-  polylinePath,
+  roundedPath,
   squarePoints,
   swayAt,
   swayKick,
@@ -97,7 +97,7 @@ export function cableShape({ style, id, kind, ends, source, target, tied, waypoi
       : style === 'tied' && tied != null
         ? tiedPoints(square, tied)
         : squarePoints(square, laneOffsetPx(id, kind));
-  return { d: polylinePath(points), points, leads };
+  return { d: roundedPath(points), points, leads };
 }
 
 /** Faded: about an inch of the line shows at each end and fades out along it toward the middle;

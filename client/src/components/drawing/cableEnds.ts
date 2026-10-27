@@ -53,15 +53,27 @@ export function cableLeadPath(l: Leads, kind: CableKind = 'copper'): string {
   return cubicPath(cableLeadCubic(l, kind));
 }
 
-/** `cableLeadPath`'s curve as points. */
+/** How far a long cable's slack reaches out of each port. Past `CABLE_SAG_MAX_PX` a run between
+ * places drapes rather than cutting across the drawing in a straight line; still capped. */
+export const CABLE_DRAPE_MAX_PX = 220;
+
+/** `cableLeadPath`'s curve as points. A short hop bows by its height as before; a long run, across
+ * as well as down, drapes out of each port by about a third of its length, so it leaves and
+ * meets its ports square and swings between them instead of slicing across at an angle. An end
+ * whose port faces away from the other end (a top-row port to a device below) keeps the short
+ * bow, so it turns back at once rather than looping over the devices beside it. */
 export function cableLeadCubic(l: Leads, kind: CableKind = 'copper'): Cubic {
   const run = Math.abs(l.b.y - l.a.y);
-  const reach = Math.min(CABLE_SAG_MAX_PX, Math.max(8, run * 0.4));
+  const span = Math.hypot(l.b.x - l.a.x, l.b.y - l.a.y);
+  const bow = Math.min(CABLE_SAG_MAX_PX, Math.max(8, run * 0.4));
+  const drape = Math.max(bow, Math.min(CABLE_DRAPE_MAX_PX, span * 0.32));
+  const reachA = (l.b.y - l.a.y) * l.a.dir > 0 ? drape : bow;
+  const reachB = (l.a.y - l.b.y) * l.b.dir > 0 ? drape : bow;
   const lane = laneBiasPx(kind) * 0.25;
   return {
     p0: { x: l.a.x, y: l.a.y },
-    c1: { x: l.a.x + lane, y: l.a.y + l.a.dir * reach },
-    c2: { x: l.b.x + lane, y: l.b.y + l.b.dir * reach },
+    c1: { x: l.a.x + lane, y: l.a.y + l.a.dir * reachA },
+    c2: { x: l.b.x + lane, y: l.b.y + l.b.dir * reachB },
     p3: { x: l.b.x, y: l.b.y },
   };
 }
