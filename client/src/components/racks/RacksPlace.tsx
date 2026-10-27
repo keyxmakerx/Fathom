@@ -76,7 +76,7 @@ import { useLearn } from '../learn/context';
 import { learnNotes } from '../learn/learnNotes';
 import { layerOn, loadLayers, saveLayers, type LayerId, type LayerSet } from '../drawing/layers';
 import { loadDiagramStyle, saveDiagramStyle, type DiagramStyle } from '../drawing/diagramStyle';
-import { loadCableStyle, saveCableStyle, type CableStyle } from '../drawing/cableStyle';
+import { loadCableColour, loadCableStyle, saveCableColour, saveCableStyle, type CableColour, type CableStyle } from '../drawing/cableStyle';
 import { loadLook, saveLook, type Look } from '../drawing/look';
 import { InsideStop } from '../inside/InsideStop';
 import { ChecksSurface } from '../checks/ChecksPanel';
@@ -398,6 +398,16 @@ export function RacksPlace(props: RacksPlaceProps) {
     (next: CableStyle) => {
       setCableStyleState(next);
       saveCableStyle(accountId, next);
+    },
+    [accountId],
+  );
+  // Every cable in colour, or only the one pointed at: this person's own, like the style.
+  const [cableColour, setCableColourState] = useState<CableColour>(() => loadCableColour(accountId));
+  useEffect(() => setCableColourState(loadCableColour(accountId)), [accountId]);
+  const changeCableColour = useCallback(
+    (next: CableColour) => {
+      setCableColourState(next);
+      saveCableColour(accountId, next);
     },
     [accountId],
   );
@@ -2060,7 +2070,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
-    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, cables: look === 'diagram' ? undefined : { value: cableStyle, onChange: changeCableStyle }, aids: { ...showAids, items: showAids.items.filter((a) => a.id !== 'colourKey') } }} layersExtra={doc != null && look === 'rack' && keyRows.length > 0 ? <ColourKey rows={keyRows} onHighlight={setKeyCableIds} /> : undefined} mainView={mainView} designExtra={doc != null && isSample ? <SampleChip onReset={canDraw && loadFirstSave != null ? resetSample : undefined} /> : undefined} doing={doc != null ? doing : undefined} zoomStops={look === 'rack' ? zoomStops : undefined} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} autoEquipment={autoOpenEquipment(doc != null, canDraw, realView)} equipmentRequest={equipmentRequest} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} sideTabs={sideTabs} task={task} barExtra={
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, cables: look === 'diagram' ? undefined : { value: cableStyle, onChange: changeCableStyle, colour: { value: cableColour, onChange: changeCableColour } }, aids: { ...showAids, items: showAids.items.filter((a) => a.id !== 'colourKey') } }} layersExtra={doc != null && look === 'rack' && keyRows.length > 0 ? <ColourKey rows={keyRows} onHighlight={setKeyCableIds} /> : undefined} mainView={mainView} designExtra={doc != null && isSample ? <SampleChip onReset={canDraw && loadFirstSave != null ? resetSample : undefined} /> : undefined} doing={doc != null ? doing : undefined} zoomStops={look === 'rack' ? zoomStops : undefined} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} autoEquipment={autoOpenEquipment(doc != null, canDraw, realView)} equipmentRequest={equipmentRequest} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} sideTabs={sideTabs} task={task} barExtra={
         doc != null ? (
           <MissingLinksChip found={missingLinks} onGo={handleGoToMissingLink} />
         ) : undefined
@@ -2111,6 +2121,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           keyCableIds={keyCableIds}
           minimap={canvasAids.prefs.minimap}
           cableStyle={cableStyle}
+          cableColour={cableColour}
           onEdit={canDraw ? handleEdit : undefined}
           initialViewport={resumeView.initialViewport}
           fitWholeOnOpen={isSample}

@@ -4,7 +4,7 @@
 import { createContext, useContext, useSyncExternalStore } from 'react';
 import type { Selection } from './contract';
 import type { CameraStop } from './geometry';
-import { DEFAULT_CABLE_STYLE, type CableStyle } from './cableStyle';
+import { DEFAULT_CABLE_COLOUR, DEFAULT_CABLE_STYLE, type CableColour, type CableStyle } from './cableStyle';
 
 export type DropPreview = Record<string, { fromU: number; toU: number; valid: boolean }>;
 
@@ -41,6 +41,8 @@ export interface LiveState {
   keyCableIds: ReadonlySet<string> | null;
   /** This person's cable style (`cableStyle.ts`). */
   cableStyle: CableStyle;
+  /** Every cable in colour, or only the one pointed at or selected. */
+  cableColour: CableColour;
   /** Every cable under the pointer, nearest first (`cableHover.ts`); Tab moves through it. */
   hoverStack: readonly string[];
 }
@@ -63,6 +65,7 @@ export const INITIAL_LIVE_STATE: LiveState = {
   splitBundles: false,
   keyCableIds: null,
   cableStyle: DEFAULT_CABLE_STYLE,
+  cableColour: DEFAULT_CABLE_COLOUR,
   hoverStack: [],
 };
 

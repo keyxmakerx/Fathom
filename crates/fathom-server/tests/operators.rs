@@ -8287,6 +8287,46 @@ fn switch_version(page: &fathom_canon::Json) -> (bool, i32) {
     (allowed, *v as i32)
 }
 
+/// One signed `whoami` from an AI key's app, through the two steps every AI request takes:
+/// the signature and switch check, then the session that reads.
+async fn signed_whoami(
+    pool: &Pool,
+    ring: &KeyRing,
+    key: &SoftwareKey,
+    id: &str,
+) -> Result<(), fathom_server::ai::AiError> {
+    use fathom_server::ai;
+    let mut nonce = [0u8; 32];
+    nonce[..16].copy_from_slice(&fathom_server::ids::new_ulid().0.to_be_bytes());
+    nonce[16..].copy_from_slice(&fathom_server::ids::new_ulid().0.to_be_bytes());
+    let unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let deployment: String = pool
+        .get()
+        .await
+        .expect("connection")
+        .query_one("SELECT id FROM deployments", &[])
+        .await
+        .expect("deployment")
+        .get(0);
+    let message = ai::request_bytes(&deployment, id, "GET", "/ai/v1/whoami", b"", &nonce, unix);
+    let request = ai::AiRequest {
+        key_id: id,
+        unix,
+        nonce,
+        signature: key.sign(&message),
+        method: "GET",
+        path: "/ai/v1/whoami",
+        body: b"",
+    };
+    let verified = ai::verify_request(pool, ring, &request, "192.0.2.10").await?;
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    ai::open(&tx, ring, &verified).await.map(|_| ())
+}
+
 /// The operator may stop one key with a reason, filed on both chains, or turn AI off for
 /// the whole server. The database lets the operator plane make no other move on a key.
 #[tokio::test]
@@ -8317,7 +8357,7 @@ async fn an_operator_stops_an_ai_key_or_turns_ai_off_and_widens_nothing() {
 
     // A Steward turns AI on for themselves and registers two keys.
     let watch = EpochWatch::new();
-    let make = |label: &'static str| {
+    let make_with = |label: &'static str, public_key: Vec<u8>| {
         let pool = pool.clone();
         let ring = Arc::clone(&ring);
         let watch = &watch;
@@ -8340,7 +8380,7 @@ async fn an_operator_stops_an_ai_key_or_turns_ai_off_and_widens_nothing() {
                 &tx,
                 &auth,
                 ai::NewKey {
-                    public_key: SoftwareKey::random().unwrap().public_key().to_vec(),
+                    public_key,
                     label: label.into(),
                     ai_account: "dana@example.org".into(),
                     scopes: vec![],
@@ -8391,8 +8431,22 @@ async fn an_operator_stops_an_ai_key_or_turns_ai_off_and_widens_nothing() {
         .expect("policy");
         tx.commit().await.expect("commit");
     }
-    let first = make("Claude on a laptop").await.expect("a key").id;
-    let second = make("Claude in the rack room").await.expect("a key").id;
+    let make = |label: &'static str| {
+        make_with(label, SoftwareKey::random().unwrap().public_key().to_vec())
+    };
+    let first_key = SoftwareKey::random().unwrap();
+    let second_key = SoftwareKey::random().unwrap();
+    let first = make_with("Claude on a laptop", first_key.public_key().to_vec())
+        .await
+        .expect("a key")
+        .id;
+    let second = make_with("Claude in the rack room", second_key.public_key().to_vec())
+        .await
+        .expect("a key")
+        .id;
+    signed_whoami(&pool, &ring, &second_key, &second)
+        .await
+        .expect("a key reads before anything is turned off");
 
     // Stop the first, with a reason. On both chains.
     let before = site_entries_of("ai_key_disabled").await;
@@ -8406,6 +8460,11 @@ async fn an_operator_stops_an_ai_key_or_turns_ai_off_and_widens_nothing() {
         .await
         .expect("the operator stops a key");
     assert_eq!(site_entries_of("ai_key_disabled").await, before + 1);
+    // The stopped key is refused at its next request, not just hidden on a page.
+    assert!(matches!(
+        signed_whoami(&pool, &ring, &first_key, &first).await,
+        Err(ai::AiError::Refused)
+    ));
     let page = operators_store
         .ai_overview(&acting().await)
         .await
@@ -8483,11 +8542,19 @@ async fn an_operator_stops_an_ai_key_or_turns_ai_off_and_widens_nothing() {
         .await
         .expect("off");
     assert!(matches!(make("A third").await, Err(ai::AiError::SiteOff)));
+    // Off for the server stops a key that is already out there, at its next request.
+    assert!(matches!(
+        signed_whoami(&pool, &ring, &second_key, &second).await,
+        Err(ai::AiError::SiteOff)
+    ));
     operators_store
         .set_ai_switch(&acting().await, true, None, None, version + 1)
         .await
         .expect("on again");
     make("A third").await.expect("a key once AI is back on");
+    signed_whoami(&pool, &ring, &second_key, &second)
+        .await
+        .expect("and the key that was never stopped reads again");
 
     // The admin's ceiling by kind of work (card r47-ai-controls): an organisation may not set
     // more than it allows.

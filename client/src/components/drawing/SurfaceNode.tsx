@@ -11,6 +11,7 @@ import type { FixtureView } from '../../document/view';
 import type { LiveDrag } from './ChassisNode';
 import type { InletView, PortView, Sheath } from './contract';
 import { useLive } from './liveStore';
+import { LitPathMark } from './CableOverlayEdge';
 import { portKindFor } from './portGlyph';
 import { isOneFitted, isSingleFed, pduUsage, pduUsageLabel } from './power';
 import type { SurfacePlacement } from './rows';
@@ -598,8 +599,10 @@ export function SurfaceNode({ data }: NodeProps<SurfaceNodeType>) {
   const { liveDrag, litCableId } = useSurfaceLiveData(myCableIds);
   const shared = { uPx, onSelectPort, onSelectFixture, liveDrag, portSheath, litCableId };
 
-  if (placement.surface.form === 'floor') {
-    return <FloorBand placement={placement} {...shared} />;
-  }
-  return <Panel placement={placement} {...shared} />;
+  return (
+    <>
+      <LitPathMark cableIds={myCableIds} />
+      {placement.surface.form === 'floor' ? <FloorBand placement={placement} {...shared} /> : <Panel placement={placement} {...shared} />}
+    </>
+  );
 }
