@@ -55,6 +55,7 @@ import {
   RACK_HEADER_PX,
   RACK_INNER_PX,
   U_PX,
+  cableWidthScale,
   cameraStopAt,
   overlapsRack,
   rackAtPoint,
@@ -939,7 +940,14 @@ function DrawingInner({
   // crosses into another stop or zoom band, so a wheel tick renders nothing.
   const cameraStopRef = useRef(cameraStop);
   const zoomBandRef = useRef(zoomBand);
+  const cableKRef = useRef(0);
   const followCamera = useCallback((vp: Viewport) => {
+    // Cables keep their on-screen width when zoomed out; a CSS property, so no cable re-renders.
+    const k = Math.round(cableWidthScale(vp.zoom) * 100) / 100;
+    if (k !== cableKRef.current && containerRef.current != null) {
+      cableKRef.current = k;
+      containerRef.current.style.setProperty('--cable-k', String(k));
+    }
     const pct = Math.round(vp.zoom * 100);
     const stop = cameraStopAt(pct);
     if (stop !== cameraStopRef.current) {
@@ -979,6 +987,8 @@ function DrawingInner({
   const settled = useSettledView();
   const stubbedRef = useRef(new Set<string>());
   const handleMove: OnMove = useCallback((_event, vp) => followCamera(vp), [followCamera]);
+  // The first frame, before any camera move: a fitted floor opens zoomed out.
+  useLayoutEffect(() => followCamera(rf.getViewport()), [followCamera, rf]);
   const handleMoveEnd: OnMove = useCallback(
     (event, vp) => {
       personMovingRef.current = false;

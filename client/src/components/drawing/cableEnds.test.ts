@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { cableLeadPath, leadsFor, placeLabels } from './cableEnds';
+import { CABLE_DRAPE_MAX_PX, cableLeadCubic, cableLeadPath, leadsFor, placeLabels } from './cableEnds';
+import { CABLE_SAG_MAX_PX } from './geometry';
 
 describe('leadsFor', () => {
   it('leaves each port from the edge facing the other end', () => {
@@ -28,5 +29,22 @@ describe('placeLabels', () => {
     const items = [0, 40].map((x) => ({ key: `k${x}`, x, y: 10, dir: 1 as const, text: '1' }));
     const placed = placeLabels(items, 4);
     expect(placed.get('k0')!.dy).toBe(placed.get('k40')!.dy);
+  });
+});
+
+describe('cableLeadCubic', () => {
+  it('drapes a long run out of each port instead of cutting straight across', () => {
+    const c = cableLeadCubic({ a: { x: 0, y: 0, dir: 1 }, b: { x: 600, y: 800, dir: -1 } });
+    expect(c.c1.y).toBeGreaterThan(CABLE_SAG_MAX_PX);
+    expect(c.c1.y).toBeLessThanOrEqual(CABLE_DRAPE_MAX_PX);
+    expect(800 - c.c2.y).toBeGreaterThan(CABLE_SAG_MAX_PX);
+  });
+  it('keeps a short bow on an end that faces away, so it never loops over its neighbours', () => {
+    const c = cableLeadCubic({ a: { x: 0, y: 0, dir: -1 }, b: { x: 600, y: 800, dir: -1 } });
+    expect(-c.c1.y).toBeLessThanOrEqual(CABLE_SAG_MAX_PX);
+  });
+  it('leaves a short hop as it was', () => {
+    const c = cableLeadCubic({ a: { x: 0, y: 0, dir: 1 }, b: { x: 10, y: 20, dir: -1 } });
+    expect(c.c1.y).toBe(8);
   });
 });

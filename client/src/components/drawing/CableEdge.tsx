@@ -61,11 +61,17 @@ export interface CableEdgeData extends Record<string, unknown> {
 
 export type CableEdgeType = Edge<CableEdgeData, 'cable'>;
 
-const STROKE_WIDTH_VAR: Record<CableView['kind'], string> = {
+/** Each width times `--cable-k` (`cableWidthScale`), so a cable never draws thinner on screen
+ * than it does at 100%. */
+const scaled = (width: string) => `calc(${width} * var(--cable-k, 1))`;
+
+const BASE_WIDTH: Record<CableView['kind'], string> = {
   copper: 'var(--cable-copper)',
   fibre: 'var(--cable-fibre)',
   power: 'var(--cable-power)',
 };
+
+const STROKE_WIDTH_VAR = (kind: CableView['kind']) => scaled(BASE_WIDTH[kind]);
 
 /**
  * The cable itself — UI-SPEC "Cables": sag (`cableSagPath`, `geometry.ts`),
@@ -139,7 +145,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   const dimmed = data.checksFaded !== true && ((litCableId != null && !lit && !hovered) || offKey);
   const sheath = cable.sheath ?? 'grey';
   const colour = data.troubleInk === true ? 'var(--ink)' : SHEATH_VAR[sheath];
-  const strokeWidth = STROKE_WIDTH_VAR[cable.kind];
+  const strokeWidth = STROKE_WIDTH_VAR(cable.kind);
   const { d, leads } = shape;
   // Faded: only the tips show until the cable is pointed at or selected; then all of it, at once.
   const faded = style === 'faded' && !lit && !hovered && data.troubleLit !== true;
@@ -200,7 +206,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
           d={d}
           fill="none"
           stroke="var(--hairline)"
-          strokeWidth="var(--cable-halo)"
+          strokeWidth={scaled('var(--cable-halo)')}
           strokeLinecap="round"
           className="drawing-cable__halo"
         />
@@ -213,7 +219,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
           d={d}
           fill="none"
           stroke="var(--hairline)"
-          strokeWidth={`calc(${strokeWidth} + 2px)`}
+          strokeWidth={scaled(`(${BASE_WIDTH[cable.kind]} + 2px)`)}
           strokeLinecap="round"
         />
       )}
@@ -222,7 +228,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
       ) : cable.kind === 'fibre' ? (
         <>
           <path d={d} fill="none" stroke={colour} strokeWidth={strokeWidth} strokeLinecap="round" strokeDasharray={dashArray} {...pull} />
-          <path d={d} fill="none" stroke="var(--fibre-core)" strokeWidth="var(--fibre-core-w)" strokeLinecap="round" strokeDasharray={dashArray} {...pull} />
+          <path d={d} fill="none" stroke="var(--fibre-core)" strokeWidth={scaled('var(--fibre-core-w)')} strokeLinecap="round" strokeDasharray={dashArray} {...pull} />
         </>
       ) : (
         <path d={d} fill="none" stroke={colour} strokeWidth={strokeWidth} strokeLinecap="round" strokeDasharray={dashArray} {...pull} />

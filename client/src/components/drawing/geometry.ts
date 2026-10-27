@@ -317,6 +317,14 @@ export const CABLE_SAG_MAX_PX = 64;
  * without needing per-cable tuning. */
 const CABLE_SAG_RATIO = 0.22;
 
+/** How much thicker a cable draws at this zoom, in flow units, so it is never thinner on screen
+ * than at 100%: zoomed out over a whole floor, a 1.2px copper line would otherwise shrink to a
+ * third of a pixel and vanish. `Drawing.tsx` sets it as `--cable-k`; at 100% and above it is 1. */
+export function cableWidthScale(zoom: number): number {
+  if (!(zoom > 0)) return 1;
+  return Math.max(1, 1 / zoom);
+}
+
 /** UI-SPEC "Cables": "Every cable bows right and down, more on longer
  * vertical runs, capped." Purely a function of the vertical distance
  * travelled — a same-row jump between two adjacent ports sags only a
