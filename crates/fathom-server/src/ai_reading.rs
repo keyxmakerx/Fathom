@@ -10,16 +10,19 @@
 //! Three tiers, matching the key's ticks:
 //!
 //! * `layout`, always: places, racks, devices and their models, ports, cables,
-//!   tags, interfaces by name, containers.
+//!   tags, interfaces by name, containers; maintenance plans and "It's down"
+//!   issues with their steps (what, when, where each stands, what it touches).
 //! * `addresses`: what pasted configs set and an AI needs to reason about a
 //!   network: IP addresses, VLANs, logical units, interface descriptions, a
 //!   device's management address and domain.
 //! * `notes`: shared notes, free-text labels and the notes fields on ports,
-//!   cables and premises.
+//!   cables and premises; what a plan's steps say before and after, what was
+//!   typed while doing a plan or answering an issue, and where an issue pointed.
 //!
 //! **Never, at any tier:** history, provenance, the batch log, file contents,
-//! serial numbers, street addresses and coordinates, contacts, and every
-//! security, NAT, IKE and IPsec kind. A tombstoned element is not shown.
+//! serial numbers, street addresses and coordinates, contacts, who wrote a
+//! plan or ran an issue, a plan step's stored edit, and every security, NAT,
+//! IKE and IPsec kind. A tombstoned element is not shown.
 //!
 //! **Belt and braces on text.** Every string value that leaves is run through
 //! the redaction gate's bare check (`fathom_ingest::redact::looks_like_credential_bare`),
@@ -38,10 +41,11 @@ use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{
     AddressField, AggregateInterfaceField, CableField, CableRunField, CableTieField, ChassisField,
     ContainerField, ContainerNetworkField, DeviceField, EdgeKind, ExternalPeerField, FixedToField,
-    InterfaceField, LabelField, LineEndField, LineField, LinkField, LogicalUnitField,
-    MountedInField, NodeKind, NoteField, OccupiesField, PassiveNodeField, PhysicalPortField,
-    PowerSupplyField, PremisesField, PublishedPortField, RackField, SiteField, SitsOnField,
-    SurfaceField, TagField, TerminatesField, VlanField, VlanMemberField,
+    InterfaceField, IssueField, IssueStepField, LabelField, LineEndField, LineField, LinkField,
+    LogicalUnitField, MaintenancePlanField, MountedInField, NodeKind, NoteField, OccupiesField,
+    PassiveNodeField, PhysicalPortField, PlanStepField, PowerSupplyField, PremisesField,
+    PublishedPortField, RackField, SiteField, SitsOnField, SurfaceField, TagField, TerminatesField,
+    VlanField, VlanMemberField,
 };
 
 /// The three things a key may be allowed to see.
@@ -238,7 +242,48 @@ const NODES: &[NodeRow] = &[
         kind: NodeKind::PhysicalPort,
         fields: fields!(PhysicalPortField: Mac),
     },
+    // ---- layout: maintenance plans and "It's down" issues (ADR-0061) ----
+    NodeRow {
+        tier: Tier::Layout,
+        kind: NodeKind::MaintenancePlan,
+        fields: fields!(MaintenancePlanField: Title, WindowStart, WindowEnd, Stage, Outcome),
+    },
+    NodeRow {
+        tier: Tier::Layout,
+        kind: NodeKind::PlanStep,
+        fields: fields!(PlanStepField: Ordinal, Kind, Targets, Change, State, DoneAt),
+    },
+    NodeRow {
+        tier: Tier::Layout,
+        kind: NodeKind::Issue,
+        fields: fields!(IssueField: Title, Device, OpenedAt, Stage, Plan),
+    },
+    NodeRow {
+        tier: Tier::Layout,
+        kind: NodeKind::IssueStep,
+        fields: fields!(IssueStepField: Ordinal, Topic, Question, Targets, Answer, AnsweredAt),
+    },
     // ---- notes ----
+    NodeRow {
+        tier: Tier::Notes,
+        kind: NodeKind::MaintenancePlan,
+        fields: fields!(MaintenancePlanField: Record),
+    },
+    NodeRow {
+        tier: Tier::Notes,
+        kind: NodeKind::PlanStep,
+        fields: fields!(PlanStepField: Before, After, Note),
+    },
+    NodeRow {
+        tier: Tier::Notes,
+        kind: NodeKind::Issue,
+        fields: fields!(IssueField: Outcome),
+    },
+    NodeRow {
+        tier: Tier::Notes,
+        kind: NodeKind::IssueStep,
+        fields: fields!(IssueStepField: Detail, Note),
+    },
     NodeRow {
         tier: Tier::Notes,
         kind: NodeKind::Note,
@@ -271,6 +316,17 @@ const NO_FIELDS: &[(FieldKey, &str)] = &[];
 /// Every edge kind an AI may be shown, by tier. An edge leaves only when both
 /// its ends do.
 const EDGES: &[EdgeRow] = &[
+    // ---- layout: a plan's and an issue's steps ----
+    EdgeRow {
+        tier: Tier::Layout,
+        kind: EdgeKind::HasStep,
+        fields: NO_FIELDS,
+    },
+    EdgeRow {
+        tier: Tier::Layout,
+        kind: EdgeKind::HasIssueStep,
+        fields: NO_FIELDS,
+    },
     // ---- layout: containment, placement and cabling ----
     EdgeRow {
         tier: Tier::Layout,
@@ -641,7 +697,7 @@ mod tests {
     }
 
     #[test]
-    fn no_serial_street_coordinate_or_contact_field_is_listed() {
+    fn no_serial_street_coordinate_contact_author_or_stored_edit_field_is_listed() {
         let banned = [
             ChassisField::Serial.key(),
             PassiveNodeField::Serial.key(),
@@ -650,6 +706,9 @@ mod tests {
             PremisesField::Coordinates.key(),
             ExternalPeerField::Contact.key(),
             ExternalPeerField::Address.key(),
+            MaintenancePlanField::Author.key(),
+            IssueField::Author.key(),
+            PlanStepField::Edit.key(),
         ];
         for row in NODES {
             for (key, name) in row.fields {
@@ -719,5 +778,57 @@ mod tests {
         assert!(text.contains("core-sw1"), "{text}");
         assert!(!text.contains("s3cr3tR0"), "{text}");
         assert_eq!(out.withheld, 1);
+    }
+
+    /// A plan and its steps are read at `layout`; what a step says before and after only at
+    /// `notes`; who wrote it and the stored edit never.
+    #[test]
+    fn a_plan_is_read_without_its_author_or_stored_edit() {
+        use fathom_graph::BatchId;
+        use fathom_ir::scalar;
+        let mut g = Graph::new();
+        g.begin_batch(BatchId(fathom_id::Ulid(80)), "ai_reading plan fixture")
+            .expect("open batch");
+        let plan = g
+            .insert_node(NodeKind::MaintenancePlan, fathom_id::Ulid(81), prov(8))
+            .expect("plan");
+        for (key, text) in [
+            (MaintenancePlanField::Title.key(), "Move uplinks to sw2"),
+            (MaintenancePlanField::Author.key(), "Dana Writer"),
+        ] {
+            g.set_field(plan.into(), key, scalar::Text(text.into()), prov(8))
+                .expect("plan field");
+        }
+        let step = g
+            .insert_node(NodeKind::PlanStep, fathom_id::Ulid(82), prov(8))
+            .expect("step");
+        for (key, text) in [
+            (PlanStepField::Change.key(), "Recable port 1"),
+            (PlanStepField::Before.key(), "On sw1 port 1"),
+            (PlanStepField::Edit.key(), "cable\tstored-edit-line"),
+        ] {
+            g.set_field(step.into(), key, scalar::Text(text.into()), prov(8))
+                .expect("step field");
+        }
+        g.insert_edge(EdgeKind::HasStep, fathom_id::Ulid(83), plan, step, prov(8))
+            .expect("has step");
+        g.end_batch().expect("close batch");
+
+        let layout: BTreeSet<Tier> = [Tier::Layout].into_iter().collect();
+        let text =
+            String::from_utf8(reading(&g, &layout).unwrap().document.to_canonical_bytes()).unwrap();
+        assert!(text.contains("Move uplinks to sw2"), "{text}");
+        assert!(text.contains("Recable port 1"), "{text}");
+        assert!(text.contains("HasStep"), "{text}");
+        assert!(!text.contains("On sw1 port 1"), "{text}");
+        assert!(!text.contains("Dana Writer"), "{text}");
+        assert!(!text.contains("stored-edit-line"), "{text}");
+
+        let notes: BTreeSet<Tier> = [Tier::Notes].into_iter().collect();
+        let text =
+            String::from_utf8(reading(&g, &notes).unwrap().document.to_canonical_bytes()).unwrap();
+        assert!(text.contains("On sw1 port 1"), "{text}");
+        assert!(!text.contains("Dana Writer"), "{text}");
+        assert!(!text.contains("stored-edit-line"), "{text}");
     }
 }

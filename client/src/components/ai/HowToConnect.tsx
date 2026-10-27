@@ -98,6 +98,10 @@ export function HowToConnect({
           It uses a key (any app on your computer)
         </button>
       </div>
+      <p className="ai-warn" data-testid="ai-how-work-account">
+        Connect the AI account your organisation gave you, not a personal one. What the app reads from Fathom ends up in that
+        account’s chats, and Fathom cannot see which account it is.
+      </p>
       {blocked && (
         <p className="ai-muted ai-how__blocked" data-testid="ai-how-blocked">
           {blocked}

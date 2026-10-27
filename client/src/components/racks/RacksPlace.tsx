@@ -123,6 +123,7 @@ import { DEFAULT_FACEPLATES, SKETCH_DEVICE_PALETTE_ITEM, isBoardPaletteItem, isS
 import { highestFreeU, hostnamesOf, nextHostname, rackSpotForPick, racksInPickOrder } from './pick';
 import { FirmwareContext } from '../firmware/context';
 import type { UpgradeTemplate } from '../firmware/upgradePlan';
+import type { IdeaForPlan } from '../../document/plans';
 import { deviceFirmware, deviceOfChassis, targetOfDevice } from '../../document/firmware';
 import './racks.css';
 import { SkeletonRacks } from '../ui/Skeleton';
@@ -277,6 +278,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   initialUpgrade?: { template: UpgradeTemplate } | null;
   /** A plan to open on arrival (a link on the Firmware pages). */
   initialPlan?: { id: string } | null;
+  /** A draft plan to make from an AI idea on arrival; `onPlanned` runs once it is made. */
+  initialIdeaPlan?: { idea: IdeaForPlan; onPlanned: () => void } | null;
   /** A trace to show, already filled in (a lesson's trace step); a fresh object per ask. */
   traceRequest?: { from: TraceEnd; to: TraceEnd; flowText: string } | null;
   onRequestsHandled?: () => void;
@@ -341,6 +344,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     initialIssue,
     initialUpgrade,
     initialPlan,
+    initialIdeaPlan,
     traceRequest,
     onRequestsHandled,
     onOpenInventory,
@@ -615,6 +619,16 @@ export function RacksPlace(props: RacksPlaceProps) {
     onRequestsHandled?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per ask: the object's identity is the signal
   }, [initialPlan, doc]);
+  const ideaHandled = useRef<unknown>(null);
+  useEffect(() => {
+    if (initialIdeaPlan == null || doc == null || ideaHandled.current === initialIdeaPlan) return;
+    ideaHandled.current = initialIdeaPlan;
+    void plans.planIdea(initialIdeaPlan.idea).then((made) => {
+      if (made) initialIdeaPlan.onPlanned();
+      onRequestsHandled?.();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per ask: the object's identity is the signal
+  }, [initialIdeaPlan, doc]);
   const planFirmwareFor = useCallback(
     (chassisId: string) => {
       const dev = doc ? deviceOfChassis(doc, chassisId) : null;

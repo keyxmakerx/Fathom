@@ -906,6 +906,41 @@ export function backOut(doc: Document, planId: string, opts: Actor & { author?: 
   return { doc: relabelLast(next, from, truncateUtf8(`${plan.title}: backed out`)), id: made.id };
 }
 
+/** An AI idea as the plan needs it (ADR-0072 decision 7): what the AI app sent, already screened by the server. */
+export interface IdeaForPlan {
+  title: string;
+  steps: readonly { action: string; text: string; target: string | null }[];
+}
+
+/** What sort of plan step an idea's step becomes. The AI never chooses an edit; a person adds one. */
+const IDEA_STEP_KIND: Readonly<Record<string, StepKind>> = { connect: 'cable', move: 'move' };
+
+/**
+ * A draft plan made from an AI idea, one undo step. The AI's words are text nobody typed here, so every one goes
+ * through `gate` (the caller passes the real redaction gate). No step carries an edit: the plan changes nothing until
+ * a person adds the edits and marks steps done, as with any plan. A target no longer in the design is left off.
+ */
+export function planFromIdea(doc: Document, idea: IdeaForPlan, opts: Actor & { gate: TextGate; author?: string }): { doc: Document; id: string } {
+  const from = doc.batches.length;
+  const title = truncateUtf8(idea.title, 200);
+  const made = createPlan(doc, { title, gate: opts.gate, ...(opts.author ? { author: opts.author } : {}), actor: opts.actor, now: opts.now });
+  let next = made.doc;
+  for (const step of idea.steps) {
+    if (step.text.trim() === '') continue;
+    const node = step.target !== null && nodeKindOf(step.target) !== null ? findNode(next, step.target) : undefined;
+    const live = node !== undefined && node.absentSince === undefined;
+    next = addStep(next, made.id, {
+      kind: IDEA_STEP_KIND[step.action] ?? 'other',
+      change: step.text,
+      ...(live ? { targets: [step.target as string] } : {}),
+      gate: opts.gate,
+      actor: opts.actor,
+      now: opts.now,
+    }).doc;
+  }
+  return { doc: relabelLast(next, from, truncateUtf8(`AI idea planned: ${title}`)), id: made.id };
+}
+
 /** Unknown ids in a plan's steps, for the list view to flag: a thing deleted since planning. */
 export function missingTargets(doc: Document, plan: Plan): string[] {
   return touchedBy(plan).filter((id) => {

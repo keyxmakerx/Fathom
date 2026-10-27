@@ -22,6 +22,7 @@ import {
   markDone,
   markWentDifferently,
   moveStep,
+  planFromIdea,
   planProblems,
   readPlan,
   recordPlan,
@@ -688,5 +689,34 @@ describe('backing out', () => {
     const p = plan(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
     expect(() => backOut(p.doc, p.id, tick())).toThrow(PlanRefusal);
     expect(() => backOut(startPlan(p.doc, p.id, tick()), p.id, tick())).toThrow(PlanRefusal);
+  });
+});
+
+describe('a plan from an AI idea', () => {
+  it('makes a draft plan with one step per idea step, no edits, in one undo step', () => {
+    const { doc, device } = lab();
+    const made = planFromIdea(
+      doc,
+      {
+        title: 'Give the core switch a second uplink',
+        steps: [
+          { action: 'connect', text: 'Cable Et1 to the spare router port', target: device },
+          { action: 'label', text: 'Label the new cable hunter2-abc', target: 'device:01ARZ3NDEKTSV4RRFFQ69G5FZZ' },
+          { action: 'change', text: '   ', target: null },
+        ],
+      },
+      { gate, author: 'Ada', ...tick() },
+    );
+    expect(made.doc.batches.length).toBe(doc.batches.length + 1);
+    expect(made.doc.batches[made.doc.batches.length - 1]!.label).toMatch(/^AI idea planned: Give the core switch/);
+    const plan = readPlan(made.doc, made.id);
+    expect(plan.stage).toBe('planned');
+    expect(plan.steps.map((s) => [s.kind, s.change, s.targets, s.edit])).toEqual([
+      ['cable', 'Cable Et1 to the spare router port', [device], null],
+      ['other', 'Label the new cable <REDACTED>', [], null],
+    ]);
+    expect(undo(made.doc, made.doc.batches[made.doc.batches.length - 1]!.id, tick()).nodes.filter((n) => n.absentSince === undefined).length).toBe(
+      doc.nodes.filter((n) => n.absentSince === undefined).length,
+    );
   });
 });

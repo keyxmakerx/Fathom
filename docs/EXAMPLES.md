@@ -121,4 +121,10 @@ Then, under **Connect an AI app**, pick how your app connects:
   The private half of the key never leaves your computer; Fathom keeps only the public half.
 
 Either way the connection is listed under **Organisation › AI**, where you or a Steward can narrow it or
-turn it off; it also ends on its own after 30, 90 or 365 days.
+turn it off; it also ends on its own after 30, 90 or 365 days. Connect the AI account your organisation
+gave you, not a personal one: Fathom cannot see which account it is.
+
+The AI can read the design's maintenance plans and "It's down" issues too, so you can ask it to look
+over a plan or an issue. To have it draft a change, ask it to recommend one: the idea shows under
+**AI ideas**, and **Make it a plan** turns its steps into a draft plan you change, schedule and work
+through like any other.

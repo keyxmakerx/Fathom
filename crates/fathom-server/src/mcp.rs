@@ -66,7 +66,7 @@ const TOOLS: &str = r#"[
   {
     "name": "read_design",
     "title": "Read a design",
-    "description": "One design: its devices, links, sites and racks, with addresses and notes only where the person allowed them. Never passwords or device secrets.",
+    "description": "One design: its devices, links, sites and racks, its maintenance plans and \"It's down\" issues with their steps, with addresses and notes only where the person allowed them. Never passwords or device secrets.",
     "inputSchema": {
       "type": "object",
       "properties": {"design": {"type": "string", "description": "The design's id, from list_designs."}},
@@ -90,7 +90,7 @@ const TOOLS: &str = r#"[
   {
     "name": "recommend",
     "title": "Recommend a change",
-    "description": "Recommend a change to one design. Nothing in the design changes: a person sees the idea in Fathom, marked as an AI idea, and accepts or dismisses it. Name devices and links in targets by the ids read_design gave. Do not put passwords, keys or secrets in any text; text that looks like one is refused.",
+    "description": "Recommend a change to one design. Nothing in the design changes: a person sees the idea in Fathom, marked as an AI idea, and accepts or dismisses it. Name devices and links in targets by the ids read_design gave. Write steps in the order they should be done, one change each: a person can turn the idea into a maintenance plan. Do not put passwords, keys or secrets in any text; text that looks like one is refused.",
     "inputSchema": {
       "type": "object",
       "properties": {

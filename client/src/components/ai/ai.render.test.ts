@@ -41,9 +41,11 @@ describe('AI ideas on a design', () => {
         nameOf: (id: string) => (id === 'D1' ? 'core-sw-02' : null),
         onShow: () => undefined,
         canDraw: true,
+        onPlan: () => undefined,
       }),
     );
     expect(out).toContain('Give core-sw-02 its own uplink');
+    expect(out).toContain('>Make it a plan<');
     expect(out).toContain('Key Maker’s connection');
     expect(out).toContain('Show core-sw-02');
     expect(out).toContain('>Accept<');
@@ -55,6 +57,7 @@ describe('AI ideas on a design', () => {
       createElement(AiIdeasPanel, { organisationId: 'O', designId: 'D', state: state([idea()]), nameOf: () => null, canDraw: false }),
     );
     expect(out).not.toContain('>Accept<');
+    expect(out).not.toContain('Make it a plan<');
     expect(out).toContain('Someone who can draw here');
   });
 
@@ -149,6 +152,7 @@ describe('Connect an AI app', () => {
   it('offers the helper key when apps cannot sign in, with the line to run and the form', () => {
     const out = draw(overview());
     expect(out).toContain('node fathom-ai.mjs pair https://fathom.example.org');
+    expect(out).toContain('not a personal one');
     expect(out).toContain('href="/fathom-ai.mjs"');
     expect(out).toContain('>Make key<');
     expect(out).toContain('claude mcp add fathom -- node /path/to/fathom-ai.mjs');

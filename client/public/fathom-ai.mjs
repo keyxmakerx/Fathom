@@ -199,7 +199,8 @@ const TOOLS = [
   {
     name: 'fathom_read_design',
     description:
-      'One design: its devices, ports, cables, racks, places and tags, and addresses or notes if this key may see them. ' +
+      'One design: its devices, ports, cables, racks, places and tags, its maintenance plans and "It\'s down" issues ' +
+      'with their steps, and addresses or notes if this key may see them. ' +
       'Never passwords. Anything that looked like a secret was left out and counted in "withheld".',
     inputSchema: {
       type: 'object',
@@ -224,7 +225,8 @@ const TOOLS = [
     name: 'fathom_recommend',
     description:
       'Recommend a change to a design. Nothing changes until a person accepts it in Fathom. ' +
-      'Write it for a person: a short title, why, and 1 to 20 plain steps. Never include a password or key.',
+      'Write it for a person: a short title, why, and 1 to 20 plain steps in the order they should be done, one change each; ' +
+      'a person can turn it into a maintenance plan. Never include a password or key.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -212,6 +212,12 @@ export function ConnectAiApp({ query, onLeave, go = (url) => window.location.ass
             It shows up under Organisation › AI as <strong>{appName}</strong>, where you or a Steward can narrow it or turn it off.
           </li>
         </ol>
+        <div className="ai-warn" data-testid="connect-work-account">
+          Use the {app?.kind === 'other' ? `account your organisation gave you for ${appName}` : 'Claude account your organisation gave you'}, not a
+          personal one. What {appName} reads from Fathom ends up in that account’s chats, and a personal account is outside your
+          organisation’s control. Fathom cannot see which {app?.kind === 'other' ? '' : 'Claude '}account you are signed in to, so it cannot check
+          this for you.
+        </div>
         {app?.kind === 'claude' && (
           <div className="ai-warn">
             Claude connects from Anthropic’s cloud, not from your computer, so this Fathom has to be reachable from Anthropic’s addresses
