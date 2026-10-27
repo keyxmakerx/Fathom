@@ -788,6 +788,8 @@ async function main() {
     secondEntry === '',
     secondEntry.slice(0, 160),
   );
+  await page.click('[data-testid="console-tab-settings"]');
+  await page.waitForSelector('#placement-hosts', { timeout: 10000 }).catch(() => {});
   check(
     'and the console answers there again, with its placement form back',
     (await page.locator('#placement-hosts').count()) === 1,
