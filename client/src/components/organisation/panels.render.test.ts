@@ -110,7 +110,7 @@ describe('the Organisation rail', () => {
 });
 
 describe('People', () => {
-  const list = { waitingCount: 1, people: [person(), person({ account: 'P2', name: 'Ana Silva', state: 'invited', access: [], asked: { capability: 'read', scopeId: null, scopeLabel: 'Northwind' } })] };
+  const list = { waitingCount: 1, termix: false, termixOff: false, people: [person(), person({ account: 'P2', name: 'Ana Silva', state: 'invited', access: [], asked: { capability: 'read', scopeId: null, scopeLabel: 'Northwind' } })] };
 
   it('lists name, what they can do, and their state, with the Waiting box and Add someone', () => {
     const out = html(
@@ -142,6 +142,24 @@ describe('People', () => {
 
   const page = (p = person(), over = {}) =>
     html(createElement(PersonPage, { person: p, folders: [folder('S1', 'LON1')], busy: false, error: null, notice: null, onBack: noop, onRemove: noop, onGive: noop, onWithdraw: noop, onOpenWaiting: noop, ...over }));
+
+  it('Termix: a switch for everyone on People, only when the operator named a Termix (ADR-0078 decision 6)', () => {
+    const lst = (termix: boolean, termixOff: boolean) =>
+      html(createElement(PeopleList, { people: { ...list, termix, termixOff }, needsYou: { joined: [], seconding: [] }, onOpenPerson: noop, onInvite: noop, onOpenWaiting: noop, onSetTermixEveryone: noop }));
+    expect(lst(false, false)).not.toContain('people-termix');
+    expect(lst(true, false)).toContain('Turn off for everyone');
+    expect(lst(true, true)).toContain('Turn on for everyone');
+    expect(lst(true, false)).toContain('revoking their key');
+  });
+
+  it('Termix: a person page switches it for them, and says so when it is off for everyone', () => {
+    expect(page(person(), {})).not.toContain('person-termix');
+    expect(page(person(), { onSetTermix: noop })).toContain('Priya Rao opens devices in Termix with their own Termix key');
+    expect(page(person({ termixOff: true }), { onSetTermix: noop })).toContain('Turn on');
+    const everyone = page(person(), { onSetTermix: noop, termixOffForEveryone: true });
+    expect(everyone).toContain('Off for everyone in this organisation');
+    expect(everyone).not.toMatch(/person-termix[\s\S]*Turn off/);
+  });
 
   it('a person page lists access rows with Remove only where it can be done, and Give more access', () => {
     const out = page();

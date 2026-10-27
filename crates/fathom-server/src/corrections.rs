@@ -26,7 +26,7 @@ use crate::authority::Capability;
 use crate::crypto;
 use crate::designs::DesignError;
 use crate::field_defs::is_unsafe_char;
-use crate::grants::{self, Authority, AuthorityError};
+use crate::grants::{self, Authority};
 use crate::keys;
 use crate::repo::{DesignId, ScopeId};
 
@@ -423,19 +423,14 @@ pub async fn list(
     let verified = grants::verify_authority_state(tx, auth)
         .await
         .map_err(DesignError::Authority)?;
-    let draws =
-        match grants::authorise_in_verified_state(tx, auth, &verified, scope, Capability::Draw)
+    let draws = grants::holds_in_verified_state(tx, auth, &verified, scope, Capability::Draw)
+        .await
+        .map_err(DesignError::Authority)?;
+    if !draws {
+        grants::authorise_in_verified_state(tx, auth, &verified, scope, Capability::Read)
             .await
-        {
-            Ok(_) => true,
-            Err(AuthorityError::NotAuthorised) | Err(AuthorityError::QuorumNotMet { .. }) => {
-                grants::authorise_in_verified_state(tx, auth, &verified, scope, Capability::Read)
-                    .await
-                    .map_err(DesignError::Authority)?;
-                false
-            }
-            Err(other) => return Err(DesignError::Authority(other)),
-        };
+            .map_err(DesignError::Authority)?;
+    }
     require_design(tx, auth, design).await?;
 
     let tenant = auth.ctx.tenant().to_string();

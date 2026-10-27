@@ -48,12 +48,7 @@ fn ring() -> Arc<KeyRing> {
     ))
 }
 
-fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64
-}
+use fathom_server::crypto::now_unix;
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -367,6 +362,7 @@ async fn app_with(
         live,
         invitation_limits: fathom_server::invitations::Limits::STANDARD,
         ai_connector: connector,
+        termix: None,
     };
     fathom_server::api::router(api_state)
         .merge(design_api::router(design_state))
@@ -3210,6 +3206,171 @@ async fn an_ai_proposal_needs_its_owner_to_be_able_to_draw_there() {
     assert_eq!(still, version);
 }
 
+/// Security sweep, 2026-10-27: the page and the tool list are not the guard. A browser that
+/// edits the "Connect an AI app" request past what the page offers, and an app that calls a
+/// tool it was never listed, get exactly what the page and the list would have given them.
+#[tokio::test]
+async fn a_tampered_sign_in_or_an_unlisted_tool_gets_nothing_the_page_would_not_give() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let place = a_place(&pool, &estate).await;
+    let owner = a_member(
+        &pool,
+        &ring,
+        &estate,
+        "owner",
+        Some(place.building_a),
+        Capability::Draw,
+    )
+    .await;
+    let bystander = a_member(
+        &pool,
+        &ring,
+        &estate,
+        "bystander",
+        Some(place.building_a),
+        Capability::Draw,
+    )
+    .await;
+    let addr = serve(app_with(&pool, Arc::clone(&ring), Some(the_connector())).await).await;
+    let steward = sign_in(addr, &estate.steward).await;
+    saved(addr, &steward, estate.organisation, place.design_a, 61).await;
+    let o = estate.organisation;
+    let owner_id = owner.account.to_string();
+    // Claude only, layout and addresses at most, 90 days at most, no changing designs.
+    let (status, body) =
+        set_policy_with_apps(addr, &steward, o, &[&owner_id], &["claude"], 0).await;
+    assert_eq!(status, "200", "{}", text(&body));
+
+    let owner_session = sign_in(addr, &owner).await;
+    let bystander_session = sign_in(addr, &bystander).await;
+    let (_, challenge) = pkce();
+    let request = sign_in_request(CLAUDE, CLAUDE_BACK, &challenge, "st-t");
+    let allow = |sees: &[&str], may_change: bool, days: i64| {
+        canon(vec![
+            ("request", s(&request)),
+            ("allow", Json::Bool(true)),
+            ("aiAccount", s("dana@example.org")),
+            ("scopes", strs(&[])),
+            ("sees", strs(sees)),
+            ("mayRecommend", Json::Bool(true)),
+            ("mayChange", Json::Bool(may_change)),
+            ("days", Json::Int(days)),
+        ])
+    };
+    let path = format!("/organisations/{o}/ai/connect");
+    // Someone the Steward did not name, with Allow's button un-disabled by hand.
+    let (status, body) = browser(
+        addr,
+        &bystander_session,
+        "POST",
+        &path,
+        &allow(&["layout"], false, 30),
+    )
+    .await;
+    assert_eq!(status, "403", "{}", text(&body));
+    // The named person, asking past each ceiling the page hides.
+    for (sees, may_change, days, why) in [
+        (
+            &["layout", "notes"][..],
+            false,
+            30,
+            "notes above the ceiling",
+        ),
+        (
+            &["layout"][..],
+            true,
+            30,
+            "changing designs while the organisation says no",
+        ),
+        (
+            &["layout"][..],
+            false,
+            365,
+            "longer than the organisation allows",
+        ),
+    ] {
+        let (status, body) = browser(
+            addr,
+            &owner_session,
+            "POST",
+            &path,
+            &allow(sees, may_change, days),
+        )
+        .await;
+        assert_eq!(status, "403", "{why}: {}", text(&body));
+    }
+
+    // The honest sign-in goes through, and its connection is not shown propose_change...
+    let (_, access, _) = connect(addr, &owner_session, o, CLAUDE, CLAUDE_BACK, FROM_CLAUDE).await;
+    let (status, body) = mcp(addr, &access, FROM_CLAUDE, rpc(1, "tools/list", vec![])).await;
+    assert_eq!(status, "200");
+    assert!(
+        !text(&body).contains("\"name\":\"propose_change\""),
+        "{}",
+        text(&body)
+    );
+    // ...and calling it anyway changes nothing.
+    let (_, body) = mcp(
+        addr,
+        &access,
+        FROM_CLAUDE,
+        rpc(
+            2,
+            "tools/call",
+            vec![
+                ("name", s("propose_change")),
+                (
+                    "arguments",
+                    canon_obj(vec![
+                        ("design", s(&place.design_a.to_string())),
+                        ("version", Json::Int(1)),
+                        ("summary", s("Rename it")),
+                        (
+                            "operations",
+                            Json::Arr(vec![canon_obj(vec![
+                                ("op", s("add_node")),
+                                ("kind", s("Device")),
+                                ("fields", canon_obj(vec![("name", s("rogue"))])),
+                            ])]),
+                        ),
+                    ]),
+                ),
+            ],
+        ),
+    )
+    .await;
+    assert!(
+        text(&body).contains("\"isError\":true")
+            && text(&body).contains("does not let AI apps propose changes"),
+        "{}",
+        text(&body)
+    );
+    let client = pool.get().await.unwrap();
+    client
+        .execute(
+            "SELECT set_config('app.tenant_id', $1, false)",
+            &[&o.to_string()],
+        )
+        .await
+        .unwrap();
+    let changes: i64 = client
+        .query_one(
+            "SELECT count(*) FROM ai_design_changes WHERE design_id = $1",
+            &[&place.design_a.to_string()],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    client
+        .execute("SELECT set_config('app.tenant_id', '', false)", &[])
+        .await
+        .unwrap();
+    assert_eq!(changes, 0);
+}
+
 /// ADR-0072 decision 7, amended 2026-10-27: an idea may carry the change itself, from a
 /// connection both ticks let propose changes, and Accept makes it, as the person accepting. A change that cannot be made is refused when it is sent. Dismissing makes
 /// nothing, and an idea without a change is only marked, as before.
@@ -3387,169 +3548,4 @@ async fn accepting_an_idea_that_carries_a_change_makes_it_as_the_person() {
         "the accepter's own edit, not marked as an AI's: {}",
         text(&body)
     );
-}
-
-/// Security sweep, 2026-10-27: the page and the tool list are not the guard. A browser that
-/// edits the "Connect an AI app" request past what the page offers, and an app that calls a
-/// tool it was never listed, get exactly what the page and the list would have given them.
-#[tokio::test]
-async fn a_tampered_sign_in_or_an_unlisted_tool_gets_nothing_the_page_would_not_give() {
-    let _site = support::lock_the_site_chain().await;
-    let pool = support::migrated_pool().await;
-    let ring = ring();
-    let estate = bootstrap(&pool, &ring).await;
-    let place = a_place(&pool, &estate).await;
-    let owner = a_member(
-        &pool,
-        &ring,
-        &estate,
-        "owner",
-        Some(place.building_a),
-        Capability::Draw,
-    )
-    .await;
-    let bystander = a_member(
-        &pool,
-        &ring,
-        &estate,
-        "bystander",
-        Some(place.building_a),
-        Capability::Draw,
-    )
-    .await;
-    let addr = serve(app_with(&pool, Arc::clone(&ring), Some(the_connector())).await).await;
-    let steward = sign_in(addr, &estate.steward).await;
-    saved(addr, &steward, estate.organisation, place.design_a, 61).await;
-    let o = estate.organisation;
-    let owner_id = owner.account.to_string();
-    // Claude only, layout and addresses at most, 90 days at most, no changing designs.
-    let (status, body) =
-        set_policy_with_apps(addr, &steward, o, &[&owner_id], &["claude"], 0).await;
-    assert_eq!(status, "200", "{}", text(&body));
-
-    let owner_session = sign_in(addr, &owner).await;
-    let bystander_session = sign_in(addr, &bystander).await;
-    let (_, challenge) = pkce();
-    let request = sign_in_request(CLAUDE, CLAUDE_BACK, &challenge, "st-t");
-    let allow = |sees: &[&str], may_change: bool, days: i64| {
-        canon(vec![
-            ("request", s(&request)),
-            ("allow", Json::Bool(true)),
-            ("aiAccount", s("dana@example.org")),
-            ("scopes", strs(&[])),
-            ("sees", strs(sees)),
-            ("mayRecommend", Json::Bool(true)),
-            ("mayChange", Json::Bool(may_change)),
-            ("days", Json::Int(days)),
-        ])
-    };
-    let path = format!("/organisations/{o}/ai/connect");
-    // Someone the Steward did not name, with Allow's button un-disabled by hand.
-    let (status, body) = browser(
-        addr,
-        &bystander_session,
-        "POST",
-        &path,
-        &allow(&["layout"], false, 30),
-    )
-    .await;
-    assert_eq!(status, "403", "{}", text(&body));
-    // The named person, asking past each ceiling the page hides.
-    for (sees, may_change, days, why) in [
-        (
-            &["layout", "notes"][..],
-            false,
-            30,
-            "notes above the ceiling",
-        ),
-        (
-            &["layout"][..],
-            true,
-            30,
-            "changing designs while the organisation says no",
-        ),
-        (
-            &["layout"][..],
-            false,
-            365,
-            "longer than the organisation allows",
-        ),
-    ] {
-        let (status, body) = browser(
-            addr,
-            &owner_session,
-            "POST",
-            &path,
-            &allow(sees, may_change, days),
-        )
-        .await;
-        assert_eq!(status, "403", "{why}: {}", text(&body));
-    }
-
-    // The honest sign-in goes through, and its connection is not shown propose_change...
-    let (_, access, _) = connect(addr, &owner_session, o, CLAUDE, CLAUDE_BACK, FROM_CLAUDE).await;
-    let (status, body) = mcp(addr, &access, FROM_CLAUDE, rpc(1, "tools/list", vec![])).await;
-    assert_eq!(status, "200");
-    assert!(
-        !text(&body).contains("\"name\":\"propose_change\""),
-        "{}",
-        text(&body)
-    );
-    // ...and calling it anyway changes nothing.
-    let (_, body) = mcp(
-        addr,
-        &access,
-        FROM_CLAUDE,
-        rpc(
-            2,
-            "tools/call",
-            vec![
-                ("name", s("propose_change")),
-                (
-                    "arguments",
-                    canon_obj(vec![
-                        ("design", s(&place.design_a.to_string())),
-                        ("version", Json::Int(1)),
-                        ("summary", s("Rename it")),
-                        (
-                            "operations",
-                            Json::Arr(vec![canon_obj(vec![
-                                ("op", s("add_node")),
-                                ("kind", s("Device")),
-                                ("fields", canon_obj(vec![("name", s("rogue"))])),
-                            ])]),
-                        ),
-                    ]),
-                ),
-            ],
-        ),
-    )
-    .await;
-    assert!(
-        text(&body).contains("\"isError\":true")
-            && text(&body).contains("does not let AI apps propose changes"),
-        "{}",
-        text(&body)
-    );
-    let client = pool.get().await.unwrap();
-    client
-        .execute(
-            "SELECT set_config('app.tenant_id', $1, false)",
-            &[&o.to_string()],
-        )
-        .await
-        .unwrap();
-    let changes: i64 = client
-        .query_one(
-            "SELECT count(*) FROM ai_design_changes WHERE design_id = $1",
-            &[&place.design_a.to_string()],
-        )
-        .await
-        .unwrap()
-        .get(0);
-    client
-        .execute("SELECT set_config('app.tenant_id', '', false)", &[])
-        .await
-        .unwrap();
-    assert_eq!(changes, 0);
 }

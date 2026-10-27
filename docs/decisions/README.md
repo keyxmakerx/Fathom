@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-Index current to ADR-0069 (2026-10-25). Two numbers were issued twice, so the second record of each pair was renumbered: prefixes and VLANs (was 0063) is now 0067, and the work-account sign-off rounds (was 0065) is now 0068. Code citing ADR-0063 means live co-editing; ADR-0065 means one sign-in; ADR-0066 means learning, lessons and Ansible.
+Index current to ADR-0077 (2026-10-27). Two numbers were issued twice, so the second record of each pair was renumbered: prefixes and VLANs (was 0063) is now 0067, and the work-account sign-off rounds (was 0065) is now 0068. Code citing ADR-0063 means live co-editing; ADR-0065 means one sign-in; ADR-0066 means learning, lessons and Ansible.
 
 > **Status:** Accepted
 > **Date:** 2026-07-28
@@ -59,7 +59,7 @@ question was not in the register. *R* is the reversal cost from `73` §1.2 — R
 | **[0020](adr-0020-the-ai-layer-is-a-boundary.md)** | The boundary ships; no model in v1; tier 0 is the default forever; the sidecar is a native shell | Accepted | D21, D22 | R2 |
 | **[0021](adr-0021-one-catalogue-and-a-host-side-dispatcher.md)** | One catalogue — `22`'s types, `21`'s boundary — and the supervisor is a host-side dispatcher, said out loud | Accepted | new | R2 |
 | **[0022](adr-0022-the-runtime-ai-surface.md)** | One runtime worker, one transcriber, three build-time tools; `ask_human` closed; `blind_accept_rate` becomes a local disarm | Accepted | new | R1 |
-| **[0023](adr-0023-a-local-read-only-corpus-mcp-server.md)** | A local, read-only corpus MCP server — Fathom inside somebody else's model, rather than the reverse | **Proposed** | new | R1 |
+| **[0023](adr-0023-a-local-read-only-corpus-mcp-server.md)** | A local, read-only corpus MCP server — Fathom inside somebody else's model, rather than the reverse | **Superseded by 0072** | new | R1 |
 | **[0024](adr-0024-53-owns-the-keymap.md)** | `53` owns the keymap; `⇧A` stays; one `assertive` region, and it is egress | Accepted | new | R1 |
 | **[0025](adr-0025-restore-the-cards-density-and-channel-budget.md)** | Six changes that restore the card's density, geometry and one-meaning-per-device rule | Accepted | new | R1 |
 | **[0026](adr-0026-theme-contrast-and-the-accessibility-claim.md)** | The `prefers-contrast` cascade is fixed and tested as a cascade; AA-in-full is qualified; dark ships on three conditions | Accepted | new | R1 |
@@ -99,7 +99,7 @@ question was not in the register. *R* is the reversal cost from `73` §1.2 — R
 | **[0060](adr-0060-one-canvas-detail-by-degrees.md)** | One canvas, detail by degrees | Accepted |  |  |
 | **[0061](adr-0061-round-4-canvas-inventory-engine.md)** | Round 4: canvas, Inventory and the engine | Accepted |  |  |
 | **[0062](adr-0062-inventory-table-and-custom-fields.md)** | Inventory as a table with pages; custom fields | Accepted |  |  |
-| **[0063](adr-0063-live-co-editing.md)** | Live co-editing | Proposed (built) |  |  |
+| **[0063](adr-0063-live-co-editing.md)** | Live co-editing | Accepted |  |  |
 | **[0064](adr-0064-firmware-targets-holds-and-screens.md)** | Firmware targets, holds and screens | Accepted |  |  |
 | **[0065](adr-0065-one-sign-in-and-adding-people-at-once.md)** | One sign-in, and adding people at once | Accepted |  |  |
 | **[0066](adr-0066-learning-lessons-and-ansible.md)** | Learning, lessons and Ansible | Accepted |  |  |
@@ -107,6 +107,13 @@ question was not in the register. *R* is the reversal cost from `73` §1.2 — R
 | **[0068](adr-0068-work-account-sign-offs-rounds-16-to-25.md)** | Sign-off rounds 16 to 27: corporate mapping, circuits, Admin (was 0065) | Accepted |  |  |
 | **[0069](adr-0069-practice-space-and-practice-lab.md)** | A practice space for the operator, and a practice lab | Accepted |  |  |
 | **[0070](adr-0070-backups-a-data-file-and-a-keys-file.md)** | Backups: a sealed data file and a separate keys file | Accepted |  |  |
+| **[0071](adr-0071-password-vault-part-one.md)** | The password vault, part one | Accepted |  |  |
+| **[0072](adr-0072-ai-access-keys.md)** | AI access keys: an AI reads a design as you, and recommends | Accepted |  |  |
+| **[0073](adr-0073-cards-and-optics.md)** | Cards and optics | Accepted |  |  |
+| **[0074](adr-0074-sites-buildings-and-the-zoom-above-the-closet.md)** | Sites, buildings and the zoom above the closet | Accepted |  |  |
+| **[0075](adr-0075-phone-field-view-and-labels.md)** | The phone field view, scanning, and printed labels | Accepted |  |  |
+| **[0076](adr-0076-spares-and-stores.md)** | Spares and stores | Accepted |  |  |
+| **[0077](adr-0077-ai-changes-a-design.md)** | An AI connection may change a design | Accepted |  |  |
 
 ## What is not reopened
 

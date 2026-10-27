@@ -190,10 +190,11 @@ the same folders, and no more than its key allows.
 
 ## 12. Label cables and check one from a phone
 
-1. **Inventory › Cables**, tick the cables, **Print labels**. Pick the label size your printer has
-   (Brother 24 mm tape is the default) and print; set the print dialog's paper to the same size, margins none.
+1. **Inventory › Cables**, tick the cables, **Print labels**. Cables open on **Cable wrap, 24 mm tape**:
+   pick the cable's thickness, and the size to set in the print dialog (margins none) is shown above the
+   labels. A wrap carries the name only; pick **Cable flag** or a flat tape size for a code to scan.
    Each cable gets two labels, one for each end.
-2. On a phone, point the Camera app at a label and open the link, or open Fathom and press **Scan**.
+2. On a phone, point the Camera app at a flag or flat label and open the link, or open Fathom and press **Scan**.
    After sign-in the cable's page opens: its two ends, and **Label wrong** / **Not here** for a reader.
 3. **Add to Home Screen** from the phone browser's share menu keeps Fathom one tap away.
 

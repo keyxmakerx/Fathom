@@ -4,6 +4,7 @@
 
 import { LOCAL_ACTOR, edgesIn, edgesOut, findEdge, findNode, isNodeOfKind, type Batch, type Document, type Op } from '../../document/model';
 import { batchActor } from '../../document/undo';
+import { loadJsonPref, saveJsonPref } from '../../prefs';
 
 /** A thing the canvas draws, by its element id, and what selecting it means. */
 export interface ChangedThing {
@@ -179,24 +180,14 @@ export function parseSeen(raw: unknown): SeenMarker | null {
 }
 
 export function loadSeen(accountId: string | null, designId: string | undefined): SeenMarker | null {
-  try {
-    const raw = localStorage.getItem(seenKey(accountId, designId));
-    if (raw != null) return parseSeen(JSON.parse(raw));
-  } catch {
-    // storage unavailable or damaged: treat as the first visit
-  }
-  return null;
+  return loadJsonPref(seenKey(accountId, designId), parseSeen, null);
 }
 
 /** Records that the design was seen up to its newest batch. Best effort; an empty design records nothing. */
 export function saveSeen(accountId: string | null, designId: string | undefined, doc: Document, now: number): void {
   const last = doc.batches[doc.batches.length - 1];
   if (designId == null || last === undefined) return;
-  try {
-    localStorage.setItem(seenKey(accountId, designId), JSON.stringify({ batchId: last.id, at: now } satisfies SeenMarker));
-  } catch {
-    // not remembered
-  }
+  saveJsonPref(seenKey(accountId, designId), { batchId: last.id, at: now } satisfies SeenMarker);
 }
 
 // People heard on this design, by account, so a later visit can name someone who is not online now.

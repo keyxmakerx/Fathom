@@ -594,9 +594,8 @@ async function main() {
   await shot('the-console');
 
   // ---- 2. two sessions at once -------------------------------------------
-  await page.click('.shell-account');
-  await page.click('[data-testid="console-home"]');
-  await page.waitForSelector('.home', { timeout: 15000 });
+  await page.click('[data-testid="home-designs"]');
+  await page.waitForSelector('.console__id', { state: 'detached', timeout: 15000 });
   check(
     'Home is reachable from the console with NO sign-in: the account session was never ended',
     (await page.locator('#signin-password').count()) === 0 && (await page.locator('.home').count()) === 1,
@@ -612,7 +611,6 @@ async function main() {
   );
   await shot('home-again-from-the-console');
 
-  await page.click('.shell-account');
   await page.click('[data-testid="console-entry"]');
   await page.waitForSelector('.console__section', { timeout: 20000 });
   check(
@@ -788,6 +786,8 @@ async function main() {
     secondEntry === '',
     secondEntry.slice(0, 160),
   );
+  await page.click('[data-testid="console-tab-settings"]');
+  await page.waitForSelector('#placement-hosts', { timeout: 10000 }).catch(() => {});
   check(
     'and the console answers there again, with its placement form back',
     (await page.locator('#placement-hosts').count()) === 1,

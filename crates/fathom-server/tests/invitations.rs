@@ -45,12 +45,7 @@ fn ring() -> Arc<KeyRing> {
     ))
 }
 
-fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64
-}
+use fathom_server::crypto::now_unix;
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -423,6 +418,7 @@ async fn app(pool: &Pool, ring: Arc<KeyRing>, limits: Limits) -> axum::Router {
         live,
         invitation_limits: limits,
         ai_connector: None,
+        termix: None,
     };
     fathom_server::api::router(api_state).merge(design_api::router(design_state))
 }
@@ -3764,4 +3760,139 @@ async fn type_it_yourself_rows_are_never_deleted_by_the_app_and_stay_in_their_te
         .expect("count")
         .get(0);
     assert_eq!(seen, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Termix switched off by a steward (ADR-0078 decision 6, migration 0056)
+// ---------------------------------------------------------------------------
+
+fn off_body(off: bool) -> Vec<u8> {
+    format!("{{\"off\":{off}}}\n").into_bytes()
+}
+
+/// What `GET /organisations/{o}/termix` says to `person`: `off`, or null.
+async fn termix_off_for(addr: SocketAddr, estate: &Estate, person: &Person) -> Option<String> {
+    let path = format!("/organisations/{}/termix", estate.organisation);
+    let (status, body) = call(addr, person, "GET", &path, b"").await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    match parse(&body) {
+        Json::Obj(m) => match m.get("off") {
+            Some(Json::Str(s)) => Some(s.clone()),
+            _ => None,
+        },
+        _ => panic!("not an object"),
+    }
+}
+
+#[tokio::test]
+async fn termix_a_steward_turns_it_off_for_one_person_or_everyone_and_a_member_cannot() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring, 1).await;
+    let member = a_member(
+        &pool,
+        &ring,
+        &estate,
+        "member",
+        Some((None, Capability::Draw)),
+    )
+    .await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Limits::STANDARD).await).await;
+    let steward = &estate.stewards[0];
+    let superuser = su().await;
+    let theirs = format!(
+        "/organisations/{}/people/{}/termix",
+        estate.organisation, member.account
+    );
+    let everyone = format!("/organisations/{}/termix", estate.organisation);
+
+    // On until a steward says otherwise.
+    assert_eq!(termix_off_for(addr, &estate, &member).await, None);
+
+    // A member may not turn it off, for themselves or for everyone.
+    let (status, _) = call(addr, &member, "POST", &theirs, &off_body(true)).await;
+    assert_eq!(status, "403");
+    let (status, _) = call(addr, &member, "POST", &everyone, &off_body(true)).await;
+    assert_eq!(status, "403");
+    assert_eq!(
+        org_entries(&superuser, &estate, "termix_access_set").await,
+        0
+    );
+
+    // A steward turns it off for them: sealed once, said to them, listed on People.
+    let (status, body) = call(addr, steward, "POST", &theirs, &off_body(true)).await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    assert!(boolean(&parse(&body), "changed"));
+    assert_eq!(
+        termix_off_for(addr, &estate, &member).await.as_deref(),
+        Some("you")
+    );
+    assert_eq!(termix_off_for(addr, &estate, steward).await, None);
+    let people_path = format!("/organisations/{}/people", estate.organisation);
+    let listing = parse(&call(addr, steward, "GET", &people_path, b"").await.1);
+    let row = array(&listing, "people")
+        .iter()
+        .find(|p| text(p, "account") == member.account.to_string())
+        .cloned()
+        .expect("listed");
+    assert!(boolean(&row, "termix_off"));
+    assert!(!boolean(&listing, "termix_off"));
+
+    // The same again seals nothing.
+    let (_, body) = call(addr, steward, "POST", &theirs, &off_body(true)).await;
+    assert!(!boolean(&parse(&body), "changed"));
+    assert_eq!(
+        org_entries(&superuser, &estate, "termix_access_set").await,
+        1
+    );
+
+    // Off for everyone outranks the person's own switch, for the steward too.
+    let (status, _) = call(addr, steward, "POST", &everyone, &off_body(true)).await;
+    assert_eq!(status, "200");
+    assert_eq!(
+        termix_off_for(addr, &estate, &member).await.as_deref(),
+        Some("everyone")
+    );
+    assert_eq!(
+        termix_off_for(addr, &estate, steward).await.as_deref(),
+        Some("everyone")
+    );
+    let (status, _) = call(addr, steward, "POST", &everyone, &off_body(false)).await;
+    assert_eq!(status, "200");
+    assert_eq!(
+        termix_off_for(addr, &estate, &member).await.as_deref(),
+        Some("you")
+    );
+    assert_eq!(
+        org_entries(&superuser, &estate, "termix_access_set").await,
+        3
+    );
+
+    // A body that is not exactly `{"off": bool}` is refused.
+    let (status, _) = call(addr, steward, "POST", &theirs, b"{\"off\":1}\n").await;
+    assert_eq!(status, "400");
+    the_chains_verify(&pool, &ring, &estate).await;
+}
+
+#[tokio::test]
+async fn termix_rows_are_never_deleted_by_the_app_and_stay_in_their_tenant() {
+    let pool = support::migrated_pool().await;
+    let client = pool.get().await.expect("connection");
+    for table in ["member_termix", "organisation_termix"] {
+        let refused = client
+            .execute(&format!("DELETE FROM {table}"), &[])
+            .await
+            .expect_err("the app role may not delete a Termix row");
+        assert_eq!(
+            refused.code(),
+            Some(&tokio_postgres::error::SqlState::INSUFFICIENT_PRIVILEGE)
+        );
+        let seen: i64 = client
+            .query_one(&format!("SELECT count(*) FROM {table}"), &[])
+            .await
+            .expect("count")
+            .get(0);
+        assert_eq!(seen, 0, "{table}");
+    }
 }

@@ -2,6 +2,7 @@
 // Nothing here reaches the server, so no schema or migration is involved.
 
 import { useCallback, useState } from 'react';
+import { readPref, writePref } from '../../prefs';
 
 export type WheelMode = 'scroll' | 'zoom';
 
@@ -9,20 +10,12 @@ const STORAGE_KEY = 'fathom-canvas-wheel';
 
 /** The stored choice, or null when the person has not chosen (each view then keeps its own default). */
 export function getStoredWheel(): WheelMode | null {
-  try {
-    const value = localStorage.getItem(STORAGE_KEY);
-    return value === 'scroll' || value === 'zoom' ? value : null;
-  } catch {
-    return null;
-  }
+  const value = readPref(STORAGE_KEY);
+  return value === 'scroll' || value === 'zoom' ? value : null;
 }
 
 function storeWheel(mode: WheelMode): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, mode);
-  } catch {
-    // Private mode or blocked storage: the choice lasts until the page closes.
-  }
+  writePref(STORAGE_KEY, mode);
 }
 
 /** The wheel mode and its setter; `fallback` is the view's own default until a choice is made. */

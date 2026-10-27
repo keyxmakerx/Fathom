@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** 2026-10-02: 1561 Rust tests and 1531 client tests on commit 3b10bfc, read off the runs. Prose brought up to main (3bd5ba9) on 2026-10-25; counts not re-read. Read numbers off a real run, not off this page.
+**Last confirmed:** prose brought up to main (3bd5ba9) on 2026-10-25. Test counts are not kept here: read them off a real run.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -504,7 +504,9 @@ and Canvas (read-only), plus Ideas while an AI idea waits; desk chrome folded aw
 A label's QR code is `/scan#<design>/<id>`; scanning it (phone Camera app, or Scan with `BarcodeDetector`
 or typing) opens the item's Inventory page after sign-in. Same-server links only; other text goes to Find.
 Add to Home Screen (manifest, no service worker). Inventory › tick rows › Print labels: devices, racks,
-cables (two each) and ports on Brother TZe 24/18/12 mm, QL 62 mm or 29 × 90 mm, or A4 thirty a sheet.
+cables (two each) and ports on Brother TZe 36/24/18/12 mm, QL 62 mm or 29 × 90 mm, or A4 thirty a sheet.
+Cables also print as a wrap (the name repeated round the cable, no code) or a flag (a code on each face),
+on 24 mm tape sized to the cable: slim patch, Cat5e/Cat6 or Cat6A. Cables default to the wrap.
 A store's bin label opens its page (Print bin label there); a Scan button fills serial fields on a phone.
 Not yet: door labels (rooms). Drive: `scripts/drive-phone.mjs`.
 
@@ -545,6 +547,11 @@ box; a badge opens a card with range, members, exit node and routes. Not yet: pa
 head through the engine, refusing what the engine or the credential check refuses, then numbers, chains,
 encrypts and streams them to other browsers. Different fields merge; on the same field the later one
 wins, and the overwritten person can **Put mine back**. Others show as initials dots in the bar.
+Since 2026-10-27 the dots and pointers cross server processes through `NOTIFY` on `fathom_presence`,
+as changes already did, so several servers behind one load balancer need no sticky sessions
+(`docs/RUNNING-IT.md`, "Running more than one server"). The audit feed is sent by whichever server
+holds its advisory lock. Every console request and sign-in logs one `access` line with the client's
+address and the proxy's (`access_log.rs`). How big a design goes, measured: `docs/SCALE.md`.
 
 **History panel** (#124, #128). The bar's **History** leads with the chain check in words ("Checked:
 every save is intact", "Broken at save N"), lists saves newest first, shows any save read-only with its
@@ -584,6 +591,15 @@ sits on (`Occupies`). The person makes every tie; Fathom suggests only from a ci
 `corpus/dict/port-names.json` (Juniper EX, SRX on-board ports, EdgeRouter), never by name likeness. The tie
 card opens after a paste onto a drawn device and from a trace or "It's down" stop that reads "not tied to a
 port"; it offers jacks only, and shows and unties ties.
+
+**Termix** (ADR-0078; `src/termix.rs`, `components/termix/`). With `FATHOM_TERMIX_URL` set, a
+device's Management fold offers "Open in Termix": the browser finds the Termix host at the management
+address with the person's own Termix API key (kept in the tab, never sent to Fathom) and opens its
+terminal in a new tab, or adds the host first with no credentials. Inventory › Devices sends the ticked
+devices at once ("Send N to Termix"), skipping hosts Termix already has. The server only names the origin
+and adds it to `connect-src`; it never calls Termix. A steward turns it off for everyone in the organisation or
+for one person (migration 0056, Organisation › People); the address is then not given out and the buttons are
+gone. Not tried against a running Termix.
 
 **AI access** (ADR-0072; migration 0046; `src/ai.rs`, `src/oauth.rs`, `src/mcp.rs`, `components/ai/`). A
 person a Steward names lets an AI app read designs they can read, in one organisation, at the tiers the
@@ -626,7 +642,7 @@ every connection. `ai_design_changes` (migration 0051) holds only rows from befo
 yet: drawing a node the change adds (the panel names it). What an AI may do is set by kind of work
 (editing the design, drafting plans, troubleshooting, working through a plan), each Off, Ideas or
 Proposes, at three places whose strictest wins: Admin › AI's ceiling, Steward › AI rules and each
-connection (migration 0056, card r47-ai-controls). A Steward also marks folders ideas-only or out of an
+connection (migration 0057, card r47-ai-controls). A Steward also marks folders ideas-only or out of an
 AI's sight, keeps it to a list of kinds and fields, and lowers the limits (proposals a minute and a day,
 removals in one); 429 past a limit.
 

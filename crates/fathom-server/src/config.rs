@@ -269,6 +269,12 @@ pub struct Config {
     /// off).
     /// A malformed value is refused at startup.
     pub ai_connector: Option<crate::oauth::Connector>,
+
+    /// ADR-0078: `FATHOM_TERMIX_URL`, the one Termix whose origin the client may call
+    /// (`https://`, or `http://` to a loopback host; an origin, no path). Unset means no Termix
+    /// buttons and the content security policy unchanged. A malformed value is refused at
+    /// startup, because it is written into a response header.
+    pub termix: Option<crate::termix::Termix>,
 }
 
 /// ADR-0043 §9's path, as stated in the operator's register: the master key is 32
@@ -662,6 +668,14 @@ impl Config {
             ),
         };
 
+        let termix = match get("FATHOM_TERMIX_URL").filter(|v| !v.trim().is_empty()) {
+            None => None,
+            Some(v) => Some(
+                crate::termix::Termix::parse(&v)
+                    .map_err(|variable| ConfigError::Unparseable { variable })?,
+            ),
+        };
+
         // Trailing newline trimmed (a shell script wrote the file); otherwise the
         // password is taken exactly as generated.
         let database_password =
@@ -728,6 +742,7 @@ impl Config {
             firmware_max_bytes,
             firmware_fetch_base_url,
             ai_connector,
+            termix,
         })
     }
 

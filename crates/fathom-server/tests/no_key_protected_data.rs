@@ -286,6 +286,18 @@ const TABLES: &[TableClaim] = &[
               setting, not a credential, a payload or a key.",
     },
     TableClaim {
+        name: "organisation_termix",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "Termix switched off for a whole organisation (0056): an id, one boolean, who set \
+              it and when. No Termix address and no Termix key.",
+    },
+    TableClaim {
+        name: "member_termix",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "Termix switched off for one person (0056): ids, one boolean, who set it and when. \
+              No Termix address and no Termix key.",
+    },
+    TableClaim {
         name: "cable_corrections",
         protection: Protection::KeyProtected {
             columns: &["ciphertext"],

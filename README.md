@@ -7,9 +7,8 @@ estate-of-record are co-equal goals.
 **Server product.** Data lives on the server and the browser is a window onto it. Multi-tenant,
 organisations and designs, live co-editing.
 
-**Status (2026-10-10): built and green, not yet usable.** "Usable" is the owner's word and means beta:
-polished, the app basically done, a few features allowed to be missing. Green gates do not grant it; a
-walkthrough by the owner does. What exists is in `docs/STATE.md`; what is next is in GitHub issues.
+**Status:** see the top of `CLAUDE.md`, the one place it is kept. What exists is in `docs/STATE.md`;
+what is next is in GitHub issues.
 
 ## What it will never do
 
@@ -61,16 +60,8 @@ tasks on what main supports: `docs/EXAMPLES.md`.
 
 ## Contributing
 
-`CONTRIBUTING.md`. Sign off commits (DCO). Before a pull request:
-
-```
-cargo fmt --all --check
-cargo clippy --all-targets -- -D warnings
-cargo test --workspace --locked
-cargo run -p fathom-schema --bin fathom-schema-check
-./scripts/gate-zero.sh
-./scripts/gate-npm.sh
-```
+`CONTRIBUTING.md`. Sign off commits (DCO). Before a pull request, run the checks in
+`CONTRIBUTING.md` §4.
 
 Licence: Apache-2.0 (`LICENSE`, `NOTICE`); `corpus/` is CC BY-SA 4.0. *Fathom* is a working name
 (ADR-0005 requires a rename before publication).

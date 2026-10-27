@@ -31,6 +31,7 @@ use fathom_canon::Json;
 use crate::audit;
 use crate::authority::Capability;
 use crate::chain::{self, EntryType};
+use crate::crypto::hex;
 use crate::crypto::{self};
 use crate::grants::{self, Authority, AuthorityError};
 use crate::heads::{self, HeadError, HeadKey, HeadStore, Rebuild};
@@ -2784,14 +2785,6 @@ fn metadata_for_reencrypt(
     );
     map.insert("reason".to_string(), Json::Str(reason.to_string()));
     Json::Obj(map).to_canonical_bytes()
-}
-
-fn hex(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        out.push_str(&format!("{b:02x}"));
-    }
-    out
 }
 
 #[cfg(test)]

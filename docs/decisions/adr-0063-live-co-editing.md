@@ -1,6 +1,6 @@
 # ADR-0063: Live co-editing: the server applies and orders, the clients merge field by field
 
-**Status:** proposed 2026-10-03; design thread approved 2026-10-03; revised after two opus review
+**Status:** accepted 2026-10-27 (owner, sign-off card r49); built, see `crates/fathom-server/src/live.rs` and `client/src/components/design/liveSession.ts`. Proposed 2026-10-03; design thread approved 2026-10-03; revised after two opus review
 passes the same day (server-held head, checkpoints by the server). Builds round 9's approval (ADR-0061, #99):
 merge per field, put mine back, no locks, presence as an initials dot. Answers REBUILD-PLAN's open
 question "who wins". Amends ADR-0054 §1 and §5 for live sessions.

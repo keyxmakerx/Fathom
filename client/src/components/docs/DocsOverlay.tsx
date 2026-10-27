@@ -66,7 +66,7 @@ export function DocsOverlay({
       document.removeEventListener('keydown', onKey, true);
       back?.focus?.();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount only; onClose is a plain closer
+    // Mount only; onClose is a plain closer.
   }, []);
   if (!api) return null;
   return (

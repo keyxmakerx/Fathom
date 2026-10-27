@@ -1,7 +1,7 @@
 // The strip above the Inventory table (ADR-0062): add by name, filters, column choice, paste, and
 // the bulk-edit bar that replaces nothing — it appears when rows are ticked.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { PROGRESS_FROM, planFor, type BulkPlan, type BulkSpec } from './bulk';
 import type { Column, InvRow } from './kinds';
@@ -40,6 +40,8 @@ export interface ListToolbarProps {
   filter?: { shown: boolean; onToggle: () => void };
   /** Labels with a QR code for the ticked rows (ADR-0075); absent for kinds that take none. */
   onPrintLabels?: () => void;
+  /** Termix's "Send to Termix" for the ticked devices (ADR-0078); absent for other kinds. */
+  termix?: ReactNode;
 }
 
 export interface KindFilter {
@@ -51,7 +53,7 @@ export interface KindFilter {
 }
 
 export function ListToolbar(props: ListToolbarProps) {
-  const { kindLabel, columnsAll, columns, onColumns, canAdd, addHint, onAdd, addAction, onPaste, onImport, kindFilter, checkedRows, bulkColumns, onBulkApply, bulkCheck, matching, onSelectAllMatching, onClearChecked, notice, undo, progress, filter, onPrintLabels } = props;
+  const { kindLabel, columnsAll, columns, onColumns, canAdd, addHint, onAdd, addAction, onPaste, onImport, kindFilter, checkedRows, bulkColumns, onBulkApply, bulkCheck, matching, onSelectAllMatching, onClearChecked, notice, undo, progress, filter, onPrintLabels, termix } = props;
   // The name box opens from + Device rather than standing in the toolbar (r30-small).
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState('');
@@ -248,6 +250,7 @@ export function ListToolbar(props: ListToolbarProps) {
               Print labels
             </button>
           ) : null}
+          {termix ?? null}
           {checkedRows.length < matching ? (
             <button type="button" onClick={onSelectAllMatching}>
               Select all {matching.toLocaleString('en-GB')} matching

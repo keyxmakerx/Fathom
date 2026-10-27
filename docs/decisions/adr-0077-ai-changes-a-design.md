@@ -1,6 +1,6 @@
 # ADR-0077: An AI connection may change a design, when the organisation and the person both say so
 
-**Status:** proposed 2026-10-27. The owner approved sign-off card r41-ai-write, option B ("A 'May
+**Status:** accepted 2026-10-27 (owner, sign-off card r49); built, see `crates/fathom-server/src/ai_change.rs`. Proposed 2026-10-27. The owner approved sign-off card r41-ai-write, option B ("A 'May
 change designs' tick on a connection, off by default"), and answered its question in a note:
 "So to clarify this is per user and per org, or only per org? I was thinking both". Both it is.
 Steps 1 to 3 below are built (migrations 0050 and 0051, `src/ai_change.rs`) and the sweep is
@@ -42,7 +42,7 @@ The owner asked that "admin can control what it can and can't do, if it's planni
 maintenance, or troubleshooting, or editing, or if it needs to sign off each change independently
 ... stewards get similar rules ... not too finely grained", and approved sign-off card
 r47-ai-controls the same day with "three levels | kinds of work | admin ceiling | folder rules |
-limits | show settings | work through plans | per field". Migration 0056.
+limits | show settings | work through plans | per field". Migration 0057.
 
 - **Four kinds of work, three levels.** Editing the design (everything not below), drafting
   maintenance plans (`MaintenancePlan`, `PlanStep`, `HasStep`), troubleshooting (`Issue`,

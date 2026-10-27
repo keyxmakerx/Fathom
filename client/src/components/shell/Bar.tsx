@@ -27,8 +27,6 @@ const BAR_PAD = 16;
 export interface BarProps {
   place: Place | null;
   onPlaceChange: (place: Place) => void;
-  /** `ShellProps['returnTo']`: the design the place words go back to while none is open. */
-  returnTo?: string;
   path: PathPart[];
   tree: ReactNode;
   lens: Lens;
@@ -105,7 +103,6 @@ export interface BarProps {
 export function Bar({
   place,
   onPlaceChange,
-  returnTo,
   path,
   tree,
   lens,
@@ -208,45 +205,28 @@ export function Bar({
           <span className="shell-bar__brand">Fathom</span>
         )}
         <Sep />
-        {/* With no design open (Home, Admin) the two places go back to the
-            design last open; before any has been, they are named but are not
-            controls: a place needs a design, and Home is where you pick one. */}
-        {mainView != null ? (
-          <ViewTabs view={mainView.value} onChange={mainView.onChange} folded={task != null} />
+        {/* The same four views everywhere. With no design open (Home, Admin)
+            none is marked and they go back to the design last open; before
+            any has been, they are named but are not controls: a view needs a
+            design, and Home is where you pick one. */}
+        {mainView != null || place === null ? (
+          <ViewTabs view={mainView?.value ?? null} onChange={mainView?.onChange} backTo={mainView?.backTo} folded={task != null} />
         ) : (
         <div className="shell-bar__tabs">
-          {place === null && returnTo == null ? (
-            <>
-              <span className="shell-bar__tab">Canvas</span>
-              <span className="shell-bar__tab">Inventory</span>
-            </>
-          ) : place === null ? (
-            <>
-              <button type="button" className="shell-bar__tab" data-testid="shell-return-canvas" title={`Back to ${returnTo} on the canvas`} onClick={() => onPlaceChange('racks')}>
-                Canvas
-              </button>
-              <button type="button" className="shell-bar__tab" title={`Back to ${returnTo} in Inventory`} onClick={() => onPlaceChange('inventory')}>
-                Inventory
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                className={place === 'racks' ? 'shell-bar__tab shell-bar__tab--on' : 'shell-bar__tab'}
-                onClick={() => onPlaceChange('racks')}
-              >
-                Canvas
-              </button>
-              <button
-                type="button"
-                className={place === 'inventory' ? 'shell-bar__tab shell-bar__tab--on' : 'shell-bar__tab'}
-                onClick={() => onPlaceChange('inventory')}
-              >
-                Inventory
-              </button>
-            </>
-          )}
+          <button
+            type="button"
+            className={place === 'racks' ? 'shell-bar__tab shell-bar__tab--on' : 'shell-bar__tab'}
+            onClick={() => onPlaceChange('racks')}
+          >
+            Canvas
+          </button>
+          <button
+            type="button"
+            className={place === 'inventory' ? 'shell-bar__tab shell-bar__tab--on' : 'shell-bar__tab'}
+            onClick={() => onPlaceChange('inventory')}
+          >
+            Inventory
+          </button>
         </div>
         )}
         <Sep />
@@ -636,7 +616,7 @@ const VIEW_LABEL: Record<MainView, string> = { diagram: 'Diagram', canvas: 'Canv
 const VIEWS: readonly MainView[] = ['diagram', 'canvas', 'inventory', 'sheet'];
 
 /** r31-bar A: the four views. The ink underline slides to the one you choose (r31-motion). */
-function ViewTabs({ view, onChange, folded = false }: { view: MainView; onChange: (view: MainView) => void; folded?: boolean }) {
+function ViewTabs({ view, onChange, backTo, folded = false }: { view: MainView | null; onChange?: (view: MainView) => void; backTo?: string; folded?: boolean }) {
   const rowRef = useRef<HTMLDivElement>(null);
   const [mark, setMark] = useState<{ left: number; width: number } | null>(null);
   useLayoutEffect(() => {
@@ -645,7 +625,12 @@ function ViewTabs({ view, onChange, folded = false }: { view: MainView; onChange
   }, [view, folded]);
   return (
     <div className={folded ? 'shell-bar__tabs shell-bar__tabs--views shell-bar__tabs--folded' : 'shell-bar__tabs shell-bar__tabs--views'} ref={rowRef} role="tablist" aria-label="Views">
-      {VIEWS.map((v) => (
+      {VIEWS.map((v) =>
+        onChange == null ? (
+          <span key={v} className="shell-bar__tab">
+            {VIEW_LABEL[v]}
+          </span>
+        ) : (
         <button
           key={v}
           type="button"
@@ -654,11 +639,13 @@ function ViewTabs({ view, onChange, folded = false }: { view: MainView; onChange
           aria-current={v === view ? 'page' : undefined}
           className={v === view ? 'shell-bar__tab shell-bar__tab--on' : 'shell-bar__tab'}
           data-testid={`view-${v}`}
+          title={backTo != null ? `Back to ${backTo}, ${VIEW_LABEL[v]}` : undefined}
           onClick={() => onChange(v)}
         >
           {VIEW_LABEL[v]}
         </button>
-      ))}
+        ),
+      )}
       {mark != null && <span className="shell-bar__tabs-mark" aria-hidden="true" style={{ left: mark.left, width: mark.width }} />}
     </div>
   );

@@ -451,6 +451,37 @@ pub(crate) fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
+/// Lower-case hex, two digits a byte: the one spelling every digest, fingerprint and token
+/// the server writes or compares as text uses.
+pub fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Hex in either case back to bytes, or `None` for an odd length or a character that is not a
+/// hex digit.
+pub fn unhex(text: &str) -> Option<Vec<u8>> {
+    if !text.len().is_multiple_of(2) {
+        return None;
+    }
+    text.as_bytes()
+        .chunks(2)
+        .map(|pair| {
+            let hi = (pair[0] as char).to_digit(16)?;
+            let lo = (pair[1] as char).to_digit(16)?;
+            Some((hi * 16 + lo) as u8)
+        })
+        .collect()
+}
+
+/// Seconds since 1970. A clock set before 1970 stops the request instead of reading as 0,
+/// because 0 would make every expiry, session and key look far in the future.
+pub fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock is before 1970")
+        .as_secs() as i64
+}
+
 /// Anything the primitives can refuse to do.
 #[derive(Debug, PartialEq, Eq)]
 pub enum CryptoError {
@@ -632,5 +663,17 @@ mod tests {
         assert!(!mac_verify(b"key", b"messagf", &tag));
         assert!(!mac_verify(b"kez", b"message", &tag));
         assert!(!mac_verify(b"key", b"message", &tag[..31]));
+    }
+
+    #[test]
+    fn unhex_reads_back_what_hex_writes_and_refuses_anything_else() {
+        let bytes = [0x00, 0x0f, 0xa5, 0xff];
+        assert_eq!(unhex(&hex(&bytes)).as_deref(), Some(&bytes[..]));
+        assert_eq!(unhex("A5FF").as_deref(), Some(&[0xa5, 0xff][..]));
+        assert_eq!(unhex("").as_deref(), Some(&[][..]));
+        assert_eq!(unhex("abc"), None);
+        assert_eq!(unhex("zz"), None);
+        assert_eq!(unhex("+1"), None);
+        assert_eq!(unhex("é0"), None);
     }
 }

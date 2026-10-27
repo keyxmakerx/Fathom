@@ -1,4 +1,4 @@
--- 0056 -- What an AI may do, by kind of work (ADR-0077 amendment; sign-off card r47-ai-controls,
+-- 0057 -- What an AI may do, by kind of work (ADR-0077 amendment; sign-off card r47-ai-controls,
 -- approved 2026-10-27). An AI never changes a design itself: for each of four kinds of work
 -- (design, plans, issues, doing) a place says off, ideas or propose, and the strictest wins.
 --
@@ -57,7 +57,7 @@ GRANT UPDATE (work) ON ai_keys TO fathom_app;
 CREATE OR REPLACE FUNCTION fathom_ai_key_moves() RETURNS trigger
     LANGUAGE plpgsql AS $fn$
 BEGIN
-    -- 0056: as 0054, and the connection's levels are a permission like the others.
+    -- 0057: as 0054, and the connection's levels are a permission like the others.
     IF TG_OP = 'DELETE' THEN
         RAISE EXCEPTION 'an AI key is never deleted from the table: its state says so';
     END IF;

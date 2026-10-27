@@ -383,9 +383,9 @@ export function DesignPlace(props: DesignPlaceProps) {
       setUndoRefusal(error instanceof Error ? error.message : 'That undo did not complete.');
       setTrailOpen(true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `undoCandidates`
-    // is recomputed fresh every render from `doc`/`accountId`, both already
+    // `undoCandidates` is recomputed fresh every render from `doc`/`accountId`, both already
     // listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc, accountId, session]);
 
   const handleRedo = useCallback(() => {
@@ -432,9 +432,9 @@ export function DesignPlace(props: DesignPlaceProps) {
       ...current,
       batches: current.batches.map((b) => (b.id === target.id ? { ...b, comment } : b)),
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires off the
-    // batch COUNT changing, not `pendingComment`'s own identity (typing must
-    // not re-run this).
+    // Fires off the batch COUNT changing, not `pendingComment`'s own identity (typing must not
+    // re-run this).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.doc]);
 
   // ------------------------------------------------------------------

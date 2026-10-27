@@ -40,7 +40,9 @@ use crate::ai_work::{self, Levels, Rules};
 use crate::authority::{self, Capability, RowFacts};
 use crate::chain::EntryType;
 use crate::chains::{self, ChainStoreError};
+use crate::crypto::hex;
 use crate::crypto::{self, CryptoError};
+pub use crate::crypto::{now_unix, unhex};
 use crate::designs::{self, DesignError};
 use crate::field_defs::{self, is_unsafe_char};
 use crate::grants::{self, Authority, AuthorityError};
@@ -292,31 +294,6 @@ impl AiError {
 // Small pieces
 // ---------------------------------------------------------------------------
 
-pub(crate) fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-pub fn unhex(text: &str) -> Option<Vec<u8>> {
-    if !text.len().is_multiple_of(2) {
-        return None;
-    }
-    text.as_bytes()
-        .chunks(2)
-        .map(|p| {
-            let hi = (p[0] as char).to_digit(16)?;
-            let lo = (p[1] as char).to_digit(16)?;
-            Some((hi * 16 + lo) as u8)
-        })
-        .collect()
-}
-
 fn strs(items: &[String]) -> Json {
     Json::Arr(items.iter().map(|s| Json::Str(s.clone())).collect())
 }
@@ -563,7 +540,7 @@ impl Policy {
         if self.may_change {
             m.insert("may_change".into(), Json::Bool(true));
         }
-        // Each only when set, so a row written before migration 0056 still verifies.
+        // Each only when set, so a row written before migration 0057 still verifies.
         for (name, list) in [
             ("work", &self.work),
             ("ideas_only_scopes", &self.ideas_only_scopes),
@@ -705,7 +682,7 @@ impl Switch {
         let mut m = BTreeMap::new();
         m.insert("allowed".into(), Json::Bool(self.allowed));
         m.insert("reason".into(), opt_str(&self.reason));
-        // Only when set, so a row written before migration 0056 still verifies.
+        // Only when set, so a row written before migration 0057 still verifies.
         if !self.work.is_empty() {
             m.insert("work".into(), strs(&self.work));
         }
@@ -890,7 +867,7 @@ impl AiKey {
         if self.may_change {
             m.insert("may_change".into(), Json::Bool(true));
         }
-        // Only when set, so a row written before migration 0056 still verifies.
+        // Only when set, so a row written before migration 0057 still verifies.
         if !self.work.is_empty() {
             m.insert("work".into(), strs(&self.work));
         }
@@ -1043,15 +1020,15 @@ async fn holds(
     scope: Option<ScopeId>,
     needed: Capability,
 ) -> Result<bool, AiError> {
-    match grants::authorise_account(tx, auth, scope, needed).await {
-        Ok(_) => Ok(true),
-        Err(AuthorityError::NotAuthorised) | Err(AuthorityError::QuorumNotMet { .. }) => Ok(false),
-        Err(other) => Err(AiError::Authority(other)),
-    }
+    grants::holds(tx, auth, scope, needed)
+        .await
+        .map_err(AiError::Authority)
 }
 
 async fn is_steward(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<bool, AiError> {
-    holds(tx, auth, None, Capability::Steward).await
+    grants::is_steward(tx, auth)
+        .await
+        .map_err(AiError::Authority)
 }
 
 fn parse_scope(text: &str) -> Result<ScopeId, AiError> {
@@ -2534,20 +2511,16 @@ async fn folder_chain(
         if !covers(&key.scopes, &folder_path) {
             continue;
         }
-        match grants::authorise_in_verified_state(
+        if !grants::holds_in_verified_state(
             tx,
             auth,
             verified,
             Some(parse_scope(&id)?),
             Capability::Read,
         )
-        .await
+        .await?
         {
-            Ok(_) => {}
-            Err(AuthorityError::NotAuthorised) | Err(AuthorityError::QuorumNotMet { .. }) => {
-                continue
-            }
-            Err(other) => return Err(other.into()),
+            continue;
         }
         let kind: String = row.get(1);
         let level = match kind.as_str() {
@@ -2604,20 +2577,10 @@ pub async fn ai_designs(
             continue;
         }
         let scope = parse_scope(&scope_text)?;
-        match grants::authorise_in_verified_state(
-            tx,
-            auth,
-            &verified,
-            Some(scope),
-            Capability::Read,
-        )
-        .await
+        if !grants::holds_in_verified_state(tx, auth, &verified, Some(scope), Capability::Read)
+            .await?
         {
-            Ok(_) => {}
-            Err(AuthorityError::NotAuthorised) | Err(AuthorityError::QuorumNotMet { .. }) => {
-                continue
-            }
-            Err(other) => return Err(other.into()),
+            continue;
         }
         let sealed = match (
             row.get::<_, Option<Vec<u8>>>(3),
