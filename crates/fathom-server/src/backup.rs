@@ -767,10 +767,17 @@ impl KeysFile {
     }
 
     /// A 32-byte key held under `name`, accepting the same trailing newline
-    /// the key loader does.
+    /// the key loader does. Exactly 32 bytes is the key as it is, first, as in
+    /// `keyprovider::decode`: one random key in 256 ends in 0x0a itself, and
+    /// stripping that byte left 31, so the key went unrecorded and the Backups
+    /// screen called a fresh keys file out of date (compose job, 2026-10-27).
     pub fn key(&self, name: &str) -> Option<Key32> {
         let (_, bytes) = self.files.iter().find(|(n, _)| n == name)?;
-        let b = bytes.strip_suffix(b"\n").unwrap_or(bytes);
+        let b = if bytes.len() == KEY_LEN {
+            bytes.as_slice()
+        } else {
+            bytes.strip_suffix(b"\n").unwrap_or(bytes)
+        };
         let arr: [u8; KEY_LEN] = b.try_into().ok()?;
         Some(Key32::from_bytes(arr))
     }
@@ -983,6 +990,24 @@ mod tests {
     fn dates_read_as_dates() {
         assert_eq!(date(0), "1970-01-01");
         assert_eq!(date(1_792_886_400), "2026-10-25");
+    }
+
+    #[test]
+    fn a_key_ending_in_a_line_feed_is_still_a_key() {
+        let mut raw = [0x5Au8; KEY_LEN];
+        raw[KEY_LEN - 1] = b'\n';
+        let mut with_newline = raw.to_vec();
+        with_newline.push(b'\n');
+        let kf = KeysFile {
+            label: Label::default(),
+            files: vec![
+                ("chain.key".to_string(), raw.to_vec()),
+                ("master.key".to_string(), with_newline),
+            ],
+        };
+        let want = Key32::from_bytes(raw).id();
+        assert_eq!(kf.key("chain.key").map(|k| k.id()), Some(want));
+        assert_eq!(kf.key("master.key").map(|k| k.id()), Some(want));
     }
 
     #[test]
