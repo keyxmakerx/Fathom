@@ -103,7 +103,7 @@ An AI app reads designs you can read, in one organisation, and sends ideas a per
 sees passwords or the vault, and it changes a design only where both your organisation and you said it
 may (ADR-0072, ADR-0077).
 
-First, once per organisation: a Steward opens **Organisation › AI**, ticks **AI access allowed**, adds
+First, once per organisation: a Steward opens **Steward › AI rules**, ticks **AI access allowed**, adds
 the people who may connect under **Who may connect AI apps**, and presses **Save**.
 
 Then, under **Connect an AI app**, pick how your app connects:
@@ -121,7 +121,7 @@ Then, under **Connect an AI app**, pick how your app connects:
   into Claude Code or an app's `mcpServers` list. `node fathom-ai.mjs check` shows what the key may do.
   The private half of the key never leaves your computer; Fathom keeps only the public half.
 
-Either way the connection is listed under **Organisation › AI**, where you or a Steward can narrow it or
+Either way the connection is listed under **Steward › AI**, where you or a Steward can narrow it or
 turn it off; it also ends on its own after 30, 90 or 365 days. Connect the AI account your organisation
 gave you, not a personal one: Fathom cannot see which account it is, so it asks you to type it, and
 your Stewards and admins see what you typed beside the connection.
@@ -132,7 +132,7 @@ over a plan or an issue. To have it draft a change, ask it to recommend one: the
 through like any other.
 
 To let an AI change designs directly, a Steward ticks **AI apps may change designs** under
-**Organisation › AI**, and you tick **May change designs** when you press **Allow** or **Make key** (or
+**Steward › AI rules**, and you tick **May change designs** when you press **Allow** or **Make key** (or
 later, on the connection). The AI then gets a `change_design` tool: each call is one change in your
 name, against the version it read, shown in History as "AI (<connection>), for <you>". It sets fields,
 adds devices, racks, ports, cables and notes, connects them, and removes up to 20 things at a time,
@@ -162,7 +162,7 @@ slot and model and which ports are on it, never a serial.
 
 You need to be an admin of the organisation, or a steward of the site you add under.
 
-1. **Home › Organisation › Folders**, **New site**. Name it and, if you like, say what kind of place it
+1. **Home › Steward › Folders**, **New site**. Name it and, if you like, say what kind of place it
    is (central office, datacenter, hut…) and its role (Hub, Branch, Customer). A hub has a double border.
 2. On the site's row, **New building**; on the building's row, **New closet**, with a kind of room
    (closet, data hall, UPS room…). **Kind and role** on a row changes them later.

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { helperAppConfig, helperPairCommand, plainWords, type AiIdea, type AiKeyView, type AiOverview } from '../../api/ai';
 import { AiIdeasPanel, aiIdeasTab } from './AiIdeas';
-import { keyAppName, stateWords } from './AiPanel';
+import { keyAppName, rulesInWords, stateWords } from './AiPanel';
 import { HowToConnect, whyCannotConnect } from './HowToConnect';
 import { ago, Info, until } from './parts';
 
@@ -197,5 +197,32 @@ describe('Connect an AI app', () => {
     expect(helperPairCommand('https://f.example')).toBe('node fathom-ai.mjs pair https://f.example');
     const c = helperAppConfig('/home/me/fathom-ai.mjs');
     expect(JSON.parse(c.json)).toEqual({ mcpServers: { fathom: { command: 'node', args: ['/home/me/fathom-ai.mjs'] } } });
+  });
+});
+
+describe('the line at the top of the AI page', () => {
+  const policy = {
+    allowed: true,
+    makers: ['A1', 'A2'],
+    ceiling: ['layout', 'addresses'] as const,
+    maxDays: 90,
+    secondPersonScopes: [],
+    apps: ['claude', 'claude-code'] as const,
+    mayChange: false,
+    changedBy: null,
+    changedAt: null,
+    version: 1,
+  };
+
+  it('says in one sentence what the rules allow', () => {
+    expect(rulesInWords({ ...policy, ceiling: [...policy.ceiling], apps: [...policy.apps] }, true)).toBe(
+      'AI is on. Claude and Claude Code may connect, for 2 people, seeing at most the layout and addresses, for up to 90 days.',
+    );
+  });
+
+  it('sends a Steward to AI rules when AI is off, and tells anyone else who can turn it on', () => {
+    const off = { ...policy, allowed: false, ceiling: [...policy.ceiling], apps: [...policy.apps] };
+    expect(rulesInWords(off, true)).toMatch(/turn it on in AI rules/);
+    expect(rulesInWords(off, false)).toBe('AI is off here. A Steward can turn it on.');
   });
 });

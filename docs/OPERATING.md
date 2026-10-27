@@ -178,7 +178,7 @@ keeps ciphertext it cannot open. What that means for you:
   encryption; restoring it does not give anyone a stored password. Nothing you hold on the host
   does.
 - **The recovery sheet belongs to the organisation's admins, not to you.** It is printed from
-  Organisation › Passwords, held by every new login, and each use is written to the organisation's
+  Steward › Passwords, held by every new login, and each use is written to the organisation's
   history and listed for every admin. Advise admins to keep it on paper, away from the server.
 - **A person who loses both their Emergency Kit and their passphrase** loses only their own copy:
   logins also held by a colleague or the sheet are shared to them again once they set up afresh.
@@ -209,7 +209,7 @@ of the other two.
 
 ### Breach checks (part three)
 
-Checks are off until an organisation's admin turns them on under Organisation › Passwords, and the
+Checks are off until an organisation's admin turns them on under Steward › Passwords, and the
 policy has three levels, most specific first: one login marked critical (always checked, re-checked
 weekly, a breached password refused), a kind of login (device login, SNMP, Wi-Fi, API key, other),
 and the organisation (on or off, daily, weekly, every 30 or 90 days, warn or refuse). Each change
@@ -513,7 +513,7 @@ computer and reach Fathom wherever the person can. The source-address check need
 
 **Without the connector.** AI access does not need `FATHOM_AI_PUBLIC_URL`. A person can still connect an
 app on their own computer with the Fathom AI helper, which Fathom serves at `/fathom-ai.mjs` and which
-calls `/ai/v1/*` with a key the person made on that computer (Organisation › AI › Connect an AI app ›
+calls `/ai/v1/*` with a key the person made on that computer (Steward › AI › Connect an AI app ›
 "It uses a key"; docs/EXAMPLES.md §9). Fathom stores only the key's public half.
 
 **Stopping one.** A person, a Steward (with a reason) or an admin (with a reason) turns a connection off

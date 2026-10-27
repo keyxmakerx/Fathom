@@ -91,8 +91,8 @@ export function PlacesMap({ scopes, currentScopeId, stop, focusId, designScopeId
       {shown.length === 0 && view.stacks.length === 0 ? (
         <p className="places-map__empty">
           {stop === 'estate'
-            ? 'No sites you can see yet. A steward makes them in Home › Organisation › Folders.'
-            : `Nothing inside ${view.place?.displayName ?? 'this folder'} that you can see yet. A steward adds ${stop === 'site' ? 'buildings' : 'closets'} in Home › Organisation › Folders.`}
+            ? 'No sites you can see yet. A steward makes them in Home › Steward › Folders.'
+            : `Nothing inside ${view.place?.displayName ?? 'this folder'} that you can see yet. A steward adds ${stop === 'site' ? 'buildings' : 'closets'} in Home › Steward › Folders.`}
         </p>
       ) : (
         <ul className="places-map__boxes">

@@ -1,7 +1,7 @@
 // "Connect an AI app" (ADR-0072 decisions 14 to 17; mockup r33-ai-reach3-a, approved
 // 2026-10-25). An AI app such as Claude sends the person here, at `/oauth/authorize`, to
 // sign in and choose what it may read. Nothing is shared until Allow; Allow makes a
-// connection in one organisation, which shows under Organisation › AI, where the person or
+// connection in one organisation, which shows under Steward › AI, where the person or
 // a Steward can narrow it or turn it off.
 
 import { useEffect, useMemo, useState } from 'react';
@@ -87,10 +87,10 @@ export function ConnectAiApp({ query, onLeave, go = (url) => window.location.ass
     if (overview.status !== 'ready' || !app) return null;
     const o = overview.value;
     if (!o.server.allowed) return 'Whoever runs this Fathom has turned AI access off for the whole server.';
-    if (!o.policy.allowed) return `AI access is off in ${orgName}. A Steward there can turn it on under Organisation › AI.`;
-    if (!o.canMake) return `You are not one of the people a Steward in ${orgName} has named to connect AI apps. Ask one to add you under Organisation › AI.`;
+    if (!o.policy.allowed) return `AI access is off in ${orgName}. A Steward there can turn it on under Steward › AI rules.`;
+    if (!o.canMake) return `You are not one of the people a Steward in ${orgName} has named to connect AI apps. Ask one to add you under Steward › AI rules.`;
     if (!o.policy.apps.includes(app.kind)) {
-      return `${app.kind === 'other' ? 'Apps other than Claude and Claude Code are' : `${APP_NAME[app.kind]} is`} not allowed in ${orgName}. A Steward can allow it under Organisation › AI.`;
+      return `${app.kind === 'other' ? 'Apps other than Claude and Claude Code are' : `${APP_NAME[app.kind]} is`} not allowed in ${orgName}. A Steward can allow it under Steward › AI rules.`;
     }
     return null;
   }, [overview, app, orgName]);
@@ -213,7 +213,7 @@ export function ConnectAiApp({ query, onLeave, go = (url) => window.location.ass
           </li>
           <li>{appName} gets a sign-in that lasts one hour and renews itself until the end date you pick. Fathom keeps only a fingerprint of it.</li>
           <li>
-            It shows up under Organisation › AI as <strong>{appName}</strong>, where you or a Steward can narrow it or turn it off.
+            It shows up on Home’s AI page as <strong>{appName}</strong>, where you or a Steward can narrow it or turn it off.
           </li>
         </ol>
         <div className="ai-warn" data-testid="connect-work-account">

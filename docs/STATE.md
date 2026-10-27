@@ -123,7 +123,7 @@ proves the sweep can find one). It walks every non-system schema, and the schema
 in the `vault` schema (`crates/fathom-server/src/vault.rs`, `client/src/vault/`,
 `client/src/components/vault/`). Emergency Kit and passphrase (Argon2id in the engine), a recovery
 sheet held by every login and logged on use, holder lists signed by the sharer, the Logins tab,
-Inventory › Passwords, Home or Organisation › Passwords, and the lock badge on the avatar.
+Inventory › Passwords, Home or Steward › Passwords, and the lock badge on the avatar.
 `scripts/drive-vault.mjs` drives three people's own browsers against the real server and sweeps a
 superuser `pg_dump` for every password, note, name, passphrase and recovery code.
 
@@ -234,8 +234,10 @@ breadcrumb does one thing.
   browser, shows the recovery key once, then forgets it (ADR-0057). Not on the console: the two-person
   verbs (no assertion by the enrolled key yet), the site trail, an account list. ADR-0068's Admin rework
   (Health first, a left-hand section list, Engines) is decided, not built.
-- **Home** has tabs (ADR-0060 decision 7): Designs, Organisation (admins and folder stewards; a rail of
-  People, Waiting for you (N) and Folders), and Admin (the console, only where it answers). Each shows only to someone who may use it.
+- **Home** has tabs (ADR-0060 decision 7): Designs, Passwords, Steward (called Organisation until
+  2026-10-27; admins and folder stewards; a rail of People, Waiting for you (N), Folders, Passwords, AI
+  and AI rules), AI (someone named to connect AI apps who stewards nothing: the AI page alone), and
+  Admin (the console, only where it answers). Each shows only to someone who may use it.
   **Folders say what kind of place they are** (ADR-0074 §1 and §2, migration 0050): a steward gives a site
   or building a kind of place (central office, datacenter, hut, street cabinet, headend, customer premises,
   other) and a role set by hand (Hub, Branch, Customer, Other; a hub has a double border), and a closet a
@@ -598,9 +600,9 @@ tokens with reuse detection, hashes only. A Claude grant is used only from Anthr
 (`FATHOM_AI_CLAUDE_RANGES`). The person signs in and chooses on the "Connect an AI app" page at
 `/oauth/authorize`. (b) the **helper** (`client/public/fathom-ai.mjs`): an ES256 key pair on the person's
 computer signs each `/ai/v1/*` request, and works with the connector off. The person downloads it from
-Organisation › AI › Connect an AI app › "It uses a key", runs the pair line shown, pastes the public half
+Steward › AI › Connect an AI app › "It uses a key", runs the pair line shown, pastes the public half
 and presses Make key; the page then gives the Claude Code line and an `mcpServers` block to paste
-(`scripts/drive-ai-helper.mjs` drives it end to end). Organisation › AI holds the policy (on/off, who, ceiling, apps,
+(`scripts/drive-ai-helper.mjs` drives it end to end). Steward › AI rules holds the policy (on/off, who, ceiling, apps,
 longest, second-person folders) and every connection with narrow and turn-off; a named person who is not
 an admin sees that tab with AI alone. Admin › AI turns AI off for the server and turns any connection off
 with a reason. AI ideas are a side tab on the Canvas, Racks and Inventory; an Inventory row an open idea
@@ -610,7 +612,7 @@ reading includes maintenance plans and "It's down" issues, without who wrote the
 Both connect pages warn against a personal AI account; Fathom cannot check which account it is (decision
 23), so Allow and Make key ask for it, and Stewards and Admin › AI see it with the owner's sign-in address
 (decision 24, migration 0049). ADR-0077 (proposed, being built on PR #217): an AI connection may change
-designs only with two ticks, Organisation › AI's "AI apps may change designs" and the connection's own
+designs only with two ticks, Steward › AI rules' "AI apps may change designs" and the connection's own
 "May change designs" at Allow, Make key or later by its owner (migration 0050). Steps 1 to 3 are built: the
 ticks and screens, and `change_design` (`POST /ai/v1/designs/{d}/changes`, the Claude tool and the
 helper's) setting fields, adding nodes and edges (named with `as` for later operations) and removing,

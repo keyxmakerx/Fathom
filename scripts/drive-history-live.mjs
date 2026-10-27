@@ -285,7 +285,7 @@ async function runProof(browser, seed) {
   // ---- setup: Ann makes a site and a design with two devices ---------------
   await A.bringToFront();
   await signIn(A, seed.steward, PASSWORDS.steward);
-  await A.getByRole('tab', { name: 'Organisation' }).click();
+  await A.getByRole('tab', { name: 'Steward' }).click();
   await A.getByRole('button', { name: 'New site' }).click();
   await A.locator('#home-new-scope-label').fill('Live edit site');
   await A.getByRole('button', { name: 'Create', exact: true }).click();

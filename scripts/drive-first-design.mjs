@@ -666,7 +666,7 @@ async function runProof(browser, seed) {
   // the interface, not "New scope".)
   // ADR-0060 decision 7: folders are the Organisation tab's, shown to the
   // organisation's admins; this steward founded it.
-  await one.getByRole('tab', { name: 'Organisation' }).click();
+  await one.getByRole('tab', { name: 'Steward' }).click();
   await one.getByRole('button', { name: 'New site' }).click();
   await one.locator('#home-new-scope-label').fill('Session 7 network');
   await one.getByRole('button', { name: 'Create', exact: true }).click();
@@ -690,7 +690,7 @@ async function runProof(browser, seed) {
   await one.screenshot({ path: `${SHOTS}s7-home.png` });
   check(
     'screenshot s7-home.png: Home shows the Organisation tab and New design',
-    (await one.getByRole('tab', { name: 'Organisation' }).count()) === 1
+    (await one.getByRole('tab', { name: 'Steward' }).count()) === 1
       && (await one.getByRole('button', { name: 'New design' }).count()) > 0,
   );
 

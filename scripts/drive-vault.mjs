@@ -192,7 +192,7 @@ async function openMyPasswords(page) {
 }
 
 async function openAdminPasswords(page) {
-  await page.getByRole('tab', { name: 'Organisation' }).click();
+  await page.getByRole('tab', { name: 'Steward' }).click();
   await page.getByTestId('rail-passwords').click();
   await page.locator('[data-testid="vault-admin"], [data-testid="vault-passwords"]').first().waitFor({ timeout: 15000 });
 }

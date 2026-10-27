@@ -1,6 +1,6 @@
 // Drives the REAL built client against the REAL server and the REAL helper
 // (ADR-0072 decision 3), with the connector OFF (no FATHOM_AI_PUBLIC_URL), as on
-// a Fathom no AI vendor can reach: a Steward turns AI on in Organisation › AI,
+// a Fathom no AI vendor can reach: a Steward turns AI on in Steward › AI,
 // downloads the helper Fathom serves, runs its pair line, pastes what it prints
 // under "It uses a key" and presses Make key; the helper then answers `check`
 // and, started as an MCP server over stdio the way an AI app starts it, lists
@@ -208,7 +208,7 @@ async function runProof(browser, ctxA, seed) {
 
   await signIn(A, seed.steward, STEWARD_PASSWORD);
   const openAi = async () => {
-    await A.getByRole('tab', { name: 'Organisation' }).click();
+    await A.getByRole('tab', { name: 'Steward' }).click();
     await A.getByTestId('rail-ai').click();
     await A.getByTestId('ai-panel').waitFor({ timeout: 10000 });
   };
@@ -221,12 +221,18 @@ async function runProof(browser, ctxA, seed) {
   check('K2. before AI is on there is no Make key, and it says why', (await A.getByRole('button', { name: 'Make key' }).count()) === 0 && (await A.getByTestId('ai-how-blocked').count()) === 1);
   await shot('k2-off');
 
+  check('R1. the AI page says AI is off here and opens AI rules', /AI is off here/.test(await A.getByTestId('ai-rules-line').innerText()));
+  await A.getByTestId('ai-open-rules').click();
+  await A.getByTestId('ai-rules').waitFor({ timeout: 10000 });
   await A.locator('.ai-switch input').check();
   await A.getByRole('button', { name: '+ Person' }).click();
   await A.locator('select[aria-label="Add a person"]').selectOption({ index: 1 });
   await A.locator('.ai-policy .ai-tick', { hasText: 'Addresses, VLANs' }).first().locator('input').check();
   await A.getByRole('button', { name: 'Save', exact: true }).click();
   await A.getByText('Saved. It is in the organisation’s history.').waitFor({ timeout: 10000 });
+  await A.setViewportSize({ width: VIEWPORT.width, height: 1400 });
+  await A.screenshot({ path: `${SHOTS}r2-ai-rules.png` });
+  await A.setViewportSize(VIEWPORT);
 
   await A.getByRole('tab', { name: 'Designs' }).click();
   await A.getByRole('button', { name: 'New design' }).first().click();
@@ -268,6 +274,12 @@ async function runProof(browser, ctxA, seed) {
   check('K7. the app settings carry the path given', (await A.getByTestId('ai-helper-claude-code').innerText()).includes('claude mcp add fathom -- node /home/ann/fathom-ai.mjs'));
   await shot('k6-made');
   check('K8. it is listed as the Fathom AI helper, on', /Fathom AI helper/.test(await A.locator('.ai-table__row', { hasText: 'Helper on the drive laptop' }).innerText()));
+  check('R2. the AI page says what the rules allow', /^AI is on\./.test(await A.getByTestId('ai-rules-line').innerText()));
+  await A.getByRole('radio', { name: /It signs in/ }).click();
+  await A.mouse.move(0, 0);
+  await A.waitForTimeout(300);
+  await A.screenshot({ path: `${SHOTS}r3-ai-page.png` });
+  await A.getByRole('radio', { name: /It uses a key/ }).click();
 
   // The helper, as an AI app runs it.
   const checked = sh('node', [HELPER, 'check'], { env: helperEnv });

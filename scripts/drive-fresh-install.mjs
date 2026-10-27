@@ -353,7 +353,7 @@ async function runDrive(tab) {
   // ADR-0060 decision 7: folders are the Organisation tab's, and the person
   // who claimed the organisation is its admin.
   const siteName = 'Weekend HQ';
-  await tab.getByRole('tab', { name: 'Organisation' }).click();
+  await tab.getByRole('tab', { name: 'Steward' }).click();
   await tab.getByRole('button', { name: 'New site' }).click();
   await tab.locator('#home-new-scope-label').fill(siteName);
   await tab.getByRole('button', { name: 'Create', exact: true }).click();

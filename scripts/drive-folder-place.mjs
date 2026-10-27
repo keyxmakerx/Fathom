@@ -192,7 +192,7 @@ async function runProof(browser, ctxA, seed) {
   const shot = (name) => A.screenshot({ path: `${SHOTS}${name}.png` });
 
   await signIn(A, seed.steward, STEWARD_PASSWORD);
-  await A.getByRole('tab', { name: 'Organisation' }).click();
+  await A.getByRole('tab', { name: 'Steward' }).click();
   await A.locator('.org-rail__item', { hasText: 'Folders' }).click();
 
   // A site, made with its kind of place and role in one go.
@@ -232,7 +232,7 @@ async function runProof(browser, ctxA, seed) {
   // A reload reads every word back from the server.
   await A.reload({ waitUntil: 'domcontentloaded' });
   await A.locator('.home, .drawing, .shell-bar').first().waitFor({ timeout: 20000 });
-  await A.getByRole('tab', { name: 'Organisation' }).click();
+  await A.getByRole('tab', { name: 'Steward' }).click();
   await A.locator('.org-rail__item', { hasText: 'Folders' }).click();
   await A.locator('.home-folders__row', { hasText: 'IDF-2' }).waitFor({ timeout: 10000 });
   const all = (await A.locator('.home-folders').innerText()).replace(/\s+/g, ' ');
@@ -339,7 +339,7 @@ async function runProof(browser, ctxA, seed) {
   await shot('m2-moved');
 
   // ---- ADR-0074 §8: a NetBox rack export becomes sites, buildings and rack designs ----
-  await A.getByRole('tab', { name: 'Organisation' }).click();
+  await A.getByRole('tab', { name: 'Steward' }).click();
   await A.locator('.org-rail__item', { hasText: 'Folders' }).click();
   await A.getByRole('button', { name: 'Import from NetBox' }).click();
   const csv = ['name,site,location,status,u_height', 'A01,LON1,Hall 1,active,48', 'A02,LON1,Hall 1,active,42', 'B01,Northgate,Block A,active,42'].join('\n');

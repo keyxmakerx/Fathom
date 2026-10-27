@@ -35,7 +35,8 @@ type Page =
   | { kind: 'waiting' }
   | { kind: 'folders' }
   | { kind: 'passwords' }
-  | { kind: 'ai' };
+  | { kind: 'ai' }
+  | { kind: 'ai-rules' };
 
 export interface OrganisationTabProps {
   organisation: Organisation;
@@ -53,8 +54,9 @@ export interface OrganisationTabProps {
 
 
 /**
- * The Organisation tab (ADR-0060 decision 7): People, Waiting for you and
- * Folders in a rail on the left. People and Waiting are for stewards: the
+ * The Steward tab (ADR-0060 decision 7; called Organisation until 2026-10-27):
+ * People, Waiting for you, Folders, Passwords, AI and AI rules in a rail on the
+ * left. Someone who may only connect AI apps gets the AI page alone, no rail. People and Waiting are for stewards: the
  * server refuses anyone else before it reads a row, and this tab then shows
  * that refusal in place of the list, with no Waiting entry and no emails.
  */
@@ -147,12 +149,16 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
     if (page.kind === 'passwords') {
       return <PasswordsPage organisation={org} organisationName={organisation.displayName} mode="admin" />;
     }
-    if (page.kind === 'ai') {
+    if (page.kind === 'ai' || page.kind === 'ai-rules') {
       return (
         <AiPanel
+          key={page.kind}
+          view={page.kind === 'ai' ? 'connections' : 'rules'}
           organisationId={org}
           organisationName={organisation.displayName}
           folders={scopes.status === 'ready' ? scopes.value : []}
+          onOpenRules={aiOnly ? undefined : () => go({ kind: 'ai-rules' })}
+          onOpenConnections={() => go({ kind: 'ai' })}
         />
       );
     }
@@ -282,15 +288,21 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
 
   const current = page.kind === 'person' || page.kind === 'invite' || page.kind === 'link' ? 'people' : page.kind;
 
+  if (aiOnly) {
+    return (
+      <div className="org">
+        <div className="org__body">{content()}</div>
+      </div>
+    );
+  }
+
   return (
     <div className="org">
-      <nav className="org-rail" aria-label="Organisation">
-        {!aiOnly && (
+      <nav className="org-rail" aria-label="Steward">
         <button type="button" className={current === 'people' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} aria-current={current === 'people' ? 'page' : undefined} onClick={() => go({ kind: 'people' })}>
           People
         </button>
-        )}
-        {!aiOnly && waitingReady && (
+        {waitingReady && (
           <button type="button" className={current === 'waiting' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} data-testid="rail-waiting" aria-current={current === 'waiting' ? 'page' : undefined} onClick={() => go({ kind: 'waiting' })}>
             Waiting for you{needs > 0 ? ` (${needs})` : ''}
           </button>
@@ -298,13 +310,14 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
         <button type="button" className={current === 'folders' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} aria-current={current === 'folders' ? 'page' : undefined} onClick={() => go({ kind: 'folders' })}>
           Folders
         </button>
-        {!aiOnly && (
         <button type="button" className={current === 'passwords' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} data-testid="rail-passwords" aria-current={current === 'passwords' ? 'page' : undefined} onClick={() => go({ kind: 'passwords' })}>
           Passwords
         </button>
-        )}
         <button type="button" className={current === 'ai' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} data-testid="rail-ai" aria-current={current === 'ai' ? 'page' : undefined} onClick={() => go({ kind: 'ai' })}>
           AI
+        </button>
+        <button type="button" className={current === 'ai-rules' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} data-testid="rail-ai-rules" aria-current={current === 'ai-rules' ? 'page' : undefined} onClick={() => go({ kind: 'ai-rules' })}>
+          AI rules
         </button>
       </nav>
       <div className="org__body">{content()}</div>

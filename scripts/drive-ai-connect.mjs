@@ -1,5 +1,5 @@
 // Drives the REAL built client against the REAL server through ADR-0072's
-// connector: a Steward turns AI on in Organisation › AI, an AI app (played
+// connector: a Steward turns AI on in Steward › AI, an AI app (played
 // here by this script, as Claude Code would: PKCE, a loopback redirect) sends
 // her browser to /oauth/authorize, she allows it on the "Connect an AI app"
 // page, the script trades the code for tokens and uses /mcp's tools, and the
@@ -207,17 +207,20 @@ async function runProof(browser, ctxA, seed) {
 
   await signIn(A, seed.steward, STEWARD_PASSWORD);
 
-  // ---- Organisation › AI ----------------------------------------------------
-  await A.getByRole('tab', { name: 'Organisation' }).click();
+  // ---- Steward › AI ----------------------------------------------------
+  await A.getByRole('tab', { name: 'Steward' }).click();
   await A.getByTestId('rail-ai').click();
   await A.getByTestId('ai-panel').waitFor({ timeout: 10000 });
   const url = (await A.getByTestId('ai-connector-url').innerText()).trim();
-  check('O1. Organisation › AI shows the address to add in the AI app', url === `${URL_}/mcp`, url);
+  check('O1. Steward › AI shows the address to add in the AI app', url === `${URL_}/mcp`, url);
   await shot('o1-org-ai-off');
   await A.locator('.ai-info__i').first().click();
   await shot('o2-the-i-open');
   check('O2. the "i" opens a plain explanation in place', (await A.locator('.ai-info__body').count()) === 1);
   await A.locator('.ai-info__i').first().click();
+  check('R1. the AI page says AI is off here and opens AI rules', /AI is off here/.test(await A.getByTestId('ai-rules-line').innerText()));
+  await A.getByTestId('ai-open-rules').click();
+  await A.getByTestId('ai-rules').waitFor({ timeout: 10000 });
   await A.locator('.ai-switch input').check();
   await A.getByRole('button', { name: '+ Person' }).click();
   await A.locator('select[aria-label="Add a person"]').selectOption({ index: 1 });
@@ -344,10 +347,10 @@ async function runProof(browser, ctxA, seed) {
   const planText = (await A.locator('body').innerText()).replace(/\s+/g, ' ');
   check('D2. Make it a plan opens a draft plan named after the idea, with its steps', planText.includes('Add a second uplink to the core') && planText.includes('Connect the two switches with a second cable.'));
 
-  // ---- Organisation › AI lists it -------------------------------------------------------
+  // ---- Steward › AI lists it -------------------------------------------------------
   await A.locator('.shell-bar__brand').first().click();
   await A.locator('.home').first().waitFor({ timeout: 20000 });
-  await A.getByRole('tab', { name: 'Organisation' }).click();
+  await A.getByRole('tab', { name: 'Steward' }).click();
   await A.getByTestId('rail-ai').click();
   await A.locator('.ai-table__row', { hasText: 'Claude Code' }).first().click();
   await A.waitForTimeout(300);
