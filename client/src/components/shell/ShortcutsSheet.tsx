@@ -1,30 +1,15 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 
 import { SHORTCUTS, SHORTCUT_GROUPS, capsFor, isMac } from './shortcuts';
 import '../../styles/palette.css';
+import { useModal } from './useModal';
 
 /** "Keyboard shortcuts": every shortcut in the one table, grouped. Esc or a click outside closes it. */
 export function ShortcutsSheet({ onClose }: { onClose: () => void }) {
   const sheetRef = useRef<HTMLDivElement>(null);
   const mac = isMac();
 
-  useEffect(() => {
-    const before = document.activeElement as HTMLElement | null;
-    sheetRef.current?.focus();
-    return () => before?.focus?.();
-  }, []);
-
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-        onClose();
-      }
-    }
-    document.addEventListener('keydown', onKey, true);
-    return () => document.removeEventListener('keydown', onKey, true);
-  }, [onClose]);
+  useModal(sheetRef, onClose, { focus: 'container' });
 
   return (
     <div className="float-scrim" onPointerDown={onClose}>
