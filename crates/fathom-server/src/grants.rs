@@ -40,6 +40,7 @@ use crate::authority::{self, Capability, GrantFacts, RowFacts, SignatureRefused,
 use crate::chain::{self, ChainRef, EntryType};
 use crate::chains::{self, ChainStoreError, CHAIN_KEY_EPOCH};
 use crate::crypto::hex;
+use crate::crypto::now_unix;
 use crate::crypto::Key32;
 use crate::ids;
 use crate::keys::{self, DataKey, KeyRing, KeyStoreError};
@@ -498,13 +499,6 @@ fn entry_metadata(entry_type: EntryType, fields: &[(&str, Json)]) -> Vec<u8> {
         map.insert((*name).to_string(), value.clone());
     }
     Json::Obj(map).to_canonical_bytes()
-}
-
-fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system clock is before 1970")
-        .as_secs() as i64
 }
 
 fn as_32(bytes: &[u8], what: &'static str) -> Result<[u8; 32], AuthorityError> {
@@ -4189,6 +4183,28 @@ pub(crate) async fn authorise_in_verified_state(
     authorise_subject_in_verified_state(tx, auth, verified, &auth.actor(), scope, needed).await
 }
 
+/// A permission answer as a yes or no: `Ok(false)` for "not authorised" and for a quorum not
+/// met, and the error itself for anything that is not a permission answer (a broken seal, a
+/// database fault), so a fault never reads as a quiet no.
+fn as_yes_or_no(answer: Result<Capabilities, AuthorityError>) -> Result<bool, AuthorityError> {
+    match answer {
+        Ok(_) => Ok(true),
+        Err(AuthorityError::NotAuthorised | AuthorityError::QuorumNotMet { .. }) => Ok(false),
+        Err(other) => Err(other),
+    }
+}
+
+/// [`authorise_in_verified_state`] as a yes or no (see [`as_yes_or_no`]).
+pub(crate) async fn holds_in_verified_state(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    verified: &VerifiedAuthorityState,
+    scope: Option<ScopeId>,
+    needed: Capability,
+) -> Result<bool, AuthorityError> {
+    as_yes_or_no(authorise_in_verified_state(tx, auth, verified, scope, needed).await)
+}
+
 /// As [`authorise_in_verified_state`], for `account` rather than the caller. The
 /// Share panel asks it of each member; the walk is the same one a request runs.
 async fn authorise_subject_in_verified_state(
@@ -4317,6 +4333,25 @@ pub async fn authorise_account(
     authorise_in_verified_state(tx, auth, &verified, scope, needed).await
 }
 
+/// [`authorise_account`] as a yes or no (see [`as_yes_or_no`]).
+pub(crate) async fn holds(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    scope: Option<ScopeId>,
+    needed: Capability,
+) -> Result<bool, AuthorityError> {
+    as_yes_or_no(authorise_account(tx, auth, scope, needed).await)
+}
+
+/// The one check for "is this person a Steward of the organisation": `steward` granted at the
+/// organisation's root, read through the sealed grants like every other permission.
+pub(crate) async fn is_steward(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+) -> Result<bool, AuthorityError> {
+    holds(tx, auth, None, Capability::Steward).await
+}
+
 // ---------------------------------------------------------------------------
 // ADR-0055 fix (S3)
 // ---------------------------------------------------------------------------
@@ -4431,6 +4466,26 @@ pub async fn retire_oldest_over_cap(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_permission_answer_is_a_no_and_a_fault_stays_a_fault() {
+        assert!(matches!(
+            as_yes_or_no(Err(AuthorityError::NotAuthorised)),
+            Ok(false)
+        ));
+        assert!(matches!(
+            as_yes_or_no(Err(AuthorityError::QuorumNotMet { needed: 2, have: 1 })),
+            Ok(false)
+        ));
+        assert!(matches!(
+            as_yes_or_no(Err(AuthorityError::OrganisationIdMismatch)),
+            Err(AuthorityError::OrganisationIdMismatch)
+        ));
+        assert!(matches!(
+            as_yes_or_no(Err(AuthorityError::Unverifiable("seal"))),
+            Err(AuthorityError::Unverifiable("seal"))
+        ));
+    }
 
     #[test]
     fn the_epoch_watch_refuses_a_head_that_went_backwards() {

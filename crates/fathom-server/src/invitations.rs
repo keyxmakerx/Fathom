@@ -50,6 +50,7 @@ use crate::chain::EntryType;
 use crate::chains::{self, ChainStoreError};
 use crate::crypto::hex;
 use crate::crypto::{self, Key32};
+use crate::crypto::{now_unix, unhex};
 use crate::grants::{
     self, AccessLine, AccountKey, Authority, AuthorityError, EpochWatch, Grant, KeyedGrantRequest,
     StewardCheck,
@@ -344,27 +345,6 @@ fn invitation_from_row(row: &tokio_postgres::Row) -> Result<InvitationRow, Invit
         row_version: row.get(21),
         row_seal: row.get(22),
     })
-}
-
-fn unhex(text: &str) -> Option<Vec<u8>> {
-    if !text.len().is_multiple_of(2) || !text.is_ascii() {
-        return None;
-    }
-    text.as_bytes()
-        .chunks(2)
-        .map(|pair| {
-            let hi = (pair[0] as char).to_digit(16)?;
-            let lo = (pair[1] as char).to_digit(16)?;
-            Some((hi * 16 + lo) as u8)
-        })
-        .collect()
-}
-
-fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system clock is before 1970")
-        .as_secs() as i64
 }
 
 fn entry_metadata(entry_type: EntryType, fields: &[(&str, Json)]) -> Vec<u8> {

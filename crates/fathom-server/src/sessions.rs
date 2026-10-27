@@ -69,6 +69,7 @@ use crate::chain::EntryType;
 use crate::chains::{self, ChainStoreError};
 use crate::credentials;
 use crate::crypto::hex;
+use crate::crypto::now_unix;
 use crate::crypto::{self, Key32};
 use crate::grants::{self, AuthorityError};
 use crate::ids;
@@ -4656,13 +4657,6 @@ fn entry_metadata(entry_type: EntryType, fields: &[(&str, Json)]) -> Vec<u8> {
         map.insert((*name).to_string(), value.clone());
     }
     Json::Obj(map).to_canonical_bytes()
-}
-
-fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system clock is before 1970")
-        .as_secs() as i64
 }
 
 /// One bucket's key as the column holds it.

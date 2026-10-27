@@ -225,13 +225,6 @@ pub fn date(unix: u64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-fn now_unix() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
 /// A label for a backup made now, by this build.
 pub fn label_now(
     backup_key: &Key32,
@@ -240,7 +233,7 @@ pub fn label_now(
     vault: Option<&Key32>,
 ) -> Label {
     Label {
-        made_at_unix: now_unix(),
+        made_at_unix: crypto::now_unix() as u64,
         fathom_version: env!("CARGO_PKG_VERSION").to_string(),
         backup_key: Some(backup_key.id()),
         master_key: master.map(Key32::id),
@@ -756,7 +749,7 @@ impl KeysFile {
             files,
         };
         kf.label = Label {
-            made_at_unix: now_unix(),
+            made_at_unix: crypto::now_unix() as u64,
             fathom_version: env!("CARGO_PKG_VERSION").to_string(),
             backup_key: kf.key("backup.key").map(|k| k.id()),
             master_key: kf.key("master.key").map(|k| k.id()),

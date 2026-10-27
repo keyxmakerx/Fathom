@@ -48,6 +48,7 @@ use crate::authority::{self, GrantFacts, RowFacts, SignatureRefused};
 use crate::chain::EntryType;
 use crate::chains::{self, ChainStoreError, CHAIN_KEY_EPOCH};
 use crate::crypto::hex;
+use crate::crypto::now_unix;
 use crate::crypto::{self, Key32};
 use crate::grants::{self, AuthorityError, GenesisGrant};
 use crate::ids;
@@ -7238,13 +7239,6 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     haystack
         .windows(needle.len().max(1))
         .any(|window| window == needle)
-}
-
-fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system clock is before 1970")
-        .as_secs() as i64
 }
 
 // ---------------------------------------------------------------------------

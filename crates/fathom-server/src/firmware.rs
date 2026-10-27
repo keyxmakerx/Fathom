@@ -92,6 +92,7 @@ use crate::chain::EntryType;
 use crate::chains::{self, ChainStoreError};
 use crate::crypto::hex;
 use crate::crypto::{self, CryptoError};
+use crate::crypto::{now_unix, unhex};
 use crate::firmware_commands::commands;
 use crate::grants::{self, Authority, EpochWatch};
 use crate::keys::{self, KeyRing, KeyStoreError};
@@ -669,20 +670,6 @@ fn header_number(headers: &HeaderMap, name: &str) -> Option<i64> {
     header_text(headers, name)?.parse::<i64>().ok()
 }
 
-fn unhex(text: &str) -> Option<Vec<u8>> {
-    if !text.len().is_multiple_of(2) {
-        return None;
-    }
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(text.len() / 2);
-    for pair in bytes.chunks(2) {
-        let hi = (pair[0] as char).to_digit(16)?;
-        let lo = (pair[1] as char).to_digit(16)?;
-        out.push((hi * 16 + lo) as u8);
-    }
-    Some(out)
-}
-
 /// The stored form of a firmware token: `H(LP(tag) ‖ LP(token))`, as
 /// `sessions::token_hash` does under its own label, so one surface's token cannot
 /// be presented at the other.
@@ -696,13 +683,6 @@ pub fn token_hash(token: &[u8]) -> [u8; 32] {
 /// 256 bits from the kernel CSPRNG, for a token that is the whole authorisation.
 fn fresh_token() -> Result<[u8; 32], CryptoError> {
     Ok(*crypto::Key32::random()?.expose())
-}
-
-fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
 }
 
 // ---- Filenames, which never become paths ----

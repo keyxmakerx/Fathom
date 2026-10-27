@@ -43,6 +43,7 @@ use deadpool_postgres::Transaction;
 
 use crate::authority::{self, Capability};
 use crate::crypto;
+use crate::crypto::unhex;
 use crate::grants::{self, Authority, AuthorityError, EpochWatch};
 use crate::keys;
 use crate::operators::{OperatorError, OperatorStore};
@@ -1634,20 +1635,6 @@ fn header_number(headers: &HeaderMap, name: &'static str) -> Result<i64, Refusal
     header_text(headers, name)?
         .parse::<i64>()
         .map_err(|_| SessionError::Malformed("request headers").into())
-}
-
-fn unhex(text: &str) -> Option<Vec<u8>> {
-    if !text.len().is_multiple_of(2) {
-        return None;
-    }
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(text.len() / 2);
-    for pair in bytes.chunks(2) {
-        let hi = (pair[0] as char).to_digit(16)?;
-        let lo = (pair[1] as char).to_digit(16)?;
-        out.push((hi * 16 + lo) as u8);
-    }
-    Some(out)
 }
 
 /// Which bucket a sign-in attempt counts against: the address as
