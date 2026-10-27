@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { addHost, bareAddress, isTermixKey, listHosts, matchHost, newHostBody, readKey, saveKey, forgetKey, terminalUrl, TermixError } from './termix';
+import { addHost, bareAddress, folderFor, sendHosts, sendSummary, isTermixKey, listHosts, matchHost, newHostBody, readKey, saveKey, forgetKey, terminalUrl, TermixError } from './termix';
 
 const KEY = 'tmx_' + 'a1'.repeat(32);
 const ORIGIN = 'https://termix.example.lan';
@@ -107,5 +107,49 @@ describe('talking to Termix', () => {
       throw new TypeError('Failed to fetch');
     }) as unknown as typeof fetch;
     await expect(listHosts(ORIGIN, KEY, down)).rejects.toBeInstanceOf(TermixError);
+  });
+});
+
+describe('sending many devices', () => {
+  it('files a design under Fathom, without letting its name add a level', () => {
+    expect(folderFor('HQ network')).toBe('Fathom / HQ network');
+    expect(folderFor('A/B')).toBe('Fathom / A - B');
+    expect(folderFor('  ')).toBe('Fathom');
+  });
+
+  it('adds only what Termix lacks, once per address, into the design folder', async () => {
+    const posted: Record<string, unknown>[] = [];
+    let id = 100;
+    const f = (async (_url: string, init: RequestInit) => {
+      if (init.method === 'GET') return new Response(JSON.stringify([{ id: 1, name: 'old', ip: '10.0.0.1', port: 22 }]), { status: 200 });
+      const body = JSON.parse(init.body as string) as Record<string, unknown>;
+      posted.push(body);
+      if (body.ip === '10.0.0.4') return new Response('{}', { status: 500 });
+      return new Response(JSON.stringify({ ...body, id: ++id }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const steps: number[] = [];
+    const r = await sendHosts(
+      ORIGIN,
+      KEY,
+      [
+        { name: 'core', address: '10.0.0.1' },
+        { name: 'a', address: '10.0.0.2/24' },
+        { name: 'a-twin', address: '10.0.0.2' },
+        { name: 'none', address: '' },
+        { name: 'bad', address: '10.0.0.4' },
+      ],
+      'Fathom / HQ',
+      f,
+      (done) => steps.push(done),
+    );
+    expect(r).toEqual({ added: 1, already: 1, repeated: 1, failed: ['bad: Termix answered 500.'] });
+    expect(posted.map((b) => b.ip)).toEqual(['10.0.0.2', '10.0.0.4']);
+    expect(posted[0]!.folder).toBe('Fathom / HQ');
+    expect(steps).toEqual([1, 2, 3, 4]);
+    expect(sendSummary(r)).toBe('Added 1 to Termix; 1 was already there; 1 shared an address with another device; 1 not added (bad: Termix answered 500.).');
+  });
+
+  it('stops when the key is refused', async () => {
+    await expect(sendHosts(ORIGIN, KEY, [{ name: 'a', address: '10.0.0.2' }], 'Fathom', answering(401, {}))).rejects.toThrow(/refused the API key/);
   });
 });

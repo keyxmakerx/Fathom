@@ -293,8 +293,8 @@ with a management address gets "Open in Termix", and that one origin is added to
   browsers must reach Termix; the server need not.
 - If Termix's operator set `CORS_ALLOWED_ORIGINS`, Fathom's own address must be in that list, or
   browsers are refused. Unset, Termix allows any origin.
-- Fathom adds hosts to Termix with no user name and no password, in the folder `Fathom`, tagged
-  `fathom`. Credentials are Termix's to keep.
+- Fathom adds hosts to Termix with no user name and no password, tagged `fathom`: one device in the
+  folder `Fathom`, or many from Inventory › Devices (Send to Termix) in `Fathom / <design>`. Credentials are Termix's to keep.
 
 ## Restore
 

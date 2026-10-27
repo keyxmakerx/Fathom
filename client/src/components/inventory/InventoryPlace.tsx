@@ -87,6 +87,7 @@ import { VaultPlaceContext } from '../vault/useVault';
 import { LabelsPreview } from '../../print/LabelsPreview';
 import { isLabelListKind, labelItems, storeLabel, type LabelItem } from '../../print/labels';
 import { isStoreId, storeById } from '../../document/stock';
+import { TermixSend } from '../termix/TermixSend';
 
 const EMPTY_VIEW: ClosetView = { premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [], free: [], lines: [], labels: [] };
 const EMPTY_NETWORKS_DERIVED: NetworksDerived = { vlanRows: [], subnetRows: [], dockerNetworkRows: [], dockerUnattachedContainers: [] };
@@ -912,6 +913,14 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                           note: kind === 'cables' ? 'Two labels per cable, one for each end.' : undefined,
                         })
                     : undefined
+                }
+                termix={
+                  kind === 'devices' ? (
+                    <TermixSend
+                      devices={checkedRows.map((r) => ({ name: r.cells.name ?? '', address: r.cells.mgmt ?? '' }))}
+                      design={shellProps.path[shellProps.path.length - 1]?.label ?? ''}
+                    />
+                  ) : undefined
                 }
               />
               {filterShown || q !== '' ? (

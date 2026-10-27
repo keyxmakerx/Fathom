@@ -99,14 +99,20 @@ export function matchHost(hosts: TermixHost[], address: string): TermixHost | nu
   return same.find((h) => h.port === 22) ?? same[0] ?? null;
 }
 
+/** Termix's folder for a design's hosts: `Fathom / <design>`, Termix's own nesting separator. */
+export function folderFor(design: string): string {
+  const d = design.replace(/\s*\/\s*/g, ' - ').trim();
+  return d ? `Fathom / ${d}` : 'Fathom';
+}
+
 /** What Fathom sends to add a host: no credential, no user name. */
-export function newHostBody(name: string, address: string): Record<string, unknown> {
+export function newHostBody(name: string, address: string, folder = 'Fathom'): Record<string, unknown> {
   return {
     connectionType: 'ssh',
     name: name.trim() || bareAddress(address),
     ip: bareAddress(address),
     port: 22,
-    folder: 'Fathom',
+    folder,
     tags: ['fathom'],
     notes: 'Added from Fathom.',
   };
@@ -145,8 +151,64 @@ export async function listHosts(origin: string, key: string, f: Fetch = fetch): 
   return parseHosts(await call(origin, key, 'GET', '/host/db/host', undefined, f));
 }
 
-export async function addHost(origin: string, key: string, name: string, address: string, f: Fetch = fetch): Promise<TermixHost> {
-  const [made] = parseHosts([await call(origin, key, 'POST', '/host/db/host', newHostBody(name, address), f)]);
+export async function addHost(origin: string, key: string, name: string, address: string, f: Fetch = fetch, folder?: string): Promise<TermixHost> {
+  const [made] = parseHosts([await call(origin, key, 'POST', '/host/db/host', newHostBody(name, address, folder), f)]);
   if (!made) throw new TermixError('Termix added the host but did not say which one it is.');
   return made;
+}
+
+export interface SendResult {
+  added: number;
+  /** Already in Termix at that address. */
+  already: number;
+  /** Two devices with one address are sent once. */
+  repeated: number;
+  failed: string[];
+}
+
+/**
+ * Many devices at once (card r43-termix, "send a whole design"): one list, then one add per
+ * device Termix does not have at that address, in the design's folder. One at a time through
+ * Termix's core route, because its bulk import belongs to a plugin a Termix may not run. A
+ * refused key stops the run; any other refusal is counted and the run goes on.
+ */
+export async function sendHosts(
+  origin: string,
+  key: string,
+  devices: readonly { name: string; address: string }[],
+  folder: string,
+  f: Fetch = fetch,
+  onStep?: (done: number, total: number) => void,
+): Promise<SendResult> {
+  const hosts = await listHosts(origin, key, f);
+  const out: SendResult = { added: 0, already: 0, repeated: 0, failed: [] };
+  const seen = new Set<string>();
+  const todo = devices.filter((d) => bareAddress(d.address) !== '');
+  let done = 0;
+  for (const d of todo) {
+    const at = bareAddress(d.address).toLowerCase();
+    if (seen.has(at)) out.repeated++;
+    else if (matchHost(hosts, at)) out.already++;
+    else {
+      try {
+        await addHost(origin, key, d.name, d.address, f, folder);
+        out.added++;
+      } catch (e) {
+        if (e instanceof TermixError && /API key/.test(e.message)) throw e;
+        out.failed.push(`${d.name || at}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    seen.add(at);
+    onStep?.(++done, todo.length);
+  }
+  return out;
+}
+
+/** The result in one sentence. */
+export function sendSummary(r: SendResult): string {
+  const parts = [`Added ${r.added} to Termix`];
+  if (r.already) parts.push(`${r.already} ${r.already === 1 ? 'was' : 'were'} already there`);
+  if (r.repeated) parts.push(`${r.repeated} shared an address with another device`);
+  if (r.failed.length) parts.push(`${r.failed.length} not added (${r.failed.slice(0, 2).join('; ')})`);
+  return parts.join('; ') + '.';
 }

@@ -1,7 +1,7 @@
 # ADR-0078: Termix beside Fathom — open a device's terminal, Fathom never connects
 
-**Status:** proposed 2026-10-27. Built on the recommended picks on sign-off card r43-termix
-so the owner can override them on the page; nothing merges until the owner says so.
+**Status:** accepted 2026-10-27. The owner approved sign-off card r43-termix with all three
+recommended picks (questions 1 to 3, A) and the "send a whole design" tick (decision 5).
 
 **Keeps** invariant 2 ("the application never touches a network device"), invariant 1 (no egress
 the operator did not configure), rule 4 and ADR-0042 (no credential leaves Fathom without being
@@ -29,7 +29,7 @@ Read from Termix's source at commit 73c15f7 (22 October 2026), on 27 October 202
 | Termix's API answers any origin, with `Authorization` allowed, unless its operator sets `CORS_ALLOWED_ORIGINS`; then only the listed origins. | `src/backend/utils/cors-config.ts` |
 | Bulk import (`/plugin-api/import-export/bulk-import`, 100 hosts a call) is a plugin's, not core's. | `Termix-SSH/Plugin-Import-Export`, `src/backend/routes.ts` |
 
-## Decided (the recommended picks; the owner can override each on the page)
+## Decided (the owner's answers on card r43-termix)
 
 1. **The browser talks to Termix; the server does not** (card r43-termix, question 1, A). The server
    would need its outbound HTTPS client for this, and that client and `ring` under it are allowed
@@ -53,6 +53,13 @@ Read from Termix's source at commit 73c15f7 (22 October 2026), on 27 October 202
    "Open in Termix". It finds the Termix host at that address (port 22 first), opens its terminal
    in a new tab, and when there is none offers "Add it to Termix" and then opens it.
 
+5. **Sending many devices at once** (card r43-termix, "Also build"). In Inventory › Devices, tick
+   rows (or "Select all matching") and press **Send N to Termix**. The browser lists Termix's hosts
+   once and adds each device Termix has no host for at that address, one at a time through the
+   same core route (Termix's bulk import is a plugin a Termix may not run), into the folder
+   `Fathom / <design>`. Devices without an address are not counted; two devices with one address
+   are sent once; a refused key stops the run, any other refusal is counted and the run goes on.
+
 ## Why invariant 2 still holds
 
 Fathom opens no connection to a device, from the server or the browser. The browser asks Termix
@@ -71,8 +78,7 @@ chose.
 
 ## Not built, and why
 
-- **Sending a whole design to Termix at once.** One device at a time first; a bulk send is the
-  obvious next step once the owner has used it (card r43-termix notes it).
+- **An "In Termix" column in Inventory.** Left unticked on the card.
 - **Server-side sync with an organisation-wide key** (option B on the shape card). It needs the
   owner to widen the outbound HTTPS exception, and a key that acts for everyone.
 - **Opening Termix inside Fathom.** `frame-src` stays closed; a new tab is enough.
