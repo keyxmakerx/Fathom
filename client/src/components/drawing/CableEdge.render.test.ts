@@ -137,6 +137,24 @@ describe('colour only the cable pointed at', () => {
   });
 });
 
+describe('the cable you point at stands out by its width alone', () => {
+  it('draws twice as thick, with no halo around it', () => {
+    const html = renderCable('physics', { litCableId: 'c1', litCableIdSet: new Set(['c1']) });
+    expect(html).toContain('* 2)');
+    expect(html).not.toContain('drawing-cable__halo');
+  });
+  it('keeps the normal width when nothing points at it', () => {
+    const html = renderCable('physics');
+    expect(html).not.toContain('* 2)');
+    expect(html).not.toContain('drawing-cable__halo');
+  });
+  it("keeps the pale halo on a cable \"It's down\" is checking", () => {
+    const html = renderCable('physics', {}, { troubleLit: true });
+    expect(html).toContain('drawing-cable__halo');
+    expect(html).not.toContain('* 2)');
+  });
+});
+
 describe('each end marks its port while the ports are too small to draw', () => {
   it('draws the two port boxes zoomed out, held at their size on screen', () => {
     const html = renderCable('physics', { showPortGlyphs: false });

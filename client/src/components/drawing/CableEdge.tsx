@@ -150,7 +150,10 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   // "Only the one I point at": every other cable draws plain until it is pointed at or selected.
   const plain = colourMode === 'pointed' && !lit && !hovered && data.troubleInk !== true;
   const colour = data.troubleInk === true ? 'var(--ink)' : plain ? 'var(--cable-plain)' : SHEATH_VAR[sheath];
-  const strokeWidth = STROKE_WIDTH_VAR(cable.kind);
+  // The cable you point at or select draws twice as thick with nothing around it (card 18, 27 October);
+  // the fading of everything else already marks it. "It's down" keeps its pale halo on the chain it checks.
+  const thick = litByHover && data.troubleLit !== true;
+  const strokeWidth = thick ? scaled(`(${BASE_WIDTH[cable.kind]} * 2)`) : STROKE_WIDTH_VAR(cable.kind);
   const { d, leads } = shape;
   // Faded: only the tips show until the cable is pointed at or selected; then all of it, at once.
   const faded = style === 'faded' && !lit && !hovered && data.troubleLit !== true;
@@ -206,7 +209,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
       {/* Everything that draws the cable sits in one group the top layer can repeat
           (`CableOverlayEdge.tsx`), so the cable being pointed at draws over the others. */}
       <g id={visualGroupId(cable.id)}>
-      {lit && (
+      {lit && !thick && (
         <path
           d={d}
           fill="none"
@@ -224,7 +227,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
           d={d}
           fill="none"
           stroke="var(--hairline)"
-          strokeWidth={scaled(`(${BASE_WIDTH[cable.kind]} + 2px)`)}
+          strokeWidth={scaled(`(${BASE_WIDTH[cable.kind]}${thick ? ' * 2' : ''} + 2px)`)}
           strokeLinecap="round"
         />
       )}
