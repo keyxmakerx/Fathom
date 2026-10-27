@@ -102,7 +102,7 @@ export function EstateImport({ organisationId, scopes, designScopeIds, onImporte
     <section className="estate-import" aria-label="Import from NetBox" data-testid="estate-import">
       <div className="home__section-head">
         <div className="home__label">Import from NetBox</div>
-        <button type="button" className="home__btn home__btn--small" onClick={onClose} disabled={busy !== null}>
+        <button type="button" className="home__btn btn-small" onClick={onClose} disabled={busy !== null}>
           Close
         </button>
       </div>

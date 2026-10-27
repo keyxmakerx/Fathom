@@ -67,7 +67,7 @@ function AnswerButtons({ step, index, controller }: { step: DraftStepState; inde
         <button
           key={a}
           type="button"
-          className={`trouble-btn${a === 'cant_tell' ? ' trouble-btn--quiet' : ''}`}
+          className={`trouble-btn${a === 'cant_tell' ? ' btn-quiet' : ''}`}
           aria-pressed={step.answer === a}
           aria-keyshortcuts={KEY_OF[a]}
           disabled={locked}
@@ -247,7 +247,7 @@ function Footer({ draft, controller }: { draft: Draft; controller: TroubleContro
   return (
     <>
       <div className="trouble-footer">
-        <button type="button" className="trouble-btn trouble-btn--ink" aria-disabled={!plan.ok} aria-describedby={plan.ok ? undefined : reasonId} onClick={() => void controller.planAFix()} data-testid="trouble-plan">
+        <button type="button" className="trouble-btn btn-main" aria-disabled={!plan.ok} aria-describedby={plan.ok ? undefined : reasonId} onClick={() => void controller.planAFix()} data-testid="trouble-plan">
           Plan a fix
         </button>
         {draft.savedId === null && (
@@ -381,7 +381,7 @@ export function TroublePanel({
   if (!controller.panelOpen) {
     return (
       <div className={`trouble-folded${besideChecks ? ' trouble-folded--beside-checks' : ''}${besidePlans ? ' trouble-folded--beside-plans' : ''}`} data-testid="trouble-folded">
-        <button ref={openBtn} type="button" className="trouble-btn trouble-btn--ink" onClick={() => controller.setPanelOpen(true)}>
+        <button ref={openBtn} type="button" className="trouble-btn btn-main" onClick={() => controller.setPanelOpen(true)}>
           Open "{title}"
         </button>
         <button type="button" className="trouble-btn" onClick={() => controller.close()}>

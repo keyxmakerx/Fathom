@@ -228,7 +228,7 @@ describe("a device's firmware row", () => {
     expect(out).toContain('Behind');
     expect(out).toContain('Plan a firmware upgrade');
     expect(out).toContain('Get a one-time link');
-    expect(out).toContain('fw-btn--quiet">Hold<');
+    expect(out).toContain('btn-quiet">Hold<');
   });
 
   it('shows a held device with its reason and a way to release it', () => {
@@ -242,7 +242,7 @@ describe("a device's firmware row", () => {
     const { doc, ids } = world();
     const out = render(api(doc, { canEdit: false, isSteward: false }), ids.sw1!);
     expect(out).toContain('Behind');
-    expect(out).not.toContain('fw-btn--quiet">Hold<');
+    expect(out).not.toContain('btn-quiet">Hold<');
     expect(out).not.toContain('Plan a firmware upgrade');
     expect(out).not.toContain('Get a one-time link');
   });

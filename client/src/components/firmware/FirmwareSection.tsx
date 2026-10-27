@@ -72,7 +72,7 @@ export function FirmwareSection({ deviceId, folded = false }: { deviceId: string
             {api.canEdit ? (
               <button
                 type="button"
-                className="fw-btn fw-btn--quiet"
+                className="fw-btn btn-quiet"
                 onClick={() => {
                   const r = api.setHold(deviceId, null);
                   setError(r ? r.refused : null);
@@ -83,7 +83,7 @@ export function FirmwareSection({ deviceId, folded = false }: { deviceId: string
             ) : null}
           </span>
         ) : api.canEdit && !holding ? (
-          <button type="button" className="fw-btn fw-btn--quiet" onClick={() => setHolding(true)}>
+          <button type="button" className="fw-btn btn-quiet" onClick={() => setHolding(true)}>
             Hold
           </button>
         ) : (
@@ -111,7 +111,7 @@ export function FirmwareSection({ deviceId, folded = false }: { deviceId: string
             {target ? 'Plan a firmware upgrade' : 'Choose a version first'}
           </button>
         ) : null}
-        <button type="button" className="fw-btn fw-btn--quiet" onClick={() => api.openModel(model)}>
+        <button type="button" className="fw-btn btn-quiet" onClick={() => api.openModel(model)}>
           Firmware page
         </button>
       </div>

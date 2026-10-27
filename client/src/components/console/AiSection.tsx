@@ -84,7 +84,7 @@ export function AiSection({ organisations }: { organisations: OrganisationRow[] 
             />
             <button
               type="button"
-              className={ai.allowed ? 'console__btn console__btn--danger' : 'console__btn'}
+              className={ai.allowed ? 'console__btn btn-danger' : 'console__btn btn-main'}
               disabled={busy || (ai.allowed && reason.trim() === '')}
               onClick={() => void act(() => setServerAi(!ai.allowed, reason.trim(), ai.version))}
             >
@@ -126,7 +126,7 @@ export function AiSection({ organisations }: { organisations: OrganisationRow[] 
                     </td>
                     <td>
                       {k.state === 'on' && (
-                        <button type="button" className="console__btn console__btn--quiet" onClick={() => setStopping(k)}>
+                        <button type="button" className="console__btn" onClick={() => setStopping(k)}>
                           Turn off
                         </button>
                       )}
@@ -155,13 +155,13 @@ export function AiSection({ organisations }: { organisations: OrganisationRow[] 
               <div className="console-ai__row">
                 <button
                   type="button"
-                  className="console__btn console__btn--danger"
+                  className="console__btn btn-danger"
                   disabled={busy || why.trim() === ''}
                   onClick={() => void act(() => disableAiKeyAsAdmin(stopping.organisation, stopping.id, why.trim()))}
                 >
                   Turn off now
                 </button>
-                <button type="button" className="console__btn console__btn--quiet" onClick={() => setStopping(null)}>
+                <button type="button" className="console__btn" onClick={() => setStopping(null)}>
                   Cancel
                 </button>
               </div>

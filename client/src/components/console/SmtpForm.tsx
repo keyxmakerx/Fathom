@@ -185,7 +185,7 @@ export function SmtpForm({ actingOperatorId }: SmtpFormProps) {
         disabled={busy}
         required
       />
-      <button type="submit" className="console__btn" disabled={busy || host.trim().length === 0}>
+      <button type="submit" className="console__btn btn-main" disabled={busy || host.trim().length === 0}>
         {busy ? 'Saving…' : 'Save the mail settings'}
       </button>
       {saved && (
@@ -194,7 +194,7 @@ export function SmtpForm({ actingOperatorId }: SmtpFormProps) {
             Saved as change <code>{saved.id}</code>, in effect at{' '}
             {new Date(saved.effectiveAtUnix * 1000).toLocaleString()}.
           </p>
-          <button type="button" className="console__btn console__btn--quiet" disabled={busy} onClick={test}>
+          <button type="button" className="console__btn" disabled={busy} onClick={test}>
             {busy ? 'Asking…' : 'Send a test to my own address'}
           </button>
         </>

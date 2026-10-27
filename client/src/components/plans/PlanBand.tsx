@@ -53,7 +53,7 @@ function NewPlanForm({ controller, onDone }: { controller: PlansController; onDo
       <input id={`${id}-s`} className="plans-input" type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} />
       <label htmlFor={`${id}-e`}>To</label>
       <input id={`${id}-e`} className="plans-input" type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} />
-      <button type="submit" className="plans-btn plans-btn--ink" disabled={title.trim() === '' || busy}>
+      <button type="submit" className="plans-btn btn-main" disabled={title.trim() === '' || busy}>
         Make plan
       </button>
       <button type="button" className="plans-btn" onClick={onDone}>

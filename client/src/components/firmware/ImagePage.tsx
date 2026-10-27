@@ -62,7 +62,7 @@ export function ImagePage({ api, rowKey, onOpenModel }: { api: FirmwareApi; rowK
               <span className="fw-mono" title={img.sha256 ?? undefined}>
                 {img.sha256 ?? 'not staged'}
               </span>{' '}
-              {img.sha256 ? <CopyButton text={img.sha256} label="Copy" className="fw-btn fw-btn--quiet" /> : null}
+              {img.sha256 ? <CopyButton text={img.sha256} label="Copy" className="fw-btn btn-quiet" /> : null}
               <div className="fw-muted">Fathom worked this out from the bytes it holds. Short form {shortHash(img.sha256)}.</div>
             </dd>
           </>

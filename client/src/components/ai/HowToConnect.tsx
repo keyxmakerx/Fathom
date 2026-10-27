@@ -38,7 +38,7 @@ function CopyLine({ text, testId, block }: { text: string; testId?: string; bloc
       {block ? <pre data-testid={testId}>{text}</pre> : <code data-testid={testId}>{text}</code>}
       <button
         type="button"
-        className="ai-btn ai-btn--small"
+        className="ai-btn btn-small"
         onClick={() => {
           void navigator.clipboard?.writeText(text).then(() => setCopied(true));
         }}
@@ -285,7 +285,7 @@ function HelperKey({
                 </p>
               )}
               <div className="ai-actions">
-                <button type="button" className="ai-btn ai-btn--primary" disabled={busy || clean === null || aiAccount === null} onClick={() => void make()}>
+                <button type="button" className="ai-btn btn-main" disabled={busy || clean === null || aiAccount === null} onClick={() => void make()}>
                   Make key
                 </button>
               </div>

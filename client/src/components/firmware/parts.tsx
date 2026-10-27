@@ -62,7 +62,7 @@ export function HoldForm({ onHold, onCancel }: { onHold: (reason: string) => str
       <button type="submit" className="fw-btn">
         Hold
       </button>
-      <button type="button" className="fw-btn fw-btn--quiet" onClick={onCancel}>
+      <button type="button" className="fw-btn btn-quiet" onClick={onCancel}>
         Cancel
       </button>
       {error ? (
@@ -109,13 +109,13 @@ export function LinkView({ link, detail }: { link: FetchLink; detail?: string })
       <div className="fw-link-box__row">
         <CopyButton text={link.url} label="Copy link" />
         {detail && !typing ? <CopyButton text={commandWithLink(detail, link.url)} label="Copy command" /> : null}
-        {all && !typing ? <CopyButton text={all} label="Copy all commands" className="fw-btn fw-btn--quiet" /> : null}
+        {all && !typing ? <CopyButton text={all} label="Copy all commands" className="fw-btn btn-quiet" /> : null}
       </div>
       <p className="fw-muted" role="status">
         {left > 0 ? `Works once, then expires: 15 minutes, until ${ends}.` : 'This link has expired. Get another.'} Fathom never logs in to the device.
       </p>
       <p className="fw-muted">
-        Expected SHA-256 <span className="fw-mono fw-hash">{link.sha256}</span> <CopyButton text={link.sha256} label="Copy" className="fw-btn fw-btn--quiet" />
+        Expected SHA-256 <span className="fw-mono fw-hash">{link.sha256}</span> <CopyButton text={link.sha256} label="Copy" className="fw-btn btn-quiet" />
       </p>
       {typing && (detail || steps.length > 0) ? (
         <div className="fw-link-box__typed">

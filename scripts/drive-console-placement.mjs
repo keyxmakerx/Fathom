@@ -720,7 +720,7 @@ async function main() {
   // The confirm button of the warning block, by structure: the two buttons
   // there are the move and the way back, and the quiet one is the way back.
   await page
-    .locator('.console__form:has(.console__warnlist) .console__row button:not(.console__btn--quiet)')
+   .locator('.console__form:has(.console__warnlist).console__row button.btn-main')
     .click();
   await page.waitForSelector('[data-testid="placement-countdown"]', { timeout: 15000 });
   const countdown = await page.locator('[data-testid="placement-countdown"]').innerText();

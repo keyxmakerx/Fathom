@@ -60,7 +60,7 @@ export function ByHandSteps({ way, os, couldNotEstablish = [] }: { way: ByHandWa
                   <CommandToType command={s.command} />
                 ) : (
                   <>
-                    <code className="fw-mono">{s.command}</code> <CopyButton text={s.command} label="Copy" className="fw-btn fw-btn--quiet" />
+                    <code className="fw-mono">{s.command}</code> <CopyButton text={s.command} label="Copy" className="fw-btn btn-quiet" />
                   </>
                 )}
               </span>

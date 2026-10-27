@@ -257,22 +257,6 @@
 
 /* --- shared controls ---------------------------------------------------- */
 
-.home__btn {
-  padding: var(--s1) var(--s3);
-  font-size: var(--t-small);
-  cursor: pointer;
-}
-
-.home__btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.home__btn--small {
-  padding: var(--s1) var(--s2);
-  font-size: var(--t-micro);
-}
-
 /* Designs · Organisation · Admin (ADR-0060 decision 7), drawn like the bar's
    own place tabs. */
 .home-tabs {

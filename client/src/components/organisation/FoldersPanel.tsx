@@ -40,11 +40,11 @@ export function FoldersPanel({ organisationName, scopes, onCreateScope, scopeFor
     <section className="home__section">
       <div className="home__section-head">
         <div className="home__label">Folders</div>
-        <button type="button" className="home__btn home__btn--small" onClick={() => onCreateScope(null, organisationName, 'site')}>
+        <button type="button" className="home__btn btn-small" onClick={() => onCreateScope(null, organisationName, 'site')}>
           New site
         </button>
         {estate && !importing && (
-          <button type="button" className="home__btn home__btn--small" onClick={() => setImporting(true)}>
+          <button type="button" className="home__btn btn-small" onClick={() => setImporting(true)}>
             Import from NetBox
           </button>
         )}
@@ -104,14 +104,14 @@ export function FoldersPanel({ organisationName, scopes, onCreateScope, scopeFor
                   <span className={`home-folders__role${scope.placeRole === 'hub' ? ' home-folders__role--hub' : ''}`}>{role}</span>
                 )}
                 {steward && onSetPlace && editing !== scope.scopeId && (
-                  <button type="button" className="home__btn home__btn--small home-folders__place-btn" onClick={() => setEditing(scope.scopeId)}>
+                  <button type="button" className="home__btn btn-small home-folders__place-btn" onClick={() => setEditing(scope.scopeId)}>
                     {takesRole(scope.kind) ? 'Kind and role' : 'Kind of room'}
                   </button>
                 )}
                 {steward && child && (
                   <button
                     type="button"
-                    className="home__btn home__btn--small"
+                    className="home__btn btn-small"
                     onClick={() => onCreateScope(scope.scopeId, scope.displayName, child)}
                   >
                     New {child}
@@ -212,10 +212,10 @@ function PlaceEditor({ scope, onSave, onCancel }: PlaceEditorProps) {
       }}
     >
       <PlaceFields kind={scope.kind} place={place} onChange={setPlace} idPrefix={`place-${scope.scopeId}`} />
-      <button type="submit" className="home__btn home__btn--small" disabled={busy}>
+      <button type="submit" className="home__btn btn-small" disabled={busy}>
         {busy ? 'Saving…' : 'Save'}
       </button>
-      <button type="button" className="home__btn home__btn--small" onClick={onCancel} disabled={busy}>
+      <button type="button" className="home__btn btn-small" onClick={onCancel} disabled={busy}>
         Cancel
       </button>
       {takesRole(scope.kind) && <p className="home__muted home-folders__place-note">Fathom never decides a hub for you: it is what you set here.</p>}

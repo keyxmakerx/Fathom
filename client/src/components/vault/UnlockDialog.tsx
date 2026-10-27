@@ -62,7 +62,7 @@ export function UnlockDialog({ organisation, overview, onDone, onClose }: { orga
           </p>
         )}
         <div className="vault-actions">
-          <button type="submit" className="vault-btn vault-btn--solid" disabled={busy || passphrase.length === 0 || (useKit && kit.trim() === '')} data-testid="vault-unlock-go">
+          <button type="submit" className="vault-btn btn-main" disabled={busy || passphrase.length === 0 || (useKit && kit.trim() === '')} data-testid="vault-unlock-go">
             {busy ? 'Unlocking…' : 'Unlock'}
           </button>
           <button type="button" className="vault-btn" onClick={onClose}>
