@@ -1,4 +1,4 @@
--- 0050 -- May an AI connection change designs (ADR-0073 decision 1; owner's answer on sign-off
+-- 0050 -- May an AI connection change designs (ADR-0077 decision 1; owner's answer on sign-off
 -- card r41-ai-write, 2026-10-27: option B, "per user and per org ... I was thinking both").
 --
 -- Two ticks, both off by default, both needed: the organisation's (`ai_policies.may_change`,

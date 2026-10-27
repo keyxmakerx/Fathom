@@ -1,4 +1,4 @@
-//! **An AI connection changes a design** (ADR-0073).
+//! **An AI connection changes a design** (ADR-0077).
 //!
 //! `change_design` takes the version the AI read, a one-line summary and a list of
 //! operations, and turns them into one `fathom-change 1` batch that the server applies

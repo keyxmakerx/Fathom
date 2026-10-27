@@ -2007,7 +2007,7 @@ pub async fn write_change_in_tx(
     if current == 0 {
         return Err(DesignError::NoSuchVersion);
     }
-    // An AI's change never merges over a person's (ADR-0073 decision 6): it must follow
+    // An AI's change never merges over a person's (ADR-0077 decision 6): it must follow
     // the very version it read. A browser's may follow an older one and be merged.
     if after > current || (exactly_after && after != current) {
         return Err(DesignError::ChangeAhead { after, current });

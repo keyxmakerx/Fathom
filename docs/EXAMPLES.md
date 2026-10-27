@@ -101,7 +101,7 @@ Set `FATHOM_FIRMWARE_FETCH_BASE_URL` first (`docs/RUNNING-IT.md`); firmware is o
 
 An AI app reads designs you can read, in one organisation, and sends ideas a person accepts. It never
 sees passwords or the vault, and it changes a design only where both your organisation and you said it
-may (ADR-0072, ADR-0073).
+may (ADR-0072, ADR-0077).
 
 First, once per organisation: a Steward opens **Organisation › AI**, ticks **AI access allowed**, adds
 the people who may connect under **Who may connect AI apps**, and presses **Save**.

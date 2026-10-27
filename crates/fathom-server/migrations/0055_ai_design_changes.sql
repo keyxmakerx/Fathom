@@ -1,4 +1,4 @@
--- 0051 -- Which changes to a design an AI connection made (ADR-0073 decisions 5, 7 and 8).
+-- 0051 -- Which changes to a design an AI connection made (ADR-0077 decisions 5, 7 and 8).
 --
 -- One row per change an AI connection made through `change_design`: the design, the batch,
 -- the version it became, how many operations it held, and when. The change itself is the

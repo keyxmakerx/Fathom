@@ -147,7 +147,7 @@ pub enum AiError {
         index: usize,
         why: String,
     },
-    /// An AI's change named a version the design has moved on from (ADR-0073 decision 6).
+    /// An AI's change named a version the design has moved on from (ADR-0077 decision 6).
     Moved {
         read: i64,
         current: i64,
@@ -476,7 +476,7 @@ pub struct Policy {
     pub second_person_scopes: Vec<String>,
     /// Which of [`APPS`] may connect through the sign-in.
     pub apps: Vec<String>,
-    /// Whether a connection here may change designs at all (ADR-0073 decision 1).
+    /// Whether a connection here may change designs at all (ADR-0077 decision 1).
     pub may_change: bool,
     pub changed_by: Option<String>,
     pub changed_unix: Option<i64>,
@@ -709,7 +709,7 @@ pub struct AiKey {
     pub ai_account: Option<String>,
     /// The owner's Fathom sign-in email, for the people who look after the organisation.
     pub owner_email: String,
-    /// The connection's own "May change designs" tick (ADR-0073 decision 1).
+    /// The connection's own "May change designs" tick (ADR-0077 decision 1).
     pub may_change: bool,
 }
 
@@ -1248,7 +1248,7 @@ pub struct NewKey {
     pub scopes: Vec<String>,
     pub sees: Vec<String>,
     pub may_recommend: bool,
-    /// Ticked "May change designs" (ADR-0073 decision 1).
+    /// Ticked "May change designs" (ADR-0077 decision 1).
     pub may_change: bool,
     pub days: i32,
 }
@@ -1301,7 +1301,7 @@ pub struct NewConnector {
     pub scopes: Vec<String>,
     pub sees: Vec<String>,
     pub may_recommend: bool,
-    /// Ticked "May change designs" (ADR-0073 decision 1).
+    /// Ticked "May change designs" (ADR-0077 decision 1).
     pub may_change: bool,
     pub days: i32,
 }
@@ -2227,7 +2227,7 @@ pub fn tiers(key: &AiKey, policy: &Policy) -> BTreeSet<Tier> {
 }
 
 /// Whether this connection may change designs now: its own tick and its organisation's
-/// (ADR-0073 decision 1).
+/// (ADR-0077 decision 1).
 pub fn may_change(session: &AiSession) -> bool {
     session.key.may_change && session.policy.may_change
 }

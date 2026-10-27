@@ -8,7 +8,7 @@
 //! - `whoami`, `list_designs`, `read_design`, `list_recommendations`: reads;
 //! - `recommend`: an idea a person accepts or dismisses in Fathom;
 //! - `change_design`: a change made at once, listed only for a connection that both its
-//!   organisation and its owner let change designs (ADR-0073).
+//!   organisation and its owner let change designs (ADR-0077).
 //!
 //! What the transport needs (MCP "Transports", 2025-11-25, read 2026-10-25):
 //!

@@ -789,7 +789,7 @@ const TABLES: &[TableClaim] = &[
     TableClaim {
         name: "ai_design_changes",
         protection: Protection::NoKeyProtectedMaterial,
-        why: "that an AI connection made a change to a design (ADR-0073): the design, batch and \
+        why: "that an AI connection made a change to a design (ADR-0077): the design, batch and \
               version, the connection and its owner, how many operations and when. No text: \
               the summary is the batch label inside the sealed change.",
     },

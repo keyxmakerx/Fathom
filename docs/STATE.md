@@ -608,7 +608,7 @@ idea into a draft maintenance plan with no edits in it and accepts the idea (ADR
 reading includes maintenance plans and "It's down" issues, without who wrote them or a step's stored edit.
 Both connect pages warn against a personal AI account; Fathom cannot check which account it is (decision
 23), so Allow and Make key ask for it, and Stewards and Admin › AI see it with the owner's sign-in address
-(decision 24, migration 0049). ADR-0073 (proposed, being built on PR #217): an AI connection may change
+(decision 24, migration 0049). ADR-0077 (proposed, being built on PR #217): an AI connection may change
 designs only with two ticks, Organisation › AI's "AI apps may change designs" and the connection's own
 "May change designs" at Allow, Make key or later by its owner (migration 0050). Steps 1 to 3 are built: the
 ticks and screens, and `change_design` (`POST /ai/v1/designs/{d}/changes`, the Claude tool and the
@@ -619,7 +619,7 @@ place still holding things or anything holding what the AI cannot see, refused i
 folders, every string through the server's gate. The reading lists what may be added under
 `mayChange`. History marks it "AI (<connection>), for <person>" from `ai_design_changes` (migration
 0051). Not yet: Undo of an AI change by someone other than its owner (History's Restore does it), and
-merging, which waits on the owner (the sweep is in ADR-0073). Not yet: dashed "would be added"
+merging, which waits on the owner (the sweep is in ADR-0077). Not yet: dashed "would be added"
 rows and marks on the drawing itself.
 
 **Device panel** (r14 A1, A2): Details, Ports and Notes tabs, actions at the foot (Duplicate the main one,

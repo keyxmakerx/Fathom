@@ -2324,7 +2324,7 @@ async fn a_refresh_token_works_once_and_the_steward_can_stop_any_app() {
     assert!(overview.contains("\"kind\":\"connector\""), "{overview}");
 }
 
-/// ADR-0073 decision 1: a connection may change designs only with both ticks. The
+/// ADR-0077 decision 1: a connection may change designs only with both ticks. The
 /// organisation's is a Steward's; a connection asks for its own and is refused without the
 /// organisation's; a Steward narrows it but never widens it; the organisation's tick off
 /// stops anyone widening.
@@ -2506,7 +2506,7 @@ fn a_change(version: i64, summary: &str, ops: Vec<(&str, &str, Json)>) -> Vec<u8
     ])
 }
 
-/// ADR-0073 decisions 1 to 9, step 2: with both ticks a connection sets a field it may
+/// ADR-0077 decisions 1 to 9, step 2: with both ticks a connection sets a field it may
 /// read, as one change in its owner's name and marked as an AI's. It is refused against a
 /// version the design has moved on from, for a field outside its tiers, for a value that
 /// looks like a secret (naming the operation, never the value), in a second-person folder,
@@ -2760,7 +2760,7 @@ async fn an_ai_change_is_one_change_in_its_owners_name_and_only_within_both_tick
     assert_eq!(obj(&body).get("readOnly"), Some(&Json::Bool(true)));
 }
 
-/// ADR-0073 step 3: in one change an AI adds a device under a name it chose, sets its
+/// ADR-0077 step 3: in one change an AI adds a device under a name it chose, sets its
 /// fields, and removes the one that was there; the reading shows both, the answer says
 /// what the name became, and History marks the one change.
 #[tokio::test]
@@ -2866,7 +2866,7 @@ async fn an_ai_adds_and_removes_in_one_change_and_names_what_it_added() {
     assert_eq!(text(&body).matches("\"via_ai\"").count(), 1);
 }
 
-/// ADR-0073 decision 2, from the sweep: a connection lends no more than its owner holds.
+/// ADR-0077 decision 2, from the sweep: a connection lends no more than its owner holds.
 /// Both ticks on, but the owner may only read the folder: the change is refused as the
 /// owner's own would be, and the design does not move.
 #[tokio::test]

@@ -1,4 +1,4 @@
-# ADR-0073: An AI connection may change a design, when the organisation and the person both say so
+# ADR-0077: An AI connection may change a design, when the organisation and the person both say so
 
 **Status:** proposed 2026-10-27. The owner approved sign-off card r41-ai-write, option B ("A 'May
 change designs' tick on a connection, off by default"), and answered its question in a note:

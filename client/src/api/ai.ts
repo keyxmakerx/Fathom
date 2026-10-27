@@ -26,7 +26,7 @@ export interface AiPolicy {
   maxDays: number;
   secondPersonScopes: string[];
   apps: App[];
-  /** The organisation's tick: AI apps may change designs (ADR-0073 decision 1). */
+  /** The organisation's tick: AI apps may change designs (ADR-0077 decision 1). */
   mayChange: boolean;
   changedBy: string | null;
   changedAt: number | null;

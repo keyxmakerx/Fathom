@@ -12,7 +12,7 @@ export interface HistoryEntry {
   atUnix: number;
   /** The account that saved; `null` when the entry's metadata would not read. */
   actor: string | null;
-  /** The AI connection that made this change in the actor's name (ADR-0073), by its label. */
+  /** The AI connection that made this change in the actor's name (ADR-0077), by its label. */
   viaAi: string | null;
 }
 

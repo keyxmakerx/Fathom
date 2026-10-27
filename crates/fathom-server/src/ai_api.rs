@@ -299,7 +299,7 @@ async fn change_handler(
     ))
 }
 
-/// One AI change, start to finish (ADR-0073): its own transaction, then the head and every
+/// One AI change, start to finish (ADR-0077): its own transaction, then the head and every
 /// open browser told, as a browser's change is (`design_api::post_change_handler`).
 pub async fn change_design(
     state: &AiApiState,

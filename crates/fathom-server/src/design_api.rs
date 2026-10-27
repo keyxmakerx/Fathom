@@ -3441,7 +3441,7 @@ async fn history_handler(
         let design_version: Option<i64> = row.get(3);
         let actor: Option<String> = row.get(4);
         let at_unix: i64 = row.get(5);
-        // ADR-0073 decision 5: the connection an AI made this change through, by its label.
+        // ADR-0077 decision 5: the connection an AI made this change through, by its label.
         let via_ai: Option<String> = row.get(6);
         let entry_type = chain::StoredEntryType::from_column(&entry_type_text);
 
