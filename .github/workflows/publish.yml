@@ -25,9 +25,12 @@
 # stops a push to main from publishing an image while ci.yml is still running or
 # has already failed. `needs:` does not reach across workflow files. Rather than
 # wire up a workflow_run dependency -- which is easy to get subtly wrong and
-# fails open -- the floor runs inline, before the image is built. It costs about
-# a minute, on merges only, and it buys a property worth stating plainly:
-# NO IMAGE IS EVER PUBLISHED THAT DID NOT PASS THE FLOOR.
+# fails open -- the floor runs inline, before the image is built. It buys a
+# property worth stating plainly: NO IMAGE IS EVER PUBLISHED THAT DID NOT PASS
+# THE FLOOR. It is not "about a minute" any more: run serially it took nineteen
+# of this workflow's twenty-five minutes (run 40358347519, 2026-10-26), so it
+# runs the test binaries side by side, each server binary on a database of its
+# own, as ci.yml does (scripts/ci/parallel-tests.sh). The same tests, sooner.
 #
 # ---------------------------------------------------------------------------
 # WHY EVERY ACTION IS PINNED TO A COMMIT SHA
@@ -87,6 +90,10 @@ env:
   BACKUP_IMAGE: ghcr.io/keyxmakerx/fathom-backup
   # ADR-0071 part four: the optional Passbolt helper, pulled only by the compose `passbolt` profile.
   PASSBOLT_IMAGE: ghcr.io/keyxmakerx/fathom-passbolt-helper
+  # As in ci.yml: no debugger and no second build, so neither is worth writing.
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
 
 concurrency:
   # A second merge should supersede the first rather than race it to `latest`.
@@ -137,7 +144,7 @@ jobs:
         env:
           DATABASE_URL: postgres://fathom_app:fathom_app_pw@127.0.0.1:5432/fathom_test
           FATHOM_MIGRATE_DATABASE_URL: postgres://fathom_test:fathom_test_pw@127.0.0.1:5432/fathom_test
-        run: cargo test --workspace --locked
+        run: ./scripts/ci/parallel-tests.sh
 
       - name: Schema gates
         run: cargo run --locked -p fathom-schema --bin fathom-schema-check
