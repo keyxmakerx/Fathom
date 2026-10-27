@@ -3,6 +3,7 @@
  * Inventory's "Mine" views) — never a document field. */
 import { LAYER_IDS, parseLayers, type LayerSet } from './layers';
 import type { Look } from './look';
+import { loadJsonPref, saveJsonPref } from '../../prefs';
 
 export interface ViewCamera {
   x: number;
@@ -52,21 +53,11 @@ export function parseViews(raw: unknown): SavedView[] {
 }
 
 export function loadViews(accountId: string | null, designId: string | undefined): SavedView[] {
-  try {
-    const raw = localStorage.getItem(viewsKey(accountId, designId));
-    if (raw != null) return parseViews(JSON.parse(raw));
-  } catch {
-    // storage unavailable or damaged: none saved
-  }
-  return [];
+  return loadJsonPref(viewsKey(accountId, designId), parseViews, []);
 }
 
 export function saveViews(accountId: string | null, designId: string | undefined, views: readonly SavedView[]): void {
-  try {
-    localStorage.setItem(viewsKey(accountId, designId), JSON.stringify(views));
-  } catch {
-    // not remembered
-  }
+  saveJsonPref(viewsKey(accountId, designId), views);
 }
 
 export function newViewId(now: number = Date.now()): string {

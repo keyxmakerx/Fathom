@@ -87,6 +87,7 @@ import { VaultPlaceContext } from '../vault/useVault';
 import { LabelsPreview } from '../../print/LabelsPreview';
 import { isLabelListKind, labelItems, storeLabel, type LabelItem } from '../../print/labels';
 import { isStoreId, storeById } from '../../document/stock';
+import { loadJsonPref, saveJsonPref } from '../../prefs';
 
 const EMPTY_VIEW: ClosetView = { premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [], free: [], lines: [], labels: [] };
 const EMPTY_NETWORKS_DERIVED: NetworksDerived = { vlanRows: [], subnetRows: [], dockerNetworkRows: [], dockerUnattachedContainers: [] };
@@ -142,21 +143,11 @@ function columnPrefsKey(kind: Kind): string {
 }
 
 function loadColumnPrefs(kind: Kind): string[] | null {
-  try {
-    const raw = window.localStorage.getItem(columnPrefsKey(kind));
-    const parsed: unknown = raw ? JSON.parse(raw) : null;
-    return Array.isArray(parsed) && parsed.every((x) => typeof x === 'string') ? (parsed as string[]) : null;
-  } catch {
-    return null;
-  }
+  return loadJsonPref(columnPrefsKey(kind), (raw) => (Array.isArray(raw) && raw.every((x) => typeof x === 'string') ? (raw as string[]) : null), null);
 }
 
 function saveColumnPrefs(kind: Kind, keys: string[]): void {
-  try {
-    window.localStorage.setItem(columnPrefsKey(kind), JSON.stringify(keys));
-  } catch {
-    // Storage can be blocked; the choice then lasts only this visit.
-  }
+  saveJsonPref(columnPrefsKey(kind), keys);
 }
 
 /**

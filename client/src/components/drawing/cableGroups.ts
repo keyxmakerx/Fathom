@@ -30,6 +30,7 @@ import { cablesForVlan, deriveNetworks } from '../../document/networks-derive';
 import { listTags, objectsInTagGroupByNodeId, tagGroupByNodeId } from '../../document/tags';
 import type { FixtureView } from '../../document/view';
 import type { CableView, ClosetView } from './contract';
+import { loadJsonPref, readPref, saveJsonPref, writePref } from '../../prefs';
 
 // ---------------------------------------------------------------------------
 // Type groups.
@@ -139,25 +140,14 @@ function isStoredCableGroupsState(v: unknown): v is StoredCableGroupsState {
  * throw on some engines, none of them a reason the list should fail to
  * open. */
 export function loadCableGroupsState(designId: string): StoredCableGroupsState | null {
-  try {
-    const raw = localStorage.getItem(storageKey(designId));
-    if (raw == null) return null;
-    const parsed: unknown = JSON.parse(raw);
-    return isStoredCableGroupsState(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
+  return loadJsonPref(storageKey(designId), (raw) => (isStoredCableGroupsState(raw) ? raw : null), null);
 }
 
 /** Best-effort only: a save that fails leaves whatever was already stored
  * rather than throwing out of a click handler. Never a document fact — this
  * key is never sent to the server and never enters undo. */
 export function saveCableGroupsState(designId: string, state: StoredCableGroupsState): void {
-  try {
-    localStorage.setItem(storageKey(designId), JSON.stringify(state));
-  } catch {
-    // best effort only
-  }
+  saveJsonPref(storageKey(designId), state);
 }
 
 // ---------------------------------------------------------------------------
@@ -244,13 +234,9 @@ type OldVisibility = (typeof OLD_VISIBILITY_VALUES)[number];
  * browser, not once per design: a design opened after the first read finds
  * the key already gone and starts at the plain default. */
 function takeOldVisibilityOnce(): OldVisibility | null {
-  try {
-    const raw = localStorage.getItem(OLD_VISIBILITY_KEY);
-    localStorage.removeItem(OLD_VISIBILITY_KEY);
-    return raw != null && (OLD_VISIBILITY_VALUES as readonly string[]).includes(raw) ? (raw as OldVisibility) : null;
-  } catch {
-    return null;
-  }
+  const raw = readPref(OLD_VISIBILITY_KEY);
+  writePref(OLD_VISIBILITY_KEY, null);
+  return raw != null && (OLD_VISIBILITY_VALUES as readonly string[]).includes(raw) ? (raw as OldVisibility) : null;
 }
 
 /** The one-time migration, run when nothing is stored yet for a design: a

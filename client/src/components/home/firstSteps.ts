@@ -3,6 +3,7 @@
 // list unticked. A step ticks from what a design holds, read when the person has it open; in a sample design only
 // what the person does there counts (a paste, a trace), never what the sample came with.
 import { parseEdgeId, parseNodeId, type Document } from '../../document/model';
+import { saveJsonPref } from '../../prefs';
 
 export type StepId = 'device' | 'place' | 'paste' | 'cable' | 'trace';
 
@@ -55,11 +56,7 @@ export function loadFirstSteps(accountId: string | null | undefined): FirstSteps
 }
 
 function save(accountId: string | null | undefined, state: FirstStepsState): void {
-  try {
-    localStorage.setItem(key(accountId), JSON.stringify(state));
-  } catch {
-    // Storage refused: the list still shows, it just will not remember.
-  }
+  saveJsonPref(key(accountId), state);
 }
 
 export function setFirstStepsHidden(accountId: string | null | undefined, hidden: boolean): FirstStepsState {

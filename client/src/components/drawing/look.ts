@@ -1,3 +1,4 @@
+import { readPref, writePref } from '../../prefs';
 /** The look switch (ADR-0061 round 7): Rack draws faceplates and dressed
  * cables, Diagram draws plain boxes and square lines. Each person's choice is
  * kept in this browser per account and design — never a document field, never
@@ -21,19 +22,10 @@ function keyFor(accountId: string | null, designId: string | undefined): string 
 
 /** Best effort: private mode or a blocked store gives the default. */
 export function loadLook(accountId: string | null, designId: string | undefined): Look {
-  try {
-    const raw = localStorage.getItem(keyFor(accountId, designId));
-    if (isLook(raw)) return raw;
-  } catch {
-    // storage unavailable: the default is the honest fallback
-  }
-  return DEFAULT_LOOK;
+  const raw = readPref(keyFor(accountId, designId));
+  return isLook(raw) ? raw : DEFAULT_LOOK;
 }
 
 export function saveLook(accountId: string | null, designId: string | undefined, look: Look): void {
-  try {
-    localStorage.setItem(keyFor(accountId, designId), look);
-  } catch {
-    // best effort only
-  }
+  writePref(keyFor(accountId, designId), look);
 }

@@ -1,3 +1,4 @@
+import { loadJsonPref, saveJsonPref } from '../../prefs';
 /** "Pick up where you left off": per person, per design, kept in this browser (never a document
  * field), next to `drawing/layers.ts`'s key scheme. The camera, which right-hand tab was open,
  * whether Equipment was open, whether the person has closed Equipment once (so an empty design stops
@@ -56,24 +57,14 @@ export function parseResume(raw: unknown): Resume {
 }
 
 export function loadResume(accountId: string | null, designId: string | undefined): Resume {
-  try {
-    const raw = localStorage.getItem(resumeKey(accountId, designId));
-    if (raw != null) return parseResume(JSON.parse(raw));
-  } catch {
-    // storage unavailable or damaged: start fresh
-  }
-  return EMPTY_RESUME;
+  return loadJsonPref(resumeKey(accountId, designId), parseResume, EMPTY_RESUME);
 }
 
 /** Changes some of what is remembered and leaves the rest. Best effort. */
 export function patchResume(accountId: string | null, designId: string | undefined, patch: Partial<Resume>): void {
   if (designId == null) return;
-  try {
-    const next: Resume = { ...loadResume(accountId, designId), ...patch };
-    localStorage.setItem(resumeKey(accountId, designId), JSON.stringify(next));
-  } catch {
-    // not remembered
-  }
+  const next: Resume = { ...loadResume(accountId, designId), ...patch };
+  saveJsonPref(resumeKey(accountId, designId), next);
 }
 
 /** Is the stored camera worth restoring: does it still show any of what is drawn? Without this a
