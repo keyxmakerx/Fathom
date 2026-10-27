@@ -95,6 +95,9 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   // cable's edge — ahead of the `!data` guard below so these hooks always run.
   const litCableId = useLive((s) => s.litCableId);
   const style = useLive((s) => s.cableStyle);
+  const colourMode = useLive((s) => s.cableColour);
+  // Zoomed out, where the ports themselves are not drawn, each end marks its own port.
+  const portsHidden = useLive((s) => !s.showPortGlyphs);
   const hovered = useLive((s) => (data ? s.hoveredCableId === data.cable.id : false));
   const store = useLiveStore();
   const rf = useReactFlow();
@@ -144,7 +147,9 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
   // The cable under the pointer never dims, even beside a selected one: it draws on top instead.
   const dimmed = data.checksFaded !== true && ((litCableId != null && !lit && !hovered) || offKey);
   const sheath = cable.sheath ?? 'grey';
-  const colour = data.troubleInk === true ? 'var(--ink)' : SHEATH_VAR[sheath];
+  // "Only the one I point at": every other cable draws plain until it is pointed at or selected.
+  const plain = colourMode === 'pointed' && !lit && !hovered && data.troubleInk !== true;
+  const colour = data.troubleInk === true ? 'var(--ink)' : plain ? 'var(--cable-plain)' : SHEATH_VAR[sheath];
   const strokeWidth = STROKE_WIDTH_VAR(cable.kind);
   const { d, leads } = shape;
   // Faded: only the tips show until the cable is pointed at or selected; then all of it, at once.
@@ -233,6 +238,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
       ) : (
         <path d={d} fill="none" stroke={colour} strokeWidth={strokeWidth} strokeLinecap="round" strokeDasharray={dashArray} {...pull} />
       )}
+      {portsHidden && data.ends?.map((end, i) => (end != null ? <PortPip key={`pip-${i}`} end={end} colour={colour} /> : null))}
       {style === 'tied' && data.ties?.map((t, i) => (
         <line key={i} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} className="drawing-cable__tie" />
       ))}
@@ -315,6 +321,16 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, data }: EdgeProp
           ))}
         </EdgeLabelRenderer>
       )}
+    </g>
+  );
+}
+
+/** Where a cable meets its device while the ports are too small to draw: the port's own box, in the
+ * cable's colour, held at its 100% size on screen so you can still see which port it is. */
+function PortPip({ end, colour }: { end: PortPoint; colour: string }) {
+  return (
+    <g style={{ transform: `translate(${end.x + end.w / 2}px, ${end.y + end.h / 2}px) scale(var(--cable-k, 1))` }} className="drawing-cable__pip">
+      <rect x={-end.w / 2} y={-end.h / 2} width={end.w} height={end.h} fill={colour} stroke="var(--ink)" strokeWidth={0.6} />
     </g>
   );
 }

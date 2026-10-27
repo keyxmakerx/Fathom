@@ -59,6 +59,8 @@ export function BundleEdge({ sourceX, sourceY, targetX, targetY, data }: EdgePro
       : false,
   );
   const style = useLive((s) => s.cableStyle);
+  const colourMode = useLive((s) => s.cableColour);
+  const bundleLit = useLive((s) => (data ? data.bundle.members.some((m) => s.litCableIdSet.has(m.id)) : false));
   const pointedAt = useLive((s) => (data ? data.bundle.members.some((m) => m.id === s.hoveredCableId) : false));
   if (!data) return null;
   const { bundle, fanned, onFan } = data;
@@ -75,7 +77,8 @@ export function BundleEdge({ sourceX, sourceY, targetX, targetY, data }: EdgePro
   const count = bundle.members.length;
   // One shared sheath draws the band in it (Zoom B); a mix draws grey.
   const sheaths = new Set(bundle.members.map((m) => m.sheath ?? 'grey'));
-  const bandColour = data.troubleInk === true ? 'var(--ink)' : sheaths.size === 1 ? SHEATH_VAR[[...sheaths][0]!] : 'var(--sheath-grey)';
+  const plain = colourMode === 'pointed' && !pointedAt && !bundleLit && data.troubleInk !== true;
+  const bandColour = data.troubleInk === true ? 'var(--ink)' : plain ? 'var(--cable-plain)' : sheaths.size === 1 ? SHEATH_VAR[[...sheaths][0]!] : 'var(--sheath-grey)';
   const width = BAND_BASE_WIDTH_PX + BAND_WIDTH_PER_MEMBER_PX * (count - 1);
   const mid = pointAlong(shape.points, polylineLength(shape.points) / 2);
   const midX = mid.x;

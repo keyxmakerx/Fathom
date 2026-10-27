@@ -91,7 +91,7 @@
    dragged (`.dragging`, React Flow's own class) so a live drag never lags
    behind the pointer. */
 .drawing .react-flow__node:not(.dragging) {
-  transition: transform var(--m-pane) var(--m-ease);
+  transition: transform var(--m-pane) var(--m-ease), opacity var(--m-pane) var(--m-ease);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -912,6 +912,20 @@
    cable eases; the rest of the run stays as a ghost you can just see. */
 .drawing .drawing-cable.drawing-cable--faded {
   transition: none;
+}
+
+/* A cable pointed at or selected draws once more above the devices (`CableTopLayer`), and
+   every piece of equipment not on its path dims, as the other cables already do. */
+.drawing-cable-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.drawing[data-cable-focus] .react-flow__node:not(:has([data-lit-path])) {
+  opacity: 0.35;
 }
 
 .drawing-cable__ghost {

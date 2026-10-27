@@ -4,7 +4,7 @@
 import type { ReactNode } from 'react';
 
 import { DIAGRAM_STYLES, DIAGRAM_STYLE_LABEL } from '../drawing/diagramStyle';
-import { CABLE_STYLES, CABLE_STYLE_HINT, CABLE_STYLE_LABEL } from '../drawing/cableStyle';
+import { CABLE_COLOURS, CABLE_COLOUR_LABEL, CABLE_STYLES, CABLE_STYLE_HINT, CABLE_STYLE_LABEL } from '../drawing/cableStyle';
 import { LAYERS } from '../drawing/layers';
 import { LENSES_IN, LENS_LABEL, type Lens } from './lens';
 import { Popover } from './Popover';
@@ -177,6 +177,26 @@ export function LayersMenu({ layers, look, extra }: LayersMenuProps) {
             ))}
             </span>
             <p className="shell-show__hint" data-testid="cable-style-hint">{CABLE_STYLE_HINT[layers.cables.value]}</p>
+          </div>
+        )}
+        {layers.cables?.colour != null && (
+          <div className="shell-show__style" role="group" aria-label="Cable colour">
+            <span className="shell-show__head">Cable colour</span>
+            <span className="btn-group">
+            {CABLE_COLOURS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                role="menuitemradio"
+                aria-checked={layers.cables!.colour!.value === c}
+                className={layers.cables!.colour!.value === c ? 'shell-lens shell-lens--on' : 'shell-lens'}
+                data-testid={`cable-colour-${c}`}
+                onClick={() => layers.cables!.colour!.onChange(c)}
+              >
+                {CABLE_COLOUR_LABEL[c]}
+              </button>
+            ))}
+            </span>
           </div>
         )}
         {extra}

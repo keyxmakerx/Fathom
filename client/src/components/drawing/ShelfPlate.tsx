@@ -14,6 +14,7 @@ import type { LiveDrag } from './ChassisNode';
 import { shelfOccupantFaceplateItems, type Facing } from './elevation';
 import { U_PX, glyphScaleBudgetCap } from './geometry';
 import { useLive } from './liveStore';
+import { LitPathMark } from './CableOverlayEdge';
 import { portKindFor } from './portGlyph';
 import { isLoosePort, portHandleFlags } from './missingLinks';
 import { SHEATH_VAR } from './sheath';
@@ -371,7 +372,10 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
     // `ChassisNode.tsx`'s own `__bundle__` handle uses, so a bundled cable
     // can still anchor to "the shelf" as a whole at the closet stop even
     // before a per-occupant handle is resolvable.
-    <Handle type="source" position={Position.Left} id="__bundle__" className="drawing-shelf__bundle-handle nodrag" />
+    <>
+      <Handle type="source" position={Position.Left} id="__bundle__" className="drawing-shelf__bundle-handle nodrag" />
+      <LitPathMark cableIds={myCableIds} />
+    </>
   );
 
   if (mode === 'compact') {
