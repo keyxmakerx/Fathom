@@ -466,6 +466,7 @@ async fn app(
         live,
         invitation_limits: fathom_server::invitations::Limits::STANDARD,
         ai_connector: None,
+        termix: None,
     };
     fathom_server::api::router(api_state).merge(design_api::router(design_state))
 }

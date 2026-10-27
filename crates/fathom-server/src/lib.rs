@@ -94,6 +94,7 @@ pub mod rls;
 pub mod secret;
 pub mod sessions;
 pub mod teaching;
+pub mod termix;
 pub mod vault;
 pub mod vault_breach;
 pub mod vault_fathom;

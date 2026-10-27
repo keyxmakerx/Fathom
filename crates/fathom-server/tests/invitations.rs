@@ -423,6 +423,7 @@ async fn app(pool: &Pool, ring: Arc<KeyRing>, limits: Limits) -> axum::Router {
         live,
         invitation_limits: limits,
         ai_connector: None,
+        termix: None,
     };
     fathom_server::api::router(api_state).merge(design_api::router(design_state))
 }

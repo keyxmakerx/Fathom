@@ -136,6 +136,9 @@ pub struct DesignApiState {
     /// The AI connector's settings (ADR-0072 decision 13), for Allow on its sign-in page;
     /// `None` when `FATHOM_AI_PUBLIC_URL` is unset.
     pub ai_connector: Option<Arc<crate::oauth::Connector>>,
+    /// ADR-0078: the operator's Termix, told to a signed-in browser; `None` when
+    /// `FATHOM_TERMIX_URL` is unset.
+    pub termix: Option<crate::termix::Termix>,
 }
 
 /// Read every vendor directory under `<root>/corpus/catalogue/` into one flat
@@ -315,6 +318,7 @@ pub fn router(state: DesignApiState) -> Router {
         )
         .route("/catalogue/models", get(catalogue_list_handler))
         .route("/learn/explainers", get(explainers_handler))
+        .route("/integrations/termix", get(termix_handler))
         .route(
             "/catalogue/models/{vendor}/{model}",
             get(catalogue_model_handler),
@@ -3718,6 +3722,31 @@ async fn explainers_handler(
     Ok(json_response(Json::Arr(
         state.explainers.iter().map(json_of_explainer).collect(),
     )))
+}
+
+/// `GET /integrations/termix` (ADR-0078): `{"url": <origin> | null}`, the Termix this
+/// deployment names. Behind a session like every other route; the address is the operator's
+/// configuration, not a secret, but nothing signed out needs it.
+async fn termix_handler(
+    State(state): State<DesignApiState>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let tx = client.transaction().await.map_err(SessionError::Db)?;
+    let (_, tx) = signed.verify_and_commit(&state, tx).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    let url = match &state.termix {
+        Some(t) => Json::Str(t.origin().to_string()),
+        None => Json::Null,
+    };
+    let mut body = BTreeMap::new();
+    body.insert("url".to_string(), url);
+    Ok(json_response(Json::Obj(body)))
 }
 
 // ---- Catalogue: public reference data, behind a session and nothing else ----
