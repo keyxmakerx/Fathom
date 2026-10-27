@@ -19,7 +19,7 @@ import { publishedLesson } from '../../document/lessons';
 import { emptyDocument } from '../../document/model';
 import { readPlain, writePlain } from '../../document/plain';
 import { About } from '../about/About';
-import { getSession } from '../../state/sessionState';
+import { ACCOUNT_PLANE, getSessionOn } from '../../state/sessionState';
 import { clearJoinedFromInvitation, stillWaitingInvitee, wasJoinedFromInvitation } from '../../state/waitingInvitee';
 import { AwaitingSteward } from './AwaitingSteward';
 import { PracticeWelcome, type PracticeOffer } from './PracticeWelcome';
@@ -77,15 +77,14 @@ export interface HomeProps {
   notice?: string | null;
   /** Opens the claim screen for a token received from someone else. */
   onClaimOrganisation?: () => void;
-  /** The tab to open on (ADR-0060 decision 7). The caller remembers the
-   * last one chosen, so coming back from Admin lands where the person went. */
-  initialTab?: HomeTab;
-  onTabChange?: (tab: HomeTab) => void;
-  /** Which tabs are shown, so the Admin view can draw the same row. */
-  onTabsChange?: (tabs: HomeTab[]) => void;
+  /** The tab shown (ADR-0060 decision 7). The caller holds it, so the Admin
+   * pill can choose a tab and leaving Admin lands where the person went. */
+  tab: HomeTab;
+  onTabChange: (tab: HomeTab) => void;
   /** The Admin tab, present only where this browser may open the operator
    * console. Choosing the tab calls `onOpen`, which starts the operator
-   * sign-in; `panel` is what the tab shows meanwhile. */
+   * sign-in; `panel` is what the tab shows: the sign-in meanwhile, the
+   * console itself once the operator session is in view. */
   admin?: { onOpen: () => void; panel: ReactNode };
   /** ADR-0069: a practice space of their own, offered to the person who runs the server (present with `admin`). */
   practice?: PracticeOffer;
@@ -126,9 +125,8 @@ export function Home({
   onDirectEntry,
   notice,
   onClaimOrganisation,
-  initialTab,
+  tab,
   onTabChange,
-  onTabsChange,
   admin,
   practice,
   onWaitingInviteeChange,
@@ -139,8 +137,8 @@ export function Home({
   const [scopes, setScopes] = useState<Loadable<Scope[]>>({ status: 'loading' });
   const [landed, setLanded] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
-  const [tab, setTab] = useState<HomeTab>(initialTab ?? 'designs');
-  const accountId = getSession()?.accountId ?? null;
+  // Home is the account's, even while Admin's operator session is in view.
+  const accountId = getSessionOn(ACCOUNT_PLANE)?.accountId ?? null;
   const [firstSteps, setFirstSteps] = useState<FirstStepsState>(() => loadFirstSteps(accountId));
   const [sampleBusy, setSampleBusy] = useState(false);
   const [sampleError, setSampleError] = useState<string | null>(null);
@@ -315,14 +313,9 @@ export function Home({
     organisations.status === 'ready' && organisations.value.some((org) => org.organisationId === selectedOrgId && !org.practice);
   const tabs = homeTabs({ organisationAdmin, aiMaker, admin: admin !== undefined, waitingInvitee, member });
   const shownTab: HomeTab = tabs.includes(tab) ? tab : 'designs';
-  const tabsKey = tabs.join(' ');
-  useEffect(() => {
-    onTabsChange?.(tabsKey.split(' ') as HomeTab[]);
-  }, [tabsKey, onTabsChange]);
 
   function selectTab(next: HomeTab) {
-    setTab(next);
-    onTabChange?.(next);
+    onTabChange(next);
     if (next === 'admin') admin?.onOpen();
   }
 
@@ -630,11 +623,11 @@ export function Home({
           </p>
         )}
         <div className="home__title">{selectedOrganisation?.displayName ?? 'Home'}</div>
-        {organisations.status === 'ready' && organisations.value.length === 0 && practice && !waitingInvitee && (
+        {shownTab === 'designs' && organisations.status === 'ready' && organisations.value.length === 0 && practice && !waitingInvitee && (
           <PracticeWelcome address={address} offer={practice} onOpen={() => void practice.onMake()} />
         )}
         {organisations.status === 'ready' && organisations.value.length === 0 && waitingInvitee && <AwaitingSteward address={address} />}
-        <HomeTabs tabs={tabs} current={shownTab} onSelect={selectTab} testIds={{ admin: 'console-entry' }} />
+        <HomeTabs tabs={tabs} current={shownTab} onSelect={selectTab} testIds={{ designs: 'home-designs', admin: 'console-entry' }} />
 
         {(shownTab === 'organisation' || shownTab === 'ai') && selectedOrganisation && (
           <OrganisationTab

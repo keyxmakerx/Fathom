@@ -158,7 +158,6 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
   if (consoleHost.status === 'ready' && !consoleHost.flag.consoleHost) {
     return (
       <div className="console console__absent">
-        <h1 className="console__title">Admin</h1>
         <p>
           The operator console does not answer on <code>{host}</code>. Nothing operator-side is offered here, and
           nothing here would be answered if it were: the server replies 404 to every console path on this host.
@@ -174,7 +173,6 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
   if (consoleHost.status === 'error') {
     return (
       <div className="console console__absent">
-        <h1 className="console__title">Admin</h1>
         <p>
           This browser could not establish whether the console answers on <code>{host}</code>:{' '}
           {consoleHost.message} Nothing operator-side is offered until it can — an unanswered question is not a
@@ -186,13 +184,11 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
 
   return (
     <div className="console">
-      <header className="console__head">
-        <h1 className="console__title">Admin</h1>
-        <p className="console__who">
-          Signed in as <code className="console__id">{operatorId}</code> · operator, on <code>{host}</code>. The key
-          that proves it is in this browser, and every operator act below is signed with it.
-        </p>
-      </header>
+      {/* The page's title and tabs are Home's (ADR-0060 decision 7); this says whose acts these are. */}
+      <p className="console__who">
+        Signed in as <code className="console__id">{operatorId}</code> · operator, on <code>{host}</code>. The key
+        that proves it is in this browser, and every operator act below is signed with it.
+      </p>
 
       {!firstLoadDone ? (
         <SkeletonRows label="Loading Admin…" rows={5} />

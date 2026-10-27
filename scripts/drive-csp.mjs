@@ -361,9 +361,8 @@ async function main() {
     await tab.waitForSelector('.console__section', { timeout: 25000 });
     await tab.waitForTimeout(1000);
     await sample('the operator console');
-    await tab.click('.shell-account');
-    await tab.click('[data-testid="console-home"]');
-    await tab.waitForSelector('.home', { timeout: 15000 });
+    await tab.click('[data-testid="home-designs"]');
+    await tab.waitForSelector('.console__id', { state: 'detached', timeout: 15000 });
     await sample('Home again, from the console');
   } else {
     check('the Admin tab was on Home to open', false, 'no console entry rendered');

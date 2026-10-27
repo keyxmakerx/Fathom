@@ -29,10 +29,12 @@ import { Enrol, invitationFromLocation } from './components/Enrol';
 import { FirstRun } from './components/FirstRun';
 import { InviteWhileSignedIn } from './components/InviteWhileSignedIn';
 import { Reset, tokenFromLocation } from './components/Reset';
-import { Home, HomeTabs, type HomeTab } from './components/home';
+import { Home, type HomeTab } from './components/home';
 import type { DirectEntry } from './components/home';
 import { Shell } from './components/Shell';
-import type { Lens, Place } from './components/Shell';
+import type { Lens, Place, ShellProps } from './components/Shell';
+import { saveLook } from './components/drawing/look';
+import { saveSheet } from './components/inventory/sheetPref';
 import { DesignPlace } from './components/design/DesignPlace';
 import { LENSES_IN } from './components/shell/lens';
 import { PopoverRow, usePopoverClose } from './components/shell/Popover';
@@ -268,10 +270,8 @@ export default function App() {
   const [accountFocus, setAccountFocus] = useState<'browsers' | undefined>(undefined);
 
   // Home's tab (ADR-0060 decision 7), kept here so leaving Admin by a tab
-  // lands on that tab, and the tabs Home last showed, so Admin draws the
-  // same row.
+  // lands on that tab, and the Admin pill can choose Admin.
   const [homeTab, setHomeTab] = useState<HomeTab>('designs');
-  const [homeTabList, setHomeTabList] = useState<HomeTab[]>(['designs']);
   // Joined from an invitation and still waiting for a steward: Home says so, and
   // Admin (tab and pill) goes while it is true.
   const [waitingInvitee, setWaitingInvitee] = useState(false);
@@ -859,18 +859,19 @@ export default function App() {
     );
   }
 
-  const account = {
-    // An operator id is a ulid, whose "initials" would be two digits: the
-    // chip says what the session is instead.
-    initials: session.kind === 'operator' ? 'OP' : initialsFromAddress(session.address),
-    address: session.address,
-  };
-
   // The account menu's own rows (ADR-0047 §3): each present only when it
   // acts, and only the person's own things (ADR-0060 decision 7). Admin is a
   // Home tab, offered only on a host the console answers on, and gone once
   // the server has said this account holds no operator custody.
-  const accountSessionOpen = accountSessionId !== null;
+  const accountSession = getSessionOn(ACCOUNT_PLANE);
+  const accountSessionOpen = accountSession !== null;
+  // Admin is a tab of Home, so while the account session is still there the
+  // bar is the account's on Admin too. Only an operator session with no
+  // account beside it says what it is: a ulid's "initials" would be two digits.
+  const account =
+    session.kind === 'operator' && accountSession === null
+      ? { initials: 'OP', address: session.address }
+      : { initials: initialsFromAddress((accountSession ?? session).address), address: (accountSession ?? session).address };
   const backToHome = (tab: HomeTab = 'designs') => {
     setHomeTab(tab);
     setView({ kind: 'home' });
@@ -878,45 +879,44 @@ export default function App() {
   };
   // "Claim it now" (ADR-0057 decision 5): switches to the account plane and
   // carries the freshly minted claim across so ClaimOrganisation needs no typing.
-  // The bar's Canvas or Inventory from Home or Admin: the design last open,
-  // in that place, back on the account plane (ADR-0055 decision 1: the
-  // account session is still there, so this is a change of plane, not a
-  // sign-in). Absent with nothing to go back to.
-  const returnToPlace =
-    lastPlace !== null && (session.kind !== 'operator' || accountSessionOpen)
-      ? (place: Place) => {
-          if (!LENSES_IN[place].includes(lens)) setLens('cables');
-          setView({ ...lastPlace, place, openDevice: undefined });
-          setPlane(ACCOUNT_PLANE);
+  // The bar's four views from Home or Admin: the design last open, in that
+  // view, back on the account plane (ADR-0055 decision 1: the account session
+  // is still there, so this is a change of plane, not a sign-in). Absent with
+  // nothing to go back to. The look and the Sheet are chosen the way the
+  // places themselves choose them (`RacksPlace`, `InventoryPlace`).
+  const backToDesign: ShellProps['mainView'] =
+    lastPlace !== null && accountSessionOpen
+      ? {
+          value: null,
+          backTo: designTitle(lastPlace.design),
+          onChange: (next) => {
+            const place: Place = next === 'diagram' || next === 'canvas' ? 'racks' : 'inventory';
+            if (place === 'racks') saveLook(accountSession.accountId, lastPlace.design.designId, next === 'diagram' ? 'diagram' : 'rack');
+            else saveSheet(next === 'sheet');
+            if (!LENSES_IN[place].includes(lens)) setLens('cables');
+            setView({ ...lastPlace, place, openDevice: undefined });
+            setPlane(ACCOUNT_PLANE);
+          },
         }
       : undefined;
-  const returnTo = returnToPlace && lastPlace ? designTitle(lastPlace.design) : undefined;
   const claimNow = (claim: OrganisationClaim) => {
     setView({ kind: 'home' });
     setPlane(ACCOUNT_PLANE);
     setClaiming({ token: claim.token, noticeAddress: claim.noticeAddress });
   };
+  // The account's own screens, from Admin too: they are the account plane's.
+  const openAccount = (focus?: 'browsers') => {
+    setPlane(ACCOUNT_PLANE);
+    setAccountFocus(focus);
+    setAccountOpen(true);
+  };
   const menu =
-    session.kind === 'operator' ? (
-      <>
-        {accountSessionOpen && (
-          <PopoverRow testId="console-home" onSelect={() => backToHome()}>
-            Home
-          </PopoverRow>
-        )}
-        <PopoverRow current>Admin</PopoverRow>
-      </>
+    session.kind === 'operator' && !accountSessionOpen ? (
+      <PopoverRow current>Admin</PopoverRow>
     ) : (
       <>
-        <PopoverRow onSelect={() => setAccountOpen(true)}>Your account</PopoverRow>
-        <PopoverRow
-          onSelect={() => {
-            setAccountFocus('browsers');
-            setAccountOpen(true);
-          }}
-        >
-          Signed-in browsers
-        </PopoverRow>
+        <PopoverRow onSelect={() => openAccount()}>Your account</PopoverRow>
+        <PopoverRow onSelect={() => openAccount('browsers')}>Signed-in browsers</PopoverRow>
         {/* The bar adds the theme and Sign out beneath these. */}
       </>
     );
@@ -925,8 +925,14 @@ export default function App() {
   // sign-in at once; this is what the tab shows meanwhile. ADR-0057 decision
   // 2: a live account session endorses Admin, and one whose own
   // second-factor proof has gone stale needs a current code beside it.
+  // Once the operator session is in view the tab shows the console itself.
   const admin =
-    consoleHost && !custodyRefused && !waitingInvitee
+    session.kind === 'operator'
+      ? {
+          onOpen: () => {},
+          panel: <Console operatorId={session.address} onClaimNow={accountSessionOpen ? claimNow : undefined} />,
+        }
+      : consoleHost && !custodyRefused && !waitingInvitee
       ? {
           onOpen: () => void enterConsole(() => {}),
           panel: operatorCodePending ? (
@@ -984,57 +990,39 @@ export default function App() {
     onZoomOut: () => setZoom((z) => Math.max(10, z - 10)),
   };
 
-  if (session.kind === 'operator') {
-    // The operator plane has one surface, the console (`docs/UI-SPEC.md`:
-    // "Site (operators only)"), and no camera: neither place is marked
-    // and no design is ever open here, because none is reachable from an
-    // operator session at all (`admin.rs`'s module header).
+  if (session.kind === 'operator' && !accountSessionOpen) {
+    // An operator session with no account beside it: the console alone, under
+    // the bar. No design is reachable from an operator session at all
+    // (`admin.rs`'s module header), so neither place is marked.
     return (
-      <Shell
-        {...common}
-        place={null}
-        path={[{ label: 'Admin' }]}
-        tree={null}
-        onPlaceChange={returnToPlace ?? (() => {})}
-        returnTo={returnTo}
-        // ADR-0055 decision 1: the account session did not end when this one
-        // began, so Home is a change of plane, not a sign-in.
-        onHome={accountSessionOpen ? () => backToHome() : undefined}
-      >
-        <div className="console-frame">
-          {accountSessionOpen && (
-            // The same Home tabs, Admin current (ADR-0060 decision 7).
-            <div className="console-tabs">
-              <HomeTabs
-                tabs={homeTabList.includes('admin') ? homeTabList : [...homeTabList, 'admin']}
-                current="admin"
-                onSelect={(tab) => {
-                  if (tab !== 'admin') backToHome(tab);
-                }}
-              />
-            </div>
-          )}
-          <Console operatorId={session.address} onClaimNow={accountSessionOpen ? claimNow : undefined} />
-        </div>
+      <Shell {...common} place={null} path={[{ label: 'Admin' }]} tree={null} onPlaceChange={() => {}}>
+        <Console operatorId={session.address} />
       </Shell>
     );
   }
 
-  if (view.kind === 'home') {
+  // Home, and Admin as one of Home's tabs (ADR-0060 decision 7): one bar, one
+  // rail, one title and one tab row, whichever plane is in view. Requests are
+  // signed by the plane their path belongs to (`sessionForPath`), so Home's
+  // own reads stay the account's while the console's are the operator's.
+  if (view.kind === 'home' || session.kind === 'operator') {
     return (
       <Shell
         {...common}
         place={null}
         path={[]}
         tree={null}
-        // Neither place is reachable from Home until a design has been open:
-        // a place needs a design, and Home is where you pick one.
-        onPlaceChange={returnToPlace ?? (() => {})}
-        returnTo={returnTo}
+        // No view is reachable from Home until a design has been open: a view
+        // needs a design, and Home is where you pick one.
+        onPlaceChange={() => {}}
+        mainView={backToDesign}
+        // ADR-0055 decision 1: the account session did not end when the
+        // operator's began, so from Admin, Home is a change of plane.
+        onHome={session.kind === 'operator' ? () => backToHome() : undefined}
       >
         <PhoneHomeScan onScan={setPendingScan} />
         <Home
-          address={session.address}
+          address={account.address}
           // A design the person opened from Home (their first, or the sample) is a choice made here: coming back
           // must stay on Home, the same latch direct entry sets.
           onOpenRacks={(organisation, design) => {
@@ -1052,9 +1040,11 @@ export default function App() {
           onDirectEntry={directEntrySession === accountSessionId ? undefined : handleDirectEntry}
           notice={consoleRefusal ?? scanNotice}
           onClaimOrganisation={() => setClaiming({})}
-          initialTab={homeTab}
-          onTabChange={setHomeTab}
-          onTabsChange={setHomeTabList}
+          tab={homeTab}
+          onTabChange={(tab) => {
+            if (tab === 'admin') setHomeTab(tab);
+            else backToHome(tab);
+          }}
           onWaitingInviteeChange={setWaitingInvitee}
           admin={admin}
           practice={
