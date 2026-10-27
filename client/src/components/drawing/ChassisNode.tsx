@@ -9,6 +9,7 @@ import { cardFrames, connectorName, faceplateLayoutFor, plateItems, portWhere, t
 import { onOpticDragOver, onOpticDrop } from './Parts';
 import { RAIL_PX, U_PX } from './geometry';
 import { useLive, useLiveStore } from './liveStore';
+import { LitPathMark } from './CableOverlayEdge';
 import { EditableName } from './NameEdit';
 import { isPanel } from './paths';
 import { pduUsage, pduUsageLabel } from './power';
@@ -274,6 +275,7 @@ export function ChassisNode({ data }: NodeProps<ChassisNodeType>) {
 
   return (
     <div className="drawing-chassis-wrap" style={{ height }}>
+      <LitPathMark cableIds={myCableIds} />
       <CheckBadge id={chassis.deviceId} />
       <div className={className} style={{ height }}>
         {plainPlate ? (

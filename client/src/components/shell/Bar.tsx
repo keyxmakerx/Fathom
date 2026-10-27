@@ -5,7 +5,7 @@ import { signOut } from '../../api/auth';
 import { useWindowWidth } from './Dock';
 import { nextFoldLevel } from './layout';
 import type { DiagramStyle } from '../drawing/diagramStyle';
-import type { CableStyle } from '../drawing/cableStyle';
+import type { CableColour, CableStyle } from '../drawing/cableStyle';
 import type { LayerId, LayerSet } from '../drawing/layers';
 import { LayersMenu, LensGroup } from './CanvasBar';
 import { LOOKS, LOOK_LABEL, type Look } from '../drawing/look';
@@ -39,7 +39,7 @@ export interface BarProps {
   views?: ReactNode;
   /** The saved views as rows for the View ▾ menu, shown once the bar folds the views group away. */
   viewsFolded?: ReactNode;
-  layers?: { value: LayerSet; onToggle: (id: LayerId) => void; style?: { value: DiagramStyle; onChange: (style: DiagramStyle) => void }; cables?: { value: CableStyle; onChange: (style: CableStyle) => void }; aids?: ShowAids };
+  layers?: { value: LayerSet; onToggle: (id: LayerId) => void; style?: { value: DiagramStyle; onChange: (style: DiagramStyle) => void }; cables?: { value: CableStyle; onChange: (style: CableStyle) => void; colour?: { value: CableColour; onChange: (colour: CableColour) => void } }; aids?: ShowAids };
   presence: PresenceUser[];
   zoom: number;
   onZoomIn: () => void;

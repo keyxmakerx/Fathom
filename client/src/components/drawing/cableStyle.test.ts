@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CABLE_STYLES, DEFAULT_CABLE_STYLE, isCableStyle, loadCableStyle, saveCableStyle } from './cableStyle';
+import { CABLE_COLOURS, CABLE_STYLES, DEFAULT_CABLE_COLOUR, DEFAULT_CABLE_STYLE, isCableStyle, loadCableColour, loadCableStyle, saveCableColour, saveCableStyle } from './cableStyle';
 
 function fakeStorage() {
   const m = new Map<string, string>();
@@ -31,5 +31,30 @@ describe('cable style preference', () => {
   it('offers the four signed-off styles', () => {
     expect(CABLE_STYLES).toEqual(['physics', 'tied', 'square', 'faded']);
     expect(isCableStyle('square')).toBe(true);
+  });
+});
+
+describe('cable colour preference', () => {
+  beforeEach(() => vi.stubGlobal('localStorage', fakeStorage()));
+  afterEach(() => vi.unstubAllGlobals());
+  it('starts everyone on every cable in colour', () => {
+    expect(DEFAULT_CABLE_COLOUR).toBe('all');
+    expect(loadCableColour('acct-1')).toBe('all');
+  });
+  it('keeps each person their own pick, apart from the style', () => {
+    saveCableColour('acct-1', 'pointed');
+    expect(loadCableColour('acct-1')).toBe('pointed');
+    expect(loadCableColour('acct-2')).toBe('all');
+    expect(loadCableStyle('acct-1')).toBe('physics');
+  });
+  it('ignores a stored value that is not a colour mode, and a missing store', () => {
+    localStorage.setItem('fathom.cableColour.acct-1', 'rainbow');
+    expect(loadCableColour('acct-1')).toBe('all');
+    vi.stubGlobal('localStorage', undefined);
+    expect(loadCableColour('acct-1')).toBe('all');
+    expect(() => saveCableColour('acct-1', 'pointed')).not.toThrow();
+  });
+  it('offers the two modes', () => {
+    expect(CABLE_COLOURS).toEqual(['all', 'pointed']);
   });
 });

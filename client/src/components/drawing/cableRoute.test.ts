@@ -10,6 +10,7 @@ import {
   pointAlong,
   polylineLength,
   polylinePath,
+  roundedPath,
   squarePoints,
   SQUARE_LEAD_PX,
   swayAt,
@@ -165,5 +166,17 @@ describe('through real ties', () => {
   it('without a tie is plain right-angle', () => {
     const l = leads(0, 0, 1, 50, 100, -1);
     expect(throughTies(l, [])).toEqual(squarePoints(l));
+  });
+});
+
+describe('roundedPath', () => {
+  it('turns each corner on a small arc and keeps the ends', () => {
+    expect(roundedPath([{ x: 0, y: 0 }, { x: 0, y: 40 }, { x: 40, y: 40 }])).toBe('M 0 0 L 0 34 Q 0 40 6 40 L 40 40');
+  });
+  it('shrinks the arc to fit a short leg', () => {
+    expect(roundedPath([{ x: 0, y: 0 }, { x: 0, y: 4 }, { x: 40, y: 4 }])).toBe('M 0 0 L 0 2 Q 0 4 2 4 L 40 4');
+  });
+  it('draws a straight line as before', () => {
+    expect(roundedPath([{ x: 0, y: 0 }, { x: 0, y: 40 }])).toBe(polylinePath([{ x: 0, y: 0 }, { x: 0, y: 40 }]));
   });
 });

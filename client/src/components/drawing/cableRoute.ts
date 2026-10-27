@@ -44,6 +44,36 @@ export function polylinePath(points: readonly Pt[]): string {
   return points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${round(p.x)} ${round(p.y)}`).join(' ');
 }
 
+/** How round a right-angle or tied cable's corners are, as a real cable bends. */
+export const CORNER_RADIUS_PX = 6;
+
+/** A polyline with each corner turned on a small arc: the radius shrinks to fit a short leg, so
+ * the line still passes through every straight run the plain polyline does. */
+export function roundedPath(points: readonly Pt[], radius = CORNER_RADIUS_PX): string {
+  if (points.length < 3 || radius <= 0) return polylinePath(points);
+  const parts = [`M ${round(points[0]!.x)} ${round(points[0]!.y)}`];
+  for (let i = 1; i < points.length - 1; i++) {
+    const prev = points[i - 1]!;
+    const at = points[i]!;
+    const next = points[i + 1]!;
+    const lin = Math.hypot(at.x - prev.x, at.y - prev.y);
+    const lout = Math.hypot(next.x - at.x, next.y - at.y);
+    const r = Math.min(radius, lin / 2, lout / 2);
+    if (r < 0.5) {
+      parts.push(`L ${round(at.x)} ${round(at.y)}`);
+      continue;
+    }
+    const inX = at.x - ((at.x - prev.x) / lin) * r;
+    const inY = at.y - ((at.y - prev.y) / lin) * r;
+    const outX = at.x + ((next.x - at.x) / lout) * r;
+    const outY = at.y + ((next.y - at.y) / lout) * r;
+    parts.push(`L ${round(inX)} ${round(inY)}`, `Q ${round(at.x)} ${round(at.y)} ${round(outX)} ${round(outY)}`);
+  }
+  const last = points[points.length - 1]!;
+  parts.push(`L ${round(last.x)} ${round(last.y)}`);
+  return parts.join(' ');
+}
+
 function round(n: number): number {
   return Math.round(n * 100) / 100;
 }
