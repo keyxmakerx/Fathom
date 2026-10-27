@@ -23,89 +23,8 @@ async fn main() -> ExitCode {
     // check. Handled first: it needs no configuration and must not fail for want of
     // DATABASE_URL, since the container running the probe is the one being probed.
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.first().map(String::as_str) == Some("healthcheck") {
-        let addr = match args.iter().position(|a| a == "--addr") {
-            Some(i) => args.get(i + 1).cloned(),
-            None => None,
-        }
-        .unwrap_or_else(|| "127.0.0.1:8080".to_string());
-
-        return match fathom_server::healthcheck::probe(&addr).await {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(why) => {
-                // stderr, not tracing: no subscriber is installed and this process lives one
-                // second.
-                eprintln!("fathom-server: unhealthy: {why}");
-                ExitCode::FAILURE
-            }
-        };
-    }
-    // `recover-operator`: prints a ten-minute setup code for an operator who
-    // ALREADY EXISTS, records the act on the site chain, and mints no operator
-    // (ADR-0055 decision 8). `recover_operator` below carries the argument. Unlike
-    // `healthcheck` it needs the full configuration, database and keys.
-    if args.first().map(String::as_str) == Some("recover-operator") {
-        let Some(address) = args.get(1) else {
-            eprintln!("fathom-server: recover-operator takes one argument, the operator's address");
-            return ExitCode::from(2);
-        };
-        if args.len() > 2 {
-            eprintln!("fathom-server: recover-operator takes exactly one argument");
-            return ExitCode::from(2);
-        }
-        return recover_operator(address, false).await;
-    }
-    // ADR-0055 decision 8: `reissue-bootstrap-token` folds into `recover-operator`.
-    // Kept as an alias (it is in `docs/OPERATING.md`'s drill). With no address it
-    // falls back to FATHOM_OPERATOR_NOTICE_ADDRESS.
-    if args.first().map(String::as_str) == Some("reissue-bootstrap-token") {
-        if args.len() > 2 {
-            eprintln!("fathom-server: reissue-bootstrap-token takes at most one argument");
-            return ExitCode::from(2);
-        }
-        let address = match args.get(1) {
-            Some(a) => a.clone(),
-            None => match std::env::var("FATHOM_OPERATOR_NOTICE_ADDRESS") {
-                Ok(a) if !a.trim().is_empty() => a.trim().to_string(),
-                _ => {
-                    eprintln!(
-                        "fathom-server: reissue-bootstrap-token is an alias for \
-                         `recover-operator <address>` (ADR-0055 decision 8) and needs an \
-                         address: pass one, or set FATHOM_OPERATOR_NOTICE_ADDRESS"
-                    );
-                    return ExitCode::from(2);
-                }
-            },
-        };
-        return recover_operator(&address, true).await;
-    }
-    // ADR-0055 stream (c), decision 11's last sentence: the way back in when a
-    // placement locked everyone out of the console. Run ON THE HOST, where the key
-    // volume is mounted; needs the full configuration and keys.
-    if args.first().map(String::as_str) == Some("console-placement") {
-        if args.get(1).map(String::as_str) != Some("--reset") || args.len() > 2 {
-            eprintln!("fathom-server: console-placement takes exactly `--reset`");
-            return ExitCode::from(2);
-        }
-        return reset_console_placement().await;
-    }
-    // ADR-0070: backups. None of the three needs the database or the full
-    // configuration; `pg_dump` and `pg_restore` do the database's part.
-    match args.first().map(String::as_str) {
-        Some("backup") => return fathom_server::backup_cli::backup(&args[1..]),
-        Some("keys-file") => return fathom_server::backup_cli::keys_file(&args[1..]),
-        Some("restore") => return fathom_server::backup_cli::restore(&args[1..]),
-        Some("dump-from") => return fathom_server::backup_cli::dump_from(&args[1..]),
-        _ => {}
-    }
-    if !args.is_empty() {
-        eprintln!(
-            "fathom-server: the subcommands are `healthcheck [--addr HOST:PORT]`, \
-             `recover-operator <address>` (with `reissue-bootstrap-token` kept as a deprecated \
-             alias), `console-placement --reset`, and `backup`, `keys-file`, `restore` and \
-             `dump-from` (docs/OPERATING.md, Backups); with no arguments it runs the server"
-        );
-        return ExitCode::from(2);
+    if let Some(code) = subcommand(&args).await {
+        return code;
     }
 
     // Configuration BEFORE logging, so a bad configuration fails on stderr.
@@ -151,158 +70,10 @@ async fn main() -> ExitCode {
     // library so G6's test drives this exact line.
     log_startup(&config);
 
-    // ---- The migration role, used once, then dropped ----
-    //
-    // `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §15.0: the migration role owns the
-    // schema and holds `CREATEROLE`. It applies outstanding migrations and makes the
-    // runtime role (`migrations/0006_runtime_role.sql`, `NOLOGIN`) able to log in
-    // (`db::provision_runtime_login`). Then this pool goes out of scope, so nothing
-    // past this block holds the migration credential.
-    //
-    // `FATHOM_MIGRATE_DATABASE_URL` unset is supported: the server still starts if
-    // the schema is already current, checked below against the runtime connection by
-    // `migrate::verify_current`.
-    match db::migration_pool(&config) {
-        Ok(Some(migrate_pool)) => {
-            if let Some(migrate_url) = config.migrate_database_for_logging() {
-                tracing::info!(migrate_database = %migrate_url, "migrating");
-            }
-
-            let mut migrate_client = match migrate_pool.get().await {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::error!(
-                        kind = %summarise(&e),
-                        "could not reach the database as the migration role"
-                    );
-                    return ExitCode::from(5);
-                }
-            };
-
-            // Same gate as the runtime role's below: `FORCE ROW LEVEL SECURITY` does not
-            // bind a superuser or `BYPASSRLS`, and the migration role owns every table.
-            if let Err(e) = rls::assert_rls_binds(&migrate_client).await {
-                tracing::error!(error = %e, "refusing to start (migration role)");
-                return ExitCode::from(8);
-            }
-
-            // `migrate::run`'s advisory lock covers only `run`, and
-            // `provision_runtime_login` writes cluster-wide state (`pg_authid`) that two
-            // racing processes could both touch. Held across both calls; `pg_advisory_lock`
-            // is session-level and re-entrant, so `run`'s own acquisition nests.
-            if let Err(e) = migrate_client
-                .execute(
-                    "SELECT pg_advisory_lock($1)",
-                    &[&migrate::MIGRATION_LOCK_KEY],
-                )
-                .await
-            {
-                tracing::error!(error = %e, "could not take the migration lock");
-                return ExitCode::from(4);
-            }
-
-            // Migrations before the listener binds: a half-migrated schema serves from a
-            // state nobody designed.
-            let migration_result = migrate::run(&mut migrate_client).await;
-
-            // Determined while the lock is held, reported only after release, so the lock
-            // is never left taken behind an early return.
-            let runtime_role_result = db::runtime_role(&config);
-            let provision_result = match &runtime_role_result {
-                Ok(role) => {
-                    let runtime_password = config.runtime_login_password();
-                    let runtime_password = runtime_password.as_ref().map(|p| p.expose().as_str());
-                    Some(db::provision_runtime_login(&migrate_client, role, runtime_password).await)
-                }
-                Err(_) => None,
-            };
-
-            let _ = migrate_client
-                .execute(
-                    "SELECT pg_advisory_unlock($1)",
-                    &[&migrate::MIGRATION_LOCK_KEY],
-                )
-                .await;
-
-            match migration_result {
-                Ok(0) => tracing::info!("schema is up to date"),
-                Ok(n) => tracing::info!(applied = n, "migrations applied"),
-                Err(e) => {
-                    tracing::error!(error = %e, "migrations failed");
-                    return ExitCode::from(4);
-                }
-            }
-            if let Err(e) = runtime_role_result {
-                tracing::error!(error = %e, "could not determine the runtime role's name");
-                return ExitCode::from(3);
-            }
-            if let Err(e) = provision_result.expect("Ok(_) checked just above") {
-                tracing::error!(error = %e, "could not provision the runtime role's login");
-                return ExitCode::from(4);
-            }
-            // `migrate_client` and `migrate_pool` drop at the end of this arm.
-        }
-        Ok(None) => {
-            tracing::info!(
-                "no migration credential configured; the runtime role must already exist, be \
-                 able to log in, and be at the schema version this binary expects"
-            );
-        }
-        Err(e) => {
-            tracing::error!(error = %e, "could not build the migration connection pool");
-            return ExitCode::from(3);
-        }
-    }
-
-    // ---- The runtime pool: serves every request from here on ----
-    let pool = match db::pool(&config) {
+    let pool = match open_database(&config).await {
         Ok(p) => p,
-        Err(e) => {
-            tracing::error!(error = %e, "could not build the connection pool");
-            return ExitCode::from(3);
-        }
+        Err(code) => return code,
     };
-
-    // The tenant-isolation gate, before the listener binds, against the RUNTIME
-    // role, which every request uses. Migration `0002` FORCEs row-level security,
-    // but Postgres exempts superusers and `BYPASSRLS` roles unconditionally. The
-    // shipped `compose.yaml` once connected as such a role, so every isolation
-    // policy was inert in production while tests (which use a restricted role)
-    // passed. This asks the database what the role is and refuses to start rather
-    // than warn.
-    match pool.get().await {
-        Ok(client) => {
-            if let Err(e) = rls::assert_rls_binds(&client).await {
-                tracing::error!(error = %e, "refusing to start");
-                return ExitCode::from(8);
-            }
-
-            if config.migrate_database_url.is_none() {
-                match migrate::verify_current(&client).await {
-                    Ok(true) => {
-                        tracing::info!("schema is up to date (no migration credential configured)")
-                    }
-                    Ok(false) => {
-                        tracing::error!(
-                            "the schema is not at the version this binary expects, and no \
-                             migration credential was configured to bring it there"
-                        );
-                        return ExitCode::from(9);
-                    }
-                    Err(e) => {
-                        tracing::error!(error = %e, "the schema does not match what this binary expects");
-                        return ExitCode::from(4);
-                    }
-                }
-            }
-        }
-        Err(e) => {
-            // deadpool's error Display does not carry the password, but that is not this
-            // binary's guarantee to make, so it is summarised.
-            tracing::error!(kind = %summarise(&e), "could not reach the database at startup");
-            return ExitCode::from(5);
-        }
-    }
 
     // ---- The keys, and the check that must run before any read ----
     //
@@ -1334,6 +1105,253 @@ async fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// The subcommands, or `None` to run the server. Each one exits the process with its own code.
+async fn subcommand(args: &[String]) -> Option<ExitCode> {
+    if args.first().map(String::as_str) == Some("healthcheck") {
+        let addr = match args.iter().position(|a| a == "--addr") {
+            Some(i) => args.get(i + 1).cloned(),
+            None => None,
+        }
+        .unwrap_or_else(|| "127.0.0.1:8080".to_string());
+
+        return Some(match fathom_server::healthcheck::probe(&addr).await {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(why) => {
+                // stderr, not tracing: no subscriber is installed and this process lives one
+                // second.
+                eprintln!("fathom-server: unhealthy: {why}");
+                ExitCode::FAILURE
+            }
+        });
+    }
+    // `recover-operator`: prints a ten-minute setup code for an operator who
+    // ALREADY EXISTS, records the act on the site chain, and mints no operator
+    // (ADR-0055 decision 8). `recover_operator` below carries the argument. Unlike
+    // `healthcheck` it needs the full configuration, database and keys.
+    if args.first().map(String::as_str) == Some("recover-operator") {
+        let Some(address) = args.get(1) else {
+            eprintln!("fathom-server: recover-operator takes one argument, the operator's address");
+            return Some(ExitCode::from(2));
+        };
+        if args.len() > 2 {
+            eprintln!("fathom-server: recover-operator takes exactly one argument");
+            return Some(ExitCode::from(2));
+        }
+        return Some(recover_operator(address, false).await);
+    }
+    // ADR-0055 decision 8: `reissue-bootstrap-token` folds into `recover-operator`.
+    // Kept as an alias (it is in `docs/OPERATING.md`'s drill). With no address it
+    // falls back to FATHOM_OPERATOR_NOTICE_ADDRESS.
+    if args.first().map(String::as_str) == Some("reissue-bootstrap-token") {
+        if args.len() > 2 {
+            eprintln!("fathom-server: reissue-bootstrap-token takes at most one argument");
+            return Some(ExitCode::from(2));
+        }
+        let address = match args.get(1) {
+            Some(a) => a.clone(),
+            None => match std::env::var("FATHOM_OPERATOR_NOTICE_ADDRESS") {
+                Ok(a) if !a.trim().is_empty() => a.trim().to_string(),
+                _ => {
+                    eprintln!(
+                        "fathom-server: reissue-bootstrap-token is an alias for \
+                         `recover-operator <address>` (ADR-0055 decision 8) and needs an \
+                         address: pass one, or set FATHOM_OPERATOR_NOTICE_ADDRESS"
+                    );
+                    return Some(ExitCode::from(2));
+                }
+            },
+        };
+        return Some(recover_operator(&address, true).await);
+    }
+    // ADR-0055 stream (c), decision 11's last sentence: the way back in when a
+    // placement locked everyone out of the console. Run ON THE HOST, where the key
+    // volume is mounted; needs the full configuration and keys.
+    if args.first().map(String::as_str) == Some("console-placement") {
+        if args.get(1).map(String::as_str) != Some("--reset") || args.len() > 2 {
+            eprintln!("fathom-server: console-placement takes exactly `--reset`");
+            return Some(ExitCode::from(2));
+        }
+        return Some(reset_console_placement().await);
+    }
+    // ADR-0070: backups. None of the three needs the database or the full
+    // configuration; `pg_dump` and `pg_restore` do the database's part.
+    match args.first().map(String::as_str) {
+        Some("backup") => return Some(fathom_server::backup_cli::backup(&args[1..])),
+        Some("keys-file") => return Some(fathom_server::backup_cli::keys_file(&args[1..])),
+        Some("restore") => return Some(fathom_server::backup_cli::restore(&args[1..])),
+        Some("dump-from") => return Some(fathom_server::backup_cli::dump_from(&args[1..])),
+        _ => {}
+    }
+    if !args.is_empty() {
+        eprintln!(
+            "fathom-server: the subcommands are `healthcheck [--addr HOST:PORT]`, \
+             `recover-operator <address>` (with `reissue-bootstrap-token` kept as a deprecated \
+             alias), `console-placement --reset`, and `backup`, `keys-file`, `restore` and \
+             `dump-from` (docs/OPERATING.md, Backups); with no arguments it runs the server"
+        );
+        return Some(ExitCode::from(2));
+    }
+    None
+}
+
+/// Migrate as the migration role (then drop it), open the runtime pool, and refuse to go on
+/// unless row-level security binds that pool's role. The error is the process's exit code.
+async fn open_database(config: &Config) -> Result<deadpool_postgres::Pool, ExitCode> {
+    // ---- The migration role, used once, then dropped ----
+    //
+    // `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §15.0: the migration role owns the
+    // schema and holds `CREATEROLE`. It applies outstanding migrations and makes the
+    // runtime role (`migrations/0006_runtime_role.sql`, `NOLOGIN`) able to log in
+    // (`db::provision_runtime_login`). Then this pool goes out of scope, so nothing
+    // past this block holds the migration credential.
+    //
+    // `FATHOM_MIGRATE_DATABASE_URL` unset is supported: the server still starts if
+    // the schema is already current, checked below against the runtime connection by
+    // `migrate::verify_current`.
+    match db::migration_pool(config) {
+        Ok(Some(migrate_pool)) => {
+            if let Some(migrate_url) = config.migrate_database_for_logging() {
+                tracing::info!(migrate_database = %migrate_url, "migrating");
+            }
+
+            let mut migrate_client = match migrate_pool.get().await {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::error!(
+                        kind = %summarise(&e),
+                        "could not reach the database as the migration role"
+                    );
+                    return Err(ExitCode::from(5));
+                }
+            };
+
+            // Same gate as the runtime role's below: `FORCE ROW LEVEL SECURITY` does not
+            // bind a superuser or `BYPASSRLS`, and the migration role owns every table.
+            if let Err(e) = rls::assert_rls_binds(&migrate_client).await {
+                tracing::error!(error = %e, "refusing to start (migration role)");
+                return Err(ExitCode::from(8));
+            }
+
+            // `migrate::run`'s advisory lock covers only `run`, and
+            // `provision_runtime_login` writes cluster-wide state (`pg_authid`) that two
+            // racing processes could both touch. Held across both calls; `pg_advisory_lock`
+            // is session-level and re-entrant, so `run`'s own acquisition nests.
+            if let Err(e) = migrate_client
+                .execute(
+                    "SELECT pg_advisory_lock($1)",
+                    &[&migrate::MIGRATION_LOCK_KEY],
+                )
+                .await
+            {
+                tracing::error!(error = %e, "could not take the migration lock");
+                return Err(ExitCode::from(4));
+            }
+
+            // Migrations before the listener binds: a half-migrated schema serves from a
+            // state nobody designed.
+            let migration_result = migrate::run(&mut migrate_client).await;
+
+            // Determined while the lock is held, reported only after release, so the lock
+            // is never left taken behind an early return.
+            let runtime_role_result = db::runtime_role(config);
+            let provision_result = match &runtime_role_result {
+                Ok(role) => {
+                    let runtime_password = config.runtime_login_password();
+                    let runtime_password = runtime_password.as_ref().map(|p| p.expose().as_str());
+                    Some(db::provision_runtime_login(&migrate_client, role, runtime_password).await)
+                }
+                Err(_) => None,
+            };
+
+            let _ = migrate_client
+                .execute(
+                    "SELECT pg_advisory_unlock($1)",
+                    &[&migrate::MIGRATION_LOCK_KEY],
+                )
+                .await;
+
+            match migration_result {
+                Ok(0) => tracing::info!("schema is up to date"),
+                Ok(n) => tracing::info!(applied = n, "migrations applied"),
+                Err(e) => {
+                    tracing::error!(error = %e, "migrations failed");
+                    return Err(ExitCode::from(4));
+                }
+            }
+            if let Err(e) = runtime_role_result {
+                tracing::error!(error = %e, "could not determine the runtime role's name");
+                return Err(ExitCode::from(3));
+            }
+            if let Err(e) = provision_result.expect("Ok(_) checked just above") {
+                tracing::error!(error = %e, "could not provision the runtime role's login");
+                return Err(ExitCode::from(4));
+            }
+            // `migrate_client` and `migrate_pool` drop at the end of this arm.
+        }
+        Ok(None) => {
+            tracing::info!(
+                "no migration credential configured; the runtime role must already exist, be \
+                 able to log in, and be at the schema version this binary expects"
+            );
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "could not build the migration connection pool");
+            return Err(ExitCode::from(3));
+        }
+    }
+
+    // ---- The runtime pool: serves every request from here on ----
+    let pool = match db::pool(config) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!(error = %e, "could not build the connection pool");
+            return Err(ExitCode::from(3));
+        }
+    };
+
+    // The tenant-isolation gate, before the listener binds, against the RUNTIME
+    // role, which every request uses. Migration `0002` FORCEs row-level security,
+    // but Postgres exempts superusers and `BYPASSRLS` roles unconditionally. The
+    // shipped `compose.yaml` once connected as such a role, so every isolation
+    // policy was inert in production while tests (which use a restricted role)
+    // passed. This asks the database what the role is and refuses to start rather
+    // than warn.
+    match pool.get().await {
+        Ok(client) => {
+            if let Err(e) = rls::assert_rls_binds(&client).await {
+                tracing::error!(error = %e, "refusing to start");
+                return Err(ExitCode::from(8));
+            }
+
+            if config.migrate_database_url.is_none() {
+                match migrate::verify_current(&client).await {
+                    Ok(true) => {
+                        tracing::info!("schema is up to date (no migration credential configured)")
+                    }
+                    Ok(false) => {
+                        tracing::error!(
+                            "the schema is not at the version this binary expects, and no \
+                             migration credential was configured to bring it there"
+                        );
+                        return Err(ExitCode::from(9));
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, "the schema does not match what this binary expects");
+                        return Err(ExitCode::from(4));
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            // deadpool's error Display does not carry the password, but that is not this
+            // binary's guarantee to make, so it is summarised.
+            tracing::error!(kind = %summarise(&e), "could not reach the database at startup");
+            return Err(ExitCode::from(5));
+        }
+    }
+    Ok(pool)
 }
 
 /// **`fathom-server recover-operator <address>`**: ADR-0055 decision 8's
