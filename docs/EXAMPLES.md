@@ -134,6 +134,8 @@ through like any other.
 To let an AI change designs directly, a Steward ticks **AI apps may change designs** under
 **Organisation › AI**, and you tick **May change designs** when you press **Allow** or **Make key** (or
 later, on the connection). The AI then gets a `change_design` tool: each call is one change in your
-name, against the version it read, shown in History as "AI (<connection>), for <you>". For now it
-only sets fields the reading shows (names, roles, labels, notes); it is refused in folders that need a
-second person, past 10 changes a minute, and if the design moved since it read it.
+name, against the version it read, shown in History as "AI (<connection>), for <you>". It sets fields,
+adds devices, racks, ports, cables and notes, connects them, and removes up to 20 things at a time,
+only of the kinds the reading shows it; it never removes a place that still holds things. It is
+refused in folders that need a second person, past 10 changes a minute, and if the design moved since
+it read it. To undo one, use History's **Restore this version**.

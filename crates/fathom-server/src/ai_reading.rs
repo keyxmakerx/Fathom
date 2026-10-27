@@ -582,6 +582,66 @@ pub fn settable_node_field(tiers: &BTreeSet<Tier>, kind: NodeKind, name: &str) -
         .map(|(k, _)| *k)
 }
 
+/// Whether an AI change may add a node of `kind`: the reading shows it at a tier changes
+/// reach (ADR-0073 decision 4).
+pub fn settable_node_kind(tiers: &BTreeSet<Tier>, kind: NodeKind) -> bool {
+    allowed_nodes(&settable_tiers(tiers)).contains_key(&kind)
+}
+
+/// Whether an AI change may add an edge of `kind`.
+pub fn settable_edge_kind(tiers: &BTreeSet<Tier>, kind: EdgeKind) -> bool {
+    allowed_edges(&settable_tiers(tiers)).contains_key(&kind)
+}
+
+/// Whether the reading at `tiers` shows edges of `kind` at all.
+pub fn shows_edge_kind(tiers: &BTreeSet<Tier>, kind: EdgeKind) -> bool {
+    let mut tiers = tiers.clone();
+    tiers.insert(Tier::Layout);
+    allowed_edges(&tiers).contains_key(&kind)
+}
+
+/// What an AI change may add and set at `tiers`, for the reading to hand an AI that may
+/// change designs: each node kind with its settable fields, and each edge kind with the
+/// node kinds at its ends that the reading shows, and its settable fields.
+pub fn change_vocabulary(tiers: &BTreeSet<Tier>) -> Json {
+    let settable = settable_tiers(tiers);
+    let names = |fields: &BTreeMap<FieldKey, &'static str>| {
+        let mut n: Vec<&str> = fields.values().copied().collect();
+        n.sort_unstable();
+        Json::Arr(n.into_iter().map(|f| Json::Str(f.to_string())).collect())
+    };
+    let nodes = allowed_nodes(&settable);
+    let ends = |kinds: &[NodeKind]| {
+        Json::Arr(
+            kinds
+                .iter()
+                .filter(|k| nodes.contains_key(k))
+                .map(|k| Json::Str(k.name().to_string()))
+                .collect(),
+        )
+    };
+    let mut edges = BTreeMap::new();
+    for (kind, fields) in allowed_edges(&settable) {
+        let mut m = BTreeMap::new();
+        m.insert("from".to_string(), ends(kind.from_kinds()));
+        m.insert("to".to_string(), ends(kind.to_kinds()));
+        m.insert("fields".to_string(), names(&fields));
+        edges.insert(kind.name().to_string(), Json::Obj(m));
+    }
+    let mut out = BTreeMap::new();
+    out.insert(
+        "nodes".to_string(),
+        Json::Obj(
+            nodes
+                .iter()
+                .map(|(k, f)| (k.name().to_string(), names(f)))
+                .collect(),
+        ),
+    );
+    out.insert("edges".to_string(), Json::Obj(edges));
+    Json::Obj(out)
+}
+
 /// [`settable_node_field`] for an edge.
 pub fn settable_edge_field(tiers: &BTreeSet<Tier>, kind: EdgeKind, name: &str) -> Option<FieldKey> {
     allowed_edges(&settable_tiers(tiers))

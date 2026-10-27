@@ -2579,7 +2579,8 @@ async fn an_ai_change_is_one_change_in_its_owners_name_and_only_within_both_tick
     .await;
     assert_eq!(status, "422", "{}", text(&answer));
     assert!(
-        text(&answer).contains("operation 1 sets a field"),
+        text(&answer)
+            .contains("operation 1 sets \"domain_name\", which this connection may not change"),
         "{}",
         text(&answer)
     );
@@ -2719,4 +2720,110 @@ async fn an_ai_change_is_one_change_in_its_owners_name_and_only_within_both_tick
     let (status, body) = ai_call(addr, &app_key, "GET", "/ai/v1/whoami", b"").await;
     assert_eq!(status, "200");
     assert_eq!(obj(&body).get("readOnly"), Some(&Json::Bool(true)));
+}
+
+/// ADR-0073 step 3: in one change an AI adds a device under a name it chose, sets its
+/// fields, and removes the one that was there; the reading shows both, the answer says
+/// what the name became, and History marks the one change.
+#[tokio::test]
+async fn an_ai_adds_and_removes_in_one_change_and_names_what_it_added() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let place = a_place(&pool, &estate).await;
+    let owner = a_member(
+        &pool,
+        &ring,
+        &estate,
+        "drawer",
+        Some(place.network),
+        Capability::Draw,
+    )
+    .await;
+    let addr = serve(app(&pool, Arc::clone(&ring)).await).await;
+    let steward = sign_in(addr, &estate.steward).await;
+    saved(addr, &steward, estate.organisation, place.design_a, 71).await;
+    let o = estate.organisation;
+    let owner_id = owner.account.to_string();
+    let (status, body) = browser(
+        addr,
+        &steward,
+        "POST",
+        &format!("/organisations/{o}/ai/policy"),
+        &canon(vec![
+            ("allowed", Json::Bool(true)),
+            ("makers", strs(&[&owner_id])),
+            ("ceiling", strs(&["layout", "notes"])),
+            ("maxDays", Json::Int(90)),
+            ("secondPersonScopes", strs(&[])),
+            ("mayChange", Json::Bool(true)),
+            ("ifVersion", Json::Int(0)),
+        ]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let owner_session = sign_in(addr, &owner).await;
+    let app_key = a_changing_key(addr, &owner_session, o, &["layout", "notes"]).await;
+    let a = place.design_a;
+    let (version, old, reading) = read_for_change(addr, &app_key, a, "Device").await;
+    assert!(
+        reading.contains("\"mayChange\":{"),
+        "the reading says what may be added: {reading}"
+    );
+
+    let ops = Json::Arr(vec![
+        canon_obj(vec![
+            ("op", s("add_node")),
+            ("kind", s("Device")),
+            ("as", s("replacement")),
+            (
+                "fields",
+                canon_obj(vec![(DeviceField::Hostname.name(), s("core-sw9"))]),
+            ),
+        ]),
+        canon_obj(vec![("op", s("remove")), ("element", s(&old))]),
+    ]);
+    let body = canon(vec![
+        ("version", Json::Int(version)),
+        ("summary", s("Replace the core switch")),
+        ("operations", ops),
+    ]);
+    let (status, answer) = ai_call(
+        addr,
+        &app_key,
+        "POST",
+        &format!("/ai/v1/designs/{a}/changes"),
+        &body,
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&answer));
+    let m = obj(&answer);
+    let Some(Json::Obj(added)) = m.get("added") else {
+        panic!("no added in {}", text(&answer))
+    };
+    let Some(Json::Str(new_id)) = added.get("replacement") else {
+        panic!("the name was not answered")
+    };
+    let (now, _, reading) = read_for_change(addr, &app_key, a, "Device").await;
+    assert_eq!(now, version + 1, "one change");
+    assert!(
+        reading.contains(new_id.as_str()) && reading.contains("core-sw9"),
+        "{reading}"
+    );
+    assert!(
+        !reading.contains(old.as_str()),
+        "the old device is gone: {reading}"
+    );
+
+    let (status, body) = browser(
+        addr,
+        &steward,
+        "GET",
+        &format!("/organisations/{o}/designs/{a}/history"),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200");
+    assert_eq!(text(&body).matches("\"via_ai\"").count(), 1);
 }

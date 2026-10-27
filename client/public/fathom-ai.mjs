@@ -262,11 +262,13 @@ const TOOLS = [
     name: 'fathom_change_design',
     mayChange: true,
     description:
-      'Change a design now, as one change a person can undo in one step. It is made in the name of the person who made ' +
-      'this key and marked as made by an AI. Give the version fathom_read_design gave: if the design moved since, nothing ' +
-      'changes and you are told to read it again. Each operation sets one field by the element ids and field names the ' +
-      'reading gave, or clears it with null. Never include a password or key; a change carrying one is refused whole. ' +
-      'Prefer fathom_recommend when a person should decide.',
+      'Change a design now, as one change. It is made in the name of the person who made this key, marked as made by an ' +
+      'AI, and History can restore the version before it. Give the version fathom_read_design gave: if the design moved ' +
+      'since, nothing changes and you are told to read it again. Operations run in order: set a field (null clears it), ' +
+      'add_node, add_edge or remove. The reading\'s mayChange lists the kinds and fields you may add and set. Name existing ' +
+      'elements by the reading\'s ids, or give an add an `as` name for later operations. A removal takes what the element ' +
+      'holds: at most 20 things, never a place still holding things, never anything holding what you cannot see. ' +
+      'Never include a password or key; a change carrying one is refused whole. Prefer fathom_recommend when a person should decide.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -278,12 +280,17 @@ const TOOLS = [
           items: {
             type: 'object',
             properties: {
-              op: { type: 'string', enum: ['set'] },
-              element: { type: 'string', description: 'A node or edge id from the reading (kind:ID).' },
-              field: { type: 'string', description: 'A field name as the reading shows it.' },
-              value: { description: 'The new value, in the shape the reading shows; null clears it.' },
+              op: { type: 'string', enum: ['set', 'add_node', 'add_edge', 'remove'] },
+              element: { type: 'string', description: 'set, remove: an id from the reading (kind:ID), or a name an earlier add gave.' },
+              field: { type: 'string', description: 'set: a field name as the reading shows it.' },
+              value: { description: 'set: the new value, in the shape the reading shows; null clears it.' },
+              kind: { type: 'string', description: 'add_node, add_edge: a kind from the reading\'s mayChange.' },
+              from: { type: 'string', description: 'add_edge: the node it starts at, an id or a name.' },
+              to: { type: 'string', description: 'add_edge: the node it ends at, an id or a name.' },
+              as: { type: 'string', description: 'add_node, add_edge: a name for later operations.' },
+              fields: { type: 'object', description: 'add_node, add_edge: field name to value.' },
             },
-            required: ['op', 'element', 'field', 'value'],
+            required: ['op'],
             additionalProperties: false,
           },
         },
@@ -295,7 +302,12 @@ const TOOLS = [
       call(key, 'POST', `/ai/v1/designs/${id(a.design)}/changes`, {
         version: a.version,
         summary: a.summary,
-        operations: (a.operations ?? []).map((o) => ({ op: o.op, element: o.element, field: o.field, value: o.value ?? null })),
+        operations: (a.operations ?? []).map((o) => {
+          const out = {};
+          for (const k of ['op', 'element', 'field', 'kind', 'from', 'to', 'as', 'fields']) if (o[k] !== undefined) out[k] = o[k];
+          if (o.op === 'set') out.value = o.value ?? null;
+          return out;
+        }),
       }),
   },
 ];

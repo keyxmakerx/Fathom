@@ -3,8 +3,8 @@
 **Status:** proposed 2026-10-27. The owner approved sign-off card r41-ai-write, option B ("A 'May
 change designs' tick on a connection, off by default"), and answered its question in a note:
 "So to clarify this is per user and per org, or only per org? I was thinking both". Both it is.
-Steps 1 and 2 below are built (migrations 0050 and 0051, `src/ai_change.rs`); steps 3 and 4
-are not. A security sweep follows the build, and
+Steps 1 to 3 below are built (migrations 0050 and 0051, `src/ai_change.rs`); the sweep (step 4)
+is not. A security sweep follows the build, and
 nothing merges before it.
 
 **Reopens** ADR-0072 decision 2 ("read and recommend only") on merit (CLAUDE.md rule 6), for
@@ -57,8 +57,9 @@ grouped? Prevented?" This record answers that in decisions 4 and 6.
    `ai_design_changes` (migration 0051), written in the transaction that stores the change, which
    History joins to show the connection's label. A browser can neither claim the mark nor strip it,
    and the design's schema gains nothing. The label is "AI: <summary>", cut to the 60 bytes a batch
-   label holds. Until step 3, anyone with Draw undoes an AI change through History's Restore; the
-   one-click Undo by someone other than the owner comes with step 3.
+   label holds. **Not built:** the one-click Undo by someone other than the owner. That needs the
+   live head to know which batches an AI made, and the head has no database; until then anyone
+   with Draw undoes an AI change through History's Restore, and its owner with Undo.
 6. **It never overwrites a person's work.** `change_design` names the version it read. If the
    design has moved since, the change is refused and the AI is told to read again. There is no
    field-by-field merge for an AI, unlike a person's live change (ADR-0063 §5).

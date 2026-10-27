@@ -145,7 +145,7 @@ pub enum AiError {
     /// One operation of an AI's change was refused; the sentence says why, never the value.
     Operation {
         index: usize,
-        why: &'static str,
+        why: String,
     },
     /// An AI's change named a version the design has moved on from (ADR-0073 decision 6).
     Moved {
@@ -2363,6 +2363,9 @@ pub async fn ai_reading(
     };
     m.insert("design".into(), Json::Str(design.to_string()));
     m.insert("version".into(), Json::Int(stored.version));
+    if may_change(session) {
+        m.insert("mayChange".into(), ai_reading::change_vocabulary(&tiers));
+    }
     m.insert(
         "about".into(),
         Json::Str(if may_change(session) {

@@ -125,7 +125,7 @@ const TOOLS: &str = r#"[
   {
     "name": "change_design",
     "title": "Change a design",
-    "description": "Change one design now, as one change the person can undo in one step. It is made in the name of the person who signed in and marked as made by an AI. Give the version read_design gave: if the design moved since, nothing changes and you are told to read it again. Each operation sets one field, by the element ids and field names read_design gave, or clears it with null. Only fields the reading shows can be set. Do not put passwords, keys or secrets in any value; a change that carries one is refused whole. Prefer recommend when a person should decide.",
+    "description": "Change one design now, as one change. It is made in the name of the person who signed in, marked as made by an AI, and History can restore the version before it. Give the version read_design gave: if the design moved since, nothing changes and you are told to read it again. Operations run in order: set a field (or clear it with null), add_node, add_edge, or remove. read_design's mayChange lists the node kinds and fields you may add and set, and each edge kind's ends. Name existing elements by the ids read_design gave; give an add an `as` name and later operations can use that name, and the answer says what each name became. A removal takes what the element holds with it: at most 20 things in one change, never a place that still holds things, never anything that holds what you cannot see. Do not put passwords, keys or secrets in any value; a change that carries one is refused whole. Prefer recommend when a person should decide.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -139,12 +139,17 @@ const TOOLS: &str = r#"[
           "items": {
             "type": "object",
             "properties": {
-              "op": {"type": "string", "enum": ["set"]},
-              "element": {"type": "string", "description": "A node or edge id from read_design."},
-              "field": {"type": "string", "description": "A field name as read_design shows it."},
-              "value": {"description": "The new value, in the shape read_design shows; null clears it."}
+              "op": {"type": "string", "enum": ["set", "add_node", "add_edge", "remove"]},
+              "element": {"type": "string", "description": "set, remove: an id from read_design, or a name an earlier add gave."},
+              "field": {"type": "string", "description": "set: a field name as read_design shows it."},
+              "value": {"description": "set: the new value, in the shape read_design shows; null clears it."},
+              "kind": {"type": "string", "description": "add_node, add_edge: a kind from read_design's mayChange."},
+              "from": {"type": "string", "description": "add_edge: the node it starts at, an id or a name."},
+              "to": {"type": "string", "description": "add_edge: the node it ends at, an id or a name."},
+              "as": {"type": "string", "description": "add_node, add_edge: a name for later operations, 1 to 40 letters, digits, - or _."},
+              "fields": {"type": "object", "description": "add_node, add_edge: field name to value."}
             },
-            "required": ["op", "element", "field", "value"],
+            "required": ["op"],
             "additionalProperties": false
           }
         }

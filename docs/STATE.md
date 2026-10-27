@@ -545,12 +545,16 @@ Both connect pages warn against a personal AI account; Fathom cannot check which
 23), so Allow and Make key ask for it, and Stewards and Admin › AI see it with the owner's sign-in address
 (decision 24, migration 0049). ADR-0073 (proposed, being built on PR #217): an AI connection may change
 designs only with two ticks, Organisation › AI's "AI apps may change designs" and the connection's own
-"May change designs" at Allow, Make key or later by its owner (migration 0050). Steps 1 and 2 are built: the
+"May change designs" at Allow, Make key or later by its owner (migration 0050). Steps 1 to 3 are built: the
 ticks and screens, and `change_design` (`POST /ai/v1/designs/{d}/changes`, the Claude tool and the
-helper's) setting fields the reading shows at `layout` and `notes`, as one change in the owner's name
-against the version read, 200 operations, 10 a minute and 300 a day, refused in second-person
-folders, every string through the server's gate. History marks it "AI (<connection>), for <person>"
-from `ai_design_changes` (migration 0051). Not yet: adding, connecting and removing (step 3). Not yet: dashed "would be added"
+helper's) setting fields, adding nodes and edges (named with `as` for later operations) and removing,
+all at kinds and fields the reading shows at `layout` and `notes`; one change in the owner's name
+against the version read, 200 operations, 10 a minute and 300 a day, at most 20 things removed, never a
+place still holding things or anything holding what the AI cannot see, refused in second-person
+folders, every string through the server's gate. The reading lists what may be added under
+`mayChange`. History marks it "AI (<connection>), for <person>" from `ai_design_changes` (migration
+0051). Not yet: Undo of an AI change by someone other than its owner (History's Restore does it), and
+the security sweep. Not yet: dashed "would be added"
 rows and marks on the drawing itself.
 
 **Device panel** (r14 A1, A2): Details, Ports and Notes tabs, actions at the foot (Duplicate the main one,
