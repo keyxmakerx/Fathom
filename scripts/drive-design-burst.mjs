@@ -13,11 +13,11 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { webcrypto } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { migrateUrl, runtimeUrl, superuserUrl } from './drive-lib/db.mjs';
+import { base32Decode, totpCode } from './drive-lib/kit.mjs';
 
 const ROOT = process.env.FATHOM_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
 // `CARGO_TARGET_DIR` is set per worktree in this project, so the binary is
@@ -89,37 +89,6 @@ async function setupState(baseUrl) {
 
 // --- the authenticator app, in Node (RFC 6238, as credentials.rs) ----------
 
-const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-function base32Decode(text) {
-  const clean = text.toUpperCase().replace(/=+$/, '').replace(/\s+/g, '');
-  const out = [];
-  let buffer = 0;
-  let bits = 0;
-  for (const c of clean) {
-    const v = BASE32.indexOf(c);
-    if (v < 0) throw new Error(`not RFC 4648 base32: ${JSON.stringify(c)}`);
-    buffer = (buffer << 5) | v;
-    bits += 5;
-    if (bits >= 8) {
-      bits -= 8;
-      out.push((buffer >> bits) & 0xff);
-    }
-  }
-  return Uint8Array.from(out);
-}
-
-async function totpCode(secretBytes, step) {
-  const key = await webcrypto.subtle.importKey('raw', secretBytes, { name: 'HMAC', hash: 'SHA-1' }, false, [
-    'sign',
-  ]);
-  const counter = new Uint8Array(8);
-  new DataView(counter.buffer).setBigUint64(0, BigInt(step), false);
-  const tag = new Uint8Array(await webcrypto.subtle.sign('HMAC', key, counter));
-  const offset = tag[tag.length - 1] & 0x0f;
-  const binary =
-    ((tag[offset] & 0x7f) << 24) | (tag[offset + 1] << 16) | (tag[offset + 2] << 8) | tag[offset + 3];
-  return String(binary % 1000000).padStart(6, '0');
-}
 const currentStep = () => Math.floor(Date.now() / 1000 / 30);
 
 /** A code for a step this run has not spent yet. */
@@ -184,8 +153,6 @@ async function walkTheFirstRun(page, { token, address, password, spent }) {
   await page.waitForSelector('.home', { timeout: 30000 });
   return { secret };
 }
-
-
 
 // ---------------------------------------------------------------------------
 
@@ -290,7 +257,6 @@ async function main() {
     spent,
   });
   check('the first run ends signed in on Home', true);
-
 
   // ---- 2. an organisation (drive-fresh-install.mjs's steps) ----------------
   const tab = pageA;

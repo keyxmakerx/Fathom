@@ -57,6 +57,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrateUrl, runtimeUrl, superuserUrl } from './drive-lib/db.mjs';
 import { applyDriveCpuThrottle } from './drive-lib/cpuThrottle.mjs';
+import { check, fails } from './drive-lib/kit.mjs';
 
 const pw = await import(
   process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js'
@@ -99,12 +100,6 @@ const RUNTIME_URL = runtimeUrl(DB_NAME);
 // either of these for a verification code (`sessions.rs` branch 2's "A0").
 const STEWARD_PASSWORD = 'session-seven-steward-passphrase-kept-for-this-proof-only';
 const DRAWER_PASSWORD = 'session-seven-drawer-passphrase-kept-for-this-proof-only';
-
-const fails = [];
-function check(name, ok, detail) {
-  console.log((ok ? 'PASS  ' : 'FAIL  ') + name + (detail ? '  [' + detail + ']' : ''));
-  if (!ok) fails.push(name);
-}
 
 function sh(cmd, args, opts = {}) {
   return execFileSync(cmd, args, { encoding: 'utf8', ...opts });
