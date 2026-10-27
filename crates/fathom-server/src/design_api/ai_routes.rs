@@ -509,8 +509,27 @@ async fn decide_idea(
         tenant_key: &tenant_key,
         watch: &state.watch,
     };
-    let done = ai::decide_idea(&tx, &auth, design_id, &id, if_version, accept).await?;
-    tx.commit().await.map_err(SessionError::Db)?;
+    let heads = &state.live.heads;
+    let (done, written) =
+        ai::decide_idea(&tx, &auth, heads, design_id, &id, if_version, accept).await?;
+    // An accepted idea's change goes to the head and every open browser once committed, as
+    // a browser's own change does (`post_change_handler`).
+    let design_text = design_id.to_string();
+    let applied = written.and_then(|w| w.applied.map(|a| (a, w.version)));
+    match tx.commit().await {
+        Ok(()) => {
+            if let Some((applied, version)) = applied {
+                heads.commit(&design_text, applied.ticket, version, applied.tip);
+                state.live.hub.wake_design(&design_text);
+            }
+        }
+        Err(e) => {
+            if let Some((applied, _)) = applied {
+                heads.abort(&design_text, applied.ticket);
+            }
+            return Err(SessionError::Db(e).into());
+        }
+    }
     Ok(json_response(done.to_json()))
 }
 

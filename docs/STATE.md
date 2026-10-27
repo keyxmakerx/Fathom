@@ -625,19 +625,20 @@ idea into a draft maintenance plan with no edits in it and accepts the idea (ADR
 reading includes maintenance plans and "It's down" issues, without who wrote them or a step's stored edit.
 Both connect pages warn against a personal AI account; Fathom cannot check which account it is (decision
 23), so Allow and Make key ask for it, and Stewards and Admin › AI see it with the owner's sign-in address
-(decision 24, migration 0049). ADR-0077 (proposed, being built on PR #217): an AI connection may change
-designs only with two ticks, Steward › AI rules' "AI apps may change designs" and the connection's own
-"May change designs" at Allow, Make key or later by its owner (migration 0050). Steps 1 to 3 are built: the
-ticks and screens, and `change_design` (`POST /ai/v1/designs/{d}/changes`, the Claude tool and the
-helper's) setting fields, adding nodes and edges (named with `as` for later operations) and removing,
-all at kinds and fields the reading shows at `layout` and `notes`; one change in the owner's name
-against the version read, 200 operations, 10 a minute and 300 a day, at most 20 things removed, never a
-place still holding things or anything holding what the AI cannot see, refused in second-person
-folders, every string through the server's gate. The reading lists what may be added under
-`mayChange`. History marks it "AI (<connection>), for <person>" from `ai_design_changes` (migration
-0051). Not yet: Undo of an AI change by someone other than its owner (History's Restore does it), and
-merging, which waits on the owner (the sweep is in ADR-0077). Not yet: dashed "would be added"
-rows and marks on the drawing itself.
+(decision 24, migration 0049). ADR-0077 (amended 2026-10-27: an AI proposes, a person accepts): an AI connection never writes to a
+design. With two ticks, Steward › AI rules' "AI apps may propose changes" and the connection's own "May
+propose changes" (migration 0050), `POST /ai/v1/designs/{d}/changes` (the Claude tool `propose_change`,
+the helper's `fathom_propose_change`) and `recommend`'s optional `change` check the operations as they
+would be made (fields set, nodes and edges added and named with `as`, removals; kinds and fields the
+reading shows at `layout` and `notes`; the version read; 200 operations, at most 20 things removed,
+never a place still holding things or anything holding what the AI cannot see; the owner able to draw
+there; every string through the server's gate) and keep them sealed in an AI idea, 10 a minute and 300
+a day per connection. The idea carries `preview`; the ideas panel's Show on canvas draws it as an open
+plan, in the plan colour with AI CHANGES / AI REMOVES / AI ADDS tags, removals greyed. Accept and apply
+makes it on the current design as the accepting person's own edit. `whoami` is `readOnly: true` for
+every connection. `ai_design_changes` (migration 0051) holds only rows from before the amendment. Not
+yet: drawing a node the change adds (the panel names it), and the per-kind controls proposed on
+sign-off card r47-ai-controls.
 
 **Device panel** (r14 A1, A2): Details, Ports and Notes tabs, actions at the foot (Duplicate the main one,
 Remove device in red). Inventory's toolbar has a role filter, written into the filter line as `role:...`.

@@ -131,14 +131,16 @@ over a plan or an issue. To have it draft a change, ask it to recommend one: the
 **AI ideas**, and **Make it a plan** turns its steps into a draft plan you change, schedule and work
 through like any other.
 
-To let an AI change designs directly, a Steward ticks **AI apps may change designs** under
-**Steward › AI rules**, and you tick **May change designs** when you press **Allow** or **Make key** (or
-later, on the connection). The AI then gets a `change_design` tool: each call is one change in your
-name, against the version it read, shown in History as "AI (<connection>), for <you>". It sets fields,
-adds devices, racks, ports, cables and notes, connects them, and removes up to 20 things at a time,
-only of the kinds the reading shows it; it never removes a place that still holds things. It is
-refused in folders that need a second person, past 10 changes a minute, and if the design moved since
-it read it. To undo one, use History's **Restore this version**.
+An AI never changes a design itself. To let it send the change as well as the steps, a Steward ticks
+**AI apps may propose changes** under **Steward › AI rules**, and you tick **May propose changes** when
+you press **Allow** or **Make key** (or later, on the connection). The AI then gets a `propose_change`
+tool: Fathom checks the change against the version it read and keeps it as an AI idea. Open **AI
+ideas** and press **Show on canvas**: what it would change is outlined in the plan colour, tagged AI
+CHANGES, and anything it would remove is greyed. **Accept and apply** makes it as your own edit, in
+your name; **Dismiss** throws it away. It sets fields, adds devices, racks, ports, cables and notes,
+connects them, and removes up to 20 things at a time, only of the kinds the reading shows it; it never
+removes a place that still holds things. It is refused past 10 proposals a minute and if the design
+moved since it read it. To undo an accepted one, use Undo or History's **Restore this version**.
 
 ## 10. Fit a card and an optic
 

@@ -273,7 +273,7 @@ function HelperKey({
               {policy.mayChange && (
                 <label className="ai-tick">
                   <input type="checkbox" data-testid="ai-helper-may-change" checked={mayChange} onChange={(e) => setMayChange(e.target.checked)} />
-                  <span>May change designs</span>
+                  <span>May propose changes</span>
                 </label>
               )}
               <div className="ai-label">Stops working after</div>

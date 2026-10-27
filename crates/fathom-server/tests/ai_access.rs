@@ -2368,7 +2368,7 @@ async fn changing_designs_takes_the_organisations_tick_and_the_connections() {
     let first = SoftwareKey::random().unwrap();
     let (status, body) = browser(addr, &owner_session, "POST", &keys_path, &make(&first)).await;
     assert_eq!(status, "403", "{}", text(&body));
-    assert!(text(&body).contains("does not let AI apps change designs"));
+    assert!(text(&body).contains("does not let AI apps propose changes"));
 
     // On: the connection gets it, and says so.
     let (status, body) = browser(addr, &steward, "POST", &policy_path, &policy(true, 1)).await;
@@ -2413,7 +2413,7 @@ async fn changing_designs_takes_the_organisations_tick_and_the_connections() {
     assert_eq!(status, "200");
     let (status, body) = browser(addr, &owner_session, "POST", &key_path, &tick(true, 4)).await;
     assert_eq!(status, "403", "{}", text(&body));
-    assert!(text(&body).contains("does not let AI apps change designs"));
+    assert!(text(&body).contains("does not let AI apps propose changes"));
 }
 
 /// A connection allowed to change designs, made over HTTP by `owner`.
@@ -2480,6 +2480,32 @@ async fn read_for_change(
     (version, id.clone(), text(&body))
 }
 
+/// The id an idea's answer gives.
+fn idea_id(body: &[u8]) -> String {
+    match obj(body).get("id") {
+        Some(Json::Str(id)) => id.clone(),
+        _ => panic!("no id in {}", text(body)),
+    }
+}
+
+/// A person accepts an idea in the browser, as the panel's Accept and apply does.
+async fn accept_idea(
+    addr: SocketAddr,
+    person: &LiveSession,
+    organisation: OrganisationId,
+    design: DesignId,
+    id: &str,
+) -> (String, Vec<u8>) {
+    browser(
+        addr,
+        person,
+        "POST",
+        &format!("/organisations/{organisation}/designs/{design}/ai-ideas/{id}/accept"),
+        &canon(vec![("ifVersion", Json::Int(1))]),
+    )
+    .await
+}
+
 fn a_change(version: i64, summary: &str, ops: Vec<(&str, &str, Json)>) -> Vec<u8> {
     canon(vec![
         ("version", Json::Int(version)),
@@ -2502,13 +2528,14 @@ fn a_change(version: i64, summary: &str, ops: Vec<(&str, &str, Json)>) -> Vec<u8
     ])
 }
 
-/// ADR-0077 decisions 1 to 9, step 2: with both ticks a connection sets a field it may
-/// read, as one change in its owner's name and marked as an AI's. It is refused against a
-/// version the design has moved on from, for a field outside its tiers, for a value that
-/// looks like a secret (naming the operation, never the value), in a second-person folder,
-/// past ten changes a minute, and the moment the organisation's tick goes off.
+/// ADR-0077 decisions 1 to 9, amended 2026-10-27 (an AI never changes a design itself): with
+/// both ticks a connection proposes setting a field it may read. Nothing changes until a
+/// person accepts it, and then it is one change in that person's name. The proposal is
+/// refused against a version the design has moved on from, for a field outside its tiers,
+/// for a value that looks like a secret (naming the operation, never the value), past ten
+/// a minute, and the moment the organisation's tick goes off.
 #[tokio::test]
-async fn an_ai_change_is_one_change_in_its_owners_name_and_only_within_both_ticks() {
+async fn an_ai_proposal_changes_nothing_until_a_person_accepts_it() {
     let _site = support::lock_the_site_chain().await;
     let pool = support::migrated_pool().await;
     let ring = ring();
@@ -2572,14 +2599,18 @@ async fn an_ai_change_is_one_change_in_its_owners_name_and_only_within_both_tick
     assert_eq!(status, "200");
     let who = obj(&body);
     assert_eq!(who.get("mayChange"), Some(&Json::Bool(true)));
-    assert_eq!(who.get("readOnly"), Some(&Json::Bool(false)));
+    assert_eq!(
+        who.get("readOnly"),
+        Some(&Json::Bool(true)),
+        "an AI never writes to a design itself"
+    );
 
     let a = place.design_a;
     let path = format!("/ai/v1/designs/{a}/changes");
     let hostname = DeviceField::Hostname.name();
     let (version, device, _) = read_for_change(addr, &app_key, a, "Device").await;
 
-    // One change: the field reads back, the version moved by one, and it is marked.
+    // A proposal: an open idea that says what it touches, and the design has not moved.
     let body = a_change(
         version,
         "Name the core switch",
@@ -2587,13 +2618,32 @@ async fn an_ai_change_is_one_change_in_its_owners_name_and_only_within_both_tick
     );
     let (status, answer) = ai_call(addr, &app_key, "POST", &path, &body).await;
     assert_eq!(status, "200", "{}", text(&answer));
-    assert_eq!(int(&obj(&answer), "version"), version + 1);
+    let m = obj(&answer);
+    assert_eq!(m.get("state"), Some(&s("open")));
+    assert_eq!(int(&m, "changes"), 1);
+    assert!(
+        text(&answer).contains(&format!("\"changes\":[\"{device}\"]")),
+        "the preview names the device: {}",
+        text(&answer)
+    );
+    let proposal = idea_id(&answer);
     let (now, _, reading) = read_for_change(addr, &app_key, a, "Device").await;
-    assert_eq!(now, version + 1);
-    assert!(reading.contains("core-sw2"), "{reading}");
+    assert_eq!(now, version, "a proposal changes nothing");
+    assert!(!reading.contains("core-sw2"), "{reading}");
 
-    // The same request again, against the version it read: the design has moved on.
-    let (status, answer) = ai_call(addr, &app_key, "POST", &path, &body).await;
+    // Against a version the design is not at: refused.
+    let (status, answer) = ai_call(
+        addr,
+        &app_key,
+        "POST",
+        &path,
+        &a_change(
+            version + 5,
+            "Too new",
+            vec![(&device, hostname, s("core-x"))],
+        ),
+    )
+    .await;
     assert_eq!(status, "409", "{}", text(&answer));
     assert!(text(&answer).contains("read it again"), "{}", text(&answer));
 
@@ -2640,11 +2690,8 @@ async fn an_ai_change_is_one_change_in_its_owners_name_and_only_within_both_tick
     assert_eq!(status, "422", "{}", text(&answer));
     assert!(text(&answer).contains("operation 2"), "{}", text(&answer));
     assert!(!text(&answer).contains("mERr"));
-    let (still, _, reading) = read_for_change(addr, &app_key, a, "Device").await;
-    assert_eq!(still, now, "a refused change changes nothing");
-    assert!(!reading.contains("core-sw3"));
 
-    // A folder a Steward marked for a second person refuses AI changes outright.
+    // In a folder a Steward marked for a second person, a proposal waits like any other.
     let (vb, device_b, _) = read_for_change(addr, &app_key, place.design_b, "Device").await;
     let (status, answer) = ai_call(
         addr,
@@ -2654,39 +2701,16 @@ async fn an_ai_change_is_one_change_in_its_owners_name_and_only_within_both_tick
         &a_change(vb, "Rename", vec![(&device_b, hostname, s("edge-1"))]),
     )
     .await;
-    assert_eq!(status, "403", "{}", text(&answer));
-    assert!(text(&answer).contains("second person"), "{}", text(&answer));
+    assert_eq!(status, "200", "{}", text(&answer));
+    let (still, _, _) = read_for_change(addr, &app_key, place.design_b, "Device").await;
+    assert_eq!(still, vb);
 
-    // The change is in the owner's name, and marked as this connection's.
-    {
-        let client = pool.get().await.unwrap();
-        client
-            .execute(
-                "SELECT set_config('app.tenant_id', $1, false)",
-                &[&o.to_string()],
-            )
-            .await
-            .unwrap();
-        let rows = client
-            .query(
-                "SELECT key_id, owner, design_version, operations FROM ai_design_changes \
-                 WHERE design_id = $1",
-                &[&a.to_string()],
-            )
-            .await
-            .unwrap();
-        client
-            .execute("SELECT set_config('app.tenant_id', '', false)", &[])
-            .await
-            .unwrap();
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].get::<_, String>(0), app_key.id);
-        assert_eq!(rows[0].get::<_, String>(1), owner_id);
-        assert_eq!(rows[0].get::<_, i64>(2), version + 1);
-        assert_eq!(rows[0].get::<_, i32>(3), 1);
-    }
-
-    // History shows it as the AI's, through which connection, for whom.
+    // The person accepts: one change, in their name, not marked as the AI's.
+    let (status, answer) = accept_idea(addr, &owner_session, o, a, &proposal).await;
+    assert_eq!(status, "200", "{}", text(&answer));
+    let (now, _, reading) = read_for_change(addr, &app_key, a, "Device").await;
+    assert_eq!(now, version + 1);
+    assert!(reading.contains("core-sw2"), "{reading}");
     let (status, body) = browser(
         addr,
         &steward,
@@ -2697,46 +2721,42 @@ async fn an_ai_change_is_one_change_in_its_owners_name_and_only_within_both_tick
     .await;
     assert_eq!(status, "200", "{}", text(&body));
     let history = text(&body);
-    assert_eq!(
-        history
-            .matches("\"via_ai\":\"Claude Code on the web\"")
-            .count(),
-        1,
-        "{history}"
-    );
+    assert!(!history.contains("\"via_ai\":\""), "{history}");
     assert!(
         history.contains(&format!("\"actor\":\"{owner_id}\"")),
         "{history}"
     );
 
-    // Ten a minute: nine more go through, the eleventh is refused.
-    let mut at = now;
-    for i in 0..9 {
+    // Ten a minute: eight more go through (two were sent), the eleventh is refused.
+    for i in 0..8 {
         let (status, answer) = ai_call(
             addr,
             &app_key,
             "POST",
             &path,
             &a_change(
-                at,
+                now,
                 "Rename again",
                 vec![(&device, hostname, s(&format!("core-{i}")))],
             ),
         )
         .await;
         assert_eq!(status, "200", "{}", text(&answer));
-        at += 1;
     }
     let (status, answer) = ai_call(
         addr,
         &app_key,
         "POST",
         &path,
-        &a_change(at, "One too many", vec![(&device, hostname, s("core-x"))]),
+        &a_change(now, "One too many", vec![(&device, hostname, s("core-x"))]),
     )
     .await;
     assert_eq!(status, "403", "{}", text(&answer));
-    assert!(text(&answer).contains("10 changes in the last minute"));
+    assert!(
+        text(&answer).contains("10 ideas in the last minute"),
+        "{}",
+        text(&answer)
+    );
 
     // The organisation's tick off stops it at the next request.
     let (status, _) = browser(addr, &steward, "POST", &policy_path, &policy(false, 1)).await;
@@ -2746,21 +2766,22 @@ async fn an_ai_change_is_one_change_in_its_owners_name_and_only_within_both_tick
         &app_key,
         "POST",
         &path,
-        &a_change(at, "After the tick", vec![(&device, hostname, s("core-y"))]),
+        &a_change(
+            now,
+            "After the tick",
+            vec![(&device, hostname, s("core-y"))],
+        ),
     )
     .await;
     assert_eq!(status, "403", "{}", text(&answer));
-    assert!(text(&answer).contains("does not let AI apps change designs"));
-    let (status, body) = ai_call(addr, &app_key, "GET", "/ai/v1/whoami", b"").await;
-    assert_eq!(status, "200");
-    assert_eq!(obj(&body).get("readOnly"), Some(&Json::Bool(true)));
+    assert!(text(&answer).contains("does not let AI apps propose changes"));
 }
 
-/// ADR-0077 step 3: in one change an AI adds a device under a name it chose, sets its
-/// fields, and removes the one that was there; the reading shows both, the answer says
-/// what the name became, and History marks the one change.
+/// ADR-0077 step 3: in one proposal an AI adds a device under a name it chose, sets its
+/// fields, and removes the one that was there. The preview says both; once a person
+/// accepts it, the reading shows both as one change.
 #[tokio::test]
-async fn an_ai_adds_and_removes_in_one_change_and_names_what_it_added() {
+async fn an_ai_proposes_adding_and_removing_in_one_change() {
     let _site = support::lock_the_site_chain().await;
     let pool = support::migrated_pool().await;
     let ring = ring();
@@ -2832,41 +2853,30 @@ async fn an_ai_adds_and_removes_in_one_change_and_names_what_it_added() {
     )
     .await;
     assert_eq!(status, "200", "{}", text(&answer));
-    let m = obj(&answer);
-    let Some(Json::Obj(added)) = m.get("added") else {
-        panic!("no added in {}", text(&answer))
-    };
-    let Some(Json::Str(new_id)) = added.get("replacement") else {
-        panic!("the name was not answered")
-    };
+    let preview = text(&answer);
+    assert!(
+        preview.contains("\"adds\":[{\"kind\":\"Device\",\"name\":\"replacement\"}]")
+            && preview.contains(&format!("\"removes\":[\"{old}\"]")),
+        "{preview}"
+    );
+    let (still, _, _) = read_for_change(addr, &app_key, a, "Device").await;
+    assert_eq!(still, version, "nothing yet");
+    let (status, answer) = accept_idea(addr, &owner_session, o, a, &idea_id(&answer)).await;
+    assert_eq!(status, "200", "{}", text(&answer));
     let (now, _, reading) = read_for_change(addr, &app_key, a, "Device").await;
     assert_eq!(now, version + 1, "one change");
-    assert!(
-        reading.contains(new_id.as_str()) && reading.contains("core-sw9"),
-        "{reading}"
-    );
+    assert!(reading.contains("core-sw9"), "{reading}");
     assert!(
         !reading.contains(old.as_str()),
         "the old device is gone: {reading}"
     );
-
-    let (status, body) = browser(
-        addr,
-        &steward,
-        "GET",
-        &format!("/organisations/{o}/designs/{a}/history"),
-        b"",
-    )
-    .await;
-    assert_eq!(status, "200");
-    assert_eq!(text(&body).matches("\"via_ai\"").count(), 1);
 }
 
 /// ADR-0077 decision 2, from the sweep: a connection lends no more than its owner holds.
-/// Both ticks on, but the owner may only read the folder: the change is refused as the
-/// owner's own would be, and the design does not move.
+/// Both ticks on, but the owner may only read the folder: a change is not proposed in the
+/// name of someone who could not make it, and the design does not move.
 #[tokio::test]
-async fn an_ai_change_needs_its_owner_to_be_able_to_draw_there() {
+async fn an_ai_proposal_needs_its_owner_to_be_able_to_draw_there() {
     let _site = support::lock_the_site_chain().await;
     let pool = support::migrated_pool().await;
     let ring = ring();
@@ -3021,11 +3031,15 @@ async fn a_tampered_sign_in_or_an_unlisted_tool_gets_nothing_the_page_would_not_
         assert_eq!(status, "403", "{why}: {}", text(&body));
     }
 
-    // The honest sign-in goes through, and its connection is not shown change_design...
+    // The honest sign-in goes through, and its connection is not shown propose_change...
     let (_, access, _) = connect(addr, &owner_session, o, CLAUDE, CLAUDE_BACK, FROM_CLAUDE).await;
     let (status, body) = mcp(addr, &access, FROM_CLAUDE, rpc(1, "tools/list", vec![])).await;
     assert_eq!(status, "200");
-    assert!(!text(&body).contains("change_design"), "{}", text(&body));
+    assert!(
+        !text(&body).contains("\"name\":\"propose_change\""),
+        "{}",
+        text(&body)
+    );
     // ...and calling it anyway changes nothing.
     let (_, body) = mcp(
         addr,
@@ -3035,7 +3049,7 @@ async fn a_tampered_sign_in_or_an_unlisted_tool_gets_nothing_the_page_would_not_
             2,
             "tools/call",
             vec![
-                ("name", s("change_design")),
+                ("name", s("propose_change")),
                 (
                     "arguments",
                     canon_obj(vec![
@@ -3058,7 +3072,7 @@ async fn a_tampered_sign_in_or_an_unlisted_tool_gets_nothing_the_page_would_not_
     .await;
     assert!(
         text(&body).contains("\"isError\":true")
-            && text(&body).contains("does not let AI apps change designs"),
+            && text(&body).contains("does not let AI apps propose changes"),
         "{}",
         text(&body)
     );
@@ -3083,4 +3097,183 @@ async fn a_tampered_sign_in_or_an_unlisted_tool_gets_nothing_the_page_would_not_
         .await
         .unwrap();
     assert_eq!(changes, 0);
+}
+
+/// ADR-0072 decision 7, amended 2026-10-27: an idea may carry the change itself, from a
+/// connection both ticks let propose changes, and Accept makes it, as the person accepting. A change that cannot be made is refused when it is sent. Dismissing makes
+/// nothing, and an idea without a change is only marked, as before.
+#[tokio::test]
+async fn accepting_an_idea_that_carries_a_change_makes_it_as_the_person() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let place = a_place(&pool, &estate).await;
+    let owner = a_member(&pool, &ring, &estate, "owner", None, Capability::Draw).await;
+    let addr = serve(app(&pool, Arc::clone(&ring)).await).await;
+    let steward = sign_in(addr, &estate.steward).await;
+    saved(addr, &steward, estate.organisation, place.design_a, 81).await;
+    let o = estate.organisation;
+    let owner_id = owner.account.to_string();
+    let (status, body) = browser(
+        addr,
+        &steward,
+        "POST",
+        &format!("/organisations/{o}/ai/policy"),
+        &canon(vec![
+            ("allowed", Json::Bool(true)),
+            ("makers", strs(&[&owner_id])),
+            ("ceiling", strs(&["layout"])),
+            ("maxDays", Json::Int(90)),
+            ("secondPersonScopes", strs(&[])),
+            ("mayChange", Json::Bool(true)),
+            ("ifVersion", Json::Int(0)),
+        ]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let owner_session = sign_in(addr, &owner).await;
+    let ideas_only = make_key(addr, &owner_session, o, &[], &["layout"], true)
+        .await
+        .expect("make");
+    let app_key = a_changing_key(addr, &owner_session, o, &["layout"]).await;
+    let a = place.design_a;
+    let (version, device, _) = read_for_change(addr, &app_key, a, "Device").await;
+    let hostname = DeviceField::Hostname.name();
+    let ideas = format!("/ai/v1/designs/{a}/recommendations");
+    let idea = |title: &str, version: i64, field: &str, value: &str| {
+        let change = a_change(version, "unused", vec![(device.as_str(), field, s(value))]);
+        let Ok(Json::Obj(mut c)) = Json::parse_canonical(&change) else {
+            panic!("a change")
+        };
+        c.remove("summary");
+        canon(vec![
+            ("title", s(title)),
+            ("why", s("The placeholder is still in")),
+            (
+                "steps",
+                Json::Arr(vec![canon_obj(vec![
+                    ("action", s("change")),
+                    ("target", s(&device)),
+                    ("text", s("Give it its real name")),
+                ])]),
+            ),
+            ("change", Json::Obj(c)),
+        ])
+    };
+
+    // A connection allowed ideas only may not send the change itself.
+    let (status, body) = ai_call(
+        addr,
+        &ideas_only,
+        "POST",
+        &ideas,
+        &idea("Steps only", version, hostname, "x"),
+    )
+    .await;
+    assert_eq!(status, "403", "{}", text(&body));
+    assert!(
+        text(&body).contains("may not propose changes"),
+        "{}",
+        text(&body)
+    );
+
+    // A field outside what the connection may set, or a version that is not the design's,
+    // is refused when sent, and nothing waits.
+    let (status, body) = ai_call(
+        addr,
+        &app_key,
+        "POST",
+        &ideas,
+        &idea("Bad", version, "no_such_field", "x"),
+    )
+    .await;
+    assert_eq!(status, "422", "{}", text(&body));
+    let (status, _) = ai_call(
+        addr,
+        &app_key,
+        "POST",
+        &ideas,
+        &idea("Old", version + 5, hostname, "x"),
+    )
+    .await;
+    assert_eq!(status, "409");
+
+    let (status, body) = ai_call(
+        addr,
+        &app_key,
+        "POST",
+        &ideas,
+        &idea("Rename the core switch", version, hostname, "core-real"),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let Some(Json::Str(with_change)) = obj(&body).get("id").cloned() else {
+        panic!("no id")
+    };
+    let (status, body) = ai_call(
+        addr,
+        &app_key,
+        "POST",
+        &ideas,
+        &idea("Rename it otherwise", version, hostname, "core-other"),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let Some(Json::Str(dismissed)) = obj(&body).get("id").cloned() else {
+        panic!("no id")
+    };
+
+    let list = format!("/organisations/{o}/designs/{a}/ai-ideas");
+    let (status, body) = browser(addr, &steward, "GET", &list, b"").await;
+    assert_eq!(status, "200");
+    assert!(
+        text(&body).contains("\"changes\":1"),
+        "the panel is told Accept makes one change: {}",
+        text(&body)
+    );
+    let v1 = canon(vec![("ifVersion", Json::Int(1))]);
+
+    // Dismissing makes nothing.
+    let (status, body) = browser(
+        addr,
+        &steward,
+        "POST",
+        &format!("{list}/{dismissed}/dismiss"),
+        &v1,
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let (now, _, reading) = read_for_change(addr, &app_key, a, "Device").await;
+    assert_eq!(now, version);
+    assert!(!reading.contains("core-other"));
+
+    // Accepting makes the change, as one change by the person accepting, not the AI's.
+    let (status, body) = browser(
+        addr,
+        &steward,
+        "POST",
+        &format!("{list}/{with_change}/accept"),
+        &v1,
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    assert_eq!(obj(&body).get("state"), Some(&s("accepted")));
+    let (now, _, reading) = read_for_change(addr, &app_key, a, "Device").await;
+    assert_eq!(now, version + 1, "one change");
+    assert!(reading.contains("core-real"), "{reading}");
+    let (status, body) = browser(
+        addr,
+        &steward,
+        "GET",
+        &format!("/organisations/{o}/designs/{a}/history"),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200");
+    assert!(
+        !text(&body).contains("\"via_ai\":\""),
+        "the accepter's own edit, not marked as an AI's: {}",
+        text(&body)
+    );
 }
