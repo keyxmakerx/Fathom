@@ -1,11 +1,15 @@
 // Admin › AI (ADR-0072 decision 9; mockup r33-ai-admin-a, approved). The operator turns AI
 // off for the whole server, and sees every connection and turns any one off with a reason
 // its owner and the organisation's Stewards read. An operator cannot turn AI on for an
-// organisation, make a connection, widen one, or see a design.
+// organisation, make a connection, widen one, or see a design. The admin also sets a ceiling
+// on what an AI may do by kind of work, which every organisation's own rules sit within
+// (sign-off card r47-ai-controls).
 
 import { useCallback, useEffect, useState } from 'react';
 
 import { disableAiKeyAsAdmin, fetchServerAi, setServerAi, type OrganisationRow, type ServerAi, type ServerAiKey } from '../../api/console';
+import type { WorkLevels } from '../../api/ai';
+import { WorkTable } from '../ai/WorkTable';
 import { describeConsoleError } from './describeConsoleError';
 import { SkeletonRows } from '../ui/Skeleton';
 
@@ -26,6 +30,7 @@ export function AiSection({ organisations }: { organisations: OrganisationRow[] 
   const [reason, setReason] = useState('');
   const [stopping, setStopping] = useState<ServerAiKey | null>(null);
   const [why, setWhy] = useState('');
+  const [ceiling, setCeiling] = useState<WorkLevels | null>(null);
 
   const load = useCallback(() => {
     fetchServerAi().then(
@@ -48,6 +53,7 @@ export function AiSection({ organisations }: { organisations: OrganisationRow[] 
       setStopping(null);
       setWhy('');
       setReason('');
+      setCeiling(null);
       load();
     } catch (e) {
       setError(describeConsoleError(e));
@@ -90,6 +96,30 @@ export function AiSection({ organisations }: { organisations: OrganisationRow[] 
             >
               {ai.allowed ? 'Turn AI off' : 'Allow AI again'}
             </button>
+          </div>
+          <div className="console-ai__ceiling">
+            <strong>The most an AI may do in any organisation</strong>
+            <p className="console__note">
+              Each organisation’s Stewards choose within this, and each connection’s owner within theirs. Proposes means the change waits
+              on the canvas for a person to accept it; an AI never changes a design itself.
+            </p>
+            <WorkTable testId="admin-ai-work" value={ceiling ?? ai.work} onChange={setCeiling} />
+            {ceiling && JSON.stringify(ceiling) !== JSON.stringify(ai.work) && (
+              <div className="console-ai__row">
+                <button
+                  type="button"
+                  className="console__btn btn-main"
+                  data-testid="admin-ai-work-save"
+                  disabled={busy}
+                  onClick={() => void act(() => setServerAi(ai.allowed, ai.reason ?? '', ai.version, ceiling))}
+                >
+                  Save the ceiling
+                </button>
+                <button type="button" className="console__btn btn-main" disabled={busy} onClick={() => setCeiling(null)}>
+                  Undo
+                </button>
+              </div>
+            )}
           </div>
           {ai.keys.length === 0 ? (
             <p className="console__note">No AI connection on this server.</p>

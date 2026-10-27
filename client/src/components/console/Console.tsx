@@ -24,6 +24,7 @@ import { ConsoleTabs, consoleSections, type ConsoleSection } from './ConsoleTabs
 import { AiSection } from './AiSection';
 import { Operators } from './Operators';
 import { PlacementForm } from './PlacementForm';
+import { ActivityPanel } from './ActivityPanel';
 import { BackupsPanel } from './BackupsPanel';
 import { SmtpForm } from './SmtpForm';
 import { secondsLeft } from './placementCopy';
@@ -277,6 +278,15 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
             AI on this server
           </h2>
           <AiSection organisations={organisations.status === 'ready' ? organisations.value : []} />
+        </section>
+      )}
+
+      {section === 'activity' && (
+        <section className="console__section" aria-labelledby="console-activity">
+          <h2 id="console-activity" className="console__h2">
+            Activity
+          </h2>
+          <ActivityPanel />
         </section>
       )}
 

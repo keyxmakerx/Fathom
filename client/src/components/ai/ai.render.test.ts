@@ -2,7 +2,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { helperAppConfig, helperPairCommand, plainWords, type AiIdea, type AiKeyView, type AiOverview } from '../../api/ai';
+import { helperAppConfig, helperPairCommand, parseOnly, parsePolicy, plainWords, SITE_DEFAULT_WORK, type AiIdea, type AiKeyView, type AiOverview } from '../../api/ai';
+import { WorkTable, workInWords } from './WorkTable';
 import { AiIdeasPanel, aiIdeasTab } from './AiIdeas';
 import { keyAppName, rulesInWords, stateWords } from './AiPanel';
 import { HowToConnect, whyCannotConnect } from './HowToConnect';
@@ -114,6 +115,7 @@ describe('the words the AI screens use', () => {
     sees: ['layout'],
     mayRecommend: true,
     mayChange: false,
+    work: SITE_DEFAULT_WORK,
     createdAt: 0,
     expiresAt: 0,
     state: 'on',
@@ -153,7 +155,7 @@ describe('the words the AI screens use', () => {
 
 describe('Connect an AI app', () => {
   const overview = (over: Partial<AiOverview> = {}): AiOverview => ({
-    server: { allowed: true, reason: null },
+    server: { allowed: true, reason: null, work: SITE_DEFAULT_WORK },
     policy: {
       allowed: true,
       makers: [],
@@ -162,6 +164,13 @@ describe('Connect an AI app', () => {
       maxDays: 90,
       secondPersonScopes: [],
       mayChange: false,
+      work: SITE_DEFAULT_WORK,
+      ideasOnlyScopes: [],
+      noAiScopes: [],
+      only: [],
+      perMinute: 10,
+      perDay: 300,
+      maxRemovals: 20,
       changedBy: null,
       changedAt: null,
       version: 1,
@@ -205,7 +214,7 @@ describe('Connect an AI app', () => {
     const out = draw(overview({ canMake: false }));
     expect(out).not.toContain('>Make key<');
     expect(out).toContain('has to name you');
-    expect(whyCannotConnect(overview({ server: { allowed: false, reason: null } }), 'Acme')).toContain('whole server');
+    expect(whyCannotConnect(overview({ server: { allowed: false, reason: null, work: SITE_DEFAULT_WORK } }), 'Acme')).toContain('whole server');
     expect(whyCannotConnect(overview(), 'Acme')).toBeNull();
   });
 
@@ -241,6 +250,13 @@ describe('the line at the top of the AI page', () => {
     secondPersonScopes: [],
     apps: ['claude', 'claude-code'] as const,
     mayChange: false,
+    work: SITE_DEFAULT_WORK,
+    ideasOnlyScopes: [],
+    noAiScopes: [],
+    only: [],
+    perMinute: 10,
+    perDay: 300,
+    maxRemovals: 20,
     changedBy: null,
     changedAt: null,
     version: 1,
@@ -248,7 +264,7 @@ describe('the line at the top of the AI page', () => {
 
   it('says in one sentence what the rules allow', () => {
     expect(rulesInWords({ ...policy, ceiling: [...policy.ceiling], apps: [...policy.apps] }, true)).toBe(
-      'AI is on. Claude and Claude Code may connect, for 2 people, seeing at most the layout and addresses, for up to 90 days.',
+      'AI is on. Claude and Claude Code may connect, for 2 people, seeing at most the layout and addresses, for up to 90 days. An AI may propose changes to edit the design, draft maintenance plans and troubleshoot.',
     );
   });
 
@@ -256,5 +272,42 @@ describe('the line at the top of the AI page', () => {
     const off = { ...policy, allowed: false, ceiling: [...policy.ceiling], apps: [...policy.apps] };
     expect(rulesInWords(off, true)).toMatch(/turn it on in AI rules/);
     expect(rulesInWords(off, false)).toBe('AI is off here. A Steward can turn it on.');
+  });
+});
+
+describe('what an AI may do, by kind of work', () => {
+  it('reads a policy from before the levels from its one tick, with working through a plan off', () => {
+    expect(parsePolicy({ mayChange: true }).work).toEqual(SITE_DEFAULT_WORK);
+    expect(parsePolicy({ mayChange: false }).work).toEqual({ design: 'ideas', plans: 'ideas', issues: 'ideas', doing: 'off' });
+    expect(parsePolicy({ work: { design: 'off', plans: 'propose', issues: 'ideas', doing: 'propose' } }).work.doing).toBe('propose');
+  });
+
+  it('cannot choose a level above the cap, and says who set it', () => {
+    const out = renderToStaticMarkup(
+      createElement(WorkTable, {
+        value: { design: 'ideas', plans: 'propose', issues: 'off', doing: 'off' },
+        cap: { design: 'ideas', plans: 'propose', issues: 'propose', doing: 'off' },
+        capWho: 'This server',
+        onChange: () => {},
+        testId: 't',
+      }),
+    );
+    expect(out).toMatch(/aria-label="Edit the design: Proposes"[^>]*disabled/);
+    expect(out).not.toMatch(/aria-label="Draft maintenance plans: Proposes"[^>]*disabled/);
+    expect(out).toContain('This server allows at most Ideas');
+  });
+
+  it('says the levels in a sentence', () => {
+    expect(workInWords({ design: 'ideas', plans: 'propose', issues: 'off', doing: 'off' })).toBe(
+      'An AI may propose changes to draft maintenance plans, and send ideas to edit the design.',
+    );
+    expect(workInWords({ design: 'off', plans: 'off', issues: 'off', doing: 'off' })).toBe('An AI may do nothing.');
+  });
+
+  it('takes a typed list of kinds and fields and names the ones that are not', () => {
+    expect(parseOnly('Device\nPort.description, Device\n\n bad entry ')).toEqual({
+      entries: ['Device', 'Port.description', 'bad entry'],
+      bad: ['bad entry'],
+    });
   });
 });

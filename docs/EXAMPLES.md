@@ -131,9 +131,12 @@ over a plan or an issue. To have it draft a change, ask it to recommend one: the
 **AI ideas**, and **Make it a plan** turns its steps into a draft plan you change, schedule and work
 through like any other.
 
-An AI never changes a design itself. To let it send the change as well as the steps, a Steward ticks
-**AI apps may propose changes** under **Steward › AI rules**, and you tick **May propose changes** when
-you press **Allow** or **Make key** (or later, on the connection). The AI then gets a `propose_change`
+An AI never changes a design itself. To let it send the change as well as the steps, a Steward sets
+**What an AI may do** under **Steward › AI rules**: for editing the design, drafting maintenance plans,
+troubleshooting and working through a plan, each **Off**, **Ideas** or **Proposes** (no higher than
+the server's admin allows). You tick **May propose changes** when you press **Allow** or **Make key**,
+and can set less for your connection later, on its page. The same rules page marks folders where an AI
+sends ideas only or sees nothing, lists the only kinds and fields it may touch, and lowers its limits. The AI then gets a `propose_change`
 tool: Fathom checks the change against the version it read and keeps it as an AI idea. Open **AI
 ideas** and press **Show on canvas**: what it would change is outlined in the plan colour, tagged AI
 CHANGES, and anything it would remove is greyed. **Accept and apply** makes it as your own edit, in

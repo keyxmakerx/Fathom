@@ -131,6 +131,8 @@ pub fn router(state: AdminState) -> Router {
             post(confirm_recovery),
         )
         .route("/admin/notices", get(notices))
+        .route("/admin/activity", get(activity_newest))
+        .route("/admin/activity/before/{seq}", get(activity_before))
         // ADR-0055 stream (c). `POST /admin/placement` is NOT here: it carries
         // its own state and its own router (`placement::router`), merged
         // beside this one inside the same exposure gate, so that a field on
@@ -332,13 +334,27 @@ async fn ai_overview(State(state): State<AdminState>, signed: Signed) -> Result<
         .into_response())
 }
 
-/// `POST /admin/ai/switch`: `LP("yes"|"no") ‖ LP(reason, may be empty) ‖ LP(if_version)`.
+/// `POST /admin/ai/switch`: `LP("yes"|"no") ‖ LP(reason, may be empty) ‖ LP(if_version)`,
+/// and optionally `‖ LP(levels)`: the ceiling on what an AI may do by kind of work, as
+/// `design:propose,plans:propose,issues:propose,doing:off` (card r47-ai-controls). Left out,
+/// the ceiling stays as it is.
 async fn set_ai_switch(
     State(state): State<AdminState>,
     signed: Signed,
 ) -> Result<Response, Refusal> {
     let session = verify(&state, &signed).await?;
-    let fields = read_fields(&signed.body, 3)?;
+    let fields = read_fields(&signed.body, 4).or_else(|_| read_fields(&signed.body, 3))?;
+    let work = match fields.get(3) {
+        Some(f) => {
+            let raw = text(f, "levels")?;
+            let parts: Vec<String> = raw.split(',').map(str::to_string).collect();
+            Some(
+                crate::ai_work::Levels::from_strs(&parts)
+                    .ok_or(Refusal::from(SessionError::Malformed("levels")))?,
+            )
+        }
+        None => None,
+    };
     let allowed = match text(&fields[0], "allowed flag")?.as_str() {
         "yes" => true,
         "no" => false,
@@ -350,7 +366,7 @@ async fn set_ai_switch(
         .map_err(|_| Refusal::from(SessionError::Malformed("version")))?;
     state
         .operators
-        .set_ai_switch(&session, allowed, reason, if_version)
+        .set_ai_switch(&session, allowed, reason, work, if_version)
         .await
         .map_err(AdminRefusal)?;
     Ok(ok())
@@ -633,6 +649,121 @@ async fn notices(State(state): State<AdminState>, signed: Signed) -> Result<Resp
     for line in &lines {
         crypto::lp(&mut out, line.as_bytes());
     }
+    Ok(bytes_response(out))
+}
+
+// ---------------------------------------------------------------------------
+// Admin › Activity (sign-offs r52, 2026-10-27)
+// ---------------------------------------------------------------------------
+
+/// How many entries one page of Admin › Activity carries.
+pub const ACTIVITY_PAGE: i64 = 100;
+
+/// `GET /admin/activity` — the newest site entries: every sign-in, refused
+/// sign-in and act on the operator console, with the address it came from.
+async fn activity_newest(
+    State(state): State<AdminState>,
+    signed: Signed,
+) -> Result<Response, Refusal> {
+    activity(state, signed, None).await
+}
+
+/// `GET /admin/activity/before/{seq}` — the page below entry `seq`.
+async fn activity_before(
+    State(state): State<AdminState>,
+    Path(seq): Path<String>,
+    signed: Signed,
+) -> Result<Response, Refusal> {
+    let seq: i64 = seq
+        .parse()
+        .ok()
+        .filter(|n| *n >= 1)
+        .ok_or(AdminRefusal(OperatorError::Malformed("activity seq")))?;
+    activity(state, signed, Some(seq)).await
+}
+
+/// Answer: one `LP(line)` per entry, newest first. A line is tab-separated:
+/// `seq`, `at` (unix seconds), `entry_type`, `ok` (`1` when the entry's seal,
+/// link and metadata binding verified, else `0` and every field after is
+/// empty), `account`, `name` (the account's display name, or empty), `client`,
+/// `via`, `reason`.
+///
+/// **Chosen fields, not the metadata.** An entry also carries session ids, key
+/// fingerprints and the keyed hash of a claimed address; the page needs none of
+/// them, so they do not leave the server. Entries written before 2026-10-27
+/// carry no `client` or `via`, and the page says "not recorded".
+async fn activity(
+    state: AdminState,
+    signed: Signed,
+    before: Option<i64>,
+) -> Result<Response, Refusal> {
+    let session = verify(&state, &signed).await?;
+    if session.kind() != PrincipalKind::Operator {
+        return Err(AdminRefusal(OperatorError::NotAnOperator).into());
+    }
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Pool(e)))?;
+    let tx = client
+        .transaction()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Db(e)))?;
+    let entries = crate::chains::recent_site_entries(&tx, &state.ring, before, ACTIVITY_PAGE)
+        .await
+        .map_err(|e| AdminRefusal(OperatorError::from(e)))?;
+    let mut names = std::collections::BTreeMap::<String, String>::new();
+    let mut out = Vec::with_capacity(entries.len() * 96);
+    for entry in &entries {
+        let fields = entry
+            .metadata
+            .as_deref()
+            .and_then(|m| fathom_canon::Json::parse_canonical(m).ok());
+        let field = |name: &str| -> String {
+            match &fields {
+                Some(fathom_canon::Json::Obj(map)) => match map.get(name) {
+                    Some(fathom_canon::Json::Str(s)) => s.clone(),
+                    _ => String::new(),
+                },
+                _ => String::new(),
+            }
+        };
+        let account = field("account");
+        if !account.is_empty() && !names.contains_key(&account) {
+            let row = tx
+                .query_opt(
+                    "SELECT display_name FROM accounts WHERE id = $1",
+                    &[&account],
+                )
+                .await
+                .map_err(|e| Refusal::from(SessionError::Db(e)))?;
+            names.insert(
+                account.clone(),
+                row.map(|r| r.get::<_, String>(0)).unwrap_or_default(),
+            );
+        }
+        let name = names.get(&account).cloned().unwrap_or_default();
+        let ok = entry.metadata.is_some();
+        let line = [
+            entry.seq.to_string(),
+            entry.at_unix.to_string(),
+            entry.entry_type.clone(),
+            if ok { "1" } else { "0" }.to_string(),
+            account,
+            name,
+            field("client"),
+            field("via"),
+            field("reason"),
+        ]
+        .map(|f| f.replace(['\t', '\n', '\r'], " "))
+        .join("\t");
+        crypto::lp(&mut out, line.as_bytes());
+    }
+    tx.commit()
+        .await
+        .map_err(|e| Refusal::from(SessionError::Db(e)))?;
     Ok(bytes_response(out))
 }
 

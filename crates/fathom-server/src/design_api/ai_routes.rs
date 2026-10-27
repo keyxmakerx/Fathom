@@ -76,6 +76,25 @@ fn take_bool(m: &mut BTreeMap<String, Json>, key: &str) -> Result<Option<bool>, 
     }
 }
 
+/// `{design, plans, issues, doing}`, each `off`, `ideas` or `propose` (card r47-ai-controls).
+fn take_work(
+    m: &mut BTreeMap<String, Json>,
+    key: &str,
+) -> Result<Option<crate::ai_work::Levels>, RouteError> {
+    match m.remove(key) {
+        None => Ok(None),
+        Some(j) => crate::ai_work::Levels::from_json(&j)
+            .map(Some)
+            .ok_or_else(malformed),
+    }
+}
+
+fn take_i32(m: &mut BTreeMap<String, Json>, key: &str) -> Result<Option<i32>, RouteError> {
+    take_int(m, key)?
+        .map(|v| i32::try_from(v).map_err(|_| malformed()))
+        .transpose()
+}
+
 fn take_int(m: &mut BTreeMap<String, Json>, key: &str) -> Result<Option<i64>, RouteError> {
     match m.remove(key) {
         None => Ok(None),
@@ -181,6 +200,13 @@ async fn set_policy_handler(
             "secondPersonScopes",
             "apps",
             "mayChange",
+            "work",
+            "ideasOnlyScopes",
+            "noAiScopes",
+            "only",
+            "perMinute",
+            "perDay",
+            "maxRemovals",
             "ifVersion",
         ],
     )?;
@@ -196,6 +222,14 @@ async fn set_policy_handler(
         apps: take_strs(&mut m, "apps")?.unwrap_or_else(|| vec!["claude".to_string()]),
         // Absent: off, the safe reading of a client that does not know the tick.
         may_change: take_bool(&mut m, "mayChange")?.unwrap_or(false),
+        // Each absent: kept as it is set.
+        work: take_work(&mut m, "work")?,
+        ideas_only_scopes: take_strs(&mut m, "ideasOnlyScopes")?,
+        no_ai_scopes: take_strs(&mut m, "noAiScopes")?,
+        only_kinds: take_strs(&mut m, "only")?,
+        per_minute: take_i32(&mut m, "perMinute")?,
+        per_day: take_i32(&mut m, "perDay")?,
+        max_removals: take_i32(&mut m, "maxRemovals")?,
     };
     let if_version = i32::try_from(version(&mut m)?).map_err(|_| malformed())?;
     let mut client = state
@@ -378,6 +412,7 @@ async fn change_key_handler(
             "sees",
             "mayRecommend",
             "mayChange",
+            "work",
             "endsInDays",
         ],
     )?;
@@ -388,6 +423,7 @@ async fn change_key_handler(
         sees: take_strs(&mut m, "sees")?,
         may_recommend: take_bool(&mut m, "mayRecommend")?,
         may_change: take_bool(&mut m, "mayChange")?,
+        work: take_work(&mut m, "work")?,
         ends_in_days: take_int(&mut m, "endsInDays")?
             .map(|d| i32::try_from(d).map_err(|_| malformed()))
             .transpose()?,

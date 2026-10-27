@@ -47,12 +47,14 @@
 //! first (WO-11 §8, ADR-0040 §9 items 1 and 2).
 
 pub mod access_log;
+pub mod access_ship;
 pub mod admin;
 pub mod admin_exposure;
 pub mod ai;
 pub mod ai_api;
 pub mod ai_change;
 pub mod ai_reading;
+pub mod ai_work;
 pub mod api;
 pub mod audit;
 pub mod authority;

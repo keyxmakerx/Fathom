@@ -201,6 +201,12 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   fresh verification code when the last is over 15 minutes old. An address change ends the Site
   session, not the account session. The check (`FATHOM_SESSION_ADDRESS_CHECK`, default `site`)
   applies per IPv4 address or IPv6 /64.
+- **Who did what on the console, from where (sign-offs r52, 2026-10-27).** Every console and sign-in
+  request writes an `access` line with the client's address and the proxy it came through
+  (`access_log.rs`), also sent to `FATHOM_ACCESS_SYSLOG` when set, best effort (`access_ship.rs`).
+  Every site entry written during a request seals the same two addresses (`chains::append_site`).
+  Admin › Activity lists those entries newest first, each checked before it is shown
+  (`GET /admin/activity`, `ActivityPanel.tsx`).
 - **Not built:** sending mail (so no reset or notices by mail); a passkey as the phishing-resistant
   second factor NIST asks for; the console UI for a second operator's own signature on a request that
   needs one; a way for the console to hand a requested colleague their setup token (it is minted and
@@ -639,8 +645,12 @@ a day per connection. The idea carries `preview`; the ideas panel's Show on canv
 plan, in the plan colour with AI CHANGES / AI REMOVES / AI ADDS tags, removals greyed. Accept and apply
 makes it on the current design as the accepting person's own edit. `whoami` is `readOnly: true` for
 every connection. `ai_design_changes` (migration 0051) holds only rows from before the amendment. Not
-yet: drawing a node the change adds (the panel names it), and the per-kind controls proposed on
-sign-off card r47-ai-controls.
+yet: drawing a node the change adds (the panel names it). What an AI may do is set by kind of work
+(editing the design, drafting plans, troubleshooting, working through a plan), each Off, Ideas or
+Proposes, at three places whose strictest wins: Admin › AI's ceiling, Steward › AI rules and each
+connection (migration 0057, card r47-ai-controls). A Steward also marks folders ideas-only or out of an
+AI's sight, keeps it to a list of kinds and fields, and lowers the limits (proposals a minute and a day,
+removals in one); 429 past a limit.
 
 **Device panel** (r14 A1, A2): Details, Ports and Notes tabs, actions at the foot (Duplicate the main one,
 Remove device in red). Inventory's toolbar has a role filter, written into the filter line as `role:...`.

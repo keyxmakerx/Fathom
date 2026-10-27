@@ -221,8 +221,14 @@ async function runProof(browser, ctxA, seed) {
   await A.locator('select[aria-label="Add a person"]').selectOption({ index: 1 });
   await A.locator('.ai-tick', { hasText: 'Addresses, VLANs' }).first().locator('input').check();
   await A.locator('.ai-tick', { hasText: 'Claude Code' }).locator('input').check();
-  await A.getByTestId('ai-policy-may-change').check();
+  // What an AI may do, by kind of work (card r47-ai-controls): proposes for the design, plans and troubleshooting.
+  // Working through a plan is capped at Off by the server's own default, so its Proposes cannot be chosen.
+  for (const w of ['Edit the design', 'Draft maintenance plans', 'Troubleshoot']) await A.getByLabel(`${w}: Proposes`).check();
+  const doingCapped = await A.getByLabel('Work through a plan: Proposes').isDisabled();
+  const capNote = (await A.getByTestId('ai-policy-work').innerText()).includes('This server allows at most Off');
+  await A.getByTestId('ai-policy-only').scrollIntoViewIfNeeded();
   await shot('o3-org-ai-policy');
+  check('O3a. AI rules show what an AI may do by kind of work, and working through a plan is capped by the server', doingCapped && capNote);
   await A.getByRole('button', { name: 'Save', exact: true }).click();
   await A.getByText('Saved. It is in the organisation’s history.').waitFor({ timeout: 10000 });
   check('O3. a Steward turns AI on, names a person, allows Claude Code and lets AI apps propose changes', true);
@@ -416,7 +422,18 @@ async function runProof(browser, ctxA, seed) {
   await shot('o4-org-ai-connection');
   check('O4. the connection is listed as Claude Code, on', /\bon\b/i.test(await A.locator('.ai-table__row', { hasText: 'Claude Code' }).innerText()));
   check('O4b. it shows the AI account the person gave, and their sign-in', (await A.getByTestId('ai-key-account').innerText()).includes('ann@example.org') && (await A.locator('.ai-facts').innerText()).includes('@'));
-  check('O4c. its owner sees "May propose changes", ticked, and can take it off', (await A.getByTestId('ai-key-may-change').count()) === 1 && (await A.getByTestId('ai-key-may-change').isChecked()));
+  check('O4c. its owner sees what it may do, editing the design at Proposes', await A.getByTestId('ai-key-work').getByLabel('Edit the design: Proposes').isChecked());
+  // Its owner sets editing the design to Ideas: the AI's next proposal to rename is refused, naming the kind of work.
+  await A.getByTestId('ai-key-work').getByLabel('Edit the design: Ideas').check();
+  await A.getByRole('button', { name: 'Save changes' }).click();
+  await A.waitForTimeout(800);
+  const lowered = await rpc('tools/call', { name: 'read_design', arguments: { design: designId } });
+  const refused = await rpc('tools/call', {
+    name: 'propose_change',
+    arguments: { design: designId, version: lowered.body.result.structuredContent.version, summary: 'Rename again', operations: [{ op: 'set', element: core?.id, field: 'hostname', value: 'lab-core-2' }] },
+  });
+  check('O4d. lowered to Ideas, a proposal to edit the design is refused, naming the kind of work', refused.body.result?.isError === true && /editing the design/.test(refused.body.result.content[0].text), JSON.stringify(refused.body).slice(0, 300));
+  await shot('o4d-connection-ideas-only');
   await A.getByRole('button', { name: 'Turn off', exact: true }).click();
   await A.getByRole('button', { name: 'Turn off now' }).click();
   await A.locator('.ai-table__row', { hasText: 'Claude Code' }).filter({ hasText: 'Off' }).waitFor({ timeout: 10000 });

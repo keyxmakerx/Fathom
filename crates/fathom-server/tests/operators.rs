@@ -3733,6 +3733,18 @@ async fn post_signed(
     operator: &Operator,
     store: &SessionStore,
 ) -> (String, Vec<u8>) {
+    post_signed_with(addr, path, body, operator, store, &[]).await
+}
+
+/// [`post_signed`] with headers of the caller's own beside the signature.
+async fn post_signed_with(
+    addr: std::net::SocketAddr,
+    path: &str,
+    body: &[u8],
+    operator: &Operator,
+    store: &SessionStore,
+    extra: &[(&'static str, String)],
+) -> (String, Vec<u8>) {
     let nonce = store
         .issue_request_nonce(&operator.signed_in.session_id, &operator.signed_in.token)
         .await
@@ -3749,13 +3761,14 @@ async fn post_signed(
         counter,
     );
     let signature = operator.session_key.sign(&message);
-    let headers = [
+    let mut headers = vec![
         (HEADER_SESSION, operator.signed_in.session_id.clone()),
         (HEADER_NONCE, hex(&nonce)),
         (HEADER_TIMESTAMP, unix_ms.to_string()),
         (HEADER_COUNTER, counter.to_string()),
         (HEADER_SIGNATURE, hex(&signature)),
     ];
+    headers.extend(extra.iter().cloned());
     raw_request(addr, "POST", path, &headers, body).await
 }
 
@@ -8345,7 +8358,7 @@ async fn an_operator_stops_an_ai_key_or_turns_ai_off_and_widens_nothing() {
     let (allowed, version) = switch_version(&page);
     if !allowed {
         operators_store
-            .set_ai_switch(&acting().await, true, None, version)
+            .set_ai_switch(&acting().await, true, None, None, version)
             .await
             .expect("back on");
     }
@@ -8418,6 +8431,7 @@ async fn an_operator_stops_an_ai_key_or_turns_ai_off_and_widens_nothing() {
                 second_person_scopes: vec![],
                 apps: vec!["claude".into()],
                 may_change: false,
+                ..Default::default()
             },
             0,
         )
@@ -8530,6 +8544,7 @@ async fn an_operator_stops_an_ai_key_or_turns_ai_off_and_widens_nothing() {
             &acting().await,
             false,
             Some("Reviewing AI access".into()),
+            None,
             version,
         )
         .await
@@ -8541,11 +8556,133 @@ async fn an_operator_stops_an_ai_key_or_turns_ai_off_and_widens_nothing() {
         Err(ai::AiError::SiteOff)
     ));
     operators_store
-        .set_ai_switch(&acting().await, true, None, version + 1)
+        .set_ai_switch(&acting().await, true, None, None, version + 1)
         .await
         .expect("on again");
     make("A third").await.expect("a key once AI is back on");
     signed_whoami(&pool, &ring, &second_key, &second)
         .await
         .expect("and the key that was never stopped reads again");
+
+    // The admin's ceiling by kind of work (card r47-ai-controls): an organisation may not set
+    // more than it allows.
+    use fathom_server::ai_work::{Level, Levels};
+    let ceiling = Levels([Level::Ideas, Level::Propose, Level::Propose, Level::Off]);
+    operators_store
+        .set_ai_switch(&acting().await, true, None, Some(ceiling), version + 2)
+        .await
+        .expect("a ceiling");
+    let page = operators_store
+        .ai_overview(&acting().await)
+        .await
+        .expect("the AI page");
+    assert!(
+        String::from_utf8(page.to_canonical_bytes())
+            .unwrap()
+            .contains("\"design\":\"ideas\""),
+        "the page shows the ceiling"
+    );
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    let ctx = repo::open_tenant_context(&tx, organisation, steward)
+        .await
+        .expect("tenant context");
+    let tenant_key = keys::tenant_key(&tx, &ring, &ctx)
+        .await
+        .expect("tenant key");
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let above = ai::set_policy(
+        &tx,
+        &auth,
+        ai::PolicyInput {
+            allowed: true,
+            makers: vec![steward.to_string()],
+            ceiling: vec!["layout".into()],
+            max_days: 90,
+            apps: vec!["claude".into()],
+            may_change: true,
+            work: Some(Levels([Level::Propose; 4])),
+            ..Default::default()
+        },
+        1,
+    )
+    .await;
+    assert!(
+        matches!(above, Err(ai::AiError::NotAllowed(why)) if why.contains("administrator")),
+        "{:?}",
+        above.err().map(|e| e.to_string())
+    );
+}
+
+/// **An operator's act is sealed with the address it came from, and Admin ›
+/// Activity shows it** (sign-offs r52, 2026-10-27).
+///
+/// The router is mounted behind the same access layer `main.rs` mounts, with
+/// `X-Forwarded-For` believed from loopback as a proxy in front would be. The
+/// sealed `account_created` entry carries the forwarded client and the proxy it
+/// came through, and the Activity page reads both back out of the sealed
+/// metadata, not out of a log.
+#[tokio::test]
+async fn an_operator_act_is_sealed_with_the_real_address_and_activity_shows_it() {
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
+    let operators_store = store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await;
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+
+    let state = AdminState {
+        sessions: Arc::new(sessions(&pool, Arc::clone(&ring)).await),
+        operators: Arc::new(store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await),
+        ring: Arc::clone(&ring),
+        client_address: ClientAddress::peer(),
+    };
+    let router = admin::router(state).layer(axum::middleware::from_fn_with_state(
+        ClientAddress::header("X-Forwarded-For"),
+        fathom_server::access_log::log,
+    ));
+    let addr = serve(router).await;
+
+    let display = unique("Seen From");
+    let mut body = Vec::new();
+    lp(&mut body, unique("seen@example.org").as_bytes());
+    lp(&mut body, display.as_bytes());
+    let (status, _) = post_signed_with(
+        addr,
+        "/admin/accounts",
+        &body,
+        &operator,
+        &sessions_store,
+        &[("X-Forwarded-For", "203.0.113.9".to_string())],
+    )
+    .await;
+    assert_eq!(status, "200");
+
+    let (status, _, answer) =
+        get_signed_full(addr, "/admin/activity", &operator, &sessions_store).await;
+    assert_eq!(status, "200");
+    let mut rest = answer.as_slice();
+    let mut lines = Vec::new();
+    while !rest.is_empty() {
+        let len = u32::from_le_bytes(rest[..4].try_into().unwrap()) as usize;
+        lines.push(String::from_utf8(rest[4..4 + len].to_vec()).unwrap());
+        rest = &rest[4 + len..];
+    }
+    let created = lines
+        .iter()
+        .find(|l| l.split('\t').nth(2) == Some("account_created"))
+        .unwrap_or_else(|| panic!("the act is on the page: {lines:#?}"));
+    let fields: Vec<&str> = created.split('\t').collect();
+    assert_eq!(fields[3], "1", "the entry verified: {created}");
+    assert_eq!(
+        fields[6], "203.0.113.9",
+        "the client, from the trusted proxy's header"
+    );
+    assert_eq!(fields[7], "127.0.0.1", "the proxy it came through");
+    assert_eq!(fields.len(), 9, "{created}");
 }

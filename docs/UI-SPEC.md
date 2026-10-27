@@ -129,7 +129,8 @@ per design, never saved to the design. A refused cable drop shakes the port once
    panels and risers to the portal. A cable is a path, not a line.
 4. **Lanes:** power runs one side, data the other, never sharing.
 
-Everything off the lit path sits at **28%**, the path carries a pale halo. This "phantom" effect is
+Everything off the lit path sits at **28%**, and the cable you point at or select draws twice as thick with nothing
+around it (card 18, 27 October 2026). A chain "It's down" is checking carries a pale halo instead. This "phantom" effect is
 load-bearing.
 
 ## Portals

@@ -192,7 +192,38 @@ pub async fn append_site(
         deployment,
         CHAIN_KEY_EPOCH,
     ));
-    append(tx, ring, chain, entry_type, metadata, metadata_key).await
+    let stamped = with_origin(metadata, crate::access_log::Origin::current());
+    append(
+        tx,
+        ring,
+        chain,
+        entry_type,
+        stamped.as_deref().unwrap_or(metadata),
+        metadata_key,
+    )
+    .await
+}
+
+/// `metadata` with the request's `client` and `via` added, when the entry is
+/// written while serving a request (`access_log::Origin`) and the metadata is
+/// a canonical object that does not already name them. `None` leaves the bytes
+/// exactly as the caller built them.
+///
+/// Site entries only: they are the operator's history (sign-ins, refusals and
+/// every act on the console), which is where the owner asked for the real
+/// address (sign-offs r52, 2026-10-27).
+fn with_origin(metadata: &[u8], origin: Option<crate::access_log::Origin>) -> Option<Vec<u8>> {
+    let origin = origin?;
+    let fathom_canon::Json::Obj(mut map) = fathom_canon::Json::parse_canonical(metadata).ok()?
+    else {
+        return None;
+    };
+    if map.contains_key("client") || map.contains_key("via") {
+        return None;
+    }
+    map.insert("client".into(), fathom_canon::Json::Str(origin.client));
+    map.insert("via".into(), fathom_canon::Json::Str(origin.via));
+    Some(fathom_canon::Json::Obj(map).to_canonical_bytes())
 }
 
 /// Append a sealed entry to an **organisation** chain, writing `org_genesis`
@@ -934,4 +965,130 @@ async fn read_site_row(
         metadata_stored: row.get(9),
         metadata_binding: row.get(10),
     }))
+}
+
+// ---------------------------------------------------------------------------
+// Admin › Activity: the newest site entries, opened
+// ---------------------------------------------------------------------------
+
+/// One site entry as Admin › Activity shows it.
+#[derive(Clone, Debug)]
+pub struct SiteActivity {
+    pub seq: i64,
+    /// The stored type's column spelling; an unknown one is shown, not hidden.
+    pub entry_type: String,
+    /// When the row was written, unix seconds.
+    pub at_unix: i64,
+    /// The canonical metadata, decrypted, when the entry's seal, its link to the
+    /// entry before it and its metadata binding all verify. `None` otherwise:
+    /// the page says the entry did not verify rather than showing what it says.
+    pub metadata: Option<Vec<u8>>,
+}
+
+/// The newest `limit` site entries below `before` (all of them when `None`),
+/// newest first, each checked before its metadata is opened: its own seal, its
+/// link to the entry below it, and the binding over what its metadata means.
+///
+/// A page, not a verification of the chain: `verify_site` is that, and a
+/// failure here is reported on the entry rather than refusing the page, so an
+/// operator still sees the entries around a damaged one.
+pub async fn recent_site_entries(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    before: Option<i64>,
+    limit: i64,
+) -> Result<Vec<SiteActivity>, ChainStoreError> {
+    let deployment = deployment_id(&**tx).await?;
+    let chain = ChainRef::Site {
+        deployment: &deployment,
+    };
+    let before = before.unwrap_or(i64::MAX);
+    // One row more than asked, so the oldest entry on the page has the entry
+    // below it to link to.
+    let rows = tx
+        .query(
+            "SELECT seq, entry_type, chain_key_epoch, design_version, prev_seal, \
+                    plaintext_binding, storage_binding, content_hash, seal, metadata, \
+                    metadata_binding, metadata_nonce, \
+                    extract(epoch FROM created_at)::bigint \
+             FROM chain_entries WHERE chain_kind = $1 AND chain_id = $2 AND seq < $3 \
+             ORDER BY seq DESC LIMIT $4",
+            &[
+                &chain.kind().as_str(),
+                &chain.chain_id(),
+                &before,
+                &(limit.clamp(1, 500) + 1),
+            ],
+        )
+        .await?;
+    let mut entries = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let entry_type: String = row.get(1);
+        entries.push((
+            chain::StoredEntry {
+                seq: row.get(0),
+                entry_type: chain::StoredEntryType::from_column(&entry_type),
+                chain_key_epoch: row.get(2),
+                design_version: row.get(3),
+                prev_seal: row.get(4),
+                plaintext_binding: row.get(5),
+                storage_binding: row.get(6),
+                content_hash: row.get(7),
+                seal: row.get(8),
+                metadata_stored: row.get(9),
+                metadata_binding: row.get(10),
+            },
+            entry_type,
+            row.get::<_, Option<Vec<u8>>>(11),
+            row.get::<_, i64>(12),
+        ));
+    }
+    let shown = entries.len().min(limit.clamp(1, 500) as usize);
+    let mut out = Vec::with_capacity(shown);
+    for i in 0..shown {
+        let (entry, column, nonce, at_unix) = &entries[i];
+        let below = entries.get(i + 1).map(|(e, ..)| e);
+        out.push(SiteActivity {
+            seq: entry.seq,
+            entry_type: column.clone(),
+            at_unix: *at_unix,
+            metadata: open_activity(ring, chain, &deployment, entry, below, nonce.as_deref()),
+        });
+    }
+    Ok(out)
+}
+
+fn open_activity(
+    ring: &KeyRing,
+    chain: ChainRef<'_>,
+    deployment: &str,
+    entry: &chain::StoredEntry,
+    below: Option<&chain::StoredEntry>,
+    nonce: Option<&[u8]>,
+) -> Option<Vec<u8>> {
+    let entry_type = entry.entry_type.known()?;
+    if !site_seal_verifies(ring, chain, entry, entry_type) {
+        return None;
+    }
+    let linked = if entry.seq <= 1 {
+        entry.prev_seal == chain::genesis(chain)
+    } else {
+        // The entry below is on the page unless this is the last row there is.
+        below.is_some_and(|b| b.seq == entry.seq - 1 && b.seal == entry.prev_seal)
+    };
+    if !linked {
+        return None;
+    }
+    let framing = MetadataFraming {
+        seq: entry.seq,
+        key_epoch: entry.chain_key_epoch,
+        nonce: nonce?.to_vec(),
+        ciphertext: entry.metadata_stored.clone(),
+    };
+    let key = chain::site_metadata_key(ring.chain_master(), deployment, framing.key_epoch);
+    let metadata = open_metadata(&key, chain, &framing).ok()??;
+    let ck = chain::chain_key(ring.chain_master(), chain, entry.chain_key_epoch);
+    let sub = chain::Subkeys::derive(&ck);
+    (chain::metadata_binding(&sub.content, &metadata).as_slice() == entry.metadata_binding)
+        .then_some(metadata)
 }

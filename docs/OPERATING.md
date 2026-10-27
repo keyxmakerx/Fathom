@@ -520,7 +520,26 @@ connection's own peer, normally your proxy. If the two are always the same proxy
 proxy is not named in `FATHOM_TRUSTED_PROXIES`. Requests the console refuses off its hosts are
 logged too, as `status=404`. Nothing from a request body is logged. The lines go to the
 container's standard output, so `docker compose logs server` shows them and your log collector
-keeps them as long as you tell it to; they are not the sealed history.
+keeps them as long as you tell it to.
+
+**The sealed history keeps the same two addresses.** Every site entry written while a request is
+served (operator and steward sign-ins, refused sign-ins, and every act on the console) carries
+`client` and `via` in its sealed, encrypted metadata, so they cannot be changed afterwards.
+Entries written before 2026-10-27 have neither. **Admin › Activity** shows these entries newest
+first: when, what, who, from (`client`) and through (`via`), with filters for sign-ins and
+refusals. It reads them out of the sealed history and checks each entry's seal before showing it;
+one that does not verify is shown as such, and that is an incident: the row was changed in the
+database.
+
+**To send the access lines to a log server too**, set `FATHOM_ACCESS_SYSLOG=host:port`: one RFC
+5424 line per request over TCP, LF-framed, app name `fathom-access`, the plane as MSGID
+(`operator_console` or `sign-in`) and `method= path= status= client= via= host=` as the message.
+It is separate from `FATHOM_AUDIT_SYSLOG` because these lines carry addresses and the audit lines
+carry none; both may name the same server. **It is best effort**: a line the server cannot send
+within three seconds, or while the log server is down, is dropped, and the server's own log says
+when the log server stops and starts answering. Nothing is lost that matters: the server's own
+log keeps every line and the sealed history keeps the addresses. TLS is not offered; put the log
+server on the same private network, or a local rsyslog in front that forwards over TLS.
 
 ## AI connections
 

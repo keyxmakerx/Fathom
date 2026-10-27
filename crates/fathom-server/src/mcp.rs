@@ -108,7 +108,7 @@ const TOOLS: &str = r#"[
   {
     "name": "recommend",
     "title": "Recommend a change",
-    "description": "Recommend a change to one design. Nothing in the design changes: a person sees the idea in Fathom, marked as an AI idea, and accepts or dismisses it. An idea may add a room, a rack or a link between buildings as plain steps. Name devices, cards, ports, links, stores and spares in targets by the ids read_design gave; a stock idea (keep more of a model, order one, send one for repair) targets the store or spare it is about. Write steps in the order they should be done, one change each: a person can turn the idea into a maintenance plan. You may also send the change itself, as `change`: the version read_design gave and the operations change_design takes, under the same limits. It is checked now and refused if it could not be made; when a person accepts the idea, Fathom makes it in their name. You do not need change_design for this. Do not put passwords, keys or secrets in any text; text that looks like one is refused.",
+    "description": "Recommend a change to one design. Nothing in the design changes: a person sees the idea in Fathom, marked as an AI idea, and accepts or dismisses it. An idea may add a room, a rack or a link between buildings as plain steps. Name devices, cards, ports, links, stores and spares in targets by the ids read_design gave; a stock idea (keep more of a model, order one, send one for repair) targets the store or spare it is about. Write steps in the order they should be done, one change each: a person can turn the idea into a maintenance plan. You may also send the change itself, as `change`: the version read_design gave and the operations propose_change takes, under the same limits. It is checked now and refused if it could not be made; when a person accepts the idea, Fathom makes it in their name. Do not put passwords, keys or secrets in any text; text that looks like one is refused.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -132,7 +132,7 @@ const TOOLS: &str = r#"[
         },
         "change": {
           "type": "object",
-          "description": "Optional: what accepting the idea makes. The version read_design gave, and operations in the shape change_design takes.",
+          "description": "Optional: what accepting the idea makes. The version read_design gave, and operations in the shape propose_change takes.",
           "properties": {
             "version": {"type": "integer", "minimum": 1},
             "operations": {"type": "array", "minItems": 1, "maxItems": 200, "items": {"type": "object"}}
@@ -419,6 +419,7 @@ fn tool_error_text(e: &AiError) -> Option<String> {
             "AI access, or this app, is turned off for this person in this organisation".into()
         }
         AiError::Limited => "this connection is limited to 60 requests a minute".into(),
+        AiError::LimitReached(why) => why.clone(),
         AiError::NotAllowed(why) | AiError::Malformed(why) => (*why).into(),
         AiError::NotFound | AiError::Design(DesignError::NoSuchDesign) => {
             "not found, or not inside what this connection may read".into()
@@ -492,7 +493,7 @@ async fn call(
     };
     let answer = match (name, design) {
         ("whoami", _) => ai::whoami(&session),
-        ("list_designs", _) => ai::ai_designs(&tx, &auth, &session.key, within).await?,
+        ("list_designs", _) => ai::ai_designs(&tx, &auth, &session, within).await?,
         ("read_design", Some(d)) => {
             ai::ai_reading(&tx, &auth, Some(&state.live.heads), &session, d).await?
         }
