@@ -551,6 +551,46 @@ fn allowed_edges(tiers: &BTreeSet<Tier>) -> BTreeMap<EdgeKind, BTreeMap<FieldKey
     out
 }
 
+/// The tiers an AI change may set fields at (ADR-0073, build step 2): the key's own, cut to
+/// `layout` and `notes`. Addresses wait until the sweep has looked at what a changed address
+/// can break.
+fn settable_tiers(tiers: &BTreeSet<Tier>) -> BTreeSet<Tier> {
+    let mut out: BTreeSet<Tier> = tiers
+        .iter()
+        .copied()
+        .filter(|t| matches!(t, Tier::Layout | Tier::Notes))
+        .collect();
+    out.insert(Tier::Layout);
+    out
+}
+
+/// Whether the reading at `tiers` shows nodes of `kind` at all.
+pub fn shows_node_kind(tiers: &BTreeSet<Tier>, kind: NodeKind) -> bool {
+    let mut tiers = tiers.clone();
+    tiers.insert(Tier::Layout);
+    allowed_nodes(&tiers).contains_key(&kind)
+}
+
+/// The field named `name` on a node of `kind`, when an AI change may set it: it is on this
+/// allowlist at a tier the key sees (ADR-0073 decision 4). `None` for anything else, so a
+/// field nobody listed here cannot be written by an AI any more than it can be read.
+pub fn settable_node_field(tiers: &BTreeSet<Tier>, kind: NodeKind, name: &str) -> Option<FieldKey> {
+    allowed_nodes(&settable_tiers(tiers))
+        .get(&kind)?
+        .iter()
+        .find(|(_, n)| **n == name)
+        .map(|(k, _)| *k)
+}
+
+/// [`settable_node_field`] for an edge.
+pub fn settable_edge_field(tiers: &BTreeSet<Tier>, kind: EdgeKind, name: &str) -> Option<FieldKey> {
+    allowed_edges(&settable_tiers(tiers))
+        .get(&kind)?
+        .iter()
+        .find(|(_, n)| **n == name)
+        .map(|(k, _)| *k)
+}
+
 /// A value as it may leave: every string inside it checked, a flagged one
 /// replaced by `null`.
 fn screened(value: &Json, withheld: &mut usize) -> Json {

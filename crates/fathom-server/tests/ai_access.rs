@@ -2381,3 +2381,342 @@ async fn changing_designs_takes_the_organisations_tick_and_the_connections() {
     assert_eq!(status, "403", "{}", text(&body));
     assert!(text(&body).contains("does not let AI apps change designs"));
 }
+
+/// A connection allowed to change designs, made over HTTP by `owner`.
+async fn a_changing_key(
+    addr: SocketAddr,
+    owner: &LiveSession,
+    organisation: OrganisationId,
+    sees: &[&str],
+) -> AiApp {
+    let key = SoftwareKey::random().unwrap();
+    let (status, body) = browser(
+        addr,
+        owner,
+        "POST",
+        &format!("/organisations/{organisation}/ai/keys"),
+        &canon(vec![
+            ("publicKey", s(&hex(key.public_key()))),
+            ("label", s("Claude Code on the web")),
+            ("aiAccount", s("owner@example.org")),
+            ("scopes", strs(&[])),
+            ("sees", strs(sees)),
+            ("mayRecommend", Json::Bool(true)),
+            ("mayChange", Json::Bool(true)),
+            ("days", Json::Int(30)),
+        ]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let m = obj(&body);
+    let Some(Json::Str(deployment)) = m.get("deployment") else {
+        panic!("no deployment")
+    };
+    AiApp {
+        id: ai::key_id_of(&key.public_key()),
+        key,
+        deployment: deployment.clone(),
+    }
+}
+
+/// What the AI reads of a design: its version and the id of the first node of `kind`.
+async fn read_for_change(
+    addr: SocketAddr,
+    app: &AiApp,
+    design: DesignId,
+    kind: &str,
+) -> (i64, String, String) {
+    let (status, body) = ai_call(addr, app, "GET", &format!("/ai/v1/designs/{design}"), b"").await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let m = obj(&body);
+    let version = int(&m, "version");
+    let Some(Json::Arr(nodes)) = m.get("nodes") else {
+        panic!("no nodes")
+    };
+    let node = nodes
+        .iter()
+        .find_map(|n| match n {
+            Json::Obj(o) if o.get("kind") == Some(&s(kind)) => Some(o.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no {kind} in {}", text(&body)));
+    let Some(Json::Str(id)) = node.get("id") else {
+        panic!("no id")
+    };
+    (version, id.clone(), text(&body))
+}
+
+fn a_change(version: i64, summary: &str, ops: Vec<(&str, &str, Json)>) -> Vec<u8> {
+    canon(vec![
+        ("version", Json::Int(version)),
+        ("summary", s(summary)),
+        (
+            "operations",
+            Json::Arr(
+                ops.into_iter()
+                    .map(|(element, field, value)| {
+                        canon_obj(vec![
+                            ("op", s("set")),
+                            ("element", s(element)),
+                            ("field", s(field)),
+                            ("value", value),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+    ])
+}
+
+/// ADR-0073 decisions 1 to 9, step 2: with both ticks a connection sets a field it may
+/// read, as one change in its owner's name and marked as an AI's. It is refused against a
+/// version the design has moved on from, for a field outside its tiers, for a value that
+/// looks like a secret (naming the operation, never the value), in a second-person folder,
+/// past ten changes a minute, and the moment the organisation's tick goes off.
+#[tokio::test]
+async fn an_ai_change_is_one_change_in_its_owners_name_and_only_within_both_ticks() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let place = a_place(&pool, &estate).await;
+    let owner = a_member(
+        &pool,
+        &ring,
+        &estate,
+        "drawer",
+        Some(place.network),
+        Capability::Draw,
+    )
+    .await;
+    let addr = serve(app(&pool, Arc::clone(&ring)).await).await;
+    let steward = sign_in(addr, &estate.steward).await;
+    saved(addr, &steward, estate.organisation, place.design_a, 61).await;
+    saved(addr, &steward, estate.organisation, place.design_b, 62).await;
+    let o = estate.organisation;
+    let owner_id = owner.account.to_string();
+    let building_b = {
+        let client = pool.get().await.unwrap();
+        client
+            .execute(
+                "SELECT set_config('app.tenant_id', $1, false)",
+                &[&o.to_string()],
+            )
+            .await
+            .unwrap();
+        let row = client
+            .query_one(
+                "SELECT scope_id FROM designs WHERE id = $1",
+                &[&place.design_b.to_string()],
+            )
+            .await
+            .unwrap();
+        client
+            .execute("SELECT set_config('app.tenant_id', '', false)", &[])
+            .await
+            .unwrap();
+        row.get::<_, String>(0)
+    };
+    let policy_path = format!("/organisations/{o}/ai/policy");
+    let policy = |may_change: bool, version: i64| {
+        canon(vec![
+            ("allowed", Json::Bool(true)),
+            ("makers", strs(&[&owner_id])),
+            ("ceiling", strs(&["layout", "addresses", "notes"])),
+            ("maxDays", Json::Int(90)),
+            ("secondPersonScopes", strs(&[&building_b])),
+            ("mayChange", Json::Bool(may_change)),
+            ("ifVersion", Json::Int(version)),
+        ])
+    };
+    let (status, body) = browser(addr, &steward, "POST", &policy_path, &policy(true, 0)).await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let owner_session = sign_in(addr, &owner).await;
+    let app_key = a_changing_key(addr, &owner_session, o, &["layout", "addresses", "notes"]).await;
+
+    let (status, body) = ai_call(addr, &app_key, "GET", "/ai/v1/whoami", b"").await;
+    assert_eq!(status, "200");
+    let who = obj(&body);
+    assert_eq!(who.get("mayChange"), Some(&Json::Bool(true)));
+    assert_eq!(who.get("readOnly"), Some(&Json::Bool(false)));
+
+    let a = place.design_a;
+    let path = format!("/ai/v1/designs/{a}/changes");
+    let hostname = DeviceField::Hostname.name();
+    let (version, device, _) = read_for_change(addr, &app_key, a, "Device").await;
+
+    // One change: the field reads back, the version moved by one, and it is marked.
+    let body = a_change(
+        version,
+        "Name the core switch",
+        vec![(&device, hostname, s("core-sw2"))],
+    );
+    let (status, answer) = ai_call(addr, &app_key, "POST", &path, &body).await;
+    assert_eq!(status, "200", "{}", text(&answer));
+    assert_eq!(int(&obj(&answer), "version"), version + 1);
+    let (now, _, reading) = read_for_change(addr, &app_key, a, "Device").await;
+    assert_eq!(now, version + 1);
+    assert!(reading.contains("core-sw2"), "{reading}");
+
+    // The same request again, against the version it read: the design has moved on.
+    let (status, answer) = ai_call(addr, &app_key, "POST", &path, &body).await;
+    assert_eq!(status, "409", "{}", text(&answer));
+    assert!(text(&answer).contains("read it again"), "{}", text(&answer));
+
+    // A field the reading shows but only at the addresses tier: not settable yet.
+    let domain = DeviceField::DomainName.name();
+    let (status, answer) = ai_call(
+        addr,
+        &app_key,
+        "POST",
+        &path,
+        &a_change(
+            now,
+            "Change the domain",
+            vec![(&device, domain, s("other.example.org"))],
+        ),
+    )
+    .await;
+    assert_eq!(status, "422", "{}", text(&answer));
+    assert!(
+        text(&answer).contains("operation 1 sets a field"),
+        "{}",
+        text(&answer)
+    );
+
+    // A secret in the second operation: refused whole, by number, never echoed.
+    let (_, note, _) = read_for_change(addr, &app_key, a, "Note").await;
+    let secret = "enable secret 5 $1$mERr$hx5rVt7rPNoS4wqbXKX7m0";
+    let (status, answer) = ai_call(
+        addr,
+        &app_key,
+        "POST",
+        &path,
+        &a_change(
+            now,
+            "Rename and note",
+            vec![
+                (&device, hostname, s("core-sw3")),
+                (&note, NoteField::Text.name(), s(secret)),
+            ],
+        ),
+    )
+    .await;
+    assert_eq!(status, "422", "{}", text(&answer));
+    assert!(text(&answer).contains("operation 2"), "{}", text(&answer));
+    assert!(!text(&answer).contains("mERr"));
+    let (still, _, reading) = read_for_change(addr, &app_key, a, "Device").await;
+    assert_eq!(still, now, "a refused change changes nothing");
+    assert!(!reading.contains("core-sw3"));
+
+    // A folder a Steward marked for a second person refuses AI changes outright.
+    let (vb, device_b, _) = read_for_change(addr, &app_key, place.design_b, "Device").await;
+    let (status, answer) = ai_call(
+        addr,
+        &app_key,
+        "POST",
+        &format!("/ai/v1/designs/{}/changes", place.design_b),
+        &a_change(vb, "Rename", vec![(&device_b, hostname, s("edge-1"))]),
+    )
+    .await;
+    assert_eq!(status, "403", "{}", text(&answer));
+    assert!(text(&answer).contains("second person"), "{}", text(&answer));
+
+    // The change is in the owner's name, and marked as this connection's.
+    {
+        let client = pool.get().await.unwrap();
+        client
+            .execute(
+                "SELECT set_config('app.tenant_id', $1, false)",
+                &[&o.to_string()],
+            )
+            .await
+            .unwrap();
+        let rows = client
+            .query(
+                "SELECT key_id, owner, design_version, operations FROM ai_design_changes \
+                 WHERE design_id = $1",
+                &[&a.to_string()],
+            )
+            .await
+            .unwrap();
+        client
+            .execute("SELECT set_config('app.tenant_id', '', false)", &[])
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].get::<_, String>(0), app_key.id);
+        assert_eq!(rows[0].get::<_, String>(1), owner_id);
+        assert_eq!(rows[0].get::<_, i64>(2), version + 1);
+        assert_eq!(rows[0].get::<_, i32>(3), 1);
+    }
+
+    // History shows it as the AI's, through which connection, for whom.
+    let (status, body) = browser(
+        addr,
+        &steward,
+        "GET",
+        &format!("/organisations/{o}/designs/{a}/history"),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let history = text(&body);
+    assert_eq!(
+        history
+            .matches("\"via_ai\":\"Claude Code on the web\"")
+            .count(),
+        1,
+        "{history}"
+    );
+    assert!(
+        history.contains(&format!("\"actor\":\"{owner_id}\"")),
+        "{history}"
+    );
+
+    // Ten a minute: nine more go through, the eleventh is refused.
+    let mut at = now;
+    for i in 0..9 {
+        let (status, answer) = ai_call(
+            addr,
+            &app_key,
+            "POST",
+            &path,
+            &a_change(
+                at,
+                "Rename again",
+                vec![(&device, hostname, s(&format!("core-{i}")))],
+            ),
+        )
+        .await;
+        assert_eq!(status, "200", "{}", text(&answer));
+        at += 1;
+    }
+    let (status, answer) = ai_call(
+        addr,
+        &app_key,
+        "POST",
+        &path,
+        &a_change(at, "One too many", vec![(&device, hostname, s("core-x"))]),
+    )
+    .await;
+    assert_eq!(status, "403", "{}", text(&answer));
+    assert!(text(&answer).contains("10 changes in the last minute"));
+
+    // The organisation's tick off stops it at the next request.
+    let (status, _) = browser(addr, &steward, "POST", &policy_path, &policy(false, 1)).await;
+    assert_eq!(status, "200");
+    let (status, answer) = ai_call(
+        addr,
+        &app_key,
+        "POST",
+        &path,
+        &a_change(at, "After the tick", vec![(&device, hostname, s("core-y"))]),
+    )
+    .await;
+    assert_eq!(status, "403", "{}", text(&answer));
+    assert!(text(&answer).contains("does not let AI apps change designs"));
+    let (status, body) = ai_call(addr, &app_key, "GET", "/ai/v1/whoami", b"").await;
+    assert_eq!(status, "200");
+    assert_eq!(obj(&body).get("readOnly"), Some(&Json::Bool(true)));
+}

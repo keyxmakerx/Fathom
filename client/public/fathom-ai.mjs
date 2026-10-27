@@ -257,6 +257,47 @@ const TOOLS = [
         steps: (a.steps ?? []).map((s) => ({ action: s.action, target: s.target ?? null, text: s.text })),
       }),
   },
+  {
+    // Listed only when whoami says mayChange: the organisation and the key's owner both allowed it.
+    name: 'fathom_change_design',
+    mayChange: true,
+    description:
+      'Change a design now, as one change a person can undo in one step. It is made in the name of the person who made ' +
+      'this key and marked as made by an AI. Give the version fathom_read_design gave: if the design moved since, nothing ' +
+      'changes and you are told to read it again. Each operation sets one field by the element ids and field names the ' +
+      'reading gave, or clears it with null. Never include a password or key; a change carrying one is refused whole. ' +
+      'Prefer fathom_recommend when a person should decide.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        design: { type: 'string' },
+        version: { type: 'integer', minimum: 1, description: 'The version fathom_read_design gave.' },
+        summary: { type: 'string', maxLength: 120, description: 'What the change does, in one line. History shows it.' },
+        operations: {
+          type: 'array', minItems: 1, maxItems: 200,
+          items: {
+            type: 'object',
+            properties: {
+              op: { type: 'string', enum: ['set'] },
+              element: { type: 'string', description: 'A node or edge id from the reading (kind:ID).' },
+              field: { type: 'string', description: 'A field name as the reading shows it.' },
+              value: { description: 'The new value, in the shape the reading shows; null clears it.' },
+            },
+            required: ['op', 'element', 'field', 'value'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['design', 'version', 'summary', 'operations'],
+      additionalProperties: false,
+    },
+    run: (key, a) =>
+      call(key, 'POST', `/ai/v1/designs/${id(a.design)}/changes`, {
+        version: a.version,
+        summary: a.summary,
+        operations: (a.operations ?? []).map((o) => ({ op: o.op, element: o.element, field: o.field, value: o.value ?? null })),
+      }),
+  },
 ];
 
 function serve() {
@@ -287,15 +328,24 @@ function serve() {
           serverInfo: { name: 'fathom-ai', version: VERSION },
           instructions:
             'Fathom is a network documentation tool. These tools read designs as the person who made this key, and ' +
-            'send recommendations a person accepts or dismisses. They cannot change a design, and never return passwords.',
+            'send recommendations a person accepts or dismisses. Only if fathom_whoami says mayChange can they change a ' +
+            'design, as one change a person can undo. They never return passwords.',
         });
         return;
       case 'ping':
         reply({});
         return;
-      case 'tools/list':
-        reply({ tools: TOOLS.map(({ run, ...t }) => t) });
+      case 'tools/list': {
+        let mayChange = false;
+        try {
+          if (!key) key = loadKey();
+          mayChange = (await call(key, 'GET', '/ai/v1/whoami')).mayChange === true;
+        } catch {
+          // Unreachable or refused: list what reads and recommends, and let those calls say why.
+        }
+        reply({ tools: TOOLS.filter((t) => mayChange || !t.mayChange).map(({ run, mayChange: _, ...t }) => t) });
         return;
+      }
       case 'tools/call': {
         const tool = TOOLS.find((t) => t.name === msg.params?.name);
         if (!tool) return fail(-32602, `no tool named ${msg.params?.name}`);

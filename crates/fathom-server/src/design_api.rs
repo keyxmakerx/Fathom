@@ -2898,6 +2898,7 @@ async fn post_change_handler(
         doc,
         schema_version as i32,
         after,
+        false,
         &audit::SpoolBounds::from_env(),
     )
     .await?;
@@ -3154,7 +3155,7 @@ async fn history_handler(
         .query(
             "SELECT e.seq, e.entry_type, e.chain_key_epoch, e.design_version, \
                     coalesce(c.created_by, p.created_by), \
-                    extract(epoch FROM e.created_at)::bigint \
+                    extract(epoch FROM e.created_at)::bigint, k.label \
              FROM chain_entries e \
              LEFT JOIN design_change c \
                ON c.design_id = e.design_id AND c.organisation_id = e.organisation_id \
@@ -3162,6 +3163,10 @@ async fn history_handler(
              LEFT JOIN design_payload p \
                ON p.design_id = e.design_id AND p.organisation_id = e.organisation_id \
               AND p.design_version = e.design_version AND e.entry_type IN ('create', 'update') \
+             LEFT JOIN ai_design_changes a \
+               ON a.design_id = e.design_id AND a.organisation_id = e.organisation_id \
+              AND a.design_version = e.design_version AND e.entry_type = 'change' \
+             LEFT JOIN ai_keys k ON k.id = a.key_id AND k.organisation_id = a.organisation_id \
              WHERE e.chain_kind = 'design' AND e.design_id = $1 AND e.organisation_id = $2 \
              ORDER BY e.seq",
             &[&design_id.to_string(), &ctx.tenant().to_string()],
@@ -3177,6 +3182,8 @@ async fn history_handler(
         let design_version: Option<i64> = row.get(3);
         let actor: Option<String> = row.get(4);
         let at_unix: i64 = row.get(5);
+        // ADR-0073 decision 5: the connection an AI made this change through, by its label.
+        let via_ai: Option<String> = row.get(6);
         let entry_type = chain::StoredEntryType::from_column(&entry_type_text);
 
         let mut map = BTreeMap::new();
@@ -3198,6 +3205,9 @@ async fn history_handler(
         );
         map.insert("at_unix".to_string(), Json::Int(at_unix));
         map.insert("actor".to_string(), actor.map_or(Json::Null, Json::Str));
+        if let Some(label) = via_ai {
+            map.insert("via_ai".to_string(), Json::Str(label));
+        }
         out.push(Json::Obj(map));
     }
 

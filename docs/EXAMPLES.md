@@ -100,7 +100,8 @@ Set `FATHOM_FIRMWARE_FETCH_BASE_URL` first (`docs/RUNNING-IT.md`); firmware is o
 ## 9. Connect Claude or another AI app
 
 An AI app reads designs you can read, in one organisation, and sends ideas a person accepts. It never
-sees passwords or the vault, and it cannot change a design (ADR-0072).
+sees passwords or the vault, and it changes a design only where both your organisation and you said it
+may (ADR-0072, ADR-0073).
 
 First, once per organisation: a Steward opens **Organisation › AI**, ticks **AI access allowed**, adds
 the people who may connect under **Who may connect AI apps**, and presses **Save**.
@@ -129,3 +130,10 @@ The AI can read the design's maintenance plans and "It's down" issues too, so yo
 over a plan or an issue. To have it draft a change, ask it to recommend one: the idea shows under
 **AI ideas**, and **Make it a plan** turns its steps into a draft plan you change, schedule and work
 through like any other.
+
+To let an AI change designs directly, a Steward ticks **AI apps may change designs** under
+**Organisation › AI**, and you tick **May change designs** when you press **Allow** or **Make key** (or
+later, on the connection). The AI then gets a `change_design` tool: each call is one change in your
+name, against the version it read, shown in History as "AI (<connection>), for <you>". For now it
+only sets fields the reading shows (names, roles, labels, notes); it is refused in folders that need a
+second person, past 10 changes a minute, and if the design moved since it read it.

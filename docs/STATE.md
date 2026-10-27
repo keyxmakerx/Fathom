@@ -545,8 +545,12 @@ Both connect pages warn against a personal AI account; Fathom cannot check which
 23), so Allow and Make key ask for it, and Stewards and Admin › AI see it with the owner's sign-in address
 (decision 24, migration 0049). ADR-0073 (proposed, being built on PR #217): an AI connection may change
 designs only with two ticks, Organisation › AI's "AI apps may change designs" and the connection's own
-"May change designs" at Allow, Make key or later by its owner (migration 0050). Step 1 is built: the ticks,
-columns, seals and screens. Nothing can change a design through them yet. Not yet: dashed "would be added"
+"May change designs" at Allow, Make key or later by its owner (migration 0050). Steps 1 and 2 are built: the
+ticks and screens, and `change_design` (`POST /ai/v1/designs/{d}/changes`, the Claude tool and the
+helper's) setting fields the reading shows at `layout` and `notes`, as one change in the owner's name
+against the version read, 200 operations, 10 a minute and 300 a day, refused in second-person
+folders, every string through the server's gate. History marks it "AI (<connection>), for <person>"
+from `ai_design_changes` (migration 0051). Not yet: adding, connecting and removing (step 3). Not yet: dashed "would be added"
 rows and marks on the drawing itself.
 
 **Device panel** (r14 A1, A2): Details, Ports and Notes tabs, actions at the foot (Duplicate the main one,

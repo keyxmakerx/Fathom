@@ -2,11 +2,13 @@
 //! connector (ADR-0072 decisions 13 to 20).
 //!
 //! The token is checked first, on every request, by `oauth::Connector::verify_bearer`;
-//! this file only reads the JSON-RPC message and runs one of five tools, each of which is
+//! this file only reads the JSON-RPC message and runs one of six tools, each of which is
 //! a `/ai/v1/*` route under another name, through the same `ai::open` and the same rules:
 //!
 //! - `whoami`, `list_designs`, `read_design`, `list_recommendations`: reads;
-//! - `recommend`: the one write, an idea a person accepts or dismisses in Fathom.
+//! - `recommend`: an idea a person accepts or dismisses in Fathom;
+//! - `change_design`: a change made at once, listed only for a connection that both its
+//!   organisation and its owner let change designs (ADR-0073).
 //!
 //! What the transport needs (MCP "Transports", 2025-11-25, read 2026-10-25):
 //!
@@ -42,17 +44,19 @@ const INTERNAL_ERROR: i64 = -32603;
 const INSTRUCTIONS: &str = "Fathom holds network designs. This connection reads the designs \
     in one organisation that the person who signed in chose, with only the detail they \
     allowed: layout, and if allowed addresses and notes. Passwords, device secrets and the \
-    vault are never part of a reading. You cannot change a design. You can recommend a \
-    change with the recommend tool; a person sees it in Fathom, marked as an AI idea, and \
-    accepts or dismisses it. Start with list_designs, then read_design.";
+    vault are never part of a reading. You can recommend a change with the recommend tool; \
+    a person sees it in Fathom, marked as an AI idea, and accepts or dismisses it. Only if \
+    whoami says mayChange can you change a design directly, with change_design: one call is \
+    one change, made in the person's name, marked as yours, and undone in one step. Prefer \
+    an idea when a person should decide. Start with list_designs, then read_design.";
 
-/// The five tools, as `tools/list` gives them. Plain JSON so it reads as the protocol does;
+/// The six tools, as `tools/list` gives them. Plain JSON so it reads as the protocol does;
 /// a test checks it parses and names exactly the tools [`call`] runs.
 const TOOLS: &str = r#"[
   {
     "name": "whoami",
     "title": "Who this connection is",
-    "description": "The organisation this connection reads, whose sign-in it is, what it may see, which folders, whether it may recommend, and when it ends.",
+    "description": "The organisation this connection reads, whose sign-in it is, what it may see, which folders, whether it may recommend or change designs, and when it ends.",
     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
     "annotations": {"readOnlyHint": true, "openWorldHint": false}
   },
@@ -117,17 +121,53 @@ const TOOLS: &str = r#"[
       "additionalProperties": false
     },
     "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false}
+  },
+  {
+    "name": "change_design",
+    "title": "Change a design",
+    "description": "Change one design now, as one change the person can undo in one step. It is made in the name of the person who signed in and marked as made by an AI. Give the version read_design gave: if the design moved since, nothing changes and you are told to read it again. Each operation sets one field, by the element ids and field names read_design gave, or clears it with null. Only fields the reading shows can be set. Do not put passwords, keys or secrets in any value; a change that carries one is refused whole. Prefer recommend when a person should decide.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "design": {"type": "string", "description": "The design's id."},
+        "version": {"type": "integer", "minimum": 1, "description": "The version read_design gave."},
+        "summary": {"type": "string", "description": "What the change does, one line up to 120 characters. History shows it."},
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "properties": {
+              "op": {"type": "string", "enum": ["set"]},
+              "element": {"type": "string", "description": "A node or edge id from read_design."},
+              "field": {"type": "string", "description": "A field name as read_design shows it."},
+              "value": {"description": "The new value, in the shape read_design shows; null clears it."}
+            },
+            "required": ["op", "element", "field", "value"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["design", "version", "summary", "operations"],
+      "additionalProperties": false
+    },
+    "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false}
   }
 ]"#;
 
 /// The tool names [`call`] runs, in [`TOOLS`] order.
-pub const TOOL_NAMES: [&str; 5] = [
+pub const TOOL_NAMES: [&str; 6] = [
     "whoami",
     "list_designs",
     "read_design",
     "list_recommendations",
     "recommend",
+    "change_design",
 ];
+
+/// The tool only a connection that may change designs is shown.
+const CHANGE_TOOL: &str = "change_design";
 
 /// What `/mcp` answers: a status and, unless `202`, a JSON body.
 pub enum Answer {
@@ -180,9 +220,35 @@ pub fn negotiate(asked: Option<&str>) -> &'static str {
         .unwrap_or(PROTOCOL_VERSIONS[0])
 }
 
-/// The tool list, parsed.
-pub fn tools() -> Json {
-    crate::json_in::parse(TOOLS.as_bytes()).unwrap_or(Json::Arr(Vec::new()))
+/// The tool list, parsed: all six, or without `change_design` when `may_change` is false.
+pub fn tools(may_change: bool) -> Json {
+    match crate::json_in::parse(TOOLS.as_bytes()) {
+        Ok(Json::Arr(all)) => Json::Arr(
+            all.into_iter()
+                .filter(|t| {
+                    may_change
+                        || !matches!(t, Json::Obj(m) if m.get("name") == Some(&Json::Str(CHANGE_TOOL.into())))
+                })
+                .collect(),
+        ),
+        _ => Json::Arr(Vec::new()),
+    }
+}
+
+/// Whether this connection may change designs right now: both ticks, read in a
+/// transaction of its own. Anything that stops the read stops the tool being listed.
+async fn may_change(state: &AiApiState, verified: &VerifiedAi) -> bool {
+    let Ok(mut client) = state.pool.get().await else {
+        return false;
+    };
+    let Ok(tx) = client.transaction().await else {
+        return false;
+    };
+    let Ok(session) = ai::open(&tx, &state.ring, verified).await else {
+        return false;
+    };
+    let may = ai::may_change(&session);
+    tx.commit().await.is_ok() && may
 }
 
 /// Read one message and answer it. `verified` is the bearer token's, already checked.
@@ -253,7 +319,10 @@ pub async fn handle(state: &AiApiState, verified: &VerifiedAi, body: &[u8]) -> A
             )
         }
         "ping" => result(id, Json::Obj(BTreeMap::new())),
-        "tools/list" => result(id, obj(vec![("tools", tools())])),
+        "tools/list" => {
+            let may = may_change(state, verified).await;
+            result(id, obj(vec![("tools", tools(may))]))
+        }
         "tools/call" => {
             let name = match params.get("name") {
                 Some(Json::Str(n)) if TOOL_NAMES.contains(&n.as_str()) => n.clone(),
@@ -326,6 +395,7 @@ fn tool_error_text(e: &AiError) -> Option<String> {
             "not found, or not inside what this connection may read".into()
         }
         AiError::Conflict { .. } => "that changed while it was being read; try again".into(),
+        e @ (AiError::Operation { .. } | AiError::Moved { .. }) => e.to_string(),
         AiError::LooksSecret => "that looks as if it carries a password or key, so it was not \
             taken; reword it without the value"
             .into(),
@@ -362,6 +432,12 @@ async fn call(
         }
         _ => Some(design_arg(&mut args)?),
     };
+    if let ("change_design", Some(d)) = (name, design) {
+        // The rest of the arguments are the change, in the shape `/ai/v1` takes, and
+        // `ai_change::read_ask` refuses anything else in them.
+        let body = Json::Obj(args).to_canonical_bytes();
+        return crate::ai_api::change_design(state, verified, d, &body).await;
+    }
     if name != "recommend" && !args.is_empty() {
         return Err(AiError::Malformed("this tool takes only a design"));
     }
@@ -421,15 +497,32 @@ mod tests {
             })
             .collect();
         assert_eq!(names, TOOL_NAMES);
-        // Only `recommend` writes, and it says so.
+        // Only `recommend` and `change_design` write, and they say so; only the second
+        // changes what is there.
         for t in &tools {
             let Json::Obj(m) = t else { unreachable!() };
             let Json::Obj(a) = &m["annotations"] else {
                 panic!("annotations")
             };
-            let writes = m["name"] == Json::Str("recommend".into());
+            let name = &m["name"];
+            let writes =
+                *name == Json::Str("recommend".into()) || *name == Json::Str(CHANGE_TOOL.into());
             assert_eq!(a["readOnlyHint"], Json::Bool(!writes));
+            if writes {
+                assert_eq!(
+                    a["destructiveHint"],
+                    Json::Bool(*name == Json::Str(CHANGE_TOOL.into()))
+                );
+            }
         }
+        // A connection that may not change designs is not shown the tool.
+        let Json::Arr(fewer) = super::tools(false) else {
+            panic!("not a list")
+        };
+        assert_eq!(fewer.len(), TOOL_NAMES.len() - 1);
+        assert!(!fewer
+            .iter()
+            .any(|t| matches!(t, Json::Obj(m) if m["name"] == Json::Str(CHANGE_TOOL.into()))));
     }
 
     #[test]

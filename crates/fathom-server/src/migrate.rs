@@ -311,6 +311,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0050_ai_may_change.sql",
         sql: include_str!("../migrations/0050_ai_may_change.sql"),
     },
+    // Which changes to a design an AI connection made, for History and the limits.
+    Migration {
+        version: 51,
+        name: "0051_ai_design_changes.sql",
+        sql: include_str!("../migrations/0051_ai_design_changes.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

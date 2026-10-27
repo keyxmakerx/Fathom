@@ -1967,6 +1967,7 @@ pub async fn write_change_in_tx(
     doc: &[u8],
     schema: i32,
     after: i64,
+    exactly_after: bool,
     bounds: &audit::SpoolBounds,
 ) -> Result<ChangeWritten, DesignError> {
     refuse_if_spool_beyond_bounds(tx, bounds).await?;
@@ -2006,7 +2007,9 @@ pub async fn write_change_in_tx(
     if current == 0 {
         return Err(DesignError::NoSuchVersion);
     }
-    if after > current {
+    // An AI's change never merges over a person's (ADR-0073 decision 6): it must follow
+    // the very version it read. A browser's may follow an older one and be merged.
+    if after > current || (exactly_after && after != current) {
         return Err(DesignError::ChangeAhead { after, current });
     }
     let version = current + 1;

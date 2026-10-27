@@ -260,6 +260,9 @@ async function runProof(browser, ctxA, seed) {
   check('C1b. Allow waits for the AI account the app uses', await A.getByRole('button', { name: 'Allow', exact: true }).isDisabled());
   const changeTick = A.getByTestId('connect-may-change');
   check('C1c. with the organisation\'s tick on, Allow offers "May change designs", unticked', (await changeTick.count()) === 1 && !(await changeTick.isChecked()));
+  await changeTick.check();
+  const changeWords = (await A.locator('.ai-connect__side').innerText()).replace(/\s+/g, ' ');
+  check('C1d. ticked, the plain words say it changes designs and name the risk', /Can change designs you can draw in/.test(changeWords) && /Text inside a design can steer an AI/.test(changeWords));
   await A.locator('#connect-ai-account').fill('Ann@Example.org');
   await A.getByRole('button', { name: 'Allow', exact: true }).click();
   for (let i = 0; i < 50 && landed === null; i++) await sleep(200);
@@ -289,9 +292,9 @@ async function runProof(browser, ctxA, seed) {
   const init = await rpc('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'drive', version: '1' } });
   check('M2. initialize answers the version and the tools capability', init.status === 200 && init.body.result.protocolVersion === '2025-11-25' && init.body.result.capabilities.tools != null);
   const listed = await rpc('tools/list', {});
-  check('M3. five tools', listed.body.result.tools.length === 5, listed.body.result.tools.map((t) => t.name).join(','));
+  check('M3. six tools, change_design among them, since both ticks are on', listed.body.result.tools.length === 6 && listed.body.result.tools.some((t) => t.name === 'change_design'), listed.body.result.tools.map((t) => t.name).join(','));
   const who = await rpc('tools/call', { name: 'whoami', arguments: {} });
-  check('M4. whoami says it reads layout and addresses, read only', JSON.stringify(who.body.result.structuredContent.sees) === '["layout","addresses"]' && who.body.result.structuredContent.readOnly === true);
+  check('M4. whoami says it reads layout and addresses, and may change designs', JSON.stringify(who.body.result.structuredContent.sees) === '["layout","addresses"]' && who.body.result.structuredContent.mayChange === true && who.body.result.structuredContent.readOnly === false);
   const designs = await rpc('tools/call', { name: 'list_designs', arguments: {} });
   const items = designs.body.result.structuredContent.items ?? [];
   check('M5. list_designs lists the design', items.length >= 1, JSON.stringify(items).slice(0, 200));
@@ -308,6 +311,17 @@ async function runProof(browser, ctxA, seed) {
     arguments: { design: designId, title: 'Set the admin password', steps: [{ action: 'change', text: 'set system root-authentication plain-text-password Hunter2!x' }] },
   });
   check('M8. an idea that carries a password is refused', leaky.body.result && leaky.body.result.isError === true, JSON.stringify(leaky.body).slice(0, 300));
+  const version = read.body.result.structuredContent.version;
+  const named = await rpc('tools/call', {
+    name: 'change_design',
+    arguments: { design: designId, version, summary: 'Rename a device that is not there', operations: [{ op: 'set', element: 'device:01ARZ3NDEKTSV4RRFFQ69G5FAV', field: 'hostname', value: 'core-1' }] },
+  });
+  check('M9. change_design refuses an element the reading did not give, by operation number', named.body.result?.isError === true && /operation 1 names nothing/.test(named.body.result.content[0].text), JSON.stringify(named.body).slice(0, 300));
+  const stale = await rpc('tools/call', {
+    name: 'change_design',
+    arguments: { design: designId, version: version + 5, summary: 'From a reading that never was', operations: [{ op: 'set', element: 'device:01ARZ3NDEKTSV4RRFFQ69G5FAV', field: 'hostname', value: 'core-1' }] },
+  });
+  check('M10. change_design against a version that is not the design\'s is refused before anything else', stale.body.result?.isError === true && /read it again/.test(stale.body.result.content[0].text), JSON.stringify(stale.body).slice(0, 300));
 
   // ---- The idea in the design --------------------------------------------------------
   await A.unroute('http://localhost:53999/**');
@@ -340,7 +354,7 @@ async function runProof(browser, ctxA, seed) {
   await shot('o4-org-ai-connection');
   check('O4. the connection is listed as Claude Code, on', /\bon\b/i.test(await A.locator('.ai-table__row', { hasText: 'Claude Code' }).innerText()));
   check('O4b. it shows the AI account the person gave, and their sign-in', (await A.getByTestId('ai-key-account').innerText()).includes('ann@example.org') && (await A.locator('.ai-facts').innerText()).includes('@'));
-  check('O4c. its owner sees "May change designs", unticked, to widen later', (await A.getByTestId('ai-key-may-change').count()) === 1 && !(await A.getByTestId('ai-key-may-change').isChecked()));
+  check('O4c. its owner sees "May change designs", ticked, and can take it off', (await A.getByTestId('ai-key-may-change').count()) === 1 && (await A.getByTestId('ai-key-may-change').isChecked()));
   await A.getByRole('button', { name: 'Turn off', exact: true }).click();
   await A.getByRole('button', { name: 'Turn off now' }).click();
   await A.locator('.ai-table__row', { hasText: 'Claude Code' }).filter({ hasText: 'Off' }).waitFor({ timeout: 10000 });

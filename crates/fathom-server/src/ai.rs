@@ -142,6 +142,16 @@ pub enum AiError {
     },
     /// Text that reads as a password or key was not taken.
     LooksSecret,
+    /// One operation of an AI's change was refused; the sentence says why, never the value.
+    Operation {
+        index: usize,
+        why: &'static str,
+    },
+    /// An AI's change named a version the design has moved on from (ADR-0073 decision 6).
+    Moved {
+        read: i64,
+        current: i64,
+    },
     /// A stored row does not verify: not a permission answer (§3.4), an alarm.
     Unverifiable(&'static str),
 }
@@ -166,6 +176,12 @@ impl std::fmt::Display for AiError {
             Self::NotFound => f.write_str("not found"),
             Self::Conflict { version } => write!(f, "changed (now {version})"),
             Self::LooksSecret => f.write_str("looks secret"),
+            Self::Operation { index, why } => write!(f, "operation {} {why}", index + 1),
+            Self::Moved { read, current } => write!(
+                f,
+                "the design is at version {current}, not {read}, the version this change names; \
+                 read it again and make the change against what is there now"
+            ),
             Self::Unverifiable(what) => write!(f, "unverifiable: {what}"),
         }
     }
@@ -239,6 +255,8 @@ impl AiError {
                  without the value.\n"
                     .into(),
             ),
+            e @ Self::Operation { .. } => text(StatusCode::UNPROCESSABLE_ENTITY, format!("{e}\n")),
+            e @ Self::Moved { .. } => text(StatusCode::CONFLICT, format!("{e}\n")),
             Self::Authority(AuthorityError::NotAuthorised)
             | Self::Authority(AuthorityError::QuorumNotMet { .. }) => text(
                 StatusCode::FORBIDDEN,
@@ -2208,6 +2226,12 @@ pub fn tiers(key: &AiKey, policy: &Policy) -> BTreeSet<Tier> {
     out
 }
 
+/// Whether this connection may change designs now: its own tick and its organisation's
+/// (ADR-0073 decision 1).
+pub fn may_change(session: &AiSession) -> bool {
+    session.key.may_change && session.policy.may_change
+}
+
 /// `GET /ai/v1/whoami`: what this key is, so the app can tell its person.
 pub fn whoami(session: &AiSession) -> Json {
     let mut m = BTreeMap::new();
@@ -2229,8 +2253,9 @@ pub fn whoami(session: &AiSession) -> Json {
     );
     m.insert("scopes".into(), strs(&session.key.scopes));
     m.insert("mayRecommend".into(), Json::Bool(session.key.may_recommend));
+    m.insert("mayChange".into(), Json::Bool(may_change(session)));
     m.insert("expiresAt".into(), Json::Int(session.key.expires_unix));
-    m.insert("readOnly".into(), Json::Bool(true));
+    m.insert("readOnly".into(), Json::Bool(!may_change(session)));
     Json::Obj(m)
 }
 
@@ -2303,7 +2328,7 @@ pub async fn ai_designs(
 /// The design's scope, when this key and its owner may read it; [`AiError::NotFound`] for a
 /// design that is not there, outside the key's folders, or that the owner cannot read, so
 /// the three are one answer.
-async fn readable_place(
+pub(crate) async fn readable_place(
     tx: &Transaction<'_>,
     auth: &Authority<'_>,
     key: &AiKey,
@@ -2340,12 +2365,18 @@ pub async fn ai_reading(
     m.insert("version".into(), Json::Int(stored.version));
     m.insert(
         "about".into(),
-        Json::Str(
+        Json::Str(if may_change(session) {
+            "Fields that looked like a password or key were left out and counted in \
+             `withheld`. Change the design with POST .../changes naming this version, one \
+             change a person can undo; or recommend with POST .../recommendations for a \
+             person to accept or dismiss."
+                .into()
+        } else {
             "Read-only. Fields that looked like a password or key were left out and counted \
              in `withheld`. Recommend changes with POST .../recommendations; a person \
              accepts or dismisses each."
-                .into(),
-        ),
+                .into()
+        }),
     );
     Ok(Json::Obj(m))
 }
