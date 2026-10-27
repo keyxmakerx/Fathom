@@ -108,3 +108,14 @@ strip = "symbols"
 debug = 0
 overflow-checks = true
 incremental = false
+
+# Every third-party crate, optimised in dev and test builds; the workspace's own
+# crates keep the settings above. Unoptimised, the p256, argon2 and sha2 code in
+# the server's tests ran several times slower than it ships, and once the test
+# binaries ran side by side (scripts/ci/parallel-tests.sh) the 500-person
+# confirm in tests/invitations.rs took 131 s in CI against its 120 s drift
+# budget (run 40520344705, 2026-10-27). Locally it went from 61 s to 35 s with
+# this. These crates are compiled once and cached; Fathom's own code, which
+# changes, still builds at full speed.
+[profile.dev.package."*"]
+opt-level = 2

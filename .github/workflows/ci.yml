@@ -242,7 +242,7 @@ jobs:
       # The build cache, added 2026-10-02: without it every run compiled the
       # whole workspace from nothing. GitHub's own action, pinned to the
       # commit `git ls-remote` gave for v6.1.0 on 2026-10-02. It holds build
-      # output only (`target`); v2 because the profile env at the top changed what is built, and a
+      # output only (`target`); v3 because Cargo.toml's dev profile changed what is built, and a
       # cache built under the old settings would be restored and then rebuilt on every run
       # without ever being saved again. The crates themselves still come from the
       # checksummed `cargo fetch --locked` above, after every dependency gate
@@ -252,9 +252,9 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: target
-          key: cargo-v2-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          key: cargo-v3-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: |
-            cargo-v2-${{ runner.os }}-
+            cargo-v3-${{ runner.os }}-
 
       - name: Format
         run: cargo fmt --all --check
