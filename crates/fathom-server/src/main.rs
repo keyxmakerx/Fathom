@@ -502,6 +502,7 @@ async fn main() -> ExitCode {
                 config.audit_spool_bounds,
                 Arc::clone(&ring),
                 deployment.clone(),
+                fathom_server::db::listener_config(&config).ok(),
             );
         }
         None => {
@@ -1298,6 +1299,13 @@ async fn main() -> ExitCode {
     if let Some(root) = client_root {
         app = root.attach(app);
     }
+    // One line per console request and per sign-in, with the client's own address
+    // beside the proxy's (`access_log.rs`). Outside the console's gate, so the 404s
+    // it answers off the console's hosts are logged too.
+    let app = app.layer(axum::middleware::from_fn_with_state(
+        client_address.clone(),
+        fathom_server::access_log::log,
+    ));
     // ADR-0055 stream (c), decision 12's two headers, over EVERYTHING including the
     // fallback serving the client's files.
     let app = fathom_server::client::with_security_headers(

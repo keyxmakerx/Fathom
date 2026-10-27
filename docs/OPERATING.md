@@ -490,6 +490,16 @@ is gone — confirm-or-revert has nothing left to revert to — `fathom-server c
 nothing and grants nobody anything. The console then answers wherever the environment variables
 say, or everywhere if neither is set.
 
+**Every console request and every sign-in is logged with the client's address** (since
+2026-10-27, `crates/fathom-server/src/access_log.rs`): one `access` line in the server's log with
+`plane` (`operator console` or `sign-in`), method, path without its query, status, `client` and
+`via`, and the `Host` it asked for. `client` is the address the rule above believes; `via` is the
+connection's own peer, normally your proxy. If the two are always the same proxy address, the
+proxy is not named in `FATHOM_TRUSTED_PROXIES`. Requests the console refuses off its hosts are
+logged too, as `status=404`. Nothing from a request body is logged. The lines go to the
+container's standard output, so `docker compose logs server` shows them and your log collector
+keeps them as long as you tell it to; they are not the sealed history.
+
 ## AI connections
 
 ADR-0072. AI access is off in every organisation until a Steward turns it on, and Admin › AI turns it

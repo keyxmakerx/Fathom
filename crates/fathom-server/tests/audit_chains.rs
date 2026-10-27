@@ -2420,3 +2420,41 @@ async fn past_the_bound_a_rotation_is_refused_and_drains_to_succeed() {
     assert_eq!(report.versions_reencrypted, 2);
     assert_eq!(report.chain_entries_written, 2);
 }
+
+/// Replicas share one spool, so one process ships at a time: a second server
+/// does not get the lock while the first holds it, and gets it once the
+/// first's connection is gone (the process died, or was stopped).
+#[tokio::test]
+async fn only_one_server_ships_and_another_takes_over_when_it_goes() {
+    let _ = support::migrated_pool().await;
+    let config: tokio_postgres::Config = support::test_database_url().parse().expect("a url");
+
+    let first = audit::ShipperLock::try_take(&config)
+        .await
+        .expect("connects")
+        .expect("the first server takes the lock");
+    assert!(first.still_held().await);
+    assert!(
+        audit::ShipperLock::try_take(&config)
+            .await
+            .expect("connects")
+            .is_none(),
+        "a second server must wait while the first ships"
+    );
+
+    drop(first);
+    let mut second = None;
+    for _ in 0..50 {
+        second = audit::ShipperLock::try_take(&config)
+            .await
+            .expect("connects");
+        if second.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert!(
+        second.is_some(),
+        "the lock must pass on once the first server's connection is gone"
+    );
+}

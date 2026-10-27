@@ -545,6 +545,11 @@ box; a badge opens a card with range, members, exit node and routes. Not yet: pa
 head through the engine, refusing what the engine or the credential check refuses, then numbers, chains,
 encrypts and streams them to other browsers. Different fields merge; on the same field the later one
 wins, and the overwritten person can **Put mine back**. Others show as initials dots in the bar.
+Since 2026-10-27 the dots and pointers cross server processes through `NOTIFY` on `fathom_presence`,
+as changes already did, so several servers behind one load balancer need no sticky sessions
+(`docs/RUNNING-IT.md`, "Running more than one server"). The audit feed is sent by whichever server
+holds its advisory lock. Every console request and sign-in logs one `access` line with the client's
+address and the proxy's (`access_log.rs`). How big a design goes, measured: `docs/SCALE.md`.
 
 **History panel** (#124, #128). The bar's **History** leads with the chain check in words ("Checked:
 every save is intact", "Broken at save N"), lists saves newest first, shows any save read-only with its

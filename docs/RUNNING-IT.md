@@ -378,6 +378,57 @@ personal access token that can read packages.
 
 **Backups and everything after.** `docs/OPERATING.md`.
 
+## Running more than one server
+
+For failover or load, run two or more Fathom servers against **one** PostgreSQL and point your
+proxy at all of them. Nothing a request needs is held in one server: sessions, single-use nonces
+and sign-in limits are rows in the database, and live changes reach every server through
+PostgreSQL's `NOTIFY` (ADR-0063), as do the who's-here dots and pointers since 2026-10-27. **No
+sticky sessions are needed**; round robin is fine, and the long-lived live stream may land on a
+different server from the edits it carries.
+
+What each server must share with the others:
+
+- **The same keys.** Every server reads the same `master.key`, `chain.key`, `backup.key` and
+  `vault.key`, and the same database passwords. In Compose that is the one `keys` volume; on
+  several hosts, give each the same files (read-only), or use `command://` or `env://` from a
+  secret manager (`docs/OPERATING.md`, "The key file"). A server with a different master key
+  refuses to start and names both key ids.
+- **The same firmware folder**, if firmware is on (`FATHOM_FIRMWARE_DIR`): a shared volume or
+  network share. A server with its own folder cannot hand out an image another server staged.
+- **The same environment**, in particular `FATHOM_TRUSTED_PROXIES`, `FATHOM_ADMIN_HOSTS` and
+  `FATHOM_ADMIN_SOURCES`, so that every server reads the same client address and confines the
+  console the same way.
+
+What sorts itself out:
+
+- **Migrations** run under an advisory lock, so servers starting together take turns.
+- **The audit feed** (`FATHOM_AUDIT_SYSLOG`) is sent by one server at a time: whichever holds
+  its lock in PostgreSQL. If that server stops, another takes over within five seconds. A
+  takeover can send the last batch twice; the far end sees the same `seq` again, never a gap.
+- **The backup service** is one container beside the database, not one per server.
+
+What stays per server, and is fine that way: the cache of open designs (rebuilt from the database
+when a server meets a design for the first time), and the live limits (50 open streams per design,
+8 per account), which count per server.
+
+**One host, Compose.** The `server` service publishes a fixed port, so `--scale` needs a range:
+`FATHOM_PORT=8080-8081 docker compose up -d --scale server=2`, and point the proxy at both ports.
+Or leave the port unpublished, put the proxy on the stack's network, and let it balance across the
+service name. Two servers on one host protect against a crashed process, not a dead host.
+
+**Several hosts.** Run the server image on each, with `DATABASE_URL` pointing at the shared
+database, and the keys and firmware shared as above. Run `backup` once, next to the database.
+
+**The database is the one thing that must not fail.** Fathom needs one writable PostgreSQL (18 in
+Compose; 16 is what CI tests against). For high availability use what your platform already runs:
+a managed PostgreSQL with automatic failover, or Patroni with a floating address in front. On
+failover every server's connections drop; the pool reconnects, the live listener reconnects (and
+every open stream re-reads what it may have missed), and the audit lock is taken again. If you put
+PgBouncer in front, use **session** pooling: `LISTEN` and the audit lock live on a connection and
+do not survive transaction pooling. Streaming replicas are standbys only; Fathom does not read
+from them.
+
 ## What does not work yet
 
 `docs/STATE.md` is the page of record. Headline gaps:

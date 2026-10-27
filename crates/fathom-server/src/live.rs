@@ -9,8 +9,12 @@
 //! head moved, the grant. Failing any of them ends the stream before a frame
 //! is written.
 //!
-//! Presence is held per process. Changes cross processes through `NOTIFY`;
-//! presence does not (a deviation from ADR-0063 #1, noted in the report).
+//! Presence is held per process and crosses processes through `NOTIFY` too,
+//! on `fathom_presence`, so people whose browsers reach different servers
+//! behind a load balancer still see each other (see [`Hub::dispatch`]). Each
+//! process sends what changed as it changes and everyone it holds every
+//! [`PRESENCE_REFRESH`]; another process's people are dropped after
+//! [`PRESENCE_TTL`] without word, so a server that dies leaves no ghosts.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::pin::Pin;
@@ -64,6 +68,16 @@ pub const POINTER_RANGE: f64 = 10_000_000.0;
 /// Pointer frames reach one stream at most this often.
 const POINTER_GAP: Duration = Duration::from_millis(100);
 
+/// How often a process tells the others who it holds, so that they keep
+/// showing them.
+pub const PRESENCE_REFRESH: Duration = Duration::from_secs(20);
+/// Another process's person is dropped when nothing about them has arrived for
+/// this long: that process has gone, or lost its database connection.
+pub const PRESENCE_TTL: Duration = Duration::from_secs(60);
+/// The channel presence crosses processes on. Changes and authority have
+/// their own (`fathom_live`, `fathom_authority`).
+pub const PRESENCE_CHANNEL: &str = "fathom_presence";
+
 /// Workers and bytes for the head store when nothing says otherwise.
 pub const DEFAULT_HEAD_THREADS: usize = 4;
 pub const DEFAULT_HEAD_BYTES: usize = 512 * 1024 * 1024;
@@ -113,6 +127,15 @@ struct Person {
     pointer: Option<(i64, i64)>,
 }
 
+/// Someone present on a design through another server process.
+struct Remote {
+    name: String,
+    view: &'static str,
+    selected: Option<String>,
+    pointer: Option<(i64, i64)>,
+    heard: Instant,
+}
+
 struct Bucket {
     tokens: f64,
     at: Instant,
@@ -140,6 +163,9 @@ struct Inner {
     by_design: BTreeMap<String, BTreeSet<u64>>,
     /// design -> account -> person present there.
     people: BTreeMap<String, BTreeMap<String, Person>>,
+    /// design -> (account, process) -> person present there through another
+    /// process. Keyed by both: one account can be on two other servers.
+    remote: BTreeMap<String, BTreeMap<(String, u64), Remote>>,
     change_rate: BTreeMap<String, Bucket>,
     presence_rate: BTreeMap<(String, String), Bucket>,
     pointer_rate: BTreeMap<(String, String), Bucket>,
@@ -158,9 +184,56 @@ pub struct Registered {
     signal: Arc<Signal>,
 }
 
-#[derive(Default)]
 pub struct Hub {
     inner: Mutex<Inner>,
+    /// This process, among the others sharing the database. Random, so that a
+    /// process hears its own `NOTIFY` and knows to skip it.
+    origin: u64,
+    /// Presence for the other processes, sent by the listener's connection.
+    /// Unset until it connects; while it is down, presence stays local.
+    outbound: Mutex<Option<tokio::sync::mpsc::Sender<String>>>,
+}
+
+impl Default for Hub {
+    fn default() -> Self {
+        let mut bytes = [0u8; 8];
+        // Not a secret: only distinct. A clock is the fallback.
+        if getrandom::fill(&mut bytes).is_err() {
+            bytes = (std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos() as u64))
+            .to_le_bytes();
+        }
+        Self {
+            inner: Mutex::new(Inner::default()),
+            origin: u64::from_le_bytes(bytes),
+            outbound: Mutex::new(None),
+        }
+    }
+}
+
+/// One presence message between processes: tab-separated, the name last so
+/// that it may hold anything. `p` is a person and where they are, `g` is
+/// gone. Ids and views never hold a tab; [`parse_presence`] admits none.
+fn presence_message(
+    origin: u64,
+    design: &str,
+    account: &str,
+    person: Option<(&Person, &str)>,
+) -> String {
+    match person {
+        None => format!("{origin:x}\tg\t{design}\t{account}"),
+        Some((p, name)) => {
+            let pointer = p
+                .pointer
+                .map_or_else(|| "-".to_owned(), |(x, y)| format!("{x},{y}"));
+            format!(
+                "{origin:x}\tp\t{design}\t{account}\t{}\t{}\t{pointer}\t{name}",
+                p.view,
+                p.selected.as_deref().unwrap_or("-"),
+            )
+        }
+    }
 }
 
 /// A bucket map this large is swept of buckets that have refilled.
@@ -241,7 +314,12 @@ impl Hub {
                 signal: signal.clone(),
             },
         );
+        let first_here = !h.by_design.contains_key(design);
         h.by_design.entry(design.to_owned()).or_default().insert(id);
+        drop(h);
+        if first_here {
+            self.ask(design);
+        }
         Ok(Registered { id, signal })
     }
 
@@ -271,7 +349,166 @@ impl Hub {
                 Self::poke_presence(&h, &entry.design);
             }
         }
+        let still_here = h
+            .streams
+            .values()
+            .any(|e| e.design == entry.design && e.account == entry.account);
+        if last {
+            h.remote.remove(&entry.design);
+        }
+        drop(h);
+        if !still_here {
+            self.publish(presence_message(
+                self.origin,
+                &entry.design,
+                &entry.account,
+                None,
+            ));
+        }
         last
+    }
+
+    /// Send a presence message to the other processes, if the listener is up.
+    /// Dropped when it is not, or when it is behind: presence is a hint, and
+    /// the next refresh repairs it.
+    fn publish(&self, message: String) {
+        let outbound = self.outbound.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(tx) = outbound.as_ref() {
+            let _ = tx.try_send(message);
+        }
+    }
+
+    /// Everyone this process holds, as messages for the other processes.
+    fn refresh_messages(&self) -> Vec<String> {
+        let mut h = self.lock();
+        let now = Instant::now();
+        for people in h.remote.values_mut() {
+            people.retain(|_, r| now.duration_since(r.heard) < PRESENCE_TTL);
+        }
+        h.remote.retain(|_, people| !people.is_empty());
+        let mut out = Vec::new();
+        for (design, people) in &h.people {
+            for (account, p) in people {
+                let name = Self::local_name(&h, design, account);
+                out.push(presence_message(
+                    self.origin,
+                    design,
+                    account,
+                    Some((p, &name)),
+                ));
+            }
+        }
+        out
+    }
+
+    fn local_name(h: &Inner, design: &str, account: &str) -> String {
+        h.streams
+            .values()
+            .find(|e| e.design == design && e.account == account)
+            .map(|e| e.name.clone())
+            .unwrap_or_default()
+    }
+
+    /// Ask the other processes who they hold on `design`, when this process
+    /// opens its first stream there.
+    fn ask(&self, design: &str) {
+        self.publish(format!("{:x}\tq\t{design}", self.origin));
+    }
+
+    /// A presence message from another process.
+    fn hear(&self, payload: &str) {
+        let mut parts = payload.splitn(8, '\t');
+        let (Some(origin), Some(kind), Some(design)) = (parts.next(), parts.next(), parts.next())
+        else {
+            return;
+        };
+        let Ok(origin) = u64::from_str_radix(origin, 16) else {
+            return;
+        };
+        if origin == self.origin {
+            return;
+        }
+        if kind == "q" {
+            let h = self.lock();
+            let mine: Vec<String> = h
+                .people
+                .get(design)
+                .map(|people| {
+                    people
+                        .iter()
+                        .map(|(account, p)| {
+                            let name = Self::local_name(&h, design, account);
+                            presence_message(self.origin, design, account, Some((p, &name)))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            drop(h);
+            for m in mine {
+                self.publish(m);
+            }
+            return;
+        }
+        let Some(account) = parts.next() else { return };
+        let mut h = self.lock();
+        // Only designs someone here is watching; the ask on opening fills in
+        // the rest.
+        if !h.by_design.contains_key(design) {
+            return;
+        }
+        let pointer_moved;
+        match kind {
+            "g" => {
+                // Only the process that held them: the same account may still be
+                // present through a third.
+                let gone = h
+                    .remote
+                    .get_mut(design)
+                    .and_then(|people| people.remove(&(account.to_owned(), origin)));
+                pointer_moved = gone.is_some_and(|r| r.pointer.is_some());
+            }
+            "p" => {
+                let (Some(view), Some(selected), Some(pointer), Some(name)) =
+                    (parts.next(), parts.next(), parts.next(), parts.next())
+                else {
+                    return;
+                };
+                let view = match view {
+                    "canvas" => "canvas",
+                    "inventory" => "inventory",
+                    _ => return,
+                };
+                let selected = (selected != "-").then(|| selected.to_owned());
+                let pointer = pointer
+                    .split_once(',')
+                    .and_then(|(x, y)| Some((x.parse::<i64>().ok()?, y.parse::<i64>().ok()?)));
+                let people = h.remote.entry(design.to_owned()).or_default();
+                let key = (account.to_owned(), origin);
+                let before = people.get(&key).and_then(|r| r.pointer);
+                pointer_moved = before != pointer;
+                people.insert(
+                    key,
+                    Remote {
+                        name: name.to_owned(),
+                        view,
+                        selected,
+                        pointer,
+                        heard: Instant::now(),
+                    },
+                );
+            }
+            _ => return,
+        }
+        Self::poke_presence(&h, design);
+        if pointer_moved {
+            if let Some(ids) = h.by_design.get(design) {
+                for id in ids {
+                    if let Some(e) = h.streams.get(id) {
+                        e.signal.pointer.notify_one();
+                    }
+                }
+            }
+        }
     }
 
     fn poke_presence(h: &Inner, design: &str) {
@@ -334,6 +571,7 @@ impl Hub {
                 Some((scope, id)) => self.wake_authority(scope, id),
                 None => self.wake_all(),
             },
+            PRESENCE_CHANNEL => self.hear(payload),
             _ => {}
         }
     }
@@ -388,21 +626,27 @@ impl Hub {
         if !here {
             return false;
         }
-        let people = h.people.entry(design.to_owned()).or_default();
         // The pointer stays while the person stays in the same view.
-        let pointer = people
-            .get(account)
+        let pointer = h
+            .people
+            .get(design)
+            .and_then(|people| people.get(account))
             .filter(|p| p.view == view)
             .and_then(|p| p.pointer);
-        people.insert(
-            account.to_owned(),
-            Person {
-                view,
-                selected,
-                pointer,
-            },
-        );
+        let person = Person {
+            view,
+            selected,
+            pointer,
+        };
+        let name = Self::local_name(&h, design, account);
+        let message = presence_message(self.origin, design, account, Some((&person, &name)));
+        h.people
+            .entry(design.to_owned())
+            .or_default()
+            .insert(account.to_owned(), person);
         Self::poke_presence(&h, design);
+        drop(h);
+        self.publish(message);
         true
     }
 
@@ -447,6 +691,16 @@ impl Hub {
                 }
             }
         }
+        let name = Self::local_name(&h, design, account);
+        let message = h
+            .people
+            .get(design)
+            .and_then(|people| people.get(account))
+            .map(|p| presence_message(self.origin, design, account, Some((p, &name))));
+        drop(h);
+        if let Some(message) = message {
+            self.publish(message);
+        }
         true
     }
 
@@ -454,39 +708,60 @@ impl Hub {
     /// same view (none until it has said which view it is in).
     fn presence_json(&self, design: &str, account: &str) -> String {
         let h = self.lock();
-        let name_of = |who: &str| -> String {
-            h.streams
-                .values()
-                .find(|e| e.design == design && e.account == who)
-                .map(|e| e.name.clone())
-                .unwrap_or_default()
-        };
         let mut out = format!(
             "{{\"self\":{},\"others\":[",
-            person_json(account, &name_of(account), None)
+            person_json(account, &Self::local_name(&h, design, account), None)
         );
-        if let Some(people) = h.people.get(design) {
-            if let Some(me) = people.get(account) {
-                let mut first = true;
+        let me = h.people.get(design).and_then(|people| people.get(account));
+        if let Some(me) = me {
+            // Everyone in the same view, here or through another process; one
+            // account once, the copy in this process first.
+            let mut others: BTreeMap<&str, Seen<'_>> = BTreeMap::new();
+            if let Some(people) = h.people.get(design) {
                 for (other, p) in people {
-                    if other == account || p.view != me.view {
-                        continue;
+                    if other != account && p.view == me.view {
+                        others.insert(
+                            other,
+                            (
+                                Self::local_name(&h, design, other),
+                                p.selected.as_deref(),
+                                p.pointer,
+                            ),
+                        );
                     }
-                    if !first {
-                        out.push(',');
-                    }
-                    first = false;
-                    let mut one = person_json(other, &name_of(other), Some(p.selected.as_deref()));
-                    if let (Some((x, y)), "canvas") = (p.pointer, me.view) {
-                        one.pop();
-                        one.push_str(&format!(
-                            ",\"pointer\":{{\"x\":{},\"y\":{}}}}}",
-                            tenths(x),
-                            tenths(y)
+                }
+            }
+            if let Some(people) = h.remote.get(design) {
+                let now = Instant::now();
+                for ((other, _), r) in people {
+                    if other != account
+                        && r.view == me.view
+                        && now.duration_since(r.heard) < PRESENCE_TTL
+                    {
+                        others.entry(other).or_insert((
+                            r.name.clone(),
+                            r.selected.as_deref(),
+                            r.pointer,
                         ));
                     }
-                    out.push_str(&one);
                 }
+            }
+            let mut first = true;
+            for (other, (name, selected, pointer)) in others {
+                if !first {
+                    out.push(',');
+                }
+                first = false;
+                let mut one = person_json(other, &name, Some(selected));
+                if let (Some((x, y)), "canvas") = (pointer, me.view) {
+                    one.pop();
+                    one.push_str(&format!(
+                        ",\"pointer\":{{\"x\":{},\"y\":{}}}}}",
+                        tenths(x),
+                        tenths(y)
+                    ));
+                }
+                out.push_str(&one);
             }
         }
         out.push_str("]}");
@@ -498,6 +773,9 @@ impl Hub {
         self.lock().streams.len()
     }
 }
+
+/// Another person as one presence frame shows them: name, selection, pointer.
+type Seen<'a> = (String, Option<&'a str>, Option<(i64, i64)>);
 
 /// `{"account","initials","name"}`, plus `"selected"` when given (`Some(None)`
 /// is an explicit null). Every string is escaped.
@@ -729,16 +1007,47 @@ async fn listen_once(live: &Arc<Live>, config: &tokio_postgres::Config) -> Resul
         }
     });
     let listening = client
-        .batch_execute("LISTEN fathom_live; LISTEN fathom_authority")
+        .batch_execute("LISTEN fathom_live; LISTEN fathom_authority; LISTEN fathom_presence")
         .await
         .map_err(|e| e.to_string());
     if let Err(e) = listening {
         driver.abort();
         return Err(e);
     }
+    // Presence goes out on this same connection. Bounded: a slow database
+    // drops presence messages rather than holding memory for them.
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(1024);
+    *live.hub.outbound.lock().unwrap_or_else(|p| p.into_inner()) = Some(tx);
     live.hub.wake_all();
-    let _ = driver.await;
-    Err("the connection closed".to_owned())
+    let mut driver = driver;
+    let mut refresh = tokio::time::interval(PRESENCE_REFRESH);
+    let why = loop {
+        tokio::select! {
+            _ = &mut driver => break "the connection closed".to_owned(),
+            message = rx.recv() => {
+                let Some(message) = message else { break "the presence queue closed".to_owned() };
+                if let Err(e) = client
+                    .execute("SELECT pg_notify($1, $2)", &[&PRESENCE_CHANNEL, &message])
+                    .await
+                {
+                    break e.to_string();
+                }
+            }
+            _ = refresh.tick() => {
+                for message in live.hub.refresh_messages() {
+                    if let Err(e) = client
+                        .execute("SELECT pg_notify($1, $2)", &[&PRESENCE_CHANNEL, &message])
+                        .await
+                    {
+                        return Err(e.to_string());
+                    }
+                }
+            }
+        }
+    };
+    *live.hub.outbound.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    driver.abort();
+    Err(why)
 }
 
 // ---------------------------------------------------------------------------
@@ -1240,6 +1549,205 @@ mod tests {
             "{\"self\":{\"account\":\"carol\",\"initials\":\"CC\",\"name\":\"Carol Cho\"},\"others\":[]}"
         );
         assert!(!hub.set_presence("d", "dave", "canvas", None));
+    }
+
+    /// Two server processes behind one load balancer, with the database's
+    /// `NOTIFY` played by hand: what one sends, the other hears.
+    fn wired() -> (
+        Hub,
+        Hub,
+        tokio::sync::mpsc::Receiver<String>,
+        tokio::sync::mpsc::Receiver<String>,
+    ) {
+        let (a, b) = (Hub::default(), Hub::default());
+        let (ta, ra) = tokio::sync::mpsc::channel(64);
+        let (tb, rb) = tokio::sync::mpsc::channel(64);
+        *a.outbound.lock().unwrap() = Some(ta);
+        *b.outbound.lock().unwrap() = Some(tb);
+        (a, b, ra, rb)
+    }
+
+    /// Deliver everything queued on `from` to both hubs, as `NOTIFY` does:
+    /// the sender hears itself too, and must skip it.
+    fn carry(from: &mut tokio::sync::mpsc::Receiver<String>, a: &Hub, b: &Hub) -> usize {
+        let mut n = 0;
+        while let Ok(m) = from.try_recv() {
+            a.dispatch(PRESENCE_CHANNEL, &m);
+            b.dispatch(PRESENCE_CHANNEL, &m);
+            n += 1;
+        }
+        n
+    }
+
+    #[test]
+    fn people_on_different_servers_see_each_other_and_leave_cleanly() {
+        let (a, b, mut ra, mut rb) = wired();
+        a.admit("d", "o", "s1", "alice", "Alice Ames").unwrap();
+        b.admit("d", "o", "s2", "bob", "Bob Brown").unwrap();
+        carry(&mut ra, &a, &b);
+        carry(&mut rb, &a, &b);
+        assert!(a.set_presence("d", "alice", "canvas", None));
+        assert!(b.set_presence("d", "bob", "canvas", Some(ID_A.to_owned())));
+        assert!(b.set_pointer("d", "bob", Some((125, -30))));
+        carry(&mut ra, &a, &b);
+        carry(&mut rb, &a, &b);
+        assert_eq!(
+            a.presence_json("d", "alice"),
+            format!(
+                "{{\"self\":{{\"account\":\"alice\",\"initials\":\"AA\",\"name\":\"Alice Ames\"}},\"others\":[{{\"account\":\"bob\",\"initials\":\"BB\",\"name\":\"Bob Brown\",\"selected\":\"{ID_A}\",\"pointer\":{{\"x\":12.5,\"y\":-3.0}}}}]}}"
+            )
+        );
+        assert!(b
+            .presence_json("d", "bob")
+            .contains("\"account\":\"alice\""));
+        // A process never counts itself as another.
+        assert!(a
+            .lock()
+            .remote
+            .get("d")
+            .is_none_or(|p| p.keys().all(|(who, _)| who != "alice")));
+
+        // Bob's server closes his stream: Alice's server hears he has gone.
+        let id = b.lock().streams.keys().copied().next().unwrap();
+        b.leave(id);
+        carry(&mut rb, &a, &b);
+        assert!(!a.presence_json("d", "alice").contains("bob"));
+    }
+
+    #[test]
+    fn a_server_opening_a_design_asks_who_is_there_and_a_dead_one_fades() {
+        let (a, b, mut ra, mut rb) = wired();
+        a.admit("d", "o", "s1", "alice", "Alice Ames").unwrap();
+        assert!(a.set_presence("d", "alice", "canvas", None));
+        carry(&mut ra, &a, &b);
+        // Bob's server had nobody on the design, so it kept nothing; opening
+        // the design asks, and Alice's server answers.
+        b.admit("d", "o", "s2", "bob", "Bob Brown").unwrap();
+        assert!(b.set_presence("d", "bob", "canvas", None));
+        assert!(carry(&mut rb, &a, &b) >= 1);
+        carry(&mut ra, &a, &b);
+        assert!(b
+            .presence_json("d", "bob")
+            .contains("\"account\":\"alice\""));
+
+        // Alice's server dies without a word: past the TTL she is gone.
+        b.lock()
+            .remote
+            .get_mut("d")
+            .unwrap()
+            .values_mut()
+            .next()
+            .unwrap()
+            .heard = Instant::now() - PRESENCE_TTL;
+        assert!(!b.presence_json("d", "bob").contains("alice"));
+        assert!(b
+            .refresh_messages()
+            .iter()
+            .all(|m| !m.contains("\talice\t")));
+        assert!(b.lock().remote.is_empty());
+    }
+
+    #[test]
+    fn a_gone_from_one_server_does_not_remove_someone_still_on_another() {
+        let (a, b, mut ra, mut rb) = wired();
+        let c = Hub::default();
+        let (tc, mut rc) = tokio::sync::mpsc::channel(64);
+        *c.outbound.lock().unwrap() = Some(tc);
+        let all = |m: &str| {
+            a.dispatch(PRESENCE_CHANNEL, m);
+            b.dispatch(PRESENCE_CHANNEL, m);
+            c.dispatch(PRESENCE_CHANNEL, m);
+        };
+        a.admit("d", "o", "s1", "alice", "Alice Ames").unwrap();
+        assert!(a.set_presence("d", "alice", "canvas", None));
+        b.admit("d", "o", "s2", "bob", "Bob Brown").unwrap();
+        assert!(b.set_presence("d", "bob", "canvas", None));
+        c.admit("d", "o", "s3", "bob", "Bob Brown").unwrap();
+        assert!(c.set_presence("d", "bob", "canvas", None));
+        for r in [&mut ra, &mut rb, &mut rc] {
+            while let Ok(m) = r.try_recv() {
+                all(&m);
+            }
+        }
+        // Bob closes his tab on server c; he is still on server b.
+        let id = c.lock().streams.keys().copied().next().unwrap();
+        c.leave(id);
+        while let Ok(m) = rc.try_recv() {
+            all(&m);
+        }
+        assert!(a
+            .presence_json("d", "alice")
+            .contains("\"account\":\"bob\""));
+    }
+
+    /// The same, through a real PostgreSQL: two processes' listeners, and
+    /// `pg_notify` between them. The database is the one the integration
+    /// tests use (`tests/support`), as the runtime role.
+    #[tokio::test]
+    async fn presence_crosses_two_servers_through_the_database() {
+        let migrate = std::env::var("FATHOM_MIGRATE_DATABASE_URL").unwrap_or_else(|_| {
+            "postgres://fathom_test:fathom_test_pw@127.0.0.1:5432/fathom_test".to_owned()
+        });
+        let url = std::env::var("DATABASE_URL").unwrap_or(migrate);
+        let config: tokio_postgres::Config = url.parse().expect("a database url");
+        let (a, b) = (Live::new(1, 1 << 20), Live::new(1, 1 << 20));
+        a.listen(config.clone());
+        b.listen(config);
+        let up = |l: &Arc<Live>| l.hub.outbound.lock().unwrap().is_some();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !(up(&a) && up(&b)) {
+            assert!(Instant::now() < deadline, "both listeners connect");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        // A design no other test watches.
+        let design = format!("presence-{:x}", a.hub.origin);
+        a.hub
+            .admit(&design, "o", "s1", "alice", "Alice Ames")
+            .unwrap();
+        b.hub.admit(&design, "o", "s2", "bob", "Bob Brown").unwrap();
+        loop {
+            // Repeated until heard: a message sent before the other side's
+            // LISTEN took effect is lost, as it would be in production, and
+            // the refresh repairs it there.
+            assert!(a.hub.set_presence(&design, "alice", "canvas", None));
+            assert!(b.hub.set_presence(&design, "bob", "canvas", None));
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let seen_by_a = a
+                .hub
+                .presence_json(&design, "alice")
+                .contains("\"account\":\"bob\"");
+            let seen_by_b = b
+                .hub
+                .presence_json(&design, "bob")
+                .contains("\"account\":\"alice\"");
+            if seen_by_a && seen_by_b {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "each server sees the other's person"
+            );
+        }
+    }
+
+    #[test]
+    fn a_presence_message_from_outside_the_shape_is_ignored() {
+        let hub = Hub::default();
+        hub.admit("d", "o", "s1", "alice", "Alice Ames").unwrap();
+        assert!(hub.set_presence("d", "alice", "canvas", None));
+        for bad in [
+            "",
+            "zz\tp\td\tbob\tcanvas\t-\t-\tBob",
+            "1\tp\td\tbob\tdesk\t-\t-\tBob",
+            "1\tp\td\tbob\tcanvas",
+            "1\tx\td\tbob",
+        ] {
+            hub.dispatch(PRESENCE_CHANNEL, bad);
+        }
+        assert!(hub.lock().remote.is_empty());
+        // A design nobody here watches is not kept.
+        hub.dispatch(PRESENCE_CHANNEL, "1\tp\tother\tbob\tcanvas\t-\t-\tBob");
+        assert!(hub.lock().remote.is_empty());
     }
 
     #[test]
