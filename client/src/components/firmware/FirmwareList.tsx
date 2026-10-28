@@ -1,9 +1,11 @@
 // Inventory > Firmware (mockup r14-b1): one row per image. Running, Behind and Plans each open the
-// list behind the number. A reader sees all of it and changes nothing.
+// list behind the number. Devices with a version chosen for themselves (no model target, schema
+// 0.31) are listed under it. A reader sees all of it and changes nothing.
 
 import { useMemo, useState } from 'react';
 
 import { shortHash } from '../../api/firmware';
+import { STATE_WORD, ownTargetLines } from '../../document/firmware';
 import { listPlans } from '../../document/plans';
 import type { FirmwareApi } from './context';
 import { BADGE_WORD, VENDOR_TABS, behindByModel, behindQuery, filterImageRows, imageRows, runningQuery, type FwImageRow, type Vendor } from './images';
@@ -60,6 +62,7 @@ export function FirmwareList({ api, onOpenImage, onOpenModel, onOpenDevices, onU
   const rows = useMemo(() => filterImageRows(all, text, vendor), [all, text, vendor]);
   const behind = useMemo(() => behindByModel(api.doc), [api.doc]);
   const behindTotal = behind.reduce((n, b) => n + b.deviceIds.length, 0);
+  const own = useMemo(() => ownTargetLines(api.doc), [api.doc]);
   const { status } = api.server;
 
   return (
@@ -161,6 +164,39 @@ export function FirmwareList({ api, onOpenImage, onOpenModel, onOpenDevices, onU
               : 'No images yet. Upload one, or choose a version on a model page.'
             : 'Nothing matches.'}
         </p>
+      ) : null}
+
+      {own.length > 0 ? (
+        <div className="fw-table fw-own-table" role="table" aria-label="Versions chosen for one device" data-testid="firmware-own">
+          <div className="fw-row fw-row--head" role="row">
+            <span role="columnheader">Device</span>
+            <span role="columnheader">Running</span>
+            <span role="columnheader">Chosen for it</span>
+            <span role="columnheader">State</span>
+            <span role="columnheader" />
+          </div>
+          {own.map(({ device, state }) => (
+            <div key={device.deviceId} className="fw-row" role="row">
+              <span role="cell">{device.hostname || 'unnamed'}</span>
+              <span role="cell" className={device.osVersion ? 'fw-mono' : 'fw-muted'}>
+                {device.osVersion || 'not recorded'}
+              </span>
+              <span role="cell" className="fw-mono">
+                {device.ownTarget}
+              </span>
+              <span role="cell" className={state === 'behind' ? 'fw-amber' : undefined}>
+                {device.hold !== null ? STATE_WORD.held : STATE_WORD[state]}
+              </span>
+              <span role="cell">
+                {api.canEdit && state === 'behind' ? (
+                  <button type="button" className="fw-btn btn-quiet" onClick={() => api.planUpgrade([device.deviceId])}>
+                    Plan an upgrade
+                  </button>
+                ) : null}
+              </span>
+            </div>
+          ))}
+        </div>
       ) : null}
 
       <div className="fw-foot">

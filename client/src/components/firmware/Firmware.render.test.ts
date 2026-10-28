@@ -3,8 +3,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import type { FirmwareImage } from '../../api/firmware';
-import { setFirmwareHold, setTarget } from '../../document/firmware';
-import { NOW, estate } from '../../document/firmwareFixture';
+import { setDeviceTarget, setFirmwareHold, setRunningVersion, setTarget, setVersionPlatform } from '../../document/firmware';
+import { TYPED_AS_WRITTEN, createPlan } from '../../document/plans';
+import { NOW, addBareDevice, estate } from '../../document/firmwareFixture';
 import type { Document } from '../../document/model';
 import { FirmwareContext, type FirmwareApi } from './context';
 import { FirmwareList } from './FirmwareList';
@@ -53,6 +54,9 @@ const api = (doc: Document, over: Partial<FirmwareApi> = {}): FirmwareApi => ({
   setTarget: () => {},
   clearTarget: () => {},
   setHold: () => {},
+  setDeviceTarget: () => {},
+  setRunning: () => {},
+  setVersionPlatform: () => {},
   upload: async () => ({ refused: 'no' }),
   setImageModels: async () => ({ changed: true }),
   issueLink: async () => ({ refused: 'no' }),
@@ -251,6 +255,48 @@ describe("a device's firmware row", () => {
     const { doc, ids } = estate();
     expect(render(api(doc), ids.sw1!)).toContain('Choose a version first');
     expect(render(null, ids.sw1!)).toBe('');
+  });
+});
+
+describe('a device with no model, and its own chosen version (schema 0.31)', () => {
+  const render = (a: FirmwareApi, deviceId: string) => renderToStaticMarkup(createElement(FirmwareContext.Provider, { value: a }, createElement(FirmwareSection, { deviceId })));
+  const home = () => {
+    const made = addBareDevice(estate().doc, 'fw-home', NOW + 1);
+    let d = setVersionPlatform(made.doc, made.deviceId, 'opnsense', { now: NOW + 2 });
+    d = setRunningVersion(d, made.deviceId, '25.7.11_2', { now: NOW + 3 });
+    d = setDeviceTarget(d, made.deviceId, '26.1', { now: NOW + 4 });
+    return { doc: d, id: made.deviceId };
+  };
+
+  it('shows a bare device with a way to type what it runs and choose a version for it', () => {
+    const made = addBareDevice(estate().doc, 'nas', NOW + 1);
+    const out = render(api(made.doc), made.deviceId);
+    expect(out).toContain('Running');
+    expect(out).toContain('Type it');
+    expect(out).toContain('Chosen for this device');
+    expect(out).toContain('Numbering');
+    expect(out).toContain('Choose a version first');
+  });
+
+  it('says behind, offers the written steps, and adds to a plan still being planned', () => {
+    const { doc, id } = home();
+    const planned = createPlan(doc, { title: 'Saturday window', gate: TYPED_AS_WRITTEN, now: NOW + 5 }).doc;
+    const out = render(api(planned), id);
+    expect(out).toContain('25.7.11_2');
+    expect(out).toContain('26.1');
+    expect(out).toContain('Behind');
+    expect(out).toContain('Steps for');
+    expect(out).toContain('Synology DSM (not checked against the vendor)');
+    expect(out).toContain('Add to an existing plan…');
+    expect(out).not.toContain('Firmware page');
+  });
+
+  it('lists the device under the image list, with a plan button for an editor', () => {
+    const { doc } = home();
+    const out = renderToStaticMarkup(createElement(FirmwareList, { api: api(doc), onOpenImage: () => {}, onOpenModel: () => {}, onOpenDevices: () => {}, onUpload: () => {} }));
+    expect(out).toContain('data-testid="firmware-own"');
+    expect(out).toContain('fw-home');
+    expect(out).toContain('Plan an upgrade');
   });
 });
 

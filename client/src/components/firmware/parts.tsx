@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import type { FetchLink, FirmwareCommands } from '../../api/firmware';
-import { MAX_REASON, STATE_WORD, type FwState } from '../../document/firmware';
+import { MAX_REASON, MAX_VERSION, STATE_WORD, type FwState } from '../../document/firmware';
 import { CommandToType, TypeItYourselfNote } from '../typing/CommandToType';
 import { useTypeItYourself } from '../typing/typeItYourself';
 import type { FirmwareApi } from './context';
@@ -63,6 +63,89 @@ export function HoldForm({ onHold, onCancel }: { onHold: (reason: string) => str
         Hold
       </button>
       <button type="button" className="fw-btn btn-quiet" onClick={onCancel}>
+        Cancel
+      </button>
+      {error ? (
+        <span className="fw-error" role="alert">
+          {error}
+        </span>
+      ) : null}
+    </form>
+  );
+}
+
+/**
+ * A version shown as text, with Edit for someone who may change it: one input, Save and Cancel, and
+ * Clear when there is one. `onSave` returns the refusal in words, or nothing when it was written.
+ */
+export function VersionEdit({
+  value,
+  empty,
+  label,
+  canEdit,
+  onSave,
+  testId,
+}: {
+  value: string;
+  empty: string;
+  label: string;
+  canEdit: boolean;
+  onSave: (v: string | null) => string | void;
+  testId?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [error, setError] = useState<string | null>(null);
+  const save = (v: string | null) => {
+    const refused = onSave(v);
+    if (typeof refused === 'string') setError(refused);
+    else {
+      setEditing(false);
+      setError(null);
+    }
+  };
+  if (!editing) {
+    return (
+      <span data-testid={testId}>
+        <span className={value ? 'fw-mono' : 'fw-muted'}>{value || empty}</span>
+        {canEdit ? (
+          <>
+            {' '}
+            <button
+              type="button"
+              className="fw-btn btn-quiet"
+              aria-label={`Edit ${label}`}
+              onClick={() => {
+                setDraft(value);
+                setEditing(true);
+              }}
+            >
+              {value ? 'Edit' : 'Type it'}
+            </button>
+          </>
+        ) : null}
+      </span>
+    );
+  }
+  return (
+    <form
+      className="fw-hold-form"
+      data-testid={testId}
+      onSubmit={(e) => {
+        e.preventDefault();
+        save(draft);
+      }}
+    >
+      <input className="fw-input fw-input--mono" value={draft} maxLength={MAX_VERSION} placeholder="As the vendor writes it" aria-label={label} autoFocus onChange={(e) => setDraft(e.currentTarget.value)} />
+      <button type="submit" className="fw-btn">
+        Save
+      </button>
+      {value ? (
+        <button type="button" className="fw-btn btn-quiet" onClick={() => save(null)}>
+          Clear
+        </button>
+      ) : null}
+      <button type="button" className="fw-btn btn-quiet" onClick={() => setEditing(false)}>
         Cancel
       </button>
       {error ? (

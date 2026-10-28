@@ -14,7 +14,7 @@ describe('an upgrade plan in the design', () => {
   const chosen = setTarget(doc, 'ex4300-48t', { version: '23.4R2', platform: 'junos-ex' }, { now: NOW + 1 });
   const devices = [ids.sw1!, ids.sw2!].flatMap((id) => deviceFirmware(chosen, id) ?? []);
   const target = targetOfDevice(chosen, devices[0]!)!;
-  const t = buildUpgradePlan({ devices, model: 'ex4300-48t', target, image: null });
+  const t = buildUpgradePlan({ devices, label: 'ex4300-48t', version: target.version, target, image: null });
 
   const made = createPlan(chosen, { title: t.title, gate: TYPED_AS_WRITTEN, now: NOW + 2 });
   let next = made.doc;

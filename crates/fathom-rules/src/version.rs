@@ -31,21 +31,56 @@
 //!   layout; four-part versions (4.18.4.2F, 4.17.5.1M) appear in Arista security advisory
 //!   3577, https://www.arista.com/en/support/advisories-notices/security-advisory/3577-security-advisory-30
 //!   so up to four numbers are read, a missing fourth as 0. Suffixes like `FX-MDP` are `None`.
+//!
+//! Added 2026-10-28 (schema 0.31, for upgrades Fathom has no steps for; each read that day):
+//! - opnsense: OPNsense, "Updates", https://docs.opnsense.org/manual/updates.html, and the
+//!   release notes, https://docs.opnsense.org/releases/CE_26.1.html : major releases are
+//!   year.month (26.1, 25.7), minor updates add a third number (25.7.11), and "A hotfix
+//!   release was issued as 26.1.11_3" (also 26.1_4). Read as up to four numbers, missing
+//!   ones as 0. Release candidates and betas (26.1.r1, 26.1-RC1, 26.7-BETA) appear in the
+//!   notes but no page says how they order against releases: `None`.
+//! - pfsense: Netgate, "Versions of pfSense Software and FreeBSD" (last updated Aug 24 2026),
+//!   https://docs.netgate.com/pfsense/en/latest/releases/versions.html : CE is
+//!   `<major>.<minor>.<patch>`, "each component is present even if the value is 0" (2.7.2,
+//!   2.8.0), and older CE releases had `-pN` patches (2.4.5-p1). Plus is
+//!   `<year>.<month>.<patch>`, the patch left out when 0 (24.11, 26.03.1); it has no `-pN`.
+//!   `-RELEASE` belongs to the FreeBSD column, not to the version. The two lines are
+//!   different products, so CE is never ordered against Plus; a first number of 20 or more is
+//!   read as Plus.
+//! - routeros: MikroTik, "Upgrade", https://manual.mikrotik.com/docs/getting-started/installation-and-upgrade/upgrade/
+//!   , which states the rule outright: "v5.2 is older than v5.18, which is newer". Its
+//!   examples are `A.B[.C]` (v7.12.1, 7.9), so numbers are compared one by one, a missing
+//!   third as 0. The page shows no beta or rc versions, so how they order COULD NOT BE
+//!   ESTABLISHED: 7.17beta2 and 7.17rc1 are `None`.
+//! - linux: there is no one scheme for every distribution. Ubuntu, "Upgrade your release"
+//!   (last updated July 6, 2026), https://ubuntu.com/server/docs/how-to/software/upgrade-your-release/
+//!   , names releases 18.04 and 20.04 and a "20.04.1 point release". Debian's release notes,
+//!   https://www.debian.org/releases/oldstable/amd64/release-notes/ch-upgrading.html , show
+//!   the version with `cat /etc/debian_version` but never its form, so for Debian the reading
+//!   is UNSOURCED: one to three dotted numbers, missing ones as 0, and a codename is `None`.
+//!   Comparing across distributions means nothing; a version chosen for one device is only
+//!   ever compared with what that device's own distribution writes.
 
 use std::cmp::Ordering;
 
 /// Platform id to version scheme. A test holds this against `schema/platforms.yaml`.
-pub const SCHEMES: [(&str, &str); 6] = [
+pub const SCHEMES: [(&str, &str); 10] = [
     ("junos-srx", "junos"),
     ("junos-mx", "junos"),
     ("junos-ex", "junos"),
     ("ios-xe", "iosxe"),
     ("nx-os", "nxos"),
     ("eos", "eos"),
+    ("opnsense", "opnsense"),
+    ("pfsense", "pfsense"),
+    ("routeros", "routeros"),
+    ("linux-host", "linux"),
 ];
 
 /// The schemes this module can compare.
-pub const KNOWN_SCHEMES: [&str; 4] = ["junos", "iosxe", "nxos", "eos"];
+pub const KNOWN_SCHEMES: [&str; 8] = [
+    "junos", "iosxe", "nxos", "eos", "opnsense", "pfsense", "routeros", "linux",
+];
 
 /// A parsed version: the numbers that order it, and a tag that must match for a tie to mean
 /// anything (trailing letters, release type, product).
@@ -63,6 +98,10 @@ pub fn older(platform: &str, have: &str, want: &str) -> Option<bool> {
         "iosxe" => iosxe,
         "nxos" => nxos,
         "eos" => eos,
+        "opnsense" => opnsense,
+        "pfsense" => pfsense,
+        "routeros" => routeros,
+        "linux" => linux,
         _ => return None,
     };
     let (a, b) = (parse(have.trim())?, parse(want.trim())?);
@@ -188,6 +227,72 @@ fn eos(v: &str) -> Option<Parsed> {
     })
 }
 
+/// Between `min` and `max` dotted numbers, padded with 0 to `max`.
+fn dotted(v: &str, min: usize, max: usize) -> Option<Vec<u64>> {
+    let parts: Vec<&str> = v.split('.').collect();
+    if !(min..=max).contains(&parts.len()) {
+        return None;
+    }
+    let mut nums = Vec::with_capacity(max + 1);
+    for p in parts {
+        nums.push(num(p)?);
+    }
+    nums.resize(max, 0);
+    Some(nums)
+}
+
+fn plain(nums: Vec<u64>) -> Parsed {
+    Parsed {
+        nums,
+        tag: String::new(),
+        product: false,
+    }
+}
+
+/// `YY.M[.N][_H]`.
+fn opnsense(v: &str) -> Option<Parsed> {
+    let (base, hotfix) = match v.split_once('_') {
+        Some((b, h)) => (b, num(h)?),
+        None => (v, 0),
+    };
+    let mut nums = dotted(base, 2, 3)?;
+    nums.push(hotfix);
+    Some(plain(nums))
+}
+
+/// CE `A.B.C[-pN]` or Plus `YY.MM[.P]`; the tag is the product.
+fn pfsense(v: &str) -> Option<Parsed> {
+    let (base, patch) = match v.split_once("-p") {
+        Some((b, p)) => (b, num(p)?),
+        None => (v, 0),
+    };
+    let first = num(base.split('.').next()?)?;
+    let (mut nums, tag) = if first >= 20 {
+        if base.len() != v.len() {
+            return None;
+        }
+        (dotted(base, 2, 3)?, "plus")
+    } else {
+        (dotted(base, 3, 3)?, "ce")
+    };
+    nums.push(patch);
+    Some(Parsed {
+        nums,
+        tag: tag.to_owned(),
+        product: true,
+    })
+}
+
+/// `A.B[.C]`.
+fn routeros(v: &str) -> Option<Parsed> {
+    Some(plain(dotted(v, 2, 3)?))
+}
+
+/// One to three dotted numbers.
+fn linux(v: &str) -> Option<Parsed> {
+    Some(plain(dotted(v, 1, 3)?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,6 +363,62 @@ mod tests {
         assert_eq!(o("4.30.2F", "4.30.2M"), None);
         assert_eq!(o("4.17.1.1FX-MDP", "4.30.2F"), None);
         assert_eq!(o("4.30F", "4.30.2F"), None);
+    }
+
+    #[test]
+    fn opnsense_orders_releases_updates_and_hotfixes() {
+        let o = |a, b| older("opnsense", a, b);
+        assert_eq!(o("25.7.11_2", "26.1"), Some(true));
+        assert_eq!(o("25.7", "25.7.1"), Some(true));
+        assert_eq!(o("25.7.11", "25.7.11_2"), Some(true));
+        assert_eq!(o("25.7.9", "25.7.11"), Some(true));
+        assert_eq!(o("26.1.2", "26.1"), Some(false));
+        assert_eq!(o("26.1", "26.1.0"), Some(false));
+        assert_eq!(o("26.1.r1", "26.1"), None);
+        assert_eq!(o("26.1-RC1", "26.1"), None);
+        assert_eq!(o("26", "26.1"), None);
+        assert_eq!(o("25.7.11_", "26.1"), None);
+    }
+
+    #[test]
+    fn pfsense_keeps_ce_and_plus_apart() {
+        let o = |a, b| older("pfsense", a, b);
+        assert_eq!(o("2.7.2", "2.8.0"), Some(true));
+        assert_eq!(o("2.4.5", "2.4.5-p1"), Some(true));
+        assert_eq!(o("2.4.5-p1", "2.5.0"), Some(true));
+        assert_eq!(o("2.7.10", "2.7.9"), Some(false));
+        assert_eq!(o("24.11", "25.07.1"), Some(true));
+        assert_eq!(o("26.03.1", "26.03"), Some(false));
+        assert_eq!(o("26.03-p1", "26.07"), None);
+        assert_eq!(o("25.07", "25.07.1"), Some(true));
+        assert_eq!(o("2.8.0", "25.07"), None);
+        assert_eq!(o("2.8", "2.8.0"), None);
+        assert_eq!(o("2.7.2-RELEASE", "2.8.0"), None);
+    }
+
+    #[test]
+    fn routeros_compares_number_by_number() {
+        let o = |a, b| older("routeros", a, b);
+        assert_eq!(o("5.2", "5.18"), Some(true));
+        assert_eq!(o("6.49.10", "7.16.2"), Some(true));
+        assert_eq!(o("7.16", "7.16.1"), Some(true));
+        assert_eq!(o("7.16.2", "7.16"), Some(false));
+        assert_eq!(o("7.17beta2", "7.17"), None);
+        assert_eq!(o("7.17rc1", "7.17"), None);
+        assert_eq!(o("7", "7.16"), None);
+    }
+
+    #[test]
+    fn linux_reads_one_to_three_numbers() {
+        let o = |a, b| older("linux-host", a, b);
+        assert_eq!(o("12", "13"), Some(true));
+        assert_eq!(o("12.7", "12.8"), Some(true));
+        assert_eq!(o("22.04.4", "24.04"), Some(true));
+        assert_eq!(o("24.04", "24.04.1"), Some(true));
+        assert_eq!(o("24.04", "24.04.0"), Some(false));
+        assert_eq!(o("bookworm", "13"), None);
+        assert_eq!(o("24.04 LTS", "24.04"), None);
+        assert_eq!(o("1.2.3.4", "2"), None);
     }
 
     #[test]

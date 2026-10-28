@@ -20,6 +20,14 @@ export function addDevice(doc: Document, name: string, model: string, platform: 
   return { doc: next, deviceId };
 }
 
+/** A device drawn by hand: no model on its chassis, no platform, no version (an OPNsense box, a NAS). */
+export function addBareDevice(doc: Document, name: string, at: number): { doc: Document; deviceId: string } {
+  const before = new Set(doc.nodes.map((n) => n.id));
+  const next = createSketchDevice(doc, { hostname: name, now: at });
+  const deviceId = next.nodes.find((n) => !before.has(n.id) && parseNodeId(n.id).kind === 'Device')!.id;
+  return { doc: next, deviceId };
+}
+
 export function estate() {
   let doc = emptyDocument();
   const ids: Record<string, string> = {};

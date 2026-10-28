@@ -1,0 +1,4 @@
+# No chassis, no model: the device carries its own chosen version (schema 0.31) and runs older.
+nodes:
+  - { id: d1, kind: Device, set: { hostname: fw-01, platform: opnsense, role: firewall, os_version: "25.7.11_2", firmware_target: "26.1" } }
+anchor: d1

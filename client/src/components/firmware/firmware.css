@@ -318,6 +318,12 @@ select.fw-input {
   --fw-cols: minmax(110px, 1fr) 130px 150px minmax(160px, 2fr) 90px;
 }
 
+/* Devices with a version chosen for themselves (schema 0.31), under the image list. */
+.fw-own-table {
+  --fw-cols: minmax(110px, 1fr) 130px 130px 140px 130px;
+  margin-top: var(--s5);
+}
+
 .fw-square {
   display: inline-block;
   width: 9px;

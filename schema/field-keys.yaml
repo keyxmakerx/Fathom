@@ -581,3 +581,5 @@ fields:
   StockItem.note: 539
   StockLevel.model: 540
   StockLevel.at_least: 541
+  # Upgrades Fathom has no steps for (schema 0.31, 2026-10-28). Appended after 0.30's 541.
+  Device.firmware_target: 542

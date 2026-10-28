@@ -1,0 +1,3 @@
+# No platform recorded, so no scheme says how the versions order: claim nothing.
+nodes:
+  - { id: d1, kind: Device, set: { hostname: nas-01, role: server, os_version: "7.2.1", firmware_target: "7.2.2" } }

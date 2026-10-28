@@ -39,3 +39,21 @@ credential and runs no upgrade). Nothing here changes that line.
   compares with Cisco's published SHA-512; computing a SHA-512 at upload would close the gap. EOS
   uses `bash sha256sum`, from a third-party guide, which the step says.
 - Junos X, D, F, B and I releases are not ordered.
+
+## Amended 2026-10-28 (sign-off r55, schema 0.31)
+
+Owner-approved card r55-fw-by-hand, for upgrades Fathom holds no image for (an OPNsense router,
+a NAS with no catalogue model):
+
+- A device none of whose models has a target may carry its own, `Device.firmware_target`. A
+  model's target always wins; the check reads the device's own only when no model target applies.
+- The running version can be typed on the device page (marked typed), and a device no paste
+  named a platform for can be given one of the platforms Fathom compares.
+- `version_older` reads OPNsense, pfSense, RouterOS and Linux, each with its source; pfSense CE
+  and Plus are never ordered against each other.
+- Such a plan carries written steps for OPNsense, Debian, Ubuntu, TrueNAS or Synology DSM
+  (`client/src/components/firmware/kits.ts`), each naming its page and date. Synology's own pages
+  could not be read, so its steps say they are unchecked.
+- A plan is known as a firmware plan by its "Record <version> as running" steps, not its title,
+  so an upgrade can be added to an existing plan and one plan can hold several, each fetch step
+  with its own image. Plans made before this are still known by their title.
