@@ -225,7 +225,7 @@ async function runProof(browser, ctxA, seed) {
   // Working through a plan is capped at Off by the server's own default, so its Proposes cannot be chosen.
   for (const w of ['Edit the design', 'Draft maintenance plans', 'Troubleshoot']) await A.getByLabel(`${w}: Proposes`).check();
   const doingCapped = await A.getByLabel('Work through a plan: Proposes').isDisabled();
-  const capNote = (await A.getByTestId('ai-policy-work').innerText()).includes('This server allows at most Off');
+  const capNote = (await A.getByTestId('ai-policy-work').innerText()).includes('Limited by the server');
   await A.getByTestId('ai-policy-only').scrollIntoViewIfNeeded();
   await shot('o3-org-ai-policy');
   check('O3a. AI rules show what an AI may do by kind of work, and working through a plan is capped by the server', doingCapped && capNote);
@@ -423,6 +423,7 @@ async function runProof(browser, ctxA, seed) {
   check('O4. the connection is listed as Claude Code, on', /\bon\b/i.test(await A.locator('.ai-table__row', { hasText: 'Claude Code' }).innerText()));
   check('O4b. it shows the AI account the person gave, and their sign-in', (await A.getByTestId('ai-key-account').innerText()).includes('ann@example.org') && (await A.locator('.ai-facts').innerText()).includes('@'));
   check('O4c. its owner sees what it may do, editing the design at Proposes', await A.getByTestId('ai-key-work').getByLabel('Edit the design: Proposes').isChecked());
+  check('O4e. its access shows in one word beside its name', /^(safe|medium|critical|full)$/i.test((await A.getByTestId('ai-key-access').innerText()).trim()));
   // Its owner sets editing the design to Ideas: the AI's next proposal to rename is refused, naming the kind of work.
   await A.getByTestId('ai-key-work').getByLabel('Edit the design: Ideas').check();
   await A.getByRole('button', { name: 'Save changes' }).click();
