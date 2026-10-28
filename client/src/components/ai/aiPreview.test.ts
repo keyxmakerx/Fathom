@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import type { AiIdea } from '../../api/ai';
+import { fitCard, removeCard, setCardField } from '../../document/cards';
 import { changeOf } from '../../document/change';
 import { createRack, placeChassis } from '../../document/commands';
 import { setRackField } from '../../document/edit';
-import { edgesIn, emptyDocument, findNode, formatNodeId, type Document } from '../../document/model';
+import { edgesIn, edgesOut, emptyDocument, findNode, formatNodeId, type Document } from '../../document/model';
 import { newUlid } from '../../document/ulid';
+import { buildCanon } from '../checks/checksModel';
 import { createAiPreviewStore, drawnPreview, previewMarks, PREVIEW_WORDS } from './aiPreview';
 
 const D1 = 'device:01ARZ3NDEKTSV4RRFFQ69G5FAV';
@@ -110,5 +112,56 @@ describe('an AI idea drawn with its change made', () => {
     store.show(idea, null);
     expect(store.get().doc).toBeNull();
     expect(store.get().canon).toBeNull();
+  });
+});
+
+describe('an AI idea that changes what is inside a device', () => {
+  const idea = { id: 'I1', preview: { changes: [], removes: [], adds: [], links: [] } } as unknown as AiIdea;
+  const placed = () => {
+    const { doc, rackId } = rack();
+    const after = placeChassis(doc, rackId, MODEL, 4, 'front', { actor: ME, now: T0 + 2 });
+    const chassisId = edgesIn(after, rackId, 'MountedIn')[0].from;
+    return { doc: after, chassisId, deviceId: buildCanon(after)(chassisId) };
+  };
+  const cardIn = (doc: Document, chassisId: string): string => edgesOut(doc, chassisId, 'HasCard')[0].to;
+
+  it('tags the device AI ADDS INSIDE for a card it fits, outlines the card, and never calls the device new', () => {
+    const { doc, chassisId, deviceId } = placed();
+    const after = fitCard(doc, chassisId, '0', { name: 'line card' }, { actor: ME, now: T0 + 3 });
+    const drawn = drawnPreview(doc, idea, changeOf(doc, after))!;
+    expect(drawn.marks.map((m) => [m.keys.join(','), m.word])).toEqual([[deviceId, PREVIEW_WORDS.addInside]]);
+    expect([...drawn.parts]).toContain(cardIn(after, chassisId));
+  });
+
+  it('tags a card it changes AI CHANGES INSIDE, and one it takes out AI REMOVES INSIDE without greying the device', () => {
+    const { doc: placedDoc, chassisId, deviceId } = placed();
+    const doc = fitCard(placedDoc, chassisId, '0', { name: 'line card' }, { actor: ME, now: T0 + 3 });
+    const cardId = cardIn(doc, chassisId);
+
+    const renamed = drawnPreview(doc, idea, changeOf(doc, setCardField(doc, cardId, 'name', 'uplinks', { actor: ME, now: T0 + 4 })))!;
+    expect(renamed.marks.map((m) => [m.keys.join(','), m.word])).toEqual([[deviceId, PREVIEW_WORDS.changeInside]]);
+    expect([...renamed.parts]).toEqual([cardId]);
+
+    const out = drawnPreview(doc, idea, changeOf(doc, removeCard(doc, cardId, { actor: ME, now: T0 + 4 })))!;
+    expect(out.marks.map((m) => [m.keys.join(','), m.word, m.removed === true])).toEqual([[deviceId, PREVIEW_WORDS.removeInside, false]]);
+    expect(out.parts.has(cardId)).toBe(true);
+  });
+
+  it('marks a new device whole, without an INSIDE tag or an outline on each of its ports', () => {
+    const { doc, rackId } = rack();
+    const after = placeChassis(doc, rackId, MODEL, 4, 'front', { actor: ME, now: T0 + 2 });
+    const drawn = drawnPreview(doc, idea, changeOf(doc, after))!;
+    expect(drawn.marks.every((m) => m.word === PREVIEW_WORDS.add)).toBe(true);
+    expect(drawn.parts.size).toBe(0);
+  });
+
+  it('finds the device for a part the idea names before its change is built', () => {
+    const { doc: placedDoc, chassisId, deviceId } = placed();
+    const doc = fitCard(placedDoc, chassisId, '0', { name: 'line card' }, { actor: ME, now: T0 + 3 });
+    const cardId = cardIn(doc, chassisId);
+    const store = createAiPreviewStore();
+    store.show({ id: 'I2', preview: { changes: [cardId], removes: [], adds: [], links: [] } } as unknown as AiIdea, null, buildCanon(doc));
+    expect(store.get().marks.map((m) => [m.keys.join(','), m.word])).toEqual([[deviceId, PREVIEW_WORDS.changeInside]]);
+    expect([...store.get().parts]).toEqual([cardId]);
   });
 });

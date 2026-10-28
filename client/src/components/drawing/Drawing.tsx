@@ -33,7 +33,7 @@ import { NameEditContext, type NameEditApi } from './NameEdit';
 import { mediaCandidates } from '../checks/checksModel';
 import { useChecksApi } from '../checks/checksStore';
 import { PlanGhostEdge } from './PlanGhostEdge';
-import { AiPreviewCanvasBridge, useAiPreviewMarks } from './aiPreviewMarks';
+import { AiPreviewCanvasBridge, useAiPartMarks, useAiPreviewMarks } from './aiPreviewMarks';
 import { PlansCanvasBridge, usePlansFade } from './plansFade';
 import { useSuggestGhosts } from './suggestGhosts';
 import { TroubleCanvasBridge, useTroubleFade } from './troubleFade';
@@ -2025,6 +2025,7 @@ function DrawingInner({
   const plansShown = usePlansFade(allNodes, allEdges, resolvePlanPort);
   // An AI idea being shown: its proposed change, drawn as a plan is, until the person decides.
   const planned = useAiPreviewMarks(plansShown.nodes, plansShown.edges, resolvePlanPort);
+  useAiPartMarks(containerRef);
   // An open suggestions card's ticked cables, dashed, under the same fades as everything else.
   const suggestedEdges = useSuggestGhosts(planned.nodes, planned.edges, resolvePlanPort);
   const troubled = useTroubleFade(planned.nodes, suggestedEdges);
@@ -2194,6 +2195,10 @@ function DrawingInner({
           beneath it. */}
       {insideStopContent != null && (
         <div className="drawing-inside-stop" role="region" aria-label="Inside">
+          {/* The way back out to the faceplate; Esc does the same. */}
+          <button type="button" className="inside-back" title="Back out to the faceplate (Esc)" onClick={() => setOpened(null)}>
+            ← Back out
+          </button>
           {insideStopContent}
         </div>
       )}
