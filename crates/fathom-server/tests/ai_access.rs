@@ -3549,3 +3549,279 @@ async fn accepting_an_idea_that_carries_a_change_makes_it_as_the_person() {
         text(&body)
     );
 }
+
+/// A design shaped like a first homelab sketch: two placeholder devices, each with a chassis
+/// mounted in a rack and one port, joined by a cable, and a shelf in the same rack.
+fn placeholder_payload(seed: u128) -> Vec<u8> {
+    use fathom_ir::generated::ir_types::EdgeKind;
+    let mut g = Graph::new();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let prov = |s: u128| ProvenanceRecord {
+        asserted_at: Timestamp(now - 3_600_000),
+        ..prov(s)
+    };
+    let mut n = seed * 1000;
+    let mut id = || {
+        n += 1;
+        Ulid::from_parts(now - 3_600_000 + (n as u64 % 1000), n).unwrap()
+    };
+    g.begin_batch(BatchId(id()), "homelab").unwrap();
+    let premises = g.insert_node(NodeKind::Premises, id(), prov(seed)).unwrap();
+    let rack = g.insert_node(NodeKind::Rack, id(), prov(seed)).unwrap();
+    g.insert_edge(EdgeKind::HasRack, id(), premises, rack, prov(seed))
+        .unwrap();
+    let shelf = g
+        .insert_node(NodeKind::PassiveNode, id(), prov(seed))
+        .unwrap();
+    g.insert_edge(EdgeKind::MountedIn, id(), shelf, rack, prov(seed))
+        .unwrap();
+    let mut ports = Vec::new();
+    for host in ["server-1", "firewall-1"] {
+        let d = g.insert_node(NodeKind::Device, id(), prov(seed)).unwrap();
+        g.set_field(
+            d.into(),
+            DeviceField::Hostname.key(),
+            scalar::Identifier(host.into()),
+            prov(seed),
+        )
+        .unwrap();
+        let c = g.insert_node(NodeKind::Chassis, id(), prov(seed)).unwrap();
+        g.insert_edge(EdgeKind::HasChassis, id(), d, c, prov(seed))
+            .unwrap();
+        g.insert_edge(EdgeKind::MountedIn, id(), c, rack, prov(seed))
+            .unwrap();
+        let port = g
+            .insert_node(NodeKind::PhysicalPort, id(), prov(seed))
+            .unwrap();
+        g.insert_edge(EdgeKind::HasPort, id(), c, port, prov(seed))
+            .unwrap();
+        ports.push(port);
+    }
+    let cable = g.insert_node(NodeKind::Cable, id(), prov(seed)).unwrap();
+    g.insert_edge(EdgeKind::Terminates, id(), cable, ports[0], prov(seed))
+        .unwrap();
+    g.insert_edge(EdgeKind::Terminates, id(), cable, ports[1], prov(seed))
+        .unwrap();
+    g.end_batch().unwrap();
+    fathom_workspace::write_plain(&g).unwrap()
+}
+
+/// The idea that met "Fathom refused that" (2026-10-28): one change removing the placeholders
+/// and their cable and adding twelve devices, each with a note and the link to it, 39
+/// operations. Accepting it makes it, in one change, after earlier accepted changes and on a
+/// server whose head was rebuilt from storage.
+#[tokio::test]
+async fn accepting_a_large_idea_replacing_placeholders_makes_it() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let place = a_place(&pool, &estate).await;
+    let owner = a_member(
+        &pool,
+        &ring,
+        &estate,
+        "drawer",
+        Some(place.network),
+        Capability::Draw,
+    )
+    .await;
+    let addr = serve(app(&pool, Arc::clone(&ring)).await).await;
+    let steward = sign_in(addr, &estate.steward).await;
+    let o = estate.organisation;
+    let a = place.design_a;
+    let (status, body) = browser(
+        addr,
+        &steward,
+        "POST",
+        &format!("/organisations/{o}/designs/{a}/versions?base=0"),
+        &save_body(&placeholder_payload(71)),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let owner_id = owner.account.to_string();
+    let (status, body) = browser(
+        addr,
+        &steward,
+        "POST",
+        &format!("/organisations/{o}/ai/policy"),
+        &canon(vec![
+            ("allowed", Json::Bool(true)),
+            ("makers", strs(&[&owner_id])),
+            ("ceiling", strs(&["layout", "addresses", "notes"])),
+            ("maxDays", Json::Int(90)),
+            ("secondPersonScopes", strs(&[])),
+            ("mayChange", Json::Bool(true)),
+            ("ifVersion", Json::Int(0)),
+        ]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let owner_session = sign_in(addr, &owner).await;
+    let app_key = a_changing_key(addr, &owner_session, o, &["layout", "addresses", "notes"]).await;
+    // Three earlier changes, each an accepted idea, so the design has history.
+    for k in 0..3 {
+        let (v, dev, _) = read_for_change(addr, &app_key, a, "Device").await;
+        let change = a_change(
+            v,
+            "unused",
+            vec![(
+                dev.as_str(),
+                DeviceField::Hostname.name(),
+                s(&format!("renamed-{k}")),
+            )],
+        );
+        let Ok(Json::Obj(mut c)) = Json::parse_canonical(&change) else {
+            panic!()
+        };
+        c.remove("summary");
+        let idea = canon(vec![
+            ("title", s("Rename")),
+            ("why", s("")),
+            (
+                "steps",
+                Json::Arr(vec![canon_obj(vec![
+                    ("action", s("change")),
+                    ("text", s("Do it")),
+                ])]),
+            ),
+            ("change", Json::Obj(c)),
+        ]);
+        let (status, answer) = ai_call(
+            addr,
+            &app_key,
+            "POST",
+            &format!("/ai/v1/designs/{a}/recommendations"),
+            &idea,
+        )
+        .await;
+        assert_eq!(status, "200", "{}", text(&answer));
+        let (status, answer) = accept_idea(addr, &owner_session, o, a, &idea_id(&answer)).await;
+        assert_eq!(status, "200", "{}", text(&answer));
+    }
+    // A fresh server holds no head: the change applies to one rebuilt from storage.
+    let addr = serve(app(&pool, Arc::clone(&ring)).await).await;
+    let owner_session = sign_in(addr, &owner).await;
+    let (status, reading) =
+        ai_call(addr, &app_key, "GET", &format!("/ai/v1/designs/{a}"), b"").await;
+    assert_eq!(status, "200", "{}", text(&reading));
+    let m = obj(&reading);
+    let version = int(&m, "version");
+    let Some(Json::Arr(nodes)) = m.get("nodes") else {
+        panic!()
+    };
+    let ids = |kind: &str| -> Vec<String> {
+        nodes
+            .iter()
+            .filter_map(|n| match n {
+                Json::Obj(o) if o.get("kind") == Some(&s(kind)) => match o.get("id") {
+                    Some(Json::Str(i)) => Some(i.clone()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect()
+    };
+    let mut ops = Vec::new();
+    for e in ids("Cable").into_iter().chain(ids("Device")) {
+        ops.push(canon_obj(vec![("op", s("remove")), ("element", s(&e))]));
+    }
+    for n in [
+        "painite",
+        "blackopal",
+        "edge",
+        "ruby",
+        "sodola",
+        "arista",
+        "juniper",
+        "modem",
+        "homeassistant",
+        "padparadscha",
+        "morganite",
+        "kvm3",
+    ] {
+        ops.push(canon_obj(vec![
+            ("op", s("add_node")),
+            ("kind", s("Device")),
+            ("as", s(n)),
+            (
+                "fields",
+                canon_obj(vec![
+                    (DeviceField::Hostname.name(), s(n)),
+                    ("role", s("server")),
+                ]),
+            ),
+        ]));
+        let note = format!("n_{n}");
+        let words = "Gateway — the whole network’s “router” (NAT, VLANs Personal, IoT, DMZ).";
+        ops.push(canon_obj(vec![
+            ("op", s("add_node")),
+            ("kind", s("Note")),
+            ("as", s(&note)),
+            (
+                "fields",
+                canon_obj(vec![(NoteField::Text.name(), s(words))]),
+            ),
+        ]));
+        ops.push(canon_obj(vec![
+            ("op", s("add_edge")),
+            ("kind", s("HasNote")),
+            ("from", s(n)),
+            ("to", s(&note)),
+        ]));
+    }
+    let title = "Replace the placeholders with the real homelab devices (no rack positions or \
+                 cables yet)";
+    let idea = canon(vec![
+        ("title", s(title)),
+        ("why", s("")),
+        (
+            "steps",
+            Json::Arr(vec![canon_obj(vec![
+                ("action", s("change")),
+                ("text", s(title)),
+            ])]),
+        ),
+        (
+            "change",
+            canon_obj(vec![
+                ("version", Json::Int(version)),
+                ("operations", Json::Arr(ops)),
+            ]),
+        ),
+    ]);
+    let (status, answer) = ai_call(
+        addr,
+        &app_key,
+        "POST",
+        &format!("/ai/v1/designs/{a}/recommendations"),
+        &idea,
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&answer));
+    assert!(
+        text(&answer).contains("\"changes\":39"),
+        "{}",
+        text(&answer)
+    );
+    let (status, answer) = accept_idea(addr, &owner_session, o, a, &idea_id(&answer)).await;
+    assert_eq!(status, "200", "{}", text(&answer));
+    let (status, reading) =
+        ai_call(addr, &app_key, "GET", &format!("/ai/v1/designs/{a}"), b"").await;
+    assert_eq!(status, "200");
+    let reading = text(&reading);
+    assert_eq!(
+        int(&obj(reading.as_bytes()), "version"),
+        version + 1,
+        "one change"
+    );
+    assert!(
+        reading.contains("kvm3")
+            && !reading.contains("renamed-")
+            && !reading.contains("\"kind\":\"Cable\""),
+        "{reading}"
+    );
+}

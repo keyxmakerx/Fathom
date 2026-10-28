@@ -158,6 +158,9 @@ pub enum AiError {
         read: i64,
         current: i64,
     },
+    /// The design's own rules refused the change as it ran on the design; the sentence is
+    /// the graph's, naming the rule, never a value.
+    ChangeRefused(String),
     /// A stored row does not verify: not a permission answer (§3.4), an alarm.
     Unverifiable(&'static str),
 }
@@ -189,6 +192,7 @@ impl std::fmt::Display for AiError {
                 "the design is at version {current}, not {read}, the version this change names; \
                  read it again and make the change against what is there now"
             ),
+            Self::ChangeRefused(why) => write!(f, "that change was refused: {why}"),
             Self::Unverifiable(what) => write!(f, "unverifiable: {what}"),
         }
     }
@@ -275,9 +279,15 @@ impl AiError {
                 StatusCode::FORBIDDEN,
                 "you do not have the permission this needs\n".into(),
             ),
+            e @ Self::ChangeRefused(_) => text(StatusCode::UNPROCESSABLE_ENTITY, format!("{e}\n")),
+            // Any other permission answer says what the browser's own routes say.
+            Self::Authority(e) => crate::design_api::authority_refusal_response(&e),
             Self::Design(DesignError::NoSuchDesign) => {
                 text(StatusCode::NOT_FOUND, "not found\n".into())
             }
+            // A refused design write (the audit spool past its bound, a version that moved,
+            // a payload too large, a storage fault) says what a browser's write is told.
+            Self::Design(e) => crate::design_api::design_error_response(e),
             Self::Unverifiable(what) => {
                 tracing::error!(what, "an AI row did not verify");
                 text(StatusCode::INTERNAL_SERVER_ERROR, "refused\n".into())
