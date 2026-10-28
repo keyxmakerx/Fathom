@@ -707,9 +707,7 @@ async fn build_and_write(
             current,
         },
         DesignError::ChangeRefused(why) if why.contains("credential") => AiError::LooksSecret,
-        DesignError::ChangeRefused(_) => AiError::NotAllowed(
-            "the design's own rules refused this change; read it again and check each operation",
-        ),
+        DesignError::ChangeRefused(why) => AiError::ChangeRefused(why),
         // The person's own grant refused it: the same answer as any act they may not do.
         DesignError::Authority(e) => AiError::Authority(e),
         other => AiError::Design(other),

@@ -697,7 +697,7 @@ fn invite_error_response(e: InviteError) -> Response {
 /// `DesignError` surfaced as itself, in particular
 /// [`DesignError::AuditSpoolBeyondBounds`], which must read as the operational
 /// condition it is, not a generic failure.
-fn design_error_response(e: DesignError) -> Response {
+pub(crate) fn design_error_response(e: DesignError) -> Response {
     match &e {
         DesignError::NoSuchDesign | DesignError::NoSuchVersion | DesignError::NoSuchScope => {
             (StatusCode::NOT_FOUND, "no such design\n").into_response()
@@ -900,7 +900,7 @@ fn design_error_response(e: DesignError) -> Response {
 /// gives `SessionError::Authority(_)`. Its own function because that impl takes
 /// an owned `SessionError`, while this site holds a borrowed `AuthorityError`
 /// (it carries a non-`Clone` `tokio_postgres::Error`).
-fn authority_refusal_response(e: &grants::AuthorityError) -> Response {
+pub(crate) fn authority_refusal_response(e: &grants::AuthorityError) -> Response {
     match e {
         grants::AuthorityError::NotAuthorised | grants::AuthorityError::QuorumNotMet { .. } => {
             tracing::info!(reason = %e, "not authorised");
