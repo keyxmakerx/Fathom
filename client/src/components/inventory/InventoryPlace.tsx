@@ -23,6 +23,7 @@ import type { FieldDefView } from '../../document/fields';
 import { ListToolbar, type KindFilter } from './ListToolbar';
 import { isKind } from './kinds';
 import { listIssues } from '../../document/issues';
+import { EverywherePanel } from './EverywherePanel';
 import { IssuesList } from '../troubleshoot/IssuesList';
 import { modelRows } from '../../document/firmware';
 import { FirmwareContext } from '../firmware/context';
@@ -323,6 +324,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     models: modelCount,
     firmware: firmwareCount,
     passwords: vaultCount,
+    everywhere: null,
   };
 
   // Find anything reads the whole design, Where applied afterwards so it can say what it hid.
@@ -425,7 +427,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
 
   useEffect(() => {
     if (!onPrintableChange) return undefined;
-    if (doc == null || kind === 'networks' || kind === 'issues' || kind === 'firmware' || kind === 'passwords') {
+    if (doc == null || kind === 'networks' || kind === 'issues' || kind === 'firmware' || kind === 'passwords' || kind === 'everywhere') {
       onPrintableChange(null);
       return undefined;
     }
@@ -818,6 +820,10 @@ export function InventoryPlace(props: InventoryPlaceProps) {
             <div className="inventory-place__main">
               <PartsSwitch onHand={onHand} onChange={setOnHand} />
               <StockPanel doc={doc} canDraw={canDraw} applyDocChange={applyDocChange} redact={redact} fieldDefs={fieldDefs} createField={createField} onOpenStore={(id) => push({ open: id, tab: '' })} />
+            </div>
+          ) : kind === 'everywhere' ? (
+            <div className="inventory-place__main">
+              <EverywherePanel organisationId={organisationId} currentDesign={session.designId ?? null} />
             </div>
           ) : kind === 'passwords' ? (
             <div className="inventory-place__main">

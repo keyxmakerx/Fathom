@@ -141,6 +141,8 @@ import { useJumpBack } from './useJumpBack';
 import { levelsFor } from './jumpTree';
 import { EMPTY_HINT, autoOpenEquipment } from './emptyHints';
 import { cameraStopAt } from '../drawing/geometry';
+import { siteLinkTouching } from '../../document/siteLinks';
+import { useSiteLinkFindings } from '../checks/siteLinkChecks';
 
 // `canDrawFor`/`refusalFor` now live in `components/design/useDesignSession.ts`,
 // re-exported here unchanged, so the two
@@ -572,7 +574,8 @@ export function RacksPlace(props: RacksPlaceProps) {
     [doc, loadInto],
   );
   const loadCostMs = useCallback(() => loadCostRef.current, []);
-  const checks = useChecksController({ doc, boot: ensureMirror, mirrorNow, loadCostMs });
+  const siteLinkFindings = useSiteLinkFindings(doc, session.organisationId, session.designId);
+  const checks = useChecksController({ doc, boot: ensureMirror, mirrorNow, loadCostMs, extra: siteLinkFindings });
   // Maintenance plans (ADR-0061 round 7): the same engine and mirror; every command goes through applyDocChange.
   const redact = useCallback(() => {
     const engine = engineRef.current;
@@ -973,6 +976,12 @@ export function RacksPlace(props: RacksPlaceProps) {
 
   // Path trace (ADR-0061 item 9): the same module; opened from a device's right-click.
   const trace = useTraceController({ doc, view: realView, boot: ensureMirror, mirrorNow });
+  // A traced path that crosses a link between sites offers to continue there (ADR-0079 decision 5).
+  const traceContinuation = useMemo(() => {
+    if (doc == null || trace.result == null) return null;
+    const link = siteLinkTouching(doc, trace.result.hops.flatMap((h) => h.nodes));
+    return link ? { label: link.label, far: link.far } : null;
+  }, [doc, trace.result]);
   const traceHandled = useRef<unknown>(null);
   useEffect(() => {
     if (traceRequest == null || traceHandled.current === traceRequest) return;
@@ -1895,6 +1904,10 @@ export function RacksPlace(props: RacksPlaceProps) {
           {
             onEdit: canDraw ? handleEdit : undefined,
             onSelect: setSelection,
+            estate:
+              session.organisationId != null && session.designId != null
+                ? { organisationId: session.organisationId, designId: session.designId }
+                : undefined,
             // ADR-0053 §5/§6 — every reader may read a Notes section; only a
             // writer may add or remove one.
             notesOf: notesActions.notesOf,
@@ -2276,7 +2289,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       {doc != null && jot == null && !trace.open && !checks.open && planted > 0 ? <PracticeNote count={planted} onOpenChecks={() => checks.setOpen(true)} /> : null}
       {doc != null && jot == null ? (
         <InSideSlot id="trace">
-          <TracePanel controller={trace} onTie={canDraw ? setTieFor : undefined} />
+          <TracePanel controller={trace} onTie={canDraw ? setTieFor : undefined} continueIn={traceContinuation} />
         </InSideSlot>
       ) : null}
       </TraceContext.Provider>

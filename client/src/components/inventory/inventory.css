@@ -2322,3 +2322,8 @@ button.inv-path__host {
   font-weight: 400;
   color: var(--muted);
 }
+
+/* ADR-0079: Inventory › Every site. */
+.inventory-place__everywhere { display: flex; flex-direction: column; gap: 8px; min-width: 0; overflow-x: auto; }
+.inventory-place__everywhere-bar { display: flex; flex-wrap: wrap; gap: 8px; }
+.inventory-place__everywhere-bar input { flex: 1 1 220px; min-width: 0; }

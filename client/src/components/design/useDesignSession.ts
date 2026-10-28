@@ -137,6 +137,8 @@ export interface DesignSession {
   catalogue: CatalogueModel[];
   /** The open design's id, for per-design browser-local choices (the look). */
   designId?: string;
+  /** The organisation it is in, for searches across its other designs (ADR-0079). */
+  organisationId?: string;
   loadError: string | null;
   saveRefusal: string | null;
   canDraw: boolean;
@@ -415,6 +417,7 @@ export function useDesignSession(organisationId: string, designId: string, capab
   return {
     doc,
     designId,
+    organisationId,
     live,
     putMineBack,
     dismissOverwrite,

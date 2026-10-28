@@ -23,7 +23,7 @@ import { formatLastChange, groupDeviceRows, whereText, type DeviceRow } from './
 import type { Place, PlaceIndex } from './placeIndex';
 import type { FacetSpec } from './rowQuery';
 
-export type Kind = 'devices' | 'ports' | 'parts' | 'racks' | 'cables' | 'networks' | 'prefixes' | 'vlans' | 'addresses' | 'models' | 'firmware' | 'passwords' | 'issues';
+export type Kind = 'devices' | 'ports' | 'parts' | 'racks' | 'cables' | 'networks' | 'prefixes' | 'vlans' | 'addresses' | 'models' | 'firmware' | 'passwords' | 'issues' | 'everywhere';
 /** The side list's kinds in quiet groups. Docs and Maintenance are not built, so not listed. Issues has its own body. */
 export const KIND_GROUPS: ReadonlyArray<ReadonlyArray<{ key: Kind; label: string }>> = [
   [
@@ -45,6 +45,8 @@ export const KIND_GROUPS: ReadonlyArray<ReadonlyArray<{ key: Kind; label: string
     { key: 'passwords', label: 'Passwords' },
     { key: 'issues', label: 'Issues' },
   ],
+  // ADR-0079: every design this person may open, from the server's estate index.
+  [{ key: 'everywhere', label: 'Every site' }],
 ];
 export const KINDS: ReadonlyArray<{ key: Kind; label: string }> = KIND_GROUPS.flat();
 export const isKind = (s: string): s is Kind => KINDS.some((k) => k.key === s);
@@ -218,6 +220,7 @@ const CORE_COLUMNS: Record<Kind, readonly Column[]> = {
   issues: [],
   firmware: [],
   passwords: [],
+  everywhere: [],
   models: [
     core('model', 'Model', 170),
     core('platform', 'Platform', 110),

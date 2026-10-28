@@ -1666,7 +1666,13 @@ async fn verify_checkpoints(
             .await?
             .ok_or(DesignError::Corrupt("checkpoint with no base to replay"))?;
         let replayed = heads::replay(rebuild).await.map_err(head_failure)?;
-        if replayed != stored {
+        // A checkpoint written since r53 is the replay compacted; one written
+        // before is the replay itself. Compaction composes, so one pass over
+        // the whole replay is what every checkpoint along the way added up to.
+        if replayed != stored
+            && fathom_workspace::compact_plain(&replayed, fathom_workspace::KEEP_BATCHES)
+                .map_or(true, |slim| slim != stored)
+        {
             tracing::error!(%design, version, "a checkpoint differs from its replay");
             return Err(DesignError::Corrupt("checkpoint differs from its replay"));
         }
@@ -2228,7 +2234,16 @@ pub async fn checkpoint_if_due_in_tx(
         version: current,
         tip: tip.unwrap_or_default(),
     };
-    let plain = materialise(tx, auth.ring, ctx, design, current, Some(&key), Some(store)).await?;
+    let whole = materialise(tx, auth.ring, ctx, design, current, Some(&key), Some(store)).await?;
+    // Compacted (r53), and the head in memory with it; a head evicted since
+    // is rebuilt from this checkpoint, so it comes back the same.
+    let plain = match store.checkpoint(&key).await {
+        Ok(bytes) => bytes,
+        Err(HeadError::NeedRebuild) => {
+            fathom_workspace::compact_plain(&whole, fathom_workspace::KEEP_BATCHES).unwrap_or(whole)
+        }
+        Err(e) => return Err(head_failure(e)),
+    };
     if fathom_workspace::read_plain(&plain).is_err() {
         tracing::error!(%design, "a checkpoint did not read back; skipped");
         return Ok(false);

@@ -143,6 +143,7 @@ export function placementEqual(a: SurfacePlacement, b: SurfacePlacement): boolea
 
 export function portalGroupEqual(a: PortalGroup, b: PortalGroup): boolean {
   if (a.key !== b.key || a.rackId !== b.rackId || a.side !== b.side || a.label !== b.label) return false;
+  if (a.far?.design !== b.far?.design || a.far?.element !== b.far?.element) return false;
   if (a.cables.length !== b.cables.length) return false;
   for (let i = 0; i < a.cables.length; i += 1) {
     const ca = a.cables[i]!;

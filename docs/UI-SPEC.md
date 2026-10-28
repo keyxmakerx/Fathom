@@ -141,6 +141,12 @@ tray reads as unknown. The tray sits above or below the rack, or on the left edg
 the arrow pointing out. When the lit path continues through it the tray's outline goes solid with the
 continuation named above. Click to follow.
 
+**A link to another site (ADR-0079).** A cable can end on a port in another design, picked from
+search across sites with **Link to another site…** on a free port. Its tray is named for the far site
+and device and carries **Open there**, which opens that design at the far port; so do the port and
+cable panels. Trace offers **Continue in** the far site. Checks note a link whose far port has gone, or
+doesn't point back.
+
 ## Power
 
 PDU with C13 outlets in the rack. Each device's PSU inlets are on the left rail beside it, two hexagons

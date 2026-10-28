@@ -340,7 +340,9 @@ export interface RowView {
  * `rackId` is the owning rack when there is one — the port's own rack, or,
  * for a shelf occupant, the shelf's rack — and `null` for a surface/board
  * fixture, which has none. */
-export type CableEnd = { portId: string; chassisId: string; rackId: string | null } | { outside: true; label: string };
+export type CableEnd =
+  | { portId: string; chassisId: string; rackId: string | null }
+  | { outside: true; label: string; far?: { design: string; element: string } };
 
 export interface CableView {
   id: string;
@@ -1209,7 +1211,11 @@ function cableEnd(doc: Document, edge: GraphEdge): CableEnd | undefined {
   if (kind === 'ExternalPeer') {
     const peer = findNode(doc, edge.to);
     if (!peer || !isLiveNode(peer)) return undefined;
-    return { outside: true, label: fieldString(peer, 'ExternalPeer.label') ?? '' };
+    const label = fieldString(peer, 'ExternalPeer.label') ?? '';
+    // A link between sites (ADR-0079 decision 5): both ids, or it is an ordinary outside end.
+    const design = fieldString(peer, 'ExternalPeer.far_design');
+    const element = fieldString(peer, 'ExternalPeer.far_element');
+    return design && element ? { outside: true, label, far: { design, element } } : { outside: true, label };
   }
   const portId = edge.to;
   const portNode = findNode(doc, portId);

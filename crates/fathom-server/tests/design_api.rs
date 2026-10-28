@@ -504,11 +504,11 @@ fn a_plain_face_payload(seed: u128) -> Vec<u8> {
 }
 
 /// ADR-0049 #4's wire number for the schema version currently declared on
-/// line 3 of every payload [`a_plain_face_payload`] writes -- `"0.31"` at time
+/// line 3 of every payload [`a_plain_face_payload`] writes -- `"0.32"` at time
 /// of writing, whose minor component this is. Kept as its own named constant
 /// rather than a bare `14` at each call site so a future schema bump has one
 /// place to change.
-const CURRENT_SCHEMA_WIRE_VERSION: u32 = 31;
+const CURRENT_SCHEMA_WIRE_VERSION: u32 = 32;
 
 fn save_body(schema_version: u32, payload: &[u8]) -> Vec<u8> {
     let mut out = schema_version.to_le_bytes().to_vec();
@@ -1138,6 +1138,59 @@ async fn a_past_version_opens_by_number_and_needs_read() {
     }
     let (_, body) = call(addr, &estate.steward, "GET", &v1, b"").await;
     assert_eq!(body, first);
+
+    // A page at a time, newest first (r53): the newest two, then the one before them.
+    let page = |q: &str| format!("{history}?{q}");
+    let versions = |body: &[u8]| -> Vec<i64> {
+        let parsed = fathom_canon::Json::parse_canonical(body).expect("canonical");
+        let fathom_canon::Json::Arr(entries) = parsed else {
+            panic!("an array")
+        };
+        entries
+            .iter()
+            .map(|e| match e {
+                fathom_canon::Json::Obj(m) => match m.get("design_version") {
+                    Some(fathom_canon::Json::Int(v)) => *v,
+                    _ => panic!("a version"),
+                },
+                _ => panic!("an object"),
+            })
+            .collect()
+    };
+    let seq_of = |body: &[u8]| -> i64 {
+        let text = String::from_utf8_lossy(body).into_owned();
+        let at = text.find("\"seq\":").expect("a seq") + 6;
+        text[at..]
+            .split(|c: char| !c.is_ascii_digit())
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap()
+    };
+    let (status, newest) = call(addr, &estate.steward, "GET", &page("newest=2"), b"").await;
+    assert_eq!(status, "200");
+    assert_eq!(
+        versions(&newest),
+        vec![2, 3],
+        "oldest first, as the whole list is"
+    );
+    let before = seq_of(&newest);
+    let (status, older) = call(
+        addr,
+        &estate.steward,
+        "GET",
+        &page(&format!("newest=2&before={before}")),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200");
+    assert_eq!(versions(&older), vec![1]);
+    for bad in ["newest=0", "newest=501", "before=3", "newest=x"] {
+        let (status, _) = call(addr, &estate.steward, "GET", &page(bad), b"").await;
+        assert_eq!(status, "400", "{bad}");
+    }
+    let (status, _) = call(addr, &outsider, "GET", &page("newest=2"), b"").await;
+    assert_ne!(status, "200", "a page is not readable without Read");
 }
 
 // ---------------------------------------------------------------------------
@@ -4558,7 +4611,7 @@ async fn naming_a_design_in_another_organisation_or_one_that_does_not_exist_is_r
 
 mod live {
     use super::*;
-    use fathom_graph::{NodeId, Op};
+    use fathom_graph::{EdgeId, NodeId, Op};
     use fathom_ir::generated::ir_types::EdgeKind;
     use std::time::Duration;
     use tokio::io::AsyncReadExt;
@@ -5649,6 +5702,133 @@ mod live {
         assert_eq!(status, "200");
         let graph = fathom_workspace::read_plain(&v2).expect("reads");
         assert_eq!(graph.log().len(), 2, "the base and the first change");
+    }
+
+    /// Like [`add_rack`], with ids far enough apart for hundreds of racks.
+    fn add_one_of_many(local: &mut Graph, by: AccountId, n: u128) -> Vec<u8> {
+        local
+            .begin_batch(BatchId(u(30_000_000 + n)), "add a rack")
+            .unwrap();
+        let rack = local
+            .insert_node(
+                NodeKind::Rack,
+                u(10_000_000 + n),
+                prov_of(100_000 + 10 * n, by),
+            )
+            .unwrap();
+        local
+            .insert_edge(
+                EdgeKind::HasRack,
+                u(20_000_000 + n),
+                node(NodeKind::Premises, PREMISES),
+                rack,
+                prov_of(100_001 + 10 * n, by),
+            )
+            .unwrap();
+        local.end_batch().unwrap();
+        body_of(local)
+    }
+
+    /// Undo of [`add_one_of_many`]'s batch `target`, made by `by`: its rack and edge tombstoned.
+    fn undo_rack(local: &mut Graph, by: AccountId, n: u128, target: u128) -> Vec<u8> {
+        local
+            .begin_batch(BatchId(u(5_000_000 + n)), "undo add a rack")
+            .unwrap();
+        local
+            .set_batch_reverses(BatchId(u(30_000_000 + target)))
+            .unwrap();
+        let actor = Actor::User(UserId(by.0));
+        let at = Timestamp(AT + 9_000_000 + n as u64);
+        let edge = EdgeId {
+            kind: EdgeKind::HasRack,
+            ulid: u(20_000_000 + target),
+        };
+        local.tombstone(edge.into(), at, actor).unwrap();
+        local
+            .tombstone(node(NodeKind::Rack, 10_000_000 + target).into(), at, actor)
+            .unwrap();
+        local.end_batch().unwrap();
+        let change = fathom_workspace::Change {
+            batch: local.log().last().unwrap().clone(),
+            provenance: Vec::new(),
+            values: Vec::new(),
+        };
+        save_body(
+            CURRENT_SCHEMA_WIRE_VERSION,
+            &fathom_workspace::write_change(&change),
+        )
+    }
+
+    /// Slimmer saves (r53): past `KEEP_BATCHES` changes a checkpoint holds only the newest
+    /// ones, verify still checks it against the whole chain, and Undo reaches only what is held.
+    #[tokio::test]
+    async fn a_checkpoint_keeps_the_newest_changes_and_still_verifies() {
+        let _site = support::lock_the_site_chain().await;
+        let w = world().await;
+        let mut drawers = Vec::new();
+        for name in ["d0", "d1", "d2", "d3", "d4", "d5"] {
+            drawers.push(
+                a_member_with(&w.pool, &w.ring, &w.estate, name, Some(Capability::Draw)).await,
+            );
+        }
+        let total = fathom_workspace::KEEP_BATCHES as u128 + 120;
+        let mut local = w.base.clone();
+        for n in 1..=total {
+            let who = &drawers[(n % 6) as usize];
+            let body = add_one_of_many(&mut local, who.account, n);
+            // Six accounts, each under the per-account change rate.
+            tokio::time::sleep(Duration::from_millis(9)).await;
+            let (status, answer) = w.post_change(who, &body, n as i64).await;
+            assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
+        }
+
+        let (status, face) = call(w.addr, &w.estate.steward, "GET", &w.root(), b"").await;
+        assert_eq!(status, "200");
+        let open = fathom_workspace::read_plain(&face).expect("reads");
+        let held = open.log().len();
+        assert!(
+            held < total as usize + 1 && held <= fathom_workspace::KEEP_BATCHES + 100,
+            "the design opens holding {held} changes"
+        );
+        assert_eq!(
+            open.log().last(),
+            local.log().last(),
+            "the newest change is there"
+        );
+        // What the design says is what every change gave.
+        assert_eq!(
+            open.to_snapshot().unwrap().nodes,
+            local.to_snapshot().unwrap().nodes
+        );
+        assert!(face.len() < fathom_workspace::write_plain(&local).unwrap().len());
+
+        let (status, report) = call(
+            w.addr,
+            &w.estate.steward,
+            "GET",
+            &w.path("verify?deep=true"),
+            b"",
+        )
+        .await;
+        assert_eq!(status, "200");
+        let report = String::from_utf8_lossy(&report);
+        assert!(report.contains("\"outcome\":\"verified\""), "{report}");
+
+        // Undo of the first change is refused: no save holds it any more.
+        let first = &drawers[1];
+        let body = undo_rack(&mut local.clone(), first.account, 1, 1);
+        let (status, answer) = w.post_change(first, &body, total as i64 + 1).await;
+        assert_ne!(status, "200");
+        assert!(
+            String::from_utf8_lossy(&answer).contains("does not hold"),
+            "{}",
+            String::from_utf8_lossy(&answer)
+        );
+        // Undo of the newest goes through.
+        let newest = &drawers[(total % 6) as usize];
+        let body = undo_rack(&mut local, newest.account, 2, total);
+        let (status, answer) = w.post_change(newest, &body, total as i64 + 1).await;
+        assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
     }
 
     /// Open a stream on a session the test keeps hold of.
@@ -7327,4 +7507,217 @@ async fn the_database_binds_the_sender_and_the_decider_to_the_session_account() 
     run_as(&pool, &org, &ann_id, &[(decide, &[&id1, &ann_id])])
         .await
         .expect("own decision");
+}
+
+// ---------------------------------------------------------------------------
+// The estate index (ADR-0079)
+// ---------------------------------------------------------------------------
+
+/// A design with one named device on a chassis with a serial.
+/// A device with one port; also the port's id, for a link between sites to name.
+fn a_payload_with_a_named_device(seed: u128, hostname: &str, serial: &str) -> (Vec<u8>, String) {
+    use fathom_ir::generated::ir_types::{ChassisField, DeviceField, PhysicalPortField};
+    let prov = ProvenanceRecord {
+        id: ProvenanceId(Ulid(seed * 10 + 2)),
+        origin: Origin::Hand,
+        asserted_at: Timestamp(0),
+        asserted_by: Actor::User(UserId(Ulid(seed * 10 + 3))),
+        confidence: Confidence::Asserted,
+        supersedes: None,
+    };
+    let mut g = Graph::new();
+    g.begin_batch(BatchId(Ulid(seed * 10)), "estate fixture")
+        .expect("open batch");
+    let device = g
+        .insert_node(NodeKind::Device, Ulid(seed * 10 + 1), prov.clone())
+        .expect("device");
+    g.set_field(
+        device.into(),
+        DeviceField::Hostname.key(),
+        scalar::Identifier(hostname.into()),
+        prov.clone(),
+    )
+    .expect("hostname");
+    let chassis = g
+        .insert_node(NodeKind::Chassis, Ulid(seed * 10 + 4), prov.clone())
+        .expect("chassis");
+    g.set_field(
+        chassis.into(),
+        ChassisField::Serial.key(),
+        scalar::Identifier(serial.into()),
+        prov.clone(),
+    )
+    .expect("serial");
+    g.insert_edge(
+        EdgeKind::HasChassis,
+        Ulid(seed * 10 + 5),
+        device,
+        chassis,
+        prov.clone(),
+    )
+    .expect("has chassis");
+    let port = g
+        .insert_node(NodeKind::PhysicalPort, Ulid(seed * 10 + 6), prov.clone())
+        .expect("port");
+    g.set_field(
+        port.into(),
+        PhysicalPortField::Label.key(),
+        scalar::Text("xe-0/0/1".into()),
+        prov.clone(),
+    )
+    .expect("port label");
+    g.insert_edge(EdgeKind::HasPort, Ulid(seed * 10 + 7), chassis, port, prov)
+        .expect("has port");
+    g.end_batch().expect("close batch");
+    (
+        fathom_workspace::write_plain(&g).expect("a graph this crate built must write"),
+        port.to_string(),
+    )
+}
+
+/// **A device saved in one design is found by name and by serial from the estate search,
+/// and not by someone who cannot read that design.** The index stores neither in the clear.
+#[tokio::test]
+async fn a_saved_device_is_found_across_the_estate_and_only_by_those_who_may_read_it() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+    let outsider = a_member_with(&pool, &ring, &estate, "outsider", None).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    let hostname = unique("edge-rtr");
+    let serial = "JN11F2A3BAFC";
+    let (payload, port) = a_payload_with_a_named_device(41, &hostname, serial);
+    let versions_path = format!(
+        "/organisations/{}/designs/{}/versions?base=0",
+        estate.organisation, design
+    );
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &versions_path,
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &payload),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+
+    let search = format!("/organisations/{}/estate/search", estate.organisation);
+    let query = |q: &str| canon(vec![("q", jstr(q))]);
+    // The rebuild runs after the save goes quiet; poll for it.
+    let mut found = String::new();
+    for _ in 0..40 {
+        let (status, body) = call(
+            addr,
+            &estate.steward,
+            "POST",
+            &search,
+            &query(&hostname[..12]),
+        )
+        .await;
+        assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+        found = String::from_utf8_lossy(&body).into_owned();
+        if found.contains(&hostname) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    assert!(
+        found.contains(&hostname),
+        "the device is found by a prefix of its name: {found}"
+    );
+    assert!(found.contains(&design.to_string()), "{found}");
+    assert!(found.contains("\"kind\":\"device\""), "{found}");
+
+    let (_, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &search,
+        &query(&serial.to_lowercase()),
+    )
+    .await;
+    assert!(
+        String::from_utf8_lossy(&body).contains(&hostname),
+        "found by serial"
+    );
+
+    let (status, body) = call(addr, &outsider, "POST", &search, &query(&hostname)).await;
+    assert_eq!(status, "200");
+    assert!(
+        !String::from_utf8_lossy(&body).contains(&hostname),
+        "a member with no grant finds nothing: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let page = format!("/organisations/{}/estate/page", estate.organisation);
+    let (status, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &page,
+        &canon(vec![("kind", jstr("device"))]),
+    )
+    .await;
+    assert_eq!(status, "200");
+    assert!(String::from_utf8_lossy(&body).contains(&hostname));
+
+    let su = support::superuser_client_on_test_database().await;
+    let leaked: i64 = su
+        .query_one(
+            "SELECT count(*) FROM estate_rows WHERE position($1::bytea IN sealed) > 0",
+            &[&hostname.as_bytes()],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(leaked, 0, "the name is not stored in the clear");
+
+    // Links between sites (ADR-0079 decision 5): the far port is found, a port the design
+    // doesn't have is gone, and a design the caller can't read is closed, whether it exists
+    // or not.
+    let far = format!("/organisations/{}/estate/far", estate.organisation);
+    let pair = |d: &str, e: &str| fathom_canon::Json::Arr(vec![jstr(d), jstr(e)]);
+    let ends = canon(vec![(
+        "ends",
+        fathom_canon::Json::Arr(vec![
+            pair(&design.to_string(), &port),
+            pair(
+                &design.to_string(),
+                "physical-port:01JNOSUCHPORT000000000000",
+            ),
+            pair("01JNOSUCHDESIGN00000000000", &port),
+        ]),
+    )]);
+    let (status, body) = call(addr, &estate.steward, "POST", &far, &ends).await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let answer = fathom_canon::Json::parse_canonical(&body).expect("canonical JSON");
+    let fathom_canon::Json::Obj(answer) = answer else {
+        panic!("an object")
+    };
+    let Some(fathom_canon::Json::Arr(got)) = answer.get("ends") else {
+        panic!("ends")
+    };
+    let field = |i: usize, k: &str| match &got[i] {
+        fathom_canon::Json::Obj(m) => match m.get(k) {
+            Some(fathom_canon::Json::Str(v)) => v.clone(),
+            _ => String::new(),
+        },
+        _ => String::new(),
+    };
+    assert_eq!(field(0, "state"), "here");
+    assert_eq!(field(0, "device"), hostname);
+    assert_eq!(field(0, "port"), "xe-0/0/1");
+    assert_eq!(field(1, "state"), "gone");
+    assert_eq!(field(2, "state"), "closed");
+    let (status, body) = call(addr, &outsider, "POST", &far, &ends).await;
+    assert_eq!(status, "200");
+    let text = String::from_utf8_lossy(&body);
+    assert!(
+        !text.contains("\"here\"") && !text.contains(&hostname),
+        "a member with no grant learns nothing about the far end: {text}"
+    );
 }

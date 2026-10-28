@@ -563,3 +563,16 @@ describe('litPathFor: through an outlet box that is a surface fixture, not a cha
     expect(path.cableIds).toEqual(['cable-1', 'cable-2']);
   });
 });
+
+describe('groupPortals: a link to another site', () => {
+  it('carries the far end, so the tray opens that design at that port', () => {
+    const { view } = panelToPortalView();
+    const far = { design: 'design-east', element: 'physical-port:far' };
+    const linked: ClosetView = {
+      ...view,
+      cables: view.cables.map((c) => (c.id === 'cable-2' ? { ...c, ends: [c.ends[0]!, { outside: true, label: 'DC East · core-sw-02', far }] } : c)),
+    };
+    expect(groupPortals(linked)[0]?.far).toEqual(far);
+    expect(groupPortals(view)[0]?.far).toBeUndefined();
+  });
+});

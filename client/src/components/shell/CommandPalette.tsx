@@ -5,9 +5,20 @@ import { createPortal } from 'react-dom';
 import { cycleGroup, firstEnabled, highlightParts, matchActions, moveActive, noteOf, type PaletteAction } from './palette';
 import type { SearchHit } from './search';
 import type { ShellSearch } from './types';
+import { ESTATE_KIND_WORD, openElsewhere, searchEstate, type EstateHit } from '../../api/estate';
 import '../../styles/palette.css';
 
-type Entry = ({ kind: 'action'; action: PaletteAction } | { kind: 'thing'; hit: SearchHit }) & { group: string };
+type Entry = ({ kind: 'action'; action: PaletteAction } | { kind: 'thing'; hit: SearchHit } | { kind: 'elsewhere'; hit: EstateHit }) & {
+  group: string;
+};
+
+/** ADR-0079: the group for things in the other designs this person may read. */
+export const ELSEWHERE_GROUP = 'Other sites';
+
+/** The palette's line for a thing in another design: what it is and where. */
+export function elsewhereNote(hit: EstateHit): string {
+  return [ESTATE_KIND_WORD[hit.kind] ?? hit.kind, hit.device, hit.model, hit.designName ?? 'unnamed design', hit.place].filter(Boolean).join(' · ');
+}
 
 /** The heading over each group: what was found (Devices first), then what to do, then where to go. */
 const ACTION_GROUP = { do: 'Do', go: 'Go to' } as const;
@@ -50,19 +61,44 @@ export function PaletteSheet({ search, onClose, initialQuery = '' }: { search: S
   const allActions = useMemo(() => search.actions?.() ?? [], [search]);
   const actions = useMemo(() => matchActions(allActions, query), [allActions, query]);
   const things = useMemo(() => (query.trim() === '' ? [] : search.run(query)), [search, query]);
+  const [elsewhere, setElsewhere] = useState<EstateHit[]>([]);
+  const estateOrg = search.estate?.organisationId;
+  const estateDesign = search.estate?.designId;
+  useEffect(() => {
+    const q = query.trim();
+    if (estateOrg === undefined || q.length < 3) {
+      setElsewhere([]);
+      return undefined;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      searchEstate(estateOrg, q)
+        .then((answer) => {
+          if (!cancelled) setElsewhere(answer.hits.filter((h) => h.design !== estateDesign).slice(0, 8));
+        })
+        .catch(() => {
+          if (!cancelled) setElsewhere([]);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [estateOrg, estateDesign, query]);
   const everything = useMemo<Entry[]>(
     () => [
       ...things.map((hit): Entry => ({ kind: 'thing', hit, group: hit.group })),
+      ...elsewhere.map((hit): Entry => ({ kind: 'elsewhere', hit, group: ELSEWHERE_GROUP })),
       ...actions.filter((a) => a.group !== 'go').map((action): Entry => ({ kind: 'action', action, group: ACTION_GROUP.do })),
       ...actions.filter((a) => a.group === 'go').map((action): Entry => ({ kind: 'action', action, group: ACTION_GROUP.go })),
     ],
-    [actions, things],
+    [actions, things, elsewhere],
   );
   const groups = useMemo(() => [...new Set(everything.map((e) => e.group))], [everything]);
   // Tab narrows to one group; a group with nothing left in it counts as all.
   const narrowed = narrow !== null && groups.includes(narrow) ? narrow : null;
   const entries = useMemo(() => (narrowed === null ? everything : everything.filter((e) => e.group === narrowed)), [everything, narrowed]);
-  const enabled = useMemo(() => entries.map((e) => e.kind === 'thing' || e.action.disabled === undefined), [entries]);
+  const enabled = useMemo(() => entries.map((e) => e.kind !== 'action' || e.action.disabled === undefined), [entries]);
 
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
@@ -92,6 +128,10 @@ export function PaletteSheet({ search, onClose, initialQuery = '' }: { search: S
       return;
     }
     onClose();
+    if (entry.kind === 'elsewhere') {
+      openElsewhere(entry.hit.design, entry.hit.open);
+      return;
+    }
     search.choose(entry.hit.selection);
   }
 
@@ -151,7 +191,16 @@ export function PaletteSheet({ search, onClose, initialQuery = '' }: { search: S
             const heading = i === 0 || entries[i - 1]!.group !== entry.group ? <div className="palette__group" role="presentation">{entry.group}</div> : null;
             const disabled = entry.kind === 'action' && entry.action.disabled !== undefined;
             return (
-              <div key={entry.kind === 'action' ? `a-${entry.action.id}` : `t-${entry.hit.group}:${entry.hit.selection.kind}:${entry.hit.selection.id}:${entry.hit.name}`} role="presentation">
+              <div
+                key={
+                  entry.kind === 'action'
+                    ? `a-${entry.action.id}`
+                    : entry.kind === 'elsewhere'
+                      ? `e-${entry.hit.design}:${entry.hit.element}`
+                      : `t-${entry.hit.group}:${entry.hit.selection.kind}:${entry.hit.selection.id}:${entry.hit.name}`
+                }
+                role="presentation"
+              >
                 {heading}
                 <button
                   type="button"
@@ -172,6 +221,14 @@ export function PaletteSheet({ search, onClose, initialQuery = '' }: { search: S
                       </span>
                       <span className="palette__why">{entry.action.disabled ?? ''}</span>
                       {on && !disabled ? <span className="palette__enter">{entry.action.group === 'go' ? 'Enter to open' : 'Enter to run'}</span> : entry.action.hint ? <kbd className="palette__hint">{entry.action.hint}</kbd> : null}
+                    </>
+                  ) : entry.kind === 'elsewhere' ? (
+                    <>
+                      <span className="palette__name palette__name--mono">
+                        <Marked text={entry.hit.name || entry.hit.model || entry.hit.serial} query={query} />
+                      </span>
+                      <span className="palette__why">{elsewhereNote(entry.hit)}</span>
+                      {on ? <span className="palette__enter">Enter to open there</span> : null}
                     </>
                   ) : (
                     <>

@@ -201,6 +201,23 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   fresh verification code when the last is over 15 minutes old. An address change ends the Site
   session, not the account session. The check (`FATHOM_SESSION_ADDRESS_CHECK`, default `site`)
   applies per IPv4 address or IPv6 /64.
+- **The estate index (ADR-0079 decisions 2 to 4, 2026-10-27).** After each accepted save or live
+  change the server rebuilds that design's rows (devices, cards, optics, power supplies, spares) from its
+  own copy, five seconds after the design goes quiet (`estate.rs`, `design_api/estate_routes.rs`, migration
+  0058). Rows are sealed under a key derived from the tenant key; search terms are keyed hashes of words
+  and prefixes of three or more characters. `POST …/estate/search` and `…/estate/page` filter by the
+  caller's Read on each design at the time of asking. Ctrl+K shows an **Other sites** group and
+  Inventory has **Every site**; a hit opens its design the way a scanned label does.
+- **Links between sites (ADR-0079 decision 5, schema 0.32, 2026-10-27).** `ExternalPeer` gains
+  `far_design` and `far_element`. A free port's **Link to another site…** picks the far port from the
+  estate index (device rows carry their ports); the tray, port and cable panels open the far design at
+  that port; Trace offers **Continue in**. `POST …/estate/far` says whether each far port is there and
+  where its own link points, and Checks add a warning (gone) or an idea (one-sided) from it.
+- **Slimmer saves (ADR-0079 decision 6, sign-offs r53, 2026-10-28).** Each checkpoint keeps the
+  newest 500 changes and the provenance still in use (`fathom_workspace::compact`), and the head in
+  memory becomes it; Undo reaches those 500. `verify?deep=true` checks a slim checkpoint against one
+  compaction of the whole replay. History pages from the server, newest first
+  (`…/history?newest=N&before=SEQ`); the panel asks for 100 entries at a time.
 - **Who did what on the console, from where (sign-offs r52, 2026-10-27).** Every console and sign-in
   request writes an `access` line with the client's address and the proxy it came through
   (`access_log.rs`), also sent to `FATHOM_ACCESS_SYSLOG` when set, best effort (`access_ship.rs`).

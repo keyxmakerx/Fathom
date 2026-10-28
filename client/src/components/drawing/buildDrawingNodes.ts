@@ -336,6 +336,7 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
           countLabel: portalCountLabel(groupSnapshot),
           side: groupSnapshot.side,
           trayKey: groupSnapshot.key,
+          ...(groupSnapshot.far ? { far: groupSnapshot.far } : {}),
         } satisfies PortalTrayNodeData,
       })),
     );

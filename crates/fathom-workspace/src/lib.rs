@@ -42,7 +42,9 @@
 #![forbid(unsafe_code)]
 
 mod change;
+mod compact;
 pub use change::*;
+pub use compact::*;
 
 use std::collections::BTreeMap;
 
@@ -57,12 +59,12 @@ use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{EdgeKind, NodeKind, FIELD_KEYS, SCHEMA_VERSION};
 use fathom_ir::scalar::Text;
 
-/// Every 0.10-to-0.31 move is additive, so a payload declared at an older
+/// Every 0.10-to-0.32 move is additive, so a payload declared at an older
 /// version reads exactly like a current one — nothing renamed, retyped or
 /// removed. Every older version this crate still opens, and no other.
 pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &[
     "0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17", "0.18", "0.19", "0.20", "0.21",
-    "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28", "0.29", "0.30",
+    "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28", "0.29", "0.30", "0.31",
 ];
 
 /// Node kinds `0.11` (ADR-0058) added. A payload declared at `0.10` cannot
@@ -165,13 +167,13 @@ const EDGE_KINDS_SINCE_0_30: &[EdgeKind] = &[
 /// version — decision 6's (ADR-0058) and decision 9's (ADR-0059) second
 /// halves, checked once per accepted older version: `0.10` cannot hold
 /// anything `0.11` to `0.19` added, and so on up the chain. `0.20` (the
-/// owner's ticked ideas), `0.21` (round 15), `0.22` (port faces), `0.24` (missing links), `0.25` (the LAG step) and `0.31` (a device's own chosen version) added only fields and
+/// owner's ticked ideas), `0.21` (round 15), `0.22` (port faces), `0.24` (missing links), `0.25` (the LAG step), `0.31` (a device's own chosen version) and `0.32` (links between sites) added only fields and
 /// enum variants, no kind; `0.23` (cable runs and ties), `0.26` (mesh VPNs), `0.27` (the lesson builder), `0.28` (cards), `0.29` (the room builder) and `0.30` (stock) added kinds.
 fn reject_kinds_too_new_for_declared_version(
     declared: &str,
     snapshot: &Snapshot,
 ) -> Result<(), PlainError> {
-    // Nothing to check for the current version (`0.31`, everything is
+    // Nothing to check for the current version (`0.32`, everything is
     // legitimate there) or any value `SchemaVersionMismatch` already
     // refused above this call — only the accepted older headers name a
     // kind set their own editor could never have written.

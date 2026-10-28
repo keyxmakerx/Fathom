@@ -240,6 +240,10 @@ export type EditorChange =
   /** Missing links: a cable from this free port with no far end yet (`connectOneEnd`). It starts
    * Unknown; "Needs finishing" below is how a person says it is planned or unfinished work. */
   | { kind: 'cable-one-end'; portId: string }
+  /** Links between sites (ADR-0079 decision 5, schema 0.32): a cable from this free port to a
+   * port in another design, picked from estate search (`SiteLink.tsx`). Only the ids and the
+   * label are stored. */
+  | { kind: 'cable-link-site'; portId: string; label: string; far: { design: string; element: string } }
   /** Missing links: the cable panel's and right-click menu's "Needs finishing" toggle
    * (`setCableNeedsFinishing`). One undo step. */
   | { kind: 'cable-needs-finishing'; id: string; on: boolean }
@@ -330,6 +334,9 @@ export interface EditorActions {
    * (`contract.ts`'s own file header note on that pattern): a caller that
    * does not supply one simply has no selecting links, not a crash. */
   onSelect?(selection: Selection): void;
+  /** Where the open design sits, so a port can link to another site (ADR-0079 decision 5).
+   * Absent where there is no server to search, such as a sample. */
+  estate?: { organisationId: string; designId: string };
   /** ADR-0053 §5 — every live note on
    * `ownerId` (a Device, a PhysicalPort or a Rack — `document/notes.ts`'s
    * own `Notable`), re-read fresh off the caller's held `Document` on every

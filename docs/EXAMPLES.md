@@ -216,3 +216,30 @@ the same folders, and no more than its key allows.
 4. Plan it: a **Swap a part** step, the port, then **From stock**. The spare is kept for the step.
 5. **Done** fits it. The dead optic goes into stock as retired, with where it came from; open it on
    On hand and **Send for repair** with the vendor's RMA number and the issue it was for.
+
+## 14. Find a serial number on another site
+
+The estate index (ADR-0079) searches every design you can open, not just the one in front of you.
+
+1. Press **Ctrl+K** and type at least three characters of a name, model, serial or address, such as
+   `pe3714` or `10.20.0`. Things in this design come first; things in other designs follow under
+   **Other sites**, each with its design and where it sits.
+2. Press **Enter** on one. Its design opens in Inventory at that thing, the way a scanned label does.
+3. For a list rather than a search, open **Inventory › Every site**. It pages through every device, card,
+   optic, power supply and spare you can read, grouped by design, with a kind filter and its own search
+   box.
+
+A design saved a moment ago shows within a few seconds. The line under the table says how many designs
+are still catching up. Someone with Read on one site finds only that site's things.
+
+## 15. Link an uplink to the switch in another site
+
+A cable can end on a port in another design, so two sites stay connected without being drawn
+together (ADR-0079).
+
+1. Select a free port, say the uplink on `acc-sw-01`, and choose **Link to another site…** in its panel.
+2. Type part of the far device's name, serial or address. Pick the device, then its port.
+3. The cable now leaves the rack into a tray named for the far site and device. **Open there** on the
+   tray opens that design at the far port.
+4. In the far design, link that port back the same way. Until you do, Checks note the link as
+   one-sided, and a trace from the far side stops at its edge.

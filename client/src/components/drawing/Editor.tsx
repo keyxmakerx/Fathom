@@ -48,6 +48,7 @@ import { connectorName, describePorts, faceplateLayoutFor } from './faceplate';
 import { EmptyState } from '../ui/EmptyState';
 import { Fold } from './Fold';
 import { CardsSection, OpticSection } from './Parts';
+import { OpenFarSite, SiteLinkPicker, siteLinkOf } from './SiteLink';
 import { LoginsTab, LoginsTabLabel } from '../vault/Screens';
 import { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, rackHeightBlocker, swapModelChange, swapSummary } from './editorChanges';
 export { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, rackHeightBlocker, swapModelChange, swapSummary };
@@ -484,12 +485,14 @@ function PortCableSection({ view, port, actions }: { view: ClosetView; port: Por
         <div className="drawing-editor__field-value">Not cabled.</div>
         <ConnectHint canDraw={actions.onEdit != null} />
         <OneEndCableButton portId={port.id} actions={actions} />
+        <SiteLinkPicker portId={port.id} actions={actions} />
       </div>
     );
   }
   const cable = port.cable;
   const cableObj = view.cables.find((c) => c.id === cable.cableId);
   const farEnd = farEndOf(view, cable.cableId, port.id);
+  const farSite = siteLinkOf(farEnd);
   const onSelect = actions.onSelect;
   return (
     <div className="drawing-editor__field">
@@ -522,7 +525,10 @@ function PortCableSection({ view, port, actions }: { view: ClosetView; port: Por
               Go to far end
             </button>
           ) : null}
+          {farSite != null && farEnd != null ? <OpenFarSite far={farSite} label={cableEndText(view, farEnd)} /> : null}
         </div>
+      ) : farSite != null && farEnd != null ? (
+        <OpenFarSite far={farSite} label={cableEndText(view, farEnd)} />
       ) : null}
     </div>
   );
@@ -2467,6 +2473,7 @@ function panelFor(
                     {i === 0 ? 'Go to end A' : 'Go to end B'}
                   </button>
                 ) : null}
+                {'outside' in end && end.far ? <OpenFarSite far={end.far} label={cableEndText(view, end)} /> : null}
               </div>
             </div>
           ))

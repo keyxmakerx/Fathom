@@ -15,8 +15,9 @@ number of devices is.
 A design is one document. The server stores it whole, encrypted (ADR-0049), and the browser loads it
 whole into the engine. Live changes are small (ADR-0063), but opening a design, a full reload and
 the server's own copy of the head all hold the entire document. One design is capped at 64 MiB
-(`designs::MAX_PAYLOAD_BYTES`). Inventory, Find and Ctrl+K search the open design only; nothing
-searches across designs.
+(`designs::MAX_PAYLOAD_BYTES`). Find searches the open design. Since ADR-0079, Ctrl+K and
+Inventory › Every site also search every other design a person can read, through the server's
+estate index, and a cable can link to a port in another design.
 
 ## Numbers
 
@@ -44,11 +45,24 @@ search across them.
 
 ## What it would take
 
-Three pieces of work, cheapest first. The choice of how far to go is on the Sign-offs page.
+Three pieces of work, cheapest first. The owner chose 1 and 2 (sign-off r51, option A; ADR-0079).
+Both are built; for 1 the owner picked keeping the newest 500 changes in each save (r53, option A).
 
-1. **Stop carrying the whole history in every save.** Keep history in the chain and the change
-   table, and save the current state plus a checkpoint. About a fourfold cut in document size,
-   no change to how anything looks.
+1. **Stop carrying the whole history in every save.** Built (ADR-0079 decision 6): each checkpoint
+   keeps the newest 500 changes and the provenance still in use; every change stays on the chain,
+   and History pages through it from the server. Undo reaches the newest 500. Measured on the
+   benchmark's document, 2026-10-28, with the same rule:
+
+   | Devices | Changes in the design | Document | Kept to 500 changes | Without history |
+   |---|---|---|---|---|
+   | 200 | 700 | 4.8 MB | 4.2 MB | 1.3 MB |
+   | 1,000 | 3,500 | 24.2 MB | 16.6 MB | 6.5 MB |
+
+   So about a third smaller at 1,000 devices, not the fourfold cut "without history" suggested:
+   500 kept changes keep their provenance, and provenance (one record a field) is most of what
+   remains. What it changes is growth: a save no longer gets bigger with every edit, so a design
+   edited millions of times stays the present plus 500 changes. The 64 MiB cap now stops the
+   benchmark's design at about 4,000 devices instead of 2,700.
 2. **An estate index across designs.** The server already reads every design back (ADR-0049); it
    can keep a searchable index of devices, ports, addresses and serials per organisation, so
    Inventory and search answer across every design a person can read. This is what makes "one
@@ -60,6 +74,9 @@ Three pieces of work, cheapest first. The choice of how far to go is on the Sign
 
 ## What was not measured
 
-Live co-editing under load (many people on one design), import of a large file, and the canvas's
-own drawing time in a browser. The server's live path applies each change to its cached head, so
+The time to open a design after slimming (it follows the document's size, so expect it to fall
+about as much), and History's page time on a chain of millions (each page is a range read off the
+chain's primary key, and verify still walks the whole chain). Live co-editing under load (many people on one design), import of a large file, the canvas's
+own drawing time in a browser, and how long the estate index takes to rebuild a large design (it
+runs after the save, never in front of it, and search says how many designs are still catching up). The server's live path applies each change to its cached head, so
 its cost follows the head's size above.

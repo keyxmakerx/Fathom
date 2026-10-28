@@ -10,6 +10,7 @@ import { endLine, hiddenCount, readingAs, untiedStop, visiblePolicies } from './
 import { hopPhase } from './tracePlayback';
 import { useTraceRevealed } from './traceStore';
 import { prefersReducedMotion } from '../drawing/motion';
+import { openElsewhere } from '../../api/estate';
 import type { TraceController } from './useTraceController';
 import './trace.css';
 
@@ -99,7 +100,22 @@ function Hop({ hop, only, phase }: { hop: TraceHop; only: boolean; phase: 'done'
   );
 }
 
-export function TracePanel({ controller, onTie }: { controller: TraceController; onTie?: (deviceId: string) => void }): JSX.Element | null {
+/** A link to another site the trace's path crosses (ADR-0079 decision 5): the panel offers to
+ * open that design at the far port and carry on there. */
+export interface TraceContinuation {
+  label: string;
+  far: { design: string; element: string };
+}
+
+export function TracePanel({
+  controller,
+  onTie,
+  continueIn,
+}: {
+  controller: TraceController;
+  onTie?: (deviceId: string) => void;
+  continueIn?: TraceContinuation | null;
+}): JSX.Element | null {
   const [only, setOnly] = useState(false);
   const { from, result, query, target } = controller;
   const revealed = useTraceRevealed();
@@ -194,6 +210,14 @@ export function TracePanel({ controller, onTie }: { controller: TraceController;
             ))}
           </ol>
           {result.stopped === '' && <p className="trace-end">{endLine(result, target?.label)}</p>}
+          {continueIn != null && (
+            <p className="trace-end" data-testid="trace-continue">
+              The path leaves this site here ·{' '}
+              <button type="button" className="trace-link" onClick={() => openElsewhere(continueIn.far.design, continueIn.far.element)}>
+                Continue in {continueIn.label || 'the far site'}
+              </button>
+            </p>
+          )}
           {untied != null && (
             <p className="trace-end">
               Not tied to a port ·{' '}

@@ -17,7 +17,7 @@ import {
   removeSketchPort,
   resizeShelf,
 } from '../../document/commands';
-import { connectOneEnd, disconnect, setCableField, setCableNeedsFinishing } from '../../document/cables';
+import { connectOneEnd, connectToOutside, disconnect, setCableField, setCableNeedsFinishing } from '../../document/cables';
 import { addCableRun, addCableTie, moveCableTie, removeCableRun, removeCableTie } from '../../document/cableRuns';
 import { removeFree, setLabel, setLineLabel } from '../../document/freeform';
 import { FieldValueError, setChassisField, setPortMac, setDeviceField, setPassiveNodeField, setRackField, setRackHeight } from '../../document/edit';
@@ -103,6 +103,8 @@ export function applyEditorChange(
     next = disconnect(doc, change.id, opts);
   } else if (change.kind === 'cable-one-end') {
     next = connectOneEnd(doc, change.portId, {}, opts);
+  } else if (change.kind === 'cable-link-site') {
+    next = connectToOutside(doc, change.portId, { label: change.label, far: change.far }, opts);
   } else if (change.kind === 'cable-needs-finishing') {
     next = setCableNeedsFinishing(doc, change.id, change.on, opts);
   } else if (change.kind === 'device-remove') {

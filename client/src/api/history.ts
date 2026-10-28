@@ -72,8 +72,19 @@ export function verifyWords(outcome: VerifyOutcome): string {
 const base = (organisationId: string, designId: string) =>
   `/organisations/${encodeURIComponent(organisationId)}/designs/${encodeURIComponent(designId)}`;
 
-export async function fetchHistory(organisationId: string, designId: string): Promise<HistoryEntry[]> {
-  return parseHistory(await signedFetch('GET', `${base(organisationId, designId)}/history`));
+/** The most entries one page may ask for (`HISTORY_PAGE_MAX` on the server). */
+export const HISTORY_PAGE_MAX = 500;
+
+/** The design's chain entries, oldest first. With `page`, only the newest `newest` of them, or
+ * the newest of those before entry `before`: a design with millions of changes is listed a
+ * page at a time (r53). */
+export async function fetchHistory(
+  organisationId: string,
+  designId: string,
+  page?: { newest: number; before?: number },
+): Promise<HistoryEntry[]> {
+  const q = page == null ? '' : `?newest=${page.newest}${page.before != null ? `&before=${page.before}` : ''}`;
+  return parseHistory(await signedFetch('GET', `${base(organisationId, designId)}/history${q}`));
 }
 
 export async function fetchVerify(organisationId: string, designId: string): Promise<VerifyOutcome> {
