@@ -138,3 +138,10 @@
 .react-flow__edge.plan-mark--removed {
   opacity: 0.4;
 }
+
+/* A card or port inside a device the shown AI idea adds, changes or removes: outlined in the plan colour on the
+   plate, beside the device's INSIDE tag. */
+.ai-part-mark {
+  outline: 1.6px dashed var(--m-plan);
+  outline-offset: 1px;
+}

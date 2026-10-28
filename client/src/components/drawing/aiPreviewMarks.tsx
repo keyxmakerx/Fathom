@@ -1,7 +1,7 @@
 // An AI idea's proposed change on the canvas (owner, 2026-10-27): drawn as an open plan is, in the plan colour, with
 // what it removes greyed and the rest faded, until the person accepts or dismisses it. The ideas panel writes the
 // preview; this only reads it.
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, type RefObject } from 'react';
 import { useReactFlow } from '@xyflow/react';
 import type { Edge, Node } from '@xyflow/react';
 
@@ -33,6 +33,32 @@ export function useAiPreviewMarks(nodes: Node[], edges: Edge[], resolvePort?: Re
           }),
     [preview, api, checksShowing, nodes, edges],
   );
+}
+
+const PART_MARK = 'ai-part-mark';
+
+/** Outlines, on the plate, each card and port inside a device the shown idea adds, changes or removes; the device
+ * itself carries the INSIDE tag. A DOM class on the plate's own `data-card-id`/`data-port-id` elements, kept on as
+ * plates mount and re-render. */
+export function useAiPartMarks(containerRef: RefObject<HTMLElement | null>): void {
+  const { parts } = useAiPreview();
+  useEffect(() => {
+    const container = containerRef.current;
+    if (container == null || parts.size === 0) return undefined;
+    const selector = [...parts].flatMap((id) => [`[data-card-id="${CSS.escape(id)}"]`, `[data-port-id="${CSS.escape(id)}"]`]).join(',');
+    // Only touch an element that lacks the class, so the observer never loops on its own edit.
+    const apply = () =>
+      container.querySelectorAll(selector).forEach((el) => {
+        if (!el.classList.contains(PART_MARK)) el.classList.add(PART_MARK);
+      });
+    apply();
+    const observer = new MutationObserver(apply);
+    observer.observe(container, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+    return () => {
+      observer.disconnect();
+      container.querySelectorAll(`.${PART_MARK}`).forEach((el) => el.classList.remove(PART_MARK));
+    };
+  }, [containerRef, parts]);
 }
 
 /** Inside the drawing's React Flow provider: fits the view to what the idea touches when one is shown, and again

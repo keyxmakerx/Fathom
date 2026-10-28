@@ -248,3 +248,25 @@
   font-family: var(--mono);
   font-size: var(--t-micro);
 }
+
+/* The way back out of the inside stop, above it on the canvas and in a device opened by itself. Ink and hairline:
+   a way out, not a warning. */
+.inside-back {
+  display: inline-flex;
+  align-items: center;
+  margin: var(--s2) var(--s3);
+  padding: var(--s1) var(--s3);
+  font: inherit;
+  font-size: var(--t-small);
+  color: var(--ink);
+  background: var(--surface);
+  border: var(--rule-hair) solid var(--hairline);
+  cursor: pointer;
+}
+.inside-back:hover {
+  border-color: var(--ink);
+}
+.inside-back:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}

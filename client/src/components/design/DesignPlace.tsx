@@ -1013,7 +1013,7 @@ export function DesignPlace(props: DesignPlaceProps) {
           showIssue(id);
         }}
         onPreview={(idea) => {
-          aiPreview.show(idea);
+          aiPreview.show(idea, null, buildCanon(doc));
           setIdeaChange(null);
           if (idea == null) return;
           fetchIdeaChange(organisationId, designId, idea.id)
