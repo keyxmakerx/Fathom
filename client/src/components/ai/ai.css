@@ -706,7 +706,9 @@
   width: 4.5rem;
 }
 
+/* The global `input { appearance: none }` collapses a radio to nothing, which left the table with no controls. */
 .ai-work input[type="radio"] {
+  appearance: auto;
   margin: 0;
 }
 
