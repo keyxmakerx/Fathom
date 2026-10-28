@@ -541,6 +541,21 @@ when the log server stops and starts answering. Nothing is lost that matters: th
 log keeps every line and the sealed history keeps the addresses. TLS is not offered; put the log
 server on the same private network, or a local rsyslog in front that forwards over TLS.
 
+## The audit trail
+
+Every sealed history entry is also queued in the database (`audit_spool`) to be shipped to a log
+server you name with `FATHOM_AUDIT_SYSLOG=host:port` (RFC 5424 over TCP). **Unset, nothing ships**:
+the entries stay in the database, the start says the deployment is `unwitnessed` (nothing off this
+machine holds a copy), and design writes carry on as normal.
+
+**Set, the queue is a measure of how far behind the log server is.** If the oldest unshipped entry
+is older than `FATHOM_AUDIT_SPOOL_MAX_AGE` seconds (default 72 hours), or the queue is larger than
+`FATHOM_AUDIT_SPOOL_MAX_BYTES` (default 1 GiB), design writes stop and reads carry on, and a save
+says so: *"this design was NOT saved: the audit trail spool has passed its age bound"*. They resume
+by themselves once the log server takes the backlog. Until 2026-10-28 the bound held with no log
+server named too, so every install that never set one stopped saving designs 72 hours after its
+first write; updating the server ends that, and nothing queued is lost.
+
 ## AI connections
 
 ADR-0072. AI access is off in every organisation until a Steward turns it on, and Admin › AI turns it

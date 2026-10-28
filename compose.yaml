@@ -393,6 +393,15 @@ services:
       FATHOM_AI_PUBLIC_URL: ${FATHOM_AI_PUBLIC_URL:-}
       FATHOM_AI_SIGN_IN_URL: ${FATHOM_AI_SIGN_IN_URL:-}
       FATHOM_AI_CLAUDE_RANGES: ${FATHOM_AI_CLAUDE_RANGES:-}
+      # The audit trail's destination (docs/OPERATING.md "The audit trail"): a bare
+      # host:port taking RFC 5424 syslog over TCP. Unset, entries stay in the
+      # database and nothing ships (spool-only, unwitnessed), and design writes
+      # carry on. Set, a backlog older than FATHOM_AUDIT_SPOOL_MAX_AGE seconds
+      # (default 72 hours) or larger than FATHOM_AUDIT_SPOOL_MAX_BYTES (1 GiB)
+      # stops design writes until the destination takes it.
+      FATHOM_AUDIT_SYSLOG: ${FATHOM_AUDIT_SYSLOG:-}
+      FATHOM_AUDIT_SPOOL_MAX_AGE: ${FATHOM_AUDIT_SPOOL_MAX_AGE:-}
+      FATHOM_AUDIT_SPOOL_MAX_BYTES: ${FATHOM_AUDIT_SPOOL_MAX_BYTES:-}
       # Firmware (ADR-0045): on once FATHOM_FIRMWARE_FETCH_BASE_URL is set in
       # `.env` -- the address your SWITCHES can reach this server on, which the
       # server cannot work out for itself. The `:+` form sets the directory only
