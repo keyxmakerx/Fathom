@@ -12,7 +12,7 @@ import type { OccupantView, ShelfView } from '../../document/view';
 import type { PortView, Sheath } from './contract';
 import type { LiveDrag } from './ChassisNode';
 import { shelfOccupantFaceplateItems, type Facing } from './elevation';
-import { U_PX, glyphScaleBudgetCap } from './geometry';
+import { RACK_INNER_PX, U_PX, glyphScaleBudgetCap } from './geometry';
 import { useLive } from './liveStore';
 import { LitPathMark } from './CableOverlayEdge';
 import { portKindFor } from './portGlyph';
@@ -321,6 +321,48 @@ export function shelfPlateMode(heightU: number): 'compact' | 'full' {
   return heightU <= 1 ? 'compact' : 'full';
 }
 
+/** A 1U shelf's row is one rack wide (`RACK_INNER_PX`), at `--t-micro`. Names are
+ * drawn whole, never cut to "padpar…": as many as fit, then one "+N" chip for the
+ * rest, which opens the shelf. Widths are estimated from the character count,
+ * the way `faceplate.ts` sizes a name, since every size here is fixed flow px. */
+const COMPACT_CHAR_PX = 5.1;
+const COMPACT_CHIP_PAD_PX = 9;
+const COMPACT_GAP_PX = 3;
+const COMPACT_LABEL_MAX_PX = 72;
+const COMPACT_MORE_PX = 26;
+
+export function compactChipPx(name: string): number {
+  return Math.ceil(name.length * COMPACT_CHAR_PX) + COMPACT_CHIP_PAD_PX;
+}
+
+/** How many of `names`, left to right, draw whole beside the shelf's own label; the
+ * rest fold into "+N". */
+export function fitCompactOccupants(shelfLabel: string, names: readonly string[]): number {
+  const labelPx = Math.min(COMPACT_LABEL_MAX_PX, Math.ceil(shelfLabel.length * COMPACT_CHAR_PX));
+  const room = RACK_INNER_PX - 8 - labelPx - COMPACT_GAP_PX;
+  let used = 0;
+  for (let i = 0; i < names.length; i += 1) {
+    const next = used + compactChipPx(names[i]!) + (i > 0 ? COMPACT_GAP_PX : 0);
+    const reserve = i < names.length - 1 ? COMPACT_GAP_PX + COMPACT_MORE_PX : 0;
+    if (next + reserve > room) return i;
+    used = next;
+  }
+  return names.length;
+}
+
+function compactHandles(ports: readonly PortView[]) {
+  return ports.map((port) => (
+    <Handle
+      key={port.id}
+      type="source"
+      position={Position.Left}
+      id={port.id}
+      isConnectable={port.cable == null}
+      className="drawing-shelf__compact-port-handle"
+    />
+  ));
+}
+
 export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
   const { shelf, elevation, slotCount, rackId, onResize, onSelectShelf, onSelectOccupant, onSelectPort, portSheath } = data;
   const { occupantIds, myCableIds } = useMyIds(shelf);
@@ -379,6 +421,9 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
   );
 
   if (mode === 'compact') {
+    const fit = fitCompactOccupants(shelf.label, items.map((i) => i.occupant.label));
+    const shown = items.slice(0, fit);
+    const folded = items.slice(fit);
     return (
       <div
         className={
@@ -391,15 +436,16 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
         }}
       >
         <div className="drawing-shelf__compact-row">
-          <span className="drawing-shelf__label">{shelf.label}</span>
+          <span className="drawing-shelf__label" title={shelf.label}>{shelf.label}</span>
           {/* Gap 4: never an empty plate — the shelf's own name above is
               always drawn, occupants or not; this row is simply empty when
               there are none. */}
           <div className="drawing-shelf__compact-occupants">
-            {items.map((item) => (
+            {shown.map((item) => (
               <button
                 key={item.occupant.id}
                 type="button"
+                title={item.occupant.label}
                 data-device-chassis={item.occupant.kind === 'chassis' ? item.occupant.id : undefined}
                 className={
                   selectedOccupantId === item.occupant.id
@@ -412,18 +458,25 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
                 }}
               >
                 {item.occupant.label}
-                {item.ports.map((port) => (
-                  <Handle
-                    key={port.id}
-                    type="source"
-                    position={Position.Left}
-                    id={port.id}
-                    isConnectable={port.cable == null}
-                    className="drawing-shelf__compact-port-handle"
-                  />
-                ))}
+                {compactHandles(item.ports)}
               </button>
             ))}
+            {folded.length > 0 && (
+              // The rest of the shelf, counted. Opening the shelf lists every one;
+              // their ports keep an anchor here so a cable to them still draws.
+              <button
+                type="button"
+                title={folded.map((item) => item.occupant.label).join(', ')}
+                className="drawing-shelf__compact-more nodrag"
+                onClick={(event: MouseEvent) => {
+                  event.stopPropagation();
+                  onSelectShelf();
+                }}
+              >
+                +{folded.length}
+                {folded.map((item) => compactHandles(item.ports))}
+              </button>
+            )}
           </div>
         </div>
         {openOccupant && (
@@ -456,6 +509,7 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
         <span className="drawing-shelf__height">SHELF {shelf.heightU}U</span>
       </div>
       <div className="drawing-shelf__occupants">
+        {slotNumbers.length === 0 && <div className="drawing-shelf__empty">Nothing on this shelf</div>}
         {slotNumbers.map((slot) => {
           const item = bySlot.get(slot);
           if (!item) {

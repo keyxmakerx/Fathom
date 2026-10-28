@@ -10,7 +10,11 @@
 
 .drawing-shelf {
   box-sizing: border-box;
-  border: 1px solid var(--ink);
+  /* r35 shelves: drawn as a tray, not as one more device. Hairline sides and top,
+     an ink lip along the bottom that the things on it sit on; they keep the ink
+     outline every device has, so a shelf never reads as six devices. */
+  border: 1px solid var(--hairline);
+  border-bottom: 2px solid var(--ink);
   background: var(--page);
   display: flex;
   flex-direction: column;
@@ -45,7 +49,7 @@
   flex: 1 1 auto;
   display: flex;
   flex-direction: row;
-  align-items: center;
+  align-items: flex-end;
   gap: var(--s1);
   padding: 0 4px;
   min-width: 0;
@@ -56,29 +60,56 @@
   flex: 1 1 auto;
   display: flex;
   flex-direction: row;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 2px;
+  align-items: flex-end;
+  justify-content: flex-start;
+  gap: 3px;
   min-width: 0;
   overflow: hidden;
 }
 
 .drawing-shelf__compact-occupant {
   position: relative;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-width: 0;
-  max-width: 72px;
+  max-width: 100%;
   appearance: none;
-  border: 1px solid var(--hairline);
-  background: var(--surface);
+  border: 1px solid var(--ink);
+  border-bottom: 0;
+  background: var(--page);
   color: var(--ink);
-  padding: 0 3px;
-  line-height: 1.4;
-  font-weight: 700;
+  padding: 0 4px;
+  font-size: var(--t-micro);
+  line-height: 1.3;
+  font-weight: 400;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
+}
+
+.drawing-shelf--compact .drawing-shelf__label {
+  max-width: 72px;
+  align-self: center;
+}
+
+.drawing-shelf__compact-more {
+  position: relative;
+  flex: 0 0 auto;
+  appearance: none;
+  border: 1px dashed var(--muted);
+  border-bottom: 0;
+  background: none;
+  color: var(--muted);
+  padding: 0 4px;
+  font-size: var(--t-micro);
+  line-height: 1.3;
+  font-variant-numeric: var(--num-tabular);
+  cursor: pointer;
+}
+
+.drawing-shelf__compact-more:focus-visible {
+  outline: var(--focus-width) solid var(--focus-colour);
+  outline-offset: 1px;
 }
 
 .drawing-shelf__compact-occupant--selected {
@@ -98,14 +129,20 @@
   align-items: baseline;
   justify-content: space-between;
   gap: var(--s1);
-  padding: 0 4px;
-  min-height: 9px;
+  padding: 1px 4px 0;
+  height: 13px;
+  font-size: var(--t-micro);
+  line-height: 12px;
   overflow: hidden;
 }
 
 .drawing-shelf__label {
-  font-weight: 700;
-  line-height: 1;
+  /* The shelf's own name is a caption; what sits on it carries the weight. */
+  flex: 0 1 auto;
+  font-size: var(--t-micro);
+  font-weight: 400;
+  color: var(--muted);
+  line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -128,10 +165,10 @@
   display: flex;
   flex-direction: row;
   align-items: stretch;
-  gap: 1px;
+  gap: 3px;
   min-height: 0;
+  padding: 2px 4px 0;
   overflow: hidden;
-  border-top: 1px solid var(--hairline);
 }
 
 /* One occupant, left to right by slot — `design/places/renders/Shelf.png`:
@@ -147,8 +184,8 @@
   align-items: flex-start;
   gap: 1px;
   padding: 1px 3px;
-  border: none;
-  border-right: 1px solid var(--hairline);
+  border: 1px solid var(--ink);
+  border-bottom: 0;
   background: var(--page);
   appearance: none;
   margin: 0;
@@ -158,9 +195,6 @@
   box-shadow: none;
 }
 
-.drawing-shelf__occupant:last-child {
-  border-right: none;
-}
 
 .drawing-shelf__occupant--selected {
   background: var(--surface);
@@ -169,6 +203,16 @@
 .drawing-shelf__occupant:focus-visible {
   outline: var(--focus-width) solid var(--focus-colour);
   outline-offset: -1px;
+}
+
+.drawing-shelf__empty {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--t-micro);
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 /* `design/places/renders/Shelf.png`: empty slots draw as hatched gaps the
@@ -193,7 +237,7 @@
 }
 
 .drawing-shelf__occupant-label {
-  font-weight: 700;
+  font-weight: 400;
   line-height: 1;
   color: var(--ink);
   white-space: nowrap;

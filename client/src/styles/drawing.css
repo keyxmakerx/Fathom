@@ -1580,9 +1580,8 @@
   padding: var(--s1) 0;
   border: var(--rule-hair) solid var(--control-line);
   border-radius: var(--radius-pop);
-  background: var(--pop-bg);
-  backdrop-filter: var(--pop-blur);
-  -webkit-backdrop-filter: var(--pop-blur);
+  /* Solid, not the frosted --pop-bg: rack labels read straight through a frosted menu. */
+  background: var(--pop-solid);
   box-shadow: var(--shadow-pop);
   animation: fathom-pop-in var(--m-pop) var(--m-ease);
 }
