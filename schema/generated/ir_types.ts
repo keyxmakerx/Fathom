@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.30";
+export const SCHEMA_VERSION = "0.31";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -523,7 +523,7 @@ export const VPN_MODE_VARIANTS: readonly VpnMode[] = ["route_based", "policy_bas
 /** Declared field names per kind, declaration order. */
 export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Site: ["name", "code", "address", "timezone", "criticality"],
-  Device: ["hostname", "platform", "os_version", "role", "domain_name", "management_address", "cluster_id", "default_cross_zone_action", "default_inbound_action", "aggregate_device_count", "reth_count", "name_conformance", "firmware_hold"],
+  Device: ["hostname", "platform", "os_version", "role", "domain_name", "management_address", "cluster_id", "default_cross_zone_action", "default_inbound_action", "aggregate_device_count", "reth_count", "name_conformance", "firmware_hold", "firmware_target"],
   Chassis: ["member_index", "model", "serial", "slots"],
   RedundancyGroup: ["number", "node_priority", "preempt", "hold_down_interval", "gratuitous_arp_count"],
   ExternalPeer: ["label", "address", "organisation", "contact", "platform_guess"],
@@ -1084,4 +1084,5 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "StockItem.note": 539,
   "StockLevel.model": 540,
   "StockLevel.at_least": 541,
+  "Device.firmware_target": 542,
 };

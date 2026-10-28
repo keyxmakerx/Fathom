@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   FirmwareRefusal,
+  canSetVersionPlatform,
+  chosenFor,
+  ownTargetLines,
+  setDeviceTarget,
+  setRunningVersion,
+  setVersionPlatform,
   STATE_WORD,
   allDevices,
   cleanSha256,
@@ -14,7 +20,7 @@ import {
   stateOf,
   targetFor,
 } from './firmware';
-import { NOW, estate } from './firmwareFixture';
+import { NOW, addBareDevice, estate } from './firmwareFixture';
 import { emptyDocument, parseNodeId, type Document } from './model';
 import { undo } from './undo';
 
@@ -158,5 +164,59 @@ describe('cleanSha256', () => {
     expect(cleanSha256(`SHA256: ${h.slice(0, 32)} ${h.slice(32)}`)).toBe(h.toLowerCase());
     expect(cleanSha256('nope')).toBeNull();
     expect(cleanSha256(h.slice(2))).toBeNull();
+  });
+});
+
+describe("a device's own chosen version (schema 0.31)", () => {
+  const bare = () => {
+    const { doc, ids } = estate();
+    const made = addBareDevice(doc, 'fw-home', NOW + 10);
+    return { doc: made.doc, id: made.deviceId, ids };
+  };
+
+  it('is chosen, typed and compared for a device with no model', () => {
+    const { doc, id } = bare();
+    let d = setVersionPlatform(doc, id, 'opnsense', { now: NOW + 11 });
+    d = setRunningVersion(d, id, ' 25.7.11_2 ', { now: NOW + 12 });
+    d = setDeviceTarget(d, id, '26.1', { now: NOW + 13 });
+    const dev = deviceFirmware(d, id)!;
+    expect(dev).toMatchObject({ platform: 'opnsense', osVersion: '25.7.11_2', ownTarget: '26.1', models: [] });
+    const chosen = chosenFor(d, dev)!;
+    expect(chosen).toEqual({ version: '26.1', platform: '', target: null });
+    expect(stateOf(dev, chosen)).toBe('behind');
+    expect(ownTargetLines(d).map((l) => [l.device.hostname, l.state])).toEqual([['fw-home', 'behind']]);
+  });
+
+  it('is one undo step each, and clears', () => {
+    const { doc, id } = bare();
+    const by = { actor: '01ARZ3NDEKTSV4RRFFQ69G5FAV' };
+    const d = setDeviceTarget(doc, id, '26.1', { ...by, now: NOW + 11 });
+    expect(deviceFirmware(undo(d, d.batches[d.batches.length - 1]!.id, { ...by, now: NOW + 12 }), id)!.ownTarget).toBe('');
+    expect(deviceFirmware(setDeviceTarget(d, id, null, { now: NOW + 12 }), id)!.ownTarget).toBe('');
+  });
+
+  it("gives way to the model's chosen version, and is refused where the model has one", () => {
+    const { doc, ids } = bare();
+    const d = setTarget(doc, 'ex4300-48t', { version: '22.1R1' }, { now: NOW + 11 });
+    expect(() => setDeviceTarget(d, ids.sw1!, '23.4R2')).toThrow(FirmwareRefusal);
+    // A device whose model has no target may carry its own.
+    const own = setDeviceTarget(doc, ids.sw1!, '22.1R1', { now: NOW + 11 });
+    expect(chosenFor(own, deviceFirmware(own, ids.sw1!)!)?.target).toBeNull();
+    // Once the model has one, that one wins.
+    const both = setTarget(own, 'ex4300-48t', { version: '21.4R3-S6' }, { now: NOW + 12 });
+    expect(chosenFor(both, deviceFirmware(both, ids.sw1!)!)?.version).toBe('21.4R3-S6');
+    expect(ownTargetLines(both)).toEqual([]);
+  });
+
+  it('refuses a version with spaces and a platform it cannot compare', () => {
+    const { doc, id } = bare();
+    expect(() => setRunningVersion(doc, id, '7.2 Update 1')).toThrow(FirmwareRefusal);
+    expect(() => setVersionPlatform(doc, id, 'panos')).toThrow(FirmwareRefusal);
+  });
+
+  it('never changes a platform a paste wrote that Fathom cannot compare', () => {
+    expect(canSetVersionPlatform({ platform: 'panos' })).toBe(false);
+    expect(canSetVersionPlatform({ platform: '' })).toBe(true);
+    expect(canSetVersionPlatform({ platform: 'opnsense' })).toBe(true);
   });
 });

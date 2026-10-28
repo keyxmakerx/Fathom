@@ -91,6 +91,12 @@ Set `FATHOM_FIRMWARE_FETCH_BASE_URL` first (`docs/RUNNING-IT.md`); firmware is o
 3. Right-click the device, **Plan a firmware upgrade**. The plan carries the vendor's steps (Junos,
    IOS XE, NX-OS, EOS) and a one-time link the device fetches its image from.
 
+For a box Fathom has no image for (an OPNsense router, a NAS), open the device: under **Firmware**,
+type what it runs, pick its **Numbering**, and type the version chosen for it. **Plan a firmware
+upgrade** (or **Add to an existing plan…** to put it in the same window as the switch) writes the
+vendor's steps, chosen by **Steps for**: OPNsense, Debian, Ubuntu, TrueNAS or Synology DSM. Afterwards,
+type the new running version and "behind" clears.
+
 ## 8. Look back and restore
 
 1. Click **History** in the bar. It says first whether every save is intact.

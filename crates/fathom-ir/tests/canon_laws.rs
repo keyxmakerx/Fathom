@@ -216,7 +216,8 @@ fn schema_version_is_the_trees() {
     // 0.29 -> 0.30: available inventory. Three node kinds (`Store`, `StockItem`, `StockLevel`), six
     // edge kinds (`HasStore`, `HasStock`, `HasStockLevel`, `InStore`, `ReservedFor`, `ForIssue`),
     // eighteen field keys (524-541); all MINOR.
-    assert_eq!(SCHEMA_VERSION, "0.30");
+    // 0.30 -> 0.31: one optional `Device` field, `firmware_target` (542); MINOR.
+    assert_eq!(SCHEMA_VERSION, "0.31");
 }
 
 #[test]
@@ -760,7 +761,8 @@ fn dispatch_names_every_registry_key() {
     // 442 -> 446: cards (508-511, schema 0.28).
     // 446 -> 458: the room builder (512-523, schema 0.29).
     // 458 -> 476: stock (524-541, schema 0.30).
-    assert_eq!(FIELD_KEYS.len(), 476, "the registry grew or shrank");
+    // 476 -> 477: `Device.firmware_target` (542, schema 0.31).
+    assert_eq!(FIELD_KEYS.len(), 477, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

@@ -132,9 +132,10 @@ fn slot_type_covers_every_registry_key() {
     // 442 -> 446: cards (508-511, schema 0.28).
     // 446 -> 458: the room builder (512-523, schema 0.29).
     // 458 -> 476: stock (524-541, schema 0.30).
+    // 476 -> 477: `Device.firmware_target` (542, schema 0.31).
     assert_eq!(
         FIELD_KEYS.len(),
-        476,
+        477,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

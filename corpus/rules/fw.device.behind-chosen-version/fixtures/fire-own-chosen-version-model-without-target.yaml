@@ -1,0 +1,7 @@
+# The chassis has a model but no target names it, so the device's own chosen version speaks.
+nodes:
+  - { id: d1, kind: Device, set: { hostname: nas-01, platform: linux-host, role: server, os_version: "22.04.4", firmware_target: "24.04" } }
+  - { id: d1_ch, kind: Chassis, set: { member_index: 0, model: ds923-plus } }
+edges:
+  - { kind: HasChassis, from: d1, to: d1_ch }
+anchor: d1

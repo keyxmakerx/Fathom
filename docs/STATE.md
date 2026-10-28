@@ -483,6 +483,17 @@ device fetches its image with a one-time link. The fetch step and the image page
 and **From Linux**: the same job by hand: over SSH (hash on the computer, `scp -O`, or for EOS the switch pulling
 from you), on a USB stick, or by TFTP with a warning, each where the vendor documents it and each step
 with its source (`firmware_by_hand.rs`). Fathom link is the default. On in compose once `FATHOM_FIRMWARE_FETCH_BASE_URL` is set.
+Upgrades Fathom has no image for (sign-off r55, schema 0.31, field key 542): the device page's Firmware
+section takes the running version typed by hand, a **Numbering** (OPNsense, pfSense, RouterOS, Linux and the
+image platforms) for a device no paste named, and for a device with no model target a version chosen for
+the device itself (`Device.firmware_target`; a model's target wins). "Behind" now reads OPNsense, pfSense
+(CE and Plus never ordered against each other), RouterOS and Linux (`version.rs`, each scheme with its
+source; Debian's form is unsourced and says so). Such a device's plan carries written steps, picked by
+platform or by **Steps for**: OPNsense, Debian, Ubuntu, TrueNAS, or Synology DSM (marked not checked:
+Synology's pages would not load) (`components/firmware/kits.ts`). **Add to an existing plan…** puts an
+upgrade into a plan still being planned; a plan is known as a firmware plan by its "Record <version> as
+running" steps, not its title, so one plan can hold several upgrades, each fetch step with its own image.
+Inventory › Firmware lists devices with their own chosen version under the images.
 
 **Type it yourself** (sign-off card r30-nocopy; migration 0041, `teaching.rs`, `components/typing/`). A
 teaching setting per person per organisation. While it is on, commands are shown to be typed: no copy

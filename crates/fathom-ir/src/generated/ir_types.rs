@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.30";
+    pub const SCHEMA_VERSION: &str = "0.31";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -1032,7 +1032,7 @@ mod body {
         pub const fn fields(self) -> &'static [crate::bag::FieldKey] {
             match self {
                 NodeKind::Site => &[crate::bag::FieldKey(1), crate::bag::FieldKey(2), crate::bag::FieldKey(3), crate::bag::FieldKey(4), crate::bag::FieldKey(5)],
-                NodeKind::Device => &[crate::bag::FieldKey(6), crate::bag::FieldKey(7), crate::bag::FieldKey(8), crate::bag::FieldKey(9), crate::bag::FieldKey(10), crate::bag::FieldKey(11), crate::bag::FieldKey(12), crate::bag::FieldKey(13), crate::bag::FieldKey(14), crate::bag::FieldKey(15), crate::bag::FieldKey(16), crate::bag::FieldKey(17), crate::bag::FieldKey(411)],
+                NodeKind::Device => &[crate::bag::FieldKey(6), crate::bag::FieldKey(7), crate::bag::FieldKey(8), crate::bag::FieldKey(9), crate::bag::FieldKey(10), crate::bag::FieldKey(11), crate::bag::FieldKey(12), crate::bag::FieldKey(13), crate::bag::FieldKey(14), crate::bag::FieldKey(15), crate::bag::FieldKey(16), crate::bag::FieldKey(17), crate::bag::FieldKey(411), crate::bag::FieldKey(542)],
                 NodeKind::Chassis => &[crate::bag::FieldKey(18), crate::bag::FieldKey(19), crate::bag::FieldKey(20), crate::bag::FieldKey(21)],
                 NodeKind::RedundancyGroup => &[crate::bag::FieldKey(22), crate::bag::FieldKey(23), crate::bag::FieldKey(24), crate::bag::FieldKey(25), crate::bag::FieldKey(26)],
                 NodeKind::ExternalPeer => &[crate::bag::FieldKey(27), crate::bag::FieldKey(28), crate::bag::FieldKey(29), crate::bag::FieldKey(30), crate::bag::FieldKey(31)],
@@ -7115,12 +7115,13 @@ mod body {
         RethCount,
         NameConformance,
         FirmwareHold,
+        FirmwareTarget,
     }
 
     impl DeviceField {
-        pub const COUNT: usize = 13;
+        pub const COUNT: usize = 14;
         /// Every field, declaration order.
-        pub const ALL: [DeviceField; 13] = [
+        pub const ALL: [DeviceField; 14] = [
             DeviceField::Hostname,
             DeviceField::Platform,
             DeviceField::OsVersion,
@@ -7134,6 +7135,7 @@ mod body {
             DeviceField::RethCount,
             DeviceField::NameConformance,
             DeviceField::FirmwareHold,
+            DeviceField::FirmwareTarget,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -7153,6 +7155,7 @@ mod body {
                 DeviceField::RethCount => "reth_count",
                 DeviceField::NameConformance => "name_conformance",
                 DeviceField::FirmwareHold => "firmware_hold",
+                DeviceField::FirmwareTarget => "firmware_target",
             }
         }
         /// The stable wire key (`schema/field-keys.yaml`).
@@ -7171,6 +7174,7 @@ mod body {
                 DeviceField::RethCount => crate::bag::FieldKey(16),
                 DeviceField::NameConformance => crate::bag::FieldKey(17),
                 DeviceField::FirmwareHold => crate::bag::FieldKey(411),
+                DeviceField::FirmwareTarget => crate::bag::FieldKey(542),
             }
         }
     }
@@ -11362,7 +11366,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 476] = [
+    pub const FIELD_KEYS: [(&str, u32); 477] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -11839,6 +11843,7 @@ mod body {
         ("StockItem.note", 539),
         ("StockLevel.model", 540),
         ("StockLevel.at_least", 541),
+        ("Device.firmware_target", 542),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit

@@ -5,13 +5,19 @@
 // (claim nothing). `firmwareVersion.test.ts` holds the Rust test vectors; change both together.
 
 /** Platform id to version scheme: the table in version.rs, a copy of schema/platforms.yaml. */
-const SCHEMES: Readonly<Record<string, 'junos' | 'iosxe' | 'nxos' | 'eos'>> = {
+type Scheme = 'junos' | 'iosxe' | 'nxos' | 'eos' | 'opnsense' | 'pfsense' | 'routeros' | 'linux';
+
+const SCHEMES: Readonly<Record<string, Scheme>> = {
   'junos-srx': 'junos',
   'junos-mx': 'junos',
   'junos-ex': 'junos',
   'ios-xe': 'iosxe',
   'nx-os': 'nxos',
   eos: 'eos',
+  opnsense: 'opnsense',
+  pfsense: 'pfsense',
+  routeros: 'routeros',
+  'linux-host': 'linux',
 };
 
 /** The platforms a firmware image can be for, with the words the forms show. */
@@ -22,6 +28,18 @@ export const FIRMWARE_PLATFORMS: ReadonlyArray<{ id: string; label: string }> = 
   { id: 'ios-xe', label: 'Cisco IOS XE (ios-xe)' },
   { id: 'nx-os', label: 'Cisco NX-OS (nx-os)' },
   { id: 'eos', label: 'Arista EOS (eos)' },
+];
+
+/**
+ * The platforms a chosen version can be compared on: the image platforms, and the ones whose
+ * upgrades Fathom has no image for (schema 0.31). Each is in the scheme table above.
+ */
+export const VERSION_PLATFORMS: ReadonlyArray<{ id: string; label: string }> = [
+  ...FIRMWARE_PLATFORMS,
+  { id: 'opnsense', label: 'OPNsense (opnsense)' },
+  { id: 'pfsense', label: 'pfSense (pfsense)' },
+  { id: 'routeros', label: 'MikroTik RouterOS (routeros)' },
+  { id: 'linux-host', label: 'Linux (linux-host)' },
 ];
 
 interface Parsed {
@@ -132,6 +150,48 @@ function eos(v: string): Parsed | null {
   return { nums: out, tag: kind, product: false };
 }
 
+/** Between `min` and `max` dotted numbers, padded with 0 to `max`. */
+function dotted(v: string, min: number, max: number): number[] | null {
+  const parts = v.split('.');
+  if (parts.length < min || parts.length > max) return null;
+  const nums = parts.map(num);
+  if (nums.some((n) => n === null)) return null;
+  const out = nums as number[];
+  while (out.length < max) out.push(0);
+  return out;
+}
+
+const plain = (nums: number[] | null): Parsed | null => (nums === null ? null : { nums, tag: '', product: false });
+
+/** `YY.M[.N][_H]`. */
+function opnsense(v: string): Parsed | null {
+  const h = splitOnce(v, '_');
+  const hotfix = h ? num(h[1]) : 0;
+  if (hotfix === null) return null;
+  const nums = dotted(h ? h[0] : v, 2, 3);
+  return nums === null ? null : plain([...nums, hotfix]);
+}
+
+/** CE `A.B.C[-pN]` or Plus `YY.MM[.P]`; the tag is the product. */
+function pfsense(v: string): Parsed | null {
+  const p = splitOnce(v, '-p');
+  const patch = p ? num(p[1]) : 0;
+  if (patch === null) return null;
+  const base = p ? p[0] : v;
+  const first = num(base.split('.')[0]);
+  if (first === null) return null;
+  const plus = first >= 20;
+  if (plus && p) return null;
+  const nums = plus ? dotted(base, 2, 3) : dotted(base, 3, 3);
+  return nums === null ? null : { nums: [...nums, patch], tag: plus ? 'plus' : 'ce', product: true };
+}
+
+/** `A.B[.C]`. */
+const routeros = (v: string): Parsed | null => plain(dotted(v, 2, 3));
+
+/** One to three dotted numbers. */
+const linux = (v: string): Parsed | null => plain(dotted(v, 1, 3));
+
 function cmp(a: readonly number[], b: readonly number[]): number {
   const n = Math.max(a.length, b.length);
   for (let i = 0; i < n; i += 1) {
@@ -146,7 +206,7 @@ function cmp(a: readonly number[], b: readonly number[]): number {
 export function versionOlder(platform: string, have: string, want: string): boolean | null {
   const scheme = SCHEMES[platform];
   if (scheme === undefined) return null;
-  const parse = { junos, iosxe, nxos, eos }[scheme];
+  const parse = { junos, iosxe, nxos, eos, opnsense, pfsense, routeros, linux }[scheme];
   const a = parse(have.trim());
   const b = parse(want.trim());
   if (a === null || b === null) return null;

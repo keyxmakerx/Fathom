@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import type { FirmwareImage } from '../../api/firmware';
 import type { FwDevice, FwTarget } from '../../document/firmware';
-import { FETCH_STEP_TITLE, LINK_PLACEHOLDER, buildUpgradePlan, commandWithLink, commandsFit, maskedLink, parseUpgradeTitle, upgradeTitle } from './upgradePlan';
+import type { Plan, PlanStep } from '../../document/plans';
+import { KIT_CHOICES } from './kits';
+import { FETCH_STEP_TITLE, LINK_PLACEHOLDER, buildUpgradePlan, commandWithLink, commandsFit, labelled, maskedLink, parseUpgradeTitle, stepTitle, upgradeGroups, upgradeTitle } from './upgradePlan';
 
 const HASH = '9f2c' + 'cd'.repeat(28) + 'a41e';
 
-const dev = (id: string, name: string, osVersion = '21.4R3-S5'): FwDevice => ({ deviceId: id, chassisIds: [], hostname: name, models: ['EX2300-24P'], platform: 'junos-ex', osVersion, hold: null });
+const dev = (id: string, name: string, osVersion = '21.4R3-S5'): FwDevice => ({ deviceId: id, chassisIds: [], hostname: name, models: ['EX2300-24P'], platform: 'junos-ex', osVersion, hold: null, ownTarget: '' });
 const target: FwTarget = { id: 't', model: 'EX2300-24P', version: '23.4R2', platform: 'junos-ex', image: 'I1', imageSha256: HASH, note: '' };
 
 const image = (over: Partial<FirmwareImage> = {}): FirmwareImage => ({
@@ -46,7 +48,7 @@ const image = (over: Partial<FirmwareImage> = {}): FirmwareImage => ({
 });
 
 describe('buildUpgradePlan', () => {
-  const t = buildUpgradePlan({ devices: [dev('d1', 'switch-1'), dev('d3', 'switch-3')], model: 'EX2300-24P', target, image: image() });
+  const t = buildUpgradePlan({ devices: [dev('d1', 'switch-1'), dev('d3', 'switch-3')], label: 'EX2300-24P', version: target.version, target, image: image() });
 
   it('is one plan for the devices, named for the model and the version', () => {
     expect(t.title).toBe('Upgrade EX2300-24P to 23.4R2');
@@ -63,7 +65,7 @@ describe('buildUpgradePlan', () => {
       FETCH_STEP_TITLE,
       'Check the SHA-256 on the device',
       'Install and reboot',
-      'Paste the new version back',
+      'Record 23.4R2 as running',
     ]);
     expect(t.steps.every((s) => s.kind === 'other' && s.change.split('\n').length === 2)).toBe(true);
     expect(t.steps[3]!.change).toContain('Compare with 9f2c…a41e.');
@@ -85,21 +87,21 @@ describe('buildUpgradePlan', () => {
   });
 
   it('says so when the image is not staged, and gives no commands it does not have', () => {
-    const u = buildUpgradePlan({ devices: [dev('d1', 'switch-1')], model: 'EX2300-24P', target, image: image({ state: 'failed', sha256: null, commands: null }) });
+    const u = buildUpgradePlan({ devices: [dev('d1', 'switch-1')], label: 'EX2300-24P', version: target.version, target, image: image({ state: 'failed', sha256: null, commands: null }) });
     expect(u.steps[2]!.change).toContain('Stage the image in Fathom first');
     expect(u.steps.every((s) => s.after === undefined)).toBe(true);
   });
 
   it('has no command the server did not write: a staged image without steps gets none, and says so', () => {
     const none = image({ platform: 'frr', commands: { ...image().commands!, platform: 'frr', family: 'unknown', sourced: 'none', steps: [] } });
-    const u = buildUpgradePlan({ devices: [{ ...dev('d1', 'a'), platform: 'frr' }], model: 'X', target: { ...target, platform: 'frr' }, image: none });
+    const u = buildUpgradePlan({ devices: [{ ...dev('d1', 'a'), platform: 'frr' }], label: 'X', version: target.version, target: { ...target, platform: 'frr' }, image: none });
     expect(u.steps.every((s) => s.after === undefined)).toBe(true);
     expect(u.steps[2]!.change).toBe(`${FETCH_STEP_TITLE}\nNo steps are written for this platform yet.`);
     expect(JSON.stringify(u)).not.toContain('copy the image from');
   });
 
   it("does not hand a Juniper command list to another vendor's switch", () => {
-    const u = buildUpgradePlan({ devices: [{ ...dev('d1', 'a'), platform: 'eos' }], model: 'DCS-7050', target: { ...target, platform: 'eos', version: '4.31.1.1M' }, image: image() });
+    const u = buildUpgradePlan({ devices: [{ ...dev('d1', 'a'), platform: 'eos' }], label: 'DCS-7050', version: '4.31.1.1M', target: { ...target, platform: 'eos', version: '4.31.1.1M' }, image: image() });
     expect(u.steps.some((s) => (s.after ?? '').includes('request system'))).toBe(false);
   });
 });
@@ -130,7 +132,7 @@ describe('the plan for other vendors, from the server steps', () => {
       ],
     },
   });
-  const plan = buildUpgradePlan({ devices: [{ ...dev('d1', 'a'), platform: 'ios-xe' }], model: 'C9300', target: { ...target, platform: 'ios-xe' }, image: ios });
+  const plan = buildUpgradePlan({ devices: [{ ...dev('d1', 'a'), platform: 'ios-xe' }], label: 'C9300', version: target.version, target: { ...target, platform: 'ios-xe' }, image: ios });
 
   it('puts IOS XE steps under the six plain ones, "install remove inactive" in the room step', () => {
     expect(plan.steps).toHaveLength(6);
@@ -149,7 +151,7 @@ describe('the plan for other vendors, from the server steps', () => {
 
   it('keeps the SHA-256 wording where the device offers a SHA-256', () => {
     const eos = image({ platform: 'eos', commands: { ...ios.commands!, platform: 'eos', family: 'eos', deviceHash: { algorithm: 'sha256', comparesWith: 'expected_sha256' }, steps: [step(1, 'save the configuration', 'copy running-config flash:/b'), step(2, 'reload -- yours to run, not Fathom\'s', 'reload'), step(3, 'compare with the hash Arista publishes', 'verify /sha512 flash:/x.swi')] } });
-    const p = buildUpgradePlan({ devices: [{ ...dev('d1', 'a'), platform: 'eos' }], model: 'DCS', target: { ...target, platform: 'eos' }, image: eos });
+    const p = buildUpgradePlan({ devices: [{ ...dev('d1', 'a'), platform: 'eos' }], label: 'DCS', version: target.version, target: { ...target, platform: 'eos' }, image: eos });
     expect(p.steps[3]!.change).toContain('Check the SHA-256 on the device');
     expect(p.steps[0]!.after).toBe('copy running-config flash:/b');
     expect(p.steps[3]!.after).toBe('verify /sha512 flash:/x.swi');
@@ -169,5 +171,63 @@ describe('helpers', () => {
   it('masks a link after its path', () => {
     expect(maskedLink('https://fathom.example/firmware/fetch/abcdef0123')).toBe('https://fathom.example/firmware/fetch/••••••••••••');
     expect(maskedLink('abc')).toBe('••••••••');
+  });
+});
+
+describe('an upgrade Fathom has no image for (schema 0.31)', () => {
+  const fw: FwDevice = { deviceId: 'f1', chassisIds: [], hostname: 'fw-home', models: [], platform: 'opnsense', osVersion: '25.7.11_2', hold: null, ownTarget: '26.1' };
+
+  it("uses the written steps for the device's platform, and ends on the record step", () => {
+    const t = buildUpgradePlan({ devices: [fw], label: 'fw-home', version: '26.1', target: null, image: null });
+    expect(t.title).toBe('Upgrade fw-home to 26.1');
+    const titles = t.steps.map((s) => stepTitle(s.change));
+    expect(titles[0]).toBe('Check these steps against OPNsense');
+    expect(titles).toContain('Check for updates and install');
+    expect(titles[titles.length - 1]).toBe('Record 26.1 as running');
+    expect(t.steps.some((s) => s.change.includes(FETCH_STEP_TITLE))).toBe(false);
+    expect(t.steps.every((s) => s.change.split('\n').length === 2)).toBe(true);
+  });
+
+  it('takes the steps the person picked, and Synology says it was not checked', () => {
+    const nas = { ...fw, deviceId: 'n1', hostname: 'blackopal', platform: '', ownTarget: '7.2.2' };
+    const t = buildUpgradePlan({ devices: [nas], label: 'blackopal', version: '7.2.2', target: null, image: null, kit: 'synology' });
+    expect(t.steps[0]!.change).toContain("Check these steps against Synology's own help first");
+    expect(t.steps[0]!.change).toContain('could not read');
+    const deb = buildUpgradePlan({ devices: [nas], label: 'blackopal', version: '13', target: null, image: null, kit: 'debian' });
+    expect(deb.steps.find((s) => (s.after ?? '').includes('apt full-upgrade'))).toBeDefined();
+  });
+
+  it('every kit names where it came from and has no link in it', () => {
+    for (const k of KIT_CHOICES) {
+      const t = buildUpgradePlan({ devices: [fw], label: 'x', version: '1', target: null, image: null, kit: k });
+      expect(JSON.stringify(t)).not.toContain(LINK_PLACEHOLDER);
+      if (k !== 'general') expect(t.steps[0]!.change).toMatch(/Check these steps against/);
+    }
+  });
+});
+
+describe('one plan holding several upgrades', () => {
+  const step = (id: string, change: string, targets: string[]): PlanStep => ({ id, ordinal: 0, kind: 'other', change, before: '', after: '', targets, edit: null, state: 'planned', note: '', doneAt: '' });
+  const plan = (title: string, steps: PlanStep[]): Plan => ({ id: 'p', title, windowStart: '', windowEnd: '', author: '', stage: 'planned', outcome: null, record: '', steps });
+
+  it('is known by its record steps whatever it is called, and pairs each fetch with its devices', () => {
+    const added = labelled(buildUpgradePlan({ devices: [dev('d9', 'core-1')], label: 'EX2300-24P', version: '23.4R2', target, image: image() }), 'EX2300-24P to 23.4R2');
+    expect(stepTitle(added.steps[2]!.change)).toBe(FETCH_STEP_TITLE);
+    const p = plan('Saturday window', [
+      step('a', 'fw-home to 26.1 · Check for updates and install\nx', ['f1']),
+      step('b', 'fw-home to 26.1 · Record 26.1 as running\nx', ['f1']),
+      ...added.steps.map((s, i) => step(`s${i}`, s.change, ['d9'])),
+    ]);
+    const groups = upgradeGroups(p);
+    expect(groups.map((g) => [g.version, g.deviceIds, g.fetchStep?.id ?? null])).toEqual([
+      ['26.1', ['f1'], null],
+      ['23.4R2', ['d9'], 's2'],
+    ]);
+  });
+
+  it('still knows a plan made before the record step, by its title', () => {
+    const p = plan('Upgrade EX2300-24P to 23.4R2', [step('f', `${FETCH_STEP_TITLE}\nx`, ['d1'])]);
+    expect(upgradeGroups(p)).toEqual([{ version: '23.4R2', deviceIds: ['d1'], fetchStep: p.steps[0] }]);
+    expect(upgradeGroups(plan('Move the rack', [step('x', 'Move it\ny', ['d1'])]))).toEqual([]);
   });
 });

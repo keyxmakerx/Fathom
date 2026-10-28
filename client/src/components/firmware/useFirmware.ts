@@ -14,10 +14,20 @@ import {
   setImageModels,
   sendImageBytes,
 } from '../../api/firmware';
-import { FirmwareRefusal, clearTarget, deviceFirmware, setFirmwareHold, setTarget, targetOfDevice } from '../../document/firmware';
+import {
+  FirmwareRefusal,
+  chosenFor,
+  clearTarget,
+  deviceFirmware,
+  setDeviceTarget,
+  setFirmwareHold,
+  setRunningVersion,
+  setTarget,
+  setVersionPlatform,
+} from '../../document/firmware';
 import type { Document } from '../../document/model';
 import { checkUpload } from './uploadCheck';
-import { buildUpgradePlan, type UpgradeTemplate } from './upgradePlan';
+import { buildUpgradePlan, labelled, type UpgradeTemplate } from './upgradePlan';
 import type { FirmwareApi, FirmwareServer, Refused } from './context';
 
 export interface FirmwareInputs {
@@ -83,6 +93,9 @@ export function useFirmwareApi(inputs: FirmwareInputs): FirmwareApi | null {
       setTarget: (model, patch) => edit((d, o) => setTarget(d, model, patch, o)),
       clearTarget: (model) => void edit((d, o) => clearTarget(d, model, o)),
       setHold: (deviceId, reason) => edit((d, o) => setFirmwareHold(d, deviceId, reason, o)),
+      setDeviceTarget: (deviceId, version) => edit((d, o) => setDeviceTarget(d, deviceId, version, o)),
+      setRunning: (deviceId, version) => edit((d, o) => setRunningVersion(d, deviceId, version, o)),
+      setVersionPlatform: (deviceId, platform) => edit((d, o) => setVersionPlatform(d, deviceId, platform, o)),
       upload: async (form, onProgress, signal) => {
         const checked = checkUpload({ filename: form.file.name, size: form.file.size, platform: form.platform, version: form.version, sha256: form.sha256 });
         if ('problem' in checked) return { refused: checked.problem };
@@ -123,19 +136,28 @@ export function useFirmwareApi(inputs: FirmwareInputs): FirmwareApi | null {
           return { refused: firmwareRefusalWords(e, 'link') };
         }
       },
-      planUpgrade: (deviceIds) => {
+      planUpgrade: (deviceIds, how = {}) => {
         const now = latest.current;
         if (now.doc === null) return;
         const devices = deviceIds.flatMap((id) => deviceFirmware(now.doc!, id) ?? []);
         const first = devices[0];
         if (first === undefined) return;
-        const target = targetOfDevice(now.doc, first);
-        if (target === null) {
-          now.openModel(first.models[0] ?? '');
+        const chosen = chosenFor(now.doc, first);
+        if (chosen === null) {
+          if (first.models[0] !== undefined) now.openModel(first.models[0]);
           return;
         }
-        const image = now.server.images.find((i) => i.imageId === target.image) ?? null;
-        now.requestUpgrade(buildUpgradePlan({ devices: devices.filter((d) => d.models.includes(target.model)), model: target.model, target, image }));
+        const target = chosen.target;
+        const image = target ? (now.server.images.find((i) => i.imageId === target.image) ?? null) : null;
+        // A model's version takes that model's devices; a device's own version takes the devices
+        // asked for that have the same one and no model target.
+        const mine = target
+          ? devices.filter((d) => d.models.includes(target.model))
+          : devices.filter((d) => d.ownTarget === chosen.version && chosenFor(now.doc!, d)?.target === null);
+        const label = target ? target.model : first.hostname || 'this device';
+        let template = buildUpgradePlan({ devices: mine, label, version: chosen.version, target, image, ...(how.kit ? { kit: how.kit } : {}) });
+        if (how.intoPlan) template = { ...labelled(template, `${label} to ${chosen.version}`), intoPlan: how.intoPlan };
+        now.requestUpgrade(template);
       },
       openModel: (model) => latest.current.openModel(model),
       openPlan: (id) => latest.current.openPlan(id),

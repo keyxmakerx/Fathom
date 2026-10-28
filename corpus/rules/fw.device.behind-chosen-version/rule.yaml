@@ -1,11 +1,11 @@
 id: fw.device.behind-chosen-version
-rule_version: 1.0.0
+rule_version: 1.1.0
 status: active
 severity: warn
 category: operability
-title: "This device runs older firmware than its model's chosen version"
+title: "This device runs older firmware than its chosen version"
 why: >
-  The design records a chosen firmware version for this device's model, and the version recorded for this device is older. Devices of one model on different firmware behave differently, and the older one may lack fixes the chosen version has.
+  The design records a chosen firmware version for this device's model (or, when no model of its has one, for the device itself), and the version recorded for this device is older. Devices of one model on different firmware behave differently, and the older one may lack fixes the chosen version has.
 fix: >
   Plan a firmware upgrade to the chosen version, or hold this device at its current version if it stays back on purpose and record why.
 concept: check.firmware.chosen-version
@@ -20,5 +20,7 @@ applies_to:
   with:
     chassis: { via: HasChassis, card: many }
     targets: { all: FirmwareTarget, card: many }
+# 1.1.0 (schema 0.31): a device whose models have no chosen version can carry its own,
+# Device.firmware_target. A model's chosen version always wins when there is one.
 condition: >
-  !has(firmware_hold) && has(os_version) && chassis.exists(c, has(c.model) && targets.exists(t, c.model == t.model && version_older(platform, os_version, t.version)))
+  !has(firmware_hold) && has(os_version) && (chassis.exists(c, has(c.model) && targets.exists(t, c.model == t.model && version_older(platform, os_version, t.version))) || (has(firmware_target) && !chassis.exists(c, has(c.model) && targets.exists(t, c.model == t.model)) && version_older(platform, os_version, firmware_target)))
