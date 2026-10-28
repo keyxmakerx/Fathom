@@ -49,6 +49,10 @@ pub(super) fn routes() -> Router<DesignApiState> {
             get(list_ideas_handler),
         )
         .route(
+            "/organisations/{organisation}/designs/{design}/ai-ideas/{idea}/change",
+            get(idea_change_handler),
+        )
+        .route(
             "/organisations/{organisation}/designs/{design}/ai-ideas/{idea}/accept",
             post(accept_idea_handler),
         )
@@ -519,6 +523,40 @@ async fn list_ideas_handler(
     Ok(json_response(Json::Arr(
         found.iter().map(ai::Idea::to_json).collect(),
     )))
+}
+
+/// `GET .../ai-ideas/{i}/change`: `{version, change}`, the `fathom-change 1` document
+/// accepting the idea would write, built on the design at `version` and not written. Needs
+/// `read`.
+async fn idea_change_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, design, idea)): PathExtractor<(String, String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let design_id = parse_design(&design)?;
+    let id = ai::canonical_ulid(&idea).ok_or(RouteError::Ai(AiError::NotFound))?;
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let (doc, version) = ai::idea_change(&tx, &auth, &state.live.heads, design_id, &id).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    let mut m = BTreeMap::new();
+    m.insert("version".into(), Json::Int(version));
+    m.insert(
+        "change".into(),
+        Json::Str(String::from_utf8(doc).map_err(|_| malformed())?),
+    );
+    Ok(json_response(Json::Obj(m)))
 }
 
 async fn decide_idea(

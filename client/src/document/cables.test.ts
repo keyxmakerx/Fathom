@@ -67,8 +67,8 @@ function rackOf(heightU: number): { doc: Document; premisesId: string; rackId: s
 // `PortKind::token()`). `placeChassis` carries a faceplate's `kind` through
 // verbatim (`commands.ts`'s own doc on that loop), so a real catalogue
 // fixture would write `"RJ45"` — which `compat.ts`'s table, built to the
-// schema's lowercase tokens per this session's brief, would then refuse to
-// pair with itself. Noted in this session's report as a reconciliation point
+// schema's lowercase tokens, would then refuse to
+// pair with itself. A reconciliation point
 // between `placeChassis` (unowned here, except for its PSU-inlet addition)
 // and `compat.ts`; this fixture sidesteps it to test `cables.ts` itself.
 const PORT_MODEL: CatalogueModel = {

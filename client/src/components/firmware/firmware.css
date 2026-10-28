@@ -58,7 +58,6 @@
 
 /* ---- Controls: 28px, square, flat ---------------------------------------------------------- */
 
-.fw-btn,
 .fw-tab {
   box-sizing: border-box;
   height: 28px;
@@ -75,30 +74,11 @@
   white-space: nowrap;
 }
 
-.fw-btn--solid {
-  background: var(--ink);
-  color: var(--page);
-}
-
-.fw-btn--quiet {
-  border-color: transparent;
-  background: none;
-  padding: 0 var(--s1);
-  color: var(--muted);
-  height: auto;
-}
-
-.fw-btn--quiet:hover {
-  color: var(--ink);
-}
-
-.fw-btn:disabled,
 .fw-tab:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-.fw-btn:focus-visible,
 .fw-tab:focus-visible,
 .fw-link:focus-visible,
 .fw-input:focus-visible {
@@ -472,7 +452,7 @@ select.fw-input {
 }
 
 /* Beside a plain value a ghost button reads as more label, so in the editor the quiet ones keep a hairline box. */
-.fw-section .fw-btn--quiet {
+.fw-section.btn-quiet {
   height: 24px;
   padding: 0 var(--s2);
   border-color: var(--hairline);
@@ -480,7 +460,7 @@ select.fw-input {
   color: var(--ink);
 }
 
-.fw-section .fw-btn--quiet:hover {
+.fw-section.btn-quiet:hover {
   border-color: var(--ink);
 }
 

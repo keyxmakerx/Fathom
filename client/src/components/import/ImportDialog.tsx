@@ -31,6 +31,7 @@ import { readFile } from '../../import/read';
 import type { GatedTable } from '../../import/table';
 import { oneLine } from '../../import/text';
 import './import.css';
+import { useModal } from '../shell/useModal';
 
 export interface ImportSummary {
   fileName: string;
@@ -108,13 +109,10 @@ export function ImportDialog(props: ImportDialogProps) {
     latest.current = { doc, fieldDefs };
   }, [doc, fieldDefs]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !busy) onCancel();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onCancel, busy]);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModal(dialogRef, () => {
+    if (!busy) onCancel();
+  });
 
   const errors = useMemo(() => (table ? mappingErrors(table, mapping, fieldDefs) : []), [table, mapping, fieldDefs]);
   const liveDefs = useMemo(() => fieldDefs.filter((d) => d.appliesTo === 'device' && !d.archived).sort((a, b) => a.name.localeCompare(b.name)), [fieldDefs]);
@@ -251,7 +249,7 @@ export function ImportDialog(props: ImportDialogProps) {
   const itemsOf = (b: Bucket) => (plan ? plan.items.filter((i) => i.bucket === b) : []);
 
   return (
-    <div className="imp" role="dialog" aria-modal="true" aria-label="Bring a network in">
+    <div className="imp" role="dialog" aria-modal="true" aria-label="Bring a network in" ref={dialogRef}>
       <div className="imp__box">
         <ol className="imp__steps" aria-label="Steps">
           {STEPS.map((s) => (

@@ -213,7 +213,7 @@ describe('actionForOutcome (the state machine\'s decisions, as a pure function)'
 //
 // `vitest.config.ts` runs this suite under Node (`environment: 'node'`),
 // which has no `indexedDB` global and no jsdom -- so real IndexedDB cannot
-// run under this test runner at all (per this task's own brief). This stub
+// run under this test runner at all (per the original brief). This stub
 // covers only the exact shapes `../crypto/keys.ts` issues against one
 // database with two single-key object stores: `open` with an upgrade
 // callback, and per-store `get` / `put` / `delete`, each completing on a

@@ -23,6 +23,7 @@ import { copyFileSync, createWriteStream, mkdirSync, readFileSync, rmSync, write
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrateUrl, runtimeUrl } from './drive-lib/db.mjs';
+import { check, fails } from './drive-lib/kit.mjs';
 
 const pw = await import(process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js');
 const { chromium } = pw.default ?? pw;
@@ -51,11 +52,6 @@ const OPERATOR = 'operator@fathom.invalid';
 const STEWARD_ADDRESS = 'ann.alder@northwind.example';
 const STEWARD_PASSWORD = 'people-steward-passphrase-kept-for-this-proof-only';
 
-const fails = [];
-function check(name, ok, detail) {
-  console.log((ok ? 'PASS  ' : 'FAIL  ') + name + (detail ? '  [' + detail + ']' : ''));
-  if (!ok) fails.push(name);
-}
 const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { encoding: 'utf8', ...opts });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -194,7 +190,6 @@ async function startServer() {
 
 const VIEWPORT = { width: 1440, height: 900 };
 
-
 const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 async function runProof(browser, ctxA, seed) {
@@ -230,7 +225,7 @@ async function runProof(browser, ctxA, seed) {
   // Working through a plan is capped at Off by the server's own default, so its Proposes cannot be chosen.
   for (const w of ['Edit the design', 'Draft maintenance plans', 'Troubleshoot']) await A.getByLabel(`${w}: Proposes`).check();
   const doingCapped = await A.getByLabel('Work through a plan: Proposes').isDisabled();
-  const capNote = (await A.getByTestId('ai-policy-work').innerText()).includes('This server allows at most Off');
+  const capNote = (await A.getByTestId('ai-policy-work').innerText()).includes('Limited by the server');
   await A.getByTestId('ai-policy-only').scrollIntoViewIfNeeded();
   await shot('o3-org-ai-policy');
   check('O3a. AI rules show what an AI may do by kind of work, and working through a plan is capped by the server', doingCapped && capNote);
@@ -402,6 +397,22 @@ async function runProof(browser, ctxA, seed) {
     arguments: { design: designId, version: reread.body.result.structuredContent.version, summary: 'Rename the first switch', operations: [{ op: 'set', element: core?.id, field: 'hostname', value: 'lab-core-1' }] },
   });
   check('M13. propose_change on a drawn switch waits as an idea', rename.body.result?.isError === false, JSON.stringify(rename.body).slice(0, 300));
+  const rackId = (reread.body.result.structuredContent.nodes ?? []).find((n) => n.kind === 'Rack')?.id;
+  const racked = await rpc('tools/call', {
+    name: 'propose_change',
+    arguments: {
+      design: designId,
+      version: reread.body.result.structuredContent.version,
+      summary: 'Rack a spare switch',
+      operations: [
+        { op: 'add_node', kind: 'Device', as: 'spare', fields: { hostname: 'lab-spare-racked' } },
+        { op: 'add_node', kind: 'Chassis', as: 'spare_c' },
+        { op: 'add_edge', kind: 'HasChassis', from: 'spare', to: 'spare_c' },
+        { op: 'add_edge', kind: 'MountedIn', from: 'spare_c', to: rackId, fields: { position_u: 3, height_u: 1, face: 'front' } },
+      ],
+    },
+  });
+  check('M14. propose_change that racks a new switch waits as an idea', racked.body.result?.isError === false, JSON.stringify(racked.body).slice(0, 300));
   await A.goto(URL_, { waitUntil: 'domcontentloaded' });
   await A.locator('.drawing').waitFor({ timeout: 20000 });
   const tab3 = A.getByRole('tab', { name: /AI ideas/ }).or(A.locator('[data-side-tab="ai-ideas"]')).or(A.getByText(/^AI ideas/)).first();
@@ -415,7 +426,24 @@ async function runProof(browser, ctxA, seed) {
   await A.waitForTimeout(600);
   await shot('d5-ai-idea-on-canvas');
   const word = (await marked.count()) > 0 ? await marked.first().evaluate((el) => getComputedStyle(el).getPropertyValue('--plan-word')) : '';
-  check('D5. Show on canvas marks the switch in the plan colour, tagged AI CHANGES, and nothing has changed yet', /AI CHANGES/.test(word) && (await A.getByText('lab-core-1').count()) === 0, word);
+  const notYet = await rpc('tools/call', { name: 'read_design', arguments: { design: designId } });
+  check(
+    'D5. Show on canvas draws the switch renamed, in the plan colour, tagged AI CHANGES, and the design has not changed',
+    /AI CHANGES/.test(word) && (await A.locator('.drawing').getByText('lab-core-1').count()) > 0 && !JSON.stringify(notYet.body.result.structuredContent).includes('lab-core-1'),
+    word,
+  );
+  // An idea that adds something draws it where it would go, tagged AI ADDS, still only on the canvas.
+  await renameIdea.getByTestId('ai-idea-preview').click();
+  const spareIdea = A.getByTestId('ai-ideas').locator('.ai-idea', { hasText: 'Rack a spare switch' });
+  await spareIdea.getByTestId('ai-idea-preview').click();
+  await A.locator('.drawing').getByText('lab-spare-racked').first().waitFor({ timeout: 10000 }).catch(() => {});
+  await A.waitForTimeout(600);
+  await shot('d6-ai-idea-adds-on-canvas');
+  const adds = await A.locator('.react-flow__node.plan-mark--plan').evaluateAll((els) => els.map((el) => getComputedStyle(el).getPropertyValue('--plan-word')).join(' '));
+  check('D6. Show on canvas draws a switch the idea racks, in its rack, tagged AI ADDS', (await A.locator('.drawing').getByText('lab-spare-racked').count()) > 0 && /AI ADDS/.test(adds), adds);
+  const unmovedAgain = await rpc('tools/call', { name: 'read_design', arguments: { design: designId } });
+  check('D6b. drawing it changed nothing', !JSON.stringify(unmovedAgain.body.result.structuredContent).includes('lab-spare-racked'));
+  await spareIdea.getByTestId('ai-idea-preview').click();
 
   // ---- Steward › AI lists it -------------------------------------------------------
   await A.locator('.shell-bar__brand').first().click();
@@ -428,6 +456,7 @@ async function runProof(browser, ctxA, seed) {
   check('O4. the connection is listed as Claude Code, on', /\bon\b/i.test(await A.locator('.ai-table__row', { hasText: 'Claude Code' }).innerText()));
   check('O4b. it shows the AI account the person gave, and their sign-in', (await A.getByTestId('ai-key-account').innerText()).includes('ann@example.org') && (await A.locator('.ai-facts').innerText()).includes('@'));
   check('O4c. its owner sees what it may do, editing the design at Proposes', await A.getByTestId('ai-key-work').getByLabel('Edit the design: Proposes').isChecked());
+  check('O4e. its access shows in one word beside its name', /^(safe|medium|critical|full)$/i.test((await A.getByTestId('ai-key-access').innerText()).trim()));
   // Its owner sets editing the design to Ideas: the AI's next proposal to rename is refused, naming the kind of work.
   await A.getByTestId('ai-key-work').getByLabel('Edit the design: Ideas').check();
   await A.getByRole('button', { name: 'Save changes' }).click();

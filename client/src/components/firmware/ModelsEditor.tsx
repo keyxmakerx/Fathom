@@ -21,7 +21,7 @@ export function ModelsEditor({ api, imageId, current, known }: { api: FirmwareAp
     return (
       <button
         type="button"
-        className="fw-btn fw-btn--quiet"
+        className="fw-btn btn-quiet"
         onClick={() => {
           setPicked(new Set(current));
           setExtra('');
@@ -80,7 +80,7 @@ export function ModelsEditor({ api, imageId, current, known }: { api: FirmwareAp
         <button type="submit" className="fw-btn" disabled={busy}>
           {busy ? 'Saving…' : 'Save models'}
         </button>
-        <button type="button" className="fw-btn fw-btn--quiet" disabled={busy} onClick={() => setOpen(false)}>
+        <button type="button" className="fw-btn btn-quiet" disabled={busy} onClick={() => setOpen(false)}>
           Cancel
         </button>
       </div>

@@ -815,7 +815,7 @@ button.shell-admin-pill {
 }
 
 /* Nothing in the bar may shrink except the search box.
-   BRIEF.md: "search collapses to the magnifier alone before anything else
+   the shell brief: "search collapses to the magnifier alone before anything else
    gives." Without this, flex quietly squeezes the presence chips instead,
    which is wrong twice over: the chips wrap onto two lines in a 44px row,
    and `Bar.tsx`'s measurement stops being true -- it measures the groups'

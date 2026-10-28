@@ -23,6 +23,10 @@ export function aiError(e: unknown): string {
     const text = e.message.trim();
     if (text !== '' && text !== 'refused') return text.charAt(0).toUpperCase() + text.slice(1);
     if (e.status === 401) return 'Your sign-in has ended. Sign in again.';
+    // The server keeps a fault's cause to its log, so say where to look, not "refused".
+    if (e.status >= 500) {
+      return "Fathom's server hit a fault and changed nothing. Whoever runs Fathom will find why in the server's log at this time.";
+    }
     return 'Fathom refused that.';
   }
   return e instanceof Error ? e.message : 'Something went wrong.';

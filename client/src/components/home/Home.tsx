@@ -55,7 +55,7 @@ export interface HomeProps {
   address: string;
   /** Open `design` (within `organisation`) in the Racks place. Home does
    * not navigate on its own — it is a body the caller places below its own
-   * bar, per this task's brief — so opening a place is always handed back
+   * bar, per the original brief — so opening a place is always handed back
    * through a prop. */
   onOpenRacks: (organisation: Organisation, design: DesignSummary) => void;
   /** Open `design` (within `organisation`) in the Inventory place. */
@@ -565,7 +565,7 @@ export function Home({
                 : 'You belong to no organisations yet.'}
             </p>
             {onClaimOrganisation && !waitingInvitee && !practice && (
-              <button type="button" className="home__btn home__btn--small" onClick={onClaimOrganisation}>
+              <button type="button" className="home__btn btn-small" onClick={onClaimOrganisation}>
                 Claim an organisation
               </button>
             )}
@@ -700,7 +700,7 @@ export function Home({
             {selectedOrganisation && !(designs.status === 'ready' && designs.value.length === 0) && (
               <button
                 type="button"
-                className="home__btn home__btn--small"
+                className="home__btn btn-small"
                 disabled={newDesignBusyScopeId !== null || scopes.status !== 'ready'}
                 onClick={() => handleNewDesign(selectedOrganisation)}
               >
@@ -844,7 +844,7 @@ interface HomeDesignsProps {
 /**
  * Everything Home shows about designs and where to start one, replacing the
  * old `ScopedDesignList`: the board grouped by closet (D11) when there is at
- * least one design, PLUS — this task's own brief — a list of every scope the
+ * least one design, PLUS — the original brief — a list of every scope the
  * account may draw in that has none yet, so an organisation with zero
  * designs is never left with nothing to press. `scopesWithNoDesigns` is
  * itself capability-blind; the `canDrawFor` filter here is what actually
@@ -975,7 +975,7 @@ function ScopeHeading({ scope, designCount, busy, onCreateDesign, bare }: ScopeH
       </span>
       <span className="home__scope-actions">
         {canDrawFor(scope.capability) && (
-          <button type="button" className="home__btn home__btn--small" onClick={onCreateDesign} disabled={busy}>
+          <button type="button" className="home__btn btn-small" onClick={onCreateDesign} disabled={busy}>
             {busy ? 'Creating…' : 'New design'}
           </button>
         )}

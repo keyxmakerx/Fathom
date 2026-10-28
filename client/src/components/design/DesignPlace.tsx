@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { DesignCapability } from '../../api/designs';
 import { addNote, notesOf as notesOfDoc, removeNote, type NoteHow } from '../../document/notes';
@@ -15,8 +15,9 @@ import { Engine } from '../../engine/engine';
 import { refusalSentence } from '../../engine/mirror';
 import { buildCsv } from '../../print/csv';
 import { AiIdeasPanel, aiIdeasTab, useAiIdeas } from '../ai/AiIdeas';
-import { AiPreviewContext, createAiPreviewStore } from '../ai/aiPreview';
-import { decideIdea } from '../../api/ai';
+import { AiPreviewContext, createAiPreviewStore, drawnPreview } from '../ai/aiPreview';
+import { decideIdea, fetchIdeaChange, type AiIdea } from '../../api/ai';
+import { readChange, type Change } from '../../document/change';
 import type { IdeaForPlan } from '../../document/plans';
 import { buildCanon } from '../checks/checksModel';
 import { nameOf as planNameOf } from '../plans/plansModel';
@@ -113,7 +114,7 @@ export interface DesignPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | '
 }
 
 /**
- * This session's brief item 1 — the parent Racks and Inventory share.
+ * The parent Racks and Inventory share.
  * `useDesignSession` is called exactly ONCE here, above the `if` that picks
  * which of the two place components actually renders: switching `place`
  * only ever swaps which of `RacksPlace`/`InventoryPlace` is mounted, never
@@ -122,8 +123,8 @@ export interface DesignPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | '
  * and a change queued the moment before someone clicked "Inventory" still
  * goes out.
  *
- * Also holds the one thing "Show on rack"/"Open in inventory" (this
- * session's brief item 5) needs to cross the switch: `focus`, the
+ * Also holds the one thing "Show on rack"/"Open in inventory"
+ * needs to cross the switch: `focus`, the
  * `Selection` Racks should open already showing. Each call gets a fresh
  * object (a new `{ kind, id }` literal) so `RacksPlace`'s own edge-triggered
  * effect can tell "asked again" from "the same selection, unchanged" by
@@ -193,6 +194,13 @@ export function DesignPlace(props: DesignPlaceProps) {
   const [aiIdeasOpen, setAiIdeasOpen] = useState(false);
   // An AI idea's proposed change shown on the canvas before anyone accepts it.
   const aiPreview = useMemo(createAiPreviewStore, []);
+  const aiPreviewDoc = useSyncExternalStore(aiPreview.subscribe, () => aiPreview.get().doc, () => aiPreview.get().doc);
+  // The change accepting the shown idea would write, built by the server, so what it adds is drawn where it goes.
+  const [ideaChange, setIdeaChange] = useState<{ idea: AiIdea; change: Change } | null>(null);
+  useEffect(() => {
+    if (ideaChange == null || session.doc == null || aiPreview.get().ideaId !== ideaChange.idea.id) return;
+    aiPreview.show(ideaChange.idea, drawnPreview(session.doc, ideaChange.idea, ideaChange.change));
+  }, [aiPreview, ideaChange, session.doc]);
   const pickedSave = historyOpen ? history.picked : null;
   const outlineKey = pickedSave != null ? pickedSave.outline.join('\n') : '';
   useEffect(() => {
@@ -750,7 +758,7 @@ export function DesignPlace(props: DesignPlaceProps) {
   const openInInventory = useCallback(
     (chassisId: string) => {
       // The reverse trip carries no focus today — `InventoryPlace` has no
-      // per-row scroll target of its own yet (its brief item 4 opens the
+      // per-row scroll target of its own yet (its opens the
       // editor by selection, not by a remembered row); the chassis id is
       // still named in case a later session adds one.
       void chassisId;
@@ -959,9 +967,12 @@ export function DesignPlace(props: DesignPlaceProps) {
   const racksSession =
     pickedSave != null
       ? { ...session, doc: pickedSave.doc, canDraw: false, applyDocChange: () => {} }
-      : phone
-        ? { ...session, canDraw: false, applyDocChange: () => {} }
-        : session;
+      : aiPreviewDoc != null
+        ? // An AI idea drawn with its change made: to look at until it is accepted or hidden.
+          { ...session, doc: aiPreviewDoc, canDraw: false, applyDocChange: () => {} }
+        : phone
+          ? { ...session, canDraw: false, applyDocChange: () => {} }
+          : session;
 
   // r31-bar A: on the drawing, Docs is a tab of the right-hand panel holding the docs list, not an overlay. Leaving
   // the drawing folds it, so it does not reappear as a page over the other view.
@@ -1003,7 +1014,14 @@ export function DesignPlace(props: DesignPlaceProps) {
         }}
         onPreview={(idea) => {
           aiPreview.show(idea);
+          setIdeaChange(null);
           if (idea == null) return;
+          fetchIdeaChange(organisationId, designId, idea.id)
+            .then(({ change }) => {
+              if (aiPreview.get().ideaId === idea.id) setIdeaChange({ idea, change: readChange(new TextEncoder().encode(change)) });
+            })
+            // A server without it, or a change that no longer fits the design: the outlines on what it names stay.
+            .catch(() => {});
           if (phone) setAiIdeasOpen(false);
           if (props.place !== 'racks') onPlaceChange('racks');
         }}

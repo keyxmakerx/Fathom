@@ -472,6 +472,12 @@ export interface ServerAiKey {
   app: string;
   kind: 'helper' | 'connector';
   sees: string[];
+  /** Its folders; none means every folder. */
+  scopes: string[];
+  /** Its own levels, before the server's and the organisation's. */
+  work: WorkLevels;
+  /** What it may see and do now, every layer applied; null when the organisation's rules did not verify. */
+  inEffect: { on: boolean; sees: string[]; work: WorkLevels } | null;
   state: string;
   stoppedReason: string | null;
   lastUsedAt: number | null;
@@ -511,7 +517,10 @@ export function parseServerAi(bytes: Uint8Array): ServerAi {
         aiAccount: typeof k.aiAccount === 'string' ? k.aiAccount : null,
         app: s(k.app),
         kind: k.kind === 'connector' ? 'connector' : 'helper',
-        sees: Array.isArray(k.sees) ? k.sees.filter((x): x is string => typeof x === 'string') : [],
+        sees: strings(k.sees),
+        scopes: strings(k.scopes),
+        work: parseWork(k.work),
+        inEffect: parseInEffect(k.inEffect),
         state: s(k.state),
         stoppedReason: typeof k.stoppedReason === 'string' ? k.stoppedReason : null,
         lastUsedAt: typeof k.lastUsedAt === 'number' ? k.lastUsedAt : null,
@@ -519,6 +528,16 @@ export function parseServerAi(bytes: Uint8Array): ServerAi {
       };
     }),
   };
+}
+
+function strings(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+}
+
+function parseInEffect(v: unknown): ServerAiKey['inEffect'] {
+  if (v == null || typeof v !== 'object') return null;
+  const e = v as Record<string, unknown>;
+  return { on: e.on === true, sees: strings(e.sees), work: parseWork(e.work) };
 }
 
 export async function fetchServerAi(): Promise<ServerAi> {

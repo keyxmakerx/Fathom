@@ -1,8 +1,8 @@
 // The one Premises and one Rack an empty design gets, the first time a
 // person places something in it — `RacksPlace.tsx`'s `onPlace`, never on
 // load. `document/commands.ts` already has `createRack` (a Rack owned by a
-// given Premises) but no `createPremises` — nothing in this session's own
-// tree (`document/`) is ours to add one to, so this file builds the one
+// given Premises) but no `createPremises` — rather than add one to
+// `document/`, this file builds the one
 // Premises node the same way `createRack` builds a Rack node: existence via
 // `assertHand`, one asserted field, one `Batch` naming the same ops that
 // field's `set_field` would produce. `createRack` itself is then reused

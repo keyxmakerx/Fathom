@@ -259,37 +259,6 @@
   flex-wrap: wrap;
 }
 
-.ai-btn {
-  padding: var(--s1) var(--s3);
-  font-size: var(--t-tab);
-  letter-spacing: var(--control-track);
-  text-transform: uppercase;
-  border: var(--rule-hair) solid var(--control-line);
-  background: var(--page);
-  cursor: pointer;
-  box-shadow: none;
-}
-
-.ai-btn--small {
-  padding: 2px var(--s2);
-}
-
-.ai-btn--primary {
-  background: var(--ink);
-  color: var(--page);
-  border-color: var(--ink);
-}
-
-.ai-btn--danger {
-  color: var(--danger);
-  border-color: var(--danger);
-}
-
-.ai-btn:disabled {
-  opacity: var(--phantom);
-  cursor: not-allowed;
-}
-
 .ai-plain {
   border: var(--rule-hair) solid var(--ink);
   padding: var(--s3);
@@ -712,6 +681,12 @@
 
 /* What an AI may do, by kind of work (card r47-ai-controls): one row a kind, Off, Ideas,
    Proposes. The same table is the admin's ceiling, a Steward's rules and a connection's own. */
+/* What an AI may do (card r54-ai-layers): one grid, a read-only column per layer above, this page's own
+   column as a segmented choice, and what is in effect. Narrow (a connection's side panel), each row stacks. */
+.ai-work-frame {
+  container-type: inline-size;
+}
+
 .ai-work {
   border-collapse: collapse;
   width: 100%;
@@ -724,25 +699,184 @@
   padding: var(--s1) var(--s2);
   text-align: left;
   font-weight: normal;
+  vertical-align: middle;
 }
 
 .ai-work thead th {
   color: var(--muted);
   font-size: var(--t-small);
+  vertical-align: bottom;
 }
 
-.ai-work td,
-.ai-work thead th + th {
-  text-align: center;
-  width: 4.5rem;
+.ai-work__who {
+  display: block;
+  font-size: var(--t-micro);
 }
 
-.ai-work input[type="radio"] {
+.ai-work__open {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.ai-work td.ai-work__layer {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.ai-work .ai-work__own {
+  background: var(--surface);
+  white-space: nowrap;
+}
+
+/* In the grid the work's note goes under its name, leaving the columns room. */
+.ai-work--layered th[scope='row'] .ai-tick__why {
+  display: block;
+}
+
+.ai-work__effect strong {
+  font-weight: 700;
+}
+
+.ai-work__held {
+  display: block;
+  white-space: nowrap;
+  font-size: var(--t-micro);
+  color: var(--caution);
+}
+
+.ai-seg {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  border: var(--rule-hair) solid var(--ink);
+}
+
+.ai-seg__opt {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  cursor: pointer;
+}
+
+.ai-seg__opt + .ai-seg__opt {
+  border-left: var(--rule-hair) solid var(--control-line);
+}
+
+.ai-seg__opt span {
+  padding: 1px var(--s2);
+  font-size: var(--t-small);
+}
+
+/* The global `input { appearance: none }` would leave nothing to click; the label is the target instead. */
+.ai-seg__opt input[type='radio'] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
   margin: 0;
+  cursor: inherit;
 }
 
-.ai-work input[type="radio"]:disabled {
-  opacity: 0.35;
+.ai-seg__opt input:checked + span {
+  background: var(--ink);
+  color: var(--page);
+  font-weight: 700;
+}
+
+.ai-seg__opt input:focus-visible + span {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.ai-seg__opt--beyond {
+  cursor: not-allowed;
+}
+
+.ai-seg__opt--beyond span {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+@container (max-width: 520px) {
+  .ai-work--layered thead {
+    display: none;
+  }
+
+  .ai-work--layered tr {
+    display: block;
+    border-bottom: var(--rule-hair) solid var(--control-line);
+    padding: var(--s1) 0;
+  }
+
+  .ai-work--layered th,
+  .ai-work--layered td {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--s2);
+    border: 0;
+    padding: 2px 0;
+  }
+
+  .ai-work--layered th[scope='row'] {
+    display: block;
+    font-weight: 700;
+  }
+
+  .ai-work--layered td::before {
+    content: attr(data-layer);
+    color: var(--muted);
+    font-size: var(--t-small);
+  }
+
+  .ai-work--layered .ai-work__own {
+    background: none;
+  }
+
+  .ai-work--layered .ai-work__effect {
+    flex-wrap: wrap;
+  }
+
+  .ai-work--layered .ai-work__held {
+    flex-basis: 100%;
+    text-align: right;
+  }
+}
+
+/* An AI connection's access in one word (card r54-ai-layers). */
+.ai-access {
+  font-size: var(--t-micro);
+  letter-spacing: var(--control-track);
+  text-transform: uppercase;
+  font-weight: 700;
+  border: var(--rule-hair) solid currentColor;
+  padding: 1px var(--s1);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.ai-access--safe {
+  color: var(--safe);
+  background: var(--safe-wash);
+}
+
+.ai-access--medium {
+  color: var(--caution);
+  background: var(--caution-wash);
+}
+
+.ai-access--critical {
+  color: var(--danger);
+  background: var(--danger-wash);
+}
+
+.ai-access--full {
+  color: var(--page);
+  background: var(--danger);
+  border-color: var(--danger);
 }
 
 .ai-only.ai-input {

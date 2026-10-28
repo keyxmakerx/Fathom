@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyDriveCpuThrottle } from './drive-lib/cpuThrottle.mjs';
+import { check, fails, waitForServer } from './drive-lib/kit.mjs';
 
 const pw = await import(
   process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js'
@@ -29,12 +30,6 @@ const PREVIEW_HTML = CLIENT + '/drive.html';
 const PREVIEW_TSX = CLIENT + '/src/drive.tsx';
 const PREVIEW_SEED = CLIENT + '/src/drive-seed.ts';
 const PREVIEW_CATALOGUE = CLIENT + '/public/drive-catalogue.json';
-
-const fails = [];
-function check(name, ok, detail) {
-  console.log((ok ? 'PASS  ' : 'FAIL  ') + name + (detail ? '  [' + detail + ']' : ''));
-  if (!ok) fails.push(name);
-}
 
 // Step 0: the wasm artefact. `Engine.init()` boots it on a chassis
 // selection (`RacksPlace.tsx`) even though this drive never pastes.
@@ -82,20 +77,6 @@ check('drive-catalogue.json copied from drive-lib/catalogue.json', existsSync(PR
 // 5173 default, so it never collides with `drive-hand-entry.mjs`'s 5330.
 let viteProc = null;
 let browser = null;
-
-async function waitForServer(url, timeoutMs) {
-  const start = Date.now();
-  for (;;) {
-    try {
-      const res = await fetch(url);
-      if (res.ok) return true;
-    } catch {
-      // not up yet
-    }
-    if (Date.now() - start > timeoutMs) return false;
-    await new Promise((r) => setTimeout(r, 300));
-  }
-}
 
 try {
   console.log(`==> starting the client dev server on port ${PORT}`);

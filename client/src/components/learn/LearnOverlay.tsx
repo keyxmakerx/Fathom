@@ -2,13 +2,14 @@
 // that nobody has vouched for says Unreviewed at the top, with the date it was written and its
 // sources (OPEN-QUESTIONS E2).
 
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 
 import type { Explainer } from '../../api/learn';
 import { safeUrl } from '../../document/docs';
 import { useLearn } from './context';
 import { FIRST_TAB, library, titleOf } from './explainers';
 import './learn.css';
+import { useModal } from '../shell/useModal';
 
 export type LearnView = { kind: 'library' } | { kind: 'entry'; id: string; from: 'library' | 'direct' };
 
@@ -121,22 +122,7 @@ function Library({ all, onOpen }: { all: readonly Explainer[]; onOpen: (id: stri
 export function LearnOverlay({ view, onView, onClose }: { view: LearnView; onView: (v: LearnView) => void; onClose: () => void }) {
   const api = useLearn();
   const ref = useRef<HTMLDivElement>(null);
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
-  useEffect(() => {
-    const back = document.activeElement as HTMLElement | null;
-    ref.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.isComposing) return;
-      e.stopPropagation();
-      closeRef.current();
-    };
-    document.addEventListener('keydown', onKey, true);
-    return () => {
-      document.removeEventListener('keydown', onKey, true);
-      back?.focus?.();
-    };
-  }, []);
+  useModal(ref, onClose, { focus: 'container' });
   if (!api) return null;
   const entry = view.kind === 'entry' ? (api.explainers.find((e) => e.id === view.id) ?? null) : null;
   return (

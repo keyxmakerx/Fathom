@@ -1,5 +1,5 @@
 /**
- * UI-SPEC "Cables"/this session's brief item 2 — "Keep drag-to-connect
+ * UI-SPEC "Cables"/"Keep drag-to-connect
  * working: a click without movement selects, a drag connects." React Flow's
  * own `<ReactFlow connectionDragThreshold>` (`@xyflow/react`, default 1px)
  * is what makes this true: `onConnectStart` never fires — a plain click

@@ -54,11 +54,11 @@ export function LessonsList({ lessons, runs, openable, busyId, error, disabled, 
                 <td className="lessons-list__act">
                   {done && <span className="lessons-list__done">done</span>}
                   {run != null && !done ? (
-                    <button type="button" className="home__btn home__btn--small lessons-list__continue" disabled={disabled} onClick={() => onContinue(run)}>
+                    <button type="button" className="home__btn btn-small lessons-list__continue" disabled={disabled} onClick={() => onContinue(run)}>
                       Continue · {run.step + 1} of {l.steps.length}
                     </button>
                   ) : (
-                    <button type="button" className="home__btn home__btn--small" disabled={disabled || busyId != null} onClick={() => onStart(l)}>
+                    <button type="button" className="home__btn btn-small" disabled={disabled || busyId != null} onClick={() => onStart(l)}>
                       {busy ? 'Opening…' : done ? 'Again' : 'Start'}
                     </button>
                   )}
@@ -81,11 +81,11 @@ export function LessonsList({ lessons, runs, openable, busyId, error, disabled, 
                 <td className="lessons-list__act">
                   {done && <span className="lessons-list__done">done</span>}
                   {run != null && !done ? (
-                    <button type="button" className="home__btn home__btn--small lessons-list__continue" disabled={disabled} onClick={() => onContinue(run)}>
+                    <button type="button" className="home__btn btn-small lessons-list__continue" disabled={disabled} onClick={() => onContinue(run)}>
                       Continue · {run.step + 1} of {of}
                     </button>
                   ) : (
-                    <button type="button" className="home__btn home__btn--small" disabled={disabled || busyId != null} onClick={() => onStartWritten?.(w)}>
+                    <button type="button" className="home__btn btn-small" disabled={disabled || busyId != null} onClick={() => onStartWritten?.(w)}>
                       {busyId === w.lessonId ? 'Opening…' : done ? 'Again' : 'Start'}
                     </button>
                   )}

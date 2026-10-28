@@ -116,7 +116,7 @@ export function WaitingTable(p: WaitingTableProps) {
                 <div className="org-table__actions">
                 {p.refusing === i.id ? (
                   <>
-                    <button type="button" className="org-btn org-btn--primary" disabled={p.busy} onClick={() => p.onRefuse(i.id)}>
+                    <button type="button" className="org-btn btn-main" disabled={p.busy} onClick={() => p.onRefuse(i.id)}>
                       Refuse {i.displayName}
                     </button>
                     <button type="button" className="org-btn" onClick={() => p.onRefuseAsk(null)}>
@@ -179,7 +179,7 @@ export function RefuseConfirm({
   return (
     <>
       <span className="org-sub">{question}</span>
-      <button type="button" className="org-btn org-btn--primary" disabled={busy} onClick={onRefuse}>
+      <button type="button" className="org-btn btn-main" disabled={busy} onClick={onRefuse}>
         {confirm}
       </button>
       <button type="button" className="org-btn" onClick={onKeep}>
@@ -225,7 +225,7 @@ function EditAccess({
       </select>
       <button
         type="button"
-        className="org-btn org-btn--primary"
+        className="org-btn btn-main"
         onClick={() => onSave({ capability, scopeId: scope === '' ? null : scope, scopeLabel: scope === '' ? organisationName : label(scope) })}
       >
         Use this
@@ -284,7 +284,7 @@ export function ReviewList({ checked, names, labels, busy, steward, onSign, onBa
         {n > 50 ? ' This many can take a minute or more. Keep this page open.' : ''}
       </p>
       <div className="org-actions">
-        <button type="button" className="org-btn org-btn--primary" disabled={busy || (steward !== null && !steward.acknowledged)} onClick={onSign}>
+        <button type="button" className="org-btn btn-main" disabled={busy || (steward !== null && !steward.acknowledged)} onClick={onSign}>
           {busy ? 'Signing…' : `Sign and confirm ${n} ${n === 1 ? 'person' : 'people'}`}
         </button>
         <button type="button" className="org-btn" disabled={busy} onClick={onBack}>
@@ -339,7 +339,7 @@ export function StewardCards({ rows, nowMs, busy, days, onDays, onReview, refusi
                 />
                 days
               </label>
-              <button type="button" className="org-btn org-btn--primary" disabled={busy || expiryFromDays(days, 0) === null} onClick={() => onReview(r)}>
+              <button type="button" className="org-btn btn-main" disabled={busy || expiryFromDays(days, 0) === null} onClick={() => onReview(r)}>
                 Review as Steward
               </button>
               <RefuseConfirm
@@ -384,7 +384,7 @@ export function SecondingList({ items, busy, nowMs, onApprove }: SecondingListPr
             <code className="org-code org-code--inline">{spacedCode(s.keyCode)}</code>. Ends {dateLabel(s.expiresAtUnix)}
             {nowMs > s.expiresAtUnix * 1000 ? ' (already past)' : ''}.
             <div className="org-actions">
-              <button type="button" className="org-btn org-btn--primary" disabled={busy} onClick={() => onApprove(s)}>
+              <button type="button" className="org-btn btn-main" disabled={busy} onClick={() => onApprove(s)}>
                 Approve
               </button>
             </div>
@@ -581,7 +581,7 @@ export function WaitingPanel(props: WaitingPanelProps) {
               <div className="org-actions">
                 <button
                   type="button"
-                  className="org-btn org-btn--primary"
+                  className="org-btn btn-main"
                   disabled={busy || button.disabled}
                   onClick={() => void startReview(chosen, false, null)}
                 >

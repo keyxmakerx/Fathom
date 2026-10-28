@@ -62,11 +62,11 @@
 import { spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { webcrypto } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { migrateUrl, runtimeUrl, superuserUrl } from './drive-lib/db.mjs';
+import { base32Decode, totpCode } from './drive-lib/kit.mjs';
 
 // The setup password the server is started with (ADR-0057); typed on the Welcome screen.
 const SETUP_PASSWORD = 'amber-kestrel-harbour-0057';
@@ -182,37 +182,6 @@ async function flagAs(host) {
 
 // --- the authenticator app, in Node (RFC 6238, as credentials.rs) ----------
 
-const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-function base32Decode(text) {
-  const clean = text.toUpperCase().replace(/=+$/, '').replace(/\s+/g, '');
-  const out = [];
-  let buffer = 0;
-  let bits = 0;
-  for (const c of clean) {
-    const v = BASE32.indexOf(c);
-    if (v < 0) throw new Error(`not RFC 4648 base32: ${JSON.stringify(c)}`);
-    buffer = (buffer << 5) | v;
-    bits += 5;
-    if (bits >= 8) {
-      bits -= 8;
-      out.push((buffer >> bits) & 0xff);
-    }
-  }
-  return Uint8Array.from(out);
-}
-
-async function totpCode(secretBytes, step) {
-  const key = await webcrypto.subtle.importKey('raw', secretBytes, { name: 'HMAC', hash: 'SHA-1' }, false, [
-    'sign',
-  ]);
-  const counter = new Uint8Array(8);
-  new DataView(counter.buffer).setBigUint64(0, BigInt(step), false);
-  const tag = new Uint8Array(await webcrypto.subtle.sign('HMAC', key, counter));
-  const offset = tag[tag.length - 1] & 0x0f;
-  const binary =
-    ((tag[offset] & 0x7f) << 24) | (tag[offset + 1] << 16) | (tag[offset + 2] << 8) | tag[offset + 3];
-  return String(binary % 1000000).padStart(6, '0');
-}
 const currentStep = () => Math.floor(Date.now() / 1000 / 30);
 
 /** A code for a step this run has not spent yet. `credentials::verify_totp`
@@ -751,7 +720,7 @@ async function main() {
   // The confirm button of the warning block, by structure: the two buttons
   // there are the move and the way back, and the quiet one is the way back.
   await page
-    .locator('.console__form:has(.console__warnlist) .console__row button:not(.console__btn--quiet)')
+    .locator('.console__form:has(.console__warnlist) .console__row button.btn-main')
     .click();
   await page.waitForSelector('[data-testid="placement-countdown"]', { timeout: 15000 });
   const countdown = await page.locator('[data-testid="placement-countdown"]').innerText();

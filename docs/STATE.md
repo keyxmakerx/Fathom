@@ -656,13 +656,21 @@ there; every string through the server's gate) and keep them sealed in an AI ide
 a day per connection. The idea carries `preview`; the ideas panel's Show on canvas draws it as an open
 plan, in the plan colour with AI CHANGES / AI REMOVES / AI ADDS tags, removals greyed. Accept and apply
 makes it on the current design as the accepting person's own edit. `whoami` is `readOnly: true` for
-every connection. `ai_design_changes` (migration 0051) holds only rows from before the amendment. Not
-yet: drawing a node the change adds (the panel names it). What an AI may do is set by kind of work
+every connection. While an idea is shown, the canvas asks `GET .../ai-ideas/{i}/change` for the change
+Accept would write, built on the design as it is and not written, and draws the design with it made,
+read-only: what it adds sits where it would go (a chassis in its rack, a cable on its ports), tagged AI
+ADDS, and what it removes stays drawn, greyed. A server without that route, or a change that no longer
+fits, falls back to outlining what the idea names. `ai_design_changes` (migration 0051) holds only rows
+from before the amendment. What an AI may do is set by kind of work
 (editing the design, drafting plans, troubleshooting, working through a plan), each Off, Ideas or
 Proposes, at three places whose strictest wins: Admin › AI's ceiling, Steward › AI rules and each
 connection (migration 0057, card r47-ai-controls). A Steward also marks folders ideas-only or out of an
 AI's sight, keeps it to a list of kinds and fields, and lowers the limits (proposals a minute and a day,
-removals in one); 429 past a limit.
+removals in one); 429 past a limit. All three show one grid (card r54-ai-layers): a read-only column for each
+layer above, the page's own column, and In effect, naming the layer that holds a row back. Every
+connection carries an access word, Safe, Medium, Critical or Full, from what it may see and do with all
+three applied (`client/src/components/ai/Access.tsx`); Admin › AI's list takes it from the server's
+`inEffect`.
 
 **Device panel** (r14 A1, A2): Details, Ports and Notes tabs, actions at the foot (Duplicate the main one,
 Remove device in red). Inventory's toolbar has a role filter, written into the filter line as `role:...`.

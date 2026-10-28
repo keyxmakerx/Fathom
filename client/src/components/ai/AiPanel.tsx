@@ -31,6 +31,7 @@ import {
 import { fetchPeople, type Person } from "../../api/people";
 import type { Scope } from "../../api/scopes";
 import { HowToConnect } from "./HowToConnect";
+import { AccessBadge, accessOf, workInEffect } from "./Access";
 import { lowerAll, WorkTable, workInWords } from "./WorkTable";
 import {
   aiError,
@@ -222,7 +223,7 @@ export function AiPanel({
             {o.steward && onOpenRules && (
               <button
                 type="button"
-                className="ai-btn ai-btn--small"
+                className="ai-btn btn-small"
                 data-testid="ai-open-rules"
                 onClick={onOpenRules}
               >
@@ -239,6 +240,8 @@ export function AiPanel({
           />
           <KeyTable
             keys={o.keys}
+            policy={o.policy}
+            serverWork={o.server.work}
             steward={o.steward}
             folders={folders}
             selected={selected}
@@ -254,6 +257,7 @@ export function AiPanel({
             serverWork={o.server.work}
             steward={o.steward}
             folders={folders}
+            onOpenRules={o.steward ? onOpenRules : undefined}
             onClose={() => setSelected(null)}
             onChanged={reload}
           />
@@ -489,8 +493,10 @@ function PolicyForm({
         <WorkTable
           testId="ai-policy-work"
           value={draft.work}
-          cap={serverWork}
-          capWho="This server"
+          above={[
+            { name: "Server", setBy: "set by the admin", levels: serverWork },
+          ]}
+          own={{ name: "Organisation", setBy: "set here" }}
           onChange={(work) => setDraft({ ...draft, work })}
         />
         <p className="ai-muted">
@@ -587,7 +593,7 @@ function PolicyForm({
       <div className="ai-actions ai-rules__save">
         <button
           type="button"
-          className="ai-btn ai-btn--primary"
+          className="ai-btn btn-main"
           disabled={!changed || busy || badOnly.length > 0}
           onClick={() => void save()}
         >
@@ -612,14 +618,23 @@ function PolicyForm({
   );
 }
 
+/** What a connection sees now: its own tiers within the organisation's ceiling, and always the layout. */
+function seesNow(k: AiKeyView, policy: AiPolicy): string[] {
+  return ["layout", ...k.sees.filter((t) => t !== "layout" && policy.ceiling.includes(t))];
+}
+
 function KeyTable({
   keys,
+  policy,
+  serverWork,
   steward,
   folders,
   selected,
   onSelect,
 }: {
   keys: AiKeyView[];
+  policy: AiPolicy;
+  serverWork: WorkLevels;
   steward: boolean;
   folders: Scope[];
   selected: string | null;
@@ -657,6 +672,7 @@ function KeyTable({
             <tr>
               <th>Name</th>
               <th>App</th>
+              <th>Access</th>
               {steward && <th>Person</th>}
               <th>Sees</th>
               <th>Folders</th>
@@ -682,6 +698,19 @@ function KeyTable({
               >
                 <td className="ai-table__name">{k.label}</td>
                 <td>{keyAppName(k)}</td>
+                <td>
+                  {k.state === "on" ? (
+                    <AccessBadge
+                      access={accessOf(
+                        seesNow(k, policy),
+                        workInEffect(serverWork, policy.work, k.work),
+                        k.scopes.length === 0,
+                      )}
+                    />
+                  ) : (
+                    "—"
+                  )}
+                </td>
                 {steward && (
                   <td>
                     {k.ownerName}
@@ -741,6 +770,7 @@ function KeyPage({
   serverWork,
   steward,
   folders,
+  onOpenRules,
   onClose,
   onChanged,
 }: {
@@ -750,6 +780,8 @@ function KeyPage({
   serverWork: WorkLevels;
   steward: boolean;
   folders: Scope[];
+  /** Opens AI rules, for a Steward, from the Organisation column. */
+  onOpenRules?: () => void;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -802,13 +834,30 @@ function KeyPage({
         <div className="ai-kicker">{keyAppName(aiKey)}</div>
         <button
           type="button"
-          className="ai-btn ai-btn--small"
+          className="ai-btn btn-small"
           onClick={onClose}
         >
           Close
         </button>
       </div>
-      <h3 className="ai-subtitle">{aiKey.label}</h3>
+      <h3 className="ai-subtitle">
+        {aiKey.label}{" "}
+        {live && (
+          <AccessBadge
+            testId="ai-key-access"
+            access={accessOf(
+              [
+                "layout",
+                ...sees.filter(
+                  (t) => t !== "layout" && policy.ceiling.includes(t),
+                ),
+              ],
+              workInEffect(serverWork, policy.work, work),
+              scopes.length === 0,
+            )}
+          />
+        )}
+      </h3>
       <dl className="ai-facts">
         <dt>Person</dt>
         <dd>
@@ -855,8 +904,20 @@ function KeyPage({
           <WorkTable
             testId="ai-key-work"
             value={work}
-            cap={narrowOnly ? shown : allowed}
-            capWho={narrowOnly ? undefined : "The organisation"}
+            above={[
+              { name: "Server", setBy: "set by the admin", levels: serverWork },
+              {
+                name: "Organisation",
+                setBy: "set by Stewards",
+                levels: policy.work,
+                onOpen: onOpenRules,
+              },
+            ]}
+            own={{
+              name: "This connection",
+              setBy: narrowOnly ? `${aiKey.ownerName}’s` : "yours",
+            }}
+            cap={narrowOnly ? shown : undefined}
             onChange={setWork}
           />
           <p className="ai-muted">
@@ -886,7 +947,7 @@ function KeyPage({
         <div className="ai-actions">
           <button
             type="button"
-            className="ai-btn ai-btn--primary"
+            className="ai-btn btn-main"
             disabled={!changed || busy}
             onClick={() =>
               void act(() =>
@@ -905,7 +966,7 @@ function KeyPage({
           </button>
           <button
             type="button"
-            className="ai-btn ai-btn--danger"
+            className="ai-btn btn-danger"
             disabled={busy}
             onClick={() => setStopping(true)}
           >
@@ -940,7 +1001,7 @@ function KeyPage({
           <div className="ai-actions">
             <button
               type="button"
-              className="ai-btn ai-btn--danger"
+              className="ai-btn btn-danger"
               disabled={busy || (narrowOnly && reason.trim() === "")}
               onClick={() =>
                 void act(() =>

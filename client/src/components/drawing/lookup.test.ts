@@ -252,7 +252,7 @@ describe('findRack', () => {
   });
 });
 
-describe('findShelf — ADR-0051 §1, this session\'s brief items 1/4', () => {
+describe('findShelf — ADR-0051 §1', () => {
   it('finds a shelf and the rack it sits in', () => {
     const found = findShelf(VIEW, 'shelf-1');
     expect(found?.rack.id).toBe('rack-1');

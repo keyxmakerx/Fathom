@@ -98,7 +98,7 @@ export interface BarProps {
   task?: ShellProps['task'];
 }
 
-/** The bar — BRIEF.md "The bar": one row, 44px, a 3px ink rule beneath, and
+/** The bar — UI-SPEC "The bar": one row, 44px, a 3px ink rule beneath, and
  * nothing else above the drawing. */
 export function Bar({
   place,
@@ -146,7 +146,7 @@ export function Bar({
   const leadingRef = useRef<HTMLDivElement>(null);
   const trailingRef = useRef<HTMLDivElement>(null);
 
-  // BRIEF.md "The bar": search folds to the magnifier before anything else
+  // UI-SPEC "The bar": search folds to the magnifier before anything else
   // gives; past that the action chips fold into More, the path to its last
   // part, and the lenses into one View menu. Measured, never a breakpoint.
   const [fold, setFold] = useState(0);

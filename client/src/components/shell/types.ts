@@ -14,7 +14,7 @@ export { LENSES, LENS_LABEL, isLensLit } from './lens';
 export type { PathItem, PathPart } from './path';
 export { pathToItems } from './path';
 
-/** BRIEF.md "The vocabulary": two places, nothing else gets the name. `null`
+/** the shell brief "The vocabulary": two places, nothing else gets the name. `null`
  * is Home — neither tab is marked current there. */
 export type Place = 'racks' | 'inventory';
 
@@ -66,7 +66,7 @@ export interface AccountInfo {
 /**
  * The shell's full contract. `Shell` renders only from these props and the
  * `children` it is given as the drawing (or Inventory's lists, or Home) —
- * it holds no sample data of its own (BRIEF.md "How to build it").
+ * it holds no sample data of its own (the shell brief "How to build it").
  */
 export interface ShellProps {
   /** Which of the two places is current. `null` on Home, where neither
@@ -80,7 +80,7 @@ export interface ShellProps {
    * or omitted content is fine — the popover simply has nothing to show. */
   tree: ReactNode;
 
-  /** The one lit lens, of the five BRIEF.md fixes in this order: Cables,
+  /** The one lit lens, of the five the shell brief fixes in this order: Cables,
    * Links, Routing, Power, Owner. */
   lens: Lens;
   onLensChange: (lens: Lens) => void;

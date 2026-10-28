@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { shouldFitOnMount } from './Drawing';
 
-// This session's brief item 5 — "Show on rack must land at the faceplate
+// "Show on rack must land at the faceplate
 // stop with the device selected... make the focus win, once." No DOM
 // testing library is installed in this project (`ColourPicker.render.test.ts`'s
 // own header), so the rule itself — pulled out of the mount-time fit effect

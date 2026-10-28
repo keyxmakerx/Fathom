@@ -15,7 +15,7 @@ export function findRack(view: ClosetView, rackId: string): RackView | undefined
   return view.racks.find((r) => r.id === rackId);
 }
 
-/** ADR-0051 §1, this session's brief items 1/4 — a shelf itself, found by
+/** ADR-0051 §1, A shelf itself, found by
  * its OWN id (`Selection`'s `'shelf'` kind, `contract.ts`) — the rack that
  * carries it alongside, the same shape `findChassis` gives a rack chassis.
  * `undefined` when this view carries no such shelf, never invented. */

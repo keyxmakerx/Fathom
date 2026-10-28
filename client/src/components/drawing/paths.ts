@@ -45,7 +45,7 @@
  *    to be). The OLD same-chassis, same-label, different-row guess
  *    (`pairedPort`, kept below unchanged) now only fires when
  *    `passThroughId` is `null` — a document written, or a faceplate
- *    matched, before this session's placement command started setting it.
+ *    matched, before the placement command started setting it.
  *    Nothing here reads a panel's paired port off the mere ABSENCE of a
  *    `passThroughId` value as if that absence were itself a fact about the
  *    panel; a `null` is read as "not yet known," never as "not paired."

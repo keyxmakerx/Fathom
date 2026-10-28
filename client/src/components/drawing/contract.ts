@@ -207,8 +207,8 @@ export type EditorChange =
    * Shown only on a rack-mounted chassis's own panel. */
   | { kind: 'duplicate-device'; chassisId: string; /** Paste: put the copy in this rack's next free units. */ intoRackId?: string }
   /** ADR-0051 §1 — a rack's "+ add a shelf" (`commands.ts`'s `createShelf`);
-   * `label` is required (`PassiveNode.label`, schema card "1" — this
-   * session's brief item 1); `model` names a catalogue entry from the
+   * `label` is required (`PassiveNode.label`, schema card "1");
+   * `model` names a catalogue entry from the
    * palette's own list, `null` for an unmodelled shelf (1U, per that
    * function's own default). */
   | { kind: 'create-shelf'; rackId: string; positionU: number; label: string; model: { vendor: string; model: string } | null }
@@ -221,7 +221,7 @@ export type EditorChange =
    * `SURFACE_FORMS` before calling, the same way `'rack'`'s `bay` is parsed
    * before `setRackField` gets a chance to refuse it. */
   | { kind: 'create-surface'; premisesId: string; label: string; form: string }
-  /** UI-SPEC "Cables" — a selected cable's own panel (this session's brief):
+  /** UI-SPEC "Cables" — a selected cable's own panel :
    * `document/cables.ts`'s `setCableField` on the same live `Cable`
    * `Selection`'s `'cable'` kind names, `value: null` clearing the field
    * (`CableFieldKey`'s own subset actually offered by this panel — `media`

@@ -95,37 +95,15 @@
   right: calc(min(264px, 60%) + min(320px, 92%) + 3 * var(--s2));
 }
 
-.trouble-btn {
-  cursor: pointer;
-}
-
-.trouble-btn--ink {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: var(--page);
-  box-shadow: none;
-}
-
-.trouble-btn--quiet {
-  border-color: var(--hairline);
-  color: var(--muted);
-}
-
 .trouble-btn[aria-pressed='true'] {
   background: var(--control-on);
   box-shadow: var(--control-on-mark);
-}
-
-.trouble-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 .trouble-btn[aria-disabled='true'] {
   opacity: 0.55;
 }
 
-.trouble-btn:focus-visible,
 .trouble-link:focus-visible,
 .trouble-input:focus-visible,
 .trouble-step__head:focus-visible,

@@ -143,7 +143,7 @@ export function AiIdeasPanel({ organisationId, designId, state, nameOf, onShow, 
           {idea.preview !== null && onPreview && (
             <button
               type="button"
-              className="ai-btn ai-btn--small"
+              className="ai-btn btn-small"
               data-testid="ai-idea-preview"
               aria-pressed={shown === idea.id}
               onClick={() => onPreview(shown === idea.id ? null : idea)}
@@ -162,7 +162,7 @@ export function AiIdeasPanel({ organisationId, designId, state, nameOf, onShow, 
                     {target !== null && onShow && step.target !== null && (
                       <>
                         {' '}
-                        <button type="button" className="ai-btn ai-btn--small" onClick={() => onShow(step.target as string)}>
+                        <button type="button" className="ai-btn btn-small" onClick={() => onShow(step.target as string)}>
                           Show {target}
                         </button>
                       </>
@@ -174,7 +174,7 @@ export function AiIdeasPanel({ organisationId, designId, state, nameOf, onShow, 
           </ul>
           {canDraw ? (
             <div className="ai-actions">
-              <button type="button" className="ai-btn ai-btn--primary" disabled={busy !== null} onClick={() => void decide(idea, 'accept')}>
+              <button type="button" className="ai-btn btn-main" disabled={busy !== null} onClick={() => void decide(idea, 'accept')}>
                 {idea.changes !== null ? 'Accept and apply' : 'Mark done'}
               </button>
               {onPlan && (
@@ -192,7 +192,7 @@ export function AiIdeasPanel({ organisationId, designId, state, nameOf, onShow, 
         </article>
       ))}
       {decided.length > 0 && (
-        <button type="button" className="ai-btn ai-btn--small" onClick={() => setShowDecided(!showDecided)}>
+        <button type="button" className="ai-btn btn-small" onClick={() => setShowDecided(!showDecided)}>
           {showDecided ? 'Hide decided' : `Decided (${decided.length})`}
         </button>
       )}

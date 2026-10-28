@@ -266,7 +266,7 @@ export function ConnectAiApp({ query, onLeave, go = (url) => window.location.ass
         <div className="ai-actions">
           <button
             type="button"
-            className="ai-btn ai-btn--primary"
+            className="ai-btn btn-main"
             disabled={busy || ready === null || blocked !== null || cleanAccount(account) === null}
             onClick={() => void answer(true)}
           >

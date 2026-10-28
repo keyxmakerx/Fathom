@@ -266,7 +266,7 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
             empty="No operator is registered, which cannot be: you are one."
             render={(rows) => <Operators actingOperatorId={operatorId} rows={rows} onChanged={refresh} />}
           />
-          <button type="button" className="console__btn console__btn--quiet" onClick={refresh}>
+          <button type="button" className="console__btn" onClick={refresh}>
             Refresh
           </button>
         </section>
@@ -341,7 +341,7 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
                         here.
                       </p>
                       {onClaimNow && (
-                        <button type="button" className="console__btn" onClick={() => onClaimNow(claim)}>
+                        <button type="button" className="console__btn btn-main" onClick={() => onClaimNow(claim)}>
                           Claim it now
                         </button>
                       )}
@@ -430,7 +430,7 @@ function AccountForm({ onMinted }: { onMinted: (m: Minted) => void }) {
       />
       <button
         type="submit"
-        className="console__btn"
+        className="console__btn btn-main"
         disabled={busy || address.trim().length < 3 || displayName.trim().length === 0}
       >
         {busy ? 'Creating…' : 'Create the account and its invitation'}
@@ -484,7 +484,7 @@ function ReissueForm({ onMinted }: { onMinted: (m: Minted) => void }) {
         disabled={busy}
         required
       />
-      <button type="submit" className="console__btn" disabled={busy || accountId.trim().length === 0}>
+      <button type="submit" className="console__btn btn-main" disabled={busy || accountId.trim().length === 0}>
         {busy ? 'Issuing…' : 'Issue'}
       </button>
       {error && (
@@ -538,7 +538,7 @@ function DisableForm() {
       <div className="console__row">
         <button
           type="button"
-          className="console__btn"
+          className="console__btn btn-main"
           disabled={busy || accountId.trim().length === 0}
           onClick={() => act(true)}
         >
@@ -546,7 +546,7 @@ function DisableForm() {
         </button>
         <button
           type="button"
-          className="console__btn console__btn--quiet"
+          className="console__btn"
           disabled={busy || accountId.trim().length === 0}
           onClick={() => act(false)}
         >
@@ -604,7 +604,7 @@ function OrganisationForm({ onMinted }: { onMinted: (m: Minted) => void }) {
         disabled={busy}
         required
       />
-      <button type="submit" className="console__btn" disabled={busy || displayName.trim().length === 0}>
+      <button type="submit" className="console__btn btn-main" disabled={busy || displayName.trim().length === 0}>
         {busy ? 'Creating…' : 'Create the shell and its claim'}
       </button>
       {error && (

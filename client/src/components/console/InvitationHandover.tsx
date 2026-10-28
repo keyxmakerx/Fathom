@@ -42,7 +42,7 @@ export function InvitationHandover({ token, origin }: InvitationHandoverProps) {
       <code className="console__handover-address" data-testid="invitation-address">
         {address}
       </code>
-      <button type="button" className="console__btn console__btn--quiet" onClick={copy}>
+      <button type="button" className="console__btn" onClick={copy}>
         {copied ? 'Copied.' : 'Copy the address'}
       </button>
       <p className="console__note">

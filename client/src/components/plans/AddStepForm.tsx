@@ -286,7 +286,7 @@ export function AddStepForm({ controller, stepCount }: { controller: PlansContro
 
       <Field label={form.kind === 'route' || form.kind === 'other' ? 'What changes' : 'What changes (optional)'} value={form.change} onChange={(v) => set('change', v)} onPaste={paste.onPaste} />
       <TypedSentence />
-      <button type="submit" className="plans-btn plans-btn--ink" disabled={busy || !controller.canEdit}>
+      <button type="submit" className="plans-btn btn-main" disabled={busy || !controller.canEdit}>
         Add step
       </button>
       <button

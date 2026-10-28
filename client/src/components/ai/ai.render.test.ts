@@ -2,7 +2,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { helperAppConfig, helperPairCommand, parseOnly, parsePolicy, plainWords, SITE_DEFAULT_WORK, type AiIdea, type AiKeyView, type AiOverview } from '../../api/ai';
+import { helperAppConfig, helperPairCommand, parseOnly, parsePolicy, plainWords, SITE_DEFAULT_WORK, type AiIdea, type WorkLevels, type AiKeyView, type AiOverview } from '../../api/ai';
+import { accessOf, workInEffect } from './Access';
 import { WorkTable, workInWords } from './WorkTable';
 import { AiIdeasPanel, aiIdeasTab } from './AiIdeas';
 import { keyAppName, rulesInWords, stateWords } from './AiPanel';
@@ -282,19 +283,48 @@ describe('what an AI may do, by kind of work', () => {
     expect(parsePolicy({ work: { design: 'off', plans: 'propose', issues: 'ideas', doing: 'propose' } }).work.doing).toBe('propose');
   });
 
-  it('cannot choose a level above the cap, and says who set it', () => {
+  it('shows every layer above, cannot choose past the strictest, and names the layer holding it', () => {
     const out = renderToStaticMarkup(
       createElement(WorkTable, {
         value: { design: 'ideas', plans: 'propose', issues: 'off', doing: 'off' },
-        cap: { design: 'ideas', plans: 'propose', issues: 'propose', doing: 'off' },
-        capWho: 'This server',
+        above: [
+          { name: 'Server', setBy: 'set by the admin', levels: { design: 'propose', plans: 'propose', issues: 'propose', doing: 'off' } },
+          { name: 'Organisation', setBy: 'set by Stewards', levels: { design: 'ideas', plans: 'propose', issues: 'propose', doing: 'propose' } },
+        ],
+        own: { name: 'This connection', setBy: 'yours' },
         onChange: () => {},
         testId: 't',
       }),
     );
     expect(out).toMatch(/aria-label="Edit the design: Proposes"[^>]*disabled/);
     expect(out).not.toMatch(/aria-label="Draft maintenance plans: Proposes"[^>]*disabled/);
-    expect(out).toContain('This server allows at most Ideas');
+    expect(out).toMatch(/aria-label="Work through a plan: Ideas"[^>]*disabled/);
+    expect(out).toContain('In effect');
+    expect(out).toContain('Limited by the organisation');
+    expect(out).toContain('Limited by the server');
+    // Troubleshooting is off by the connection's own choice: nothing above holds it.
+    expect(out.match(/data-work="issues".*?<\/tr>/s)?.[0]).not.toContain('Limited by');
+  });
+
+  it('with no layer above, is just the one column', () => {
+    const out = renderToStaticMarkup(
+      createElement(WorkTable, { value: SITE_DEFAULT_WORK, own: { name: 'Server', setBy: 'set here' }, onChange: () => {}, testId: 'a' }),
+    );
+    expect(out).not.toContain('In effect');
+    expect(out).not.toMatch(/disabled/);
+  });
+
+  it('puts a connection in one word', () => {
+    const none: WorkLevels = { design: 'ideas', plans: 'ideas', issues: 'ideas', doing: 'off' };
+    const all: WorkLevels = { design: 'propose', plans: 'propose', issues: 'propose', doing: 'off' };
+    expect(accessOf(['layout'], none, true)).toBe('safe');
+    expect(accessOf(['layout', 'addresses'], none, true)).toBe('medium');
+    expect(accessOf(['layout'], { ...none, plans: 'propose' }, true)).toBe('medium');
+    expect(accessOf(['layout'], { ...none, design: 'propose' }, false)).toBe('critical');
+    expect(accessOf(['layout', 'notes'], none, true)).toBe('critical');
+    expect(accessOf(['layout', 'addresses', 'notes'], all, false)).toBe('critical');
+    expect(accessOf(['layout', 'addresses', 'notes'], all, true)).toBe('full');
+    expect(workInEffect(all, none, { ...all, doing: 'propose' })).toEqual(none);
   });
 
   it('says the levels in a sentence', () => {

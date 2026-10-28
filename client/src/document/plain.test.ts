@@ -11,9 +11,8 @@ import { newUlid } from './ulid';
 // WO-05 §4.4's pinned vector, copied byte for byte from
 // `crates/fathom-workspace/tests/plain_face.rs`'s `PINNED` constant — a
 // Rust-authored fixture, the cross-language vector this module is proved
-// against (see this session's report for why it stands in for
-// `client/src/document/vectors/`, which did not exist when this was
-// written). `minimal_estate_matches_the_pinned_vector` and
+// against, standing in for `client/src/document/vectors/`, which did
+// not exist when this was written. `minimal_estate_matches_the_pinned_vector` and
 // `worked_example_round_trips_byte_identical` are that file's own proof that
 // these bytes are exactly what `write_plain` produces for the graph its
 // `minimal_estate()` builds.

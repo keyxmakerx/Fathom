@@ -112,7 +112,7 @@ export function BreachPolicyCard({ organisation, policy, onSaved }: { organisati
         </p>
       )}
       <div className="vault-actions">
-        <button type="button" className="vault-btn vault-btn--solid" disabled={busy} onClick={save} data-testid="vault-policy-save">
+        <button type="button" className="vault-btn btn-main" disabled={busy} onClick={save} data-testid="vault-policy-save">
           {busy ? 'Saving…' : 'Save the policy'}
         </button>
       </div>

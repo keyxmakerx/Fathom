@@ -11,6 +11,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { check, fails, waitForServer } from './drive-lib/kit.mjs';
 
 const pw = await import(
   process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js'
@@ -32,12 +33,6 @@ const PREVIEW_HTML = CLIENT + '/drive.html';
 const PREVIEW_TSX = CLIENT + '/src/drive.tsx';
 const PREVIEW_SEED = CLIENT + '/src/drive-seed.ts';
 const PREVIEW_CATALOGUE = CLIENT + '/public/drive-catalogue.json';
-
-const fails = [];
-function check(name, ok, detail) {
-  console.log((ok ? 'PASS  ' : 'FAIL  ') + name + (detail ? '  [' + detail + ']' : ''));
-  if (!ok) fails.push(name);
-}
 
 // ---------------------------------------------------------------------------------------------------------------
 // The stubbed server. Image ids and hashes match `seedFirmwareScene` in drive-lib/seed.ts.
@@ -247,20 +242,6 @@ check('drive harness files written', [PREVIEW_HTML, PREVIEW_TSX, PREVIEW_SEED, P
 
 let viteProc = null;
 let browser = null;
-
-async function waitForServer(url, timeoutMs) {
-  const start = Date.now();
-  for (;;) {
-    try {
-      const res = await fetch(url);
-      if (res.ok) return true;
-    } catch {
-      // not up yet
-    }
-    if (Date.now() - start > timeoutMs) return false;
-    await new Promise((r) => setTimeout(r, 300));
-  }
-}
 
 try {
   console.log(`==> starting the client dev server on port ${PORT}`);

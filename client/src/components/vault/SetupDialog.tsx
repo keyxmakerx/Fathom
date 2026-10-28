@@ -102,7 +102,7 @@ export function SetupDialog({ organisation, organisationName, overview, onDone, 
             </p>
           )}
           <div className="vault-actions">
-            <button type="button" className="vault-btn vault-btn--solid" onClick={() => setStep(2)} disabled={noKeyHere} data-testid="vault-setup-next">
+            <button type="button" className="vault-btn btn-main" onClick={() => setStep(2)} disabled={noKeyHere} data-testid="vault-setup-next">
               Continue
             </button>
             <button type="button" className="vault-btn" onClick={onClose}>
@@ -124,7 +124,7 @@ export function SetupDialog({ organisation, organisationName, overview, onDone, 
             <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} data-testid="vault-kit-saved" /> I have saved my Emergency Kit
           </label>
           <div className="vault-actions">
-            <button type="button" className="vault-btn vault-btn--solid" disabled={!saved} onClick={() => setStep(3)} data-testid="vault-setup-next">
+            <button type="button" className="vault-btn btn-main" disabled={!saved} onClick={() => setStep(3)} data-testid="vault-setup-next">
               Continue
             </button>
             <button type="button" className="vault-btn" onClick={() => setStep(1)}>
@@ -167,13 +167,13 @@ export function SetupDialog({ organisation, organisationName, overview, onDone, 
                 This browser&rsquo;s signing key is not one Fathom&rsquo;s server knows any more. That happens when the server&rsquo;s data
                 was restored or set up again, or the key was retired. Nothing was saved.
               </p>
-              <button type="button" className="vault-btn vault-btn--solid" onClick={() => void newKeyHere()} disabled={busy} data-testid="vault-new-key-here">
+              <button type="button" className="vault-btn btn-main" onClick={() => void newKeyHere()} disabled={busy} data-testid="vault-new-key-here">
                 Make a new signing key for this browser and try again
               </button>
             </div>
           )}
           <div className="vault-actions">
-            <button type="submit" className="vault-btn vault-btn--solid" disabled={busy || a.length < MIN_PASSPHRASE || a !== b} data-testid="vault-setup-finish">
+            <button type="submit" className="vault-btn btn-main" disabled={busy || a.length < MIN_PASSPHRASE || a !== b} data-testid="vault-setup-finish">
               {busy ? 'Locking your vault key…' : 'Set up my vault'}
             </button>
             <button type="button" className="vault-btn" onClick={() => setStep(2)} disabled={busy}>
@@ -189,7 +189,7 @@ export function SetupDialog({ organisation, organisationName, overview, onDone, 
           <div className="vault-actions">
             <button
               type="button"
-              className="vault-btn vault-btn--solid"
+              className="vault-btn btn-main"
               onClick={() => {
                 onDone();
               }}

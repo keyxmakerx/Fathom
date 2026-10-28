@@ -158,6 +158,9 @@ pub enum AiError {
         read: i64,
         current: i64,
     },
+    /// The design's own rules refused the change as it ran on the design; the sentence is
+    /// the graph's, naming the rule, never a value.
+    ChangeRefused(String),
     /// A stored row does not verify: not a permission answer (§3.4), an alarm.
     Unverifiable(&'static str),
 }
@@ -189,6 +192,7 @@ impl std::fmt::Display for AiError {
                 "the design is at version {current}, not {read}, the version this change names; \
                  read it again and make the change against what is there now"
             ),
+            Self::ChangeRefused(why) => write!(f, "that change was refused: {why}"),
             Self::Unverifiable(what) => write!(f, "unverifiable: {what}"),
         }
     }
@@ -275,9 +279,15 @@ impl AiError {
                 StatusCode::FORBIDDEN,
                 "you do not have the permission this needs\n".into(),
             ),
+            e @ Self::ChangeRefused(_) => text(StatusCode::UNPROCESSABLE_ENTITY, format!("{e}\n")),
+            // Any other permission answer says what the browser's own routes say.
+            Self::Authority(e) => crate::design_api::authority_refusal_response(&e),
             Self::Design(DesignError::NoSuchDesign) => {
                 text(StatusCode::NOT_FOUND, "not found\n".into())
             }
+            // A refused design write (the audit spool past its bound, a version that moved,
+            // a payload too large, a storage fault) says what a browser's write is told.
+            Self::Design(e) => crate::design_api::design_error_response(e),
             Self::Unverifiable(what) => {
                 tracing::error!(what, "an AI row did not verify");
                 text(StatusCode::INTERNAL_SERVER_ERROR, "refused\n".into())
@@ -1993,12 +2003,23 @@ pub(crate) async fn operator_overview(
         )
         .await?;
     let now = now_unix();
+    let site = switch.levels();
+    // Each organisation's rules, read once, for what each key may do now. A row that does not
+    // verify leaves its keys without `inEffect`, and the console falls back to the key's own.
+    let mut policies: BTreeMap<String, Option<Policy>> = BTreeMap::new();
     let mut keys = Vec::new();
     for row in &rows {
         let (key, stored) = AiKey::from_row(row);
         let Json::Obj(mut m) = key.to_json(now) else {
             unreachable!("a key renders as an object")
         };
+        if !policies.contains_key(&key.organisation) {
+            let p = read_policy(tx, ring, &key.organisation, false).await.ok();
+            policies.insert(key.organisation.clone(), p);
+        }
+        if let Some(Some(policy)) = policies.get(&key.organisation) {
+            m.insert("inEffect".into(), in_effect(&key, policy, &site));
+        }
         // The label is the owner's words about their own app; the operator plane sees ids.
         m.remove("label");
         m.insert("organisation".into(), Json::Str(key.organisation.clone()));
@@ -2435,6 +2456,27 @@ pub async fn open(
         policy,
         levels,
     })
+}
+
+/// What a key may see and do now, every layer applied (card r54-ai-layers): its own tiers cut
+/// to the organisation's ceiling, and the strictest of the server's, the organisation's and its
+/// own levels. Nothing at all while the organisation has AI off or no longer names its owner.
+pub fn in_effect(key: &AiKey, policy: &Policy, site: &Levels) -> Json {
+    let live = policy.allowed && policy.makers.contains(&key.owner);
+    let levels = if live {
+        site.min(&policy.levels()).min(&key.levels())
+    } else {
+        Levels([ai_work::Level::Off; 4])
+    };
+    let sees: Vec<String> = tiers(key, policy)
+        .iter()
+        .map(|t| t.as_str().to_string())
+        .collect();
+    let mut m = BTreeMap::new();
+    m.insert("work".into(), levels.to_json());
+    m.insert("sees".into(), strs(&sees));
+    m.insert("on".into(), Json::Bool(live));
+    Json::Obj(m)
 }
 
 /// What the key sees at this moment: its own tiers, cut to the organisation's ceiling.
@@ -3362,6 +3404,52 @@ pub async fn list_ideas(
     Ok(out)
 }
 
+/// `GET .../ai-ideas/{i}/change`: what accepting an open idea would write, built on the
+/// design as it is now and not written, for the canvas to draw. For anyone who can read the
+/// design; an idea without a change, or no longer open, is not there.
+pub async fn idea_change(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    heads: &HeadStore,
+    design: DesignId,
+    id: &str,
+) -> Result<(Vec<u8>, i64), AiError> {
+    let organisation = auth.ctx.tenant().to_string();
+    let place = design_place(tx, &organisation, design).await?;
+    grants::authorise_account(tx, auth, place.as_ref().map(|(s, _)| *s), Capability::Read).await?;
+    let (scope, _) = place.ok_or(AiError::NotFound)?;
+    let row = tx
+        .query_opt(
+            &format!(
+                "SELECT {IDEA_COLUMNS} FROM ai_recommendations r \
+                 WHERE r.organisation_id = $1 AND r.design_id = $2 AND r.id = $3"
+            ),
+            &[&organisation, &design.to_string(), &id],
+        )
+        .await?
+        .ok_or(AiError::NotFound)?;
+    let mut opener = IdeaOpener {
+        auth,
+        keys: BTreeMap::new(),
+    };
+    let idea = opener.open(tx, &row).await?;
+    let change = match (&idea.change, idea.state.as_str()) {
+        (Some(change), "open") => change,
+        _ => return Err(AiError::NotFound),
+    };
+    let asked = change.asked(&idea.title)?;
+    crate::ai_change::preview_idea_change(
+        tx,
+        auth,
+        heads,
+        design,
+        scope,
+        &change.tier_set(),
+        &asked,
+    )
+    .await
+}
+
 /// Accept or dismiss one idea. Needs `draw` on the design's place. Where the organisation
 /// asks for a second person on that folder, the key's owner cannot accept their own AI's
 /// idea. Accepting an idea that carries a change makes it, as the person accepting, in the
@@ -3633,6 +3721,75 @@ mod tests {
         let t = tiers(&key, &policy);
         assert!(t.contains(&Tier::Addresses));
         assert!(!t.contains(&Tier::Notes));
+    }
+
+    #[test]
+    fn what_a_key_may_do_now_is_the_strictest_layer() {
+        use ai_work::Level::{Ideas, Off, Propose};
+        let mut policy = Policy::off();
+        policy.allowed = true;
+        policy.makers = vec!["a".into()];
+        policy.ceiling = vec!["layout".into(), "addresses".into()];
+        policy.work = Levels([Ideas, Propose, Propose, Propose]).to_strs();
+        let key = AiKey {
+            organisation: String::new(),
+            id: String::new(),
+            owner: "a".into(),
+            owner_name: String::new(),
+            kind: "helper".into(),
+            public_key: None,
+            client_id: None,
+            label: String::new(),
+            scopes: Vec::new(),
+            sees: vec!["layout".into(), "notes".into()],
+            may_recommend: false,
+            created_unix: 0,
+            created_seq: 1,
+            expires_unix: 1,
+            state: "on".into(),
+            changed_seq: 1,
+            disabled_unix: None,
+            disabled_by: None,
+            disabled_by_kind: None,
+            disabled_reason: None,
+            version: 1,
+            ai_account: None,
+            owner_email: String::new(),
+            may_change: false,
+            work: Levels([Propose, Propose, Ideas, Propose]).to_strs(),
+        };
+        let site = Levels([Propose, Propose, Propose, Off]);
+        let out = in_effect(&key, &policy, &site);
+        assert_eq!(
+            out.to_canonical_bytes(),
+            body(&[
+                ("on", Json::Bool(true)),
+                ("sees", Json::Arr(vec![s("layout")])),
+                (
+                    "work",
+                    Json::Obj(
+                        [
+                            ("design", "ideas"),
+                            ("plans", "propose"),
+                            ("issues", "ideas"),
+                            ("doing", "off")
+                        ]
+                        .iter()
+                        .map(|(k, v)| (k.to_string(), s(v)))
+                        .collect()
+                    )
+                ),
+            ])
+        );
+        // Its owner no longer named: nothing at all.
+        policy.makers.clear();
+        let off = in_effect(&key, &policy, &site);
+        assert!(String::from_utf8(off.to_canonical_bytes())
+            .unwrap()
+            .contains(r#""on":false"#));
+        assert!(!String::from_utf8(off.to_canonical_bytes())
+            .unwrap()
+            .contains("propose"));
     }
 
     /// Forms a real device accepts (`corrections.rs`'s list).

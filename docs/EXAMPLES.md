@@ -135,7 +135,9 @@ An AI never changes a design itself. To let it send the change as well as the st
 **What an AI may do** under **Steward › AI rules**: for editing the design, drafting maintenance plans,
 troubleshooting and working through a plan, each **Off**, **Ideas** or **Proposes** (no higher than
 the server's admin allows). You tick **May propose changes** when you press **Allow** or **Make key**,
-and can set less for your connection later, on its page. The same rules page marks folders where an AI
+and can set less for your connection later, on its page, where the server's and the organisation's
+settings sit beside yours and **In effect** names whichever is holding a row back. The word beside the
+connection's name (Safe, Medium, Critical or Full) says at a glance how much it can reach. The same rules page marks folders where an AI
 sends ideas only or sees nothing, lists the only kinds and fields it may touch, and lowers its limits. The AI then gets a `propose_change`
 tool: Fathom checks the change against the version it read and keeps it as an AI idea. Open **AI
 ideas** and press **Show on canvas**: what it would change is outlined in the plan colour, tagged AI

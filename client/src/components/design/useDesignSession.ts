@@ -1,7 +1,7 @@
 // The document loading, saving and editing machinery Racks and Inventory
-// both need — ADR-0046 §2 ("one editor … one graph") and this session's own
-// brief item 1: switching place must never reload the design or lose an
-// unsaved change. Before this session, `racks/RacksPlace.tsx` owned all of
+// both need — ADR-0046 §2 ("one editor … one graph"):
+// switching place must never reload the design or lose an
+// unsaved change. Before this, `racks/RacksPlace.tsx` owned all of
 // this itself; it is pulled out here, unchanged in behaviour, so a caller
 // that mounts this hook ONCE — above wherever `RacksPlace`/`InventoryPlace`
 // are chosen between (`components/design/DesignPlace.tsx`) — keeps the same
@@ -173,8 +173,8 @@ export interface DesignSession {
  * Call this ONCE, in a component both places are mounted beneath
  * (`DesignPlace.tsx`) — mounting it separately inside `RacksPlace` and
  * `InventoryPlace` would give each place its own `Document`/`SaveQueue`,
- * exactly the "switching place reloads or loses a change" failure this
- * session's brief names.
+ * exactly the "switching place reloads or loses a change" failure
+ * this exists to prevent.
  */
 export function useDesignSession(organisationId: string, designId: string, capability: DesignCapability): DesignSession {
   const canDraw = canDrawFor(capability);

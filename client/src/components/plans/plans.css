@@ -36,16 +36,8 @@
   white-space: nowrap;
 }
 
-.plans-btn,
 .plans-chip {
   cursor: pointer;
-}
-
-.plans-btn--ink {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: var(--page);
-  box-shadow: none;
 }
 
 .plans-bar-chip[aria-pressed='true'] {
@@ -53,7 +45,6 @@
   box-shadow: var(--control-on-mark);
 }
 
-.plans-btn:disabled,
 .plans-chip:disabled {
   opacity: 0.5;
   cursor: default;
@@ -65,7 +56,6 @@
   box-shadow: var(--control-on-mark);
 }
 
-.plans-btn:focus-visible,
 .plans-chip:focus-visible,
 .plans-link:focus-visible,
 .plans-select:focus-visible,

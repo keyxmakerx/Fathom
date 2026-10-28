@@ -22,7 +22,7 @@ export function About({ onBack }: AboutProps) {
   return (
     <section className="about" aria-labelledby="about-title">
       <div>
-        <button type="button" className="home__btn home__btn--small" onClick={onBack}>
+        <button type="button" className="home__btn btn-small" onClick={onBack}>
           Back
         </button>
       </div>

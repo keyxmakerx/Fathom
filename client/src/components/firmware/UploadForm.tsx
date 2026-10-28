@@ -129,7 +129,7 @@ export function UploadForm({ api, onDone, onCancel }: { api: FirmwareApi; onDone
           </p>
         ) : null}
         <div className="fw-form__full fw-toolbar">
-          <button type="submit" className="fw-btn fw-btn--solid" disabled={busy || file === null}>
+          <button type="submit" className="fw-btn btn-main" disabled={busy || file === null}>
             Upload
           </button>
           <button

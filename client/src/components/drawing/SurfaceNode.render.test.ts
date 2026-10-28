@@ -255,7 +255,7 @@ describe('SurfaceNode (render-to-string)', () => {
     expect(markup).not.toContain('not measured');
   });
 
-  // This session's brief item 3 — a board fixed with no position still
+  // A board fixed with no position still
   // shows what it carries: the "not measured" strip draws it as its own
   // box with its own fixtures inside, never as a bare name.
   it('an unmeasured board draws as its own box with its nested fixtures, not a bare name, in the "not measured" strip', () => {

@@ -110,7 +110,7 @@ function PlanMode({ controller, plan }: { controller: PlansController; plan: Pla
       <Touches controller={controller} plan={plan} />
       {canEdit && (
         <p>
-          <button type="button" className="plans-btn plans-btn--ink" disabled={plan.steps.length === 0} onClick={() => void controller.start()}>
+          <button type="button" className="plans-btn btn-main" disabled={plan.steps.length === 0} onClick={() => void controller.start()}>
             Start work
           </button>
           {plan.steps.length === 0 && <span className="plans-note"> Add a step first.</span>}
@@ -225,7 +225,7 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
           />
           <TypedSentence />
           <p className="plans-step__actions">
-            <button type="submit" className="plans-btn plans-btn--ink" disabled={note.trim() === ''}>
+            <button type="submit" className="plans-btn btn-main" disabled={note.trim() === ''}>
               Save, went differently
             </button>
             <button type="button" className="plans-btn" onClick={closeForm}>
@@ -235,7 +235,7 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
         </form>
       ) : (
         <p className="plans-step__actions">
-          <button type="button" className="plans-btn plans-btn--ink" onClick={() => void controller.done(step.id)}>
+          <button type="button" className="plans-btn btn-main" onClick={() => void controller.done(step.id)}>
             Mark done
           </button>
           <button ref={differentlyBtn} type="button" className="plans-btn" onClick={() => setDifferently(true)}>
@@ -271,7 +271,7 @@ function BackOut({ controller, plan }: { controller: PlansController; plan: Plan
         {count === 1 ? 'one step' : `${count} steps`}, newest first. Change it, or add to it, before you start it.
       </p>
       <p className="plans-step__actions">
-        <button type="button" className="plans-btn plans-btn--ink" onClick={() => void controller.backOut().then(() => setAsking(false))}>
+        <button type="button" className="plans-btn btn-main" onClick={() => void controller.backOut().then(() => setAsking(false))}>
           Make the plan back
         </button>
         <button type="button" className="plans-btn" onClick={() => setAsking(false)}>
@@ -346,7 +346,7 @@ function RecordMode({ controller, plan }: { controller: PlansController; plan: P
       ) : (
         controller.canEdit && (
           <p>
-            <button type="button" className="plans-btn plans-btn--ink" disabled={outcome == null} onClick={() => outcome != null && void controller.record(outcome, text, paste.pasted)}>
+            <button type="button" className="plans-btn btn-main" disabled={outcome == null} onClick={() => outcome != null && void controller.record(outcome, text, paste.pasted)}>
               Record
             </button>
             {outcome == null && <span className="plans-note"> Choose an outcome.</span>}

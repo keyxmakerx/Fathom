@@ -707,9 +707,7 @@ async fn build_and_write(
             current,
         },
         DesignError::ChangeRefused(why) if why.contains("credential") => AiError::LooksSecret,
-        DesignError::ChangeRefused(_) => AiError::NotAllowed(
-            "the design's own rules refused this change; read it again and check each operation",
-        ),
+        DesignError::ChangeRefused(why) => AiError::ChangeRefused(why),
         // The person's own grant refused it: the same answer as any act they may not do.
         DesignError::Authority(e) => AiError::Authority(e),
         other => AiError::Design(other),
@@ -781,6 +779,41 @@ pub async fn apply_idea_change(
     )
     .await
     .map(|(_, written)| written)
+}
+
+/// What accepting an idea would write, built on the design as it is now and not written, so
+/// the canvas can draw what it adds where it would go: a chassis in its rack, a cable between
+/// its ports. The change is built as the person looking, with fresh ids, and handed back with
+/// the version it was built on; Accept builds its own.
+#[allow(clippy::too_many_arguments)]
+pub async fn preview_idea_change(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    heads: &HeadStore,
+    design: DesignId,
+    scope: ScopeId,
+    tiers: &BTreeSet<Tier>,
+    asked: &Asked,
+) -> Result<(Vec<u8>, i64), AiError> {
+    let stored =
+        designs::read_version_in_tx(tx, auth, Some(heads), design, Some(scope), None).await?;
+    let graph = fathom_workspace::read_plain(&stored.payload)
+        .map_err(|_| AiError::Unverifiable("a stored design that does not parse"))?;
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let built = build(
+        &graph,
+        tiers,
+        &Rules::open(),
+        IDEA_LABEL_PREFIX,
+        asked,
+        auth.ctx.actor().0,
+        now_ms,
+        crate::ids::new_ulid,
+    )?;
+    Ok((built.doc, stored.version))
 }
 
 /// The proposals one connection may send in a minute and a day (decision 7), counted from the

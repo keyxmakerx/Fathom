@@ -28,6 +28,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrateUrl, runtimeUrl } from './drive-lib/db.mjs';
 import { makeAccount } from './drive-lib/bitwarden-account.mjs';
+import { check, fails } from './drive-lib/kit.mjs';
 
 const pw = await import(process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js');
 const { chromium } = pw.default ?? pw;
@@ -78,11 +79,6 @@ const OUTSIDE = {
   ],
 };
 
-const fails = [];
-function check(name, ok, detail) {
-  console.log((ok ? 'PASS  ' : 'FAIL  ') + name + (detail ? '  [' + detail + ']' : ''));
-  if (!ok) fails.push(name);
-}
 const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { encoding: 'utf8', ...opts });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

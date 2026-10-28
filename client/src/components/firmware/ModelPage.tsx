@@ -168,7 +168,7 @@ function DeviceRow({ api, line, onOpenDevice }: { api: FirmwareApi; line: FwDevi
               device.hold !== null ? (
                 <button
                   type="button"
-                  className="fw-btn fw-btn--quiet"
+                  className="fw-btn btn-quiet"
                   onClick={() => {
                     const r = api.setHold(device.deviceId, null);
                     setError(r ? r.refused : null);
@@ -177,7 +177,7 @@ function DeviceRow({ api, line, onOpenDevice }: { api: FirmwareApi; line: FwDevi
                   Release
                 </button>
               ) : (
-                <button type="button" className="fw-btn fw-btn--quiet" onClick={() => setHolding(true)}>
+                <button type="button" className="fw-btn btn-quiet" onClick={() => setHolding(true)}>
                   Hold
                 </button>
               )

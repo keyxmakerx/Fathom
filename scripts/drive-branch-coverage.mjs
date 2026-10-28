@@ -18,6 +18,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { check, fails } from './drive-lib/kit.mjs';
 
 const pw = await import(
   process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js'
@@ -33,11 +34,6 @@ const ARTIFACT = 'file://' + ROOT + '/target/artifact/fathom-dev.html';
 const SHOTS = ROOT + '/docs/80-review/evidence/';
 
 const config = readFileSync(FIXTURE, 'utf8');
-const fails = [];
-function check(name, ok, detail) {
-  console.log((ok ? 'PASS  ' : 'FAIL  ') + name + (detail ? '  [' + detail + ']' : ''));
-  if (!ok) fails.push(name);
-}
 
 const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
 const page = await (await browser.newContext()).newPage();

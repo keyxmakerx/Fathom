@@ -590,7 +590,7 @@ export default function App() {
 
   // The most recent design per scope — same ordering Home groups by
   // (`sortDesignsByRecency`) — so a tree row or path part naming a scope
-  // can open "that scope's first design" (this task's brief) without
+  // can open "that scope's first design" (the original brief) without
   // inventing which one that is.
   const firstDesignByScopeId = new Map<string, DesignSummary>();
   for (const design of sortDesignsByRecency(orgDesigns)) {
@@ -604,7 +604,7 @@ export default function App() {
     if (!design) {
       // No design in this scope to switch to — the row/part still exists
       // (a closet can have nothing in it yet), but selecting it does
-      // nothing visible, per this task's brief.
+      // nothing visible, per the original brief.
       return;
     }
     setView((current) => (current.kind === 'place' ? { ...current, design } : current));

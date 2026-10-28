@@ -253,7 +253,7 @@ function AddSurfaceControl({ onAdd }: { onAdd: (label: string, form: string) => 
 }
 
 export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'children'> {
-  /** This session's brief item 1: the document, the catalogue, the
+  /** The document, the catalogue, the
    * `SaveQueue` and the one `handleEdit` dispatcher — held by
    * `useDesignSession` and mounted exactly once, in `DesignPlace.tsx`,
    * above wherever this component and `InventoryPlace` are chosen between.
@@ -265,7 +265,7 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
    * stepped `zoom`/`onZoomIn`/`onZoomOut` by the caller (`App.tsx`) — the
    * same single number, two ways to move it. */
   onZoomChange: (zoom: number) => void;
-  /** This session's brief item 5 — "Show on rack": `InventoryPlace.tsx`'s
+  /** "Show on rack": `InventoryPlace.tsx`'s
    * caller (`DesignPlace.tsx`) hands in a `Selection` to open already
    * chosen, e.g. the chassis a device row named. Selected the moment the
    * document is ready, with the camera asked to the faceplate stop
@@ -286,7 +286,7 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   /** A trace to show, already filled in (a lesson's trace step); a fresh object per ask. */
   traceRequest?: { from: TraceEnd; to: TraceEnd; flowText: string } | null;
   onRequestsHandled?: () => void;
-  /** This session's brief item 5's reverse — "Open in inventory," rendered
+  /** "Open in inventory," rendered
    * beside the editor for a selected chassis. Omitted (no button at all)
    * where no caller supplies it, the same "no action, not a disabled one"
    * shape `EditorActions.onSelect` already follows. */

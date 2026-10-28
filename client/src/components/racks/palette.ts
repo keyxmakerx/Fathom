@@ -32,7 +32,7 @@ export function paletteFromCatalogue(catalogue: readonly CatalogueModel[]): Pale
   }));
 }
 
-// ADR-0051 §1/§2, this session's brief item 2 — two rows beside the
+// ADR-0051 §1/§2 — two rows beside the
 // catalogue's own models: "a box with no catalogue entry"
 // (`document/commands.ts`'s `createSketchDevice`) and "a board"
 // (`createBoard`). Both are ordinary `PaletteItem`s — `vendor: ''` never

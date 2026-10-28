@@ -9,7 +9,7 @@
 // below, and the new `Document` is what actually gets saved.
 //
 // The four fields are exactly the ones `schema/schema.yaml` declares for
-// `Device` and `Chassis` that this session's editor exposes (CLAUDE.md rule
+// `Device` and `Chassis` that the editor exposes (CLAUDE.md rule
 // 3 — a field not in `schema/` does not exist, and neither does a fifth one
 // here): `Device.hostname`, `Device.role`, `Device.management_address`,
 // `Chassis.serial`.
@@ -63,7 +63,7 @@ export class FieldValueError extends Error {
 
 // `schema/schema.yaml`'s `Device.role` — the inline enum, verbatim, and the
 // only source of what a role may say (`role`'s values ARE the enum, never a
-// free string, this session's brief). Kept here rather than guessed from the
+// free string). Kept here rather than guessed from the
 // wire token registry, which carries field names, not their token sets.
 export const DEVICE_ROLES = [
   'firewall',
@@ -297,7 +297,7 @@ export function setRackHeight(doc: Document, rackId: string, heightU: number, op
 export type PassiveNodeFieldKey = 'label';
 
 /**
- * ADR-0051 §1, this session's brief item 1 — `PassiveNode.label` (`Text`,
+ * ADR-0051 §1, `PassiveNode.label` (`Text`,
  * schema card "1") on one `PassiveNode` (a shelf, a board — anything of
  * that kind): a shelf's own editor commits its name through this, the same
  * shape as `setRackField`/`setChassisField`/`setDeviceField` above. Never a
