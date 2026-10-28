@@ -411,6 +411,18 @@ async function runProof(browser, ctxA, seed) {
   await shot('d5-ai-idea-on-canvas');
   const word = (await marked.count()) > 0 ? await marked.first().evaluate((el) => getComputedStyle(el).getPropertyValue('--plan-word')) : '';
   check('D5. Show on canvas marks the switch in the plan colour, tagged AI CHANGES, and nothing has changed yet', /AI CHANGES/.test(word) && (await A.getByText('lab-core-1').count()) === 0, word);
+  // An idea that adds something draws it where it would go, tagged AI ADDS, still only on the canvas.
+  await renameIdea.getByTestId('ai-idea-preview').click();
+  const spareIdea = A.getByTestId('ai-ideas').locator('.ai-idea', { hasText: 'Add a spare switch' });
+  await spareIdea.getByTestId('ai-idea-preview').click();
+  await A.locator('.drawing').getByText('lab-spare-proposed').first().waitFor({ timeout: 10000 }).catch(() => {});
+  await A.waitForTimeout(600);
+  await shot('d6-ai-idea-adds-on-canvas');
+  const adds = await A.locator('.react-flow__node.plan-mark--plan').evaluateAll((els) => els.map((el) => getComputedStyle(el).getPropertyValue('--plan-word')).join(' '));
+  check('D6. Show on canvas draws a device the idea adds, tagged AI ADDS', (await A.locator('.drawing').getByText('lab-spare-proposed').count()) > 0 && /AI ADDS/.test(adds), adds);
+  const unmovedAgain = await rpc('tools/call', { name: 'read_design', arguments: { design: designId } });
+  check('D6b. drawing it changed nothing', !JSON.stringify(unmovedAgain.body.result.structuredContent).includes('lab-spare-proposed'));
+  await spareIdea.getByTestId('ai-idea-preview').click();
 
   // ---- Steward › AI lists it -------------------------------------------------------
   await A.locator('.shell-bar__brand').first().click();

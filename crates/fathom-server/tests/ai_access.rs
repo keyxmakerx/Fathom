@@ -2631,6 +2631,27 @@ async fn an_ai_proposal_changes_nothing_until_a_person_accepts_it() {
     assert_eq!(now, version, "a proposal changes nothing");
     assert!(!reading.contains("core-sw2"), "{reading}");
 
+    // The canvas asks what accepting it would write: built on the design as it is, not written.
+    let (status, drawn) = browser(
+        addr,
+        &owner_session,
+        "GET",
+        &format!("/organisations/{o}/designs/{a}/ai-ideas/{proposal}/change"),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&drawn));
+    let m = obj(&drawn);
+    assert_eq!(int(&m, "version"), version);
+    let Some(Json::Str(change)) = m.get("change") else {
+        panic!("no change in {}", text(&drawn))
+    };
+    assert!(change.starts_with("fathom-change 1\n"), "{change}");
+    assert!(change.contains("core-sw2"), "{change}");
+    let (still, _, reading) = read_for_change(addr, &app_key, a, "Device").await;
+    assert_eq!(still, version, "drawing an idea changes nothing");
+    assert!(!reading.contains("core-sw2"), "{reading}");
+
     // Against a version the design is not at: refused.
     let (status, answer) = ai_call(
         addr,

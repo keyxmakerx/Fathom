@@ -27,7 +27,7 @@ export function useAiPreviewMarks(nodes: Node[], edges: Edge[], resolvePort?: Re
             nodes,
             edges,
             plans: { stage: 'planned', marks: preview.marks, focus: preview.focus },
-            canon: api?.store.get().canon ?? IDENTITY,
+            canon: preview.canon ?? api?.store.get().canon ?? IDENTITY,
             resolvePort: (id) => resolveRef.current?.(id) ?? null,
             checksShowing,
           }),
@@ -35,18 +35,24 @@ export function useAiPreviewMarks(nodes: Node[], edges: Edge[], resolvePort?: Re
   );
 }
 
-/** Inside the drawing's React Flow provider: fits the view to what the idea touches when one is shown. */
+/** Inside the drawing's React Flow provider: fits the view to what the idea touches when one is shown, and again
+ * once what it adds is drawn. */
 export function AiPreviewCanvasBridge() {
-  const { ideaId, focus } = useAiPreview();
+  const { ideaId, focus, doc, canon } = useAiPreview();
+  const drawn = doc != null;
   const api = useChecksApi();
   const rf = useReactFlow();
 
   useEffect(() => {
     if (ideaId == null || focus == null) return;
-    const { nodeIds } = focusMatch(rf.getNodes(), rf.getEdges(), focus, api?.store.get().canon ?? IDENTITY);
-    if (nodeIds.size > 0) void rf.fitView({ nodes: [...nodeIds].map((id) => ({ id })), padding: 0.5, maxZoom: 1.25, duration: 400 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one move per idea shown
-  }, [ideaId]);
+    // The drawn copy reaches React Flow a frame after the store changes.
+    const frame = requestAnimationFrame(() => {
+      const { nodeIds } = focusMatch(rf.getNodes(), rf.getEdges(), focus, canon ?? api?.store.get().canon ?? IDENTITY);
+      if (nodeIds.size > 0) void rf.fitView({ nodes: [...nodeIds].map((id) => ({ id })), padding: 0.5, maxZoom: 1.25, duration: 400 });
+    });
+    return () => cancelAnimationFrame(frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one move per idea shown, and one once it is drawn
+  }, [ideaId, drawn]);
 
   return null;
 }
