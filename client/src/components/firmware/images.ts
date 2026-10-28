@@ -4,12 +4,12 @@
 // (firmware off, or not uploaded yet) is a row too, so the list never hides a choice.
 
 import type { FirmwareImage } from '../../api/firmware';
-import { listPlans, touchedBy } from '../../document/plans';
+import { listPlans } from '../../document/plans';
 import { listTargets, modelRows, type FwModelRow, type FwTarget } from '../../document/firmware';
 import { versionOlder } from '../../document/firmwareVersion';
 import type { Document } from '../../document/model';
 import { quoteValue } from '../inventory/query';
-import { parseUpgradeTitle } from './upgradePlan';
+import { upgradeGroups } from './upgradePlan';
 
 export type Vendor = 'juniper' | 'cisco' | 'arista';
 export const VENDOR_TABS: ReadonlyArray<{ key: Vendor | 'all'; label: string }> = [
@@ -98,7 +98,7 @@ export function imageRows({ doc, images }: Input): FwImageRow[] {
       return t !== undefined && versionOlder(platform, version, t.version) === true;
     })) badge = 'older';
     const mine = new Set(devices.map((l) => l.device.deviceId));
-    const planIds = version === '' ? [] : plans.filter((p) => parseUpgradeTitle(p.title)?.version === version && touchedBy(p).some((id) => mine.has(id))).map((p) => p.id);
+    const planIds = version === '' ? [] : plans.filter((p) => upgradeGroups(p).some((g) => g.version === version && g.deviceIds.some((id) => mine.has(id)))).map((p) => p.id);
     return {
       key,
       image,

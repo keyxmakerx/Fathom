@@ -1,4 +1,4 @@
-// Links between sites (ADR-0079 decision 5, schema 0.31): a cable whose far end is an
+// Links between sites (ADR-0079 decision 5, schema 0.32): a cable whose far end is an
 // `ExternalPeer` naming a port in another design (`ExternalPeer.far_design`, `.far_element`).
 // Pure reads over a document; `cables.ts`'s `connectToOutside` writes them.
 import { edgesIn, edgesOut, fieldValue, findNode, type Document } from './model';

@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.31";
+    pub const SCHEMA_VERSION: &str = "0.32";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -1032,10 +1032,10 @@ mod body {
         pub const fn fields(self) -> &'static [crate::bag::FieldKey] {
             match self {
                 NodeKind::Site => &[crate::bag::FieldKey(1), crate::bag::FieldKey(2), crate::bag::FieldKey(3), crate::bag::FieldKey(4), crate::bag::FieldKey(5)],
-                NodeKind::Device => &[crate::bag::FieldKey(6), crate::bag::FieldKey(7), crate::bag::FieldKey(8), crate::bag::FieldKey(9), crate::bag::FieldKey(10), crate::bag::FieldKey(11), crate::bag::FieldKey(12), crate::bag::FieldKey(13), crate::bag::FieldKey(14), crate::bag::FieldKey(15), crate::bag::FieldKey(16), crate::bag::FieldKey(17), crate::bag::FieldKey(411)],
+                NodeKind::Device => &[crate::bag::FieldKey(6), crate::bag::FieldKey(7), crate::bag::FieldKey(8), crate::bag::FieldKey(9), crate::bag::FieldKey(10), crate::bag::FieldKey(11), crate::bag::FieldKey(12), crate::bag::FieldKey(13), crate::bag::FieldKey(14), crate::bag::FieldKey(15), crate::bag::FieldKey(16), crate::bag::FieldKey(17), crate::bag::FieldKey(411), crate::bag::FieldKey(542)],
                 NodeKind::Chassis => &[crate::bag::FieldKey(18), crate::bag::FieldKey(19), crate::bag::FieldKey(20), crate::bag::FieldKey(21)],
                 NodeKind::RedundancyGroup => &[crate::bag::FieldKey(22), crate::bag::FieldKey(23), crate::bag::FieldKey(24), crate::bag::FieldKey(25), crate::bag::FieldKey(26)],
-                NodeKind::ExternalPeer => &[crate::bag::FieldKey(27), crate::bag::FieldKey(28), crate::bag::FieldKey(29), crate::bag::FieldKey(30), crate::bag::FieldKey(31), crate::bag::FieldKey(542), crate::bag::FieldKey(543)],
+                NodeKind::ExternalPeer => &[crate::bag::FieldKey(27), crate::bag::FieldKey(28), crate::bag::FieldKey(29), crate::bag::FieldKey(30), crate::bag::FieldKey(31), crate::bag::FieldKey(543), crate::bag::FieldKey(544)],
                 NodeKind::Interface => &[crate::bag::FieldKey(32), crate::bag::FieldKey(33), crate::bag::FieldKey(34), crate::bag::FieldKey(35), crate::bag::FieldKey(36), crate::bag::FieldKey(37), crate::bag::FieldKey(38), crate::bag::FieldKey(39), crate::bag::FieldKey(40)],
                 NodeKind::AggregateInterface => &[crate::bag::FieldKey(41), crate::bag::FieldKey(42), crate::bag::FieldKey(43), crate::bag::FieldKey(44), crate::bag::FieldKey(45), crate::bag::FieldKey(46), crate::bag::FieldKey(47), crate::bag::FieldKey(48)],
                 NodeKind::RethInterface => &[crate::bag::FieldKey(49), crate::bag::FieldKey(50), crate::bag::FieldKey(51), crate::bag::FieldKey(52), crate::bag::FieldKey(53), crate::bag::FieldKey(54)],
@@ -7115,12 +7115,13 @@ mod body {
         RethCount,
         NameConformance,
         FirmwareHold,
+        FirmwareTarget,
     }
 
     impl DeviceField {
-        pub const COUNT: usize = 13;
+        pub const COUNT: usize = 14;
         /// Every field, declaration order.
-        pub const ALL: [DeviceField; 13] = [
+        pub const ALL: [DeviceField; 14] = [
             DeviceField::Hostname,
             DeviceField::Platform,
             DeviceField::OsVersion,
@@ -7134,6 +7135,7 @@ mod body {
             DeviceField::RethCount,
             DeviceField::NameConformance,
             DeviceField::FirmwareHold,
+            DeviceField::FirmwareTarget,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -7153,6 +7155,7 @@ mod body {
                 DeviceField::RethCount => "reth_count",
                 DeviceField::NameConformance => "name_conformance",
                 DeviceField::FirmwareHold => "firmware_hold",
+                DeviceField::FirmwareTarget => "firmware_target",
             }
         }
         /// The stable wire key (`schema/field-keys.yaml`).
@@ -7171,6 +7174,7 @@ mod body {
                 DeviceField::RethCount => crate::bag::FieldKey(16),
                 DeviceField::NameConformance => crate::bag::FieldKey(17),
                 DeviceField::FirmwareHold => crate::bag::FieldKey(411),
+                DeviceField::FirmwareTarget => crate::bag::FieldKey(542),
             }
         }
     }
@@ -7305,8 +7309,8 @@ mod body {
                 ExternalPeerField::Organisation => crate::bag::FieldKey(29),
                 ExternalPeerField::Contact => crate::bag::FieldKey(30),
                 ExternalPeerField::PlatformGuess => crate::bag::FieldKey(31),
-                ExternalPeerField::FarDesign => crate::bag::FieldKey(542),
-                ExternalPeerField::FarElement => crate::bag::FieldKey(543),
+                ExternalPeerField::FarDesign => crate::bag::FieldKey(543),
+                ExternalPeerField::FarElement => crate::bag::FieldKey(544),
             }
         }
     }
@@ -11370,7 +11374,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 478] = [
+    pub const FIELD_KEYS: [(&str, u32); 479] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -11847,19 +11851,20 @@ mod body {
         ("StockItem.note", 539),
         ("StockLevel.model", 540),
         ("StockLevel.at_least", 541),
-        ("ExternalPeer.far_design", 542),
-        ("ExternalPeer.far_element", 543),
+        ("Device.firmware_target", 542),
+        ("ExternalPeer.far_design", 543),
+        ("ExternalPeer.far_element", 544),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
     /// per key, least-significant bit first. Read it through [`field_required`];
     /// the array is public only so a test can pin its length.
-    pub const FIELD_REQUIRED_BITS: [u8; 68] = [
+    pub const FIELD_REQUIRED_BITS: [u8; 69] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
         0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0xa3, 0xfb, 0x1d, 0x59, 0x64,
         0xc0, 0xe6, 0x64, 0xc0, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x41, 0x38, 0x00, 0x10,
-        0x81, 0x9e, 0x10, 0x30,
+        0x81, 0x9e, 0x10, 0x30, 0x00,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

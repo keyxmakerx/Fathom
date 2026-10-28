@@ -363,7 +363,7 @@ describe('connectToOutside', () => {
     ).toThrow(UnknownReferenceError);
   });
 
-  // Links between sites (ADR-0079 decision 5, schema 0.31): only the far ids and the label.
+  // Links between sites (ADR-0079 decision 5, schema 0.32): only the far ids and the label.
   it('links to a port in another design, stores only its ids, and survives a save and an undo', () => {
     const { doc, chassisA } = twoChassis();
     const fromPort = portByConnector(doc, chassisA, 'rj45');

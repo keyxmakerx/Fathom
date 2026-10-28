@@ -240,7 +240,7 @@ export type EditorChange =
   /** Missing links: a cable from this free port with no far end yet (`connectOneEnd`). It starts
    * Unknown; "Needs finishing" below is how a person says it is planned or unfinished work. */
   | { kind: 'cable-one-end'; portId: string }
-  /** Links between sites (ADR-0079 decision 5, schema 0.31): a cable from this free port to a
+  /** Links between sites (ADR-0079 decision 5, schema 0.32): a cable from this free port to a
    * port in another design, picked from estate search (`SiteLink.tsx`). Only the ids and the
    * label are stored. */
   | { kind: 'cable-link-site'; portId: string; label: string; far: { design: string; element: string } }

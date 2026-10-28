@@ -1,11 +1,16 @@
 // "Upgrade as a plan": the maintenance plan for one or more devices of a model, six steps in plain
-// words (mockup r14-b3). Each step is a title and, after a line break, a muted second line; the
+// words (mockup r14-b3), or for a device with its own chosen version (schema 0.31), the written steps
+// for its vendor (kits.ts). Every upgrade ends on "Record <version> as running", which is how a plan
+// is known as a firmware plan whatever it is called, and how one plan holds several upgrades. Each step is a title and, after a line break, a muted second line; the
 // vendor's exact commands come from the server's commands for the image and sit in the step's detail
 // (`after`), not as extra steps. Pure. The one-time link is never in the plan: it lasts 15 minutes,
 // so the fetch step shows a placeholder and the plan panel issues the link on the day.
 
 import { shortHash, type FirmwareCommands, type FirmwareImage } from '../../api/firmware';
 import type { FwDevice, FwTarget } from '../../document/firmware';
+import { FIRMWARE_PLATFORMS } from '../../document/firmwareVersion';
+import type { Plan, PlanStep } from '../../document/plans';
+import { KITS, kitFor, type KitId } from './kits';
 
 export interface UpgradeStep {
   kind: 'other';
@@ -19,6 +24,8 @@ export interface UpgradeTemplate {
   deviceIds: string[];
   title: string;
   steps: UpgradeStep[];
+  /** Add the steps to this plan, still being planned, instead of making a new one. */
+  intoPlan?: string;
 }
 
 export const LINK_PLACEHOLDER = '<one-time link>';
@@ -26,11 +33,50 @@ export const LINK_PLACEHOLDER = '<one-time link>';
 /** The step whose command takes the link. */
 export const FETCH_STEP_TITLE = 'Fetch the image from Fathom';
 
-/** `Upgrade EX2300 to 23.4R2`: how a firmware plan is named, and how the panel knows one. */
-export const upgradeTitle = (model: string, version: string): string => `Upgrade ${model} to ${version}`;
+/** `Upgrade EX2300 to 23.4R2`: how a new firmware plan is named. A person may rename it. */
+export const upgradeTitle = (label: string, version: string): string => `Upgrade ${label} to ${version}`;
+/** Plans made before the record step named the version were known by their title alone. */
 export function parseUpgradeTitle(title: string): { model: string; version: string } | null {
   const m = /^Upgrade (.+) to (\S+)$/.exec(title);
   return m ? { model: m[1]!, version: m[2]! } : null;
+}
+
+/** The last step of every upgrade. */
+export const recordStepTitle = (version: string): string => `Record ${version} as running`;
+
+/** A step's title without the `label · ` an added upgrade carries. */
+export function stepTitle(change: string): string {
+  const first = change.split('\n')[0] ?? '';
+  const i = first.indexOf(' · ');
+  return i < 0 ? first : first.slice(i + 3);
+}
+
+/** The steps of an upgrade added to a plan that already has steps start with what they are for. */
+export function labelled(template: UpgradeTemplate, label: string): UpgradeTemplate {
+  return { ...template, steps: template.steps.map((s) => ({ ...s, change: `${label} · ${s.change}` })) };
+}
+
+export interface UpgradeGroup {
+  version: string;
+  deviceIds: string[];
+  /** The step the one-time link is for, when the image comes from Fathom. */
+  fetchStep: PlanStep | null;
+}
+
+const sameSet = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((x) => b.includes(x));
+
+/** The upgrades a plan holds, one per record step; an older plan is known by its title. Empty for any other plan. */
+export function upgradeGroups(plan: Plan): UpgradeGroup[] {
+  const fetches = plan.steps.filter((s) => stepTitle(s.change) === FETCH_STEP_TITLE);
+  const groups: UpgradeGroup[] = [];
+  for (const s of plan.steps) {
+    const m = /^Record (\S+) as running$/.exec(stepTitle(s.change));
+    if (m) groups.push({ version: m[1]!, deviceIds: s.targets, fetchStep: fetches.find((f) => sameSet(f.targets, s.targets)) ?? null });
+  }
+  if (groups.length > 0) return groups;
+  const old = parseUpgradeTitle(plan.title);
+  if (old === null) return [];
+  return [{ version: old.version, deviceIds: [...new Set(plan.steps.flatMap((s) => s.targets))], fetchStep: fetches[0] ?? null }];
 }
 
 /**
@@ -76,18 +122,43 @@ export function detailsFrom(c: FirmwareCommands | null): Record<Bucket, string[]
 }
 
 export interface UpgradeInput {
-  /** The devices to take to the chosen version, all of one model. */
+  /** The devices to take to the chosen version: all of one model, or the one device. */
   devices: readonly FwDevice[];
-  model: string;
-  target: FwTarget;
+  /** What the plan names: the model, or the device for its own chosen version. */
+  label: string;
+  version: string;
+  /** The model's target; null for a device's own chosen version. */
+  target: FwTarget | null;
   /** The image the target names, when the server lists it. */
   image: FirmwareImage | null;
+  /** Written steps to use when Fathom has no image; left out, the platform suggests them. */
+  kit?: KitId;
 }
 
-export function buildUpgradePlan({ devices, model, target, image }: UpgradeInput): UpgradeTemplate {
-  const platform = devices[0]?.platform || target.platform;
+const isImagePlatform = (p: string): boolean => FIRMWARE_PLATFORMS.some((x) => x.id === p);
+
+export function buildUpgradePlan({ devices, label, version, target, image, kit }: UpgradeInput): UpgradeTemplate {
+  const platform = devices[0]?.platform || target?.platform || '';
   const staged = image !== null && image.state === 'staged' && image.sha256 !== null;
-  const hash = staged ? (image.sha256 ?? '') : target.imageSha256;
+  const deviceIds = devices.map((x) => x.deviceId);
+  const title = upgradeTitle(label, version);
+  const record = (muted: string): UpgradeStep => ({ kind: 'other', change: `${recordStepTitle(version)}\n${muted}` });
+
+  // No image from Fathom: the vendor's own update, as written steps.
+  const useKit = !staged && (kit !== undefined || !isImagePlatform(platform));
+  if (useKit) {
+    const k = KITS[kit ?? kitFor(platform)];
+    return {
+      deviceIds,
+      title,
+      steps: [
+        ...k.steps.map((s): UpgradeStep => ({ kind: 'other', change: `${s.title}\n${s.muted}`, ...(s.after !== undefined ? { after: s.after } : {}) })),
+        record('Type it as Running on the device page, or paste the config. "Behind" clears on its own.'),
+      ],
+    };
+  }
+
+  const hash = staged ? (image.sha256 ?? '') : (target?.imageSha256 ?? '');
   const fits = staged && commandsFit(image, platform);
   const commands = fits ? (image?.commands ?? null) : null;
   const d = commands ? detailsFrom(commands) : NONE;
@@ -108,16 +179,17 @@ export function buildUpgradePlan({ devices, model, target, image }: UpgradeInput
     : noSteps
       ? 'No steps are written for this platform yet.'
       : 'The device pulls it with the one-time link below.';
+  const last = lines(6);
   return {
-    deviceIds: devices.map((x) => x.deviceId),
-    title: upgradeTitle(model, target.version),
+    deviceIds,
+    title,
     steps: [
       step('Back up the running config', 'Paste it into Fathom; the redaction gate runs first.', 1),
       step('Check free space on the device', 'Clear old images if it is short.', 2),
       step(FETCH_STEP_TITLE, fetchMuted, 3),
       hashStep,
       step('Install and reboot', 'Inside the window.', 5),
-      step('Paste the new version back', 'Checks clears "behind" on its own.', 6),
+      { ...record('Paste the config back; Checks clears "behind" on its own.'), ...(last !== undefined ? { after: last } : {}) },
     ],
   };
 }

@@ -1,10 +1,12 @@
 // Firmware in the design (schema 0.19): a `FirmwareTarget` per catalogue model names the version
 // the people who keep the design chose, and `Device.firmware_hold` says a device stays where it is
 // on purpose. The image itself lives on the server (`api/firmware.ts`); a target only names it.
-// A target hangs off the root with no edge, as a Tag does. All pure, one undoable batch each.
+// A target hangs off the root with no edge, as a Tag does. A device none of whose models has a
+// target can carry its own chosen version, `Device.firmware_target` (schema 0.31): an OPNsense box
+// or a NAS with no catalogue model. A model's target always wins. All pure, one undoable batch each.
 
 import { begin, finish, addNode, tombstone, type Build } from './freeform';
-import { FIRMWARE_PLATFORMS, versionOlder } from './firmwareVersion';
+import { VERSION_PLATFORMS, versionOlder } from './firmwareVersion';
 import {
   archiveField,
   assertHand,
@@ -140,7 +142,7 @@ export function setTarget(doc: Document, model: string, patch: TargetPatch, opts
     throw new FirmwareRefusal('A model is written without spaces, as the catalogue has it.');
   }
   const version = cleanVersion(patch.version);
-  if (patch.platform != null && !FIRMWARE_PLATFORMS.some((p) => p.id === patch.platform)) {
+  if (patch.platform != null && !VERSION_PLATFORMS.some((p) => p.id === patch.platform)) {
     throw new FirmwareRefusal('Pick a platform from the list.');
   }
   if (patch.image != null && !ULID.test(patch.image)) throw new FirmwareRefusal('That image is not one the server knows.');
@@ -186,6 +188,8 @@ export interface FwDevice {
   osVersion: string;
   /** Why it is held, or null. */
   hold: string | null;
+  /** The version chosen for this device itself (`Device.firmware_target`), or ''. */
+  ownTarget: string;
 }
 
 function readDevice(doc: Document, n: GraphNode): FwDevice {
@@ -207,6 +211,7 @@ function readDevice(doc: Document, n: GraphNode): FwDevice {
     platform: str(n, 'Device.platform'),
     osVersion: str(n, 'Device.os_version'),
     hold: typeof hold === 'string' ? hold : null,
+    ownTarget: str(n, 'Device.firmware_target'),
   };
 }
 
@@ -241,6 +246,54 @@ export function setFirmwareHold(doc: Document, deviceId: string, reason: string 
   return finish(b, value === undefined ? 'lift firmware hold' : 'hold firmware');
 }
 
+function liveDevice(doc: Document, deviceId: string): void {
+  const n = findNode(doc, deviceId);
+  if (!n || !live(n) || parseNodeId(deviceId).kind !== 'Device') throw new FirmwareRefusal('That device is not in the design any more.');
+}
+
+/**
+ * Chooses a version for this one device (`null` clears it). Only for a device whose models have no
+ * chosen version: when one has, that model's page is where the version is chosen. One undo step.
+ */
+export function setDeviceTarget(doc: Document, deviceId: string, version: string | null, opts?: Actor): Document {
+  liveDevice(doc, deviceId);
+  const device = deviceFirmware(doc, deviceId)!;
+  const v = version === null ? undefined : cleanVersion(version);
+  if (v !== undefined && targetOfDevice(doc, device) !== null) {
+    throw new FirmwareRefusal("This device's model has a chosen version. Change it on the model's page.");
+  }
+  const b = begin(doc, opts);
+  putField(b, deviceId, 'Device.firmware_target', v === undefined ? undefined : text(v));
+  return finish(b, v === undefined ? 'clear device firmware version' : 'choose device firmware version');
+}
+
+/** What a device runs, typed by hand (`null` clears it). Marked as typed, so a later paste can tell. */
+export function setRunningVersion(doc: Document, deviceId: string, version: string | null, opts?: Actor): Document {
+  liveDevice(doc, deviceId);
+  const v = version === null ? undefined : cleanVersion(version);
+  const b = begin(doc, opts);
+  putField(b, deviceId, 'Device.os_version', v === undefined ? undefined : text(v));
+  return finish(b, v === undefined ? 'clear running version' : 'set running version');
+}
+
+/**
+ * How this device's versions are numbered, for a device no paste has named a platform for. Only the
+ * platforms Fathom can compare are offered, and a platform a paste wrote is never changed here.
+ */
+export function setVersionPlatform(doc: Document, deviceId: string, platform: string | null, opts?: Actor): Document {
+  liveDevice(doc, deviceId);
+  const device = deviceFirmware(doc, deviceId)!;
+  if (!canSetVersionPlatform(device)) throw new FirmwareRefusal('This platform came from a pasted config. Paste again to change it.');
+  if (platform !== null && !VERSION_PLATFORMS.some((p) => p.id === platform)) throw new FirmwareRefusal('Pick a platform from the list.');
+  const b = begin(doc, opts);
+  putField(b, deviceId, 'Device.platform', platform === null ? undefined : text(platform));
+  return finish(b, platform === null ? 'clear version numbering' : 'set version numbering');
+}
+
+/** Whether the numbering may be picked by hand: none recorded, or one of the ones offered. */
+export const canSetVersionPlatform = (device: Pick<FwDevice, 'platform'>): boolean =>
+  device.platform === '' || VERSION_PLATFORMS.some((p) => p.id === device.platform);
+
 // ---------------------------------------------------------------------------
 // State, in words
 
@@ -265,6 +318,28 @@ export function stateOf(device: Pick<FwDevice, 'platform' | 'osVersion' | 'hold'
   if (device.osVersion === '') return 'not-recorded';
   const older = versionOlder(device.platform || target.platform, device.osVersion, target.version);
   return older === null ? 'unclear' : older ? 'behind' : 'current';
+}
+
+/** What a device is measured against: its model's target, or else its own chosen version. */
+export interface FwChosen {
+  version: string;
+  platform: string;
+  /** The model's target, or null when the version is the device's own. */
+  target: FwTarget | null;
+}
+
+export function chosenFor(doc: Document, device: FwDevice): FwChosen | null {
+  const t = targetOfDevice(doc, device);
+  if (t) return { version: t.version, platform: t.platform, target: t };
+  return device.ownTarget !== '' ? { version: device.ownTarget, platform: '', target: null } : null;
+}
+
+/** Devices measured against their own chosen version, or that could be: none of their models has a target. */
+export function ownTargetLines(doc: Document): FwDeviceLine[] {
+  return allDevices(doc)
+    .filter((d) => d.ownTarget !== '' && targetOfDevice(doc, d) === null)
+    .map((device) => ({ device, state: stateOf(device, { version: device.ownTarget, platform: '' }) }))
+    .sort((a, b) => a.device.hostname.localeCompare(b.device.hostname));
 }
 
 /** The target for the first of a device's models that has one. */

@@ -124,6 +124,7 @@ export interface PlansController {
   prefill: { token: number; form: StepForm } | null;
   planChange(elementId: string): void;
   /** One plan for the devices of a firmware upgrade (firmware): its steps are Fathom's own words, stored as given. */
+  /** A firmware upgrade as a new plan, or added to `template.intoPlan`. */
   planFirmware(template: UpgradeTemplate): Promise<boolean>;
   /** A draft plan from an AI idea, opened for planning. The AI's words go through the redaction gate. */
   planIdea(idea: IdeaForPlan): Promise<boolean>;
@@ -421,7 +422,8 @@ export function usePlansController({ doc, boot, mirrorNow, loadCostMs, redact, a
     },
     planFirmware: (t) =>
       run((doc0, gate) => {
-        const made = createPlan(doc0, { title: t.title, author: latest.current.authorName, gate, ...stamp() });
+        // Into a plan still being planned (addStep refuses any other), or a new one.
+        const made = t.intoPlan ? { doc: doc0, id: t.intoPlan } : createPlan(doc0, { title: t.title, author: latest.current.authorName, gate, ...stamp() });
         let next = made.doc;
         for (const s of t.steps) {
           next = addStep(next, made.id, { kind: s.kind, change: s.change, ...(s.after !== undefined ? { after: s.after } : {}), targets: t.deviceIds, gate, ...stamp() }).doc;

@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.31"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.32"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -360,12 +360,19 @@ schema:
                     # Eighteen field keys (524-541). 62 §16.2: new kinds, edges and class members
                     # are minor. Whole change = MINOR. The reader still opens 0.10 to 0.29.
                     #
-                    # 0.31 is links between sites (ADR-0079 decision 5), all additive: two
+                    # 0.31 is upgrades Fathom has no steps for (sign-off r55-fw-by-hand,
+                    # 2026-10-28), all additive: one optional Device field, firmware_target, the
+                    # version chosen for that one device when none of its chassis has a
+                    # catalogue model (a custom-built NAS). One field key (542). 62 §16.2: an
+                    # optional field is minor. Whole change = MINOR. The reader still opens 0.10
+                    # to 0.30.
+                    #
+                    # 0.32 is links between sites (ADR-0079 decision 5), all additive: two
                     # optional fields on ExternalPeer, far_design (the id of the design the far
                     # end is in) and far_element (the id of the port there), so a cable to the
-                    # peer is a link to another site. Two field keys (542-543). 62 §16.2: new
+                    # peer is a link to another site. Two field keys (543-544). 62 §16.2: new
                     # optional fields are minor. Whole change = MINOR. The reader still opens
-                    # 0.10 to 0.30.
+                    # 0.10 to 0.31.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -767,6 +774,7 @@ kinds:
           traversal to Premises via Site) are not stated as declarations anywhere; the read
           set above is the minimum the prose names and is certainly incomplete.
       - { name: firmware_hold, type: Text, card: "0..1", emit: "—", doc: "Set: held at its current firmware on purpose; the value is why." }
+      - { name: firmware_target, type: OsVersion, card: "0..1", emit: "—", doc: "The version chosen for this one device, used only when none of its chassis has a model with a FirmwareTarget (0.31)." }
     # The root of re-identification. `11` §10.4's algorithm takes a capture that
     # already names its device — it maps a re-parse onto the objects *inside* a
     # known box. Which box a fresh paste belongs to was the one question that
@@ -839,7 +847,7 @@ kinds:
       - { name: organisation, type: Text, card: "0..1", emit: "—" }
       - { name: contact,      type: Text, card: "0..1", emit: "—" }
       - { name: platform_guess, type: PlatformId, card: "0..1", emit: "—", doc: Origin::Inferred from IKE behaviour or what the user said. Drives interop rules only. }
-      # Links between sites (ADR-0079 decision 5, schema 0.31). Appended at the tail (62 §13).
+      # Links between sites (ADR-0079 decision 5, schema 0.32). Appended at the tail (62 §13).
       - { name: far_design,  type: Identifier, card: "0..1", emit: "—", doc: "The design the far end is in, when the far end is modelled in another design: a link between sites. Only the id; nothing else is copied out of that design." }
       - { name: far_element, type: Identifier, card: "0..1", emit: "—", doc: "The far port's id inside far_design." }
     identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for ExternalPeer.

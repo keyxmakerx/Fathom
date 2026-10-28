@@ -388,7 +388,7 @@ export function setCableField(
 export interface ConnectToOutsideFields {
   label: string;
   sheath?: Sheath;
-  /** A link between sites (ADR-0079 decision 5, schema 0.31): the far port's design and its id
+  /** A link between sites (ADR-0079 decision 5, schema 0.32): the far port's design and its id
    * there, picked from estate search. Only the ids are stored, never anything else copied out of
    * the far design. */
   far?: FarEnd;

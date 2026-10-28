@@ -152,6 +152,11 @@ mod body {
         pub fn firmware_hold<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(411))
         }
+        /// `Device.firmware_target` — `OsVersion`, card `0..1`, emit `—`.
+        /// The version chosen for this one device, used only when none of its chassis has a model with a FirmwareTarget (0.31).
+        pub fn firmware_target<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::OsVersion, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(542))
+        }
     }
     /// Typed reads for `Chassis` fields.
     pub mod chassis {
@@ -228,12 +233,12 @@ mod body {
         /// `ExternalPeer.far_design` — `Identifier`, card `0..1`, emit `—`.
         /// The design the far end is in, when the far end is modelled in another design: a link between sites. Only the id; nothing else is copied out of that design.
         pub fn far_design<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(542))
+            crate::bag::typed(bag, crate::bag::FieldKey(543))
         }
         /// `ExternalPeer.far_element` — `Identifier`, card `0..1`, emit `—`.
         /// The far port's id inside far_design.
         pub fn far_element<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(543))
+            crate::bag::typed(bag, crate::bag::FieldKey(544))
         }
     }
     /// Typed reads for `Interface` fields.
@@ -2946,8 +2951,9 @@ mod body {
             539 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             540 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
             541 => Some((core::any::TypeId::of::<u32>(), "u32")),
-            542 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            542 => Some((core::any::TypeId::of::<crate::scalar::OsVersion>(), "crate::scalar::OsVersion")),
             543 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            544 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
             _ => None,
         }
     }
@@ -3432,8 +3438,9 @@ mod body {
             539 => crate::canon::slot_to::<crate::scalar::Text>(539, "crate::scalar::Text", value),
             540 => crate::canon::slot_to::<crate::scalar::Identifier>(540, "crate::scalar::Identifier", value),
             541 => crate::canon::slot_to::<u32>(541, "u32", value),
-            542 => crate::canon::slot_to::<crate::scalar::Identifier>(542, "crate::scalar::Identifier", value),
+            542 => crate::canon::slot_to::<crate::scalar::OsVersion>(542, "crate::scalar::OsVersion", value),
             543 => crate::canon::slot_to::<crate::scalar::Identifier>(543, "crate::scalar::Identifier", value),
+            544 => crate::canon::slot_to::<crate::scalar::Identifier>(544, "crate::scalar::Identifier", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -3916,8 +3923,9 @@ mod body {
             539 => crate::canon::slot_from::<crate::scalar::Text>(j),
             540 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
             541 => crate::canon::slot_from::<u32>(j),
-            542 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            542 => crate::canon::slot_from::<crate::scalar::OsVersion>(j),
             543 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            544 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

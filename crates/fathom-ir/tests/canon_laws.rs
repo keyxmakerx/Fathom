@@ -216,9 +216,10 @@ fn schema_version_is_the_trees() {
     // 0.29 -> 0.30: available inventory. Three node kinds (`Store`, `StockItem`, `StockLevel`), six
     // edge kinds (`HasStore`, `HasStock`, `HasStockLevel`, `InStore`, `ReservedFor`, `ForIssue`),
     // eighteen field keys (524-541); all MINOR.
-    // 0.30 -> 0.31: links between sites. Two optional fields on `ExternalPeer` (`far_design`,
-    // `far_element`), two field keys (542-543); MINOR.
-    assert_eq!(SCHEMA_VERSION, "0.31");
+    // 0.30 -> 0.31: one optional `Device` field, `firmware_target` (542); MINOR.
+    // 0.31 -> 0.32: links between sites. Two optional fields on `ExternalPeer` (`far_design`,
+    // `far_element`), two field keys (543-544); MINOR.
+    assert_eq!(SCHEMA_VERSION, "0.32");
 }
 
 #[test]
@@ -762,8 +763,9 @@ fn dispatch_names_every_registry_key() {
     // 442 -> 446: cards (508-511, schema 0.28).
     // 446 -> 458: the room builder (512-523, schema 0.29).
     // 458 -> 476: stock (524-541, schema 0.30).
-    // 476 -> 478: links between sites (542-543, schema 0.31).
-    assert_eq!(FIELD_KEYS.len(), 478, "the registry grew or shrank");
+    // 476 -> 477: `Device.firmware_target` (542, schema 0.31).
+    // 477 -> 479: links between sites (543-544, schema 0.32).
+    assert_eq!(FIELD_KEYS.len(), 479, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

@@ -339,7 +339,9 @@ export function deviceRows(doc: Document, view: ClosetView, defs: readonly Field
       const info = deviceInfo(doc, chassisId);
       const ownerId = info.deviceId || null;
       const fw = info.deviceId ? deviceFirmware(doc, info.deviceId) : null;
-      const fwTarget = fw ? (fw.models.map((m) => targets.find((t) => t.model === m)).find((t) => t !== undefined) ?? null) : null;
+      const modelTarget = fw ? (fw.models.map((m) => targets.find((t) => t.model === m)).find((t) => t !== undefined) ?? null) : null;
+      // A device with no model target is measured against its own chosen version (schema 0.31).
+      const fwTarget = modelTarget ?? (fw && fw.ownTarget !== '' ? { version: fw.ownTarget, platform: '' } : null);
       const cells: Record<string, string> = {
         name: info.hostname,
         model: r.model === ABSENT ? '' : r.model,
@@ -347,7 +349,7 @@ export function deviceRows(doc: Document, view: ClosetView, defs: readonly Field
         mgmt: info.mgmt,
         serial: info.serial,
         version: fw?.osVersion ?? '',
-        firmware: fw && fw.models.length > 0 ? STATE_WORD[stateOf(fw, fwTarget)] : '',
+        firmware: fw && (fw.models.length > 0 || fw.ownTarget !== '') ? STATE_WORD[stateOf(fw, fwTarget)] : '',
         where: r.where === ABSENT ? '' : r.where,
         ports: r.ports === ABSENT ? '' : r.ports,
         power: r.power === ABSENT ? '' : r.power,
