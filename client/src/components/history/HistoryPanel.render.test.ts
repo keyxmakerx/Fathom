@@ -22,6 +22,7 @@ function history(over: Partial<History> = {}): History {
     ]),
     shown: 15,
     showOlder: () => {},
+    hasOlder: false,
     error: null,
     picked: null,
     pickVersion: async () => {},

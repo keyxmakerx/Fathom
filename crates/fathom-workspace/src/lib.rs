@@ -42,7 +42,9 @@
 #![forbid(unsafe_code)]
 
 mod change;
+mod compact;
 pub use change::*;
+pub use compact::*;
 
 use std::collections::BTreeMap;
 

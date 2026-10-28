@@ -213,6 +213,11 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   estate index (device rows carry their ports); the tray, port and cable panels open the far design at
   that port; Trace offers **Continue in**. `POST …/estate/far` says whether each far port is there and
   where its own link points, and Checks add a warning (gone) or an idea (one-sided) from it.
+- **Slimmer saves (ADR-0079 decision 6, sign-offs r53, 2026-10-28).** Each checkpoint keeps the
+  newest 500 changes and the provenance still in use (`fathom_workspace::compact`), and the head in
+  memory becomes it; Undo reaches those 500. `verify?deep=true` checks a slim checkpoint against one
+  compaction of the whole replay. History pages from the server, newest first
+  (`…/history?newest=N&before=SEQ`); the panel asks for 100 entries at a time.
 - **Who did what on the console, from where (sign-offs r52, 2026-10-27).** Every console and sign-in
   request writes an `access` line with the client's address and the proxy it came through
   (`access_log.rs`), also sent to `FATHOM_ACCESS_SYSLOG` when set, best effort (`access_ship.rs`).

@@ -3374,10 +3374,18 @@ async fn pointer_handler(
 
 // ---- History ----
 
-/// `GET /organisations/{organisation}/designs/{design}/history`: every chain
-/// entry for this design, in order. Requires at least `read`. A design chain
-/// stores its metadata in the clear (§7.3), so no key beyond the open tenant
-/// context is needed.
+/// The most entries one page of History may ask for.
+pub const HISTORY_PAGE_MAX: i64 = 500;
+
+/// `GET /organisations/{organisation}/designs/{design}/history[?newest=N[&before=SEQ]]`:
+/// the chain entries for this design, in order. Requires at least `read`. A
+/// design chain stores its metadata in the clear (§7.3), so no key beyond the
+/// open tenant context is needed.
+///
+/// With `newest`, only the newest `N` (at most [`HISTORY_PAGE_MAX`]) entries,
+/// and with `before` only those older than entry `SEQ`: a design with millions
+/// of changes (r53) is listed a page at a time, each page read off the end of
+/// the chain's primary key. Without, every entry, as before.
 async fn history_handler(
     State(state): State<DesignApiState>,
     PathExtractor((organisation, design)): PathExtractor<(String, String)>,
@@ -3385,6 +3393,20 @@ async fn history_handler(
 ) -> Result<Response, RouteError> {
     let tenant = parse_organisation(&organisation)?;
     let design_id = parse_design(&design)?;
+    let number = |name: &'static str| -> Result<Option<i64>, RouteError> {
+        signed
+            .query_param(name)
+            .map(|v| v.parse::<i64>().map_err(|_| SessionError::Malformed(name)))
+            .transpose()
+            .map_err(RouteError::from)
+    };
+    let newest = number("newest")?;
+    let before = number("before")?;
+    if newest.is_some_and(|n| !(1..=HISTORY_PAGE_MAX).contains(&n))
+        || (before.is_some() && newest.is_none())
+    {
+        return Err(SessionError::Malformed("newest").into());
+    }
 
     let mut client = state
         .sessions
@@ -3426,15 +3448,21 @@ async fn history_handler(
                ON a.design_id = e.design_id AND a.organisation_id = e.organisation_id \
               AND a.design_version = e.design_version AND e.entry_type = 'change' \
              LEFT JOIN ai_keys k ON k.id = a.key_id AND k.organisation_id = a.organisation_id \
-             WHERE e.chain_kind = 'design' AND e.design_id = $1 AND e.organisation_id = $2 \
-             ORDER BY e.seq",
-            &[&design_id.to_string(), &ctx.tenant().to_string()],
+             WHERE e.chain_kind = 'design' AND e.chain_id = $1 AND e.design_id = $1 \
+               AND e.organisation_id = $2 AND ($3::bigint IS NULL OR e.seq < $3) \
+             ORDER BY e.seq DESC LIMIT $4",
+            &[
+                &design_id.to_string(),
+                &ctx.tenant().to_string(),
+                &before,
+                &newest,
+            ],
         )
         .await
         .map_err(SessionError::Db)?;
 
     let mut out = Vec::with_capacity(rows.len());
-    for row in rows {
+    for row in rows.into_iter().rev() {
         let seq: i64 = row.get(0);
         let entry_type_text: String = row.get(1);
         let chain_key_epoch: i32 = row.get(2);

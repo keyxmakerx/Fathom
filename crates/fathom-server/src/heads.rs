@@ -19,7 +19,9 @@ use std::thread;
 
 use fathom_graph::{Actor, Graph, UserId};
 use fathom_id::Ulid;
-use fathom_workspace::{apply_change_in_place, read_change, read_plain, write_plain};
+use fathom_workspace::{
+    apply_change_in_place, compact, read_change, read_plain, write_plain, KEEP_BATCHES,
+};
 use tokio::sync::oneshot;
 
 /// What a head was built at.
@@ -96,6 +98,19 @@ fn build(rebuild: &Rebuild) -> Result<(Graph, usize), String> {
     Ok((graph, cost.saturating_mul(COST_FACTOR)))
 }
 
+/// `graph` compacted for a checkpoint, or `None` when it holds nothing to drop
+/// or (logged) would not compact: the uncompacted head is then kept, which
+/// costs bytes and never correctness.
+fn compacted(design: &str, graph: &Graph) -> Option<Graph> {
+    match compact(graph, KEEP_BATCHES) {
+        Ok(slim) => slim,
+        Err(e) => {
+            tracing::error!(%design, error = ?e, "a head did not compact; kept whole");
+            None
+        }
+    }
+}
+
 impl Shard {
     fn touch(&mut self) -> u64 {
         self.clock += 1;
@@ -164,6 +179,23 @@ impl Shard {
         Ok(())
     }
 
+    /// The head at `key`, compacted in place, as the full face a checkpoint stores.
+    fn checkpoint(&mut self, key: &HeadKey) -> Result<Vec<u8>, HeadError> {
+        self.head_at(key, None)?;
+        let design = key.design.as_str();
+        if let Some(slim) = compacted(design, &self.heads[design].graph) {
+            let head = self.heads.get_mut(design).expect("just found");
+            head.graph = slim;
+        }
+        let bytes = write_plain(&self.heads[design].graph)
+            .map_err(|e| HeadError::Rebuild(format!("{e:?}")))?;
+        let cost = bytes.len().saturating_mul(COST_FACTOR);
+        let head = self.heads.get_mut(design).expect("just found");
+        self.bytes = self.bytes.saturating_sub(head.cost).saturating_add(cost);
+        head.cost = cost;
+        Ok(bytes)
+    }
+
     fn commit(&mut self, design: &str, ticket: u64, version: i64, tip: Vec<u8>) {
         if self.pending.get(design).is_some_and(|p| p.0 == ticket) {
             if let Some((_, graph, cost)) = self.pending.remove(design) {
@@ -196,11 +228,20 @@ impl Shard {
         let mut next = head.graph.clone();
         apply_change_in_place(&mut next, &doc, Actor::User(UserId(actor)))
             .map_err(|e| HeadError::Refused(e.to_string()))?;
+        let mut cost = head.cost.saturating_add(change.len() * COST_FACTOR);
         // A checkpoint is only worth having if it reads back; one that does
-        // not is skipped (the change itself still stands) and logged.
+        // not is skipped (the change itself still stands) and logged. It is
+        // compacted (r53), and the head becomes what it holds, so a head kept
+        // in memory and one rebuilt from the checkpoint refuse the same undos.
         let plain = if want_plain {
+            if let Some(slim) = compacted(&key.design, &next) {
+                next = slim;
+            }
             match write_plain(&next) {
-                Ok(bytes) if read_plain(&bytes).is_ok() => Some(bytes),
+                Ok(bytes) if read_plain(&bytes).is_ok() => {
+                    cost = bytes.len().saturating_mul(COST_FACTOR);
+                    Some(bytes)
+                }
                 Ok(_) => {
                     tracing::error!(design = %key.design, "a checkpoint did not read back; skipped");
                     None
@@ -213,7 +254,6 @@ impl Shard {
         } else {
             None
         };
-        let cost = head.cost.saturating_add(change.len() * COST_FACTOR);
         self.next_ticket += 1;
         let ticket = self.next_ticket;
         // Counted while pending, as `commit` and `drop_pending` expect: they
@@ -301,6 +341,14 @@ impl HeadStore {
                 .map_err(|e| HeadError::Rebuild(format!("{e:?}")))
         })
         .await?
+    }
+
+    /// The head at `key` compacted in place, and its full face for a
+    /// checkpoint. `NeedRebuild` when the head is not in memory.
+    pub async fn checkpoint(&self, key: &HeadKey) -> Result<Vec<u8>, HeadError> {
+        let key = key.clone();
+        self.run(&key.design.clone(), move |shard| shard.checkpoint(&key))
+            .await?
     }
 
     /// Apply a change document to a copy of the head at `key`.

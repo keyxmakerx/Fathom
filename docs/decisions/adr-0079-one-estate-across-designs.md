@@ -79,14 +79,30 @@ another ends in a label someone typed.
    - Carrier names and circuit IDs on such a link come with Circuits (ADR-0068 point 7). A circuit
      then holds these links, and doesn't replace them.
 
-6. **Slimmer saves: the head carries the present and the change table carries the past.** Whole
-   saves, the server's head and checkpoints carry the current graph with the provenance it still
-   uses. The batch log and field history live in the `design_change` rows, where ADR-0063 already
-   writes every change, and History pages them from the server. It is built last of the three,
-   measured before and after on the benchmark. If it would change what History or Undo can do, it
-   comes back to the sign-offs page first. It does: today Undo can step back through every change
-   ever saved, because every save carries them. So it is on the sign-offs page as card r53-slim-saves
-   (2026-10-27), with keeping the newest 500 changes in the save as the recommended pick.
+6. **Slimmer saves: a save keeps the newest 500 changes; the change table keeps every one.** The
+   owner approved card r53-slim-saves with option A ("newest 500"), noting "keep in mind there will
+   eventually be millions...". As built (2026-10-28):
+   - Each checkpoint the server writes (every 100 changes, and when the last stream closes) keeps
+     the newest 500 batches (`fathom_workspace::KEEP_BATCHES`) and only the provenance records a
+     node, edge, field, field history entry or kept batch still names (`compact`). The head in
+     memory becomes that checkpoint, so a head rebuilt from storage and one kept in memory are the
+     same graph and refuse the same Undo.
+   - Undo reaches the kept changes. A change older than them is refused with the sentence
+     `apply_change` already had for a batch the design does not hold.
+   - Field history is unchanged: it was already bounded per field (the newest 16 entries and the
+     first from each origin, `11` §8.6), so it stays in the save.
+   - Compaction composes: compacting at each checkpoint gives what compacting a replay of the
+     whole chain once gives. `verify?deep=true` checks each checkpoint that way, and still accepts
+     one written before this, which is the replay itself.
+   - Every change stays on the chain and in `design_change`. History lists it a page at a time,
+     newest first (`GET …/history?newest=N&before=SEQ`, N at most 500, read off the chain's
+     primary key), so the panel opens as fast at a million changes as at ten.
+   - A whole save (a restore, an import) is stored as the browser sent it; the next checkpoint
+     compacts it.
+   - Measured on the benchmark (`docs/SCALE.md`): at 1,000 devices the document goes from 24.2 MB
+     to 16.6 MB, about a third smaller. The card's "close to four times smaller" was the size with
+     no history at all; keeping 500 changes keeps their provenance too. What r53 really buys is that
+     a save stops growing with every edit: after millions of changes it is the present plus 500.
 
 7. **The limit, said plainly.** A design still loads whole. A single datacenter of real gear larger
    than what point 6 brings in reach needs the canvas to load by view (r51 option B). That is after

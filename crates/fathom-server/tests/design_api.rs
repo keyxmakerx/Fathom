@@ -1138,6 +1138,59 @@ async fn a_past_version_opens_by_number_and_needs_read() {
     }
     let (_, body) = call(addr, &estate.steward, "GET", &v1, b"").await;
     assert_eq!(body, first);
+
+    // A page at a time, newest first (r53): the newest two, then the one before them.
+    let page = |q: &str| format!("{history}?{q}");
+    let versions = |body: &[u8]| -> Vec<i64> {
+        let parsed = fathom_canon::Json::parse_canonical(body).expect("canonical");
+        let fathom_canon::Json::Arr(entries) = parsed else {
+            panic!("an array")
+        };
+        entries
+            .iter()
+            .map(|e| match e {
+                fathom_canon::Json::Obj(m) => match m.get("design_version") {
+                    Some(fathom_canon::Json::Int(v)) => *v,
+                    _ => panic!("a version"),
+                },
+                _ => panic!("an object"),
+            })
+            .collect()
+    };
+    let seq_of = |body: &[u8]| -> i64 {
+        let text = String::from_utf8_lossy(body).into_owned();
+        let at = text.find("\"seq\":").expect("a seq") + 6;
+        text[at..]
+            .split(|c: char| !c.is_ascii_digit())
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap()
+    };
+    let (status, newest) = call(addr, &estate.steward, "GET", &page("newest=2"), b"").await;
+    assert_eq!(status, "200");
+    assert_eq!(
+        versions(&newest),
+        vec![2, 3],
+        "oldest first, as the whole list is"
+    );
+    let before = seq_of(&newest);
+    let (status, older) = call(
+        addr,
+        &estate.steward,
+        "GET",
+        &page(&format!("newest=2&before={before}")),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200");
+    assert_eq!(versions(&older), vec![1]);
+    for bad in ["newest=0", "newest=501", "before=3", "newest=x"] {
+        let (status, _) = call(addr, &estate.steward, "GET", &page(bad), b"").await;
+        assert_eq!(status, "400", "{bad}");
+    }
+    let (status, _) = call(addr, &outsider, "GET", &page("newest=2"), b"").await;
+    assert_ne!(status, "200", "a page is not readable without Read");
 }
 
 // ---------------------------------------------------------------------------
@@ -4558,7 +4611,7 @@ async fn naming_a_design_in_another_organisation_or_one_that_does_not_exist_is_r
 
 mod live {
     use super::*;
-    use fathom_graph::{NodeId, Op};
+    use fathom_graph::{EdgeId, NodeId, Op};
     use fathom_ir::generated::ir_types::EdgeKind;
     use std::time::Duration;
     use tokio::io::AsyncReadExt;
@@ -5649,6 +5702,133 @@ mod live {
         assert_eq!(status, "200");
         let graph = fathom_workspace::read_plain(&v2).expect("reads");
         assert_eq!(graph.log().len(), 2, "the base and the first change");
+    }
+
+    /// Like [`add_rack`], with ids far enough apart for hundreds of racks.
+    fn add_one_of_many(local: &mut Graph, by: AccountId, n: u128) -> Vec<u8> {
+        local
+            .begin_batch(BatchId(u(30_000_000 + n)), "add a rack")
+            .unwrap();
+        let rack = local
+            .insert_node(
+                NodeKind::Rack,
+                u(10_000_000 + n),
+                prov_of(100_000 + 10 * n, by),
+            )
+            .unwrap();
+        local
+            .insert_edge(
+                EdgeKind::HasRack,
+                u(20_000_000 + n),
+                node(NodeKind::Premises, PREMISES),
+                rack,
+                prov_of(100_001 + 10 * n, by),
+            )
+            .unwrap();
+        local.end_batch().unwrap();
+        body_of(local)
+    }
+
+    /// Undo of [`add_one_of_many`]'s batch `target`, made by `by`: its rack and edge tombstoned.
+    fn undo_rack(local: &mut Graph, by: AccountId, n: u128, target: u128) -> Vec<u8> {
+        local
+            .begin_batch(BatchId(u(5_000_000 + n)), "undo add a rack")
+            .unwrap();
+        local
+            .set_batch_reverses(BatchId(u(30_000_000 + target)))
+            .unwrap();
+        let actor = Actor::User(UserId(by.0));
+        let at = Timestamp(AT + 9_000_000 + n as u64);
+        let edge = EdgeId {
+            kind: EdgeKind::HasRack,
+            ulid: u(20_000_000 + target),
+        };
+        local.tombstone(edge.into(), at, actor).unwrap();
+        local
+            .tombstone(node(NodeKind::Rack, 10_000_000 + target).into(), at, actor)
+            .unwrap();
+        local.end_batch().unwrap();
+        let change = fathom_workspace::Change {
+            batch: local.log().last().unwrap().clone(),
+            provenance: Vec::new(),
+            values: Vec::new(),
+        };
+        save_body(
+            CURRENT_SCHEMA_WIRE_VERSION,
+            &fathom_workspace::write_change(&change),
+        )
+    }
+
+    /// Slimmer saves (r53): past `KEEP_BATCHES` changes a checkpoint holds only the newest
+    /// ones, verify still checks it against the whole chain, and Undo reaches only what is held.
+    #[tokio::test]
+    async fn a_checkpoint_keeps_the_newest_changes_and_still_verifies() {
+        let _site = support::lock_the_site_chain().await;
+        let w = world().await;
+        let mut drawers = Vec::new();
+        for name in ["d0", "d1", "d2", "d3", "d4", "d5"] {
+            drawers.push(
+                a_member_with(&w.pool, &w.ring, &w.estate, name, Some(Capability::Draw)).await,
+            );
+        }
+        let total = fathom_workspace::KEEP_BATCHES as u128 + 120;
+        let mut local = w.base.clone();
+        for n in 1..=total {
+            let who = &drawers[(n % 6) as usize];
+            let body = add_one_of_many(&mut local, who.account, n);
+            // Six accounts, each under the per-account change rate.
+            tokio::time::sleep(Duration::from_millis(9)).await;
+            let (status, answer) = w.post_change(who, &body, n as i64).await;
+            assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
+        }
+
+        let (status, face) = call(w.addr, &w.estate.steward, "GET", &w.root(), b"").await;
+        assert_eq!(status, "200");
+        let open = fathom_workspace::read_plain(&face).expect("reads");
+        let held = open.log().len();
+        assert!(
+            held < total as usize + 1 && held <= fathom_workspace::KEEP_BATCHES + 100,
+            "the design opens holding {held} changes"
+        );
+        assert_eq!(
+            open.log().last(),
+            local.log().last(),
+            "the newest change is there"
+        );
+        // What the design says is what every change gave.
+        assert_eq!(
+            open.to_snapshot().unwrap().nodes,
+            local.to_snapshot().unwrap().nodes
+        );
+        assert!(face.len() < fathom_workspace::write_plain(&local).unwrap().len());
+
+        let (status, report) = call(
+            w.addr,
+            &w.estate.steward,
+            "GET",
+            &w.path("verify?deep=true"),
+            b"",
+        )
+        .await;
+        assert_eq!(status, "200");
+        let report = String::from_utf8_lossy(&report);
+        assert!(report.contains("\"outcome\":\"verified\""), "{report}");
+
+        // Undo of the first change is refused: no save holds it any more.
+        let first = &drawers[1];
+        let body = undo_rack(&mut local.clone(), first.account, 1, 1);
+        let (status, answer) = w.post_change(first, &body, total as i64 + 1).await;
+        assert_ne!(status, "200");
+        assert!(
+            String::from_utf8_lossy(&answer).contains("does not hold"),
+            "{}",
+            String::from_utf8_lossy(&answer)
+        );
+        // Undo of the newest goes through.
+        let newest = &drawers[(total % 6) as usize];
+        let body = undo_rack(&mut local, newest.account, 2, total);
+        let (status, answer) = w.post_change(newest, &body, total as i64 + 1).await;
+        assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
     }
 
     /// Open a stream on a session the test keeps hold of.
