@@ -1993,12 +1993,23 @@ pub(crate) async fn operator_overview(
         )
         .await?;
     let now = now_unix();
+    let site = switch.levels();
+    // Each organisation's rules, read once, for what each key may do now. A row that does not
+    // verify leaves its keys without `inEffect`, and the console falls back to the key's own.
+    let mut policies: BTreeMap<String, Option<Policy>> = BTreeMap::new();
     let mut keys = Vec::new();
     for row in &rows {
         let (key, stored) = AiKey::from_row(row);
         let Json::Obj(mut m) = key.to_json(now) else {
             unreachable!("a key renders as an object")
         };
+        if !policies.contains_key(&key.organisation) {
+            let p = read_policy(tx, ring, &key.organisation, false).await.ok();
+            policies.insert(key.organisation.clone(), p);
+        }
+        if let Some(Some(policy)) = policies.get(&key.organisation) {
+            m.insert("inEffect".into(), in_effect(&key, policy, &site));
+        }
         // The label is the owner's words about their own app; the operator plane sees ids.
         m.remove("label");
         m.insert("organisation".into(), Json::Str(key.organisation.clone()));
@@ -2435,6 +2446,27 @@ pub async fn open(
         policy,
         levels,
     })
+}
+
+/// What a key may see and do now, every layer applied (card r54-ai-layers): its own tiers cut
+/// to the organisation's ceiling, and the strictest of the server's, the organisation's and its
+/// own levels. Nothing at all while the organisation has AI off or no longer names its owner.
+pub fn in_effect(key: &AiKey, policy: &Policy, site: &Levels) -> Json {
+    let live = policy.allowed && policy.makers.contains(&key.owner);
+    let levels = if live {
+        site.min(&policy.levels()).min(&key.levels())
+    } else {
+        Levels([ai_work::Level::Off; 4])
+    };
+    let sees: Vec<String> = tiers(key, policy)
+        .iter()
+        .map(|t| t.as_str().to_string())
+        .collect();
+    let mut m = BTreeMap::new();
+    m.insert("work".into(), levels.to_json());
+    m.insert("sees".into(), strs(&sees));
+    m.insert("on".into(), Json::Bool(live));
+    Json::Obj(m)
 }
 
 /// What the key sees at this moment: its own tiers, cut to the organisation's ceiling.
@@ -3633,6 +3665,75 @@ mod tests {
         let t = tiers(&key, &policy);
         assert!(t.contains(&Tier::Addresses));
         assert!(!t.contains(&Tier::Notes));
+    }
+
+    #[test]
+    fn what_a_key_may_do_now_is_the_strictest_layer() {
+        use ai_work::Level::{Ideas, Off, Propose};
+        let mut policy = Policy::off();
+        policy.allowed = true;
+        policy.makers = vec!["a".into()];
+        policy.ceiling = vec!["layout".into(), "addresses".into()];
+        policy.work = Levels([Ideas, Propose, Propose, Propose]).to_strs();
+        let key = AiKey {
+            organisation: String::new(),
+            id: String::new(),
+            owner: "a".into(),
+            owner_name: String::new(),
+            kind: "helper".into(),
+            public_key: None,
+            client_id: None,
+            label: String::new(),
+            scopes: Vec::new(),
+            sees: vec!["layout".into(), "notes".into()],
+            may_recommend: false,
+            created_unix: 0,
+            created_seq: 1,
+            expires_unix: 1,
+            state: "on".into(),
+            changed_seq: 1,
+            disabled_unix: None,
+            disabled_by: None,
+            disabled_by_kind: None,
+            disabled_reason: None,
+            version: 1,
+            ai_account: None,
+            owner_email: String::new(),
+            may_change: false,
+            work: Levels([Propose, Propose, Ideas, Propose]).to_strs(),
+        };
+        let site = Levels([Propose, Propose, Propose, Off]);
+        let out = in_effect(&key, &policy, &site);
+        assert_eq!(
+            out.to_canonical_bytes(),
+            body(&[
+                ("on", Json::Bool(true)),
+                ("sees", Json::Arr(vec![s("layout")])),
+                (
+                    "work",
+                    Json::Obj(
+                        [
+                            ("design", "ideas"),
+                            ("plans", "propose"),
+                            ("issues", "ideas"),
+                            ("doing", "off")
+                        ]
+                        .iter()
+                        .map(|(k, v)| (k.to_string(), s(v)))
+                        .collect()
+                    )
+                ),
+            ])
+        );
+        // Its owner no longer named: nothing at all.
+        policy.makers.clear();
+        let off = in_effect(&key, &policy, &site);
+        assert!(String::from_utf8(off.to_canonical_bytes())
+            .unwrap()
+            .contains(r#""on":false"#));
+        assert!(!String::from_utf8(off.to_canonical_bytes())
+            .unwrap()
+            .contains("propose"));
     }
 
     /// Forms a real device accepts (`corrections.rs`'s list).

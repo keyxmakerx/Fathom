@@ -650,7 +650,11 @@ yet: drawing a node the change adds (the panel names it). What an AI may do is s
 Proposes, at three places whose strictest wins: Admin › AI's ceiling, Steward › AI rules and each
 connection (migration 0057, card r47-ai-controls). A Steward also marks folders ideas-only or out of an
 AI's sight, keeps it to a list of kinds and fields, and lowers the limits (proposals a minute and a day,
-removals in one); 429 past a limit.
+removals in one); 429 past a limit. All three show one grid (card r54-ai-layers): a read-only column for each
+layer above, the page's own column, and In effect, naming the layer that holds a row back. Every
+connection carries an access word, Safe, Medium, Critical or Full, from what it may see and do with all
+three applied (`client/src/components/ai/Access.tsx`); Admin › AI's list takes it from the server's
+`inEffect`.
 
 **Device panel** (r14 A1, A2): Details, Ports and Notes tabs, actions at the foot (Duplicate the main one,
 Remove device in red). Inventory's toolbar has a role filter, written into the filter line as `role:...`.

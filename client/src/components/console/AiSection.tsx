@@ -9,9 +9,24 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { disableAiKeyAsAdmin, fetchServerAi, setServerAi, type OrganisationRow, type ServerAi, type ServerAiKey } from '../../api/console';
 import type { WorkLevels } from '../../api/ai';
+import { AccessBadge, accessOf, workInEffect } from '../ai/Access';
 import { WorkTable } from '../ai/WorkTable';
 import { describeConsoleError } from './describeConsoleError';
 import { SkeletonRows } from '../ui/Skeleton';
+
+/** A connection's access in one word, every layer applied (card r54-ai-layers). Without the organisation's
+ * rules the server's ceiling and the key's own are all there is, so the word is the most it could be. */
+function KeyAccess({ k, ceiling }: { k: ServerAiKey; ceiling: WorkLevels }) {
+  const every = k.scopes.length === 0;
+  if (k.inEffect && !k.inEffect.on) return <span className="console__note">Off in its organisation</span>;
+  if (k.inEffect) return <AccessBadge access={accessOf(k.inEffect.sees, k.inEffect.work, every)} />;
+  return (
+    <>
+      <AccessBadge access={accessOf(k.sees, workInEffect(ceiling, k.work), every)} />
+      <div className="console__note">at most</div>
+    </>
+  );
+}
 
 const APP: Record<string, string> = { helper: 'Fathom AI helper', claude: 'Claude', 'claude-code': 'Claude Code', other: 'Other app' };
 
@@ -103,7 +118,12 @@ export function AiSection({ organisations }: { organisations: OrganisationRow[] 
               Each organisation’s Stewards choose within this, and each connection’s owner within theirs. Proposes means the change waits
               on the canvas for a person to accept it; an AI never changes a design itself.
             </p>
-            <WorkTable testId="admin-ai-work" value={ceiling ?? ai.work} onChange={setCeiling} />
+            <WorkTable
+              testId="admin-ai-work"
+              value={ceiling ?? ai.work}
+              own={{ name: 'Server', setBy: 'set here' }}
+              onChange={setCeiling}
+            />
             {ceiling && JSON.stringify(ceiling) !== JSON.stringify(ai.work) && (
               <div className="console-ai__row">
                 <button
@@ -128,6 +148,7 @@ export function AiSection({ organisations }: { organisations: OrganisationRow[] 
               <thead>
                 <tr>
                   <th>App</th>
+                  <th>Access</th>
                   <th>Person</th>
                   <th>Organisation</th>
                   <th>Sees</th>
@@ -140,6 +161,7 @@ export function AiSection({ organisations }: { organisations: OrganisationRow[] 
                 {ai.keys.map((k) => (
                   <tr key={k.id}>
                     <td>{APP[k.app] ?? k.app}</td>
+                    <td>{k.state === 'on' ? <KeyAccess k={k} ceiling={ai.work} /> : '—'}</td>
                     <td>
                       {k.ownerName}
                       {k.ownerEmail && <div className="console__note">{k.ownerEmail}</div>}
