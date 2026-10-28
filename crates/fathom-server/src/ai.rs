@@ -3404,6 +3404,52 @@ pub async fn list_ideas(
     Ok(out)
 }
 
+/// `GET .../ai-ideas/{i}/change`: what accepting an open idea would write, built on the
+/// design as it is now and not written, for the canvas to draw. For anyone who can read the
+/// design; an idea without a change, or no longer open, is not there.
+pub async fn idea_change(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    heads: &HeadStore,
+    design: DesignId,
+    id: &str,
+) -> Result<(Vec<u8>, i64), AiError> {
+    let organisation = auth.ctx.tenant().to_string();
+    let place = design_place(tx, &organisation, design).await?;
+    grants::authorise_account(tx, auth, place.as_ref().map(|(s, _)| *s), Capability::Read).await?;
+    let (scope, _) = place.ok_or(AiError::NotFound)?;
+    let row = tx
+        .query_opt(
+            &format!(
+                "SELECT {IDEA_COLUMNS} FROM ai_recommendations r \
+                 WHERE r.organisation_id = $1 AND r.design_id = $2 AND r.id = $3"
+            ),
+            &[&organisation, &design.to_string(), &id],
+        )
+        .await?
+        .ok_or(AiError::NotFound)?;
+    let mut opener = IdeaOpener {
+        auth,
+        keys: BTreeMap::new(),
+    };
+    let idea = opener.open(tx, &row).await?;
+    let change = match (&idea.change, idea.state.as_str()) {
+        (Some(change), "open") => change,
+        _ => return Err(AiError::NotFound),
+    };
+    let asked = change.asked(&idea.title)?;
+    crate::ai_change::preview_idea_change(
+        tx,
+        auth,
+        heads,
+        design,
+        scope,
+        &change.tier_set(),
+        &asked,
+    )
+    .await
+}
+
 /// Accept or dismiss one idea. Needs `draw` on the design's place. Where the organisation
 /// asks for a second person on that folder, the key's owner cannot accept their own AI's
 /// idea. Accepting an idea that carries a change makes it, as the person accepting, in the

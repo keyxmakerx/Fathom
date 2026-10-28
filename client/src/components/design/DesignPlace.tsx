@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { DesignCapability } from '../../api/designs';
 import { addNote, notesOf as notesOfDoc, removeNote, type NoteHow } from '../../document/notes';
@@ -15,8 +15,9 @@ import { Engine } from '../../engine/engine';
 import { refusalSentence } from '../../engine/mirror';
 import { buildCsv } from '../../print/csv';
 import { AiIdeasPanel, aiIdeasTab, useAiIdeas } from '../ai/AiIdeas';
-import { AiPreviewContext, createAiPreviewStore } from '../ai/aiPreview';
-import { decideIdea } from '../../api/ai';
+import { AiPreviewContext, createAiPreviewStore, drawnPreview } from '../ai/aiPreview';
+import { decideIdea, fetchIdeaChange, type AiIdea } from '../../api/ai';
+import { readChange, type Change } from '../../document/change';
 import type { IdeaForPlan } from '../../document/plans';
 import { buildCanon } from '../checks/checksModel';
 import { nameOf as planNameOf } from '../plans/plansModel';
@@ -193,6 +194,13 @@ export function DesignPlace(props: DesignPlaceProps) {
   const [aiIdeasOpen, setAiIdeasOpen] = useState(false);
   // An AI idea's proposed change shown on the canvas before anyone accepts it.
   const aiPreview = useMemo(createAiPreviewStore, []);
+  const aiPreviewDoc = useSyncExternalStore(aiPreview.subscribe, () => aiPreview.get().doc, () => aiPreview.get().doc);
+  // The change accepting the shown idea would write, built by the server, so what it adds is drawn where it goes.
+  const [ideaChange, setIdeaChange] = useState<{ idea: AiIdea; change: Change } | null>(null);
+  useEffect(() => {
+    if (ideaChange == null || session.doc == null || aiPreview.get().ideaId !== ideaChange.idea.id) return;
+    aiPreview.show(ideaChange.idea, drawnPreview(session.doc, ideaChange.idea, ideaChange.change));
+  }, [aiPreview, ideaChange, session.doc]);
   const pickedSave = historyOpen ? history.picked : null;
   const outlineKey = pickedSave != null ? pickedSave.outline.join('\n') : '';
   useEffect(() => {
@@ -958,9 +966,12 @@ export function DesignPlace(props: DesignPlaceProps) {
   const racksSession =
     pickedSave != null
       ? { ...session, doc: pickedSave.doc, canDraw: false, applyDocChange: () => {} }
-      : phone
-        ? { ...session, canDraw: false, applyDocChange: () => {} }
-        : session;
+      : aiPreviewDoc != null
+        ? // An AI idea drawn with its change made: to look at until it is accepted or hidden.
+          { ...session, doc: aiPreviewDoc, canDraw: false, applyDocChange: () => {} }
+        : phone
+          ? { ...session, canDraw: false, applyDocChange: () => {} }
+          : session;
 
   // r31-bar A: on the drawing, Docs is a tab of the right-hand panel holding the docs list, not an overlay. Leaving
   // the drawing folds it, so it does not reappear as a page over the other view.
@@ -1002,7 +1013,14 @@ export function DesignPlace(props: DesignPlaceProps) {
         }}
         onPreview={(idea) => {
           aiPreview.show(idea);
+          setIdeaChange(null);
           if (idea == null) return;
+          fetchIdeaChange(organisationId, designId, idea.id)
+            .then(({ change }) => {
+              if (aiPreview.get().ideaId === idea.id) setIdeaChange({ idea, change: readChange(new TextEncoder().encode(change)) });
+            })
+            // A server without it, or a change that no longer fits the design: the outlines on what it names stay.
+            .catch(() => {});
           if (phone) setAiIdeasOpen(false);
           if (props.place !== 'racks') onPlaceChange('racks');
         }}

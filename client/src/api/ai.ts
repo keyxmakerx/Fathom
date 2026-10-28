@@ -362,6 +362,14 @@ export async function fetchIdeas(organisationId: string, designId: string): Prom
   return list.map(parseIdea);
 }
 
+/** What accepting an open idea would write, built on the design at `version` and not written, so the canvas can
+ * draw what it adds where it would go. */
+export async function fetchIdeaChange(organisationId: string, designId: string, ideaId: string): Promise<{ version: number; change: string }> {
+  const o = parse(await signedFetch('GET', `${ideas(organisationId, designId)}/${encodeURIComponent(ideaId)}/change`)) as Record<string, unknown>;
+  if (typeof o.version !== 'number' || typeof o.change !== 'string') throw new Error('malformed AI idea change');
+  return { version: o.version, change: o.change };
+}
+
 /** Accepting an idea that carries a change makes it, on the server, as the accepter's own
  * edit; one that is steps only is marked, and the accepter makes the edit. A dismissal keeps
  * nothing of what the AI wrote. */
