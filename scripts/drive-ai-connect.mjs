@@ -397,6 +397,22 @@ async function runProof(browser, ctxA, seed) {
     arguments: { design: designId, version: reread.body.result.structuredContent.version, summary: 'Rename the first switch', operations: [{ op: 'set', element: core?.id, field: 'hostname', value: 'lab-core-1' }] },
   });
   check('M13. propose_change on a drawn switch waits as an idea', rename.body.result?.isError === false, JSON.stringify(rename.body).slice(0, 300));
+  const rackId = (reread.body.result.structuredContent.nodes ?? []).find((n) => n.kind === 'Rack')?.id;
+  const racked = await rpc('tools/call', {
+    name: 'propose_change',
+    arguments: {
+      design: designId,
+      version: reread.body.result.structuredContent.version,
+      summary: 'Rack a spare switch',
+      operations: [
+        { op: 'add_node', kind: 'Device', as: 'spare', fields: { hostname: 'lab-spare-racked' } },
+        { op: 'add_node', kind: 'Chassis', as: 'spare_c' },
+        { op: 'add_edge', kind: 'HasChassis', from: 'spare', to: 'spare_c' },
+        { op: 'add_edge', kind: 'MountedIn', from: 'spare_c', to: rackId, fields: { position_u: 3, height_u: 1, face: 'front' } },
+      ],
+    },
+  });
+  check('M14. propose_change that racks a new switch waits as an idea', racked.body.result?.isError === false, JSON.stringify(racked.body).slice(0, 300));
   await A.goto(URL_, { waitUntil: 'domcontentloaded' });
   await A.locator('.drawing').waitFor({ timeout: 20000 });
   const tab3 = A.getByRole('tab', { name: /AI ideas/ }).or(A.locator('[data-side-tab="ai-ideas"]')).or(A.getByText(/^AI ideas/)).first();
@@ -410,18 +426,23 @@ async function runProof(browser, ctxA, seed) {
   await A.waitForTimeout(600);
   await shot('d5-ai-idea-on-canvas');
   const word = (await marked.count()) > 0 ? await marked.first().evaluate((el) => getComputedStyle(el).getPropertyValue('--plan-word')) : '';
-  check('D5. Show on canvas marks the switch in the plan colour, tagged AI CHANGES, and nothing has changed yet', /AI CHANGES/.test(word) && (await A.getByText('lab-core-1').count()) === 0, word);
+  const notYet = await rpc('tools/call', { name: 'read_design', arguments: { design: designId } });
+  check(
+    'D5. Show on canvas draws the switch renamed, in the plan colour, tagged AI CHANGES, and the design has not changed',
+    /AI CHANGES/.test(word) && (await A.locator('.drawing').getByText('lab-core-1').count()) > 0 && !JSON.stringify(notYet.body.result.structuredContent).includes('lab-core-1'),
+    word,
+  );
   // An idea that adds something draws it where it would go, tagged AI ADDS, still only on the canvas.
   await renameIdea.getByTestId('ai-idea-preview').click();
-  const spareIdea = A.getByTestId('ai-ideas').locator('.ai-idea', { hasText: 'Add a spare switch' });
+  const spareIdea = A.getByTestId('ai-ideas').locator('.ai-idea', { hasText: 'Rack a spare switch' });
   await spareIdea.getByTestId('ai-idea-preview').click();
-  await A.locator('.drawing').getByText('lab-spare-proposed').first().waitFor({ timeout: 10000 }).catch(() => {});
+  await A.locator('.drawing').getByText('lab-spare-racked').first().waitFor({ timeout: 10000 }).catch(() => {});
   await A.waitForTimeout(600);
   await shot('d6-ai-idea-adds-on-canvas');
   const adds = await A.locator('.react-flow__node.plan-mark--plan').evaluateAll((els) => els.map((el) => getComputedStyle(el).getPropertyValue('--plan-word')).join(' '));
-  check('D6. Show on canvas draws a device the idea adds, tagged AI ADDS', (await A.locator('.drawing').getByText('lab-spare-proposed').count()) > 0 && /AI ADDS/.test(adds), adds);
+  check('D6. Show on canvas draws a switch the idea racks, in its rack, tagged AI ADDS', (await A.locator('.drawing').getByText('lab-spare-racked').count()) > 0 && /AI ADDS/.test(adds), adds);
   const unmovedAgain = await rpc('tools/call', { name: 'read_design', arguments: { design: designId } });
-  check('D6b. drawing it changed nothing', !JSON.stringify(unmovedAgain.body.result.structuredContent).includes('lab-spare-proposed'));
+  check('D6b. drawing it changed nothing', !JSON.stringify(unmovedAgain.body.result.structuredContent).includes('lab-spare-racked'));
   await spareIdea.getByTestId('ai-idea-preview').click();
 
   // ---- Steward › AI lists it -------------------------------------------------------
