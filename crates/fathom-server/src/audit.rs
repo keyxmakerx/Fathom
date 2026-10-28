@@ -278,8 +278,35 @@ impl SpoolBounds {
     /// server that is running has already been checked — and the fallback is
     /// the documented default rather than a refusal, because failing a write
     /// over a typo in an unrelated variable is not a safety property.
+    ///
+    /// **With no destination (`FATHOM_AUDIT_SYSLOG` unset) the bounds do not bind.** The
+    /// spool then never drains, by design: `config::Config::audit_syslog` documents that
+    /// spool-only means every act still applies, and the start says the deployment is
+    /// unwitnessed. A bound on the age of an unshipped backlog only measures a destination
+    /// that is behind; with none, it stopped every design write 72 hours after the first
+    /// one on every install that never named one (2026-10-28).
     pub fn from_env() -> Self {
-        Self::from_lookup(|k| std::env::var(k).ok()).unwrap_or_else(|_| Self::defaults())
+        Self::for_lookup(|k| std::env::var(k).ok())
+    }
+
+    /// [`from_env`](Self::from_env), from any lookup.
+    pub fn for_lookup<F>(get: F) -> Self
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        let shipping = get("FATHOM_AUDIT_SYSLOG").is_some_and(|v| !v.trim().is_empty());
+        if !shipping {
+            return Self::unbounded();
+        }
+        Self::from_lookup(get).unwrap_or_else(|_| Self::defaults())
+    }
+
+    /// Bounds no spool passes: a spool-only deployment's.
+    pub const fn unbounded() -> Self {
+        Self {
+            max_age: Duration::MAX,
+            max_bytes: i64::MAX,
+        }
     }
 }
 
@@ -1117,6 +1144,25 @@ mod tests {
                 "{variable}={value} was accepted"
             );
         }
+    }
+
+    #[test]
+    fn the_bounds_bind_only_where_entries_ship() {
+        let backlog = SpoolState {
+            entries: 213,
+            bytes: 34_244,
+            oldest: Duration::from_secs(2_603_889),
+        };
+        let none = |_: &str| None::<String>;
+        assert_eq!(backlog.beyond(&SpoolBounds::for_lookup(none)), None);
+        let empty = |k: &str| (k == "FATHOM_AUDIT_SYSLOG").then(|| " ".to_string());
+        assert_eq!(backlog.beyond(&SpoolBounds::for_lookup(empty)), None);
+        let shipping = |k: &str| (k == "FATHOM_AUDIT_SYSLOG").then(|| "10.0.0.5:514".to_string());
+        assert_eq!(SpoolBounds::for_lookup(shipping), SpoolBounds::defaults());
+        assert_eq!(
+            backlog.beyond(&SpoolBounds::for_lookup(shipping)),
+            Some(Bound::Age)
+        );
     }
 
     #[test]
