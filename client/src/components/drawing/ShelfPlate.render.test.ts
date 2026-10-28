@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import type { OccupantView, ShelfView } from '../../document/view';
 import type { PortView, Selection } from './contract';
 import { createLiveStore, LiveStoreProvider, type LiveState } from './liveStore';
-import { ShelfPlate, shelfPlateMode, type ShelfPlateNodeData, type ShelfPlateNodeType } from './ShelfPlate';
+import { ShelfPlate, fitCompactOccupants, shelfPlateMode, type ShelfPlateNodeData, type ShelfPlateNodeType } from './ShelfPlate';
 
 // Render-to-string smoke tests only, per `ColourPicker.render.test.ts`'s own
 // precedent — no DOM testing library is installed, so a click that opens the
@@ -230,5 +230,35 @@ describe('ShelfPlate — the 1U compact layout (render-to-string, zoom defaults 
     const markup = renderShelf(baseData({ shelf: s }));
     expect(markup).not.toContain('drawing-shelf--compact');
     expect(markup).toContain('SHELF 2U');
+  });
+});
+
+describe('ShelfPlate — a full 1U shelf folds what does not fit into "+N"', () => {
+  const names = ['padparadscha', 'morpheus-nas', 'bnuuy-pi', 'pihole-02', 'router-lab'];
+
+  it('draws names whole, never cut, and counts the rest', () => {
+    const fit = fitCompactOccupants('Top shelf', names);
+    expect(fit).toBeGreaterThan(0);
+    expect(fit).toBeLessThan(names.length);
+    const s = shelf({
+      id: 'top',
+      label: 'Top shelf',
+      heightU: 1,
+      occupants: names.map((n, i) => occupant({ id: n, slot: i + 1 })),
+    });
+    const markup = renderShelf(baseData({ shelf: s }));
+    expect(markup).toContain('drawing-shelf__compact-more');
+    expect(markup).toContain(`+${names.length - fit}`);
+  });
+
+  it('a shelf whose things all fit draws no "+N"', () => {
+    expect(fitCompactOccupants('Top', ['nuc-01', 'ont-01'])).toBe(2);
+    const s = shelf({ id: 'top', heightU: 1, occupants: [occupant({ id: 'nuc-01', slot: 1 })] });
+    expect(renderShelf(baseData({ shelf: s }))).not.toContain('drawing-shelf__compact-more');
+  });
+
+  it('a taller shelf with nothing on it says so, never a blank band', () => {
+    const markup = renderShelf(baseData({ shelf: shelf({ id: 'empty', heightU: 2 }) }));
+    expect(markup).toContain('Nothing on this shelf');
   });
 });

@@ -105,6 +105,8 @@
   --control-on-mark:    inset 0 -2px 0 var(--ink);
   --control-track:      0.1em;   /* button labels: small spaced capitals */
   --pop-bg:       rgb(255 255 255 / 0.86);
+  /* Menus that open over the drawing: the canvas must never show through them. */
+  --pop-solid:    #FFFFFF;
   --pop-blur:     blur(10px) saturate(1.2);
   --shadow-pop:   0 16px 40px rgb(20 23 26 / 0.16);
   --scrim-opacity: 0.72;
@@ -190,6 +192,7 @@
     --control-bg-press:   rgb(223 228 232 / 0.09);
     --control-on:         rgb(223 228 232 / 0.1);
     --pop-bg:       rgb(25 28 32 / 0.82);
+    --pop-solid:    #191C20;
     --shadow-pop:   0 16px 40px rgb(0 0 0 / 0.45);
   }
 }
@@ -207,6 +210,7 @@
   --control-bg-press:   rgb(223 228 232 / 0.09);
   --control-on:         rgb(223 228 232 / 0.1);
   --pop-bg:       rgb(25 28 32 / 0.82);
+  --pop-solid:    #191C20;
   --shadow-pop:   0 16px 40px rgb(0 0 0 / 0.45);
 }
 :root[data-theme="light"] {
@@ -217,6 +221,8 @@
   --safe:      #1F6F4A;  --safe-wash:    #EEF5F1;
   --caution:   #A8571B;  --caution-wash: #FBF3EA;
   --danger:    #8C2F2F;  --danger-wash:  #F8EFEF;
+  --pop-bg:       rgb(255 255 255 / 0.86);
+  --pop-solid:    #FFFFFF;
 }
 
 /* --- forced colours. §6 ------------------------------------------------- */
