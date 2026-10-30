@@ -571,6 +571,9 @@ pub struct CredentialApiState {
     /// does not check out as a token, so a recovery code works as always.
     pub setup_secret: Option<crate::credentials::SetupSecret>,
     pub client_address: crate::client_address::ClientAddress,
+    /// The server's one epoch watch, for the admin routes' Steward check
+    /// ([`SessionStore::is_organisation_steward`]).
+    pub watch: Arc<EpochWatch>,
 }
 
 /// The credential routes, to `merge` into the main router.
@@ -598,7 +601,7 @@ pub fn credential_router(state: CredentialApiState) -> Router {
         )
         .route("/setup/state", axum::routing::get(setup_state_handler))
         // ADR-0057 decision 8: signed-in browsers. Self-service; the admin routes are a
-        // separate block below, gated by `repo::require_admin*`.
+        // separate block below, gated by the organisation-root Steward grant.
         .route("/sessions", axum::routing::get(list_own_sessions_handler))
         .route("/sessions/end", post(end_own_session_handler))
         .route("/sessions/end-others", post(end_own_other_sessions_handler))
@@ -1211,6 +1214,27 @@ async fn end_own_other_sessions_handler(
     Ok(empty_response())
 }
 
+/// Confirms the caller is a Steward of `organisation`: the organisation-root grant,
+/// never the creator's membership role (sign-off r61).
+async fn require_organisation_steward(
+    state: &CredentialApiState,
+    session: &VerifiedSession,
+    organisation: &str,
+) -> Result<OrganisationId, CredentialRefusal> {
+    require_steward(session)?;
+    let tenant: OrganisationId = organisation
+        .parse()
+        .map_err(|_| Refusal::from(SessionError::Malformed("organisation id")))?;
+    if !state
+        .sessions
+        .is_organisation_steward(tenant, session, &state.watch)
+        .await?
+    {
+        return Err(SessionError::from(repo::RepoError::NotAnAdmin).into());
+    }
+    Ok(tenant)
+}
+
 /// Confirms `actor` administers `organisation` and `member` belongs to it, and
 /// returns the CANONICAL member id. Callers must use it, never raw path text, which
 /// a differently cased id would not match.
@@ -1220,11 +1244,8 @@ async fn admin_over_member(
     organisation: &str,
     member: &str,
 ) -> Result<String, CredentialRefusal> {
-    require_steward(session)?;
-    let tenant: OrganisationId = organisation
-        .parse()
-        .map_err(|_| Refusal::from(SessionError::Malformed("organisation id")))?;
-    let canonical = repo::require_admin_over_member(
+    let tenant = require_organisation_steward(state, session, organisation).await?;
+    let canonical = repo::canonical_member_of(
         state.sessions.pool(),
         tenant,
         &session.principal_id(),
@@ -1407,13 +1428,7 @@ async fn admin_end_organisation_sessions_handler(
     signed: Signed,
 ) -> Result<Response, CredentialRefusal> {
     let session = verified(&state, &signed).await?;
-    require_steward(&session)?;
-    let tenant: OrganisationId = organisation
-        .parse()
-        .map_err(|_| Refusal::from(SessionError::Malformed("organisation id")))?;
-    repo::require_admin(state.sessions.pool(), tenant, &session.principal_id())
-        .await
-        .map_err(SessionError::from)?;
+    require_organisation_steward(&state, &session, &organisation).await?;
     let fields = read_fields(&signed.body, 1)?;
     let code = text(&fields[0], "verification code")?;
     if !admin_current_code(

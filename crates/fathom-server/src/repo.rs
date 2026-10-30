@@ -671,33 +671,15 @@ pub async fn add_member(
     })
 }
 
-/// ADR-0057 decision 8: confirms `actor` administers `tenant`. `Err(NotAnAdmin)`
-/// for a plain member, `Err(NotAMember)` for nobody. `actor` stays text:
-/// `tests/sessions.rs` refuses any route that constructs an `AccountId` except
-/// through a verified session.
-pub async fn require_admin(
-    pool: &Pool,
-    tenant: OrganisationId,
-    actor: &str,
-) -> Result<(), RepoError> {
-    let actor: AccountId = actor
-        .parse()
-        .map_err(|_| RepoError::Corrupt("account id"))?;
-    let mut client = pool.get().await?;
-    let tx = client.transaction().await?;
-    let role = authorise(&tx, tenant, actor).await?;
-    tx.commit().await?;
-    if role != Role::Admin {
-        return Err(RepoError::NotAnAdmin);
-    }
-    Ok(())
-}
-
-/// As [`require_admin`], and confirms `target` belongs to `tenant`, read through
-/// `authorise`'s own opened `memberships` rows. Returns the CANONICAL target id:
+/// ADR-0057 decision 8: confirms `target` belongs to `tenant`, read through
+/// `authorise`'s own opened `memberships` rows, for an `actor` who belongs to it
+/// too. Whether `actor` administers `tenant` is the caller's check, against the
+/// organisation-root Steward grant (sign-off r61), never `memberships.role`.
+/// `actor` stays text: `tests/sessions.rs` refuses any route that constructs an
+/// `AccountId` except through a verified session. Returns the CANONICAL target id:
 /// `Ulid::decode` accepts lowercase, but later session acts filter on the stored
 /// canonical form, so raw caller text in another case would match no row.
-pub async fn require_admin_over_member(
+pub async fn canonical_member_of(
     pool: &Pool,
     tenant: OrganisationId,
     actor: &str,
@@ -711,9 +693,7 @@ pub async fn require_admin_over_member(
         .map_err(|_| RepoError::Corrupt("account id"))?;
     let mut client = pool.get().await?;
     let tx = client.transaction().await?;
-    if authorise(&tx, tenant, actor).await? != Role::Admin {
-        return Err(RepoError::NotAnAdmin);
-    }
+    authorise(&tx, tenant, actor).await?;
     let exists = tx
         .query_opt(
             "SELECT 1 FROM memberships WHERE organisation_id = $1 AND account_id = $2",
