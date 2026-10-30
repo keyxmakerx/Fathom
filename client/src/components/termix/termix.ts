@@ -114,6 +114,16 @@ export function matchHost(hosts: TermixHost[], address: string): TermixHost | nu
   return same.find((h) => h.port === 22) ?? same[0] ?? null;
 }
 
+/**
+ * Whether Termix's host is the device by name too (sign-off r61). A host is matched by address
+ * alone, and anyone who can draw can give a device another machine's address, so a host whose
+ * own name differs is shown and asked about before its terminal opens.
+ */
+export function sameHostName(host: TermixHost, deviceName: string): boolean {
+  const norm = (v: string) => v.trim().toLowerCase();
+  return norm(deviceName) !== '' && norm(host.name) === norm(deviceName);
+}
+
 /** Termix's folder for a design's hosts: `Fathom / <design>`, Termix's own nesting separator. */
 export function folderFor(design: string): string {
   const d = design.replace(/\s*\/\s*/g, ' - ').trim();
