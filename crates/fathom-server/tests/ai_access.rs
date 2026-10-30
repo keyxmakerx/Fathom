@@ -3067,6 +3067,21 @@ async fn a_steward_sets_what_an_ai_may_do_by_kind_of_work_folder_and_field() {
         "{}",
         text(&answer)
     );
+    // Steps alone count too, or a connection could fill the organisation's waiting ideas.
+    let steps_only = canon(vec![
+        ("title", s("Label the uplink")),
+        ("why", s("It has no label")),
+        (
+            "steps",
+            Json::Arr(vec![canon_obj(vec![
+                ("action", s("add")),
+                ("text", s("Print a label for it")),
+            ])]),
+        ),
+    ]);
+    let ideas = format!("/ai/v1/designs/{a}/recommendations");
+    let (status, answer) = ai_call(addr, &app_key, "POST", &ideas, &steps_only).await;
+    assert_eq!(status, "429", "{}", text(&answer));
     let _ = building_a;
 }
 
