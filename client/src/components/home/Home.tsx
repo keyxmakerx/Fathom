@@ -811,7 +811,12 @@ export function Home({
             <button type="button" className="about-link" disabled={practice.busy} onClick={() => void practice.onMake()}>
               {practice.busy ? 'Making your practice space…' : 'Make a practice space'}
             </button>
-            {practice.codePrompt}
+            {/* On the Admin tab the tab's own panel already shows this
+                prompt. Two code fields on one page make Bitwarden stretch its
+                fill menu from the left of one to the right of the other, as
+                it does for a code split across boxes (bitwarden/clients
+                2026-10-30: `calculateTotpMultiInputMenuBounds`). */}
+            {shownTab !== 'admin' && practice.codePrompt}
             {practice.error && <p className="home__error">{practice.error}</p>}
           </>
         )}
