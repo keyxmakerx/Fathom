@@ -7726,4 +7726,21 @@ async fn a_saved_device_is_found_across_the_estate_and_only_by_those_who_may_rea
         !text.contains("\"here\"") && !text.contains(&hostname),
         "a member with no grant learns nothing about the far end: {text}"
     );
+
+    // Sign-off r61: the far port is found through its own term, so a lookup opens only the
+    // devices it asks about. A design indexed before those terms (none here now) is read
+    // whole, and the far port is still found.
+    su.execute(
+        "DELETE FROM estate_terms WHERE design_id = $1",
+        &[&design.to_string()],
+    )
+    .await
+    .unwrap();
+    let (status, body) = call(addr, &estate.steward, "POST", &far, &ends).await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let text = String::from_utf8_lossy(&body);
+    assert!(
+        text.contains("\"here\"") && text.contains(&hostname),
+        "an index from before port terms still answers: {text}"
+    );
 }

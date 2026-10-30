@@ -520,6 +520,22 @@ pub fn terms_of(row: &Row) -> BTreeSet<String> {
     out
 }
 
+/// The terms that lead from a port to its device's row, so a link between sites opens only
+/// the devices holding the ports it asks about (sign-off r61), not every device in each design.
+/// Kept apart from [`terms_of`] so a device with many ports never crowds out its search words.
+/// A search that types one finds only a row it could already read.
+fn port_terms(row: &Row) -> impl Iterator<Item = String> + '_ {
+    let marker = (!row.ports.is_empty()).then(|| PORTS_INDEXED.to_string());
+    row.ports
+        .iter()
+        .map(|p| format!("port:{}", p.id))
+        .chain(marker)
+}
+
+/// Carried by every device row indexed with [`port_terms`]: a design with none was indexed
+/// before them, and [`devices_holding`] reads its devices whole until its next rebuild.
+const PORTS_INDEXED: &str = "ports:indexed";
+
 /// The terms a query asks for: each word, cut to [`MAX_PREFIX`] characters so a
 /// long word still matches its longest stored prefix.
 pub fn query_terms(query: &str) -> Vec<String> {
@@ -572,7 +588,7 @@ pub async fn replace_design(
         kinds.push(row.kind.to_string());
         sealed.push(body);
         nonces.push(nonce.to_vec());
-        for term in terms_of(row) {
+        for term in terms_of(row).into_iter().chain(port_terms(row)) {
             term_hashes.push(keys.term_hash(&term));
             term_elements.push(row.element.clone());
         }
@@ -744,9 +760,63 @@ pub async fn page(
     open_rows(tx, keys, organisation, &pairs).await
 }
 
-/// Every device row in `designs`, opened: what a link between sites reads to
-/// find its far port and whether that port links back (ADR-0079 decision 5).
-pub async fn devices_in(
+/// The device rows holding the far ports `ends` (design, port) name, opened: what a link
+/// between sites reads to find its far port and whether that port links back (ADR-0079
+/// decision 5). Found through [`port_terms`], so one request opens at most the devices it
+/// asks about. A design indexed before port terms is read whole, as before, until its next
+/// rebuild.
+pub async fn devices_holding(
+    tx: &Transaction<'_>,
+    keys: &IndexKeys,
+    organisation: &str,
+    ends: &[(String, String)],
+) -> Result<Vec<Hit>, String> {
+    if ends.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut designs: Vec<String> = ends.iter().map(|(d, _)| d.clone()).collect();
+    designs.sort();
+    designs.dedup();
+    let mut hashes: Vec<Vec<u8>> = ends
+        .iter()
+        .map(|(_, port)| keys.term_hash(&format!("port:{port}")))
+        .collect();
+    let marker = keys.term_hash(PORTS_INDEXED);
+    hashes.push(marker.clone());
+    let rows = tx
+        .query(
+            "SELECT DISTINCT design_id, element_id, term = $4 FROM estate_terms \
+             WHERE organisation_id = $1 AND term = ANY($2) AND design_id = ANY($3) \
+             ORDER BY design_id, element_id",
+            &[&organisation, &hashes, &designs, &marker],
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    let mut indexed: BTreeSet<String> = BTreeSet::new();
+    for row in &rows {
+        let (design, element, is_marker): (String, String, bool) =
+            (row.get(0), row.get(1), row.get(2));
+        if is_marker {
+            indexed.insert(design);
+        } else {
+            pairs.push((design, element));
+        }
+    }
+    pairs.sort();
+    pairs.dedup();
+    let older: Vec<String> = designs
+        .into_iter()
+        .filter(|d| !indexed.contains(d))
+        .collect();
+    let mut out = open_rows(tx, keys, organisation, &pairs).await?;
+    out.extend(devices_in(tx, keys, organisation, &older).await?);
+    Ok(out)
+}
+
+/// Every device row in `designs`, opened: a design's whole list, for one indexed before
+/// [`port_terms`].
+async fn devices_in(
     tx: &Transaction<'_>,
     keys: &IndexKeys,
     organisation: &str,
@@ -836,6 +906,24 @@ mod tests {
             addresses: vec!["10.20.0.1".into()],
             ports: Vec::new(),
         }
+    }
+
+    #[test]
+    fn a_device_with_ports_is_found_by_each_port_and_says_it_was_indexed_so() {
+        let mut r = row();
+        let none: Vec<String> = port_terms(&r).collect();
+        assert!(none.is_empty(), "no ports, no port terms: {none:?}");
+        r.ports = vec![Port {
+            id: "physical-port:p1".into(),
+            name: "xe-0/0/1".into(),
+            far: None,
+        }];
+        let terms: Vec<String> = port_terms(&r).collect();
+        assert_eq!(terms, ["port:physical-port:p1", PORTS_INDEXED]);
+        assert!(
+            terms.iter().all(|t| !terms_of(&r).contains(t)),
+            "port terms stay out of the search words"
+        );
     }
 
     #[test]
