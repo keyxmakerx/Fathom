@@ -1612,7 +1612,7 @@ impl SessionStore {
                 // gate below), so both sides are fast and equal. It also keeps
                 // key-only sign-ins and the rate-limit suites at the cost they had.
                 if !matches!(error, SessionError::PasswordRefused) && !password.is_empty() {
-                    let _ = credentials::verify_password(A_DECOY_HASH, password);
+                    let _ = credentials::verify_password_blocking(A_DECOY_HASH, password).await;
                 }
                 // A rate-limit refusal outranks the underlying reason: the
                 // caller must be told to wait rather than to try again.
@@ -2333,7 +2333,8 @@ impl SessionStore {
                 .password_hash
                 .as_deref()
                 .expect("by_password is exactly this field being set");
-            if password.is_empty() || !credentials::verify_password(stored, password) {
+            if password.is_empty() || !credentials::verify_password_blocking(stored, password).await
+            {
                 return Err((
                     Some(AccountBucket::Account(account)),
                     "password_refused",

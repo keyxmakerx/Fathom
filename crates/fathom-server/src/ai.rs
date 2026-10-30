@@ -3208,6 +3208,10 @@ pub async fn recommend(
         change,
         operations,
     } = clean_idea(body)?;
+    // Every idea counts against the connection's limits, with a change or without: the
+    // count below is of all its ideas, and a connection sending only steps could otherwise
+    // fill the organisation's 200 waiting ideas for every other connection in minutes.
+    crate::ai_change::within_rate(tx, auth, &session.key.id, &session.policy).await?;
     let change = match (change, operations) {
         (Some(asked), Some(operations)) => {
             // An AI never changes a design itself (owner, 2026-10-27): a change it sends waits
@@ -3233,7 +3237,6 @@ pub async fn recommend(
                     "in this folder an AI may send steps but not propose changes",
                 ));
             }
-            crate::ai_change::within_rate(tx, auth, &session.key.id, &session.policy).await?;
             let tiers = tiers(&session.key, &session.policy);
             crate::ai_change::check_idea_change(
                 tx,
