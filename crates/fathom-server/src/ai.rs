@@ -1973,9 +1973,70 @@ pub async fn stop_key(
     key.changed_seq = appended.seq;
     key.version += 1;
     write_key(tx, auth.ring, &key).await?;
+    close_ideas_of(tx, auth, &key.id).await?;
     read_key(tx, auth.ring, &organisation, id, false)
         .await?
         .ok_or(AiError::Unverifiable("a key just written"))
+}
+
+/// A stopped key's waiting ideas close with it (sign-off r61): each is dismissed by the
+/// person who stopped the key, filed on the chain as any dismissal is, and its body sealed
+/// empty. An operator's stop cannot write these rows (`0046` keeps `decided_by` to the
+/// organisation's own people), so after one the ideas stay listed and Accept refuses them.
+async fn close_ideas_of(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    key_id: &str,
+) -> Result<(), AiError> {
+    let organisation = auth.ctx.tenant().to_string();
+    let me = auth.ctx.actor().to_string();
+    let open = tx
+        .query(
+            "SELECT id, design_id, owner FROM ai_recommendations \
+             WHERE organisation_id = $1 AND key_id = $2 AND state = 'open' \
+             ORDER BY id FOR UPDATE",
+            &[&organisation, &key_id],
+        )
+        .await?;
+    for row in &open {
+        let (id, design, owner): (String, String, String) = (row.get(0), row.get(1), row.get(2));
+        chains::append_org(
+            tx,
+            auth.ring,
+            auth.ctx,
+            auth.tenant_key,
+            EntryType::AiRecommendationDecided,
+            &metadata(
+                EntryType::AiRecommendationDecided,
+                &[
+                    ("recommendation", Json::Str(id.clone())),
+                    ("design", Json::Str(design.clone())),
+                    ("key", Json::Str(key_id.to_string())),
+                    ("by", Json::Str(me.clone())),
+                    ("decision", Json::Str("dismissed".into())),
+                ],
+            ),
+        )
+        .await?;
+        let (ciphertext, nonce, epoch) =
+            seal_idea(tx, auth, &id, &design, key_id, &owner, b"").await?;
+        tx.execute(
+            "UPDATE ai_recommendations SET state = 'dismissed', decided_by = $3, \
+                 decided_at = now(), version = version + 1, \
+                 ciphertext = $4, nonce = $5, key_epoch = $6 \
+             WHERE organisation_id = $1 AND id = $2 AND state = 'open'",
+            &[
+                &organisation,
+                &id,
+                &me,
+                &ciphertext,
+                &nonce.to_vec(),
+                &epoch,
+            ],
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -2384,14 +2445,69 @@ pub struct AiSession {
 impl AiSession {
     /// What a proposal is checked against beyond the reading's tiers.
     pub fn rules(&self) -> Rules {
-        Rules {
-            levels: self.levels,
-            // Checked when the Steward saved it; read as it stands, a list that no longer
-            // parses narrows rather than opens.
-            only: ai_work::Only(self.policy.only_kinds.iter().cloned().collect()),
-            max_removals: self.policy.max_removals.clamp(0, ai_work::MAX_REMOVALS) as usize,
-        }
+        rules_for(self.levels, &self.policy)
     }
+}
+
+/// A connection's rules at `levels` under `policy`: what a proposal is checked against
+/// when it is sent ([`AiSession::rules`]) and again when a person accepts it.
+fn rules_for(levels: Levels, policy: &Policy) -> Rules {
+    Rules {
+        levels,
+        // Checked when the Steward saved it; read as it stands, a list that no longer
+        // parses narrows rather than opens.
+        only: ai_work::Only(policy.only_kinds.iter().cloned().collect()),
+        max_removals: policy.max_removals.clamp(0, ai_work::MAX_REMOVALS) as usize,
+    }
+}
+
+/// What an idea's change is held to when a person accepts it (sign-off r61): the
+/// connection's rules as they are now, not as they were when it was sent. A key switched
+/// off, an organisation or server that no longer lets AI propose, a folder now ideas-only,
+/// or a lower "most removals" each refuse the Accept with the reason. The idea stays open,
+/// so its steps can still be done by hand. The tiers are the idea's own, cut to what the
+/// connection may see now.
+async fn rules_now(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    key_id: &str,
+    path: &str,
+    sent_with: &BTreeSet<Tier>,
+) -> Result<(BTreeSet<Tier>, Rules), AiError> {
+    let organisation = auth.ctx.tenant().to_string();
+    let key = read_key(tx, auth.ring, &organisation, key_id, false)
+        .await?
+        .filter(|k| k.is_live(now_unix()))
+        .ok_or(AiError::NotAllowed(
+            "the AI connection that sent this idea is switched off, so it can't be accepted; \
+             its steps can still be done by hand",
+        ))?;
+    let site = read_switch(tx, auth.ring).await?;
+    let policy = read_policy(tx, auth.ring, &organisation, false).await?;
+    if !site.allowed || !policy.allowed || !policy.makers.contains(&key.owner) {
+        return Err(AiError::NotAllowed(
+            "AI is off for this organisation now, so its ideas can't be accepted; their steps \
+             can still be done by hand",
+        ));
+    }
+    let levels = site.levels().min(&policy.levels()).min(&key.levels());
+    if !levels.any_propose() {
+        return Err(AiError::NotAllowed(
+            "this connection may no longer propose changes, so this one can't be accepted; its \
+             steps can still be done by hand",
+        ));
+    }
+    if policy.ideas_only(path) {
+        return Err(AiError::NotAllowed(
+            "this folder now takes AI steps only, so this change can't be accepted; its steps \
+             can still be done by hand",
+        ));
+    }
+    let tiers: BTreeSet<Tier> = tiers(&key, &policy)
+        .intersection(sent_with)
+        .copied()
+        .collect();
+    Ok((tiers, rules_for(levels, &policy)))
 }
 
 /// Open the owner's tenant context for a verified request, re-reading everything that
@@ -3497,6 +3613,24 @@ pub async fn decide_idea(
             version: idea.version,
         });
     }
+    // Sign-off r61: held to the connection's rules as they are now, before anything is
+    // written. An idea with steps only is marked and nothing more, so only its key is checked.
+    let now_rules = match (&idea.change, accept) {
+        (Some(change), true) => {
+            Some(rules_now(tx, auth, &idea.key_id, &path, &change.tier_set()).await?)
+        }
+        (None, true) => {
+            read_key(tx, auth.ring, &organisation, &idea.key_id, false)
+                .await?
+                .filter(|k| k.is_live(now_unix()))
+                .ok_or(AiError::NotAllowed(
+                    "the AI connection that sent this idea is switched off, so it can't be \
+                     accepted; its steps can still be done by hand",
+                ))?;
+            None
+        }
+        _ => None,
+    };
     if accept && idea.owner == me {
         let policy = read_policy(tx, auth.ring, &organisation, false).await?;
         if !policy.second_person_scopes.is_empty() && covers(&policy.second_person_scopes, &path) {
@@ -3560,18 +3694,12 @@ pub async fn decide_idea(
             version: idea.version,
         });
     }
-    let written = match (&idea.change, accept) {
-        (Some(change), true) => {
+    let written = match (&idea.change, now_rules) {
+        (Some(change), Some((tiers, rules))) => {
             let asked = change.asked(&idea.title)?;
             Some(
                 crate::ai_change::apply_idea_change(
-                    tx,
-                    auth,
-                    heads,
-                    design,
-                    scope,
-                    &change.tier_set(),
-                    &asked,
+                    tx, auth, heads, design, scope, &tiers, &rules, &asked,
                 )
                 .await?,
             )
