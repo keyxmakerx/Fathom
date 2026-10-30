@@ -698,6 +698,23 @@
   z-index: 1;
   background: var(--surface-2);
 }
+
+/* Sign-off r57: the foot sits on the panel's bottom edge on every tab. Sticky alone keeps it there only
+   while a tab is long enough to scroll; on a short tab it rode up under the last line, so the buttons
+   moved as you changed tabs. The panel now fills its scroller and the foot takes the space above it. */
+.shell-editor:has(> .drawing-editor__panel),
+.inv-page__body:has(> .drawing-editor__panel) {
+  display: flex;
+  flex-direction: column;
+}
+.shell-editor > .drawing-editor__panel,
+.inv-page__body > .drawing-editor__panel {
+  flex: 1 0 auto;
+}
+.shell-editor > .drawing-editor__panel > .drawing-editor__footer,
+.inv-page__body > .drawing-editor__panel > .drawing-editor__footer {
+  margin-top: auto;
+}
 .drawing-editor__footer:empty {
   display: none;
 }
@@ -1610,90 +1627,42 @@
   color: var(--danger);
 }
 
-/* ---- a device's callout ------------------------------------------------ */
-
-.drawing-callout__leader {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 5;
-  overflow: visible;
+/* Sign-off r58: the device menu's groups, its keys, and an item greyed with why. */
+/* A long list on a short window scrolls inside the drawing rather than running off it. */
+.drawing-context-menu {
+  max-height: 100%;
+  overflow-y: auto;
 }
-.drawing-callout__casing {
-  fill: none;
-  stroke: var(--page);
-  stroke-width: 3;
+.drawing-context-menu__item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: var(--s4);
+  align-items: baseline;
 }
-.drawing-callout__line {
-  fill: none;
-  stroke: var(--ink);
-  stroke-width: 1;
-  stroke-dasharray: 2 3;
-  animation: drawing-leader-draw 220ms ease-out both;
-}
-.drawing-callout__dot {
-  fill: var(--ink);
-}
-.drawing-callout {
-  position: absolute;
-  z-index: 6;
-  transform: translateY(-50%);
-  transform-origin: left center;
-  min-width: 190px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: var(--s3);
-  border: 1px solid var(--ink);
-  background: var(--page);
-  color: var(--ink);
-  font-size: var(--t-body);
-  animation: drawing-callout-out 220ms ease-out both;
-}
-.drawing-callout__name {
-  font-weight: 700;
-}
-.drawing-callout__muted {
+.drawing-context-menu__item kbd {
+  font: inherit;
+  font-size: var(--t-micro);
   color: var(--muted);
 }
-.drawing-callout__actions {
-  display: flex;
-  gap: var(--s2);
+.drawing-context-menu__why {
+  grid-column: 1 / -1;
+  font-size: var(--t-micro);
+  color: var(--muted);
+}
+.drawing-context-menu__item--off {
+  color: var(--muted);
+  cursor: default;
+}
+.drawing-context-menu__group {
+  padding: var(--s2) var(--s3) 2px;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.drawing-context-menu__group:not(:first-child) {
   margin-top: var(--s1);
-}
-.drawing-callout__actions button {
-  font: inherit;
-  padding: 1px var(--s3);
-  border: 1px solid var(--ink);
-  background: var(--page);
-  color: var(--ink);
-  cursor: pointer;
-}
-@keyframes drawing-leader-draw {
-  from {
-    clip-path: inset(0 100% 0 0);
-  }
-  to {
-    clip-path: inset(0 0 0 0);
-  }
-}
-@keyframes drawing-callout-out {
-  from {
-    opacity: 0;
-    transform: translateY(-50%) scaleX(0.4);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(-50%) scaleX(1);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .drawing-callout,
-  .drawing-callout__line {
-    animation: none;
-  }
+  border-top: 1px solid var(--hairline);
 }
 
 .drawing-cable__end-label {
@@ -1719,22 +1688,6 @@
 .drawing .react-flow__edgelabel-renderer {
   z-index: 12;
 }
-.drawing-callout--left {
-  transform: translate(-100%, -50%);
-  transform-origin: right center;
-  animation-name: drawing-callout-out-left;
-}
-@keyframes drawing-callout-out-left {
-  from {
-    opacity: 0;
-    transform: translate(-100%, -50%) scaleX(0.4);
-  }
-  to {
-    opacity: 1;
-    transform: translate(-100%, -50%) scaleX(1);
-  }
-}
-
 /* ---- automatic stubs ---------------------------------------------------- */
 .drawing-stub__tag {
   position: absolute;
@@ -2230,6 +2183,31 @@
 }
 .dev-more__menu > .drawing-editor__field {
   width: 100%;
+}
+/* Sign-off r58: the ⋯ menu as the device's whole list, drawn as the right-click menu draws it. */
+.dev-more__menu--list {
+  min-width: 220px;
+  max-height: 70vh;
+  overflow-y: auto;
+  gap: 0;
+  padding: var(--s1) 0;
+  background: var(--pop-solid);
+}
+.dev-more__menu--list .drawing-context-menu__item {
+  display: grid;
+  min-height: 0;
+  padding: var(--s1) var(--s3);
+}
+.dev-more__menu--list .drawing-context-menu__item--danger {
+  margin-top: var(--s1);
+  border-top: 1px solid var(--hairline);
+  color: var(--danger);
+}
+.dev-more__menu--list .drawing-context-menu__item--off {
+  color: var(--muted);
+}
+.dev-more__menu--list .drawing-context-menu__item--off:hover {
+  background: none;
 }
 
 .dev-panel__face {

@@ -178,7 +178,7 @@ try {
   {
     const { context, page, pageErrors } = await open('hosts');
     await page.locator('.react-flow__node-freeBox', { hasText: 'switch-1' }).first().click({ button: 'right' });
-    await page.locator('.drawing-context-menu__item', { hasText: 'Suggest cables from its neighbours (LLDP)' }).click();
+    await page.locator('.drawing-context-menu__item', { hasText: 'Suggest cables (LLDP)' }).click();
     const card = page.getByTestId('suggest-card');
     await card.waitFor({ timeout: 5000 });
     check('the cables card says a MAC table works too', /show mac address-table/.test(await card.innerText()));

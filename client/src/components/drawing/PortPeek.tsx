@@ -3,6 +3,9 @@
 // they are: it watches for any element marked `data-port-id` (rack, shelf and wall plates) or
 // `data-jot-port` (an opened device). The card never takes a click and stays away while a cable or a
 // device is being dragged. What it says is `portPeek.ts`.
+//
+// Sign-off r59: the same card for a device, a rack, a shelf and a cable (`thingPeek.ts`), in place of the
+// callout a click on a device's name used to draw. A click always opens the panel; a pause says what it is.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -10,7 +13,8 @@ import '../../styles/canvas-aids.css';
 
 import type { Document } from '../../document/model';
 import type { ClosetView } from './contract';
-import { portPeek, type PortPeekCard } from './portPeek';
+import { portPeek } from './portPeek';
+import { thingPeek, type PeekTarget } from './thingPeek';
 
 const PORT_SELECTOR = '[data-port-id], [data-jot-port]';
 const CANVAS_SELECTOR = '.shell__drawing';
@@ -18,11 +22,19 @@ const CANVAS_SELECTOR = '.shell__drawing';
 export const PEEK_DELAY_MS = 300;
 /** A tab to a port is deliberate, so the card comes sooner. */
 const FOCUS_DELAY_MS = 120;
+/** A rack or a shelf is large and pointed across on the way to something else, so it waits longer. */
+const BIG_DELAY_MS = 600;
 const GAP = 8;
 const EDGE = 8;
 
+interface PeekCard {
+  title: string;
+  rows: readonly { key: string; value: string; empty: boolean }[];
+}
+
 interface Shown {
-  card: PortPeekCard;
+  card: PeekCard;
+  kind: 'port' | PeekTarget['kind'];
   /** Centre of the port, and its top and bottom edges, in window pixels. */
   x: number;
   top: number;
@@ -35,6 +47,35 @@ function portOf(target: EventTarget | null): HTMLElement | null {
 }
 
 const idOf = (el: HTMLElement): string | undefined => el.dataset.portId ?? el.dataset.jotPort;
+
+/** The things besides ports, most specific first: a device inside a shelf before the shelf, and so on. */
+const THINGS: readonly { kind: PeekTarget['kind']; selector: string; id: (el: HTMLElement) => string | undefined }[] = [
+  { kind: 'device', selector: '[data-device-chassis]', id: (el) => el.dataset.deviceChassis },
+  { kind: 'device', selector: '.react-flow__node-chassis', id: (el) => after(el.dataset.id, 'chassis:') },
+  { kind: 'device', selector: '.react-flow__node-freeBox', id: (el) => after(el.dataset.id, 'free:') },
+  { kind: 'cable', selector: '[data-cable-id]', id: (el) => el.dataset.cableId },
+  { kind: 'shelf', selector: '.react-flow__node-shelf', id: (el) => after(el.dataset.id, 'shelf:') },
+  { kind: 'rack', selector: '.react-flow__node-rack', id: (el) => after(el.dataset.id, 'rack:') },
+];
+
+function after(value: string | undefined, prefix: string): string | undefined {
+  return value != null && value.startsWith(prefix) ? value.slice(prefix.length) : undefined;
+}
+
+type Target = { el: HTMLElement; kind: 'port' } | { el: HTMLElement; kind: PeekTarget['kind']; id: string };
+
+/** What the pointer is over, on the canvas: a port first, then the most specific thing. */
+function targetOf(target: EventTarget | null): Target | null {
+  const port = portOf(target);
+  if (port != null) return { el: port, kind: 'port' };
+  if (!(target instanceof Element) || target.closest(CANVAS_SELECTOR) == null) return null;
+  for (const t of THINGS) {
+    const el = target.closest<HTMLElement>(t.selector);
+    const id = el != null ? t.id(el) : undefined;
+    if (el != null && id != null) return { el, kind: t.kind, id };
+  }
+  return null;
+}
 
 /** A cable is being drawn or a device dragged: no card now. */
 function busy(): boolean {
@@ -75,7 +116,8 @@ export function PortPeek({ doc, view }: { doc: Document | null; view: ClosetView
       release();
       setShown(null);
     };
-    const schedule = (el: HTMLElement, delay: number) => {
+    const schedule = (t: Target, delay: number, at?: { x: number; y: number }) => {
+      const el = t.el;
       if (el === current) return;
       hide();
       current = el;
@@ -85,30 +127,42 @@ export function PortPeek({ doc, view }: { doc: Document | null; view: ClosetView
       el.setAttribute('data-peeking', '');
       timer = setTimeout(() => {
         timer = null;
-        const id = idOf(el);
-        if (id == null || !el.isConnected || busy()) return;
-        const card = portPeek(latest.current.doc, latest.current.view, id);
+        if (!el.isConnected || busy()) return;
+        if (t.kind === 'port') {
+          const id = idOf(el);
+          const card = id != null ? portPeek(latest.current.doc, latest.current.view, id) : null;
+          if (card == null) return;
+          const r = el.getBoundingClientRect();
+          setShown({ card, kind: 'port', x: r.left + r.width / 2, top: r.top, bottom: r.bottom });
+          return;
+        }
+        const card = thingPeek(latest.current.view, { kind: t.kind, id: t.id });
         if (card == null) return;
+        // A rack is tall and a cable long: the card goes by the pointer, not the middle of the thing.
         const r = el.getBoundingClientRect();
-        setShown({ card, x: r.left + r.width / 2, top: r.top, bottom: r.bottom });
+        const x = at?.x ?? r.left + r.width / 2;
+        const y = at?.y ?? r.top + r.height / 2;
+        setShown({ card, kind: t.kind, x, top: y - 12, bottom: y + 12 });
       }, delay);
     };
 
     const onOver = (e: PointerEvent) => {
       if (e.pointerType === 'touch') return;
-      const el = portOf(e.target);
-      if (el == null || e.buttons !== 0) return;
-      schedule(el, PEEK_DELAY_MS);
+      const t = targetOf(e.target);
+      if (t == null || e.buttons !== 0) return;
+      schedule(t, t.kind === 'rack' || t.kind === 'shelf' ? BIG_DELAY_MS : PEEK_DELAY_MS, { x: e.clientX, y: e.clientY });
     };
     const onOut = (e: PointerEvent) => {
-      const el = portOf(e.target);
-      if (el == null || el !== current) return;
+      if (current == null) return;
+      const el = current;
+      if (!(e.target instanceof Node) || !el.contains(e.target)) return;
       if (e.relatedTarget instanceof Node && el.contains(e.relatedTarget)) return;
+      // Into a thing inside this one (a device in a shelf): `pointerover` there takes over.
       hide();
     };
     const onFocusIn = (e: FocusEvent) => {
       const el = portOf(e.target);
-      if (el != null && focusVisible(el)) schedule(el, FOCUS_DELAY_MS);
+      if (el != null && focusVisible(el)) schedule({ el, kind: 'port' }, FOCUS_DELAY_MS);
     };
     const onFocusOut = (e: FocusEvent) => {
       const el = portOf(e.target);
@@ -160,9 +214,9 @@ export function PortPeek({ doc, view }: { doc: Document | null; view: ClosetView
   return createPortal(
     <div
       ref={cardRef}
-      className="port-peek"
+      className={shown.kind === 'port' ? 'port-peek' : 'port-peek port-peek--thing'}
       role="tooltip"
-      data-testid="port-peek"
+      data-testid={shown.kind === 'port' ? 'port-peek' : 'thing-peek'}
       data-print-omit=""
       style={{ left: pos?.left ?? 0, top: pos?.top ?? 0, visibility: pos == null ? 'hidden' : 'visible' }}
     >

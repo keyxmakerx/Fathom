@@ -38,7 +38,6 @@ import { PlansCanvasBridge, usePlansFade } from './plansFade';
 import { useSuggestGhosts } from './suggestGhosts';
 import { TroubleCanvasBridge, useTroubleFade } from './troubleFade';
 import type { PortTarget } from './plansMarks';
-import { Callout } from './Callout';
 import { useSettledView } from './settledView';
 import { endOffScreen, stubTagText, type StubEnd } from './stubs';
 import { viewShowsAny } from '../design/resume';
@@ -283,6 +282,10 @@ export interface DrawingProps extends DrawingActions {
   onSuggestCables?: (chassisId: string | null) => void;
   /** Right-click "Fit a card" on a device (ADR-0073). Absent for a reader. */
   onFitCard?: (chassisId: string) => void;
+  /** Sign-off r58: the rest of a device's menu, which the place knows and the canvas does not (Show in
+   * Inventory, Swap model, Add a port, Termix, Copy link, Print its label). The place leaves out what a
+   * reader cannot do; the rest is offered to everyone. */
+  deviceMenu?: Partial<MenuActions>;
   /** Bump to fit every rack into view (a counter, so a repeat press fires). */
   fitRequest?: number;
   /** Remounted by a Rack/Diagram switch: no focus is pending, so fit even with a selection. */
@@ -333,8 +336,6 @@ export interface DrawingProps extends DrawingActions {
   openRequest?: { id: string; view: 'config' | 'inside' } | null;
   /** Missing links' Go: brings this cable into view; a new object each time, like `openRequest`. */
   revealRequest?: { cableId: string } | null;
-  /** The chassis whose callout is showing, or null; the caller keeps the details panel closed meanwhile. */
-  onCalloutChange?: (id: string | null) => void;
   /** The devices picked together (two or more, by chassis id), or empty. Racked and free devices both count. */
   onGroupChange?: (chassisIds: string[]) => void;
   /** Bump to drop the picked devices (a counter, so a repeat press fires). */
@@ -457,6 +458,7 @@ function DrawingInner({
   onItsDown,
   onSuggestCables,
   onFitCard,
+  deviceMenu,
   onOpenDevice,
   onResizeShelf,
   onAddFreeBox,
@@ -482,7 +484,6 @@ function DrawingInner({
   openRequest,
   revealRequest,
   onFinishCable,
-  onCalloutChange,
   onGroupChange,
   groupClearRequest,
   drawnCableIds,
@@ -559,19 +560,10 @@ function DrawingInner({
   const [menu, setMenu] = useState<{ x: number; y: number; target: MenuTarget } | null>(null);
   // Zoom never opens a device; only Open, a double-click or "Show on rack" does.
   const [opened, setOpened] = useState<{ id: string; view: 'config' | 'inside' } | null>(null);
-  // A click on a device's name draws its callout, led from the name; any other
-  // click on the plate only selects (and opens the details panel).
-  const [callout, setCallout] = useState<{ id: string; left: number; right: number; y: number } | null>(null);
+  // Sign-off r59: a click anywhere on a device selects it and opens its panel; the callout a click on its
+  // name used to draw is gone, and a pause over it shows the peek (`PortPeek.tsx`) instead.
   const openedRef = useRef(opened);
-  const calloutRef = useRef(callout);
-  calloutRef.current = callout;
   openedRef.current = opened;
-  useEffect(() => {
-    if (callout != null && (selected?.kind !== 'chassis' || selected.id !== callout.id)) setCallout(null);
-  }, [callout, selected]);
-  useEffect(() => {
-    onCalloutChange?.(callout?.id ?? null);
-  }, [callout, onCalloutChange]);
   // Tell the caller which devices are picked together, so its panel can edit them all; empty again on leaving.
   const groupKey = free.deviceIds.join('|');
   useEffect(() => {
@@ -625,8 +617,8 @@ function DrawingInner({
     onRemoveFree,
   };
   const menuActions: MenuActions = canDraw
-    ? { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onCloseRackGaps, onCopyRack, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, onSuggestCables, onFitCard, ...freeMenuActions, ...cableRunMenuActions, ...looseMenuActions }
-    : { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom };
+    ? { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onCloseRackGaps, onCopyRack, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, onSuggestCables, onFitCard, ...freeMenuActions, ...cableRunMenuActions, ...looseMenuActions, ...deviceMenu }
+    : { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, ...deviceMenu };
   const menuActionsRef = useRef(menuActions);
   useLayoutEffect(() => {
     menuActionsRef.current = menuActions;
@@ -1053,7 +1045,6 @@ function DrawingInner({
   // all: the caller decides that (`renderConfigDrawer`'s own doc, above) by
   // returning `null` when ADR-0052 §5's "canDraw or a capture exists" does
   // not hold, so this reads the same `!= null` check either way.
-  const calloutRack = selectedChassis != null ? view.racks.find((r) => r.chassis.some((c) => c.id === selectedChassis.id)) : undefined;
   const openedChassis = selectedChassis != null && opened?.id === selectedChassis.id ? selectedChassis : null;
   const configDrawerContent: ReactNode =
     openedChassis != null && opened?.view === 'config' ? (renderConfigDrawer?.(openedChassis) ?? null) : null;
@@ -1623,17 +1614,8 @@ function DrawingInner({
       const parsed = parseNodeId(node.id);
       if (parsed == null) return;
       onSelect(parsed.kind === 'rack' ? { kind: 'rack', id: parsed.id } : { kind: 'chassis', id: parsed.id });
-      const name = parsed.kind === 'chassis' ? (event.target as Element).closest('.drawing-chassis__hostname') : null;
-      if (name == null) {
-        setCallout(null);
-        return;
-      }
-      const r = name.getBoundingClientRect();
-      const a = rf.screenToFlowPosition({ x: r.left, y: r.top + r.height / 2 });
-      const b = rf.screenToFlowPosition({ x: r.right, y: r.top + r.height / 2 });
-      setCallout({ id: parsed.id, left: a.x, right: b.x, y: a.y });
     },
-    [onSelect, rf, free.onNodeClick],
+    [onSelect, free.onNodeClick],
   );
 
   const handleNodeDoubleClick: NodeMouseHandler = useCallback(
@@ -1954,7 +1936,7 @@ function DrawingInner({
       if (free.onKeyDown(event)) return;
       if (event.key === 'Escape' && !event.defaultPrevented && !focusIsInAField()) {
         if (openedRef.current != null) setOpened(null);
-        else if (selected != null || calloutRef.current != null) onSelect(null);
+        else if (selected != null) onSelect(null);
         return;
       }
       if (!canDraw) return; // ADR-0052 §5: a reader deletes nothing, undoes nothing
@@ -2145,17 +2127,6 @@ function DrawingInner({
       <AiPreviewCanvasBridge />
       <CollabLayer />
       <TroubleCanvasBridge />
-      {selectedChassis != null && callout?.id === selectedChassis.id && opened == null && calloutRack != null ? (
-        <Callout
-          chassis={selectedChassis}
-          rackLabel={calloutRack.label}
-          plate={callout}
-          rack={{ left: rackPositions[calloutRack.id]?.x ?? 0, right: (rackPositions[calloutRack.id]?.x ?? 0) + RACK_NODE_WIDTH }}
-          paneWidth={containerRef.current?.clientWidth ?? Infinity}
-          onOpen={() => openChassis(selectedChassis.id)}
-          onDetails={() => setCallout(null)}
-        />
-      ) : null}
       {emptyHint ? (
         <EmptyHint hint={emptyHint} onAddEquipment={onAddEquipment} />
       ) : null}

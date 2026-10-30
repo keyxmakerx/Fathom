@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 
 import type { MenuItem } from './contextMenuItems';
 
@@ -76,20 +76,59 @@ export function ContextMenu({ x, y, items, onClose, title }: ContextMenuProps) {
       onContextMenu={(event) => event.preventDefault()}
     >
       {title ? <div className="drawing-context-menu__title">{title}</div> : null}
-      {items.map((item) => (
-        <button
-          key={item.label}
-          type="button"
-          role="menuitem"
-          className={item.danger ? 'drawing-context-menu__item drawing-context-menu__item--danger' : 'drawing-context-menu__item'}
-          onClick={() => {
-            onClose();
-            item.onSelect();
-          }}
-        >
-          {item.label}
-        </button>
-      ))}
+      <MenuItems items={items} onPicked={onClose} />
     </div>
+  );
+}
+
+/**
+ * A menu's items, drawn the same wherever a device's actions are listed (sign-off r58): right-click,
+ * the panel's ⋯ menu and Inventory's row menu. A heading each time the group changes; an item that
+ * cannot be used yet stays, greyed, with why under it; its key on the right; removal apart, after a rule.
+ */
+export function MenuItems({ items, onPicked }: { items: readonly MenuItem[]; onPicked?: () => void }) {
+  return (
+    <>
+      {items.map((item, i) => {
+        const before = items[i - 1];
+        const heading = item.group != null && item.group !== before?.group ? item.group : null;
+        const why = item.disabled != null ? `menu-why-${i}-${item.label.replace(/\W+/g, '-')}` : undefined;
+        const cls = ['drawing-context-menu__item'];
+        if (item.danger) cls.push('drawing-context-menu__item--danger');
+        if (item.disabled != null) cls.push('drawing-context-menu__item--off');
+        return (
+          <Fragment key={item.label}>
+            {heading != null ? (
+              <div className="drawing-context-menu__group" role="presentation">
+                {heading}
+              </div>
+            ) : null}
+            <button
+              type="button"
+              role="menuitem"
+              className={cls.join(' ')}
+              aria-label={item.label}
+              aria-disabled={item.disabled != null ? true : undefined}
+              aria-describedby={why}
+              aria-keyshortcuts={item.keys?.replace(/ /g, '+').replace('Ctrl', 'Control').replace('Del', 'Delete')}
+              onClick={() => {
+                // A greyed item stays reachable by the arrow keys, so its reason is read out; it does nothing.
+                if (item.disabled != null) return;
+                onPicked?.();
+                item.onSelect();
+              }}
+            >
+              <span className="drawing-context-menu__label">{item.label}</span>
+              {item.keys != null ? <kbd aria-hidden="true">{item.keys}</kbd> : null}
+              {item.disabled != null ? (
+                <span id={why} className="drawing-context-menu__why">
+                  {item.disabled}
+                </span>
+              ) : null}
+            </button>
+          </Fragment>
+        );
+      })}
+    </>
   );
 }

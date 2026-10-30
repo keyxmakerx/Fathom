@@ -1,6 +1,12 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { FIT_CARD_EVENT } from '../drawing/Parts';
+import { askPanel } from '../drawing/Editor';
+import { DEVICE_WORDS, deviceMenuItems, type MenuActions } from '../drawing/contextMenuItems';
+import { deviceMenuActions, firmwareNeedsVersion as firmwareNeedsVersionOf } from '../drawing/deviceMenuActions';
+import { useTermix } from '../termix/useTermix';
+import { LabelsPreview } from '../../print/LabelsPreview';
+import type { LabelItem } from '../../print/labels';
 import { listOverlays } from '../../document/overlays';
 import { captureOf } from '../../document/capture';
 import { previewSwapIn } from '../../document/swapModel';
@@ -104,7 +110,7 @@ import { saveSheet } from '../inventory/sheetPref';
 import { PlansSurface } from '../plans/PlansSurface';
 import { PlansContext } from '../plans/plansStore';
 import { usePlansController } from '../plans/usePlansController';
-import { DeviceIssues, ItsDownButton } from '../troubleshoot/DeviceIssues';
+import { DeviceIssues } from '../troubleshoot/DeviceIssues';
 import { TroublePanel } from '../troubleshoot/TroublePanel';
 import { TroubleContext } from '../troubleshoot/troubleStore';
 import { useTroubleController } from '../troubleshoot/useTroubleController';
@@ -125,7 +131,7 @@ import { highestFreeU, hostnamesOf, nextHostname, rackSpotForPick, racksInPickOr
 import { FirmwareContext } from '../firmware/context';
 import type { UpgradeTemplate } from '../firmware/upgradePlan';
 import type { IdeaForPlan } from '../../document/plans';
-import { deviceFirmware, deviceOfChassis, targetOfDevice } from '../../document/firmware';
+import { deviceOfChassis } from '../../document/firmware';
 import './racks.css';
 import { SkeletonRacks } from '../ui/Skeleton';
 import { useSavedViews } from './useSavedViews';
@@ -273,6 +279,8 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
    * already uses (`Drawing.tsx`'s Motion #10). Absent on every ordinary
    * open — nothing is pre-selected just because a design loaded. */
   initialFocus?: Selection | null;
+  /** Sign-off r58: a device menu item (`DEVICE_WORDS`) to run on arrival, handed from Inventory's menu. */
+  initialDeviceAction?: { chassisId: string; label: string } | null;
   /** Select a thing as if it were clicked, without opening it; a fresh object per ask. */
   selectRequest?: { selection: Selection } | null;
   /** A saved issue to open on arrival ("Show on canvas" on an Inventory issue page); a fresh object per ask. */
@@ -336,6 +344,21 @@ function tidySentence(text: string): string {
   return plain.charAt(0).toUpperCase() + plain.slice(1);
 }
 
+/** Other words Ctrl K finds a device's actions by. */
+const PALETTE_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
+  [DEVICE_WORDS.trace]: ['path', 'follow', 'cable'],
+  [DEVICE_WORDS.suggestCables]: ['lldp', 'neighbours', 'neighbors', 'cables', 'discover'],
+  [DEVICE_WORDS.addPort]: ['connector', 'interface'],
+  [DEVICE_WORDS.fitCard]: ['module', 'line card', 'slot', 'linecard', 'nim', 'fpc'],
+  [DEVICE_WORDS.duplicate]: ['copy', 'clone'],
+  [DEVICE_WORDS.remove]: ['remove', 'delete'],
+  [DEVICE_WORDS.copyLink]: ['qr', 'url', 'share'],
+  [DEVICE_WORDS.printLabel]: ['qr', 'sticker', 'tape'],
+  [DEVICE_WORDS.swapModel]: ['model', 'replace', 'catalogue'],
+  [DEVICE_WORDS.giveModel]: ['model', 'catalogue'],
+  [DEVICE_WORDS.termix]: ['ssh', 'terminal', 'console'],
+};
+
 const NO_ROOM_ADD = 'No room in this rack for another device.';
 
 export function RacksPlace(props: RacksPlaceProps) {
@@ -343,6 +366,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     session,
     onZoomChange,
     initialFocus,
+    initialDeviceAction,
     selectRequest,
     initialIssue,
     initialUpgrade,
@@ -374,8 +398,6 @@ export function RacksPlace(props: RacksPlaceProps) {
     onSelectedChange?.(selectedId);
   }, [onSelectedChange, selectedId]);
   const resumeView = useResumeView({ accountId, designId, doc, hasFocus: initialFocus != null, selection, setSelection });
-  // A device whose callout is showing keeps the details panel closed; the callout's Details opens it.
-  const [calloutId, setCalloutId] = useState<string | null>(null);
   // Rack or Diagram: this person's choice for this design, kept in this browser.
   const [look, setLookState] = useState<Look>(() => loadLook(accountId, session.designId));
   useEffect(() => setLookState(loadLook(accountId, session.designId)), [accountId, session.designId]);
@@ -385,7 +407,6 @@ export function RacksPlace(props: RacksPlaceProps) {
     (next: Look) => {
       setLookState(next);
       setLookSwitched(true);
-      setCalloutId(null);
       saveLook(accountId, session.designId, next);
     },
     [accountId, session.designId],
@@ -650,14 +671,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     },
     [doc, firmware],
   );
-  const firmwareNeedsVersion = useCallback(
-    (chassisId: string) => {
-      const dev = doc ? deviceOfChassis(doc, chassisId) : null;
-      const d = doc && dev ? deviceFirmware(doc, dev) : null;
-      return d === null || doc === null || targetOfDevice(doc, d) === null;
-    },
-    [doc],
-  );
+  const firmwareNeedsVersion = useCallback((chassisId: string) => firmwareNeedsVersionOf(doc, chassisId), [doc]);
 
   const selectedChassisId = selection?.kind === 'chassis' ? selection.id : null;
 
@@ -1250,7 +1264,6 @@ export function RacksPlace(props: RacksPlaceProps) {
       } else if (camera != null) {
         cameraHub.control?.set(camera, true);
       }
-      setCalloutId(null);
       setSelection(spot.selection as Selection | null);
       setJot(spot.jotId != null ? { id: spot.jotId, origin: null, inside: false } : null);
     },
@@ -1807,86 +1820,119 @@ export function RacksPlace(props: RacksPlaceProps) {
     window.setTimeout(() => window.dispatchEvent(new CustomEvent(FIT_CARD_EVENT, { detail: { chassisId } })), 80);
   }, []);
 
+  // Sign-off r58: what can be done to a device, one list for right-click, the panel's ⋯ menu and Ctrl K.
+  // The canvas adds what only it knows (where a box sits on it); the rest is here.
+  const termix = useTermix();
+  const [deviceLabels, setDeviceLabels] = useState<LabelItem[] | null>(null);
+  const showInPanel = (id: string, event: string) => {
+    setSelection({ kind: 'chassis', id });
+    askPanel(event, id);
+  };
+  const deviceMenu: Partial<MenuActions> = {
+    onShowInInventory: onOpenInventory,
+    ...deviceMenuActions({
+      doc,
+      view: realView,
+      designId: session.designId ?? null,
+      canDraw,
+      termixUrl: termix.url,
+      showInPanel,
+      done: setPastedNote,
+      failed: setCanvasNotice,
+      printLabels: setDeviceLabels,
+    }),
+  };
+  const panelMenu: MenuActions = {
+    onSelect: setSelection,
+    onOpen: (id) => handleOpenDevice(id, false, null),
+    onOpenInside: (id) => handleOpenDevice(id, true, null),
+    onTraceFrom: trace.openFrom,
+    onItsDown: canDraw ? trouble.start : undefined,
+    onPlanChange: canDraw ? plans.planChange : undefined,
+    onPlanFirmware: canDraw && firmware ? planFirmwareFor : undefined,
+    firmwareNeedsVersion,
+    onFitCard: canDraw ? fitCard : undefined,
+    onSuggestCables: canDraw ? (id) => setSuggest({ deviceId: id }) : undefined,
+    onDuplicateDevice: canDraw ? handleDuplicateDevice : undefined,
+    onRemoveDevice: canDraw ? handleRemoveDevice : undefined,
+    onDuplicateFree: canDraw ? (ids) => void handleDuplicateFree(ids, 24, 24) : undefined,
+    onRemoveFree: canDraw ? handleRemoveFree : undefined,
+    ...deviceMenu,
+  };
+  const deviceMenuFor = (id: string) => deviceMenuItems(id, panelMenu, { free: realView.free.some((f) => f.id === id), inPanel: true });
+  const deviceMenuForRef = useRef(deviceMenuFor);
+  deviceMenuForRef.current = deviceMenuFor;
+  // Handed from Inventory's menu: once the design is here and the device chosen, run the item it named.
+  const deviceActionDone = useRef<object | null>(null);
+  useEffect(() => {
+    if (initialDeviceAction == null || doc == null || deviceActionDone.current === initialDeviceAction) return;
+    const request = initialDeviceAction;
+    const { chassisId, label } = request;
+    // Marked done when it runs, so a document arriving again before then only puts it off.
+    const t = window.setTimeout(() => {
+      deviceActionDone.current = request;
+      const item = deviceMenuForRef.current(chassisId).find((i) => i.label === label);
+      if (item != null && item.disabled == null) item.onSelect();
+      else if (item?.disabled != null) setCanvasNotice(item.disabled);
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [initialDeviceAction, doc]);
+
   // What the command palette (Ctrl+K) can do with the selection. Asked for each time it opens.
   usePaletteActions('racks', (): PaletteAction[] => {
     if (!canDraw && selection?.kind !== 'chassis') return [];
     const chassisId = selection?.kind === 'chassis' ? selection.id : null;
-    const racked = chassisId !== null ? realView.racks.flatMap((r) => r.chassis).find((c) => c.id === chassisId) : undefined;
-    const isFree = chassisId !== null && realView.free.some((f) => f.id === chassisId);
-    const needDevice = 'Select a device first';
-    // Each action names its object ("Duplicate switch-1") once something is selected.
     const freeBox = chassisId !== null ? realView.free.find((f) => f.id === chassisId) : undefined;
+    const racked = chassisId !== null ? deviceChassis(realView, chassisId) : undefined;
     const deviceName = racked?.hostname || racked?.model || freeBox?.hostname || '';
     const rackName = selection?.kind === 'rack' ? realView.racks.find((r) => r.id === selection.id)?.label ?? '' : '';
     const named = (verb: string, name: string) => (name === '' ? verb : `${verb} ${name}`);
+    const renameTarget = chassisId !== null ? { kind: 'chassis' as const, id: chassisId } : selection?.kind === 'rack' ? { kind: 'rack' as const, id: selection.id } : null;
+    const rename: PaletteAction = {
+      id: 'rename',
+      label: named('Rename', deviceName || rackName),
+      keywords: ['name', 'hostname', 'label'],
+      disabled: renameTarget === null ? 'Select a device or rack first' : look === 'diagram' ? 'Switch to the Rack look to rename on the canvas' : undefined,
+      run: () => renameTarget !== null && requestRename(renameTarget),
+    };
+    if (chassisId !== null) {
+      // Sign-off r58: a selected device offers its menu's own list, in its words, named for the device.
+      const out: PaletteAction[] = deviceMenuFor(chassisId).map((item) => ({
+        id: `device:${item.label}`,
+        label: deviceName === '' ? item.label : `${item.label} · ${deviceName}`,
+        hint: item.keys?.replace(' ', '+'),
+        keywords: PALETTE_KEYWORDS[item.label],
+        disabled: item.disabled,
+        run: item.onSelect,
+      }));
+      return canDraw ? [...out, rename] : out;
+    }
     const out: PaletteAction[] = [
       {
         id: 'trace',
-        label: deviceName === '' ? 'Trace a path from a device' : `Trace a path from ${deviceName}`,
+        label: DEVICE_WORDS.trace,
         keywords: ['path', 'follow', 'cable'],
-        disabled: chassisId === null ? needDevice : undefined,
-        run: () => chassisId !== null && trace.openFrom(chassisId),
+        disabled: 'Select a device first',
+        run: () => undefined,
       },
     ];
     if (!canDraw) return out;
-    const renameTarget = chassisId !== null ? { kind: 'chassis' as const, id: chassisId } : selection?.kind === 'rack' ? { kind: 'rack' as const, id: selection.id } : null;
-    out.unshift(
-      {
-        id: 'suggest-cables',
-        label: deviceName === '' ? 'Suggest cables from a neighbour list (LLDP)' : `Suggest cables from ${deviceName}'s neighbours (LLDP)`,
-        keywords: ['lldp', 'neighbours', 'neighbors', 'cables', 'discover'],
-        run: () => setSuggest({ deviceId: chassisId }),
+    out.unshift({
+      id: 'suggest-cables',
+      label: 'Suggest cables from a neighbour list (LLDP)',
+      keywords: PALETTE_KEYWORDS[DEVICE_WORDS.suggestCables],
+      run: () => setSuggest({ deviceId: null }),
+    });
+    out.push(rename, {
+      id: 'delete',
+      label: selection?.kind === 'cable' ? 'Delete cable' : 'Delete',
+      hint: shortcutText('delete'),
+      keywords: ['remove'],
+      disabled: selection?.kind !== 'cable' ? 'Select a device or cable first' : undefined,
+      run: () => {
+        if (selection?.kind === 'cable') handleDisconnect(selection.id);
       },
-      {
-        id: 'add-port',
-        label: deviceName === '' ? 'Add a port to a device' : `Add a port to ${deviceName}`,
-        keywords: ['connector', 'interface'],
-        disabled: chassisId === null ? needDevice : racked !== undefined && racked.model !== '' ? "This device's ports come from its model" : undefined,
-        run: () => {
-          if (chassisId === null) return;
-          // The details panel holds the form; a second later it is there to open.
-          setSelection({ kind: 'chassis', id: chassisId });
-          window.setTimeout(() => window.dispatchEvent(new CustomEvent('fathom:add-port', { detail: { chassisId } })), 80);
-        },
-      },
-      {
-        id: 'fit-card',
-        label: deviceName === '' ? 'Fit a card in a device' : `Fit a card in ${deviceName}`,
-        keywords: ['module', 'line card', 'slot', 'linecard', 'nim', 'fpc'],
-        disabled: chassisId === null ? needDevice : undefined,
-        run: () => chassisId !== null && fitCard(chassisId),
-      },
-      {
-        id: 'rename',
-        label: named('Rename', deviceName || rackName),
-        keywords: ['name', 'hostname', 'label'],
-        disabled: renameTarget === null ? 'Select a device or rack first' : look === 'diagram' ? 'Switch to the Rack look to rename on the canvas' : undefined,
-        run: () => renameTarget !== null && requestRename(renameTarget),
-      },
-      {
-        id: 'duplicate',
-        label: named('Duplicate', deviceName),
-        hint: shortcutText('duplicate'),
-        keywords: ['copy', 'clone'],
-        disabled: racked === undefined && !isFree ? 'Select a device first' : undefined,
-        run: () => {
-          if (chassisId === null) return;
-          if (racked !== undefined) handleDuplicateDevice(chassisId);
-          else handleDuplicateFree([chassisId], 24, 24);
-        },
-      },
-      {
-        id: 'delete',
-        label: selection?.kind === 'cable' ? 'Delete cable' : named('Delete', deviceName),
-        hint: shortcutText('delete'),
-        keywords: ['remove'],
-        disabled: chassisId === null && selection?.kind !== 'cable' ? 'Select a device or cable first' : undefined,
-        run: () => {
-          if (chassisId !== null) handleRemoveDevice(chassisId);
-          else if (selection?.kind === 'cable') handleDisconnect(selection.id);
-        },
-      },
-    );
+    });
     return out;
   });
 
@@ -1897,7 +1943,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   // ADR-0047: the editor is absent, not empty, when nothing is selected —
   // an empty fragment here would still mount the surface and take its width.
   const selectedPanel =
-    doc != null && !(selection?.kind === 'chassis' && selection.id === calloutId)
+    doc != null
       ? EditorFor(
           selection,
           displayView,
@@ -1931,27 +1977,19 @@ export function RacksPlace(props: RacksPlaceProps) {
             previewSwap: (chassisId, m) => previewSwapIn(doc, catalogue, chassisId, m),
           },
           paletteFromCatalogue(catalogue),
-          // r31 pictures: the two ways on at the panel's foot; the rest in its ⋯ menu.
+          // r31 pictures: the two ways on at the panel's foot; everything, those two included, in its ⋯ menu
+          // (sign-off r58: the same list as right-click and Ctrl K).
           selection?.kind === 'chassis' ? (
             <>
               <button type="button" className="btn-main" onClick={() => handleOpenDevice(selection.id, true, null)} data-testid="device-open-inside">
-                Open inside
+                {DEVICE_WORDS.openInside}
               </button>
               <button type="button" onClick={() => trace.openFrom(selection.id)} data-testid="device-trace-from">
-                Trace from here
+                {DEVICE_WORDS.trace}
               </button>
             </>
           ) : undefined,
-          selection?.kind === 'chassis' ? (
-            <>
-              {onOpenInventory ? (
-                <button type="button" className="btn-quiet racks-place__open-inventory" onClick={() => onOpenInventory(selection.id)}>
-                  Open in inventory
-                </button>
-              ) : null}
-              <ItsDownButton controller={trouble} chassisId={selection.id} />
-            </>
-          ) : undefined,
+          selection?.kind === 'chassis' ? deviceMenuFor(selection.id) : undefined,
         )
       : null;
   const editor = saveRefusal != null ? (
@@ -2010,9 +2048,9 @@ export function RacksPlace(props: RacksPlaceProps) {
   // The Doing ▾ menu: what you can set about from here. A job that needs a device says so until one is chosen.
   const needsDevice = selectedChassis == null ? 'select a device first' : undefined;
   const doing: NonNullable<ShellProps['doing']> = [
-    { id: 'plan', label: 'Plan a change', onSelect: () => plans.setBandOpen(true) },
-    { id: 'down', label: "It's down", onSelect: canDraw && selectedChassis != null ? () => trouble.start(selectedChassis) : undefined, hint: canDraw ? needsDevice : 'needs Draw' },
-    { id: 'trace', label: 'Trace a path', onSelect: selectedChassis != null ? () => trace.openFrom(selectedChassis) : undefined, hint: needsDevice },
+    { id: 'plan', label: DEVICE_WORDS.planChange, onSelect: () => plans.setBandOpen(true) },
+    { id: 'down', label: DEVICE_WORDS.itsDown, onSelect: canDraw && selectedChassis != null ? () => trouble.start(selectedChassis) : undefined, hint: canDraw ? needsDevice : 'needs Draw' },
+    { id: 'trace', label: DEVICE_WORDS.trace, onSelect: selectedChassis != null ? () => trace.openFrom(selectedChassis) : undefined, hint: needsDevice },
   ];
   // The zoom stops the bottom pill opens upward with: the camera keeps its middle and takes the stop's zoom.
   const zoomStops: ShellProps['zoomStops'] = {
@@ -2065,7 +2103,7 @@ export function RacksPlace(props: RacksPlaceProps) {
             ? [{ id: 'plan', label: 'Plan', open: plans.panelOpen, onOpen: () => plans.setPanelOpen(true), onClose: () => plans.setPanelOpen(false) }]
             : []),
           ...(trouble.draft != null || trouble.viewing != null
-            ? [{ id: 'down', label: "It's down", open: trouble.panelOpen, onOpen: () => trouble.setPanelOpen(true), onClose: () => trouble.setPanelOpen(false) }]
+            ? [{ id: 'down', label: DEVICE_WORDS.itsDown, open: trouble.panelOpen, onOpen: () => trouble.setPanelOpen(true), onClose: () => trouble.setPanelOpen(false) }]
             : []),
           ...(trace.open && jot == null ? [{ id: 'trace', label: 'Trace', open: true, onOpen: () => {}, onClose: trace.close }] : []),
           ...(shellProps.sideTabs ?? []),
@@ -2175,7 +2213,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           onItsDown={canDraw ? trouble.start : undefined}
           onSuggestCables={canDraw ? (chassisId) => setSuggest({ deviceId: chassisId ?? selectedChassis }) : undefined}
           onFitCard={canDraw ? fitCard : undefined}
-          onCalloutChange={setCalloutId}
+          deviceMenu={deviceMenu}
           onGroupChange={setGroupIds}
           groupClearRequest={groupClear}
           canDraw={canDraw && jot === null}
@@ -2230,6 +2268,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         </InSideSlot>
       ) : null}
       {doc != null ? <PortPeek doc={doc} view={displayView} /> : null}
+      {deviceLabels != null ? <LabelsPreview items={deviceLabels} onClose={() => setDeviceLabels(null)} /> : null}
       {drawerAsk != null && pasteState == null ? (
         <PasteCard
           state={{ kind: 'which', candidates: drawerAsk.candidates }}

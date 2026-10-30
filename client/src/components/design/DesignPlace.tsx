@@ -634,9 +634,13 @@ export function DesignPlace(props: DesignPlaceProps) {
   };
   const redact = useCallback(async (text: string) => (await ensureEngine()).redactText(text).text, [ensureEngine]);
 
+  // Sign-off r58: Inventory's device menu hands what only the canvas can do (open, trace, plan) to the
+  // canvas, which runs the item named `then` once the device is chosen there.
+  const [deviceActionRequest, setDeviceActionRequest] = useState<{ chassisId: string; label: string } | null>(null);
   const showOnRack = useCallback(
-    (selection: Selection) => {
+    (selection: Selection, then?: string) => {
       setFocus({ ...selection });
+      setDeviceActionRequest(then != null && selection.kind === 'chassis' ? { chassisId: selection.id, label: then } : null);
       onPlaceChange('racks');
     },
     [onPlaceChange],
@@ -1050,6 +1054,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         session={racksSession}
         onZoomChange={onZoomChange}
         initialFocus={focus}
+        initialDeviceAction={deviceActionRequest}
         selectRequest={selectRequest}
         initialIssue={issueRequest}
         initialUpgrade={upgradeRequest}

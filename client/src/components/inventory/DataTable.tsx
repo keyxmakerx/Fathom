@@ -5,6 +5,9 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
+import { ContextMenu } from '../drawing/ContextMenu';
+import type { MenuItem } from '../drawing/contextMenuItems';
+
 import type { Column, InvRow } from './kinds';
 import type { SortKey } from './listState';
 import { SheathWord } from './Swatch';
@@ -43,6 +46,8 @@ export interface DataTableProps {
   onScrollTop?: (top: number) => void;
   /** Ids an open AI idea names (ADR-0072 decision 7): a row whose thing is one is marked. */
   aiMarked?: ReadonlySet<string>;
+  /** Sign-off r58: what a right-click on a row offers (a device's own menu); none, the browser's. */
+  rowMenu?: (row: InvRow) => readonly MenuItem[];
 }
 
 interface Cell {
@@ -59,7 +64,17 @@ function inputType(col: Column): string {
 }
 
 export function DataTable(props: DataTableProps) {
-  const { columns, rows, openKey, checked, sorts, canEdit, onCommit, onFilterTag, onOpen, onToggleChecked, onToggleAll, onSort, columnMenu, emptyText, empty, initialScrollTop = 0, onScrollTop, aiMarked } = props;
+  const { columns, rows, openKey, checked, sorts, canEdit, onCommit, onFilterTag, onOpen, onToggleChecked, onToggleAll, onSort, columnMenu, emptyText, empty, initialScrollTop = 0, onScrollTop, aiMarked, rowMenu } = props;
+  const tableRef = useRef<HTMLDivElement | null>(null);
+  const [rowMenuAt, setRowMenuAt] = useState<{ items: readonly MenuItem[]; x: number; y: number } | null>(null);
+  const closeRowMenu = useCallback(() => setRowMenuAt(null), []);
+  const openRowMenu = (row: InvRow, clientX: number, clientY: number): boolean => {
+    const items = rowMenu?.(row) ?? [];
+    const box = tableRef.current?.getBoundingClientRect();
+    if (items.length === 0 || box == null) return false;
+    setRowMenuAt({ items, x: clientX - box.left, y: clientY - box.top });
+    return true;
+  };
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(initialScrollTop);
   const [viewHeight, setViewHeight] = useState(600);
@@ -213,6 +228,13 @@ export function DataTable(props: DataTableProps) {
       e.preventDefault();
       moveTo(r, c);
     };
+    // The keyboard's way to a row's menu: the Menu key, or Shift F10.
+    if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+      const box = scrollRef.current?.getBoundingClientRect();
+      const row = rows[ri];
+      if (row != null && box != null && openRowMenu(row, box.left + CHECK_WIDTH + 24, box.top + (ri + 2) * ROW_HEIGHT - scrollTop)) e.preventDefault();
+      return;
+    }
     switch (e.key) {
       case 'ArrowDown':
         return go(ri + 1, ci);
@@ -263,7 +285,8 @@ export function DataTable(props: DataTableProps) {
   const allChecked = rows.length > 0 && rows.every((r) => checked.has(r.key));
 
   return (
-    <div className="inv-table" role="presentation">
+    <div className="inv-table" role="presentation" ref={tableRef}>
+      {rowMenuAt != null ? <ContextMenu x={rowMenuAt.x} y={rowMenuAt.y} items={[...rowMenuAt.items]} onClose={closeRowMenu} /> : null}
       {error ? (
         <div className="inv-table__error" role="alert">
           {error}
@@ -349,6 +372,9 @@ export function DataTable(props: DataTableProps) {
                   className={`inv-table__row${isOpen ? ' inv-table__row--open' : ''}${checked.has(row.key) ? ' inv-table__row--checked' : ''}${aiMark ? ' inv-table__row--ai' : ''}`}
                   title={aiMark ? 'An AI idea would change this. See AI ideas.' : undefined}
                   style={{ top: index * ROW_HEIGHT, height: ROW_HEIGHT }}
+                  onContextMenu={(e) => {
+                    if (openRowMenu(row, e.clientX, e.clientY)) e.preventDefault();
+                  }}
                 >
                   <div className="inv-table__check" role="gridcell" style={{ width: CHECK_WIDTH }}>
                     <input
