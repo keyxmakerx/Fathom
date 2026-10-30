@@ -6,7 +6,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { OUTCOMES, backOutSteps, currentStep, type Plan, type PlanOutcome, type PlanStep } from '../../document/plans';
 import { clampOffset } from '../checks/checksModel';
 import { AddStepForm } from './AddStepForm';
-import { Touches, TypedSentence, WhySlot, usePasteMark } from './PlanParts';
+import { DeviceNames, Touches, TypedSentence, WhySlot, usePasteMark } from './PlanParts';
 import { FirmwarePlanExtras, StepCopy, UpgradeLinkScope } from '../firmware/PlanExtras';
 import { OUTCOME_WORD, firstLine, outcomeSentence, progress, secondLine, stepHead, stepIsLive, touchedDevices } from './plansModel';
 import type { PlansController } from './usePlansController';
@@ -305,7 +305,7 @@ function RecordMode({ controller, plan }: { controller: PlansController; plan: P
   const [text, setText] = useState(plan.record);
   const textId = useId();
   const paste = usePasteMark();
-  const names = controller.doc ? touchedDevices(controller.doc, controller.canon, plan).map((d) => d.name) : [];
+  const devices = controller.doc ? touchedDevices(controller.doc, controller.canon, plan) : [];
   return (
     <>
       <h3 className="plans-label" id={`${textId}-o`}>
@@ -353,9 +353,9 @@ function RecordMode({ controller, plan }: { controller: PlansController; plan: P
           </p>
         )
       )}
-      {recorded && names.length > 0 && (
+      {recorded && devices.length > 0 && (
         <p className="plans-note plans-mono" data-testid="plans-history">
-          Saved to the history of {names.join(', ')}
+          Saved to the history of <DeviceNames devices={devices} />
         </p>
       )}
       <BackOut controller={controller} plan={plan} />

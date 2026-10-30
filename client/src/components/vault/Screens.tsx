@@ -425,7 +425,7 @@ function LoginsTabBody({ place, deviceId, organisationName }: { place: VaultPlac
     <div className="vault-tab" data-testid="vault-logins-tab">
       <VaultStrip vault={vault} overview={overview} onSetup={() => acts.setDialog({ kind: 'setup' })} onUnlock={() => acts.setDialog({ kind: 'unlock' })} />
       {acts.notice && <p className="vault-note">{acts.notice}</p>}
-      {mine.length === 0 && <p className="vault-muted">No logins for this device yet.</p>}
+      {mine.length === 0 && <p className="vault-muted">No logins for this device yet. Add one below; it is kept in the vault, apart from the design.</p>}
       {mine.map((e) => (
         <LoginCard
           key={e.id}

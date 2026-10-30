@@ -36,6 +36,7 @@ import type { DirectEntry } from './components/home';
 import { Shell } from './components/Shell';
 import type { Lens, Place, ShellProps } from './components/Shell';
 import { saveLook } from './components/drawing/look';
+import { loadResume } from './components/design/resume';
 import { saveSheet } from './components/inventory/sheetPref';
 import { DesignPlace } from './components/design/DesignPlace';
 import { LENSES_IN } from './components/shell/lens';
@@ -1039,7 +1040,8 @@ export default function App() {
           // must stay on Home, the same latch direct entry sets.
           onOpenRacks={(organisation, design) => {
             setDirectEntrySession(accountSessionId);
-            openIn('racks')(organisation, design);
+            // Sign-off r60: back on the place it was left on, Canvas unless that was Inventory.
+            openIn(loadResume(getSession()?.accountId ?? null, design.designId).place ?? 'racks')(organisation, design);
           }}
           onOpenInventory={(organisation, design) => {
             setDirectEntrySession(accountSessionId);

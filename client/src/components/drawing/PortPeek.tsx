@@ -172,7 +172,13 @@ export function PortPeek({ doc, view }: { doc: Document | null; view: ClosetView
       if (current != null || timer != null) hide();
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onAnyAction();
+      if (e.key !== 'Escape') return;
+      // A card in view is the top thing: Escape puts it away and nothing else (sign-off r60).
+      if (document.querySelector('.port-peek') != null) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      onAnyAction();
     };
 
     document.addEventListener('pointerover', onOver);

@@ -12,6 +12,7 @@ import { useTraceRevealed } from './traceStore';
 import { prefersReducedMotion } from '../drawing/motion';
 import { openElsewhere } from '../../api/estate';
 import type { TraceController } from './useTraceController';
+import { ThingName } from '../shell/ThingName';
 import './trace.css';
 
 const FLOW_HINT = 'Write it as TCP 445 or UDP 53.';
@@ -62,7 +63,9 @@ function Hop({ hop, only, phase }: { hop: TraceHop; only: boolean; phase: 'done'
     <li ref={row} className={`trace-hop trace-hop--${hop.kind}${phase != null ? ` trace-hop--${phase}` : ''}`} data-testid="trace-hop" data-kind={hop.kind}>
       <div className="trace-hop__head">
         {hop.kind !== 'stop' && <span className="trace-hop__n">{hop.n}</span>}
-        <span className="trace-hop__title">{hop.title}</span>
+        <span className="trace-hop__title">
+          <ThingName ids={hop.nodes}>{hop.title}</ThingName>
+        </span>
         {hop.scope !== '' && <span className="trace-muted"> · {hop.scope}{placed.length > 0 ? ' reads, in order:' : ''}</span>}
       </div>
       {hop.detail.map((d) => (
@@ -136,7 +139,7 @@ export function TracePanel({
     >
       <div className="trace-panel__head">
         <h2 className="trace-panel__title">
-          {from.label} → {target?.label ?? (result != null ? result.to : '…')}
+          <ThingName ids={[from.deviceId]}>{from.label}</ThingName> → {target != null ? <ThingName ids={[target.deviceId]}>{target.label}</ThingName> : result != null ? result.to : '…'}
         </h2>
         <button type="button" className="trace-link" onClick={controller.close} aria-label="Close the trace">
           Close

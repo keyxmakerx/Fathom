@@ -691,10 +691,11 @@
   padding: var(--s3) var(--s4);
   border-top: var(--rule-hair) solid var(--hairline);
 }
-/* Beside the canvas the foot stays in view while the panel scrolls. */
+/* Beside the canvas the foot stays in view while the panel scrolls. Sticky measures from inside the
+   scroller's padding, so the foot reaches past it to the edge, or the last lines show beneath it (r57). */
 .shell-editor .drawing-editor__footer {
   position: sticky;
-  bottom: 0;
+  bottom: calc(-1 * var(--s4));
   z-index: 1;
   background: var(--surface-2);
 }
@@ -2583,4 +2584,101 @@
   border-radius: 3px;
   background: transparent;
   cursor: pointer;
+}
+
+/* Sign-off r60: an empty tab or section says what to do next, in the muted ink. */
+.drawing-editor__empty-next {
+  margin: var(--s1) 0 var(--s2);
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+/* Sign-off r60: "Also in" on a device's panel. */
+.also-in__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.also-in__list li {
+  display: flex;
+  gap: var(--s2);
+  align-items: baseline;
+  min-width: 0;
+}
+.also-in__kind {
+  flex: none;
+  width: 56px;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.also-in__link {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-small);
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Sign-off r60: choosing the device panel's sections. */
+.dev-sections {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.dev-sections__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: 2px 0;
+}
+
+.dev-sections__label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  font-size: var(--t-small);
+}
+
+/* The reset collapses ticks to nothing; restore the native control, as ai.css does. */
+.dev-sections input[type='checkbox'] {
+  appearance: auto;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.dev-sections__why {
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+.dev-sections__move {
+  padding: 0 6px;
+  color: var(--ink);
+  border: 1px solid var(--hairline);
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.dev-sections__move:disabled {
+  opacity: 0.4;
+  cursor: default;
 }

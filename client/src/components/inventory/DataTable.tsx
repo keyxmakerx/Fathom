@@ -91,14 +91,18 @@ export function DataTable(props: DataTableProps) {
       if (menuRef.current?.contains(t) || t.closest('.inv-table__menu')) return;
       setMenu(null);
     };
+    // Escape closes only the top thing: this menu, not the open page under it too.
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape') setMenu(null);
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      setMenu(null);
     };
     window.addEventListener('mousedown', onDown);
-    window.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
     return () => {
       window.removeEventListener('mousedown', onDown);
-      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onKey, true);
     };
   }, [menu]);
 

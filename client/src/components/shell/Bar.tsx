@@ -393,10 +393,10 @@ export function Bar({
         {place !== null && !toolsOnCanvas && !editsFolded && (
           <>
             <div className="shell-bar__undoredo">
-              <button type="button" className="shell-chip shell-chip--ink" disabled={!canUndo} onClick={onUndo}>
+              <button type="button" className="shell-chip shell-chip--ink" title={`Undo (${shortcutText('undo')})`} disabled={!canUndo} onClick={onUndo}>
                 Undo
               </button>
-              <button type="button" className="shell-chip shell-chip--ink" disabled={!canRedo} onClick={onRedo}>
+              <button type="button" className="shell-chip shell-chip--ink" title={`Redo (${shortcutText('redo')})`} disabled={!canRedo} onClick={onRedo}>
                 Redo
               </button>
             </div>

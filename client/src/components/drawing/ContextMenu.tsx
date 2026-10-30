@@ -35,16 +35,21 @@ export function ContextMenu({ x, y, items, onClose, title }: ContextMenuProps) {
   }, []);
 
   useEffect(() => {
+    // Sign-off r60: Escape closes only the top thing. The menu is on top, so it takes the key before the
+    // canvas underneath can read it as "clear the selection" too.
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
     };
     const onPointerDown = (event: PointerEvent) => {
       if (ref.current && !ref.current.contains(event.target as Node)) onClose();
     };
-    window.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
     window.addEventListener('pointerdown', onPointerDown, true);
     return () => {
-      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onKey, true);
       window.removeEventListener('pointerdown', onPointerDown, true);
     };
   }, [onClose]);

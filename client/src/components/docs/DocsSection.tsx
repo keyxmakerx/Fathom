@@ -10,7 +10,9 @@ export function DocsSection({ ownerId, model }: { ownerId: string; model?: strin
   return (
     <div className="drawing-editor__field docs-section" data-testid="docs-section">
       <div className="drawing-editor__field-label">Docs</div>
-      {docs.length === 0 ? <div className="drawing-editor__field-value">—</div> : null}
+      {docs.length === 0 ? (
+        <div className="drawing-editor__field-value drawing-editor__empty-next">{api.canEdit ? 'No docs yet. Add a manual, a runbook or a how-to.' : 'No docs yet.'}</div>
+      ) : null}
       <ul className="docs-section__list">
         {docs.map((d) => (
           <li key={d.id}>

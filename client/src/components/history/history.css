@@ -124,3 +124,10 @@
 .react-flow__edge.history-changed path {
   stroke-dasharray: 6 5;
 }
+
+/* Sign-off r60: what the picked save changed, as links to each thing. */
+.history__changed {
+  margin: var(--s2) var(--s3) 0;
+  font-size: var(--t-small);
+  color: var(--muted);
+}

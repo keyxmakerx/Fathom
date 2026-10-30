@@ -48,11 +48,13 @@ import {
 import { findChassis, findFixture, findOccupant, findRack, findShelf, findUnplacedChassis, locatePort } from './lookup';
 import { connectorName, describePorts, faceplateLayoutFor } from './faceplate';
 import { EmptyState } from '../ui/EmptyState';
+import { DeviceSections } from './DeviceSections';
 import { Fold } from './Fold';
 import { CardsSection, OpticSection } from './Parts';
 import { OpenFarSite, SiteLinkPicker, siteLinkOf } from './SiteLink';
 import { LoginsTab, LoginsTabLabel } from '../vault/Screens';
 import { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, rackHeightBlocker, swapModelChange, swapSummary } from './editorChanges';
+import { loadJsonPref, saveJsonPref } from '../../prefs';
 export { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, rackHeightBlocker, swapModelChange, swapSummary };
 
 // `DEVICE_ROLES` is `Device.role`'s own enum vocabulary (`schema/schema.yaml`,
@@ -1228,14 +1230,17 @@ function TermixReveal({ chassisId }: { chassisId: string }) {
   return <span ref={ref} hidden />;
 }
 
-/** The tab last opened, so the next device opens on the same one. */
-let lastTab: string | null = null;
+/** The tab last opened, so the next device opens on the same one; kept in this browser, so the panel
+ * reopens on it too (sign-off r60). */
+const PANEL_TAB_KEY = 'fathom.panel-tab';
+let lastTab: string | null = loadJsonPref(PANEL_TAB_KEY, (raw) => (typeof raw === 'string' ? raw : null), null);
 
 function PanelTabs({ tabs, initial }: { tabs: readonly PanelTab[]; initial?: string }) {
   const mode = useContext(PanelTabsMode);
   const [picked, setPickedState] = useState(initial ?? lastTab ?? tabs[0].id);
   const setPicked = (id: string) => {
     lastTab = id;
+    saveJsonPref(PANEL_TAB_KEY, id);
     setPickedState(id);
   };
   const base = useId();
@@ -1665,7 +1670,11 @@ export function NotesSection({ ownerId, actions }: { ownerId: string; actions: E
   return (
     <div className="drawing-editor__field drawing-editor__field--notes">
       <div className="drawing-editor__field-label">Notes</div>
-      {notes.length === 0 ? <div className="drawing-editor__field-value">{ABSENT}</div> : null}
+      {notes.length === 0 ? (
+        <div className="drawing-editor__field-value drawing-editor__empty-next">
+          {actions.onAddNote ? 'No notes yet. Type one, or paste one in.' : 'No notes yet.'}
+        </div>
+      ) : null}
       {notes.map((note) => (
         <NoteRow
           key={note.id}
@@ -1932,8 +1941,10 @@ export function EditorFor(
   /** Rows the caller adds to the device panel's ⋯ menu, above Duplicate and Remove; or, as a list, the whole
    * menu (sign-off r58: the same list as right-click), which then carries its own Duplicate and Remove. */
   more?: ReactNode | readonly MenuItem[],
+  /** Sign-off r60: what the caller shows at the end of the device panel, above its foot ("Also in", issues). */
+  tail?: ReactNode,
 ): ReactNode {
-  const panel = panelFor(selection, view, actions, catalogue, links, more);
+  const panel = panelFor(selection, view, actions, catalogue, links, more, tail);
   if (selection == null || !isValidElement<{ 'data-elements'?: string }>(panel)) return panel;
   return cloneElement(panel, { 'data-elements': elementsOf(selection, view) });
 }
@@ -1945,6 +1956,7 @@ function panelFor(
   catalogue: readonly PaletteItem[] = [],
   links?: ReactNode,
   more?: ReactNode | readonly MenuItem[],
+  tail?: ReactNode,
 ): ReactNode {
   if (selection == null) return null;
 
@@ -2231,31 +2243,36 @@ function panelFor(
                       current one marked. */}
                   <PlacedOnControl itemId={chassis.id} placement={chassis.placement} view={view} actions={actions} />
 
-                  <ConnectionsSection chassis={chassis} view={view} actions={actions} />
-
-                  {/* r30-device: Device and Location stay open; the rest fold to one line each. */}
-                  <Fold title="Management" summary={chassis.managementAddress || 'no address'} testId="management-fold">
-                    <div className="drawing-editor__field">
-                      <div className="drawing-editor__field-label">Mgmt address</div>
-                      <EditableValue
-                        value={chassis.managementAddress ?? ''}
-                        placeholder={ABSENT}
-                        editorKind="text"
-                        onCommit={
-                          actions.onEdit
-                            ? (v) => actions.onEdit!({ kind: 'device', id: chassis.deviceId, field: 'management_address', value: v })
-                            : undefined
-                        }
-                      />
-                    </div>
-                    {(chassis.managementAddress ?? '').length > 0 ? <div style={TYPED_NOTE_STYLE}>{MANAGEMENT_ADDRESS_NOTE}</div> : null}
-                    <TermixActions name={chassis.hostname} address={chassis.managementAddress ?? ''} />
-                    <TermixReveal chassisId={chassis.id} />
-                  </Fold>
-
-                  <FirmwareSection deviceId={chassis.deviceId} folded />
-                  <AboutSection deviceId={chassis.deviceId} folded />
-                  <DevicePhoto ownerId={chassis.deviceId} name={chassis.hostname || UNNAMED_HOSTNAME} folded />
+                  {/* r30-device: Device and Location stay open; the rest fold to one line each. Sign-off r60:
+                      which of the rest show, and in what order, is the person's choice. */}
+                  <DeviceSections
+                    sections={{
+                      connections: <ConnectionsSection chassis={chassis} view={view} actions={actions} />,
+                      management: (
+                        <Fold title="Management" summary={chassis.managementAddress || 'no address'} testId="management-fold">
+                          <div className="drawing-editor__field">
+                            <div className="drawing-editor__field-label">Mgmt address</div>
+                            <EditableValue
+                              value={chassis.managementAddress ?? ''}
+                              placeholder={ABSENT}
+                              editorKind="text"
+                              onCommit={
+                                actions.onEdit
+                                  ? (v) => actions.onEdit!({ kind: 'device', id: chassis.deviceId, field: 'management_address', value: v })
+                                  : undefined
+                              }
+                            />
+                          </div>
+                          {(chassis.managementAddress ?? '').length > 0 ? <div style={TYPED_NOTE_STYLE}>{MANAGEMENT_ADDRESS_NOTE}</div> : null}
+                          <TermixActions name={chassis.hostname} address={chassis.managementAddress ?? ''} />
+                          <TermixReveal chassisId={chassis.id} />
+                        </Fold>
+                      ),
+                      firmware: <FirmwareSection deviceId={chassis.deviceId} folded />,
+                      about: <AboutSection deviceId={chassis.deviceId} folded />,
+                      photo: <DevicePhoto ownerId={chassis.deviceId} name={chassis.hostname || UNNAMED_HOSTNAME} folded />,
+                    }}
+                  />
 
                 </>
               ),
@@ -2265,7 +2282,17 @@ function panelFor(
               label: 'Ports',
               body: (
                 <>
-                  <Field label="Ports" value={`${chassis.ports.filter((p) => p.cable != null).length} of ${chassis.ports.length} cabled`} />
+                  <Field label="Ports" value={chassis.ports.length > 0 ? `${chassis.ports.filter((p) => p.cable != null).length} of ${chassis.ports.length} cabled` : 'None yet'} />
+                  {/* Sign-off r60: an empty tab says what to do next. */}
+                  {chassis.ports.length === 0 ? (
+                    <p className="drawing-editor__empty-next" data-testid="ports-empty">
+                      {chassisSketch
+                        ? actions.onEdit
+                          ? 'Add its ports below, or give it a catalogue model on the Details tab and its ports come with it.'
+                          : 'No ports have been added to it yet.'
+                        : 'Its catalogue model lists no ports.'}
+                    </p>
+                  ) : null}
                   <PortsInWords chassis={chassis} />
 
                   {/* ADR-0051 §1 — a sketch's own ports, typed by hand,
@@ -2347,6 +2374,7 @@ function panelFor(
         />
         </TypedNoteMode.Provider>
 
+        {tail}
         {links ? <div className="drawing-editor__footer dev-panel__foot">{links}</div> : null}
       </div>
     );

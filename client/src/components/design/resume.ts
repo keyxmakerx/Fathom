@@ -19,6 +19,8 @@ export interface ResumeSelection {
 
 export interface Resume {
   camera: ResumeCamera | null;
+  /** Sign-off r60: Canvas or Inventory, whichever the design was last left on. */
+  place: 'racks' | 'inventory' | null;
   tab: ResumeTab | null;
   equipmentOpen: boolean;
   /** Equipment was closed once on this design: it no longer opens by itself on the design when empty. */
@@ -26,7 +28,7 @@ export interface Resume {
   selection: ResumeSelection | null;
 }
 
-export const EMPTY_RESUME: Resume = { camera: null, tab: null, equipmentOpen: false, equipmentClosedOnce: false, selection: null };
+export const EMPTY_RESUME: Resume = { camera: null, place: null, tab: null, equipmentOpen: false, equipmentClosedOnce: false, selection: null };
 
 /** The kinds a selection can be restored as. A port is left out on purpose: selecting one
  * glides the camera to it, which would undo the camera being restored. */
@@ -53,7 +55,8 @@ export function parseResume(raw: unknown): Resume {
   if (s != null && typeof s === 'object' && typeof s.kind === 'string' && typeof s.id === 'string' && s.id !== '') {
     if ((RESTORABLE_KINDS as readonly string[]).includes(s.kind)) selection = { kind: s.kind, id: s.id };
   }
-  return { camera, tab, equipmentOpen: r.equipmentOpen === true, equipmentClosedOnce: r.equipmentClosedOnce === true, selection };
+  const place = r.place === 'racks' || r.place === 'inventory' ? r.place : null;
+  return { camera, place, tab, equipmentOpen: r.equipmentOpen === true, equipmentClosedOnce: r.equipmentClosedOnce === true, selection };
 }
 
 export function loadResume(accountId: string | null, designId: string | undefined): Resume {

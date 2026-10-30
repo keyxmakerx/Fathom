@@ -9,6 +9,7 @@ import { LAYERS } from '../drawing/layers';
 import { LENSES_IN, LENS_LABEL, type Lens } from './lens';
 import { Popover } from './Popover';
 import type { Place, ShellProps } from './types';
+import { shortcutText } from './shortcuts';
 
 export interface LensGroupProps {
   place: Place;
@@ -254,10 +255,10 @@ export function BottomPill({ canUndo, canRedo, onUndo, onRedo, zoom }: BottomPil
   const stops = zoom?.stops;
   return (
     <div className="shell-pill" role="toolbar" aria-label="Undo and zoom" data-print-omit="" data-testid="shell-pill">
-      <button type="button" className="shell-pill__btn" aria-label="Undo" title="Undo (Ctrl Z)" disabled={!canUndo} onClick={onUndo}>
+      <button type="button" className="shell-pill__btn" aria-label="Undo" title={`Undo (${shortcutText('undo')})`} disabled={!canUndo} onClick={onUndo}>
         <svg {...PILL_ICON}><path d="M5 4L2.5 6.5 5 9" /><path d="M2.5 6.5h7a3.5 3.5 0 010 7H7" /></svg>
       </button>
-      <button type="button" className="shell-pill__btn" aria-label="Redo" title="Redo (Ctrl Shift Z)" disabled={!canRedo} onClick={onRedo}>
+      <button type="button" className="shell-pill__btn" aria-label="Redo" title={`Redo (${shortcutText('redo')})`} disabled={!canRedo} onClick={onRedo}>
         <svg {...PILL_ICON}><path d="M11 4l2.5 2.5L11 9" /><path d="M13.5 6.5h-7a3.5 3.5 0 000 7H9" /></svg>
       </button>
       {zoom != null && (

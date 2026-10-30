@@ -111,6 +111,10 @@ import { PlansSurface } from '../plans/PlansSurface';
 import { PlansContext } from '../plans/plansStore';
 import { usePlansController } from '../plans/usePlansController';
 import { DeviceIssues } from '../troubleshoot/DeviceIssues';
+import { AlsoIn } from './AlsoIn';
+import { SelectThing } from '../shell/ThingName';
+import { canvasSelectionOf } from '../phone/scan';
+import { alsoInOf } from './alsoIn';
 import { TroublePanel } from '../troubleshoot/TroublePanel';
 import { TroubleContext } from '../troubleshoot/troubleStore';
 import { useTroubleController } from '../troubleshoot/useTroubleController';
@@ -281,6 +285,9 @@ export interface RacksPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'c
   initialFocus?: Selection | null;
   /** Sign-off r58: a device menu item (`DEVICE_WORDS`) to run on arrival, handed from Inventory's menu. */
   initialDeviceAction?: { chassisId: string; label: string } | null;
+  /** Ids an open AI idea names, and how to open the AI ideas tab, for a device panel's "Also in" (sign-off r60). */
+  aiTargets?: ReadonlySet<string>;
+  onOpenAiIdeas?: () => void;
   /** Select a thing as if it were clicked, without opening it; a fresh object per ask. */
   selectRequest?: { selection: Selection } | null;
   /** A saved issue to open on arrival ("Show on canvas" on an Inventory issue page); a fresh object per ask. */
@@ -344,6 +351,8 @@ function tidySentence(text: string): string {
   return plain.charAt(0).toUpperCase() + plain.slice(1);
 }
 
+const NO_TARGETS: ReadonlySet<string> = new Set();
+
 /** Other words Ctrl K finds a device's actions by. */
 const PALETTE_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
   [DEVICE_WORDS.trace]: ['path', 'follow', 'cable'],
@@ -367,6 +376,8 @@ export function RacksPlace(props: RacksPlaceProps) {
     onZoomChange,
     initialFocus,
     initialDeviceAction,
+    aiTargets,
+    onOpenAiIdeas,
     selectRequest,
     initialIssue,
     initialUpgrade,
@@ -1860,6 +1871,24 @@ export function RacksPlace(props: RacksPlaceProps) {
     ...deviceMenu,
   };
   const deviceMenuFor = (id: string) => deviceMenuItems(id, panelMenu, { free: realView.free.some((f) => f.id === id), inPanel: true });
+  // Sign-off r60: a name in Plans, Checks, History, It's down or Trace selects its thing here.
+  const selectThing = (id: string): boolean => {
+    const sel = doc != null ? canvasSelectionOf(doc, id) : null;
+    if (sel == null) return false;
+    setJot(null);
+    setSelection(sel);
+    if (sel.kind === 'cable') setRevealRequest({ cableId: sel.id });
+    return true;
+  };
+  // A device's own ids (its device, chassis, ports and cards): what a plan, a check or an AI idea may name.
+  const deviceIdsOf = (chassisId: string): ReadonlySet<string> => {
+    const c = deviceChassis(realView, chassisId);
+    const ids = new Set<string>([chassisId]);
+    if (doc != null) edgesIn(doc, chassisId, 'HasChassis').forEach((e) => ids.add(e.from));
+    c?.ports.forEach((p) => ids.add(p.id));
+    c?.cards?.forEach((card) => ids.add(card.id));
+    return ids;
+  };
   const deviceMenuForRef = useRef(deviceMenuFor);
   deviceMenuForRef.current = deviceMenuFor;
   // Handed from Inventory's menu: once the design is here and the device chosen, run the item it named.
@@ -1990,6 +2019,20 @@ export function RacksPlace(props: RacksPlaceProps) {
             </>
           ) : undefined,
           selection?.kind === 'chassis' ? deviceMenuFor(selection.id) : undefined,
+          selection?.kind === 'chassis' ? (
+            <>
+              <AlsoIn
+                lists={alsoInOf(deviceIdsOf(selection.id), plans.plans, checks.result?.findings ?? [], aiTargets ?? NO_TARGETS)}
+                onOpenPlan={(p) => plans.openPlan(p.id)}
+                onOpenFinding={(f) => {
+                  checks.setOpen(true);
+                  checks.openWhy(f);
+                }}
+                onOpenIdeas={onOpenAiIdeas}
+              />
+              {doc != null ? <DeviceIssues controller={trouble} chassisId={selection.id} deviceId={edgesIn(doc, selection.id, 'HasChassis')[0]?.from ?? ''} withButton={false} /> : null}
+            </>
+          ) : undefined,
         )
       : null;
   const editor = saveRefusal != null ? (
@@ -2013,7 +2056,6 @@ export function RacksPlace(props: RacksPlaceProps) {
     ) : selectedPanel != null ? (
       <>
         {selectedPanel}
-        {selection?.kind === 'chassis' && doc != null ? <DeviceIssues controller={trouble} chassisId={selection.id} deviceId={edgesIn(doc, selection.id, 'HasChassis')[0]?.from ?? ''} withButton={false} /> : null}
       </>
     ) : null;
 
@@ -2121,6 +2163,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       : shellProps.path;
 
   return (
+    <SelectThing.Provider value={selectThing}>
     <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, cables: look === 'diagram' ? undefined : { value: cableStyle, onChange: changeCableStyle, colour: { value: cableColour, onChange: changeCableColour } }, aids: { ...showAids, items: showAids.items.filter((a) => a.id !== 'colourKey') } }} layersExtra={doc != null && look === 'rack' && keyRows.length > 0 ? <ColourKey rows={keyRows} onHighlight={setKeyCableIds} /> : undefined} mainView={mainView} designExtra={doc != null && isSample ? <SampleChip onReset={canDraw && loadFirstSave != null ? resetSample : undefined} /> : undefined} doing={doc != null ? doing : undefined} zoomStops={look === 'rack' ? zoomStops : undefined} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} autoEquipment={autoOpenEquipment(doc != null, canDraw, realView)} equipmentRequest={equipmentRequest} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} sideTabs={sideTabs} task={task} barExtra={
         doc != null ? (
           <MissingLinksChip found={missingLinks} onGo={handleGoToMissingLink} />
@@ -2339,5 +2382,6 @@ export function RacksPlace(props: RacksPlaceProps) {
       </NoteAuthorsContext.Provider>
       </ChecksContext.Provider>
     </Shell>
+    </SelectThing.Provider>
   );
 }
