@@ -546,53 +546,8 @@ export function Bar({
   );
 }
 
-/** The open design's name, edited in place: Enter saves, Esc or leaving the box puts it back. */
-function RenameCrumb({ item, onDone }: { item: PathItem; onDone: () => void }) {
-  const [draft, setDraft] = useState(item.storedName ?? '');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const save = () => {
-    const name = draft.trim();
-    if (name === (item.storedName ?? '')) return onDone();
-    setBusy(true);
-    setError(null);
-    item.onRename!(name)
-      .then(onDone)
-      .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : 'Could not rename it.');
-        setBusy(false);
-      });
-  };
-  return (
-    <span className="shell-bar__rename">
-      <input
-        className="shell-bar__rename-input"
-        aria-label="Design name"
-        value={draft}
-        maxLength={100}
-        placeholder={item.label}
-        disabled={busy}
-        autoFocus
-        size={Math.max(12, draft.length + 1)}
-        onFocus={(e) => e.currentTarget.select()}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') save();
-          if (e.key === 'Escape') onDone();
-          e.stopPropagation();
-        }}
-        onBlur={() => !busy && error == null && onDone()}
-        data-testid="shell-rename-input"
-      />
-      {error && <span className="shell-bar__rename-error" role="alert">{error}</span>}
-    </span>
-  );
-}
-
 function PathCrumb({ item, tree, onPrint }: { item: PathItem; tree: ReactNode; onPrint?: () => void }) {
-  const [renaming, setRenaming] = useState(false);
   const className = item.current ? 'shell-bar__path-label shell-bar__path-label--current' : 'shell-bar__path-label';
-  if (renaming && item.onRename) return <RenameCrumb item={item} onDone={() => setRenaming(false)} />;
   if (item.opensTree) {
     return (
       <Popover
@@ -601,8 +556,7 @@ function PathCrumb({ item, tree, onPrint }: { item: PathItem; tree: ReactNode; o
           <button
             type="button"
             className={className}
-            title={item.onRename ? 'Switch to another place or design. Double-click to rename.' : 'Switch to another place or design'}
-            onDoubleClick={item.onRename ? () => setRenaming(true) : undefined}
+            title="Switch to another place or design"
             aria-haspopup={triggerProps['aria-haspopup']}
             aria-expanded={triggerProps['aria-expanded']}
             aria-controls={triggerProps['aria-controls']}
@@ -621,11 +575,6 @@ function PathCrumb({ item, tree, onPrint }: { item: PathItem; tree: ReactNode; o
         )}
       >
         {tree}
-        {item.onRename && (
-          <PopoverRow onSelect={() => setRenaming(true)} testId="shell-rename">
-            Rename design…
-          </PopoverRow>
-        )}
         {/* r31-bar A: Print is the design's own business, so it sits in the design's menu. */}
         {onPrint && (
           <PopoverRow onSelect={onPrint} testId="shell-print">

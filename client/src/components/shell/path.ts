@@ -10,11 +10,6 @@ export interface PathPart {
   opensTree?: boolean;
   /** What a click does, as a tooltip. */
   hint?: string;
-  /** Given on the open design's crumb when the caller may rename it: double-click or the menu's Rename edits the
-   * name in place. The name it gets is trimmed; empty means untitled. */
-  onRename?: (name: string) => Promise<void>;
-  /** The name as stored, for the rename box: `null` while untitled (the label then reads "Untitled design"). */
-  storedName?: string | null;
 }
 
 export interface PathItem extends PathPart {
