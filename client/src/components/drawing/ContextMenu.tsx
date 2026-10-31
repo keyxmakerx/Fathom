@@ -115,7 +115,7 @@ export function MenuItems({ items, onPicked }: { items: readonly MenuItem[]; onP
               aria-label={item.label}
               aria-disabled={item.disabled != null ? true : undefined}
               aria-describedby={why}
-              aria-keyshortcuts={item.keys?.replace(/ /g, '+').replace('Ctrl', 'Control').replace('Del', 'Delete')}
+              aria-keyshortcuts={item.keys?.replace('Ctrl', 'Control').replace('Cmd', 'Meta')}
               onClick={() => {
                 // A greyed item stays reachable by the arrow keys, so its reason is read out; it does nothing.
                 if (item.disabled != null) return;

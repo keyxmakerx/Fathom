@@ -1,4 +1,5 @@
 import type { CableRunSide, CableRunView } from '../../document/cableRuns';
+import { shortcutText } from '../shell/shortcuts';
 import type { Selection } from './contract';
 
 /** What a right-click landed on (ADR-0060 decision 4). */
@@ -29,7 +30,7 @@ export interface MenuItem {
   /** Why it cannot be used yet. The item stays in the menu, greyed, with this line under it, so a
    * person learns it exists (sign-off r58). */
   disabled?: string;
-  /** Its key, as the shortcuts sheet shows it ("Ctrl D"). */
+  /** Its key, as the shortcuts sheet shows it on this platform ("Ctrl+D", "Cmd+D" on a Mac). */
   keys?: string;
 }
 
@@ -287,10 +288,10 @@ export function deviceMenuItems(id: string, actions: MenuActions, where: DeviceM
   }
   if (actions.onOpenInTermix) items.push({ group: work, label: w.termix, onSelect: () => actions.onOpenInTermix?.(id), disabled: actions.termixRefusal?.(id) ?? undefined });
   const duplicate = where.free === true ? (actions.onDuplicateFree ? () => actions.onDuplicateFree?.([id]) : null) : actions.onDuplicateDevice ? () => actions.onDuplicateDevice?.(id) : null;
-  if (duplicate) items.push({ group: copy, label: w.duplicate, onSelect: duplicate, keys: 'Ctrl D', disabled: where.free === true ? undefined : actions.duplicateRefusal?.(id) ?? undefined });
+  if (duplicate) items.push({ group: copy, label: w.duplicate, onSelect: duplicate, keys: shortcutText('duplicate'), disabled: where.free === true ? undefined : actions.duplicateRefusal?.(id) ?? undefined });
   if (actions.onCopyLink) items.push({ group: copy, label: w.copyLink, onSelect: () => actions.onCopyLink?.(id) });
   if (actions.onPrintLabel) items.push({ group: copy, label: w.printLabel, onSelect: () => actions.onPrintLabel?.(id) });
   const remove = where.free === true ? (actions.onRemoveFree ? () => actions.onRemoveFree?.([id]) : null) : actions.onRemoveDevice ? () => actions.onRemoveDevice?.(id) : null;
-  if (remove) items.push({ label: w.remove, onSelect: remove, danger: true, keys: 'Del' });
+  if (remove) items.push({ label: w.remove, onSelect: remove, danger: true, keys: shortcutText('delete') });
   return items;
 }

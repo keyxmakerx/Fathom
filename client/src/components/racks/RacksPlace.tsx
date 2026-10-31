@@ -1929,7 +1929,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       const out: PaletteAction[] = deviceMenuFor(chassisId).map((item) => ({
         id: `device:${item.label}`,
         label: deviceName === '' ? item.label : `${item.label} · ${deviceName}`,
-        hint: item.keys?.replace(' ', '+'),
+        hint: item.keys,
         keywords: PALETTE_KEYWORDS[item.label],
         disabled: item.disabled,
         run: item.onSelect,

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { DEVICE_WORDS, FIRMWARE_NEEDS_VERSION, deviceMenuItems, menuItemsFor, type MenuActions } from './contextMenuItems';
+import { shortcutText } from '../shell/shortcuts';
 
 function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'onPlanFirmware' | 'firmwareNeedsVersion' | 'onSuggestCables' | 'onFitCard' | 'onAddCableRun' | 'onRemoveCableRun' | 'cableRunsOn' | 'looseState' | 'onSetNeedsFinishing' | 'onShowInInventory' | 'onSwapModel' | 'hasModel' | 'onAddPort' | 'addPortRefusal' | 'onOpenInTermix' | 'onCopyLink' | 'onPrintLabel' | 'termixRefusal' | 'duplicateRefusal'>> {
   return {
@@ -85,8 +86,10 @@ describe('menuItemsFor', () => {
     const items = menuItemsFor({ kind: 'chassis', id: 'c1' }, a);
     expect(items.map((i) => i.label)).toEqual(['Open', 'Open inside', 'Trace from here', 'Details', 'Duplicate', 'Remove device']);
     expect(items[5].danger).toBe(true);
-    expect(items[5].keys).toBe('Del');
-    expect(items[4].keys).toBe('Ctrl D');
+    // The keys come from the shortcuts table, so the menu says what the sheet and the buttons say.
+    expect(items[5].keys).toBe(shortcutText('delete'));
+    expect(items[4].keys).toBe(shortcutText('duplicate'));
+    expect(shortcutText('duplicate', true)).toBe('Cmd+D');
     items[4].onSelect();
     expect(a.onDuplicateDevice).toHaveBeenCalledWith('c1');
     items[0].onSelect();
