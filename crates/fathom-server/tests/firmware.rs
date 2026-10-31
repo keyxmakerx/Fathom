@@ -2607,7 +2607,7 @@ async fn a_declaration_past_the_servers_room_is_refused() {
     let text = String::from_utf8_lossy(&body);
     assert_eq!(status, "507", "{text}");
     assert!(text.contains("This server's firmware"), "{text}");
-    assert!(text.contains("FATHOM_FIRMWARE_TOTAL_MAX_BYTES"), "{text}");
+    assert!(text.contains("Admin › Firmware"), "{text}");
 }
 
 /// An upload that goes quiet is dropped: `408`, the partial file deleted, and its
@@ -2710,17 +2710,24 @@ fn a_store_over(directory: &std::path::Path) -> FirmwareStore {
 }
 
 /// Make an image due for its weekly re-check, as if eight days had passed, and,
-/// when `forget_sha512`, as if it had been staged before `0059`.
+/// when `forget_sha512`, as if it had been staged before `0059` (and so before
+/// `0061`'s MD5 too).
 async fn age(image: &str, forget_sha512: bool) {
     let su = support::superuser_client_on_test_database().await;
     su.execute(
         "UPDATE firmware_images SET last_checked_at = now() - interval '8 days', \
-                computed_sha512 = CASE WHEN $2 THEN NULL ELSE computed_sha512 END \
+                computed_sha512 = CASE WHEN $2 THEN NULL ELSE computed_sha512 END, \
+                computed_md5 = CASE WHEN $2 THEN NULL ELSE computed_md5 END \
          WHERE id = $1",
         &[&image, &forget_sha512],
     )
     .await
     .expect("age the image");
+}
+
+fn md5_of(bytes: &[u8]) -> [u8; 16] {
+    use md5::{Digest, Md5};
+    Md5::digest(bytes).into()
 }
 
 fn sha512_of(bytes: &[u8]) -> [u8; 64] {
@@ -2751,6 +2758,10 @@ async fn an_upload_works_out_a_sha512_too_and_the_list_shows_it() {
 
     let list = list_firmware(addr, &estate.steward, estate.organisation, scope).await;
     assert!(list.contains(&hex(sha512_of(&bytes))), "{list}");
+    assert!(
+        list.contains(&format!("\"md5\":\"{}\"", hex(md5_of(&bytes)))),
+        "the MD5 from the same pass (0061): {list}"
+    );
     assert!(list.contains("\"last_checked_at_unix\":"), "{list}");
     assert!(list.contains("\"changed_at_unix\":null"), "{list}");
 }
@@ -2823,6 +2834,10 @@ async fn the_weekly_recheck_passes_a_good_file_fills_a_missing_sha512_and_marks_
     assert!(
         !list.contains(&hex(sha512_of(&changed))),
         "never a SHA-512 of the changed bytes: {list}"
+    );
+    assert!(
+        list.contains(&hex(md5_of(&good))),
+        "the MD5 is filled once the SHA-256 matched: {list}"
     );
     assert_eq!(
         list.matches("\"changed_at_unix\":null").count(),
@@ -3080,4 +3095,104 @@ async fn a_steward_reads_the_firmware_activity_from_the_sealed_chain_and_a_reade
         !text.contains(path.trim_start_matches("/firmware/fetch/")),
         "never the token"
     );
+}
+
+/// Sign-off r71: a Steward sets their organisation's own total and the address its devices
+/// download from on Steward › Firmware. Both hold at once, both are sealed with who did it,
+/// and a member who is not a Steward cannot read or change them.
+#[tokio::test]
+async fn a_steward_sets_their_organisations_total_and_download_address() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+    let path = format!("/organisations/{}/firmware/settings", estate.organisation);
+
+    let (status, body) = call(addr, &estate.steward, "GET", &path, b"").await;
+    let text = String::from_utf8_lossy(&body).into_owned();
+    assert_eq!(status, "200", "{text}");
+    assert!(text.contains("\"ceiling\":null"), "{text}");
+    assert!(text.contains("\"history\":[]"), "{text}");
+    assert!(
+        text.contains("\"fetch_base_url\":\"https://fathom.test.invalid\""),
+        "the settings file's address: {text}"
+    );
+
+    let image = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "junos-install-ex-x86-64-21.4R3-S5.5.tgz",
+        &an_image(1_500_000),
+    )
+    .await;
+
+    // Two mebibytes and the address on the management network.
+    let body = b"{\"fetch_base_url\":\"http://192.0.2.10:8080\",\"max_bytes\":2097152}\n";
+    let (status, answer) = call(addr, &estate.steward, "PUT", &path, body).await;
+    let text = String::from_utf8_lossy(&answer).into_owned();
+    assert_eq!(status, "200", "{text}");
+    assert!(
+        text.contains("\"organisation_max_bytes\":2097152"),
+        "{text}"
+    );
+    assert!(text.contains("firmware_org_settings_changed"), "{text}");
+    assert!(text.contains("\"by_admin\":false"), "{text}");
+    assert!(text.contains("\"by_name\":\"steward\""), "{text}");
+
+    // Held to it: 1.5 MB is staged, so another 1 MB does not fit.
+    let (status, body, _, _) = declare(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        &an_image(1_000_000),
+    )
+    .await;
+    assert_eq!(status, "507", "{}", String::from_utf8_lossy(&body));
+
+    // And a link now names the organisation's own address.
+    let link = issue_fetch_url(addr, &estate.steward, estate.organisation, &image).await;
+    assert!(
+        link.contains("http://192.0.2.10:8080/firmware/fetch/"),
+        "{link}"
+    );
+
+    // Too small, over the ceiling, and an address a device's copy command could misread.
+    for (body, want) in [
+        (
+            &b"{\"fetch_base_url\":null,\"max_bytes\":1000}\n"[..],
+            "400",
+        ),
+        (
+            &b"{\"fetch_base_url\":null,\"max_bytes\":1125899906842624}\n"[..],
+            "409",
+        ),
+        (
+            &b"{\"fetch_base_url\":\"http://x.example;reboot\",\"max_bytes\":null}\n"[..],
+            "400",
+        ),
+        (&b"{\"max_bytes\":null}\n"[..], "400"),
+    ] {
+        let (status, answer) = call(addr, &estate.steward, "PUT", &path, body).await;
+        assert_eq!(status, want, "{}", String::from_utf8_lossy(&answer));
+    }
+
+    // Not a Steward: refused, before anything is read.
+    let reader = a_member_with(&pool, &ring, &estate, "reader", Some(Capability::Read)).await;
+    let (status, _) = call(addr, &reader, "GET", &path, b"").await;
+    assert_eq!(status, "403");
+    let (status, _) = call(
+        addr,
+        &reader,
+        "PUT",
+        &path,
+        b"{\"fetch_base_url\":null,\"max_bytes\":null}\n",
+    )
+    .await;
+    assert_eq!(status, "403");
 }

@@ -12,6 +12,10 @@
 > PostgreSQL driver, and each now carries its own record because this workspace names it.
 > 115 → 123 crates, against `35` §5.1's cap of 160.
 >
+> **2026-10-31:** `md-5 0.11.0` moved from *transitive* to **DIRECT** without adding a crate,
+> the same way: the PostgreSQL driver (`postgres-protocol`) already brought it. Record:
+> `md-5.md`.
+>
 > **2026-09-12, Phase 2's authority layer (admin design §15.3):** eighteen crates arrived with
 > ES256 — `p256 0.14.0` and `ecdsa 0.17.0`, each with its own record because this workspace names
 > them, and their transitive closure `autocfg`, `base16ct`, `cpubits`, `crypto-bigint`, `der`,
@@ -171,7 +175,7 @@ cooldown; `rustls-webpki` and `webpki-roots` are admitted young for an advisory
 | `lock_api` | `0.4.14` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 15:08:36 GMT | https://github.com/Amanieu/parking_lot |
 | `log` | `0.4.34` | MIT OR Apache-2.0 | transitive | no | no | Sat, 22 Aug 2026 11:44:29 GMT | https://github.com/rust-lang/log |
 | `matchit` | `0.8.4` | MIT AND BSD-3-Clause | transitive | no | no | Sun, 28 Jun 2026 14:48:04 GMT | https://github.com/ibraheemdev/matchit |
-| `md-5` | `0.11.0` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 17:52:35 GMT | https://github.com/RustCrypto/hashes |
+| `md-5` | `0.11.0` | MIT OR Apache-2.0 | DIRECT | no | no | Sun, 28 Jun 2026 17:52:35 GMT | https://github.com/RustCrypto/hashes |
 | `memchr` | `2.8.3` | Unlicense OR MIT | transitive | no | no | Wed, 08 Jul 2026 00:49:55 GMT | https://github.com/BurntSushi/memchr |
 | `mime` | `0.3.17` | MIT OR Apache-2.0 | transitive | no | no | Sun, 28 Jun 2026 15:18:11 GMT | https://github.com/hyperium/mime |
 | `mio` | `1.2.2` | MIT | transitive | no | no | Mon, 13 Jul 2026 15:39:11 GMT | https://github.com/tokio-rs/mio |

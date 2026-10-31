@@ -1,9 +1,8 @@
-# `md-5` — proposed 2026-10-31 for sign-off r62. **Awaiting the owner's approval of this record.**
+# `md-5` — approved by the owner on sign-off card r70, 2026-10-31.
 
-The owner approved "SHA-512 and MD5 at upload" on sign-off card r62 (30 October). That approves the
-feature. ADR-0032 §5 makes approving a crate a separate owner act, so this record waits for it, and
-**the crate is not in `Cargo.toml` or `Cargo.lock` yet.** SHA-512 is built without it (`sha2`
-already has it).
+The owner approved "SHA-512 and MD5 at upload" on sign-off card r62 (30 October), which approves
+the feature. ADR-0032 §5 makes approving a crate a separate owner act; the owner gave it on card
+r70's "OK to add the md-5 library" tick (31 October, 12:38 UTC).
 
 | | |
 |---|---|
@@ -11,10 +10,10 @@ already has it).
 | **Version** | `0.11.0`, published 2026-03-27, read off crates.io's API on 2026-10-31. Not yanked. `default-features = false` |
 | **Publisher** | RustCrypto (`RustCrypto/hashes`), the same family and repository as the approved `sha2` and `sha1` |
 | **Licence** | `MIT OR Apache-2.0`, read off crates.io on 2026-10-31. Compatible with ADR-0004 |
-| **Ships or tooling** | **Ships.** Would be linked into `fathom-server` only, named by `src/firmware.rs` only |
-| **`build.rs`** | To be read off the fetched source before it is added, as the closure report does |
+| **Ships or tooling** | **Ships.** Linked into `fathom-server` only, named by `src/firmware.rs` (and its integration test) only |
+| **`build.rs`** | None. Read off the fetched source on 2026-10-31: its `Cargo.toml` says `build = false` and there is no `build.rs` |
 | **Proc macros** | None among its dependencies |
-| **Net new packages in `Cargo.lock`** | **One**: `md-5` itself. Its normal dependencies are `cfg-if ^1` and `digest ^0.11` (crates.io, 2026-10-31), both already here through `sha2` |
+| **Net new packages in `Cargo.lock`** | **None.** Corrected from "one" on 2026-10-31: `md-5 0.11.0` was already in `Cargo.lock` through the PostgreSQL driver (`postgres-protocol`, for PostgreSQL's MD5 password exchange), the same way `hmac` and `sha2` were. Adding it moved it from transitive to DIRECT; the lock file gained one line, the dependency edge |
 
 ## MD5 IS BROKEN, AND THIS RECORD SAYS SO
 
@@ -26,10 +25,11 @@ further use"*, and *"collision attacks against MD5 are both practical and trivia
 **So the MD5 is never what protects an image.** The SHA-256 is still the hash Fathom checks the
 upload against, re-checks weekly and before every download, and puts in the device's steps. The MD5
 is shown so a person can compare it with a vendor page that gives nothing else, and the page says,
-next to it, that a match only rules out a damaged download, not a deliberate swap. A collision lets
-someone make two files with the same MD5; it does not let them match the SHA-256 as well.
+next to it, that a match only rules out a damaged download, not a deliberate swap. Nothing in the
+server compares an MD5.
 
 ## Audit status
 
-None found, the same gap `sha1.md` names for `RustCrypto/hashes`. Proposed condition, as there: the
-implementation is pinned against RFC 1321 §A.5's test suite in a unit test before it ships.
+None found, the same gap `sha1.md` names for `RustCrypto/hashes`. The condition set here is met:
+`firmware::tests::the_md5_matches_rfc_1321s_test_suite` pins the implementation against all seven
+strings of RFC 1321 §A.5 (rfc-editor.org/rfc/rfc1321, read 2026-10-31), fed in two pieces.

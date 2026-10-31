@@ -905,6 +905,9 @@ pub struct OperatorStore {
     /// `SessionStore::with_lifetime`), so a test can watch the delay elapse; moving
     /// a timestamp in SQL would break the row seal and prove only the seal.
     settings_delay: Duration,
+    /// What the server's settings file says about firmware (sign-off r71). Set once by
+    /// `main.rs` when firmware staging is on; empty, Admin › Firmware says it is off.
+    firmware_file: std::sync::OnceLock<crate::firmware_settings::FileValues>,
 }
 
 impl OperatorStore {
@@ -929,7 +932,14 @@ impl OperatorStore {
             ring,
             deployment,
             settings_delay,
+            firmware_file: std::sync::OnceLock::new(),
         }
+    }
+
+    /// Firmware staging is on, with these values from the settings file (r71). A second
+    /// call is ignored: the file is read once, at startup.
+    pub fn set_firmware_file(&self, values: crate::firmware_settings::FileValues) {
+        let _ = self.firmware_file.set(values);
     }
 
     pub fn deployment(&self) -> &str {
@@ -7342,6 +7352,188 @@ impl OperatorStore {
             organisation,
             key,
             reason,
+        )
+        .await?;
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sign-off r71: firmware's limits on Admin › Firmware
+// ---------------------------------------------------------------------------
+
+impl From<crate::firmware_settings::SettingsError> for OperatorError {
+    fn from(e: crate::firmware_settings::SettingsError) -> Self {
+        use crate::firmware_settings::SettingsError as S;
+        match e {
+            S::Pool(e) => Self::Pool(e),
+            S::Db(e) => Self::Db(e),
+            S::Repo(e) => Self::Repo(e),
+            S::Chain(e) => Self::Chain(e),
+            S::Authority(e) => Self::Authority(e),
+            S::Malformed(why) => Self::Malformed(why),
+            S::Conflict => Self::Malformed("that changed; reload and try again"),
+            S::Unverifiable(what) => Self::Unverifiable(what),
+            S::Keys(_) => Self::Unverifiable("firmware settings keys"),
+            S::Locked | S::OverCeiling { .. } => Self::Malformed("that setting is locked"),
+        }
+    }
+}
+
+/// The firmware settings history Admin › Firmware lists: the site chain's newest
+/// entries of these two types, read from the newest [`FIRMWARE_HISTORY_SCAN`].
+const FIRMWARE_HISTORY_TYPES: [&str; 2] = [
+    "firmware_server_settings_changed",
+    "firmware_ceiling_changed",
+];
+const FIRMWARE_HISTORY_SCAN: i64 = 500;
+
+impl OperatorStore {
+    fn firmware_file(&self) -> Result<&crate::firmware_settings::FileValues, OperatorError> {
+        self.firmware_file.get().ok_or(OperatorError::Malformed(
+            "firmware staging is off on this server: set FATHOM_FIRMWARE_DIR to turn it on",
+        ))
+    }
+
+    /// `GET /admin/firmware`: the settings file's values, the admin's saved ones, what is
+    /// in force, every organisation set apart, and the newest changes. Recorded as an
+    /// operator read.
+    pub async fn firmware_overview(
+        &self,
+        operator: &VerifiedSession,
+    ) -> Result<Json, OperatorError> {
+        self.record_read(operator, "firmware").await?;
+        let acting = self.acting_operator(operator)?;
+        let Some(file) = self.firmware_file.get() else {
+            let mut m = BTreeMap::new();
+            m.insert("on".to_string(), Json::Bool(false));
+            return Ok(Json::Obj(m));
+        };
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_operator_custody(&tx).await?;
+        self.check_operator_live(&tx, &acting).await?;
+        let server = crate::firmware_settings::read_server(&tx, &self.ring).await?;
+        let limits = crate::firmware_settings::effective(
+            file,
+            &server.saved,
+            None,
+            &crate::firmware_settings::OrgOwn::default(),
+        );
+        let organisations = crate::firmware_settings::operator_list(&tx, &self.ring).await?;
+        let recent =
+            chains::recent_site_entries(&tx, &self.ring, None, FIRMWARE_HISTORY_SCAN).await?;
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+
+        let mut history = Vec::new();
+        for entry in recent {
+            if !FIRMWARE_HISTORY_TYPES.contains(&entry.entry_type.as_str()) {
+                continue;
+            }
+            let mut m = match entry.metadata.as_deref().map(Json::parse_canonical) {
+                Some(Ok(Json::Obj(m))) => m,
+                _ => {
+                    let mut m = BTreeMap::new();
+                    m.insert("verifies".to_string(), Json::Bool(false));
+                    m
+                }
+            };
+            m.remove("entry_type");
+            m.remove("session");
+            m.insert("seq".to_string(), Json::Int(entry.seq));
+            m.insert("type".to_string(), Json::Str(entry.entry_type));
+            m.insert("at_unix".to_string(), Json::Int(entry.at_unix));
+            history.push(Json::Obj(m));
+        }
+        let mut m = BTreeMap::new();
+        m.insert("on".to_string(), Json::Bool(true));
+        m.insert("file".to_string(), file.to_json());
+        m.insert("server".to_string(), server.to_json());
+        m.insert("limits".to_string(), limits.to_json());
+        m.insert(
+            "organisations".to_string(),
+            Json::Arr(
+                organisations
+                    .into_iter()
+                    .map(|(c, own, verifies)| {
+                        let mut row = match c.to_json() {
+                            Json::Obj(row) => row,
+                            _ => BTreeMap::new(),
+                        };
+                        row.insert("own".to_string(), own.to_json());
+                        row.insert("verifies".to_string(), Json::Bool(verifies));
+                        Json::Obj(row)
+                    })
+                    .collect(),
+            ),
+        );
+        m.insert("history".to_string(), Json::Arr(history));
+        Ok(Json::Obj(m))
+    }
+
+    /// `POST /admin/firmware/settings`: the server's firmware values. Sealed on the site
+    /// chain with the values before and after.
+    pub async fn set_firmware_settings(
+        &self,
+        operator: &VerifiedSession,
+        saved: crate::firmware_settings::Saved,
+        if_version: i32,
+    ) -> Result<(), OperatorError> {
+        let acting = self.acting_operator(operator)?;
+        let file = self.firmware_file()?.clone();
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_operator_custody(&tx).await?;
+        self.check_operator_live(&tx, &acting).await?;
+        crate::firmware_settings::operator_set_server(
+            &tx,
+            &self.ring,
+            &self.deployment,
+            &acting,
+            &file,
+            saved,
+            if_version,
+        )
+        .await?;
+        leave_custody(&tx).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// `POST /admin/firmware/organisations/{organisation}`: one organisation's ceiling and
+    /// lock. Filed on its chain, so its Stewards see it, and on the site chain.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn set_firmware_ceiling(
+        &self,
+        operator: &VerifiedSession,
+        organisation: &str,
+        ceiling_bytes: Option<i64>,
+        locked: bool,
+        reason: &str,
+        if_version: i32,
+    ) -> Result<(), OperatorError> {
+        let acting = self.acting_operator(operator)?;
+        self.firmware_file()?;
+        let organisation = crate::ai::canonical_ulid(organisation)
+            .ok_or(OperatorError::Malformed("organisation id"))?;
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_operator_custody(&tx).await?;
+        self.check_operator_live(&tx, &acting).await?;
+        crate::firmware_settings::operator_set_ceiling(
+            &tx,
+            &self.ring,
+            &self.deployment,
+            &acting,
+            operator.id(),
+            &organisation,
+            ceiling_bytes,
+            locked,
+            reason,
+            if_version,
         )
         .await?;
         leave_custody(&tx).await?;

@@ -78,6 +78,7 @@ pub mod field_defs;
 pub mod firmware;
 pub mod firmware_by_hand;
 pub mod firmware_commands;
+pub mod firmware_settings;
 pub mod foreign_json;
 pub mod grants;
 pub mod heads;

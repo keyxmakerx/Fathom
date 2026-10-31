@@ -899,6 +899,8 @@ async fn main() -> ExitCode {
                          can reach, which is often not the one a browser uses."
                     );
                     let store = Arc::new(store);
+                    // Sign-off r71: Admin › Firmware shows these as the starting values.
+                    operators.set_firmware_file(store.file_values());
                     tracing::info!(
                         every_days = fathom_server::firmware::RECHECK_EVERY_DAYS,
                         "each stored firmware image is hashed again once a week; one that \

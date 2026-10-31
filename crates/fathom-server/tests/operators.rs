@@ -8686,3 +8686,255 @@ async fn an_operator_act_is_sealed_with_the_real_address_and_activity_shows_it()
     assert_eq!(fields[7], "127.0.0.1", "the proxy it came through");
     assert_eq!(fields.len(), 9, "{created}");
 }
+
+/// Sign-off r71: the admin sets the server's firmware values and one organisation's ceiling
+/// and lock on Admin › Firmware. Each is sealed; the lock stops the organisation's Stewards
+/// changing their own total, and the ceiling is what they are held to.
+#[tokio::test]
+async fn an_admin_sets_firmware_limits_and_locks_an_organisation() {
+    use fathom_canon::Json;
+    use fathom_server::firmware_settings::{self as fs, FileValues, Saved, SettingsError};
+
+    let _serial = SERIAL.lock().await;
+    let pool = deployment().await;
+    let ring = ring();
+    let sessions_store = sessions(&pool, Arc::clone(&ring)).await;
+    let operators_store = store(&pool, Arc::clone(&ring), Duration::from_secs(1)).await;
+    let operator = a_bootstrapped_operator(&operators_store, &sessions_store).await;
+    let (organisation, steward, _key, _grant) = an_estate(&pool, &ring).await;
+    let acting = || operator.session_for(&sessions_store, "POST", "/admin/firmware/x", b"");
+
+    // Off until the server's firmware directory is set.
+    let page = operators_store
+        .firmware_overview(&acting().await)
+        .await
+        .expect("the page");
+    assert!(matches!(json_field(&page, "on"), Json::Bool(false)));
+
+    let file = FileValues {
+        max_image_bytes: 2 << 30,
+        total_max_bytes: 50 << 30,
+        organisation_max_bytes: 20 << 30,
+        uploads_per_server: 3,
+        uploads_per_organisation: 1,
+        upload_idle_seconds: 120,
+        fetch_base_url: "https://fathom.test.invalid".into(),
+    };
+    operators_store.set_firmware_file(file.clone());
+    let version = |page: &Json| match json_field(json_field(page, "server"), "version") {
+        Json::Int(v) => *v as i32,
+        _ => panic!("no version"),
+    };
+    let page = operators_store
+        .firmware_overview(&acting().await)
+        .await
+        .expect("the page");
+    let v = version(&page);
+
+    // Values the firmware tests that share this database do not depend on, put back below.
+    operators_store
+        .set_firmware_settings(
+            &acting().await,
+            Saved {
+                uploads_per_server: Some(8),
+                upload_idle_seconds: Some(300),
+                ..Saved::default()
+            },
+            v,
+        )
+        .await
+        .expect("saved");
+    assert!(
+        operators_store
+            .set_firmware_settings(&acting().await, Saved::default(), v)
+            .await
+            .is_err(),
+        "an old version is refused"
+    );
+    assert!(
+        operators_store
+            .set_firmware_settings(
+                &acting().await,
+                Saved {
+                    uploads_per_organisation: Some(9),
+                    ..Saved::default()
+                },
+                v + 1,
+            )
+            .await
+            .is_err(),
+        "more per organisation than per server (the file's 3)"
+    );
+    let page = operators_store
+        .firmware_overview(&acting().await)
+        .await
+        .expect("the page");
+    let limits = json_field(&page, "limits");
+    assert!(matches!(
+        json_field(limits, "uploads_per_server"),
+        Json::Int(8)
+    ));
+    assert!(matches!(
+        json_field(limits, "upload_idle_seconds"),
+        Json::Int(300)
+    ));
+    assert!(matches!(
+        json_field(limits, "max_image_bytes"),
+        Json::Int(n) if *n == 2 << 30
+    ));
+
+    // A lock needs a reason.
+    assert!(operators_store
+        .set_firmware_ceiling(
+            &acting().await,
+            &organisation.to_string(),
+            Some(5 << 30),
+            true,
+            "",
+            0
+        )
+        .await
+        .is_err());
+    operators_store
+        .set_firmware_ceiling(
+            &acting().await,
+            &organisation.to_string(),
+            Some(5 << 30),
+            true,
+            "over budget until January",
+            0,
+        )
+        .await
+        .expect("ceiling and lock");
+
+    // In the organisation: held to the ceiling, and its Stewards cannot change it.
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    let _ctx = repo::open_tenant_context(&tx, organisation, steward)
+        .await
+        .expect("tenant context");
+    let limits = fs::limits_for(&tx, &ring, &file, &organisation.to_string())
+        .await
+        .expect("limits");
+    assert_eq!(limits.organisation_max_bytes, 5 << 30);
+    assert_eq!(limits.uploads_per_server, 8);
+    let refused = fs::steward_set_own(
+        &tx,
+        &ring,
+        &file,
+        &organisation.to_string(),
+        &steward.to_string(),
+        Some(1 << 30),
+        None,
+    )
+    .await;
+    assert!(matches!(refused, Err(SettingsError::Locked)), "{refused:?}");
+    drop(tx);
+
+    // Both chains have it: the organisation's for its Stewards, the site's for the admin.
+    let su = superuser().await;
+    let on_org: i64 = su
+        .query_one(
+            "SELECT count(*) FROM chain_entries WHERE chain_kind = 'org' AND organisation_id = $1 \
+               AND entry_type = 'firmware_ceiling_changed'",
+            &[&organisation.to_string()],
+        )
+        .await
+        .expect("count")
+        .get(0);
+    assert_eq!(on_org, 1);
+    let page = operators_store
+        .firmware_overview(&acting().await)
+        .await
+        .expect("the page");
+    let Json::Arr(history) = json_field(&page, "history") else {
+        panic!("no history")
+    };
+    assert!(history
+        .iter()
+        .any(|h| matches!(json_field(h, "type"), Json::Str(t) if t == "firmware_ceiling_changed")));
+    assert!(history.iter().any(
+        |h| matches!(json_field(h, "type"), Json::Str(t) if t == "firmware_server_settings_changed")
+    ));
+
+    // Unlocked, a Steward can go under the ceiling and not over it.
+    operators_store
+        .set_firmware_ceiling(
+            &acting().await,
+            &organisation.to_string(),
+            Some(5 << 30),
+            false,
+            "",
+            1,
+        )
+        .await
+        .expect("unlocked");
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    let _ctx = repo::open_tenant_context(&tx, organisation, steward)
+        .await
+        .expect("tenant context");
+    let over = fs::steward_set_own(
+        &tx,
+        &ring,
+        &file,
+        &organisation.to_string(),
+        &steward.to_string(),
+        Some(6 << 30),
+        None,
+    )
+    .await;
+    assert!(
+        matches!(over, Err(SettingsError::OverCeiling { .. })),
+        "{over:?}"
+    );
+    let under = fs::steward_set_own(
+        &tx,
+        &ring,
+        &file,
+        &organisation.to_string(),
+        &steward.to_string(),
+        Some(1 << 30),
+        Some("http://192.0.2.10:8080".into()),
+    )
+    .await
+    .expect("under the ceiling");
+    assert_eq!(under.organisation_max_bytes, 1 << 30);
+    assert_eq!(under.fetch_base_url, "http://192.0.2.10:8080");
+    tx.commit().await.expect("commit");
+
+    // A ceiling row edited in PostgreSQL directly no longer verifies, and is refused.
+    su.execute(
+        "UPDATE firmware_org_ceilings SET ceiling_bytes = 1099511627776 WHERE organisation_id = $1",
+        &[&organisation.to_string()],
+    )
+    .await
+    .expect("tamper");
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    let _ctx = repo::open_tenant_context(&tx, organisation, steward)
+        .await
+        .expect("tenant context");
+    assert!(matches!(
+        fs::limits_for(&tx, &ring, &file, &organisation.to_string()).await,
+        Err(SettingsError::Unverifiable(_))
+    ));
+    drop(tx);
+
+    // Back to the settings file's values for the server. The page still opens, with the
+    // edited row marked.
+    let page = operators_store
+        .firmware_overview(&acting().await)
+        .await
+        .expect("the page");
+    let Json::Arr(rows) = json_field(&page, "organisations") else {
+        panic!("no organisations")
+    };
+    assert!(rows
+        .iter()
+        .any(|r| matches!(json_field(r, "verifies"), Json::Bool(false))));
+    operators_store
+        .set_firmware_settings(&acting().await, Saved::default(), version(&page))
+        .await
+        .expect("back to the file");
+}
