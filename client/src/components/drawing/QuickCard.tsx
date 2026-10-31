@@ -59,12 +59,15 @@ function refind(target: PeekTarget): HTMLElement | null {
   return null;
 }
 
-/** A device or a shelf is anchored on its right edge; a rack or a cable where it was clicked. */
+/** A device, shelf or rack hangs the card off its right edge (a rack at the height it was clicked, being
+ * tall); a cable, which has no edge to speak of, from where it was clicked. */
 function anchorOf(p: Pinned, r: DOMRect): { x: number; y: number; left: number; right: number } {
-  const y = p.target.kind === 'device' || p.target.kind === 'shelf' ? r.top + r.height / 2 : r.top + p.fy * r.height;
-  if (p.target.kind === 'device' || p.target.kind === 'shelf') return { x: r.right, y, left: r.left, right: r.right };
-  const x = r.left + p.fx * r.width;
-  return { x, y, left: x, right: x };
+  if (p.target.kind === 'cable') {
+    const x = r.left + p.fx * r.width;
+    return { x, y: r.top + p.fy * r.height, left: x, right: x };
+  }
+  const y = p.target.kind === 'rack' ? r.top + p.fy * r.height : r.top + r.height / 2;
+  return { x: r.right, y, left: r.left, right: r.right };
 }
 
 export function QuickCard({ view }: { view: ClosetView }) {
