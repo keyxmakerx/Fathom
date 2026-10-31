@@ -53,7 +53,7 @@ import { Fold } from './Fold';
 import { CardsSection, OpticSection } from './Parts';
 import { OpenFarSite, SiteLinkPicker, siteLinkOf } from './SiteLink';
 import { LoginsTab, LoginsTabLabel } from '../vault/Screens';
-import { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, rackHeightBlocker, swapModelChange, swapSummary } from './editorChanges';
+import { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, holderOf, rackHeightBlocker, swapModelChange, swapSummary } from './editorChanges';
 import { loadJsonPref, saveJsonPref } from '../../prefs';
 export { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, rackHeightBlocker, swapModelChange, swapSummary };
 
@@ -1917,6 +1917,28 @@ function AddNoteForm({
   );
 }
 
+/** Sign-off rua-ui-audit: a rack's, shelf's or wall's Remove. Always shown to someone who can
+ * edit; greyed, with what is still on it, until it is empty, so nothing goes with it by accident. */
+function RemoveHolder({ view, id, actions }: { view: ClosetView; id: string; actions: EditorActions }) {
+  const why = useId();
+  const holder = holderOf(view, id);
+  if (!actions.onEdit || holder == null) return null;
+  const label = `Remove ${holder.noun}`;
+  if (holder.onIt !== '') {
+    return (
+      <div className="drawing-editor__field">
+        <button type="button" className="btn-danger" disabled aria-describedby={why}>
+          {label}
+        </button>
+        <div id={why} className="drawing-context-menu__why">
+          Empty it first: {holder.onIt}
+        </div>
+      </div>
+    );
+  }
+  return <SupplyAction label={label} onCommit={() => actions.onEdit!({ kind: 'holder-remove', id })} />;
+}
+
 /**
  * The selected thing's fields, exactly as the shell's `editor` prop wants
  * them (`Shell.tsx`'s `editor: ReactNode | null`). The same function serves
@@ -2027,6 +2049,42 @@ function panelFor(
         <NotesSection ownerId={rack.id} actions={actions} />
         <TagsSection ownerId={rack.id} actions={actions} />
         <DocsSection ownerId={rack.id} />
+        <RemoveHolder view={view} id={rack.id} actions={actions} />
+      </div>
+    );
+  }
+
+  // Sign-off rua-ui-audit: a wall, desk or ceiling, clicked on its own face. Its name, what is on
+  // it (each a link to its panel), its cable runs, and Remove.
+  if (selection.kind === 'surface') {
+    const surface = view.surfaces.find((x) => x.id === selection.id);
+    if (surface == null) return null;
+    const runs = surface.cableRuns ?? [];
+    return (
+      <div className="drawing-editor__panel">
+        <div className="drawing-editor__title">
+          <EditableValue
+            value={surface.label}
+            placeholder={ABSENT}
+            editorKind="text"
+            onCommit={actions.onEdit ? (v) => actions.onEdit!({ kind: 'surface', id: surface.id, field: 'label', value: v }) : undefined}
+          />
+        </div>
+        <Field label="Kind" value={surface.form} />
+        <div className="drawing-editor__field">
+          <div className="drawing-editor__field-label">On it</div>
+          {surface.fixtures.length === 0 ? (
+            <div className="drawing-editor__field-value">Nothing yet</div>
+          ) : (
+            surface.fixtures.map((f) => (
+              <div key={f.id}>
+                <SelectLink label={f.label || UNNAMED_HOSTNAME} onSelect={actions.onSelect && (() => actions.onSelect!({ kind: 'fixture', id: f.id }))} />
+              </div>
+            ))
+          )}
+        </div>
+        <Field label="Cable runs" value={runs.length === 0 ? 'None' : String(runs.length)} />
+        <RemoveHolder view={view} id={surface.id} actions={actions} />
       </div>
     );
   }
@@ -2129,6 +2187,7 @@ function panelFor(
             })
           )}
         </div>
+        <RemoveHolder view={view} id={shelf.id} actions={actions} />
       </div>
     );
   }

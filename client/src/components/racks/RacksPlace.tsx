@@ -58,6 +58,7 @@ import { ConfigDrawer } from '../config/ConfigDrawer';
 import { canDrawFor, refusalFor, type DesignSession } from '../design/useDesignSession';
 import { MultiDevicePanel } from '../drawing/MultiDevicePanel';
 import { Drawing, EditorFor, Palette, type NotesActions, type Selection, type TagsActions, type FieldsActions } from '../drawing';
+import { holderOf } from '../drawing/editorChanges';
 import {
   cableGroupsStorageKey,
   closetCableIdSet,
@@ -1952,14 +1953,18 @@ export function RacksPlace(props: RacksPlaceProps) {
       keywords: PALETTE_KEYWORDS[DEVICE_WORDS.suggestCables],
       run: () => setSuggest({ deviceId: null }),
     });
+    // Sign-off rua-ui-audit: a selected rack, shelf or wall is removed the way its own Remove
+    // does, greyed with what is still on it.
+    const holder = selection != null ? holderOf(realView, selection.id) : null;
     out.push(rename, {
       id: 'delete',
-      label: selection?.kind === 'cable' ? 'Delete cable' : 'Delete',
+      label: selection?.kind === 'cable' ? 'Delete cable' : holder != null ? named(`Remove ${holder.noun}`, rackName) : 'Delete',
       hint: shortcutText('delete'),
       keywords: ['remove'],
-      disabled: selection?.kind !== 'cable' ? 'Select a device or cable first' : undefined,
+      disabled: selection?.kind === 'cable' ? undefined : holder != null ? (holder.onIt === '' ? undefined : `Empty it first: ${holder.onIt}`) : 'Select a device, cable or rack first',
       run: () => {
         if (selection?.kind === 'cable') handleDisconnect(selection.id);
+        else if (holder != null && selection != null && handleEdit({ kind: 'holder-remove', id: selection.id }) == null) setSelection(null);
       },
     });
     return out;
