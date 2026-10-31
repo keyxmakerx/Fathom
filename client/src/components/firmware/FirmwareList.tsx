@@ -168,7 +168,11 @@ export function FirmwareList({ api, onOpenImage, onOpenModel, onOpenDevices, onU
           {all.length === 0
             ? status === 'loading'
               ? 'Reading what the server holds…'
-              : 'No images yet. Upload one, or choose a version on a model page.'
+              : api.isSteward && status !== 'off'
+                ? 'No images yet. Upload one, or choose a version on a model page.'
+                : api.canEdit
+                  ? 'No images yet. Choose a version on a model page.'
+                  : 'No images yet.'
             : 'Nothing matches.'}
         </p>
       ) : null}

@@ -48,6 +48,11 @@ import './home.css';
 import { EmptyState } from '../ui/EmptyState';
 import { SkeletonRows } from '../ui/Skeleton';
 
+/** The design's access in the bar's words ("View only"), not the server's ("read"). */
+function accessWord(capability: string): string {
+  return capability === 'read' ? 'view only' : capability === 'draw' ? 'can draw' : capability === 'steward' ? 'steward' : capability;
+}
+
 export interface HomeProps {
   /** The signed-in account's address, exactly as `Shell`/`Masthead` already
    * receive it from `App.tsx`'s `session.address` — Home does not read
@@ -1107,10 +1112,10 @@ function DesignRow({ design, organisation, onOpenRacks, onOpenInventory, onRenam
         </button>
       )}
       <span className="home__design-meta">
-        v{design.latestVersion} · {design.capability} · started {whenLabel(design.createdAtUnix).toLowerCase()}
+        v{design.latestVersion} · {accessWord(design.capability)} · started {whenLabel(design.createdAtUnix).toLowerCase()}
       </span>
       <span className="home__design-actions">
-        {canDrawFor(design.capability) && !editing && (
+        {canDrawFor(design.capability) && !editing && !moving && (
           <button
             type="button"
             className="home__btn"

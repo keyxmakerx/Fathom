@@ -51,6 +51,28 @@ export const KIND_GROUPS: ReadonlyArray<ReadonlyArray<{ key: Kind; label: string
 export const KINDS: ReadonlyArray<{ key: Kind; label: string }> = KIND_GROUPS.flat();
 export const isKind = (s: string): s is Kind => KINDS.some((k) => k.key === s);
 
+const ONE: Partial<Record<Kind, string>> = {
+  devices: 'device',
+  ports: 'port',
+  parts: 'part',
+  racks: 'rack',
+  cables: 'cable',
+  models: 'model',
+  networks: 'network',
+  prefixes: 'prefix',
+  vlans: 'VLAN',
+  addresses: 'address',
+  passwords: 'password',
+  issues: 'issue',
+};
+
+/** A kind's word in running text, for n rows: "1 device", "3 VLANs", "No VLANs yet". */
+export function kindNoun(kind: Kind, n = 2): string {
+  const label = KINDS.find((k) => k.key === kind)?.label ?? kind;
+  const many = /^[A-Z]{2}/.test(label) ? label : label.toLowerCase();
+  return n === 1 ? (ONE[kind] ?? many) : many;
+}
+
 /** The field kind a table kind's rows take; networks and addresses take none here. */
 export const FIELD_FOR_KIND: Partial<Record<Kind, FieldFor>> = {
   devices: 'device',

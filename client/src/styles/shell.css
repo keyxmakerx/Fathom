@@ -636,6 +636,9 @@ button.shell-admin-pill {
   display: flex;
   flex-direction: column;
   min-width: 200px;
+  /* An organisation with hundreds of folders: the tree scrolls inside the window. */
+  max-height: calc(100dvh - 60px);
+  overflow-y: auto;
   animation: fathom-pop-in var(--m-pop) var(--m-ease);
 }
 

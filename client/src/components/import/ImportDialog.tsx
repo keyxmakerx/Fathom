@@ -488,6 +488,7 @@ export function ImportDialog(props: ImportDialogProps) {
                   {summary.refused.slice(0, LIST_LIMIT).map((r, i) => (
                     <li key={i}>{r}</li>
                   ))}
+                  {summary.refused.length > LIST_LIMIT ? <li className="imp__muted">And {summary.refused.length - LIST_LIMIT} more.</li> : null}
                 </ul>
               </details>
             ) : null}
@@ -568,6 +569,9 @@ function Warnings({ items }: { items: PlanItem[] }) {
             <span className="imp__mono">{i.name}</span> <span className="imp__muted">{w}</span>
           </li>
         )))}
+        {items.length > LIST_LIMIT ? (
+          <li className="imp__muted">And {items.slice(LIST_LIMIT).reduce((n, i) => n + i.warnings.length, 0)} more.</li>
+        ) : null}
       </ul>
     </details>
   );

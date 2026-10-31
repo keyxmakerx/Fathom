@@ -82,7 +82,9 @@
   flex-wrap: wrap;
   align-items: flex-start;
   gap: var(--s3);
-  flex-shrink: 0;
+  /* Takes the row's spare width and wraps inside it, rather than sizing to one long line of zones. */
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .inside-stop__zone {

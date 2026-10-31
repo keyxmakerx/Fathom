@@ -1628,6 +1628,12 @@
   color: var(--danger);
 }
 
+/* Two removals in a row (a rack's two lacing bars) share the one rule above the first. */
+.drawing-context-menu__item--danger + .drawing-context-menu__item--danger {
+  margin-top: 0;
+  border-top: 0;
+}
+
 /* Sign-off r58: the device menu's groups, its keys, and an item greyed with why. */
 /* A long list on a short window scrolls inside the drawing rather than running off it. */
 .drawing-context-menu {
@@ -2203,6 +2209,12 @@
   margin-top: var(--s1);
   border-top: 1px solid var(--hairline);
   color: var(--danger);
+}
+
+/* Two removals in a row (a rack's two lacing bars) share the one rule above the first. */
+.drawing-context-menu__item--danger + .drawing-context-menu__item--danger {
+  margin-top: 0;
+  border-top: 0;
 }
 .dev-more__menu--list .drawing-context-menu__item--off {
   color: var(--muted);

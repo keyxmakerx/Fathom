@@ -74,6 +74,8 @@ export function Account({ address, purpose = 'settings', onDone, onClose, focus,
   // enrolment" until this answers, which is the state a fresh session with
   // no authenticator would leave it in anyway.
   const [hasAuthenticator, setHasAuthenticator] = useState<boolean | null>(null);
+  // A new password ends every other session, so the list below reads again.
+  const [sessionsRead, setSessionsRead] = useState(0);
   useEffect(() => {
     let cancelled = false;
     fetchHasAuthenticator()
@@ -114,9 +116,9 @@ export function Account({ address, purpose = 'settings', onDone, onClose, focus,
 
           {settings && <Appearance />}
 
-          {settings && <PasswordForm address={address} />}
+          {settings && <PasswordForm address={address} onSet={() => setSessionsRead((n) => n + 1)} />}
 
-          {settings && <SignedInBrowsers />}
+          {settings && <SignedInBrowsers key={sessionsRead} />}
 
           {settings && <TypeItYourselfSettings onTurnedOn={onTypeItYourself} />}
 
@@ -297,7 +299,7 @@ function NameForm() {
 
 /** Set or change the password (ADR-0057 decision 3). `address` finds this
  * browser's enrolled key when `current` is left blank. */
-export function PasswordForm({ address }: { address: string }) {
+export function PasswordForm({ address, onSet }: { address: string; onSet?: () => void }) {
   const [current, setCurrent] = useState('');
   const [chosen, setChosen] = useState('');
   const [again, setAgain] = useState('');
@@ -323,6 +325,7 @@ export function PasswordForm({ address }: { address: string }) {
       setChosen('');
       setAgain('');
       setDone(true);
+      onSet?.();
     } catch (error) {
       console.error(error);
       setRefusal(describe(error));

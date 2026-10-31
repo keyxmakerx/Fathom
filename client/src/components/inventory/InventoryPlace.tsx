@@ -21,7 +21,7 @@ import type { FieldFor, FieldType } from '../../api/fieldDefinitions';
 import { ImportDialog } from '../import/ImportDialog';
 import type { FieldDefView } from '../../document/fields';
 import { ListToolbar, type KindFilter } from './ListToolbar';
-import { isKind } from './kinds';
+import { isKind, kindNoun } from './kinds';
 import { listIssues } from '../../document/issues';
 import { EverywherePanel } from './EverywherePanel';
 import { IssuesList } from '../troubleshoot/IssuesList';
@@ -1019,11 +1019,11 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                       onClose={close}
                     />
                   )}
-                  emptyText={baseRows.length === 0 ? `No ${kind} yet.` : 'Nothing matches the filters.'}
+                  emptyText={baseRows.length === 0 ? `No ${kindNoun(kind)} yet.` : 'Nothing matches the filters.'}
                   empty={
                     baseRows.length === 0 ? (
                       <EmptyState
-                        title={`No ${kind} yet.`}
+                        title={`No ${kindNoun(kind)} yet.`}
                         compact
                         action={
                           canDraw && (kind === 'prefixes' || kind === 'vlans')
@@ -1033,7 +1033,9 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                               : undefined
                         }
                       >
-                        {kind === 'devices'
+                        {!canDraw && (kind === 'devices' || kind === 'racks' || kind === 'prefixes' || kind === 'vlans')
+                          ? 'None are recorded in this design yet.'
+                          : kind === 'devices'
                           ? 'Press + above to name one, or import a list.'
                           : kind === 'racks'
                             ? 'Press + above to name a rack.'
@@ -1061,7 +1063,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                   }}
                 />
               </div>
-              <ListFoot kind={kind} noun={kindLabel.toLowerCase()} rows={rows} total={baseRows.length} checkedRows={checkedRows} />
+              <ListFoot kind={kind} rows={rows} total={baseRows.length} checkedRows={checkedRows} />
             </div>
           )}
           </div>

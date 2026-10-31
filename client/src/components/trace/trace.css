@@ -26,6 +26,12 @@
   justify-content: space-between;
   gap: var(--s2);
   margin-bottom: var(--s2);
+  /* The whole panel scrolls; Close stays in reach on a long trace. */
+  position: sticky;
+  top: calc(-1 * var(--s3));
+  z-index: 1;
+  padding-block: var(--s1);
+  background: var(--page);
 }
 
 .trace-panel__title {

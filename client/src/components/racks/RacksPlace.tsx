@@ -2158,7 +2158,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       ? [
           ...shellProps.path.slice(0, -1),
           { ...shellProps.path[shellProps.path.length - 1]!, opensTree: false, hint: 'Back to the canvas', onSelect: () => { shellProps.path[shellProps.path.length - 1]!.onSelect?.(); leaveJot(); } },
-          { label: jotDevice.hostname || 'unnamed' },
+          { label: jotDevice.hostname || jotDevice.model || 'unnamed' },
         ]
       : shellProps.path;
 

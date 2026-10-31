@@ -128,6 +128,15 @@
   transition: border-color var(--m-hover) var(--m-ease);
 }
 
+/* `design/tokens.css` sets `appearance: none` on every input, which leaves a
+   checkbox or radio with nothing drawn and nothing to click. Ticks and radios
+   get the native control back here, once, so a list no stylesheet patched
+   (port ties, a plan's LAG members) still shows its boxes. Still zero
+   specificity: a class that draws its own box keeps it. */
+:where(input[type='checkbox'], input[type='radio']) {
+  appearance: auto;
+}
+
 :where(input:not([type='checkbox'], [type='radio']):hover, select:hover, textarea:hover) {
   border-color: var(--control-line-hover);
 }

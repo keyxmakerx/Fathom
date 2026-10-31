@@ -75,7 +75,7 @@ export function ImagePage({ api, rowKey, onOpenModel }: { api: FirmwareApi; rowK
         <dt>Models</dt>
         <dd>
           {row.models.length === 0 ? (
-            <span className="fw-muted">None yet. Choose it for a model below.</span>
+            <span className="fw-muted">{api.canEdit ? 'None yet. Choose it for a model below.' : 'None yet.'}</span>
           ) : (
             row.models.map((m) => (
               <div key={m}>

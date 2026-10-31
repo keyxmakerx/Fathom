@@ -1963,10 +1963,17 @@ function panelFor(
   if (selection.kind === 'rack') {
     const rack = findRack(view, selection.id);
     if (rack == null) return null;
-    const usedU = rack.chassis.reduce((sum, c) => sum + c.heightU, 0);
+    const usedU = [...rack.chassis, ...rack.shelves].reduce((sum, c) => sum + c.heightU, 0);
     return (
       <div className="drawing-editor__panel">
-        <div className="drawing-editor__title">{rack.label}</div>
+        <div className="drawing-editor__title">
+          <EditableValue
+            value={rack.label}
+            placeholder={ABSENT}
+            editorKind="text"
+            onCommit={actions.onEdit ? (v) => actions.onEdit!({ kind: 'rack', id: rack.id, field: 'label', value: v }) : undefined}
+          />
+        </div>
         <RackHeightControl rack={rack} actions={actions} />
         <Field label="Numbering" value={rack.unitNumbering} />
         <Field label="Used" value={`${usedU} of ${rack.heightU}U`} />

@@ -353,7 +353,7 @@ export function JotView(props: JotViewProps): JSX.Element {
       {insideBody != null ? (
         <div className="jot__inside">
           {/* The way back out to the plate; the bar's Inside button and Esc do the same. */}
-          <button type="button" className="inside-back" title="Back out to the plate (Esc)" onClick={() => setInside(false)}>
+          <button type="button" className="inside-back" title="Back out to the faceplate (Esc)" onClick={() => setInside(false)}>
             ← Back out
           </button>
           {insideBody}
