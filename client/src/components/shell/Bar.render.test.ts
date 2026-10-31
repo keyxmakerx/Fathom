@@ -194,3 +194,12 @@ describe('Bar — renaming the design from its crumb', () => {
     expect(markup).not.toContain('double-click to rename');
   });
 });
+
+describe('Bar — a long design name', () => {
+  it('sits in its own clipped span, with the whole name in the tooltip', () => {
+    const name = 'N'.repeat(100);
+    const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, path: [{ label: name, opensTree: true }] }));
+    expect(markup).toContain(`<span class="shell-bar__path-text">${name}</span>`);
+    expect(markup).toContain(`title="${name} · switch to another place or design"`);
+  });
+});

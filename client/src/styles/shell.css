@@ -173,6 +173,16 @@ span.shell-bar__tab {
   font-weight: 700;
 }
 
+/* A long design name (up to 100 characters) ends in an ellipsis rather than pushing the bar's
+   right end off screen; the full name is in the tooltip and the rename field. */
+.shell-bar__path-text {
+  display: inline-block;
+  max-width: 32ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
 /* The design's name: a pencil that shows on hover or focus, and the name as a field while renaming. */
 .shell-bar__path-rename {
   display: inline-flex;

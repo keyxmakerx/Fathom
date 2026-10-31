@@ -1104,7 +1104,8 @@ export default function App() {
     { label: view.organisation.displayName, onSelect: () => setView({ kind: 'home' }), hint: 'Home' },
     // The root scope is made with the organisation and carries its name; showing both read as a stutter.
     ...scopeChain.filter((scope, i) => !(i === 0 && scope.displayName === view.organisation.displayName)).map((scope) =>
-      firstDesignByScopeId.has(scope.scopeId)
+      // The design's own folder would only reopen the design already open; the name's menu switches.
+      firstDesignByScopeId.has(scope.scopeId) && scope.scopeId !== view.design.scopeId
         ? { label: scope.displayName, onSelect: () => selectScope(scope.scopeId), hint: `Open ${scope.displayName}'s latest design` }
         : { label: scope.displayName },
     ),
