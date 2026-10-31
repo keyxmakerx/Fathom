@@ -1051,3 +1051,21 @@ export function seedSuggestScene(me: string): Document {
   }
   return doc;
 }
+
+/** The owner's "sweetch" (2026-10-31): a switch typed by hand in a 12U rack at U10, thirteen `Et` ports, its note
+ * naming the model, two cables out. The "sweetch" scene, for `drive-model-guess.mjs`. */
+export function seedSweetchScene(catalogue: CatalogueModel[], me: string): Document {
+  const { doc: base, rackId } = oneRack(catalogue, me, 12);
+  const sw = newSketchDevice(base, 'sweetch', me);
+  let doc = movePlacement(sw.doc, sw.chassisId, { kind: 'rack', rackId, positionU: 10, face: 'front' }, { actor: me });
+  const labels = ['Et3', 'Et4', 'Et6', 'Et7', 'Et8', 'Et11', 'Et12', 'Et13', 'Et15', 'Et34', 'Et39', 'Et49', 'Et51'];
+  for (const label of labels) doc = addSketchPort(doc, sw.chassisId, { label, connector: 'sfp_plus', face: 'front' }, { actor: me });
+  const deviceId = viewOf(doc, catalogue).racks[0]!.chassis.find((c) => c.id === sw.chassisId)!.deviceId;
+  doc = addNote(doc, deviceId, { text: 'Arista DCS-7050S-52 (48x SFP+ and 4x SFP+, 1U), EOS 4.18.11M. Managed at 10.10.255.100/16.', how: 'typed', actor: me });
+  const fw = newSketchDevice(doc, 'painite', me);
+  doc = movePlacement(fw.doc, fw.chassisId, { kind: 'rack', rackId, positionU: 8, face: 'front' }, { actor: me });
+  doc = addSketchPort(doc, fw.chassisId, { label: '10G to Arista', connector: 'sfp_plus', face: 'front' }, { actor: me });
+  const portOf = (chassisId: string, label: string) =>
+    viewOf(doc, catalogue).racks[0]!.chassis.find((c) => c.id === chassisId)!.ports.find((p) => p.label === label)!.id;
+  return connectPorts(doc, portOf(sw.chassisId, 'Et49'), portOf(fw.chassisId, '10G to Arista'), { label: 'Arista Et49 to Painite, 10G DAC 3 m' }, { actor: me });
+}

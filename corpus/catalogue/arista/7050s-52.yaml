@@ -1,0 +1,64 @@
+# corpus/catalogue/arista/7050s-52.yaml — read by fathom-corpus's
+# `catalogue` module (crates/fathom-corpus/src/catalogue.rs); see that file
+# for the format's rules (unknown keys refused, numbering/layout are a
+# pattern the reader expands, never literal coordinates).
+#
+# `reviewed_by: <named human>` is a placeholder, not a name (invariant 10,
+# the same convention `720xp-48zc2.yaml` uses).
+#
+# WHERE EVERY NUMBER BELOW CAME FROM (read 2026-10-31):
+#
+#   Arista Networks, "Quick Start Guide: 7000 Series 1RU Gen2"
+#   (arista.com/en/support/advisories-notices/end-of-support/73-support/
+#   quick-start-guide/qsg-7000-series-1ru-gen2), fetched directly: its scope
+#   table names the DCS-7050S-52; "The front panel contains the console,
+#   management, and USB ports"; "The switch operates with two installed
+#   power supplies"; "Fan and power supply modules are accessed from the rear
+#   panel".
+#
+#   Two independent reseller listings of the same SKU, fetched directly:
+#   networktigers.com ("Arista DCS-7050S-52-F 7050S Series 52x 10GB SFP+"):
+#   52 x 10GbE SFP+, one RJ45 serial console, one RJ45 management port, one
+#   USB, two PWR-460AC-F supplies and four fan modules; mercadoit.com ("Arista
+#   7050S, 52x SFP+ (48+4) switch ... dual 460W AC power supplies"): 48 + 4
+#   SFP+, 1RU. xsnet.com.au's listing title for the same SKU reads "requires
+#   hot swap fans psus" (title only, read via search).
+#
+# WHAT IS NOT INDEPENDENTLY CONFIRMED, AND THE CONSERVATIVE READING USED:
+#
+#   The guide shows the front panel only as a figure, which was not read.
+#   The 52 SFP+ cages are recorded as 48 access ports in paired columns
+#   (odd on top) and four uplinks numbered 49 to 52, the order "48 + 4" gives
+#   and EOS's own Et1..Et52 naming follows; the uplinks' paired layout is this
+#   catalogue's convention, not a photograph. PSU1/PSU2's left/right order
+#   is by listing order, as `720xp-48zc2.yaml` states for its own pair.
+#   `Management1` is EOS's interface name for the management port (see
+#   `720xp-48zc2.yaml`'s header); `Console` is the plain word. The USB port
+#   is not recorded: `PortKind` has no USB member.
+vendor: arista
+model: DCS-7050S-52
+rack_units: 1
+reviewed_by: <named human>
+source:
+  cite: >
+    Arista Networks, "Quick Start Guide: 7000 Series 1RU Gen2" (arista.com,
+    fetched 2026-10-31) for the DCS-7050S-52 being in scope, the front-panel
+    console, management and USB ports, two installed power supplies, and
+    supplies and fans reached from the rear; networktigers.com's and
+    mercadoit.com's listings of the DCS-7050S-52 (fetched 2026-10-31) for 52
+    x 10GbE SFP+ (48 + 4), 1RU, one RJ45 console, one RJ45 management port
+    and two 460 W AC supplies; xsnet.com.au's listing title for hot-swap
+    supplies. The paired-columns layout and PSU order are this catalogue's
+    own conservative convention — see the file header.
+  read_on: "2026-10-31"
+faceplates:
+  - face: front
+    port_count: 54
+    port_groups:
+      - { kind: "SFP+", role: access, layout: paired_columns, count: 48, start_number: 1 }
+      - { kind: "SFP+", role: uplink, layout: paired_columns, count: 4, start_number: 49 }
+      - { kind: "RJ45", role: management, layout: single_row, names: [Management1] }
+      - { kind: "RJ45", role: console, layout: single_row, names: [Console] }
+psu_slots:
+  - { name: "PSU1", hot_swap: true, face: rear, position: { row: single, column: 0 } }
+  - { name: "PSU2", hot_swap: true, face: rear, position: { row: single, column: 1 } }

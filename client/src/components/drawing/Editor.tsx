@@ -1462,10 +1462,35 @@ function SwapModelControl({ chassisId, current, catalogue, actions }: { chassisI
   if (choices.length === 0) return null;
 
   if (!open) {
+    const guess = current ? null : actions.guessModel?.(chassisId) ?? null;
     return (
-      <button type="button" className="btn-quiet" onClick={() => setIsOpen(true)}>
-        {current ? DEVICE_WORDS.swapModel : DEVICE_WORDS.giveModel}
-      </button>
+      <>
+        {guess ? (
+          <div className="dev-guess" data-testid="model-guess">
+            <div className="dev-guess__h">
+              Looks like the {guess.vendorName} <b>{guess.model}</b>
+            </div>
+            <ul className="dev-guess__why">
+              {guess.why.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              className="btn-main"
+              onClick={() => {
+                setModelKey(`${guess.vendor}|${guess.model}`);
+                setIsOpen(true);
+              }}
+            >
+              See what changes
+            </button>
+          </div>
+        ) : null}
+        <button type="button" className="btn-quiet" onClick={() => setIsOpen(true)}>
+          {current ? DEVICE_WORDS.swapModel : DEVICE_WORDS.giveModel}
+        </button>
+      </>
     );
   }
 

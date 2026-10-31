@@ -9,6 +9,7 @@ import { LabelsPreview } from '../../print/LabelsPreview';
 import type { LabelItem } from '../../print/labels';
 import { listOverlays } from '../../document/overlays';
 import { captureOf } from '../../document/capture';
+import { guessModel } from '../../document/guessModel';
 import { previewSwapIn } from '../../document/swapModel';
 import { completeCable, connectPorts, disconnect, IncompatibleConnectorError, PortAlreadyTerminatedError, type Sheath } from '../../document/cables';
 import {
@@ -2032,6 +2033,7 @@ export function RacksPlace(props: RacksPlaceProps) {
             isCableHidden: handleIsCableHidden,
             onToggleCableHidden: handleToggleCableHidden,
             previewSwap: (chassisId, m) => previewSwapIn(doc, catalogue, chassisId, m),
+            guessModel: (chassisId) => guessModel(doc, chassisId, catalogue),
           },
           paletteFromCatalogue(catalogue),
           // r31 pictures: the two ways on at the panel's foot; everything, those two included, in its ⋯ menu

@@ -2,6 +2,7 @@ import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getSession } from '../../state/sessionState';
 import { viewOfAll, type ClosetView } from '../../document/view';
+import { guessModel } from '../../document/guessModel';
 import { previewSwapIn } from '../../document/swapModel';
 import { deriveNetworks, type NetworksDerived } from '../../document/networks-derive';
 import { deriveIpam, type IpamDerived } from '../../document/ipam';
@@ -583,6 +584,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     onAddFieldDef: canDraw ? fieldsActions.onAddFieldDef : undefined,
     onRemoveFieldDef: canDraw ? fieldsActions.onRemoveFieldDef : undefined,
     previewSwap: (chassisId: string, m: { vendor: string; model: string }) => (doc ? previewSwapIn(doc, catalogue, chassisId, m) : null),
+    guessModel: (chassisId: string) => (doc ? guessModel(doc, chassisId, catalogue) : null),
   };
 
   const actorOpts = ctx.actor ? { actor: ctx.actor } : undefined;

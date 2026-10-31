@@ -53,6 +53,7 @@ import type { NoteHow, NoteView } from '../../document/notes';
 import type { TagChip, TagSummary } from '../../document/tags';
 import type { FieldFor, FieldRow, FieldType } from '../../document/fields';
 import type { PortFace } from '../../document/compat';
+import type { ModelGuess } from '../../document/guessModel';
 import type { SwapPlan } from '../../document/swapModel';
 import type { CardPorts, Optic } from '../../document/cards';
 
@@ -408,6 +409,9 @@ export interface EditorActions {
   /** What "Swap model…" would carry over, before anyone confirms. Writes nothing; absent hides
    * the preview, not the swap. */
   previewSwap?(chassisId: string, model: { vendor: string; model: string }): SwapPlan | null;
+  /** The catalogue model a box typed by hand most likely is (`guessModel`), offered beside "Give it a catalogue
+   * model…"; null when nothing points clearly at one. Writes nothing. */
+  guessModel?(chassisId: string): ModelGuess | null;
 }
 
 /** `EditorActions`'s three Notes members, grouped for a caller that only
