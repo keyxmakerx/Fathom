@@ -105,6 +105,9 @@ export function HistoryPanel({ history, accountId, accountAddress, canDraw, rest
               <p>
                 {restoreText} It is saved as a new version; both stay in this list.
               </p>
+              <button type="button" className="history__btn" onClick={() => setConfirming(false)}>
+                Cancel
+              </button>
               <button
                 type="button"
                 className="history__btn history__btn--primary"
@@ -114,9 +117,6 @@ export function HistoryPanel({ history, accountId, accountAddress, canDraw, rest
                 }}
               >
                 Restore
-              </button>
-              <button type="button" className="history__btn" onClick={() => setConfirming(false)}>
-                Cancel
               </button>
             </div>
           )}

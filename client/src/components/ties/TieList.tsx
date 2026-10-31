@@ -42,6 +42,7 @@ export function TieList({ plan, onTie, onAddPorts, onSkip }: TieListProps): JSX.
         <>
           <p className="ties__note">This device has no ports drawn yet.</p>
           <p className="ties__note ties__muted">Each new port is tied to its interface. Read the numbers off the faceplate later.</p>
+          {refusal !== '' && <p className="paste-card__refusal" role="alert">{refusal}</p>}
           <div className="paste-card__actions">
             <button type="button" onClick={() => run(onAddPorts())}>Add {plural(plan.rows.length, 'port', 'ports')} from this config</button>
             <button type="button" onClick={onSkip}>Not now</button>
@@ -106,6 +107,7 @@ export function TieList({ plan, onTie, onAddPorts, onSkip }: TieListProps): JSX.
             </>
           )}
 
+          {refusal !== '' && <p className="paste-card__refusal" role="alert">{refusal}</p>}
           <div className="paste-card__actions">
             <button type="button" disabled={pairs.length === 0} onClick={() => run(onTie(pairs))}>
               {pairs.length === 0 ? 'Tie these' : `Tie ${plural(pairs.length, 'interface', 'interfaces')}`}
@@ -114,8 +116,6 @@ export function TieList({ plan, onTie, onAddPorts, onSkip }: TieListProps): JSX.
           </div>
         </>
       )}
-
-      {refusal !== '' && <p className="paste-card__refusal" role="alert">{refusal}</p>}
     </section>
   );
 }

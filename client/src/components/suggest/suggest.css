@@ -33,6 +33,12 @@
   list-style: none;
   margin: var(--s2) 0;
   padding: 0;
+  /* Sign-off rua-ui-audit: a 48-port table scrolls in its own box, the reasons and Add stay in view. */
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.suggest-card__reasons summary {
+  cursor: pointer;
 }
 .suggest-card__rows li {
   border-bottom: var(--rule-hair) solid var(--hairline);

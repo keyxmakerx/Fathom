@@ -187,9 +187,19 @@
   padding-left: var(--s4);
 }
 
+/* Sign-off rua-ui-audit (card 57's rule for every dialog): the rows scroll, the buttons stay on
+   the box's bottom edge with the main one last. The negative margin and padding reach past the
+   box's own padding, so no row shows beneath them. */
 .imp__actions {
   display: flex;
+  justify-content: flex-end;
   gap: var(--s2);
+  position: sticky;
+  bottom: calc(-1 * var(--s4));
+  margin: 0 calc(-1 * var(--s4)) calc(-1 * var(--s4));
+  padding: var(--s3) var(--s4);
+  border-top: var(--rule-hair) solid var(--hairline);
+  background: var(--page);
 }
 
 /* The global `input { appearance: none }` collapses radios; restore the native control. */

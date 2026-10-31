@@ -462,15 +462,15 @@ export function ImportDialog(props: ImportDialogProps) {
 
             {error ? <p role="alert" className="imp__error">{error}</p> : null}
             {busy ? <p role="status">{busy}</p> : null}
+            <p className="imp__mono imp__muted">One step in history: Undo removes the devices and values{plan.newFields.length > 0 ? ', not the new shared fields' : ''}</p>
             <div className="imp__actions">
-              <button type="button" className="imp__primary" disabled={busy !== null || importable === 0 || !canDraw || !canImport} onClick={() => void run()}>
-                Import {importable}
-              </button>
               <button type="button" disabled={busy !== null} onClick={() => setStep('match')}>
                 Back
               </button>
+              <button type="button" className="imp__primary" disabled={busy !== null || importable === 0 || !canDraw || !canImport} onClick={() => void run()}>
+                Import {importable}
+              </button>
             </div>
-            <p className="imp__mono imp__muted">One step in history: Undo removes the devices and values{plan.newFields.length > 0 ? ', not the new shared fields' : ''}</p>
           </section>
         ) : null}
 
