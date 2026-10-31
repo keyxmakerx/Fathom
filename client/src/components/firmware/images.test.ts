@@ -19,6 +19,7 @@ const image = (id: string, version: string, models: string[], over: Partial<Firm
   stagedAtUnix: 2,
   sha256: HASH(id.slice(-1).toLowerCase() === 'a' ? 'a' : 'b'),
   sha512: null,
+  md5: null,
   lastCheckedAtUnix: null,
   changedAtUnix: null,
   retiredAtUnix: null,

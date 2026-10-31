@@ -34,6 +34,7 @@ const image: FirmwareImage = {
   stagedAtUnix: 2,
   sha256: HASH,
   sha512: null,
+  md5: null,
   lastCheckedAtUnix: null,
   changedAtUnix: null,
   retiredAtUnix: null,
@@ -207,6 +208,20 @@ describe('an image page', () => {
     expect(out).toContain(sha512);
     expect(out.match(/>Copy</g)?.length ?? 0).toBeGreaterThanOrEqual(2);
     expect(out).toContain('Still matches, last checked 31 Oct 2026');
+  });
+
+  it('shows the MD5 with a Copy button and says it protects nothing', () => {
+    const md5 = '900150983cd24fb0d6963f7d28e17f72';
+    const out = renderToStaticMarkup(createElement(ImagePage, { api: api(world().doc, { server: { status: 'ready', images: [{ ...image, md5 }], error: null } }), rowKey: 'img:' + IMG_ID, onOpenModel: noop }));
+    expect(out).toContain('>MD5<');
+    expect(out).toContain(md5);
+    expect(out).toContain('MD5 is broken');
+    expect(out).toContain('Fathom checks the SHA-256');
+  });
+
+  it('shows no MD5 row when the server has none', () => {
+    const out = renderToStaticMarkup(createElement(ImagePage, { api: api(world().doc), rowKey: 'img:' + IMG_ID, onOpenModel: noop }));
+    expect(out).not.toContain('>MD5<');
   });
 
   it('gives a steward Retire image, and a reader does not get it', () => {

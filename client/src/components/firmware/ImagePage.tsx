@@ -81,6 +81,20 @@ export function ImagePage({ api, rowKey, onOpenModel }: { api: FirmwareApi; rowK
                 </dd>
               </>
             ) : null}
+            {img.md5 ? (
+              <>
+                <dt>MD5</dt>
+                <dd>
+                  <span className="fw-mono" title={img.md5}>
+                    {img.md5}
+                  </span>{' '}
+                  <CopyButton text={img.md5} label="Copy" className="fw-btn btn-quiet" />
+                  <div className="fw-muted" data-testid="fw-md5-caveat">
+                    Only for a vendor page that gives nothing better. MD5 is broken: a match rules out a damaged download, not a file someone swapped on purpose. Fathom checks the SHA-256.
+                  </div>
+                </dd>
+              </>
+            ) : null}
             {img.changedAtUnix !== null ? (
               <>
                 <dt>Checked</dt>

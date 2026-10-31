@@ -26,6 +26,8 @@ import { setTermixOff } from '../../api/termix';
 import { PeopleList, PersonPage } from './PeoplePanel';
 import { WaitingPanel } from './WaitingPanel';
 import { PasswordsPage } from '../vault/Screens';
+import { initialPageLink, showPageLink } from '../home/pageLink';
+import { FirmwareSettingsPage } from './FirmwareSettingsPage';
 import './organisation.css';
 
 type Page =
@@ -37,7 +39,8 @@ type Page =
   | { kind: 'folders' }
   | { kind: 'passwords' }
   | { kind: 'ai' }
-  | { kind: 'ai-rules' };
+  | { kind: 'ai-rules' }
+  | { kind: 'firmware' };
 
 export interface OrganisationTabProps {
   organisation: Organisation;
@@ -56,14 +59,20 @@ export interface OrganisationTabProps {
 
 /**
  * The Steward tab (ADR-0060 decision 7; called Organisation until 2026-10-27):
- * People, Waiting for you, Folders, Passwords, AI and AI rules in a rail on the
- * left. Someone who may only connect AI apps gets the AI page alone, no rail. People and Waiting are for stewards: the
+ * People, Waiting for you, Folders, Passwords, AI, AI rules and Firmware in a rail on
+ * the left. Someone who may only connect AI apps gets the AI page alone, no rail. People and Waiting are for stewards: the
  * server refuses anyone else before it reads a row, and this tab then shows
  * that refusal in place of the list, with no Waiting entry and no emails.
  */
+/** Opened from `#steward/firmware` (r71). */
+const opensOnFirmware = (): boolean => {
+  const link = initialPageLink();
+  return link?.tab === 'steward' && link.page === 'firmware';
+};
+
 export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm, onSetPlace, estate, aiOnly = false }: OrganisationTabProps) {
   const org = organisation.organisationId;
-  const [page, setPage] = useState<Page>({ kind: aiOnly ? 'ai' : 'people' });
+  const [page, setPage] = useState<Page>(() => ({ kind: aiOnly ? 'ai' : opensOnFirmware() ? 'firmware' : 'people' }));
   const [people, setPeople] = useState<Loadable<People>>({ status: 'loading' });
   const [waiting, setWaiting] = useState<Loadable<Waiting>>({ status: 'loading' });
   const [busy, setBusy] = useState(false);
@@ -85,7 +94,7 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
   useEffect(() => {
     setPeople({ status: 'loading' });
     setWaiting({ status: 'loading' });
-    setPage({ kind: aiOnly ? 'ai' : 'people' });
+    setPage({ kind: aiOnly ? 'ai' : opensOnFirmware() ? 'firmware' : 'people' });
     reload();
   }, [reload, aiOnly]);
 
@@ -110,6 +119,8 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
     setError(null);
     setNotice(null);
     setPage(next);
+    // Steward › Firmware has an address of its own (r71); the other pages keep theirs as they were.
+    if (next.kind === 'firmware') showPageLink({ tab: 'steward', page: 'firmware' });
   }
 
   const peopleView = () => {
@@ -154,6 +165,7 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
   };
 
   function content() {
+    if (page.kind === 'firmware') return <FirmwareSettingsPage organisationId={org} />;
     if (page.kind === 'passwords') {
       return <PasswordsPage organisation={org} organisationName={organisation.displayName} mode="admin" />;
     }
@@ -337,6 +349,9 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
         </button>
         <button type="button" className={current === 'ai-rules' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} data-testid="rail-ai-rules" aria-current={current === 'ai-rules' ? 'page' : undefined} onClick={() => go({ kind: 'ai-rules' })}>
           AI rules
+        </button>
+        <button type="button" className={current === 'firmware' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} data-testid="rail-firmware" aria-current={current === 'firmware' ? 'page' : undefined} onClick={() => go({ kind: 'firmware' })}>
+          Firmware
         </button>
       </nav>
       <div className="org__body">{content()}</div>

@@ -97,6 +97,9 @@ export interface FirmwareImage {
   /** Also computed, never declared. Null before the bytes arrived, and for an image staged
    *  before the server worked one out, until its first weekly re-check. */
   sha512: string | null;
+  /** Also computed. **Protects nothing**: MD5 is broken, so a match with a vendor's MD5 only
+   *  rules out a damaged download. Null where the server worked none out. */
+  md5: string | null;
   /** When the server last hashed the stored file again; null from a server that does not re-check. */
   lastCheckedAtUnix: number | null;
   /** When a re-check first found the stored file changed or gone. Such an image is never sent. */
@@ -215,6 +218,7 @@ export function parseImage(v: unknown, label = 'an image'): FirmwareImage {
     stagedAtUnix: optNum(o, 'staged_at_unix'),
     sha256: optStr(o, 'sha256'),
     sha512: optStr(o, 'sha512'),
+    md5: optStr(o, 'md5'),
     lastCheckedAtUnix: optNum(o, 'last_checked_at_unix'),
     changedAtUnix: optNum(o, 'changed_at_unix'),
     retiredAtUnix: optNum(o, 'retired_at_unix'),

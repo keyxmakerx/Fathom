@@ -21,6 +21,7 @@ const image = (over: Partial<FirmwareImage> = {}): FirmwareImage => ({
   stagedAtUnix: 2,
   sha256: HASH,
   sha512: null,
+  md5: null,
   lastCheckedAtUnix: null,
   changedAtUnix: null,
   retiredAtUnix: null,

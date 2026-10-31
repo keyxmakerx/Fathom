@@ -22,6 +22,8 @@ import { InvitationHandover } from './InvitationHandover';
 import { NoticesBanner } from './NoticesBanner';
 import { ConsoleTabs, consoleSections, type ConsoleSection } from './ConsoleTabs';
 import { AiSection } from './AiSection';
+import { FirmwareSection } from './FirmwareSection';
+import { initialPageLink, showPageLink } from '../home/pageLink';
 import { Operators } from './Operators';
 import { PlacementForm } from './PlacementForm';
 import { ActivityPanel } from './ActivityPanel';
@@ -71,13 +73,21 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
   const [organisations, setOrganisations] = useState<Loaded<OrganisationRow[]>>({ status: 'loading' });
   const [minted, setMinted] = useState<Minted[]>([]);
   // One section at a time, Accounts first (owner, 2026-10-12).
-  const [section, setSection] = useState<ConsoleSection>('accounts');
+  // `#admin/firmware` opens on Firmware (sign-off r71, "its own URL").
+  const [section, setSectionState] = useState<ConsoleSection>(() => {
+    const link = initialPageLink();
+    return link?.tab === 'admin' && link.page === 'firmware' ? 'firmware' : 'accounts';
+  });
+  const setSection = useCallback((next: ConsoleSection) => {
+    setSectionState(next);
+    if (next === 'firmware') showPageLink({ tab: 'admin', page: 'firmware' });
+  }, []);
   // A token is shown once and lives only under "Issued", so minting one takes
   // the person there: left on the form's tab they would see nothing happen.
   const onMinted = useCallback((m: Minted) => {
     setMinted((rows) => [m, ...rows]);
     setSection('issued');
-  }, []);
+  }, [setSection]);
   // ADR-0055 decision 9: whether the console answers on the host this page
   // was served from. Read once per page load, before a control is rendered.
   const consoleHost = useConsoleHost();
@@ -278,6 +288,15 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
             AI on this server
           </h2>
           <AiSection organisations={organisations.status === 'ready' ? organisations.value : []} />
+        </section>
+      )}
+
+      {section === 'firmware' && (
+        <section className="console__section" aria-labelledby="console-firmware">
+          <h2 id="console-firmware" className="console__h2">
+            Firmware
+          </h2>
+          <FirmwareSection organisations={organisations.status === 'ready' ? organisations.value : []} />
         </section>
       )}
 

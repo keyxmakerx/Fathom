@@ -32,6 +32,13 @@ import { FirstRun } from './components/FirstRun';
 import { InviteWhileSignedIn } from './components/InviteWhileSignedIn';
 import { Reset, tokenFromLocation } from './components/Reset';
 import { Home, type HomeTab } from './components/home';
+import { initialPageLink } from './components/home/pageLink';
+
+/** The Home tab the address asks for (`#admin/…`, `#steward/…`; r71), else Designs. */
+function tabFromLink(): HomeTab {
+  const link = initialPageLink();
+  return link?.tab === 'admin' ? 'admin' : link?.tab === 'steward' ? 'organisation' : 'designs';
+}
 import type { DirectEntry } from './components/home';
 import { Shell } from './components/Shell';
 import type { Lens, Place, ShellProps } from './components/Shell';
@@ -285,7 +292,8 @@ export default function App() {
 
   // Home's tab (ADR-0060 decision 7), kept here so leaving Admin by a tab
   // lands on that tab, and the Admin pill can choose Admin.
-  const [homeTab, setHomeTab] = useState<HomeTab>('designs');
+  // `#admin/…` and `#steward/…` open on that page (r71, pages with their own address).
+  const [homeTab, setHomeTab] = useState<HomeTab>(tabFromLink);
   // Joined from an invitation and still waiting for a steward: Home says so, and
   // Admin (tab and pill) goes while it is true.
   const [waitingInvitee, setWaitingInvitee] = useState(false);
@@ -300,7 +308,7 @@ export default function App() {
   useEffect(() => {
     setView({ kind: 'home' });
     setLastPlace(null);
-    setHomeTab('designs');
+    setHomeTab(tabFromLink());
     setAccountOpen(false);
     setClaiming(null);
   }, [accountSessionId]);
