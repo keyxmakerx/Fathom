@@ -169,8 +169,11 @@ export function buildUpgradePlan({ devices, label, version, target, image, kit }
   };
   // Step 4 follows what the device can compute: Fathom's SHA-256 is only comparable with a SHA-256.
   const algorithm = commands?.deviceHash.algorithm ?? 'sha256';
+  const sha512 = staged ? image.sha512 : null;
   const hashStep =
-    commands && algorithm !== 'sha256'
+    commands && algorithm === 'sha512' && sha512
+      ? step('Check the SHA-512 on the device', `Compare with ${shortHash(sha512)}, which Fathom worked out, and with the SHA-512 on ${publisher(commands.family)} download page.`, 4)
+      : commands && algorithm !== 'sha256'
       ? step(`Check the ${algorithmWords(algorithm)} on the device`, `Compare with the ${algorithmWords(algorithm)} on ${publisher(commands.family)} download page.`, 4)
       : step('Check the SHA-256 on the device', hash ? `Compare with ${shortHash(hash)}.` : "Compare with the vendor's published value.", 4);
   const noSteps = staged && image.commands !== null && image.commands.steps.length === 0;

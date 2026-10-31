@@ -92,7 +92,16 @@ the server or its disk is at risk. This part is built:
   can't back. "Get the link anyway" sends the codes, and the server seals them in the
   `firmware_fetch_issued` entry as `warnings_passed`, with the actor. Only the codes are sealed,
   never words.
+- **The device's own checks in plans, each cited.** IOS XE's `verify /sha512` now compares with
+  Fathom's own SHA-512 (`expected_sha512`) when it has one, and with Cisco's page;
+  `show software authenticity file` was already there. Junos adds `sysctl
+  security.mac.veriexec.state` after install, expecting `loaded active enforce` (Juniper's Veriexec
+  page, read 2026-10-31); `request system software validate` was already there. EOS adds
+  `verify-swi` from swi-tools on the person's computer before upload (read 2026-10-31); a command
+  that checks the signature on the switch could not be established. NX-OS is unchanged: no
+  signature-check command was established for it.
 
 Still to build from the same card: MD5 at upload (it needs `md-5`, a new crate, so it waits on a
 `deps/decisions/` record and the owner's approval of it),
-where each download went against the device's management address, the firmware activity list, the device signature-check steps, and an optional scanner add-on.
+where each download went against the device's management address, the firmware activity list,
+and the scanner add-on (its own sign-off card, r70).

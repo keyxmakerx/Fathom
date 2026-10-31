@@ -153,6 +153,11 @@ describe('the plan for other vendors, from the server steps', () => {
     expect(plan.steps[3]!.change).not.toContain('9f2c');
   });
 
+  it("compares with Fathom's own SHA-512 once it has one, and Cisco's too", () => {
+    const withOwn = buildUpgradePlan({ devices: [{ ...dev('d1', 'a'), platform: 'ios-xe' }], label: 'C9300', version: target.version, target: { ...target, platform: 'ios-xe' }, image: { ...ios, sha512: 'ab12' + 'c'.repeat(120) + 'ef34' } });
+    expect(withOwn.steps[3]!.change).toBe("Check the SHA-512 on the device\nCompare with ab12…ef34, which Fathom worked out, and with the SHA-512 on Cisco's download page.");
+  });
+
   it('keeps the SHA-256 wording where the device offers a SHA-256', () => {
     const eos = image({ platform: 'eos', commands: { ...ios.commands!, platform: 'eos', family: 'eos', deviceHash: { algorithm: 'sha256', comparesWith: 'expected_sha256' }, steps: [step(1, 'save the configuration', 'copy running-config flash:/b'), step(2, 'reload -- yours to run, not Fathom\'s', 'reload'), step(3, 'compare with the hash Arista publishes', 'verify /sha512 flash:/x.swi')] } });
     const p = buildUpgradePlan({ devices: [{ ...dev('d1', 'a'), platform: 'eos' }], label: 'DCS', version: target.version, target: { ...target, platform: 'eos' }, image: eos });

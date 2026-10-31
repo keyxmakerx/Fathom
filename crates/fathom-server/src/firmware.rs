@@ -93,7 +93,7 @@ use crate::chains::{self, ChainStoreError};
 use crate::crypto::hex;
 use crate::crypto::{self, CryptoError};
 use crate::crypto::{now_unix, unhex};
-use crate::firmware_commands::commands;
+use crate::firmware_commands::commands_with;
 use crate::grants::{self, Authority, EpochWatch};
 use crate::keys::{self, KeyRing, KeyStoreError};
 use crate::repo::{self, FirmwareImageId, OrganisationId, RepoError, ScopeId};
@@ -1669,7 +1669,8 @@ async fn issue_fetch_url_handler(
 
     let row = tx
         .query_opt(
-            "SELECT filename, byte_length, computed_sha256, state, platform, version, models \
+            "SELECT filename, byte_length, computed_sha256, state, platform, version, models, \
+                    computed_sha512 \
              FROM firmware_images WHERE id = $1 AND organisation_id = $2",
             &[&image.to_string(), &ctx.tenant().to_string()],
         )
@@ -1682,6 +1683,7 @@ async fn issue_fetch_url_handler(
     let platform: Option<String> = row.get(4);
     let version: Option<String> = row.get(5);
     let models: Vec<String> = row.get(6);
+    let sha512: Option<String> = row.get::<_, Option<Vec<u8>>>(7).map(|h| hex(&h));
     if state_text != "staged" {
         return Err(FirmwareError::NotStaged);
     }
@@ -1759,7 +1761,13 @@ async fn issue_fetch_url_handler(
     map.insert("issued_seq".to_string(), Json::Int(appended.seq));
     map.insert(
         "commands".to_string(),
-        commands(platform.as_deref(), &filename, &sha256, Some(&url)),
+        commands_with(
+            platform.as_deref(),
+            &filename,
+            &sha256,
+            sha512.as_deref(),
+            Some(&url),
+        ),
     );
     Ok(json_response(Json::Obj(map)))
 }
@@ -2291,7 +2299,13 @@ async fn list_handler(
                 map.insert("sha256".to_string(), Json::Str(sha256.clone()));
                 map.insert(
                     "commands".to_string(),
-                    commands(platform.as_deref(), &filename, &sha256, None),
+                    commands_with(
+                        platform.as_deref(),
+                        &filename,
+                        &sha256,
+                        sha512.as_deref().map(hex).as_deref(),
+                        None,
+                    ),
                 );
             }
             None => {
@@ -2787,6 +2801,7 @@ fn json_response(j: Json) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::firmware_commands::commands;
 
     fn json_text(j: &Json) -> String {
         String::from_utf8(j.to_canonical_bytes()).expect("canonical JSON is UTF-8")

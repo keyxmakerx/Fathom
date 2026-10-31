@@ -34,7 +34,7 @@ export interface FirmwareStep {
 export interface DeviceHash {
   /** `sha256` where Fathom's hash is comparable; `sha512` on IOS XE. */
   algorithm: string;
-  /** `expected_sha256`, or `vendor_published_sha512`. */
+  /** `expected_sha256`, `expected_sha512` (Fathom's own, when it has one), or `vendor_published_sha512`. */
   comparesWith: string;
 }
 
