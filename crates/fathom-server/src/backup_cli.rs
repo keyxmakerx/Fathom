@@ -60,7 +60,7 @@ fn flag(args: &[String], name: &str) -> Option<String> {
 }
 
 /// The backup key, created on first use for a `file://` source. In a compose
-/// deployment `keys-init` makes it, because the server mounts the key volume
+/// deployment the `db` container's start makes it, because the server mounts the key volume
 /// read-only.
 fn backup_key() -> Result<Key32, String> {
     let src = source("FATHOM_BACKUP_KEY", DEFAULT_BACKUP_KEY)?;
@@ -543,7 +543,7 @@ fn write_restore<R: Read>(
         }
     }
 
-    // The key volume's files, at the modes keys-init gives them.
+    // The key volume's files, at the modes compose's key step gives them.
     let keys_dir = dir.join("keys");
     std::fs::create_dir_all(&keys_dir)?;
     std::fs::set_permissions(&keys_dir, std::fs::Permissions::from_mode(0o700))?;

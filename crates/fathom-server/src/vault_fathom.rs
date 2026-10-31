@@ -86,7 +86,7 @@ impl FathomKey {
     /// [`Self::load`] for startup, where a missing `vault.key` that cannot be made is not a
     /// reason to stop. A compose front end keeps the compose text it was first given while
     /// `latest` pulls a newer image, so an install set up before 2026-10-25 runs a server that
-    /// wants `vault.key` beside a `keys-init` that never writes one, on a keys volume the
+    /// wants `vault.key` beside an old key step that never writes one, on a keys volume the
     /// server sees read-only. That server starts with Fathom's copies and outside vaults off
     /// (`None`) and says why, rather than crash-looping on an update. Every other failure, a
     /// key that exists and is wrong, too open or unreadable, still refuses, because those are

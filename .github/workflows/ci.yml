@@ -437,27 +437,37 @@ jobs:
         env:
           FATHOM_CI_EXPECT_BACKUP: "1"
         run: node scripts/ci/first-operator-signin.mjs http://localhost:8080
+      # Since 2026-10-31 the keys are made by the `db` container's own start
+      # (`compose.yaml`, the `db_start` config), not by a one-shot container,
+      # so restarting `db` is what runs it again.
       - name: A restart keeps its keys
         run: |
-          before=$(docker compose logs --no-log-prefix keys-init | grep -c "generated")
+          generated() { docker compose logs --no-log-prefix db | grep -c "fathom-keys: generated"; }
+          before=$(generated)
           test "$before" -eq 7 || { echo "expected seven secrets generated at first start (backup.key and vault.key since 2026-10-25), saw $before"; exit 1; }
-          docker compose restart server
+          docker compose restart db server
           docker compose up --detach --wait --wait-timeout 120
-          after=$(docker compose logs --no-log-prefix keys-init | grep -c "generated")
+          after=$(generated)
           test "$after" -eq 7 || { echo "a restart regenerated a secret: $after generated lines"; exit 1; }
           curl -fs http://localhost:8080/health > /dev/null
-      # 2026-10-26: an install whose compose front end kept a compose file from before
-      # vault.key existed ran the new image beside a keys-init that never writes one, on a keys
-      # volume the server mounts read-only, and the server crash-looped. Taking vault.key away
-      # stands for that volume: the server must still start, saying why the vault's own logins
-      # are off, and the current keys-init must then add vault.key and change no other key.
-      - name: An upgrade from a keys volume without vault.key starts, and keys-init adds it
+      - name: No one-shot container is left behind
         run: |
           set -euo pipefail
-          keys() { docker compose run --rm -T --no-deps --entrypoint sh keys-init -c \
-            'cd /keys && sha256sum master.key chain.key backup.key db_bootstrap.pw db_migrate.pw db_app.pw && ls vault.key 2>/dev/null || true'; }
+          docker compose ps --all --format '{{.Service}} {{.State}}' | tee ps.txt
+          if grep -v ' running$' ps.txt; then echo "a container is not running; first boot should leave only the real services"; exit 1; fi
+          rm -f ps.txt
+      # 2026-10-26: an install whose compose front end kept a compose file from before
+      # vault.key existed ran the new image on a keys volume without it, which the server
+      # mounts read-only, and the server crash-looped. Taking vault.key away stands for that
+      # volume: the server must still start, saying why the vault's own logins are off, and
+      # the next start of `db` must then add vault.key and change no other key.
+      - name: An upgrade from a keys volume without vault.key starts, and db adds it
+        run: |
+          set -euo pipefail
+          keys() { docker compose exec -T db sh -c \
+            'cd /var/lib/fathom/keys && sha256sum master.key chain.key backup.key db_bootstrap.pw db_migrate.pw db_app.pw && ls vault.key 2>/dev/null || true'; }
           before=$(keys | grep -v vault.key)
-          docker compose run --rm -T --no-deps --entrypoint rm keys-init /keys/vault.key
+          docker compose exec -T db rm /var/lib/fathom/keys/vault.key
           docker compose restart server
           healthy() {
             for i in $(seq 1 30); do
@@ -469,14 +479,16 @@ jobs:
           healthy
           docker compose logs --no-log-prefix server | grep -q "vault.key does not exist and this server cannot create it" \
             || { echo "the server started without vault.key but did not say so"; exit 1; }
-          docker compose run --rm -T --no-deps keys-init | tee init.txt
+          made_before=$(docker compose logs --no-log-prefix db | grep -c "fathom-keys: generated")
+          loaded=$(docker compose logs --no-log-prefix server | grep -c "vault key loaded")
+          docker compose restart db server
+          docker compose up --detach --wait --wait-timeout 120
+          docker compose logs --no-log-prefix db | grep "fathom-keys: generated" | tail -n +$((made_before + 1)) | tee init.txt
           grep -q "generated vault.key" init.txt
-          test "$(grep -c generated init.txt)" -eq 1 || { echo "keys-init regenerated a key it already had"; exit 1; }
+          test "$(grep -c generated init.txt)" -eq 1 || { echo "db's start regenerated a key it already had"; exit 1; }
           after=$(keys)
           echo "$after" | grep -qx vault.key
           test "$before" = "$(echo "$after" | grep -v vault.key)" || { echo "an existing key changed"; exit 1; }
-          loaded=$(docker compose logs --no-log-prefix server | grep -c "vault key loaded")
-          docker compose restart server
           healthy
           test "$(docker compose logs --no-log-prefix server | grep -c "vault key loaded")" -gt "$loaded"
           rm -f init.txt

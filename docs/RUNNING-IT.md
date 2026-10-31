@@ -209,10 +209,17 @@ build until you change it.
 
 **Update the compose file with the image.** `git pull` does that for a checkout. A compose front end
 such as Portainer keeps the compose text you pasted while `latest` pulls a new image, so paste the
-current `compose.yaml` into the stack and redeploy with a re-pull. Its `keys-init` writes any key a
-newer server wants (`backup.key` and `vault.key` since 2026-10-25) and leaves existing keys alone.
+current `compose.yaml` into the stack and redeploy with a re-pull. Its `db` container writes any key a
+newer server wants at start (`backup.key` and `vault.key` since 2026-10-25) and leaves existing keys alone.
 A server that finds no `vault.key` it can make still starts, with letting Fathom use logins and
 outside vaults off, and logs a warning saying this.
+
+**The `keys-init` container is gone (2026-10-31).** Until then every first boot left a stopped
+`fathom-keys-init-1` container behind; its work now happens inside `db` as it starts. An install
+from before that keeps the stopped container after updating the compose file. It is harmless, and
+removing it changes nothing: `docker compose up -d --remove-orphans`, or in Portainer tick
+**Prune services** when you update the stack, or delete the stopped container by hand. The keys
+volume and every key in it stay as they are.
 
 **Firmware is off until you name an address.** Set `FATHOM_FIRMWARE_FETCH_BASE_URL` in `.env` to the
 address your switches can reach this server on (often not the one your browser uses), then
@@ -305,7 +312,7 @@ a host that does not begin with `fathom.` (`racks.example.com`, `fathom-app.exam
 cannot fix this; nothing it serves is at fault, and the logger in uBlock Origin shows the filter that
 matched.
 
-**What the stack does for itself.** A one-shot `keys-init` container runs first and generates,
+**What the stack does for itself.** Before PostgreSQL starts, the `db` container generates,
 into the `keys` volume, whatever is missing: the master key and the chain key (mode 0400, owned by
 the server's uid) and the three database passwords (bootstrap, migration, runtime; mode 0444). A
 restart keeps what exists. **Copy that volume somewhere your database backups are not before the

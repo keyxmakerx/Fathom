@@ -737,8 +737,8 @@ network live (everything today comes from pasted text).
 **Compose, run end to end by CI.** `docker compose up -d` from the root with one variable in `.env`
 (`docs/RUNNING-IT.md`) pulls the image `publish.yml` pushes to GHCR on every merge to `main`
 (`deploy/Dockerfile`'s `server` stage, `ghcr.io/keyxmakerx/fathom-server`); `--build` builds the same
-stage. The file is self-contained. A one-shot `keys-init` container generates the three root keys
-(master, chain, backup) and three database passwords into the `keys` volume. CI's `compose` job
+stage. The file is self-contained. The `db` container's start generates the four root keys
+(master, chain, backup, vault) (since 2026-10-31; a one-shot `keys-init` container until then) and three database passwords into the `keys` volume. CI's `compose` job
 checks health and the client on the published port, signs the first operator in, proves a restart
 keeps its keys, and makes, restore-tests and opens one backup. The backup service's image,
 `ghcr.io/keyxmakerx/fathom-backup`, is published beside the server's.

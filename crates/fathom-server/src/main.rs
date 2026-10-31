@@ -100,7 +100,8 @@ async fn main() -> ExitCode {
     // third key so that the database and the master key together still open no login; refused
     // if it is either of the other two.
     // A keys volume from before 2026-10-25 has no `vault.key`, and an install whose compose
-    // front end kept the old compose text never runs the `keys-init` that writes one. That
+    // front end kept the old compose text never runs the key step that writes one (the `db`
+    // container's start since 2026-10-31, a one-shot `keys-init` before that). That
     // server starts with the vault's Fathom copies and outside vaults off and says what to do,
     // rather than crash-looping on an image update (`FathomKey::load_at_startup`).
     let fathom_key = match fathom_server::vault_fathom::FathomKey::load_at_startup(
@@ -126,8 +127,8 @@ async fn main() -> ExitCode {
                 vault_key = %config.vault_key.describe(),
                 "vault.key does not exist and this server cannot create it, so letting Fathom \
                  use logins and outside vaults are off; everything else works. Update this \
-                 install's compose file to the current compose.yaml and redeploy: its keys-init \
-                 makes vault.key and leaves the other keys alone (docs/RUNNING-IT.md)"
+                 install's compose file to the current compose.yaml and redeploy: its db container \
+                 makes vault.key at start and leaves the other keys alone (docs/RUNNING-IT.md)"
             );
             None
         }

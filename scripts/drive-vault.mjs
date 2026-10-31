@@ -153,7 +153,7 @@ async function startServer() {
       FATHOM_CLIENT_ROOT: `${ROOT}/client/dist`,
       FATHOM_MASTER_KEY: `file://${MASTER_KEY}`,
       FATHOM_CHAIN_KEY: `file://${CHAIN_KEY}`,
-      // Made on first start, as compose's keys-init would.
+      // Made on first start, as compose's db start would.
       FATHOM_VAULT_KEY: `file://${join(WORK, 'vault.key')}`,
       FATHOM_OPERATOR_NOTICE_ADDRESS: OPERATOR,
       FATHOM_SETUP_PASSWORD: SETUP_PASSWORD,

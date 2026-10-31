@@ -7,7 +7,7 @@
 #
 #   1. .env            cp .env.example .env, set the two lines with no default
 #   2. pull            `docker compose pull`: the published images, from cold
-#   3. healthy         `docker compose up -d --wait`: keys-init, PostgreSQL,
+#   3. healthy         `docker compose up -d --wait`: keys, PostgreSQL,
 #                      migrations, catalogue, until the server's own
 #                      healthcheck passes
 #   4. answering       GET /health and the client on the published port

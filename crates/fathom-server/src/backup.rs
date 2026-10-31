@@ -733,7 +733,7 @@ impl KeysFile {
                 continue;
             }
             let name = entry.file_name().to_string_lossy().into_owned();
-            // Half-written files from keys-init's `x.new` then `mv`.
+            // Half-written files from compose's key step's `x.new` then `mv`.
             if name.ends_with(".new") {
                 continue;
             }
