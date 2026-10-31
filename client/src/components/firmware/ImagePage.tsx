@@ -165,6 +165,46 @@ export function ImagePage({ api, rowKey, onOpenModel }: { api: FirmwareApi; rowK
         </div>
       ) : null}
       {img && img.state === 'failed' ? <p className="fw-error">This upload failed: {img.failedReason ?? 'unknown reason'}. Nothing was staged.</p> : null}
+      {img && img.state === 'staged' && api.isSteward ? <RetireImage api={api} imageId={img.imageId} /> : null}
+    </div>
+  );
+}
+
+/** Retire: ask once, in words, then delete the file and keep the record (sign-off r62). */
+function RetireImage({ api, imageId }: { api: FirmwareApi; imageId: string }) {
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const retire = async () => {
+    setBusy(true);
+    setError(null);
+    const done = await api.retireImage(imageId);
+    setBusy(false);
+    if ('refused' in done) setError(done.refused);
+    else setAsking(false);
+  };
+  return (
+    <div className="fw-retire">
+      {asking ? (
+        <>
+          <p className="fw-note">Delete this image's file from the server? It leaves this list, and its record and who fetched it stay in the organisation's history. Devices can't download it after this, and links already given stop working.</p>
+          <button type="button" className="fw-btn" disabled={busy} onClick={() => void retire()}>
+            {busy ? 'Retiring…' : 'Retire image'}
+          </button>{' '}
+          <button type="button" className="fw-btn btn-quiet" disabled={busy} onClick={() => setAsking(false)}>
+            Keep it
+          </button>
+        </>
+      ) : (
+        <button type="button" className="fw-btn btn-quiet" onClick={() => setAsking(true)}>
+          Retire image…
+        </button>
+      )}
+      {error ? (
+        <p className="fw-error" role="alert">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }

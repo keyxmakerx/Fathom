@@ -620,6 +620,12 @@ compare the firmware volume with a backup before trusting anything else on it. A
 before the re-check existed gets its SHA-512 at its first re-check, and only once its SHA-256 has
 matched. Each server runs its own re-check; two servers re-checking the same image is harmless.
 
+**Retiring frees space.** Nothing else ever removes an image. A Steward can retire one from its
+page: the server seals `firmware_retired` on the organisation's chain, marks the row `retired`,
+then deletes the file. The record and every fetch of it stay. If the file can't be deleted, the
+log says so and the image still serves nothing, but its bytes count against the totals until you
+remove the file named `<image id>.img` from the firmware volume.
+
 ## Break-glass: recovering an operator from the host
 
 ADR-0055 decision 8, in its own words: *"Break-glass is a host command, loud."* `fathom-server

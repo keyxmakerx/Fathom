@@ -23,6 +23,7 @@ const image = (over: Partial<FirmwareImage> = {}): FirmwareImage => ({
   sha512: null,
   lastCheckedAtUnix: null,
   changedAtUnix: null,
+  retiredAtUnix: null,
   platform: null,
   version: '23.4R2',
   models: ['EX2300-24P'],

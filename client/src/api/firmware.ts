@@ -101,6 +101,8 @@ export interface FirmwareImage {
   lastCheckedAtUnix: number | null;
   /** When a re-check first found the stored file changed or gone. Such an image is never sent. */
   changedAtUnix: number | null;
+  /** When a steward retired it: the file is deleted and this record stays. */
+  retiredAtUnix: number | null;
   /** What the person said it is for; absent from a server that does not carry them yet. */
   platform: string | null;
   version: string | null;
@@ -215,6 +217,7 @@ export function parseImage(v: unknown, label = 'an image'): FirmwareImage {
     sha512: optStr(o, 'sha512'),
     lastCheckedAtUnix: optNum(o, 'last_checked_at_unix'),
     changedAtUnix: optNum(o, 'changed_at_unix'),
+    retiredAtUnix: optNum(o, 'retired_at_unix'),
     platform: optStr(o, 'platform'),
     version: optStr(o, 'version'),
     models: Array.isArray(o.models) ? o.models.filter((m): m is string => typeof m === 'string' && m !== '') : [],
@@ -360,9 +363,14 @@ export function sendImageBytes(
   });
 }
 
-/** Issues a one-time link for a staged image. Steward access is needed; the link lasts 15 minutes. */
-export async function issueFetchLink(organisationId: string, imageId: string): Promise<FetchLink> {
-  const bytes = await signedFetch('POST', `${base(organisationId)}/firmware/${encodeURIComponent(imageId)}/fetch-urls`);
+/**
+ * Issues a one-time link for a staged image. Steward access is needed; the link lasts 15 minutes.
+ * `warningsPassed` are the codes of the warnings the person was shown and went past; the server seals
+ * them with the link's history entry. None sends no body, as before.
+ */
+export async function issueFetchLink(organisationId: string, imageId: string, warningsPassed: readonly string[] = []): Promise<FetchLink> {
+  const path = `${base(organisationId)}/firmware/${encodeURIComponent(imageId)}/fetch-urls`;
+  const bytes = warningsPassed.length === 0 ? await signedFetch('POST', path) : await signedFetch('POST', path, canonicalBody({ warnings_passed: [...new Set(warningsPassed)].sort() }));
   const o = obj(json(bytes, 'the link'), 'the link');
   return {
     imageId: strField(o, 'image_id', 'the link'),
@@ -372,6 +380,17 @@ export async function issueFetchLink(organisationId: string, imageId: string): P
     expiresAtUnix: numField(o, 'fetch_url_expires_at_unix', 'the link'),
     commands: parseCommands(o.commands),
   };
+}
+
+/**
+ * Retires a staged image: the server deletes its file and keeps its record and history. Links
+ * already given for it stop working. Steward access is needed. `fileDeleted` is false when the
+ * server recorded the retirement but could not remove the file; it serves nothing either way.
+ */
+export async function retireImage(organisationId: string, imageId: string): Promise<{ fileDeleted: boolean }> {
+  const bytes = await signedFetch('POST', `${base(organisationId)}/firmware/${encodeURIComponent(imageId)}/retire`);
+  const o = obj(json(bytes, 'the retire answer'), 'the retire answer');
+  return { fileDeleted: o.file_deleted === true };
 }
 
 /** What a refusal means here, in the words a person needs. */

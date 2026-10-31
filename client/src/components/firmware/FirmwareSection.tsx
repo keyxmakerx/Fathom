@@ -12,6 +12,7 @@ import { Fold } from '../drawing/Fold';
 import { FirmwareContext } from './context';
 import { KITS, KIT_CHOICES, kitFor, type KitId } from './kits';
 import { statusWords } from './ModelPage';
+import { linkWarnings } from './linkWarnings';
 import { GetLink, HoldForm, StateMark, VersionEdit } from './parts';
 import './firmware.css';
 
@@ -201,7 +202,7 @@ export function FirmwareSection({ deviceId, folded = false }: { deviceId: string
           </button>
         ) : null}
       </div>
-      {image && api.isSteward ? <GetLink api={api} imageId={image.imageId} /> : null}
+      {image && api.isSteward ? <GetLink api={api} imageId={image.imageId} warnings={linkWarnings(api.doc, image, [device])} /> : null}
     </div>
   );
   if (!folded) return body;

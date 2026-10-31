@@ -13,7 +13,7 @@ import { FirmwareSection } from './FirmwareSection';
 import { ImagePage } from './ImagePage';
 import { ModelPage, statusWords } from './ModelPage';
 import { ByHandSteps, HowItGetsThere } from './ByHand';
-import { CommandNotes } from './parts';
+import { CommandNotes, LinkWarnings } from './parts';
 import { UploadForm } from './UploadForm';
 import { modelTableRows } from './rows';
 import { modelRows } from '../../document/firmware';
@@ -35,6 +35,7 @@ const image: FirmwareImage = {
   sha512: null,
   lastCheckedAtUnix: null,
   changedAtUnix: null,
+  retiredAtUnix: null,
   platform: 'junos-ex',
   version: '23.4R2',
   models: ['ex4300-48t'],
@@ -62,6 +63,7 @@ const api = (doc: Document, over: Partial<FirmwareApi> = {}): FirmwareApi => ({
   setVersionPlatform: () => {},
   upload: async () => ({ refused: 'no' }),
   setImageModels: async () => ({ changed: true }),
+  retireImage: async () => ({ fileDeleted: true }),
   issueLink: async () => ({ refused: 'no' }),
   planUpgrade: () => {},
   openModel: () => {},
@@ -203,6 +205,19 @@ describe('an image page', () => {
     expect(out).toContain(sha512);
     expect(out.match(/>Copy</g)?.length ?? 0).toBeGreaterThanOrEqual(2);
     expect(out).toContain('Still matches, last checked 31 Oct 2026');
+  });
+
+  it('gives a steward Retire image, and a reader does not get it', () => {
+    const html = (a: FirmwareApi) => renderToStaticMarkup(createElement(ImagePage, { api: a, rowKey: 'img:' + IMG_ID, onOpenModel: noop }));
+    expect(html(api(world().doc))).toContain('Retire image…');
+    expect(html(api(world().doc, { canEdit: false, isSteward: false }))).not.toContain('Retire image');
+  });
+
+  it('drops a retired image from the list and its page', () => {
+    const a = api(world().doc, { server: { status: 'ready', images: [{ ...image, state: 'retired', retiredAtUnix: 1_793_404_800 }], error: null } });
+    const out = renderToStaticMarkup(createElement(ImagePage, { api: a, rowKey: 'img:' + IMG_ID, onOpenModel: noop }));
+    expect(out).toContain('not listed any more');
+    expect(out).not.toContain('Retire image');
   });
 
   it('warns plainly when a re-check found the stored file changed', () => {
@@ -381,5 +396,18 @@ describe('the same job by hand, from Windows or Linux', () => {
   it('shows only the Fathom route when the server wrote no by-hand steps', () => {
     const out = renderToStaticMarkup(createElement(HowItGetsThere, { byHand: null }, createElement('p', null, 'the link')));
     expect(out).toBe('<p>the link</p>');
+  });
+});
+
+describe('warnings before a link (r62)', () => {
+  it('lists each warning, offers Get the link anyway and says going ahead is recorded', () => {
+    const out = renderToStaticMarkup(
+      createElement(LinkWarnings, { warnings: [{ code: 'wrong_model', deviceId: 'd', words: 'This image is for ex4300-48t. fw1 is srx300.' }], busy: false, onAnyway: noop, onBack: noop }),
+    );
+    expect(out).toContain('role="alert"');
+    expect(out).toContain('This image is for ex4300-48t. fw1 is srx300.');
+    expect(out).toContain('Get the link anyway');
+    expect(out).toContain('Go back');
+    expect(out).toContain('written to the organisation&#x27;s history with your name');
   });
 });

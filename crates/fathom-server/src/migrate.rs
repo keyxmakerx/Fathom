@@ -366,6 +366,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0059_firmware_recheck.sql",
         sql: include_str!("../migrations/0059_firmware_recheck.sql"),
     },
+    // Retiring a firmware image: the file goes, the record stays (r62).
+    Migration {
+        version: 60,
+        name: "0060_firmware_retire.sql",
+        sql: include_str!("../migrations/0060_firmware_retire.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

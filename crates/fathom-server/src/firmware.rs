@@ -413,6 +413,10 @@ pub fn router(state: FirmwareState) -> Router {
             put(models_handler),
         )
         .route(
+            "/organisations/{organisation}/firmware/{image}/retire",
+            post(retire_handler),
+        )
+        .route(
             "/firmware/fetch/{token}",
             get(fetch_handler).head(head_refused),
         )
@@ -1184,6 +1188,9 @@ fn parse_declaration(body: &[u8]) -> Result<Declaration, FirmwareError> {
     })
 }
 
+const WARNINGS_SHAPE: &str = "warnings_passed (each of downgrade, not_chosen, wrong_model at \
+                              most once, sorted), or no body";
+
 const MODELS_SHAPE: &str = "models (at most 16 distinct catalogue model ids, each 1 to 64 \
                             characters of letters, digits and - _ . / +)";
 
@@ -1648,6 +1655,7 @@ async fn issue_fetch_url_handler(
 ) -> Result<Response, FirmwareError> {
     let tenant = parse_organisation(&organisation)?;
     let image = parse_image(&image)?;
+    let warnings_passed = parse_warnings_body(&signed.body)?;
 
     let mut client = state.sessions.pool().get().await?;
     let tx = client.transaction().await?;
@@ -1690,6 +1698,7 @@ async fn issue_fetch_url_handler(
         image,
         token_id,
         expires,
+        &warnings_passed,
     );
     let appended = chains::append_org(
         &tx,
@@ -2215,7 +2224,7 @@ async fn list_handler(
                     extract(epoch FROM created_at)::bigint, \
                     extract(epoch FROM staged_at)::bigint, staged_seq, platform, version, models, \
                     computed_sha512, extract(epoch FROM last_checked_at)::bigint, \
-                    extract(epoch FROM changed_at)::bigint \
+                    extract(epoch FROM changed_at)::bigint, extract(epoch FROM retired_at)::bigint \
              FROM firmware_images \
              WHERE organisation_id = $1 AND scope_id = $2 \
              ORDER BY created_at",
@@ -2241,6 +2250,7 @@ async fn list_handler(
         let sha512: Option<Vec<u8>> = row.get(12);
         let last_checked_at: Option<i64> = row.get(13);
         let changed_at: Option<i64> = row.get(14);
+        let retired_at: Option<i64> = row.get(15);
 
         let mut map = BTreeMap::new();
         map.insert("image_id".to_string(), Json::Str(id));
@@ -2305,6 +2315,10 @@ async fn list_handler(
         map.insert(
             "changed_at_unix".to_string(),
             changed_at.map_or(Json::Null, Json::Int),
+        );
+        map.insert(
+            "retired_at_unix".to_string(),
+            retired_at.map_or(Json::Null, Json::Int),
         );
         out.push(Json::Obj(map));
     }
@@ -2395,6 +2409,133 @@ async fn models_handler(
     Ok(json_response(Json::Obj(map)))
 }
 
+// ---- 7. Retire ----
+
+/// `POST /organisations/{organisation}/firmware/{image}/retire`: delete a staged
+/// image's file and keep its record (`0060`). **Requires `steward`.**
+///
+/// The row moves to `retired` and the act is sealed before the file is touched,
+/// so a crash between the two leaves a retired row with a file that serves
+/// nothing, never a staged row with no file. A fetch URL already issued for it
+/// is refused from then on, because the fetch route sends staged images only.
+async fn retire_handler(
+    State(state): State<FirmwareState>,
+    PathExtractor((organisation, image)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, FirmwareError> {
+    let tenant = parse_organisation(&organisation)?;
+    let image = parse_image(&image)?;
+
+    let mut client = state.sessions.pool().get().await?;
+    let tx = client.transaction().await?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let scope = image_scope(&tx, tenant, image).await?;
+    let ctx = authorise_in(&tx, &state, &session, tenant, scope, Capability::Steward).await?;
+
+    let row = tx
+        .query_opt(
+            "SELECT filename, byte_length, computed_sha256, state FROM firmware_images \
+             WHERE id = $1 AND organisation_id = $2 FOR UPDATE",
+            &[&image.to_string(), &ctx.tenant().to_string()],
+        )
+        .await?
+        .ok_or(FirmwareError::NoSuchImage)?;
+    let filename: String = row.get(0);
+    let byte_length: i64 = row.get(1);
+    let computed: Option<Vec<u8>> = row.get(2);
+    let state_text: String = row.get(3);
+    if state_text != "staged" {
+        return Err(FirmwareError::NotStaged);
+    }
+    let computed = computed.ok_or(FirmwareError::NotStaged)?;
+
+    let tenant_key = keys::tenant_key(&tx, &state.ring, &ctx).await?;
+    let metadata = retired_metadata(
+        &ctx.tenant().to_string(),
+        &ctx.actor().to_string(),
+        image,
+        &filename,
+        byte_length,
+        &computed,
+    );
+    let appended = chains::append_org(
+        &tx,
+        &state.ring,
+        &ctx,
+        &tenant_key,
+        EntryType::FirmwareRetired,
+        &metadata,
+    )
+    .await?;
+    let updated = tx
+        .execute(
+            "UPDATE firmware_images SET state = 'retired', retired_at = now(), retired_seq = $3 \
+             WHERE id = $1 AND organisation_id = $2 AND state = 'staged'",
+            &[&image.to_string(), &ctx.tenant().to_string(), &appended.seq],
+        )
+        .await?;
+    if updated != 1 {
+        return Err(FirmwareError::NotStaged);
+    }
+    tx.commit().await?;
+
+    // After the commit, on purpose (above). A file that will not go is logged
+    // and counted against the space totals until someone removes it.
+    let path = state.store.image_path(image);
+    let removed = tokio::task::spawn_blocking(move || std::fs::remove_file(&path))
+        .await
+        .map_err(joined)?;
+    if let Err(e) = &removed {
+        tracing::warn!(
+            image = %image,
+            error = %e,
+            "a retired firmware image's file could not be deleted; it serves nothing, but it \
+             still takes space until it is removed from the firmware volume"
+        );
+    }
+    tracing::info!(image = %image, bytes = byte_length, "firmware image retired");
+
+    let mut map = BTreeMap::new();
+    map.insert("image_id".to_string(), Json::Str(image.to_string()));
+    map.insert("state".to_string(), Json::Str("retired".to_string()));
+    map.insert("retired_seq".to_string(), Json::Int(appended.seq));
+    map.insert("file_deleted".to_string(), Json::Bool(removed.is_ok()));
+    Ok(json_response(Json::Obj(map)))
+}
+
+/// The warnings a person was shown before asking for a link and went past
+/// (sign-off r62). An empty body is none. Otherwise `{"warnings_passed":[...]}`
+/// and nothing else: each a known code, at most once, sorted. The words are the
+/// client's; only the codes are sealed, so nothing a person typed reaches the chain.
+pub const LINK_WARNING_CODES: [&str; 3] = ["downgrade", "not_chosen", "wrong_model"];
+
+fn parse_warnings_body(body: &[u8]) -> Result<Vec<String>, FirmwareError> {
+    if body.is_empty() {
+        return Ok(Vec::new());
+    }
+    let bad = || FirmwareError::Malformed(WARNINGS_SHAPE);
+    let Ok(Json::Obj(mut object)) = Json::parse_canonical(body) else {
+        return Err(bad());
+    };
+    let Some(Json::Arr(items)) = object.remove("warnings_passed") else {
+        return Err(bad());
+    };
+    if !object.is_empty() {
+        return Err(bad());
+    }
+    let codes = items
+        .into_iter()
+        .map(|item| match item {
+            Json::Str(s) if LINK_WARNING_CODES.contains(&s.as_str()) => Ok(s),
+            _ => Err(bad()),
+        })
+        .collect::<Result<Vec<String>, _>>()?;
+    if codes.windows(2).any(|w| w[0] >= w[1]) {
+        return Err(bad());
+    }
+    Ok(codes)
+}
+
 /// `{"models":[...]}` and nothing else: one key, an array of strings, each a
 /// [`safe_model`], at most [`MAX_MODELS`], no duplicates.
 fn parse_models_body(body: &[u8]) -> Result<Vec<String>, FirmwareError> {
@@ -2446,6 +2587,31 @@ fn models_changed_metadata(
     Json::Obj(map).to_canonical_bytes()
 }
 
+fn retired_metadata(
+    organisation: &str,
+    actor: &str,
+    image: FirmwareImageId,
+    filename: &str,
+    byte_length: i64,
+    sha256: &[u8],
+) -> Vec<u8> {
+    let mut map = BTreeMap::new();
+    map.insert("actor".to_string(), Json::Str(actor.to_string()));
+    map.insert("byte_length".to_string(), Json::Int(byte_length));
+    map.insert(
+        "entry_type".to_string(),
+        Json::Str(EntryType::FirmwareRetired.as_str().to_string()),
+    );
+    map.insert("filename".to_string(), Json::Str(filename.to_string()));
+    map.insert("image".to_string(), Json::Str(image.to_string()));
+    map.insert(
+        "organisation".to_string(),
+        Json::Str(organisation.to_string()),
+    );
+    map.insert("sha256".to_string(), Json::Str(hex(sha256)));
+    Json::Obj(map).to_canonical_bytes()
+}
+
 fn staged_metadata(
     organisation: &str,
     actor: &str,
@@ -2493,8 +2659,13 @@ fn fetch_issued_metadata(
     image: FirmwareImageId,
     token_id: FirmwareImageId,
     expires_at_unix: i64,
+    warnings_passed: &[String],
 ) -> Vec<u8> {
     let mut map = BTreeMap::new();
+    // Only when there were any, so an ordinary link's entry keeps its shape.
+    if !warnings_passed.is_empty() {
+        map.insert("warnings_passed".to_string(), strings(warnings_passed));
+    }
     map.insert("actor".to_string(), Json::Str(actor.to_string()));
     map.insert(
         "entry_type".to_string(),
@@ -2956,5 +3127,47 @@ mod tests {
     fn a_firmware_token_hashes_differently_from_a_session_token() {
         let token = [9u8; 32];
         assert_ne!(token_hash(&token), sessions::token_hash(&token));
+    }
+
+    #[test]
+    fn warnings_passed_are_known_codes_once_and_sorted_or_nothing() {
+        assert_eq!(parse_warnings_body(b"").unwrap(), Vec::<String>::new());
+        assert_eq!(
+            parse_warnings_body(
+                br#"{"warnings_passed":["downgrade","wrong_model"]}
+"#
+            )
+            .unwrap(),
+            vec!["downgrade".to_string(), "wrong_model".to_string()]
+        );
+        for refused in [
+            &br#"{"warnings_passed":["wrong_model","downgrade"]}
+"#[..],
+            br#"{"warnings_passed":["downgrade","downgrade"]}
+"#,
+            br#"{"warnings_passed":["looks odd to me"]}
+"#,
+            br#"{"warnings_passed":[],"note":"x"}
+"#,
+            br#"{"warnings":["downgrade"]}
+"#,
+        ] {
+            assert!(
+                parse_warnings_body(refused).is_err(),
+                "{}",
+                String::from_utf8_lossy(refused)
+            );
+        }
+    }
+
+    #[test]
+    fn a_link_past_warnings_seals_their_codes_and_an_ordinary_one_keeps_its_shape() {
+        let image = FirmwareImageId::new();
+        let token = FirmwareImageId::new();
+        let plain = fetch_issued_metadata("org", "me", image, token, 5, &[]);
+        assert!(!String::from_utf8_lossy(&plain).contains("warnings_passed"));
+        let past =
+            fetch_issued_metadata("org", "me", image, token, 5, &["wrong_model".to_string()]);
+        assert!(String::from_utf8_lossy(&past).contains(r#""warnings_passed":["wrong_model"]"#));
     }
 }

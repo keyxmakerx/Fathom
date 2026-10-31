@@ -415,6 +415,9 @@ pub enum EntryType {
     /// A steward replaced the list of catalogue models an image is for (`0038`).
     /// The entry names the image and the old and new lists.
     FirmwareModelsChanged,
+    /// A steward retired an image (`0060`): its file is deleted and its row
+    /// stays. The entry names the image, its file name, size and SHA-256.
+    FirmwareRetired,
     // ---- Steward invitations (migration 0037) ------------------------------
     /// A steward invited someone. The entry names the invitation, the scope, the
     /// capability asked and who issued it; never the link and never an email.
@@ -639,6 +642,7 @@ impl EntryType {
             Self::FirmwareFetchIssued => "firmware_fetch_issued",
             Self::FirmwareFetchRedeemed => "firmware_fetch_redeemed",
             Self::FirmwareModelsChanged => "firmware_models_changed",
+            Self::FirmwareRetired => "firmware_retired",
             Self::InvitationIssued => "invitation_issued",
             Self::InvitationClosed => "invitation_closed",
             Self::TypeItYourselfSet => "type_it_yourself_set",
@@ -731,6 +735,7 @@ impl EntryType {
             "firmware_fetch_issued" => Some(Self::FirmwareFetchIssued),
             "firmware_fetch_redeemed" => Some(Self::FirmwareFetchRedeemed),
             "firmware_models_changed" => Some(Self::FirmwareModelsChanged),
+            "firmware_retired" => Some(Self::FirmwareRetired),
             "invitation_issued" => Some(Self::InvitationIssued),
             "invitation_closed" => Some(Self::InvitationClosed),
             "type_it_yourself_set" => Some(Self::TypeItYourselfSet),
@@ -839,6 +844,7 @@ impl EntryType {
             | Self::FirmwareFetchIssued
             | Self::FirmwareFetchRedeemed
             | Self::FirmwareModelsChanged
+            | Self::FirmwareRetired
             | Self::InvitationIssued
             | Self::InvitationClosed
             | Self::TypeItYourselfSet

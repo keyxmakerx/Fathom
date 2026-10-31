@@ -21,6 +21,7 @@ const image = (id: string, version: string, models: string[], over: Partial<Firm
   sha512: null,
   lastCheckedAtUnix: null,
   changedAtUnix: null,
+  retiredAtUnix: null,
   platform: 'junos-ex',
   version,
   models,

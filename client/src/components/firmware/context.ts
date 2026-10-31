@@ -46,8 +46,10 @@ export interface FirmwareApi {
   upload(form: UploadForm, onProgress: (sent: number, total: number) => void, signal?: AbortSignal): Promise<Refused | { imageId: string }>;
   /** Replaces the models an image is for (steward). Reloads the list on success. */
   setImageModels(imageId: string, models: string[]): Promise<Refused | { changed: boolean }>;
+  /** Deletes a staged image's file and keeps its record (steward). Reloads the list on success. */
+  retireImage(imageId: string): Promise<Refused | { fileDeleted: boolean }>;
   /** A one-time link. It is shown and dropped, never stored in the design. */
-  issueLink(imageId: string): Promise<FetchLink | Refused>;
+  issueLink(imageId: string, warningsPassed?: readonly string[]): Promise<FetchLink | Refused>;
   /**
    * Makes one plan for these devices (all of one model, or one device with its own chosen version),
    * or goes to that model's page when it has no chosen version. `intoPlan` adds the steps to a plan

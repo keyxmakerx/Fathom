@@ -2873,3 +2873,140 @@ async fn the_recheck_marks_an_image_whose_file_is_gone() {
     let list = list_firmware(addr, &estate.steward, estate.organisation, scope).await;
     assert!(!list.contains("\"changed_at_unix\":null"), "{list}");
 }
+
+#[tokio::test]
+async fn a_steward_retires_an_image_its_file_goes_its_record_stays_and_links_stop() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let reader = a_member_with(&pool, &ring, &estate, "reader", Some(Capability::Read)).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+
+    let bytes = an_image(20_000);
+    let image = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "old.bin",
+        &bytes,
+    )
+    .await;
+    // A link asked for before retiring must not work after it.
+    let answer = issue_fetch_url(addr, &estate.steward, estate.organisation, &image).await;
+    let url = json_str(answer.as_bytes(), "fetch_url");
+    let path = url
+        .strip_prefix("https://fathom.test.invalid")
+        .unwrap()
+        .to_string();
+
+    let retire = format!(
+        "/organisations/{}/firmware/{image}/retire",
+        estate.organisation
+    );
+    let (status, _) = call(addr, &reader, "POST", &retire, b"").await;
+    assert_eq!(status, "403", "only a steward may retire");
+    assert!(directory.join(format!("{image}.img")).exists());
+
+    let (status, body) = call(addr, &estate.steward, "POST", &retire, b"").await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    assert!(String::from_utf8_lossy(&body).contains("\"file_deleted\":true"));
+    assert!(
+        !directory.join(format!("{image}.img")).exists(),
+        "the file is gone"
+    );
+
+    let list = list_firmware(addr, &estate.steward, estate.organisation, scope).await;
+    assert!(list.contains(&image), "the record stays: {list}");
+    assert!(list.contains("\"state\":\"retired\""), "{list}");
+    assert!(!list.contains("\"retired_at_unix\":null"), "{list}");
+
+    let (status, _) = raw_request(addr, "GET", &path, &[], b"").await;
+    assert_eq!(status, "409", "a link issued before retiring is refused");
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &format!(
+            "/organisations/{}/firmware/{image}/fetch-urls",
+            estate.organisation
+        ),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "409", "no new link for a retired image");
+    let (status, _) = call(addr, &estate.steward, "POST", &retire, b"").await;
+    assert_eq!(status, "409", "retiring twice is refused");
+
+    let su = support::superuser_client_on_test_database().await;
+    let retired: i64 = su
+        .query_one(
+            "SELECT count(*) FROM chain_entries \
+             WHERE chain_kind = 'org' AND organisation_id = $1 AND entry_type = 'firmware_retired'",
+            &[&estate.organisation.to_string()],
+        )
+        .await
+        .expect("read the organisation chain")
+        .get(0);
+    assert_eq!(retired, 1, "retiring is sealed once");
+}
+
+#[tokio::test]
+async fn a_link_can_be_asked_for_past_warnings_and_an_unknown_warning_is_refused() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+    let image = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "warned.bin",
+        &an_image(4_000),
+    )
+    .await;
+    let path = format!(
+        "/organisations/{}/firmware/{image}/fetch-urls",
+        estate.organisation
+    );
+
+    let (status, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &path,
+        b"{\"warnings_passed\":[\"downgrade\",\"wrong_model\"]}\n",
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &path,
+        b"{\"warnings_passed\":[\"trust me\"]}\n",
+    )
+    .await;
+    assert_eq!(status, "400", "only known codes are sealed");
+
+    // Sealed with the issue entry, which is the one place it belongs.
+    let su = support::superuser_client_on_test_database().await;
+    let issued: i64 = su
+        .query_one(
+            "SELECT count(*) FROM chain_entries WHERE chain_kind = 'org' \
+               AND organisation_id = $1 AND entry_type = 'firmware_fetch_issued'",
+            &[&estate.organisation.to_string()],
+        )
+        .await
+        .expect("read the organisation chain")
+        .get(0);
+    assert_eq!(issued, 1, "the refused ask sealed nothing");
+}

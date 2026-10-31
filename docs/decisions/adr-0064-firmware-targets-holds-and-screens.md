@@ -81,8 +81,18 @@ the server or its disk is at risk. This part is built:
   mismatch or a missing file sets `changed_at`, which is never cleared, and the page and list warn.
   Finding what is due crosses organisations under a read-only capability,
   `app.firmware_recheck_custody`; every write is under the image's own organisation.
+- **Retiring an image** (`0060`). A Steward's act, sealed as `firmware_retired`. The row moves to
+  `retired` and keeps its hashes, `staged_at` and `staged_seq`; the file is deleted after the
+  commit, so a crash leaves a retired row with a file that serves nothing, never the reverse. Links
+  already issued stop working, because the fetch route sends `staged` images only.
+- **Warnings before a link, never blocks.** On a device's firmware row and in an upgrade plan, asking
+  for a one-time link first lists what looks wrong: the image's models don't include the device's
+  (`wrong_model`), the image is older than what the device runs, by the same comparison as "behind"
+  (`downgrade`), or it isn't the version chosen for the device (`not_chosen`). Each says nothing it
+  can't back. "Get the link anyway" sends the codes, and the server seals them in the
+  `firmware_fetch_issued` entry as `warnings_passed`, with the actor. Only the codes are sealed,
+  never words.
 
 Still to build from the same card: MD5 at upload (it needs `md-5`, a new crate, so it waits on a
-`deps/decisions/` record and the owner's approval of it), retiring an image,
-the warnings at link time (wrong model, downgrade, not the chosen version, where a download went),
-the firmware activity list, the device signature-check steps, and an optional scanner add-on.
+`deps/decisions/` record and the owner's approval of it),
+where each download went against the device's management address, the firmware activity list, the device signature-check steps, and an optional scanner add-on.
