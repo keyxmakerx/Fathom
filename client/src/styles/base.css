@@ -193,3 +193,18 @@
 @media (prefers-reduced-motion: reduce) {
   :where(button, input, select, textarea) { transition: none; }
 }
+
+/* Sign-off rua-ui-audit, "A scope to app": the control styles above, and `design/tokens.css`'s
+   `appearance: none` and focus ring, are Fathom's own. Anything a browser extension adds to the page
+   outside #root (a password manager's fill button, a translation bar) keeps the look its makers gave
+   it: here those rules are taken back to the browser's own. Fathom's own layers outside #root (the
+   Ctrl K sheet, the port peek) carry data-fathom-layer and keep theirs. Zero specificity, so an
+   extension's own class rules still win; the focus ring needs one pseudo-class to tie tokens.css. */
+:where(body > :not(#root, [data-fathom-layer], script, style, link)) :where(button, input, select, textarea),
+:where(body > :not(#root, [data-fathom-layer], script, style, link)):where(button, input, select, textarea) {
+  all: revert;
+}
+:where(body > :not(#root, [data-fathom-layer]), body > :not(#root, [data-fathom-layer]) *):focus-visible {
+  outline: revert;
+  outline-offset: revert;
+}
