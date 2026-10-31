@@ -86,6 +86,22 @@ describe('AI ideas on a design', () => {
     expect(stepsOnly).not.toContain('Show on canvas');
   });
 
+  it('does not offer Make it a plan for an idea that already adds a maintenance plan: Accept and apply adds it', () => {
+    const preview = { changes: [], removes: [], adds: [{ kind: 'MaintenancePlan', name: 'plan_srx' }], links: [] };
+    const out = renderToStaticMarkup(
+      createElement(AiIdeasPanel, {
+        organisationId: 'O',
+        designId: 'D',
+        state: state([idea({ changes: 15, preview })]),
+        nameOf: () => null,
+        canDraw: true,
+        onPlan: () => undefined,
+      }),
+    );
+    expect(out).toContain('>Accept and apply<');
+    expect(out).not.toContain('Make it a plan');
+  });
+
   it('gives a reader no buttons, and says who decides', () => {
     const out = renderToStaticMarkup(
       createElement(AiIdeasPanel, { organisationId: 'O', designId: 'D', state: state([idea()]), nameOf: () => null, canDraw: false }),

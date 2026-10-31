@@ -1073,6 +1073,9 @@ export function DesignPlace(props: DesignPlaceProps) {
         onPlan={(idea) => {
           // Making the plan is taking the idea up, so it is accepted once the plan is made.
           if (phone) setAiIdeasOpen(false);
+          // An idea drawn on the canvas makes the canvas a read-only copy: the plan is made on the design itself.
+          aiPreview.show(null);
+          setIdeaChange(null);
           setIdeaPlanRequest({
             idea,
             onPlanned: () => void decideIdea(organisationId, designId, idea, 'accept').then(aiIdeas.reload, aiIdeas.reload),
