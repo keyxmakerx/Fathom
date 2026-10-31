@@ -25,6 +25,9 @@ import { VaultBadge, VaultMenuRows } from '../vault/VaultBadge';
 const BAR_GAP = 12;
 const BAR_PAD = 16;
 
+/** Dots shown for others in this view before the rest fold into "+N". */
+const PEOPLE_SHOWN = 5;
+
 export interface BarProps {
   place: Place | null;
   onPlaceChange: (place: Place) => void;
@@ -260,11 +263,38 @@ export function Bar({
         {/* Others in this view: a round dot with their initials; the full name is its label. */}
         {presence.length > 0 && (
           <div className="shell-bar__people" role="group" aria-label="Also in this view">
-            {presence.map((person) => (
+            {presence.slice(0, PEOPLE_SHOWN).map((person) => (
               <span className="shell-person" key={person.id} role="img" tabIndex={0} aria-label={person.name} title={person.name}>
                 {person.initials}
               </span>
             ))}
+            {/* Sign-off rua-ui-audit, "A five plus n": past five, one "+N" that lists the rest, each
+                name a link to what they have selected, so 20 people never push the views off the bar. */}
+            {presence.length > PEOPLE_SHOWN && (
+              <Popover
+                align="right"
+                renderTrigger={({ triggerProps, triggerRef }) => (
+                  <button
+                    type="button"
+                    className="shell-person shell-person--more"
+                    aria-label={`${presence.length - PEOPLE_SHOWN} more in this view`}
+                    data-testid="shell-people-more"
+                    ref={(el) => {
+                      triggerRef.current = el;
+                    }}
+                    {...triggerProps}
+                  >
+                    +{presence.length - PEOPLE_SHOWN}
+                  </button>
+                )}
+              >
+                {presence.slice(PEOPLE_SHOWN).map((person) => (
+                  <PopoverRow key={person.id} onSelect={person.go} muted={person.go == null}>
+                    {person.name}
+                  </PopoverRow>
+                ))}
+              </Popover>
+            )}
           </div>
         )}
         {/* A lens is what is drawn on top of the drawing's boxes, so it

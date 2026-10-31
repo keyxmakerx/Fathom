@@ -104,6 +104,14 @@ describe('Bar — who else is here', () => {
     expect(markup).toContain('<span class="shell-person" role="img" tabindex="0" aria-label="Ann Bell" title="Ann Bell">AB</span>');
     expect(renderToStaticMarkup(createElement(Bar, BASE))).not.toContain('shell-person');
   });
+
+  it('shows five dots, then one "+N" for the rest', () => {
+    const presence = Array.from({ length: 20 }, (_, i) => ({ id: `p${i}`, initials: `P${i}`, name: `Person ${i}` }));
+    const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, presence }));
+    expect(markup.match(/role="img"/g)).toHaveLength(5);
+    expect(markup).toContain('aria-label="15 more in this view"');
+    expect(markup).toContain('>+15</button>');
+  });
 });
 
 describe('Bar — the search box', () => {
