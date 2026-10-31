@@ -24,7 +24,7 @@ export function CableOverlayEdge() {
 
 /** Every cable drawn once more above the devices. Pointed at or selected, a cable already ran over
  * every box between its ends (Key Maker's note on the cables card, 2026-10-27); now they all do, so a
- * patch lead never slips behind the switch it plugs into (Key Maker, 31 October, sign-off r67). The
+ * patch lead never slips behind the switch it plugs into (Key Maker, 31 October). The
  * pointed-at one comes last, on top of the rest. It takes no pointer events, so a press on a port
  * under a cable still starts a new cable, and hover and click reach what is underneath. */
 export function CableTopLayer({ cableIds }: { cableIds: readonly string[] }) {

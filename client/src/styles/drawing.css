@@ -948,7 +948,7 @@
   transition: none;
 }
 
-/* Every cable draws once more above the devices (`CableTopLayer`, sign-off r67); a cable pointed
+/* Every cable draws once more above the devices (`CableTopLayer`, Key Maker, 31 October); a cable pointed
    at or selected comes last, and every piece of equipment not on its path dims. */
 .drawing-cable-top {
   position: absolute;

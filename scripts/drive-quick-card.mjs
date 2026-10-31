@@ -2,7 +2,7 @@
 // its kind, name and management address, Copy puts the address on the clipboard, Details shows the panel,
 // the card follows a pan, and Escape, an empty-canvas click and a double-click put it away. Close in on a
 // switch, a click on a port leaves the camera still so a double-click opens it, and cables draw over the
-// devices (sign-off r67). Screenshots land
+// devices. Screenshots land
 // in FATHOM_SHOTS. Usage: bash scripts/build-wasm.sh (once), then node scripts/drive-quick-card.mjs.
 // Overrides: FATHOM_ROOT, PW_CHROMIUM, PW_PLAYWRIGHT.
 import { execFileSync, spawn } from 'node:child_process';
