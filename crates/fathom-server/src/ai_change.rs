@@ -41,6 +41,7 @@ use fathom_ir::generated::ir_types::{EdgeKind, NodeKind};
 
 use crate::ai::{self, AiError, AiSession};
 use crate::ai_reading::{self, Tier};
+use crate::ai_value;
 use crate::ai_work::{self, Level, Rules, Work};
 use crate::audit;
 use crate::authority::Capability;
@@ -447,9 +448,17 @@ impl<F: FnMut() -> Ulid> Builder<'_, F> {
                 .clear_field(element, key, rec)
                 .map_err(|e| op_refused(index, format!("is refused by the design's rules: {e}")));
         }
-        let boxed = slot_from_canon(key, value)
-            .map_err(|_| op_refused(index, format!("gives {field:?} a value it does not take")))?;
-        self.values.push(value.clone());
+        let value = ai_value::normalise(key, value);
+        let boxed = slot_from_canon(key, &value).map_err(|_| {
+            let takes = ai_value::takes(key)
+                .map(|t| format!("; it takes {t}"))
+                .unwrap_or_default();
+            op_refused(
+                index,
+                format!("gives {field:?} a value it does not take{takes}"),
+            )
+        })?;
+        self.values.push(value);
         self.graph
             .set_field_boxed(element, key, boxed, rec)
             .map_err(|e| op_refused(index, format!("is refused by the design's rules: {e}")))
@@ -1106,6 +1115,59 @@ mod tests {
             Err(other) => panic!("refused for the wrong reason: {other}"),
             Ok(_) => panic!("let through"),
         }
+    }
+
+    /// What the host AI sent and was refused before (2026-10-31): a protocol by name, in
+    /// either case, and a version with its OS name in front.
+    #[test]
+    fn a_protocol_by_name_and_a_version_with_its_os_name_are_taken() {
+        let a = ask(&format!(
+            r#"{{"op":"add_node","kind":"PublishedPort","fields":{{"protocol":"tcp","container_port":"80","host_port":"8080"}}}},{{"op":"add_node","kind":"PublishedPort","fields":{{"protocol":"TCP","container_port":"443"}}}},{{"op":"set","element":{:?},"field":"os_version","value":"EOS 4.18.11M"}},{{"op":"set","element":{:?},"field":"os_version","value":"Ubuntu 26.04"}}"#,
+            device(1),
+            device(2)
+        ));
+        let built = build(
+            &fixture(),
+            &layout(),
+            &Rules::open(),
+            IDEA_LABEL_PREFIX,
+            &a,
+            Ulid(9_999),
+            5,
+            ids(),
+        )
+        .expect("built");
+        let change = fathom_workspace::read_change(&built.doc).expect("reads back");
+        let kept: Vec<&str> = change
+            .values
+            .iter()
+            .filter_map(|v| match v {
+                Json::Str(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        // An add's fields run in name order: container_port, host_port, protocol.
+        assert_eq!(kept, ["80", "8080", "6", "443", "6", "4.18.11M", "26.04"]);
+    }
+
+    #[test]
+    fn a_value_a_field_does_not_take_is_refused_with_what_it_takes() {
+        let port = r#"{"op":"add_node","kind":"PublishedPort","fields":{"protocol":"smtp"}}"#;
+        let why = refusal(&Rules::open(), port);
+        assert!(
+            why.contains("gives \"protocol\" a value it does not take; it takes tcp, udp or sctp"),
+            "{why}"
+        );
+        assert!(
+            !why.contains("smtp"),
+            "a refusal never echoes the value: {why}"
+        );
+        let two = format!(
+            r#"{{"op":"set","element":{:?},"field":"os_version","value":"Windows Server 2022 21H2"}}"#,
+            device(1)
+        );
+        let why = refusal(&Rules::open(), &two);
+        assert!(why.contains("it takes a version such as 4.18.11M"), "{why}");
     }
 
     #[test]
