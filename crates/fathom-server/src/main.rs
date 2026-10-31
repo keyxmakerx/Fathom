@@ -396,6 +396,7 @@ async fn main() -> ExitCode {
     };
     let sessions_for_firmware = Arc::clone(&sessions);
     let watch_for_firmware = Arc::clone(&watch);
+    let watch_for_credentials = Arc::clone(&watch);
     // ADR-0063: the design heads and the stream hub, and the one connection that
     // listens for commits and authority changes made by any process.
     let head_bytes = std::env::var("FATHOM_HEAD_CACHE_BYTES")
@@ -937,6 +938,7 @@ async fn main() -> ExitCode {
         operators: Arc::clone(&operators),
         setup_secret,
         client_address: client_address.clone(),
+        watch: watch_for_credentials,
     };
 
     // ---- ADR-0057 decision 5: the organisation claim ----

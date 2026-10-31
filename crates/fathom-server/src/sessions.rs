@@ -1612,7 +1612,7 @@ impl SessionStore {
                 // gate below), so both sides are fast and equal. It also keeps
                 // key-only sign-ins and the rate-limit suites at the cost they had.
                 if !matches!(error, SessionError::PasswordRefused) && !password.is_empty() {
-                    let _ = credentials::verify_password(A_DECOY_HASH, password);
+                    let _ = credentials::verify_password_blocking(A_DECOY_HASH, password).await;
                 }
                 // A rate-limit refusal outranks the underlying reason: the
                 // caller must be told to wait rather than to try again.
@@ -2333,7 +2333,8 @@ impl SessionStore {
                 .password_hash
                 .as_deref()
                 .expect("by_password is exactly this field being set");
-            if password.is_empty() || !credentials::verify_password(stored, password) {
+            if password.is_empty() || !credentials::verify_password_blocking(stored, password).await
+            {
                 return Err((
                     Some(AccountBucket::Account(account)),
                     "password_refused",
@@ -3861,6 +3862,34 @@ pub async fn open_tenant_context(
     Ok(repo::open_tenant_context(tx, tenant, session.actor).await?)
 }
 
+impl SessionStore {
+    /// **Does this session's account administer `tenant`?** The organisation-root
+    /// `steward` grant ([`grants::is_steward`]), the one answer every other
+    /// Steward-only act reads, never the `memberships.role` an organisation's creator
+    /// was given. So suspending the grant takes these powers too, and a Steward
+    /// appointed later holds them (sign-off r61, 30 Oct 2026).
+    pub async fn is_organisation_steward(
+        &self,
+        tenant: OrganisationId,
+        session: &VerifiedSession,
+        watch: &grants::EpochWatch,
+    ) -> Result<bool, SessionError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        let ctx = open_tenant_context(&tx, tenant, session).await?;
+        let tenant_key = crate::keys::tenant_key(&tx, &self.ring, &ctx).await?;
+        let auth = grants::Authority {
+            ring: &self.ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch,
+        };
+        let steward = grants::is_steward(&tx, &auth).await?;
+        tx.commit().await?;
+        Ok(steward)
+    }
+}
+
 /// The account behind a session, for the one kind of query that has no tenant
 /// to open: *"which organisations do I belong to?"*.
 ///
@@ -4181,7 +4210,7 @@ pub async fn end_other_sessions(
 
 /// ADR-0057 decision 8: ends every steward-plane session of `organisation` except those of
 /// `caller_account` (ASVS 5.0.0 7.4.5). Sets `app.tenant_id` itself, inside its own transaction:
-/// `sessions` has no organisation column, and `repo::require_admin`'s transaction has committed.
+/// `sessions` has no organisation column, and the Steward check's transaction has committed.
 pub async fn end_all_in_organisation_except(
     pool: &Pool,
     ring: &KeyRing,

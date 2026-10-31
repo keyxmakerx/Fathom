@@ -2142,6 +2142,7 @@ async fn credential_surface(
         operators,
         setup_secret: None,
         client_address: ClientAddress::peer(),
+        watch: Arc::new(EpochWatch::new()),
     }))
     .await
 }

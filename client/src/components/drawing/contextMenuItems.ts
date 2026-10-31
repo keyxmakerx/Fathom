@@ -1,4 +1,5 @@
 import type { CableRunSide, CableRunView } from '../../document/cableRuns';
+import { shortcutText } from '../shell/shortcuts';
 import type { Selection } from './contract';
 
 /** What a right-click landed on (ADR-0060 decision 4). */
@@ -24,7 +25,53 @@ export interface MenuItem {
   onSelect: () => void;
   /** Removes something; drawn apart from the rest. */
   danger?: boolean;
+  /** The heading this item sits under; a menu draws one each time it changes. */
+  group?: string;
+  /** Why it cannot be used yet. The item stays in the menu, greyed, with this line under it, so a
+   * person learns it exists (sign-off r58). */
+  disabled?: string;
+  /** Its key, as the shortcuts sheet shows it on this platform ("Ctrl+D", "Cmd+D" on a Mac). */
+  keys?: string;
 }
+
+/**
+ * Sign-off r58 and r60: the words for what can be done to a device, one list for every way in: the
+ * panel's foot and its ⋯ menu, right-click, Ctrl K and Inventory. They used to be written in each
+ * place and had drifted ("Trace a path from here" beside "Trace from here", "Inside" beside "Open
+ * inside").
+ */
+export const DEVICE_WORDS = {
+  open: 'Open',
+  openInside: 'Open inside',
+  trace: 'Trace from here',
+  showInInventory: 'Show in Inventory',
+  details: 'Details',
+  itsDown: "It's down",
+  planChange: 'Plan a change',
+  planFirmware: 'Plan a firmware upgrade',
+  swapModel: 'Swap model…',
+  giveModel: 'Give it a catalogue model…',
+  fitCard: 'Fit a card',
+  suggestCables: 'Suggest cables (LLDP)',
+  addPort: 'Add a port',
+  termix: 'Open in Termix',
+  duplicate: 'Duplicate',
+  copyLink: 'Copy link',
+  printLabel: 'Print its label',
+  remove: 'Remove device',
+} as const;
+
+/** The headings a device's menu is grouped under; removal sits apart, after a rule. */
+export const DEVICE_GROUPS = { look: 'Look', work: 'Work on it', copy: 'Copy' } as const;
+
+/** Why "Plan a firmware upgrade" cannot be used yet. */
+export const FIRMWARE_NEEDS_VERSION = 'Choose a version on its model first';
+/** Why a port cannot be added by hand. */
+export const PORTS_FROM_MODEL = 'Its ports come from its model';
+/** Why Termix cannot open it. */
+export const TERMIX_NEEDS_ADDRESS = 'Give it a management address first';
+/** Why an unplaced device cannot be duplicated: the copy goes in the rack beside it. */
+export const DUPLICATE_NEEDS_RACK = 'Place it in a rack first';
 
 /** The actions a menu may offer. An absent one (a reader, or a place that
  * cannot do it) leaves its item out. */
@@ -37,6 +84,8 @@ export interface MenuActions {
   /** Starts a path trace from a device (ADR-0061 item 9). */
   onTraceFrom?(chassisId: string): void;
   onDuplicateDevice?(chassisId: string): void;
+  /** Why this device cannot be duplicated (it is in no rack), or null when it can. */
+  duplicateRefusal?(chassisId: string): string | null;
   /** Opens a maintenance plan on a device (ADR-0061 round 7). */
   onPlanChange?(elementId: string): void;
   /** Plans a firmware upgrade for a device (firmware). Absent for a reader or where firmware is not open. */
@@ -50,6 +99,24 @@ export interface MenuActions {
   /** Right-click "Fit a card" on a device (ADR-0073). Absent for a reader. */
   onFitCard?(chassisId: string): void;
   onRemoveDevice?(chassisId: string): void;
+  /** Sign-off r58: opens the device's own page in Inventory. */
+  onShowInInventory?(chassisId: string): void;
+  /** Opens Swap model (or Give it a catalogue model, for a device with none) in its panel. */
+  onSwapModel?(chassisId: string): void;
+  /** Whether the device has a catalogue model, which decides the Swap model item's words. */
+  hasModel?(chassisId: string): boolean;
+  /** Opens the panel's Add a port form. */
+  onAddPort?(chassisId: string): void;
+  /** Why a port cannot be added by hand (its ports come from its model), or null when it can. */
+  addPortRefusal?(chassisId: string): string | null;
+  /** Opens the device's terminal in Termix; absent where the server names no Termix, or it is off. */
+  onOpenInTermix?(chassisId: string): void;
+  /** Why Termix cannot open this device (it has no management address), or null when it can. */
+  termixRefusal?(chassisId: string): string | null;
+  /** Copies the device's link: the one its printed label holds, which opens its page after sign-in. */
+  onCopyLink?(chassisId: string): void;
+  /** Prints the device's own label. */
+  onPrintLabel?(chassisId: string): void;
   onDisconnect?(cableId: string): void;
   /** Missing links: which kind of loose end this cable has (one end connected), or null for a cable
    * with both ends, which has nothing to mark. */
@@ -106,22 +173,7 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
   const items: MenuItem[] = [];
   switch (target.kind) {
     case 'chassis': {
-      const { id, on } = target;
-      if (actions.onOpen) items.push({ label: 'Open', onSelect: () => actions.onOpen?.(id) });
-      if (actions.onOpenInside && on == null) items.push({ label: 'Inside', onSelect: () => actions.onOpenInside?.(id) });
-      if (actions.onTraceFrom) items.push({ label: 'Trace a path from here', onSelect: () => actions.onTraceFrom?.(id) });
-      items.push({ label: 'Details', onSelect: () => actions.onSelect({ kind: on ?? 'chassis', id }) });
-      if (actions.onItsDown) items.push({ label: "It's down", onSelect: () => actions.onItsDown?.(id) });
-      if (actions.onPlanChange) items.push({ label: 'Plan a change', onSelect: () => actions.onPlanChange?.(id) });
-      if (on != null) break;
-      if (actions.onSuggestCables) items.push({ label: 'Suggest cables from its neighbours (LLDP)', onSelect: () => actions.onSuggestCables?.(id) });
-      if (actions.onFitCard) items.push({ label: 'Fit a card', onSelect: () => actions.onFitCard?.(id) });
-      // Offered only once its model has a chosen version; until then the device page's Firmware says how (r30-small).
-      if (actions.onPlanFirmware && !actions.firmwareNeedsVersion?.(id)) {
-        items.push({ label: 'Plan a firmware upgrade', onSelect: () => actions.onPlanFirmware?.(id) });
-      }
-      if (actions.onDuplicateDevice) items.push({ label: 'Duplicate', onSelect: () => actions.onDuplicateDevice?.(id) });
-      if (actions.onRemoveDevice) items.push({ label: 'Remove', onSelect: () => actions.onRemoveDevice?.(id), danger: true });
+      items.push(...deviceMenuItems(target.id, actions, { on: target.on }));
       break;
     }
     case 'rack': {
@@ -152,16 +204,13 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
       if (actions.onDisconnect) items.push({ label: 'Disconnect', onSelect: () => actions.onDisconnect?.(id), danger: true });
       break;
     }
-    case 'free':
+    case 'free': {
+      items.push(...deviceMenuItems(target.id, actions, { free: true }));
+      break;
+    }
     case 'label': {
       const { id } = target;
-      const sel: Selection = target.kind === 'free' ? { kind: 'chassis', id } : { kind: 'label', id };
-      if (target.kind === 'free' && actions.onOpen) items.push({ label: 'Open', onSelect: () => actions.onOpen?.(id) });
-      if (target.kind === 'free' && actions.onTraceFrom) items.push({ label: 'Trace a path from here', onSelect: () => actions.onTraceFrom?.(id) });
-      items.push({ label: 'Details', onSelect: () => actions.onSelect(sel) });
-      if (target.kind === 'free' && actions.onItsDown) items.push({ label: "It's down", onSelect: () => actions.onItsDown?.(id) });
-      if (target.kind === 'free' && actions.onPlanChange) items.push({ label: 'Plan a change', onSelect: () => actions.onPlanChange?.(id) });
-      if (target.kind === 'free' && actions.onSuggestCables) items.push({ label: 'Suggest cables from its neighbours (LLDP)', onSelect: () => actions.onSuggestCables?.(id) });
+      items.push({ label: 'Details', onSelect: () => actions.onSelect({ kind: 'label', id }) });
       if (actions.onDuplicateFree) items.push({ label: 'Duplicate', onSelect: () => actions.onDuplicateFree?.([id]) });
       if (actions.onRemoveFree) items.push({ label: 'Remove', onSelect: () => actions.onRemoveFree?.([id]), danger: true });
       break;
@@ -189,5 +238,60 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
       break;
     }
   }
+  return items;
+}
+
+export interface DeviceMenuWhere {
+  /** A device on a shelf or a surface rather than in a rack unit: what works there. */
+  on?: 'occupant' | 'fixture';
+  /** A box on the free canvas: it duplicates and removes as a box, and has no inside or slots. */
+  free?: boolean;
+  /** The device panel's own ⋯ menu, which leaves out Details: the panel is the details. */
+  inPanel?: boolean;
+}
+
+/**
+ * Sign-off r58: everything that can be done to one device, in four groups (Look, Work on it, Copy,
+ * then removal apart). Pure, and the one list behind right-click, the panel's ⋯ menu, Ctrl K and
+ * Inventory, so the four cannot drift apart again. An action the place cannot do (a reader, or a
+ * place without it) is left out; one it can do later is greyed with the reason.
+ */
+export function deviceMenuItems(id: string, actions: MenuActions, where: DeviceMenuWhere = {}): MenuItem[] {
+  const w = DEVICE_WORDS;
+  const look = DEVICE_GROUPS.look;
+  const work = DEVICE_GROUPS.work;
+  const copy = DEVICE_GROUPS.copy;
+  const racked = where.on == null && where.free !== true;
+  const items: MenuItem[] = [];
+  if (actions.onOpen) items.push({ group: look, label: w.open, onSelect: () => actions.onOpen?.(id) });
+  if (actions.onOpenInside && racked) items.push({ group: look, label: w.openInside, onSelect: () => actions.onOpenInside?.(id) });
+  if (actions.onTraceFrom) items.push({ group: look, label: w.trace, onSelect: () => actions.onTraceFrom?.(id) });
+  if (actions.onShowInInventory) items.push({ group: look, label: w.showInInventory, onSelect: () => actions.onShowInInventory?.(id) });
+  if (where.inPanel !== true) {
+    const sel: Selection = where.free === true ? { kind: 'chassis', id } : { kind: where.on ?? 'chassis', id };
+    items.push({ group: look, label: w.details, onSelect: () => actions.onSelect(sel) });
+  }
+  if (actions.onItsDown) items.push({ group: work, label: w.itsDown, onSelect: () => actions.onItsDown?.(id) });
+  if (actions.onPlanChange) items.push({ group: work, label: w.planChange, onSelect: () => actions.onPlanChange?.(id) });
+  if (where.on != null) return items;
+  if (actions.onPlanFirmware && racked) {
+    const needs = actions.firmwareNeedsVersion?.(id) === true;
+    items.push({ group: work, label: w.planFirmware, onSelect: () => actions.onPlanFirmware?.(id), disabled: needs ? FIRMWARE_NEEDS_VERSION : undefined });
+  }
+  if (actions.onSwapModel && racked) {
+    items.push({ group: work, label: actions.hasModel?.(id) === false ? w.giveModel : w.swapModel, onSelect: () => actions.onSwapModel?.(id) });
+  }
+  if (actions.onFitCard && racked) items.push({ group: work, label: w.fitCard, onSelect: () => actions.onFitCard?.(id) });
+  if (actions.onSuggestCables) items.push({ group: work, label: w.suggestCables, onSelect: () => actions.onSuggestCables?.(id) });
+  if (actions.onAddPort && racked) {
+    items.push({ group: work, label: w.addPort, onSelect: () => actions.onAddPort?.(id), disabled: actions.addPortRefusal?.(id) ?? undefined });
+  }
+  if (actions.onOpenInTermix) items.push({ group: work, label: w.termix, onSelect: () => actions.onOpenInTermix?.(id), disabled: actions.termixRefusal?.(id) ?? undefined });
+  const duplicate = where.free === true ? (actions.onDuplicateFree ? () => actions.onDuplicateFree?.([id]) : null) : actions.onDuplicateDevice ? () => actions.onDuplicateDevice?.(id) : null;
+  if (duplicate) items.push({ group: copy, label: w.duplicate, onSelect: duplicate, keys: shortcutText('duplicate'), disabled: where.free === true ? undefined : actions.duplicateRefusal?.(id) ?? undefined });
+  if (actions.onCopyLink) items.push({ group: copy, label: w.copyLink, onSelect: () => actions.onCopyLink?.(id) });
+  if (actions.onPrintLabel) items.push({ group: copy, label: w.printLabel, onSelect: () => actions.onPrintLabel?.(id) });
+  const remove = where.free === true ? (actions.onRemoveFree ? () => actions.onRemoveFree?.([id]) : null) : actions.onRemoveDevice ? () => actions.onRemoveDevice?.(id) : null;
+  if (remove) items.push({ label: w.remove, onSelect: remove, danger: true, keys: shortcutText('delete') });
   return items;
 }

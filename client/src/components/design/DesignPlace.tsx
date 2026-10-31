@@ -63,7 +63,7 @@ import { ChangeToast } from './ChangeToast';
 import { LiveNotices, announcement, hasLiveNotices } from './LiveNotices';
 import { presenceViewOf } from './liveSession';
 import { recordDesignOpen, recordDeviceOpen } from '../home/recent';
-import { loadResume } from './resume';
+import { loadResume, patchResume } from './resume';
 import { useDesignSession } from './useDesignSession';
 import { LearnContext } from '../learn/context';
 import { LearnOverlay } from '../learn/LearnOverlay';
@@ -79,7 +79,7 @@ import { VaultPlaceContext, type VaultPlace } from '../vault/useVault';
 import { usePhone } from '../phone/usePhone';
 import { PhoneTabs } from '../phone/PhoneTabs';
 import { ScanSheet } from '../phone/ScanSheet';
-import { parseScannedText, scanHash, type ScanTarget } from '../phone/scan';
+import { canvasSelectionOf, parseScannedText, scanHash, type ScanTarget } from '../phone/scan';
 
 /** A download with no server round trip. The object URL is revoked a few
  * seconds later, not straight away — read too soon, a browser saves an empty file. */
@@ -161,6 +161,11 @@ export function DesignPlace(props: DesignPlaceProps) {
   useEffect(() => {
     recordDesignOpen(accountId, organisationId, designId);
   }, [accountId, organisationId, designId]);
+  // Sign-off r60: the design reopens on the place it was left on (this browser only).
+  const placeHere = props.place;
+  useEffect(() => {
+    patchResume(accountId, designId, { place: placeHere });
+  }, [accountId, designId, placeHere]);
   const openedDevice = useRef(false);
   const arrivedDoc = session.doc;
   useEffect(() => {
@@ -634,9 +639,13 @@ export function DesignPlace(props: DesignPlaceProps) {
   };
   const redact = useCallback(async (text: string) => (await ensureEngine()).redactText(text).text, [ensureEngine]);
 
+  // Sign-off r58: Inventory's device menu hands what only the canvas can do (open, trace, plan) to the
+  // canvas, which runs the item named `then` once the device is chosen there.
+  const [deviceActionRequest, setDeviceActionRequest] = useState<{ chassisId: string; label: string } | null>(null);
   const showOnRack = useCallback(
-    (selection: Selection) => {
+    (selection: Selection, then?: string) => {
       setFocus({ ...selection });
+      setDeviceActionRequest(then != null && selection.kind === 'chassis' ? { chassisId: selection.id, label: then } : null);
       onPlaceChange('racks');
     },
     [onPlaceChange],
@@ -863,6 +872,24 @@ export function DesignPlace(props: DesignPlaceProps) {
   const { setPresence } = session;
   const viewId = presenceViewOf(props.place);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Sign-off r60: what is selected goes with you between Canvas and Inventory (Diagram and Sheet are the same
+  // two places in another look). Inventory opens its page; the canvas selects it.
+  const carryDoc = session.doc;
+  const switchPlace = useCallback(
+    (next: Place) => {
+      if (next !== placeNow && selectedId != null && carryDoc != null) {
+        if (next === 'inventory') {
+          const hash = scanHash(carryDoc, selectedId);
+          if (hash != null) return goToInventory(hash);
+        } else {
+          const selection = canvasSelectionOf(carryDoc, selectedId);
+          if (selection != null) setSelectRequest({ selection });
+        }
+      }
+      onPlaceChange(next);
+    },
+    [placeNow, selectedId, carryDoc, goToInventory, onPlaceChange],
+  );
   useEffect(() => {
     setPresence(viewId, selectedId);
   }, [setPresence, viewId, selectedId]);
@@ -943,11 +970,24 @@ export function DesignPlace(props: DesignPlaceProps) {
     session.applyDocChange(restoreTo(doc, pickedSave.doc, `Restored the save from ${when}`, { actor: accountId, now: Date.now() }));
     setHistoryOpen(false);
   };
+  // Sign-off r60: names in a save's Changed line, read off that save's own document. Only what can still be
+  // selected on the canvas is named: a premises or a VLAN has nowhere to go, and a removed thing is gone.
+  const canonOfDoc = useRef(new WeakMap<object, ReturnType<typeof buildCanon>>());
+  const historyNameOf = (id: string, d: Document): string | null => {
+    if (!findNode(d, id) || session.doc == null || canvasSelectionOf(session.doc, id) == null) return null;
+    let canon = canonOfDoc.current.get(d);
+    if (canon == null) {
+      canon = buildCanon(d);
+      canonOfDoc.current.set(d, canon);
+    }
+    return planNameOf(d, canon, id);
+  };
   const historyView = historyOpen
     ? {
         panel: (
           <HistoryPanel
             history={history}
+            nameOf={historyNameOf}
             accountId={accountId}
             accountAddress={accountAddress}
             canDraw={session.canDraw}
@@ -1046,10 +1086,13 @@ export function DesignPlace(props: DesignPlaceProps) {
         {...sharedShellProps}
         sideTabs={racksSideTabs.length > 0 ? racksSideTabs : undefined}
         historyView={historyView}
-        onPlaceChange={onPlaceChange}
+        onPlaceChange={switchPlace}
         session={racksSession}
         onZoomChange={onZoomChange}
         initialFocus={focus}
+        initialDeviceAction={deviceActionRequest}
+        aiTargets={aiIdeas.targets}
+        onOpenAiIdeas={phone ? undefined : () => setAiIdeasOpen(true)}
         selectRequest={selectRequest}
         initialIssue={issueRequest}
         initialUpgrade={upgradeRequest}
@@ -1078,7 +1121,7 @@ export function DesignPlace(props: DesignPlaceProps) {
         {...sharedShellProps}
         sideTabs={aiTab != null ? [aiTab] : undefined}
         aiTargets={aiIdeas.targets}
-        onPlaceChange={onPlaceChange}
+        onPlaceChange={switchPlace}
         session={session}
         onShowOnRack={showOnRack}
         onShowIssue={showIssue}

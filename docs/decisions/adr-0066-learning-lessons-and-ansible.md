@@ -47,6 +47,16 @@ showed. The owner also asked for Ansible support, with learning on it.
    first playbook; change the admin password. The learner edits real YAML and runs it against a
    simulated copy of the sample network in the browser, which answers with `--check --diff`
    output computed from the design. "Run it on your own lab" is an optional last step.
+6. **Everything a person typed into a design reaches Ansible as data, never as a template**
+   (owner, sign-off card r61-ai-audit, 30 October 2026). Names, notes, labels, addresses and every
+   other text Fathom writes into the inventory, `group_vars` or a playbook are written so Ansible
+   never templates them. A value with `{{` or `{%` in it must arrive as those characters, because
+   Ansible runs what a Jinja2 template asks for on the person's machine. Ansible's documentation
+   names the mechanism, the `!unsafe` tag: "unsafe values are never templated", and "marking data
+   as unsafe prevents malicious users from abusing Jinja2 templates to execute arbitrary code on
+   target machines" ("Advanced playbook syntax", docs.ansible.com, ansible-core devel, no page
+   date shown, read 2026-10-30). Re-read it when the export is built, and test the export with a
+   device named `{{ lookup('pipe', 'id') }}`.
 
 ## How the builder stores a lesson (2026-10-25, built on the recommended default)
 

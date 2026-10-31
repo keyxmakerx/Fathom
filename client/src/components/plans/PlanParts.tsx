@@ -4,7 +4,8 @@ import { useState, type ClipboardEventHandler, type FormEventHandler } from 'rea
 import type { Plan } from '../../document/plans';
 import { SEVERITY } from '../checks/checksModel';
 import { WhyCard } from '../checks/ChecksPanel';
-import { touchedDevices } from './plansModel';
+import { touchedDevices, type Choice } from './plansModel';
+import { ThingName } from '../shell/ThingName';
 import type { PlansController } from './usePlansController';
 
 /** ADR-0053 section 6, as Editor's notes say it: typed text is stored as typed, pasted text meets the gate. */
@@ -47,10 +48,10 @@ export function Touches({ controller, plan, stepId }: { controller: PlansControl
   const { preview, unavailable } = controller;
   // A recorded plan is not read against the design again: what it touched is what it says, as recorded.
   if (plan.stage === 'recorded') {
-    const names = controller.doc ? touchedDevices(controller.doc, controller.canon, plan).map((d) => d.name) : [];
+    const devices = controller.doc ? touchedDevices(controller.doc, controller.canon, plan) : [];
     return (
       <p className="plans-note" data-testid="plans-touches-recorded">
-        As recorded{names.length > 0 ? `: ${names.join(', ')}` : '.'}
+        As recorded{devices.length > 0 ? <>: <DeviceNames devices={devices} /></> : '.'}
       </p>
     );
   }
@@ -81,7 +82,13 @@ export function Touches({ controller, plan, stepId }: { controller: PlansControl
               <span className="plans-touches__sev">
                 <span aria-hidden="true">{sev.glyph}</span> {sev.word}
               </span>{' '}
-              After step {r.ordinal + 1}: {f.title}{' '}
+              After step {r.ordinal + 1}: {f.title}
+              {f.elements[0] != null && f.elements[0].name !== '' ? (
+                <>
+                  {' · on '}
+                  <ThingName ids={[f.elements[0].id]}>{f.elements[0].name}</ThingName>
+                </>
+              ) : null}{' '}
               <button type="button" className="plans-link" onClick={(e) => controller.openWhy(f, e.currentTarget)}>
                 Why?
               </button>
@@ -90,5 +97,19 @@ export function Touches({ controller, plan, stepId }: { controller: PlansControl
         }),
       ])}
     </ul>
+  );
+}
+
+/** Sign-off r60: the devices a plan touched, each name a link to it on the canvas. */
+export function DeviceNames({ devices }: { devices: readonly Choice[] }) {
+  return (
+    <>
+      {devices.map((d, i) => (
+        <span key={d.id}>
+          {i > 0 ? ', ' : ''}
+          <ThingName ids={[d.id]}>{d.name}</ThingName>
+        </span>
+      ))}
+    </>
   );
 }

@@ -3048,6 +3048,7 @@ async fn adr55_credential_surface(
         operators,
         setup_secret: None,
         client_address: ClientAddress::header("x-forwarded-for"),
+        watch: Arc::new(EpochWatch::new()),
     }))
     .await
 }
@@ -5144,6 +5145,7 @@ async fn d8_credential_surface(
         operators,
         setup_secret: None,
         client_address: ClientAddress::header("x-forwarded-for"),
+        watch: Arc::new(EpochWatch::new()),
     }))
     .await
 }
@@ -5788,6 +5790,62 @@ async fn an_admin_can_list_and_end_a_members_sessions_and_a_non_admin_cannot() {
     assert_eq!(status, "200", "the session nobody ended is still live");
 }
 
+/// Sign-off r61: "administers this organisation" is the organisation-root Steward
+/// grant, never the `admin` membership role on its own. A member who holds that
+/// role but no Steward grant is refused like any other member.
+#[tokio::test]
+async fn the_admin_membership_role_without_a_steward_grant_administers_no_sessions() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let member = a_member_with(&pool, &ring, &estate, "r61-target", None).await;
+    let role_only = an_account(&pool, "r61-role-only").await;
+    repo::add_member(
+        &pool,
+        estate.organisation,
+        estate.steward.account,
+        role_only.account,
+        repo::Role::Admin,
+    )
+    .await
+    .expect("membership");
+    enrol(&pool, &ring, estate.organisation, &role_only).await;
+    let store = Arc::new(store(&pool, Arc::clone(&ring)).await);
+    let addr = d8_credential_surface(&pool, &ring, Arc::clone(&store)).await;
+
+    let (role_in, role_key) = sign_in(&store, &role_only).await;
+    let (member_in, member_key) = sign_in(&store, &member).await;
+    let path = format!(
+        "/organisations/{}/members/{}/sessions",
+        estate.organisation, member.account
+    );
+    let (status, _) = d8_signed_call(addr, &store, &role_in, &role_key, "GET", &path, b"").await;
+    assert_eq!(status, "403", "the role alone reads no one's sessions");
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &role_in,
+        &role_key,
+        "POST",
+        &format!("/organisations/{}/sessions/end-all", estate.organisation),
+        &d8_code_body("000000"),
+    )
+    .await;
+    assert_eq!(status, "403", "and ends none");
+    let (status, _) = d8_signed_call(
+        addr,
+        &store,
+        &member_in,
+        &member_key,
+        "GET",
+        "/sessions",
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200", "the member's session is still live");
+}
+
 /// An admin naming their own account in an admin ending route is refused
 /// before any code is read — that belongs to `/sessions/end`, not the
 /// organisation's authority over a member.
@@ -5981,9 +6039,9 @@ async fn an_admin_can_end_every_session_of_one_member() {
     );
 }
 
-/// `Ulid::decode` accepts a lowercase id, so `require_admin_over_member`
+/// `Ulid::decode` accepts a lowercase id, so `repo::canonical_member_of`
 /// passes with one, but the row is stored under the CANONICAL id — every
-/// act downstream uses the id `require_admin_over_member` returns, never the path text.
+/// act downstream uses the id `repo::canonical_member_of` returns, never the path text.
 #[tokio::test]
 async fn an_admin_ending_route_accepts_a_lowercase_member_id_and_still_ends_the_session() {
     let _site = support::lock_the_site_chain().await;

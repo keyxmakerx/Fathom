@@ -150,10 +150,11 @@ try {
   check('the panel opens for the unplaced device', panelText.includes('sketch-01'));
   check('the panel shows "Placed on", not silence', /placed on/i.test(panelText));
   check('the panel offers "Remove device", the same as a placed one', panelText.includes('Remove device'));
-  // Placement-only fields (a rack's U-range, "Duplicate") are left out for a
-  // device this document has not placed anywhere.
+  // Placement-only fields (a rack's U-range) are left out for a device this
+  // document has not placed anywhere.
   check('no rack U-range is shown', !/U\d/.test(panelText));
-  check('no "Duplicate" control is shown', !panelText.includes('Duplicate'));
+  // Sign-off r58: the ⋯ list keeps Duplicate, greyed, with why, so a person learns it is there.
+  check('"Duplicate" is greyed, with why', (await panel.locator('[role=menuitem][aria-label="Duplicate"][aria-disabled="true"]').count()) === 1 && panelText.includes('Place it in a rack first'));
   await panel.screenshot({ path: SHOTS + 'UD-01-panel.png' });
   console.log('    wrote ' + SHOTS + 'UD-01-panel.png');
 

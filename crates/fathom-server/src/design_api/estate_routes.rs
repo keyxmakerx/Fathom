@@ -419,7 +419,12 @@ async fn far_handler(
     let built = estate::built_versions(&tx, &org, &wanted)
         .await
         .map_err(|_| SessionError::Corrupt("estate index"))?;
-    let devices = estate::devices_in(&tx, &keys, &org, &wanted)
+    let asked: Vec<(String, String)> = ends
+        .iter()
+        .filter(|(d, _)| readable.names.contains_key(d))
+        .cloned()
+        .collect();
+    let devices = estate::devices_holding(&tx, &keys, &org, &asked)
         .await
         .map_err(|_| SessionError::Corrupt("estate index"))?;
     // (design, port) -> (device name, port name, the port's own far end).

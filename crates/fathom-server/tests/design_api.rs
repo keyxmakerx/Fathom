@@ -2159,7 +2159,10 @@ async fn only_the_creator_or_an_admin_may_change_a_field_and_a_stranger_cannot_t
     let estate = bootstrap(&pool, &ring).await;
     let creator = a_member_with(&pool, &ring, &estate, "creator", Some(Capability::Draw)).await;
     let other = a_member_with(&pool, &ring, &estate, "other", Some(Capability::Draw)).await;
-    let admin = a_member_as(&pool, &ring, &estate, "admin", repo::Role::Admin).await;
+    // Sign-off r61: an admin is a Steward by grant (here the founder, who did not
+    // create the field). The `admin` membership role alone is no admin here.
+    let admin = &estate.steward;
+    let role_only = a_member_as(&pool, &ring, &estate, "role-only", repo::Role::Admin).await;
     let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
     let base = format!("/organisations/{}/field-definitions", estate.organisation);
 
@@ -2187,10 +2190,13 @@ async fn only_the_creator_or_an_admin_may_change_a_field_and_a_stranger_cannot_t
     assert_eq!(refused_real.0, "403");
     assert_eq!(refused_real, refused_ghost);
 
+    let refused_role_only = call(addr, &role_only, "PATCH", &real, &rename).await;
+    assert_eq!(refused_role_only.0, "403");
+
     // An admin who did not create it may; for a missing one an admin is told 404.
-    let (status, _) = call(addr, &admin, "PATCH", &real, &rename).await;
+    let (status, _) = call(addr, admin, "PATCH", &real, &rename).await;
     assert_eq!(status, "200");
-    let (status, _) = call(addr, &admin, "PATCH", &ghost, &rename).await;
+    let (status, _) = call(addr, admin, "PATCH", &ghost, &rename).await;
     assert_eq!(status, "404");
     let (status, _) = call(
         addr,
@@ -7719,5 +7725,22 @@ async fn a_saved_device_is_found_across_the_estate_and_only_by_those_who_may_rea
     assert!(
         !text.contains("\"here\"") && !text.contains(&hostname),
         "a member with no grant learns nothing about the far end: {text}"
+    );
+
+    // Sign-off r61: the far port is found through its own term, so a lookup opens only the
+    // devices it asks about. A design indexed before those terms (none here now) is read
+    // whole, and the far port is still found.
+    su.execute(
+        "DELETE FROM estate_terms WHERE design_id = $1",
+        &[&design.to_string()],
+    )
+    .await
+    .unwrap();
+    let (status, body) = call(addr, &estate.steward, "POST", &far, &ends).await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let text = String::from_utf8_lossy(&body);
+    assert!(
+        text.contains("\"here\"") && text.contains(&hostname),
+        "an index from before port terms still answers: {text}"
     );
 }

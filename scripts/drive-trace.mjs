@@ -133,8 +133,8 @@ try {
     // Right-click the firewall: the item is there.
     const fw = page.locator('.react-flow__node-chassis', { hasText: 'fw-01' });
     await fw.click({ button: 'right', position: { x: 20, y: 10 } });
-    const item = page.locator('.drawing-context-menu__item', { hasText: 'Trace a path from here' });
-    check(`[${w}x${h}] the device menu offers Trace a path from here`, (await item.count()) === 1);
+    const item = page.locator('.drawing-context-menu__item', { hasText: 'Trace from here' });
+    check(`[${w}x${h}] the device menu offers Trace from here`, (await item.count()) === 1);
     await item.click();
     await page.waitForSelector('[data-testid=trace-panel]', { timeout: 5_000 });
     check(`[${w}x${h}] the panel opens with the box to type in`, await page.evaluate(() => document.activeElement?.getAttribute('data-testid') === 'trace-to'));

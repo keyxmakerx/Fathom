@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { menuItemsFor, type MenuActions } from './contextMenuItems';
+import { DEVICE_WORDS, FIRMWARE_NEEDS_VERSION, deviceMenuItems, menuItemsFor, type MenuActions } from './contextMenuItems';
+import { shortcutText } from '../shell/shortcuts';
 
-function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'onPlanFirmware' | 'firmwareNeedsVersion' | 'onSuggestCables' | 'onFitCard' | 'onAddCableRun' | 'onRemoveCableRun' | 'cableRunsOn' | 'looseState' | 'onSetNeedsFinishing'>> {
+function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'onPlanFirmware' | 'firmwareNeedsVersion' | 'onSuggestCables' | 'onFitCard' | 'onAddCableRun' | 'onRemoveCableRun' | 'cableRunsOn' | 'looseState' | 'onSetNeedsFinishing' | 'onShowInInventory' | 'onSwapModel' | 'hasModel' | 'onAddPort' | 'addPortRefusal' | 'onOpenInTermix' | 'onCopyLink' | 'onPrintLabel' | 'termixRefusal' | 'duplicateRefusal'>> {
   return {
     onSelect: vi.fn(),
     onOpen: vi.fn(),
@@ -66,23 +67,29 @@ describe('menuItemsFor', () => {
   });
 
 
-  it('offers Plan a firmware upgrade beside Plan a change, and leaves it out until a version is chosen', () => {
+  it('offers Plan a firmware upgrade beside Plan a change, greyed with the reason until a version is chosen', () => {
     const go = vi.fn();
     const base = { ...actions(), onPlanChange: vi.fn(), onPlanFirmware: go };
-    const labels = (needs: boolean) => menuItemsFor({ kind: 'chassis', id: 'c1' }, { ...base, firmwareNeedsVersion: () => needs }).map((i) => i.label);
-    expect(labels(false)).toContain('Plan a firmware upgrade');
-    expect(labels(false).indexOf('Plan a firmware upgrade')).toBe(labels(false).indexOf('Plan a change') + 1);
-    expect(labels(true).some((l) => l.startsWith('Plan a firmware upgrade'))).toBe(false);
+    const items = (needs: boolean) => menuItemsFor({ kind: 'chassis', id: 'c1' }, { ...base, firmwareNeedsVersion: () => needs });
+    const labels = items(false).map((i) => i.label);
+    expect(labels.indexOf('Plan a firmware upgrade')).toBe(labels.indexOf('Plan a change') + 1);
+    expect(items(false).find((i) => i.label === 'Plan a firmware upgrade')!.disabled).toBeUndefined();
+    // Sign-off r58: shown greyed, so a person learns it is there and what it waits on.
+    expect(items(true).find((i) => i.label === 'Plan a firmware upgrade')!.disabled).toBe(FIRMWARE_NEEDS_VERSION);
     menuItemsFor({ kind: 'chassis', id: 'c1' }, base).find((i) => i.label === 'Plan a firmware upgrade')!.onSelect();
     expect(go).toHaveBeenCalledWith('c1');
     expect(menuItemsFor({ kind: 'chassis', id: 'c1' }, actions()).map((i) => i.label)).not.toContain('Plan a firmware upgrade');
   });
 
-  it('offers a device Open, Inside, a trace, details, a duplicate and removal, removal marked', () => {
+  it('offers a device Open, Open inside, a trace, details, a duplicate and removal, removal marked', () => {
     const a = actions();
     const items = menuItemsFor({ kind: 'chassis', id: 'c1' }, a);
-    expect(items.map((i) => i.label)).toEqual(['Open', 'Inside', 'Trace a path from here', 'Details', 'Duplicate', 'Remove']);
+    expect(items.map((i) => i.label)).toEqual(['Open', 'Open inside', 'Trace from here', 'Details', 'Duplicate', 'Remove device']);
     expect(items[5].danger).toBe(true);
+    // The keys come from the shortcuts table, so the menu says what the sheet and the buttons say.
+    expect(items[5].keys).toBe(shortcutText('delete'));
+    expect(items[4].keys).toBe(shortcutText('duplicate'));
+    expect(shortcutText('duplicate', true)).toBe('Cmd+D');
     items[4].onSelect();
     expect(a.onDuplicateDevice).toHaveBeenCalledWith('c1');
     items[0].onSelect();
@@ -96,7 +103,7 @@ describe('menuItemsFor', () => {
   it('offers a device on a shelf or a wall Open, a trace and details, and selects it the way a click does', () => {
     const a = actions();
     const items = menuItemsFor({ kind: 'chassis', id: 'cam', on: 'fixture' }, a);
-    expect(items.map((i) => i.label)).toEqual(['Open', 'Trace a path from here', 'Details']);
+    expect(items.map((i) => i.label)).toEqual(['Open', 'Trace from here', 'Details']);
     items[1].onSelect();
     expect(a.onTraceFrom).toHaveBeenCalledWith('cam');
     items[2].onSelect();
@@ -106,7 +113,7 @@ describe('menuItemsFor', () => {
   it("offers It's down on a device and a free box when it can be used, and not otherwise", () => {
     const a = { ...actions(), onItsDown: vi.fn() };
     const chassis = menuItemsFor({ kind: 'chassis', id: 'c1' }, a);
-    expect(chassis.map((i) => i.label)).toEqual(['Open', 'Inside', 'Trace a path from here', 'Details', "It's down", 'Duplicate', 'Remove']);
+    expect(chassis.map((i) => i.label)).toEqual(['Open', 'Open inside', 'Trace from here', 'Details', "It's down", 'Duplicate', 'Remove device']);
     chassis.find((i) => i.label === "It's down")!.onSelect();
     expect(a.onItsDown).toHaveBeenCalledWith('c1');
     const free = menuItemsFor({ kind: 'free', id: 'f1' }, a);
@@ -128,7 +135,7 @@ describe('menuItemsFor', () => {
   it('offers cable suggestions on a device, a free box and the empty canvas when they can be used', () => {
     const go = vi.fn();
     const a = { ...actions(), onSuggestCables: go };
-    const label = 'Suggest cables from its neighbours (LLDP)';
+    const label = DEVICE_WORDS.suggestCables;
     menuItemsFor({ kind: 'chassis', id: 'c1' }, a).find((i) => i.label === label)!.onSelect();
     expect(go).toHaveBeenLastCalledWith('c1');
     menuItemsFor({ kind: 'free', id: 'f1' }, a).find((i) => i.label === label)!.onSelect();
@@ -174,6 +181,50 @@ describe('menuItemsFor', () => {
     expect(items[0].label).toBe('Open');
     items[0].onSelect();
     expect(a.onOpen).toHaveBeenCalledWith('f1');
+  });
+
+  it('groups a device menu under Look, Work on it and Copy, with removal apart', () => {
+    const a = { ...actions(), onItsDown: vi.fn(), onShowInInventory: vi.fn(), onCopyLink: vi.fn(), onPrintLabel: vi.fn() };
+    const items = menuItemsFor({ kind: 'chassis', id: 'c1' }, a);
+    expect(items.map((i) => [i.group ?? null, i.label])).toEqual([
+      ['Look', 'Open'],
+      ['Look', 'Open inside'],
+      ['Look', 'Trace from here'],
+      ['Look', 'Show in Inventory'],
+      ['Look', 'Details'],
+      ['Work on it', "It's down"],
+      ['Copy', 'Duplicate'],
+      ['Copy', 'Copy link'],
+      ['Copy', 'Print its label'],
+      [null, 'Remove device'],
+    ]);
+    items.find((i) => i.label === 'Copy link')!.onSelect();
+    expect(a.onCopyLink).toHaveBeenCalledWith('c1');
+  });
+
+  it('names Swap model by whether the device has a model, and greys Add a port with its reason', () => {
+    const base = { ...actions(), onSwapModel: vi.fn(), onAddPort: vi.fn() };
+    const modelled = menuItemsFor({ kind: 'chassis', id: 'c1' }, { ...base, hasModel: () => true, addPortRefusal: () => 'Its ports come from its model' });
+    expect(modelled.map((i) => i.label)).toContain('Swap model…');
+    expect(modelled.find((i) => i.label === 'Add a port')!.disabled).toBe('Its ports come from its model');
+    const bare = menuItemsFor({ kind: 'chassis', id: 'c1' }, { ...base, hasModel: () => false, addPortRefusal: () => null });
+    expect(bare.map((i) => i.label)).toContain('Give it a catalogue model…');
+    expect(bare.find((i) => i.label === 'Add a port')!.disabled).toBeUndefined();
+  });
+
+  it('greys Duplicate on a device in no rack, and Termix on one with no address, each with why', () => {
+    const a = { ...actions(), onOpenInTermix: vi.fn(), termixRefusal: () => 'Give it a management address first', duplicateRefusal: () => 'Place it in a rack first' };
+    const items = menuItemsFor({ kind: 'chassis', id: 'c1' }, a);
+    expect(items.find((i) => i.label === 'Duplicate')!.disabled).toBe('Place it in a rack first');
+    expect(items.find((i) => i.label === 'Open in Termix')!.disabled).toBe('Give it a management address first');
+    // A free box duplicates as a box, wherever it is.
+    expect(menuItemsFor({ kind: 'free', id: 'f1' }, a).find((i) => i.label === 'Duplicate')!.disabled).toBeUndefined();
+  });
+
+  it("leaves Details out of the panel's own menu, which is the details", () => {
+    const labels = deviceMenuItems('c1', actions(), { inPanel: true }).map((i) => i.label);
+    expect(labels).not.toContain('Details');
+    expect(labels).toContain('Remove device');
   });
 
   it('gives a reader only Details, and nothing on the empty canvas', () => {

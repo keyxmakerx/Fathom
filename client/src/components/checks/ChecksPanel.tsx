@@ -9,6 +9,7 @@ import type { ChecksController } from './useChecksController';
 import { RefusalCard } from './RefusalCard';
 import { Glossed } from '../learn/Glossed';
 import { InSideSlot, InSlot } from '../shell/sideSlot';
+import { ThingName } from '../shell/ThingName';
 import './checks.css';
 
 /** The bar's "Checks 2": toggles the panel. */
@@ -82,7 +83,11 @@ function Row({ finding, controller, canShow }: { finding: CheckFinding; controll
   return (
     <li className={`checks-row checks-row--${finding.severity}`} data-testid="checks-row" data-rule={finding.rule}>
       <div className="checks-row__head">
-        {name !== '' && <span className="checks-row__name">{name}</span>}
+        {name !== '' && (
+          <span className="checks-row__name">
+            <ThingName ids={finding.elements.slice(0, 1).map((e) => e.id)}>{name}</ThingName>
+          </span>
+        )}
         <span className="checks-row__sev">
           <span aria-hidden="true">{sev.glyph}</span> {sev.word}
         </span>

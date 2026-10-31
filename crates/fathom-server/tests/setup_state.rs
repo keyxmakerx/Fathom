@@ -139,6 +139,7 @@ impl Deployment {
             operators: Arc::clone(&self.operators),
             setup_secret,
             client_address: ClientAddress::header("x-forwarded-for"),
+            watch: Arc::new(fathom_server::grants::EpochWatch::new()),
         }))
         .await
     }

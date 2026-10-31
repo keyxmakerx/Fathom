@@ -3067,6 +3067,21 @@ async fn a_steward_sets_what_an_ai_may_do_by_kind_of_work_folder_and_field() {
         "{}",
         text(&answer)
     );
+    // Steps alone count too, or a connection could fill the organisation's waiting ideas.
+    let steps_only = canon(vec![
+        ("title", s("Label the uplink")),
+        ("why", s("It has no label")),
+        (
+            "steps",
+            Json::Arr(vec![canon_obj(vec![
+                ("action", s("add")),
+                ("text", s("Print a label for it")),
+            ])]),
+        ),
+    ]);
+    let ideas = format!("/ai/v1/designs/{a}/recommendations");
+    let (status, answer) = ai_call(addr, &app_key, "POST", &ideas, &steps_only).await;
+    assert_eq!(status, "429", "{}", text(&answer));
     let _ = building_a;
 }
 
@@ -3845,4 +3860,108 @@ async fn accepting_a_large_idea_replacing_placeholders_makes_it() {
             && !reading.contains("\"kind\":\"Cable\""),
         "{reading}"
     );
+}
+
+/// Sign-off r61 (approved 2026-10-30): an idea is held to its connection's rules as they are
+/// when a person presses Accept, not as they were when it was sent. While the organisation
+/// lets AI propose nothing, Accept says why and the idea stays open; once it is allowed again
+/// the same idea is accepted. Stopping the key closes every idea it still has waiting.
+#[tokio::test]
+async fn an_idea_is_checked_again_at_accept_and_closes_when_its_key_is_stopped() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let place = a_place(&pool, &estate).await;
+    let owner = a_member(
+        &pool,
+        &ring,
+        &estate,
+        "drawer",
+        Some(place.network),
+        Capability::Draw,
+    )
+    .await;
+    let addr = serve(app(&pool, Arc::clone(&ring)).await).await;
+    let steward = sign_in(addr, &estate.steward).await;
+    saved(addr, &steward, estate.organisation, place.design_a, 81).await;
+    let o = estate.organisation;
+    let owner_id = owner.account.to_string();
+    let policy_path = format!("/organisations/{o}/ai/policy");
+    let policy = |may_change: bool, version: i64| {
+        canon(vec![
+            ("allowed", Json::Bool(true)),
+            ("makers", strs(&[&owner_id])),
+            ("ceiling", strs(&["layout", "addresses", "notes"])),
+            ("maxDays", Json::Int(90)),
+            ("mayChange", Json::Bool(may_change)),
+            ("ifVersion", Json::Int(version)),
+        ])
+    };
+    let (status, body) = browser(addr, &steward, "POST", &policy_path, &policy(true, 0)).await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let owner_session = sign_in(addr, &owner).await;
+    let app_key = a_changing_key(addr, &owner_session, o, &["layout"]).await;
+    let a = place.design_a;
+    let path = format!("/ai/v1/designs/{a}/changes");
+    let hostname = DeviceField::Hostname.name();
+    let (version, device, _) = read_for_change(addr, &app_key, a, "Device").await;
+    let mut ideas = Vec::new();
+    for name in ["core-r61a", "core-r61b"] {
+        let (status, answer) = ai_call(
+            addr,
+            &app_key,
+            "POST",
+            &path,
+            &a_change(version, "Rename", vec![(&device, hostname, s(name))]),
+        )
+        .await;
+        assert_eq!(status, "200", "{}", text(&answer));
+        ideas.push(idea_id(&answer));
+    }
+
+    // The organisation stops AI proposing: Accept refuses with the reason, and changes nothing.
+    let (status, _) = browser(addr, &steward, "POST", &policy_path, &policy(false, 1)).await;
+    assert_eq!(status, "200");
+    let (status, answer) = accept_idea(addr, &owner_session, o, a, &ideas[0]).await;
+    assert_eq!(status, "403", "{}", text(&answer));
+    assert!(
+        text(&answer).contains("can't be accepted"),
+        "{}",
+        text(&answer)
+    );
+    let (now, _, reading) = read_for_change(addr, &app_key, a, "Device").await;
+    assert_eq!(now, version, "a refused Accept changes nothing");
+    assert!(!reading.contains("core-r61a"), "{reading}");
+
+    // Allowed again, the same idea is still open and is accepted.
+    let (status, _) = browser(addr, &steward, "POST", &policy_path, &policy(true, 2)).await;
+    assert_eq!(status, "200");
+    let (status, answer) = accept_idea(addr, &owner_session, o, a, &ideas[0]).await;
+    assert_eq!(status, "200", "{}", text(&answer));
+
+    // The owner stops the key: its other waiting idea closes with it.
+    let (status, body) = browser(
+        addr,
+        &owner_session,
+        "POST",
+        &format!("/organisations/{o}/ai/keys/{}/disable", app_key.id),
+        &canon(vec![("ifVersion", Json::Int(1))]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let (status, body) = browser(
+        addr,
+        &owner_session,
+        "GET",
+        &format!("/organisations/{o}/designs/{a}/ai-ideas"),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200");
+    let list = text(&body);
+    assert!(!list.contains("\"state\":\"open\""), "{list}");
+    assert!(list.contains("\"state\":\"dismissed\""), "{list}");
+    let (status, answer) = accept_idea(addr, &owner_session, o, a, &ideas[1]).await;
+    assert_ne!(status, "200", "{}", text(&answer));
 }

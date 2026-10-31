@@ -19,7 +19,6 @@ use crate::crypto;
 use crate::designs::DesignError;
 use crate::grants::{self, Authority, AuthorityError};
 use crate::keys;
-use crate::repo::Role;
 use crate::repo::ScopeId;
 
 const AAD_FIELD_DEF: &[u8] = b"fathom/field-definition/v1";
@@ -389,7 +388,10 @@ async fn lock_and_authorise(
             &[&auth.ctx.tenant().to_string(), &id],
         )
         .await?;
-    let admin = auth.ctx.role() == Role::Admin;
+    // The organisation-root Steward grant, not the creator's membership role (sign-off r61).
+    let admin = grants::is_steward(tx, auth)
+        .await
+        .map_err(DesignError::Authority)?;
     let creator = row
         .as_ref()
         .is_some_and(|r| r.get::<_, String>(3) == auth.ctx.actor().to_string());

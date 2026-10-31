@@ -4,12 +4,12 @@ import { EMPTY_RESUME, loadResume, parseResume, patchResume, resumeKey, viewShow
 
 describe('parseResume', () => {
   it('keeps what is valid', () => {
-    const r = parseResume({ camera: { x: -10, y: 20, zoom: 1.5 }, tab: 'trail', equipmentOpen: true, equipmentClosedOnce: true, selection: { kind: 'chassis', id: 'n1' } });
-    expect(r).toEqual({ camera: { x: -10, y: 20, zoom: 1.5 }, tab: 'trail', equipmentOpen: true, equipmentClosedOnce: true, selection: { kind: 'chassis', id: 'n1' } });
+    const r = parseResume({ camera: { x: -10, y: 20, zoom: 1.5 }, place: 'inventory', tab: 'trail', equipmentOpen: true, equipmentClosedOnce: true, selection: { kind: 'chassis', id: 'n1' } });
+    expect(r).toEqual({ camera: { x: -10, y: 20, zoom: 1.5 }, place: 'inventory', tab: 'trail', equipmentOpen: true, equipmentClosedOnce: true, selection: { kind: 'chassis', id: 'n1' } });
   });
 
   it('drops damaged parts one by one', () => {
-    const r = parseResume({ camera: { x: 'a', y: 0, zoom: 1 }, tab: 'history', equipmentOpen: 'yes', equipmentClosedOnce: 'yes', selection: { kind: 'port', id: 'p' } });
+    const r = parseResume({ camera: { x: 'a', y: 0, zoom: 1 }, place: 'sheet', tab: 'history', equipmentOpen: 'yes', equipmentClosedOnce: 'yes', selection: { kind: 'port', id: 'p' } });
     expect(r).toEqual(EMPTY_RESUME);
     expect(parseResume(null)).toEqual(EMPTY_RESUME);
     expect(parseResume({ camera: { x: 0, y: 0, zoom: 0 } }).camera).toBeNull();

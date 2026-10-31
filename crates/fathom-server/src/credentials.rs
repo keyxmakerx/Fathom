@@ -469,6 +469,64 @@ pub fn verify_password(stored: &str, password: &str) -> bool {
         .is_ok()
 }
 
+/// How many argon2id runs this process does at once, at [`ARGON2_M_COST`] each.
+///
+/// **Off the async runtime, and bounded.** An argon2id run is tens of
+/// milliseconds of CPU on a tokio worker thread, and a worker that is hashing
+/// answers nothing else: a handful of sign-ins at once, from anyone, stalled
+/// every other request and every live stream on the server. tokio's own
+/// documentation names this ("CPU-bound tasks and blocking code", docs.rs/tokio,
+/// read 2026-10-30) and points to `spawn_blocking`. Its pool grows to 512
+/// threads, though, and 512 hashes in memory is ten gibibytes, so a counter
+/// holds the runs to this many; the rest wait their turn on their own blocking
+/// thread, holding no hash memory while they wait.
+pub const ARGON2_AT_ONCE: usize = 4;
+
+static ARGON2_RUNNING: (std::sync::Mutex<usize>, std::sync::Condvar) =
+    (std::sync::Mutex::new(0), std::sync::Condvar::new());
+
+/// Run `f` once fewer than [`ARGON2_AT_ONCE`] runs are under way. Blocking: call
+/// it on a `spawn_blocking` thread.
+fn with_argon2_turn<T>(f: impl FnOnce() -> T) -> T {
+    let (count, freed) = &ARGON2_RUNNING;
+    {
+        let mut n = count.lock().unwrap_or_else(|p| p.into_inner());
+        while *n >= ARGON2_AT_ONCE {
+            n = freed.wait(n).unwrap_or_else(|p| p.into_inner());
+        }
+        *n += 1;
+    }
+    // Given back even if `f` panics, or one panic would close a slot for good.
+    struct Turn;
+    impl Drop for Turn {
+        fn drop(&mut self) {
+            let (count, freed) = &ARGON2_RUNNING;
+            let mut n = count.lock().unwrap_or_else(|p| p.into_inner());
+            *n -= 1;
+            freed.notify_one();
+        }
+    }
+    let _turn = Turn;
+    f()
+}
+
+/// [`verify_password`], off the async runtime and in turn (see
+/// [`ARGON2_AT_ONCE`]). The same answer: a run that could not finish is `false`.
+pub async fn verify_password_blocking(stored: &str, password: &str) -> bool {
+    let (stored, password) = (stored.to_owned(), password.to_owned());
+    tokio::task::spawn_blocking(move || with_argon2_turn(|| verify_password(&stored, &password)))
+        .await
+        .unwrap_or(false)
+}
+
+/// [`hash_password`], off the async runtime and in turn (see [`ARGON2_AT_ONCE`]).
+pub async fn hash_password_blocking(password: &str) -> Result<String, CredentialError> {
+    let password = password.to_owned();
+    tokio::task::spawn_blocking(move || with_argon2_turn(|| hash_password(&password)))
+        .await
+        .map_err(|_| CredentialError::Corrupt("password hash"))?
+}
+
 /// ADR-0055 decision 10's policy, whole: **15 to 128 characters, no
 /// composition rules, no expiry, not on the bundled common list, and not
 /// containing the address it opens.**
@@ -1703,7 +1761,7 @@ impl CredentialStore {
         check_password(new_password, &row.address)?;
         match row.password_hash.as_deref() {
             Some(stored) => {
-                if !verify_password(stored, current_password) {
+                if !verify_password_blocking(stored, current_password).await {
                     return Err(CredentialError::CurrentPasswordRefused);
                 }
             }
@@ -1712,7 +1770,7 @@ impl CredentialStore {
             }
             None => {}
         }
-        let hash = hash_password(new_password)?;
+        let hash = hash_password_blocking(new_password).await?;
 
         let appended = chains::append_site(
             &tx,
@@ -1854,7 +1912,7 @@ impl CredentialStore {
         };
         if row.totp_confirmed() {
             if let Some(stored) = row.password_hash.as_deref() {
-                if !verify_password(stored, current_password) {
+                if !verify_password_blocking(stored, current_password).await {
                     return Err(CredentialError::CurrentPasswordRefused);
                 }
             }
@@ -2494,7 +2552,7 @@ impl CredentialStore {
             tx.commit().await?;
             return Err(refused);
         }
-        let password_hash = hash_password(new_password)?;
+        let password_hash = hash_password_blocking(new_password).await?;
 
         let password_entry = chains::append_site(
             &tx,
@@ -2649,7 +2707,7 @@ impl CredentialStore {
         }
 
         check_password(new_password, &address)?;
-        let password_hash = hash_password(new_password)?;
+        let password_hash = hash_password_blocking(new_password).await?;
 
         let password_entry = chains::append_site(
             &tx,
@@ -3941,6 +3999,49 @@ mod tests {
         assert_ne!(a, b, "a salt that does not change is not a salt");
         assert!(verify_password(&a, "correct-horse-battery-staple"));
         assert!(verify_password(&b, "correct-horse-battery-staple"));
+    }
+
+    /// The audit fix (2026-10-30): at most `ARGON2_AT_ONCE` argon2id runs at once, the
+    /// rest waiting their turn, and every one of them still runs.
+    #[test]
+    fn no_more_than_argon2_at_once_runs_happen_together() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        let running = Arc::new(AtomicUsize::new(0));
+        let most = Arc::new(AtomicUsize::new(0));
+        let done = Arc::new(AtomicUsize::new(0));
+        let runs = ARGON2_AT_ONCE * 4;
+        let threads: Vec<_> = (0..runs)
+            .map(|_| {
+                let (running, most, done) = (running.clone(), most.clone(), done.clone());
+                std::thread::spawn(move || {
+                    with_argon2_turn(|| {
+                        let now = running.fetch_add(1, Ordering::SeqCst) + 1;
+                        most.fetch_max(now, Ordering::SeqCst);
+                        std::thread::sleep(std::time::Duration::from_millis(30));
+                        running.fetch_sub(1, Ordering::SeqCst);
+                        done.fetch_add(1, Ordering::SeqCst);
+                    })
+                })
+            })
+            .collect();
+        for t in threads {
+            t.join().expect("a run");
+        }
+        assert_eq!(done.load(Ordering::SeqCst), runs, "every run had its turn");
+        let most = most.load(Ordering::SeqCst);
+        assert!(most <= ARGON2_AT_ONCE, "{most} ran at once");
+        assert!(most > 1, "runs did go side by side ({most})");
+    }
+
+    /// A run that panics gives its turn back, or one panic would close a slot for good.
+    #[test]
+    fn a_run_that_panics_gives_its_turn_back() {
+        for _ in 0..ARGON2_AT_ONCE + 1 {
+            let caught = std::panic::catch_unwind(|| with_argon2_turn(|| panic!("a run fails")));
+            assert!(caught.is_err());
+        }
+        assert_eq!(with_argon2_turn(|| 7), 7, "a turn is still free");
     }
 
     // ---- ADR-0057 decision 1: the setup password, held in memory ---------
