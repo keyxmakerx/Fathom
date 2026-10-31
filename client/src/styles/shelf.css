@@ -10,12 +10,19 @@
 
 .drawing-shelf {
   box-sizing: border-box;
-  /* r35 shelves: drawn as a tray, not as one more device. Hairline sides and top,
-     an ink lip along the bottom that the things on it sit on; they keep the ink
-     outline every device has, so a shelf never reads as six devices. */
+  /* r35 shelves: drawn as a tray, not as one more device. Hairline sides, an
+     ink lip along the bottom that the things on it sit on; they keep the ink
+     outline every device has, so a shelf never reads as six devices. The lip is
+     a shadow one pixel below the box, the same as a device's bottom line
+     (`.drawing-chassis`), so it lands on the line of whatever is under it. The
+     top is left open and unpainted, so the bottom line of a device above
+     shows through it rather than being covered by a second, lighter line. */
   border: 1px solid var(--hairline);
-  border-bottom: 2px solid var(--ink);
+  border-top-color: transparent;
+  border-bottom: 0;
+  box-shadow: 0 1px 0 var(--ink);
   background: var(--page);
+  background-clip: padding-box;
   display: flex;
   flex-direction: column;
   /* Unlike `.drawing-chassis`, this is NOT `overflow: hidden` — the
@@ -62,9 +69,14 @@
   flex-direction: row;
   align-items: flex-end;
   justify-content: flex-start;
-  gap: 3px;
   min-width: 0;
   overflow: hidden;
+}
+
+/* Chips side by side share one line between them, not two with a gap. */
+.drawing-shelf__compact-occupants > * + *,
+.drawing-shelf__occupants > * + * {
+  margin-left: -1px;
 }
 
 .drawing-shelf__compact-occupant {
@@ -165,7 +177,6 @@
   display: flex;
   flex-direction: row;
   align-items: stretch;
-  gap: 3px;
   min-height: 0;
   padding: 2px 4px 0;
   overflow: hidden;

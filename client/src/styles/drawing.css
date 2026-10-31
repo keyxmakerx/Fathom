@@ -191,7 +191,11 @@
 
 .drawing-rack__frame {
   position: relative;
-  border: 1.5px solid var(--ink);
+  /* An outline, not a border: a border would take 3px out of the frame's own
+     box, so the rails, unit numbers and free hatch (laid out at `U_PX` from its
+     inside edge) would sit 1.5px off the devices (laid out from its outside
+     edge) and the last row's hatch would run past the bottom. */
+  outline: 1.5px solid var(--ink);
   background: var(--page);
   box-sizing: border-box;
 }
@@ -336,11 +340,15 @@
 }
 
 /* The plate is see-through so cables run behind its name and ports; both
-   draw above them. */
+   draw above them. Its bottom line is a shadow one pixel below the box, on the
+   top line of whatever is racked under it, so two stacked devices share one
+   line instead of drawing two. */
 .drawing-chassis {
   position: relative;
   box-sizing: border-box;
   border: 1px solid var(--ink);
+  border-bottom: 0;
+  box-shadow: 0 1px 0 var(--ink);
   background: transparent;
   display: flex;
   flex-direction: column;
