@@ -42,6 +42,71 @@ one stamped in the database at first use, so the server refuses to start rather 
 under the wrong key (see Restore, below). There is no other copy inside Fathom. **Your data is
 unrecoverable without the original key file.**
 
+## Keys from your own secrets manager
+
+By default the `db` container generates every key into the `keys` volume at first start
+(`compose.yaml`, the `db_start` config), and the volume is where they live. If your organisation
+keeps keys in a secrets manager instead, point the four key settings somewhere else. The server
+then reads them from there and never creates one.
+
+| Setting | Read by | Default |
+|---|---|---|
+| `FATHOM_MASTER_KEY` | `server`, `backup` | `file:///var/lib/fathom/keys/master.key` |
+| `FATHOM_CHAIN_KEY` | `server`, `backup` | `file:///var/lib/fathom/keys/chain.key` |
+| `FATHOM_VAULT_KEY` | `server`, `backup` | `file:///var/lib/fathom/keys/vault.key` |
+| `FATHOM_BACKUP_KEY` | `backup`, `backup-keys` | `file:///var/lib/fathom/keys/backup.key` |
+
+Set them in the `environment:` of each service named, in your compose file. Each key is 32 raw
+bytes or 64 hex characters, with at most one trailing newline. The master, chain and vault keys
+must all be different; the server refuses to start if any two are the same.
+
+**A file your secrets manager puts on the host.** Mount it into the container and name it with
+`file://`. Compose `secrets:` work, with one catch, seen with Docker Compose v5.6.1 on
+2026-10-31: outside Swarm, Compose ignores a secret's `uid`, `gid` and `mode` (it warns, and
+bind-mounts the host file as it is). The server runs as uid 65532 and refuses a key file that its
+group or anyone else can read, so the file on the host must be owned by 65532 and mode `0400` or
+`0600`:
+
+```yaml
+# beside services:, at the top level
+secrets:
+  fathom_master:
+    file: /etc/fathom/master.key   # chown 65532:65532, chmod 0400, on the host
+
+# in the server service (and backup)
+    secrets:
+      - source: fathom_master
+        target: master.key          # appears at /run/secrets/master.key
+    environment:
+      FATHOM_MASTER_KEY: "file:///run/secrets/master.key"
+```
+
+**A program that fetches the key.** `command:///path/to/program` runs it at startup and reads the
+key from its standard output (`crates/fathom-server/src/keyprovider.rs`). It is run directly, with
+no shell, as uid 65532, with the container's environment and nothing on standard input. It has 10
+seconds, and anything over 4096 bytes of output is refused. The server image is distroless, with no
+shell and no tools, so the program must be a single static executable you mount in. This is how
+a cloud key service or Vault fits: their client lives in your program, not in Fathom.
+
+`env://NAME` also works, and is discouraged for the reason given under "The key file" above.
+
+**What changes when you do this.**
+
+- The `db` container still generates its files in the `keys` volume. Keys you have moved elsewhere
+  are just never read from there. The three database passwords stay in the volume; they can only
+  be read from a file (`FATHOM_DB_PASSWORD_FILE`, `FATHOM_MIGRATE_DB_PASSWORD_FILE`).
+- **The keys file no longer covers them.** `backup-keys` seals the files in a folder (the `keys`
+  volume unless you pass `--keys-dir`), not the keys the settings above point at. Either mount your
+  key files into one folder under the names `master.key`, `chain.key`, `backup.key` and
+  `vault.key` and pass that folder with `--keys-dir`, or treat your secrets manager as the backup
+  of those keys and keep its own recovery in order. The Backups screen says when the keys file
+  does not match the running keys.
+- **Moving an install that already has data:** the keys in your secrets manager must be the same
+  32 bytes as the ones in the volume now. A different key does not match the one stamped in the
+  database, and the server refuses to start. Copy them out of the volume first
+  (`docker compose exec -T db cat /var/lib/fathom/keys/master.key > master.key`, and the same for
+  the others), store them, then switch.
+
 ## Backups
 
 **Never put the key volume and a database backup in the same archive.** In a compose deployment the
