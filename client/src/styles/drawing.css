@@ -381,14 +381,16 @@
     linear-gradient(var(--ink), var(--ink)) right bottom / 2px var(--tick-len, 10px) no-repeat;
 }
 
-/* A plate with no ports keeps the old header row: name left, model right. */
+/* A plate with no ports keeps the old header row: name left, model right.
+   The row is one rack unit tall (16px less the 1px top line) and centres its
+   words in it, so a name sits level with its U number, not against the top. */
 .drawing-chassis__header {
   flex: 0 0 auto;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--s1);
   padding: 0 4px;
-  min-height: 9px;
+  min-height: 15px;
 }
 
 /* The name sits in the plate's blank part, on a page-coloured chip so no cable shows through it. */
