@@ -10,6 +10,9 @@ export interface PathPart {
   opensTree?: boolean;
   /** What a click does, as a tooltip. */
   hint?: string;
+  /** The design's crumb, renamed in place: double-click it, its pencil, or
+   * Rename… in its menu. Absent where the person may not draw. */
+  rename?: { onRename: (name: string) => Promise<void> };
 }
 
 export interface PathItem extends PathPart {
