@@ -144,6 +144,7 @@ import { colourKeyShown, useCanvasAids } from '../drawing/canvasAids';
 import { colourKeyRows } from '../drawing/colourKey';
 import { ColourKey } from '../drawing/ColourKey';
 import { PortPeek } from '../drawing/PortPeek';
+import { QuickCard } from '../drawing/QuickCard';
 import { JumpTrail } from './JumpTrail';
 import { showAidsFor } from './showAids';
 import { selectionName } from './selectionName';
@@ -2311,6 +2312,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         </InSideSlot>
       ) : null}
       {doc != null ? <PortPeek doc={doc} view={displayView} /> : null}
+      <QuickCard view={displayView} />
       {deviceLabels != null ? <LabelsPreview items={deviceLabels} onClose={() => setDeviceLabels(null)} /> : null}
       {drawerAsk != null && pasteState == null ? (
         <PasteCard
