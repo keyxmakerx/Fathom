@@ -411,6 +411,8 @@ services:
       FATHOM_FIRMWARE_FETCH_BASE_URL: ${FATHOM_FIRMWARE_FETCH_BASE_URL:-}
       FATHOM_FIRMWARE_DIR: ${FATHOM_FIRMWARE_FETCH_BASE_URL:+/var/lib/fathom/firmware}
       FATHOM_FIRMWARE_MAX_BYTES: ${FATHOM_FIRMWARE_MAX_BYTES:-}
+      FATHOM_FIRMWARE_ORGANISATION_MAX_BYTES: ${FATHOM_FIRMWARE_ORGANISATION_MAX_BYTES:-}
+      FATHOM_FIRMWARE_TOTAL_MAX_BYTES: ${FATHOM_FIRMWARE_TOTAL_MAX_BYTES:-}
       FATHOM_BACKUP_DIR: /var/lib/fathom/backups
       # ADR-0071 part four: where the optional Passbolt helper answers. Passbolt is offered
       # only while it does, so without the `passbolt` profile nothing is listening here.

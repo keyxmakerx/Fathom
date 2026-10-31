@@ -586,6 +586,32 @@ calls `/ai/v1/*` with a key the person made on that computer (Steward › AI ›
 at its next request; it cannot be turned back on. Tokens are stored only as hashes: a database copy
 cannot be used to call `/mcp`.
 
+## Firmware space and uploads
+
+Staged images live in the `firmware` volume, outside the database. Three numbers keep them from
+crowding out anything else (sign-off r62, ADR-0064 amendment of 2026-10-31):
+
+| Setting | Default | What it limits |
+|---|---|---|
+| `FATHOM_FIRMWARE_MAX_BYTES` | 2 GiB | One image |
+| `FATHOM_FIRMWARE_ORGANISATION_MAX_BYTES` | 20 GiB | One organisation's staged images, plus declared ones whose upload can still start |
+| `FATHOM_FIRMWARE_TOTAL_MAX_BYTES` | 50 GiB | Every `.img` and `.part` file in the staging directory |
+
+**Set the total below what the volume can hold.** Fathom does not read the disk's free space (std
+has no portable call for it, and reading it needs a dependency not yet approved), so this number is
+the guard. If the volume shares a disk with PostgreSQL, leave room for the database to grow too.
+Both space checks run when an image is declared, before any bytes are sent, and refuse with `507`
+saying how much is held.
+
+Uploads: one at a time per organisation and three per server process, refused with `429` (the
+upload token stays good). An upload that sends nothing for two minutes is dropped and its partial
+file deleted. Behind a load balancer each server counts its own uploads; the organisation total is
+read from the database, so it holds across all of them. Device downloads are not limited.
+
+Before each download the server reads the image again and compares its SHA-256 with the one computed
+at upload. A file changed on disk is refused with `500` and logged as an error; restage it from the
+vendor's download.
+
 ## Break-glass: recovering an operator from the host
 
 ADR-0055 decision 8, in its own words: *"Break-glass is a host command, loud."* `fathom-server

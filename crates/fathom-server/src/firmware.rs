@@ -115,6 +115,30 @@ pub const UPLOAD_TOKEN_LIFETIME_SECONDS: i64 = 60 * 60;
 /// maintenance window disagrees.
 pub const FETCH_TOKEN_LIFETIME_SECONDS: i64 = 15 * 60;
 
+/// Uploads in flight at once for one organisation, and for the whole server
+/// (sign-off r62). An upload past either is refused with `429` and its token kept,
+/// so the same token can try again a minute later. Downloads by devices are not
+/// limited: upgrading a dozen switches at once is a normal night.
+pub const UPLOADS_AT_ONCE_PER_ORGANISATION: usize = 1;
+pub const UPLOADS_AT_ONCE_PER_SERVER: usize = 3;
+
+/// An upload that sends nothing for this long is dropped and its file deleted, so a
+/// stalled or deliberately slow sender cannot hold a slot. A slow upload that keeps
+/// moving is never cut off.
+pub const UPLOAD_IDLE_SECONDS: u64 = 120;
+
+/// Default for `FATHOM_FIRMWARE_ORGANISATION_MAX_BYTES`: what one organisation's
+/// images may add up to (sign-off r62). Twenty gibibytes.
+pub const DEFAULT_ORGANISATION_MAX_BYTES: u64 = 20 * 1024 * 1024 * 1024;
+
+/// Default for `FATHOM_FIRMWARE_TOTAL_MAX_BYTES`: what every image file in the
+/// staging directory may add up to. Fifty gibibytes. **This stands in for a
+/// free-space check**: std has no portable free-space call and reading one needs a
+/// new dependency, so the operator sets this below what the volume can hold
+/// (`docs/OPERATING.md`). It is what keeps firmware from filling a disk the
+/// database shares.
+pub const DEFAULT_TOTAL_MAX_BYTES: u64 = 50 * 1024 * 1024 * 1024;
+
 /// The header the upload's bytes carry their token in. A header, not a query
 /// parameter: a token in a URL reaches proxy logs, browser history and
 /// `Referer`. The fetch URL has no choice (a switch can only be given a URL),
@@ -163,8 +187,42 @@ pub struct FirmwareState {
 pub struct FirmwareStore {
     directory: PathBuf,
     max_image_bytes: u64,
+    organisation_max_bytes: u64,
+    total_max_bytes: u64,
+    upload_idle: std::time::Duration,
     fetch_base_url: String,
     client_address: crate::client_address::ClientAddress,
+    /// Uploads in flight, counted in this process. Several servers behind one
+    /// load balancer each keep their own count, so the server-wide limit is per
+    /// process; the per-organisation total is read from the database and holds
+    /// across all of them.
+    slots: std::sync::Mutex<Slots>,
+}
+
+#[derive(Default)]
+struct Slots {
+    total: usize,
+    by_organisation: std::collections::HashMap<String, usize>,
+}
+
+/// One upload's place in [`Slots`], given back when it is dropped: on success, on
+/// refusal and on a panic alike.
+pub struct UploadSlot {
+    store: Arc<FirmwareStore>,
+    organisation: String,
+}
+
+impl Drop for UploadSlot {
+    fn drop(&mut self) {
+        let mut slots = self.store.slots.lock().unwrap_or_else(|e| e.into_inner());
+        slots.total = slots.total.saturating_sub(1);
+        if let Some(n) = slots.by_organisation.get_mut(&self.organisation) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                slots.by_organisation.remove(&self.organisation);
+            }
+        }
+    }
 }
 
 impl FirmwareStore {
@@ -207,13 +265,76 @@ impl FirmwareStore {
         Ok(Self {
             directory,
             max_image_bytes,
+            organisation_max_bytes: DEFAULT_ORGANISATION_MAX_BYTES,
+            total_max_bytes: DEFAULT_TOTAL_MAX_BYTES,
+            upload_idle: std::time::Duration::from_secs(UPLOAD_IDLE_SECONDS),
             fetch_base_url: fetch_base_url.trim_end_matches('/').to_string(),
             client_address,
+            slots: std::sync::Mutex::new(Slots::default()),
         })
+    }
+
+    /// What one organisation's images, and every image on this server, may add up
+    /// to. Both default to [`DEFAULT_ORGANISATION_MAX_BYTES`] and
+    /// [`DEFAULT_TOTAL_MAX_BYTES`].
+    pub fn with_space_limits(mut self, organisation_max_bytes: u64, total_max_bytes: u64) -> Self {
+        self.organisation_max_bytes = organisation_max_bytes;
+        self.total_max_bytes = total_max_bytes;
+        self
+    }
+
+    /// How long an upload may send nothing before it is dropped. [`UPLOAD_IDLE_SECONDS`]
+    /// unless a test shortens it.
+    pub fn with_upload_idle(mut self, idle: std::time::Duration) -> Self {
+        self.upload_idle = idle;
+        self
     }
 
     pub fn max_image_bytes(&self) -> u64 {
         self.max_image_bytes
+    }
+
+    /// A place for one upload, or `None` when this organisation or this server
+    /// already has as many in flight as it may.
+    fn take_slot(self: &Arc<Self>, organisation: &str) -> Option<UploadSlot> {
+        let mut slots = self.slots.lock().unwrap_or_else(|e| e.into_inner());
+        let mine = slots
+            .by_organisation
+            .get(organisation)
+            .copied()
+            .unwrap_or(0);
+        if slots.total >= UPLOADS_AT_ONCE_PER_SERVER || mine >= UPLOADS_AT_ONCE_PER_ORGANISATION {
+            return None;
+        }
+        slots.total += 1;
+        *slots
+            .by_organisation
+            .entry(organisation.to_string())
+            .or_insert(0) += 1;
+        Some(UploadSlot {
+            store: Arc::clone(self),
+            organisation: organisation.to_string(),
+        })
+    }
+
+    /// The bytes every image and partial upload in the staging directory holds now.
+    async fn bytes_on_disk(&self) -> Result<u64, FirmwareError> {
+        let directory = self.directory.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut total = 0u64;
+            for entry in std::fs::read_dir(&directory)? {
+                let entry = entry?;
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.ends_with(".img") || name.ends_with(".part") {
+                    total = total.saturating_add(entry.metadata()?.len());
+                }
+            }
+            Ok::<u64, std::io::Error>(total)
+        })
+        .await
+        .map_err(joined)?
+        .map_err(FirmwareError::Storage)
     }
 
     /// Where one image's bytes live. **The only place in this server that builds a
@@ -345,6 +466,24 @@ pub enum FirmwareError {
 
     /// Something about the filesystem. Never rendered to the caller in detail.
     Storage(std::io::Error),
+
+    /// This organisation, or this server, already has as many uploads in flight as
+    /// it may. The token is not spent.
+    Busy,
+    /// Staging this image would take the organisation's images, or every image on
+    /// this server, past what they may add up to.
+    OverSpace {
+        used: u64,
+        requested: u64,
+        max: u64,
+        whole_server: bool,
+    },
+    /// The upload sent nothing for [`UPLOAD_IDLE_SECONDS`]; the partial file was
+    /// deleted.
+    Stalled,
+    /// **The file on disk is not the file that was staged.** Its SHA-256, read again
+    /// just before sending, differs from the one computed at upload. Nothing is sent.
+    ImageChanged,
 }
 
 /// For an operator reading a log line, never the network; [`IntoResponse`] below
@@ -397,6 +536,28 @@ impl core::fmt::Display for FirmwareError {
                  has already been spent, or has expired",
             ),
             Self::Storage(e) => write!(f, "the firmware staging directory refused something: {e}"),
+            Self::Busy => f.write_str("another firmware upload is already running"),
+            Self::OverSpace {
+                used,
+                requested,
+                max,
+                whole_server,
+            } => write!(
+                f,
+                "staging {requested} more bytes would take {} past {max} (it holds {used})",
+                if *whole_server {
+                    "this server's firmware"
+                } else {
+                    "this organisation's firmware"
+                }
+            ),
+            Self::Stalled => write!(
+                f,
+                "the upload sent nothing for {UPLOAD_IDLE_SECONDS} seconds and was dropped"
+            ),
+            Self::ImageChanged => f.write_str(
+                "a staged image's bytes no longer have the SHA-256 computed when it was uploaded",
+            ),
         }
     }
 }
@@ -545,6 +706,59 @@ impl IntoResponse for FirmwareError {
             Self::Storage(e) => {
                 tracing::error!(reason = %e, "firmware storage failed");
                 (StatusCode::INTERNAL_SERVER_ERROR, "refused\n").into_response()
+            }
+
+            Self::Busy => (
+                StatusCode::TOO_MANY_REQUESTS,
+                [(axum::http::header::RETRY_AFTER, "30")],
+                "another firmware upload is running for this organisation or on this server. \
+                 Your upload token is still good: try again in a minute\n",
+            )
+                .into_response(),
+            Self::OverSpace {
+                used,
+                requested,
+                max,
+                whole_server,
+            } => (
+                StatusCode::INSUFFICIENT_STORAGE,
+                format!(
+                    "there is no room for this image. {} firmware holds {used} bytes of the \
+                     {max} it may, and this image is {requested}. {}\n",
+                    if whole_server {
+                        "This server's"
+                    } else {
+                        "This organisation's"
+                    },
+                    if whole_server {
+                        "Ask the server's operator to raise FATHOM_FIRMWARE_TOTAL_MAX_BYTES or \
+                         free space"
+                    } else {
+                        "Retire an image you no longer need, or ask the server's operator to \
+                         raise FATHOM_FIRMWARE_ORGANISATION_MAX_BYTES"
+                    }
+                ),
+            )
+                .into_response(),
+            Self::Stalled => (
+                StatusCode::REQUEST_TIMEOUT,
+                format!(
+                    "the upload sent nothing for {UPLOAD_IDLE_SECONDS} seconds, so it was dropped \
+                     and nothing was staged. Declare the image again to retry\n"
+                ),
+            )
+                .into_response(),
+            Self::ImageChanged => {
+                tracing::error!(
+                    "a staged firmware image changed on disk after it was uploaded; refusing to \
+                     send it"
+                );
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "this image has changed on the server since it was uploaded, so it was not \
+                     sent. Tell the server's operator, and upload it again from the vendor\n",
+                )
+                    .into_response()
             }
         }
     }
@@ -809,6 +1023,39 @@ async fn declare_handler(
     )
     .await?;
 
+    // -- room for it (sign-off r62) --
+    // The organisation's images: staged ones, and declared ones whose upload can
+    // still start or has started. A declaration whose token expired unused holds
+    // nothing.
+    let used: i64 = tx
+        .query_one(
+            "SELECT coalesce(sum(i.byte_length), 0)::bigint FROM firmware_images i \
+             WHERE i.organisation_id = $1 AND (i.state = 'staged' OR (i.state = 'declared' \
+               AND EXISTS (SELECT 1 FROM firmware_upload_tokens t WHERE t.image_id = i.id \
+                 AND (t.redeemed_at IS NOT NULL OR t.expires_at > now()))))",
+            &[&ctx.tenant().to_string()],
+        )
+        .await?
+        .get(0);
+    let used = used.max(0) as u64;
+    if used.saturating_add(byte_length) > state.store.organisation_max_bytes {
+        return Err(FirmwareError::OverSpace {
+            used,
+            requested: byte_length,
+            max: state.store.organisation_max_bytes,
+            whole_server: false,
+        });
+    }
+    let on_disk = state.store.bytes_on_disk().await?;
+    if on_disk.saturating_add(byte_length) > state.store.total_max_bytes {
+        return Err(FirmwareError::OverSpace {
+            used: on_disk,
+            requested: byte_length,
+            max: state.store.total_max_bytes,
+            whole_server: true,
+        });
+    }
+
     let image = FirmwareImageId::new();
     // `WHERE EXISTS` against `scopes`, as `designs::create_design` does: a scope id
     // from another organisation inserts nothing, and the row count is checked so an
@@ -1022,8 +1269,28 @@ async fn upload_handler(
         .filter(|t| t.len() == 32)
         .ok_or(FirmwareError::TokenNotFresh)?;
 
-    // -- spend the token, and read the declaration it belongs to --
     let mut client = state.sessions.pool().get().await?;
+
+    // -- a place to upload into, taken BEFORE the token is spent --
+    // So an upload refused for being one too many keeps its token and can try
+    // again. The look-up spends nothing; the guarded UPDATE below is still what
+    // makes the token single-use.
+    let peek = client.transaction().await?;
+    enter_upload_custody(&peek).await?;
+    let owner: String = peek
+        .query_opt(
+            "SELECT organisation_id FROM firmware_upload_tokens \
+             WHERE token_hash = $1 AND image_id = $2 AND redeemed_at IS NULL \
+               AND expires_at > now()",
+            &[&token_hash(&token).to_vec(), &image.to_string()],
+        )
+        .await?
+        .ok_or(FirmwareError::TokenNotFresh)?
+        .get(0);
+    peek.commit().await?;
+    let _slot = state.store.take_slot(&owner).ok_or(FirmwareError::Busy)?;
+
+    // -- spend the token, and read the declaration it belongs to --
     let tx = client.transaction().await?;
     enter_upload_custody(&tx).await?;
 
@@ -1071,7 +1338,7 @@ async fn upload_handler(
 
     // -- the bytes --
     let partial = state.store.partial_path(image);
-    let outcome = stream_to_disk(&partial, body, declared_length).await;
+    let outcome = stream_to_disk(&partial, body, declared_length, state.store.upload_idle).await;
 
     let (received, computed) = match outcome {
         Ok(pair) => pair,
@@ -1144,6 +1411,7 @@ async fn stream_to_disk(
     partial: &Path,
     mut body: Body,
     declared_length: u64,
+    idle: std::time::Duration,
 ) -> Result<(u64, [u8; 32]), FirmwareError> {
     let path = partial.to_path_buf();
     let mut sink = tokio::task::spawn_blocking(move || {
@@ -1159,7 +1427,13 @@ async fn stream_to_disk(
 
     let mut buffer: Vec<u8> = Vec::with_capacity(UPLOAD_CHUNK);
     loop {
-        let frame = std::future::poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)).await;
+        // Each frame must arrive within `idle` of the last, or the upload is dropped.
+        let frame = tokio::time::timeout(
+            idle,
+            std::future::poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)),
+        )
+        .await
+        .map_err(|_| FirmwareError::Stalled)?;
         let Some(frame) = frame else { break };
         let frame = frame.map_err(|_| FirmwareError::Malformed("request body"))?;
         let Ok(data) = frame.into_data() else {
@@ -1601,14 +1875,12 @@ async fn fetch_handler(
     // **Everything above is committed.** `tx.commit()` returned, so the redemption
     // is durable before the file is opened (step 3 above).
     let path = state.store.image_path(image);
-    let file = tokio::fs::File::open(&path)
-        .await
-        .map_err(FirmwareError::Storage)?;
+    let file = std::fs::File::open(&path).map_err(FirmwareError::Storage)?;
 
     // The row says how long the file is; a disagreement means it was changed under
     // this server, an integrity alarm rather than a transfer to complete. Checked on
     // the OPEN handle, so it is the length of the file this response will read.
-    let on_disk = file.metadata().await.map_err(FirmwareError::Storage)?.len();
+    let on_disk = file.metadata().map_err(FirmwareError::Storage)?.len();
     if on_disk as i64 != byte_length {
         tracing::error!(
             image = %image,
@@ -1618,6 +1890,14 @@ async fn fetch_handler(
         );
         return Err(FirmwareError::NotStaged);
     }
+
+    // **The bytes, read again before any is sent** (sign-off r62). Hashed through
+    // the same open handle the body then streams from, rewound, so a file renamed
+    // over this one after the check is not what goes out. A two-gigabyte image
+    // costs a few seconds before the first byte; the token is already spent, so a
+    // caller cannot make the server do this more than once per URL.
+    let file = verified(file, &computed).await?;
+    let file = tokio::fs::File::from_std(file);
 
     // One `FETCH_CHUNK` in flight, never the image. When the device hangs up, hyper
     // drops the body, which drops the `ReaderStream` and `File`, closing the
@@ -1667,6 +1947,37 @@ async fn fetch_handler(
             .expect("a static cache-control is a valid header value"),
     );
     Ok((StatusCode::OK, headers, body).into_response())
+}
+
+/// Hash an open image from the start, compare with what was computed at upload, and
+/// hand the handle back rewound. [`FirmwareError::ImageChanged`] when they differ.
+async fn verified(file: std::fs::File, staged: &[u8]) -> Result<std::fs::File, FirmwareError> {
+    let staged = staged.to_vec();
+    tokio::task::spawn_blocking(move || {
+        use std::io::{Read, Seek};
+        let mut file = file;
+        let mut hasher = Sha256::new();
+        let mut buffer = vec![0u8; UPLOAD_CHUNK];
+        loop {
+            let n = file.read(&mut buffer)?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buffer[..n]);
+        }
+        file.rewind()?;
+        Ok::<_, std::io::Error>((file, hasher.finalize()))
+    })
+    .await
+    .map_err(joined)?
+    .map_err(FirmwareError::Storage)
+    .and_then(|(file, digest)| {
+        if digest.as_slice() == staged.as_slice() {
+            Ok(file)
+        } else {
+            Err(FirmwareError::ImageChanged)
+        }
+    })
 }
 
 /// `HEAD /firmware/fetch/{token}`: refused without reading the token, so a client
@@ -2157,8 +2468,12 @@ mod tests {
         let store = FirmwareStore {
             directory: PathBuf::from("/srv/fathom/firmware"),
             max_image_bytes: 1,
+            organisation_max_bytes: 1,
+            total_max_bytes: 1,
+            upload_idle: std::time::Duration::from_secs(1),
             fetch_base_url: "https://example.invalid".to_string(),
             client_address: crate::client_address::ClientAddress::peer(),
+            slots: std::sync::Mutex::new(Slots::default()),
         };
         let path = store.image_path(FirmwareImageId::new());
         assert!(
@@ -2167,6 +2482,43 @@ mod tests {
             path.display()
         );
         assert_eq!(path.components().count(), 5, "{}", path.display());
+    }
+
+    /// One upload per organisation and three per server, each place given back
+    /// when its slot is dropped.
+    #[test]
+    fn upload_places_are_counted_per_organisation_and_per_server_and_given_back() {
+        let store = Arc::new(FirmwareStore {
+            directory: PathBuf::from("/srv/fathom/firmware"),
+            max_image_bytes: 1,
+            organisation_max_bytes: 1,
+            total_max_bytes: 1,
+            upload_idle: std::time::Duration::from_secs(1),
+            fetch_base_url: "https://example.invalid".to_string(),
+            client_address: crate::client_address::ClientAddress::peer(),
+            slots: std::sync::Mutex::new(Slots::default()),
+        });
+        let a = store
+            .take_slot("org-a")
+            .expect("the first upload has a place");
+        assert!(
+            store.take_slot("org-a").is_none(),
+            "one at a time per organisation"
+        );
+        let b = store
+            .take_slot("org-b")
+            .expect("another organisation is not held up");
+        let c = store.take_slot("org-c").expect("a third on the server");
+        assert!(
+            store.take_slot("org-d").is_none(),
+            "three at a time per server"
+        );
+        drop(a);
+        let a2 = store.take_slot("org-a").expect("given back when dropped");
+        drop((a2, b, c));
+        let slots = store.slots.lock().unwrap();
+        assert_eq!(slots.total, 0);
+        assert!(slots.by_organisation.is_empty());
     }
 
     /// The declaration parser accepts exactly its own framing.

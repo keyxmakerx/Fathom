@@ -881,11 +881,19 @@ async fn main() -> ExitCode {
                 config.firmware_max_bytes,
                 base.clone(),
                 client_address.clone(),
-            ) {
+            )
+            .map(|store| {
+                store.with_space_limits(
+                    config.firmware_organisation_max_bytes,
+                    config.firmware_total_max_bytes,
+                )
+            }) {
                 Ok(store) => {
                     tracing::info!(
                         directory = %dir,
                         max_image_bytes = config.firmware_max_bytes,
+                        organisation_max_bytes = config.firmware_organisation_max_bytes,
+                        total_max_bytes = config.firmware_total_max_bytes,
                         fetch_base_url = %base,
                         "firmware staging enabled. The fetch base URL must be an origin a DEVICE \
                          can reach, which is often not the one a browser uses."

@@ -57,3 +57,24 @@ a NAS with no catalogue model):
 - A plan is known as a firmware plan by its "Record <version> as running" steps, not its title,
   so an upgrade can be added to an existing plan and one plan can hold several, each fetch step
   with its own image. Plans made before this are still known by their title.
+
+## Amended 2026-10-31 (sign-off r62, first part)
+
+Owner-approved card r62-firmware-security. Warn first everywhere a person acts; refuse only where
+the server or its disk is at risk. This part is built:
+
+- **Room.** `FATHOM_FIRMWARE_ORGANISATION_MAX_BYTES` (default 20 GiB) and
+  `FATHOM_FIRMWARE_TOTAL_MAX_BYTES` (default 50 GiB), checked at declaration, `507` when over. The
+  total is counted from the files on disk and stands in for the free-space check the card named:
+  std has no portable call for it and the dependency that has one is not approved. `docs/OPERATING.md`
+  says to set it below the volume's size.
+- **Uploads at once.** One per organisation and three per server process, `429` with the upload
+  token unspent. Device downloads are not limited (the owner's note: a dozen switches at once is
+  normal).
+- **Stalls.** An upload that sends nothing for 120 seconds is dropped, its file deleted, `408`.
+- **The bytes read again before sending.** The fetch route hashes the open file before the first
+  byte, then streams from the same handle, rewound. A mismatch is `500` and nothing is sent.
+
+Still to build from the same card: SHA-512 and MD5 at upload, a weekly re-check, retiring an image,
+the warnings at link time (wrong model, downgrade, not the chosen version, where a download went),
+the firmware activity list, the device signature-check steps, and an optional scanner add-on.

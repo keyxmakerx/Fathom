@@ -355,6 +355,16 @@ fn files_in(dir: &PathBuf) -> Vec<String> {
 /// The real router: `api::router` for sign-in and nonces, merged with
 /// `firmware::router` — exactly the shape `src/main.rs` is meant to assemble.
 async fn app(pool: &Pool, ring: Arc<KeyRing>, directory: PathBuf) -> axum::Router {
+    app_with(pool, ring, directory, |store| store).await
+}
+
+/// [`app`], with the store's limits changed first (sign-off r62's tests).
+async fn app_with(
+    pool: &Pool,
+    ring: Arc<KeyRing>,
+    directory: PathBuf,
+    limits: impl FnOnce(FirmwareStore) -> FirmwareStore,
+) -> axum::Router {
     let _ = logs();
     let sessions = Arc::new(store(pool, Arc::clone(&ring)).await);
     let watch = Arc::new(EpochWatch::new());
@@ -369,7 +379,7 @@ async fn app(pool: &Pool, ring: Arc<KeyRing>, directory: PathBuf) -> axum::Route
         sessions,
         watch,
         ring,
-        store: Arc::new(
+        store: Arc::new(limits(
             FirmwareStore::open(
                 directory,
                 64 * 1024 * 1024,
@@ -377,7 +387,7 @@ async fn app(pool: &Pool, ring: Arc<KeyRing>, directory: PathBuf) -> axum::Route
                 ClientAddress::header(TEST_SOURCE_HEADER),
             )
             .expect("this test's staging directory is usable"),
-        ),
+        )),
     };
     fathom_server::api::router(api_state).merge(firmware::router(firmware_state))
 }
@@ -2364,4 +2374,325 @@ fn a_missing_or_unwritable_staging_directory_is_refused_at_startup() {
     );
     // ...and the probe file it wrote is gone again.
     assert!(files_in(&good).is_empty(), "{:?}", files_in(&good));
+}
+
+// ---------------------------------------------------------------------------
+// Sign-off r62: room, uploads at once, stalls, and the bytes read again on send
+// ---------------------------------------------------------------------------
+
+/// Declare an image and return its id and upload token.
+async fn declare(
+    addr: SocketAddr,
+    person: &Person,
+    organisation: OrganisationId,
+    scope: ScopeId,
+    bytes: &[u8],
+) -> (String, Vec<u8>, String, String) {
+    let (status, body) = call(
+        addr,
+        person,
+        "POST",
+        &format!("/organisations/{organisation}/scopes/{scope}/firmware"),
+        &declaration(
+            "junos-install-21.4R3.tgz",
+            bytes.len() as u64,
+            &sha256_of(bytes),
+        ),
+    )
+    .await;
+    if status != "200" {
+        return (status, body, String::new(), String::new());
+    }
+    let image = json_str(&body, "image_id");
+    let token = json_str(&body, "upload_token");
+    (status, body, image, token)
+}
+
+/// An upload's head and the first `first` bytes of its body, with the connection
+/// left open: an upload in flight.
+async fn start_upload(
+    addr: SocketAddr,
+    image: &str,
+    token: &str,
+    bytes: &[u8],
+    first: usize,
+) -> tokio::net::TcpStream {
+    use tokio::io::AsyncWriteExt;
+    let mut stream = tokio::net::TcpStream::connect(addr)
+        .await
+        .expect("connect to the test router");
+    let head = format!(
+        "POST /firmware/uploads/{image} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\
+         Content-Length: {}\r\n{HEADER_UPLOAD_TOKEN}: {token}\r\n\r\n",
+        bytes.len()
+    );
+    stream.write_all(head.as_bytes()).await.expect("write head");
+    stream
+        .write_all(&bytes[..first])
+        .await
+        .expect("write the first bytes");
+    stream
+}
+
+async fn status_of(stream: &mut tokio::net::TcpStream) -> (String, String) {
+    use tokio::io::AsyncReadExt;
+    let mut buf = Vec::new();
+    let _ = stream.read_to_end(&mut buf).await;
+    let text = String::from_utf8_lossy(&buf).into_owned();
+    let status = text
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or_default()
+        .to_string();
+    (status, text)
+}
+
+/// One upload at a time per organisation. The second is refused with `429` while
+/// the first is in flight, its token is NOT spent, and the same token works once
+/// the first has finished.
+#[tokio::test]
+async fn a_second_upload_waits_for_the_first_and_keeps_its_token() {
+    use tokio::io::AsyncWriteExt;
+
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+
+    let first = an_image(200_000);
+    let second = an_image(50_000);
+    let (_, _, first_image, first_token) =
+        declare(addr, &estate.steward, estate.organisation, scope, &first).await;
+    let (_, _, second_image, second_token) =
+        declare(addr, &estate.steward, estate.organisation, scope, &second).await;
+
+    let mut in_flight = start_upload(addr, &first_image, &first_token, &first, 1000).await;
+    // Let the server take the first upload's slot before the second arrives.
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+    let (status, body) = raw_request(
+        addr,
+        "POST",
+        &format!("/firmware/uploads/{second_image}"),
+        &[(HEADER_UPLOAD_TOKEN, second_token.clone())],
+        &second,
+    )
+    .await;
+    assert_eq!(status, "429", "{}", String::from_utf8_lossy(&body));
+    assert!(
+        String::from_utf8_lossy(&body).contains("still good"),
+        "the refusal says the token can be used again: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    in_flight
+        .write_all(&first[1000..])
+        .await
+        .expect("finish the first upload");
+    let (status, text) = status_of(&mut in_flight).await;
+    assert_eq!(status, "200", "{text}");
+
+    let (status, body) = raw_request(
+        addr,
+        "POST",
+        &format!("/firmware/uploads/{second_image}"),
+        &[(HEADER_UPLOAD_TOKEN, second_token)],
+        &second,
+    )
+    .await;
+    assert_eq!(
+        status,
+        "200",
+        "the refused token stays good: {}",
+        String::from_utf8_lossy(&body)
+    );
+}
+
+/// An organisation's images may add up to its limit and no more. The refusal
+/// comes at the declaration, before a byte is sent, and nothing is declared.
+#[tokio::test]
+async fn a_declaration_past_the_organisations_room_is_refused() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(
+        app_with(&pool, Arc::clone(&ring), directory.clone(), |s| {
+            s.with_space_limits(150_000, 10_000_000)
+        })
+        .await,
+    )
+    .await;
+
+    stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "junos-install-ex-x86-64-21.4R3-S5.5.tgz",
+        &an_image(100_000),
+    )
+    .await;
+
+    let (status, body, _, _) = declare(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        &an_image(60_000),
+    )
+    .await;
+    let text = String::from_utf8_lossy(&body);
+    assert_eq!(status, "507", "{text}");
+    assert!(
+        text.contains("This organisation's firmware holds 100000 bytes"),
+        "{text}"
+    );
+    assert!(text.contains("Retire an image"), "{text}");
+
+    // A smaller one still fits.
+    let (status, body, _, _) = declare(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        &an_image(40_000),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+}
+
+/// The whole staging directory has a limit too, counted from the files on disk.
+#[tokio::test]
+async fn a_declaration_past_the_servers_room_is_refused() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(
+        app_with(&pool, Arc::clone(&ring), directory.clone(), |s| {
+            s.with_space_limits(10_000_000, 120_000)
+        })
+        .await,
+    )
+    .await;
+
+    stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "junos-install-ex-x86-64-21.4R3-S5.5.tgz",
+        &an_image(100_000),
+    )
+    .await;
+    let (status, body, _, _) = declare(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        &an_image(30_000),
+    )
+    .await;
+    let text = String::from_utf8_lossy(&body);
+    assert_eq!(status, "507", "{text}");
+    assert!(text.contains("This server's firmware"), "{text}");
+    assert!(text.contains("FATHOM_FIRMWARE_TOTAL_MAX_BYTES"), "{text}");
+}
+
+/// An upload that goes quiet is dropped: `408`, the partial file deleted, and its
+/// slot given back so the organisation's next upload is not blocked.
+#[tokio::test]
+async fn an_upload_that_goes_quiet_is_dropped_and_frees_its_place() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(
+        app_with(&pool, Arc::clone(&ring), directory.clone(), |s| {
+            s.with_upload_idle(std::time::Duration::from_millis(700))
+        })
+        .await,
+    )
+    .await;
+
+    let bytes = an_image(100_000);
+    let (_, _, image, token) =
+        declare(addr, &estate.steward, estate.organisation, scope, &bytes).await;
+    let mut quiet = start_upload(addr, &image, &token, &bytes, 500).await;
+    let (status, text) = status_of(&mut quiet).await;
+    assert_eq!(status, "408", "{text}");
+    assert!(text.contains("nothing was staged"), "{text}");
+    assert!(
+        files_in(&directory).is_empty(),
+        "the partial file is deleted: {:?}",
+        files_in(&directory)
+    );
+
+    // The place it held is free again.
+    stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "junos-install-ex-x86-64-21.4R3-S5.5.tgz",
+        &an_image(20_000),
+    )
+    .await;
+}
+
+/// The bytes are read again before a device gets them. A file changed on disk
+/// after it was staged, even to the same length, is not sent.
+#[tokio::test]
+async fn an_image_changed_on_disk_after_staging_is_not_sent() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+
+    let bytes = an_image(80_000);
+    let image = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "junos-install-ex-x86-64-21.4R3-S5.5.tgz",
+        &bytes,
+    )
+    .await;
+
+    // Same length, one byte different.
+    let on_disk = directory.join(format!("{image}.img"));
+    let mut changed = bytes.clone();
+    changed[40_000] ^= 0xff;
+    std::fs::write(&on_disk, &changed).expect("change the staged file");
+
+    let answer = issue_fetch_url(addr, &estate.steward, estate.organisation, &image).await;
+    let url = json_str(answer.as_bytes(), "fetch_url");
+    let path = url
+        .strip_prefix("https://fathom.test.invalid")
+        .expect("the configured base url");
+    let (status, body) = raw_request(addr, "GET", path, &[], b"").await;
+    let text = String::from_utf8_lossy(&body);
+    assert_eq!(status, "500", "{text}");
+    assert!(text.contains("has changed on the server"), "{text}");
+    assert!(
+        !body.windows(64).any(|w| w == &changed[..64]),
+        "none of the changed bytes went out"
+    );
 }
