@@ -8,6 +8,7 @@ import { WrongSecret } from '../../vault/crypto';
 import { UNLOCK_MINUTES, rememberedKit, unlockVault, vaultEngine } from '../../vault/session';
 import { describeError } from '../design/useDesignSession';
 import { VaultModal } from './Modal';
+import { VaultPassphraseName } from './parts';
 
 export function UnlockDialog({ organisation, overview, onDone, onClose }: { organisation: string; overview: VaultOverview; onDone: () => void; onClose: () => void }) {
   const remembered = rememberedKit(organisation, overview.me) != null;
@@ -45,6 +46,7 @@ export function UnlockDialog({ organisation, overview, onDone, onClose }: { orga
           if (!busy) void submit();
         }}
       >
+        <VaultPassphraseName />
         {useKit && (
           <label className="vault-field">
             <span className="vault-field__label">Vault key, from your Emergency Kit</span>

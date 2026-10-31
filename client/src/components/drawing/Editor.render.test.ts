@@ -443,12 +443,11 @@ describe('EditorFor', () => {
 
   it('an occupant link is a real link only when the caller supplies onSelect', () => {
     const noLink = renderToStaticMarkup(EditorFor({ kind: 'shelf', id: 'shelf-1' }, PLACES_VIEW, NOOP_ACTIONS) as never);
-    expect(noLink).not.toContain('<button');
+    expect(noLink).not.toContain('nuc-01</button>');
 
     const withSelect: EditorActions = { onEdit: () => {}, onSelect: () => {} };
     const withLink = renderToStaticMarkup(EditorFor({ kind: 'shelf', id: 'shelf-1' }, PLACES_VIEW, withSelect) as never);
-    expect(withLink).toContain('<button');
-    expect(withLink).toContain('nuc-01');
+    expect(withLink).toContain('nuc-01</button>');
   });
 
   // A chicken-and-egg fix: a device with no

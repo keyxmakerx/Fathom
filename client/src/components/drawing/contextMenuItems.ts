@@ -140,6 +140,24 @@ export interface MenuActions {
   onRemoveCableRun?(runId: string): void;
   /** The runs already on a rack, so the menu offers only free sides and names what it removes. */
   cableRunsOn?(rackId: string): readonly CableRunView[];
+  /** Removes an empty rack, shelf or wall (sign-off rua-ui-audit). */
+  onRemoveHolder?(id: string): void;
+  /** What Remove calls it ("rack", "wall") and what is still on it, '' when empty. */
+  holderOf?(id: string): { noun: string; onIt: string } | null;
+}
+
+/** Remove, always listed for a rack or wall; greyed with what is on it until it is empty, so
+ * nothing a person placed goes with it by accident. */
+function pushRemoveHolder(items: MenuItem[], id: string, actions: MenuActions): void {
+  const holder = actions.holderOf?.(id);
+  if (!actions.onRemoveHolder || holder == null) return;
+  items.push({
+    label: `Remove ${holder.noun}`,
+    onSelect: () => actions.onRemoveHolder?.(id),
+    danger: true,
+    keys: holder.onIt === '' ? shortcutText('delete') : undefined,
+    disabled: holder.onIt === '' ? undefined : `Empty it first: ${holder.onIt}`,
+  });
 }
 
 const RUN_OFFERS: readonly { form: 'tray' | 'lacing_bar'; side: CableRunSide; add: string; remove: string }[] = [
@@ -187,10 +205,13 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
       if (actions.onCloseRackGaps) items.push({ label: 'Close gaps', onSelect: () => actions.onCloseRackGaps?.(id) });
       if (actions.onCopyRack) items.push({ label: 'Copy rack, with its cables', onSelect: () => actions.onCopyRack?.(id) });
       pushRunItems(items, id, actions);
+      pushRemoveHolder(items, id, actions);
       break;
     }
     case 'surface': {
+      items.push({ label: 'Details', onSelect: () => actions.onSelect({ kind: 'surface', id: target.id }) });
       pushRunItems(items, target.id, actions);
+      pushRemoveHolder(items, target.id, actions);
       break;
     }
     case 'cable': {

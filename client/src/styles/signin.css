@@ -1,14 +1,19 @@
 .signin {
   height: 100%;
   display: flex;
-  align-items: center;
+  /* `safe`: a card taller than the window (the QR step, the recovery codes)
+     starts at the top and scrolls, instead of losing its head off-screen. */
+  align-items: safe center;
   justify-content: center;
+  overflow-y: auto;
+  box-sizing: border-box;
   background: var(--page);
   color: var(--ink);
 }
 
 .signin__card {
-  width: var(--col);
+  width: min(var(--col), 100%);
+  box-sizing: border-box;
   border: var(--rule-hair) solid var(--hairline);
   padding: var(--s6);
   background: var(--surface);

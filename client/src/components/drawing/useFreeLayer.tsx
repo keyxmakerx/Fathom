@@ -432,7 +432,8 @@ export function useFreeLayer({ view, canDraw, rf, containerRef, selected, onSele
     for (const b of boxes) {
       const id = freeNodeId(b.id);
       const data: FreeBoxNodeData = {
-        name: b.hostname || b.model || 'unnamed',
+        // Sign-off rua-ui-audit: the model is never drawn as if it were the name; it sits underneath.
+        name: b.hostname || 'unnamed',
         role: b.role,
         model: b.model,
         squares: squares && selSet.has(id),

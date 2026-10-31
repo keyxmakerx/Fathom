@@ -5,6 +5,7 @@ import type { History } from './useHistory';
 import './history.css';
 import { SkeletonRows } from '../ui/Skeleton';
 import { ThingName } from '../shell/ThingName';
+import { whoWord } from '../collab/changesSince';
 
 /** "Today 14:02", "Yesterday 09:12", "2 Oct 09:12". */
 export function whenLabel(atUnix: number, now: Date = new Date()): string {
@@ -29,12 +30,14 @@ export interface HistoryPanelProps {
   onClose: () => void;
   /** A thing's name in the picked save, for its "Changed" line; null for one with no name to show. */
   nameOf?: (id: string, doc: Document) => string | null;
+  /** The design, so a save names a colleague this design has heard (rua-ui-audit). */
+  designId?: string;
 }
 
 /** The most names the Changed line lists before "and N more". */
 const CHANGED_SHOWN = 8;
 
-export function HistoryPanel({ history, accountId, accountAddress, canDraw, restoreText, onRestore, onClose, nameOf }: HistoryPanelProps) {
+export function HistoryPanel({ history, accountId, accountAddress, canDraw, restoreText, onRestore, onClose, nameOf, designId }: HistoryPanelProps) {
   const [confirming, setConfirming] = useState(false);
   const { saves, picked } = history;
   const latest = saves?.[0]?.designVersion;
@@ -69,7 +72,7 @@ export function HistoryPanel({ history, accountId, accountAddress, canDraw, rest
               >
                 <span className="history__when">
                   <b>{whenLabel(s.atUnix)}</b> · {s.viaAi != null && <span className="history__ai">AI ({s.viaAi}), for </span>}
-                  {s.actor == null ? 'unknown' : s.actor === accountId ? (accountAddress ?? 'you') : 'a colleague'}
+                  {whoWord(s.actor, accountId, designId, accountAddress ?? 'you')}
                 </span>
                 <span className="history__what">{history.summaries.get(s.designVersion) ?? '…'}</span>
               </button>
@@ -105,6 +108,9 @@ export function HistoryPanel({ history, accountId, accountAddress, canDraw, rest
               <p>
                 {restoreText} It is saved as a new version; both stay in this list.
               </p>
+              <button type="button" className="history__btn" onClick={() => setConfirming(false)}>
+                Cancel
+              </button>
               <button
                 type="button"
                 className="history__btn history__btn--primary"
@@ -114,9 +120,6 @@ export function HistoryPanel({ history, accountId, accountAddress, canDraw, rest
                 }}
               >
                 Restore
-              </button>
-              <button type="button" className="history__btn" onClick={() => setConfirming(false)}>
-                Cancel
               </button>
             </div>
           )}

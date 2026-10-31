@@ -322,6 +322,17 @@ export function setPassiveNodeField(
   return commitField(built.doc, now, passiveNodeId, wireKey, built.entry, built.op, `set ${wireKey}`);
 }
 
+/** A wall, desk or ceiling's name (`Surface.label`); blank is refused, as a rack's is. */
+export function setSurfaceLabel(doc: Document, surfaceId: string, value: string | null, opts?: Actor): Document {
+  const node = findNode(doc, surfaceId);
+  if (!node) throw new UnknownReferenceError(surfaceId, 'Surface');
+  const wireKey = 'Surface.label';
+  if (value === null || value.trim() === '') throw new FieldValueError(wireKey, String(value ?? ''), 'must not be blank');
+  const { actor, now } = resolve(opts);
+  const built = setFieldEntry(doc, now, actor, surfaceId, node.fields[wireKey], wireKey, text(value.trim()));
+  return commitField(built.doc, now, surfaceId, wireKey, built.entry, built.op, `set ${wireKey}`);
+}
+
 /**
  * `PhysicalPort.mac` (schema 0.21, `MacAddress`) on one port: any common spelling is stored as
  * `aa:bb:cc:dd:ee:ff`; `value: null` clears it. One batch.

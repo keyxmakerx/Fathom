@@ -254,6 +254,11 @@ export type EditorChange =
    * regardless of which panel raises it (rack, shelf occupant or surface
    * fixture) — `removeChassis` itself finds the `Device` that owns it. */
   | { kind: 'device-remove'; chassisId: string }
+  /** Sign-off rua-ui-audit: an empty rack, shelf or surface removed (`removeHolder`); refused,
+   * with what is still on it, until it is empty. One undo step. */
+  | { kind: 'holder-remove'; id: string }
+  /** A wall, desk or ceiling's name (`setSurfaceLabel`). */
+  | { kind: 'surface'; id: string; field: 'label'; value: string | null }
   /** ADR-0060 step 7: a label or area's words and an area's size; a line's words. */
   | { kind: 'label'; id: string; field: 'text'; value: string }
   | { kind: 'area-size'; id: string; w: number; h: number }
@@ -434,7 +439,9 @@ export type Selection =
   | { kind: 'fixture'; id: string }
   /** ADR-0060 step 7: a text label or an area, and a line between two free boxes. */
   | { kind: 'label'; id: string }
-  | { kind: 'line'; id: string };
+  | { kind: 'line'; id: string }
+  /** A wall, desk or ceiling itself, clicked on its own header or face (sign-off rua-ui-audit). */
+  | { kind: 'surface'; id: string };
 
 /** UI-SPEC "Absent is drawn as absent" — a dash, never an invented zero or
  * an omitted row. Shared by `ChassisNode` (the box) and `Editor` (the

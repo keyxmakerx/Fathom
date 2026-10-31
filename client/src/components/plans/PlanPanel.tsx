@@ -80,7 +80,7 @@ function PlanMode({ controller, plan }: { controller: PlansController; plan: Pla
   return (
     <>
       <h3 className="plans-label">The plan</h3>
-      {plan.steps.length === 0 && <p className="plans-note">No steps yet. Add the first one below.</p>}
+      {plan.steps.length === 0 && <p className="plans-note">{canEdit ? 'No steps yet. Add the first one below.' : 'No steps yet.'}</p>}
       <ol className="plans-steps" ref={list}>
         {plan.steps.map((s, i) => (
           <li key={s.id} className="plans-step plans-step--planned" data-testid="plans-step">

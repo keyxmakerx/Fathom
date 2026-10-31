@@ -7,6 +7,7 @@ import { useContext, useEffect, useId, useMemo, useRef, useState, type JSX } fro
 import { asString, fieldValue, parseNodeId, type Document } from '../../document/model';
 import { acceptHosts, readAddresses, readMacTable, suggestHosts, type ArpRow, type HostSuggestion, type MacTable } from '../../document/hosts';
 import { deviceOf } from '../../document/portTies';
+import { Reasons } from './Reasons';
 import { SuggestContext } from './suggestStore';
 import '../paste/paste.css';
 import './suggest.css';
@@ -160,9 +161,7 @@ export function HostsCard({ doc, deviceId, text, actor, spot, onApply, onClose }
               })}
             </ul>
           )}
-          {left.map((r) => (
-            <p key={r.key} className="paste-card__note suggest-card__why">{r.why}</p>
-          ))}
+          <Reasons lines={left.map((r) => ({ key: r.key, text: r.why ?? '' }))} summary={`${plural(left.length, 'port', 'ports')} not ready`} />
           {cabled > 0 && <p className="paste-card__note suggest-card__why">{plural(cabled, 'cable in the table is', 'cables in the table are')} already drawn.</p>}
           {rows.length === 0 && <p className="paste-card__note">The table names no port with an address on it.</p>}
 

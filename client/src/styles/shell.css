@@ -484,6 +484,17 @@ button.shell-search {
   cursor: default;
 }
 
+/* "+15": the people past the first five, a list behind one dot. */
+.shell-person--more {
+  width: auto;
+  min-width: 24px;
+  border-radius: 12px;
+  padding: 0 6px;
+  font: inherit;
+  font-size: var(--t-micro);
+  cursor: pointer;
+}
+
 .shell-chip {
   display: inline-flex;
   align-items: center;
@@ -690,6 +701,9 @@ button.shell-admin-pill {
   display: flex;
   flex-direction: column;
   min-width: 200px;
+  /* An organisation with hundreds of folders: the tree scrolls inside the window. */
+  max-height: calc(100dvh - 60px);
+  overflow-y: auto;
   animation: fathom-pop-in var(--m-pop) var(--m-ease);
 }
 

@@ -227,6 +227,7 @@ export function PortPeek({ doc, view }: { doc: Document | null; view: ClosetView
   return createPortal(
     <div
       ref={cardRef}
+      data-fathom-layer=""
       className={shown.kind === 'port' ? 'port-peek' : 'port-peek port-peek--thing'}
       role="tooltip"
       data-testid={shown.kind === 'port' ? 'port-peek' : 'thing-peek'}
