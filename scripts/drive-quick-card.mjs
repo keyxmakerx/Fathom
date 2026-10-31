@@ -1,6 +1,8 @@
 // Drives the quick card (Key Maker, 31 October): a click on a racked device puts a small card beside it with
 // its kind, name and management address, Copy puts the address on the clipboard, Details shows the panel,
-// the card follows a pan, and Escape, an empty-canvas click and a double-click put it away. Screenshots land
+// the card follows a pan, and Escape, an empty-canvas click and a double-click put it away. Close in on a
+// switch, a click on a port leaves the camera still so a double-click opens it, and cables draw over the
+// devices (sign-off r67). Screenshots land
 // in FATHOM_SHOTS. Usage: bash scripts/build-wasm.sh (once), then node scripts/drive-quick-card.mjs.
 // Overrides: FATHOM_ROOT, PW_CHROMIUM, PW_PLAYWRIGHT.
 import { execFileSync, spawn } from 'node:child_process';
@@ -128,6 +130,8 @@ try {
     check('a click on a device shows the quick card', await card.isVisible());
     const text = (await card.textContent()) ?? '';
     check('it names the device and its address', text.includes('sw-core') && text.includes('10.20.0.2'), text);
+    const look = await card.evaluate((el) => { const cs = getComputedStyle(el); return { bg: cs.backgroundColor, blur: cs.backdropFilter }; });
+    check('the card is solid, nothing shows through it', !/rgba\(.*,\s*0?\.\d+\)$/.test(look.bg) && look.blur === 'none', JSON.stringify(look));
     check('the right panel opened as before', await page.getByRole('button', { name: /^open inside$/i }).first().isVisible());
     const cardBox = await card.boundingBox();
     const devBox = await sw.boundingBox();
@@ -179,8 +183,49 @@ try {
 
     await sw.dblclick();
     await page.waitForTimeout(400);
-    check('a double-click opens the device and puts the card away', (await card.count()) === 0);
+    check('a double-click opens the device and puts the card away', (await card.count()) === 0 && (await page.locator('[data-testid=jot]').count()) === 1);
     check('no uncaught page errors', pageErrors.length === 0, pageErrors.join(' | '));
+    await context.close();
+  }
+
+  // Sweetch close in (Key Maker's screenshot): the ports cover the plate, a cable crosses it.
+  {
+    const { context, page, pageErrors } = await open('sweetch-cross');
+    const sw = page.locator('.react-flow__node-chassis', { hasText: 'sweetch' }).first();
+    await sw.waitFor({ timeout: 10_000 });
+    await page.waitForTimeout(600);
+    for (let i = 0; i < 14; i++) {
+      const bb = await sw.boundingBox();
+      await page.mouse.move(bb.x + bb.width * 0.8, bb.y + bb.height / 2);
+      await page.keyboard.down('Control');
+      await page.mouse.wheel(0, -120);
+      await page.keyboard.up('Control');
+      await page.waitForTimeout(120);
+    }
+    await page.waitForTimeout(800);
+    const top = page.locator('[data-testid=cable-top] use');
+    check('every cable draws again above the devices', (await top.count()) === 2, String(await top.count()));
+    check('the copy sits above the devices', (await page.locator('[data-testid=cable-top]').evaluate((el) => Number(getComputedStyle(el).zIndex))) > 10);
+    await shot(page, 'quick-card-cable-over');
+    const vp = () => page.locator('.react-flow__viewport').getAttribute('style');
+    const port = await sw.locator('.port__body').nth(4).boundingBox();
+    const before = await vp();
+    await page.mouse.click(port.x + port.width / 2, port.y + port.height / 2);
+    await page.waitForTimeout(700);
+    check('close in, a click on a port leaves the camera where it is', (await vp()) === before, `${before} -> ${await vp()}`);
+    // A person's double-click: two presses some way apart, not the instant pair dblclick() sends.
+    await page.mouse.click(5, 300);
+    await page.waitForTimeout(500);
+    const p2 = await sw.locator('.port__body').nth(4).boundingBox();
+    await page.mouse.move(p2.x + p2.width / 2, p2.y + p2.height / 2);
+    await page.mouse.down({ clickCount: 1 });
+    await page.mouse.up({ clickCount: 1 });
+    await page.waitForTimeout(180);
+    await page.mouse.down({ clickCount: 2 });
+    await page.mouse.up({ clickCount: 2 });
+    await page.waitForTimeout(800);
+    check('a double-click on a port opens the device', (await page.locator('[data-testid=jot]').count()) === 1);
+    check('no uncaught page errors (close in)', pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();
   }
 

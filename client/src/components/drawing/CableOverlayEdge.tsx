@@ -22,16 +22,19 @@ export function CableOverlayEdge() {
   return <use href={`#${visualGroupId(top)}`} pointerEvents="none" className="drawing-cable-overlay" data-testid="cable-overlay" />;
 }
 
-/** The same cable drawn once more above the devices (Key Maker's note on the cables card,
- * 2026-10-27): pointed at or selected, a cable runs over every box between its ends instead of
- * under them. It takes no pointer events, so hover and click still reach what is underneath. */
-export function CableTopLayer() {
+/** Every cable drawn once more above the devices. Pointed at or selected, a cable already ran over
+ * every box between its ends (Key Maker's note on the cables card, 2026-10-27); now they all do, so a
+ * patch lead never slips behind the switch it plugs into (Key Maker, 31 October, sign-off r67). The
+ * pointed-at one comes last, on top of the rest. It takes no pointer events, so a press on a port
+ * under a cable still starts a new cable, and hover and click reach what is underneath. */
+export function CableTopLayer({ cableIds }: { cableIds: readonly string[] }) {
   const top = useLive((s) => s.hoveredCableId ?? s.litCableId);
-  if (top == null) return null;
+  if (cableIds.length === 0 && top == null) return null;
   return (
     <ViewportPortal>
       <svg className="drawing-cable-top" width={1} height={1} aria-hidden="true" data-testid="cable-top">
-        <use href={`#${visualGroupId(top)}`} />
+        {cableIds.map((id) => (id === top ? null : <use key={id} href={`#${visualGroupId(id)}`} />))}
+        {top != null && <use key={`top:${top}`} href={`#${visualGroupId(top)}`} data-testid="cable-top-lit" />}
       </svg>
     </ViewportPortal>
   );

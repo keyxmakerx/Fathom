@@ -237,6 +237,9 @@ function closetFitViewOptions(racks: readonly { id: string }[], surfaces: readon
   };
 }
 
+/** Long enough for the second click of a double-click to land before the camera moves. */
+const DOUBLE_CLICK_MS = 300;
+
 /** The camera's glide: linear, so its zoom runs straight between the two ends
  * and never dips into another stop or band on the way, with an ease-out on the
  * timing so it lands softly. `duration` is read when the options are spread, so
@@ -1272,11 +1275,29 @@ function DrawingInner({
   }, [zoom, rf]);
 
   // Pans the camera to the selected port's own owning box at the faceplate
-  // stop (`buildDrawingNodes.ts` resolves which box that is).
+  // stop (`buildDrawingNodes.ts` resolves which box that is). Already that close
+  // with the box in view, it stays put: a glide would zoom back out and carry the
+  // device from under the pointer, so the second click of a double-click missed
+  // it (Key Maker, 31 October). Otherwise it waits out a double-click first, and
+  // a double-click, which opens the device, cancels it.
   const selectedPortId = selected?.kind === 'port' ? selected.id : null;
   useEffect(() => {
     if (selectedPortId == null || selectedPortOwnerCentre == null) return;
-    void rf.setCenter(selectedPortOwnerCentre.x, selectedPortOwnerCentre.y, { zoom: CAMERA_STOPS.faceplate / 100, ...GLIDE });
+    const centre = selectedPortOwnerCentre;
+    const pane = containerRef.current?.getBoundingClientRect();
+    const at = rf.flowToScreenPosition(centre);
+    const inView = pane != null && at.x >= pane.left && at.x <= pane.right && at.y >= pane.top && at.y <= pane.bottom;
+    if (inView && rf.getZoom() >= CAMERA_STOPS.faceplate / 100) return;
+    const glide = window.setTimeout(() => {
+      document.removeEventListener('dblclick', cancel, true);
+      void rf.setCenter(centre.x, centre.y, { zoom: CAMERA_STOPS.faceplate / 100, ...GLIDE });
+    }, DOUBLE_CLICK_MS);
+    const cancel = () => window.clearTimeout(glide);
+    document.addEventListener('dblclick', cancel, true);
+    return () => {
+      cancel();
+      document.removeEventListener('dblclick', cancel, true);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `selectedPortOwnerCentre` is rebuilt fresh every render, the same reasoning as above.
   }, [selectedPortId, rf]);
 
@@ -1622,6 +1643,10 @@ function DrawingInner({
       data: {},
     } satisfies CableOverlayEdgeType);
   }
+
+  // Every drawn cable's id, for the copy above the devices (`CableTopLayer`); the same array while the set is.
+  const topCableKey = edges.flatMap((e) => (e.type === 'cable' ? [e.id] : [])).join('|');
+  const topCableIds = useMemo(() => (topCableKey === '' ? [] : topCableKey.split('|')), [topCableKey]);
 
   const handleNodeClick: NodeMouseHandler = useCallback(
     (event, node) => {
@@ -2148,7 +2173,7 @@ function DrawingInner({
             ))}
           </ViewportPortal>
         )}
-        <CableTopLayer />
+        <CableTopLayer cableIds={topCableIds} />
       </ReactFlow>
       {free.overlay}
       <InSideSlot id="canvas-tools">
