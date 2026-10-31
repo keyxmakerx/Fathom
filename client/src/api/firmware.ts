@@ -34,7 +34,7 @@ export interface FirmwareStep {
 export interface DeviceHash {
   /** `sha256` where Fathom's hash is comparable; `sha512` on IOS XE. */
   algorithm: string;
-  /** `expected_sha256`, or `vendor_published_sha512`. */
+  /** `expected_sha256`, `expected_sha512` (Fathom's own, when it has one), or `vendor_published_sha512`. */
   comparesWith: string;
 }
 
@@ -94,6 +94,18 @@ export interface FirmwareImage {
   stagedAtUnix: number | null;
   /** The hash Fathom computed over the bytes it holds, or null before they arrived. */
   sha256: string | null;
+  /** Also computed, never declared. Null before the bytes arrived, and for an image staged
+   *  before the server worked one out, until its first weekly re-check. */
+  sha512: string | null;
+  /** Also computed. **Protects nothing**: MD5 is broken, so a match with a vendor's MD5 only
+   *  rules out a damaged download. Null where the server worked none out. */
+  md5: string | null;
+  /** When the server last hashed the stored file again; null from a server that does not re-check. */
+  lastCheckedAtUnix: number | null;
+  /** When a re-check first found the stored file changed or gone. Such an image is never sent. */
+  changedAtUnix: number | null;
+  /** When a steward retired it: the file is deleted and this record stays. */
+  retiredAtUnix: number | null;
   /** What the person said it is for; absent from a server that does not carry them yet. */
   platform: string | null;
   version: string | null;
@@ -205,6 +217,11 @@ export function parseImage(v: unknown, label = 'an image'): FirmwareImage {
     createdAtUnix: optNum(o, 'created_at_unix') ?? 0,
     stagedAtUnix: optNum(o, 'staged_at_unix'),
     sha256: optStr(o, 'sha256'),
+    sha512: optStr(o, 'sha512'),
+    md5: optStr(o, 'md5'),
+    lastCheckedAtUnix: optNum(o, 'last_checked_at_unix'),
+    changedAtUnix: optNum(o, 'changed_at_unix'),
+    retiredAtUnix: optNum(o, 'retired_at_unix'),
     platform: optStr(o, 'platform'),
     version: optStr(o, 'version'),
     models: Array.isArray(o.models) ? o.models.filter((m): m is string => typeof m === 'string' && m !== '') : [],
@@ -350,9 +367,14 @@ export function sendImageBytes(
   });
 }
 
-/** Issues a one-time link for a staged image. Steward access is needed; the link lasts 15 minutes. */
-export async function issueFetchLink(organisationId: string, imageId: string): Promise<FetchLink> {
-  const bytes = await signedFetch('POST', `${base(organisationId)}/firmware/${encodeURIComponent(imageId)}/fetch-urls`);
+/**
+ * Issues a one-time link for a staged image. Steward access is needed; the link lasts 15 minutes.
+ * `warningsPassed` are the codes of the warnings the person was shown and went past; the server seals
+ * them with the link's history entry. None sends no body, as before.
+ */
+export async function issueFetchLink(organisationId: string, imageId: string, warningsPassed: readonly string[] = []): Promise<FetchLink> {
+  const path = `${base(organisationId)}/firmware/${encodeURIComponent(imageId)}/fetch-urls`;
+  const bytes = warningsPassed.length === 0 ? await signedFetch('POST', path) : await signedFetch('POST', path, canonicalBody({ warnings_passed: [...new Set(warningsPassed)].sort() }));
   const o = obj(json(bytes, 'the link'), 'the link');
   return {
     imageId: strField(o, 'image_id', 'the link'),
@@ -362,6 +384,60 @@ export async function issueFetchLink(organisationId: string, imageId: string): P
     expiresAtUnix: numField(o, 'fetch_url_expires_at_unix', 'the link'),
     commands: parseCommands(o.commands),
   };
+}
+
+/**
+ * Retires a staged image: the server deletes its file and keeps its record and history. Links
+ * already given for it stop working. Steward access is needed. `fileDeleted` is false when the
+ * server recorded the retirement but could not remove the file; it serves nothing either way.
+ */
+export async function retireImage(organisationId: string, imageId: string): Promise<{ fileDeleted: boolean }> {
+  const bytes = await signedFetch('POST', `${base(organisationId)}/firmware/${encodeURIComponent(imageId)}/retire`);
+  const o = obj(json(bytes, 'the retire answer'), 'the retire answer');
+  return { fileDeleted: o.file_deleted === true };
+}
+
+/** One thing that happened to an image, read from the organisation's sealed history. */
+export interface FirmwareActivity {
+  seq: number;
+  type: 'firmware_staged' | 'firmware_fetch_issued' | 'firmware_fetch_redeemed' | 'firmware_models_changed' | 'firmware_retired' | string;
+  atUnix: number;
+  imageId: string;
+  /** Who did it, or for a download, who asked for its link. Null when the account is gone. */
+  byName: string | null;
+  /** A download's address, as the server saw the request. */
+  source: string | null;
+  warningsPassed: string[];
+  filename: string | null;
+  version: string | null;
+  modelsBefore: string[];
+  modelsAfter: string[];
+}
+
+export function parseActivity(bytes: Uint8Array): FirmwareActivity[] {
+  const parsed = bytes.length === 0 ? [] : json(bytes, 'the activity');
+  if (!Array.isArray(parsed)) throw new Error('malformed firmware response: the activity is not an array');
+  return parsed.map((e, i) => {
+    const o = obj(e, `activity ${i}`);
+    return {
+      seq: numField(o, 'seq', `activity ${i}`),
+      type: strField(o, 'type', `activity ${i}`),
+      atUnix: numField(o, 'at_unix', `activity ${i}`),
+      imageId: strField(o, 'image', `activity ${i}`),
+      byName: optStr(o, 'by_name'),
+      source: optStr(o, 'source'),
+      warningsPassed: strings(o.warnings_passed),
+      filename: optStr(o, 'filename'),
+      version: optStr(o, 'version'),
+      modelsBefore: strings(o.models_before),
+      modelsAfter: strings(o.models_after),
+    };
+  });
+}
+
+/** The organisation's firmware history, newest first (at most 200). Steward access is needed. */
+export async function listFirmwareActivity(organisationId: string): Promise<FirmwareActivity[]> {
+  return parseActivity(await signedFetch('GET', `${base(organisationId)}/firmware/activity`));
 }
 
 /** What a refusal means here, in the words a person needs. */

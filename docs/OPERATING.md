@@ -586,6 +586,58 @@ calls `/ai/v1/*` with a key the person made on that computer (Steward › AI ›
 at its next request; it cannot be turned back on. Tokens are stored only as hashes: a database copy
 cannot be used to call `/mcp`.
 
+## Firmware space and uploads
+
+Staged images live in the `firmware` volume, outside the database. Three numbers keep them from
+crowding out anything else (sign-off r62, ADR-0064 amendment of 2026-10-31):
+
+| Setting | Default | What it limits |
+|---|---|---|
+| `FATHOM_FIRMWARE_MAX_BYTES` | 2 GiB | One image |
+| `FATHOM_FIRMWARE_ORGANISATION_MAX_BYTES` | 20 GiB | One organisation's staged images, plus declared ones whose upload can still start |
+| `FATHOM_FIRMWARE_TOTAL_MAX_BYTES` | 50 GiB | Every `.img` and `.part` file in the staging directory |
+
+**Set the total below what the volume can hold.** Fathom does not read the disk's free space (std
+has no portable call for it, and reading it needs a dependency not yet approved), so this number is
+the guard. If the volume shares a disk with PostgreSQL, leave room for the database to grow too.
+Both space checks run when an image is declared, before any bytes are sent, and refuse with `507`
+saying how much is held.
+
+**The file's numbers are where the server starts** (sign-off r71). On Admin › Firmware an admin
+saves any of the three, the two upload counts, the stall time and the download address; a saved
+value wins over the file's until Reset, without a restart. Below them, each organisation has a
+**ceiling** (empty: the per-organisation number above) and a **lock**. A Steward sets their own
+organisation's total, at most the ceiling, and the address their devices download from, on Steward ›
+Firmware. While an organisation is locked its Stewards' values do not count and they see your reason.
+Each change is sealed: the server's on the site chain, an organisation's on its own chain too, so
+its Stewards read it; each row also carries a seal, and a row whose seal does not check is shown as
+such on Admin › Firmware and refused when firmware is read for an upload. A one-time download link
+names one image, so devices never need a port each and the server never picks an image by the
+address a request came from.
+
+Uploads: one at a time per organisation and three per server process, refused with `429` (the
+upload token stays good). An upload that sends nothing for two minutes is dropped and its partial
+file deleted. Behind a load balancer each server counts its own uploads; the organisation total is
+read from the database, so it holds across all of them. Device downloads are not limited.
+
+Before each download the server reads the image again and compares its SHA-256 with the one computed
+at upload. A file changed on disk is refused with `500` and logged as an error; restage it from the
+vendor's download.
+
+**The weekly re-check.** Once an hour the server looks for staged images it has not hashed for seven
+days and hashes them again, one at a time, so it reads one file at once and never competes with
+uploads for more. An image that no longer matches, or whose file is gone, is marked (its page and
+the list say so) and logged as a warning that names the image; it is never sent. If one appears,
+compare the firmware volume with a backup before trusting anything else on it. An image staged
+before the re-check existed gets its SHA-512 at its first re-check, and only once its SHA-256 has
+matched. Each server runs its own re-check; two servers re-checking the same image is harmless.
+
+**Retiring frees space.** Nothing else ever removes an image. A Steward can retire one from its
+page: the server seals `firmware_retired` on the organisation's chain, marks the row `retired`,
+then deletes the file. The record and every fetch of it stay. If the file can't be deleted, the
+log says so and the image still serves nothing, but its bytes count against the totals until you
+remove the file named `<image id>.img` from the firmware volume.
+
 ## Break-glass: recovering an operator from the host
 
 ADR-0055 decision 8, in its own words: *"Break-glass is a host command, loud."* `fathom-server

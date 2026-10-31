@@ -665,6 +665,72 @@ pub async fn read_org_entry_metadata(
     Ok(None)
 }
 
+/// One organisation chain entry, opened: what an activity list shows.
+#[derive(Debug, Clone)]
+pub struct OpenedOrgEntry {
+    pub seq: i64,
+    pub entry_type: String,
+    pub created_at_unix: i64,
+    /// The canonical JSON that was sealed.
+    pub metadata: Vec<u8>,
+}
+
+/// The newest entries of these types on the caller's organisation chain, newest
+/// first, at most `limit`, each opened with the organisation content key at its
+/// own epoch. Like [`read_org_entry_metadata`], this reads and does not verify
+/// the chain; `verify_org` is that. An entry whose metadata will not open is an
+/// error, not a gap: a list that quietly dropped one would be a list that lies.
+pub async fn recent_org_entries(
+    tx: &Transaction<'_>,
+    ring: &KeyRing,
+    ctx: &TenantContext,
+    types: &[EntryType],
+    limit: i64,
+) -> Result<Vec<OpenedOrgEntry>, ChainStoreError> {
+    let organisation = ctx.tenant().to_string();
+    let chain = ChainRef::Org {
+        organisation: &organisation,
+    };
+    let names: Vec<&str> = types.iter().map(|t| t.as_str()).collect();
+    let rows = tx
+        .query(
+            "SELECT seq, entry_type, extract(epoch FROM created_at)::bigint, \
+                    COALESCE(metadata_key_epoch, chain_key_epoch), metadata_nonce, metadata \
+             FROM chain_entries \
+             WHERE chain_kind = 'org' AND chain_id = $1 AND entry_type = ANY($2) \
+             ORDER BY seq DESC LIMIT $3",
+            &[&organisation, &names, &limit],
+        )
+        .await?;
+    let tenant_key = keys::tenant_key(tx, ring, ctx).await?;
+    let mut keys_by_epoch: BTreeMap<i32, Key32> = BTreeMap::new();
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let nonce: Option<Vec<u8>> = row.get(4);
+        let framing = MetadataFraming {
+            seq: row.get(0),
+            key_epoch: row.get(3),
+            nonce: nonce.ok_or(ChainStoreError::Corrupt("metadata nonce"))?,
+            ciphertext: row.get(5),
+        };
+        let key = match keys_by_epoch.entry(framing.key_epoch) {
+            std::collections::btree_map::Entry::Occupied(held) => held.into_mut(),
+            std::collections::btree_map::Entry::Vacant(slot) => slot.insert(
+                keys::org_content_key_at_epoch(tx, ctx, &tenant_key, framing.key_epoch).await?,
+            ),
+        };
+        let metadata = open_metadata(key, chain, &framing)?
+            .ok_or(ChainStoreError::Corrupt("metadata that will not open"))?;
+        out.push(OpenedOrgEntry {
+            seq: framing.seq,
+            entry_type: row.get(1),
+            created_at_unix: row.get(2),
+            metadata,
+        });
+    }
+    Ok(out)
+}
+
 /// Verify an **organisation** chain.
 ///
 /// A deep run needs the organisation content key, which is wrapped under the

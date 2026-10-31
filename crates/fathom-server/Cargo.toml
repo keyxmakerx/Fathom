@@ -309,6 +309,14 @@ argon2 = { version = "0.6", default-features = false, features = [
 # record and says plainly that it carries no audit either.
 sha1 = { version = "0.11", default-features = false }
 
+# MD5 of each firmware image at upload (sign-off r62, "SHA-512 and MD5 at
+# upload"; the crate itself approved on r70, 2026-10-31). Shown beside the
+# SHA-256 and SHA-512 for vendors that publish only an MD5. **Never what
+# protects an image**: the SHA-256 is still what Fathom checks. RustCrypto,
+# same `digest 0.11` tree as `sha2`; one package in `Cargo.lock`. Record:
+# `deps/decisions/md-5.md`. Named by `src/firmware.rs` only.
+md-5 = { version = "0.11.0", default-features = false }
+
 # Outside vaults (ADR-0071 part four; sign-off cards r34-vault-crates and
 # r34-vault-crates24, 2026-10-26: all approved). The server signs in to a
 # person's own Vaultwarden and reads one collection; Vaultwarden's API answers

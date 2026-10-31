@@ -133,6 +133,7 @@ export function FirmwareList({ api, onOpenImage, onOpenModel, onOpenDevices, onU
               {r.sha256 ? (
                 <>
                   {shortHash(r.sha256)} <CopyButton text={r.sha256} label="Copy" className="fw-btn btn-quiet" />
+                  {r.image?.changedAtUnix != null ? <span className="fw-error"> Changed on the server, won't be sent</span> : null}
                 </>
               ) : (
                 ''

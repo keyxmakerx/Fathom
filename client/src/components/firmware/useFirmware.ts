@@ -10,7 +10,9 @@ import {
   firmwareRefusalWords,
   issueFetchLink,
   listFirmware,
+  listFirmwareActivity,
   modelsProblem,
+  retireImage,
   setImageModels,
   sendImageBytes,
 } from '../../api/firmware';
@@ -129,9 +131,25 @@ export function useFirmwareApi(inputs: FirmwareInputs): FirmwareApi | null {
           return { refused: firmwareRefusalWords(e) };
         }
       },
-      issueLink: async (imageId) => {
+      loadActivity: async () => {
         try {
-          return await issueFetchLink(organisationId, imageId);
+          return await listFirmwareActivity(organisationId);
+        } catch (e) {
+          return { refused: firmwareRefusalWords(e, 'list') };
+        }
+      },
+      retireImage: async (imageId) => {
+        try {
+          const done = await retireImage(organisationId, imageId);
+          reload();
+          return done;
+        } catch (e) {
+          return { refused: firmwareRefusalWords(e) };
+        }
+      },
+      issueLink: async (imageId, warningsPassed = []) => {
+        try {
+          return await issueFetchLink(organisationId, imageId, warningsPassed);
         } catch (e) {
           return { refused: firmwareRefusalWords(e, 'link') };
         }

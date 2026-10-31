@@ -355,6 +355,16 @@ fn files_in(dir: &PathBuf) -> Vec<String> {
 /// The real router: `api::router` for sign-in and nonces, merged with
 /// `firmware::router` — exactly the shape `src/main.rs` is meant to assemble.
 async fn app(pool: &Pool, ring: Arc<KeyRing>, directory: PathBuf) -> axum::Router {
+    app_with(pool, ring, directory, |store| store).await
+}
+
+/// [`app`], with the store's limits changed first (sign-off r62's tests).
+async fn app_with(
+    pool: &Pool,
+    ring: Arc<KeyRing>,
+    directory: PathBuf,
+    limits: impl FnOnce(FirmwareStore) -> FirmwareStore,
+) -> axum::Router {
     let _ = logs();
     let sessions = Arc::new(store(pool, Arc::clone(&ring)).await);
     let watch = Arc::new(EpochWatch::new());
@@ -369,7 +379,7 @@ async fn app(pool: &Pool, ring: Arc<KeyRing>, directory: PathBuf) -> axum::Route
         sessions,
         watch,
         ring,
-        store: Arc::new(
+        store: Arc::new(limits(
             FirmwareStore::open(
                 directory,
                 64 * 1024 * 1024,
@@ -377,7 +387,7 @@ async fn app(pool: &Pool, ring: Arc<KeyRing>, directory: PathBuf) -> axum::Route
                 ClientAddress::header(TEST_SOURCE_HEADER),
             )
             .expect("this test's staging directory is usable"),
-        ),
+        )),
     };
     fathom_server::api::router(api_state).merge(firmware::router(firmware_state))
 }
@@ -2364,4 +2374,825 @@ fn a_missing_or_unwritable_staging_directory_is_refused_at_startup() {
     );
     // ...and the probe file it wrote is gone again.
     assert!(files_in(&good).is_empty(), "{:?}", files_in(&good));
+}
+
+// ---------------------------------------------------------------------------
+// Sign-off r62: room, uploads at once, stalls, and the bytes read again on send
+// ---------------------------------------------------------------------------
+
+/// Declare an image and return its id and upload token.
+async fn declare(
+    addr: SocketAddr,
+    person: &Person,
+    organisation: OrganisationId,
+    scope: ScopeId,
+    bytes: &[u8],
+) -> (String, Vec<u8>, String, String) {
+    let (status, body) = call(
+        addr,
+        person,
+        "POST",
+        &format!("/organisations/{organisation}/scopes/{scope}/firmware"),
+        &declaration(
+            "junos-install-21.4R3.tgz",
+            bytes.len() as u64,
+            &sha256_of(bytes),
+        ),
+    )
+    .await;
+    if status != "200" {
+        return (status, body, String::new(), String::new());
+    }
+    let image = json_str(&body, "image_id");
+    let token = json_str(&body, "upload_token");
+    (status, body, image, token)
+}
+
+/// An upload's head and the first `first` bytes of its body, with the connection
+/// left open: an upload in flight.
+async fn start_upload(
+    addr: SocketAddr,
+    image: &str,
+    token: &str,
+    bytes: &[u8],
+    first: usize,
+) -> tokio::net::TcpStream {
+    use tokio::io::AsyncWriteExt;
+    let mut stream = tokio::net::TcpStream::connect(addr)
+        .await
+        .expect("connect to the test router");
+    let head = format!(
+        "POST /firmware/uploads/{image} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\
+         Content-Length: {}\r\n{HEADER_UPLOAD_TOKEN}: {token}\r\n\r\n",
+        bytes.len()
+    );
+    stream.write_all(head.as_bytes()).await.expect("write head");
+    stream
+        .write_all(&bytes[..first])
+        .await
+        .expect("write the first bytes");
+    stream
+}
+
+async fn status_of(stream: &mut tokio::net::TcpStream) -> (String, String) {
+    use tokio::io::AsyncReadExt;
+    let mut buf = Vec::new();
+    let _ = stream.read_to_end(&mut buf).await;
+    let text = String::from_utf8_lossy(&buf).into_owned();
+    let status = text
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or_default()
+        .to_string();
+    (status, text)
+}
+
+/// One upload at a time per organisation. The second is refused with `429` while
+/// the first is in flight, its token is NOT spent, and the same token works once
+/// the first has finished.
+#[tokio::test]
+async fn a_second_upload_waits_for_the_first_and_keeps_its_token() {
+    use tokio::io::AsyncWriteExt;
+
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+
+    let first = an_image(200_000);
+    let second = an_image(50_000);
+    let (_, _, first_image, first_token) =
+        declare(addr, &estate.steward, estate.organisation, scope, &first).await;
+    let (_, _, second_image, second_token) =
+        declare(addr, &estate.steward, estate.organisation, scope, &second).await;
+
+    let mut in_flight = start_upload(addr, &first_image, &first_token, &first, 1000).await;
+    // Let the server take the first upload's slot before the second arrives.
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+    let (status, body) = raw_request(
+        addr,
+        "POST",
+        &format!("/firmware/uploads/{second_image}"),
+        &[(HEADER_UPLOAD_TOKEN, second_token.clone())],
+        &second,
+    )
+    .await;
+    assert_eq!(status, "429", "{}", String::from_utf8_lossy(&body));
+    assert!(
+        String::from_utf8_lossy(&body).contains("still good"),
+        "the refusal says the token can be used again: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    in_flight
+        .write_all(&first[1000..])
+        .await
+        .expect("finish the first upload");
+    let (status, text) = status_of(&mut in_flight).await;
+    assert_eq!(status, "200", "{text}");
+
+    let (status, body) = raw_request(
+        addr,
+        "POST",
+        &format!("/firmware/uploads/{second_image}"),
+        &[(HEADER_UPLOAD_TOKEN, second_token)],
+        &second,
+    )
+    .await;
+    assert_eq!(
+        status,
+        "200",
+        "the refused token stays good: {}",
+        String::from_utf8_lossy(&body)
+    );
+}
+
+/// An organisation's images may add up to its limit and no more. The refusal
+/// comes at the declaration, before a byte is sent, and nothing is declared.
+#[tokio::test]
+async fn a_declaration_past_the_organisations_room_is_refused() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(
+        app_with(&pool, Arc::clone(&ring), directory.clone(), |s| {
+            s.with_space_limits(150_000, 10_000_000)
+        })
+        .await,
+    )
+    .await;
+
+    stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "junos-install-ex-x86-64-21.4R3-S5.5.tgz",
+        &an_image(100_000),
+    )
+    .await;
+
+    let (status, body, _, _) = declare(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        &an_image(60_000),
+    )
+    .await;
+    let text = String::from_utf8_lossy(&body);
+    assert_eq!(status, "507", "{text}");
+    assert!(
+        text.contains("This organisation's firmware holds 100000 bytes"),
+        "{text}"
+    );
+    assert!(text.contains("Retire an image"), "{text}");
+
+    // A smaller one still fits.
+    let (status, body, _, _) = declare(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        &an_image(40_000),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+}
+
+/// The whole staging directory has a limit too, counted from the files on disk.
+#[tokio::test]
+async fn a_declaration_past_the_servers_room_is_refused() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(
+        app_with(&pool, Arc::clone(&ring), directory.clone(), |s| {
+            s.with_space_limits(10_000_000, 120_000)
+        })
+        .await,
+    )
+    .await;
+
+    stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "junos-install-ex-x86-64-21.4R3-S5.5.tgz",
+        &an_image(100_000),
+    )
+    .await;
+    let (status, body, _, _) = declare(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        &an_image(30_000),
+    )
+    .await;
+    let text = String::from_utf8_lossy(&body);
+    assert_eq!(status, "507", "{text}");
+    assert!(text.contains("This server's firmware"), "{text}");
+    assert!(text.contains("Admin › Firmware"), "{text}");
+}
+
+/// An upload that goes quiet is dropped: `408`, the partial file deleted, and its
+/// slot given back so the organisation's next upload is not blocked.
+#[tokio::test]
+async fn an_upload_that_goes_quiet_is_dropped_and_frees_its_place() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(
+        app_with(&pool, Arc::clone(&ring), directory.clone(), |s| {
+            s.with_upload_idle(std::time::Duration::from_millis(700))
+        })
+        .await,
+    )
+    .await;
+
+    let bytes = an_image(100_000);
+    let (_, _, image, token) =
+        declare(addr, &estate.steward, estate.organisation, scope, &bytes).await;
+    let mut quiet = start_upload(addr, &image, &token, &bytes, 500).await;
+    let (status, text) = status_of(&mut quiet).await;
+    assert_eq!(status, "408", "{text}");
+    assert!(text.contains("nothing was staged"), "{text}");
+    assert!(
+        files_in(&directory).is_empty(),
+        "the partial file is deleted: {:?}",
+        files_in(&directory)
+    );
+
+    // The place it held is free again.
+    stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "junos-install-ex-x86-64-21.4R3-S5.5.tgz",
+        &an_image(20_000),
+    )
+    .await;
+}
+
+/// The bytes are read again before a device gets them. A file changed on disk
+/// after it was staged, even to the same length, is not sent.
+#[tokio::test]
+async fn an_image_changed_on_disk_after_staging_is_not_sent() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+
+    let bytes = an_image(80_000);
+    let image = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "junos-install-ex-x86-64-21.4R3-S5.5.tgz",
+        &bytes,
+    )
+    .await;
+
+    // Same length, one byte different.
+    let on_disk = directory.join(format!("{image}.img"));
+    let mut changed = bytes.clone();
+    changed[40_000] ^= 0xff;
+    std::fs::write(&on_disk, &changed).expect("change the staged file");
+
+    let answer = issue_fetch_url(addr, &estate.steward, estate.organisation, &image).await;
+    let url = json_str(answer.as_bytes(), "fetch_url");
+    let path = url
+        .strip_prefix("https://fathom.test.invalid")
+        .expect("the configured base url");
+    let (status, body) = raw_request(addr, "GET", path, &[], b"").await;
+    let text = String::from_utf8_lossy(&body);
+    assert_eq!(status, "500", "{text}");
+    assert!(text.contains("has changed on the server"), "{text}");
+    assert!(
+        !body.windows(64).any(|w| w == &changed[..64]),
+        "none of the changed bytes went out"
+    );
+}
+
+/// The test's own [`FirmwareStore`] over `directory`, for calling the re-check
+/// directly.
+fn a_store_over(directory: &std::path::Path) -> FirmwareStore {
+    FirmwareStore::open(
+        directory.to_path_buf(),
+        64 * 1024 * 1024,
+        "https://fathom.test.invalid".to_string(),
+        ClientAddress::header(TEST_SOURCE_HEADER),
+    )
+    .expect("this test's staging directory is usable")
+}
+
+/// Make an image due for its weekly re-check, as if eight days had passed, and,
+/// when `forget_sha512`, as if it had been staged before `0059` (and so before
+/// `0061`'s MD5 too).
+async fn age(image: &str, forget_sha512: bool) {
+    let su = support::superuser_client_on_test_database().await;
+    su.execute(
+        "UPDATE firmware_images SET last_checked_at = now() - interval '8 days', \
+                computed_sha512 = CASE WHEN $2 THEN NULL ELSE computed_sha512 END, \
+                computed_md5 = CASE WHEN $2 THEN NULL ELSE computed_md5 END \
+         WHERE id = $1",
+        &[&image, &forget_sha512],
+    )
+    .await
+    .expect("age the image");
+}
+
+fn md5_of(bytes: &[u8]) -> [u8; 16] {
+    use md5::{Digest, Md5};
+    Md5::digest(bytes).into()
+}
+
+fn sha512_of(bytes: &[u8]) -> [u8; 64] {
+    use sha2::{Digest, Sha512};
+    Sha512::digest(bytes).into()
+}
+
+#[tokio::test]
+async fn an_upload_works_out_a_sha512_too_and_the_list_shows_it() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+
+    let bytes = an_image(70_000);
+    stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "cat9k_iosxe.17.09.04a.SPA.bin",
+        &bytes,
+    )
+    .await;
+
+    let list = list_firmware(addr, &estate.steward, estate.organisation, scope).await;
+    assert!(list.contains(&hex(sha512_of(&bytes))), "{list}");
+    assert!(
+        list.contains(&format!("\"md5\":\"{}\"", hex(md5_of(&bytes)))),
+        "the MD5 from the same pass (0061): {list}"
+    );
+    assert!(list.contains("\"last_checked_at_unix\":"), "{list}");
+    assert!(list.contains("\"changed_at_unix\":null"), "{list}");
+}
+
+#[tokio::test]
+async fn the_weekly_recheck_passes_a_good_file_fills_a_missing_sha512_and_marks_a_changed_one() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+    let store = a_store_over(&directory);
+    let organisation = estate.organisation.to_string();
+
+    let good = an_image(50_000);
+    let good_id = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "good.bin",
+        &good,
+    )
+    .await;
+    let bad = an_image(60_000);
+    let bad_id = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "bad.bin",
+        &bad,
+    )
+    .await;
+
+    // Just uploaded, so nothing is due yet.
+    let first = firmware::recheck_due_in(&pool, &store, Some(&organisation))
+        .await
+        .expect("the re-check runs");
+    assert_eq!(first, firmware::Rechecked::default());
+
+    // Eight days on: the good one as if staged before `0059`, the bad one changed.
+    age(&good_id, true).await;
+    age(&bad_id, false).await;
+    let mut changed = bad.clone();
+    changed[30_000] ^= 0xff;
+    std::fs::write(directory.join(format!("{bad_id}.img")), &changed).expect("change it");
+
+    let list = list_firmware(addr, &estate.steward, estate.organisation, scope).await;
+    assert!(!list.contains(&hex(sha512_of(&good))), "forgotten: {list}");
+
+    let second = firmware::recheck_due_in(&pool, &store, Some(&organisation))
+        .await
+        .expect("the re-check runs");
+    assert_eq!(
+        second,
+        firmware::Rechecked {
+            matched: 1,
+            changed: 1
+        }
+    );
+
+    let list = list_firmware(addr, &estate.steward, estate.organisation, scope).await;
+    assert!(
+        list.contains(&hex(sha512_of(&good))),
+        "the SHA-512 is filled once the SHA-256 matched: {list}"
+    );
+    assert!(
+        !list.contains(&hex(sha512_of(&changed))),
+        "never a SHA-512 of the changed bytes: {list}"
+    );
+    assert!(
+        list.contains(&hex(md5_of(&good))),
+        "the MD5 is filled once the SHA-256 matched: {list}"
+    );
+    assert_eq!(
+        list.matches("\"changed_at_unix\":null").count(),
+        1,
+        "only the changed image is marked: {list}"
+    );
+
+    // Both were just checked, so a third pass finds nothing due.
+    let third = firmware::recheck_due_in(&pool, &store, Some(&organisation))
+        .await
+        .expect("the re-check runs");
+    assert_eq!(third, firmware::Rechecked::default());
+}
+
+#[tokio::test]
+async fn the_recheck_marks_an_image_whose_file_is_gone() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+    let store = a_store_over(&directory);
+
+    let image = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "gone.bin",
+        &an_image(10_000),
+    )
+    .await;
+    age(&image, false).await;
+    std::fs::remove_file(directory.join(format!("{image}.img"))).expect("remove it");
+
+    let found = firmware::recheck_due_in(&pool, &store, Some(&estate.organisation.to_string()))
+        .await
+        .expect("the re-check runs");
+    assert_eq!(
+        found,
+        firmware::Rechecked {
+            matched: 0,
+            changed: 1
+        }
+    );
+    let list = list_firmware(addr, &estate.steward, estate.organisation, scope).await;
+    assert!(!list.contains("\"changed_at_unix\":null"), "{list}");
+}
+
+#[tokio::test]
+async fn a_steward_retires_an_image_its_file_goes_its_record_stays_and_links_stop() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let reader = a_member_with(&pool, &ring, &estate, "reader", Some(Capability::Read)).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+
+    let bytes = an_image(20_000);
+    let image = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "old.bin",
+        &bytes,
+    )
+    .await;
+    // A link asked for before retiring must not work after it.
+    let answer = issue_fetch_url(addr, &estate.steward, estate.organisation, &image).await;
+    let url = json_str(answer.as_bytes(), "fetch_url");
+    let path = url
+        .strip_prefix("https://fathom.test.invalid")
+        .unwrap()
+        .to_string();
+
+    let retire = format!(
+        "/organisations/{}/firmware/{image}/retire",
+        estate.organisation
+    );
+    let (status, _) = call(addr, &reader, "POST", &retire, b"").await;
+    assert_eq!(status, "403", "only a steward may retire");
+    assert!(directory.join(format!("{image}.img")).exists());
+
+    let (status, body) = call(addr, &estate.steward, "POST", &retire, b"").await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    assert!(String::from_utf8_lossy(&body).contains("\"file_deleted\":true"));
+    assert!(
+        !directory.join(format!("{image}.img")).exists(),
+        "the file is gone"
+    );
+
+    let list = list_firmware(addr, &estate.steward, estate.organisation, scope).await;
+    assert!(list.contains(&image), "the record stays: {list}");
+    assert!(list.contains("\"state\":\"retired\""), "{list}");
+    assert!(!list.contains("\"retired_at_unix\":null"), "{list}");
+
+    let (status, _) = raw_request(addr, "GET", &path, &[], b"").await;
+    assert_eq!(status, "409", "a link issued before retiring is refused");
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &format!(
+            "/organisations/{}/firmware/{image}/fetch-urls",
+            estate.organisation
+        ),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "409", "no new link for a retired image");
+    let (status, _) = call(addr, &estate.steward, "POST", &retire, b"").await;
+    assert_eq!(status, "409", "retiring twice is refused");
+
+    let su = support::superuser_client_on_test_database().await;
+    let retired: i64 = su
+        .query_one(
+            "SELECT count(*) FROM chain_entries \
+             WHERE chain_kind = 'org' AND organisation_id = $1 AND entry_type = 'firmware_retired'",
+            &[&estate.organisation.to_string()],
+        )
+        .await
+        .expect("read the organisation chain")
+        .get(0);
+    assert_eq!(retired, 1, "retiring is sealed once");
+}
+
+#[tokio::test]
+async fn a_link_can_be_asked_for_past_warnings_and_an_unknown_warning_is_refused() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+    let image = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "warned.bin",
+        &an_image(4_000),
+    )
+    .await;
+    let path = format!(
+        "/organisations/{}/firmware/{image}/fetch-urls",
+        estate.organisation
+    );
+
+    let (status, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &path,
+        b"{\"warnings_passed\":[\"downgrade\",\"wrong_model\"]}\n",
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+
+    let (status, _) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &path,
+        b"{\"warnings_passed\":[\"trust me\"]}\n",
+    )
+    .await;
+    assert_eq!(status, "400", "only known codes are sealed");
+
+    // Sealed with the issue entry, which is the one place it belongs.
+    let su = support::superuser_client_on_test_database().await;
+    let issued: i64 = su
+        .query_one(
+            "SELECT count(*) FROM chain_entries WHERE chain_kind = 'org' \
+               AND organisation_id = $1 AND entry_type = 'firmware_fetch_issued'",
+            &[&estate.organisation.to_string()],
+        )
+        .await
+        .expect("read the organisation chain")
+        .get(0);
+    assert_eq!(issued, 1, "the refused ask sealed nothing");
+}
+
+#[tokio::test]
+async fn a_steward_reads_the_firmware_activity_from_the_sealed_chain_and_a_reader_cannot() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let reader = a_member_with(&pool, &ring, &estate, "reader", Some(Capability::Read)).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+    let image = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "watched.bin",
+        &an_image(3_000),
+    )
+    .await;
+
+    let (status, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &format!(
+            "/organisations/{}/firmware/{image}/fetch-urls",
+            estate.organisation
+        ),
+        b"{\"warnings_passed\":[\"wrong_model\"]}\n",
+    )
+    .await;
+    assert_eq!(status, "200");
+    let url = json_str(&body, "fetch_url");
+    let path = url.strip_prefix("https://fathom.test.invalid").unwrap();
+    let (status, _) = raw_request(
+        addr,
+        "GET",
+        path,
+        &[(TEST_SOURCE_HEADER, "203.0.113.9".to_string())],
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200");
+
+    let activity = format!("/organisations/{}/firmware/activity", estate.organisation);
+    let (status, _) = call(addr, &reader, "GET", &activity, b"").await;
+    assert_eq!(status, "403", "where images went is a steward's to read");
+
+    let (status, body) = call(addr, &estate.steward, "GET", &activity, b"").await;
+    let text = String::from_utf8_lossy(&body);
+    assert_eq!(status, "200", "{text}");
+    let newest = text.find("firmware_fetch_redeemed").expect("the download");
+    let issued = text.find("firmware_fetch_issued").expect("the link");
+    let staged = text.find("firmware_staged").expect("the upload");
+    assert!(newest < issued && issued < staged, "newest first: {text}");
+    assert!(
+        text.contains("\"source\":\"203.0.113.9\""),
+        "where it went: {text}"
+    );
+    assert!(
+        text.contains("\"warnings_passed\":[\"wrong_model\"]"),
+        "the warning passed: {text}"
+    );
+    assert!(text.contains(&image), "{text}");
+    assert!(text.contains("\"by_name\":\""), "who, by name: {text}");
+    assert!(
+        !text.contains(path.trim_start_matches("/firmware/fetch/")),
+        "never the token"
+    );
+}
+
+/// Sign-off r71: a Steward sets their organisation's own total and the address its devices
+/// download from on Steward › Firmware. Both hold at once, both are sealed with who did it,
+/// and a member who is not a Steward cannot read or change them.
+#[tokio::test]
+async fn a_steward_sets_their_organisations_total_and_download_address() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+    let path = format!("/organisations/{}/firmware/settings", estate.organisation);
+
+    let (status, body) = call(addr, &estate.steward, "GET", &path, b"").await;
+    let text = String::from_utf8_lossy(&body).into_owned();
+    assert_eq!(status, "200", "{text}");
+    assert!(text.contains("\"ceiling\":null"), "{text}");
+    assert!(text.contains("\"history\":[]"), "{text}");
+    assert!(
+        text.contains("\"fetch_base_url\":\"https://fathom.test.invalid\""),
+        "the settings file's address: {text}"
+    );
+
+    let image = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "junos-install-ex-x86-64-21.4R3-S5.5.tgz",
+        &an_image(1_500_000),
+    )
+    .await;
+
+    // Two mebibytes and the address on the management network.
+    let body = b"{\"fetch_base_url\":\"http://192.0.2.10:8080\",\"max_bytes\":2097152}\n";
+    let (status, answer) = call(addr, &estate.steward, "PUT", &path, body).await;
+    let text = String::from_utf8_lossy(&answer).into_owned();
+    assert_eq!(status, "200", "{text}");
+    assert!(
+        text.contains("\"organisation_max_bytes\":2097152"),
+        "{text}"
+    );
+    assert!(text.contains("firmware_org_settings_changed"), "{text}");
+    assert!(text.contains("\"by_admin\":false"), "{text}");
+    assert!(text.contains("\"by_name\":\"steward\""), "{text}");
+
+    // Held to it: 1.5 MB is staged, so another 1 MB does not fit.
+    let (status, body, _, _) = declare(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        &an_image(1_000_000),
+    )
+    .await;
+    assert_eq!(status, "507", "{}", String::from_utf8_lossy(&body));
+
+    // And a link now names the organisation's own address.
+    let link = issue_fetch_url(addr, &estate.steward, estate.organisation, &image).await;
+    assert!(
+        link.contains("http://192.0.2.10:8080/firmware/fetch/"),
+        "{link}"
+    );
+
+    // Too small, over the ceiling, and an address a device's copy command could misread.
+    for (body, want) in [
+        (
+            &b"{\"fetch_base_url\":null,\"max_bytes\":1000}\n"[..],
+            "400",
+        ),
+        (
+            &b"{\"fetch_base_url\":null,\"max_bytes\":1125899906842624}\n"[..],
+            "409",
+        ),
+        (
+            &b"{\"fetch_base_url\":\"http://x.example;reboot\",\"max_bytes\":null}\n"[..],
+            "400",
+        ),
+        (&b"{\"max_bytes\":null}\n"[..], "400"),
+    ] {
+        let (status, answer) = call(addr, &estate.steward, "PUT", &path, body).await;
+        assert_eq!(status, want, "{}", String::from_utf8_lossy(&answer));
+    }
+
+    // Not a Steward: refused, before anything is read.
+    let reader = a_member_with(&pool, &ring, &estate, "reader", Some(Capability::Read)).await;
+    let (status, _) = call(addr, &reader, "GET", &path, b"").await;
+    assert_eq!(status, "403");
+    let (status, _) = call(
+        addr,
+        &reader,
+        "PUT",
+        &path,
+        b"{\"fetch_base_url\":null,\"max_bytes\":null}\n",
+    )
+    .await;
+    assert_eq!(status, "403");
 }

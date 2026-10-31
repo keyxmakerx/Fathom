@@ -8,7 +8,7 @@ import { FETCH_STEP_TITLE, LINK_PLACEHOLDER, buildUpgradePlan, commandWithLink, 
 
 const HASH = '9f2c' + 'cd'.repeat(28) + 'a41e';
 
-const dev = (id: string, name: string, osVersion = '21.4R3-S5'): FwDevice => ({ deviceId: id, chassisIds: [], hostname: name, models: ['EX2300-24P'], platform: 'junos-ex', osVersion, hold: null, ownTarget: '' });
+const dev = (id: string, name: string, osVersion = '21.4R3-S5'): FwDevice => ({ deviceId: id, chassisIds: [], hostname: name, models: ['EX2300-24P'], platform: 'junos-ex', osVersion, hold: null, ownTarget: '', managementAddress: '' });
 const target: FwTarget = { id: 't', model: 'EX2300-24P', version: '23.4R2', platform: 'junos-ex', image: 'I1', imageSha256: HASH, note: '' };
 
 const image = (over: Partial<FirmwareImage> = {}): FirmwareImage => ({
@@ -20,6 +20,11 @@ const image = (over: Partial<FirmwareImage> = {}): FirmwareImage => ({
   createdAtUnix: 1,
   stagedAtUnix: 2,
   sha256: HASH,
+  sha512: null,
+  md5: null,
+  lastCheckedAtUnix: null,
+  changedAtUnix: null,
+  retiredAtUnix: null,
   platform: null,
   version: '23.4R2',
   models: ['EX2300-24P'],
@@ -149,6 +154,11 @@ describe('the plan for other vendors, from the server steps', () => {
     expect(plan.steps[3]!.change).not.toContain('9f2c');
   });
 
+  it("compares with Fathom's own SHA-512 once it has one, and Cisco's too", () => {
+    const withOwn = buildUpgradePlan({ devices: [{ ...dev('d1', 'a'), platform: 'ios-xe' }], label: 'C9300', version: target.version, target: { ...target, platform: 'ios-xe' }, image: { ...ios, sha512: 'ab12' + 'c'.repeat(120) + 'ef34' } });
+    expect(withOwn.steps[3]!.change).toBe("Check the SHA-512 on the device\nCompare with ab12…ef34, which Fathom worked out, and with the SHA-512 on Cisco's download page.");
+  });
+
   it('keeps the SHA-256 wording where the device offers a SHA-256', () => {
     const eos = image({ platform: 'eos', commands: { ...ios.commands!, platform: 'eos', family: 'eos', deviceHash: { algorithm: 'sha256', comparesWith: 'expected_sha256' }, steps: [step(1, 'save the configuration', 'copy running-config flash:/b'), step(2, 'reload -- yours to run, not Fathom\'s', 'reload'), step(3, 'compare with the hash Arista publishes', 'verify /sha512 flash:/x.swi')] } });
     const p = buildUpgradePlan({ devices: [{ ...dev('d1', 'a'), platform: 'eos' }], label: 'DCS', version: target.version, target: { ...target, platform: 'eos' }, image: eos });
@@ -175,7 +185,7 @@ describe('helpers', () => {
 });
 
 describe('an upgrade Fathom has no image for (schema 0.31)', () => {
-  const fw: FwDevice = { deviceId: 'f1', chassisIds: [], hostname: 'fw-home', models: [], platform: 'opnsense', osVersion: '25.7.11_2', hold: null, ownTarget: '26.1' };
+  const fw: FwDevice = { deviceId: 'f1', chassisIds: [], hostname: 'fw-home', models: [], platform: 'opnsense', osVersion: '25.7.11_2', hold: null, ownTarget: '26.1', managementAddress: '' };
 
   it("uses the written steps for the device's platform, and ends on the record step", () => {
     const t = buildUpgradePlan({ devices: [fw], label: 'fw-home', version: '26.1', target: null, image: null });

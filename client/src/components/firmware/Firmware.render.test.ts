@@ -11,9 +11,10 @@ import { FirmwareContext, type FirmwareApi } from './context';
 import { FirmwareList } from './FirmwareList';
 import { FirmwareSection } from './FirmwareSection';
 import { ImagePage } from './ImagePage';
+import { FirmwareActivityList, activityWords } from './Activity';
 import { ModelPage, statusWords } from './ModelPage';
 import { ByHandSteps, HowItGetsThere } from './ByHand';
-import { CommandNotes } from './parts';
+import { CommandNotes, LinkWarnings } from './parts';
 import { UploadForm } from './UploadForm';
 import { modelTableRows } from './rows';
 import { modelRows } from '../../document/firmware';
@@ -32,6 +33,11 @@ const image: FirmwareImage = {
   createdAtUnix: 1,
   stagedAtUnix: 2,
   sha256: HASH,
+  sha512: null,
+  md5: null,
+  lastCheckedAtUnix: null,
+  changedAtUnix: null,
+  retiredAtUnix: null,
   platform: 'junos-ex',
   version: '23.4R2',
   models: ['ex4300-48t'],
@@ -59,6 +65,8 @@ const api = (doc: Document, over: Partial<FirmwareApi> = {}): FirmwareApi => ({
   setVersionPlatform: () => {},
   upload: async () => ({ refused: 'no' }),
   setImageModels: async () => ({ changed: true }),
+  retireImage: async () => ({ fileDeleted: true }),
+  loadActivity: async () => [],
   issueLink: async () => ({ refused: 'no' }),
   planUpgrade: () => {},
   openModel: () => {},
@@ -87,6 +95,11 @@ describe('the Firmware list (r14-b1)', () => {
   it('puts a Copy button for the whole hash beside the short one, for readers too', () => {
     const reader = html(api(world().doc, { canEdit: false, isSteward: false }));
     expect(reader).toMatch(/9f2c…a41e <button type="button" class="fw-btn btn-quiet">Copy<\/button>/);
+  });
+
+  it('marks an image a re-check found changed, right beside its hash', () => {
+    const out = html(api(world().doc, { server: { status: 'ready', images: [{ ...image, changedAtUnix: 5 }], error: null } }));
+    expect(out).toContain('Changed on the server, won&#x27;t be sent');
   });
 
   it('shows the behind count in amber and says it in the footer, with the button that plans for them', () => {
@@ -186,6 +199,49 @@ describe('an image page', () => {
     const html = (a: FirmwareApi) => renderToStaticMarkup(createElement(ImagePage, { api: a, rowKey: 'img:' + IMG_ID, onOpenModel: noop }));
     expect(html(api(world().doc))).toContain('Edit models');
     expect(html(api(world().doc, { isSteward: false }))).not.toContain('Edit models');
+  });
+
+  it('shows the SHA-512 with a Copy button and when the file was last checked', () => {
+    const sha512 = 'c'.repeat(128);
+    const out = renderToStaticMarkup(createElement(ImagePage, { api: api(world().doc, { server: { status: 'ready', images: [{ ...image, sha512, lastCheckedAtUnix: 1_793_404_800 }], error: null } }), rowKey: 'img:' + IMG_ID, onOpenModel: noop }));
+    expect(out).toContain('SHA-512');
+    expect(out).toContain(sha512);
+    expect(out.match(/>Copy</g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(out).toContain('Still matches, last checked 31 Oct 2026');
+  });
+
+  it('shows the MD5 with a Copy button and says it protects nothing', () => {
+    const md5 = '900150983cd24fb0d6963f7d28e17f72';
+    const out = renderToStaticMarkup(createElement(ImagePage, { api: api(world().doc, { server: { status: 'ready', images: [{ ...image, md5 }], error: null } }), rowKey: 'img:' + IMG_ID, onOpenModel: noop }));
+    expect(out).toContain('>MD5<');
+    expect(out).toContain(md5);
+    expect(out).toContain('MD5 is broken');
+    expect(out).toContain('Fathom checks the SHA-256');
+  });
+
+  it('shows no MD5 row when the server has none', () => {
+    const out = renderToStaticMarkup(createElement(ImagePage, { api: api(world().doc), rowKey: 'img:' + IMG_ID, onOpenModel: noop }));
+    expect(out).not.toContain('>MD5<');
+  });
+
+  it('gives a steward Retire image, and a reader does not get it', () => {
+    const html = (a: FirmwareApi) => renderToStaticMarkup(createElement(ImagePage, { api: a, rowKey: 'img:' + IMG_ID, onOpenModel: noop }));
+    expect(html(api(world().doc))).toContain('Retire image…');
+    expect(html(api(world().doc, { canEdit: false, isSteward: false }))).not.toContain('Retire image');
+  });
+
+  it('drops a retired image from the list and its page', () => {
+    const a = api(world().doc, { server: { status: 'ready', images: [{ ...image, state: 'retired', retiredAtUnix: 1_793_404_800 }], error: null } });
+    const out = renderToStaticMarkup(createElement(ImagePage, { api: a, rowKey: 'img:' + IMG_ID, onOpenModel: noop }));
+    expect(out).toContain('not listed any more');
+    expect(out).not.toContain('Retire image');
+  });
+
+  it('warns plainly when a re-check found the stored file changed', () => {
+    const out = renderToStaticMarkup(createElement(ImagePage, { api: api(world().doc, { server: { status: 'ready', images: [{ ...image, lastCheckedAtUnix: 1_793_404_800, changedAtUnix: 1_793_404_800 }], error: null } }), rowKey: 'img:' + IMG_ID, onOpenModel: noop }));
+    expect(out).toContain('role="alert"');
+    expect(out).toContain("no longer matched these hashes, or was gone. Fathom won&#x27;t send it.");
+    expect(out).not.toContain('Still matches');
   });
 
   it("lists the server's models, not the chosen-version fallback, once the server has any", () => {
@@ -357,5 +413,42 @@ describe('the same job by hand, from Windows or Linux', () => {
   it('shows only the Fathom route when the server wrote no by-hand steps', () => {
     const out = renderToStaticMarkup(createElement(HowItGetsThere, { byHand: null }, createElement('p', null, 'the link')));
     expect(out).toBe('<p>the link</p>');
+  });
+});
+
+describe('warnings before a link (r62)', () => {
+  it('lists each warning, offers Get the link anyway and says going ahead is recorded', () => {
+    const out = renderToStaticMarkup(
+      createElement(LinkWarnings, { warnings: [{ code: 'wrong_model', deviceId: 'd', words: 'This image is for ex4300-48t. fw1 is srx300.' }], busy: false, onAnyway: noop, onBack: noop }),
+    );
+    expect(out).toContain('role="alert"');
+    expect(out).toContain('This image is for ex4300-48t. fw1 is srx300.');
+    expect(out).toContain('Get the link anyway');
+    expect(out).toContain('Go back');
+    expect(out).toContain('written to the organisation&#x27;s history with your name');
+  });
+});
+
+describe('the firmware activity (r62)', () => {
+  const base = { seq: 1, atUnix: 1_793_404_800, imageId: IMG_ID, byName: 'Key Maker', source: null, warningsPassed: [], filename: null, version: null, modelsBefore: [], modelsAfter: [] };
+
+  it('says who did what, with the warnings they went past', () => {
+    expect(activityWords({ ...base, type: 'firmware_staged', version: '23.4R2' }, null).text).toBe('Uploaded (23.4R2) by Key Maker');
+    const link = activityWords({ ...base, type: 'firmware_fetch_issued', warningsPassed: ['wrong_model', 'downgrade'] }, null);
+    expect(link.text).toBe('One-time link asked for by Key Maker');
+    expect(link.flag).toBe('went past: wrong model, downgrade');
+  });
+
+  it("flags a download from an address none of the plan's devices has, and only then", () => {
+    const got = { ...base, type: 'firmware_fetch_redeemed', source: '203.0.113.9' };
+    expect(activityWords(got, new Set(['10.0.0.5'])).flag).toBe('not the management address of any device in this plan');
+    expect(activityWords(got, new Set(['203.0.113.9'])).flag).toBeNull();
+    expect(activityWords(got, null).flag).toBeNull();
+    expect(activityWords(got, null).text).toBe('Downloaded from 203.0.113.9, link from Key Maker');
+  });
+
+  it('shows nothing to someone who is not a steward', () => {
+    const out = renderToStaticMarkup(createElement(FirmwareActivityList, { api: api(world().doc, { isSteward: false }), imageIds: [IMG_ID] }));
+    expect(out).toBe('');
   });
 });

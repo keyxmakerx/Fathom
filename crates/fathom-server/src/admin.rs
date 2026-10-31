@@ -149,6 +149,13 @@ pub fn router(state: AdminState) -> Router {
             "/admin/ai/keys/{organisation}/{key}/disable",
             post(disable_ai_key),
         )
+        // Sign-off r71: firmware's limits, set here instead of only in the settings file.
+        .route("/admin/firmware", get(firmware_overview))
+        .route("/admin/firmware/settings", post(set_firmware_settings))
+        .route(
+            "/admin/firmware/organisations/{organisation}",
+            post(set_firmware_ceiling),
+        )
         .with_state(state)
 }
 
@@ -385,6 +392,148 @@ async fn disable_ai_key(
     state
         .operators
         .disable_ai_key(&session, &organisation, &key, &reason)
+        .await
+        .map_err(AdminRefusal)?;
+    Ok(ok())
+}
+
+// ---------------------------------------------------------------------------
+// Sign-off r71 — firmware's limits
+// ---------------------------------------------------------------------------
+
+fn json_ok(page: fathom_canon::Json) -> Response {
+    (
+        StatusCode::OK,
+        [
+            (axum::http::header::CONTENT_TYPE, "application/json"),
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+        ],
+        page.to_canonical_bytes(),
+    )
+        .into_response()
+}
+
+/// `GET /admin/firmware`: JSON. `{"on": false}` when firmware staging is off.
+async fn firmware_overview(
+    State(state): State<AdminState>,
+    signed: Signed,
+) -> Result<Response, Refusal> {
+    let session = verify(&state, &signed).await?;
+    let page = state
+        .operators
+        .firmware_overview(&session)
+        .await
+        .map_err(AdminRefusal)?;
+    Ok(json_ok(page))
+}
+
+/// An integer, a null, or refused.
+fn opt_int_field(
+    object: &mut std::collections::BTreeMap<String, fathom_canon::Json>,
+    key: &'static str,
+) -> Result<Option<i64>, Refusal> {
+    use fathom_canon::Json;
+    match object.remove(key) {
+        Some(Json::Int(n)) => Ok(Some(n)),
+        Some(Json::Null) => Ok(None),
+        _ => Err(SessionError::Malformed(key).into()),
+    }
+}
+
+fn json_object(
+    body: &[u8],
+) -> Result<std::collections::BTreeMap<String, fathom_canon::Json>, Refusal> {
+    match fathom_canon::Json::parse_canonical(body) {
+        Ok(fathom_canon::Json::Obj(m)) => Ok(m),
+        _ => Err(SessionError::Malformed("request body").into()),
+    }
+}
+
+/// `POST /admin/firmware/settings`: canonical JSON, every key present, each an
+/// integer or null (null: the settings file's), `fetch_base_url` a string or null, and
+/// `if_version` the version read (0 before the first save).
+async fn set_firmware_settings(
+    State(state): State<AdminState>,
+    signed: Signed,
+) -> Result<Response, Refusal> {
+    use fathom_canon::Json;
+    let session = verify(&state, &signed).await?;
+    let mut o = json_object(&signed.body)?;
+    let int32 = |v: Option<i64>, key: &'static str| -> Result<Option<i32>, Refusal> {
+        v.map(|n| i32::try_from(n).map_err(|_| Refusal::from(SessionError::Malformed(key))))
+            .transpose()
+    };
+    let saved = crate::firmware_settings::Saved {
+        max_image_bytes: opt_int_field(&mut o, "max_image_bytes")?,
+        total_max_bytes: opt_int_field(&mut o, "total_max_bytes")?,
+        organisation_max_bytes: opt_int_field(&mut o, "organisation_max_bytes")?,
+        uploads_per_server: int32(
+            opt_int_field(&mut o, "uploads_per_server")?,
+            "uploads_per_server",
+        )?,
+        uploads_per_organisation: int32(
+            opt_int_field(&mut o, "uploads_per_organisation")?,
+            "uploads_per_organisation",
+        )?,
+        upload_idle_seconds: int32(
+            opt_int_field(&mut o, "upload_idle_seconds")?,
+            "upload_idle_seconds",
+        )?,
+        fetch_base_url: match o.remove("fetch_base_url") {
+            Some(Json::Str(v)) => Some(v),
+            Some(Json::Null) => None,
+            _ => return Err(SessionError::Malformed("fetch_base_url").into()),
+        },
+    };
+    let if_version = int32(opt_int_field(&mut o, "if_version")?, "if_version")?
+        .ok_or(Refusal::from(SessionError::Malformed("if_version")))?;
+    if !o.is_empty() {
+        return Err(SessionError::Malformed("request body").into());
+    }
+    state
+        .operators
+        .set_firmware_settings(&session, saved, if_version)
+        .await
+        .map_err(AdminRefusal)?;
+    Ok(ok())
+}
+
+/// `POST /admin/firmware/organisations/{organisation}`: canonical JSON
+/// `{"ceiling_bytes": int | null, "if_version": int, "lock_reason": string, "locked": bool}`.
+/// A lock needs a reason; the organisation's Stewards see it.
+async fn set_firmware_ceiling(
+    State(state): State<AdminState>,
+    Path(organisation): Path<String>,
+    signed: Signed,
+) -> Result<Response, Refusal> {
+    use fathom_canon::Json;
+    let session = verify(&state, &signed).await?;
+    let mut o = json_object(&signed.body)?;
+    let ceiling_bytes = opt_int_field(&mut o, "ceiling_bytes")?;
+    let locked = match o.remove("locked") {
+        Some(Json::Bool(b)) => b,
+        _ => return Err(SessionError::Malformed("locked").into()),
+    };
+    let reason = match o.remove("lock_reason") {
+        Some(Json::Str(r)) => r,
+        _ => return Err(SessionError::Malformed("lock_reason").into()),
+    };
+    let if_version = opt_int_field(&mut o, "if_version")?
+        .and_then(|n| i32::try_from(n).ok())
+        .ok_or(Refusal::from(SessionError::Malformed("if_version")))?;
+    if !o.is_empty() {
+        return Err(SessionError::Malformed("request body").into());
+    }
+    state
+        .operators
+        .set_firmware_ceiling(
+            &session,
+            &organisation,
+            ceiling_bytes,
+            locked,
+            &reason,
+            if_version,
+        )
         .await
         .map_err(AdminRefusal)?;
     Ok(ok())

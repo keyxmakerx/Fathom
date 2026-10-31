@@ -415,6 +415,17 @@ pub enum EntryType {
     /// A steward replaced the list of catalogue models an image is for (`0038`).
     /// The entry names the image and the old and new lists.
     FirmwareModelsChanged,
+    /// A steward retired an image (`0060`): its file is deleted and its row
+    /// stays. The entry names the image, its file name, size and SHA-256.
+    FirmwareRetired,
+    /// The admin changed the server's firmware limits on Admin › Firmware (`0062`).
+    /// Site chain. The entry names the operator and every value before and after.
+    FirmwareServerSettingsChanged,
+    /// The admin set an organisation's firmware ceiling or lock (`0062`). Filed on
+    /// the site chain and the organisation's, so its Stewards see it.
+    FirmwareCeilingChanged,
+    /// A Steward set their organisation's own firmware total (`0062`).
+    FirmwareOrgSettingsChanged,
     // ---- Steward invitations (migration 0037) ------------------------------
     /// A steward invited someone. The entry names the invitation, the scope, the
     /// capability asked and who issued it; never the link and never an email.
@@ -639,6 +650,10 @@ impl EntryType {
             Self::FirmwareFetchIssued => "firmware_fetch_issued",
             Self::FirmwareFetchRedeemed => "firmware_fetch_redeemed",
             Self::FirmwareModelsChanged => "firmware_models_changed",
+            Self::FirmwareRetired => "firmware_retired",
+            Self::FirmwareServerSettingsChanged => "firmware_server_settings_changed",
+            Self::FirmwareCeilingChanged => "firmware_ceiling_changed",
+            Self::FirmwareOrgSettingsChanged => "firmware_org_settings_changed",
             Self::InvitationIssued => "invitation_issued",
             Self::InvitationClosed => "invitation_closed",
             Self::TypeItYourselfSet => "type_it_yourself_set",
@@ -731,6 +746,10 @@ impl EntryType {
             "firmware_fetch_issued" => Some(Self::FirmwareFetchIssued),
             "firmware_fetch_redeemed" => Some(Self::FirmwareFetchRedeemed),
             "firmware_models_changed" => Some(Self::FirmwareModelsChanged),
+            "firmware_retired" => Some(Self::FirmwareRetired),
+            "firmware_server_settings_changed" => Some(Self::FirmwareServerSettingsChanged),
+            "firmware_ceiling_changed" => Some(Self::FirmwareCeilingChanged),
+            "firmware_org_settings_changed" => Some(Self::FirmwareOrgSettingsChanged),
             "invitation_issued" => Some(Self::InvitationIssued),
             "invitation_closed" => Some(Self::InvitationClosed),
             "type_it_yourself_set" => Some(Self::TypeItYourselfSet),
@@ -826,6 +845,10 @@ impl EntryType {
             | Self::AiKeyChanged
             | Self::AiRecommendationDecided => &[ChainKind::Org],
             Self::AiKeyDisabled => &[ChainKind::Site, ChainKind::Org],
+            // `0062`.
+            Self::FirmwareServerSettingsChanged => &[ChainKind::Site],
+            Self::FirmwareCeilingChanged => &[ChainKind::Site, ChainKind::Org],
+            Self::FirmwareOrgSettingsChanged => &[ChainKind::Org],
             Self::OrgGenesis
             | Self::AccountKeyEnrolled
             | Self::AccountKeySuperseded
@@ -839,6 +862,7 @@ impl EntryType {
             | Self::FirmwareFetchIssued
             | Self::FirmwareFetchRedeemed
             | Self::FirmwareModelsChanged
+            | Self::FirmwareRetired
             | Self::InvitationIssued
             | Self::InvitationClosed
             | Self::TypeItYourselfSet

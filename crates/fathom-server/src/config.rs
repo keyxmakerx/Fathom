@@ -260,6 +260,15 @@ pub struct Config {
     /// streams, so this is disk, not memory. Default two gibibytes.
     pub firmware_max_bytes: u64,
 
+    /// `FATHOM_FIRMWARE_ORGANISATION_MAX_BYTES`. What one organisation's staged and
+    /// arriving images may add up to. Default twenty gibibytes (sign-off r62).
+    pub firmware_organisation_max_bytes: u64,
+
+    /// `FATHOM_FIRMWARE_TOTAL_MAX_BYTES`. What every image file in the staging
+    /// directory may add up to. Default fifty gibibytes. Set it below what the
+    /// volume holds, so firmware can never fill a disk the database shares.
+    pub firmware_total_max_bytes: u64,
+
     /// `FATHOM_FIRMWARE_FETCH_BASE_URL`. **The origin a SWITCH can reach**, often not
     /// the one an operator's browser used.
     ///
@@ -609,6 +618,25 @@ impl Config {
                     },
                 )?,
             };
+        let byte_limit = |variable: &'static str, default: u64| -> Result<u64, ConfigError> {
+            match get(variable).filter(|v| !v.trim().is_empty()) {
+                None => Ok(default),
+                Some(v) => v
+                    .trim()
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|n| *n > 0)
+                    .ok_or(ConfigError::Unparseable { variable }),
+            }
+        };
+        let firmware_organisation_max_bytes = byte_limit(
+            "FATHOM_FIRMWARE_ORGANISATION_MAX_BYTES",
+            crate::firmware::DEFAULT_ORGANISATION_MAX_BYTES,
+        )?;
+        let firmware_total_max_bytes = byte_limit(
+            "FATHOM_FIRMWARE_TOTAL_MAX_BYTES",
+            crate::firmware::DEFAULT_TOTAL_MAX_BYTES,
+        )?;
         // Staging with nowhere for a device to fetch from looks whole until the first
         // upgrade. Refused at startup.
         if firmware_dir.is_some() && firmware_fetch_base_url.is_none() {
@@ -760,6 +788,8 @@ impl Config {
             admin_hosts,
             admin_sources,
             firmware_max_bytes,
+            firmware_organisation_max_bytes,
+            firmware_total_max_bytes,
             firmware_fetch_base_url,
             ai_connector,
             termix,
@@ -919,6 +949,14 @@ mod tests {
             Some("https://fathom.example")
         );
         assert_eq!(c.firmware_max_bytes, DEFAULT_FIRMWARE_MAX_BYTES);
+        assert_eq!(
+            c.firmware_organisation_max_bytes,
+            crate::firmware::DEFAULT_ORGANISATION_MAX_BYTES
+        );
+        assert_eq!(
+            c.firmware_total_max_bytes,
+            crate::firmware::DEFAULT_TOTAL_MAX_BYTES
+        );
 
         // Neither set: the feature is simply off, and that is not an error.
         let off = Config::from_lookup(env(&[("DATABASE_URL", "postgres://u@h/db")])).unwrap();
