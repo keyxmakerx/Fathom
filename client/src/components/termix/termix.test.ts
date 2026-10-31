@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { addHost, bareAddress, folderFor, isHostAddress, sendHosts, sendSummary, isTermixKey, listHosts, matchHost, newHostBody, readKey, saveKey, forgetKey, terminalUrl, TermixError } from './termix';
+import { addHost, bareAddress, folderFor, isHostAddress, sendHosts, sendSummary, isTermixKey, listHosts, matchHost, newHostBody, readKey, sameHostName, saveKey, forgetKey, terminalUrl, TermixError } from './termix';
 
 const KEY = 'tmx_' + 'a1'.repeat(32);
 const ORIGIN = 'https://termix.example.lan';
@@ -77,6 +77,14 @@ describe('addresses and links', () => {
     expect(matchHost(hosts, '10.0.0.1/24')?.id).toBe(3);
     expect(matchHost(hosts.slice(0, 2), '10.0.0.1')?.id).toBe(2);
     expect(matchHost(hosts, '10.0.0.2')).toBeNull();
+  });
+
+  it('asks before opening a host whose own name is not the device (sign-off r61)', () => {
+    const host = { id: 4, name: 'Core-SW1 ', ip: '10.0.0.1', port: 22 };
+    expect(sameHostName(host, 'core-sw1')).toBe(true);
+    expect(sameHostName(host, 'payroll-db')).toBe(false);
+    expect(sameHostName({ ...host, name: '10.0.0.1' }, 'core-sw1')).toBe(false);
+    expect(sameHostName(host, '  ')).toBe(false);
   });
 
   it('adds a host with no password and no user name', () => {

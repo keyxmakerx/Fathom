@@ -76,6 +76,10 @@ another ends in a label someone typed.
      server answers, for each far end, whether the caller may open that design, whether the port
      is there, and where that port's own link points. A far end in a design the person can't open,
      or one still being indexed, gives no finding, because Fathom cannot see it.
+     **Added 30 October 2026 (owner, sign-off card r61-ai-audit):** the answer opens only the
+     devices holding the ports asked about, found through a keyed term for each port in the
+     index, not every device in each far design. A design indexed before those terms is read
+     whole until its next rebuild.
    - Carrier names and circuit IDs on such a link come with Circuits (ADR-0068 point 7). A circuit
      then holds these links, and doesn't replace them.
 

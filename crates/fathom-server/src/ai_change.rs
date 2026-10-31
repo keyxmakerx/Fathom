@@ -754,8 +754,9 @@ pub async fn check_idea_change(
 }
 
 /// Accepting an idea that carries a change: the change made now, as the person accepting
-/// it, on the design as it is now. It is their own edit, labelled as from an AI's idea, and
-/// not counted against the connection's limits.
+/// it, on the design as it is now, held to the connection's `rules` as they are now
+/// (sign-off r61). It is their own edit, labelled as from an AI's idea, and not counted
+/// against the connection's limits.
 #[allow(clippy::too_many_arguments)]
 pub async fn apply_idea_change(
     tx: &Transaction<'_>,
@@ -764,6 +765,7 @@ pub async fn apply_idea_change(
     design: DesignId,
     scope: ScopeId,
     tiers: &BTreeSet<Tier>,
+    rules: &Rules,
     asked: &Asked,
 ) -> Result<designs::ChangeWritten, AiError> {
     build_and_write(
@@ -773,7 +775,7 @@ pub async fn apply_idea_change(
         design,
         scope,
         tiers,
-        &Rules::open(),
+        rules,
         IDEA_LABEL_PREFIX,
         asked,
     )

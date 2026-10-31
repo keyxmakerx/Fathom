@@ -64,8 +64,15 @@ limits | show settings | work through plans | per field". Migration 0057.
   everything the reading allows.
 - **Limits.** A Steward may lower proposals a minute (at most 10), a day (at most 300) and removals in
   one proposal (at most 20). Past one, the answer is 429 with when to try again.
-- Accept and apply is not narrowed again: the change was checked against the rules when it was sent,
-  and a person accepting it makes it as their own edit, under their own grants.
+- ~~Accept and apply is not narrowed again: the change was checked against the rules when it was
+  sent, and a person accepting it makes it as their own edit, under their own grants.~~ **Amended 30
+  October 2026 (owner, sign-off card r61-ai-audit, option A):** Accept checks the change again
+  against the connection's rules as they are then: the key still on, AI still allowed to propose
+  for the server, the organisation and the connection, the folder not ideas-only, the kinds and
+  fields list, "most removals", and what the key may see now. One that no longer fits says why
+  and stays open, so its steps can still be done by hand. Stopping a key dismisses every idea it
+  still has waiting, in the name of the person who stopped it; after an operator's stop the ideas
+  stay listed and Accept refuses them.
 
 ## What the owner asked for
 

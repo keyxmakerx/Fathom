@@ -7,7 +7,8 @@ import { useState } from 'react';
 
 import type { TermixOff } from '../../api/termix';
 import './termix.css';
-import { TermixError, addHost, forgetKey, isHostAddress, isTermixKey, listHosts, matchHost, readKey, saveKey, terminalUrl } from './termix';
+import { TermixError, addHost, forgetKey, isHostAddress, isTermixKey, listHosts, matchHost, readKey, sameHostName, saveKey, terminalUrl } from './termix';
+import type { TermixHost } from './termix';
 import { offWords, useTermix } from './useTermix';
 
 interface Props {
@@ -19,7 +20,14 @@ interface Props {
   off?: TermixOff | null;
 }
 
-type Step = { at: 'idle' } | { at: 'key' } | { at: 'busy' } | { at: 'missing' } | { at: 'error'; message: string };
+type Step =
+  | { at: 'idle' }
+  | { at: 'key' }
+  | { at: 'busy' }
+  | { at: 'missing' }
+  | { at: 'other'; host: TermixHost }
+  | { at: 'opened'; host: TermixHost }
+  | { at: 'error'; message: string };
 
 export function TermixActions({ name, address, origin: given, off: givenOff }: Props) {
   const { url: origin, off } = useTermix(given, givenOff);
@@ -59,8 +67,14 @@ export function TermixActions({ name, address, origin: given, off: givenOff }: P
         setStep({ at: 'missing' });
         return;
       }
+      // Matched by address alone: a host with another name is asked about first (sign-off r61).
+      if (!add && !sameHostName(found, name)) {
+        win?.close();
+        setStep({ at: 'other', host: found });
+        return;
+      }
       if (win) win.location.href = terminalUrl(origin, found.id);
-      setStep({ at: 'idle' });
+      setStep({ at: 'opened', host: found });
     } catch (e) {
       win?.close();
       if (e instanceof TermixError && /API key/.test(e.message)) {
@@ -134,6 +148,30 @@ export function TermixActions({ name, address, origin: given, off: givenOff }: P
             Add it to Termix
           </button>{' '}
           It goes in with no password; pick a credential in Termix.
+        </p>
+      ) : null}
+      {step.at === 'other' ? (
+        <p className="termix__hint" role="alert">
+          Termix&rsquo;s host at {address.trim()} is called &ldquo;{step.host.name}&rdquo;, not &ldquo;{name.trim() || 'this device'}&rdquo;. Check it is
+          the same machine before you sign in.{' '}
+          <button
+            type="button"
+            className="btn-quiet"
+            onClick={() => {
+              window.open(terminalUrl(origin, step.host.id), '_blank', 'noopener');
+              setStep({ at: 'opened', host: step.host });
+            }}
+          >
+            Open {step.host.name} anyway
+          </button>{' '}
+          <button type="button" className="btn-quiet" onClick={() => setStep({ at: 'idle' })}>
+            Cancel
+          </button>
+        </p>
+      ) : null}
+      {step.at === 'opened' ? (
+        <p className="termix__hint" role="status">
+          Opened Termix&rsquo;s host &ldquo;{step.host.name}&rdquo; ({step.host.ip}).
         </p>
       ) : null}
       {step.at === 'error' ? (
