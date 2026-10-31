@@ -825,13 +825,13 @@ export function RacksPlace(props: RacksPlaceProps) {
       try {
         if (doc != null && mirrorLoadedDocRef.current !== doc) loadInto(mirror, doc, discardLater);
         const faces = mirror.inside(chassis.deviceId);
-        return <InsideStop chassis={chassis} faces={faces} litPortLabel={litPortLabel} />;
+        return <InsideStop chassis={chassis} faces={faces} litPortLabel={litPortLabel} onPasteConfig={canDraw ? () => setOpenRequest({ id: chassis.id, view: 'config' }) : undefined} />;
       } catch {
         discardLater();
         return null;
       }
     },
-    [litPortLabel, doc, loadInto, discardTrapped],
+    [litPortLabel, doc, loadInto, discardTrapped, canDraw],
   );
 
   const realView = useMemo<ClosetView>(

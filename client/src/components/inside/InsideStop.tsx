@@ -25,12 +25,15 @@ import type { JSX } from 'react';
 
 import type { InsideFaces, InsideRoute, InsideTunnel, InsideUnit, InsideZone } from '../../engine/engine';
 import type { ChassisView } from '../../document/view';
+import { UNNAMED_HOSTNAME } from '../drawing/contract';
 import './inside.css';
 
 export interface InsideStopProps {
   chassis: ChassisView;
   faces: InsideFaces;
   litPortLabel: string | null;
+  /** Opens this device's config drawer, where a config is pasted; absent for a reader. */
+  onPasteConfig?: () => void;
 }
 
 /** One `PortView` per jack at the edge — "the same ports you cabled." */
@@ -165,15 +168,41 @@ function RoutesAndTunnels({ routes, tunnels }: { routes: InsideRoute[]; tunnels:
   );
 }
 
+/** Sign-off rua-ui-audit, "A say so": the name in Fathom always leads, so the header never disagrees
+ * with the rest of the canvas; the config's own name follows only when it differs. */
+export function insideHeading(fathomName: string, configName: string): { name: string; configSays: string | null } {
+  const name = fathomName.trim() !== '' ? fathomName : configName.trim() !== '' ? configName : UNNAMED_HOSTNAME;
+  const configSays = configName.trim() !== '' && configName !== name ? configName : null;
+  return { name, configSays };
+}
+
+/** Nothing has been read from a config: no zones, policies, routes, tunnels or units. */
+function nothingRead(faces: InsideFaces): boolean {
+  return faces.zones.length === 0 && faces.policySets.length === 0 && faces.routes.length === 0 && faces.tunnels.length === 0 && faces.interfaces.length === 0;
+}
+
 export function InsideStop(props: InsideStopProps): JSX.Element {
-  const { chassis, faces, litPortLabel } = props;
+  const { chassis, faces, litPortLabel, onPasteConfig } = props;
   const units = flattenUnits(faces);
+  const heading = insideHeading(chassis.hostname, faces.hostname);
+  const empty = nothingRead(faces);
 
   return (
     <div className="inside-stop">
       <div className="inside-stop__header">
-        <span className="inside-stop__hostname">{faces.hostname !== '' ? faces.hostname : chassis.hostname}</span>
+        <span className="inside-stop__hostname">{heading.name}</span>
+        {heading.configSays !== null && <span className="inside-stop__config-says">· config says {heading.configSays}</span>}
       </div>
+      {empty && (
+        <div className="inside-stop__nothing" role="status">
+          <p>Nothing read from its config yet. Paste one to see its zones and policies.</p>
+          {onPasteConfig && (
+            <button type="button" className="btn-main" onClick={onPasteConfig}>
+              Paste a config
+            </button>
+          )}
+        </div>
+      )}
       <div className="inside-stop__body">
         <JackStrip chassis={chassis} litPortLabel={litPortLabel} />
         <div className="inside-stop__zones" role="list" aria-label="zones">

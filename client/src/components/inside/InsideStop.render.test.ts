@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { InsideFaces, InsideInterface, InsidePolicy, InsidePolicySet, InsideRoute, InsideTunnel, InsideUnit, InsideZone } from '../../engine/engine';
 import type { ChassisView, PortView } from '../../document/view';
-import { InsideStop, type InsideStopProps } from './InsideStop';
+import { InsideStop, insideHeading, type InsideStopProps } from './InsideStop';
 
 // Render-to-string smoke tests only, per `ConfigDrawer.render.test.ts`'s own
 // precedent — no DOM testing library is installed.
@@ -210,5 +210,14 @@ describe('InsideStop (render-to-string)', () => {
     const markup = render(baseProps({ faces: faces() }));
     expect(markup).toContain('ge-0/0/0');
     expect(markup.toLowerCase()).not.toContain('none configured');
+  });
+});
+
+describe('insideHeading', () => {
+  it('leads with the name in Fathom, and shows the config name only when it differs', () => {
+    expect(insideHeading('painite', 'opnsense-gw')).toEqual({ name: 'painite', configSays: 'opnsense-gw' });
+    expect(insideHeading('painite', 'painite')).toEqual({ name: 'painite', configSays: null });
+    expect(insideHeading('', 'opnsense-gw')).toEqual({ name: 'opnsense-gw', configSays: null });
+    expect(insideHeading('', '')).toEqual({ name: 'unnamed', configSays: null });
   });
 });
