@@ -417,6 +417,10 @@ pub fn router(state: FirmwareState) -> Router {
             post(retire_handler),
         )
         .route(
+            "/organisations/{organisation}/firmware/activity",
+            get(activity_handler),
+        )
+        .route(
             "/firmware/fetch/{token}",
             get(fetch_handler).head(head_refused),
         )
@@ -2423,7 +2427,86 @@ async fn models_handler(
     Ok(json_response(Json::Obj(map)))
 }
 
-// ---- 7. Retire ----
+// ---- 7. Activity ----
+
+/// The firmware entry types an activity list shows.
+const ACTIVITY_TYPES: [EntryType; 5] = [
+    EntryType::FirmwareStaged,
+    EntryType::FirmwareFetchIssued,
+    EntryType::FirmwareFetchRedeemed,
+    EntryType::FirmwareModelsChanged,
+    EntryType::FirmwareRetired,
+];
+
+/// Most entries one activity answer holds.
+pub const ACTIVITY_LIMIT: i64 = 200;
+
+/// `GET /organisations/{organisation}/firmware/activity`: the organisation's
+/// firmware history, newest first, read from its sealed chain. **Requires
+/// `steward`**, because it says which addresses images went to.
+///
+/// Each item is what was sealed, as it was sealed, plus its `seq`, `type` and
+/// `at_unix`. Uploads, links asked for (with any warnings passed), downloads
+/// (with the address the request came from), model changes and retirements.
+/// Nothing here is the token: entries carry the token's id only.
+async fn activity_handler(
+    State(state): State<FirmwareState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, FirmwareError> {
+    let tenant = parse_organisation(&organisation)?;
+
+    let mut client = state.sessions.pool().get().await?;
+    let tx = client.transaction().await?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = authorise_in(&tx, &state, &session, tenant, None, Capability::Steward).await?;
+
+    let entries =
+        chains::recent_org_entries(&tx, &state.ring, &ctx, &ACTIVITY_TYPES, ACTIVITY_LIMIT).await?;
+
+    let mut opened = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let Ok(Json::Obj(map)) = Json::parse_canonical(&entry.metadata) else {
+            return Err(FirmwareError::Chain(ChainStoreError::Corrupt(
+                "firmware entry metadata",
+            )));
+        };
+        opened.push((entry, map));
+    }
+    // Who, by name: a download's entry names who issued its link.
+    let who = |map: &BTreeMap<String, Json>| match map.get("actor").or(map.get("issued_by")) {
+        Some(Json::Str(id)) => Some(id.clone()),
+        _ => None,
+    };
+    let mut ids: Vec<String> = opened.iter().filter_map(|(_, m)| who(m)).collect();
+    ids.sort();
+    ids.dedup();
+    let names: BTreeMap<String, String> = tx
+        .query(
+            "SELECT id, display_name FROM accounts WHERE id = ANY($1)",
+            &[&ids],
+        )
+        .await?
+        .into_iter()
+        .map(|row| (row.get(0), row.get(1)))
+        .collect();
+    tx.commit().await?;
+
+    let mut out = Vec::with_capacity(opened.len());
+    for (entry, mut map) in opened {
+        let name = who(&map).and_then(|id| names.get(&id).cloned());
+        map.insert("by_name".to_string(), name.map_or(Json::Null, Json::Str));
+        map.remove("entry_type");
+        map.remove("organisation");
+        map.insert("seq".to_string(), Json::Int(entry.seq));
+        map.insert("type".to_string(), Json::Str(entry.entry_type));
+        map.insert("at_unix".to_string(), Json::Int(entry.created_at_unix));
+        out.push(Json::Obj(map));
+    }
+    Ok(json_response(Json::Arr(out)))
+}
+
+// ---- 8. Retire ----
 
 /// `POST /organisations/{organisation}/firmware/{image}/retire`: delete a staged
 /// image's file and keep its record (`0060`). **Requires `steward`.**

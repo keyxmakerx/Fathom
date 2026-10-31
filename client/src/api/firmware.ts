@@ -393,6 +393,49 @@ export async function retireImage(organisationId: string, imageId: string): Prom
   return { fileDeleted: o.file_deleted === true };
 }
 
+/** One thing that happened to an image, read from the organisation's sealed history. */
+export interface FirmwareActivity {
+  seq: number;
+  type: 'firmware_staged' | 'firmware_fetch_issued' | 'firmware_fetch_redeemed' | 'firmware_models_changed' | 'firmware_retired' | string;
+  atUnix: number;
+  imageId: string;
+  /** Who did it, or for a download, who asked for its link. Null when the account is gone. */
+  byName: string | null;
+  /** A download's address, as the server saw the request. */
+  source: string | null;
+  warningsPassed: string[];
+  filename: string | null;
+  version: string | null;
+  modelsBefore: string[];
+  modelsAfter: string[];
+}
+
+export function parseActivity(bytes: Uint8Array): FirmwareActivity[] {
+  const parsed = bytes.length === 0 ? [] : json(bytes, 'the activity');
+  if (!Array.isArray(parsed)) throw new Error('malformed firmware response: the activity is not an array');
+  return parsed.map((e, i) => {
+    const o = obj(e, `activity ${i}`);
+    return {
+      seq: numField(o, 'seq', `activity ${i}`),
+      type: strField(o, 'type', `activity ${i}`),
+      atUnix: numField(o, 'at_unix', `activity ${i}`),
+      imageId: strField(o, 'image', `activity ${i}`),
+      byName: optStr(o, 'by_name'),
+      source: optStr(o, 'source'),
+      warningsPassed: strings(o.warnings_passed),
+      filename: optStr(o, 'filename'),
+      version: optStr(o, 'version'),
+      modelsBefore: strings(o.models_before),
+      modelsAfter: strings(o.models_after),
+    };
+  });
+}
+
+/** The organisation's firmware history, newest first (at most 200). Steward access is needed. */
+export async function listFirmwareActivity(organisationId: string): Promise<FirmwareActivity[]> {
+  return parseActivity(await signedFetch('GET', `${base(organisationId)}/firmware/activity`));
+}
+
 /** What a refusal means here, in the words a person needs. */
 export function firmwareRefusalWords(e: unknown, doing: 'upload' | 'link' | 'list' = 'upload'): string {
   if (e instanceof FirmwareOff) return e.message;

@@ -1,6 +1,6 @@
 import { createContext } from 'react';
 
-import type { FetchLink, FirmwareImage } from '../../api/firmware';
+import type { FetchLink, FirmwareActivity, FirmwareImage } from '../../api/firmware';
 import type { TargetPatch } from '../../document/firmware';
 import type { KitId } from './kits';
 import type { Document } from '../../document/model';
@@ -46,6 +46,8 @@ export interface FirmwareApi {
   upload(form: UploadForm, onProgress: (sent: number, total: number) => void, signal?: AbortSignal): Promise<Refused | { imageId: string }>;
   /** Replaces the models an image is for (steward). Reloads the list on success. */
   setImageModels(imageId: string, models: string[]): Promise<Refused | { changed: boolean }>;
+  /** The organisation's firmware history, newest first (steward). */
+  loadActivity(): Promise<Refused | FirmwareActivity[]>;
   /** Deletes a staged image's file and keeps its record (steward). Reloads the list on success. */
   retireImage(imageId: string): Promise<Refused | { fileDeleted: boolean }>;
   /** A one-time link. It is shown and dropped, never stored in the design. */

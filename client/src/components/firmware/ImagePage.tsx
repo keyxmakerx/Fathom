@@ -11,6 +11,7 @@ import { BADGE_WORD, imageRows, platformWords } from './images';
 import { HowItGetsThere } from './ByHand';
 import { ModelsEditor } from './ModelsEditor';
 import { CopyButton, GetLink } from './parts';
+import { FirmwareActivityList } from './Activity';
 import './firmware.css';
 
 /** A day as a person reads it, such as "31 Oct 2026". */
@@ -165,6 +166,7 @@ export function ImagePage({ api, rowKey, onOpenModel }: { api: FirmwareApi; rowK
         </div>
       ) : null}
       {img && img.state === 'failed' ? <p className="fw-error">This upload failed: {img.failedReason ?? 'unknown reason'}. Nothing was staged.</p> : null}
+      {img && api.isSteward ? <FirmwareActivityList api={api} imageIds={[img.imageId]} /> : null}
       {img && img.state === 'staged' && api.isSteward ? <RetireImage api={api} imageId={img.imageId} /> : null}
     </div>
   );

@@ -3010,3 +3010,74 @@ async fn a_link_can_be_asked_for_past_warnings_and_an_unknown_warning_is_refused
         .get(0);
     assert_eq!(issued, 1, "the refused ask sealed nothing");
 }
+
+#[tokio::test]
+async fn a_steward_reads_the_firmware_activity_from_the_sealed_chain_and_a_reader_cannot() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let reader = a_member_with(&pool, &ring, &estate, "reader", Some(Capability::Read)).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+    let image = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "watched.bin",
+        &an_image(3_000),
+    )
+    .await;
+
+    let (status, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &format!(
+            "/organisations/{}/firmware/{image}/fetch-urls",
+            estate.organisation
+        ),
+        b"{\"warnings_passed\":[\"wrong_model\"]}\n",
+    )
+    .await;
+    assert_eq!(status, "200");
+    let url = json_str(&body, "fetch_url");
+    let path = url.strip_prefix("https://fathom.test.invalid").unwrap();
+    let (status, _) = raw_request(
+        addr,
+        "GET",
+        path,
+        &[(TEST_SOURCE_HEADER, "203.0.113.9".to_string())],
+        b"",
+    )
+    .await;
+    assert_eq!(status, "200");
+
+    let activity = format!("/organisations/{}/firmware/activity", estate.organisation);
+    let (status, _) = call(addr, &reader, "GET", &activity, b"").await;
+    assert_eq!(status, "403", "where images went is a steward's to read");
+
+    let (status, body) = call(addr, &estate.steward, "GET", &activity, b"").await;
+    let text = String::from_utf8_lossy(&body);
+    assert_eq!(status, "200", "{text}");
+    let newest = text.find("firmware_fetch_redeemed").expect("the download");
+    let issued = text.find("firmware_fetch_issued").expect("the link");
+    let staged = text.find("firmware_staged").expect("the upload");
+    assert!(newest < issued && issued < staged, "newest first: {text}");
+    assert!(
+        text.contains("\"source\":\"203.0.113.9\""),
+        "where it went: {text}"
+    );
+    assert!(
+        text.contains("\"warnings_passed\":[\"wrong_model\"]"),
+        "the warning passed: {text}"
+    );
+    assert!(text.contains(&image), "{text}");
+    assert!(text.contains("\"by_name\":\""), "who, by name: {text}");
+    assert!(
+        !text.contains(path.trim_start_matches("/firmware/fetch/")),
+        "never the token"
+    );
+}

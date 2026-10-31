@@ -100,8 +100,13 @@ the server or its disk is at risk. This part is built:
   `verify-swi` from swi-tools on the person's computer before upload (read 2026-10-31); a command
   that checks the signature on the switch could not be established. NX-OS is unchanged: no
   signature-check command was established for it.
+- **The firmware activity list.** `GET /organisations/{o}/firmware/activity`, `steward` only
+  because it says where images went: the newest 200 firmware entries from the organisation's
+  sealed chain, opened, with who by name. Shown on an image's page and under an upgrade plan. Under
+  a plan, a download from an address that is none of the plan's devices' management addresses is
+  flagged; the server records the address it saw, and only the design knows each device's. Behind
+  NAT or a proxy the two can differ for good reasons, so it is a flag, never a block.
 
-Still to build from the same card: MD5 at upload (it needs `md-5`, a new crate, so it waits on a
-`deps/decisions/` record and the owner's approval of it),
-where each download went against the device's management address, the firmware activity list,
-and the scanner add-on (its own sign-off card, r70).
+Still to build from the same card: MD5 at upload (it needs `md-5`, a new crate, so it waits on the
+owner's approval of `deps/decisions/md-5.md`), the activity list on the Steward page as well, and
+the scanner add-on (its own sign-off card, r70).

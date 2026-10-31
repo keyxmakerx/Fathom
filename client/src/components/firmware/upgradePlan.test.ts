@@ -8,7 +8,7 @@ import { FETCH_STEP_TITLE, LINK_PLACEHOLDER, buildUpgradePlan, commandWithLink, 
 
 const HASH = '9f2c' + 'cd'.repeat(28) + 'a41e';
 
-const dev = (id: string, name: string, osVersion = '21.4R3-S5'): FwDevice => ({ deviceId: id, chassisIds: [], hostname: name, models: ['EX2300-24P'], platform: 'junos-ex', osVersion, hold: null, ownTarget: '' });
+const dev = (id: string, name: string, osVersion = '21.4R3-S5'): FwDevice => ({ deviceId: id, chassisIds: [], hostname: name, models: ['EX2300-24P'], platform: 'junos-ex', osVersion, hold: null, ownTarget: '', managementAddress: '' });
 const target: FwTarget = { id: 't', model: 'EX2300-24P', version: '23.4R2', platform: 'junos-ex', image: 'I1', imageSha256: HASH, note: '' };
 
 const image = (over: Partial<FirmwareImage> = {}): FirmwareImage => ({
@@ -184,7 +184,7 @@ describe('helpers', () => {
 });
 
 describe('an upgrade Fathom has no image for (schema 0.31)', () => {
-  const fw: FwDevice = { deviceId: 'f1', chassisIds: [], hostname: 'fw-home', models: [], platform: 'opnsense', osVersion: '25.7.11_2', hold: null, ownTarget: '26.1' };
+  const fw: FwDevice = { deviceId: 'f1', chassisIds: [], hostname: 'fw-home', models: [], platform: 'opnsense', osVersion: '25.7.11_2', hold: null, ownTarget: '26.1', managementAddress: '' };
 
   it("uses the written steps for the device's platform, and ends on the record step", () => {
     const t = buildUpgradePlan({ devices: [fw], label: 'fw-home', version: '26.1', target: null, image: null });

@@ -190,6 +190,8 @@ export interface FwDevice {
   hold: string | null;
   /** The version chosen for this device itself (`Device.firmware_target`), or ''. */
   ownTarget: string;
+  /** `Device.management_address`, or ''. Where a download for it should come from. */
+  managementAddress: string;
 }
 
 function readDevice(doc: Document, n: GraphNode): FwDevice {
@@ -212,6 +214,7 @@ function readDevice(doc: Document, n: GraphNode): FwDevice {
     osVersion: str(n, 'Device.os_version'),
     hold: typeof hold === 'string' ? hold : null,
     ownTarget: str(n, 'Device.firmware_target'),
+    managementAddress: str(n, 'Device.management_address'),
   };
 }
 

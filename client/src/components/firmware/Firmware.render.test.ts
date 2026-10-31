@@ -11,6 +11,7 @@ import { FirmwareContext, type FirmwareApi } from './context';
 import { FirmwareList } from './FirmwareList';
 import { FirmwareSection } from './FirmwareSection';
 import { ImagePage } from './ImagePage';
+import { FirmwareActivityList, activityWords } from './Activity';
 import { ModelPage, statusWords } from './ModelPage';
 import { ByHandSteps, HowItGetsThere } from './ByHand';
 import { CommandNotes, LinkWarnings } from './parts';
@@ -64,6 +65,7 @@ const api = (doc: Document, over: Partial<FirmwareApi> = {}): FirmwareApi => ({
   upload: async () => ({ refused: 'no' }),
   setImageModels: async () => ({ changed: true }),
   retireImage: async () => ({ fileDeleted: true }),
+  loadActivity: async () => [],
   issueLink: async () => ({ refused: 'no' }),
   planUpgrade: () => {},
   openModel: () => {},
@@ -409,5 +411,29 @@ describe('warnings before a link (r62)', () => {
     expect(out).toContain('Get the link anyway');
     expect(out).toContain('Go back');
     expect(out).toContain('written to the organisation&#x27;s history with your name');
+  });
+});
+
+describe('the firmware activity (r62)', () => {
+  const base = { seq: 1, atUnix: 1_793_404_800, imageId: IMG_ID, byName: 'Key Maker', source: null, warningsPassed: [], filename: null, version: null, modelsBefore: [], modelsAfter: [] };
+
+  it('says who did what, with the warnings they went past', () => {
+    expect(activityWords({ ...base, type: 'firmware_staged', version: '23.4R2' }, null).text).toBe('Uploaded (23.4R2) by Key Maker');
+    const link = activityWords({ ...base, type: 'firmware_fetch_issued', warningsPassed: ['wrong_model', 'downgrade'] }, null);
+    expect(link.text).toBe('One-time link asked for by Key Maker');
+    expect(link.flag).toBe('went past: wrong model, downgrade');
+  });
+
+  it("flags a download from an address none of the plan's devices has, and only then", () => {
+    const got = { ...base, type: 'firmware_fetch_redeemed', source: '203.0.113.9' };
+    expect(activityWords(got, new Set(['10.0.0.5'])).flag).toBe('not the management address of any device in this plan');
+    expect(activityWords(got, new Set(['203.0.113.9'])).flag).toBeNull();
+    expect(activityWords(got, null).flag).toBeNull();
+    expect(activityWords(got, null).text).toBe('Downloaded from 203.0.113.9, link from Key Maker');
+  });
+
+  it('shows nothing to someone who is not a steward', () => {
+    const out = renderToStaticMarkup(createElement(FirmwareActivityList, { api: api(world().doc, { isSteward: false }), imageIds: [IMG_ID] }));
+    expect(out).toBe('');
   });
 });

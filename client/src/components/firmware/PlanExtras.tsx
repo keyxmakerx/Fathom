@@ -13,6 +13,7 @@ import { CommandToType, TypeItYourselfNote } from '../typing/CommandToType';
 import { useTypeItYourself } from '../typing/typeItYourself';
 import { FirmwareContext } from './context';
 import { HowItGetsThere } from './ByHand';
+import { FirmwareActivityList } from './Activity';
 import { linkWarnings, warningCodes, type LinkWarning } from './linkWarnings';
 import { CommandNotes, CopyButton, LinkWarnings, copyText } from './parts';
 import { FETCH_STEP_TITLE, LINK_PLACEHOLDER, commandWithLink, maskedLink, stepTitle, upgradeGroups, type UpgradeGroup } from './upgradePlan';
@@ -193,6 +194,14 @@ export function FirmwarePlanExtras({ plan }: { plan: Plan }) {
       ) : (
         <p className="plans-note">A steward gets the one-time link on the day.</p>
       )}
+      {api.isSteward ? (
+        <FirmwareActivityList
+          api={api}
+          imageIds={fetches.flatMap((g) => scope.imageOf(g.fetchStep!.id) ?? [])}
+          expected={new Set(lines.map(({ d }) => d.managementAddress).filter((a) => a !== ''))}
+          title="Downloads and links for these images"
+        />
+      ) : null}
       {scope.pending ? <LinkWarnings warnings={scope.pending.warnings} busy={scope.busy} onAnyway={() => void scope.anyway()} onBack={scope.back} /> : null}
       {scope.error ? (
         <p className="plans-note" role="alert">

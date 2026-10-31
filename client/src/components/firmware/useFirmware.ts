@@ -10,6 +10,7 @@ import {
   firmwareRefusalWords,
   issueFetchLink,
   listFirmware,
+  listFirmwareActivity,
   modelsProblem,
   retireImage,
   setImageModels,
@@ -128,6 +129,13 @@ export function useFirmwareApi(inputs: FirmwareInputs): FirmwareApi | null {
           return { changed: done.changed };
         } catch (e) {
           return { refused: firmwareRefusalWords(e) };
+        }
+      },
+      loadActivity: async () => {
+        try {
+          return await listFirmwareActivity(organisationId);
+        } catch (e) {
+          return { refused: firmwareRefusalWords(e, 'list') };
         }
       },
       retireImage: async (imageId) => {
