@@ -185,6 +185,7 @@ span.shell-bar__tab {
   color: var(--muted);
   cursor: pointer;
   opacity: 0;
+  transition: opacity var(--m-pop) var(--m-ease);
 }
 
 .shell-bar__path-part:hover .shell-bar__path-rename,
@@ -202,14 +203,23 @@ span.shell-bar__tab {
   gap: 6px;
 }
 
+/* The name itself turns editable: same spot, same type, an ink underline for the caret's line,
+   arriving the way a pop-over does. */
 .shell-bar__path-input {
   font: inherit;
   font-weight: 700;
   color: var(--ink);
-  background: var(--paper, transparent);
-  border: 1px solid var(--accent, var(--ink));
-  border-radius: var(--radius-control);
-  padding: 1px 4px;
+  background: var(--pop-bg);
+  border: var(--rule-hair) solid var(--control-line);
+  border-bottom: 2px solid var(--ink);
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
+  padding: 1px 4px 0;
+  outline: none;
+  animation: fathom-pop-in var(--m-pop) var(--m-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-bar__path-input { animation: none; }
 }
 
 .shell-bar__path-error {
