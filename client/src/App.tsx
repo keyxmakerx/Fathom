@@ -14,7 +14,7 @@ import {
 } from './api/placement';
 import { useSetupState } from './api/setup';
 import type { OrganisationClaim } from './api/console';
-import { designTitle, fetchDesigns, sortDesignsByRecency, type DesignSummary } from './api/designs';
+import { designTitle, fetchDesigns, renameDesign, sortDesignsByRecency, type DesignSummary } from './api/designs';
 import { fetchOrganisations, type Organisation } from './api/organisations';
 import { scanFromLocation, type ScanTarget } from './components/phone/scan';
 import { OPEN_ELSEWHERE_EVENT } from './api/estate';
@@ -39,6 +39,7 @@ import { saveLook } from './components/drawing/look';
 import { loadResume } from './components/design/resume';
 import { saveSheet } from './components/inventory/sheetPref';
 import { DesignPlace } from './components/design/DesignPlace';
+import { canDrawFor } from './components/design/useDesignSession';
 import { LENSES_IN } from './components/shell/lens';
 import { PopoverRow, usePopoverClose } from './components/shell/Popover';
 import type { PathPart } from './components/shell/types';
@@ -611,6 +612,14 @@ export default function App() {
     setView((current) => (current.kind === 'place' ? { ...current, design } : current));
   }
 
+  /** The bar's rename: the open design and the list it came from both take the new name. */
+  async function renameOpenDesign(organisationId: string, designId: string, name: string) {
+    await renameDesign(organisationId, designId, name);
+    const named = name === '' ? null : name;
+    setView((current) => (current.kind === 'place' && current.design.designId === designId ? { ...current, design: { ...current.design, name: named } } : current));
+    setOrgDesigns((current) => current.map((d) => (d.designId === designId ? { ...d, name: named } : d)));
+  }
+
   // On a phone a design opens on Find, the field view's first tab (ADR-0075); the canvas is a tab away.
   const openIn = useCallback(
     (place: Place) => (organisation: Organisation, design: DesignSummary) =>
@@ -1099,7 +1108,11 @@ export default function App() {
         ? { label: scope.displayName, onSelect: () => selectScope(scope.scopeId), hint: `Open ${scope.displayName}'s latest design` }
         : { label: scope.displayName },
     ),
-    { label: designTitle(view.design), opensTree: true },
+    {
+      label: designTitle(view.design),
+      opensTree: true,
+      rename: canDrawFor(view.design.capability) ? { onRename: (name: string) => renameOpenDesign(view.organisation.organisationId, view.design.designId, name) } : undefined,
+    },
   ];
 
   // The tree: the forest built from every scope the caller may at least
@@ -1229,8 +1242,15 @@ interface ScopeTreeRowsProps {
   hasDesign: (scopeId: string) => boolean;
 }
 
+/** Whether this scope or any below it holds a design. */
+function hasDesignWithin(node: ScopeTreeNode, hasDesign: (scopeId: string) => boolean): boolean {
+  return hasDesign(node.scope.scopeId) || node.children.some((child) => hasDesignWithin(child, hasDesign));
+}
+
 function ScopeTreeRows({ node, depth, currentScopeId, onSelectScope, hasDesign }: ScopeTreeRowsProps) {
   const openable = hasDesign(node.scope.scopeId) || node.scope.scopeId === currentScopeId;
+  // A folder whose designs sit in the folders under it is not empty (the owner, 2026-10-31).
+  const empty = !openable && !hasDesignWithin(node, hasDesign);
   return (
     <Fragment>
       <PopoverRow
@@ -1241,7 +1261,7 @@ function ScopeTreeRows({ node, depth, currentScopeId, onSelectScope, hasDesign }
       >
         <span style={{ paddingLeft: `${depth * 12}px` }}>
           {node.scope.displayName}
-          {!openable && ' (no designs yet)'}
+          {empty && ' (no designs yet)'}
         </span>
       </PopoverRow>
       {node.children.map((child) => (

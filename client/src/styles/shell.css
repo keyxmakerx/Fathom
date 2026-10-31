@@ -173,6 +173,50 @@ span.shell-bar__tab {
   font-weight: 700;
 }
 
+/* The design's name: a pencil that shows on hover or focus, and the name as a field while renaming. */
+.shell-bar__path-rename {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: none;
+  border-radius: var(--radius-control);
+  padding: 2px;
+  margin-left: -4px;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.shell-bar__path-part:hover .shell-bar__path-rename,
+.shell-bar__path-rename:focus-visible {
+  opacity: 1;
+}
+
+.shell-bar__path-rename:hover {
+  color: var(--ink);
+}
+
+.shell-bar__path-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shell-bar__path-input {
+  font: inherit;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--paper, transparent);
+  border: 1px solid var(--accent, var(--ink));
+  border-radius: var(--radius-control);
+  padding: 1px 4px;
+}
+
+.shell-bar__path-error {
+  color: var(--danger, #c0392b);
+  font-size: 12px;
+}
+
 .shell-bar__lenses {
   display: flex;
   align-items: stretch;
