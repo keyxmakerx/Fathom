@@ -84,6 +84,11 @@ describe('the Firmware list (r14-b1)', () => {
     for (const t of ['All', 'Juniper', 'Cisco', 'Arista']) expect(out).toContain(`>${t}<`);
   });
 
+  it('puts a Copy button for the whole hash beside the short one, for readers too', () => {
+    const reader = html(api(world().doc, { canEdit: false, isSteward: false }));
+    expect(reader).toMatch(/9f2c…a41e <button type="button" class="fw-btn btn-quiet">Copy<\/button>/);
+  });
+
   it('shows the behind count in amber and says it in the footer, with the button that plans for them', () => {
     const out = html(api(world().doc));
     expect(out).toContain('fw-amber');

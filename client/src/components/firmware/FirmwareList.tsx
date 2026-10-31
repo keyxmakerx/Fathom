@@ -8,6 +8,7 @@ import { shortHash } from '../../api/firmware';
 import { STATE_WORD, ownTargetLines } from '../../document/firmware';
 import { listPlans } from '../../document/plans';
 import type { FirmwareApi } from './context';
+import { CopyButton } from './parts';
 import { BADGE_WORD, VENDOR_TABS, behindByModel, behindQuery, filterImageRows, imageRows, runningQuery, type FwImageRow, type Vendor } from './images';
 import './firmware.css';
 
@@ -129,7 +130,13 @@ export function FirmwareList({ api, onOpenImage, onOpenModel, onOpenDevices, onU
               )}
             </span>
             <span role="cell" className="fw-mono fw-muted" title={r.sha256 || undefined}>
-              {r.sha256 ? shortHash(r.sha256) : ''}
+              {r.sha256 ? (
+                <>
+                  {shortHash(r.sha256)} <CopyButton text={r.sha256} label="Copy" className="fw-btn btn-quiet" />
+                </>
+              ) : (
+                ''
+              )}
             </span>
             <span role="cell">
               <Count n={r.running} label={`${r.running} devices running ${r.version}`} onOpen={() => onOpenDevices(runningQuery(r))} />
