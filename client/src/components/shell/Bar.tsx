@@ -563,7 +563,7 @@ function PathCrumb({ item, tree, onPrint }: { item: PathItem; tree: ReactNode; o
             <button
               type="button"
               className={className}
-              title={rename != null ? 'Switch to another place or design · double-click to rename' : 'Switch to another place or design'}
+              title={`${item.label} · switch to another place or design${rename != null ? ' · double-click to rename' : ''}`}
               aria-haspopup={triggerProps['aria-haspopup']}
               aria-expanded={triggerProps['aria-expanded']}
               aria-controls={triggerProps['aria-controls']}
@@ -574,7 +574,7 @@ function PathCrumb({ item, tree, onPrint }: { item: PathItem; tree: ReactNode; o
               }}
               onDoubleClick={rename != null ? () => setRenaming(true) : undefined}
             >
-              {item.label}
+              <span className="shell-bar__path-text">{item.label}</span>
               <span className="shell-bar__path-caret" aria-hidden="true">
                 {' '}
                 ▾
