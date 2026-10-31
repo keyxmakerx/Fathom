@@ -4001,6 +4001,49 @@ mod tests {
         assert!(verify_password(&b, "correct-horse-battery-staple"));
     }
 
+    /// The audit fix (2026-10-30): at most `ARGON2_AT_ONCE` argon2id runs at once, the
+    /// rest waiting their turn, and every one of them still runs.
+    #[test]
+    fn no_more_than_argon2_at_once_runs_happen_together() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        let running = Arc::new(AtomicUsize::new(0));
+        let most = Arc::new(AtomicUsize::new(0));
+        let done = Arc::new(AtomicUsize::new(0));
+        let runs = ARGON2_AT_ONCE * 4;
+        let threads: Vec<_> = (0..runs)
+            .map(|_| {
+                let (running, most, done) = (running.clone(), most.clone(), done.clone());
+                std::thread::spawn(move || {
+                    with_argon2_turn(|| {
+                        let now = running.fetch_add(1, Ordering::SeqCst) + 1;
+                        most.fetch_max(now, Ordering::SeqCst);
+                        std::thread::sleep(std::time::Duration::from_millis(30));
+                        running.fetch_sub(1, Ordering::SeqCst);
+                        done.fetch_add(1, Ordering::SeqCst);
+                    })
+                })
+            })
+            .collect();
+        for t in threads {
+            t.join().expect("a run");
+        }
+        assert_eq!(done.load(Ordering::SeqCst), runs, "every run had its turn");
+        let most = most.load(Ordering::SeqCst);
+        assert!(most <= ARGON2_AT_ONCE, "{most} ran at once");
+        assert!(most > 1, "runs did go side by side ({most})");
+    }
+
+    /// A run that panics gives its turn back, or one panic would close a slot for good.
+    #[test]
+    fn a_run_that_panics_gives_its_turn_back() {
+        for _ in 0..ARGON2_AT_ONCE + 1 {
+            let caught = std::panic::catch_unwind(|| with_argon2_turn(|| panic!("a run fails")));
+            assert!(caught.is_err());
+        }
+        assert_eq!(with_argon2_turn(|| 7), 7, "a turn is still free");
+    }
+
     // ---- ADR-0057 decision 1: the setup password, held in memory ---------
     //
     // `Instant` cannot be constructed at an arbitrary point, so every test below
