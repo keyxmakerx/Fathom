@@ -143,7 +143,9 @@ export function layoutFaceplate(ports: readonly PortView[], heightU: number, nam
   const kinds = new Map<string, PortKind>();
   const drawable: PortView[] = [];
   for (const p of ports) {
-    const k = portKindFor(p.connector);
+    // A port typed by hand with no connector named is still a port: it draws as the plain glyph, so the face
+    // shows every port the panel counts. A connector named but not recognised stays undrawn (absent as absent).
+    const k = p.connector.trim() === '' ? 'generic' : portKindFor(p.connector);
     if (k == null) continue;
     kinds.set(p.id, k);
     drawable.push(p);

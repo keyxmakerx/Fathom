@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { signOut } from '../../api/auth';
+import { UNTITLED_DESIGN } from '../../api/designs';
 import { useWindowWidth } from './Dock';
 import { nextFoldLevel } from './layout';
 import type { DiagramStyle } from '../drawing/diagramStyle';
@@ -548,40 +549,68 @@ export function Bar({
 
 function PathCrumb({ item, tree, onPrint }: { item: PathItem; tree: ReactNode; onPrint?: () => void }) {
   const className = item.current ? 'shell-bar__path-label shell-bar__path-label--current' : 'shell-bar__path-label';
+  const [renaming, setRenaming] = useState(false);
+  const rename = item.rename;
+  if (item.opensTree && rename != null && renaming) {
+    return <CrumbRename label={item.label} onRename={rename.onRename} onDone={() => setRenaming(false)} />;
+  }
   if (item.opensTree) {
     return (
-      <Popover
-        align="left"
-        renderTrigger={({ toggle, triggerRef, triggerProps }) => (
+      <>
+        <Popover
+          align="left"
+          renderTrigger={({ toggle, triggerRef, triggerProps }) => (
+            <button
+              type="button"
+              className={className}
+              title={rename != null ? 'Switch to another place or design · double-click to rename' : 'Switch to another place or design'}
+              aria-haspopup={triggerProps['aria-haspopup']}
+              aria-expanded={triggerProps['aria-expanded']}
+              aria-controls={triggerProps['aria-controls']}
+              onClick={(event) => {
+                triggerRef.current = event.currentTarget;
+                item.onSelect?.();
+                toggle();
+              }}
+              onDoubleClick={rename != null ? () => setRenaming(true) : undefined}
+            >
+              {item.label}
+              <span className="shell-bar__path-caret" aria-hidden="true">
+                {' '}
+                ▾
+              </span>
+            </button>
+          )}
+        >
+          {/* The owner, 2026-10-31: the name could not be changed from the bar. */}
+          {rename != null && (
+            <PopoverRow onSelect={() => setRenaming(true)} testId="shell-rename">
+              Rename…
+            </PopoverRow>
+          )}
+          {tree}
+          {/* r31-bar A: Print is the design's own business, so it sits in the design's menu. */}
+          {onPrint && (
+            <PopoverRow onSelect={onPrint} testId="shell-print">
+              Print or export…
+            </PopoverRow>
+          )}
+        </Popover>
+        {rename != null && (
           <button
             type="button"
-            className={className}
-            title="Switch to another place or design"
-            aria-haspopup={triggerProps['aria-haspopup']}
-            aria-expanded={triggerProps['aria-expanded']}
-            aria-controls={triggerProps['aria-controls']}
-            onClick={(event) => {
-              triggerRef.current = event.currentTarget;
-              item.onSelect?.();
-              toggle();
-            }}
+            className="shell-bar__path-rename"
+            aria-label={`Rename ${item.label}`}
+            title="Rename"
+            data-testid="shell-rename-pencil"
+            onClick={() => setRenaming(true)}
           >
-            {item.label}
-            <span className="shell-bar__path-caret" aria-hidden="true">
-              {' '}
-              ▾
-            </span>
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+              <path d="M11 2.5l2.5 2.5L6 12.5H3.5V10z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+            </svg>
           </button>
         )}
-      >
-        {tree}
-        {/* r31-bar A: Print is the design's own business, so it sits in the design's menu. */}
-        {onPrint && (
-          <PopoverRow onSelect={onPrint} testId="shell-print">
-            Print or export…
-          </PopoverRow>
-        )}
-      </Popover>
+      </>
     );
   }
   if (item.onSelect) {
@@ -592,6 +621,68 @@ function PathCrumb({ item, tree, onPrint }: { item: PathItem; tree: ReactNode; o
     );
   }
   return <span className={className + ' shell-bar__path-label--plain'}>{item.label}</span>;
+}
+
+/** The design's name as a field, in the crumb's own place: Enter or leaving
+ * it saves, Escape puts the name back. Emptied, the design is untitled again. */
+function CrumbRename({ label, onRename, onDone }: { label: string; onRename: (name: string) => Promise<void>; onDone: () => void }) {
+  const [draft, setDraft] = useState(label === UNTITLED_DESIGN ? '' : label);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const settled = useRef(false);
+
+  function save() {
+    if (settled.current || busy) return;
+    const name = draft.trim();
+    if (name === (label === UNTITLED_DESIGN ? '' : label)) {
+      settled.current = true;
+      onDone();
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    onRename(name)
+      .then(() => {
+        settled.current = true;
+        onDone();
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'The name was not saved.'))
+      .finally(() => setBusy(false));
+  }
+
+  return (
+    <span className="shell-bar__path-edit">
+      <input
+        className="shell-bar__path-input"
+        aria-label="Design name"
+        data-testid="shell-rename-input"
+        value={draft}
+        maxLength={100}
+        placeholder={UNTITLED_DESIGN}
+        size={Math.max(12, Math.min(40, draft.length + 2))}
+        autoFocus
+        disabled={busy}
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            save();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            settled.current = true;
+            onDone();
+          }
+        }}
+      />
+      {error != null && (
+        <span className="shell-bar__path-error" role="alert">
+          {error}
+        </span>
+      )}
+    </span>
+  );
 }
 
 /** A bar group's width at its content's size, however the row squeezed it.

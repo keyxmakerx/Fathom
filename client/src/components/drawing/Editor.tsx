@@ -1350,19 +1350,26 @@ function PanelFaceplate({ chassis, view }: { chassis: ChassisView; view: ClosetV
 function connectorCounts(ports: readonly PortView[]): string {
   const counts = new Map<string, number>();
   for (const p of ports) counts.set(connectorName(p.connector), (counts.get(connectorName(p.connector)) ?? 0) + 1);
-  return [...counts].map(([name, n]) => `${n} × ${name}`).join(', ');
+  // Ports typed by hand with no connector named count as plain ports, not "13 ×".
+  return [...counts].map(([name, n]) => (name === '' ? `${n} port${n === 1 ? '' : 's'}` : `${n} × ${name}`)).join(', ');
 }
 
+/** Connections listed before "Show all": enough to read a small device whole, few enough that a 48-port switch's
+ * list does not push Management, Firmware and Photo out of sight. */
+export const CONNECTIONS_SHOWN = 6;
+
 /** r31 pictures: each cabled port, a short line in its cable's colour, and where the other end goes. The far device
- * selects. */
+ * selects. Past `CONNECTIONS_SHOWN` the rest wait behind "Show all". */
 function ConnectionsSection({ chassis, view, actions }: { chassis: ChassisView; view: ClosetView; actions: EditorActions }) {
+  const [showAll, setShowAll] = useState(false);
   const cabled = chassis.ports.filter((p) => p.cable != null).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
   if (cabled.length === 0) return null;
+  const listed = showAll ? cabled : cabled.slice(0, CONNECTIONS_SHOWN);
   return (
     <div className="dev-panel__sec" data-testid="device-connections">
       <div className="dev-panel__h">Connections · {cabled.length}</div>
       <ul className="dev-conn">
-        {cabled.map((port) => {
+        {listed.map((port) => {
           const end = port.cable!;
           const cable = view.cables.find((c) => c.id === end.cableId);
           const located = end.farPortId != null ? locatePort(view, end.farPortId) : undefined;
@@ -1398,6 +1405,11 @@ function ConnectionsSection({ chassis, view, actions }: { chassis: ChassisView; 
           );
         })}
       </ul>
+      {cabled.length > CONNECTIONS_SHOWN ? (
+        <button type="button" className="dev-conn__more" onClick={() => setShowAll((v) => !v)} data-testid="connections-more">
+          {showAll ? 'Show fewer' : `Show all ${cabled.length}`}
+        </button>
+      ) : null}
     </div>
   );
 }

@@ -167,3 +167,22 @@ describe('Bar — r31-bar A, on the drawing', () => {
     expect(markup).not.toContain('data-testid="shell-show"');
   });
 });
+
+describe('Bar — renaming the design from its crumb', () => {
+  const crumb = { label: 'Untitled design', opensTree: true };
+
+  it('shows the pencil, and a double-click hint, where the person may rename', () => {
+    const markup = renderToStaticMarkup(
+      createElement(Bar, { ...BASE, path: [{ ...crumb, rename: { onRename: () => Promise.resolve() } }] }),
+    );
+    expect(markup).toContain('data-testid="shell-rename-pencil"');
+    expect(markup).toContain('aria-label="Rename Untitled design"');
+    expect(markup).toContain('double-click to rename');
+  });
+
+  it('shows neither where the person may only read', () => {
+    const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, path: [crumb] }));
+    expect(markup).not.toContain('shell-rename-pencil');
+    expect(markup).not.toContain('double-click to rename');
+  });
+});

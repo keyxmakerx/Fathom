@@ -2340,6 +2340,9 @@
   background: none;
   text-decoration: underline;
 }
+.dev-conn__more {
+  margin-top: var(--s1);
+}
 .dev-conn__vl {
   font-size: var(--t-micro);
   letter-spacing: 0.04em;
