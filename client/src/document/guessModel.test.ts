@@ -61,7 +61,7 @@ describe('guessing the catalogue model of a box typed by hand', () => {
   it('picks the model the device’s note names, and says why', () => {
     const r = sweetch('Arista DCS-7050S-52 (48x SFP+ and 4x SFP+, 1U), hostname Sweetch.');
     const guess = guessModel(r.doc, r.box, CATALOGUE)!;
-    expect(guess).toMatchObject({ vendor: 'arista', model: 'DCS-7050S-52' });
+    expect(guess).toMatchObject({ vendor: 'arista', vendorName: 'Arista', model: 'DCS-7050S-52' });
     expect(guess.why[0]).toBe('Its notes name the DCS-7050S-52.');
     expect(guess.why).toContain('All 3 typed ports carry over, with their cables.');
     expect(guess.plan.dropped).toEqual([]);

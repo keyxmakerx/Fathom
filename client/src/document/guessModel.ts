@@ -10,6 +10,8 @@ import { planModelSwap, type SwapPlan } from './swapModel';
 
 export interface ModelGuess {
   vendor: string;
+  /** The vendor as people write it: `Arista`, not the catalogue's `arista`. */
+  vendorName: string;
   model: string;
   /** Why, in plain words, strongest first. */
   why: string[];
@@ -22,6 +24,9 @@ const PORT_STYLES: { vendor: string; name: string; pattern: RegExp }[] = [
   { vendor: 'juniper', name: 'Juniper', pattern: /^(ge|xe|et|mge)-\d+\/\d+\/\d+$/i },
   { vendor: 'mikrotik', name: 'MikroTik', pattern: /^(ether|sfp-sfpplus|sfp|qsfpplus)\d+(-\d+)?$/i },
 ];
+
+const nameOfVendor = (vendor: string): string =>
+  PORT_STYLES.find((s) => s.vendor === vendor)?.name ?? vendor.replace(/^./, (c) => c.toUpperCase());
 
 const compact = (s: string): string => s.toLowerCase().replace(/[^a-z0-9+]/g, '');
 
@@ -82,11 +87,11 @@ export function guessModel(doc: Document, chassisId: string, catalogue: readonly
     const ports = plan.kept.length + plan.dropped.length;
     const why: string[] = [];
     if (named) why.push(`Its notes name the ${m.model}.`);
-    if (!named && vendorWord) why.push(`Its notes or cable labels say ${m.vendor.replace(/^./, (c) => c.toUpperCase())}.`);
+    if (!named && vendorWord) why.push(`Its notes or cable labels say ${nameOfVendor(m.vendor)}.`);
     if (style) why.push(`Port names like ${labels.find((l) => style.pattern.test(l.trim()))} are how ${style.name} names its ports.`);
     if (ports > 0) why.push(plan.dropped.length === 0 ? `All ${ports} typed ports carry over, with their cables.` : `${plan.kept.length} of ${ports} typed ports carry over.`);
     const score = (named ? 100 : 0) + (vendorWord ? 20 : 0) + (style ? 20 : 0) + (ports > 0 ? (10 * plan.kept.length) / ports : 0) - 30 * cabledLost;
-    return [{ guess: { vendor: m.vendor, model: m.model, why, plan }, named, hinted: vendorWord || style !== undefined, whole: plan.dropped.length === 0, score }];
+    return [{ guess: { vendor: m.vendor, vendorName: nameOfVendor(m.vendor), model: m.model, why, plan }, named, hinted: vendorWord || style !== undefined, whole: plan.dropped.length === 0, score }];
   });
   scored.sort((a, z) => z.score - a.score);
   const [best, next] = scored;

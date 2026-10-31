@@ -1456,7 +1456,7 @@ function SwapModelControl({ chassisId, current, catalogue, actions }: { chassisI
         {guess ? (
           <div className="dev-guess" data-testid="model-guess">
             <div className="dev-guess__h">
-              Looks like the {guess.vendor} <b>{guess.model}</b>
+              Looks like the {guess.vendorName} <b>{guess.model}</b>
             </div>
             <ul className="dev-guess__why">
               {guess.why.map((line) => (

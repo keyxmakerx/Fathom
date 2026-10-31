@@ -128,7 +128,7 @@ try {
   const guess = panel.getByTestId('model-guess');
   await guess.waitFor({ timeout: 10_000 }).catch(() => {});
   const guessText = (await guess.count()) > 0 ? await guess.innerText() : '';
-  check('the panel says it looks like the DCS-7050S-52', guessText.includes('DCS-7050S-52'), guessText);
+  check('the panel says it looks like the Arista DCS-7050S-52', guessText.includes('Arista DCS-7050S-52'), guessText);
   check('and says why: its notes name it', guessText.includes('Its notes name the DCS-7050S-52.'), guessText);
   check('and that all 13 ports carry over', guessText.includes('All 13 typed ports carry over'), guessText);
   await panel.screenshot({ path: SHOTS + 'G-02-guess.png' });
