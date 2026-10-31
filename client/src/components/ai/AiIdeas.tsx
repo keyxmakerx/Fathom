@@ -86,8 +86,14 @@ export function previewSummary(p: IdeaPreview): string {
   return parts.length > 0 ? `It ${parts.join(', ')}.` : '';
 }
 
+/** An idea whose change adds a maintenance plan of its own: making a plan of it would be a plan of a plan. */
+export function addsPlan(idea: AiIdea): boolean {
+  return idea.preview?.adds.some((a) => a.kind === 'MaintenancePlan') ?? false;
+}
+
 export function AiIdeasPanel({ organisationId, designId, state, nameOf, onShow, canDraw, onPlan, onPreview }: AiIdeasPanelProps) {
-  const shown = useAiPreview().ideaId;
+  const preview = useAiPreview();
+  const shown = preview.ideaId;
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showDecided, setShowDecided] = useState(false);
@@ -151,6 +157,26 @@ export function AiIdeasPanel({ organisationId, designId, state, nameOf, onShow, 
               {shown === idea.id ? 'Hide from canvas' : 'Show on canvas'}
             </button>
           )}
+          {shown === idea.id &&
+            preview.plans.map((plan) => (
+              <div key={plan.id} className="ai-idea__plan" data-testid="ai-idea-plan">
+                <div className="ai-idea__plan-title">Plan: {plan.title || 'untitled'}</div>
+                <ol className="ai-idea__steps">
+                  {plan.steps.map((s, n) => {
+                    const on = s.targets.map((t) => nameOf(t)).filter((x): x is string => x != null);
+                    return (
+                      <li key={s.id}>
+                        <span className="ai-idea__action">Step {n + 1}</span>
+                        <span>
+                          {s.change.split('\n', 1)[0]}
+                          {on.length > 0 && <span className="ai-muted"> · on {on.join(', ')}</span>}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
+            ))}
           <ul className="ai-idea__steps">
             {idea.steps.map((step, n) => {
               const target = step.target !== null ? nameOf(step.target) : null;
@@ -177,7 +203,7 @@ export function AiIdeasPanel({ organisationId, designId, state, nameOf, onShow, 
               <button type="button" className="ai-btn btn-main" disabled={busy !== null} onClick={() => void decide(idea, 'accept')}>
                 {idea.changes !== null ? 'Accept and apply' : 'Mark done'}
               </button>
-              {onPlan && (
+              {onPlan && !addsPlan(idea) && (
                 <button type="button" className="ai-btn" disabled={busy !== null} onClick={() => onPlan(idea)}>
                   Make it a plan
                 </button>
