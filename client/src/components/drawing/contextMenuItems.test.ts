@@ -115,14 +115,18 @@ describe('menuItemsFor', () => {
     expect(a.onSelect).toHaveBeenCalledWith({ kind: 'chassis', id: 'c1' });
   });
 
-  it('offers a device on a shelf or a wall Open, a trace and details, and selects it the way a click does', () => {
-    const a = actions();
-    const items = menuItemsFor({ kind: 'chassis', id: 'cam', on: 'fixture' }, a);
-    expect(items.map((i) => i.label)).toEqual(['Open', 'Trace from here', 'Details']);
-    items[1].onSelect();
-    expect(a.onTraceFrom).toHaveBeenCalledWith('cam');
-    items[2].onSelect();
-    expect(a.onSelect).toHaveBeenCalledWith({ kind: 'fixture', id: 'cam' });
+  it("offers a device on a shelf or a wall a racked device's whole menu, and selects it the way a click does", () => {
+    const a = { ...actions(), onCopyLink: vi.fn(), onPrintLabel: vi.fn(), onFitCard: vi.fn() };
+    const racked = menuItemsFor({ kind: 'chassis', id: 'cam' }, a).map((i) => i.label);
+    for (const on of ['fixture', 'occupant'] as const) {
+      const items = menuItemsFor({ kind: 'chassis', id: 'cam', on }, a);
+      expect(items.map((i) => i.label)).toEqual(racked);
+      expect(items.map((i) => i.label)).toEqual(expect.arrayContaining(['Open inside', 'Fit a card', 'Copy link', 'Print its label', 'Remove device']));
+      items.find((i) => i.label === 'Details')!.onSelect();
+      expect(a.onSelect).toHaveBeenLastCalledWith({ kind: on, id: 'cam' });
+    }
+    menuItemsFor({ kind: 'chassis', id: 'cam', on: 'occupant' }, a).find((i) => i.label === 'Remove device')!.onSelect();
+    expect(a.onRemoveDevice).toHaveBeenCalledWith('cam');
   });
 
   it("offers It's down on a device and a free box when it can be used, and not otherwise", () => {

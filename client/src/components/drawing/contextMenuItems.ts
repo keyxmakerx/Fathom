@@ -4,8 +4,8 @@ import type { Selection } from './contract';
 
 /** What a right-click landed on (ADR-0060 decision 4). */
 export type MenuTarget =
-  /** `on` is set for a device on a shelf or a surface rather than in a rack unit: its menu offers what
-   * works there, and Details selects it the way a click does. */
+  /** `on` is set for a device on a shelf or a surface rather than in a rack unit: its menu is a racked
+   * device's, and Details selects it the way a click does. */
   | { kind: 'chassis'; id: string; on?: 'occupant' | 'fixture' }
   /** `freeU` is the free unit the click landed on, with the click's pane and flow position. */
   | { kind: 'rack'; id: string; freeU?: { u: number; screen: Point; flow: Point } }
@@ -252,7 +252,7 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
 }
 
 export interface DeviceMenuWhere {
-  /** A device on a shelf or a surface rather than in a rack unit: what works there. */
+  /** A device on a shelf or a surface rather than in a rack unit: Details selects it the way a click does. */
   on?: 'occupant' | 'fixture';
   /** A box on the free canvas: it duplicates and removes as a box, and has no inside or slots. */
   free?: boolean;
@@ -271,7 +271,9 @@ export function deviceMenuItems(id: string, actions: MenuActions, where: DeviceM
   const look = DEVICE_GROUPS.look;
   const work = DEVICE_GROUPS.work;
   const copy = DEVICE_GROUPS.copy;
-  const racked = where.on == null && where.free !== true;
+  // A device on a shelf or a wall is the same box as a racked one: everything works on it. A free box has no
+  // inside or slots yet.
+  const racked = where.free !== true;
   const items: MenuItem[] = [];
   if (actions.onOpen) items.push({ group: look, label: w.open, onSelect: () => actions.onOpen?.(id) });
   if (actions.onOpenInside && racked) items.push({ group: look, label: w.openInside, onSelect: () => actions.onOpenInside?.(id) });
@@ -283,7 +285,6 @@ export function deviceMenuItems(id: string, actions: MenuActions, where: DeviceM
   }
   if (actions.onItsDown) items.push({ group: work, label: w.itsDown, onSelect: () => actions.onItsDown?.(id) });
   if (actions.onPlanChange) items.push({ group: work, label: w.planChange, onSelect: () => actions.onPlanChange?.(id) });
-  if (where.on != null) return items;
   if (actions.onPlanFirmware && racked) {
     const needs = actions.firmwareNeedsVersion?.(id) === true;
     items.push({ group: work, label: w.planFirmware, onSelect: () => actions.onPlanFirmware?.(id), disabled: needs ? FIRMWARE_NEEDS_VERSION : undefined });

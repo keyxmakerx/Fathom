@@ -147,6 +147,14 @@ try {
     await page.waitForTimeout(300);
     check('a click selects a thing on the shelf', (await page.locator('.shelf-room__thing--selected').innerText()).includes('morpheus-nas'));
     await shot(page, 'r63-2-selected');
+    // A device on a shelf gets a racked device's whole panel: the ⋯ menu, its name to rename, the foot.
+    check('a shelf device has the ⋯ menu', (await page.locator('[data-testid=device-more]').count()) === 1);
+    check('a shelf device has Open inside on the foot', (await page.locator('[data-testid=device-open-inside]').count()) === 1);
+    check('a shelf device has the Notes tab', /notes/i.test(await page.locator('.drawing-editor__panel--device').innerText()));
+    await page.locator('[data-testid=device-more] summary').click();
+    const panelMenu = await page.locator('.dev-more__menu').innerText();
+    check('its ⋯ menu ends with Remove device', panelMenu.includes('Remove device'), panelMenu);
+    await page.locator('[data-testid=device-more] summary').click();
 
     // A double-click on a device opens it, and leaving it comes back to the shelf.
     await page.locator('.shelf-room__thing', { hasText: 'padparadscha' }).dblclick();
@@ -186,6 +194,13 @@ try {
     await page.waitForSelector('[data-testid=shelf-room]', { timeout: 5_000 });
     check('the panel\'s Open shelf steps in', true);
     await leave(page);
+
+    // 5. Right-click a device drawn on the shelf: the same menu as a racked device's.
+    await page.locator('.react-flow__node-shelf [data-device-chassis]').first().click({ button: 'right' });
+    const devItems = await page.locator('.drawing-context-menu__item').allInnerTexts();
+    for (const want of ['Open inside', 'Fit a card', 'Remove device']) check(`right-click on a shelf device offers ${want}`, devItems.some((i) => i.startsWith(want)), devItems.join(' | '));
+    await shot(page, 'r63-6-device-menu');
+    await page.keyboard.press('Escape');
 
     check('no uncaught page errors (shelf room)', pageErrors.length === 0, pageErrors.join(' | '));
     await context.close();

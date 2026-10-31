@@ -236,3 +236,23 @@ export function findFixture(
   }
   return undefined;
 }
+
+/** A device wherever it sits: in a rack, on a shelf, on a wall or board, or unplaced. `rack` is set only in a
+ * rack unit; `where` names a shelf's slot or a wall instead. */
+export function findDevice(
+  view: ClosetView,
+  chassisId: string,
+): { chassis: ChassisView; rack?: RackView; where?: string } | undefined {
+  const racked = findChassis(view, chassisId);
+  if (racked != null) return racked;
+  const occupant = findOccupant(view, chassisId);
+  if (occupant?.occupant.chassis != null) {
+    return { chassis: occupant.occupant.chassis, where: `${occupant.shelf.label || 'Shelf'}, slot ${occupant.occupant.slot}` };
+  }
+  const fixture = findFixture(view, chassisId);
+  if (fixture?.fixture.chassis != null) {
+    return { chassis: fixture.fixture.chassis, where: fixture.parent?.label || fixture.surface.label || 'On a wall' };
+  }
+  const unplaced = findUnplacedChassis(view, chassisId);
+  return unplaced != null ? { chassis: unplaced } : undefined;
+}

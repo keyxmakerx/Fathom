@@ -90,7 +90,7 @@ import { ChecksSurface } from '../checks/ChecksPanel';
 import { totalCount } from '../checks/checksModel';
 import { MissingLinksChip } from '../drawing/MissingLinksChip';
 import { missingLinksOf } from '../drawing/missingLinks';
-import { findShelf } from '../drawing/lookup';
+import { findDevice, findShelf } from '../drawing/lookup';
 import { mediaCandidates } from '../checks/checksModel';
 import { CheckMarksContext, ChecksContext } from '../checks/checksStore';
 import { useChecksController } from '../checks/useChecksController';
@@ -1987,6 +1987,11 @@ export function RacksPlace(props: RacksPlaceProps) {
   // here too: "an edit here is the same edit there."
   // ADR-0047: the editor is absent, not empty, when nothing is selected —
   // an empty fragment here would still mount the surface and take its width.
+  // A device's panel has the same foot and ⋯ menu wherever the device sits: in a rack, on a shelf or on a wall.
+  const panelDeviceId =
+    selection != null && (selection.kind === 'chassis' || selection.kind === 'occupant' || selection.kind === 'fixture') && findDevice(displayView, selection.id) != null
+      ? selection.id
+      : null;
   const selectedPanel =
     doc != null
       ? EditorFor(
@@ -2025,21 +2030,21 @@ export function RacksPlace(props: RacksPlaceProps) {
           paletteFromCatalogue(catalogue),
           // r31 pictures: the two ways on at the panel's foot; everything, those two included, in its ⋯ menu
           // (sign-off r58: the same list as right-click and Ctrl K).
-          selection?.kind === 'chassis' ? (
+          panelDeviceId != null ? (
             <>
-              <button type="button" className="btn-main" onClick={() => handleOpenDevice(selection.id, true, null)} data-testid="device-open-inside">
+              <button type="button" className="btn-main" onClick={() => handleOpenDevice(panelDeviceId, true, null)} data-testid="device-open-inside">
                 {DEVICE_WORDS.openInside}
               </button>
-              <button type="button" onClick={() => trace.openFrom(selection.id)} data-testid="device-trace-from">
+              <button type="button" onClick={() => trace.openFrom(panelDeviceId)} data-testid="device-trace-from">
                 {DEVICE_WORDS.trace}
               </button>
             </>
           ) : undefined,
-          selection?.kind === 'chassis' ? deviceMenuFor(selection.id) : undefined,
-          selection?.kind === 'chassis' ? (
+          panelDeviceId != null ? deviceMenuFor(panelDeviceId) : undefined,
+          panelDeviceId != null ? (
             <>
               <AlsoIn
-                lists={alsoInOf(deviceIdsOf(selection.id), plans.plans, checks.result?.findings ?? [], aiTargets ?? NO_TARGETS)}
+                lists={alsoInOf(deviceIdsOf(panelDeviceId), plans.plans, checks.result?.findings ?? [], aiTargets ?? NO_TARGETS)}
                 onOpenPlan={(p) => plans.openPlan(p.id)}
                 onOpenFinding={(f) => {
                   checks.setOpen(true);
@@ -2047,7 +2052,7 @@ export function RacksPlace(props: RacksPlaceProps) {
                 }}
                 onOpenIdeas={onOpenAiIdeas}
               />
-              {doc != null ? <DeviceIssues controller={trouble} chassisId={selection.id} deviceId={edgesIn(doc, selection.id, 'HasChassis')[0]?.from ?? ''} withButton={false} /> : null}
+              {doc != null ? <DeviceIssues controller={trouble} chassisId={panelDeviceId} deviceId={edgesIn(doc, panelDeviceId, 'HasChassis')[0]?.from ?? ''} withButton={false} /> : null}
             </>
           ) : undefined,
         )
