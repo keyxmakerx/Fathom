@@ -164,6 +164,27 @@ span.shell-bar__tab {
   color: var(--muted);
 }
 
+.shell-bar__rename {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shell-bar__rename-input {
+  font: inherit;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);
+  border-radius: var(--radius-control);
+  padding: 1px 4px;
+}
+
+.shell-bar__rename-error {
+  color: var(--danger);
+  font-size: var(--t-small);
+}
+
 .shell-bar__path-caret {
   color: var(--muted);
 }

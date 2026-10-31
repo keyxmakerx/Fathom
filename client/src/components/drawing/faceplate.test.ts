@@ -73,6 +73,13 @@ describe('layoutFaceplate', () => {
   it('draws nothing for an unrecognised connector', () => {
     expect(layoutFaceplate([port('1', { connector: 'weird' })], 1, 'x').boxes).toEqual([]);
   });
+
+  it('draws a hand-typed port with no connector named as the plain glyph', () => {
+    const typed = Array.from({ length: 13 }, (_, i) => port(`Et${i + 1}`, { connector: '' }));
+    const boxes = layoutFaceplate(typed, 1, 'sweetch').boxes;
+    expect(boxes).toHaveLength(13);
+    expect(new Set(boxes.map((b) => b.kind))).toEqual(new Set(['generic']));
+  });
 });
 
 describe('words', () => {

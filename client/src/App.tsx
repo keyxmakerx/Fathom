@@ -14,7 +14,8 @@ import {
 } from './api/placement';
 import { useSetupState } from './api/setup';
 import type { OrganisationClaim } from './api/console';
-import { designTitle, fetchDesigns, sortDesignsByRecency, type DesignSummary } from './api/designs';
+import { canDrawFor } from './components/design/useDesignSession';
+import { designTitle, fetchDesigns, renameDesign, sortDesignsByRecency, type DesignSummary } from './api/designs';
 import { fetchOrganisations, type Organisation } from './api/organisations';
 import { scanFromLocation, type ScanTarget } from './components/phone/scan';
 import { OPEN_ELSEWHERE_EVENT } from './api/estate';
@@ -1099,7 +1100,19 @@ export default function App() {
         ? { label: scope.displayName, onSelect: () => selectScope(scope.scopeId), hint: `Open ${scope.displayName}'s latest design` }
         : { label: scope.displayName },
     ),
-    { label: designTitle(view.design), opensTree: true },
+    {
+      label: designTitle(view.design),
+      opensTree: true,
+      storedName: view.design.name,
+      onRename: canDrawFor(view.design.capability)
+        ? async (name: string) => {
+            const { designId } = view.design;
+            await renameDesign(view.organisation.organisationId, designId, name);
+            const renamed = name === '' ? null : name;
+            setView((v) => (v.kind === 'place' && v.design.designId === designId ? { ...v, design: { ...v.design, name: renamed } } : v));
+          }
+        : undefined,
+    },
   ];
 
   // The tree: the forest built from every scope the caller may at least

@@ -2010,9 +2010,16 @@ export function RacksPlace(props: RacksPlaceProps) {
           // (sign-off r58: the same list as right-click and Ctrl K).
           selection?.kind === 'chassis' ? (
             <>
-              <button type="button" className="btn-main" onClick={() => handleOpenDevice(selection.id, true, null)} data-testid="device-open-inside">
-                {DEVICE_WORDS.openInside}
-              </button>
+              {/* Already in this device, Open inside would reopen it and do nothing; the way on is back out. */}
+              {jot?.id === selection.id ? (
+                <button type="button" className="btn-main" onClick={leaveJot} title="Back to the canvas (Esc)" data-testid="device-back-out">
+                  Back to {overviewName || 'the canvas'}
+                </button>
+              ) : (
+                <button type="button" className="btn-main" onClick={() => handleOpenDevice(selection.id, true, null)} data-testid="device-open-inside">
+                  {DEVICE_WORDS.openInside}
+                </button>
+              )}
               <button type="button" onClick={() => trace.openFrom(selection.id)} data-testid="device-trace-from">
                 {DEVICE_WORDS.trace}
               </button>
