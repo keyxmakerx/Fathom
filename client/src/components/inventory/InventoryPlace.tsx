@@ -90,6 +90,11 @@ import { isLabelListKind, labelItems, storeLabel, type LabelItem } from '../../p
 import { isStoreId, storeById } from '../../document/stock';
 import { loadJsonPref, saveJsonPref } from '../../prefs';
 import { TermixSend } from '../termix/TermixSend';
+import { useTermix } from '../termix/useTermix';
+import { askPanel } from '../drawing/Editor';
+import { DEVICE_WORDS, deviceMenuItems, type MenuActions, type MenuItem } from '../drawing/contextMenuItems';
+import { deviceMenuActions } from '../drawing/deviceMenuActions';
+import { duplicateDeviceChange, removeDeviceChange } from '../drawing/editorChanges';
 
 const EMPTY_VIEW: ClosetView = { premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [], free: [], lines: [], labels: [] };
 const EMPTY_NETWORKS_DERIVED: NetworksDerived = { vlanRows: [], subnetRows: [], dockerNetworkRows: [], dockerUnattachedContainers: [] };
@@ -101,8 +106,9 @@ const SHEET_KINDS: ReadonlySet<Kind> = new Set<Kind>(['devices', 'ports', 'parts
 
 export interface InventoryPlaceProps extends Omit<ShellProps, 'editor' | 'rail' | 'children'> {
   session: DesignSession;
-  /** "Show on canvas": switches the place to the canvas with `selection` chosen. */
-  onShowOnRack: (selection: Selection) => void;
+  /** "Show on canvas": switches the place to the canvas with `selection` chosen; `then` names a device menu
+   * item (`DEVICE_WORDS`) the canvas runs once it is there (sign-off r58: Inventory's menu hands off). */
+  onShowOnRack: (selection: Selection, then?: string) => void;
   /** What is selected, by element id, for presence (ADR-0063 §12). */
   onSelectedChange?: (id: string | null) => void;
   /** An Inventory issue page's "Show on canvas": the Canvas place with that issue open. */
@@ -703,6 +709,53 @@ export function InventoryPlace(props: InventoryPlaceProps) {
       : undefined;
 
   const palette = useMemo(() => paletteFromCatalogue(catalogue), [catalogue]);
+
+  // Sign-off r58: a device's menu here is the canvas's own list. What only the canvas can do (open it,
+  // trace, plan) goes there and runs; the rest happens here.
+  const termix = useTermix();
+  const onCanvas = (then: string) => (id: string) => onShowOnRack({ kind: 'chassis', id }, then);
+  const openDevicePageOf = (sel: Selection) => {
+    const row = (rowsByKind.devices ?? []).find((r) => r.selection?.kind === sel.kind && r.selection.id === sel.id);
+    if (row == null) return false;
+    if (kind !== 'devices') push({ kind: 'devices', q: '', sorts: [], view: '', open: row.key, tab: '' }, { lastOpened: row.key });
+    else openPage(row);
+    return true;
+  };
+  const deviceActions: MenuActions = {
+    onSelect: (sel) => void (sel != null && openDevicePageOf(sel)),
+    onOpen: onCanvas(DEVICE_WORDS.open),
+    onOpenInside: onCanvas(DEVICE_WORDS.openInside),
+    onTraceFrom: onCanvas(DEVICE_WORDS.trace),
+    onItsDown: canDraw ? onCanvas(DEVICE_WORDS.itsDown) : undefined,
+    onPlanChange: canDraw ? onCanvas(DEVICE_WORDS.planChange) : undefined,
+    onPlanFirmware: canDraw && firmware ? onCanvas(DEVICE_WORDS.planFirmware) : undefined,
+    onFitCard: canDraw ? onCanvas(DEVICE_WORDS.fitCard) : undefined,
+    onSuggestCables: canDraw ? (id) => id != null && onCanvas(DEVICE_WORDS.suggestCables)(id) : undefined,
+    onDuplicateDevice: canDraw
+      ? (id) => {
+          const result = handleEdit(duplicateDeviceChange(id));
+          if (result != null && 'refused' in result) setNotice(result.refused);
+        }
+      : undefined,
+    onRemoveDevice: canDraw ? (id) => void handleEdit(removeDeviceChange(id)) : undefined,
+    ...deviceMenuActions({
+      doc: doc ?? null,
+      view,
+      designId: session.designId ?? null,
+      canDraw,
+      termixUrl: termix.url,
+      showInPanel: (id, event) => {
+        if (openDevicePageOf({ kind: 'chassis', id })) askPanel(event, id);
+      },
+      done: setNotice,
+      failed: setNotice,
+      printLabels: (items) => setLabels({ items }),
+    }),
+  };
+  const deviceMenuOf = (sel: Selection | null): readonly MenuItem[] | undefined => {
+    if (sel == null || (sel.kind !== 'chassis' && sel.kind !== 'occupant' && sel.kind !== 'fixture')) return undefined;
+    return deviceMenuItems(sel.id, deviceActions, { on: sel.kind === 'chassis' ? undefined : sel.kind, free: view.free.some((f) => f.id === sel.id) });
+  };
   const showPage = doc != null && kind !== 'networks' && pageSelection != null && EditorFor(pageSelection, view, {}, palette) != null;
 
   const page =
@@ -720,6 +773,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
         idx={placeIdx}
         onSetWhere={(w) => go({ where: w })}
         onShowOnCanvas={() => onShowOnRack(pageSelection)}
+        deviceMenu={(sel) => (sel.kind === 'chassis' ? deviceMenuItems(sel.id, deviceActions, { free: view.free.some((f) => f.id === sel.id), inPanel: true }) : undefined)}
         tab={ls.tab}
         onTab={(t) => go({ tab: t })}
         corrections={correctionsApi}
@@ -948,6 +1002,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                   onCommit={onCommit}
                   onFilterTag={(tag) => go({ q: joinUnits([...units(q), `tags:${quoteValue(tag)}`]) })}
                   onOpen={openPage}
+                  rowMenu={(row) => deviceMenuOf(row.selection) ?? []}
                   onToggleChecked={toggleChecked}
                   onToggleAll={(all) => setChecked(all ? new Set(rows.map((r) => r.key)) : new Set())}
                   onSort={(key, additive) => go({ sorts: nextSorts(sorts, key, additive) })}

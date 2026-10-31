@@ -29,6 +29,8 @@ import { DevicePhoto } from '../docs/DevicePhoto';
 import { FirmwareChip, FirmwareSection } from '../firmware/FirmwareSection';
 import { AboutSection } from '../learn/AboutSection';
 import { TermixActions } from '../termix/TermixActions';
+import { MenuItems } from './ContextMenu';
+import { DEVICE_WORDS, type MenuItem } from './contextMenuItems';
 import {
   ABSENT,
   UNNAMED_HOSTNAME,
@@ -46,11 +48,13 @@ import {
 import { findChassis, findFixture, findOccupant, findRack, findShelf, findUnplacedChassis, locatePort } from './lookup';
 import { connectorName, describePorts, faceplateLayoutFor } from './faceplate';
 import { EmptyState } from '../ui/EmptyState';
+import { DeviceSections } from './DeviceSections';
 import { Fold } from './Fold';
 import { CardsSection, OpticSection } from './Parts';
 import { OpenFarSite, SiteLinkPicker, siteLinkOf } from './SiteLink';
 import { LoginsTab, LoginsTabLabel } from '../vault/Screens';
 import { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, rackHeightBlocker, swapModelChange, swapSummary } from './editorChanges';
+import { loadJsonPref, saveJsonPref } from '../../prefs';
 export { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, rackHeightBlocker, swapModelChange, swapSummary };
 
 // `DEVICE_ROLES` is `Device.role`'s own enum vocabulary (`schema/schema.yaml`,
@@ -999,8 +1003,8 @@ function AddSketchPortForm({ chassisId, actions }: { chassisId: string; actions:
       setIsOpen(true);
       window.requestAnimationFrame(() => labelRef.current?.focus());
     }
-    window.addEventListener('fathom:add-port', onRequest);
-    return () => window.removeEventListener('fathom:add-port', onRequest);
+    window.addEventListener(ADD_PORT_EVENT, onRequest);
+    return () => window.removeEventListener(ADD_PORT_EVENT, onRequest);
   }, [chassisId]);
 
   const onEdit = actions.onEdit;
@@ -1192,14 +1196,51 @@ export const PanelTabsMode = createContext<'tabs' | 'flat'>('tabs');
 /** Brings a details-panel tab forward: `detail.tab` is its id ("ports", "details"). */
 export const SHOW_PANEL_TAB = 'fathom:panel-tab';
 
-/** The tab last opened, so the next device opens on the same one. */
-let lastTab: string | null = null;
+/** Sign-off r58: a device menu's "Swap model…" opens the panel's own form; `detail.chassisId` names the device. */
+export const SWAP_MODEL_EVENT = 'fathom:swap-model';
+/** A device menu's "Add a port" opens the Ports tab's form. */
+export const ADD_PORT_EVENT = 'fathom:add-port';
+/** A device menu's "Open in Termix" unfolds Management and puts the person on its Termix button. The
+ * button itself opens Termix: a window opened later than the click would be blocked as a pop-up. */
+export const SHOW_TERMIX_EVENT = 'fathom:show-termix';
+
+/** Asks the panel for `chassisId` to do `event` once it is open (a click selects it first). */
+export function askPanel(event: string, chassisId: string): void {
+  window.setTimeout(() => window.dispatchEvent(new CustomEvent(event, { detail: { chassisId } })), 80);
+}
+
+/** Inside the Management fold: on "Open in Termix" from a menu, unfolds it and focuses the Termix button. */
+function TermixReveal({ chassisId }: { chassisId: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const onShow = (event: Event) => {
+      if ((event as CustomEvent<{ chassisId: string }>).detail.chassisId !== chassisId) return;
+      window.dispatchEvent(new CustomEvent(SHOW_PANEL_TAB, { detail: { tab: 'details' } }));
+      window.requestAnimationFrame(() => {
+        const fold = ref.current?.closest('details');
+        if (fold) fold.open = true;
+        const button = fold?.querySelector<HTMLButtonElement>('[data-testid="termix-actions"] button');
+        button?.scrollIntoView({ block: 'nearest' });
+        button?.focus();
+      });
+    };
+    window.addEventListener(SHOW_TERMIX_EVENT, onShow);
+    return () => window.removeEventListener(SHOW_TERMIX_EVENT, onShow);
+  }, [chassisId]);
+  return <span ref={ref} hidden />;
+}
+
+/** The tab last opened, so the next device opens on the same one; kept in this browser, so the panel
+ * reopens on it too (sign-off r60). */
+const PANEL_TAB_KEY = 'fathom.panel-tab';
+let lastTab: string | null = loadJsonPref(PANEL_TAB_KEY, (raw) => (typeof raw === 'string' ? raw : null), null);
 
 function PanelTabs({ tabs, initial }: { tabs: readonly PanelTab[]; initial?: string }) {
   const mode = useContext(PanelTabsMode);
   const [picked, setPickedState] = useState(initial ?? lastTab ?? tabs[0].id);
   const setPicked = (id: string) => {
     lastTab = id;
+    saveJsonPref(PANEL_TAB_KEY, id);
     setPickedState(id);
   };
   const base = useId();
@@ -1377,7 +1418,7 @@ function DuplicateDeviceControl({ chassisId, actions }: { chassisId: string; act
   return (
     <div className="drawing-editor__field">
       <button type="button" className="btn-main" onClick={commit}>
-        Duplicate
+        {DEVICE_WORDS.duplicate}
       </button>
       {notice != null ? <div style={CAUTION_STYLE}>{notice}</div> : null}
     </div>
@@ -1389,6 +1430,20 @@ function SwapModelControl({ chassisId, current, catalogue, actions }: { chassisI
   const [open, setIsOpen] = useState(false);
   const [modelKey, setModelKey] = useState('');
   const [refusal, setRefusal] = useState<string | null>(null);
+  const formRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onAsk = (event: Event) => {
+      if ((event as CustomEvent<{ chassisId: string }>).detail.chassisId !== chassisId) return;
+      window.dispatchEvent(new CustomEvent(SHOW_PANEL_TAB, { detail: { tab: 'details' } }));
+      setIsOpen(true);
+      window.requestAnimationFrame(() => {
+        formRef.current?.scrollIntoView({ block: 'nearest' });
+        formRef.current?.querySelector('select')?.focus();
+      });
+    };
+    window.addEventListener(SWAP_MODEL_EVENT, onAsk);
+    return () => window.removeEventListener(SWAP_MODEL_EVENT, onAsk);
+  }, [chassisId]);
   const onEdit = actions.onEdit;
   if (!onEdit) return null;
   const choices = catalogue.filter((item) => item.model !== current);
@@ -1397,7 +1452,7 @@ function SwapModelControl({ chassisId, current, catalogue, actions }: { chassisI
   if (!open) {
     return (
       <button type="button" className="btn-quiet" onClick={() => setIsOpen(true)}>
-        {current ? 'Swap model…' : 'Give it a catalogue model…'}
+        {current ? DEVICE_WORDS.swapModel : DEVICE_WORDS.giveModel}
       </button>
     );
   }
@@ -1423,7 +1478,7 @@ function SwapModelControl({ chassisId, current, catalogue, actions }: { chassisI
   }
 
   return (
-    <div className="drawing-editor__field">
+    <div className="drawing-editor__field" ref={formRef}>
       <select aria-label="New model" value={modelKey} onChange={(e) => { setModelKey(e.target.value); setRefusal(null); }}>
         <option value="">pick the new model</option>
         {choices.map((item) => (
@@ -1615,7 +1670,11 @@ export function NotesSection({ ownerId, actions }: { ownerId: string; actions: E
   return (
     <div className="drawing-editor__field drawing-editor__field--notes">
       <div className="drawing-editor__field-label">Notes</div>
-      {notes.length === 0 ? <div className="drawing-editor__field-value">{ABSENT}</div> : null}
+      {notes.length === 0 ? (
+        <div className="drawing-editor__field-value drawing-editor__empty-next">
+          {actions.onAddNote ? 'No notes yet. Type one, or paste one in.' : 'No notes yet.'}
+        </div>
+      ) : null}
       {notes.map((note) => (
         <NoteRow
           key={note.id}
@@ -1866,6 +1925,12 @@ function elementsOf(selection: Selection, view: ClosetView): string {
   return ids.join(' ');
 }
 
+/** A pick from the ⋯ list shuts it; a greyed item leaves it open, its reason showing. */
+function closeMoreOnPick(event: { target: EventTarget; currentTarget: HTMLElement }) {
+  const item = (event.target as Element).closest?.('button');
+  if (item != null && item.getAttribute('aria-disabled') !== 'true') event.currentTarget.closest('details')?.removeAttribute('open');
+}
+
 export function EditorFor(
   selection: Selection | null,
   view: ClosetView,
@@ -1873,10 +1938,13 @@ export function EditorFor(
   catalogue: readonly PaletteItem[] = [],
   /** The device panel's foot: the caller's main ways on (Open inside, Trace from here). */
   links?: ReactNode,
-  /** Rows the caller adds to the device panel's ⋯ menu, above Duplicate and Remove. */
-  more?: ReactNode,
+  /** Rows the caller adds to the device panel's ⋯ menu, above Duplicate and Remove; or, as a list, the whole
+   * menu (sign-off r58: the same list as right-click), which then carries its own Duplicate and Remove. */
+  more?: ReactNode | readonly MenuItem[],
+  /** Sign-off r60: what the caller shows at the end of the device panel, above its foot ("Also in", issues). */
+  tail?: ReactNode,
 ): ReactNode {
-  const panel = panelFor(selection, view, actions, catalogue, links, more);
+  const panel = panelFor(selection, view, actions, catalogue, links, more, tail);
   if (selection == null || !isValidElement<{ 'data-elements'?: string }>(panel)) return panel;
   return cloneElement(panel, { 'data-elements': elementsOf(selection, view) });
 }
@@ -1887,7 +1955,8 @@ function panelFor(
   actions: EditorActions,
   catalogue: readonly PaletteItem[] = [],
   links?: ReactNode,
-  more?: ReactNode,
+  more?: ReactNode | readonly MenuItem[],
+  tail?: ReactNode,
 ): ReactNode {
   if (selection == null) return null;
 
@@ -2079,14 +2148,20 @@ function panelFor(
                 <summary className="dev-more__button" aria-label="More for this device" title="More for this device">
                   ⋯
                 </summary>
-                <div className="dev-more__menu">
-                  {more}
-                  {/* `duplicateDevice` (`commands.ts`) refuses a source that is not rack-mounted, so it is left off an
-                      unplaced device rather than offered only to refuse. */}
-                  {rack ? <DuplicateDeviceControl chassisId={chassis.id} actions={actions} /> : null}
-                  {/* No confirmation dialog; undo is the record's job. */}
-                  <SupplyAction label="Remove device" onCommit={actions.onEdit ? () => actions.onEdit!(removeDeviceChange(chassis.id)) : undefined} />
-                </div>
+                {Array.isArray(more) ? (
+                  <div className="dev-more__menu dev-more__menu--list" role="menu" onClick={closeMoreOnPick}>
+                    <MenuItems items={more as readonly MenuItem[]} />
+                  </div>
+                ) : (
+                  <div className="dev-more__menu">
+                    {more as ReactNode}
+                    {/* `duplicateDevice` (`commands.ts`) refuses a source that is not rack-mounted, so it is left off an
+                        unplaced device rather than offered only to refuse. */}
+                    {rack ? <DuplicateDeviceControl chassisId={chassis.id} actions={actions} /> : null}
+                    {/* No confirmation dialog; undo is the record's job. */}
+                    <SupplyAction label={DEVICE_WORDS.remove} onCommit={actions.onEdit ? () => actions.onEdit!(removeDeviceChange(chassis.id)) : undefined} />
+                  </div>
+                )}
               </details>
             ) : null}
           </div>
@@ -2168,30 +2243,36 @@ function panelFor(
                       current one marked. */}
                   <PlacedOnControl itemId={chassis.id} placement={chassis.placement} view={view} actions={actions} />
 
-                  <ConnectionsSection chassis={chassis} view={view} actions={actions} />
-
-                  {/* r30-device: Device and Location stay open; the rest fold to one line each. */}
-                  <Fold title="Management" summary={chassis.managementAddress || 'no address'} testId="management-fold">
-                    <div className="drawing-editor__field">
-                      <div className="drawing-editor__field-label">Mgmt address</div>
-                      <EditableValue
-                        value={chassis.managementAddress ?? ''}
-                        placeholder={ABSENT}
-                        editorKind="text"
-                        onCommit={
-                          actions.onEdit
-                            ? (v) => actions.onEdit!({ kind: 'device', id: chassis.deviceId, field: 'management_address', value: v })
-                            : undefined
-                        }
-                      />
-                    </div>
-                    {(chassis.managementAddress ?? '').length > 0 ? <div style={TYPED_NOTE_STYLE}>{MANAGEMENT_ADDRESS_NOTE}</div> : null}
-                    <TermixActions name={chassis.hostname} address={chassis.managementAddress ?? ''} />
-                  </Fold>
-
-                  <FirmwareSection deviceId={chassis.deviceId} folded />
-                  <AboutSection deviceId={chassis.deviceId} folded />
-                  <DevicePhoto ownerId={chassis.deviceId} name={chassis.hostname || UNNAMED_HOSTNAME} folded />
+                  {/* r30-device: Device and Location stay open; the rest fold to one line each. Sign-off r60:
+                      which of the rest show, and in what order, is the person's choice. */}
+                  <DeviceSections
+                    sections={{
+                      connections: <ConnectionsSection chassis={chassis} view={view} actions={actions} />,
+                      management: (
+                        <Fold title="Management" summary={chassis.managementAddress || 'no address'} testId="management-fold">
+                          <div className="drawing-editor__field">
+                            <div className="drawing-editor__field-label">Mgmt address</div>
+                            <EditableValue
+                              value={chassis.managementAddress ?? ''}
+                              placeholder={ABSENT}
+                              editorKind="text"
+                              onCommit={
+                                actions.onEdit
+                                  ? (v) => actions.onEdit!({ kind: 'device', id: chassis.deviceId, field: 'management_address', value: v })
+                                  : undefined
+                              }
+                            />
+                          </div>
+                          {(chassis.managementAddress ?? '').length > 0 ? <div style={TYPED_NOTE_STYLE}>{MANAGEMENT_ADDRESS_NOTE}</div> : null}
+                          <TermixActions name={chassis.hostname} address={chassis.managementAddress ?? ''} />
+                          <TermixReveal chassisId={chassis.id} />
+                        </Fold>
+                      ),
+                      firmware: <FirmwareSection deviceId={chassis.deviceId} folded />,
+                      about: <AboutSection deviceId={chassis.deviceId} folded />,
+                      photo: <DevicePhoto ownerId={chassis.deviceId} name={chassis.hostname || UNNAMED_HOSTNAME} folded />,
+                    }}
+                  />
 
                 </>
               ),
@@ -2201,7 +2282,17 @@ function panelFor(
               label: 'Ports',
               body: (
                 <>
-                  <Field label="Ports" value={`${chassis.ports.filter((p) => p.cable != null).length} of ${chassis.ports.length} cabled`} />
+                  <Field label="Ports" value={chassis.ports.length > 0 ? `${chassis.ports.filter((p) => p.cable != null).length} of ${chassis.ports.length} cabled` : 'None yet'} />
+                  {/* Sign-off r60: an empty tab says what to do next. */}
+                  {chassis.ports.length === 0 ? (
+                    <p className="drawing-editor__empty-next" data-testid="ports-empty">
+                      {chassisSketch
+                        ? actions.onEdit
+                          ? 'Add its ports below, or give it a catalogue model on the Details tab and its ports come with it.'
+                          : 'No ports have been added to it yet.'
+                        : 'Its catalogue model lists no ports.'}
+                    </p>
+                  ) : null}
                   <PortsInWords chassis={chassis} />
 
                   {/* ADR-0051 §1 — a sketch's own ports, typed by hand,
@@ -2283,6 +2374,7 @@ function panelFor(
         />
         </TypedNoteMode.Provider>
 
+        {tail}
         {links ? <div className="drawing-editor__footer dev-panel__foot">{links}</div> : null}
       </div>
     );
@@ -2346,7 +2438,7 @@ function panelFor(
         {occupant.kind === 'chassis' ? (
           <div className="drawing-editor__footer">
             <SupplyAction
-              label="Remove device"
+              label={DEVICE_WORDS.remove}
               onCommit={actions.onEdit ? () => actions.onEdit!(removeDeviceChange(occupant.id)) : undefined}
             />
           </div>
@@ -2425,7 +2517,7 @@ function panelFor(
         {fixture.kind === 'chassis' ? (
           <div className="drawing-editor__footer">
             <SupplyAction
-              label="Remove device"
+              label={DEVICE_WORDS.remove}
               onCommit={actions.onEdit ? () => actions.onEdit!(removeDeviceChange(fixture.id)) : undefined}
             />
           </div>

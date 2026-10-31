@@ -39,11 +39,15 @@ export function PasteCard({ state, onText, onPlatform, onChoose, onCancel }: Pas
     ref.current?.querySelector<HTMLElement>('textarea, button')?.focus();
   }, [state.kind]);
   useEffect(() => {
+    // Escape closes only the top thing: this card, not the selection under it as well.
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      onCancel();
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, [onCancel]);
 
   const total = preview?.destroyed.reduce((n, d) => n + d.count, 0) ?? 0;

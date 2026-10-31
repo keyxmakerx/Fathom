@@ -128,7 +128,7 @@ try {
     const before = await page.locator('.react-flow__edge').count();
     const sw = page.locator('.react-flow__node-freeBox', { hasText: 'switch-1' }).first();
     await sw.click({ button: 'right' });
-    const item = page.locator('.drawing-context-menu__item', { hasText: 'Suggest cables from its neighbours (LLDP)' });
+    const item = page.locator('.drawing-context-menu__item', { hasText: 'Suggest cables (LLDP)' });
     check(`right-click on a switch offers suggestions (${scheme})`, (await item.count()) === 1);
     await item.click();
     const card = page.getByTestId('suggest-card');

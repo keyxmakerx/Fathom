@@ -1265,3 +1265,26 @@ button.shell-admin-pill {
     transition: none;
   }
 }
+
+/* Sign-off r60: a thing's name, as a link to it on the canvas. */
+.thing-name {
+  display: inline;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--hairline);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.thing-name:hover,
+.thing-name:focus-visible {
+  text-decoration-color: currentColor;
+}

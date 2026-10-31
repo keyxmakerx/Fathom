@@ -140,8 +140,8 @@ try {
     // The trace starts from a racked device; the canvas offers it on a rack's devices.
     const router = page.locator('.react-flow__node-chassis', { hasText: 'router-1' }).first();
     await router.click({ button: 'right', position: { x: 20, y: 6 } });
-    const item = page.locator('.drawing-context-menu__item', { hasText: 'Trace a path from here' });
-    check('the router offers Trace a path from here', (await item.count()) === 1);
+    const item = page.locator('.drawing-context-menu__item', { hasText: 'Trace from here' });
+    check('the router offers Trace from here', (await item.count()) === 1);
     if ((await item.count()) === 1) {
       await item.click();
       await page.waitForSelector('[data-testid=trace-panel]', { timeout: 5_000 });

@@ -1,8 +1,10 @@
 import { useState } from 'react';
 
+import type { Document } from '../../document/model';
 import type { History } from './useHistory';
 import './history.css';
 import { SkeletonRows } from '../ui/Skeleton';
+import { ThingName } from '../shell/ThingName';
 
 /** "Today 14:02", "Yesterday 09:12", "2 Oct 09:12". */
 export function whenLabel(atUnix: number, now: Date = new Date()): string {
@@ -25,9 +27,14 @@ export interface HistoryPanelProps {
   restoreText: string;
   onRestore: () => void;
   onClose: () => void;
+  /** A thing's name in the picked save, for its "Changed" line; null for one with no name to show. */
+  nameOf?: (id: string, doc: Document) => string | null;
 }
 
-export function HistoryPanel({ history, accountId, accountAddress, canDraw, restoreText, onRestore, onClose }: HistoryPanelProps) {
+/** The most names the Changed line lists before "and N more". */
+const CHANGED_SHOWN = 8;
+
+export function HistoryPanel({ history, accountId, accountAddress, canDraw, restoreText, onRestore, onClose, nameOf }: HistoryPanelProps) {
   const [confirming, setConfirming] = useState(false);
   const { saves, picked } = history;
   const latest = saves?.[0]?.designVersion;
@@ -75,6 +82,7 @@ export function HistoryPanel({ history, accountId, accountAddress, canDraw, rest
           Show older saves
         </button>
       )}
+      {picked != null && nameOf != null ? <ChangedNames ids={picked.change.changed} nameOf={(id) => nameOf(id, picked.doc)} /> : null}
       {picked != null && (
         <div className="history__actions">
           <button
@@ -115,5 +123,31 @@ export function HistoryPanel({ history, accountId, accountAddress, canDraw, rest
         </div>
       )}
     </div>
+  );
+}
+
+/** Sign-off r60: what the picked save changed, each name a link to it on the canvas. */
+function ChangedNames({ ids, nameOf }: { ids: readonly string[]; nameOf: (id: string) => string | null }) {
+  // A device and its chassis share a name: one link for both.
+  const byName = new Map<string, string[]>();
+  for (const id of new Set(ids)) {
+    const name = nameOf(id);
+    if (name != null && name !== '') byName.set(name, [...(byName.get(name) ?? []), id]);
+  }
+  // Ports ("fw-01 · 3") after the devices, racks and cables, so a save that added one device leads with it.
+  const named = [...byName].map(([name, of]) => ({ name, ids: of })).sort((a, b) => Number(a.name.includes(' · ')) - Number(b.name.includes(' · ')));
+  if (named.length === 0) return null;
+  const shown = named.slice(0, CHANGED_SHOWN);
+  return (
+    <p className="history__changed" data-testid="history-changed">
+      Changed:{' '}
+      {shown.map((t, i) => (
+        <span key={t.name}>
+          {i > 0 ? ', ' : ''}
+          <ThingName ids={t.ids}>{t.name}</ThingName>
+        </span>
+      ))}
+      {named.length > shown.length ? ` and ${named.length - shown.length} more` : ''}
+    </p>
   );
 }

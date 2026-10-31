@@ -12,6 +12,7 @@ import { TypedSentence, isPasteInput, usePasteMark } from '../plans/PlanParts';
 import { ANSWER_WORD, GLYPH, answerForKey, answered, headerText, planFixState, pointOf, whenText, type Draft, type DraftStepState } from './troubleModel';
 import type { TroubleController } from './useTroubleController';
 import '../plans/plans.css';
+import { ThingName } from '../shell/ThingName';
 import './trouble.css';
 
 const ANSWERS: readonly Answer[] = ['ok', 'not_ok', 'cant_tell'];
@@ -394,7 +395,7 @@ export function TroublePanel({
     <aside className={placed} aria-label="It's down" data-testid="trouble-panel" onKeyDown={onKeyDown}>
       <header className="trouble-panel__head">
         <h2 className="trouble-panel__title" data-testid="trouble-title">
-          {title}
+          <ThingName ids={draft ? [draft.deviceId] : []}>{title}</ThingName>
         </h2>
         <span className="trouble-panel__tools">
           <button type="button" className="trouble-link" aria-label="Fold the panel" onClick={() => controller.setPanelOpen(false)}>

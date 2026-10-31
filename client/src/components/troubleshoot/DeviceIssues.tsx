@@ -1,5 +1,6 @@
 // A device's page, the troubleshooting half (ADR-0061): the "It's down" button for someone who can edit, and the
 // issues saved against the device (or that lit it) for anyone who can read. Plain buttons; no colour.
+import { DEVICE_WORDS } from '../drawing/contextMenuItems';
 import { historyLine } from './troubleModel';
 import type { TroubleController } from './useTroubleController';
 import './trouble.css';
@@ -9,7 +10,7 @@ export function ItsDownButton({ controller, chassisId }: { controller: TroubleCo
   if (!controller.canEdit) return null;
   return (
     <button type="button" className="btn-quiet" onClick={() => controller.start(chassisId)} data-testid="its-down-button">
-      It's down
+      {DEVICE_WORDS.itsDown}
     </button>
   );
 }
@@ -21,7 +22,7 @@ export function DeviceIssues({ controller, chassisId, deviceId, withButton = tru
     <section className="trouble-history" aria-label="Issues" data-testid="device-issues">
       {withButton && controller.canEdit && (
         <button type="button" className="trouble-btn" onClick={() => controller.start(chassisId)} data-testid="its-down-button">
-          It's down
+          {DEVICE_WORDS.itsDown}
         </button>
       )}
       {issues.length > 0 && (

@@ -7,6 +7,7 @@ import type { Document } from '../../document/model';
 import { addPortsFromConfig, tiePlan, tiePorts, tiedPairs, untie } from '../../document/portTies';
 import { type ClosetView, type EditorActions, type PaletteItem, type PortView, type Selection } from '../drawing/contract';
 import { EditorFor, NotesSection, PanelTabsMode, TypedNoteMode } from '../drawing/Editor';
+import type { MenuItem } from '../drawing/contextMenuItems';
 import { findChassis, findFixture, findOccupant } from '../drawing/lookup';
 import { CableCorrections, type CorrectionsApi } from './CableCorrections';
 import { dismissedLabel } from './corrections';
@@ -42,6 +43,8 @@ export interface ItemPageProps {
   /** Writes a document change (the Ports tab's "Tie interfaces"). Absent: read only, no tie list. */
   onApply?: (next: Document) => void;
   actor?: string;
+  /** Sign-off r58: a device's ⋯ menu, the same list as on the canvas. Absent: the panel's own Duplicate and Remove. */
+  deviceMenu?: (selection: Selection) => readonly MenuItem[] | undefined;
 }
 
 /** The Ports tab's ties: which interface sits on which port, each with Untie, and "Tie interfaces" for the rest. */
@@ -101,7 +104,7 @@ function portsOf(view: ClosetView, selection: Selection): PortView[] {
 }
 
 export function ItemPage(props: ItemPageProps) {
-  const { doc, view, selection, ownerId, title, actions, palette, accountId, onShowOnCanvas, tab: tabText, onTab, idx, onSetWhere, corrections, onApply, actor } = props;
+  const { doc, view, selection, ownerId, title, actions, palette, accountId, onShowOnCanvas, tab: tabText, onTab, idx, onSetWhere, corrections, onApply, actor, deviceMenu } = props;
   const tab: TabKey = tabText === 'ports' || tabText === 'notes' || tabText === 'history' ? tabText : 'overview';
   const setTab = (t: TabKey) => onTab(t === 'overview' ? '' : t);
   const isDevice = selection.kind === 'chassis' || selection.kind === 'occupant' || selection.kind === 'fixture';
@@ -125,7 +128,7 @@ export function ItemPage(props: ItemPageProps) {
         {selection.kind === 'rack' ? <RackContents view={view} idx={idx} rackId={selection.id} actions={actions} onSetWhere={onSetWhere} /> : null}
         {isDevice ? <PluggedInto view={view} idx={idx} hostId={selection.id} actions={actions} /> : null}
         <TypedNoteMode.Provider value="once">
-          <PanelTabsMode.Provider value="flat">{EditorFor(selection, view, actions, palette)}</PanelTabsMode.Provider>
+          <PanelTabsMode.Provider value="flat">{EditorFor(selection, view, actions, palette, undefined, deviceMenu?.(selection))}</PanelTabsMode.Provider>
         </TypedNoteMode.Provider>
         <p className="inv-page__typed">
           <b>Stored as typed.</b> Fathom does not redact what you type, only what you paste, so it is saved and exported exactly as written.

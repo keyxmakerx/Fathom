@@ -354,6 +354,8 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  /* Sign-off r58: a row's right-click menu is placed inside the table. */
+  position: relative;
 }
 
 .inv-table__scroll {

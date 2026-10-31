@@ -6,6 +6,7 @@
 // label is printed beside the code, not inside it. Opening it needs sign-in and the design's Read.
 
 import { isNodeOfKind, parseNodeId, edgesOut, findNode, type Document } from '../../document/model';
+import type { Selection } from '../drawing/contract';
 import { EMPTY_STATE, formatHash } from '../inventory/listState';
 
 export const SCAN_PATH = '/scan';
@@ -90,6 +91,27 @@ export function scanHash(doc: Document, nodeId: string): string | null {
     // The device row's key names how the box is placed: in a rack, on a shelf, or fixed to a wall.
     const sel = edgesOut(doc, nodeId, 'SitsOn').length > 0 ? 'occupant' : edgesOut(doc, nodeId, 'FixedTo').length > 0 ? 'fixture' : 'chassis';
     return open('devices', `${sel}:${nodeId}`);
+  }
+  return null;
+}
+
+/** Sign-off r60: the canvas selection for a thing, so what is picked in Inventory is picked on the canvas
+ * too. A device is selected the way it is placed, as `scanHash` names its row. Null for anything the canvas
+ * does not select. */
+export function canvasSelectionOf(doc: Document, nodeId: string): Selection | null {
+  const node = findNode(doc, nodeId);
+  if (!node || node.absentSince !== undefined) return null;
+  if (isNodeOfKind(nodeId, 'Rack')) return { kind: 'rack', id: nodeId };
+  if (isNodeOfKind(nodeId, 'Cable')) return { kind: 'cable', id: nodeId };
+  if (isNodeOfKind(nodeId, 'PhysicalPort')) return { kind: 'port', id: nodeId };
+  // A device is drawn as its chassis.
+  if (isNodeOfKind(nodeId, 'Device')) {
+    const chassis = edgesOut(doc, nodeId, 'HasChassis')[0]?.to;
+    return chassis != null ? canvasSelectionOf(doc, chassis) : null;
+  }
+  if (isNodeOfKind(nodeId, 'Chassis')) {
+    const kind = edgesOut(doc, nodeId, 'SitsOn').length > 0 ? 'occupant' : edgesOut(doc, nodeId, 'FixedTo').length > 0 ? 'fixture' : 'chassis';
+    return { kind, id: nodeId };
   }
   return null;
 }

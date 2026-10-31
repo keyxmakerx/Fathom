@@ -373,7 +373,7 @@ try {
 
   // The inside view opens from the device's right-click menu, not from zoom.
   await page.locator('.react-flow__node-chassis').first().click({ button: 'right', position: { x: 6, y: 8 } });
-  await page.getByRole('menuitem', { name: 'Inside' }).click();
+  await page.getByRole('menuitem', { name: 'Open inside' }).click();
   await page.waitForSelector('.drawing-inside-stop', { timeout: 10_000 });
   check('the inside stop opened for the same device', (await page.locator('.drawing-inside-stop').count()) === 1);
   const insideText = await page.locator('.drawing-inside-stop').innerText();

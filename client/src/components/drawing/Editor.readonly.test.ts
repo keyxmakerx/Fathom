@@ -92,8 +92,11 @@ const VIEW: ClosetView = {
 };
 
 function assertNoEditMarkup(markup: string) {
-  // A panel's tabs only show another part of it, so a reader keeps them.
-  const edits = markup.replace(/<button type="button" role="tab"[^>]*>[^<]*<\/button>/g, '');
+  // A panel's tabs only show another part of it, so a reader keeps them; so is the choice of which sections
+  // it shows (sign-off r60), kept in the reader's own browser and changing nothing in the design.
+  const edits = markup
+    .replace(/<button type="button" role="tab"[^>]*>[^<]*<\/button>/g, '')
+    .replace(/<ol class="dev-sections"[\s\S]*?<\/ol>/g, '');
   expect(edits).not.toContain('<input');
   expect(edits).not.toContain('<select');
   expect(edits).not.toContain('<button');
