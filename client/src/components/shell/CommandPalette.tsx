@@ -45,7 +45,13 @@ function Marked({ text, query }: { text: string; query: string }) {
  * Arrow keys move over what can be chosen, Enter runs it, Esc closes.
  */
 export function CommandPalette(props: { search: ShellSearch; onClose: () => void }) {
-  return createPortal(<PaletteSheet {...props} />, document.body);
+  // Outside #root, so marked as Fathom's own: base.css keeps its control styles to the app (rua-ui-audit).
+  return createPortal(
+    <div data-fathom-layer="">
+      <PaletteSheet {...props} />
+    </div>,
+    document.body,
+  );
 }
 
 /** The sheet itself, apart from where it is mounted. */

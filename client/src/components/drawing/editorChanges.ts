@@ -5,7 +5,8 @@ import type { RackView } from '../../document/view';
 import type { SwapPlan } from '../../document/swapModel';
 import type { PortFace } from '../../document/compat';
 import { ABSENT, UNNAMED_HOSTNAME, type CableEnd, type ClosetView, type EditorChange } from './contract';
-import { locatePort } from './lookup';
+import { findRack, findShelf, locatePort } from './lookup';
+import { holderContentsWords } from '../../document/commands';
 
 export function moveToRackChange(itemId: string, rackId: string, positionU: number, face: 'front' | 'rear' = 'front'): EditorChange {
   return { kind: 'move-placement', itemId, placement: { kind: 'rack', rackId, positionU, face } };
@@ -60,6 +61,25 @@ export function addSketchPortRangeChange(
 
 export function duplicateDeviceChange(chassisId: string): EditorChange {
   return { kind: 'duplicate-device', chassisId };
+}
+
+/** A rack, shelf or surface as Remove names it, and what is still on it in words ('' when empty):
+ * sign-off rua-ui-audit, Remove is listed and greyed with this until nothing is on it. Null for any
+ * other id. */
+export function holderOf(view: ClosetView, id: string): { noun: string; onIt: string } | null {
+  const rack = findRack(view, id);
+  if (rack != null) return { noun: 'rack', onIt: holderContentsWords({ devices: rack.chassis.length, shelves: rack.shelves.length, others: 0 }) };
+  const shelf = findShelf(view, id)?.shelf;
+  if (shelf != null) {
+    const devices = shelf.occupants.filter((o) => o.kind === 'chassis').length;
+    return { noun: 'shelf', onIt: holderContentsWords({ devices, shelves: 0, others: shelf.occupants.length - devices }) };
+  }
+  const surface = view.surfaces.find((s) => s.id === id);
+  if (surface != null) {
+    const devices = surface.fixtures.filter((f) => f.kind === 'chassis').length;
+    return { noun: surface.form, onIt: holderContentsWords({ devices, shelves: 0, others: surface.fixtures.length - devices }) };
+  }
+  return null;
 }
 
 export function createShelfChange(

@@ -5,6 +5,7 @@ import { MAX_REASON, MAX_VERSION, STATE_WORD, type FwState } from '../../documen
 import { CommandToType, TypeItYourselfNote } from '../typing/CommandToType';
 import { useTypeItYourself } from '../typing/typeItYourself';
 import type { FirmwareApi } from './context';
+import { warningCodes, type LinkWarning } from './linkWarnings';
 import { commandWithLink, maskedLink } from './upgradePlan';
 
 /** Puts text on the clipboard. Returns false when the browser would not. */
@@ -220,29 +221,65 @@ export function LinkView({ link, detail }: { link: FetchLink; detail?: string })
 }
 
 /** Get a one-time link for an image. Asks the server each time; the link is never stored. */
-export function GetLink({ api, imageId, detail, label = 'Get a one-time link' }: { api: FirmwareApi; imageId: string; detail?: string; label?: string }) {
+/** The warnings, with the way past them. Says that going past is recorded, so nobody is surprised. */
+export function LinkWarnings({ warnings, busy, onAnyway, onBack }: { warnings: readonly LinkWarning[]; busy: boolean; onAnyway: () => void; onBack: () => void }) {
+  return (
+    <div className="fw-warnings" role="alert" data-testid="fw-link-warnings">
+      <p className="fw-amber">Before you get the link, check this:</p>
+      <ul>
+        {warnings.map((w) => (
+          <li key={`${w.code}:${w.deviceId}`}>{w.words}</li>
+        ))}
+      </ul>
+      <button type="button" className="fw-btn" disabled={busy} onClick={onAnyway}>
+        {busy ? 'Getting…' : 'Get the link anyway'}
+      </button>{' '}
+      <button type="button" className="fw-btn btn-quiet" disabled={busy} onClick={onBack}>
+        Go back
+      </button>
+      <p className="fw-muted">Going ahead is written to the organisation's history with your name.</p>
+    </div>
+  );
+}
+
+export function GetLink({
+  api,
+  imageId,
+  detail,
+  label = 'Get a one-time link',
+  warnings = [],
+}: {
+  api: FirmwareApi;
+  imageId: string;
+  detail?: string;
+  label?: string;
+  /** What looks wrong about this push (`linkWarnings`). Shown first; going past them is recorded. */
+  warnings?: readonly LinkWarning[];
+}) {
   const [link, setLink] = useState<FetchLink | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warned, setWarned] = useState(false);
+  const get = async (passed: readonly string[]) => {
+    setBusy(true);
+    setError(null);
+    const got = await api.issueLink(imageId, passed);
+    setBusy(false);
+    setWarned(false);
+    if ('refused' in got) {
+      setLink(null);
+      setError(got.refused);
+    } else setLink(got);
+  };
   return (
     <div>
-      <button
-        type="button"
-        className="fw-btn"
-        disabled={busy}
-        onClick={async () => {
-          setBusy(true);
-          setError(null);
-          const got = await api.issueLink(imageId);
-          setBusy(false);
-          if ('refused' in got) {
-            setLink(null);
-            setError(got.refused);
-          } else setLink(got);
-        }}
-      >
-        {busy ? 'Getting…' : link ? 'Get another' : label}
-      </button>
+      {warned ? (
+        <LinkWarnings warnings={warnings} busy={busy} onAnyway={() => void get(warningCodes(warnings))} onBack={() => setWarned(false)} />
+      ) : (
+        <button type="button" className="fw-btn" disabled={busy} onClick={() => (warnings.length > 0 ? setWarned(true) : void get([]))}>
+          {busy ? 'Getting…' : link ? 'Get another' : label}
+        </button>
+      )}
       {error ? (
         <p className="fw-error" role="alert">
           {error}

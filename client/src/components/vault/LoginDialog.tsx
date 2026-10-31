@@ -147,7 +147,11 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
         <div className="vault-row2">
           <label className="vault-field">
             <span className="vault-field__label">{kind === 'snmp' ? 'User or community name' : kind === 'wifi' ? 'Network name (SSID)' : 'User name'}</span>
-            <input className="vault-input vault-input--mono" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" spellCheck={false} data-testid="vault-username" />
+            {/* A device's login, never this person's own: `data-bwignore` tells Bitwarden to leave both
+                fields alone. Its source (clients, main, read 2026-10-31,
+                collect-autofill-content.service.ts) honours the attribute only for someone who has turned
+                that setting on, so this narrows the offer rather than promising it never comes. */}
+            <input className="vault-input vault-input--mono" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" spellCheck={false} data-bwignore="" data-testid="vault-username" />
           </label>
           <label className="vault-field">
             <span className="vault-field__label">{kind === 'api' ? 'Key' : 'Password'}</span>
@@ -162,6 +166,7 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
                 }}
                 autoComplete="new-password"
                 spellCheck={false}
+                data-bwignore=""
                 data-testid="vault-password"
               />
               <button type="button" className="vault-btn btn-quiet" onClick={() => setShown(!shown)}>

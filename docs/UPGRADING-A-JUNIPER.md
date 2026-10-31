@@ -156,6 +156,17 @@ request system software rollback
 which reverts to the last successfully installed package, keeping the current configuration by
 default. `rollback rescue` returns the configuration to what step 1 saved.
 
+Then check that signature checking is still enforced, from the Junos shell (not the CLI):
+
+```
+sysctl security.mac.veriexec.state
+```
+
+Juniper's [Veriexec page](https://www.juniper.net/documentation/us/en/software/junos/junos-install-upgrade/topics/concept/veriexec.html),
+read 2026-10-31: the answer is `loaded active enforce` when Junos refuses unsigned files, and
+packages are verified before installation either way (`no-validate` does not turn that off).
+Anything else is worth a call to Juniper before the device goes back into service.
+
 ---
 
 ## If you are automating this, three constraints

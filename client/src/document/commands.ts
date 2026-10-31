@@ -615,6 +615,73 @@ export function removeChassis(doc: Document, chassisId: string, opts?: Actor): D
   return withBatch(working, batch);
 }
 
+/** What is still on a rack, a shelf or a surface (wall, desk, ceiling): the things that would have
+ * nowhere to be if it went. `others` counts passive things that are not shelves (panels, boards,
+ * outlets). */
+export interface HolderContents {
+  devices: number;
+  shelves: number;
+  others: number;
+}
+
+export function holderContents(doc: Document, holderId: string): HolderContents {
+  const out: HolderContents = { devices: 0, shelves: 0, others: 0 };
+  for (const kind of ['MountedIn', 'SitsOn', 'FixedTo'] as const) {
+    for (const e of edgesIn(doc, holderId, kind)) {
+      const from = findNode(doc, e.from);
+      if (!from || from.absentSince !== undefined) continue;
+      const nodeKind = parseNodeId(from.id).kind;
+      if (nodeKind === 'Chassis') out.devices += 1;
+      else if (nodeKind === 'PassiveNode' && readPassiveNodeFields(from).form === 'shelf') out.shelves += 1;
+      else out.others += 1;
+    }
+  }
+  return out;
+}
+
+/** "6 devices, 1 shelf": what a holder still has on it, in words; '' when it is empty. */
+export function holderContentsWords(c: HolderContents): string {
+  const parts: string[] = [];
+  if (c.devices > 0) parts.push(`${c.devices} ${c.devices === 1 ? 'device' : 'devices'}`);
+  if (c.shelves > 0) parts.push(`${c.shelves} ${c.shelves === 1 ? 'shelf' : 'shelves'}`);
+  if (c.others > 0) parts.push(`${c.others} ${c.others === 1 ? 'other thing' : 'other things'}`);
+  return parts.join(', ');
+}
+
+/** Refused while anything is still on it (sign-off rua-ui-audit, "A when empty"): nothing a
+ * person placed disappears with its rack by accident. A RangeError, so it reaches the person
+ * in the refusal's own words. */
+export class HolderNotEmptyError extends RangeError {
+  constructor(contents: HolderContents) {
+    super(`Empty it first: ${holderContentsWords(contents)} still on it.`);
+    this.name = 'HolderNotEmptyError';
+  }
+}
+
+/** Removes an empty rack, shelf or surface in one batch, so one undo puts it back. Its cable runs
+ * and their ties go with it (the schema's containment edges), and the edge that held it in its
+ * premises. */
+export function removeHolder(doc: Document, holderId: string, opts?: Actor): Document {
+  const node = findNode(doc, holderId);
+  if (!node || node.absentSince !== undefined) throw new UnknownReferenceError(holderId, 'Rack, shelf or surface');
+  const kind = parseNodeId(holderId).kind;
+  if (kind !== 'Rack' && kind !== 'Surface' && kind !== 'PassiveNode') throw new UnknownReferenceError(holderId, 'Rack, shelf or surface');
+  const contents = holderContents(doc, holderId);
+  if (contents.devices + contents.shelves + contents.others > 0) throw new HolderNotEmptyError(contents);
+
+  const { now } = resolve(opts);
+  const { nodeIds, edgeIds } = cascadeRemoval(doc, holderId);
+  const working: Document = {
+    ...doc,
+    nodes: doc.nodes.map((n) => (nodeIds.has(n.id) ? { ...n, absentSince: now } : n)),
+    edges: doc.edges.map((e) => (edgeIds.has(e.id) ? { ...e, absentSince: now } : e)),
+  };
+  const by = opts?.actor ?? LOCAL_ACTOR;
+  const ops: Op[] = [...nodeIds, ...edgeIds].map((element): Op => ({ type: 'tombstone', element, at: now, by }));
+  const label = kind === 'Rack' ? 'remove rack' : kind === 'Surface' ? 'remove surface' : 'remove shelf';
+  return withBatch(working, { id: newUlid(now), label, ops });
+}
+
 // ===========================================================================
 // ADR-0051 §1 — shelves, surfaces, the sketch: shapes schema 0.8 adds.
 // `Placement` (`view.ts`) is this half's shared vocabulary: `movePlacement`

@@ -235,18 +235,23 @@ export function Shell({
   const rightMax = panelMax(windowWidth, bodyWidth, stripsWidth, 0);
 
   // The bar's zoom buttons from the keyboard, on the canvas only and never while typing.
+  // The same three the pill uses, so above the closet − goes up a stop and Fit
+  // (hidden there) does nothing, rather than moving the canvas underneath.
+  const keyZoom = useRef({ zoomIn, zoomOut, fit: onZoomFit, above: false });
+  keyZoom.current = { zoomIn, zoomOut, fit: onZoomFit, above: above != null };
   useEffect(() => {
     if (place !== 'racks') return undefined;
     function onKeyDown(event: KeyboardEvent) {
       if (event.defaultPrevented || isTypingTarget(event.target)) return;
-      const act = matches(event, 'zoom-in') ? onZoomIn : matches(event, 'zoom-out') ? onZoomOut : matches(event, 'zoom-fit') ? onZoomFit : undefined;
+      const z = keyZoom.current;
+      const act = matches(event, 'zoom-in') ? z.zoomIn : matches(event, 'zoom-out') ? z.zoomOut : matches(event, 'zoom-fit') && !z.above ? z.fit : undefined;
       if (act == null) return;
       event.preventDefault();
       act();
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [place, onZoomIn, onZoomOut, onZoomFit]);
+  }, [place]);
 
   return (
     <div className="shell">

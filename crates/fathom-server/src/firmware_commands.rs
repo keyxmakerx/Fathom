@@ -94,6 +94,19 @@ const INSTALL_NOTE: &str = "ADR-0045 §4.4: Fathom stages and verifies and never
 /// The commands for one image. `url` is the issued fetch URL when there is one; the
 /// read-back has none, because Fathom keeps only the token's hash.
 pub fn commands(platform: Option<&str>, filename: &str, sha256: &str, url: Option<&str>) -> Json {
+    commands_with(platform, filename, sha256, None, url)
+}
+
+/// [`commands`], with the SHA-512 Fathom worked out (`0059`) when it has one. An
+/// IOS XE plan then compares `verify /sha512` with Fathom's own value rather than
+/// only with Cisco's page, and the answer carries `expected_sha512`.
+pub fn commands_with(
+    platform: Option<&str>,
+    filename: &str,
+    sha256: &str,
+    sha512: Option<&str>,
+    url: Option<&str>,
+) -> Json {
     let family = Family::of(platform);
     let copy_source = match url {
         Some(url) => url.to_string(),
@@ -103,7 +116,7 @@ pub fn commands(platform: Option<&str>, filename: &str, sha256: &str, url: Optio
     };
     let plan = match family {
         Family::Junos => junos(filename, &copy_source),
-        Family::IosXe => ios_xe(filename, &copy_source),
+        Family::IosXe => ios_xe(filename, &copy_source, sha512),
         Family::NxOs => nx_os(filename, &copy_source),
         Family::Eos => eos(filename, &copy_source),
         Family::Unknown => unknown(platform.unwrap_or_default()),
@@ -136,6 +149,10 @@ pub fn commands(platform: Option<&str>, filename: &str, sha256: &str, url: Optio
 
     let mut envelope = BTreeMap::new();
     envelope.insert("expected_sha256".to_string(), Json::Str(sha256.to_string()));
+    envelope.insert(
+        "expected_sha512".to_string(),
+        sha512.map_or(Json::Null, |h| Json::Str(h.to_string())),
+    );
     envelope.insert(
         "platform".to_string(),
         platform.map_or(Json::Null, |p| Json::Str(p.to_string())),
@@ -247,6 +264,14 @@ fn junos(filename: &str, copy_source: &str) -> Plan {
              `request system software rollback` reverts the last install if the upgrade went \
              wrong.",
         ),
+        step(
+            "check signature checking is still enforced",
+            "sysctl security.mac.veriexec.state",
+            "From the Junos shell, not the CLI. Juniper's Veriexec page: the answer is \
+             `loaded active enforce` when Junos is refusing unsigned files, and packages are \
+             verified before installation either way (`no-validate` does not turn that off). \
+             Anything else is worth a call to Juniper before the device goes back into service.",
+        ),
     ];
     Plan {
         device_path: Some(device_path),
@@ -257,7 +282,8 @@ fn junos(filename: &str, copy_source: &str) -> Plan {
                        verbatim reads of it. Check them against the hardware guide for your \
                        platform and release before a maintenance window you care about. \
                        docs/UPGRADING-A-JUNIPER.md carries the same warning and the per-step \
-                       marking."
+                       marking. The Veriexec step was read on 2026-10-31: \
+                       https://www.juniper.net/documentation/us/en/software/junos/junos-install-upgrade/topics/concept/veriexec.html"
             .to_string(),
         could_not_establish: vec![
             "whether Junos verifies TLS certificates on an https:// source",
@@ -272,7 +298,7 @@ fn junos(filename: &str, copy_source: &str) -> Plan {
 
 /// Read 2026-10-10: Cisco's "Upgrading Catalyst 9300 Switches" (222280), "Transferring
 /// Files Using HTTP or HTTPS" (IOS XE), and "Cisco IOS XE Integrity Assurance".
-fn ios_xe(filename: &str, copy_source: &str) -> Plan {
+fn ios_xe(filename: &str, copy_source: &str, sha512: Option<&str>) -> Plan {
     let device_path = format!("bootflash:{filename}");
     let steps = vec![
         step(
@@ -300,10 +326,21 @@ fn ios_xe(filename: &str, copy_source: &str) -> Plan {
         step(
             "prove the whole file arrived",
             format!("verify /sha512 bootflash:{filename}"),
-            "IOS XE's verify takes /md5 or /sha512 (SHA-512 since 16.5.1); an on-device SHA-256 \
-             could not be established. Fathom holds SHA-256, so this output is NOT comparable \
-             with expected_sha256: compare it with the SHA-512 Cisco shows for this file on its \
-             Software Download page. That also shows the file is Cisco's, which is stronger.",
+            match sha512 {
+                Some(h) => format!(
+                    "IOS XE's verify takes /md5 or /sha512 (SHA-512 since 16.5.1); an on-device \
+                     SHA-256 could not be established. The answer must equal expected_sha512, \
+                     which Fathom worked out from the bytes it holds: {h}. Compare it with the \
+                     SHA-512 Cisco shows for this file on its Software Download page too: that \
+                     shows the file is Cisco's, which is stronger."
+                ),
+                None => "IOS XE's verify takes /md5 or /sha512 (SHA-512 since 16.5.1); an \
+                         on-device SHA-256 could not be established. Fathom has no SHA-512 for \
+                         this image yet (it is worked out at its first weekly re-check), so \
+                         compare it with the SHA-512 Cisco shows for this file on its Software \
+                         Download page. That also shows the file is Cisco's, which is stronger."
+                    .to_string(),
+            },
         ),
         step(
             "check Cisco signed it",
@@ -343,7 +380,11 @@ fn ios_xe(filename: &str, copy_source: &str) -> Plan {
             "a rollback command, from the pages read",
         ],
         device_hash_algorithm: "sha512",
-        device_hash_compares_with: "vendor_published_sha512",
+        device_hash_compares_with: if sha512.is_some() {
+            "expected_sha512"
+        } else {
+            "vendor_published_sha512"
+        },
     }
 }
 
@@ -434,6 +475,15 @@ fn eos(filename: &str, copy_source: &str) -> Plan {
     let device_path = format!("flash:/{filename}");
     let steps = vec![
         step(
+            "check Arista signed it -- on your computer, before you upload",
+            format!("verify-swi {filename}"),
+            "From swi-tools, published in the aristanetworks GitHub organisation (github.com/aristanetworks/swi-tools, \
+             `pip install switools`), run on a computer, not the switch. It checks the SWI's \
+             signing certificate against Arista's root certificate and prints `SWI \
+             verification successful.`; anything else returns non-zero. A command that does \
+             this on the switch could not be established.",
+        ),
+        step(
             "check space first",
             "dir flash:",
             "Arista asks for room for two copies of the image, and recommends 240 MB free, if \
@@ -504,6 +554,8 @@ fn eos(filename: &str, copy_source: &str) -> Plan {
         sourced_note: "Read on 2026-10-10: \
             https://www.arista.com/en/um-eos/eos-standard-upgrades-and-downgrades ; \
             https://www.arista.com/en/support/advisories-notices/security-advisory/3577-security-advisory-30 . \
+            The swi-tools step was read on 2026-10-31: https://pypi.org/project/switools \
+            (homepage github.com/aristanetworks/swi-tools). \
             The `bash <command>` form is from the third-party guide at \
             https://acws.duckdns.org/2025.4.ATL/references/arista_eos_guide , not from Arista. \
             Arista's upgrade page still uses 4.13.2 examples under a 4.36.2F title. \
@@ -673,7 +725,8 @@ mod tests {
             assert_eq!(steps(&j), steps(&unset), "{p}");
             assert_eq!(text(field(&j, "family")), "junos");
         }
-        assert_eq!(steps(&unset).len(), 8, "the Junos steps are unchanged");
+        // Eight from the first release, and the Veriexec check after install (r62).
+        assert_eq!(steps(&unset).len(), 9, "the Junos steps are unchanged");
         assert_eq!(text(field(&unset, "sourced")), "summary");
     }
 
@@ -691,5 +744,48 @@ mod tests {
             let all = String::from_utf8(j.to_canonical_bytes()).unwrap();
             assert!(!all.contains(URL), "no step carries the URL: {all}");
         }
+    }
+
+    #[test]
+    fn an_ios_xe_plan_compares_verify_sha512_with_fathoms_own_sha512_when_it_has_one() {
+        let sha512 = "c".repeat(128);
+        let with = commands_with(
+            Some("ios-xe"),
+            "img.bin",
+            &"e".repeat(64),
+            Some(&sha512),
+            None,
+        );
+        assert_eq!(text(field(&with, "expected_sha512")), sha512);
+        assert_eq!(
+            text(field(field(&with, "device_hash"), "compares_with")),
+            "expected_sha512"
+        );
+        let canonical = String::from_utf8(with.to_canonical_bytes()).unwrap();
+        assert!(canonical.contains(&format!(
+            "must equal expected_sha512, which Fathom worked out from the bytes it holds: {sha512}"
+        )));
+
+        let without = commands(Some("ios-xe"), "img.bin", &"e".repeat(64), None);
+        assert!(matches!(field(&without, "expected_sha512"), Json::Null));
+        assert_eq!(
+            text(field(field(&without, "device_hash"), "compares_with")),
+            "vendor_published_sha512"
+        );
+    }
+
+    #[test]
+    fn junos_checks_veriexec_after_install_and_eos_checks_the_swi_signature_before_upload() {
+        let junos = String::from_utf8(
+            commands(Some("junos"), "img.tgz", &"e".repeat(64), None).to_canonical_bytes(),
+        )
+        .unwrap();
+        assert!(junos.contains("sysctl security.mac.veriexec.state"));
+        assert!(junos.contains("loaded active enforce"));
+        let eos = commands(Some("eos"), "EOS.swi", &"e".repeat(64), None);
+        let Json::Arr(steps) = field(&eos, "steps") else {
+            panic!("steps")
+        };
+        assert_eq!(text(field(&steps[0], "command")), "verify-swi EOS.swi");
     }
 }

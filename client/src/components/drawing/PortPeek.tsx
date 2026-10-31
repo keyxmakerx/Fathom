@@ -62,12 +62,17 @@ function after(value: string | undefined, prefix: string): string | undefined {
   return value != null && value.startsWith(prefix) ? value.slice(prefix.length) : undefined;
 }
 
-type Target = { el: HTMLElement; kind: 'port' } | { el: HTMLElement; kind: PeekTarget['kind']; id: string };
+export type Target = { el: HTMLElement; kind: 'port' } | { el: HTMLElement; kind: PeekTarget['kind']; id: string };
 
 /** What the pointer is over, on the canvas: a port first, then the most specific thing. */
-function targetOf(target: EventTarget | null): Target | null {
+export function targetOf(target: EventTarget | null): Target | null {
   const port = portOf(target);
   if (port != null) return { el: port, kind: 'port' };
+  return thingOf(target);
+}
+
+/** The most specific thing (not a port) at or around `target`, on the canvas. */
+export function thingOf(target: EventTarget | null): Exclude<Target, { kind: 'port' }> | null {
   if (!(target instanceof Element) || target.closest(CANVAS_SELECTOR) == null) return null;
   for (const t of THINGS) {
     const el = target.closest<HTMLElement>(t.selector);
@@ -150,6 +155,8 @@ export function PortPeek({ doc, view }: { doc: Document | null; view: ClosetView
       if (e.pointerType === 'touch') return;
       const t = targetOf(e.target);
       if (t == null || e.buttons !== 0) return;
+      // The quick card is already up for this thing (`QuickCard.tsx`): a peek would say the same again.
+      if (t.el.hasAttribute('data-quick')) return;
       schedule(t, t.kind === 'rack' || t.kind === 'shelf' ? BIG_DELAY_MS : PEEK_DELAY_MS, { x: e.clientX, y: e.clientY });
     };
     const onOut = (e: PointerEvent) => {
@@ -220,6 +227,7 @@ export function PortPeek({ doc, view }: { doc: Document | null; view: ClosetView
   return createPortal(
     <div
       ref={cardRef}
+      data-fathom-layer=""
       className={shown.kind === 'port' ? 'port-peek' : 'port-peek port-peek--thing'}
       role="tooltip"
       data-testid={shown.kind === 'port' ? 'port-peek' : 'thing-peek'}

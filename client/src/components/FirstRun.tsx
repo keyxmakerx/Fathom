@@ -988,25 +988,31 @@ export function FinalSignInStage({
           <label className="signin__label" htmlFor="firstrun-code">
             Verification code
           </label>
-          <input
-            id="firstrun-code"
-            className="signin__input signin__input--mono"
-            type="text"
-            inputMode="text"
-            // What a password manager looks for first (ADR-0056, Bitwarden's
-            // `inline-menu-field-qualification.service.ts`). `inputMode` stays
-            // `text`: a numeric keypad would hide the letters a recovery code
-            // is made of, and this field takes one.
-            autoComplete="one-time-code"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            value={code}
-            onChange={(event) => onCode(event.target.value)}
-            disabled={busy}
-            required
-          />
-          <p className="signin__hint">
+          {/* Alone in its own box, as on the sign-in screen: Bitwarden reads the
+              hint after an input as its label, and will not fill a field whose
+              label says "recovery" (SignIn.tsx names the source). */}
+          <div className="signin__control">
+            <input
+              id="firstrun-code"
+              className="signin__input signin__input--mono"
+              type="text"
+              inputMode="text"
+              // What a password manager looks for first (ADR-0056, Bitwarden's
+              // `inline-menu-field-qualification.service.ts`). `inputMode` stays
+              // `text`: a numeric keypad would hide the letters a recovery code
+              // is made of, and this field takes one.
+              autoComplete="one-time-code"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              aria-describedby="firstrun-code-hint"
+              value={code}
+              onChange={(event) => onCode(event.target.value)}
+              disabled={busy}
+              required
+            />
+          </div>
+          <p id="firstrun-code-hint" className="signin__hint">
             Six digits from your authenticator app, or one of the recovery codes you just saved.
           </p>
         </div>

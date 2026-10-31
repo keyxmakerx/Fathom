@@ -74,6 +74,8 @@ export function Account({ address, purpose = 'settings', onDone, onClose, focus,
   // enrolment" until this answers, which is the state a fresh session with
   // no authenticator would leave it in anyway.
   const [hasAuthenticator, setHasAuthenticator] = useState<boolean | null>(null);
+  // A new password ends every other session, so the list below reads again.
+  const [sessionsRead, setSessionsRead] = useState(0);
   useEffect(() => {
     let cancelled = false;
     fetchHasAuthenticator()
@@ -114,9 +116,9 @@ export function Account({ address, purpose = 'settings', onDone, onClose, focus,
 
           {settings && <Appearance />}
 
-          {settings && <PasswordForm address={address} />}
+          {settings && <PasswordForm address={address} onSet={() => setSessionsRead((n) => n + 1)} />}
 
-          {settings && <SignedInBrowsers />}
+          {settings && <SignedInBrowsers key={sessionsRead} />}
 
           {settings && <TypeItYourselfSettings onTurnedOn={onTypeItYourself} />}
 
@@ -161,7 +163,7 @@ export function TypeItYourselfSettings({ onTurnedOn }: { onTurnedOn?: (organisat
       <h2 className="signin__heading">Type it yourself</h2>
       <p className="signin__hint">
         Commands are shown to be typed by hand, in labelled parts, with no copy button, so you learn them. Links and
-        hashes still copy. You can turn it on; only a steward turns it off.
+        hashes still copy. {orgs.every((o) => o.role === 'admin') ? 'As a Steward you can turn it on and off.' : 'You can turn it on; only a steward turns it off.'}
       </p>
       {error && (
         <p className="signin__refusal" role="alert">
@@ -173,10 +175,38 @@ export function TypeItYourselfSettings({ onTurnedOn }: { onTurnedOn?: (organisat
           <li key={o.organisationId}>
             <strong>{o.displayName}</strong>:{' '}
             {o.typeItYourself ? (
-              'on'
+              o.role === 'admin' ? (
+                // Sign-off rua-ui-audit, "steward off": a Steward is not told only a steward turns it off.
+                // The server still decides.
+                <>
+                  on{' '}
+                  <button
+                    type="button"
+                    className="signin__switch"
+                    disabled={busy || me === null}
+                    onClick={async () => {
+                      if (me === null) return;
+                      setBusy(true);
+                      setError(null);
+                      try {
+                        const on = await setTypeItYourself(o.organisationId, me.accountId, false);
+                        setOrgs((all) => all && all.map((x) => (x.organisationId === o.organisationId ? { ...x, typeItYourself: on } : x)));
+                      } catch (e) {
+                        setError(describe(e));
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    Turn off
+                  </button>
+                </>
+              ) : (
+                'on'
+              )
             ) : asking === o.organisationId ? (
               <>
-                Only a steward can turn it off again.{' '}
+                {o.role === 'admin' ? 'Turn it on for yourself?' : 'Only a steward can turn it off again.'}{' '}
                 <button
                   type="button"
                   className="signin__switch"
@@ -297,7 +327,7 @@ function NameForm() {
 
 /** Set or change the password (ADR-0057 decision 3). `address` finds this
  * browser's enrolled key when `current` is left blank. */
-export function PasswordForm({ address }: { address: string }) {
+export function PasswordForm({ address, onSet }: { address: string; onSet?: () => void }) {
   const [current, setCurrent] = useState('');
   const [chosen, setChosen] = useState('');
   const [again, setAgain] = useState('');
@@ -323,6 +353,7 @@ export function PasswordForm({ address }: { address: string }) {
       setChosen('');
       setAgain('');
       setDone(true);
+      onSet?.();
     } catch (error) {
       console.error(error);
       setRefusal(describe(error));
@@ -624,6 +655,10 @@ export function AuthenticatorEnrolment({
   // only when replacing a confirmed authenticator.
   const [reauthPassword, setReauthPassword] = useState('');
   const [reauthCode, setReauthCode] = useState('');
+  // Sign-off rua-ui-audit, "fold replace": the current password and code stay folded until Replace
+  // is pressed, so an account page never holds an open code field nobody asked for (a password
+  // manager stretched its fill menu between two of them).
+  const [replacing, setReplacing] = useState(false);
 
   async function draw() {
     setRefusal(null);
@@ -733,59 +768,89 @@ export function AuthenticatorEnrolment({
         {requiresReauth &&
           ' This account already has one: replacing it needs the current password and a current code from it.'}
       </p>
-      {requiresReauth && (
-        <>
-          <div className="signin__field">
-            <label className="signin__label" htmlFor="authenticator-reauth-password">
-              Current password
-            </label>
-            <input
-              id="authenticator-reauth-password"
-              className="signin__input"
-              type="password"
-              autoComplete="current-password"
-              value={reauthPassword}
-              onChange={(event) => setReauthPassword(event.target.value)}
-              disabled={stage.kind === 'drawing'}
-            />
-          </div>
-          <div className="signin__field">
-            <label className="signin__label" htmlFor="authenticator-reauth-code">
-              Verification code
-            </label>
-            <input
-              id="authenticator-reauth-code"
-              className="signin__input signin__input--mono"
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              spellCheck={false}
-              value={reauthCode}
-              onChange={(event) => setReauthCode(event.target.value)}
-              disabled={stage.kind === 'drawing'}
-            />
-            <p className="signin__hint">The current code from the authenticator being replaced.</p>
-          </div>
-        </>
+      {requiresReauth && replacing && (
+        <ReauthFields
+          password={reauthPassword}
+          code={reauthCode}
+          onPassword={setReauthPassword}
+          onCode={setReauthCode}
+          disabled={stage.kind === 'drawing'}
+        />
       )}
-      <button
-        className="signin__submit"
-        type="button"
-        onClick={draw}
-        disabled={stage.kind === 'drawing' || (requiresReauth && reauthCode.trim().length === 0)}
-      >
-        {stage.kind === 'drawing'
-          ? 'Drawing a secret…'
-          : requiresReauth
-            ? 'Replace the authenticator app'
-            : 'Set up an authenticator app'}
-      </button>
+      {requiresReauth && !replacing ? (
+        <button className="signin__submit" type="button" onClick={() => setReplacing(true)}>
+          Replace the authenticator app
+        </button>
+      ) : (
+        <button
+          className="signin__submit"
+          type="button"
+          onClick={draw}
+          disabled={stage.kind === 'drawing' || (requiresReauth && reauthCode.trim().length === 0)}
+        >
+          {stage.kind === 'drawing' ? 'Drawing a secret…' : requiresReauth ? 'Replace it' : 'Set up an authenticator app'}
+        </button>
+      )}
+      {requiresReauth && replacing && stage.kind !== 'drawing' && (
+        <button
+          type="button"
+          className="signin__switch"
+          onClick={() => {
+            setReplacing(false);
+            setReauthPassword('');
+            setReauthCode('');
+            setRefusal(null);
+          }}
+        >
+          Cancel
+        </button>
+      )}
       {refusal && (
         <div className="signin__refusal" role="alert">
           {refusal}
         </div>
       )}
     </div>
+  );
+}
+
+/** Replacing a confirmed authenticator asks for the current password and a current code from it
+ * (ADR-0057 decision 3). Shown only once Replace is pressed. */
+export function ReauthFields({ password, code, onPassword, onCode, disabled }: { password: string; code: string; onPassword: (v: string) => void; onCode: (v: string) => void; disabled: boolean }) {
+  return (
+    <>
+      <div className="signin__field">
+        <label className="signin__label" htmlFor="authenticator-reauth-password">
+          Current password
+        </label>
+        <input
+          id="authenticator-reauth-password"
+          className="signin__input"
+          type="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(event) => onPassword(event.target.value)}
+          disabled={disabled}
+        />
+      </div>
+      <div className="signin__field">
+        <label className="signin__label" htmlFor="authenticator-reauth-code">
+          Verification code
+        </label>
+        <input
+          id="authenticator-reauth-code"
+          className="signin__input signin__input--mono"
+          type="text"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          spellCheck={false}
+          value={code}
+          onChange={(event) => onCode(event.target.value)}
+          disabled={disabled}
+        />
+        <p className="signin__hint">The current code from the authenticator being replaced.</p>
+      </div>
+    </>
   );
 }
 

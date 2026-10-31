@@ -104,6 +104,14 @@ describe('Bar — who else is here', () => {
     expect(markup).toContain('<span class="shell-person" role="img" tabindex="0" aria-label="Ann Bell" title="Ann Bell">AB</span>');
     expect(renderToStaticMarkup(createElement(Bar, BASE))).not.toContain('shell-person');
   });
+
+  it('shows five dots, then one "+N" for the rest', () => {
+    const presence = Array.from({ length: 20 }, (_, i) => ({ id: `p${i}`, initials: `P${i}`, name: `Person ${i}` }));
+    const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, presence }));
+    expect(markup.match(/role="img"/g)).toHaveLength(5);
+    expect(markup).toContain('aria-label="15 more in this view"');
+    expect(markup).toContain('>+15</button>');
+  });
 });
 
 describe('Bar — the search box', () => {
@@ -184,5 +192,14 @@ describe('Bar — renaming the design from its crumb', () => {
     const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, path: [crumb] }));
     expect(markup).not.toContain('shell-rename-pencil');
     expect(markup).not.toContain('double-click to rename');
+  });
+});
+
+describe('Bar — a long design name', () => {
+  it('sits in its own clipped span, with the whole name in the tooltip', () => {
+    const name = 'N'.repeat(100);
+    const markup = renderToStaticMarkup(createElement(Bar, { ...BASE, path: [{ label: name, opensTree: true }] }));
+    expect(markup).toContain(`<span class="shell-bar__path-text">${name}</span>`);
+    expect(markup).toContain(`title="${name} · switch to another place or design"`);
   });
 });

@@ -418,6 +418,7 @@ export function BuildingPlan({ organisationId, building, closets, designs, onDes
         <RoomPanel
           room={chosen}
           closet={closetFor(chosen)}
+          closetHasDesign={designs.some((d) => d.scopeId === closetFor(chosen)?.scopeId)}
           canDraw={canDraw}
           onOpenCloset={onOpenCloset}
           onRename={(label) => void commit(renameRoom(current.current?.doc ?? doc, chosen.id, label, actor), 'Renaming the room…')}
@@ -479,6 +480,8 @@ function RoomNameForm({ closets, onSave }: { closets: readonly Scope[]; onSave: 
 interface RoomPanelProps {
   room: RoomView;
   closet: Scope | null;
+  /** A closet with no design yet has nothing to open, as its own box says. */
+  closetHasDesign: boolean;
   canDraw: boolean;
   onOpenCloset: (scopeId: string) => void;
   onRename: (label: string) => void;
@@ -486,7 +489,7 @@ interface RoomPanelProps {
   onClose: () => void;
 }
 
-function RoomPanel({ room, closet, canDraw, onOpenCloset, onRename, onRemove, onClose }: RoomPanelProps) {
+function RoomPanel({ room, closet, closetHasDesign, canDraw, onOpenCloset, onRename, onRemove, onClose }: RoomPanelProps) {
   const [label, setLabel] = useState(room.label);
   useEffect(() => setLabel(room.label), [room.label]);
   const area = areaM2(room.corners);
@@ -503,9 +506,13 @@ function RoomPanel({ room, closet, canDraw, onOpenCloset, onRename, onRemove, on
         {room.floor ? ` · floor ${room.floor}` : ''}
       </p>
       {closet ? (
-        <button type="button" className="building-plan__btn" onClick={() => onOpenCloset(closet.scopeId)}>
-          Open the closet {closet.displayName}
-        </button>
+        closetHasDesign ? (
+          <button type="button" className="building-plan__btn" onClick={() => onOpenCloset(closet.scopeId)}>
+            Open the closet {closet.displayName}
+          </button>
+        ) : (
+          <p className="places-map__note">The closet {closet.displayName} has no design yet, so there is nothing to open.</p>
+        )
       ) : (
         <p className="places-map__note">No closet folder has this name. Name the room as a closet folder to open it from here.</p>
       )}

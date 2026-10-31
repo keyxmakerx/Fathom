@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   Account,
   AuthenticatorEnrolment,
+  ReauthFields,
   AuthenticatorSetupStage,
   RecoveryCodesStage,
   recoveryCodeFile,
@@ -86,11 +87,14 @@ describe('the authenticator enrolment', () => {
         requiresReauth: true,
       }),
     );
-    expect(html).toContain('id="authenticator-reauth-password"');
-    expect(html).toContain('autoComplete="current-password"');
-    expect(html).toContain('id="authenticator-reauth-code"');
-    expect(html).toContain('autoComplete="one-time-code"');
+    // Folded until Replace is pressed (sign-off rua-ui-audit): no code field sits open on the page.
+    expect(html).not.toContain('id="authenticator-reauth-code"');
     expect(html).toMatch(/Replace the authenticator app/);
+    const fields = renderToStaticMarkup(createElement(ReauthFields, { password: '', code: '', onPassword: () => {}, onCode: () => {}, disabled: false }));
+    expect(fields).toContain('id="authenticator-reauth-password"');
+    expect(fields).toContain('autoComplete="current-password"');
+    expect(fields).toContain('id="authenticator-reauth-code"');
+    expect(fields).toContain('autoComplete="one-time-code"');
   });
 });
 

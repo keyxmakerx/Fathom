@@ -360,6 +360,30 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0058_estate_index.sql",
         sql: include_str!("../migrations/0058_estate_index.sql"),
     },
+    // A firmware image's SHA-512, and the weekly re-check of every stored image (r62).
+    Migration {
+        version: 59,
+        name: "0059_firmware_recheck.sql",
+        sql: include_str!("../migrations/0059_firmware_recheck.sql"),
+    },
+    // Retiring a firmware image: the file goes, the record stays (r62).
+    Migration {
+        version: 60,
+        name: "0060_firmware_retire.sql",
+        sql: include_str!("../migrations/0060_firmware_retire.sql"),
+    },
+    // An MD5 beside the other two hashes, for vendors that publish nothing better (r62, r70).
+    Migration {
+        version: 61,
+        name: "0061_firmware_md5.sql",
+        sql: include_str!("../migrations/0061_firmware_md5.sql"),
+    },
+    // Firmware's limits on the Admin and Steward pages, sealed and audited (r71).
+    Migration {
+        version: 62,
+        name: "0062_firmware_settings.sql",
+        sql: include_str!("../migrations/0062_firmware_settings.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

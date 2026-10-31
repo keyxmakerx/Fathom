@@ -9,8 +9,8 @@ import { ConsoleTabs, consoleSections } from './ConsoleTabs';
 
 describe('the console section tabs', () => {
   it('offers Accounts first, and Issued only once something was minted', () => {
-    expect(consoleSections(false)).toEqual(['accounts', 'organisations', 'operators', 'ai', 'activity', 'settings']);
-    expect(consoleSections(true)).toEqual(['accounts', 'organisations', 'operators', 'ai', 'activity', 'settings', 'issued']);
+    expect(consoleSections(false)).toEqual(['accounts', 'organisations', 'operators', 'ai', 'firmware', 'activity', 'settings']);
+    expect(consoleSections(true)).toEqual(['accounts', 'organisations', 'operators', 'ai', 'firmware', 'activity', 'settings', 'issued']);
   });
 
   it('marks exactly the current section', () => {

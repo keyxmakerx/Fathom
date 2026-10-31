@@ -53,6 +53,7 @@ import type { NoteHow, NoteView } from '../../document/notes';
 import type { TagChip, TagSummary } from '../../document/tags';
 import type { FieldFor, FieldRow, FieldType } from '../../document/fields';
 import type { PortFace } from '../../document/compat';
+import type { ModelGuess } from '../../document/guessModel';
 import type { SwapPlan } from '../../document/swapModel';
 import type { CardPorts, Optic } from '../../document/cards';
 
@@ -119,6 +120,9 @@ export interface DrawingActions {
   onPasteConfig?(): void;
   /** Open goes into a device (jot mode). `at` is its place on this canvas, when it has one. Without this, Open shows the config drawer. */
   onOpenDevice?(chassisId: string, inside: boolean, at: { x: number; y: number } | null): void;
+  /** Steps into a shelf: its things drawn large, front-on, with the bar's path leading back to the rack.
+   * A double-click on the shelf, its "+N", or Open shelf in its menu. Without this, those only select it. */
+  onOpenShelf?(shelfId: string): void;
   /** ADR-0053 §1/§3 — Ctrl Z, at the same
    * `keydown` listener `onDisconnect` above already uses, ignored while
    * focus sits in an input/textarea/select (the drawing's own cable delete
@@ -254,6 +258,11 @@ export type EditorChange =
    * regardless of which panel raises it (rack, shelf occupant or surface
    * fixture) — `removeChassis` itself finds the `Device` that owns it. */
   | { kind: 'device-remove'; chassisId: string }
+  /** Sign-off rua-ui-audit: an empty rack, shelf or surface removed (`removeHolder`); refused,
+   * with what is still on it, until it is empty. One undo step. */
+  | { kind: 'holder-remove'; id: string }
+  /** A wall, desk or ceiling's name (`setSurfaceLabel`). */
+  | { kind: 'surface'; id: string; field: 'label'; value: string | null }
   /** ADR-0060 step 7: a label or area's words and an area's size; a line's words. */
   | { kind: 'label'; id: string; field: 'text'; value: string }
   | { kind: 'area-size'; id: string; w: number; h: number }
@@ -334,6 +343,8 @@ export interface EditorActions {
    * (`contract.ts`'s own file header note on that pattern): a caller that
    * does not supply one simply has no selecting links, not a crash. */
   onSelect?(selection: Selection): void;
+  /** The shelf panel's Open shelf button. Absent where there is no shelf view to step into. */
+  onOpenShelf?(shelfId: string): void;
   /** Where the open design sits, so a port can link to another site (ADR-0079 decision 5).
    * Absent where there is no server to search, such as a sample. */
   estate?: { organisationId: string; designId: string };
@@ -398,6 +409,9 @@ export interface EditorActions {
   /** What "Swap model…" would carry over, before anyone confirms. Writes nothing; absent hides
    * the preview, not the swap. */
   previewSwap?(chassisId: string, model: { vendor: string; model: string }): SwapPlan | null;
+  /** The catalogue model a box typed by hand most likely is (`guessModel`), offered beside "Give it a catalogue
+   * model…"; null when nothing points clearly at one. Writes nothing. */
+  guessModel?(chassisId: string): ModelGuess | null;
 }
 
 /** `EditorActions`'s three Notes members, grouped for a caller that only
@@ -434,7 +448,9 @@ export type Selection =
   | { kind: 'fixture'; id: string }
   /** ADR-0060 step 7: a text label or an area, and a line between two free boxes. */
   | { kind: 'label'; id: string }
-  | { kind: 'line'; id: string };
+  | { kind: 'line'; id: string }
+  /** A wall, desk or ceiling itself, clicked on its own header or face (sign-off rua-ui-audit). */
+  | { kind: 'surface'; id: string };
 
 /** UI-SPEC "Absent is drawn as absent" — a dash, never an invented zero or
  * an omitted row. Shared by `ChassisNode` (the box) and `Editor` (the

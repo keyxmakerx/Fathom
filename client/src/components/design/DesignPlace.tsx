@@ -277,7 +277,7 @@ export function DesignPlace(props: DesignPlaceProps) {
       const doc = session.doc!;
       const view = viewOf(doc, session.catalogue);
       const allRacks = view.rows.flatMap((row) => row.racks);
-      const racks = options.rackScope === 'active' ? allRacks.filter((r) => r.id === (activeRackId ?? allRacks[0]?.id)) : allRacks;
+      const racks = options.rackScope === 'active' && activeRackId != null ? allRacks.filter((r) => r.id === activeRackId) : allRacks;
       const cableRows = sections.has('cables')
         ? buildCableScheduleRows(doc, view).filter((r) => options.cables !== 'screen' || shownCableIds == null || shownCableIds.has(r.key ?? ''))
         : [];
@@ -858,7 +858,11 @@ export function DesignPlace(props: DesignPlaceProps) {
     ) : null;
 
   // Who else is in this view: initials only, shown as dots in the bar.
-  const presence = session.live.people.map((p) => ({ id: p.account, initials: p.initials, name: p.name }));
+  // Past five they fold into "+N", whose names select what each has selected (sign-off rua-ui-audit).
+  const presence = session.live.people.map((p) => {
+    const selection = doc != null && p.selected != null ? canvasSelectionOf(doc, p.selected) : null;
+    return { id: p.account, initials: p.initials, name: p.name, ...(selection != null ? { go: () => setSelectRequest({ selection }) } : {}) };
+  });
 
   // On the canvas: other people's pointers, and what they changed since this person was last here.
   const changesShown = useChangesSince(doc, accountId, designId, session.live.people);
@@ -988,6 +992,7 @@ export function DesignPlace(props: DesignPlaceProps) {
           <HistoryPanel
             history={history}
             nameOf={historyNameOf}
+            designId={designId}
             accountId={accountId}
             accountAddress={accountAddress}
             canDraw={session.canDraw}
@@ -1198,6 +1203,7 @@ export function DesignPlace(props: DesignPlaceProps) {
           hasInventory={props.place === 'inventory' && inventoryPrintRef.current != null}
           cablesFiltered={shownCableIds != null}
           rackCount={printView.racks.length}
+          activeRackLabel={printView.racks.find((r) => r.id === activeRackId)?.label ?? null}
           captureView={captureViewPng}
           onPrint={showPreview}
           onSavePng={(png) => downloadDataUrl(`${designLabel || 'view'}.png`, png)}

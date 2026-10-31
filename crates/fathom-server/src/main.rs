@@ -881,16 +881,33 @@ async fn main() -> ExitCode {
                 config.firmware_max_bytes,
                 base.clone(),
                 client_address.clone(),
-            ) {
+            )
+            .map(|store| {
+                store.with_space_limits(
+                    config.firmware_organisation_max_bytes,
+                    config.firmware_total_max_bytes,
+                )
+            }) {
                 Ok(store) => {
                     tracing::info!(
                         directory = %dir,
                         max_image_bytes = config.firmware_max_bytes,
+                        organisation_max_bytes = config.firmware_organisation_max_bytes,
+                        total_max_bytes = config.firmware_total_max_bytes,
                         fetch_base_url = %base,
                         "firmware staging enabled. The fetch base URL must be an origin a DEVICE \
                          can reach, which is often not the one a browser uses."
                     );
-                    Some(Arc::new(store))
+                    let store = Arc::new(store);
+                    // Sign-off r71: Admin › Firmware shows these as the starting values.
+                    operators.set_firmware_file(store.file_values());
+                    tracing::info!(
+                        every_days = fathom_server::firmware::RECHECK_EVERY_DAYS,
+                        "each stored firmware image is hashed again once a week; one that \
+                         no longer matches is marked and logged, and is never sent"
+                    );
+                    fathom_server::firmware::spawn_recheck(pool.clone(), Arc::clone(&store));
+                    Some(store)
                 }
                 Err(e) => {
                     tracing::error!(

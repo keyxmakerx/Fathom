@@ -33,9 +33,11 @@ install add file bootflash:<file> activate commit      # yours; reloads
 show version
 ```
 
-- **The hash step does not compare with Fathom's SHA-256.** `verify` takes `/md5` or `/sha512`
-  (SHA-512 since 16.5.1). An on-device SHA-256 could not be established. Compare the output with the
-  SHA-512 on Cisco's Software Download page; that also shows the file is Cisco's.
+- **The hash step compares with Fathom's SHA-512, not its SHA-256.** `verify` takes `/md5` or
+  `/sha512` (SHA-512 since 16.5.1). An on-device SHA-256 could not be established. Since 2026-10-31
+  Fathom works out a SHA-512 at upload (and at an older image's first weekly re-check), so the plan
+  gives `expected_sha512` to compare with. Compare it with the SHA-512 on Cisco's Software Download
+  page too; that also shows the file is Cisco's.
 - HTTPS copy: from 17.3.1 the server name must match the certificate's Subject Alternative Name; from
   17.15.1a the URL needs an absolute path. Whether the certificate chain is validated could not be
   established.
@@ -78,6 +80,7 @@ Sources: [Standard Upgrades and Downgrades](https://www.arista.com/en/um-eos/eos
 [Security Advisory 30](https://www.arista.com/en/support/advisories-notices/security-advisory/3577-security-advisory-30).
 
 ```
+verify-swi <file>                                      # on your computer, before uploading
 dir flash:                                             # room for two copies; 240 MB spare advised
 delete flash:<old image>                               # before the copy
 copy running-config flash:/<backup name>
@@ -89,6 +92,12 @@ write
 reload                                                 # yours
 show version
 ```
+
+- **Check the signature on your computer first.** `verify-swi` is from
+  [swi-tools](https://pypi.org/project/switools), published in the aristanetworks GitHub organisation, read
+  2026-10-31. It checks the SWI's signing certificate against Arista's root certificate and prints
+  `SWI verification successful.`; anything else returns non-zero. A command that does this on the
+  switch could not be established.
 
 - **`https://` as a copy source could not be established.** Arista's page documents `http:`, `ftp:`,
   `scp:` and `usb`. If EOS refuses it, the fetch URL cannot be used as issued.

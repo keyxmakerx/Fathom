@@ -14,13 +14,14 @@ import {
   isSurfaceForm,
   movePlacement,
   removeChassis,
+  removeHolder,
   removeSketchPort,
   resizeShelf,
 } from '../../document/commands';
 import { connectOneEnd, connectToOutside, disconnect, setCableField, setCableNeedsFinishing } from '../../document/cables';
 import { addCableRun, addCableTie, moveCableTie, removeCableRun, removeCableTie } from '../../document/cableRuns';
 import { removeFree, setLabel, setLineLabel } from '../../document/freeform';
-import { FieldValueError, setChassisField, setPortMac, setDeviceField, setPassiveNodeField, setRackField, setRackHeight } from '../../document/edit';
+import { FieldValueError, setChassisField, setPortMac, setDeviceField, setPassiveNodeField, setRackField, setRackHeight, setSurfaceLabel } from '../../document/edit';
 import { edgesIn, findNode, readDeviceFields, type Document } from '../../document/model';
 import { copyName, hostnamesOf } from '../racks/pick';
 import { fitSupply, removeSupply, setSupplyField } from '../../document/supplies';
@@ -107,6 +108,10 @@ export function applyEditorChange(
     next = connectToOutside(doc, change.portId, { label: change.label, far: change.far }, opts);
   } else if (change.kind === 'cable-needs-finishing') {
     next = setCableNeedsFinishing(doc, change.id, change.on, opts);
+  } else if (change.kind === 'holder-remove') {
+    next = removeHolder(doc, change.id, opts);
+  } else if (change.kind === 'surface') {
+    next = setSurfaceLabel(doc, change.id, change.value, opts);
   } else if (change.kind === 'device-remove') {
     next = removeChassis(doc, change.chassisId, opts);
   } else if (change.kind === 'move-placement') {

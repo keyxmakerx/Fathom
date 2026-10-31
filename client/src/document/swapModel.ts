@@ -87,6 +87,13 @@ export class SwapDoesNotFitError extends Error {
 
 const norm = (s: string | undefined): string => (s ?? '').trim().toLowerCase();
 
+/** The number in a one-number port name typed by hand, "49" from `Et49`, `Ethernet 49` or `port-49`; null for a
+ * plain number (paired by name), a path like `Gi1/0/49`, or a name with no number. */
+export function portNumberOf(label: string | undefined): string | null {
+  const m = /^[a-z][a-z. _-]*?(\d+)$/i.exec((label ?? '').trim());
+  return m ? String(Number(m[1])) : null;
+}
+
 function catalogueLabel(port: CataloguePort): string {
   return port.name ?? String(port.number);
 }
@@ -123,7 +130,8 @@ interface Matching {
 /** Ports pair, each once, in four passes: same name and connector on the same face; then on
  * any face; then a numbered port left over onto the new model's next free numbered port of the
  * same connector and face, in label order (a 24-port switch's SFP+ uplinks land on a 48-port
- * switch's SFP+ cages whatever they are numbered); then same name whatever the connector. */
+ * switch's SFP+ cages whatever they are numbered); then same name whatever the connector; then a name typed by hand
+ * with one number in it (`Et49`) onto the numbered port with that number. */
 function match(doc: Document, chassisId: string, model: CatalogueModel, oldModel: CatalogueModel | undefined): Matching {
   const portIds = liveTo(doc, edgesOut(doc, chassisId, 'HasPort'));
   const fields = new Map(portIds.map((id) => [id, readPhysicalPortFields(findNode(doc, id)!)]));
@@ -152,6 +160,10 @@ function match(doc: Document, chassisId: string, model: CatalogueModel, oldModel
   pass(numbered, (f, slot) => slot.numbered === true && sameConnector(f, slot) && sameFace(f, slot));
   pass(portIds, (f, slot) => sameName(f, slot) && sameFace(f, slot));
   pass(portIds, sameName);
+  // A hand-typed `Et49`, `eth49` or `Port 49` is the new model's port 49.
+  const sameNumber = (f: PhysicalPortFields, slot: Slot) => slot.numbered === true && portNumberOf(f.label) === slot.label;
+  pass(portIds, (f, slot) => sameNumber(f, slot) && sameFace(f, slot));
+  pass(portIds, sameNumber);
 
   const supplyIds = liveTo(doc, edgesOut(doc, chassisId, 'FittedIn'));
   const hotSlots = model.psuSlots.filter((s) => s.hotSwap);

@@ -78,10 +78,21 @@
 .paste-card__off {
   color: var(--muted);
 }
+/* Sign-off rua-ui-audit (card 57's rule for every card): a long list scrolls, the buttons stay on
+   the card's bottom edge. The negative offsets reach past the card's own padding, so no row shows
+   beneath or beside them. */
 .paste-card__actions {
   display: flex;
   gap: var(--s2);
   margin-top: var(--s3);
+}
+.paste-card .paste-card__actions {
+  margin: var(--s3) calc(-1 * var(--s4)) 0;
+  padding: var(--s2) var(--s4) var(--s3);
+  position: sticky;
+  bottom: calc(-1 * var(--s3));
+  background: var(--page);
+  border-top: var(--rule-hair) solid var(--hairline);
 }
 .paste-card__choice input {
   appearance: auto;

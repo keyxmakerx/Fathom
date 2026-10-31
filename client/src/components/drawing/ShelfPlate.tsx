@@ -57,6 +57,8 @@ export interface ShelfPlateNodeData extends Record<string, unknown> {
   rackId?: string;
   onResize?: ResizeShelf;
   onSelectShelf: () => void;
+  /** Steps into the shelf's own view. Absent: "+N" only selects the shelf. */
+  onOpenShelf?: () => void;
   onSelectOccupant: (occupantId: string) => void;
   onSelectPort: (portId: string) => void;
   portSheath: ReadonlyMap<string, Sheath>;
@@ -364,7 +366,7 @@ function compactHandles(ports: readonly PortView[]) {
 }
 
 export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
-  const { shelf, elevation, slotCount, rackId, onResize, onSelectShelf, onSelectOccupant, onSelectPort, portSheath } = data;
+  const { shelf, elevation, slotCount, rackId, onResize, onSelectShelf, onOpenShelf, onSelectOccupant, onSelectPort, portSheath } = data;
   const { occupantIds, myCableIds } = useMyIds(shelf);
   const { selected, selectedOccupantId, litCableId, liveDrag, cameraStop } = useShelfLiveData(shelf.id, occupantIds, myCableIds);
   const height = shelf.heightU * U_PX;
@@ -427,7 +429,8 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
     return (
       <div
         className={
-          selected ? 'drawing-shelf drawing-shelf--compact drawing-shelf--selected' : 'drawing-shelf drawing-shelf--compact'
+          // `nopan`: React Flow's double-click zoom otherwise swallows the double-click that steps into the shelf.
+          selected ? 'drawing-shelf drawing-shelf--compact drawing-shelf--selected nopan' : 'drawing-shelf drawing-shelf--compact nopan'
         }
         style={{ height }}
         onClick={(event: MouseEvent) => {
@@ -462,15 +465,16 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
               </button>
             ))}
             {folded.length > 0 && (
-              // The rest of the shelf, counted. Opening the shelf lists every one;
+              // The rest of the shelf, counted. A click steps into the shelf, which draws every one;
               // their ports keep an anchor here so a cable to them still draws.
               <button
                 type="button"
                 title={folded.map((item) => item.occupant.label).join(', ')}
+                aria-label={onOpenShelf ? `Open shelf: ${folded.length} more` : undefined}
                 className="drawing-shelf__compact-more nodrag"
                 onClick={(event: MouseEvent) => {
                   event.stopPropagation();
-                  onSelectShelf();
+                  (onOpenShelf ?? onSelectShelf)();
                 }}
               >
                 +{folded.length}
@@ -497,7 +501,7 @@ export function ShelfPlate({ data }: NodeProps<ShelfPlateNodeType>) {
 
   return (
     <div
-      className={selected ? 'drawing-shelf drawing-shelf--selected' : 'drawing-shelf'}
+      className={selected ? 'drawing-shelf drawing-shelf--selected nopan' : 'drawing-shelf nopan'}
       style={{ height }}
       onClick={(event: MouseEvent) => {
         event.stopPropagation();

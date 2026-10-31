@@ -19,9 +19,12 @@
 
 .places-map__crumbs {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--s1);
+  min-width: 0;
   font-size: var(--t-body);
+  overflow-wrap: anywhere;
 }
 
 .places-map__crumb {
@@ -117,6 +120,7 @@
 .places-box__name {
   font-weight: 700;
   font-size: var(--t-body);
+  overflow-wrap: anywhere;
 }
 
 .places-box__counts {

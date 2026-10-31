@@ -13,7 +13,9 @@ import { CommandToType, TypeItYourselfNote } from '../typing/CommandToType';
 import { useTypeItYourself } from '../typing/typeItYourself';
 import { FirmwareContext } from './context';
 import { HowItGetsThere } from './ByHand';
-import { CommandNotes, CopyButton, copyText } from './parts';
+import { FirmwareActivityList } from './Activity';
+import { linkWarnings, warningCodes, type LinkWarning } from './linkWarnings';
+import { CommandNotes, CopyButton, LinkWarnings, copyText } from './parts';
 import { FETCH_STEP_TITLE, LINK_PLACEHOLDER, commandWithLink, maskedLink, stepTitle, upgradeGroups, type UpgradeGroup } from './upgradePlan';
 import './firmware.css';
 
@@ -21,10 +23,20 @@ interface LinkState {
   groups: UpgradeGroup[];
   /** The image each fetch step's devices are chosen for, by step id; null when Fathom has none. */
   imageOf(stepId: string): string | null;
+  /** What looks wrong about sending that image to that step's devices (`linkWarnings`). */
+  warningsOf(stepId: string): LinkWarning[];
   links: Readonly<Record<string, FetchLink>>;
   busy: boolean;
   error: string | null;
-  issue(imageId: string | null): Promise<FetchLink | null>;
+  /**
+   * A link for this image. When `warnings` are not yet passed for it, shows them instead and
+   * gives null; "Get the link anyway" then gets one with their codes, which the server records.
+   */
+  issue(imageId: string | null, warnings?: readonly LinkWarning[]): Promise<FetchLink | null>;
+  /** The warnings waiting for an answer, and for which image. */
+  pending: { imageId: string; warnings: readonly LinkWarning[] } | null;
+  anyway(): Promise<void>;
+  back(): void;
 }
 
 const LinkScope = createContext<LinkState | null>(null);
@@ -48,31 +60,58 @@ export function UpgradeLinkScope({ plan, children }: { plan: Plan; children: Rea
   const [links, setLinks] = useState<Record<string, FetchLink>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<LinkState['pending']>(null);
+  const [passed, setPassed] = useState<Readonly<Record<string, readonly string[]>>>({});
   const groups = upgradeGroups(plan);
   if (!api || groups.length === 0) return <>{children}</>;
   const byStep = new Map(groups.flatMap((g) => (g.fetchStep ? [[g.fetchStep.id, imageOfGroup(api.doc, g)] as const] : [])));
+  const get = async (imageId: string, codes: readonly string[]): Promise<FetchLink | null> => {
+    setBusy(true);
+    setError(null);
+    const got = await api.issueLink(imageId, codes);
+    setBusy(false);
+    if ('refused' in got) {
+      setError(got.refused);
+      return null;
+    }
+    setLinks((l) => ({ ...l, [imageId]: got }));
+    return got;
+  };
   const state: LinkState = {
     groups,
     imageOf: (stepId) => byStep.get(stepId) ?? null,
+    warningsOf: (stepId) => {
+      const imageId = byStep.get(stepId);
+      const image = imageId ? api.server.images.find((i) => i.imageId === imageId) : undefined;
+      const group = groups.find((g) => g.fetchStep?.id === stepId);
+      if (!image || !group) return [];
+      return linkWarnings(api.doc, image, group.deviceIds.flatMap((id) => deviceFirmware(api.doc, id) ?? []));
+    },
     links,
     busy,
     error,
-    issue: async (imageId) => {
+    pending,
+    issue: async (imageId, warnings = []) => {
       if (imageId === null) {
         setError("This model's chosen version has no image in Fathom. Upload one, then choose it.");
         return null;
       }
-      setBusy(true);
-      setError(null);
-      const got = await api.issueLink(imageId);
-      setBusy(false);
-      if ('refused' in got) {
-        setError(got.refused);
+      const codes = warningCodes(warnings);
+      const seen = passed[imageId] ?? [];
+      if (codes.some((c) => !seen.includes(c))) {
+        setPending({ imageId, warnings });
         return null;
       }
-      setLinks((l) => ({ ...l, [imageId]: got }));
-      return got;
+      return get(imageId, codes);
     },
+    anyway: async () => {
+      if (pending === null) return;
+      const codes = warningCodes(pending.warnings);
+      setPassed((p) => ({ ...p, [pending.imageId]: codes }));
+      setPending(null);
+      await get(pending.imageId, codes);
+    },
+    back: () => setPending(null),
   };
   return <LinkScope.Provider value={state}>{children}</LinkScope.Provider>;
 }
@@ -116,7 +155,7 @@ function CommandCopy({ step, scope, imageId }: { step: PlanStep; scope: LinkStat
           let text = step.after;
           if (needsLink) {
             // A fresh link on every copy: each works once, and a plan can cover several devices.
-            const link = await scope.issue(imageId);
+            const link = await scope.issue(imageId, scope.warningsOf(step.id));
             if (link === null) return;
             text = commandWithLink(step.after, link.url);
           }
@@ -155,6 +194,15 @@ export function FirmwarePlanExtras({ plan }: { plan: Plan }) {
       ) : (
         <p className="plans-note">A steward gets the one-time link on the day.</p>
       )}
+      {api.isSteward ? (
+        <FirmwareActivityList
+          api={api}
+          imageIds={fetches.flatMap((g) => scope.imageOf(g.fetchStep!.id) ?? [])}
+          expected={new Set(lines.map(({ d }) => d.managementAddress).filter((a) => a !== ''))}
+          title="Downloads and links for these images"
+        />
+      ) : null}
+      {scope.pending ? <LinkWarnings warnings={scope.pending.warnings} busy={scope.busy} onAnyway={() => void scope.anyway()} onBack={scope.back} /> : null}
       {scope.error ? (
         <p className="plans-note" role="alert">
           {scope.error}
@@ -180,7 +228,7 @@ function GroupLink({ group, scope, plan }: { group: UpgradeGroup; scope: LinkSta
           <div className="fw-link-box__url">{maskedLink(link.url)}</div>
           <div className="fw-link-box__row">
             <CopyButton text={link.url} label="Copy link" className="plans-btn" />
-            <button type="button" className="plans-btn" disabled={scope.busy} onClick={() => void scope.issue(imageId)}>
+            <button type="button" className="plans-btn" disabled={scope.busy} onClick={() => void scope.issue(imageId, scope.warningsOf(group.fetchStep!.id))}>
               Get another
             </button>
           </div>
@@ -193,7 +241,7 @@ function GroupLink({ group, scope, plan }: { group: UpgradeGroup; scope: LinkSta
         </div>
       ) : (
         <p>
-          <button type="button" className="plans-btn" disabled={scope.busy || imageId === null} onClick={() => void scope.issue(imageId)}>
+          <button type="button" className="plans-btn" disabled={scope.busy || imageId === null} onClick={() => void scope.issue(imageId, scope.warningsOf(group.fetchStep!.id))}>
             {scope.busy ? 'Getting…' : 'Get a one-time link'}
           </button>
           <span className="plans-note"> {imageId === null ? "No image in Fathom for this model's chosen version." : 'Works once, then expires. Fathom never logs in to the device.'}</span>

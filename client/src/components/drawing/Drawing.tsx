@@ -83,6 +83,7 @@ import { InSideSlot } from '../shell/sideSlot';
 import { useWheelMode } from './canvasPrefs';
 import { FREE_EDGE_TYPES, FREE_NODE_TYPES, useFreeLayer } from './useFreeLayer';
 import { menuItemsFor, type MenuActions, type MenuTarget } from './contextMenuItems';
+import { holderOf } from './editorChanges';
 import { createLiveStore, EMPTY_STRING_SET, LiveStoreProvider, useLive, type LiveStore } from './liveStore';
 import { portSheathEqual } from './nodeEquality';
 import { RACK_NODE_WIDTH, RackNode, rackNodeHeight, type RackNodeData, type RackNodeType } from './RackNode';
@@ -460,6 +461,7 @@ function DrawingInner({
   onFitCard,
   deviceMenu,
   onOpenDevice,
+  onOpenShelf,
   onResizeShelf,
   onAddFreeBox,
   onPlaceOnSurface,
@@ -561,7 +563,8 @@ function DrawingInner({
   // Zoom never opens a device; only Open, a double-click or "Show on rack" does.
   const [opened, setOpened] = useState<{ id: string; view: 'config' | 'inside' } | null>(null);
   // Sign-off r59: a click anywhere on a device selects it and opens its panel; the callout a click on its
-  // name used to draw is gone, and a pause over it shows the peek (`PortPeek.tsx`) instead.
+  // name used to draw is gone, and a pause over it shows the peek (`PortPeek.tsx`) instead. Since 31 October
+  // any click also puts the quick card beside it (`QuickCard.tsx`), which the place draws, not the canvas.
   const openedRef = useRef(opened);
   openedRef.current = opened;
   // Tell the caller which devices are picked together, so its panel can edit them all; empty again on leaving.
@@ -609,6 +612,16 @@ function DrawingInner({
           onSetNeedsFinishing: (id, on) => void onEdit({ kind: 'cable-needs-finishing', id, on }),
         }
       : {};
+  // Sign-off rua-ui-audit: Remove on a rack or wall, greyed with what is on it until it is empty.
+  const holderMenuActions: Partial<MenuActions> =
+    onEdit != null
+      ? {
+          holderOf: (id) => holderOf(view, id),
+          onRemoveHolder: (id) => {
+            if (onEdit({ kind: 'holder-remove', id }) == null) onSelect(null);
+          },
+        }
+      : {};
   const freeMenuActions: Partial<MenuActions> = {
     onAddInRack: onAddDeviceAt ? (rackId, u, at) => free.openAdd(at.screen, at.flow, { rackId, positionU: u }) : undefined,
     onAddBoxHere: onAddFreeBox ? (at) => free.openAdd(at.screen, at.flow) : undefined,
@@ -617,8 +630,8 @@ function DrawingInner({
     onRemoveFree,
   };
   const menuActions: MenuActions = canDraw
-    ? { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onCloseRackGaps, onCopyRack, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, onSuggestCables, onFitCard, ...freeMenuActions, ...cableRunMenuActions, ...looseMenuActions, ...deviceMenu }
-    : { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, ...deviceMenu };
+    ? { onSelect, onOpen: openChassis, onOpenInside, onOpenShelf, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onCloseRackGaps, onCopyRack, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, onSuggestCables, onFitCard, ...freeMenuActions, ...cableRunMenuActions, ...looseMenuActions, ...holderMenuActions, ...deviceMenu }
+    : { onSelect, onOpen: openChassis, onOpenInside, onOpenShelf, onTraceFrom, ...deviceMenu };
   const menuActionsRef = useRef(menuActions);
   useLayoutEffect(() => {
     menuActionsRef.current = menuActions;
@@ -631,7 +644,7 @@ function DrawingInner({
     event.preventDefault();
     setMenu({ x: event.clientX - rect.left, y: event.clientY - rect.top, target });
   }, []);
-  // A wall, shelf, tray or row label has no menu of its own yet; it offers
+  // A shelf, tray or row label has no menu of its own yet; it offers
   // what the empty canvas does.
   const paneTarget = useCallback(
     (event: { clientX: number; clientY: number }): MenuTarget => {
@@ -649,6 +662,7 @@ function DrawingInner({
       // A device on a shelf, wall, desk or ceiling has the same menu as one in a rack unit.
       const onDevice = (event.target as Element | null)?.closest?.('[data-device-chassis]')?.getAttribute('data-device-chassis');
       if (onDevice) return openMenu(event, { kind: 'chassis', id: onDevice, on: node.id.startsWith('surface:') ? 'fixture' : 'occupant' });
+      if (node.type === 'shelf') return openMenu(event, { kind: 'shelf', id: (node.data as ShelfPlateNodeType['data']).shelf.id });
       const parsedFree = parseFreeNodeId(node.id);
       const rackNode = parseNodeId(node.id);
       if (rackNode?.kind === 'rack') {
@@ -1209,6 +1223,7 @@ function DrawingInner({
       onFlipRow,
       onFlipRack,
       onSelectShelf,
+      onOpenShelf,
       onResizeShelf,
       onOpenShelfOccupant,
       onHoverInlet: handleHoverCable,
@@ -1611,6 +1626,9 @@ function DrawingInner({
   const handleNodeClick: NodeMouseHandler = useCallback(
     (event, node) => {
       if (free.onNodeClick(event, node)) return;
+      // A wall, desk or ceiling: a click on its face or header, not on a fixture (which stops
+      // the click itself), selects it.
+      if (node.id.startsWith('surface:')) return onSelect({ kind: 'surface', id: node.id.slice('surface:'.length) });
       const parsed = parseNodeId(node.id);
       if (parsed == null) return;
       onSelect(parsed.kind === 'rack' ? { kind: 'rack', id: parsed.id } : { kind: 'chassis', id: parsed.id });
@@ -1619,10 +1637,17 @@ function DrawingInner({
   );
 
   const handleNodeDoubleClick: NodeMouseHandler = useCallback(
-    (_event, node) => {
+    (event, node) => {
       const freeBox = parseFreeNodeId(node.id);
       if (freeBox?.kind === 'box' && onOpenDevice) return openChassis(freeBox.id);
       if (free.onNodeDoubleClick(node)) return;
+      // A shelf: a double-click on a device on it opens that device; anywhere else on the tray steps into the shelf.
+      if (node.type === 'shelf') {
+        const onDevice = (event.target as Element | null)?.closest?.('[data-device-chassis]')?.getAttribute('data-device-chassis');
+        if (onDevice) return openChassis(onDevice);
+        onOpenShelf?.((node.data as ShelfPlateNodeType['data']).shelf.id);
+        return;
+      }
       const parsed = parseNodeId(node.id);
       if (parsed?.kind === 'chassis') openChassis(parsed.id);
       // A double-click on a rack glides to the rack stop, centred on that rack.
@@ -1634,7 +1659,7 @@ function DrawingInner({
         void rf.setCenter(inner.internals.positionAbsolute.x + w / 2, inner.internals.positionAbsolute.y + h / 2, { zoom: CAMERA_STOPS.rack / 100, ...GLIDE });
       }
     },
-    [openChassis, onOpenDevice, free.onNodeDoubleClick, rf],
+    [openChassis, onOpenDevice, onOpenShelf, free.onNodeDoubleClick, rf],
   );
 
   const chassisHeightUFor = (node: FlowNode): number =>
@@ -1969,11 +1994,19 @@ function DrawingInner({
         if (findFixture(view, selected.id)?.fixture.kind !== 'chassis') return;
         event.preventDefault();
         onRemoveDevice?.(selected.id);
+        return;
+      }
+      // An empty rack, shelf or wall, as its Remove does; one with something on it stays, and its
+      // panel's greyed Remove says why.
+      if (selected?.kind === 'rack' || selected?.kind === 'shelf' || selected?.kind === 'surface') {
+        if (onEdit == null || holderOf(view, selected.id)?.onIt !== '') return;
+        event.preventDefault();
+        if (onEdit({ kind: 'holder-remove', id: selected.id }) == null) onSelect(null);
       }
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [selected, onSelect, onDisconnect, onRemoveDevice, canDraw, onUndo, onRedo, view, free.onKeyDown, onMove, onDuplicateDevice, onPasteDevice, triggerShake]);
+  }, [selected, onSelect, onDisconnect, onRemoveDevice, onEdit, canDraw, onUndo, onRedo, view, free.onKeyDown, onMove, onDuplicateDevice, onPasteDevice, triggerShake]);
 
   // `useLayoutEffect`, not `useEffect` — commits before the browser paints, so a node subscribed to one of these never draws one frame stale.
   useLayoutEffect(() => {

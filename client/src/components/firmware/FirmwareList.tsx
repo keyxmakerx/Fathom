@@ -133,6 +133,7 @@ export function FirmwareList({ api, onOpenImage, onOpenModel, onOpenDevices, onU
               {r.sha256 ? (
                 <>
                   {shortHash(r.sha256)} <CopyButton text={r.sha256} label="Copy" className="fw-btn btn-quiet" />
+                  {r.image?.changedAtUnix != null ? <span className="fw-error"> Changed on the server, won't be sent</span> : null}
                 </>
               ) : (
                 ''
@@ -168,7 +169,11 @@ export function FirmwareList({ api, onOpenImage, onOpenModel, onOpenDevices, onU
           {all.length === 0
             ? status === 'loading'
               ? 'Reading what the server holds…'
-              : 'No images yet. Upload one, or choose a version on a model page.'
+              : api.isSteward && status !== 'off'
+                ? 'No images yet. Upload one, or choose a version on a model page.'
+                : api.canEdit
+                  ? 'No images yet. Choose a version on a model page.'
+                  : 'No images yet.'
             : 'Nothing matches.'}
         </p>
       ) : null}

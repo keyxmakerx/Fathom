@@ -48,6 +48,11 @@ import './home.css';
 import { EmptyState } from '../ui/EmptyState';
 import { SkeletonRows } from '../ui/Skeleton';
 
+/** The design's access in the bar's words ("View only"), not the server's ("read"). */
+function accessWord(capability: string): string {
+  return capability === 'read' ? 'view only' : capability === 'draw' ? 'can draw' : capability === 'steward' ? 'steward' : capability;
+}
+
 export interface HomeProps {
   /** The signed-in account's address, exactly as `Shell`/`Masthead` already
    * receive it from `App.tsx`'s `session.address` — Home does not read
@@ -311,6 +316,11 @@ export function Home({
   }, [organisationAdmin, selectedOrgId]);
   const member =
     organisations.status === 'ready' && organisations.value.some((org) => org.organisationId === selectedOrgId && !org.practice);
+  // Sign-off rua-ui-audit, "who to ask": someone who may draw in no folder, and may not make one,
+  // is not offered New design or the samples (each ended in a refusal); the empty page says who decides.
+  const canMakeDesigns =
+    (scopes.status === 'ready' && scopes.value.some((scope) => canDrawFor(scope.capability))) ||
+    (organisations.status === 'ready' && organisations.value.some((org) => org.organisationId === selectedOrgId && (org.role === 'admin' || org.practice)));
   const tabs = homeTabs({ organisationAdmin, aiMaker, admin: admin !== undefined, waitingInvitee, member });
   const shownTab: HomeTab = tabs.includes(tab) ? tab : 'designs';
 
@@ -671,7 +681,7 @@ export function Home({
 
         {shownTab === 'admin' && admin && <section className="home__section">{admin.panel}</section>}
 
-        {shownTab === 'designs' && !waitingInvitee && !firstSteps.hidden && selectedOrganisation && (
+        {shownTab === 'designs' && !waitingInvitee && !firstSteps.hidden && selectedOrganisation && canMakeDesigns && (
           <SampleCard
             summary={sample(HOME_SAMPLE).summary}
             busy={sampleBusy}
@@ -697,7 +707,7 @@ export function Home({
           <div className="home__section-head">
             <div className="home__label">Designs you may open</div>
             {/* With no designs yet, the empty state's own New design is the one button (r30-small). */}
-            {selectedOrganisation && !(designs.status === 'ready' && designs.value.length === 0) && (
+            {selectedOrganisation && canMakeDesigns && !(designs.status === 'ready' && designs.value.length === 0) && (
               <button
                 type="button"
                 className="home__btn btn-small"
@@ -727,7 +737,7 @@ export function Home({
               onOpenInventory={onOpenInventory}
               onCreateDesign={handleCreateDesign}
               busyScopeId={newDesignBusyScopeId}
-              onNewDesign={() => handleNewDesign(selectedOrganisation)}
+              onNewDesign={canMakeDesigns ? () => handleNewDesign(selectedOrganisation) : undefined}
               onRenamed={(designId, name) =>
                 setDesigns((current) =>
                   current.status === 'ready'
@@ -928,7 +938,9 @@ function HomeDesigns({
           compact
           action={onNewDesign ? { label: 'New design', onClick: onNewDesign, disabled: busyScopeId !== null } : undefined}
         >
-          A design holds your racks, devices and cables. Start one and draw into it.
+          {onNewDesign
+            ? 'A design holds your racks, devices and cables. Start one and draw into it.'
+            : 'You can open designs here, but not start one. Ask a Steward of this organisation to give you a folder to draw in.'}
         </EmptyState>
       )}
 
@@ -1107,10 +1119,10 @@ function DesignRow({ design, organisation, onOpenRacks, onOpenInventory, onRenam
         </button>
       )}
       <span className="home__design-meta">
-        v{design.latestVersion} · {design.capability} · started {whenLabel(design.createdAtUnix).toLowerCase()}
+        v{design.latestVersion} · {accessWord(design.capability)} · started {whenLabel(design.createdAtUnix).toLowerCase()}
       </span>
       <span className="home__design-actions">
-        {canDrawFor(design.capability) && !editing && (
+        {canDrawFor(design.capability) && !editing && !moving && (
           <button
             type="button"
             className="home__btn"

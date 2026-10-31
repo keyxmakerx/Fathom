@@ -45,7 +45,7 @@ import {
   type PortView,
   type Selection,
 } from './contract';
-import { findChassis, findFixture, findOccupant, findRack, findShelf, findUnplacedChassis, locatePort } from './lookup';
+import { findDevice, findFixture, findOccupant, findRack, findShelf, locatePort } from './lookup';
 import { connectorName, describePorts, faceplateLayoutFor } from './faceplate';
 import { EmptyState } from '../ui/EmptyState';
 import { DeviceSections } from './DeviceSections';
@@ -53,7 +53,7 @@ import { Fold } from './Fold';
 import { CardsSection, OpticSection } from './Parts';
 import { OpenFarSite, SiteLinkPicker, siteLinkOf } from './SiteLink';
 import { LoginsTab, LoginsTabLabel } from '../vault/Screens';
-import { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, rackHeightBlocker, swapModelChange, swapSummary } from './editorChanges';
+import { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, holderOf, rackHeightBlocker, swapModelChange, swapSummary } from './editorChanges';
 import { loadJsonPref, saveJsonPref } from '../../prefs';
 export { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, rackHeightBlocker, swapModelChange, swapSummary };
 
@@ -1462,10 +1462,35 @@ function SwapModelControl({ chassisId, current, catalogue, actions }: { chassisI
   if (choices.length === 0) return null;
 
   if (!open) {
+    const guess = current ? null : actions.guessModel?.(chassisId) ?? null;
     return (
-      <button type="button" className="btn-quiet" onClick={() => setIsOpen(true)}>
-        {current ? DEVICE_WORDS.swapModel : DEVICE_WORDS.giveModel}
-      </button>
+      <>
+        {guess ? (
+          <div className="dev-guess" data-testid="model-guess">
+            <div className="dev-guess__h">
+              Looks like the {guess.vendorName} <b>{guess.model}</b>
+            </div>
+            <ul className="dev-guess__why">
+              {guess.why.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              className="btn-main"
+              onClick={() => {
+                setModelKey(`${guess.vendor}|${guess.model}`);
+                setIsOpen(true);
+              }}
+            >
+              See what changes
+            </button>
+          </div>
+        ) : null}
+        <button type="button" className="btn-quiet" onClick={() => setIsOpen(true)}>
+          {current ? DEVICE_WORDS.swapModel : DEVICE_WORDS.giveModel}
+        </button>
+      </>
     );
   }
 
@@ -1917,6 +1942,28 @@ function AddNoteForm({
   );
 }
 
+/** Sign-off rua-ui-audit: a rack's, shelf's or wall's Remove. Always shown to someone who can
+ * edit; greyed, with what is still on it, until it is empty, so nothing goes with it by accident. */
+function RemoveHolder({ view, id, actions }: { view: ClosetView; id: string; actions: EditorActions }) {
+  const why = useId();
+  const holder = holderOf(view, id);
+  if (!actions.onEdit || holder == null) return null;
+  const label = `Remove ${holder.noun}`;
+  if (holder.onIt !== '') {
+    return (
+      <div className="drawing-editor__field">
+        <button type="button" className="btn-danger" disabled aria-describedby={why}>
+          {label}
+        </button>
+        <div id={why} className="drawing-context-menu__why">
+          Empty it first: {holder.onIt}
+        </div>
+      </div>
+    );
+  }
+  return <SupplyAction label={label} onCommit={() => actions.onEdit!({ kind: 'holder-remove', id })} />;
+}
+
 /**
  * The selected thing's fields, exactly as the shell's `editor` prop wants
  * them (`Shell.tsx`'s `editor: ReactNode | null`). The same function serves
@@ -1927,8 +1974,8 @@ function AddNoteForm({
 /** The ids a panel holds fields of: its own, its device's and its power supplies'. Live notices match on these. */
 function elementsOf(selection: Selection, view: ClosetView): string {
   const ids = [selection.id];
-  if (selection.kind === 'chassis') {
-    const chassis = findChassis(view, selection.id)?.chassis ?? findUnplacedChassis(view, selection.id);
+  if (selection.kind === 'chassis' || selection.kind === 'occupant' || selection.kind === 'fixture') {
+    const chassis = findDevice(view, selection.id)?.chassis;
     if (chassis != null) {
       ids.push(chassis.deviceId);
       for (const inlet of chassis.psuInlets) if (inlet.supplyId != null) ids.push(inlet.supplyId);
@@ -1975,10 +2022,17 @@ function panelFor(
   if (selection.kind === 'rack') {
     const rack = findRack(view, selection.id);
     if (rack == null) return null;
-    const usedU = rack.chassis.reduce((sum, c) => sum + c.heightU, 0);
+    const usedU = [...rack.chassis, ...rack.shelves].reduce((sum, c) => sum + c.heightU, 0);
     return (
       <div className="drawing-editor__panel">
-        <div className="drawing-editor__title">{rack.label}</div>
+        <div className="drawing-editor__title">
+          <EditableValue
+            value={rack.label}
+            placeholder={ABSENT}
+            editorKind="text"
+            onCommit={actions.onEdit ? (v) => actions.onEdit!({ kind: 'rack', id: rack.id, field: 'label', value: v }) : undefined}
+          />
+        </div>
         <RackHeightControl rack={rack} actions={actions} />
         <Field label="Numbering" value={rack.unitNumbering} />
         <Field label="Used" value={`${usedU} of ${rack.heightU}U`} />
@@ -2020,6 +2074,42 @@ function panelFor(
         <NotesSection ownerId={rack.id} actions={actions} />
         <TagsSection ownerId={rack.id} actions={actions} />
         <DocsSection ownerId={rack.id} />
+        <RemoveHolder view={view} id={rack.id} actions={actions} />
+      </div>
+    );
+  }
+
+  // Sign-off rua-ui-audit: a wall, desk or ceiling, clicked on its own face. Its name, what is on
+  // it (each a link to its panel), its cable runs, and Remove.
+  if (selection.kind === 'surface') {
+    const surface = view.surfaces.find((x) => x.id === selection.id);
+    if (surface == null) return null;
+    const runs = surface.cableRuns ?? [];
+    return (
+      <div className="drawing-editor__panel">
+        <div className="drawing-editor__title">
+          <EditableValue
+            value={surface.label}
+            placeholder={ABSENT}
+            editorKind="text"
+            onCommit={actions.onEdit ? (v) => actions.onEdit!({ kind: 'surface', id: surface.id, field: 'label', value: v }) : undefined}
+          />
+        </div>
+        <Field label="Kind" value={surface.form} />
+        <div className="drawing-editor__field">
+          <div className="drawing-editor__field-label">On it</div>
+          {surface.fixtures.length === 0 ? (
+            <div className="drawing-editor__field-value">Nothing yet</div>
+          ) : (
+            surface.fixtures.map((f) => (
+              <div key={f.id}>
+                <SelectLink label={f.label || UNNAMED_HOSTNAME} onSelect={actions.onSelect && (() => actions.onSelect!({ kind: 'fixture', id: f.id }))} />
+              </div>
+            ))
+          )}
+        </div>
+        <Field label="Cable runs" value={runs.length === 0 ? 'None' : String(runs.length)} />
+        <RemoveHolder view={view} id={surface.id} actions={actions} />
       </div>
     );
   }
@@ -2122,19 +2212,25 @@ function panelFor(
             })
           )}
         </div>
+        {actions.onOpenShelf ? (
+          <div className="drawing-editor__footer dev-panel__foot">
+            <button type="button" className="btn-main" onClick={() => actions.onOpenShelf!(shelf.id)} data-testid="shelf-open">
+              Open shelf
+            </button>
+          </div>
+        ) : null}
+        <RemoveHolder view={view} id={shelf.id} actions={actions} />
       </div>
     );
   }
 
-  if (selection.kind === 'chassis') {
-    // A `Chassis` with no live `MountedIn`/`SitsOn`/`FixedTo` at all
-    // (`ClosetView.unplaced`, `document/view.ts`) — Inventory's "Unplaced"
-    // group opens the SAME chassis panel, `rack` simply `undefined` and
-    // every rack-only field below gated on it, rather than nothing at all.
-    const found = findChassis(view, selection.id);
-    const chassis = found?.chassis ?? findUnplacedChassis(view, selection.id);
-    if (chassis == null) return null;
-    const rack = found?.rack;
+  // A device on a shelf or a wall, or one with no live `MountedIn`/`SitsOn`/`FixedTo` at all
+  // (`ClosetView.unplaced`, `document/view.ts`), opens the SAME panel as a racked one, `rack` simply
+  // `undefined` and every rack-only field below gated on it. A passive on a shelf or a wall keeps its own below.
+  const device = selection.kind === 'chassis' || selection.kind === 'occupant' || selection.kind === 'fixture' ? findDevice(view, selection.id) : undefined;
+  if (selection.kind === 'chassis' && device == null) return null;
+  if (device != null) {
+    const { chassis, rack, where } = device;
     const topU = chassis.positionU + chassis.heightU - 1;
     const uRange = chassis.heightU === 1 ? `U${chassis.positionU}` : `U${chassis.positionU}–U${topU}`;
     // `chassis.sketch` (`document/view.ts`) only reads `true` once at least
@@ -2147,7 +2243,7 @@ function panelFor(
     // same "no catalogue model" reading the fixture panel below already
     // derives locally for its own `sketch` for the identical reason.
     const chassisSketch = chassis.model === '';
-    const kindLine = [chassis.role, rack ? `${rack.label}, ${uRange}` : 'not placed'].filter(Boolean).join(' · ');
+    const kindLine = [chassis.role, rack ? `${rack.label}, ${uRange}` : (where ?? 'not placed')].filter(Boolean).join(' · ');
     const sub = [[chassis.vendor, chassis.model].filter(Boolean).join(' '), connectorCounts(chassis.ports)].filter(Boolean).join(' · ');
     return (
       <div className="drawing-editor__panel drawing-editor__panel--tabbed drawing-editor__panel--device">

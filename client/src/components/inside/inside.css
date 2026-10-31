@@ -29,6 +29,25 @@
   font-size: var(--t-small);
 }
 
+.inside-stop__config-says {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+/* A device with no config read yet: say what is missing, and the way to fill it. */
+.inside-stop__nothing {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  padding: var(--s3);
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  font-size: var(--t-small);
+}
+.inside-stop__nothing p {
+  margin: 0;
+}
+
 .inside-stop__body {
   display: flex;
   align-items: flex-start;
@@ -82,7 +101,9 @@
   flex-wrap: wrap;
   align-items: flex-start;
   gap: var(--s3);
-  flex-shrink: 0;
+  /* Takes the row's spare width and wraps inside it, rather than sizing to one long line of zones. */
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .inside-stop__zone {

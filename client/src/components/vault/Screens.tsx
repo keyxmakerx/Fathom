@@ -556,7 +556,7 @@ export function PasswordsPage({ organisation, organisationName, mode: asked }: {
                 : undefined
             }
           />
-          {(open.owner === overview.me || overview.steward) && (
+          {(open.owner === overview.me || overview.steward) && open.holders.some((h) => !h.revoked && h.kind === 'person' && h.account !== open.owner) && (
             <div className="vault-holders">
               <div className="vault-field__label">Remove someone</div>
               {open.holders

@@ -87,7 +87,7 @@ export function SideList(props: SideListProps) {
         <select aria-label="Kind" value={kind} onChange={(e) => onKind(e.currentTarget.value as Kind)}>
           {KIND_GROUPS.flat().map((k) => (
             <option key={k.key} value={k.key}>
-              {k.label} · {fmt(counts[k.key])}
+              {counts[k.key] === null && k.key === 'everywhere' ? k.label : `${k.label} · ${fmt(counts[k.key])}`}
             </option>
           ))}
         </select>

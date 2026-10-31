@@ -14,6 +14,7 @@ import {
   movePlacement,
   placeChassis,
   placeOnShelf,
+  resizeShelf,
   type CreateSurfaceOptions,
 } from './document/commands';
 import { setChassisField, setDeviceField, setPortMac } from './document/edit';
@@ -597,6 +598,33 @@ export function seedShelfScene(catalogue: CatalogueModel[], me: string): Documen
   return working;
 }
 
+/** Sign-off r63: a full 1U shelf (five things over six slots, more than fit by name, so it shows "+N")
+ * beside a sketch switch it is cabled to, for stepping into a shelf. */
+export function seedShelfRoomScene(catalogue: CatalogueModel[], me: string): Document {
+  const { doc, rackId } = oneRack(catalogue, me);
+  const sw = newSketchDevice(doc, 'core-sw', me);
+  let working = movePlacement(sw.doc, sw.chassisId, { kind: 'rack', rackId, positionU: 24, face: 'front' }, { actor: me });
+  for (let i = 1; i <= 4; i += 1) working = addSketchPort(working, sw.chassisId, { label: `ge${i}`, connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
+  const before = working;
+  working = createShelf(working, rackId, { positionU: 20, label: 'Top shelf', actor: me });
+  const shelfId = newestNode(before, working, 'PassiveNode');
+  working = resizeShelf(working, shelfId, { slots: 6 }, { actor: me, catalogue });
+  const things: Array<[string, number, number]> = [['padparadscha', 1, 2], ['morpheus-nas', 2, 2], ['homeassistant', 3, 1], ['pihole-02', 5, 1], ['kvm', 6, 1]];
+  for (const [name, slot, ports] of things) {
+    const t = newSketchDevice(working, name, me);
+    working = placeOnShelf(t.doc, t.chassisId, shelfId, slot, { actor: me });
+    for (let i = 0; i < ports; i += 1) working = addSketchPort(working, t.chassisId, { label: `eth${i}`, connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
+  }
+  const view = viewOf(working, catalogue);
+  const rack = view.racks.find((r) => r.id === rackId)!;
+  const swPorts = rack.chassis.find((c) => c.hostname === 'core-sw')!.ports;
+  const shelfThings = rack.shelves.find((x) => x.id === shelfId)!.occupants;
+  shelfThings.slice(0, 3).forEach((o, i) => {
+    working = connectPorts(working, o.ports[0]!.id, swPorts[i]!.id, { sheath: 'blue' as Sheath }, { actor: me });
+  });
+  return working;
+}
+
 /** Three catalogued devices in one rack, a bundle of three cables between the
  * two switches, an SFP+ link and one to the firewall: the canvas-looks-right scene. */
 export function seedCanvasScene(catalogue: CatalogueModel[], me: string): Document {
@@ -1022,4 +1050,22 @@ export function seedSuggestScene(me: string): Document {
     for (const label of ports) doc = addSketchPort(doc, made.chassisId, { label, connector: 'rj45', face: 'front' }, { actor: me });
   }
   return doc;
+}
+
+/** The owner's "sweetch" (2026-10-31): a switch typed by hand in a 12U rack at U10, thirteen `Et` ports, its note
+ * naming the model, two cables out. The "sweetch" scene, for `drive-model-guess.mjs`. */
+export function seedSweetchScene(catalogue: CatalogueModel[], me: string): Document {
+  const { doc: base, rackId } = oneRack(catalogue, me, 12);
+  const sw = newSketchDevice(base, 'sweetch', me);
+  let doc = movePlacement(sw.doc, sw.chassisId, { kind: 'rack', rackId, positionU: 10, face: 'front' }, { actor: me });
+  const labels = ['Et3', 'Et4', 'Et6', 'Et7', 'Et8', 'Et11', 'Et12', 'Et13', 'Et15', 'Et34', 'Et39', 'Et49', 'Et51'];
+  for (const label of labels) doc = addSketchPort(doc, sw.chassisId, { label, connector: 'sfp_plus', face: 'front' }, { actor: me });
+  const deviceId = viewOf(doc, catalogue).racks[0]!.chassis.find((c) => c.id === sw.chassisId)!.deviceId;
+  doc = addNote(doc, deviceId, { text: 'Arista DCS-7050S-52 (48x SFP+ and 4x SFP+, 1U), EOS 4.18.11M. Managed at 10.10.255.100/16.', how: 'typed', actor: me });
+  const fw = newSketchDevice(doc, 'painite', me);
+  doc = movePlacement(fw.doc, fw.chassisId, { kind: 'rack', rackId, positionU: 8, face: 'front' }, { actor: me });
+  doc = addSketchPort(doc, fw.chassisId, { label: '10G to Arista', connector: 'sfp_plus', face: 'front' }, { actor: me });
+  const portOf = (chassisId: string, label: string) =>
+    viewOf(doc, catalogue).racks[0]!.chassis.find((c) => c.id === chassisId)!.ports.find((p) => p.label === label)!.id;
+  return connectPorts(doc, portOf(sw.chassisId, 'Et49'), portOf(fw.chassisId, '10G to Arista'), { label: 'Arista Et49 to Painite, 10G DAC 3 m' }, { actor: me });
 }

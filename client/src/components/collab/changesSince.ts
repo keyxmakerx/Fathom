@@ -223,3 +223,12 @@ export function rememberNames(accountId: string | null, designId: string | undef
     // not remembered
   }
 }
+
+/** Sign-off rua-ui-audit, "real names": who made a change, in words, the same in every history.
+ * "you", the name this design has heard for them, or "a colleague" when none has been heard;
+ * never a piece of an account id, which made one person read as two different codes. */
+export function whoWord(account: string | null | undefined, accountId: string | null, designId: string | undefined, you = 'you'): string {
+  if (account == null || account === '') return 'unknown';
+  if (account === accountId) return you;
+  return loadNames(accountId, designId).get(account) ?? 'a colleague';
+}

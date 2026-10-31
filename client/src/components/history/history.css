@@ -69,9 +69,13 @@
   display: block;
   color: var(--muted);
 }
+/* Sign-off rua-ui-audit (card 57's rule): Back to now and Restore sit on the panel's bottom edge,
+   wherever the list ends; the list above scrolls. */
 .shell-editor .history__actions {
   display: flex;
   flex-direction: column;
+  flex: none;
+  margin-top: auto;
   gap: var(--s2);
   padding: var(--s3) var(--s4);
   border-top: var(--rule-hair) solid var(--hairline);

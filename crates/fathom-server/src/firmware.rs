@@ -82,7 +82,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::Router;
 use deadpool_postgres::Transaction;
-use sha2::{Digest, Sha256};
+use md5::Md5;
+use sha2::{Digest, Sha256, Sha512};
 
 use fathom_canon::Json;
 
@@ -93,7 +94,7 @@ use crate::chains::{self, ChainStoreError};
 use crate::crypto::hex;
 use crate::crypto::{self, CryptoError};
 use crate::crypto::{now_unix, unhex};
-use crate::firmware_commands::commands;
+use crate::firmware_commands::commands_with;
 use crate::grants::{self, Authority, EpochWatch};
 use crate::keys::{self, KeyRing, KeyStoreError};
 use crate::repo::{self, FirmwareImageId, OrganisationId, RepoError, ScopeId};
@@ -114,6 +115,30 @@ pub const UPLOAD_TOKEN_LIFETIME_SECONDS: i64 = 60 * 60;
 /// short-lived without a number; promote this to configuration if a real
 /// maintenance window disagrees.
 pub const FETCH_TOKEN_LIFETIME_SECONDS: i64 = 15 * 60;
+
+/// Uploads in flight at once for one organisation, and for the whole server
+/// (sign-off r62). An upload past either is refused with `429` and its token kept,
+/// so the same token can try again a minute later. Downloads by devices are not
+/// limited: upgrading a dozen switches at once is a normal night.
+pub const UPLOADS_AT_ONCE_PER_ORGANISATION: usize = 1;
+pub const UPLOADS_AT_ONCE_PER_SERVER: usize = 3;
+
+/// An upload that sends nothing for this long is dropped and its file deleted, so a
+/// stalled or deliberately slow sender cannot hold a slot. A slow upload that keeps
+/// moving is never cut off.
+pub const UPLOAD_IDLE_SECONDS: u64 = 120;
+
+/// Default for `FATHOM_FIRMWARE_ORGANISATION_MAX_BYTES`: what one organisation's
+/// images may add up to (sign-off r62). Twenty gibibytes.
+pub const DEFAULT_ORGANISATION_MAX_BYTES: u64 = 20 * 1024 * 1024 * 1024;
+
+/// Default for `FATHOM_FIRMWARE_TOTAL_MAX_BYTES`: what every image file in the
+/// staging directory may add up to. Fifty gibibytes. **This stands in for a
+/// free-space check**: std has no portable free-space call and reading one needs a
+/// new dependency, so the operator sets this below what the volume can hold
+/// (`docs/OPERATING.md`). It is what keeps firmware from filling a disk the
+/// database shares.
+pub const DEFAULT_TOTAL_MAX_BYTES: u64 = 50 * 1024 * 1024 * 1024;
 
 /// The header the upload's bytes carry their token in. A header, not a query
 /// parameter: a token in a URL reaches proxy logs, browser history and
@@ -163,8 +188,42 @@ pub struct FirmwareState {
 pub struct FirmwareStore {
     directory: PathBuf,
     max_image_bytes: u64,
+    organisation_max_bytes: u64,
+    total_max_bytes: u64,
+    upload_idle: std::time::Duration,
     fetch_base_url: String,
     client_address: crate::client_address::ClientAddress,
+    /// Uploads in flight, counted in this process. Several servers behind one
+    /// load balancer each keep their own count, so the server-wide limit is per
+    /// process; the per-organisation total is read from the database and holds
+    /// across all of them.
+    slots: std::sync::Mutex<Slots>,
+}
+
+#[derive(Default)]
+struct Slots {
+    total: usize,
+    by_organisation: std::collections::HashMap<String, usize>,
+}
+
+/// One upload's place in [`Slots`], given back when it is dropped: on success, on
+/// refusal and on a panic alike.
+pub struct UploadSlot {
+    store: Arc<FirmwareStore>,
+    organisation: String,
+}
+
+impl Drop for UploadSlot {
+    fn drop(&mut self) {
+        let mut slots = self.store.slots.lock().unwrap_or_else(|e| e.into_inner());
+        slots.total = slots.total.saturating_sub(1);
+        if let Some(n) = slots.by_organisation.get_mut(&self.organisation) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                slots.by_organisation.remove(&self.organisation);
+            }
+        }
+    }
 }
 
 impl FirmwareStore {
@@ -207,13 +266,96 @@ impl FirmwareStore {
         Ok(Self {
             directory,
             max_image_bytes,
+            organisation_max_bytes: DEFAULT_ORGANISATION_MAX_BYTES,
+            total_max_bytes: DEFAULT_TOTAL_MAX_BYTES,
+            upload_idle: std::time::Duration::from_secs(UPLOAD_IDLE_SECONDS),
             fetch_base_url: fetch_base_url.trim_end_matches('/').to_string(),
             client_address,
+            slots: std::sync::Mutex::new(Slots::default()),
         })
+    }
+
+    /// What one organisation's images, and every image on this server, may add up
+    /// to. Both default to [`DEFAULT_ORGANISATION_MAX_BYTES`] and
+    /// [`DEFAULT_TOTAL_MAX_BYTES`].
+    pub fn with_space_limits(mut self, organisation_max_bytes: u64, total_max_bytes: u64) -> Self {
+        self.organisation_max_bytes = organisation_max_bytes;
+        self.total_max_bytes = total_max_bytes;
+        self
+    }
+
+    /// How long an upload may send nothing before it is dropped. [`UPLOAD_IDLE_SECONDS`]
+    /// unless a test shortens it.
+    pub fn with_upload_idle(mut self, idle: std::time::Duration) -> Self {
+        self.upload_idle = idle;
+        self
     }
 
     pub fn max_image_bytes(&self) -> u64 {
         self.max_image_bytes
+    }
+
+    /// What the server's settings file says (sign-off r71): the starting values the
+    /// Admin and Steward pages show, and what is used for anything nobody saved there.
+    pub fn file_values(&self) -> crate::firmware_settings::FileValues {
+        crate::firmware_settings::FileValues {
+            max_image_bytes: self.max_image_bytes,
+            total_max_bytes: self.total_max_bytes,
+            organisation_max_bytes: self.organisation_max_bytes,
+            uploads_per_server: UPLOADS_AT_ONCE_PER_SERVER,
+            uploads_per_organisation: UPLOADS_AT_ONCE_PER_ORGANISATION,
+            upload_idle_seconds: self.upload_idle.as_secs(),
+            fetch_base_url: self.fetch_base_url.clone(),
+        }
+    }
+
+    /// A place for one upload, or `None` when this organisation or this server
+    /// already has as many in flight as it may. The counts are the admin's when
+    /// saved (r71), else the settings file's.
+    fn take_slot(
+        self: &Arc<Self>,
+        organisation: &str,
+        per_server: usize,
+        per_organisation: usize,
+    ) -> Option<UploadSlot> {
+        let mut slots = self.slots.lock().unwrap_or_else(|e| e.into_inner());
+        let mine = slots
+            .by_organisation
+            .get(organisation)
+            .copied()
+            .unwrap_or(0);
+        if slots.total >= per_server || mine >= per_organisation {
+            return None;
+        }
+        slots.total += 1;
+        *slots
+            .by_organisation
+            .entry(organisation.to_string())
+            .or_insert(0) += 1;
+        Some(UploadSlot {
+            store: Arc::clone(self),
+            organisation: organisation.to_string(),
+        })
+    }
+
+    /// The bytes every image and partial upload in the staging directory holds now.
+    async fn bytes_on_disk(&self) -> Result<u64, FirmwareError> {
+        let directory = self.directory.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut total = 0u64;
+            for entry in std::fs::read_dir(&directory)? {
+                let entry = entry?;
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.ends_with(".img") || name.ends_with(".part") {
+                    total = total.saturating_add(entry.metadata()?.len());
+                }
+            }
+            Ok::<u64, std::io::Error>(total)
+        })
+        .await
+        .map_err(joined)?
+        .map_err(FirmwareError::Storage)
     }
 
     /// Where one image's bytes live. **The only place in this server that builds a
@@ -292,6 +434,18 @@ pub fn router(state: FirmwareState) -> Router {
             put(models_handler),
         )
         .route(
+            "/organisations/{organisation}/firmware/{image}/retire",
+            post(retire_handler),
+        )
+        .route(
+            "/organisations/{organisation}/firmware/activity",
+            get(activity_handler),
+        )
+        .route(
+            "/organisations/{organisation}/firmware/settings",
+            get(settings_handler).put(set_settings_handler),
+        )
+        .route(
             "/firmware/fetch/{token}",
             get(fetch_handler).head(head_refused),
         )
@@ -345,6 +499,26 @@ pub enum FirmwareError {
 
     /// Something about the filesystem. Never rendered to the caller in detail.
     Storage(std::io::Error),
+
+    /// This organisation, or this server, already has as many uploads in flight as
+    /// it may. The token is not spent.
+    Busy,
+    /// Staging this image would take the organisation's images, or every image on
+    /// this server, past what they may add up to.
+    OverSpace {
+        used: u64,
+        requested: u64,
+        max: u64,
+        whole_server: bool,
+    },
+    /// The upload sent nothing for this many seconds (the stall time, r62 and r71);
+    /// the partial file was deleted.
+    Stalled(u64),
+    /// A firmware setting could not be read or saved (`firmware_settings`).
+    Settings(crate::firmware_settings::SettingsError),
+    /// **The file on disk is not the file that was staged.** Its SHA-256, read again
+    /// just before sending, differs from the one computed at upload. Nothing is sent.
+    ImageChanged,
 }
 
 /// For an operator reading a log line, never the network; [`IntoResponse`] below
@@ -397,6 +571,29 @@ impl core::fmt::Display for FirmwareError {
                  has already been spent, or has expired",
             ),
             Self::Storage(e) => write!(f, "the firmware staging directory refused something: {e}"),
+            Self::Busy => f.write_str("another firmware upload is already running"),
+            Self::OverSpace {
+                used,
+                requested,
+                max,
+                whole_server,
+            } => write!(
+                f,
+                "staging {requested} more bytes would take {} past {max} (it holds {used})",
+                if *whole_server {
+                    "this server's firmware"
+                } else {
+                    "this organisation's firmware"
+                }
+            ),
+            Self::Stalled(seconds) => write!(
+                f,
+                "the upload sent nothing for {seconds} seconds and was dropped"
+            ),
+            Self::Settings(e) => write!(f, "{e}"),
+            Self::ImageChanged => f.write_str(
+                "a staged image's bytes no longer have the SHA-256 computed when it was uploaded",
+            ),
         }
     }
 }
@@ -443,6 +640,20 @@ impl From<tokio_postgres::Error> for FirmwareError {
 impl From<deadpool_postgres::PoolError> for FirmwareError {
     fn from(e: deadpool_postgres::PoolError) -> Self {
         Self::Pool(e)
+    }
+}
+impl From<crate::firmware_settings::SettingsError> for FirmwareError {
+    fn from(e: crate::firmware_settings::SettingsError) -> Self {
+        use crate::firmware_settings::SettingsError as S;
+        match e {
+            S::Pool(e) => Self::Pool(e),
+            S::Db(e) => Self::Db(e),
+            S::Repo(e) => Self::Repo(e),
+            S::Keys(e) => Self::Keys(e),
+            S::Chain(e) => Self::Chain(e),
+            S::Authority(e) => Self::Session(SessionError::Authority(e)),
+            other => Self::Settings(other),
+        }
     }
 }
 impl From<grants::AuthorityError> for FirmwareError {
@@ -545,6 +756,71 @@ impl IntoResponse for FirmwareError {
             Self::Storage(e) => {
                 tracing::error!(reason = %e, "firmware storage failed");
                 (StatusCode::INTERNAL_SERVER_ERROR, "refused\n").into_response()
+            }
+
+            Self::Busy => (
+                StatusCode::TOO_MANY_REQUESTS,
+                [(axum::http::header::RETRY_AFTER, "30")],
+                "another firmware upload is running for this organisation or on this server. \
+                 Your upload token is still good: try again in a minute\n",
+            )
+                .into_response(),
+            Self::OverSpace {
+                used,
+                requested,
+                max,
+                whole_server,
+            } => (
+                StatusCode::INSUFFICIENT_STORAGE,
+                format!(
+                    "there is no room for this image. {} firmware holds {used} bytes of the \
+                     {max} it may, and this image is {requested}. {}\n",
+                    if whole_server {
+                        "This server's"
+                    } else {
+                        "This organisation's"
+                    },
+                    if whole_server {
+                        "Ask the server's admin to raise the server's total on Admin › \
+                         Firmware, or free space"
+                    } else {
+                        "Retire an image you no longer need, or raise your organisation's total \
+                         on Steward › Firmware (up to what the server's admin allows)"
+                    }
+                ),
+            )
+                .into_response(),
+            Self::Stalled(seconds) => (
+                StatusCode::REQUEST_TIMEOUT,
+                format!(
+                    "the upload sent nothing for {seconds} seconds, so it was dropped and \
+                     nothing was staged. Declare the image again to retry\n"
+                ),
+            )
+                .into_response(),
+            Self::Settings(e) => {
+                use crate::firmware_settings::SettingsError as S;
+                let status = match &e {
+                    S::Malformed(_) => StatusCode::BAD_REQUEST,
+                    S::Conflict | S::Locked | S::OverCeiling { .. } => StatusCode::CONFLICT,
+                    _ => {
+                        tracing::error!(reason = %e, "firmware settings failed");
+                        return (StatusCode::INTERNAL_SERVER_ERROR, "refused\n").into_response();
+                    }
+                };
+                (status, format!("{e}\n")).into_response()
+            }
+            Self::ImageChanged => {
+                tracing::error!(
+                    "a staged firmware image changed on disk after it was uploaded; refusing to \
+                     send it"
+                );
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "this image has changed on the server since it was uploaded, so it was not \
+                     sent. Tell the server's operator, and upload it again from the vendor\n",
+                )
+                    .into_response()
             }
         }
     }
@@ -789,7 +1065,7 @@ async fn declare_handler(
     if version.as_deref().is_some_and(|v| !safe_version(v)) {
         return Err(FirmwareError::Malformed(VERSION_SHAPE));
     }
-    if byte_length == 0 || byte_length > state.store.max_image_bytes {
+    if byte_length == 0 {
         return Err(FirmwareError::TooLarge {
             bytes: byte_length,
             max: state.store.max_image_bytes,
@@ -808,6 +1084,54 @@ async fn declare_handler(
         Capability::Steward,
     )
     .await?;
+
+    // -- what this organisation is held to now (r62; set on the pages, r71) --
+    let limits = crate::firmware_settings::limits_for(
+        &tx,
+        &state.ring,
+        &state.store.file_values(),
+        &ctx.tenant().to_string(),
+    )
+    .await?;
+    if byte_length > limits.max_image_bytes {
+        return Err(FirmwareError::TooLarge {
+            bytes: byte_length,
+            max: limits.max_image_bytes,
+        });
+    }
+
+    // -- room for it (sign-off r62) --
+    // The organisation's images: staged ones, and declared ones whose upload can
+    // still start or has started. A declaration whose token expired unused holds
+    // nothing.
+    let used: i64 = tx
+        .query_one(
+            "SELECT coalesce(sum(i.byte_length), 0)::bigint FROM firmware_images i \
+             WHERE i.organisation_id = $1 AND (i.state = 'staged' OR (i.state = 'declared' \
+               AND EXISTS (SELECT 1 FROM firmware_upload_tokens t WHERE t.image_id = i.id \
+                 AND (t.redeemed_at IS NOT NULL OR t.expires_at > now()))))",
+            &[&ctx.tenant().to_string()],
+        )
+        .await?
+        .get(0);
+    let used = used.max(0) as u64;
+    if used.saturating_add(byte_length) > limits.organisation_max_bytes {
+        return Err(FirmwareError::OverSpace {
+            used,
+            requested: byte_length,
+            max: limits.organisation_max_bytes,
+            whole_server: false,
+        });
+    }
+    let on_disk = state.store.bytes_on_disk().await?;
+    if on_disk.saturating_add(byte_length) > limits.total_max_bytes {
+        return Err(FirmwareError::OverSpace {
+            used: on_disk,
+            requested: byte_length,
+            max: limits.total_max_bytes,
+            whole_server: true,
+        });
+    }
 
     let image = FirmwareImageId::new();
     // `WHERE EXISTS` against `scopes`, as `designs::create_design` does: a scope id
@@ -937,6 +1261,9 @@ fn parse_declaration(body: &[u8]) -> Result<Declaration, FirmwareError> {
     })
 }
 
+const WARNINGS_SHAPE: &str = "warnings_passed (each of downgrade, not_chosen, wrong_model at \
+                              most once, sorted), or no body";
+
 const MODELS_SHAPE: &str = "models (at most 16 distinct catalogue model ids, each 1 to 64 \
                             characters of letters, digits and - _ . / +)";
 
@@ -1022,8 +1349,39 @@ async fn upload_handler(
         .filter(|t| t.len() == 32)
         .ok_or(FirmwareError::TokenNotFresh)?;
 
-    // -- spend the token, and read the declaration it belongs to --
     let mut client = state.sessions.pool().get().await?;
+
+    // -- a place to upload into, taken BEFORE the token is spent --
+    // So an upload refused for being one too many keeps its token and can try
+    // again. The look-up spends nothing; the guarded UPDATE below is still what
+    // makes the token single-use.
+    let peek = client.transaction().await?;
+    enter_upload_custody(&peek).await?;
+    let owner: String = peek
+        .query_opt(
+            "SELECT organisation_id FROM firmware_upload_tokens \
+             WHERE token_hash = $1 AND image_id = $2 AND redeemed_at IS NULL \
+               AND expires_at > now()",
+            &[&token_hash(&token).to_vec(), &image.to_string()],
+        )
+        .await?
+        .ok_or(FirmwareError::TokenNotFresh)?
+        .get(0);
+    // The server-wide limits: readable with no tenant set (`0062`).
+    let limits =
+        crate::firmware_settings::server_limits(&peek, &state.ring, &state.store.file_values())
+            .await?;
+    peek.commit().await?;
+    let _slot = state
+        .store
+        .take_slot(
+            &owner,
+            limits.uploads_per_server,
+            limits.uploads_per_organisation,
+        )
+        .ok_or(FirmwareError::Busy)?;
+
+    // -- spend the token, and read the declaration it belongs to --
     let tx = client.transaction().await?;
     enter_upload_custody(&tx).await?;
 
@@ -1071,10 +1429,10 @@ async fn upload_handler(
 
     // -- the bytes --
     let partial = state.store.partial_path(image);
-    let outcome = stream_to_disk(&partial, body, declared_length).await;
+    let outcome = stream_to_disk(&partial, body, declared_length, limits.upload_idle).await;
 
-    let (received, computed) = match outcome {
-        Ok(pair) => pair,
+    let (received, digests) = match outcome {
+        Ok(hashed) => hashed,
         Err(e) => {
             remove_quietly(&partial).await;
             mark_failed(&state, &organisation, image, "write_failed").await?;
@@ -1082,6 +1440,7 @@ async fn upload_handler(
         }
     };
 
+    let computed = digests.sha256;
     let hash_matched = computed.as_slice() == declared_digest.as_slice();
     if received != declared_length || !hash_matched {
         // **Delete first, then record.** A partial file outliving its refusal is what
@@ -1118,10 +1477,52 @@ async fn upload_handler(
         },
         &created_by,
         received,
-        computed,
+        digests,
         &partial,
     )
     .await
+}
+
+/// The hashes Fathom worked out from an image's bytes, in one pass.
+///
+/// **Only `sha256` protects anything.** The SHA-512 is for vendors and devices that
+/// print one (`0059`); the MD5 is for vendor pages that publish nothing better
+/// (`0061`), and MD5 is broken, so a match only rules out a damaged download.
+struct Digests {
+    sha256: [u8; 32],
+    sha512: [u8; 64],
+    md5: [u8; 16],
+}
+
+/// The three hashers, fed the same bytes.
+struct Hashers {
+    sha256: Sha256,
+    sha512: Sha512,
+    md5: Md5,
+}
+
+impl Hashers {
+    fn new() -> Self {
+        Self {
+            sha256: Sha256::new(),
+            sha512: Sha512::new(),
+            md5: Md5::new(),
+        }
+    }
+
+    fn update(&mut self, bytes: &[u8]) {
+        self.sha256.update(bytes);
+        self.sha512.update(bytes);
+        self.md5.update(bytes);
+    }
+
+    fn finish(self) -> Digests {
+        Digests {
+            sha256: self.sha256.finalize().into(),
+            sha512: self.sha512.finalize().into(),
+            md5: self.md5.finalize().into(),
+        }
+    }
 }
 
 /// The operator's labels for an image, as sealed when it is staged.
@@ -1144,12 +1545,13 @@ async fn stream_to_disk(
     partial: &Path,
     mut body: Body,
     declared_length: u64,
-) -> Result<(u64, [u8; 32]), FirmwareError> {
+    idle: std::time::Duration,
+) -> Result<(u64, Digests), FirmwareError> {
     let path = partial.to_path_buf();
     let mut sink = tokio::task::spawn_blocking(move || {
         std::fs::File::create(&path).map(|file| Sink {
             file,
-            hasher: Sha256::new(),
+            hashers: Hashers::new(),
             written: 0,
         })
     })
@@ -1159,7 +1561,13 @@ async fn stream_to_disk(
 
     let mut buffer: Vec<u8> = Vec::with_capacity(UPLOAD_CHUNK);
     loop {
-        let frame = std::future::poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)).await;
+        // Each frame must arrive within `idle` of the last, or the upload is dropped.
+        let frame = tokio::time::timeout(
+            idle,
+            std::future::poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)),
+        )
+        .await
+        .map_err(|_| FirmwareError::Stalled(idle.as_secs()))?;
         let Some(frame) = frame else { break };
         let frame = frame.map_err(|_| FirmwareError::Malformed("request body"))?;
         let Ok(data) = frame.into_data() else {
@@ -1184,22 +1592,23 @@ async fn stream_to_disk(
     }
 
     let written = sink.written;
-    let digest = tokio::task::spawn_blocking(move || {
+    let digests = tokio::task::spawn_blocking(move || {
         use std::io::Write;
         sink.file.flush()?;
         sink.file.sync_all()?;
-        Ok::<[u8; 32], std::io::Error>(sink.hasher.finalize().into())
+        Ok::<Digests, std::io::Error>(sink.hashers.finish())
     })
     .await
     .map_err(joined)?
     .map_err(FirmwareError::Storage)?;
 
-    Ok((written, digest))
+    Ok((written, digests))
 }
 
 struct Sink {
     file: std::fs::File,
-    hasher: Sha256,
+    /// SHA-256, SHA-512 (`0059`) and MD5 (`0061`), from the same pass.
+    hashers: Hashers,
     written: u64,
 }
 
@@ -1209,7 +1618,7 @@ async fn flush(mut sink: Sink, mut buffer: Vec<u8>) -> Result<(Sink, Vec<u8>), F
     let (sink, buffer) = tokio::task::spawn_blocking(move || {
         use std::io::Write;
         sink.file.write_all(&buffer)?;
-        sink.hasher.update(&buffer);
+        sink.hashers.update(&buffer);
         sink.written += buffer.len() as u64;
         buffer.clear();
         Ok::<(Sink, Vec<u8>), std::io::Error>((sink, buffer))
@@ -1269,9 +1678,10 @@ async fn finish_upload(
     labels: Labels<'_>,
     created_by: &str,
     received: u64,
-    computed: [u8; 32],
+    digests: Digests,
     partial: &Path,
 ) -> Result<Response, FirmwareError> {
+    let computed = digests.sha256;
     let from = partial.to_path_buf();
     let to = state.store.image_path(image);
     tokio::task::spawn_blocking(move || std::fs::rename(&from, &to))
@@ -1309,13 +1719,16 @@ async fn finish_upload(
     let updated = tx
         .execute(
             "UPDATE firmware_images \
-                SET state = 'staged', computed_sha256 = $3, staged_at = now(), staged_seq = $4 \
+                SET state = 'staged', computed_sha256 = $3, staged_at = now(), staged_seq = $4, \
+                    computed_sha512 = $5, computed_md5 = $6, last_checked_at = now() \
              WHERE id = $1 AND organisation_id = $2 AND state = 'declared'",
             &[
                 &image.to_string(),
                 &organisation,
                 &computed.to_vec(),
                 &appended.seq,
+                &digests.sha512.to_vec(),
+                &digests.md5.to_vec(),
             ],
         )
         .await?;
@@ -1335,6 +1748,8 @@ async fn finish_upload(
     map.insert("state".to_string(), Json::Str("staged".to_string()));
     map.insert("byte_length".to_string(), Json::Int(received as i64));
     map.insert("sha256".to_string(), Json::Str(hex(&computed)));
+    map.insert("sha512".to_string(), Json::Str(hex(&digests.sha512)));
+    map.insert("md5".to_string(), Json::Str(hex(&digests.md5)));
     map.insert("staged_seq".to_string(), Json::Int(appended.seq));
     Ok(json_response(Json::Obj(map)))
 }
@@ -1354,6 +1769,7 @@ async fn issue_fetch_url_handler(
 ) -> Result<Response, FirmwareError> {
     let tenant = parse_organisation(&organisation)?;
     let image = parse_image(&image)?;
+    let warnings_passed = parse_warnings_body(&signed.body)?;
 
     let mut client = state.sessions.pool().get().await?;
     let tx = client.transaction().await?;
@@ -1367,7 +1783,8 @@ async fn issue_fetch_url_handler(
 
     let row = tx
         .query_opt(
-            "SELECT filename, byte_length, computed_sha256, state, platform, version, models \
+            "SELECT filename, byte_length, computed_sha256, state, platform, version, models, \
+                    computed_sha512 \
              FROM firmware_images WHERE id = $1 AND organisation_id = $2",
             &[&image.to_string(), &ctx.tenant().to_string()],
         )
@@ -1380,10 +1797,21 @@ async fn issue_fetch_url_handler(
     let platform: Option<String> = row.get(4);
     let version: Option<String> = row.get(5);
     let models: Vec<String> = row.get(6);
+    let sha512: Option<String> = row.get::<_, Option<Vec<u8>>>(7).map(|h| hex(&h));
     if state_text != "staged" {
         return Err(FirmwareError::NotStaged);
     }
     let computed = computed.ok_or(FirmwareError::NotStaged)?;
+    // The address this organisation's devices download from: its Stewards' own, else
+    // the admin's, else the settings file's (r71).
+    let fetch_base_url = crate::firmware_settings::limits_for(
+        &tx,
+        &state.ring,
+        &state.store.file_values(),
+        &ctx.tenant().to_string(),
+    )
+    .await?
+    .fetch_base_url;
 
     let token = fresh_token()?;
     let token_id = FirmwareImageId::new();
@@ -1396,6 +1824,7 @@ async fn issue_fetch_url_handler(
         image,
         token_id,
         expires,
+        &warnings_passed,
     );
     let appended = chains::append_org(
         &tx,
@@ -1432,11 +1861,7 @@ async fn issue_fetch_url_handler(
         "firmware fetch url issued"
     );
 
-    let url = format!(
-        "{}/firmware/fetch/{}",
-        state.store.fetch_base_url,
-        hex(&token)
-    );
+    let url = format!("{}/firmware/fetch/{}", fetch_base_url, hex(&token));
     let sha256 = hex(&computed);
 
     let mut map = BTreeMap::new();
@@ -1456,7 +1881,13 @@ async fn issue_fetch_url_handler(
     map.insert("issued_seq".to_string(), Json::Int(appended.seq));
     map.insert(
         "commands".to_string(),
-        commands(platform.as_deref(), &filename, &sha256, Some(&url)),
+        commands_with(
+            platform.as_deref(),
+            &filename,
+            &sha256,
+            sha512.as_deref(),
+            Some(&url),
+        ),
     );
     Ok(json_response(Json::Obj(map)))
 }
@@ -1601,14 +2032,12 @@ async fn fetch_handler(
     // **Everything above is committed.** `tx.commit()` returned, so the redemption
     // is durable before the file is opened (step 3 above).
     let path = state.store.image_path(image);
-    let file = tokio::fs::File::open(&path)
-        .await
-        .map_err(FirmwareError::Storage)?;
+    let file = std::fs::File::open(&path).map_err(FirmwareError::Storage)?;
 
     // The row says how long the file is; a disagreement means it was changed under
     // this server, an integrity alarm rather than a transfer to complete. Checked on
     // the OPEN handle, so it is the length of the file this response will read.
-    let on_disk = file.metadata().await.map_err(FirmwareError::Storage)?.len();
+    let on_disk = file.metadata().map_err(FirmwareError::Storage)?.len();
     if on_disk as i64 != byte_length {
         tracing::error!(
             image = %image,
@@ -1618,6 +2047,14 @@ async fn fetch_handler(
         );
         return Err(FirmwareError::NotStaged);
     }
+
+    // **The bytes, read again before any is sent** (sign-off r62). Hashed through
+    // the same open handle the body then streams from, rewound, so a file renamed
+    // over this one after the check is not what goes out. A two-gigabyte image
+    // costs a few seconds before the first byte; the token is already spent, so a
+    // caller cannot make the server do this more than once per URL.
+    let file = verified(file, &computed).await?;
+    let file = tokio::fs::File::from_std(file);
 
     // One `FETCH_CHUNK` in flight, never the image. When the device hangs up, hyper
     // drops the body, which drops the `ReaderStream` and `File`, closing the
@@ -1667,6 +2104,200 @@ async fn fetch_handler(
             .expect("a static cache-control is a valid header value"),
     );
     Ok((StatusCode::OK, headers, body).into_response())
+}
+
+/// Hash an open image from the start, compare with what was computed at upload, and
+/// hand the handle back rewound. [`FirmwareError::ImageChanged`] when they differ.
+async fn verified(file: std::fs::File, staged: &[u8]) -> Result<std::fs::File, FirmwareError> {
+    let staged = staged.to_vec();
+    tokio::task::spawn_blocking(move || {
+        use std::io::{Read, Seek};
+        let mut file = file;
+        let mut hasher = Sha256::new();
+        let mut buffer = vec![0u8; UPLOAD_CHUNK];
+        loop {
+            let n = file.read(&mut buffer)?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buffer[..n]);
+        }
+        file.rewind()?;
+        Ok::<_, std::io::Error>((file, hasher.finalize()))
+    })
+    .await
+    .map_err(joined)?
+    .map_err(FirmwareError::Storage)
+    .and_then(|(file, digest)| {
+        if digest.as_slice() == staged.as_slice() {
+            Ok(file)
+        } else {
+            Err(FirmwareError::ImageChanged)
+        }
+    })
+}
+
+/// How often each stored image is hashed again (sign-off r62).
+pub const RECHECK_EVERY_DAYS: i64 = 7;
+
+/// How often the re-check looks for images that are due. Short beside a week, so
+/// a server restarted often still re-checks on time; each pass hashes one image
+/// at a time, so it never competes with uploads for more than one file's reads.
+pub const RECHECK_LOOK_EVERY: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// What one pass of [`recheck_due`] found.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Rechecked {
+    /// Images whose stored file still matches.
+    pub matched: usize,
+    /// Images whose file no longer matches, or is gone. Each is marked `changed_at`
+    /// and logged; a download refuses them anyway (`verified`).
+    pub changed: usize,
+}
+
+/// Hash every staged image that is due (`RECHECK_EVERY_DAYS`), one at a time, and
+/// record the result under the image's own organisation.
+///
+/// Finding what is due crosses organisations, so it reads under
+/// `app.firmware_recheck_custody` (`0059`), which can read and cannot write.
+/// Each write is then made with the organisation as the tenant. An image staged
+/// before `0059` gets its SHA-512 here, and only once its SHA-256 has matched, so
+/// the SHA-512 is never of bytes nobody vouched for.
+pub async fn recheck_due(
+    pool: &deadpool_postgres::Pool,
+    store: &FirmwareStore,
+) -> Result<Rechecked, FirmwareError> {
+    recheck_due_in(pool, store, None).await
+}
+
+/// [`recheck_due`], limited to one organisation when `only` names one. The server
+/// always passes `None`; a test passes its own organisation so it does not
+/// re-check images other tests staged in other directories.
+pub async fn recheck_due_in(
+    pool: &deadpool_postgres::Pool,
+    store: &FirmwareStore,
+    only: Option<&str>,
+) -> Result<Rechecked, FirmwareError> {
+    let mut found = Rechecked::default();
+    loop {
+        let mut client = pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_recheck_custody(&tx).await?;
+        let due = tx
+            .query_opt(
+                "SELECT id, organisation_id, computed_sha256, computed_sha512, computed_md5 \
+                 FROM firmware_images \
+                 WHERE state = 'staged' AND computed_sha256 IS NOT NULL \
+                   AND (last_checked_at IS NULL \
+                        OR last_checked_at < now() - make_interval(days => $1::int)) \
+                   AND ($2::text IS NULL OR organisation_id = $2) \
+                 ORDER BY last_checked_at NULLS FIRST, id \
+                 LIMIT 1",
+                &[&(RECHECK_EVERY_DAYS as i32), &only],
+            )
+            .await?;
+        tx.commit().await?;
+        let Some(due) = due else {
+            return Ok(found);
+        };
+        let id: String = due.get(0);
+        let organisation: String = due.get(1);
+        let sha256: Vec<u8> = due.get(2);
+        let sha512: Option<Vec<u8>> = due.get(3);
+        let md5: Option<Vec<u8>> = due.get(4);
+        let image = parse_image(&id)?;
+
+        // An older image gets its SHA-512 and MD5 here, and only once its SHA-256
+        // has matched: a hash of a file that has already changed is worth nothing.
+        // The MD5 is never compared; it protects nothing (`0061`).
+        let hashed = hash_file(store.image_path(image)).await;
+        let (matches, fill_sha512, fill_md5) = match &hashed {
+            Ok(now) => {
+                let same = now.sha256.as_slice() == sha256.as_slice()
+                    && sha512.as_deref().is_none_or(|s| s == now.sha512.as_slice());
+                (
+                    same,
+                    (same && sha512.is_none()).then(|| now.sha512.to_vec()),
+                    (same && md5.is_none()).then(|| now.md5.to_vec()),
+                )
+            }
+            Err(_) => (false, None, None),
+        };
+
+        let tx = client.transaction().await?;
+        repo::set_custody_tenant(&tx, &organisation).await?;
+        tx.execute(
+            "UPDATE firmware_images \
+                SET last_checked_at = now(), \
+                    computed_sha512 = coalesce(computed_sha512, $3), \
+                    computed_md5 = coalesce(computed_md5, $5), \
+                    changed_at = CASE WHEN $4 THEN changed_at ELSE coalesce(changed_at, now()) END \
+             WHERE id = $1 AND organisation_id = $2 AND state = 'staged'",
+            &[&id, &organisation, &fill_sha512, &matches, &fill_md5],
+        )
+        .await?;
+        tx.commit().await?;
+
+        if matches {
+            found.matched += 1;
+        } else {
+            found.changed += 1;
+            tracing::warn!(
+                image = %id,
+                organisation = %organisation,
+                missing = hashed.is_err(),
+                "a stored firmware image no longer matches the hash worked out when it was \
+                 uploaded, or its file is gone. Downloads of it are refused. Compare the \
+                 firmware volume with a backup."
+            );
+        }
+    }
+}
+
+/// Run [`recheck_due`] every `RECHECK_LOOK_EVERY`, for as long as the server runs.
+/// A failed pass is logged and tried again next time; it never stops the server.
+pub fn spawn_recheck(
+    pool: deadpool_postgres::Pool,
+    store: Arc<FirmwareStore>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            match recheck_due(&pool, &store).await {
+                Ok(Rechecked {
+                    matched: 0,
+                    changed: 0,
+                }) => {}
+                Ok(done) => tracing::info!(
+                    matched = done.matched,
+                    changed = done.changed,
+                    "firmware images re-checked"
+                ),
+                Err(e) => tracing::warn!(error = %e, "the firmware re-check could not run"),
+            }
+            tokio::time::sleep(RECHECK_LOOK_EVERY).await;
+        }
+    })
+}
+
+/// Every hash of a whole file, on the blocking pool.
+async fn hash_file(path: PathBuf) -> Result<Digests, FirmwareError> {
+    tokio::task::spawn_blocking(move || {
+        use std::io::Read;
+        let mut file = std::fs::File::open(&path)?;
+        let mut hashers = Hashers::new();
+        let mut buffer = vec![0u8; UPLOAD_CHUNK];
+        loop {
+            let n = file.read(&mut buffer)?;
+            if n == 0 {
+                break;
+            }
+            hashers.update(&buffer[..n]);
+        }
+        Ok::<_, std::io::Error>(hashers.finish())
+    })
+    .await
+    .map_err(joined)?
+    .map_err(FirmwareError::Storage)
 }
 
 /// `HEAD /firmware/fetch/{token}`: refused without reading the token, so a client
@@ -1726,7 +2357,10 @@ async fn list_handler(
         .query(
             "SELECT id, filename, byte_length, computed_sha256, state, failed_reason, \
                     extract(epoch FROM created_at)::bigint, \
-                    extract(epoch FROM staged_at)::bigint, staged_seq, platform, version, models \
+                    extract(epoch FROM staged_at)::bigint, staged_seq, platform, version, models, \
+                    computed_sha512, extract(epoch FROM last_checked_at)::bigint, \
+                    extract(epoch FROM changed_at)::bigint, extract(epoch FROM retired_at)::bigint, \
+                    computed_md5 \
              FROM firmware_images \
              WHERE organisation_id = $1 AND scope_id = $2 \
              ORDER BY created_at",
@@ -1749,6 +2383,11 @@ async fn list_handler(
         let platform: Option<String> = row.get(9);
         let version: Option<String> = row.get(10);
         let models: Vec<String> = row.get(11);
+        let sha512: Option<Vec<u8>> = row.get(12);
+        let last_checked_at: Option<i64> = row.get(13);
+        let changed_at: Option<i64> = row.get(14);
+        let retired_at: Option<i64> = row.get(15);
+        let md5: Option<Vec<u8>> = row.get(16);
 
         let mut map = BTreeMap::new();
         map.insert("image_id".to_string(), Json::Str(id));
@@ -1789,7 +2428,13 @@ async fn list_handler(
                 map.insert("sha256".to_string(), Json::Str(sha256.clone()));
                 map.insert(
                     "commands".to_string(),
-                    commands(platform.as_deref(), &filename, &sha256, None),
+                    commands_with(
+                        platform.as_deref(),
+                        &filename,
+                        &sha256,
+                        sha512.as_deref().map(hex).as_deref(),
+                        None,
+                    ),
                 );
             }
             None => {
@@ -1797,6 +2442,33 @@ async fn list_handler(
                 map.insert("commands".to_string(), Json::Null);
             }
         }
+        // Also computed, never declared (`0059`). Absent for an image staged before
+        // it until the first weekly re-check has confirmed the file.
+        map.insert(
+            "sha512".to_string(),
+            match &sha512 {
+                Some(digest) => Json::Str(hex(digest)),
+                None => Json::Null,
+            },
+        );
+        // Also computed (`0061`), and protects nothing: MD5 is broken. Shown for a
+        // vendor page that gives only an MD5.
+        map.insert(
+            "md5".to_string(),
+            md5.as_deref().map_or(Json::Null, |d| Json::Str(hex(d))),
+        );
+        map.insert(
+            "last_checked_at_unix".to_string(),
+            last_checked_at.map_or(Json::Null, Json::Int),
+        );
+        map.insert(
+            "changed_at_unix".to_string(),
+            changed_at.map_or(Json::Null, Json::Int),
+        );
+        map.insert(
+            "retired_at_unix".to_string(),
+            retired_at.map_or(Json::Null, Json::Int),
+        );
         out.push(Json::Obj(map));
     }
 
@@ -1886,6 +2558,388 @@ async fn models_handler(
     Ok(json_response(Json::Obj(map)))
 }
 
+// ---- 7. Activity ----
+
+/// The firmware entry types an activity list shows.
+const ACTIVITY_TYPES: [EntryType; 5] = [
+    EntryType::FirmwareStaged,
+    EntryType::FirmwareFetchIssued,
+    EntryType::FirmwareFetchRedeemed,
+    EntryType::FirmwareModelsChanged,
+    EntryType::FirmwareRetired,
+];
+
+/// Most entries one activity answer holds.
+pub const ACTIVITY_LIMIT: i64 = 200;
+
+/// `GET /organisations/{organisation}/firmware/activity`: the organisation's
+/// firmware history, newest first, read from its sealed chain. **Requires
+/// `steward`**, because it says which addresses images went to.
+///
+/// Each item is what was sealed, as it was sealed, plus its `seq`, `type` and
+/// `at_unix`. Uploads, links asked for (with any warnings passed), downloads
+/// (with the address the request came from), model changes and retirements.
+/// Nothing here is the token: entries carry the token's id only.
+async fn activity_handler(
+    State(state): State<FirmwareState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, FirmwareError> {
+    let tenant = parse_organisation(&organisation)?;
+
+    let mut client = state.sessions.pool().get().await?;
+    let tx = client.transaction().await?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = authorise_in(&tx, &state, &session, tenant, None, Capability::Steward).await?;
+
+    let entries =
+        chains::recent_org_entries(&tx, &state.ring, &ctx, &ACTIVITY_TYPES, ACTIVITY_LIMIT).await?;
+
+    let mut opened = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let Ok(Json::Obj(map)) = Json::parse_canonical(&entry.metadata) else {
+            return Err(FirmwareError::Chain(ChainStoreError::Corrupt(
+                "firmware entry metadata",
+            )));
+        };
+        opened.push((entry, map));
+    }
+    // Who, by name: a download's entry names who issued its link.
+    let who = |map: &BTreeMap<String, Json>| match map.get("actor").or(map.get("issued_by")) {
+        Some(Json::Str(id)) => Some(id.clone()),
+        _ => None,
+    };
+    let mut ids: Vec<String> = opened.iter().filter_map(|(_, m)| who(m)).collect();
+    ids.sort();
+    ids.dedup();
+    let names: BTreeMap<String, String> = tx
+        .query(
+            "SELECT id, display_name FROM accounts WHERE id = ANY($1)",
+            &[&ids],
+        )
+        .await?
+        .into_iter()
+        .map(|row| (row.get(0), row.get(1)))
+        .collect();
+    tx.commit().await?;
+
+    let mut out = Vec::with_capacity(opened.len());
+    for (entry, mut map) in opened {
+        let name = who(&map).and_then(|id| names.get(&id).cloned());
+        map.insert("by_name".to_string(), name.map_or(Json::Null, Json::Str));
+        map.remove("entry_type");
+        map.remove("organisation");
+        map.insert("seq".to_string(), Json::Int(entry.seq));
+        map.insert("type".to_string(), Json::Str(entry.entry_type));
+        map.insert("at_unix".to_string(), Json::Int(entry.created_at_unix));
+        out.push(Json::Obj(map));
+    }
+    Ok(json_response(Json::Arr(out)))
+}
+
+// ---- 7b. The Steward's firmware settings (r71) ----
+
+/// The firmware settings history a Steward sees: their own changes, and the admin's
+/// ceiling and lock for this organisation.
+const SETTINGS_TYPES: [EntryType; 2] = [
+    EntryType::FirmwareOrgSettingsChanged,
+    EntryType::FirmwareCeilingChanged,
+];
+
+/// How many settings changes the Steward page lists.
+const SETTINGS_HISTORY_LIMIT: i64 = 50;
+
+/// `GET /organisations/{organisation}/firmware/settings`. **Requires `steward`.**
+///
+/// What this organisation is held to now (`limits`), what the server's settings
+/// file and the admin say (`file`, `server`), the admin's ceiling and lock for this
+/// organisation (`ceiling`, null when none), the Stewards' own (`own`), and the newest
+/// changes to any of it (`history`, by name).
+async fn settings_handler(
+    State(state): State<FirmwareState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, FirmwareError> {
+    let tenant = parse_organisation(&organisation)?;
+    let mut client = state.sessions.pool().get().await?;
+    let tx = client.transaction().await?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = authorise_in(&tx, &state, &session, tenant, None, Capability::Steward).await?;
+    let org = ctx.tenant().to_string();
+    let page = settings_page(&tx, &state, &ctx, &org).await?;
+    tx.commit().await?;
+    Ok(json_response(page))
+}
+
+async fn settings_page(
+    tx: &Transaction<'_>,
+    state: &FirmwareState,
+    ctx: &crate::repo::TenantContext,
+    org: &str,
+) -> Result<Json, FirmwareError> {
+    use crate::firmware_settings as fs;
+    let file = state.store.file_values();
+    let server = fs::read_server(tx, &state.ring).await?;
+    let ceiling = fs::read_ceiling(tx, &state.ring, org).await?;
+    let own = fs::read_own(tx, org).await?;
+    let limits = fs::effective(&file, &server.saved, ceiling.as_ref(), &own);
+
+    let entries = chains::recent_org_entries(
+        tx,
+        &state.ring,
+        ctx,
+        &SETTINGS_TYPES,
+        SETTINGS_HISTORY_LIMIT,
+    )
+    .await?;
+    let mut opened = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let Ok(Json::Obj(map)) = Json::parse_canonical(&entry.metadata) else {
+            return Err(FirmwareError::Chain(ChainStoreError::Corrupt(
+                "firmware settings entry metadata",
+            )));
+        };
+        opened.push((entry, map));
+    }
+    let by = |map: &BTreeMap<String, Json>| match map.get("by") {
+        Some(Json::Str(id)) => Some(id.clone()),
+        _ => None,
+    };
+    let mut ids: Vec<String> = opened.iter().filter_map(|(_, m)| by(m)).collect();
+    ids.sort();
+    ids.dedup();
+    let names: BTreeMap<String, String> = tx
+        .query(
+            "SELECT id, display_name FROM accounts WHERE id = ANY($1)",
+            &[&ids],
+        )
+        .await?
+        .into_iter()
+        .map(|row| (row.get(0), row.get(1)))
+        .collect();
+    let mut history = Vec::with_capacity(opened.len());
+    for (entry, mut map) in opened {
+        // An admin's change names an operator id, which an organisation's Stewards
+        // have no use for: it reads "the server's admin".
+        let admin = matches!(map.get("by_kind"), Some(Json::Str(k)) if k == "operator");
+        let name = if admin {
+            None
+        } else {
+            by(&map).and_then(|id| names.get(&id).cloned())
+        };
+        map.remove("entry_type");
+        map.remove("by");
+        map.insert("by_admin".to_string(), Json::Bool(admin));
+        map.insert("by_name".to_string(), name.map_or(Json::Null, Json::Str));
+        map.insert("seq".to_string(), Json::Int(entry.seq));
+        map.insert("type".to_string(), Json::Str(entry.entry_type));
+        map.insert("at_unix".to_string(), Json::Int(entry.created_at_unix));
+        history.push(Json::Obj(map));
+    }
+
+    let mut m = BTreeMap::new();
+    m.insert("limits".to_string(), limits.to_json());
+    m.insert("file".to_string(), file.to_json());
+    m.insert("server".to_string(), server.saved_json());
+    m.insert(
+        "ceiling".to_string(),
+        ceiling.as_ref().map_or(Json::Null, |c| {
+            let mut c = match c.to_json() {
+                Json::Obj(c) => c,
+                _ => BTreeMap::new(),
+            };
+            c.remove("organisation");
+            Json::Obj(c)
+        }),
+    );
+    m.insert("own".to_string(), own.to_json());
+    m.insert("history".to_string(), Json::Arr(history));
+    Ok(Json::Obj(m))
+}
+
+/// `PUT /organisations/{organisation}/firmware/settings`:
+/// `{"max_bytes": int | null, "fetch_base_url": string | null}`, both keys always.
+/// **Requires `steward`.** A null clears that value back to the ceiling or the server's
+/// address. Refused (409) while the admin has the organisation locked or above the
+/// ceiling. Answers the page, as `GET` does.
+async fn set_settings_handler(
+    State(state): State<FirmwareState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, FirmwareError> {
+    let tenant = parse_organisation(&organisation)?;
+    let (max_bytes, fetch_base_url) = parse_settings_body(&signed.body)?;
+    let mut client = state.sessions.pool().get().await?;
+    let tx = client.transaction().await?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let ctx = authorise_in(&tx, &state, &session, tenant, None, Capability::Steward).await?;
+    let org = ctx.tenant().to_string();
+    crate::firmware_settings::steward_set_own(
+        &tx,
+        &state.ring,
+        &state.store.file_values(),
+        &org,
+        &ctx.actor().to_string(),
+        max_bytes,
+        fetch_base_url,
+    )
+    .await?;
+    let page = settings_page(&tx, &state, &ctx, &org).await?;
+    tx.commit().await?;
+    Ok(json_response(page))
+}
+
+const SETTINGS_SHAPE: &str =
+    "settings body: {\"fetch_base_url\": string or null, \"max_bytes\": integer or null}";
+
+fn parse_settings_body(body: &[u8]) -> Result<(Option<i64>, Option<String>), FirmwareError> {
+    let bad = || FirmwareError::Malformed(SETTINGS_SHAPE);
+    let Ok(Json::Obj(mut object)) = Json::parse_canonical(body) else {
+        return Err(bad());
+    };
+    let max_bytes = match object.remove("max_bytes") {
+        Some(Json::Int(n)) => Some(n),
+        Some(Json::Null) => None,
+        _ => return Err(bad()),
+    };
+    let fetch_base_url = match object.remove("fetch_base_url") {
+        Some(Json::Str(s)) => Some(s),
+        Some(Json::Null) => None,
+        _ => return Err(bad()),
+    };
+    if !object.is_empty() {
+        return Err(bad());
+    }
+    Ok((max_bytes, fetch_base_url))
+}
+
+// ---- 8. Retire ----
+
+/// `POST /organisations/{organisation}/firmware/{image}/retire`: delete a staged
+/// image's file and keep its record (`0060`). **Requires `steward`.**
+///
+/// The row moves to `retired` and the act is sealed before the file is touched,
+/// so a crash between the two leaves a retired row with a file that serves
+/// nothing, never a staged row with no file. A fetch URL already issued for it
+/// is refused from then on, because the fetch route sends staged images only.
+async fn retire_handler(
+    State(state): State<FirmwareState>,
+    PathExtractor((organisation, image)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, FirmwareError> {
+    let tenant = parse_organisation(&organisation)?;
+    let image = parse_image(&image)?;
+
+    let mut client = state.sessions.pool().get().await?;
+    let tx = client.transaction().await?;
+    let (session, tx) = signed.verify_and_commit(&state, tx).await?;
+    let scope = image_scope(&tx, tenant, image).await?;
+    let ctx = authorise_in(&tx, &state, &session, tenant, scope, Capability::Steward).await?;
+
+    let row = tx
+        .query_opt(
+            "SELECT filename, byte_length, computed_sha256, state FROM firmware_images \
+             WHERE id = $1 AND organisation_id = $2 FOR UPDATE",
+            &[&image.to_string(), &ctx.tenant().to_string()],
+        )
+        .await?
+        .ok_or(FirmwareError::NoSuchImage)?;
+    let filename: String = row.get(0);
+    let byte_length: i64 = row.get(1);
+    let computed: Option<Vec<u8>> = row.get(2);
+    let state_text: String = row.get(3);
+    if state_text != "staged" {
+        return Err(FirmwareError::NotStaged);
+    }
+    let computed = computed.ok_or(FirmwareError::NotStaged)?;
+
+    let tenant_key = keys::tenant_key(&tx, &state.ring, &ctx).await?;
+    let metadata = retired_metadata(
+        &ctx.tenant().to_string(),
+        &ctx.actor().to_string(),
+        image,
+        &filename,
+        byte_length,
+        &computed,
+    );
+    let appended = chains::append_org(
+        &tx,
+        &state.ring,
+        &ctx,
+        &tenant_key,
+        EntryType::FirmwareRetired,
+        &metadata,
+    )
+    .await?;
+    let updated = tx
+        .execute(
+            "UPDATE firmware_images SET state = 'retired', retired_at = now(), retired_seq = $3 \
+             WHERE id = $1 AND organisation_id = $2 AND state = 'staged'",
+            &[&image.to_string(), &ctx.tenant().to_string(), &appended.seq],
+        )
+        .await?;
+    if updated != 1 {
+        return Err(FirmwareError::NotStaged);
+    }
+    tx.commit().await?;
+
+    // After the commit, on purpose (above). A file that will not go is logged
+    // and counted against the space totals until someone removes it.
+    let path = state.store.image_path(image);
+    let removed = tokio::task::spawn_blocking(move || std::fs::remove_file(&path))
+        .await
+        .map_err(joined)?;
+    if let Err(e) = &removed {
+        tracing::warn!(
+            image = %image,
+            error = %e,
+            "a retired firmware image's file could not be deleted; it serves nothing, but it \
+             still takes space until it is removed from the firmware volume"
+        );
+    }
+    tracing::info!(image = %image, bytes = byte_length, "firmware image retired");
+
+    let mut map = BTreeMap::new();
+    map.insert("image_id".to_string(), Json::Str(image.to_string()));
+    map.insert("state".to_string(), Json::Str("retired".to_string()));
+    map.insert("retired_seq".to_string(), Json::Int(appended.seq));
+    map.insert("file_deleted".to_string(), Json::Bool(removed.is_ok()));
+    Ok(json_response(Json::Obj(map)))
+}
+
+/// The warnings a person was shown before asking for a link and went past
+/// (sign-off r62). An empty body is none. Otherwise `{"warnings_passed":[...]}`
+/// and nothing else: each a known code, at most once, sorted. The words are the
+/// client's; only the codes are sealed, so nothing a person typed reaches the chain.
+pub const LINK_WARNING_CODES: [&str; 3] = ["downgrade", "not_chosen", "wrong_model"];
+
+fn parse_warnings_body(body: &[u8]) -> Result<Vec<String>, FirmwareError> {
+    if body.is_empty() {
+        return Ok(Vec::new());
+    }
+    let bad = || FirmwareError::Malformed(WARNINGS_SHAPE);
+    let Ok(Json::Obj(mut object)) = Json::parse_canonical(body) else {
+        return Err(bad());
+    };
+    let Some(Json::Arr(items)) = object.remove("warnings_passed") else {
+        return Err(bad());
+    };
+    if !object.is_empty() {
+        return Err(bad());
+    }
+    let codes = items
+        .into_iter()
+        .map(|item| match item {
+            Json::Str(s) if LINK_WARNING_CODES.contains(&s.as_str()) => Ok(s),
+            _ => Err(bad()),
+        })
+        .collect::<Result<Vec<String>, _>>()?;
+    if codes.windows(2).any(|w| w[0] >= w[1]) {
+        return Err(bad());
+    }
+    Ok(codes)
+}
+
 /// `{"models":[...]}` and nothing else: one key, an array of strings, each a
 /// [`safe_model`], at most [`MAX_MODELS`], no duplicates.
 fn parse_models_body(body: &[u8]) -> Result<Vec<String>, FirmwareError> {
@@ -1937,6 +2991,31 @@ fn models_changed_metadata(
     Json::Obj(map).to_canonical_bytes()
 }
 
+fn retired_metadata(
+    organisation: &str,
+    actor: &str,
+    image: FirmwareImageId,
+    filename: &str,
+    byte_length: i64,
+    sha256: &[u8],
+) -> Vec<u8> {
+    let mut map = BTreeMap::new();
+    map.insert("actor".to_string(), Json::Str(actor.to_string()));
+    map.insert("byte_length".to_string(), Json::Int(byte_length));
+    map.insert(
+        "entry_type".to_string(),
+        Json::Str(EntryType::FirmwareRetired.as_str().to_string()),
+    );
+    map.insert("filename".to_string(), Json::Str(filename.to_string()));
+    map.insert("image".to_string(), Json::Str(image.to_string()));
+    map.insert(
+        "organisation".to_string(),
+        Json::Str(organisation.to_string()),
+    );
+    map.insert("sha256".to_string(), Json::Str(hex(sha256)));
+    Json::Obj(map).to_canonical_bytes()
+}
+
 fn staged_metadata(
     organisation: &str,
     actor: &str,
@@ -1984,8 +3063,13 @@ fn fetch_issued_metadata(
     image: FirmwareImageId,
     token_id: FirmwareImageId,
     expires_at_unix: i64,
+    warnings_passed: &[String],
 ) -> Vec<u8> {
     let mut map = BTreeMap::new();
+    // Only when there were any, so an ordinary link's entry keeps its shape.
+    if !warnings_passed.is_empty() {
+        map.insert("warnings_passed".to_string(), strings(warnings_passed));
+    }
     map.insert("actor".to_string(), Json::Str(actor.to_string()));
     map.insert(
         "entry_type".to_string(),
@@ -2053,6 +3137,22 @@ async fn enter_upload_custody(tx: &Transaction<'_>) -> Result<(), FirmwareError>
     Ok(())
 }
 
+/// Turn on `app.firmware_recheck_custody` (`0059`): read which images are due
+/// across organisations. No policy lets it write.
+async fn enter_recheck_custody(tx: &Transaction<'_>) -> Result<(), FirmwareError> {
+    tx.execute(
+        "SELECT set_config('app.design_capability', 'no', true)",
+        &[],
+    )
+    .await?;
+    tx.execute(
+        "SELECT set_config('app.firmware_recheck_custody', 'yes', true)",
+        &[],
+    )
+    .await?;
+    Ok(())
+}
+
 /// Turn on `app.firmware_fetch_custody` (`0017` §D). The device's door, and the
 /// narrowest capability in this schema: one table names it.
 async fn enter_fetch_custody(tx: &Transaction<'_>) -> Result<(), FirmwareError> {
@@ -2091,9 +3191,43 @@ fn json_response(j: Json) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::firmware_commands::commands;
 
     fn json_text(j: &Json) -> String {
         String::from_utf8(j.to_canonical_bytes()).expect("canonical JSON is UTF-8")
+    }
+
+    /// The condition `deps/decisions/md-5.md` set: the MD5 is pinned against RFC
+    /// 1321 §A.5's test suite before it ships. All seven strings and digests are
+    /// copied from the RFC (rfc-editor.org/rfc/rfc1321, read 2026-10-31). Fed in
+    /// two uneven pieces, as an upload's frames would be.
+    #[test]
+    fn the_md5_matches_rfc_1321s_test_suite() {
+        let suite = [
+            ("", "d41d8cd98f00b204e9800998ecf8427e"),
+            ("a", "0cc175b9c0f1b6a831c399e269772661"),
+            ("abc", "900150983cd24fb0d6963f7d28e17f72"),
+            ("message digest", "f96b697d7cb7938d525a2f31aaf161d0"),
+            (
+                "abcdefghijklmnopqrstuvwxyz",
+                "c3fcd3d76192e4007dfb496cca67e13b",
+            ),
+            (
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
+                "d174ab98d277d9f5a5611c2c9f419d9f",
+            ),
+            (
+                "12345678901234567890123456789012345678901234567890123456789012345678901234567890",
+                "57edf4a22be3c955ac49da2e2107b67a",
+            ),
+        ];
+        for (input, expected) in suite {
+            let (head, tail) = input.as_bytes().split_at(input.len() / 3);
+            let mut hashers = Hashers::new();
+            hashers.update(head);
+            hashers.update(tail);
+            assert_eq!(hex(&hashers.finish().md5), expected, "MD5 of {input:?}");
+        }
     }
 
     /// CLAUDE.md rule 2: measured against what a real device accepts; these are the
@@ -2157,8 +3291,12 @@ mod tests {
         let store = FirmwareStore {
             directory: PathBuf::from("/srv/fathom/firmware"),
             max_image_bytes: 1,
+            organisation_max_bytes: 1,
+            total_max_bytes: 1,
+            upload_idle: std::time::Duration::from_secs(1),
             fetch_base_url: "https://example.invalid".to_string(),
             client_address: crate::client_address::ClientAddress::peer(),
+            slots: std::sync::Mutex::new(Slots::default()),
         };
         let path = store.image_path(FirmwareImageId::new());
         assert!(
@@ -2167,6 +3305,75 @@ mod tests {
             path.display()
         );
         assert_eq!(path.components().count(), 5, "{}", path.display());
+    }
+
+    /// One upload per organisation and three per server, each place given back
+    /// when its slot is dropped.
+    #[test]
+    fn upload_places_are_counted_per_organisation_and_per_server_and_given_back() {
+        let store = Arc::new(FirmwareStore {
+            directory: PathBuf::from("/srv/fathom/firmware"),
+            max_image_bytes: 1,
+            organisation_max_bytes: 1,
+            total_max_bytes: 1,
+            upload_idle: std::time::Duration::from_secs(1),
+            fetch_base_url: "https://example.invalid".to_string(),
+            client_address: crate::client_address::ClientAddress::peer(),
+            slots: std::sync::Mutex::new(Slots::default()),
+        });
+        let a = store
+            .take_slot(
+                "org-a",
+                UPLOADS_AT_ONCE_PER_SERVER,
+                UPLOADS_AT_ONCE_PER_ORGANISATION,
+            )
+            .expect("the first upload has a place");
+        assert!(
+            store
+                .take_slot(
+                    "org-a",
+                    UPLOADS_AT_ONCE_PER_SERVER,
+                    UPLOADS_AT_ONCE_PER_ORGANISATION
+                )
+                .is_none(),
+            "one at a time per organisation"
+        );
+        let b = store
+            .take_slot(
+                "org-b",
+                UPLOADS_AT_ONCE_PER_SERVER,
+                UPLOADS_AT_ONCE_PER_ORGANISATION,
+            )
+            .expect("another organisation is not held up");
+        let c = store
+            .take_slot(
+                "org-c",
+                UPLOADS_AT_ONCE_PER_SERVER,
+                UPLOADS_AT_ONCE_PER_ORGANISATION,
+            )
+            .expect("a third on the server");
+        assert!(
+            store
+                .take_slot(
+                    "org-d",
+                    UPLOADS_AT_ONCE_PER_SERVER,
+                    UPLOADS_AT_ONCE_PER_ORGANISATION
+                )
+                .is_none(),
+            "three at a time per server"
+        );
+        drop(a);
+        let a2 = store
+            .take_slot(
+                "org-a",
+                UPLOADS_AT_ONCE_PER_SERVER,
+                UPLOADS_AT_ONCE_PER_ORGANISATION,
+            )
+            .expect("given back when dropped");
+        drop((a2, b, c));
+        let slots = store.slots.lock().unwrap();
+        assert_eq!(slots.total, 0);
+        assert!(slots.by_organisation.is_empty());
     }
 
     /// The declaration parser accepts exactly its own framing.
@@ -2390,5 +3597,47 @@ mod tests {
     fn a_firmware_token_hashes_differently_from_a_session_token() {
         let token = [9u8; 32];
         assert_ne!(token_hash(&token), sessions::token_hash(&token));
+    }
+
+    #[test]
+    fn warnings_passed_are_known_codes_once_and_sorted_or_nothing() {
+        assert_eq!(parse_warnings_body(b"").unwrap(), Vec::<String>::new());
+        assert_eq!(
+            parse_warnings_body(
+                br#"{"warnings_passed":["downgrade","wrong_model"]}
+"#
+            )
+            .unwrap(),
+            vec!["downgrade".to_string(), "wrong_model".to_string()]
+        );
+        for refused in [
+            &br#"{"warnings_passed":["wrong_model","downgrade"]}
+"#[..],
+            br#"{"warnings_passed":["downgrade","downgrade"]}
+"#,
+            br#"{"warnings_passed":["looks odd to me"]}
+"#,
+            br#"{"warnings_passed":[],"note":"x"}
+"#,
+            br#"{"warnings":["downgrade"]}
+"#,
+        ] {
+            assert!(
+                parse_warnings_body(refused).is_err(),
+                "{}",
+                String::from_utf8_lossy(refused)
+            );
+        }
+    }
+
+    #[test]
+    fn a_link_past_warnings_seals_their_codes_and_an_ordinary_one_keeps_its_shape() {
+        let image = FirmwareImageId::new();
+        let token = FirmwareImageId::new();
+        let plain = fetch_issued_metadata("org", "me", image, token, 5, &[]);
+        assert!(!String::from_utf8_lossy(&plain).contains("warnings_passed"));
+        let past =
+            fetch_issued_metadata("org", "me", image, token, 5, &["wrong_model".to_string()]);
+        assert!(String::from_utf8_lossy(&past).contains(r#""warnings_passed":["wrong_model"]"#));
     }
 }

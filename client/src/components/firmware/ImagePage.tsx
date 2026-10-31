@@ -11,7 +11,11 @@ import { BADGE_WORD, imageRows, platformWords } from './images';
 import { HowItGetsThere } from './ByHand';
 import { ModelsEditor } from './ModelsEditor';
 import { CopyButton, GetLink } from './parts';
+import { FirmwareActivityList } from './Activity';
 import './firmware.css';
+
+/** A day as a person reads it, such as "31 Oct 2026". */
+const dayWords = (unix: number): string => new Date(unix * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
 export function ImagePage({ api, rowKey, onOpenModel }: { api: FirmwareApi; rowKey: string; onOpenModel: (model: string) => void }) {
   const row = useMemo(() => imageRows({ doc: api.doc, images: api.server.images }).find((r) => r.key === rowKey) ?? null, [api.doc, api.server.images, rowKey]);
@@ -65,6 +69,47 @@ export function ImagePage({ api, rowKey, onOpenModel }: { api: FirmwareApi; rowK
               {img.sha256 ? <CopyButton text={img.sha256} label="Copy" className="fw-btn btn-quiet" /> : null}
               <div className="fw-muted">Fathom worked this out from the bytes it holds. Short form {shortHash(img.sha256)}.</div>
             </dd>
+            {img.sha512 ? (
+              <>
+                <dt>SHA-512</dt>
+                <dd>
+                  <span className="fw-mono fw-hash-long" title={img.sha512}>
+                    {img.sha512}
+                  </span>{' '}
+                  <CopyButton text={img.sha512} label="Copy" className="fw-btn btn-quiet" />
+                  <div className="fw-muted">For vendors that publish a SHA-512, such as Cisco.</div>
+                </dd>
+              </>
+            ) : null}
+            {img.md5 ? (
+              <>
+                <dt>MD5</dt>
+                <dd>
+                  <span className="fw-mono" title={img.md5}>
+                    {img.md5}
+                  </span>{' '}
+                  <CopyButton text={img.md5} label="Copy" className="fw-btn btn-quiet" />
+                  <div className="fw-muted" data-testid="fw-md5-caveat">
+                    Only for a vendor page that gives nothing better. MD5 is broken: a match rules out a damaged download, not a file someone swapped on purpose. Fathom checks the SHA-256.
+                  </div>
+                </dd>
+              </>
+            ) : null}
+            {img.changedAtUnix !== null ? (
+              <>
+                <dt>Checked</dt>
+                <dd>
+                  <p className="fw-error" role="alert">
+                    On {dayWords(img.changedAtUnix)} the file on the server no longer matched these hashes, or was gone. Fathom won't send it. Upload it again from the vendor's copy, and ask your admin to compare the firmware folder with a backup.
+                  </p>
+                </dd>
+              </>
+            ) : img.lastCheckedAtUnix !== null ? (
+              <>
+                <dt>Checked</dt>
+                <dd className="fw-muted">Still matches, last checked {dayWords(img.lastCheckedAtUnix)}. Fathom checks every stored image once a week, and again before each download.</dd>
+              </>
+            ) : null}
           </>
         ) : (
           <>
@@ -75,7 +120,7 @@ export function ImagePage({ api, rowKey, onOpenModel }: { api: FirmwareApi; rowK
         <dt>Models</dt>
         <dd>
           {row.models.length === 0 ? (
-            <span className="fw-muted">None yet. Choose it for a model below.</span>
+            <span className="fw-muted">{api.canEdit ? 'None yet. Choose it for a model below.' : 'None yet.'}</span>
           ) : (
             row.models.map((m) => (
               <div key={m}>
@@ -135,6 +180,47 @@ export function ImagePage({ api, rowKey, onOpenModel }: { api: FirmwareApi; rowK
         </div>
       ) : null}
       {img && img.state === 'failed' ? <p className="fw-error">This upload failed: {img.failedReason ?? 'unknown reason'}. Nothing was staged.</p> : null}
+      {img && api.isSteward ? <FirmwareActivityList api={api} imageIds={[img.imageId]} /> : null}
+      {img && img.state === 'staged' && api.isSteward ? <RetireImage api={api} imageId={img.imageId} /> : null}
+    </div>
+  );
+}
+
+/** Retire: ask once, in words, then delete the file and keep the record (sign-off r62). */
+function RetireImage({ api, imageId }: { api: FirmwareApi; imageId: string }) {
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const retire = async () => {
+    setBusy(true);
+    setError(null);
+    const done = await api.retireImage(imageId);
+    setBusy(false);
+    if ('refused' in done) setError(done.refused);
+    else setAsking(false);
+  };
+  return (
+    <div className="fw-retire">
+      {asking ? (
+        <>
+          <p className="fw-note">Delete this image's file from the server? It leaves this list, and its record and who fetched it stay in the organisation's history. Devices can't download it after this, and links already given stop working.</p>
+          <button type="button" className="fw-btn" disabled={busy} onClick={() => void retire()}>
+            {busy ? 'Retiring…' : 'Retire image'}
+          </button>{' '}
+          <button type="button" className="fw-btn btn-quiet" disabled={busy} onClick={() => setAsking(false)}>
+            Keep it
+          </button>
+        </>
+      ) : (
+        <button type="button" className="fw-btn btn-quiet" onClick={() => setAsking(true)}>
+          Retire image…
+        </button>
+      )}
+      {error ? (
+        <p className="fw-error" role="alert">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }

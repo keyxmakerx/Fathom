@@ -4,14 +4,16 @@ import type { Selection } from './contract';
 
 /** What a right-click landed on (ADR-0060 decision 4). */
 export type MenuTarget =
-  /** `on` is set for a device on a shelf or a surface rather than in a rack unit: its menu offers what
-   * works there, and Details selects it the way a click does. */
+  /** `on` is set for a device on a shelf or a surface rather than in a rack unit: its menu is a racked
+   * device's, and Details selects it the way a click does. */
   | { kind: 'chassis'; id: string; on?: 'occupant' | 'fixture' }
   /** `freeU` is the free unit the click landed on, with the click's pane and flow position. */
   | { kind: 'rack'; id: string; freeU?: { u: number; screen: Point; flow: Point } }
   | { kind: 'cable'; id: string }
   /** A wall, desk or ceiling panel. */
   | { kind: 'surface'; id: string }
+  /** A shelf's own tray, not one of the things on it. */
+  | { kind: 'shelf'; id: string }
   | { kind: 'free'; id: string }
   | { kind: 'label'; id: string }
   | { kind: 'line'; id: string }
@@ -81,6 +83,8 @@ export interface MenuActions {
   onOpen?(chassisId: string): void;
   /** Opens a device's inside view, where the device has one. */
   onOpenInside?(chassisId: string): void;
+  /** Steps into a shelf's own view. */
+  onOpenShelf?(shelfId: string): void;
   /** Starts a path trace from a device (ADR-0061 item 9). */
   onTraceFrom?(chassisId: string): void;
   onDuplicateDevice?(chassisId: string): void;
@@ -140,6 +144,24 @@ export interface MenuActions {
   onRemoveCableRun?(runId: string): void;
   /** The runs already on a rack, so the menu offers only free sides and names what it removes. */
   cableRunsOn?(rackId: string): readonly CableRunView[];
+  /** Removes an empty rack, shelf or wall (sign-off rua-ui-audit). */
+  onRemoveHolder?(id: string): void;
+  /** What Remove calls it ("rack", "wall") and what is still on it, '' when empty. */
+  holderOf?(id: string): { noun: string; onIt: string } | null;
+}
+
+/** Remove, always listed for a rack or wall; greyed with what is on it until it is empty, so
+ * nothing a person placed goes with it by accident. */
+function pushRemoveHolder(items: MenuItem[], id: string, actions: MenuActions): void {
+  const holder = actions.holderOf?.(id);
+  if (!actions.onRemoveHolder || holder == null) return;
+  items.push({
+    label: `Remove ${holder.noun}`,
+    onSelect: () => actions.onRemoveHolder?.(id),
+    danger: true,
+    keys: holder.onIt === '' ? shortcutText('delete') : undefined,
+    disabled: holder.onIt === '' ? undefined : `Empty it first: ${holder.onIt}`,
+  });
 }
 
 const RUN_OFFERS: readonly { form: 'tray' | 'lacing_bar'; side: CableRunSide; add: string; remove: string }[] = [
@@ -187,10 +209,20 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
       if (actions.onCloseRackGaps) items.push({ label: 'Close gaps', onSelect: () => actions.onCloseRackGaps?.(id) });
       if (actions.onCopyRack) items.push({ label: 'Copy rack, with its cables', onSelect: () => actions.onCopyRack?.(id) });
       pushRunItems(items, id, actions);
+      pushRemoveHolder(items, id, actions);
       break;
     }
     case 'surface': {
+      items.push({ label: 'Details', onSelect: () => actions.onSelect({ kind: 'surface', id: target.id }) });
       pushRunItems(items, target.id, actions);
+      pushRemoveHolder(items, target.id, actions);
+      break;
+    }
+    case 'shelf': {
+      const { id } = target;
+      if (actions.onOpenShelf) items.push({ label: 'Open shelf', onSelect: () => actions.onOpenShelf?.(id) });
+      items.push({ label: 'Details', onSelect: () => actions.onSelect({ kind: 'shelf', id }) });
+      pushRemoveHolder(items, id, actions);
       break;
     }
     case 'cable': {
@@ -242,7 +274,7 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
 }
 
 export interface DeviceMenuWhere {
-  /** A device on a shelf or a surface rather than in a rack unit: what works there. */
+  /** A device on a shelf or a surface rather than in a rack unit: Details selects it the way a click does. */
   on?: 'occupant' | 'fixture';
   /** A box on the free canvas: it duplicates and removes as a box, and has no inside or slots. */
   free?: boolean;
@@ -261,7 +293,9 @@ export function deviceMenuItems(id: string, actions: MenuActions, where: DeviceM
   const look = DEVICE_GROUPS.look;
   const work = DEVICE_GROUPS.work;
   const copy = DEVICE_GROUPS.copy;
-  const racked = where.on == null && where.free !== true;
+  // A device on a shelf or a wall is the same box as a racked one: everything works on it. A free box has no
+  // inside or slots yet.
+  const racked = where.free !== true;
   const items: MenuItem[] = [];
   if (actions.onOpen) items.push({ group: look, label: w.open, onSelect: () => actions.onOpen?.(id) });
   if (actions.onOpenInside && racked) items.push({ group: look, label: w.openInside, onSelect: () => actions.onOpenInside?.(id) });
@@ -273,7 +307,6 @@ export function deviceMenuItems(id: string, actions: MenuActions, where: DeviceM
   }
   if (actions.onItsDown) items.push({ group: work, label: w.itsDown, onSelect: () => actions.onItsDown?.(id) });
   if (actions.onPlanChange) items.push({ group: work, label: w.planChange, onSelect: () => actions.onPlanChange?.(id) });
-  if (where.on != null) return items;
   if (actions.onPlanFirmware && racked) {
     const needs = actions.firmwareNeedsVersion?.(id) === true;
     items.push({ group: work, label: w.planFirmware, onSelect: () => actions.onPlanFirmware?.(id), disabled: needs ? FIRMWARE_NEEDS_VERSION : undefined });

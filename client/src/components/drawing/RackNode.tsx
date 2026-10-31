@@ -91,7 +91,7 @@ export function RackNode({ data }: NodeProps<RackNodeType>) {
   const { rack, chassisItems, elevation, onFlip, onHoverInlet } = data;
   const { selected, dropPreview, shaking } = useRackLiveData(rack.id);
   const frameHeight = rack.heightU * U_PX;
-  const usedU = rack.chassis.reduce((sum, c) => sum + c.heightU, 0);
+  const usedU = [...rack.chassis, ...rack.shelves].reduce((sum, c) => sum + c.heightU, 0);
   const runs = sortFreeRuns(rack.freeRuns);
   const width = RAIL_PX * 2 + RACK_INNER_PX;
 

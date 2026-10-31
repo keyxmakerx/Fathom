@@ -189,3 +189,17 @@
   gap: var(--s2);
   margin-top: var(--s2);
 }
+
+/* Long names and ranges wrap in their cell rather than widening the row. */
+.vpns__row-head > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A phone: one column, as stock's rows do. */
+@media (max-width: 600px) {
+  .vpns__row-head {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}

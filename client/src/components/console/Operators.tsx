@@ -102,7 +102,7 @@ function DisableButton({ operatorId, onChanged }: { operatorId: string; onChange
   }
   return (
     <>
-      <button type="button" className="console__btn btn-main" disabled={busy} onClick={act}>
+      <button type="button" className="console__btn btn-danger" disabled={busy} onClick={act}>
         {busy ? 'Disabling…' : 'Disable, and there is no re-enable'}
       </button>
       <button

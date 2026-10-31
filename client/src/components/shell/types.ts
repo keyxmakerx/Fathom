@@ -53,6 +53,8 @@ export interface PresenceUser {
   initials: string;
   /** Their display name, for the dot's label and title. */
   name: string;
+  /** Selects what they have selected, when the canvas can show it; the +N list's names link to it. */
+  go?: () => void;
 }
 
 export interface AccountInfo {

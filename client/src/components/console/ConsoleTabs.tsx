@@ -1,13 +1,14 @@
 import './console.css';
 
 /** The console's sections, in the order they are offered. */
-export type ConsoleSection = 'accounts' | 'organisations' | 'operators' | 'ai' | 'activity' | 'settings' | 'issued';
+export type ConsoleSection = 'accounts' | 'organisations' | 'operators' | 'ai' | 'firmware' | 'activity' | 'settings' | 'issued';
 
 const LABEL: Record<ConsoleSection, string> = {
   accounts: 'Accounts',
   organisations: 'Organisations',
   operators: 'Operators',
   ai: 'AI',
+  firmware: 'Firmware',
   activity: 'Activity',
   settings: 'Settings',
   issued: 'Issued',
@@ -18,7 +19,7 @@ const LABEL: Record<ConsoleSection, string> = {
  * then it would be an empty tab. A function so a runner with no DOM can check
  * the order. */
 export function consoleSections(anyMinted: boolean): ConsoleSection[] {
-  const base: ConsoleSection[] = ['accounts', 'organisations', 'operators', 'ai', 'activity', 'settings'];
+  const base: ConsoleSection[] = ['accounts', 'organisations', 'operators', 'ai', 'firmware', 'activity', 'settings'];
   return anyMinted ? [...base, 'issued'] : base;
 }
 
@@ -29,7 +30,7 @@ export interface ConsoleTabsProps {
 }
 
 /**
- * Accounts · Organisations · Operators · AI · Activity · Settings (· Issued). One section at
+ * Accounts · Organisations · Operators · AI · Firmware · Activity · Settings (· Issued). One section at
  * a time instead of one long page, because the owner got lost in it on
  * 2026-10-12 ("it's easy to navigate. i got lost when i tried to accept her
  * invite"). The look is Home's tab row (`home/home.css`), restated under the

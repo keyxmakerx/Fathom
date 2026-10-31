@@ -40,6 +40,8 @@ import {
   seedPrintLoftScene,
   seedPrintScene,
   seedShelfScene,
+  seedShelfRoomScene,
+  seedSweetchScene,
   seedBulkEstate,
   seedSingleDevice,
   seedTagsScene,
@@ -197,6 +199,8 @@ async function main() {
   else if (scene === 'print-loft') doc = seedPrintLoftScene(catalogue, ME);
   else if (scene === 'node-identity') doc = seedManyDevicesScene(catalogue, ME);
   else if (scene === 'shelf') doc = seedShelfScene(catalogue, ME);
+  else if (scene === 'shelf-room') doc = seedShelfRoomScene(catalogue, ME);
+  else if (scene === 'sweetch') doc = seedSweetchScene(catalogue, ME);
   else if (scene === 'trace') doc = await seedTraceScene(catalogue);
   else if (scene === 'estate') doc = seedBulkEstate(ME, 0.15);
   else if (scene === 'scale') doc = seedBulkEstate(ME, Number(params.get('scale') ?? '1'));

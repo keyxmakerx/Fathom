@@ -191,7 +191,11 @@
 
 .drawing-rack__frame {
   position: relative;
-  border: 1.5px solid var(--ink);
+  /* An outline, not a border: a border would take 3px out of the frame's own
+     box, so the rails, unit numbers and free hatch (laid out at `U_PX` from its
+     inside edge) would sit 1.5px off the devices (laid out from its outside
+     edge) and the last row's hatch would run past the bottom. */
+  outline: 1.5px solid var(--ink);
   background: var(--page);
   box-sizing: border-box;
 }
@@ -336,11 +340,15 @@
 }
 
 /* The plate is see-through so cables run behind its name and ports; both
-   draw above them. */
+   draw above them. Its bottom line is a shadow one pixel below the box, on the
+   top line of whatever is racked under it, so two stacked devices share one
+   line instead of drawing two. */
 .drawing-chassis {
   position: relative;
   box-sizing: border-box;
   border: 1px solid var(--ink);
+  border-bottom: 0;
+  box-shadow: 0 1px 0 var(--ink);
   background: transparent;
   display: flex;
   flex-direction: column;
@@ -373,14 +381,16 @@
     linear-gradient(var(--ink), var(--ink)) right bottom / 2px var(--tick-len, 10px) no-repeat;
 }
 
-/* A plate with no ports keeps the old header row: name left, model right. */
+/* A plate with no ports keeps the old header row: name left, model right.
+   The row is one rack unit tall (16px less the 1px top line) and centres its
+   words in it, so a name sits level with its U number, not against the top. */
 .drawing-chassis__header {
   flex: 0 0 auto;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--s1);
   padding: 0 4px;
-  min-height: 9px;
+  min-height: 15px;
 }
 
 /* The name sits in the plate's blank part, on a page-coloured chip so no cable shows through it. */
@@ -1628,6 +1638,12 @@
   color: var(--danger);
 }
 
+/* Two removals in a row (a rack's two lacing bars) share the one rule above the first. */
+.drawing-context-menu__item--danger + .drawing-context-menu__item--danger {
+  margin-top: 0;
+  border-top: 0;
+}
+
 /* Sign-off r58: the device menu's groups, its keys, and an item greyed with why. */
 /* A long list on a short window scrolls inside the drawing rather than running off it. */
 .drawing-context-menu {
@@ -2204,6 +2220,12 @@
   border-top: 1px solid var(--hairline);
   color: var(--danger);
 }
+
+/* Two removals in a row (a rack's two lacing bars) share the one rule above the first. */
+.drawing-context-menu__item--danger + .drawing-context-menu__item--danger {
+  margin-top: 0;
+  border-top: 0;
+}
 .dev-more__menu--list .drawing-context-menu__item--off {
   color: var(--muted);
 }
@@ -2486,6 +2508,19 @@
 .drawing-vpn-card__how {
   margin: var(--s3) 0 0;
   font-size: var(--t-small);
+  color: var(--muted);
+}
+
+/* A box typed by hand: the catalogue model it most likely is, above "Give it a catalogue model…". */
+.dev-guess {
+  margin: var(--s2) 0;
+  padding: var(--s2) var(--s3);
+  border: var(--rule-hair, 1px) solid var(--hairline);
+  font-size: var(--t-small);
+}
+.dev-guess__why {
+  margin: var(--s1) 0 var(--s2);
+  padding-left: var(--s4);
   color: var(--muted);
 }
 

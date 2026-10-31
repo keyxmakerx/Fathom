@@ -539,6 +539,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hkdf",
  "hmac",
+ "md-5",
  "p256",
  "rustls",
  "sha1",

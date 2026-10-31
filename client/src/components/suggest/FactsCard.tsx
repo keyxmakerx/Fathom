@@ -6,6 +6,7 @@ import { useEffect, useId, useMemo, useRef, useState, type JSX } from 'react';
 import { acceptFacts, readFacts, suggestFacts, type FactKey } from '../../document/facts';
 import { asString, fieldValue, parseNodeId, type Document } from '../../document/model';
 import { deviceOf } from '../../document/portTies';
+import { Reasons } from './Reasons';
 import '../paste/paste.css';
 import './suggest.css';
 
@@ -121,12 +122,13 @@ export function FactsCard({ doc, deviceId, text, actor, onApply, onClose }: Fact
               ))}
             </ul>
           )}
-          {writable.filter((r) => r.why !== null).map((r) => (
-            <p key={`w-${r.key}`} className="paste-card__note suggest-card__why">{r.why}</p>
-          ))}
-          {said.map((r) => (
-            <p key={`n-${r.key}`} className="paste-card__note suggest-card__why">{r.why}</p>
-          ))}
+          <Reasons
+            lines={[
+              ...writable.filter((r) => r.why !== null).map((r) => ({ key: `w-${r.key}`, text: r.why ?? '' })),
+              ...said.map((r) => ({ key: `n-${r.key}`, text: r.why ?? '' })),
+            ]}
+            summary={`${writable.filter((r) => r.why !== null).length + said.length} notes on what it says`}
+          />
           {same.length > 0 && <p className="paste-card__note suggest-card__why">{same.map((r) => r.label).join(', ')} already match the drawing.</p>}
           {rows.length === 0 && <p className="paste-card__note">Nothing in it is new to this device.</p>}
           {refusal !== '' && <p className="paste-card__refusal" role="alert">{refusal}</p>}
