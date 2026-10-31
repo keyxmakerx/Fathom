@@ -603,6 +603,18 @@ the guard. If the volume shares a disk with PostgreSQL, leave room for the datab
 Both space checks run when an image is declared, before any bytes are sent, and refuse with `507`
 saying how much is held.
 
+**The file's numbers are where the server starts** (sign-off r71). On Admin › Firmware an admin
+saves any of the three, the two upload counts, the stall time and the download address; a saved
+value wins over the file's until Reset, without a restart. Below them, each organisation has a
+**ceiling** (empty: the per-organisation number above) and a **lock**. A Steward sets their own
+organisation's total, at most the ceiling, and the address their devices download from, on Steward ›
+Firmware. While an organisation is locked its Stewards' values do not count and they see your reason.
+Each change is sealed: the server's on the site chain, an organisation's on its own chain too, so
+its Stewards read it; each row also carries a seal, and a row whose seal does not check is shown as
+such on Admin › Firmware and refused when firmware is read for an upload. A one-time download link
+names one image, so devices never need a port each and the server never picks an image by the
+address a request came from.
+
 Uploads: one at a time per organisation and three per server process, refused with `429` (the
 upload token stays good). An upload that sends nothing for two minutes is dropped and its partial
 file deleted. Behind a load balancer each server counts its own uploads; the organisation total is

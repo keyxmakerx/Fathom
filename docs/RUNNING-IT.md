@@ -225,6 +225,12 @@ keeps firmware from filling a disk the database shares. One upload runs at a tim
 and three per server; an upload that sends nothing for two minutes is dropped. Device downloads are
 not limited.
 
+**These are starting values.** Once firmware is on, Admin › Firmware (`#admin/firmware`) changes any
+of them without a restart, and a value saved there wins over `.env` until you reset it. The admin
+also sets each organisation's ceiling and can lock it with a reason; an organisation's Stewards set
+their own total under that ceiling, and their own download address, on Steward › Firmware
+(`#steward/firmware`). Every change is sealed with who made it and the values before and after.
+
 **Your reverse proxy does HTTPS.** The browser generates your sign-in key with WebCrypto, which
 browsers allow only on HTTPS or `localhost`, so a plain-HTTP address on the network cannot sign in. The
 camera for scanning labels on a phone has the same rule (ADR-0075).

@@ -107,6 +107,32 @@ the server or its disk is at risk. This part is built:
   flagged; the server records the address it saw, and only the design knows each device's. Behind
   NAT or a proxy the two can differ for good reasons, so it is a flag, never a block.
 
-Still to build from the same card: MD5 at upload (it needs `md-5`, a new crate, so it waits on the
-owner's approval of `deps/decisions/md-5.md`), the activity list on the Steward page as well, and
-the scanner add-on (its own sign-off card, r70).
+- **MD5 at upload** (`0061`; the crate approved on r70, 2026-10-31). Worked out in the same pass
+  as the other two, filled for an older image at its first re-check once its SHA-256 matches, and
+  shown with a Copy button and the words that MD5 is broken and a match only rules out a damaged
+  download. Nothing compares it: every check stays on the SHA-256. Pinned against RFC 1321 §A.5.
+
+## Amendment, 2026-10-31: settings on their own pages (sign-off r71)
+
+Approved with every pick ("url: own pages", "file: starting values", "who: admin server, admin
+ceiling, Steward scanners, admin lock", "audit: sealed, shown, told").
+
+- **The file gives starting values** (`0062`). `firmware_server_settings` holds the admin's saved
+  values, each nullable; null is the file's. Written only in operator custody, sealed per row, and
+  filed on the site chain as `firmware_server_settings_changed` with before and after.
+- **A ceiling and a lock per organisation** (`firmware_org_ceilings`), set by the admin; filed on
+  the site chain and on the organisation's chain (`firmware_ceiling_changed`, by `operator`), so its
+  Stewards see it. A lock needs a reason, which the Stewards are shown.
+- **The Stewards' own** (`firmware_org_settings`): a total at most the ceiling and a download
+  address, each falling back to the server's. Refused while locked, and ignored while locked.
+  Filed on the organisation's chain (`firmware_org_settings_changed`) with before and after.
+- **Pages with their own address**: Admin › Firmware (`#admin/firmware`) and Steward › Firmware
+  (`#steward/firmware`). Both list the changes with who made each.
+- **No port per device, no choosing by source address** (the owner's note on r71). A one-time link
+  names one image; the address a request came from is recorded and flagged (above), never used to
+  pick firmware.
+
+The Stewards' choice of scanners waits for the scanner add-on (r70).
+
+Still to build from the same card: the activity list on the Steward page as well, and the scanner
+add-on (its own sign-off card, r70, approved 2026-10-31 with MalwareBazaar added).
