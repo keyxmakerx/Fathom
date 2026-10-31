@@ -8,6 +8,7 @@ function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'o
     onSelect: vi.fn(),
     onOpen: vi.fn(),
     onOpenInside: vi.fn(),
+    onOpenShelf: vi.fn(),
     onTraceFrom: vi.fn(),
     onDuplicateDevice: vi.fn(),
     onRemoveDevice: vi.fn(),
@@ -27,6 +28,20 @@ function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'o
 }
 
 describe('menuItemsFor', () => {
+  it('offers Open shelf first on a shelf, then Details', () => {
+    const a = actions();
+    const items = menuItemsFor({ kind: 'shelf', id: 's1' }, a);
+    expect(items.map((i) => i.label)).toEqual(['Open shelf', 'Details']);
+    items[0]!.onSelect();
+    expect(a.onOpenShelf).toHaveBeenCalledWith('s1');
+    items[1]!.onSelect();
+    expect(a.onSelect).toHaveBeenCalledWith({ kind: 'shelf', id: 's1' });
+  });
+
+  it('leaves Open shelf out where there is no shelf view', () => {
+    expect(menuItemsFor({ kind: 'shelf', id: 's1' }, { onSelect: vi.fn() }).map((i) => i.label)).toEqual(['Details']);
+  });
+
   it('offers the Needs finishing toggle only on a cable with one end connected', () => {
     const set = vi.fn();
     const unknown = menuItemsFor({ kind: 'cable', id: 'c1' }, { ...actions(), looseState: () => 'unknown', onSetNeedsFinishing: set });

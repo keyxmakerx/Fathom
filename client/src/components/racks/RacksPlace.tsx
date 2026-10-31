@@ -42,6 +42,7 @@ import { viewOf, type ChassisView, type ClosetView } from '../../document/view';
 import { Engine, EngineTrap } from '../../engine/engine';
 import { Mirror, refusalSentence } from '../../engine/mirror';
 import { JotView } from '../jot/JotView';
+import { ShelfRoom } from './ShelfRoom';
 import { deviceChassis, jotPlates, jotSpot, originOf } from '../jot/jotLayout';
 import { PasteCard, type PasteState } from '../paste/PasteCard';
 import { SuggestCard } from '../suggest/SuggestCard';
@@ -89,6 +90,7 @@ import { ChecksSurface } from '../checks/ChecksPanel';
 import { totalCount } from '../checks/checksModel';
 import { MissingLinksChip } from '../drawing/MissingLinksChip';
 import { missingLinksOf } from '../drawing/missingLinks';
+import { findShelf } from '../drawing/lookup';
 import { mediaCandidates } from '../checks/checksModel';
 import { CheckMarksContext, ChecksContext } from '../checks/checksStore';
 import { useChecksController } from '../checks/useChecksController';
@@ -1226,6 +1228,14 @@ export function RacksPlace(props: RacksPlaceProps) {
     onDeviceOpenedRef.current?.(id, deviceChassis(realViewRef.current, id)?.hostname ?? '');
   }, []);
   const leaveJot = useCallback(() => setJot(null), []);
+  // Sign-off r63: stepping into a shelf. It sits over the canvas like an opened device; a device opened
+  // from it sits over it in turn, and leaving that comes back to the shelf.
+  const [shelfOpen, setShelfOpen] = useState<string | null>(null);
+  const handleOpenShelf = useCallback((id: string) => {
+    setSelection({ kind: 'shelf', id });
+    setShelfOpen(id);
+  }, []);
+  const leaveShelf = useCallback(() => setShelfOpen(null), []);
 
   // Missing links (round 26 point 6, round 27): cables with one end connected, read off the drawing.
   // The bar counts the ones marked Needs finishing; Go selects the cable and brings it into view on the canvas.
@@ -1234,6 +1244,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   const handleGoToMissingLink = useCallback(
     (end: { id: string }) => {
       setJot(null);
+      setShelfOpen(null);
       if (look !== 'rack') changeLook('rack');
       setSelection({ kind: 'cable', id: end.id });
       setRevealRequest({ cableId: end.id });
@@ -1276,6 +1287,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         cameraHub.control?.set(camera, true);
       }
       setSelection(spot.selection as Selection | null);
+      setShelfOpen(null);
       setJot(spot.jotId != null ? { id: spot.jotId, origin: null, inside: false } : null);
     },
     [look, changeLook, resumeView, cameraHub],
@@ -1472,6 +1484,10 @@ export function RacksPlace(props: RacksPlaceProps) {
   useEffect(() => {
     if (jot != null && doc != null && jotPlateList === null) setJot(null);
   }, [jot, doc, jotPlateList]);
+  // The same for an open shelf that went away.
+  useEffect(() => {
+    if (shelfOpen != null && doc != null && findShelf(realView, shelfOpen) == null) setShelfOpen(null);
+  }, [shelfOpen, doc, realView]);
   const handleJotConnect = useCallback(
     (fromPortId: string, toPortId: string) => {
       if (doc == null) return;
@@ -1979,6 +1995,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           {
             onEdit: canDraw ? handleEdit : undefined,
             onSelect: setSelection,
+            onOpenShelf: shelfOpen == null ? handleOpenShelf : undefined,
             estate:
               session.organisationId != null && session.designId != null
                 ? { organisationId: session.organisationId, designId: session.designId }
@@ -2151,16 +2168,29 @@ export function RacksPlace(props: RacksPlaceProps) {
           ...(shellProps.sideTabs ?? []),
         ];
 
-  // The bar's path gains the open device; the part before it leads back out.
-  const jotDevice = jot != null ? deviceChassis(realView, jot.id) : undefined;
-  const jotPath: PathPart[] =
-    jotDevice != null && shellProps.path.length > 0
+  // The bar's path gains the open shelf (with its rack) and the open device; each part before leads back out.
+  const openShelf = shelfOpen != null ? findShelf(realView, shelfOpen) : undefined;
+  const designPart = shellProps.path[shellProps.path.length - 1];
+  const shelfPath: PathPart[] =
+    openShelf != null && designPart != null
       ? [
           ...shellProps.path.slice(0, -1),
-          { ...shellProps.path[shellProps.path.length - 1]!, opensTree: false, hint: 'Back to the canvas', onSelect: () => { shellProps.path[shellProps.path.length - 1]!.onSelect?.(); leaveJot(); } },
-          { label: jotDevice.hostname || 'unnamed' },
+          { ...designPart, opensTree: false, hint: 'Back to the canvas', onSelect: () => { designPart.onSelect?.(); setJot(null); leaveShelf(); } },
+          { label: openShelf.rack.label || 'Rack', hint: 'Back to the rack', onSelect: () => { setJot(null); leaveShelf(); setSelection({ kind: 'rack', id: openShelf.rack.id }); } },
+          { label: openShelf.shelf.label || 'Shelf', ...(jot != null ? { hint: 'Back to the shelf', onSelect: leaveJot } : {}) },
         ]
       : shellProps.path;
+  const jotDevice = jot != null ? deviceChassis(realView, jot.id) : undefined;
+  const jotPath: PathPart[] =
+    jotDevice != null && openShelf != null
+      ? [...shelfPath, { label: jotDevice.hostname || 'unnamed' }]
+      : jotDevice != null && shellProps.path.length > 0
+        ? [
+            ...shellProps.path.slice(0, -1),
+            { ...shellProps.path[shellProps.path.length - 1]!, opensTree: false, hint: 'Back to the canvas', onSelect: () => { shellProps.path[shellProps.path.length - 1]!.onSelect?.(); leaveJot(); } },
+            { label: jotDevice.hostname || 'unnamed' },
+          ]
+        : shelfPath;
 
   return (
     <SelectThing.Provider value={selectThing}>
@@ -2206,7 +2236,7 @@ export function RacksPlace(props: RacksPlaceProps) {
         <Drawing
           view={displayView}
           peers={session.live.people}
-          selected={jot ? null : selection}
+          selected={jot || shelfOpen ? null : selection}
           zoom={shellProps.zoom}
           onZoomChange={onZoomChange}
           fitRequest={fitRequest}
@@ -2237,6 +2267,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           onAddWall={canDraw ? handleAddWall : undefined}
           onPasteConfig={canDraw ? handlePasteConfig : undefined}
           onOpenDevice={handleOpenDevice}
+          onOpenShelf={handleOpenShelf}
           onAddFreeBox={canDraw ? handleAddFreeBox : undefined}
           onPlaceOnSurface={canDraw ? handlePlaceOnSurface : undefined}
           onAddDeviceAt={canDraw ? handleAddDeviceAt : undefined}
@@ -2259,7 +2290,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           deviceMenu={deviceMenu}
           onGroupChange={setGroupIds}
           groupClearRequest={groupClear}
-          canDraw={canDraw && jot === null}
+          canDraw={canDraw && jot === null && shelfOpen === null}
           openRequest={openRequest}
           renderConfigDrawer={renderConfigDrawer}
           renderInsideStop={renderInsideStop}
@@ -2275,6 +2306,18 @@ export function RacksPlace(props: RacksPlaceProps) {
           onRedo={shellProps.onRedo}
         />
       )}
+      {shelfOpen != null && doc != null ? (
+        <ShelfRoom
+          key={shelfOpen}
+          view={realView}
+          shelfId={shelfOpen}
+          selected={selection}
+          paused={jot != null || pasteState != null}
+          onSelect={setSelection}
+          onOpenDevice={(id) => handleOpenDevice(id, false, null)}
+          onBack={leaveShelf}
+        />
+      ) : null}
       {jot != null && jotPlateList != null ? (
         <JotView
           key={jot.id}

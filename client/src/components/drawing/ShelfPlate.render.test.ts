@@ -251,6 +251,13 @@ describe('ShelfPlate — a full 1U shelf folds what does not fit into "+N"', () 
     expect(markup).toContain(`+${names.length - fit}`);
   });
 
+  it('"+N" says it opens the shelf when there is a shelf view to step into', () => {
+    const s = shelf({ id: 'top', label: 'Top shelf', heightU: 1, occupants: names.map((n, i) => occupant({ id: n, slot: i + 1 })) });
+    const fit = fitCompactOccupants('Top shelf', names);
+    expect(renderShelf(baseData({ shelf: s, onOpenShelf: noop }))).toContain(`aria-label="Open shelf: ${names.length - fit} more"`);
+    expect(renderShelf(baseData({ shelf: s }))).not.toContain('Open shelf');
+  });
+
   it('a shelf whose things all fit draws no "+N"', () => {
     expect(fitCompactOccupants('Top', ['nuc-01', 'ont-01'])).toBe(2);
     const s = shelf({ id: 'top', heightU: 1, occupants: [occupant({ id: 'nuc-01', slot: 1 })] });

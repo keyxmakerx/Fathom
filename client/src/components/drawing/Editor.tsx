@@ -2110,6 +2110,13 @@ function panelFor(
             })
           )}
         </div>
+        {actions.onOpenShelf ? (
+          <div className="drawing-editor__footer dev-panel__foot">
+            <button type="button" className="btn-main" onClick={() => actions.onOpenShelf!(shelf.id)} data-testid="shelf-open">
+              Open shelf
+            </button>
+          </div>
+        ) : null}
       </div>
     );
   }

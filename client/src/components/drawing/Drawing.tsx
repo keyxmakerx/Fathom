@@ -460,6 +460,7 @@ function DrawingInner({
   onFitCard,
   deviceMenu,
   onOpenDevice,
+  onOpenShelf,
   onResizeShelf,
   onAddFreeBox,
   onPlaceOnSurface,
@@ -617,8 +618,8 @@ function DrawingInner({
     onRemoveFree,
   };
   const menuActions: MenuActions = canDraw
-    ? { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onCloseRackGaps, onCopyRack, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, onSuggestCables, onFitCard, ...freeMenuActions, ...cableRunMenuActions, ...looseMenuActions, ...deviceMenu }
-    : { onSelect, onOpen: openChassis, onOpenInside, onTraceFrom, ...deviceMenu };
+    ? { onSelect, onOpen: openChassis, onOpenInside, onOpenShelf, onTraceFrom, onDuplicateDevice, onRemoveDevice, onDisconnect, onAddDevice, onCloseRackGaps, onCopyRack, onAddRack, onAddWall, onPasteConfig, onPlanChange, onPlanFirmware, firmwareNeedsVersion, onItsDown, onSuggestCables, onFitCard, ...freeMenuActions, ...cableRunMenuActions, ...looseMenuActions, ...deviceMenu }
+    : { onSelect, onOpen: openChassis, onOpenInside, onOpenShelf, onTraceFrom, ...deviceMenu };
   const menuActionsRef = useRef(menuActions);
   useLayoutEffect(() => {
     menuActionsRef.current = menuActions;
@@ -649,6 +650,7 @@ function DrawingInner({
       // A device on a shelf, wall, desk or ceiling has the same menu as one in a rack unit.
       const onDevice = (event.target as Element | null)?.closest?.('[data-device-chassis]')?.getAttribute('data-device-chassis');
       if (onDevice) return openMenu(event, { kind: 'chassis', id: onDevice, on: node.id.startsWith('surface:') ? 'fixture' : 'occupant' });
+      if (node.type === 'shelf') return openMenu(event, { kind: 'shelf', id: (node.data as ShelfPlateNodeType['data']).shelf.id });
       const parsedFree = parseFreeNodeId(node.id);
       const rackNode = parseNodeId(node.id);
       if (rackNode?.kind === 'rack') {
@@ -1209,6 +1211,7 @@ function DrawingInner({
       onFlipRow,
       onFlipRack,
       onSelectShelf,
+      onOpenShelf,
       onResizeShelf,
       onOpenShelfOccupant,
       onHoverInlet: handleHoverCable,
@@ -1619,10 +1622,17 @@ function DrawingInner({
   );
 
   const handleNodeDoubleClick: NodeMouseHandler = useCallback(
-    (_event, node) => {
+    (event, node) => {
       const freeBox = parseFreeNodeId(node.id);
       if (freeBox?.kind === 'box' && onOpenDevice) return openChassis(freeBox.id);
       if (free.onNodeDoubleClick(node)) return;
+      // A shelf: a double-click on a device on it opens that device; anywhere else on the tray steps into the shelf.
+      if (node.type === 'shelf') {
+        const onDevice = (event.target as Element | null)?.closest?.('[data-device-chassis]')?.getAttribute('data-device-chassis');
+        if (onDevice) return openChassis(onDevice);
+        onOpenShelf?.((node.data as ShelfPlateNodeType['data']).shelf.id);
+        return;
+      }
       const parsed = parseNodeId(node.id);
       if (parsed?.kind === 'chassis') openChassis(parsed.id);
       // A double-click on a rack glides to the rack stop, centred on that rack.
@@ -1634,7 +1644,7 @@ function DrawingInner({
         void rf.setCenter(inner.internals.positionAbsolute.x + w / 2, inner.internals.positionAbsolute.y + h / 2, { zoom: CAMERA_STOPS.rack / 100, ...GLIDE });
       }
     },
-    [openChassis, onOpenDevice, free.onNodeDoubleClick, rf],
+    [openChassis, onOpenDevice, onOpenShelf, free.onNodeDoubleClick, rf],
   );
 
   const chassisHeightUFor = (node: FlowNode): number =>

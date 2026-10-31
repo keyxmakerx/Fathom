@@ -12,6 +12,8 @@ export type MenuTarget =
   | { kind: 'cable'; id: string }
   /** A wall, desk or ceiling panel. */
   | { kind: 'surface'; id: string }
+  /** A shelf's own tray, not one of the things on it. */
+  | { kind: 'shelf'; id: string }
   | { kind: 'free'; id: string }
   | { kind: 'label'; id: string }
   | { kind: 'line'; id: string }
@@ -81,6 +83,8 @@ export interface MenuActions {
   onOpen?(chassisId: string): void;
   /** Opens a device's inside view, where the device has one. */
   onOpenInside?(chassisId: string): void;
+  /** Steps into a shelf's own view. */
+  onOpenShelf?(shelfId: string): void;
   /** Starts a path trace from a device (ADR-0061 item 9). */
   onTraceFrom?(chassisId: string): void;
   onDuplicateDevice?(chassisId: string): void;
@@ -191,6 +195,12 @@ export function menuItemsFor(target: MenuTarget, actions: MenuActions): MenuItem
     }
     case 'surface': {
       pushRunItems(items, target.id, actions);
+      break;
+    }
+    case 'shelf': {
+      const { id } = target;
+      if (actions.onOpenShelf) items.push({ label: 'Open shelf', onSelect: () => actions.onOpenShelf?.(id) });
+      items.push({ label: 'Details', onSelect: () => actions.onSelect({ kind: 'shelf', id }) });
       break;
     }
     case 'cable': {

@@ -1,0 +1,163 @@
+/* Sign-off r63 — a shelf stepped into: tokens only, hairlines, no radius or shadow, like the opened device. */
+.shelf-room {
+  position: absolute;
+  inset: 0;
+  z-index: calc(var(--z-modal) + 1);
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--t-small);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+.shelf-room--gone {
+  padding: var(--s4);
+  color: var(--muted);
+}
+.shelf-room__bar {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  padding: var(--s3);
+  white-space: nowrap;
+  min-width: 0;
+}
+.shelf-room__name {
+  font-weight: 700;
+}
+.shelf-room__meta,
+.shelf-room__slot {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.shelf-room__stage {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--s4);
+  min-width: max-content;
+}
+.shelf-room__tray {
+  display: grid;
+  gap: 0;
+  border: var(--rule-hair) solid var(--hairline);
+  border-bottom: none;
+  align-items: stretch;
+}
+.shelf-room__thing,
+.shelf-room__gap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding: var(--s2) var(--s3);
+  min-height: 132px;
+  border-right: var(--rule-hair) solid var(--hairline);
+  min-width: 0;
+}
+.shelf-room__thing:last-child,
+.shelf-room__gap:last-child {
+  border-right: none;
+}
+.shelf-room__gap {
+  background-image: var(--hatch);
+  color: var(--muted);
+}
+.shelf-room__thing {
+  cursor: pointer;
+  outline: var(--rule-hair) solid var(--ink);
+  outline-offset: calc(-1 * var(--s1));
+}
+.shelf-room__thing--selected {
+  outline-width: 2px;
+}
+.shelf-room__thing:focus-visible {
+  outline: 2px solid var(--ink);
+}
+.shelf-room__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+.shelf-room__open {
+  font-size: var(--t-micro);
+  padding: 0 var(--s2);
+}
+.shelf-room__label {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.shelf-room__model {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  color: var(--muted);
+}
+.shelf-room__typed {
+  align-self: flex-start;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  border: var(--rule-hair) dashed var(--muted);
+  padding: 0 3px;
+}
+.shelf-room__ports {
+  list-style: none;
+  margin: var(--s1) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.shelf-room__port {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  width: 100%;
+  min-height: 0;
+  padding: 1px var(--s1);
+  border: var(--rule-hair) solid transparent;
+  background: none;
+  font-size: var(--t-micro);
+  text-align: left;
+  cursor: pointer;
+}
+.shelf-room__port:hover {
+  border-color: var(--hairline);
+}
+.shelf-room__port--selected {
+  border-color: var(--ink);
+}
+.shelf-room__glyph {
+  flex: none;
+}
+.shelf-room__far {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: var(--t-micro);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The ink lip the shelf's things sit on, as the tray in the rack draws it. */
+.shelf-room__lip {
+  height: 4px;
+  background: var(--ink);
+}
+.shelf-room__empty {
+  padding: var(--s4);
+  border: var(--rule-hair) dashed var(--hairline);
+  color: var(--muted);
+  text-align: center;
+}
+.shelf-room__hint {
+  margin: var(--s3) 0 0;
+  color: var(--muted);
+  font-size: var(--t-micro);
+}

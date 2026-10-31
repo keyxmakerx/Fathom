@@ -78,6 +78,8 @@ export interface BuildDrawingNodesInput {
   onFlipRow: (key: string) => void;
   onFlipRack: (rackId: string) => void;
   onSelectShelf: (shelfId: string) => void;
+  /** Steps into a shelf's own view; absent where there is none, and "+N" then only selects. */
+  onOpenShelf?: (shelfId: string) => void;
   /** A writer's shelf grips; absent for a reader. */
   onResizeShelf?: (shelfId: string, change: { heightU?: number; slots?: number }, preview: boolean) => { refused: string } | void;
   onOpenShelfOccupant: (occupantId: string, centreX: number, centreY: number) => void;
@@ -130,6 +132,7 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
     onFlipRow,
     onFlipRack,
     onSelectShelf,
+    onOpenShelf,
     onResizeShelf,
     onOpenShelfOccupant,
     onHoverInlet,
@@ -235,7 +238,7 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
         nodes.push(
           caches.nodeCache.get(
             shelfNodeId(shelf.id),
-            [shelfSnapshot, elevation, portSheath, shelfPosition.x, shelfPosition.y, handleSelectPort, canDraw, onResizeShelf],
+            [shelfSnapshot, elevation, portSheath, shelfPosition.x, shelfPosition.y, handleSelectPort, canDraw, onResizeShelf, onOpenShelf],
             () => ({
               id: shelfNodeId(shelf.id),
               type: 'shelf',
@@ -252,6 +255,7 @@ export function buildDrawingNodes(input: BuildDrawingNodesInput, caches: Drawing
                 slotCount: shelf.slots ?? null,
                 ...(canDraw && onResizeShelf ? { rackId: rack.id, onResize: (change, preview) => onResizeShelf(shelf.id, change, preview) } : {}),
                 onSelectShelf: () => onSelectShelf(shelf.id),
+                ...(onOpenShelf ? { onOpenShelf: () => onOpenShelf(shelf.id) } : {}),
                 onSelectOccupant: (occupantId: string) => {
                   const centreX = shelfPosition.x + RACK_INNER_PX / 2;
                   const centreY = shelfPosition.y + (shelf.heightU * U_PX) / 2;
