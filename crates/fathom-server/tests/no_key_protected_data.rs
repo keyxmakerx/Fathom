@@ -552,6 +552,32 @@ const TABLES: &[TableClaim] = &[
               key-protected material either: it protects a public vendor image, it is single-use \
               and minutes long, and it wraps no key.",
     },
+    // ---- Sign-off r71: migration 0062's three firmware settings tables ----
+    TableClaim {
+        name: "firmware_server_settings",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the admin's saved firmware limits (r71): six byte and count limits, the stall \
+              time, and the address devices download from, each nullable to mean the settings \
+              file's. Who changed them, when, a version, and a row seal. A size limit and a \
+              URL a switch reaches are not secrets; the address is checked for shape and \
+              cannot carry credentials (`check_fetch_base_url` refuses `user@`). The seal is a \
+              MAC, not a key.",
+    },
+    TableClaim {
+        name: "firmware_org_ceilings",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "one organisation's firmware ceiling in bytes and whether the admin has locked it, \
+              with the reason shown to its Stewards, who changed it, a version and a row seal. \
+              The reason is checked: text shaped like a credential is refused \
+              (`check_reason`). Nothing here wraps a key.",
+    },
+    TableClaim {
+        name: "firmware_org_settings",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "a Steward's own firmware total and download address for their organisation, who \
+              set them and when. Both are limits and an address, not secrets, and the address \
+              is checked as on `firmware_server_settings`.",
+    },
     // ---- ADR-0055 stream (a): migration 0018's two new tables -------------
     //
     // Added at the END of this list, in a labelled block, so the other two
