@@ -250,6 +250,36 @@
   gap: var(--s2);
 }
 
+/* Sign-off rua-ui-audit, "phone stack": on a phone the three columns stack, the organisations
+   above the designs and the side panel below, and the page scrolls as one, so the designs get the
+   width and Sign out and About stay in reach on a short window. 720px is the narrow layout's break. */
+@media (max-width: 720px) {
+  .home {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .home__rail,
+  .home__panel {
+    width: auto;
+    flex-shrink: 0;
+    overflow-y: visible;
+    border-left: 0;
+    border-right: 0;
+  }
+  .home__rail {
+    border-bottom: var(--rule-hair) solid var(--hairline);
+  }
+  .home__panel {
+    border-top: var(--rule-hair) solid var(--hairline);
+  }
+  .home__centre {
+    flex: none;
+    min-width: 0;
+    overflow: visible;
+    padding: var(--s4);
+  }
+}
+
 .home__you-address {
   font-size: var(--t-small);
   word-break: break-all;
