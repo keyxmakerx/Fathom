@@ -2012,8 +2012,9 @@ export function RacksPlace(props: RacksPlaceProps) {
             <>
               {/* Already in this device, Open inside would reopen it and do nothing; the way on is back out. */}
               {jot?.id === selection.id ? (
-                <button type="button" className="btn-main" onClick={leaveJot} title="Back to the canvas (Esc)" data-testid="device-back-out">
-                  Back to {overviewName || 'the canvas'}
+                // Sign-off r65: just "Back", so a long design name can't stretch the foot; the name is in the tooltip.
+                <button type="button" className="btn-main" onClick={leaveJot} title={`Back to ${overviewName || 'the canvas'} (Esc)`} data-testid="device-back-out">
+                  Back
                 </button>
               ) : (
                 <button type="button" className="btn-main" onClick={() => handleOpenDevice(selection.id, true, null)} data-testid="device-open-inside">
