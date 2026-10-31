@@ -51,7 +51,8 @@ export function FreeBoxNode({ id, data, selected }: NodeProps<FreeBoxNodeType>) 
       <EditableName target={{ kind: 'chassis', id: id.replace(/^free:/, '') }} text={data.name === 'unnamed' ? '' : data.name} className="free-box__name">
         {data.name}
       </EditableName>
-      <span className="free-box__code">{data.role === null && data.model ? '' : roleCode(data.role)}</span>
+      {/* A catalogued box names its model, in grey under the name; an uncatalogued one its role code. */}
+      <span className="free-box__code">{data.model ? data.model : roleCode(data.role)}</span>
       {SIDES.map(({ side, position }) => (
         <Handle key={side} id={side} type="source" position={position} isConnectable={false} className="free-handle" />
       ))}

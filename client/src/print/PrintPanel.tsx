@@ -18,6 +18,8 @@ export interface PrintPanelProps {
   /** The Cables list is filtering, so "as shown on screen" differs from "all". */
   cablesFiltered: boolean;
   rackCount: number;
+  /** The rack picked on the canvas, for "This rack · R1"; null greys it (sign-off rua-ui-audit). */
+  activeRackLabel?: string | null;
   /** Takes the canvas picture; resolves `null` when there is no drawing on screen. */
   captureView: (blackAndWhite: boolean) => Promise<string | null>;
   onPrint: (job: PrintJob) => void;
@@ -44,6 +46,7 @@ export function PrintPanel({
   hasInventory,
   cablesFiltered,
   rackCount,
+  activeRackLabel = null,
   captureView,
   onPrint,
   onSavePng,
@@ -61,6 +64,8 @@ export function PrintPanel({
   );
   const [paper, setPaper] = useState<PaperSize>('A4');
   const [rackScope, setRackScope] = useState<RackScope>('all');
+  // With no rack picked, "This rack" is greyed; it never quietly prints the first one.
+  const scope: RackScope = activeRackLabel === null ? 'all' : rackScope;
   const [cables, setCables] = useState<CablesOption>('all');
   const [hideSensitive, setHideSensitive] = useState(false);
   const [blackAndWhite, setBlackAndWhite] = useState(true);
@@ -75,8 +80,8 @@ export function PrintPanel({
     return () => opener?.focus?.();
   }, []);
 
-  const options: PrintOptions = { paper, rackScope, cables, hideSensitive, blackAndWhite };
-  const optionsKey = `${paper}|${rackScope}|${cables}|${hideSensitive}|${blackAndWhite}`;
+  const options: PrintOptions = { paper, rackScope: scope, cables, hideSensitive, blackAndWhite };
+  const optionsKey = `${paper}|${scope}|${cables}|${hideSensitive}|${blackAndWhite}`;
   // Counts are measured from every available row, so ticking never re-measures.
   const countJob = useMemo(
     () => buildJob(new Set(available), options, ''),
@@ -213,11 +218,19 @@ export function PrintPanel({
       {ticked.has('racks') && rackCount > 1 && (
         <div className="print-panel__row">
           <span className="print-panel__section-label print-panel__section-label--inline">Racks</span>
-          <button type="button" aria-pressed={rackScope === 'all'} className={rackScope === 'all' ? 'print-panel__chip print-panel__chip--on' : 'print-panel__chip'} onClick={() => setRackScope('all')} data-testid="print-racks-all">
+          <button type="button" aria-pressed={scope === 'all'} className={scope === 'all' ? 'print-panel__chip print-panel__chip--on' : 'print-panel__chip'} onClick={() => setRackScope('all')} data-testid="print-racks-all">
             Every rack
           </button>
-          <button type="button" aria-pressed={rackScope === 'active'} className={rackScope === 'active' ? 'print-panel__chip print-panel__chip--on' : 'print-panel__chip'} onClick={() => setRackScope('active')} data-testid="print-racks-active">
-            This rack
+          <button
+            type="button"
+            aria-pressed={scope === 'active'}
+            className={scope === 'active' ? 'print-panel__chip print-panel__chip--on' : 'print-panel__chip'}
+            onClick={() => setRackScope('active')}
+            disabled={activeRackLabel === null}
+            title={activeRackLabel === null ? 'Pick a rack on the canvas first' : undefined}
+            data-testid="print-racks-active"
+          >
+            {activeRackLabel === null ? 'This rack' : `This rack · ${activeRackLabel}`}
           </button>
         </div>
       )}

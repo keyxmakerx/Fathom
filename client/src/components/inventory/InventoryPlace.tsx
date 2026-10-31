@@ -770,6 +770,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
         actions={editorActions}
         palette={palette}
         accountId={accountId}
+        designId={session.designId ?? undefined}
         idx={placeIdx}
         onSetWhere={(w) => go({ where: w })}
         onShowOnCanvas={() => onShowOnRack(pageSelection)}

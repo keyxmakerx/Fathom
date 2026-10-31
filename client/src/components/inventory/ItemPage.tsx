@@ -17,6 +17,7 @@ import type { PlaceIndex, Where } from './placeIndex';
 import { PortsList } from './PortsList';
 import { tieAttempt } from '../ties/TieCard';
 import { TieList } from '../ties/TieList';
+import { whoWord } from '../collab/changesSince';
 
 type TabKey = 'overview' | 'ports' | 'notes' | 'history';
 
@@ -30,6 +31,8 @@ export interface ItemPageProps {
   actions: EditorActions;
   palette: readonly PaletteItem[];
   accountId: string | null;
+  /** The design, so a history line names people this design has heard (rua-ui-audit). */
+  designId?: string;
   onShowOnCanvas: () => void;
   /** Where everything is, for the cable's run, what a device is plugged into and what a rack holds. */
   idx: PlaceIndex;
@@ -104,7 +107,7 @@ function portsOf(view: ClosetView, selection: Selection): PortView[] {
 }
 
 export function ItemPage(props: ItemPageProps) {
-  const { doc, view, selection, ownerId, title, actions, palette, accountId, onShowOnCanvas, tab: tabText, onTab, idx, onSetWhere, corrections, onApply, actor, deviceMenu } = props;
+  const { doc, view, selection, ownerId, title, actions, palette, accountId, designId, onShowOnCanvas, tab: tabText, onTab, idx, onSetWhere, corrections, onApply, actor, deviceMenu } = props;
   const tab: TabKey = tabText === 'ports' || tabText === 'notes' || tabText === 'history' ? tabText : 'overview';
   const setTab = (t: TabKey) => onTab(t === 'overview' ? '' : t);
   const isDevice = selection.kind === 'chassis' || selection.kind === 'occupant' || selection.kind === 'fixture';
@@ -173,7 +176,7 @@ export function ItemPage(props: ItemPageProps) {
           <li key={i}>
             <span>{plainLabel(l.label)}</span>
             <span className="inv-page__muted">
-              {l.who === accountId ? 'you' : l.who ? l.who.slice(-6) : ''} · {l.when ? new Date(l.when).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
+              {l.who ? whoWord(l.who, accountId, designId) : ''} · {l.when ? new Date(l.when).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
             </span>
           </li>
         ))}
