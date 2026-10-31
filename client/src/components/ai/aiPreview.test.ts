@@ -4,11 +4,12 @@ import type { AiIdea } from '../../api/ai';
 import { fitCard, removeCard, setCardField } from '../../document/cards';
 import { changeOf } from '../../document/change';
 import { createRack, placeChassis } from '../../document/commands';
-import { setRackField } from '../../document/edit';
-import { edgesIn, edgesOut, emptyDocument, findNode, formatNodeId, type Document } from '../../document/model';
+import { setDeviceField, setRackField } from '../../document/edit';
+import { addEdge, addNode, begin, finish } from '../../document/freeform';
+import { edgesIn, edgesOut, emptyDocument, findNode, formatNodeId, text, token, uint, type Document } from '../../document/model';
 import { newUlid } from '../../document/ulid';
 import { buildCanon } from '../checks/checksModel';
-import { createAiPreviewStore, drawnPreview, previewMarks, PREVIEW_WORDS } from './aiPreview';
+import { createAiPreviewStore, drawnPreview, previewMarks, PREVIEW_WORDS, stepsWord } from './aiPreview';
 
 const D1 = 'device:01ARZ3NDEKTSV4RRFFQ69G5FAV';
 const D2 = 'device:01ARZ3NDEKTSV4RRFFQ69G5FAW';
@@ -163,5 +164,68 @@ describe('an AI idea that changes what is inside a device', () => {
     store.show({ id: 'I2', preview: { changes: [cardId], removes: [], adds: [], links: [] } } as unknown as AiIdea, null, buildCanon(doc));
     expect(store.get().marks.map((m) => [m.keys.join(','), m.word])).toEqual([[deviceId, PREVIEW_WORDS.changeInside]]);
     expect([...store.get().parts]).toEqual([cardId]);
+  });
+});
+
+describe('an AI idea that adds a maintenance plan', () => {
+  const idea = { id: 'I1', preview: { changes: [], removes: [], adds: [{ kind: 'MaintenancePlan', name: 'plan_srx' }], links: [] } } as unknown as AiIdea;
+  const named = () => {
+    const { doc: racked, rackId } = rack();
+    const placed = placeChassis(racked, rackId, MODEL, 4, 'front', { actor: ME, now: T0 + 2 });
+    const deviceId = buildCanon(placed)(edgesIn(placed, rackId, 'MountedIn')[0].from);
+    const doc = setDeviceField(placed, deviceId, 'hostname', 'srx1500-lab', { actor: ME, now: T0 + 3 });
+    return { doc, deviceId };
+  };
+  // One batch, as an AI's change arrives: the plan, its steps and the edges between them.
+  const plan = (doc: Document, title: string, steps: { change: string; targets?: string[] }[]): Document => {
+    const b = begin(doc, { actor: ME, now: T0 + 4 });
+    const id = addNode(b, 'MaintenancePlan', { 'MaintenancePlan.title': text(title), 'MaintenancePlan.stage': token('planned') });
+    steps.forEach((s, i) => {
+      const fields: Record<string, ReturnType<typeof text>> = {
+        'PlanStep.ordinal': uint(i, 32),
+        'PlanStep.kind': token('other'),
+        'PlanStep.change': text(s.change),
+        'PlanStep.state': token('planned'),
+      };
+      if (s.targets) fields['PlanStep.targets'] = text(s.targets.join('\n'));
+      addEdge(b, 'HasStep', id, addNode(b, 'PlanStep', fields));
+    });
+    return finish(b, 'plan a change');
+  };
+
+  it('tags the device its steps name, with the steps, instead of outlining the plan nobody can see', () => {
+    const { doc, deviceId } = named();
+    const after = plan(doc, 'Junos upgrade', [
+      { change: 'Back up the config', targets: [deviceId] },
+      { change: 'Copy the image', targets: [deviceId] },
+      { change: 'Tell the team' },
+    ]);
+    const drawn = drawnPreview(doc, idea, changeOf(doc, after))!;
+    expect(drawn.marks.map((m) => [m.keys.join(','), m.word])).toEqual([[deviceId, `${PREVIEW_WORDS.plans} · STEPS 1–2`]]);
+    expect(drawn.plans.map((p) => [p.title, p.steps.length])).toEqual([['Junos upgrade', 3]]);
+  });
+
+  it('tags a device the plan names by hostname when no step names a target', () => {
+    const { doc, deviceId } = named();
+    const after = plan(doc, 'Maintenance plan: Junos firmware upgrade on the Juniper SRX1500 (srx1500-lab)', [{ change: 'Back up the config.' }]);
+    const drawn = drawnPreview(doc, idea, changeOf(doc, after))!;
+    expect(drawn.marks.map((m) => [m.keys.join(','), m.word])).toEqual([[deviceId, PREVIEW_WORDS.plans]]);
+
+    const store = createAiPreviewStore();
+    store.show(idea, drawn);
+    expect([...(store.get().focus ?? [])]).toEqual([deviceId]);
+    expect(store.get().plans).toHaveLength(1);
+  });
+
+  it('does not take a hostname inside a longer word', () => {
+    const { doc } = named();
+    const after = plan(doc, 'Upgrade srx1500-lab2', [{ change: 'Back up the config' }]);
+    expect(drawnPreview(doc, idea, changeOf(doc, after))!.marks).toEqual([]);
+  });
+
+  it('words the steps a device carries', () => {
+    expect(stepsWord([2])).toBe('STEP 2');
+    expect(stepsWord([3, 1, 2, 2])).toBe('STEPS 1–3');
+    expect(stepsWord([1, 3, 5])).toBe('STEPS 1, 3, 5');
   });
 });

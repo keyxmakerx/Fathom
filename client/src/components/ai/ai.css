@@ -605,6 +605,16 @@
   gap: var(--s2);
 }
 
+.ai-idea__plan {
+  margin: var(--s2) 0;
+}
+
+.ai-idea__plan-title {
+  font-size: var(--t-small);
+  font-weight: 600;
+  margin-bottom: var(--s1);
+}
+
 .ai-idea__action {
   font-size: var(--t-micro);
   letter-spacing: var(--control-track);

@@ -5,7 +5,8 @@ import { createContext, useContext, useSyncExternalStore } from 'react';
 
 import type { AiIdea, IdeaPreview } from '../../api/ai';
 import { applyChange, type Change } from '../../document/change';
-import { findEdge, type Document } from '../../document/model';
+import { asString, edgesIn, fieldValue, findEdge, findNode, parseNodeId, type Document } from '../../document/model';
+import { readPlan, type Plan } from '../../document/plans';
 import { buildCanon, type Canon } from '../checks/checksModel';
 import type { PlanMark } from '../plans/plansStore';
 
@@ -23,6 +24,9 @@ export interface AiPreviewState {
   /** The parts inside a device the idea adds, changes or removes (a card, a port, a power supply), outlined on
    * the plate where it draws them; the device itself carries an INSIDE tag. */
   parts: ReadonlySet<string>;
+  /** The maintenance plans the idea adds or changes, read off the drawn copy: a plan has nothing of its own on the
+   * canvas, so the ideas panel lists its steps. */
+  plans: readonly Plan[];
 }
 
 /** What the canvas draws for an idea whose change was built: the design with it made, and the marks on it. */
@@ -31,6 +35,7 @@ export interface DrawnPreview {
   marks: PlanMark[];
   canon: Canon;
   parts: ReadonlySet<string>;
+  plans: readonly Plan[];
 }
 
 export interface AiPreviewStore {
@@ -41,7 +46,7 @@ export interface AiPreviewStore {
   subscribe(listener: () => void): () => void;
 }
 
-const NONE: AiPreviewState = { ideaId: null, marks: [], focus: null, doc: null, canon: null, parts: new Set() };
+const NONE: AiPreviewState = { ideaId: null, marks: [], focus: null, doc: null, canon: null, parts: new Set(), plans: [] };
 const IDENTITY: Canon = (id) => id;
 
 /** A link end the reading named (kind:ULID), rather than a name the change gave something new. */
@@ -56,6 +61,8 @@ export const PREVIEW_WORDS = {
   changeInside: 'AI CHANGES INSIDE',
   removeInside: 'AI REMOVES INSIDE',
   addInside: 'AI ADDS INSIDE',
+  // On a device a maintenance plan the idea adds or changes works on: the plan itself is not drawn.
+  plans: 'AI PLANS',
 } as const;
 
 type Doing = 'add' | 'change' | 'remove';
@@ -153,7 +160,20 @@ export function drawnPreview(doc: Document, idea: AiIdea, change: Change): Drawn
   const added = new Set<string>();
   const changed = new Set<string>();
   const removed: string[] = [];
+  // A plan, its steps and the edges between them draw nothing: the devices the plan works on carry its tag instead.
+  const plans = new Set<string>();
+  const planThing = (id: string): boolean => {
+    const plan = planHolding(drawn, id) ?? planHolding(doc, id);
+    if (plan == null) return false;
+    if (!gone.has(plan)) plans.add(plan);
+    return true;
+  };
   for (const op of change.batch.ops) {
+    if (op.type === 'add_node' && planThing(op.node)) {
+      fresh.add(op.node);
+      continue;
+    }
+    if (op.type === 'add_edge' && planThing(op.edge)) continue;
     if (op.type === 'add_node') {
       fresh.add(op.node);
       if (!take(op.node, 'add')) added.add(key(op.node));
@@ -164,11 +184,11 @@ export function drawnPreview(doc: Document, idea: AiIdea, change: Change): Drawn
   for (const op of change.batch.ops) {
     // What it adds is filled in as it is added; that is not a change as well.
     if (op.type !== 'set_field' || gone.has(op.element) || fresh.has(op.element)) continue;
-    if (take(op.element, 'change')) continue;
+    if (planThing(op.element) || take(op.element, 'change')) continue;
     const k = key(op.element);
     if (!added.has(k)) changed.add(k);
   }
-  for (const id of gone) if (!take(id, 'remove')) removed.push(id);
+  for (const id of gone) if (!planThing(id) && !take(id, 'remove')) removed.push(id);
   const marks: PlanMark[] = [];
   let n = 0;
   const step = (): { stepId: string; ordinal: number } => ({ stepId: `ai:${idea.id}:${n}`, ordinal: n++ });
@@ -182,7 +202,67 @@ export function drawnPreview(doc: Document, idea: AiIdea, change: Change): Drawn
   }
   const inside = insides.finish(whole, step);
   marks.push(...inside.marks);
-  return { doc: drawn, marks, canon, parts: inside.parts };
+  const read: Plan[] = [];
+  for (const id of plans) {
+    try {
+      read.push(readPlan(drawn, id));
+    } catch {
+      // Not a live plan on the copy: nothing to show of it.
+    }
+  }
+  for (const plan of read) for (const m of planMarks(drawn, canon, plan)) marks.push({ ...step(), ...m });
+  return { doc: drawn, marks, canon, parts: inside.parts, plans: read };
+}
+
+/** The plan `id` is, or belongs to (a step, or the edge seating a step in its plan); null for anything else. */
+function planHolding(doc: Document, id: string): string | null {
+  const edge = findEdge(doc, id);
+  if (edge != null) return edge.id.startsWith('has-step:') ? edge.from : null;
+  let kind: string;
+  try {
+    kind = parseNodeId(id).kind;
+  } catch {
+    return null;
+  }
+  if (kind === 'MaintenancePlan') return id;
+  if (kind === 'PlanStep') return edgesIn(doc, id, 'HasStep')[0]?.from ?? id;
+  return null;
+}
+
+/** "STEP 2", "STEPS 1–7", "STEPS 1, 3, 5": the steps of a plan that work on one thing, counted from 1. */
+export function stepsWord(steps: readonly number[]): string {
+  const n = [...new Set(steps)].sort((a, b) => a - b);
+  if (n.length === 0) return '';
+  if (n.length === 1) return `STEP ${n[0]}`;
+  const run = n.every((x, i) => i === 0 || x === n[i - 1]! + 1);
+  return `STEPS ${run ? `${n[0]}–${n[n.length - 1]}` : n.join(', ')}`;
+}
+
+const HOST_EDGE = '[^a-z0-9_-]';
+
+/** The tags a plan puts on the canvas: one on each device its steps name in their targets, with the steps; when no
+ * step names anything, one on each device whose hostname the plan's title or steps spell out. */
+function planMarks(doc: Document, canon: Canon, plan: Plan): Omit<PlanMark, 'stepId' | 'ordinal'>[] {
+  const byDevice = new Map<string, number[]>();
+  plan.steps.forEach((s, i) => {
+    for (const t of s.targets) {
+      if (findNode(doc, t) == null) continue;
+      const key = canon(t);
+      byDevice.set(key, [...(byDevice.get(key) ?? []), i + 1]);
+    }
+  });
+  if (byDevice.size > 0)
+    return [...byDevice].map(([key, steps]) => ({ kind: 'touch' as const, keys: [key], word: `${PREVIEW_WORDS.plans} · ${stepsWord(steps)}` }));
+  const words = [plan.title, ...plan.steps.map((s) => s.change)].join('\n').toLowerCase();
+  const named: string[] = [];
+  for (const n of doc.nodes) {
+    if (n.absentSince !== undefined || !n.id.startsWith('device:')) continue;
+    const host = (asString(fieldValue(n.fields, 'Device.hostname')) ?? '').trim().toLowerCase();
+    if (host.length < 3) continue;
+    const escaped = host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp(`(^|${HOST_EDGE})${escaped}($|${HOST_EDGE})`).test(words)) named.push(n.id);
+  }
+  return named.map((id) => ({ kind: 'touch' as const, keys: [id], word: PREVIEW_WORDS.plans }));
 }
 
 export function createAiPreviewStore(): AiPreviewStore {
@@ -196,7 +276,7 @@ export function createAiPreviewStore(): AiPreviewStore {
       } else {
         const { marks, parts } = drawn ?? previewOutlines(idea.id, idea.preview, canon ?? IDENTITY);
         const focus = marks.length > 0 ? new Set(marks.flatMap((m) => m.keys)) : null;
-        state = { ideaId: idea.id, marks, focus, doc: drawn?.doc ?? null, canon: drawn?.canon ?? null, parts };
+        state = { ideaId: idea.id, marks, focus, doc: drawn?.doc ?? null, canon: drawn?.canon ?? null, parts, plans: drawn?.plans ?? [] };
       }
       listeners.forEach((l) => l());
     },
