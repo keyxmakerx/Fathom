@@ -95,6 +95,21 @@ Startup refuses rather than half-working. A catalogue that will not parse, a key
 schema tree that fails a gate, a database role that turns out to be a superuser: each one is an exit
 with a reason, not a server that runs with a piece missing.
 
+Other settings the server reads, each optional. A value it cannot parse stops startup and names the
+variable, never its value; only `FATHOM_HEAD_CACHE_BYTES` falls back to its default instead.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `FATHOM_LOG` | `info` | One log level (`error`, `warn`, `info`, `debug`, `trace`), not a filter |
+| `FATHOM_DB_POOL_SIZE` | `8` | Most pooled database connections |
+| `FATHOM_HEALTH_TIMEOUT_MS` | `2000` | How long `/health` waits for the database |
+| `FATHOM_SIGNIN_WINDOW_SECONDS` | `900` | The window the two sign-in limits count in |
+| `FATHOM_SIGNIN_MAX_PER_ACCOUNT` | `10` | Failures against one account per window (a rate limit, never a lockout) |
+| `FATHOM_SIGNIN_MAX_PER_SOURCE` | `45` | Attempts from one address per window; a sign-in costs three, so raise it for an office behind one NAT |
+| `FATHOM_HEAD_CACHE_BYTES` | 512 MiB | Memory for open designs' heads in live co-editing |
+
+`compose.yaml` sets the first three for the `server` service; set the others there too if you need them.
+
 ### 4. Start the client
 
 The browser engine (the paste box and the config drawer's redaction gate, ADR-0052 §1) ships as a
@@ -452,7 +467,8 @@ from them.
 
 `docs/STATE.md` is the page of record. Headline gaps:
 
-- **The credential vault is not built.** Private notes and device secrets have nowhere to live yet.
+- **Private notes are not built.** Device logins have the vault (ADR-0071, `docs/OPERATING.md`);
+  a note is seen by everyone who can read the design.
 - **Nothing is emailed.** An invitation is a token you hand over yourself, and the two-operator
   interlock on settings refuses correctly but notifies nobody.
 - **Nothing talks to a live device.** Everything comes from pasted text, through the redaction gate.
