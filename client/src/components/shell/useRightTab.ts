@@ -3,6 +3,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 /** The right-hand side is one slot with four tabs (Equipment, Details, History, Trail); one is open at a time, or none. */
 export type RightTab = 'equipment' | 'details' | 'history' | 'trail';
 
+/** Asks for the Details tab, from outside the shell: the quick card's Details button (`QuickCard.tsx`). */
+export const SHOW_DETAILS_EVENT = 'fathom:show-details';
+
 export interface RightTabInput {
   /** The Equipment list exists here (the Racks place). */
   hasEquipment?: boolean;
@@ -102,6 +105,16 @@ export function useRightTab(input: RightTabInput) {
     setPick('equipment');
     trailRef.current?.(false);
   }, [request]);
+
+  // The quick card's Details: the selection's panel, even when it was folded or Equipment was open.
+  useEffect(() => {
+    const onShow = () => {
+      setPick('details');
+      trailRef.current?.(false);
+    };
+    window.addEventListener(SHOW_DETAILS_EVENT, onShow);
+    return () => window.removeEventListener(SHOW_DETAILS_EVENT, onShow);
+  }, []);
 
   // The design place opened or closed these (a refused undo opens the Trail; the bar's History button).
   useEffect(() => {

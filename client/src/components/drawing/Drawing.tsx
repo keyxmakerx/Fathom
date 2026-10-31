@@ -561,7 +561,8 @@ function DrawingInner({
   // Zoom never opens a device; only Open, a double-click or "Show on rack" does.
   const [opened, setOpened] = useState<{ id: string; view: 'config' | 'inside' } | null>(null);
   // Sign-off r59: a click anywhere on a device selects it and opens its panel; the callout a click on its
-  // name used to draw is gone, and a pause over it shows the peek (`PortPeek.tsx`) instead.
+  // name used to draw is gone, and a pause over it shows the peek (`PortPeek.tsx`) instead. Since 31 October
+  // any click also puts the quick card beside it (`QuickCard.tsx`), which the place draws, not the canvas.
   const openedRef = useRef(opened);
   openedRef.current = opened;
   // Tell the caller which devices are picked together, so its panel can edit them all; empty again on leaving.
