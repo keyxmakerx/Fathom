@@ -2486,6 +2486,19 @@
   color: var(--muted);
 }
 
+/* A box typed by hand: the catalogue model it most likely is, above "Give it a catalogue model…". */
+.dev-guess {
+  margin: var(--s2) 0;
+  padding: var(--s2) var(--s3);
+  border: var(--rule-hair, 1px) solid var(--hairline);
+  font-size: var(--t-small);
+}
+.dev-guess__why {
+  margin: var(--s1) 0 var(--s2);
+  padding-left: var(--s4);
+  color: var(--muted);
+}
+
 /* "Swap model…": what carries over, before the person confirms. */
 .drawing-editor__swap-plan {
   margin: var(--s2) 0;
