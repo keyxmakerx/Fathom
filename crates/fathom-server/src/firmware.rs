@@ -82,7 +82,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::Router;
 use deadpool_postgres::Transaction;
-use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha256, Sha512};
 
 use fathom_canon::Json;
 
@@ -1340,8 +1340,8 @@ async fn upload_handler(
     let partial = state.store.partial_path(image);
     let outcome = stream_to_disk(&partial, body, declared_length, state.store.upload_idle).await;
 
-    let (received, computed) = match outcome {
-        Ok(pair) => pair,
+    let (received, computed, sha512) = match outcome {
+        Ok(hashed) => hashed,
         Err(e) => {
             remove_quietly(&partial).await;
             mark_failed(&state, &organisation, image, "write_failed").await?;
@@ -1385,10 +1385,19 @@ async fn upload_handler(
         },
         &created_by,
         received,
-        computed,
+        Digests {
+            sha256: computed,
+            sha512,
+        },
         &partial,
     )
     .await
+}
+
+/// The two hashes Fathom worked out from an upload's bytes.
+struct Digests {
+    sha256: [u8; 32],
+    sha512: [u8; 64],
 }
 
 /// The operator's labels for an image, as sealed when it is staged.
@@ -1412,12 +1421,13 @@ async fn stream_to_disk(
     mut body: Body,
     declared_length: u64,
     idle: std::time::Duration,
-) -> Result<(u64, [u8; 32]), FirmwareError> {
+) -> Result<(u64, [u8; 32], [u8; 64]), FirmwareError> {
     let path = partial.to_path_buf();
     let mut sink = tokio::task::spawn_blocking(move || {
         std::fs::File::create(&path).map(|file| Sink {
             file,
             hasher: Sha256::new(),
+            sha512: Sha512::new(),
             written: 0,
         })
     })
@@ -1458,22 +1468,27 @@ async fn stream_to_disk(
     }
 
     let written = sink.written;
-    let digest = tokio::task::spawn_blocking(move || {
+    let (digest, sha512) = tokio::task::spawn_blocking(move || {
         use std::io::Write;
         sink.file.flush()?;
         sink.file.sync_all()?;
-        Ok::<[u8; 32], std::io::Error>(sink.hasher.finalize().into())
+        Ok::<([u8; 32], [u8; 64]), std::io::Error>((
+            sink.hasher.finalize().into(),
+            sink.sha512.finalize().into(),
+        ))
     })
     .await
     .map_err(joined)?
     .map_err(FirmwareError::Storage)?;
 
-    Ok((written, digest))
+    Ok((written, digest, sha512))
 }
 
 struct Sink {
     file: std::fs::File,
     hasher: Sha256,
+    /// The SHA-512 from the same pass (`0059`), for vendors that publish one.
+    sha512: Sha512,
     written: u64,
 }
 
@@ -1484,6 +1499,7 @@ async fn flush(mut sink: Sink, mut buffer: Vec<u8>) -> Result<(Sink, Vec<u8>), F
         use std::io::Write;
         sink.file.write_all(&buffer)?;
         sink.hasher.update(&buffer);
+        sink.sha512.update(&buffer);
         sink.written += buffer.len() as u64;
         buffer.clear();
         Ok::<(Sink, Vec<u8>), std::io::Error>((sink, buffer))
@@ -1543,9 +1559,10 @@ async fn finish_upload(
     labels: Labels<'_>,
     created_by: &str,
     received: u64,
-    computed: [u8; 32],
+    digests: Digests,
     partial: &Path,
 ) -> Result<Response, FirmwareError> {
+    let computed = digests.sha256;
     let from = partial.to_path_buf();
     let to = state.store.image_path(image);
     tokio::task::spawn_blocking(move || std::fs::rename(&from, &to))
@@ -1583,13 +1600,15 @@ async fn finish_upload(
     let updated = tx
         .execute(
             "UPDATE firmware_images \
-                SET state = 'staged', computed_sha256 = $3, staged_at = now(), staged_seq = $4 \
+                SET state = 'staged', computed_sha256 = $3, staged_at = now(), staged_seq = $4, \
+                    computed_sha512 = $5, last_checked_at = now() \
              WHERE id = $1 AND organisation_id = $2 AND state = 'declared'",
             &[
                 &image.to_string(),
                 &organisation,
                 &computed.to_vec(),
                 &appended.seq,
+                &digests.sha512.to_vec(),
             ],
         )
         .await?;
@@ -1609,6 +1628,7 @@ async fn finish_upload(
     map.insert("state".to_string(), Json::Str("staged".to_string()));
     map.insert("byte_length".to_string(), Json::Int(received as i64));
     map.insert("sha256".to_string(), Json::Str(hex(&computed)));
+    map.insert("sha512".to_string(), Json::Str(hex(&digests.sha512)));
     map.insert("staged_seq".to_string(), Json::Int(appended.seq));
     Ok(json_response(Json::Obj(map)))
 }
@@ -1980,6 +2000,162 @@ async fn verified(file: std::fs::File, staged: &[u8]) -> Result<std::fs::File, F
     })
 }
 
+/// How often each stored image is hashed again (sign-off r62).
+pub const RECHECK_EVERY_DAYS: i64 = 7;
+
+/// How often the re-check looks for images that are due. Short beside a week, so
+/// a server restarted often still re-checks on time; each pass hashes one image
+/// at a time, so it never competes with uploads for more than one file's reads.
+pub const RECHECK_LOOK_EVERY: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// What one pass of [`recheck_due`] found.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Rechecked {
+    /// Images whose stored file still matches.
+    pub matched: usize,
+    /// Images whose file no longer matches, or is gone. Each is marked `changed_at`
+    /// and logged; a download refuses them anyway (`verified`).
+    pub changed: usize,
+}
+
+/// Hash every staged image that is due (`RECHECK_EVERY_DAYS`), one at a time, and
+/// record the result under the image's own organisation.
+///
+/// Finding what is due crosses organisations, so it reads under
+/// `app.firmware_recheck_custody` (`0059`), which can read and cannot write.
+/// Each write is then made with the organisation as the tenant. An image staged
+/// before `0059` gets its SHA-512 here, and only once its SHA-256 has matched, so
+/// the SHA-512 is never of bytes nobody vouched for.
+pub async fn recheck_due(
+    pool: &deadpool_postgres::Pool,
+    store: &FirmwareStore,
+) -> Result<Rechecked, FirmwareError> {
+    recheck_due_in(pool, store, None).await
+}
+
+/// [`recheck_due`], limited to one organisation when `only` names one. The server
+/// always passes `None`; a test passes its own organisation so it does not
+/// re-check images other tests staged in other directories.
+pub async fn recheck_due_in(
+    pool: &deadpool_postgres::Pool,
+    store: &FirmwareStore,
+    only: Option<&str>,
+) -> Result<Rechecked, FirmwareError> {
+    let mut found = Rechecked::default();
+    loop {
+        let mut client = pool.get().await?;
+        let tx = client.transaction().await?;
+        enter_recheck_custody(&tx).await?;
+        let due = tx
+            .query_opt(
+                "SELECT id, organisation_id, computed_sha256, computed_sha512 \
+                 FROM firmware_images \
+                 WHERE state = 'staged' AND computed_sha256 IS NOT NULL \
+                   AND (last_checked_at IS NULL \
+                        OR last_checked_at < now() - make_interval(days => $1::int)) \
+                   AND ($2::text IS NULL OR organisation_id = $2) \
+                 ORDER BY last_checked_at NULLS FIRST, id \
+                 LIMIT 1",
+                &[&(RECHECK_EVERY_DAYS as i32), &only],
+            )
+            .await?;
+        tx.commit().await?;
+        let Some(due) = due else {
+            return Ok(found);
+        };
+        let id: String = due.get(0);
+        let organisation: String = due.get(1);
+        let sha256: Vec<u8> = due.get(2);
+        let sha512: Option<Vec<u8>> = due.get(3);
+        let image = parse_image(&id)?;
+
+        let hashed = hash_file(store.image_path(image)).await;
+        let (matches, fill_sha512) = match &hashed {
+            Ok((now256, now512)) => {
+                let same = now256.as_slice() == sha256.as_slice()
+                    && sha512.as_deref().is_none_or(|s| s == now512.as_slice());
+                (same, (same && sha512.is_none()).then(|| now512.to_vec()))
+            }
+            Err(_) => (false, None),
+        };
+
+        let tx = client.transaction().await?;
+        repo::set_custody_tenant(&tx, &organisation).await?;
+        tx.execute(
+            "UPDATE firmware_images \
+                SET last_checked_at = now(), \
+                    computed_sha512 = coalesce(computed_sha512, $3), \
+                    changed_at = CASE WHEN $4 THEN changed_at ELSE coalesce(changed_at, now()) END \
+             WHERE id = $1 AND organisation_id = $2 AND state = 'staged'",
+            &[&id, &organisation, &fill_sha512, &matches],
+        )
+        .await?;
+        tx.commit().await?;
+
+        if matches {
+            found.matched += 1;
+        } else {
+            found.changed += 1;
+            tracing::warn!(
+                image = %id,
+                organisation = %organisation,
+                missing = hashed.is_err(),
+                "a stored firmware image no longer matches the hash worked out when it was \
+                 uploaded, or its file is gone. Downloads of it are refused. Compare the \
+                 firmware volume with a backup."
+            );
+        }
+    }
+}
+
+/// Run [`recheck_due`] every `RECHECK_LOOK_EVERY`, for as long as the server runs.
+/// A failed pass is logged and tried again next time; it never stops the server.
+pub fn spawn_recheck(
+    pool: deadpool_postgres::Pool,
+    store: Arc<FirmwareStore>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            match recheck_due(&pool, &store).await {
+                Ok(Rechecked {
+                    matched: 0,
+                    changed: 0,
+                }) => {}
+                Ok(done) => tracing::info!(
+                    matched = done.matched,
+                    changed = done.changed,
+                    "firmware images re-checked"
+                ),
+                Err(e) => tracing::warn!(error = %e, "the firmware re-check could not run"),
+            }
+            tokio::time::sleep(RECHECK_LOOK_EVERY).await;
+        }
+    })
+}
+
+/// SHA-256 and SHA-512 of a whole file, on the blocking pool.
+async fn hash_file(path: PathBuf) -> Result<([u8; 32], [u8; 64]), FirmwareError> {
+    tokio::task::spawn_blocking(move || {
+        use std::io::Read;
+        let mut file = std::fs::File::open(&path)?;
+        let mut sha256 = Sha256::new();
+        let mut sha512 = Sha512::new();
+        let mut buffer = vec![0u8; UPLOAD_CHUNK];
+        loop {
+            let n = file.read(&mut buffer)?;
+            if n == 0 {
+                break;
+            }
+            sha256.update(&buffer[..n]);
+            sha512.update(&buffer[..n]);
+        }
+        Ok::<_, std::io::Error>((sha256.finalize().into(), sha512.finalize().into()))
+    })
+    .await
+    .map_err(joined)?
+    .map_err(FirmwareError::Storage)
+}
+
 /// `HEAD /firmware/fetch/{token}`: refused without reading the token, so a client
 /// or proxy that asks before it fetches does not spend the one `GET` (module doc).
 async fn head_refused() -> Response {
@@ -2037,7 +2213,9 @@ async fn list_handler(
         .query(
             "SELECT id, filename, byte_length, computed_sha256, state, failed_reason, \
                     extract(epoch FROM created_at)::bigint, \
-                    extract(epoch FROM staged_at)::bigint, staged_seq, platform, version, models \
+                    extract(epoch FROM staged_at)::bigint, staged_seq, platform, version, models, \
+                    computed_sha512, extract(epoch FROM last_checked_at)::bigint, \
+                    extract(epoch FROM changed_at)::bigint \
              FROM firmware_images \
              WHERE organisation_id = $1 AND scope_id = $2 \
              ORDER BY created_at",
@@ -2060,6 +2238,9 @@ async fn list_handler(
         let platform: Option<String> = row.get(9);
         let version: Option<String> = row.get(10);
         let models: Vec<String> = row.get(11);
+        let sha512: Option<Vec<u8>> = row.get(12);
+        let last_checked_at: Option<i64> = row.get(13);
+        let changed_at: Option<i64> = row.get(14);
 
         let mut map = BTreeMap::new();
         map.insert("image_id".to_string(), Json::Str(id));
@@ -2108,6 +2289,23 @@ async fn list_handler(
                 map.insert("commands".to_string(), Json::Null);
             }
         }
+        // Also computed, never declared (`0059`). Absent for an image staged before
+        // it until the first weekly re-check has confirmed the file.
+        map.insert(
+            "sha512".to_string(),
+            match &sha512 {
+                Some(digest) => Json::Str(hex(digest)),
+                None => Json::Null,
+            },
+        );
+        map.insert(
+            "last_checked_at_unix".to_string(),
+            last_checked_at.map_or(Json::Null, Json::Int),
+        );
+        map.insert(
+            "changed_at_unix".to_string(),
+            changed_at.map_or(Json::Null, Json::Int),
+        );
         out.push(Json::Obj(map));
     }
 
@@ -2358,6 +2556,22 @@ async fn enter_upload_custody(tx: &Transaction<'_>) -> Result<(), FirmwareError>
     .await?;
     tx.execute(
         "SELECT set_config('app.firmware_upload_custody', 'yes', true)",
+        &[],
+    )
+    .await?;
+    Ok(())
+}
+
+/// Turn on `app.firmware_recheck_custody` (`0059`): read which images are due
+/// across organisations. No policy lets it write.
+async fn enter_recheck_custody(tx: &Transaction<'_>) -> Result<(), FirmwareError> {
+    tx.execute(
+        "SELECT set_config('app.design_capability', 'no', true)",
+        &[],
+    )
+    .await?;
+    tx.execute(
+        "SELECT set_config('app.firmware_recheck_custody', 'yes', true)",
         &[],
     )
     .await?;

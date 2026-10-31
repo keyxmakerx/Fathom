@@ -40,6 +40,11 @@
   font-size: var(--t-mono);
 }
 
+/* A SHA-512 is 128 characters: let it wrap rather than push the page sideways. */
+.fw-hash-long {
+  overflow-wrap: anywhere;
+}
+
 .fw-note {
   margin: 0;
   color: var(--ink);

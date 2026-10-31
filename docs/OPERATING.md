@@ -612,6 +612,14 @@ Before each download the server reads the image again and compares its SHA-256 w
 at upload. A file changed on disk is refused with `500` and logged as an error; restage it from the
 vendor's download.
 
+**The weekly re-check.** Once an hour the server looks for staged images it has not hashed for seven
+days and hashes them again, one at a time, so it reads one file at once and never competes with
+uploads for more. An image that no longer matches, or whose file is gone, is marked (its page and
+the list say so) and logged as a warning that names the image; it is never sent. If one appears,
+compare the firmware volume with a backup before trusting anything else on it. An image staged
+before the re-check existed gets its SHA-512 at its first re-check, and only once its SHA-256 has
+matched. Each server runs its own re-check; two servers re-checking the same image is harmless.
+
 ## Break-glass: recovering an operator from the host
 
 ADR-0055 decision 8, in its own words: *"Break-glass is a host command, loud."* `fathom-server

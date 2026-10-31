@@ -32,6 +32,9 @@ const image: FirmwareImage = {
   createdAtUnix: 1,
   stagedAtUnix: 2,
   sha256: HASH,
+  sha512: null,
+  lastCheckedAtUnix: null,
+  changedAtUnix: null,
   platform: 'junos-ex',
   version: '23.4R2',
   models: ['ex4300-48t'],
@@ -87,6 +90,11 @@ describe('the Firmware list (r14-b1)', () => {
   it('puts a Copy button for the whole hash beside the short one, for readers too', () => {
     const reader = html(api(world().doc, { canEdit: false, isSteward: false }));
     expect(reader).toMatch(/9f2c…a41e <button type="button" class="fw-btn btn-quiet">Copy<\/button>/);
+  });
+
+  it('marks an image a re-check found changed, right beside its hash', () => {
+    const out = html(api(world().doc, { server: { status: 'ready', images: [{ ...image, changedAtUnix: 5 }], error: null } }));
+    expect(out).toContain('Changed on the server, won&#x27;t be sent');
   });
 
   it('shows the behind count in amber and says it in the footer, with the button that plans for them', () => {
@@ -186,6 +194,22 @@ describe('an image page', () => {
     const html = (a: FirmwareApi) => renderToStaticMarkup(createElement(ImagePage, { api: a, rowKey: 'img:' + IMG_ID, onOpenModel: noop }));
     expect(html(api(world().doc))).toContain('Edit models');
     expect(html(api(world().doc, { isSteward: false }))).not.toContain('Edit models');
+  });
+
+  it('shows the SHA-512 with a Copy button and when the file was last checked', () => {
+    const sha512 = 'c'.repeat(128);
+    const out = renderToStaticMarkup(createElement(ImagePage, { api: api(world().doc, { server: { status: 'ready', images: [{ ...image, sha512, lastCheckedAtUnix: 1_793_404_800 }], error: null } }), rowKey: 'img:' + IMG_ID, onOpenModel: noop }));
+    expect(out).toContain('SHA-512');
+    expect(out).toContain(sha512);
+    expect(out.match(/>Copy</g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(out).toContain('Still matches, last checked 31 Oct 2026');
+  });
+
+  it('warns plainly when a re-check found the stored file changed', () => {
+    const out = renderToStaticMarkup(createElement(ImagePage, { api: api(world().doc, { server: { status: 'ready', images: [{ ...image, lastCheckedAtUnix: 1_793_404_800, changedAtUnix: 1_793_404_800 }], error: null } }), rowKey: 'img:' + IMG_ID, onOpenModel: noop }));
+    expect(out).toContain('role="alert"');
+    expect(out).toContain("no longer matched these hashes, or was gone. Fathom won&#x27;t send it.");
+    expect(out).not.toContain('Still matches');
   });
 
   it("lists the server's models, not the chosen-version fallback, once the server has any", () => {

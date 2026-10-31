@@ -75,6 +75,14 @@ the server or its disk is at risk. This part is built:
 - **The bytes read again before sending.** The fetch route hashes the open file before the first
   byte, then streams from the same handle, rewound. A mismatch is `500` and nothing is sent.
 
-Still to build from the same card: SHA-512 and MD5 at upload, a weekly re-check, retiring an image,
+- **SHA-512 at upload** (`0059`), from the same pass as the SHA-256, shown with a Copy button on the
+  image's page. Computed, never declared.
+- **The weekly re-check.** Each staged image is hashed again every seven days, one at a time. A
+  mismatch or a missing file sets `changed_at`, which is never cleared, and the page and list warn.
+  Finding what is due crosses organisations under a read-only capability,
+  `app.firmware_recheck_custody`; every write is under the image's own organisation.
+
+Still to build from the same card: MD5 at upload (it needs `md-5`, a new crate, so it waits on a
+`deps/decisions/` record and the owner's approval of it), retiring an image,
 the warnings at link time (wrong model, downgrade, not the chosen version, where a download went),
 the firmware activity list, the device signature-check steps, and an optional scanner add-on.

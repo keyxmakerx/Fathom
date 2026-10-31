@@ -13,6 +13,9 @@ import { ModelsEditor } from './ModelsEditor';
 import { CopyButton, GetLink } from './parts';
 import './firmware.css';
 
+/** A day as a person reads it, such as "31 Oct 2026". */
+const dayWords = (unix: number): string => new Date(unix * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
 export function ImagePage({ api, rowKey, onOpenModel }: { api: FirmwareApi; rowKey: string; onOpenModel: (model: string) => void }) {
   const row = useMemo(() => imageRows({ doc: api.doc, images: api.server.images }).find((r) => r.key === rowKey) ?? null, [api.doc, api.server.images, rowKey]);
   const options = useMemo(() => modelRows(api.doc).map((r) => r.model), [api.doc]);
@@ -65,6 +68,33 @@ export function ImagePage({ api, rowKey, onOpenModel }: { api: FirmwareApi; rowK
               {img.sha256 ? <CopyButton text={img.sha256} label="Copy" className="fw-btn btn-quiet" /> : null}
               <div className="fw-muted">Fathom worked this out from the bytes it holds. Short form {shortHash(img.sha256)}.</div>
             </dd>
+            {img.sha512 ? (
+              <>
+                <dt>SHA-512</dt>
+                <dd>
+                  <span className="fw-mono fw-hash-long" title={img.sha512}>
+                    {img.sha512}
+                  </span>{' '}
+                  <CopyButton text={img.sha512} label="Copy" className="fw-btn btn-quiet" />
+                  <div className="fw-muted">For vendors that publish a SHA-512, such as Cisco.</div>
+                </dd>
+              </>
+            ) : null}
+            {img.changedAtUnix !== null ? (
+              <>
+                <dt>Checked</dt>
+                <dd>
+                  <p className="fw-error" role="alert">
+                    On {dayWords(img.changedAtUnix)} the file on the server no longer matched these hashes, or was gone. Fathom won't send it. Upload it again from the vendor's copy, and ask your admin to compare the firmware folder with a backup.
+                  </p>
+                </dd>
+              </>
+            ) : img.lastCheckedAtUnix !== null ? (
+              <>
+                <dt>Checked</dt>
+                <dd className="fw-muted">Still matches, last checked {dayWords(img.lastCheckedAtUnix)}. Fathom checks every stored image once a week, and again before each download.</dd>
+              </>
+            ) : null}
           </>
         ) : (
           <>

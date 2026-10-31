@@ -360,6 +360,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0058_estate_index.sql",
         sql: include_str!("../migrations/0058_estate_index.sql"),
     },
+    // A firmware image's SHA-512, and the weekly re-check of every stored image (r62).
+    Migration {
+        version: 59,
+        name: "0059_firmware_recheck.sql",
+        sql: include_str!("../migrations/0059_firmware_recheck.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

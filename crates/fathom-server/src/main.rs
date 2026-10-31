@@ -898,7 +898,14 @@ async fn main() -> ExitCode {
                         "firmware staging enabled. The fetch base URL must be an origin a DEVICE \
                          can reach, which is often not the one a browser uses."
                     );
-                    Some(Arc::new(store))
+                    let store = Arc::new(store);
+                    tracing::info!(
+                        every_days = fathom_server::firmware::RECHECK_EVERY_DAYS,
+                        "each stored firmware image is hashed again once a week; one that \
+                         no longer matches is marked and logged, and is never sent"
+                    );
+                    fathom_server::firmware::spawn_recheck(pool.clone(), Arc::clone(&store));
+                    Some(store)
                 }
                 Err(e) => {
                     tracing::error!(

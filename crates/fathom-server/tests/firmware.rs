@@ -2696,3 +2696,180 @@ async fn an_image_changed_on_disk_after_staging_is_not_sent() {
         "none of the changed bytes went out"
     );
 }
+
+/// The test's own [`FirmwareStore`] over `directory`, for calling the re-check
+/// directly.
+fn a_store_over(directory: &std::path::Path) -> FirmwareStore {
+    FirmwareStore::open(
+        directory.to_path_buf(),
+        64 * 1024 * 1024,
+        "https://fathom.test.invalid".to_string(),
+        ClientAddress::header(TEST_SOURCE_HEADER),
+    )
+    .expect("this test's staging directory is usable")
+}
+
+/// Make an image due for its weekly re-check, as if eight days had passed, and,
+/// when `forget_sha512`, as if it had been staged before `0059`.
+async fn age(image: &str, forget_sha512: bool) {
+    let su = support::superuser_client_on_test_database().await;
+    su.execute(
+        "UPDATE firmware_images SET last_checked_at = now() - interval '8 days', \
+                computed_sha512 = CASE WHEN $2 THEN NULL ELSE computed_sha512 END \
+         WHERE id = $1",
+        &[&image, &forget_sha512],
+    )
+    .await
+    .expect("age the image");
+}
+
+fn sha512_of(bytes: &[u8]) -> [u8; 64] {
+    use sha2::{Digest, Sha512};
+    Sha512::digest(bytes).into()
+}
+
+#[tokio::test]
+async fn an_upload_works_out_a_sha512_too_and_the_list_shows_it() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+
+    let bytes = an_image(70_000);
+    stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "cat9k_iosxe.17.09.04a.SPA.bin",
+        &bytes,
+    )
+    .await;
+
+    let list = list_firmware(addr, &estate.steward, estate.organisation, scope).await;
+    assert!(list.contains(&hex(sha512_of(&bytes))), "{list}");
+    assert!(list.contains("\"last_checked_at_unix\":"), "{list}");
+    assert!(list.contains("\"changed_at_unix\":null"), "{list}");
+}
+
+#[tokio::test]
+async fn the_weekly_recheck_passes_a_good_file_fills_a_missing_sha512_and_marks_a_changed_one() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+    let store = a_store_over(&directory);
+    let organisation = estate.organisation.to_string();
+
+    let good = an_image(50_000);
+    let good_id = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "good.bin",
+        &good,
+    )
+    .await;
+    let bad = an_image(60_000);
+    let bad_id = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "bad.bin",
+        &bad,
+    )
+    .await;
+
+    // Just uploaded, so nothing is due yet.
+    let first = firmware::recheck_due_in(&pool, &store, Some(&organisation))
+        .await
+        .expect("the re-check runs");
+    assert_eq!(first, firmware::Rechecked::default());
+
+    // Eight days on: the good one as if staged before `0059`, the bad one changed.
+    age(&good_id, true).await;
+    age(&bad_id, false).await;
+    let mut changed = bad.clone();
+    changed[30_000] ^= 0xff;
+    std::fs::write(directory.join(format!("{bad_id}.img")), &changed).expect("change it");
+
+    let list = list_firmware(addr, &estate.steward, estate.organisation, scope).await;
+    assert!(!list.contains(&hex(sha512_of(&good))), "forgotten: {list}");
+
+    let second = firmware::recheck_due_in(&pool, &store, Some(&organisation))
+        .await
+        .expect("the re-check runs");
+    assert_eq!(
+        second,
+        firmware::Rechecked {
+            matched: 1,
+            changed: 1
+        }
+    );
+
+    let list = list_firmware(addr, &estate.steward, estate.organisation, scope).await;
+    assert!(
+        list.contains(&hex(sha512_of(&good))),
+        "the SHA-512 is filled once the SHA-256 matched: {list}"
+    );
+    assert!(
+        !list.contains(&hex(sha512_of(&changed))),
+        "never a SHA-512 of the changed bytes: {list}"
+    );
+    assert_eq!(
+        list.matches("\"changed_at_unix\":null").count(),
+        1,
+        "only the changed image is marked: {list}"
+    );
+
+    // Both were just checked, so a third pass finds nothing due.
+    let third = firmware::recheck_due_in(&pool, &store, Some(&organisation))
+        .await
+        .expect("the re-check runs");
+    assert_eq!(third, firmware::Rechecked::default());
+}
+
+#[tokio::test]
+async fn the_recheck_marks_an_image_whose_file_is_gone() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+    let store = a_store_over(&directory);
+
+    let image = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "gone.bin",
+        &an_image(10_000),
+    )
+    .await;
+    age(&image, false).await;
+    std::fs::remove_file(directory.join(format!("{image}.img"))).expect("remove it");
+
+    let found = firmware::recheck_due_in(&pool, &store, Some(&estate.organisation.to_string()))
+        .await
+        .expect("the re-check runs");
+    assert_eq!(
+        found,
+        firmware::Rechecked {
+            matched: 0,
+            changed: 1
+        }
+    );
+    let list = list_firmware(addr, &estate.steward, estate.organisation, scope).await;
+    assert!(!list.contains("\"changed_at_unix\":null"), "{list}");
+}

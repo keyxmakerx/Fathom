@@ -94,6 +94,13 @@ export interface FirmwareImage {
   stagedAtUnix: number | null;
   /** The hash Fathom computed over the bytes it holds, or null before they arrived. */
   sha256: string | null;
+  /** Also computed, never declared. Null before the bytes arrived, and for an image staged
+   *  before the server worked one out, until its first weekly re-check. */
+  sha512: string | null;
+  /** When the server last hashed the stored file again; null from a server that does not re-check. */
+  lastCheckedAtUnix: number | null;
+  /** When a re-check first found the stored file changed or gone. Such an image is never sent. */
+  changedAtUnix: number | null;
   /** What the person said it is for; absent from a server that does not carry them yet. */
   platform: string | null;
   version: string | null;
@@ -205,6 +212,9 @@ export function parseImage(v: unknown, label = 'an image'): FirmwareImage {
     createdAtUnix: optNum(o, 'created_at_unix') ?? 0,
     stagedAtUnix: optNum(o, 'staged_at_unix'),
     sha256: optStr(o, 'sha256'),
+    sha512: optStr(o, 'sha512'),
+    lastCheckedAtUnix: optNum(o, 'last_checked_at_unix'),
+    changedAtUnix: optNum(o, 'changed_at_unix'),
     platform: optStr(o, 'platform'),
     version: optStr(o, 'version'),
     models: Array.isArray(o.models) ? o.models.filter((m): m is string => typeof m === 'string' && m !== '') : [],
