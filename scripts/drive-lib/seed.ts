@@ -14,6 +14,7 @@ import {
   movePlacement,
   placeChassis,
   placeOnShelf,
+  resizeShelf,
   type CreateSurfaceOptions,
 } from './document/commands';
 import { setChassisField, setDeviceField, setPortMac } from './document/edit';
@@ -594,6 +595,33 @@ export function seedShelfScene(catalogue: CatalogueModel[], me: string): Documen
   const box = newSketchDevice(withShelf, 'box-01', me);
   let working = placeOnShelf(box.doc, box.chassisId, shelfId, 1, { actor: me });
   working = addSketchPort(working, box.chassisId, { label: 'eth0', connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
+  return working;
+}
+
+/** Sign-off r63: a full 1U shelf (five things over six slots, more than fit by name, so it shows "+N")
+ * beside a sketch switch it is cabled to, for stepping into a shelf. */
+export function seedShelfRoomScene(catalogue: CatalogueModel[], me: string): Document {
+  const { doc, rackId } = oneRack(catalogue, me);
+  const sw = newSketchDevice(doc, 'core-sw', me);
+  let working = movePlacement(sw.doc, sw.chassisId, { kind: 'rack', rackId, positionU: 24, face: 'front' }, { actor: me });
+  for (let i = 1; i <= 4; i += 1) working = addSketchPort(working, sw.chassisId, { label: `ge${i}`, connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
+  const before = working;
+  working = createShelf(working, rackId, { positionU: 20, label: 'Top shelf', actor: me });
+  const shelfId = newestNode(before, working, 'PassiveNode');
+  working = resizeShelf(working, shelfId, { slots: 6 }, { actor: me, catalogue });
+  const things: Array<[string, number, number]> = [['padparadscha', 1, 2], ['morpheus-nas', 2, 2], ['homeassistant', 3, 1], ['pihole-02', 5, 1], ['kvm', 6, 1]];
+  for (const [name, slot, ports] of things) {
+    const t = newSketchDevice(working, name, me);
+    working = placeOnShelf(t.doc, t.chassisId, shelfId, slot, { actor: me });
+    for (let i = 0; i < ports; i += 1) working = addSketchPort(working, t.chassisId, { label: `eth${i}`, connector: 'rj45', service: 'ethernet', face: 'front' }, { actor: me });
+  }
+  const view = viewOf(working, catalogue);
+  const rack = view.racks.find((r) => r.id === rackId)!;
+  const swPorts = rack.chassis.find((c) => c.hostname === 'core-sw')!.ports;
+  const shelfThings = rack.shelves.find((x) => x.id === shelfId)!.occupants;
+  shelfThings.slice(0, 3).forEach((o, i) => {
+    working = connectPorts(working, o.ports[0]!.id, swPorts[i]!.id, { sheath: 'blue' as Sheath }, { actor: me });
+  });
   return working;
 }
 

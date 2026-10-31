@@ -45,7 +45,7 @@ import {
   type PortView,
   type Selection,
 } from './contract';
-import { findChassis, findFixture, findOccupant, findRack, findShelf, findUnplacedChassis, locatePort } from './lookup';
+import { findDevice, findFixture, findOccupant, findRack, findShelf, locatePort } from './lookup';
 import { connectorName, describePorts, faceplateLayoutFor } from './faceplate';
 import { EmptyState } from '../ui/EmptyState';
 import { DeviceSections } from './DeviceSections';
@@ -1949,8 +1949,8 @@ function RemoveHolder({ view, id, actions }: { view: ClosetView; id: string; act
 /** The ids a panel holds fields of: its own, its device's and its power supplies'. Live notices match on these. */
 function elementsOf(selection: Selection, view: ClosetView): string {
   const ids = [selection.id];
-  if (selection.kind === 'chassis') {
-    const chassis = findChassis(view, selection.id)?.chassis ?? findUnplacedChassis(view, selection.id);
+  if (selection.kind === 'chassis' || selection.kind === 'occupant' || selection.kind === 'fixture') {
+    const chassis = findDevice(view, selection.id)?.chassis;
     if (chassis != null) {
       ids.push(chassis.deviceId);
       for (const inlet of chassis.psuInlets) if (inlet.supplyId != null) ids.push(inlet.supplyId);
@@ -2187,20 +2187,25 @@ function panelFor(
             })
           )}
         </div>
+        {actions.onOpenShelf ? (
+          <div className="drawing-editor__footer dev-panel__foot">
+            <button type="button" className="btn-main" onClick={() => actions.onOpenShelf!(shelf.id)} data-testid="shelf-open">
+              Open shelf
+            </button>
+          </div>
+        ) : null}
         <RemoveHolder view={view} id={shelf.id} actions={actions} />
       </div>
     );
   }
 
-  if (selection.kind === 'chassis') {
-    // A `Chassis` with no live `MountedIn`/`SitsOn`/`FixedTo` at all
-    // (`ClosetView.unplaced`, `document/view.ts`) — Inventory's "Unplaced"
-    // group opens the SAME chassis panel, `rack` simply `undefined` and
-    // every rack-only field below gated on it, rather than nothing at all.
-    const found = findChassis(view, selection.id);
-    const chassis = found?.chassis ?? findUnplacedChassis(view, selection.id);
-    if (chassis == null) return null;
-    const rack = found?.rack;
+  // A device on a shelf or a wall, or one with no live `MountedIn`/`SitsOn`/`FixedTo` at all
+  // (`ClosetView.unplaced`, `document/view.ts`), opens the SAME panel as a racked one, `rack` simply
+  // `undefined` and every rack-only field below gated on it. A passive on a shelf or a wall keeps its own below.
+  const device = selection.kind === 'chassis' || selection.kind === 'occupant' || selection.kind === 'fixture' ? findDevice(view, selection.id) : undefined;
+  if (selection.kind === 'chassis' && device == null) return null;
+  if (device != null) {
+    const { chassis, rack, where } = device;
     const topU = chassis.positionU + chassis.heightU - 1;
     const uRange = chassis.heightU === 1 ? `U${chassis.positionU}` : `U${chassis.positionU}–U${topU}`;
     // `chassis.sketch` (`document/view.ts`) only reads `true` once at least
@@ -2213,7 +2218,7 @@ function panelFor(
     // same "no catalogue model" reading the fixture panel below already
     // derives locally for its own `sketch` for the identical reason.
     const chassisSketch = chassis.model === '';
-    const kindLine = [chassis.role, rack ? `${rack.label}, ${uRange}` : 'not placed'].filter(Boolean).join(' · ');
+    const kindLine = [chassis.role, rack ? `${rack.label}, ${uRange}` : (where ?? 'not placed')].filter(Boolean).join(' · ');
     const sub = [[chassis.vendor, chassis.model].filter(Boolean).join(' '), connectorCounts(chassis.ports)].filter(Boolean).join(' · ');
     return (
       <div className="drawing-editor__panel drawing-editor__panel--tabbed drawing-editor__panel--device">

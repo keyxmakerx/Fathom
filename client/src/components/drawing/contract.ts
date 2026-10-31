@@ -119,6 +119,9 @@ export interface DrawingActions {
   onPasteConfig?(): void;
   /** Open goes into a device (jot mode). `at` is its place on this canvas, when it has one. Without this, Open shows the config drawer. */
   onOpenDevice?(chassisId: string, inside: boolean, at: { x: number; y: number } | null): void;
+  /** Steps into a shelf: its things drawn large, front-on, with the bar's path leading back to the rack.
+   * A double-click on the shelf, its "+N", or Open shelf in its menu. Without this, those only select it. */
+  onOpenShelf?(shelfId: string): void;
   /** ADR-0053 §1/§3 — Ctrl Z, at the same
    * `keydown` listener `onDisconnect` above already uses, ignored while
    * focus sits in an input/textarea/select (the drawing's own cable delete
@@ -339,6 +342,8 @@ export interface EditorActions {
    * (`contract.ts`'s own file header note on that pattern): a caller that
    * does not supply one simply has no selecting links, not a crash. */
   onSelect?(selection: Selection): void;
+  /** The shelf panel's Open shelf button. Absent where there is no shelf view to step into. */
+  onOpenShelf?(shelfId: string): void;
   /** Where the open design sits, so a port can link to another site (ADR-0079 decision 5).
    * Absent where there is no server to search, such as a sample. */
   estate?: { organisationId: string; designId: string };

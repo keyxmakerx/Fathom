@@ -265,6 +265,9 @@ export interface OccupantView {
    * (the same rule `ChassisView.sketch` uses, generalised to a passive
    * occupant too — a splitter or panel someone has drawn by hand). */
   sketch: boolean;
+  /** A device's whole record, the one a racked device's panel reads, so the panel and its menu are the
+   * same wherever the box sits. Absent on a passive occupant. */
+  chassis?: ChassisView;
 }
 
 /** ADR-0051 §1 — a passive that takes U in place of a device's own; what
@@ -307,6 +310,8 @@ export interface FixtureView {
   /** A board's own occupants (`FixedTo` the board rather than the wall) —
    * empty for anything that is not itself a board. */
   fixtures: FixtureView[];
+  /** As `OccupantView.chassis`: a device's whole record. Absent on a passive fixture. */
+  chassis?: ChassisView;
 }
 
 /** ADR-0051 §1 — a wall, floor, desk or ceiling a device or passive can be
@@ -875,6 +880,12 @@ function chassisView(
   };
 }
 
+/** A shelf's or wall's device as `chassisView` reads it, spread into its occupant or fixture. */
+function withChassis(doc: Document, chassisId: string, catalogue: readonly CatalogueModel[], closetRackIds: ReadonlySet<string>): { chassis?: ChassisView } {
+  const chassis = chassisView(doc, chassisId, catalogue, closetRackIds);
+  return chassis ? { chassis } : {};
+}
+
 /** ADR-0051 §1 — one item `SitsOn` a shelf, chassis or passive alike. */
 function occupantView(
   doc: Document,
@@ -919,6 +930,7 @@ function occupantView(
       slot,
       ports,
       sketch: chassisFields.model === undefined && hasPorts.length > 0,
+      ...withChassis(doc, itemId, catalogue, closetRackIds),
     };
   }
 
@@ -1037,7 +1049,7 @@ function fixtureView(
     })
     .filter((f): f is FixtureView => f !== undefined);
 
-  return { id: itemId, kind, label, model, form, xMm, yMm, ports, psuInlets, fixtures };
+  return { id: itemId, kind, label, model, form, xMm, yMm, ports, psuInlets, fixtures, ...(kind === 'chassis' ? withChassis(doc, itemId, catalogue, closetRackIds) : {}) };
 }
 
 function surfaceView(

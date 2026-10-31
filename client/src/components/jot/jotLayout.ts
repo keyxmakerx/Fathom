@@ -4,7 +4,7 @@
 
 import type { PortFace } from '../../document/compat';
 import type { CableView, ChassisView, ClosetView } from '../../document/view';
-import { findChassis, findOccupant, findUnplacedChassis } from '../drawing/lookup';
+import { findDevice, findUnplacedChassis } from '../drawing/lookup';
 import { faceplateLayoutFor, type FaceplateLayout } from '../drawing/faceplate';
 import { RACK_INNER_PX, U_PX } from '../drawing/geometry';
 import { BOX_H, BOX_W } from '../../document/freeform';
@@ -29,29 +29,7 @@ export interface JotPlate {
 
 /** The device as a ChassisView, wherever it sits: rack, shelf, or free. */
 export function deviceChassis(view: ClosetView, id: string): ChassisView | undefined {
-  const racked = findChassis(view, id)?.chassis ?? findUnplacedChassis(view, id);
-  if (racked) return racked;
-  const occ = findOccupant(view, id)?.occupant;
-  if (!occ || occ.kind !== 'chassis') return undefined;
-  return {
-    id: occ.id,
-    deviceId: '',
-    hostname: occ.label,
-    model: occ.model ?? '',
-    vendor: '',
-    positionU: 0,
-    heightU: 1,
-    face: 'front',
-    ports: occ.ports,
-    role: null,
-    managementAddress: null,
-    serial: null,
-    psuInlets: [],
-    singleFed: false,
-    oneFitted: false,
-    placement: { kind: 'none' },
-    sketch: occ.sketch,
-  };
+  return findDevice(view, id)?.chassis;
 }
 
 function plateOf(chassis: ChassisView, x: number, y: number, isDevice: boolean): JotPlate {

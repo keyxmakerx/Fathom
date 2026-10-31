@@ -1,3 +1,4 @@
+import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
@@ -389,6 +390,26 @@ describe('EditorFor', () => {
     expect(markup).toContain('+ Add a port');
     expect(markup).toContain('Placed on');
     expect(markup).toContain('Shelf');
+  });
+
+  it("gives a device on a shelf or a wall a racked device's whole panel: its name to rename, the ⋯ menu, its tabs and the foot", () => {
+    const racked = VIEW.racks[0]!.chassis[0]!;
+    const chassis = { ...racked, id: 'nuc-1', placement: { kind: 'shelf' as const, shelfId: 'shelf-a01', slot: 1 } };
+    const rack = PLACES_VIEW.racks[0]!;
+    const shelf = rack.shelves![0]!;
+    const view: ClosetView = {
+      ...PLACES_VIEW,
+      racks: [{ ...rack, shelves: [{ ...shelf, occupants: [{ ...shelf.occupants[0]!, chassis }] }] }],
+    };
+    const foot = createElement('button', { type: 'button' }, 'Open inside');
+    for (const kind of ['occupant', 'chassis'] as const) {
+      const markup = renderToStaticMarkup(EditorFor({ kind, id: 'nuc-1' }, view, NOOP_ACTIONS, [], foot, []) as never);
+      expect(markup).toContain('drawing-editor__panel--device');
+      expect(markup).toContain('device-more');
+      expect(markup).toContain(`${shelf.label}, slot 1`);
+      expect(markup).toContain('Notes');
+      expect(markup).toContain('Open inside');
+    }
   });
 
   it('renders a surface fixture straight on the wall: label, position, ports, and PLACED ON', () => {
