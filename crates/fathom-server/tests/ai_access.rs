@@ -3965,3 +3965,244 @@ async fn an_idea_is_checked_again_at_accept_and_closes_when_its_key_is_stopped()
     let (status, answer) = accept_idea(addr, &owner_session, o, a, &ideas[1]).await;
     assert_ne!(status, "200", "{}", text(&answer));
 }
+
+/// What a host AI sent through `/mcp` and was refused (2026-10-31): a published port's
+/// protocol as `tcp` or `TCP`, and a version with its OS name (`EOS 4.18.11M`,
+/// `Ubuntu 26.04`). Each is taken and kept as the design stores it, the number and the bare
+/// version; a protocol the field does not take is refused with what it takes.
+#[tokio::test]
+async fn a_host_ai_sends_a_protocol_by_name_and_a_version_with_its_os_name() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let place = a_place(&pool, &estate).await;
+    let owner = a_member(&pool, &ring, &estate, "owner", None, Capability::Draw).await;
+    let addr = serve(app_with(&pool, Arc::clone(&ring), Some(the_connector())).await).await;
+    let steward = sign_in(addr, &estate.steward).await;
+    saved(addr, &steward, estate.organisation, place.design_a, 91).await;
+    let o = estate.organisation;
+    let owner_id = owner.account.to_string();
+    let (status, body) = browser(
+        addr,
+        &steward,
+        "POST",
+        &format!("/organisations/{o}/ai/policy"),
+        &canon(vec![
+            ("allowed", Json::Bool(true)),
+            ("makers", strs(&[&owner_id])),
+            ("ceiling", strs(&["layout"])),
+            ("maxDays", Json::Int(90)),
+            ("secondPersonScopes", strs(&[])),
+            ("apps", strs(&["claude"])),
+            ("mayChange", Json::Bool(true)),
+            ("ifVersion", Json::Int(0)),
+        ]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let owner_session = sign_in(addr, &owner).await;
+
+    let (verifier, challenge) = pkce();
+    let request = sign_in_request(CLAUDE, CLAUDE_BACK, &challenge, "st-h");
+    let (status, body) = browser(
+        addr,
+        &owner_session,
+        "POST",
+        &format!("/organisations/{o}/ai/connect"),
+        &canon(vec![
+            ("request", s(&request)),
+            ("allow", Json::Bool(true)),
+            ("aiAccount", s("dana@example.org")),
+            ("scopes", strs(&[])),
+            ("sees", strs(&["layout"])),
+            ("mayRecommend", Json::Bool(true)),
+            ("mayChange", Json::Bool(true)),
+            ("days", Json::Int(30)),
+        ]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let code = query_of(&str_of(&obj(&body), "redirect"))["code"].clone();
+    let (status, body) = token(
+        addr,
+        FROM_CLAUDE,
+        &[
+            ("grant_type", "authorization_code"),
+            ("code", &code),
+            ("code_verifier", &verifier),
+            ("redirect_uri", CLAUDE_BACK),
+            ("client_id", CLAUDE),
+        ],
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let access = str_of(&obj(&body), "access_token");
+
+    let a = place.design_a.to_string();
+    let read = |id: i64| {
+        let a = a.clone();
+        let access = access.clone();
+        async move {
+            let (_, body) = mcp(
+                addr,
+                &access,
+                FROM_CLAUDE,
+                rpc(
+                    id,
+                    "tools/call",
+                    vec![
+                        ("name", s("read_design")),
+                        ("arguments", canon_obj(vec![("design", s(&a))])),
+                    ],
+                ),
+            )
+            .await;
+            tool_ok(&body)
+        }
+    };
+    let Json::Obj(reading) = read(1).await else {
+        panic!("a reading")
+    };
+    let version = int(&reading, "version");
+    let device = String::from_utf8_lossy(&reading["nodes"].to_canonical_bytes())
+        .split("\"id\":\"")
+        .find(|rest| rest.starts_with("device:"))
+        .and_then(|rest| rest.split('"').next())
+        .expect("a device in the reading")
+        .to_owned();
+
+    let propose = |id: i64, operations: Vec<Json>| {
+        let a = a.clone();
+        let access = access.clone();
+        async move {
+            mcp(
+                addr,
+                &access,
+                FROM_CLAUDE,
+                rpc(
+                    id,
+                    "tools/call",
+                    vec![
+                        ("name", s("propose_change")),
+                        (
+                            "arguments",
+                            canon_obj(vec![
+                                ("design", s(&a)),
+                                ("version", Json::Int(version)),
+                                ("summary", s("What the host AI found")),
+                                ("operations", Json::Arr(operations)),
+                            ]),
+                        ),
+                    ],
+                ),
+            )
+            .await
+            .1
+        }
+    };
+    let port = |protocol: &str| {
+        canon_obj(vec![
+            ("op", s("add_node")),
+            ("kind", s("PublishedPort")),
+            (
+                "fields",
+                canon_obj(vec![
+                    ("protocol", s(protocol)),
+                    ("container_port", s("443")),
+                ]),
+            ),
+        ])
+    };
+
+    // A protocol the field does not take: refused with what it takes, never echoed.
+    let body = propose(2, vec![port("smtp")]).await;
+    assert!(
+        text(&body).contains("\"isError\":true")
+            && text(&body).contains("it takes tcp, udp or sctp in any case"),
+        "{}",
+        text(&body)
+    );
+    assert!(!text(&body).contains("smtp"), "{}", text(&body));
+
+    // What the host AI sent.
+    let body = propose(
+        3,
+        vec![
+            port("tcp"),
+            port("TCP"),
+            canon_obj(vec![
+                ("op", s("set")),
+                ("element", s(&device)),
+                ("field", s(DeviceField::OsVersion.name())),
+                ("value", s("EOS 4.18.11M")),
+            ]),
+        ],
+    )
+    .await;
+    let Json::Obj(proposed) = tool_ok(&body) else {
+        panic!("an idea")
+    };
+    let idea = str_of(&proposed, "id");
+    let (status, body) = accept_idea(addr, &owner_session, o, place.design_a, &idea).await;
+    assert_eq!(status, "200", "{}", text(&body));
+
+    let after = String::from_utf8_lossy(&read(4).await.to_canonical_bytes()).into_owned();
+    assert!(after.contains("\"os_version\":\"4.18.11M\""), "{after}");
+    assert!(!after.contains("EOS"), "{after}");
+    assert_eq!(
+        after.matches("\"protocol\":\"6\"").count(),
+        2,
+        "both ports are tcp: {after}"
+    );
+
+    // A Linux host's version, with its distribution's name in front.
+    let Json::Obj(reading) = read(5).await else {
+        panic!("a reading")
+    };
+    let version = int(&reading, "version");
+    let (_, body) = mcp(
+        addr,
+        &access,
+        FROM_CLAUDE,
+        rpc(
+            6,
+            "tools/call",
+            vec![
+                ("name", s("propose_change")),
+                (
+                    "arguments",
+                    canon_obj(vec![
+                        ("design", s(&a)),
+                        ("version", Json::Int(version)),
+                        ("summary", s("The host runs Ubuntu")),
+                        (
+                            "operations",
+                            Json::Arr(vec![canon_obj(vec![
+                                ("op", s("set")),
+                                ("element", s(&device)),
+                                ("field", s(DeviceField::OsVersion.name())),
+                                ("value", s("Ubuntu 26.04")),
+                            ])]),
+                        ),
+                    ]),
+                ),
+            ],
+        ),
+    )
+    .await;
+    let Json::Obj(proposed) = tool_ok(&body) else {
+        panic!("an idea")
+    };
+    let (status, body) = accept_idea(
+        addr,
+        &owner_session,
+        o,
+        place.design_a,
+        &str_of(&proposed, "id"),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", text(&body));
+    let after = String::from_utf8_lossy(&read(7).await.to_canonical_bytes()).into_owned();
+    assert!(after.contains("\"os_version\":\"26.04\""), "{after}");
+}

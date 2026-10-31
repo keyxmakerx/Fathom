@@ -166,7 +166,7 @@ const TOOLS: &str = r#"[
               "op": {"type": "string", "enum": ["set", "add_node", "add_edge", "remove"]},
               "element": {"type": "string", "description": "set, remove: an id from read_design, or a name an earlier add gave."},
               "field": {"type": "string", "description": "set: a field name as read_design shows it."},
-              "value": {"description": "set: the new value, in the shape read_design shows; null clears it."},
+              "value": {"description": "set: the new value, in the shape read_design shows; null clears it. A protocol may also be tcp, udp or sctp in any case, and a version may carry its OS name (EOS 4.18.11M), which is left out."},
               "kind": {"type": "string", "description": "add_node, add_edge: a kind from read_design's mayChange."},
               "from": {"type": "string", "description": "add_edge: the node it starts at, an id or a name."},
               "to": {"type": "string", "description": "add_edge: the node it ends at, an id or a name."},
