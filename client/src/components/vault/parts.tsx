@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { KIND_LABELS, type VaultEntry, type VaultOverview } from '../../api/vault';
 import { fingerprintText } from '../../vault/crypto';
 import { readPref, writePref } from '../../prefs';
+import { getSession } from '../../state/sessionState';
 
 const DAY = 86_400_000;
 
@@ -152,4 +153,27 @@ export function useMinuteTick(): number {
 
 export function vaultReady(overview: VaultOverview): boolean {
   return overview.myKey?.own != null;
+}
+
+/** The user name a password manager files the vault passphrase under (sign-off rua-ui-audit,
+ * "vault entries"), so it is saved as an entry of its own and never offered as, or over, the Fathom
+ * sign-in password. Bitwarden's own source (clients, main, read 2026-10-31,
+ * overlay-notifications.background.ts) offers to add a login when a submitted form has a user name
+ * and a password with values, and to change one on a matching user name and password pair; a
+ * user name of its own makes this a different login. Visually hidden, not `hidden`, so it is still
+ * read as a field. */
+export function VaultPassphraseName() {
+  const address = getSession()?.address ?? '';
+  return (
+    <input
+      className="vh"
+      type="text"
+      name="username"
+      autoComplete="username"
+      value={address === '' ? 'Fathom vault passphrase' : `${address} (Fathom vault passphrase)`}
+      readOnly
+      tabIndex={-1}
+      aria-hidden="true"
+    />
+  );
 }

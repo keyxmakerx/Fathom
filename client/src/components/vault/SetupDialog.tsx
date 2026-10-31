@@ -12,7 +12,7 @@ import { setUpVault, vaultEngine } from '../../vault/session';
 import { getSession } from '../../state/sessionState';
 import { describeError } from '../design/useDesignSession';
 import { VaultModal } from './Modal';
-import { KitSheet, rememberCheck } from './parts';
+import { KitSheet, VaultPassphraseName, rememberCheck } from './parts';
 
 export const MIN_PASSPHRASE = 12;
 
@@ -142,6 +142,7 @@ export function SetupDialog({ organisation, organisationName, overview, onDone, 
           }}
         >
           <h3 className="vault-h3">Choose your passphrase</h3>
+          <VaultPassphraseName />
           <p>
             At least {MIN_PASSPHRASE} characters. A few unrelated words is easier to type than a short tangle and harder to guess. Use
             one you use nowhere else, not your Fathom sign-in password.
