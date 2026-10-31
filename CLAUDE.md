@@ -6,11 +6,10 @@ it. Teaching and estate-of-record are co-equal goals.
 **Server product.** Data lives on the server; the browser is a window onto it. Multi-tenant, live
 multi-user editing, thousands of devices per design.
 
-**Status: built and green, not yet usable** (2026-10-10). Engine, server and client are in and every
+**Status: built and green, not yet usable** (2026-10-31). Engine, server and client are in and every
 gate passes. Since the owner's walkthroughs (2026-09-22, 2026-09-27; ADR-0060, one canvas with detail
-added by degrees) the rounds on the sign-off page through 15 have been built and merged; ADR-0068
-records rounds 16 to 27, of which one sign-in, the Back tree, Equipment opening by itself and missing links
-are built.
+added by degrees) work has followed the sign-off page's rounds as the owner answered them; the latest merged are r62
+to r71 (firmware), on 2026-10-31. Decisions are in `docs/decisions/`; what exists is in `docs/STATE.md`.
 **"Usable" is the owner's word and means beta: polished, the app basically done, a few features allowed to be missing.** Green gates do not
 grant it; a walkthrough by the owner does. The backlog is in GitHub issues; `docs/NEXT.md` says how
 to work, and `docs/REBUILD-PLAN.md` holds the rebuild's reasoning.

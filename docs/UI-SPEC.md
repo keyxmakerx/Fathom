@@ -278,12 +278,12 @@ ADR-0046 is the decision; this is the list.
 | **Home**: organisations, the closets and designs you may open, what changed | everyone | built |
 | **Canvas**: the drawing on this page | everyone | approved; built |
 | **Inventory**: lists with filters, a page per device, rack and cable that *is* the editor, bulk edit, paste from a spreadsheet (export not built; ADR-0062), change history from the chain, *show on rack*; Parts › Fitted / On hand, the spares, stores and levels kept (ADR-0076, mockups r36-stock and r38-stock-how) | everyone | built (basic: lists, page, show on rack, notes, undo); On hand built |
-| Search: an overlay, never a page | everyone | not drawn (the patching board's far-end picker is the same box) |
-| Findings and the config checker | everyone | not drawn |
+| Search: an overlay, never a page | everyone | built: Ctrl K, with Other sites across designs (ADR-0079) |
+| Findings and the config checker | everyone | built: Checks on the drawing, each finding with Why? (ADR-0061) |
 | Walkthrough: the teaching half | everyone | low-fi sketch; never built |
-| Firmware: stage, hash, commands (ADR-0045) | stewards | server built; lives inside inventory, per model |
-| Vault: share, fingerprints, consent | everyone | designed; three surfaces undrawn (below) |
-| History and verify | everyone | endpoints exist; not drawn |
+| Firmware: stage, hash, commands (ADR-0045) | stewards | built: Inventory › Firmware and Models, upgrade plans, Admin › Firmware and Steward › Firmware (ADR-0064) |
+| Vault: share, fingerprints, consent | everyone | built, parts one to four (below; ADR-0071) |
+| History and verify | everyone | built: the bar's History panel and a device's History tab |
 | **People and permissions**: members, view-only / draw / steward, seconding, suspend, invitations, scope tree; groups and LDAP later | stewards | server built; drawn |
 | **Operator console**: account shells, invitations, organisation shells, mail behind the two-person rule, suspend, the site trail | operators | server built; drawn |
 

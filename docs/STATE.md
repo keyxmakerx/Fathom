@@ -1,6 +1,6 @@
 # What is actually built
 
-**Last confirmed:** prose brought up to main (3bd5ba9) on 2026-10-25. Test counts are not kept here: read them off a real run.
+**Last confirmed:** prose brought up to main (b23b646) on 2026-10-31. Test counts are not kept here: read them off a real run.
 
 This page records what exists. It is not a changelog — history lives in `docs/archive/`.
 
@@ -240,7 +240,11 @@ Surfaces are specified in `docs/UI-SPEC.md` and `ADR-0060`/`0061`.
 spaced-capital labels, grouped buttons in one frame, frosted pop-overs, a selection as four corner
 ticks, every duration a token and off under reduced motion. The bar folds as the window narrows
 (search, then Docs/History/Share/Print into **More ▾**, then lenses and look into **View ▾**); each
-breadcrumb does one thing.
+breadcrumb does one thing. The open design's name ends in an ellipsis past 32 characters (whole in its
+tooltip), and someone who may draw renames it in place: a pencil on hover, a double-click, or Rename… at
+the top of its menu (Enter or leaving the field saves, Esc cancels). The bar shows five people, then one
+**+N** that lists the rest; each name selects what that person has selected. Fathom's button, field and
+focus styles stay inside the app, so a password manager's own controls keep their look.
 
 **Sign-in and the console**
 - **Enrolment and sign-in, both planes.** A token's prefix names its door (`op_` operator, `inv_`
@@ -272,7 +276,7 @@ breadcrumb does one thing.
   site's buildings, every site, with counts, "You are here", a hub's double border, and more than eight
   branch or customer sites of one role folded into a counted stack. A box opens one level in; a closet
   opens its latest design. Boxes are laid out in a grid for now, not placed by hand (ADR-0047), and
-  rooms wait for the room builder (ADR-0051). **A steward of both folders moves a design** into another
+  rooms come from the building's floor plan (below). **A steward of both folders moves a design** into another
   (Home's Move on a design row, `POST …/designs/{design}/folder`), filed on the organisation chain as
   `design_moved` (design, from, to, actor; migration 0051). **Import from NetBox** on Folders (ADR-0074 §8,
   `import/estate.ts`, `EstateImport.tsx`): a NetBox rack or device export passes the redaction gate, then
@@ -290,7 +294,7 @@ breadcrumb does one thing.
   is in its history; a save that lost a race says so and reloads. The CSP's `img-src` gains `blob:` for
   the picture. Not yet: a PDF page (needs a PDF reader argued through the dependency gate; export the
   page as an image), suggested rooms (ADR-0051: only if a real plan shows they beat tracing), DXF, room
-  furniture and outlets, and door labels (labels are not built). Proven by the same drive (R1 to R4).
+  furniture and outlets, and door labels. Proven by the same drive (R1 to R4).
   The account menu holds Your account, Signed-in browsers, theme and Sign out; an amber "Admin" pill
   shows beside the initials where the console answers. "New design" goes in the first Site the person may
   draw in. Names start as "Untitled design", sealed under the organisation key (`designs.name_*`); Rename
@@ -376,8 +380,8 @@ breadcrumb does one thing.
   apply to `part` (migration 0049); a starter set offers Price, Supplier, Order number and Warranty end.
   Check `stock.level.below-minimum`. It's down says whether a spare is on hand. The AI reading lists
   spares without serials, their custom fields only at the notes tier. Parts-lab has a cupboard; the Cards
-  and optics lesson and the explainer `basics.spares` teach it. Not built: labels, the phone's scan
-  button (the phone-view work), the firmware check on spares.
+  and optics lesson and the explainer `basics.spares` teach it. Bin labels and the phone's Scan
+  button came with ADR-0075 (below). Not built: the firmware check on spares.
 - **Inventory table with pages and shared custom fields** (schema 0.16, ADR-0062). Field definitions are an organisation-wide server store (migration 0035); a value is a `FieldValue` node in the design. Private fields are not built.
 - **IP and VLAN tables, file importer** (ADR-0067): Inventory Prefix and VLAN kinds derived from the drawing, and one importer (CSV, NetBox, Proxmox, nmap).
 - **Suggestions from what a switch knows** (ADR-0046: suggestions, never facts; one undo step; the pasted text is never kept). A neighbour list (`show lldp neighbors` on Junos, Cisco, Arista; `lldpcli show neighbors`; Cisco `show cdp neighbors` and its `detail` form) suggests cables between drawn ports (`document/neighbours.ts`, round 15). A MAC table (`show mac address-table` on Cisco IOS and NX-OS, `show ethernet-switching table` on Junos non-ELS), with an optional ARP table (`show ip arp`, Junos `show arp`, `ip neigh`) or DHCP leases (ISC `dhcpd.leases`, `dnsmasq.leases`, Kea `kea-leases4.csv`) for addresses and names, suggests who is plugged in where: a port that learned one MAC is cabled to a drawn port carrying that MAC, or gets a new sketch device with that MAC and address; a port with several is left (`document/hosts.ts`, round 29, card r29-fill). A device's own report (`show version` on Junos, Cisco IOS and Arista; Cisco `show inventory`; Junos `show chassis hardware`) offers its serial and running version (`Device.os_version`) where the drawing has none, a difference unticked, and only says the model and hostname (`document/facts.ts`). Paste any of these onto the canvas, or right-click a switch. Not read: the Junos ELS table form. `scripts/drive-suggest.mjs` and `scripts/drive-hosts.mjs` drive them.
@@ -432,8 +436,35 @@ breadcrumb does one thing.
   new model has by name, same face first; a kept port keeps its cable, tie and notes. A port the new
   model lacks goes and its cable stays as a loose end in Missing links. The serial is cleared; in a rack
   the box keeps its bottom unit or refuses. Also gives a hand-typed box a catalogue model. One undo step.
-- **Right-click menus:** device (Details, Duplicate, Remove, Open, Inside, Paste config), rack (Details,
-  Add a device), cable (Details, Disconnect), empty canvas (42U, 24U, 12U rack, wall). A reader gets Details.
+- **Right-click menus** (sign-off r58): a device has one grouped list (Look, Work on it, Copy, then Remove
+  apart), the same on right-click, in its panel's ⋯ menu, in Ctrl K and on Inventory rows; what cannot be
+  used yet stays, greyed, with the reason, and keys come from the shortcuts table (Cmd on a Mac). It
+  includes Show in Inventory, Swap model, Add a port, Open in Termix, Copy link and Print its label. A
+  device on a shelf or a wall gets the same panel and menu as a racked one. A rack, a shelf and a wall
+  always list Remove, greyed with what is still on them until they are empty (one undo step); Delete and
+  Ctrl K's Delete do the same on a selected one. A wall clicked on its face opens a small panel (name,
+  what is on it, cable runs). Empty canvas offers a 42U, 24U or 12U rack, or a wall. A reader gets Details.
+- **Quick card and peek** (sign-off r59, r66; `drawing/quickCard.ts`, `scripts/drive-quick-card.mjs`). A
+  click on a device (or one of its ports), rack, shelf, cable or free box also puts a small card beside
+  it on a dotted line: what it is, its name, the management address with Copy, model, place and ports,
+  and Details, which shows the panel even when it was folded. It follows the camera and goes on Esc, a
+  click on empty canvas, a double-click or a drag. A pause over a thing shows a peek card.
+- **Shelves** (r56, `scripts/drive-shelf-room.mjs`). A shelf draws as a tray: hairline sides, an ink lip
+  the things stand on 2px clear of, its name as a caption, names whole, what does not fit folded into one
+  "+N". A double-click, **Open shelf** (right-click or panel) or the "+N" opens everything on it front-on,
+  slot by slot, empty slots hatched; the bar's path and Esc lead back out. Each rack line is drawn once
+  (a shared edge between stacked devices is one line) and a device's name sits level with its U number.
+- **The panel** (r57, r60, r65). Its foot sits on the bottom edge on every tab; inside an opened device
+  it says **Back** instead of Open inside. It ends with **Also in**: the plans that touch the device, its
+  open checks and AI ideas about it. Details' sections after Device and Location can be hidden and
+  reordered (kept in this browser; Management cannot be hidden). Connections lists six and Show all. A
+  design reopens on the place and panel tab it was left on; Esc closes only the top thing. Names of
+  devices, ports, racks and cables in Plans, Checks, History, It's down and Trace select the thing.
+- **Model suggestion** (`document/guessModel.ts`, `scripts/drive-model-guess.mjs`). A box typed by hand
+  is offered one catalogue model when its platform, notes, port names or cable labels name it, or a
+  vendor hint fits with every typed port kept ("Looks like the Arista DCS-7050S-52", with the reasons);
+  "See what changes" opens the swap preview, and nothing is written until the person swaps. The swap
+  pairs a typed `Et49`, `eth49` or `Port 49` with the model's port 49.
 - **Open a device, paste a config anywhere** (ADR-0060 step 8). Right-click Open or double-click enters
   "jot mode" (`components/jot/`): the device large with its ports, equipment dragged in, cables dragged
   port to port, Config and Inside buttons, Esc out. Ctrl+V or Paste config runs text through the wasm gate
@@ -511,6 +542,21 @@ Synology's pages would not load) (`components/firmware/kits.ts`). **Add to an ex
 upgrade into a plan still being planned; a plan is known as a firmware plan by its "Record <version> as
 running" steps, not its title, so one plan can hold several upgrades, each fetch step with its own image.
 Inventory › Firmware lists devices with their own chosen version under the images.
+Hardening (sign-off r62, r70, r71; migrations 0059, 0060): each upload works out SHA-256, SHA-512 and MD5
+in one pass (MD5 shown, never compared), and once an hour the server re-hashes any image not checked for
+seven days, marking one that changed or went missing. Every download re-hashes the file and refuses one
+that no longer matches. Uploads run one at a time per organisation and three per server (429 with
+Retry-After), an upload idle for two minutes is dropped, and a declared size past the organisation's or
+server's total is refused before any bytes arrive. Those limits start from the settings file; **Admin ›
+Firmware** (`#admin/firmware`) saves any of them, sets each organisation's ceiling and can lock it with a
+reason, and **Steward › Firmware** (`#steward/firmware`) sets the organisation's own total under the
+ceiling and its download address; every row is sealed and every change filed with before and after. A
+Steward can **retire** an image: the file is deleted, links already given stop working, the act is
+sealed. Asking for a link first lists what looks wrong (the image's models, an older version, not the
+chosen one); "Get the link anyway" seals the warnings passed. The image page and the plan show the
+organisation's firmware activity, flagging a download from an address that is none of the plan's devices'.
+Plans compare IOS XE's `verify /sha512` with Fathom's own SHA-512, check Junos Veriexec after install,
+and check an EOS image's signature with `verify-swi` before upload.
 
 **Type it yourself** (sign-off card r30-nocopy; migration 0041, `teaching.rs`, `components/typing/`). A
 teaching setting per person per organisation. While it is on, commands are shown to be typed: no copy
@@ -676,7 +722,10 @@ every connection. While an idea is shown, the canvas asks `GET .../ai-ideas/{i}/
 Accept would write, built on the design as it is and not written, and draws the design with it made,
 read-only: what it adds sits where it would go (a chassis in its rack, a cable on its ports), tagged AI
 ADDS, and what it removes stays drawn, greyed. A server without that route, or a change that no longer
-fits, falls back to outlining what the idea names. `ai_design_changes` (migration 0051) holds only rows
+fits, falls back to outlining what the idea names. An idea that adds a maintenance plan tags each device
+its steps work on (AI PLANS · STEPS 1–7; from the steps' targets, or hostnames its text names) and lists
+the steps on the idea card; it no longer offers Make it a plan, and Make it a plan on any other idea
+clears the preview first so the plan lands on the design itself. `ai_design_changes` (migration 0051) holds only rows
 from before the amendment. What an AI may do is set by kind of work
 (editing the design, drafting plans, troubleshooting, working through a plan), each Off, Ideas or
 Proposes, at three places whose strictest wins: Admin › AI's ceiling, Steward › AI rules and each
@@ -718,15 +767,15 @@ failures, staleness and an out-of-date keys file reach the console banner.
   next batch; a note's line count is taken before the gate; private notes arrive with the vault (W6).
 - Wire shapes have no cross-language vector yet.
 - Unbuilt: saved filters and grids for racks, cables and ports; unreachable-policy hatching; the
-  assistant panel; optics (ADR-0047 §5); a Proxmox dictionary.
+  assistant panel; a Proxmox dictionary. (Optics are built: ADR-0073.)
 - The old Rust-assembled HTML client is retired, on disk under `crates/fathom-artifact/`, not served.
 
 ---
 
 ## Never built
 
-Walkthrough view (the teaching half of the product); Config view; the building and room stops
-(decided: UI-SPEC "The building", ADR-0051, ADR-0074: the folders drawn, rooms from ADR-0051's room builder); engine manager (how equipment types are registered and
+Walkthrough view (the teaching half of the product; guided lessons are built, ADR-0066); Config view; a
+room stop of its own (the building stop draws the floor plan and its rooms, ADR-0074); engine manager (how equipment types are registered and
 kept current); automatic correlation across separately-pasted configs; anything that discovers a
 network live (everything today comes from pasted text).
 
