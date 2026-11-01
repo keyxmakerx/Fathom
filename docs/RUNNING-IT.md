@@ -253,8 +253,19 @@ after.
 
 `.env` is optional here. `FATHOM_FIRMWARE_FETCH_BASE_URL`, `FATHOM_FIRMWARE_MAX_BYTES`,
 `FATHOM_FIRMWARE_ORGANISATION_MAX_BYTES` and `FATHOM_FIRMWARE_TOTAL_MAX_BYTES` give starting values,
-and a value saved on Admin › Firmware wins over them. `FATHOM_FIRMWARE_DIR=` with nothing after it
-turns firmware off.
+and a value saved on Admin › Firmware wins over them. `FATHOM_FIRMWARE=off` turns firmware off.
+An empty `FATHOM_FIRMWARE_DIR`, which a compose text pasted into Portainer before 2026-11-01 passes,
+means the image's own folder. **That folder must be a writable volume**: with a compose of your
+own (a read-only root, bind mounts), add one, owned by 65532:
+
+```yaml
+    volumes:
+      - type: bind
+        source: /srv/data/fathom/firmware   # mkdir it, then chown 65532:65532
+        target: /var/lib/fathom/firmware
+```
+
+Without it the server starts with firmware off and its log says what to add.
 
 **Your reverse proxy does HTTPS.** The browser generates your sign-in key with WebCrypto, which
 browsers allow only on HTTPS or `localhost`, so a plain-HTTP address on the network cannot sign in. The

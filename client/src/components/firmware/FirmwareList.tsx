@@ -12,7 +12,7 @@ import { CopyButton } from './parts';
 import { BADGE_WORD, VENDOR_TABS, behindByModel, behindQuery, filterImageRows, imageRows, runningQuery, type FwImageRow, type Vendor } from './images';
 import './firmware.css';
 
-export const FIRMWARE_OFF_WORDS = 'Firmware is turned off on this server: FATHOM_FIRMWARE_DIR is empty in .env. Remove that line and run docker compose up -d to turn it on.';
+export const FIRMWARE_OFF_WORDS = 'Firmware isn’t on for this server yet. It needs a writable folder at /var/lib/fathom/firmware: the compose.yaml in the repository mounts one, so update the stack to it (or add that mount to yours) and redeploy with the newest image. The server’s log says which is missing.';
 
 export interface FirmwareListProps {
   api: FirmwareApi;

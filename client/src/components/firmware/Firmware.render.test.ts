@@ -122,7 +122,7 @@ describe('the Firmware list (r14-b1)', () => {
 
   it('with firmware off, says how to turn it on, and still lists typed versions', () => {
     const out = html(api(world().doc, { server: { status: 'off', images: [], error: null } }));
-    expect(out).toContain('Firmware is turned off on this server: FATHOM_FIRMWARE_DIR is empty in .env. Remove that line and run docker compose up -d to turn it on.');
+    expect(out).toContain('Firmware isn’t on for this server yet. It needs a writable folder at /var/lib/fathom/firmware: the compose.yaml in the repository mounts one, so update the stack to it (or add that mount to yours) and redeploy with the newest image. The server’s log says which is missing.');
     expect(out).not.toContain('Upload image');
     expect(out).toContain('23.4R2');
   });

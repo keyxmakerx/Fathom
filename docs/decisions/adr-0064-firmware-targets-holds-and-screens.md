@@ -136,7 +136,8 @@ ceiling, Steward scanners, admin lock", "audit: sealed, shown, told").
   longer an env variable but something changing on the server itself"). Compose sets
   `FATHOM_FIRMWARE_DIR` by default, and the server no longer refuses to start without
   `FATHOM_FIRMWARE_FETCH_BASE_URL`. With no address anywhere, a link is refused (`409`) and both
-  pages say where to set one. `FATHOM_FIRMWARE_DIR=` turns firmware off.
+  pages say where to set one. An unset or empty `FATHOM_FIRMWARE_DIR` is the image's folder (an older compose text
+  pasted into Portainer passes it empty); `FATHOM_FIRMWARE=off` turns firmware off.
 
 The Stewards' choice of scanners waits for the scanner add-on (r70).
 
