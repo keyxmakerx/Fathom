@@ -683,6 +683,25 @@ gone. Proved against a real Termix 26.10.6 in CI (the `termix` job, `scripts/dri
 decision 1); that run found Termix refuses a new host without `authType` since 26.10.2, so Fathom now sends
 `authType: none`.
 
+**Termix in the work** (ADR-0080 decisions 2 to 11; schema 0.33, field keys 545-547; migration 0063;
+`components/termix/`, `components/plans/SeenBox.tsx`, `components/plans/checkSeen.ts`). Every part is
+optional and has its plain way beside it (OPERATING.md, "Termix's add-ons"). A plan lists its devices with
+Open in Termix and Connect with ssh lines; Do shows Open in Termix on the current step and Termix's up or
+down (`GET /host/status`, on open and Refresh). A device's vault login pulled from Vaultwarden goes to
+Termix as a `bw://` reference when Termix runs Secret Sources. Steps with commands go to Termix as snippets
+(Snippets add-on). Start work opens a maintenance window per device (Automations add-on; ticked by default,
+the plan's window, at most 10080 minutes) and Record ends it only where the reason is still the plan's;
+the plan always says to pause your own alerting. A check step has a paste box: Fathom compares before the
+redaction gate (version, image hash; only a full hash can say Matches), then keeps the gated paste in
+`PlanStep.seen` and the verdict in `PlanStep.compared`. With Fetch from Termix turned on by a steward
+(`organisation_termix.fetch_on`, sealed as `termix_access_set`), a check step can run its own command
+through Snippets, only if it is on the platform's read-only list (`termix/readOnly.ts`: Junos, IOS XE,
+NX-OS, EOS; EOS takes no output filters, unsourced), via a temporary snippet that is read back and
+deleted; the answer goes into the paste box unkept. A console port records `PhysicalPort.console_baud` and
+shows PuTTY, screen and picocom lines, and Open Termix with "choose Serial on its left rail" (Termix's
+Serial has no direct link). Inventory › Devices has an In Termix column, read from Termix's host list.
+Learn has the lesson "Doing a plan with Termix, or without it" on the practice lab.
+
 **AI access** (ADR-0072; migration 0046; `src/ai.rs`, `src/oauth.rs`, `src/mcp.rs`, `components/ai/`). A
 person a Steward names lets an AI app read designs they can read, in one organisation, at the tiers the
 organisation allows (layout, which includes spares without serials; addresses; notes, which includes a

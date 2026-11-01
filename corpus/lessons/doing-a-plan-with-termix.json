@@ -1,0 +1,95 @@
+{
+  "id": "doing-a-plan-with-termix",
+  "title": "Doing a plan with Termix, or without it",
+  "summary": "Walk a change from Start work to Record: reaching the device, running the commands, checking what it says, and the console, each the plain way and the Termix way.",
+  "sample": "practice-lab",
+  "sources": [
+    {
+      "claim": "On Windows, ssh comes with the OpenSSH Client, an optional feature that can be added in Settings if it is missing; ssh connects as user@host.",
+      "cite": "Microsoft Learn, Get started with OpenSSH for Windows",
+      "url": "https://learn.microsoft.com/windows-server/administration/openssh/openssh_install_firstuse",
+      "read_on": "2026-11-01"
+    },
+    {
+      "claim": "PuTTY opens a serial line from the command line with -serial and the port name, and -sercfg sets its speed.",
+      "cite": "PuTTY User Manual 0.83, chapter 3, sections 3.11.1 and 3.11.3.24",
+      "url": "https://the.earth.li/~sgtatham/putty/0.83/htmldoc/Chapter3.html",
+      "read_on": "2026-11-01"
+    },
+    {
+      "claim": "GNU screen opens a serial line when given a tty device, followed by its speed.",
+      "cite": "GNU Screen User's Manual, Window Types",
+      "url": "https://www.gnu.org/software/screen/manual/screen.html",
+      "read_on": "2026-11-01"
+    },
+    {
+      "claim": "picocom sets the line's speed with --baud or -b, before the device.",
+      "cite": "picocom(1), npat-efault/picocom",
+      "url": "https://github.com/npat-efault/picocom",
+      "read_on": "2026-11-01"
+    },
+    {
+      "claim": "Termix's Automations add-on puts a host into maintenance with a reason and a duration of 1 to 10080 minutes, and only the host's owner may start or end it.",
+      "cite": "Termix-SSH/Plugin-Automations 1.2.0, src/backend/maintenance-routes.ts at 4468c55",
+      "url": "https://raw.githubusercontent.com/Termix-SSH/Plugin-Automations/4468c55/src/backend/maintenance-routes.ts",
+      "read_on": "2026-11-01"
+    },
+    {
+      "claim": "Termix's Snippets add-on stores commands as snippets in folders and runs a stored snippet on a host when asked.",
+      "cite": "Termix-SSH/Plugin-Snippets 1.2.0, src/backend/routes.ts at d66ae50",
+      "url": "https://raw.githubusercontent.com/Termix-SSH/Plugin-Snippets/d66ae50/src/backend/routes.ts",
+      "read_on": "2026-11-01"
+    },
+    {
+      "claim": "Termix's Serial add-on is a tab opened from Termix's left rail, not tied to a host; in a browser it uses Web Serial (Chrome, Edge, Firefox 151 and newer).",
+      "cite": "Termix-SSH/Plugin-Serial 1.0.2 at 1260614",
+      "url": "https://github.com/Termix-SSH/Plugin-Serial",
+      "read_on": "2026-11-01"
+    }
+  ],
+  "steps": [
+    {
+      "kind": "read",
+      "title": "Termix is a shortcut, never a requirement",
+      "body": "A plan is a change written down before it is made: its steps, its devices and its window. Termix, a self-hosted SSH manager, can save typing at several points, if your operator set it up and a steward has not turned it off. Every point below has a plain way beside it, always shown, and a plan can be finished with no Termix at all. To start a plan, right-click a device on the canvas and choose Plan a change."
+    },
+    {
+      "kind": "click",
+      "title": "The device you reach first",
+      "prompt": "Say the plan changes the router's uplink. Click the device you would connect to first.",
+      "answer": { "device": "router-1" },
+      "hint": "Everything here reaches the internet through one box at the edge.",
+      "after": "router-1. The plan lists its devices once, each with its management address. With Termix: Open in Termix opens its terminal in a new tab, using your own Termix API key. Without it: open Connect with ssh under the device and copy the line, ssh <your user>@<address>. On Windows it runs in PowerShell; if PowerShell does not know ssh, add OpenSSH Client in Settings, Optional features."
+    },
+    {
+      "kind": "read",
+      "title": "Before Start work: alerting",
+      "body": "Work on a device makes your monitoring shout. The plan always reminds you: pause alerting for these devices in your own monitoring; Fathom does not do it. With Termix's Automations add-on, a ticked box beside Start work also puts the plan's devices into maintenance in Termix, for the plan's window, with the plan's name as the reason. Termix lets only a host's owner do that, so a device someone shared with you is skipped and counted, and one already in maintenance is left alone. Untick it to leave Termix as it is."
+    },
+    {
+      "kind": "read",
+      "title": "Is it up?",
+      "body": "In Do, beside each device, Termix's view of it: up, reachable or down, read when Do opens and when you press Refresh, never on a timer, and labelled as Termix's. Without Termix there is nothing here: Fathom does not ping. Look in your own monitoring, or try the ssh line."
+    },
+    {
+      "kind": "read",
+      "title": "Running a step's commands",
+      "body": "A step that carries commands shows them with Copy: paste them into your terminal yourself. With Termix's Snippets add-on, Send the steps to Termix as snippets makes one snippet per step in the folder Fathom / <plan name>, so they are one click away in the terminal Termix opened. Either way you run them: Fathom never runs a command that changes a device."
+    },
+    {
+      "kind": "read",
+      "title": "Checking what the device says",
+      "body": "A step that starts with Check, Verify or Confirm has a box. Run the step's command, then paste what the device answered and press Keep and compare. The redaction gate runs in your browser first, as on any paste, so a password in the output is never kept. Fathom says Matches, Differs or Can't tell where it can compare (a version, an image's hash); you still mark the step done or went differently. If a steward turned on Fetch from Termix, a button beside the box runs the step's own command through Termix instead, only if it is a read-only command for the device's platform (show and the like), and only when you press it. What comes back lands in the same box, unkept, and goes through the same gate. Fathom does nothing because of what it read."
+    },
+    {
+      "kind": "read",
+      "title": "When the network is down: the console",
+      "body": "If an upgrade goes wrong you may need the console port. Record its speed on the port (Ports, the console port, Console speed) when you know it; Fathom does not guess one. Plain way: from Windows, putty.exe -serial COM3 -sercfg <speed>; from Linux, screen /dev/ttyUSB0 <speed> or picocom -b <speed> /dev/ttyUSB0, with your own port name. With Termix's Serial add-on: open Termix, choose Serial on its left rail, and pick the port and speed there. In a browser that needs Web Serial, which Chrome, Edge and Firefox 151 or newer have."
+    },
+    {
+      "kind": "read",
+      "title": "Record",
+      "body": "Record keeps what happened: each step's outcome and, for a check, the redacted paste and Fathom's verdict. If Start work put the devices into maintenance in Termix, Record takes them out, but only where the window's reason is still the plan's, so someone else's window stays. Then turn your own alerting back on."
+    }
+  ]
+}
