@@ -201,7 +201,7 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
       <BeforeAfter step={step} />
       <StepCopy step={step} />
       <PlanDevices devices={devicesOf(controller, plan, step)} withState />
-      <SeenBox controller={controller} plan={plan} step={step} />
+      <SeenBox controller={controller} plan={plan} step={step} devices={devicesOf(controller, plan, step)} />
       <Touches controller={controller} plan={plan} stepId={step.id} />
       {refused != null && (
         <div className="plans-refused" role="alert" data-testid="plans-refused">

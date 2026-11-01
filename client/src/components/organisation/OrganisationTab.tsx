@@ -22,7 +22,7 @@ import { FoldersPanel, type FoldersPanelProps, type Loadable } from './FoldersPa
 import { InviteForm, LinkCard } from './InvitePanel';
 import { accessWords, dateTimeLabel } from './model';
 import { setTypeItYourself } from '../../api/organisations';
-import { setTermixOff } from '../../api/termix';
+import { setTermixFetch, setTermixOff } from '../../api/termix';
 import { PeopleList, PersonPage } from './PeoplePanel';
 import { WaitingPanel } from './WaitingPanel';
 import { PasswordsPage } from '../vault/Screens';
@@ -157,6 +157,12 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
         onSetTermixEveryone={(off) =>
           void act(async () => {
             await setTermixOff(org, null, off);
+            reload();
+          })
+        }
+        onSetTermixFetch={(on) =>
+          void act(async () => {
+            await setTermixFetch(org, on);
             reload();
           })
         }

@@ -13,12 +13,15 @@ export type TermixOff = 'everyone' | 'you';
 export interface TermixAccess {
   url: string | null;
   off: TermixOff | null;
+  /** A steward turned Fetch from Termix on here (ADR-0080 decision 9). Absent reads as off. */
+  fetch?: boolean;
 }
 
 export function parseTermixAccess(bytes: Uint8Array): TermixAccess {
   const r = jsonObject(bytes, WHAT);
   const off = r.off === 'everyone' || r.off === 'you' ? r.off : null;
-  return { url: off ? null : optStr(r, 'url', WHAT), off };
+  const url = off ? null : optStr(r, 'url', WHAT);
+  return { url, off, fetch: url !== null && r.fetch === true };
 }
 
 const asked = new Map<string, Promise<TermixAccess>>();
@@ -34,6 +37,15 @@ export function fetchTermixAccess(organisation: string): Promise<TermixAccess> {
     asked.set(organisation, p);
   }
   return p;
+}
+
+/** A steward turns Fetch from Termix on, or off, for everyone here (ADR-0080 decision 9). */
+export async function setTermixFetch(organisation: string, on: boolean): Promise<boolean> {
+  const o = encodeURIComponent(organisation);
+  const bytes = await signedFetch('POST', `/organisations/${o}/termix/fetch`, new TextEncoder().encode(`{"on":${on}}\n`));
+  asked.delete(organisation);
+  const answer = JSON.parse(new TextDecoder().decode(bytes)) as { fetch?: unknown };
+  return answer.fetch === true;
 }
 
 /** A steward turns Termix off, or back on, for everyone here (`account` null) or for one person. */

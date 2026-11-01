@@ -5,8 +5,11 @@
 
 import { useId, useState } from 'react';
 
+import { deviceFirmware } from '../../document/firmware';
 import type { Plan, PlanStep } from '../../document/plans';
 import { useImageHash } from '../firmware/PlanExtras';
+import { FetchFromTermix } from '../termix/FetchFromTermix';
+import type { ReachableDevice } from '../termix/planDevices';
 import { VERDICT_WORD, compareSeen, expectationOf, isCheckStep } from './checkSeen';
 import type { PlansController } from './usePlansController';
 
@@ -31,13 +34,19 @@ export function SeenKept({ step }: { step: PlanStep }) {
 }
 
 /** On the current step: the box, then what was kept. */
-export function SeenBox({ controller, plan, step }: { controller: PlansController; plan: Plan; step: PlanStep }) {
+export function SeenBox({ controller, plan, step, devices }: { controller: PlansController; plan: Plan; step: PlanStep; devices: readonly ReachableDevice[] }) {
   const fullHash = useImageHash(plan, step);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const id = useId();
   if (!isCheckStep(plan, step)) return null;
   const expect = expectationOf(step, fullHash);
+  const doc = controller.doc;
+  const commands = step.after
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l !== '');
+  const withPlatform = devices.map((d) => ({ ...d, platform: (doc && deviceFirmware(doc, d.id)?.platform) || '' }));
   const keep = () => {
     if (text.trim() === '') return;
     setBusy(true);
@@ -64,6 +73,7 @@ export function SeenBox({ controller, plan, step }: { controller: PlansControlle
         The redaction gate runs on it in your browser before it is kept. Fathom compares what it can and says Matches, Differs or Can’t tell; you still mark the
         step.
       </p>
+      {controller.canEdit && <FetchFromTermix commands={commands} devices={withPlatform} onFetched={setText} />}
       <p className="plans-step__actions">
         <button type="button" className="plans-btn" disabled={busy || text.trim() === '' || !controller.canEdit} onClick={keep}>
           {step.seen === '' ? 'Keep and compare' : 'Replace and compare'}

@@ -66,6 +66,7 @@ const STEWARD_PASSWORD = 'termix-steward-passphrase-kept-for-this-proof-only';
 const VIEWPORT = { width: 1440, height: 900 };
 
 /** Addresses from TEST-NET-1 (RFC 5737): nothing answers there, and nothing here connects. */
+const FETCH_COMMAND = 'show interfaces GigabitEthernet0/1'; // on IOS XE's read-only list (readOnly.ts)
 const ADDR = {
   'router-1': '192.0.2.1',
   'switch-1': '192.0.2.2',
@@ -330,6 +331,16 @@ async function runProof(ctx, seed) {
   const csp = await (await fetch(`${URL_}/`)).headers.get('content-security-policy');
   check('T2a. the server adds Termix to connect-src and nothing else', /connect-src[^;]*\s/.test(csp ?? '') && (csp ?? '').includes(TERMIX_ORIGIN) && !/frame-src[^;]*127\.0\.0\.1:8080/.test(csp ?? ''), csp ?? 'no CSP');
 
+  // ---- T15 (first half). Fetch from Termix is off until a steward turns it on (decision 9) ------
+  await page.getByRole('tab', { name: 'Steward' }).click();
+  await page.locator('.org-rail__item', { hasText: 'People' }).click();
+  const fetchSwitch = page.getByTestId('people-termix-fetch');
+  await fetchSwitch.waitFor({ timeout: 15000 });
+  check('T15a. Fetch from Termix starts off, and a steward sees the switch', /^Off\./m.test(await fetchSwitch.innerText()), (await fetchSwitch.innerText()).replace(/\s+/g, ' '));
+  await fetchSwitch.getByRole('button', { name: 'Turn Fetch from Termix on' }).click();
+  await until(async () => /^On\./m.test(await fetchSwitch.innerText()), 15000);
+  check('T15b. the steward turned it on', /^On\./m.test(await fetchSwitch.innerText()));
+
   await page.getByRole('tab', { name: 'Designs' }).click();
   await page.getByRole('button', { name: 'Open sample' }).click();
   await page.locator('.drawing').waitFor({ timeout: 15000 });
@@ -337,6 +348,11 @@ async function runProof(ctx, seed) {
 
   // ---- T2. Open in Termix, a host Termix has -----------------------------------------------
   let panel = await giveAddress(page, 'router-1');
+  // Fetch from Termix needs the device's platform for its read-only list (decision 9).
+  const fwFold = page.getByTestId('firmware-fold');
+  if (!(await fwFold.evaluate((d) => d.open))) await fwFold.locator('> summary').click();
+  await fwFold.getByLabel('How its versions are numbered').selectOption('ios-xe');
+  await fwFold.locator('> summary').click();
   const actions = panel.getByTestId('termix-actions');
   await actions.waitFor({ timeout: 10000 });
   check('T2b. the Management fold shows Open in Termix under the address', (await actions.getByRole('button', { name: 'Open in Termix' }).count()) === 1);
@@ -428,6 +444,7 @@ async function runProof(ctx, seed) {
   const about = addForm.getByLabel('About (optional)', { exact: true });
   const routerOption = await about.locator('option', { hasText: 'router-1' }).first().getAttribute('value');
   await about.selectOption(routerOption);
+  await addForm.getByLabel('After', { exact: true }).fill(FETCH_COMMAND);
   await addForm.getByLabel('What changes', { exact: true }).fill('Check the uplink on router-1');
   await addForm.getByRole('button', { name: 'Add step' }).click();
   const planDevices = planPanel.getByTestId('plan-devices').first();
@@ -469,6 +486,28 @@ async function runProof(ctx, seed) {
   check('T8e. and it opens router-1’s terminal, with the key pasted earlier', new URL(stepTab.url()).searchParams.get('hostId') === String(router.id), stepTab.url());
   await stepTab.close();
   await shot('t8-do-step');
+
+  // ---- T15 (second half). Fetch from Termix, against Termix's own Snippets add-on --------------
+  const fetchBox = current.getByTestId('termix-fetch');
+  const fetchButton = fetchBox.getByRole('button', { name: 'Fetch from Termix: router-1' });
+  check('T15c. the check step offers Fetch from Termix for router-1', (await fetchButton.count()) === 1, (await fetchBox.innerText().catch(() => 'no termix-fetch')).replace(/\s+/g, ' '));
+  const fetchStart = toTermix.length;
+  await fetchButton.click();
+  const fetchSaid = fetchBox.getByRole('status');
+  await fetchSaid.waitFor({ timeout: 150000 }); // Termix gives up on an unreachable host itself
+  const saidText = await fetchSaid.innerText();
+  const pasted = await current.getByTestId('plans-seen-box').getByLabel('What the device answered').inputValue();
+  const reached = /^Fetched from router-1/.test(saidText) ? pasted.startsWith(`router-1> ${FETCH_COMMAND}`) : !/Fathom has no|changed before it ran|not in Termix|did not say which snippet/.test(saidText);
+  check('T15d. Termix ran it: the answer is in the paste box, unkept, or Termix’s own error is shown', reached, `${saidText} | ${pasted.slice(0, 200)}`);
+  await page.waitForTimeout(500);
+  const fetchCalls = toTermix.slice(fetchStart).map((q) => `${q.method} ${new URL(q.url).pathname}`).filter((c) => c.includes('/plugin-api/snippets'));
+  const made = toTermix.slice(fetchStart).find((q) => q.method === 'POST' && new URL(q.url).pathname === '/plugin-api/snippets');
+  check('T15e. it made a snippet holding exactly the command, read it back, ran it, and deleted it', /^POST \/plugin-api\/snippets(\/folders)?$/.test(fetchCalls[0] ?? '') && JSON.parse(made?.body ?? '{}').content === FETCH_COMMAND && fetchCalls.some((c) => /^GET \/plugin-api\/snippets\/\d+$/.test(c)) && fetchCalls.includes('POST /plugin-api/snippets/execute') && /^DELETE \/plugin-api\/snippets\/\d+$/.test(fetchCalls.at(-1) ?? ''), fetchCalls.join(', '));
+  const ran = toTermix.slice(fetchStart).find((q) => new URL(q.url).pathname === '/plugin-api/snippets/execute');
+  check('T15f. on router-1’s host id only', JSON.parse(ran?.body ?? '{}').hostId === router.id, ran?.body ?? 'no execute');
+  const leftOver = await termixCall(TERMIX, 'GET', '/plugin-api/snippets', { bearer: key.token });
+  check('T15g. Termix keeps no Fathom check snippet afterwards', leftOver.status === 200 && Array.isArray(leftOver.json) && !leftOver.json.some((x) => /^Fathom check/.test(x.name ?? '')), leftOver.text.slice(0, 300));
+  await shot('t15-fetched');
 
   // ---- T11. The check step's paste box (ADR-0080 decision 5), with no Termix in it ------------
   const CHECK_SECRET = 'Ab3dE6gH'; // eight characters, as short as a real device takes (CLAUDE.md rule 2)

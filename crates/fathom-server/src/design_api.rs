@@ -251,6 +251,10 @@ pub fn router(state: DesignApiState) -> Router {
             get(termix_handler).post(organisation_termix_handler),
         )
         .route(
+            "/organisations/{organisation}/termix/fetch",
+            post(termix_fetch_handler),
+        )
+        .route(
             "/organisations/{organisation}/designs/{design}",
             get(open_design_handler),
         )
@@ -3766,6 +3770,9 @@ async fn termix_handler(
     let off = crate::termix::off_for(&tx, &ctx.tenant().to_string(), &ctx.actor().to_string())
         .await
         .map_err(SessionError::Db)?;
+    let fetch = crate::termix::fetch_on(&tx, &ctx.tenant().to_string())
+        .await
+        .map_err(SessionError::Db)?;
     tx.commit().await.map_err(SessionError::Db)?;
     let url = match (&state.termix, off) {
         (Some(t), None) => Json::Str(t.origin().to_string()),
@@ -3776,6 +3783,11 @@ async fn termix_handler(
     body.insert(
         "off".to_string(),
         off.map_or(Json::Null, |o| Json::Str(o.to_string())),
+    );
+    // ADR-0080 decision 9: whether a steward turned Fetch from Termix on here.
+    body.insert(
+        "fetch".to_string(),
+        Json::Bool(fetch && state.termix.is_some() && off.is_none()),
     );
     Ok(json_response(Json::Obj(body)))
 }
@@ -3788,6 +3800,36 @@ async fn organisation_termix_handler(
     signed: Signed,
 ) -> Result<Response, RouteError> {
     termix_switch(state, organisation, None, signed).await
+}
+
+/// `POST /organisations/{o}/termix/fetch`: body `{"on": bool}`. A steward turns Fetch from Termix
+/// on, or off, for everyone in the organisation (ADR-0080 decision 9). See
+/// [`crate::termix::set_fetch`].
+async fn termix_fetch_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let mut m = object_body(&signed.body, &["on"])?;
+    let Some(Json::Bool(on)) = m.remove("on") else {
+        return Err(SessionError::Malformed("request body").into());
+    };
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let answer = crate::termix::set_fetch(&tx, &auth, on).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(json_response(answer))
 }
 
 /// `POST /organisations/{o}/people/{account}/termix`: body `{"off": bool}`. A steward turns

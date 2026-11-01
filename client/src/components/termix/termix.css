@@ -42,3 +42,12 @@
 .termix-serial {
   margin: 6px 0;
 }
+
+/* Decision 9: Fetch from Termix beside a check step's paste box. */
+.termix-fetch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  margin: 6px 0;
+}
