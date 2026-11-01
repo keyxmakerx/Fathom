@@ -122,7 +122,7 @@ describe('the Firmware list (r14-b1)', () => {
 
   it('with firmware off, says how to turn it on, and still lists typed versions', () => {
     const out = html(api(world().doc, { server: { status: 'off', images: [], error: null } }));
-    expect(out).toContain('Firmware is off on this server. Set FATHOM_FIRMWARE_FETCH_BASE_URL in .env to the address your switches can reach, then run docker compose up -d.');
+    expect(out).toContain('Firmware is turned off on this server: FATHOM_FIRMWARE_DIR is empty in .env. Remove that line and run docker compose up -d to turn it on.');
     expect(out).not.toContain('Upload image');
     expect(out).toContain('23.4R2');
   });

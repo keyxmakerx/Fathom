@@ -873,10 +873,7 @@ async fn main() -> ExitCode {
     let firmware = match &config.firmware_dir {
         None => None,
         Some(dir) => {
-            let base = config
-                .firmware_fetch_base_url
-                .clone()
-                .expect("config refuses a firmware directory with no fetch base URL");
+            let base = config.firmware_fetch_base_url.clone();
             match fathom_server::firmware::FirmwareStore::open(
                 std::path::PathBuf::from(dir),
                 config.firmware_max_bytes,
@@ -895,8 +892,8 @@ async fn main() -> ExitCode {
                         max_image_bytes = config.firmware_max_bytes,
                         organisation_max_bytes = config.firmware_organisation_max_bytes,
                         total_max_bytes = config.firmware_total_max_bytes,
-                        fetch_base_url = %base,
-                        "firmware staging enabled. The fetch base URL must be an origin a DEVICE \
+                        fetch_base_url = base.as_deref().unwrap_or("(none: set it on Admin › Firmware)"),
+                        "firmware staging enabled. The download address must be one a DEVICE \
                          can reach, which is often not the one a browser uses."
                     );
                     let store = Arc::new(store);

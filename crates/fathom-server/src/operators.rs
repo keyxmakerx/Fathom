@@ -7393,7 +7393,7 @@ const FIRMWARE_HISTORY_SCAN: i64 = 500;
 impl OperatorStore {
     fn firmware_file(&self) -> Result<&crate::firmware_settings::FileValues, OperatorError> {
         self.firmware_file.get().ok_or(OperatorError::Malformed(
-            "firmware staging is off on this server: set FATHOM_FIRMWARE_DIR to turn it on",
+            "firmware staging is off on this server: FATHOM_FIRMWARE_DIR is empty",
         ))
     }
 

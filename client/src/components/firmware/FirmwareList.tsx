@@ -12,7 +12,7 @@ import { CopyButton } from './parts';
 import { BADGE_WORD, VENDOR_TABS, behindByModel, behindQuery, filterImageRows, imageRows, runningQuery, type FwImageRow, type Vendor } from './images';
 import './firmware.css';
 
-export const FIRMWARE_OFF_WORDS = 'Firmware is off on this server. Set FATHOM_FIRMWARE_FETCH_BASE_URL in .env to the address your switches can reach, then run docker compose up -d.';
+export const FIRMWARE_OFF_WORDS = 'Firmware is turned off on this server: FATHOM_FIRMWARE_DIR is empty in .env. Remove that line and run docker compose up -d to turn it on.';
 
 export interface FirmwareListProps {
   api: FirmwareApi;

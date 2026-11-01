@@ -191,7 +191,7 @@ pub struct FirmwareStore {
     organisation_max_bytes: u64,
     total_max_bytes: u64,
     upload_idle: std::time::Duration,
-    fetch_base_url: String,
+    fetch_base_url: Option<String>,
     client_address: crate::client_address::ClientAddress,
     /// Uploads in flight, counted in this process. Several servers behind one
     /// load balancer each keep their own count, so the server-wide limit is per
@@ -236,7 +236,7 @@ impl FirmwareStore {
     pub fn open(
         directory: PathBuf,
         max_image_bytes: u64,
-        fetch_base_url: String,
+        fetch_base_url: Option<String>,
         client_address: crate::client_address::ClientAddress,
     ) -> Result<Self, StoreUnusable> {
         let meta = std::fs::metadata(&directory).map_err(|e| StoreUnusable {
@@ -269,7 +269,9 @@ impl FirmwareStore {
             organisation_max_bytes: DEFAULT_ORGANISATION_MAX_BYTES,
             total_max_bytes: DEFAULT_TOTAL_MAX_BYTES,
             upload_idle: std::time::Duration::from_secs(UPLOAD_IDLE_SECONDS),
-            fetch_base_url: fetch_base_url.trim_end_matches('/').to_string(),
+            fetch_base_url: fetch_base_url
+                .map(|u| u.trim_end_matches('/').to_string())
+                .filter(|u| !u.is_empty()),
             client_address,
             slots: std::sync::Mutex::new(Slots::default()),
         })
@@ -281,6 +283,16 @@ impl FirmwareStore {
     pub fn with_space_limits(mut self, organisation_max_bytes: u64, total_max_bytes: u64) -> Self {
         self.organisation_max_bytes = organisation_max_bytes;
         self.total_max_bytes = total_max_bytes;
+        self
+    }
+
+    /// The download address from the settings file, or none (owner, 2026-11-01: the
+    /// admin may name it on Admin › Firmware instead). [`FirmwareStore::open`] takes it
+    /// too; this is for a caller that wants to change it after.
+    pub fn with_fetch_base_url(mut self, fetch_base_url: Option<String>) -> Self {
+        self.fetch_base_url = fetch_base_url
+            .map(|u| u.trim_end_matches('/').to_string())
+            .filter(|u| !u.is_empty());
         self
     }
 
@@ -514,6 +526,9 @@ pub enum FirmwareError {
     /// The upload sent nothing for this many seconds (the stall time, r62 and r71);
     /// the partial file was deleted.
     Stalled(u64),
+    /// No download address is set anywhere: not in `.env`, not on Admin › Firmware, not
+    /// by this organisation's Stewards. Nothing a device could fetch from.
+    NoAddress,
     /// A firmware setting could not be read or saved (`firmware_settings`).
     Settings(crate::firmware_settings::SettingsError),
     /// **The file on disk is not the file that was staged.** Its SHA-256, read again
@@ -590,6 +605,7 @@ impl core::fmt::Display for FirmwareError {
                 f,
                 "the upload sent nothing for {seconds} seconds and was dropped"
             ),
+            Self::NoAddress => f.write_str("no firmware download address is set"),
             Self::Settings(e) => write!(f, "{e}"),
             Self::ImageChanged => f.write_str(
                 "a staged image's bytes no longer have the SHA-256 computed when it was uploaded",
@@ -796,6 +812,13 @@ impl IntoResponse for FirmwareError {
                     "the upload sent nothing for {seconds} seconds, so it was dropped and \
                      nothing was staged. Declare the image again to retry\n"
                 ),
+            )
+                .into_response(),
+            Self::NoAddress => (
+                StatusCode::CONFLICT,
+                "no download address is set, so there is nothing a device could fetch from. \
+                 The server's admin sets one on Admin › Firmware, or a Steward on Steward › \
+                 Firmware\n",
             )
                 .into_response(),
             Self::Settings(e) => {
@@ -1811,7 +1834,8 @@ async fn issue_fetch_url_handler(
         &ctx.tenant().to_string(),
     )
     .await?
-    .fetch_base_url;
+    .fetch_base_url
+    .ok_or(FirmwareError::NoAddress)?;
 
     let token = fresh_token()?;
     let token_id = FirmwareImageId::new();
@@ -3294,7 +3318,7 @@ mod tests {
             organisation_max_bytes: 1,
             total_max_bytes: 1,
             upload_idle: std::time::Duration::from_secs(1),
-            fetch_base_url: "https://example.invalid".to_string(),
+            fetch_base_url: Some("https://example.invalid".to_string()),
             client_address: crate::client_address::ClientAddress::peer(),
             slots: std::sync::Mutex::new(Slots::default()),
         };
@@ -3317,7 +3341,7 @@ mod tests {
             organisation_max_bytes: 1,
             total_max_bytes: 1,
             upload_idle: std::time::Duration::from_secs(1),
-            fetch_base_url: "https://example.invalid".to_string(),
+            fetch_base_url: Some("https://example.invalid".to_string()),
             client_address: crate::client_address::ClientAddress::peer(),
             slots: std::sync::Mutex::new(Slots::default()),
         });

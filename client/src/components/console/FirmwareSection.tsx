@@ -54,7 +54,7 @@ export const SERVER_FIELDS: { key: Key; label: string; unit: Unit; hint: string 
 ];
 
 const shown = (unit: Unit, v: number | string): string =>
-  unit === 'gb' ? gbWords(v as number) : unit === 'seconds' ? `${v} s` : String(v);
+  unit === 'url' && v === '' ? 'not set' : unit === 'gb' ? gbWords(v as number) : unit === 'seconds' ? `${v} s` : String(v);
 
 const typedOf = (unit: Unit, v: number | string | null): string =>
   v === null ? '' : unit === 'gb' ? String((v as number) / GB) : String(v);
@@ -245,7 +245,7 @@ export function FirmwareSectionView({
   if (!settings.on) {
     return (
       <p className="console__note" data-testid="admin-firmware-off">
-        Firmware is off on this server. It turns on when FATHOM_FIRMWARE_FETCH_BASE_URL is set in .env (docs/RUNNING-IT.md); after that, its limits are set here.
+        Firmware is turned off on this server: FATHOM_FIRMWARE_DIR is empty in .env. Remove that line and run docker compose up -d to turn it on.
       </p>
     );
   }
@@ -265,6 +265,12 @@ export function FirmwareSectionView({
       {notice && (
         <p className="console__note" role="status">
           {notice}
+        </p>
+      )}
+      {settings.limits.fetchBaseUrl === '' && (
+        <p className="console__warn" role="status" data-testid="admin-firmware-no-address">
+          No download address is set yet, so no device can be given a link. Type the address your switches reach this server on
+          (often not the one your browser uses) in “Address devices download from” below, and save.
         </p>
       )}
       <ServerForm s={settings} busy={busy} onSave={(v) => onSaveServer(v, settings.version)} />

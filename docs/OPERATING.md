@@ -653,8 +653,14 @@ cannot be used to call `/mcp`.
 
 ## Firmware space and uploads
 
+Firmware is on by default in `compose.yaml`; `FATHOM_FIRMWARE_DIR=` (empty) turns it off. The
+address devices download from is set on Admin › Firmware, or by an organisation's Stewards for
+their own devices; `.env` may give a starting one. With none anywhere, a download link is refused
+with `409` saying where to set it (owner, 2026-11-01).
+
 Staged images live in the `firmware` volume, outside the database. Three numbers keep them from
-crowding out anything else (sign-off r62, ADR-0064 amendment of 2026-10-31):
+crowding out anything else (sign-off r62, ADR-0064 amendment of 2026-10-31). Each is set on Admin ›
+Firmware; the `.env` names below are optional starting values:
 
 | Setting | Default | What it limits |
 |---|---|---|

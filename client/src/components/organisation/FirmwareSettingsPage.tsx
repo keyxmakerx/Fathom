@@ -37,7 +37,9 @@ export function FirmwareSettingsView({
   const locked = ceiling?.locked === true;
   const [total, setTotal] = useState(own.maxBytes === null ? '' : String(own.maxBytes / GB));
   const [address, setAddress] = useState(own.fetchBaseUrl ?? '');
+  // Empty when nobody has named one: not in .env, not on Admin › Firmware (owner, 2026-11-01).
   const serverAddress = settings.server.fetchBaseUrl ?? settings.file.fetchBaseUrl;
+  const noAddress = limits.fetchBaseUrl === '';
   const typed = bytesFromGb(total);
   const badTotal = typed !== null && (Number.isNaN(typed) || typed > limits.organisationCeiling);
 
@@ -53,6 +55,11 @@ export function FirmwareSettingsView({
           The server’s admin has locked these settings{ceiling?.lockReason ? `: “${ceiling.lockReason}”` : '.'} Ask them to change them.
         </p>
       )}
+      {noAddress && !locked && (
+        <p className="home__error" role="status" data-testid="steward-firmware-no-address">
+          No download address is set yet, so no device can be given a link. Set one below, or ask the server’s admin to.
+        </p>
+      )}
       <dl className="org-facts">
         <dt>In use now</dt>
         <dd>
@@ -61,7 +68,7 @@ export function FirmwareSettingsView({
         <dt>The most allowed</dt>
         <dd>{gbWords(limits.organisationCeiling)}, set by the server’s admin</dd>
         <dt>Devices download from</dt>
-        <dd className="org-mono">{limits.fetchBaseUrl}</dd>
+        <dd className="org-mono">{noAddress ? 'Not set yet' : limits.fetchBaseUrl}</dd>
       </dl>
       <label className="org-field">
         <span className="org-field__label">This organisation’s total, in GB</span>
@@ -84,13 +91,14 @@ export function FirmwareSettingsView({
           className="org-input org-mono"
           value={address}
           disabled={locked || busy}
-          placeholder={serverAddress}
+          placeholder={serverAddress || 'http://10.0.0.5:8080'}
           maxLength={300}
           onChange={(e) => setAddress(e.target.value)}
         />
         <span className="org-field__hint">
-          An address your switches can reach, such as http://10.0.0.5:8080 on the management network. Empty means the server’s,{' '}
-          {serverAddress}. Each download link still names one image, so devices don’t need a port each.
+          An address your switches can reach, such as http://10.0.0.5:8080 on the management network.{' '}
+          {serverAddress ? `Empty means the server’s, ${serverAddress}.` : 'The server has none yet, so until you or its admin set one no device can be given a link.'} Each
+          download link still names one image, so devices don’t need a port each.
         </span>
       </label>
       {error && (

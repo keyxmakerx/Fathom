@@ -132,6 +132,12 @@ ceiling, Steward scanners, admin lock", "audit: sealed, shown, told").
   names one image; the address a request came from is recorded and flagged (above), never used to
   pick firmware.
 
+- **On without editing `.env`** (owner, 2026-11-01: "I thought we changed it so firmware was no
+  longer an env variable but something changing on the server itself"). Compose sets
+  `FATHOM_FIRMWARE_DIR` by default, and the server no longer refuses to start without
+  `FATHOM_FIRMWARE_FETCH_BASE_URL`. With no address anywhere, a link is refused (`409`) and both
+  pages say where to set one. `FATHOM_FIRMWARE_DIR=` turns firmware off.
+
 The Stewards' choice of scanners waits for the scanner add-on (r70).
 
 Still to build from the same card: the activity list on the Steward page as well, and the scanner
