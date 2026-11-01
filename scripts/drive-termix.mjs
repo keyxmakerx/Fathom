@@ -277,6 +277,22 @@ async function runProof(ctx, seed) {
   check('T9e. and does not hand the stored password field back in its answer', !JSON.stringify(byRef.json ?? {}).includes(REF), byRef.text.slice(0, 300));
   await termixCall(TERMIX, 'DELETE', `/host/db/host/${byRef.json?.id}`, { bearer: key.token });
 
+  // ---- T10. What decision 4 leans on: the Snippets add-on, reached with the key ------------------
+  const sn = (await addOns(TERMIX, key.token)).find((p) => p.id === 'snippets');
+  console.log(`    snippets before: ${JSON.stringify(sn ? [sn.enabled, sn.state] : null)}`);
+  if (!(sn?.enabled && sn?.state === 'active')) await setAddOn(TERMIX, admin, 'snippets', true);
+  const FOLDER = 'Fathom / Termix proof';
+  const madeFolder = await termixCall(TERMIX, 'POST', '/plugin-api/snippets/folders', { bearer: key.token, body: { name: FOLDER } });
+  check('T10a. the key makes a snippet folder through POST /plugin-api/snippets/folders', madeFolder.status === 200 || madeFolder.status === 201, `${madeFolder.status} ${madeFolder.text.slice(0, 200)}`);
+  const again10 = await termixCall(TERMIX, 'POST', '/plugin-api/snippets/folders', { bearer: key.token, body: { name: FOLDER } });
+  check('T10b. and asking again for the same folder answers 409', again10.status === 409, `${again10.status} ${again10.text.slice(0, 200)}`);
+  const snip = { name: '1 · Proof step', content: 'show version\ncopy ${INPUT_1:One-time link from Fathom} flash:', description: 'From the Termix proof.', folder: FOLDER, hostFilter: [Number(router.id)] };
+  const madeSnip = await termixCall(TERMIX, 'POST', '/plugin-api/snippets', { bearer: key.token, body: snip });
+  check('T10c. the key makes a snippet with a hostFilter through POST /plugin-api/snippets', madeSnip.status === 200 || madeSnip.status === 201, `${madeSnip.status} ${madeSnip.text.slice(0, 200)}`);
+  const listed10 = await termixCall(TERMIX, 'GET', '/plugin-api/snippets', { bearer: key.token });
+  const back = (Array.isArray(listed10.json) ? listed10.json : []).find((s) => s.name === snip.name);
+  check('T10d. GET /plugin-api/snippets lists it back, in its folder, with its content', back?.folder === FOLDER && back?.content === snip.content, JSON.stringify(back ?? listed10.text).slice(0, 300));
+
   // ---- Fathom, signed in, every request to Termix watched ------------------------------------
   const page = await ctx.newPage();
   lastPage = page;

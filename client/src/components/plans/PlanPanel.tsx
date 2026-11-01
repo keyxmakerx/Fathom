@@ -15,6 +15,7 @@ import '../typing/typing.css';
 import './plans.css';
 import { InSlot } from '../shell/sideSlot';
 import { PlanDevices } from '../termix/PlanDevices';
+import { PlanSnippets } from '../termix/PlanSnippets';
 import { reachable } from '../termix/planDevices';
 
 /** The devices a plan, or one of its steps, names, with their management addresses (ADR-0080 decision 2). */
@@ -118,6 +119,7 @@ function PlanMode({ controller, plan }: { controller: PlansController; plan: Pla
       <h3 className="plans-label">What it touches</h3>
       <Touches controller={controller} plan={plan} />
       <PlanDevices devices={devicesOf(controller, plan)} heading="Devices" />
+      <PlanSnippets plan={plan} devices={devicesOf(controller, plan)} />
       {canEdit && (
         <p>
           <button type="button" className="plans-btn btn-main" disabled={plan.steps.length === 0} onClick={() => void controller.start()}>
@@ -318,6 +320,7 @@ function DoMode({ controller, plan }: { controller: PlansController; plan: Plan 
         ))}
       </ol>
       <AllDevices controller={controller} plan={plan} />
+      <PlanSnippets plan={plan} devices={devicesOf(controller, plan)} />
       <BackOut controller={controller} plan={plan} />
     </>
   );

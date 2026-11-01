@@ -173,7 +173,7 @@ export class TermixError extends Error {}
 
 type Fetch = typeof fetch;
 
-async function call(origin: string, key: string, method: string, path: string, body: unknown, f: Fetch): Promise<unknown> {
+export async function call(origin: string, key: string, method: string, path: string, body: unknown, f: Fetch = fetch): Promise<unknown> {
   let res: Response;
   try {
     res = await f(new URL(path, origin).toString(), {
