@@ -190,6 +190,8 @@ const CORE_COLUMNS: Record<Kind, readonly Column[]> = {
     core('model', 'Model', 130),
     core('role', 'Role', 110, { editable: true, type: 'select', options: DEVICE_ROLES }),
     core('mgmt', 'Mgmt address', 130, { editable: true }),
+    // ADR-0080 decision 11: Termix's view, filled in the browser; only listed when Termix is set here.
+    core('termix', 'In Termix', 100),
     core('serial', 'Serial', 110, { editable: true }),
     core('version', 'Running', 110),
     core('firmware', 'Firmware', 130),
@@ -278,7 +280,7 @@ const CORE_COLUMNS: Record<Kind, readonly Column[]> = {
 export function defaultColumnKeys(kind: Kind, lens: Lens): string[] {
   if (kind === 'devices') {
     const middle = lens === 'cables' ? 'cables' : lens === 'power' ? 'inlets' : 'ports';
-    return ['name', 'model', 'where', middle, 'power', 'tags', 'lastChange'].filter((k) => !(k === 'power' && lens === 'power'));
+    return ['name', 'model', 'where', middle, 'power', 'termix', 'tags', 'lastChange'].filter((k) => !(k === 'power' && lens === 'power'));
   }
   if (kind === 'racks') return ['name', 'height', 'row', 'bay', 'used', 'devices', 'tags'];
   if (kind === 'cables') return ['name', 'kind', 'sheath', 'length', 'endA', 'endB', 'tags'];

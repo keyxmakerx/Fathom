@@ -84,7 +84,7 @@ export async function sendSnippets(origin: string, key: string, bodies: readonly
     await call(origin, key, 'POST', '/plugin-api/snippets/folders', { name: folder }, f);
   } catch (e) {
     // 409: the folder is there already. A refused key still stops the run.
-    if (!(e instanceof TermixError) || !/409/.test(e.message)) throw e;
+    if (!(e instanceof TermixError) || e.status !== 409) throw e;
   }
   const out: SnippetResult = { sent: 0, already: 0, folder };
   for (const b of bodies) {
@@ -100,6 +100,6 @@ export async function sendSnippets(origin: string, key: string, bodies: readonly
 
 export function snippetSummary(r: SnippetResult): string {
   const parts = [`Sent ${r.sent} ${r.sent === 1 ? 'step' : 'steps'} to Termix as snippets, in ${r.folder}`];
-  if (r.already) parts.push(`${r.already} ${r.already === 1 ? 'was' : 'were'} there already and left as they are`);
+  if (r.already) parts.push(`${r.already} ${r.already === 1 ? 'was there already and is left as it is' : 'were there already and are left as they are'}`);
   return parts.join('; ') + '. Run each one yourself, on the terminal you opened.';
 }

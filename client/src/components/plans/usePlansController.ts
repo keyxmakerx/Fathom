@@ -17,6 +17,7 @@ import {
   listPlans,
   markDone,
   markWentDifferently,
+  setSeen,
   moveStep,
   planFromIdea,
   readPlan,
@@ -32,6 +33,7 @@ import {
   type TextGate,
 } from '../../document/plans';
 import type { CheckFinding, PlanStepPreview } from '../../engine/engine';
+import type { Comparison } from './checkSeen';
 import type { Mirror } from '../../engine/mirror';
 import type { UpgradeTemplate } from '../firmware/upgradePlan';
 import { buildCanon, CHECKS_DEBOUNCE_MS, isTypingTarget, standingDelay, type Canon } from '../checks/checksModel';
@@ -137,6 +139,8 @@ export interface PlansController {
   start(): Promise<boolean>;
   done(stepId: string): Promise<boolean>;
   wentDifferently(stepId: string, note: string, pasted?: boolean): Promise<boolean>;
+  /** What the device answered for a check step (ADR-0080 decision 5). Always gated: it is device output, never typed prose. */
+  saveSeen(stepId: string, seen: string, compare: (raw: string) => Comparison): Promise<boolean>;
   record(outcome: PlanOutcome, text: string, pasted?: boolean): Promise<boolean>;
   /** A new plan back to where this one started, opened for planning (sign-off r16-backout). */
   backOut(): Promise<boolean>;
@@ -502,6 +506,8 @@ export function usePlansController({ doc, boot, mirrorNow, loadCostMs, redact, a
       setRefused(null);
       return run((doc0, gate) => markWentDifferently(doc0, stepId, { note, gate, ...stamp() }), howOf(pasted));
     },
+    // The comparison reads the paste before the gate (a hash does not survive it); only gated text is kept.
+    saveSeen: (stepId, seen, compare) => run((doc0, gate) => setSeen(doc0, stepId, { seen, compared: compare(seen), gate, ...stamp() }), 'pasted'),
     record: (outcome, text, pasted = false) =>
       run((doc0, gate) => (plan ? recordPlan(doc0, plan.id, { outcome, text, gate, ...stamp() }) : null), howOf(pasted)),
     backOut: () =>

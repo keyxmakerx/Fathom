@@ -293,6 +293,11 @@ async function runProof(ctx, seed) {
   const back = (Array.isArray(listed10.json) ? listed10.json : []).find((s) => s.name === snip.name);
   check('T10d. GET /plugin-api/snippets lists it back, in its folder, with its content', back?.folder === FOLDER && back?.content === snip.content, JSON.stringify(back ?? listed10.text).slice(0, 300));
 
+  // Decision 6 leans on Automations; turn it on if this Termix ships it off.
+  const au = (await addOns(TERMIX, key.token)).find((p) => p.id === 'automations');
+  console.log(`    automations before: ${JSON.stringify(au ? [au.enabled, au.state] : null)}`);
+  if (!(au?.enabled && au?.state === 'active')) await setAddOn(TERMIX, admin, 'automations', true);
+
   // ---- Fathom, signed in, every request to Termix watched ------------------------------------
   const page = await ctx.newPage();
   lastPage = page;
@@ -402,6 +407,14 @@ async function runProof(ctx, seed) {
   check('T5d. in the folder Fathom / <design>', sent.every((h) => typeof h.folder === 'string' && h.folder.startsWith('Fathom / ')), JSON.stringify(sent.map((h) => h.folder)));
   check('T5e. nothing Termix already had was added again', after.length === 6, String(after.length));
 
+  // ---- T14. The In Termix column (ADR-0080 decision 11) ---------------------------------------
+  const header = page.getByRole('columnheader', { name: /In Termix/ });
+  check('T14a. Inventory › Devices shows an In Termix column when Termix is set', (await header.count()) === 1);
+  const routerRow = page.locator('.inv-table__row', { hasText: 'router-1' }).first();
+  await until(async () => /In Termix/.test(await routerRow.innerText()), 15000);
+  check('T14b. router-1’s row says In Termix, read from Termix’s host list after the send', /In Termix/.test(await routerRow.innerText()) && !/Not in Termix/.test(await routerRow.innerText()), (await routerRow.innerText()).replace(/\s+/g, ' '));
+  check('T14c. and Refresh In Termix is beside Send', (await send.getByTestId('termix-presence-refresh').count()) === 1);
+
   // ---- T8. A plan's devices and its step (ADR-0080 decisions 2 and 8) ------------------------
   await page.locator('.shell-bar__tab', { hasText: /^Canvas$/i }).click();
   const routerNode = page.locator('.react-flow__node', { hasText: 'router-1' }).first();
@@ -426,9 +439,29 @@ async function runProof(ctx, seed) {
   const lines = await planDevices.getByTestId('connect-lines').innerText();
   check('T8c. Connect with ssh gives the Windows and Linux lines', /From Windows/i.test(lines) && /From Linux/i.test(lines) && lines.includes('ssh <your user>@192.0.2.1'), lines.replace(/\s+/g, ' '));
   await shot('t8-plan-devices');
+  // ---- T12. The maintenance window (ADR-0080 decision 6), and its plain way --------------------
+  check('T12a. the plan reminds the person to pause their own alerting', (await planPanel.getByTestId('alerting-reminder').count()) === 1);
+  const windowBox = planPanel.getByTestId('termix-window').locator('input[type=checkbox]');
+  check('T12b. putting the devices into maintenance in Termix is offered, ticked', (await windowBox.count()) === 1 && (await windowBox.isChecked()));
   await planPanel.getByRole('button', { name: 'Start work' }).click();
   const current = planPanel.locator('[data-testid=plans-step][data-state=current]');
   await current.waitFor({ timeout: 10000 });
+  const windowSaid = planPanel.getByTestId('termix-window-said');
+  await windowSaid.waitFor({ timeout: 15000 });
+  check('T12c. Start work put router-1 into maintenance in Termix, and says so', /^Put 1 device into maintenance in Termix/.test(await windowSaid.innerText()), await windowSaid.innerText());
+  const inMaint = await termixCall(TERMIX, 'GET', `/plugin-api/automations/maintenance/${router.id}`, { bearer: key.token });
+  check('T12d. Termix has router-1 in maintenance, with the plan’s name as the reason', Array.isArray(inMaint.json?.active?.reasons) && inMaint.json.active.reasons.some((x) => /^Fathom: /.test(x)), inMaint.text.slice(0, 300));
+  // ---- T13. Termix's up or down (ADR-0080 decision 7) ------------------------------------------
+  const refresh = current.getByTestId('termix-refresh');
+  await refresh.waitFor({ timeout: 15000 });
+  const statusAsks = () => toTermix.filter((q) => q.method === 'GET' && new URL(q.url).pathname === '/host/status' && new URL(q.url).searchParams.get('hostIds') === String(router.id)).length;
+  await until(() => statusAsks() > 0, 15000);
+  await page.waitForTimeout(1500); // the step's list and the plan's list each ask once, on open
+  const asked = statusAsks();
+  check('T13a. Do asked Termix for router-1’s up or down, by its host id only', asked > 0, String(asked));
+  await refresh.click();
+  await until(() => statusAsks() > asked, 15000);
+  check('T13b. and asks again only on Refresh', statusAsks() === asked + 1, String(statusAsks()));
   const stepOpen = current.getByRole('button', { name: 'Open in Termix' });
   check('T8d. in Do, the current step shows Open in Termix for its device', (await stepOpen.count()) === 1);
   const [stepTab] = await Promise.all([ctx.waitForEvent('page', { timeout: 15000 }), stepOpen.click()]);
@@ -436,6 +469,40 @@ async function runProof(ctx, seed) {
   check('T8e. and it opens router-1’s terminal, with the key pasted earlier', new URL(stepTab.url()).searchParams.get('hostId') === String(router.id), stepTab.url());
   await stepTab.close();
   await shot('t8-do-step');
+
+  // ---- T11. The check step's paste box (ADR-0080 decision 5), with no Termix in it ------------
+  const CHECK_SECRET = 'Ab3dE6gH'; // eight characters, as short as a real device takes (CLAUDE.md rule 2)
+  const carried = [];
+  const watch = (req) => {
+    const body = req.postDataBuffer();
+    if (body && body.toString('latin1').includes(CHECK_SECRET)) carried.push(req.url());
+  };
+  page.on('request', watch);
+  const box = current.getByTestId('plans-seen-box');
+  check('T11a. a step that checks something gets the paste box', (await box.count()) === 1);
+  await box.getByLabel('What the device answered').fill(`router-1#show interfaces GigabitEthernet0/1\nGigabitEthernet0/1 is up, line protocol is up\nenable secret ${CHECK_SECRET}`);
+  await box.getByRole('button', { name: 'Keep and compare' }).click();
+  const kept = box.getByTestId('plans-seen');
+  await kept.waitFor({ timeout: 10000 });
+  const keptText = await kept.innerText();
+  check('T11b. Fathom says what it could compare: Can’t tell, for a step it has nothing to compare with', /Can.t tell\./.test(keptText), keptText.replace(/\s+/g, ' '));
+  await kept.locator('summary').click();
+  const pre = await kept.locator('pre').innerText();
+  check('T11c. what is kept went through the redaction gate: the line protocol stays, the secret does not', pre.includes('line protocol is up') && !pre.includes(CHECK_SECRET), pre);
+  await page.waitForTimeout(1500);
+  page.off('request', watch);
+  check('T11d. no request from the page carried the secret', carried.length === 0, carried.join(' '));
+  await shot('t11-check-paste');
+
+  // Record ends the window (decision 6).
+  await current.getByRole('button', { name: 'Mark done' }).click();
+  await planPanel.getByRole('button', { name: 'Succeeded', exact: true }).click();
+  await planPanel.getByRole('button', { name: 'Record', exact: true }).click();
+  await until(async () => /^Took 1 device out of maintenance in Termix/.test((await planPanel.getByTestId('termix-window-said').innerText().catch(() => '')) ?? ''), 15000);
+  check('T12e. Record took router-1 out of maintenance in Termix, and says so', /^Took 1 device out/.test(await planPanel.getByTestId('termix-window-said').innerText()));
+  const outMaint = await termixCall(TERMIX, 'GET', `/plugin-api/automations/maintenance/${router.id}`, { bearer: key.token });
+  check('T12f. Termix has router-1 out of maintenance', outMaint.status === 200 && !outMaint.json?.active, outMaint.text.slice(0, 300));
+  await shot('t12-recorded');
   await page.getByRole('button', { name: 'Exit', exact: true }).click();
 
   // ---- T6. A revoked key ---------------------------------------------------------------------

@@ -21,3 +21,24 @@
 .termix-ref { margin: 4px 0; font-size: 12px; }
 .termix-ref label { display: inline-flex; gap: 6px; align-items: baseline; }
 .termix-snippets { margin: 8px 0; }
+
+/* Decision 6: the maintenance window choice, before Start work. */
+.termix-window {
+  display: block;
+  margin: 6px 0;
+}
+
+/* Decision 7: Termix's up or down, words first. */
+.termix-device__state {
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+.termix-device__state[data-state='offline'] {
+  color: var(--danger);
+}
+
+/* Decision 10: a console port's way in. */
+.termix-serial {
+  margin: 6px 0;
+}

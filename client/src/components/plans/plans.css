@@ -600,3 +600,36 @@
 .plans-backout {
   margin-top: var(--s3);
 }
+
+/* A check step's paste box and what was kept (ADR-0080 decision 5). The verdict is words first;
+   the rule beside it only repeats them. */
+.plans-seen-box {
+  margin-top: 8px;
+}
+
+.plans-seen {
+  margin-top: 6px;
+}
+
+.plans-seen__verdict {
+  margin: 0;
+  padding-left: 8px;
+  border-left: 3px solid var(--rule-hair);
+}
+
+.plans-seen__verdict[data-verdict='matches'] {
+  border-left-color: var(--m-do);
+}
+
+.plans-seen__verdict[data-verdict='differs'] {
+  border-left-color: var(--danger);
+}
+
+.plans-seen__pre {
+  max-height: 16em;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 4px 0 0;
+  font-size: var(--t-small);
+}

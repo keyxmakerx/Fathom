@@ -16,9 +16,13 @@ interface Props {
   design: string;
   /** For tests: the operator's Termix without asking the server. */
   origin?: string | null;
+  /** After a send: the In Termix column reads Termix again. */
+  onSent?: () => void;
+  /** When the In Termix column is shown: re-reads it (ADR-0080 decision 11). */
+  onRefresh?: () => void;
 }
 
-export function TermixSend({ devices, design, origin: given }: Props) {
+export function TermixSend({ devices, design, origin: given, onSent, onRefresh }: Props) {
   const { url: origin } = useTermix(given);
   const [asking, setAsking] = useState(false);
   const [typed, setTyped] = useState('');
@@ -42,6 +46,7 @@ export function TermixSend({ devices, design, origin: given }: Props) {
           ? ` ${wanted === 1 ? 'One has' : `${wanted} have`} a vault login, but this Termix does not run its Secret Sources add-on, so they went in with no password.`
           : '';
       setSaid(sendSummary(r) + dropped);
+      onSent?.();
     } catch (e) {
       if (e instanceof TermixError && /API key/.test(e.message)) forgetKey();
       setSaid(e instanceof Error ? e.message : String(e));
@@ -72,6 +77,11 @@ export function TermixSend({ devices, design, origin: given }: Props) {
       <button type="button" disabled={busy !== null || withAddress.length === 0} onClick={start} title={withAddress.length === 0 ? 'None of these has a management address' : undefined}>
         {busy ? `Sending ${busy.done} of ${busy.total}…` : `Send ${withAddress.length} to Termix`}
       </button>
+      {onRefresh ? (
+        <button type="button" className="btn-quiet" onClick={onRefresh} data-testid="termix-presence-refresh" title="Read Termix’s host list again for the In Termix column">
+          Refresh In Termix
+        </button>
+      ) : null}
       {asking ? (
         <span className="termix-send__key">
           <input

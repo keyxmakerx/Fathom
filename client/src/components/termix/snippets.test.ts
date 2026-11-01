@@ -6,7 +6,7 @@ import { FETCH_STEP_TITLE, LINK_PLACEHOLDER, recordStepTitle } from '../firmware
 import { LINK_INPUT, commandSteps, hostIdsFor, sendSnippets, snippetFolder, snippetFor, snippetSummary } from './snippets';
 
 const step = (ordinal: number, change: string, after = ''): PlanStep => ({
-  id: `PlanStep:${ordinal}`, ordinal, kind: 'other', change, before: '', after, targets: ['Device:a'], edit: null, state: 'planned', note: '', doneAt: '',
+  id: `PlanStep:${ordinal}`, ordinal, kind: 'other', change, before: '', after, targets: ['Device:a'], edit: null, state: 'planned', note: '', doneAt: '', seen: '', compared: null,
 });
 const plan = (steps: PlanStep[], title = 'Upgrade EX2300 to 23.4R2'): Plan => ({
   id: 'MaintenancePlan:1', title, windowStart: '', windowEnd: '', author: '', stage: 'planned', outcome: null, record: '', steps,
@@ -75,6 +75,6 @@ describe('sending them', () => {
     expect(r).toEqual({ sent: 1, already: 1, folder: 'Fathom / Upgrade EX2300 to 23.4R2' });
     expect(calls).toEqual(['GET /plugin-api/snippets', 'POST /plugin-api/snippets/folders', 'POST /plugin-api/snippets']);
     expect(calls.some((c) => c.includes('execute'))).toBe(false);
-    expect(snippetSummary(r)).toBe('Sent 1 step to Termix as snippets, in Fathom / Upgrade EX2300 to 23.4R2; 1 was there already and left as they are. Run each one yourself, on the terminal you opened.');
+    expect(snippetSummary(r)).toBe('Sent 1 step to Termix as snippets, in Fathom / Upgrade EX2300 to 23.4R2; 1 was there already and is left as it is. Run each one yourself, on the terminal you opened.');
   });
 });

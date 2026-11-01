@@ -217,7 +217,7 @@ describe('an upgrade Fathom has no image for (schema 0.31)', () => {
 });
 
 describe('one plan holding several upgrades', () => {
-  const step = (id: string, change: string, targets: string[]): PlanStep => ({ id, ordinal: 0, kind: 'other', change, before: '', after: '', targets, edit: null, state: 'planned', note: '', doneAt: '' });
+  const step = (id: string, change: string, targets: string[]): PlanStep => ({ id, ordinal: 0, kind: 'other', change, before: '', after: '', targets, edit: null, state: 'planned', note: '', doneAt: '', seen: '', compared: null });
   const plan = (title: string, steps: PlanStep[]): Plan => ({ id: 'p', title, windowStart: '', windowEnd: '', author: '', stage: 'planned', outcome: null, record: '', steps });
 
   it('is known by its record steps whatever it is called, and pairs each fetch with its devices', () => {

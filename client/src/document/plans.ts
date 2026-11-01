@@ -451,6 +451,10 @@ export interface PlanStep {
   state: StepState;
   note: string;
   doneAt: string;
+  /** What the person pasted for a check step, after the redaction gate (ADR-0080 decision 5); '' when nothing. */
+  seen: string;
+  /** Fathom's comparison when the paste was kept (`PlanStep.compared`); null when there is none. */
+  compared: { verdict: 'matches' | 'differs' | 'cant_tell'; why: string } | null;
 }
 
 export interface Plan {
@@ -475,6 +479,14 @@ function live(doc: Document, id: string, kind: 'MaintenancePlan' | 'PlanStep'): 
   return n;
 }
 
+const VERDICTS = ['matches', 'differs', 'cant_tell'] as const;
+
+function readCompared(line: string): PlanStep['compared'] {
+  const i = line.indexOf('\t');
+  const verdict = (i < 0 ? line : line.slice(0, i)) as (typeof VERDICTS)[number];
+  return VERDICTS.includes(verdict) ? { verdict, why: i < 0 ? '' : line.slice(i + 1) } : null;
+}
+
 function readStep(n: GraphNode): PlanStep {
   const edit = decodeEdit(str(n, 'PlanStep.edit'));
   const typed = str(n, 'PlanStep.targets');
@@ -490,6 +502,8 @@ function readStep(n: GraphNode): PlanStep {
     state: (str(n, 'PlanStep.state') || 'planned') as StepState,
     note: str(n, 'PlanStep.note'),
     doneAt: str(n, 'PlanStep.done_at'),
+    seen: str(n, 'PlanStep.seen'),
+    compared: readCompared(str(n, 'PlanStep.compared')),
   };
 }
 
@@ -794,6 +808,38 @@ export function markWentDifferently(doc: Document, stepId: string, opts: WentDif
   setNodeField(b, stepId, 'PlanStep.note', text(note));
   setNodeField(b, stepId, 'PlanStep.done_at', text(new Date(now).toISOString()));
   return finish(b, truncateUtf8(`${plan.title}: step ${step.ordinal + 1} went differently`));
+}
+
+/** A check step's paste is the device's answer, not a novel: past this it is refused, and the person keeps the lines that matter. */
+export const MAX_SEEN = 32_000;
+
+export interface SeenOptions extends Actor {
+  /** What the device answered, as pasted or fetched. It always meets the real gate: it is device output. */
+  seen: string;
+  /**
+   * Fathom's comparison, worked out in the browser from the paste BEFORE the gate: the gate removes long
+   * hex values, a file's hash among them, so a hash can only be compared there. Nothing ungated is kept;
+   * the why passes the gate too.
+   */
+  compared: NonNullable<PlanStep['compared']>;
+  gate: TextGate;
+}
+
+/**
+ * Keeps what the person saw for the current step (ADR-0080 decision 5), after the redaction gate. It marks
+ * nothing: the person still marks Done or Went differently. A second paste replaces the first.
+ */
+export function setSeen(doc: Document, stepId: string, opts: SeenOptions): Document {
+  const { plan, step } = requireTurn(doc, stepId);
+  if (opts.seen.length > MAX_SEEN) throw new PlanRefusal('bad-text', 'that paste is too long to keep; paste only the lines the check needs');
+  const seen = gated(opts.gate, opts.seen, 'the paste').replace(/\s+$/, '');
+  if (seen.trim() === '') throw new PlanRefusal('bad-text', 'paste what the device answered');
+  if (!VERDICTS.includes(opts.compared.verdict)) throw new PlanRefusal('bad-text', 'that is not a comparison');
+  const why = gated(opts.gate, opts.compared.why, 'the comparison').replace(/[\t\n]+/g, ' ').trim();
+  const b = begin(doc, opts);
+  setNodeField(b, stepId, 'PlanStep.seen', text(seen));
+  setNodeField(b, stepId, 'PlanStep.compared', text(`${opts.compared.verdict}\t${why}`));
+  return finish(b, truncateUtf8(`${plan.title}: step ${step.ordinal + 1}, what the device said`));
 }
 
 export interface RecordOptions extends Actor {

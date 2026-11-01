@@ -169,7 +169,14 @@ export function newHostBody(name: string, address: string, folder = 'Fathom', re
   };
 }
 
-export class TermixError extends Error {}
+export class TermixError extends Error {
+  /** Termix's HTTP status, when it answered at all. */
+  readonly status: number | null;
+  constructor(message: string, status: number | null = null) {
+    super(message);
+    this.status = status;
+  }
+}
 
 type Fetch = typeof fetch;
 
@@ -188,9 +195,9 @@ export async function call(origin: string, key: string, method: string, path: st
       'This browser could not reach Termix. Check that it is running, and if its operator set CORS_ALLOWED_ORIGINS, that Fathom’s address is in it.',
     );
   }
-  if (res.status === 401) throw new TermixError('Termix refused the API key. It may have expired or been switched off; paste a new one.');
-  if (res.status === 403) throw new TermixError('The Termix user this key belongs to is not allowed to do that.');
-  if (!res.ok) throw new TermixError(`Termix answered ${res.status}.`);
+  if (res.status === 401) throw new TermixError('Termix refused the API key. It may have expired or been switched off; paste a new one.', 401);
+  if (res.status === 403) throw new TermixError('The Termix user this key belongs to is not allowed to do that.', 403);
+  if (!res.ok) throw new TermixError(`Termix answered ${res.status}.`, res.status);
   try {
     return await res.json();
   } catch {
