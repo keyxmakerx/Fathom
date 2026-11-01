@@ -83,7 +83,7 @@ export async function hosts(base, token) {
 
 /** A host made as the key's user, the way a person would in Termix. */
 export async function addHost(base, token, host) {
-  return (await must(base, 'POST', '/host/db/host', { bearer: token, body: { connectionType: 'ssh', port: 22, ...host } })).json;
+  return (await must(base, 'POST', '/host/db/host', { bearer: token, body: { connectionType: 'ssh', authType: 'none', port: 22, ...host } })).json;
 }
 
 export { call as termixCall };

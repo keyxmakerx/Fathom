@@ -6,7 +6,8 @@
 // - An API key is `tmx_` and 64 hex characters, made by a Termix admin for one Termix user, sent
 //   as `Authorization: Bearer` (`src/backend/utils/auth-manager.ts`, `handleApiKeyAuth`).
 // - `GET /host/db/host` lists the hosts that user can see; `POST /host/db/host` adds one, and
-//   needs only `ip` and `port` (`src/backend/database/routes/host.ts`).
+//   needs `ip`, `port` and, since v26.10.2, `authType` (`src/backend/database/routes/host.ts`; found
+//   by the CI job against a real Termix 26.10.6, ADR-0080 decision 1, 1 November 2026).
 // - `/?view=terminal&hostId=<id>` opens one host's terminal full screen, signing in first when
 //   the browser is signed out (`src/main.tsx`, `FullscreenApp`; the `terminal` tab is the bundled
 //   ssh-terminal plugin's).
@@ -130,10 +131,17 @@ export function folderFor(design: string): string {
   return d ? `Fathom / ${d}` : 'Fathom';
 }
 
-/** What Fathom sends to add a host: no credential, no user name. */
+/**
+ * What Fathom sends to add a host: no credential, no user name. `authType: 'none'` is the one Termix
+ * value that carries no secret: Termix then asks at connect time, keyboard-interactive
+ * (`src/backend/hosts/connect/build-connect-config.ts`, v26.10.6), and the person can pick one of
+ * Termix's own credentials on the host instead. Termix refuses a new host without an `authType`
+ * since v26.10.2.
+ */
 export function newHostBody(name: string, address: string, folder = 'Fathom'): Record<string, unknown> {
   return {
     connectionType: 'ssh',
+    authType: 'none',
     name: name.trim() || bareAddress(address),
     ip: bareAddress(address),
     port: 22,

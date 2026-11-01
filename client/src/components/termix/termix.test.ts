@@ -89,7 +89,7 @@ describe('addresses and links', () => {
 
   it('adds a host with no password and no user name', () => {
     const body = newHostBody('core-sw1', '10.0.0.1/24');
-    expect(body).toEqual({ connectionType: 'ssh', name: 'core-sw1', ip: '10.0.0.1', port: 22, folder: 'Fathom', tags: ['fathom'], notes: 'Added from Fathom.' });
+    expect(body).toEqual({ connectionType: 'ssh', authType: 'none', name: 'core-sw1', ip: '10.0.0.1', port: 22, folder: 'Fathom', tags: ['fathom'], notes: 'Added from Fathom.' });
     for (const k of ['password', 'key', 'keyPassword', 'username', 'credentialId', 'sudoPassword']) expect(body).not.toHaveProperty(k);
     expect(newHostBody(' ', '10.0.0.1').name).toBe('10.0.0.1');
   });

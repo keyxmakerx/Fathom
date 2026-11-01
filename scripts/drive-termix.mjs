@@ -338,8 +338,8 @@ async function runProof(ctx, seed) {
   const posts = toTermix.filter((r) => r.method === 'POST');
   const sentBody = posts.map((r) => JSON.parse(r.body ?? '{}'));
   check(
-    'T3e. what Fathom sent carries no password, key, user name or credential',
-    sentBody.length >= 1 && sentBody.every((b) => !['password', 'key', 'username', 'credentialId', 'keyPassword', 'authType'].some((f) => f in b && b[f] !== '' && b[f] !== null)),
+    'T3e. what Fathom sent carries no password, key, user name or credential, and authType none',
+    sentBody.length >= 1 && sentBody.every((b) => b.authType === 'none' && !['password', 'key', 'username', 'credentialId', 'keyPassword'].some((f) => f in b)),
     JSON.stringify(sentBody),
   );
 
