@@ -18,3 +18,5 @@
 .termix-device__name { font-weight: 600; }
 .plans-devices { margin: 8px 0; }
 .plans-devices > summary { cursor: pointer; }
+.termix-ref { margin: 4px 0; font-size: 12px; }
+.termix-ref label { display: inline-flex; gap: 6px; align-items: baseline; }

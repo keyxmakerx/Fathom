@@ -3,11 +3,13 @@
 // off here, one line says so instead (decision 6). The person's Termix API key
 // is asked for once and kept in this tab only; it goes to Termix and nowhere else.
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useState, type ReactNode } from 'react';
 
 import type { TermixOff } from '../../api/termix';
 import './termix.css';
-import { KEY_EVENT, TermixError, addHost, forgetKey, isHostAddress, isTermixKey, listHosts, matchHost, readKey, sameHostName, saveKey, terminalUrl } from './termix';
+import { VaultPlaceContext, useVault } from '../vault/useVault';
+import { SECRET_SOURCES, referenceFor, type LoginReference } from './loginRef';
+import { KEY_EVENT, TermixError, addHost, listAddOns, forgetKey, isHostAddress, isTermixKey, listHosts, matchHost, readKey, sameHostName, saveKey, terminalUrl } from './termix';
 import type { TermixHost } from './termix';
 import { offWords, useTermix } from './useTermix';
 
@@ -20,6 +22,10 @@ interface Props {
   off?: TermixOff | null;
   /** In a plan's step or device list (ADR-0080 decision 2): no field label, one line. */
   inline?: boolean;
+  /** The device, for a vault login marked on it (ADR-0080 decision 3). */
+  deviceId?: string;
+  /** For tests: the login, without asking the vault. */
+  login?: LoginReference | null;
 }
 
 /** The device panel's field, or a bare block in a plan. */
@@ -43,13 +49,15 @@ type Step =
   | { at: 'idle' }
   | { at: 'key' }
   | { at: 'busy' }
-  | { at: 'missing' }
+  | { at: 'missing'; secretSources: boolean }
   | { at: 'other'; host: TermixHost }
   | { at: 'opened'; host: TermixHost }
   | { at: 'error'; message: string };
 
-export function TermixActions({ name, address, origin: given, off: givenOff, inline }: Props) {
+export function TermixActions({ name, address, origin: given, off: givenOff, inline, deviceId, login: givenLogin }: Props) {
   const { url: origin, off } = useTermix(given, givenOff);
+  const login = useLogin(origin !== null && givenLogin === undefined ? deviceId : undefined) ?? givenLogin ?? null;
+  const [byReference, setByReference] = useState(true);
   const [key, setKey] = useState<string | null>(() => readKey());
   const [typed, setTyped] = useState('');
   const [step, setStep] = useState<Step>({ at: 'idle' });
@@ -85,10 +93,13 @@ export function TermixActions({ name, address, origin: given, off: givenOff, inl
     if (win) win.opener = null;
     setStep({ at: 'busy' });
     try {
-      const found = add ? await addHost(origin, k, name, address) : matchHost(await listHosts(origin, k), address);
+      const reference = add && login && byReference ? login.reference : null;
+      const found = add ? await addHost(origin, k, name, address, fetch, undefined, reference) : matchHost(await listHosts(origin, k), address);
       if (!found) {
         win?.close();
-        setStep({ at: 'missing' });
+        // Whether this Termix can take the login by reference: only asked when there is one to send.
+        const addOns = login ? await listAddOns(origin, k).catch(() => new Set<string>()) : new Set<string>();
+        setStep({ at: 'missing', secretSources: addOns.has(SECRET_SOURCES) });
         return;
       }
       // Matched by address alone: a host with another name is asked about first (sign-off r61).
@@ -170,8 +181,26 @@ export function TermixActions({ name, address, origin: given, off: givenOff, inl
           <button type="button" className="btn-quiet" onClick={() => void open(key, true)}>
             Add it to Termix
           </button>{' '}
-          It goes in with no password; pick a credential in Termix.
+          {login && step.secretSources && byReference ? 'It signs in with the vault login below.' : 'It goes in with no password; pick a credential in Termix.'}
         </p>
+      ) : null}
+      {step.at === 'missing' && key && login ? (
+        step.secretSources ? (
+          <div className="termix-ref" data-testid="termix-reference">
+            <label>
+              <input type="checkbox" checked={byReference} onChange={(e) => setByReference(e.target.checked)} /> Sign in with the vault login &ldquo;{login.name}&rdquo;, by reference
+            </label>
+            <p className="termix__hint">
+              Termix is sent <code className="termix-mono">{login.reference}</code>, which names the login in Vaultwarden. It is not the password: Termix&rsquo;s Secret
+              Sources add-on fetches that when you connect, from the vault its operator connected. What that vault can open is Termix&rsquo;s operator&rsquo;s to limit.
+            </p>
+          </div>
+        ) : (
+          <p className="termix__hint" data-testid="termix-reference-off">
+            This device has the vault login &ldquo;{login.name}&rdquo;, but this Termix does not run its Secret Sources add-on, so the host goes in with no
+            password. Use the login from Logins as you do now.
+          </p>
+        )
       ) : null}
       {step.at === 'other' ? (
         <p className="termix__hint" role="alert">
@@ -204,4 +233,12 @@ export function TermixActions({ name, address, origin: given, off: givenOff, inl
       ) : null}
     </Frame>
   );
+}
+
+/** The vault login marked on this device, by reference, when the design is open in a vault place. */
+function useLogin(deviceId: string | undefined): LoginReference | null {
+  const place = useContext(VaultPlaceContext);
+  const vault = useVault(place && deviceId ? place.organisation : '');
+  if (!place || !deviceId || vault.load.status !== 'ready') return null;
+  return referenceFor(vault.load.value.outside, place.design, deviceId);
 }

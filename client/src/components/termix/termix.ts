@@ -17,6 +17,8 @@
 // Nothing here sends a password. A host Fathom adds carries a name, an address, port 22, a
 // folder and a tag; the person picks a Termix credential in Termix.
 
+import { isOurReference } from './loginRef';
+
 /** Where the key waits: this tab only, gone when the tab closes (ADR-0078 decision 3). */
 const KEY_SLOT = 'fathom.termix.key';
 
@@ -151,10 +153,13 @@ export function folderFor(design: string): string {
  * Termix's own credentials on the host instead. Termix refuses a new host without an `authType`
  * since v26.10.2.
  */
-export function newHostBody(name: string, address: string, folder = 'Fathom'): Record<string, unknown> {
+export function newHostBody(name: string, address: string, folder = 'Fathom', reference?: string | null): Record<string, unknown> {
+  // A login by reference (ADR-0080 decision 3): the password field holds `bw://<id>/password`, which
+  // Termix resolves itself. Nothing but that exact shape is ever put there.
+  const byReference = reference != null && isOurReference(reference);
   return {
     connectionType: 'ssh',
-    authType: 'none',
+    ...(byReference ? { authType: 'password', password: reference } : { authType: 'none' }),
     name: name.trim() || bareAddress(address),
     ip: bareAddress(address),
     port: 22,
@@ -197,10 +202,36 @@ export async function listHosts(origin: string, key: string, f: Fetch = fetch): 
   return parseHosts(await call(origin, key, 'GET', '/host/db/host', undefined, f));
 }
 
-export async function addHost(origin: string, key: string, name: string, address: string, f: Fetch = fetch, folder?: string): Promise<TermixHost> {
-  const [made] = parseHosts([await call(origin, key, 'POST', '/host/db/host', newHostBody(name, address, folder), f)]);
+export async function addHost(
+  origin: string,
+  key: string,
+  name: string,
+  address: string,
+  f: Fetch = fetch,
+  folder?: string,
+  reference?: string | null,
+): Promise<TermixHost> {
+  const [made] = parseHosts([await call(origin, key, 'POST', '/host/db/host', newHostBody(name, address, folder, reference), f)]);
   if (!made) throw new TermixError('Termix added the host but did not say which one it is.');
   return made;
+}
+
+/**
+ * The Termix add-ons running for this key's user: `GET /plugins` answers every installed one with
+ * `id`, `enabled` and `state` (core v26.10.6, `src/backend/database/routes/plugins.ts`). An add-on
+ * counts when it is enabled and active. A Termix that will not say is taken to run none, so every
+ * add-on's button stays hidden and the plain way is what shows.
+ */
+export async function listAddOns(origin: string, key: string, f: Fetch = fetch): Promise<Set<string>> {
+  const body = await call(origin, key, 'GET', '/plugins', undefined, f);
+  const out = new Set<string>();
+  if (!Array.isArray(body)) return out;
+  for (const row of body) {
+    if (typeof row !== 'object' || row === null) continue;
+    const r = row as Record<string, unknown>;
+    if (typeof r.id === 'string' && r.enabled === true && (r.state === undefined || r.state === 'active')) out.add(r.id);
+  }
+  return out;
 }
 
 export interface SendResult {
@@ -209,6 +240,8 @@ export interface SendResult {
   already: number;
   /** Two devices with one address are sent once. */
   repeated: number;
+  /** Of those added, how many sign in with a vault login by reference. */
+  byReference: number;
   failed: string[];
 }
 
@@ -221,13 +254,13 @@ export interface SendResult {
 export async function sendHosts(
   origin: string,
   key: string,
-  devices: readonly { name: string; address: string }[],
+  devices: readonly { name: string; address: string; reference?: string | null }[],
   folder: string,
   f: Fetch = fetch,
   onStep?: (done: number, total: number) => void,
 ): Promise<SendResult> {
   const hosts = await listHosts(origin, key, f);
-  const out: SendResult = { added: 0, already: 0, repeated: 0, failed: [] };
+  const out: SendResult = { added: 0, already: 0, repeated: 0, byReference: 0, failed: [] };
   const seen = new Set<string>();
   const todo = devices.filter((d) => bareAddress(d.address) !== '');
   let done = 0;
@@ -238,8 +271,9 @@ export async function sendHosts(
     else if (matchHost(hosts, at)) out.already++;
     else {
       try {
-        await addHost(origin, key, d.name, d.address, f, folder);
+        await addHost(origin, key, d.name, d.address, f, folder, d.reference);
         out.added++;
+        if (d.reference) out.byReference++;
       } catch (e) {
         if (e instanceof TermixError && /API key/.test(e.message)) throw e;
         out.failed.push(`${d.name || at}: ${e instanceof Error ? e.message : String(e)}`);
@@ -254,6 +288,7 @@ export async function sendHosts(
 /** The result in one sentence. */
 export function sendSummary(r: SendResult): string {
   const parts = [`Added ${r.added} to Termix`];
+  if (r.byReference) parts[0] += ` (${r.byReference} with ${r.byReference === 1 ? 'its' : 'their'} vault login by reference)`;
   if (r.already) parts.push(`${r.already} ${r.already === 1 ? 'was' : 'were'} already there`);
   if (r.repeated) parts.push(`${r.repeated} shared an address with another device`);
   if (r.failed.length) parts.push(`${r.failed.length} not added (${r.failed.slice(0, 2).join('; ')})`);

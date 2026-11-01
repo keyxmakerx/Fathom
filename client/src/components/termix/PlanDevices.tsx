@@ -19,7 +19,7 @@ function DeviceRow({ device, termix }: { device: ReachableDevice; termix: boolea
       ) : (
         <>
           <code className="termix-mono">{bareAddress(device.address)}</code> <CopyButton text={bareAddress(device.address)} label="Copy" className="btn-quiet" />
-          <TermixActions name={device.name} address={device.address} inline />
+          <TermixActions name={device.name} address={device.address} deviceId={device.id} inline />
           <ConnectLines address={device.address} folded={termix} />
         </>
       )}

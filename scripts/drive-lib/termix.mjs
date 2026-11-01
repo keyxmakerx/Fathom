@@ -86,4 +86,15 @@ export async function addHost(base, token, host) {
   return (await must(base, 'POST', '/host/db/host', { bearer: token, body: { connectionType: 'ssh', authType: 'none', port: 22, ...host } })).json;
 }
 
+/** Turns a Termix add-on on or off, as Termix's admin (`PATCH /plugins/{id}/state`, core v26.10.6,
+ * `src/backend/database/routes/plugins.ts`). Answers Termix's reply. */
+export async function setAddOn(base, admin, id, enabled) {
+  return call(base, 'PATCH', `/plugins/${encodeURIComponent(id)}/state`, { cookie: admin.cookie, body: { enabled } });
+}
+
+/** `GET /plugins` as the key's user: `id`, `enabled`, `state` for each installed add-on. */
+export async function addOns(base, token) {
+  return (await must(base, 'GET', '/plugins', { bearer: token })).json;
+}
+
 export { call as termixCall };

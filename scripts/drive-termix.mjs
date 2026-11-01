@@ -31,7 +31,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrateUrl, runtimeUrl } from './drive-lib/db.mjs';
 import { check, fails } from './drive-lib/kit.mjs';
-import { addHost, hosts, makeApiKey, revokeApiKey, termixAdmin, waitForTermix } from './drive-lib/termix.mjs';
+import { addHost, addOns, hosts, makeApiKey, revokeApiKey, setAddOn, termixAdmin, termixCall, waitForTermix } from './drive-lib/termix.mjs';
 
 const pw = await import(process.env.PW_PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.js');
 const { chromium } = pw.default ?? pw;
@@ -261,6 +261,21 @@ async function runProof(ctx, seed) {
   check('T1c. the key adds hosts through POST /host/db/host, answered with an id', Number.isInteger(Number(router?.id)), JSON.stringify(router).slice(0, 200));
   const before = await hosts(TERMIX, key.token);
   check('T1d. GET /host/db/host lists them with id, name, ip and port', Array.isArray(before) && before.length === 2 && before.every((h) => 'id' in h && 'name' in h && 'ip' in h && 'port' in h), JSON.stringify(before).slice(0, 300));
+
+  // ---- T9. What decision 3 leans on: Secret Sources, and a host whose password is a reference ----
+  const listed = await addOns(TERMIX, key.token);
+  const ss = () => listed.find((p) => p.id === 'secret-sources');
+  check('T9a. GET /plugins answers the key’s user with each add-on’s id, enabled and state', Array.isArray(listed) && listed.every((p) => typeof p.id === 'string' && 'enabled' in p), JSON.stringify(listed.map((p) => [p.id, p.enabled, p.state])).slice(0, 400));
+  console.log(`    secret-sources before: ${JSON.stringify(ss() ? [ss().enabled, ss().state] : null)}`);
+  const turned = await setAddOn(TERMIX, admin, 'secret-sources', true);
+  check('T9b. Termix’s admin turns Secret Sources on', turned.status === 200, `${turned.status} ${turned.text.slice(0, 200)}`);
+  const after9 = (await addOns(TERMIX, key.token)).find((p) => p.id === 'secret-sources');
+  check('T9c. and the key’s user then sees it enabled and active', after9?.enabled === true && after9?.state === 'active', JSON.stringify(after9 && [after9.enabled, after9.state]));
+  const REF = 'bw://11111111-1111-4111-8111-111111111111/password';
+  const byRef = await termixCall(TERMIX, 'POST', '/host/db/host', { bearer: key.token, body: { connectionType: 'ssh', authType: 'password', password: REF, name: 'ref-check', ip: '192.0.2.99', port: 22, folder: 'Fathom', tags: ['fathom'] } });
+  check('T9d. Termix takes a host whose password is a bw:// reference, as authType password', byRef.status === 200 && byRef.json?.authType === 'password' && byRef.json?.hasPassword === true, `${byRef.status} ${byRef.text.slice(0, 200)}`);
+  check('T9e. and does not hand the stored password field back in its answer', !JSON.stringify(byRef.json ?? {}).includes(REF), byRef.text.slice(0, 300));
+  await termixCall(TERMIX, 'DELETE', `/host/db/host/${byRef.json?.id}`, { bearer: key.token });
 
   // ---- Fathom, signed in, every request to Termix watched ------------------------------------
   const page = await ctx.newPage();

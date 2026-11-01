@@ -85,7 +85,9 @@ import { loadSheet, saveSheet } from './sheetPref';
 import { StockPanel, StoreBinPage } from './StockPanel';
 import { saveLook } from '../drawing/look';
 import { PasswordsPage, useVaultCount } from '../vault/Screens';
-import { VaultPlaceContext } from '../vault/useVault';
+import { VaultPlaceContext, useVault } from '../vault/useVault';
+import { edgesIn } from '../../document/model';
+import { referenceFor } from '../termix/loginRef';
 import { LabelsPreview } from '../../print/LabelsPreview';
 import { isLabelListKind, labelItems, storeLabel, type LabelItem } from '../../print/labels';
 import { isStoreId, storeById } from '../../document/stock';
@@ -317,6 +319,13 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const firmwareCount = useMemo(() => (doc ? imageRows({ doc, images: firmware?.server.images ?? [] }).length : 0), [doc, firmware?.server.images]);
   const vaultPlace = useContext(VaultPlaceContext);
   const vaultCount = useVaultCount(vaultPlace?.organisation ?? '');
+  // A vault login marked on a ticked device goes to Termix by reference (ADR-0080 decision 3).
+  const vaultForTermix = useVault(vaultPlace?.organisation ?? '');
+  const termixReference = (chassisId: string): string | null => {
+    const deviceId = doc ? edgesIn(doc, chassisId, 'HasChassis')[0]?.from : undefined;
+    if (!vaultPlace || !deviceId || vaultForTermix.load.status !== 'ready') return null;
+    return referenceFor(vaultForTermix.load.value.outside, vaultPlace.design, deviceId)?.reference ?? null;
+  };
   const counts: Record<Kind, number | null> = {
     devices: scoped.devices?.length ?? 0,
     racks: scoped.racks?.length ?? 0,
@@ -972,7 +981,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                 termix={
                   kind === 'devices' ? (
                     <TermixSend
-                      devices={checkedRows.map((r) => ({ name: r.cells.name ?? '', address: r.cells.mgmt ?? '' }))}
+                      devices={checkedRows.map((r) => ({ name: r.cells.name ?? '', address: r.cells.mgmt ?? '', reference: termixReference(r.key) }))}
                       design={shellProps.path[shellProps.path.length - 1]?.label ?? ''}
                     />
                   ) : undefined

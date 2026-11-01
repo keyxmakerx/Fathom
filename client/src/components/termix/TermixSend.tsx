@@ -6,11 +6,13 @@
 import { useState } from 'react';
 
 import './termix.css';
-import { TermixError, folderFor, forgetKey, isTermixKey, readKey, saveKey, sendHosts, sendSummary } from './termix';
+import { SECRET_SOURCES } from './loginRef';
+import { TermixError, folderFor, forgetKey, isTermixKey, listAddOns, readKey, saveKey, sendHosts, sendSummary } from './termix';
 import { useTermix } from './useTermix';
 
 interface Props {
-  devices: readonly { name: string; address: string }[];
+  /** `reference`: a vault login marked on the device, sent by reference (ADR-0080 decision 3). */
+  devices: readonly { name: string; address: string; reference?: string | null }[];
   design: string;
   /** For tests: the operator's Termix without asking the server. */
   origin?: string | null;
@@ -30,8 +32,16 @@ export function TermixSend({ devices, design, origin: given }: Props) {
     setBusy({ done: 0, total: withAddress.length });
     setSaid(null);
     try {
-      const r = await sendHosts(origin, key, withAddress, folderFor(design), fetch, (done, total) => setBusy({ done, total }));
-      setSaid(sendSummary(r));
+      // References go only to a Termix that runs Secret Sources; otherwise the hosts go in with no password.
+      const wanted = withAddress.filter((d) => d.reference).length;
+      const canRefer = wanted > 0 && (await listAddOns(origin, key).catch(() => new Set<string>())).has(SECRET_SOURCES);
+      const sending = canRefer ? withAddress : withAddress.map((d) => ({ ...d, reference: null }));
+      const r = await sendHosts(origin, key, sending, folderFor(design), fetch, (done, total) => setBusy({ done, total }));
+      const dropped =
+        wanted > 0 && !canRefer
+          ? ` ${wanted === 1 ? 'One has' : `${wanted} have`} a vault login, but this Termix does not run its Secret Sources add-on, so they went in with no password.`
+          : '';
+      setSaid(sendSummary(r) + dropped);
     } catch (e) {
       if (e instanceof TermixError && /API key/.test(e.message)) forgetKey();
       setSaid(e instanceof Error ? e.message : String(e));

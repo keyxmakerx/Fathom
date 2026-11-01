@@ -2373,7 +2373,7 @@ function panelFor(
                             />
                           </div>
                           {(chassis.managementAddress ?? '').length > 0 ? <div style={TYPED_NOTE_STYLE}>{MANAGEMENT_ADDRESS_NOTE}</div> : null}
-                          <TermixActions name={chassis.hostname} address={chassis.managementAddress ?? ''} />
+                          <TermixActions name={chassis.hostname} address={chassis.managementAddress ?? ''} deviceId={chassis.deviceId} />
                           <ConnectLines address={chassis.managementAddress ?? ''} folded />
                           <TermixReveal chassisId={chassis.id} />
                         </Fold>
