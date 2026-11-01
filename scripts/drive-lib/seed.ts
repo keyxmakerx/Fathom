@@ -1054,6 +1054,18 @@ export function seedSuggestScene(me: string): Document {
 
 /** The owner's "sweetch" (2026-10-31): a switch typed by hand in a 12U rack at U10, thirteen `Et` ports, its note
  * naming the model, two cables out. The "sweetch" scene, for `drive-model-guess.mjs`. */
+/** Sweetch with one more cable, from its first port down to a second port on painite, so the lead
+ * crosses sweetch's own plate: the quick card's drive checks it draws over the plate, not under. */
+export function seedSweetchCrossScene(catalogue: CatalogueModel[], me: string): Document {
+  let doc = seedSweetchScene(catalogue, me);
+  const chassis = () => viewOf(doc, catalogue).racks[0]!.chassis;
+  const fw = chassis().find((c) => c.hostname === 'painite')!;
+  doc = addSketchPort(doc, fw.id, { label: 'LAN', connector: 'sfp_plus', face: 'front' }, { actor: me });
+  const sw = chassis().find((c) => c.hostname === 'sweetch')!;
+  const lan = chassis().find((c) => c.id === fw.id)!.ports.find((p) => p.label === 'LAN')!.id;
+  return connectPorts(doc, sw.ports.find((p) => p.label === 'Et3')!.id, lan, { label: 'Et3 to painite LAN' }, { actor: me });
+}
+
 export function seedSweetchScene(catalogue: CatalogueModel[], me: string): Document {
   const { doc: base, rackId } = oneRack(catalogue, me, 12);
   const sw = newSketchDevice(base, 'sweetch', me);

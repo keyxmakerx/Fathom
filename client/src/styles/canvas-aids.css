@@ -107,6 +107,10 @@
   padding: var(--s2) var(--s3);
   font-size: var(--t-small);
   line-height: 16px;
+  /* Solid, not frosted: it sits over rack lines and ports, and they read through the frosted glass (Key Maker, 31 October). */
+  background: var(--surface);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   animation: aid-in var(--m-pop, 160ms) var(--aid-ease) both;
 }
 

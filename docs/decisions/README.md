@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-Index current to ADR-0077 (2026-10-27). Two numbers were issued twice, so the second record of each pair was renumbered: prefixes and VLANs (was 0063) is now 0067, and the work-account sign-off rounds (was 0065) is now 0068. Code citing ADR-0063 means live co-editing; ADR-0065 means one sign-in; ADR-0066 means learning, lessons and Ansible.
+Index current to ADR-0079 (2026-10-31). Two numbers were issued twice, so the second record of each pair was renumbered: prefixes and VLANs (was 0063) is now 0067, and the work-account sign-off rounds (was 0065) is now 0068. Code citing ADR-0063 means live co-editing; ADR-0065 means one sign-in; ADR-0066 means learning, lessons and Ansible.
 
 > **Status:** Accepted
 > **Date:** 2026-07-28
@@ -114,6 +114,8 @@ question was not in the register. *R* is the reversal cost from `73` §1.2 — R
 | **[0075](adr-0075-phone-field-view-and-labels.md)** | The phone field view, scanning, and printed labels | Accepted |  |  |
 | **[0076](adr-0076-spares-and-stores.md)** | Spares and stores | Accepted |  |  |
 | **[0077](adr-0077-ai-changes-a-design.md)** | An AI connection may change a design | Accepted |  |  |
+| **[0078](adr-0078-termix-beside-fathom.md)** | Termix beside Fathom: open a device's terminal, Fathom never connects | Accepted |  |  |
+| **[0079](adr-0079-one-estate-across-designs.md)** | One estate across designs: the estate index, links between sites, and slimmer saves | Accepted |  |  |
 
 ## What is not reopened
 
