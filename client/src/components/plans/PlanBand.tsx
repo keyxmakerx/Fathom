@@ -63,7 +63,11 @@ function NewPlanForm({ controller, onDone }: { controller: PlansController; onDo
   );
 }
 
-export function PlanBand({ controller }: { controller: PlansController }) {
+/**
+ * `onOpenAiIdeas`: there is no AI mode to switch to. A person makes a plan with New plan; an AI app drafts one
+ * as an AI idea, which a person accepts. With no plan open the band says so, and this opens the ideas.
+ */
+export function PlanBand({ controller, onOpenAiIdeas }: { controller: PlansController; onOpenAiIdeas?: () => void }) {
   const { plan, plans } = controller;
   const [creating, setCreating] = useState(false);
   const pickId = useId();
@@ -96,7 +100,18 @@ export function PlanBand({ controller }: { controller: PlansController }) {
               {sentence !== '' && <span className="plans-band__sentence"> · {sentence}</span>}
             </>
           ) : (
-            'No plan open. Plans mark changes before they are made.'
+            <>
+              No plan open. Make one yourself with New plan, or right-click a device and choose Plan a change. A plan an AI app drafts
+              arrives as an AI idea for you to accept.
+              {onOpenAiIdeas && (
+                <>
+                  {' '}
+                  <button type="button" className="plans-link" onClick={onOpenAiIdeas} data-testid="plans-ai-ideas">
+                    AI ideas
+                  </button>
+                </>
+              )}
+            </>
           )}
         </span>
         <span className="plans-band__tools">

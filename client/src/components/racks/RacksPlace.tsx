@@ -2220,7 +2220,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           <MissingLinksChip found={missingLinks} onGo={handleGoToMissingLink} />
         ) : undefined
       }
-      band={doc != null && plans.bandOpen ? <PlanBand controller={plans} /> : undefined}
+      band={doc != null && plans.bandOpen ? <PlanBand controller={plans} onOpenAiIdeas={onOpenAiIdeas} /> : undefined}
     >
       <ChecksContext.Provider value={checks.api}>
       <NoteAuthorsContext.Provider value={noteAuthors}>

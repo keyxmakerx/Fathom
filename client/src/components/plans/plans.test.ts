@@ -641,6 +641,30 @@ describe('the panel and the page, rendered', () => {
     expect(render(readPlan(done, made.id), done).panel).toContain('Back out…');
   });
 
+  it('with no plan open, says how a person makes one and where an AI one arrives', () => {
+    const { doc } = lab();
+    let controller: PlansController | null = null;
+    const Probe = () => {
+      controller = usePlansController({
+        doc,
+        boot: () => Promise.reject(new Error('no engine')),
+        mirrorNow: () => null,
+        loadCostMs: () => null,
+        redact: () => null,
+        applyDocChange: () => {},
+        actor: undefined,
+        canEdit: true,
+      });
+      return null;
+    };
+    renderToStaticMarkup(createElement(Probe));
+    const band = (open?: () => void) => renderToStaticMarkup(createElement(PlanBand, { controller: controller!, onOpenAiIdeas: open }));
+    expect(band()).toContain('Make one yourself with New plan');
+    expect(band()).toContain('arrives as an AI idea');
+    expect(band()).not.toContain('plans-ai-ideas');
+    expect(band(() => {})).toContain('plans-ai-ideas');
+  });
+
   it('the add-step form and the new-plan form say typed text is stored as typed', () => {
     const { doc } = lab();
     const made = planWith(doc, []);
