@@ -29,6 +29,7 @@ import { DevicePhoto } from '../docs/DevicePhoto';
 import { FirmwareChip, FirmwareSection } from '../firmware/FirmwareSection';
 import { AboutSection } from '../learn/AboutSection';
 import { TermixActions } from '../termix/TermixActions';
+import { ConnectLines } from '../termix/ConnectLines';
 import { MenuItems } from './ContextMenu';
 import { DEVICE_WORDS, type MenuItem } from './contextMenuItems';
 import {
@@ -2373,6 +2374,7 @@ function panelFor(
                           </div>
                           {(chassis.managementAddress ?? '').length > 0 ? <div style={TYPED_NOTE_STYLE}>{MANAGEMENT_ADDRESS_NOTE}</div> : null}
                           <TermixActions name={chassis.hostname} address={chassis.managementAddress ?? ''} />
+                          <ConnectLines address={chassis.managementAddress ?? ''} folded />
                           <TermixReveal chassisId={chassis.id} />
                         </Fold>
                       ),

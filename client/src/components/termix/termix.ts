@@ -20,6 +20,17 @@
 /** Where the key waits: this tab only, gone when the tab closes (ADR-0078 decision 3). */
 const KEY_SLOT = 'fathom.termix.key';
 
+/** Told when the key is pasted or forgotten, so every Termix button on the page follows. */
+export const KEY_EVENT = 'fathom:termix-key';
+
+function told(): void {
+  try {
+    window.dispatchEvent(new Event(KEY_EVENT));
+  } catch {
+    // no window (tests)
+  }
+}
+
 /** `tmx_` and 64 hex characters, as Termix makes them. */
 export function isTermixKey(value: string): boolean {
   return /^tmx_[0-9a-f]{64}$/.test(value.trim());
@@ -40,6 +51,7 @@ export function saveKey(key: string, store: Pick<Storage, 'setItem'> | null = sa
   } catch {
     // Without storage the key lasts as long as the component holding it.
   }
+  told();
 }
 
 export function forgetKey(store: Pick<Storage, 'removeItem'> | null = safeSession()): void {
@@ -48,6 +60,7 @@ export function forgetKey(store: Pick<Storage, 'removeItem'> | null = safeSessio
   } catch {
     // nothing to forget
   }
+  told();
 }
 
 function safeSession(): Storage | null {

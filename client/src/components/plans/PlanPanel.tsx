@@ -14,6 +14,15 @@ import { useTypeItYourself } from '../typing/typeItYourself';
 import '../typing/typing.css';
 import './plans.css';
 import { InSlot } from '../shell/sideSlot';
+import { PlanDevices } from '../termix/PlanDevices';
+import { reachable } from '../termix/planDevices';
+
+/** The devices a plan, or one of its steps, names, with their management addresses (ADR-0080 decision 2). */
+function devicesOf(controller: PlansController, plan: Plan, step?: PlanStep) {
+  const doc = controller.doc;
+  if (doc == null) return [];
+  return reachable(doc, touchedDevices(doc, controller.canon, step ? { ...plan, steps: [step] } : plan));
+}
 
 /** Words under a step: before → after, as typed. */
 function BeforeAfter({ step }: { step: PlanStep }) {
@@ -108,6 +117,7 @@ function PlanMode({ controller, plan }: { controller: PlansController; plan: Pla
       </ol>
       <h3 className="plans-label">What it touches</h3>
       <Touches controller={controller} plan={plan} />
+      <PlanDevices devices={devicesOf(controller, plan)} heading="Devices" />
       {canEdit && (
         <p>
           <button type="button" className="plans-btn btn-main" disabled={plan.steps.length === 0} onClick={() => void controller.start()}>
@@ -176,6 +186,7 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
       {secondLine(step.change) !== '' && <p className="plans-step__sub plans-step__sub--block">{secondLine(step.change)}</p>}
       <BeforeAfter step={step} />
       <StepCopy step={step} />
+      <PlanDevices devices={devicesOf(controller, plan, step)} />
       <Touches controller={controller} plan={plan} stepId={step.id} />
       {refused != null && (
         <div className="plans-refused" role="alert" data-testid="plans-refused">
@@ -247,6 +258,18 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
   );
 }
 
+/** Every device the plan names, folded under the checklist, for opening the rest at once. */
+function AllDevices({ controller, plan }: { controller: PlansController; plan: Plan }) {
+  const devices = devicesOf(controller, plan);
+  if (devices.length === 0) return null;
+  return (
+    <details className="plans-devices" data-testid="plans-all-devices">
+      <summary>{devices.length === 1 ? 'The device in this plan' : `All ${devices.length} devices in this plan`}</summary>
+      <PlanDevices devices={devices} />
+    </details>
+  );
+}
+
 /** Back out (sign-off r16-backout): asks once, then opens a new plan back to where this one started. */
 function BackOut({ controller, plan }: { controller: PlansController; plan: Plan }) {
   const [asking, setAsking] = useState(false);
@@ -294,6 +317,7 @@ function DoMode({ controller, plan }: { controller: PlansController; plan: Plan 
           <DoStep key={s.id} controller={controller} plan={plan} step={s} />
         ))}
       </ol>
+      <AllDevices controller={controller} plan={plan} />
       <BackOut controller={controller} plan={plan} />
     </>
   );

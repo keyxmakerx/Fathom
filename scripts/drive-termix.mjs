@@ -371,6 +371,42 @@ async function runProof(ctx, seed) {
   check('T5d. in the folder Fathom / <design>', sent.every((h) => typeof h.folder === 'string' && h.folder.startsWith('Fathom / ')), JSON.stringify(sent.map((h) => h.folder)));
   check('T5e. nothing Termix already had was added again', after.length === 6, String(after.length));
 
+  // ---- T8. A plan's devices and its step (ADR-0080 decisions 2 and 8) ------------------------
+  await page.locator('.shell-bar__tab', { hasText: /^Canvas$/i }).click();
+  const routerNode = page.locator('.react-flow__node', { hasText: 'router-1' }).first();
+  await routerNode.waitFor({ timeout: 15000 });
+  await routerNode.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Plan a change' }).click();
+  const planPanel = page.locator('[data-testid=plans-panel]');
+  await planPanel.waitFor({ timeout: 10000 });
+  const addForm = page.locator('[data-testid=plans-add-step]');
+  await addForm.getByLabel('Kind', { exact: true }).selectOption('other');
+  const about = addForm.getByLabel('About (optional)', { exact: true });
+  const routerOption = await about.locator('option', { hasText: 'router-1' }).first().getAttribute('value');
+  await about.selectOption(routerOption);
+  await addForm.getByLabel('What changes', { exact: true }).fill('Check the uplink on router-1');
+  await addForm.getByRole('button', { name: 'Add step' }).click();
+  const planDevices = planPanel.getByTestId('plan-devices').first();
+  await planDevices.waitFor({ timeout: 10000 });
+  const pd = await planDevices.innerText();
+  check('T8a. the plan lists its devices, each with its address and Open in Termix', /router-1/.test(pd) && /192\.0\.2\.1/.test(pd) && (await planDevices.getByRole('button', { name: 'Open in Termix' }).count()) === 1, pd.replace(/\s+/g, ' '));
+  check('T8b. the plain way is beside it: Connect with ssh, folded under the Termix button', (await planDevices.getByTestId('connect-lines').count()) === 1 && !(await planDevices.getByTestId('connect-lines').evaluate((d) => d.open)));
+  await planDevices.getByTestId('connect-lines').locator('summary').click();
+  const lines = await planDevices.getByTestId('connect-lines').innerText();
+  check('T8c. Connect with ssh gives the Windows and Linux lines', /From Windows/i.test(lines) && /From Linux/i.test(lines) && lines.includes('ssh <your user>@192.0.2.1'), lines.replace(/\s+/g, ' '));
+  await shot('t8-plan-devices');
+  await planPanel.getByRole('button', { name: 'Start work' }).click();
+  const current = planPanel.locator('[data-testid=plans-step][data-state=current]');
+  await current.waitFor({ timeout: 10000 });
+  const stepOpen = current.getByRole('button', { name: 'Open in Termix' });
+  check('T8d. in Do, the current step shows Open in Termix for its device', (await stepOpen.count()) === 1);
+  const [stepTab] = await Promise.all([ctx.waitForEvent('page', { timeout: 15000 }), stepOpen.click()]);
+  await until(() => stepTab.url().startsWith(TERMIX_ORIGIN), 15000);
+  check('T8e. and it opens router-1’s terminal, with the key pasted earlier', new URL(stepTab.url()).searchParams.get('hostId') === String(router.id), stepTab.url());
+  await stepTab.close();
+  await shot('t8-do-step');
+  await page.getByRole('button', { name: 'Exit', exact: true }).click();
+
   // ---- T6. A revoked key ---------------------------------------------------------------------
   await revokeApiKey(TERMIX, admin, key.id);
   panel = await openDevice(page, 'router-1');

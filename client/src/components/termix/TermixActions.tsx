@@ -3,11 +3,11 @@
 // off here, one line says so instead (decision 6). The person's Termix API key
 // is asked for once and kept in this tab only; it goes to Termix and nowhere else.
 
-import { useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import type { TermixOff } from '../../api/termix';
 import './termix.css';
-import { TermixError, addHost, forgetKey, isHostAddress, isTermixKey, listHosts, matchHost, readKey, sameHostName, saveKey, terminalUrl } from './termix';
+import { KEY_EVENT, TermixError, addHost, forgetKey, isHostAddress, isTermixKey, listHosts, matchHost, readKey, sameHostName, saveKey, terminalUrl } from './termix';
 import type { TermixHost } from './termix';
 import { offWords, useTermix } from './useTermix';
 
@@ -18,6 +18,25 @@ interface Props {
   origin?: string | null;
   /** For tests: a steward turned it off. */
   off?: TermixOff | null;
+  /** In a plan's step or device list (ADR-0080 decision 2): no field label, one line. */
+  inline?: boolean;
+}
+
+/** The device panel's field, or a bare block in a plan. */
+function Frame({ inline, children }: { inline?: boolean; children: ReactNode }) {
+  if (inline) {
+    return (
+      <div className="termix-inline" data-testid="termix-actions">
+        {children}
+      </div>
+    );
+  }
+  return (
+    <div className="drawing-editor__field" data-testid="termix-actions">
+      <div className="drawing-editor__field-label">Termix</div>
+      {children}
+    </div>
+  );
 }
 
 type Step =
@@ -29,29 +48,34 @@ type Step =
   | { at: 'opened'; host: TermixHost }
   | { at: 'error'; message: string };
 
-export function TermixActions({ name, address, origin: given, off: givenOff }: Props) {
+export function TermixActions({ name, address, origin: given, off: givenOff, inline }: Props) {
   const { url: origin, off } = useTermix(given, givenOff);
   const [key, setKey] = useState<string | null>(() => readKey());
   const [typed, setTyped] = useState('');
   const [step, setStep] = useState<Step>({ at: 'idle' });
 
+  // A key pasted or forgotten beside another device is this one's too.
+  useEffect(() => {
+    const follow = () => setKey(readKey());
+    window.addEventListener(KEY_EVENT, follow);
+    return () => window.removeEventListener(KEY_EVENT, follow);
+  }, []);
+
   if (address.trim() === '') return null;
   const why = offWords(off);
   if (why) {
     return (
-      <div className="drawing-editor__field" data-testid="termix-actions">
-        <div className="drawing-editor__field-label">Termix</div>
+      <Frame inline={inline}>
         <p className="termix__hint">{why}</p>
-      </div>
+      </Frame>
     );
   }
   if (!origin) return null;
   if (!isHostAddress(address)) {
     return (
-      <div className="drawing-editor__field" data-testid="termix-actions">
-        <div className="drawing-editor__field-label">Termix</div>
+      <Frame inline={inline}>
         <p className="termix__hint">This management address is not an IP address or host name, so it is not sent to Termix.</p>
-      </div>
+      </Frame>
     );
   }
 
@@ -98,8 +122,7 @@ export function TermixActions({ name, address, origin: given, off: givenOff }: P
   };
 
   return (
-    <div className="drawing-editor__field" data-testid="termix-actions">
-      <div className="drawing-editor__field-label">Termix</div>
+    <Frame inline={inline}>
       {step.at === 'key' || (!key && step.at !== 'idle' && step.at !== 'busy') ? (
         <div className="drawing-editor__field-value">
           <p className="termix__hint">Paste your Termix API key. It stays in this tab and goes only to {new URL(origin).host}.</p>
@@ -179,6 +202,6 @@ export function TermixActions({ name, address, origin: given, off: givenOff }: P
           {step.message}
         </p>
       ) : null}
-    </div>
+    </Frame>
   );
 }
