@@ -530,7 +530,7 @@ behind device) makes a maintenance plan with the vendor's steps for Junos, IOS X
 device fetches its image with a one-time link. The fetch step and the image page also offer **From Windows**
 and **From Linux**: the same job by hand: over SSH (hash on the computer, `scp -O`, or for EOS the switch pulling
 from you), on a USB stick, or by TFTP with a warning, each where the vendor documents it and each step
-with its source (`firmware_by_hand.rs`). Fathom link is the default. On in compose once `FATHOM_FIRMWARE_FETCH_BASE_URL` is set.
+with its source (`firmware_by_hand.rs`). Fathom link is the default. On in compose by default; the download address and limits are set on Admin › Firmware (2026-11-01).
 Upgrades Fathom has no image for (sign-off r55, schema 0.31, field key 542): the device page's Firmware
 section takes the running version typed by hand, a **Numbering** (OPNsense, pfSense, RouterOS, Linux and the
 image platforms) for a device no paste named, and for a device with no model target a version chosen for

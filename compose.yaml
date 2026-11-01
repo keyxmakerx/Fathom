@@ -40,8 +40,8 @@
 #                        server writes nothing" until 2026-09-14, which was
 #                        true when it was written and stopped being true when
 #                        the operator console landed. Since 2026-10-10 there
-#                        is a second, the `firmware` volume, used only when
-#                        firmware is turned on (see the server's environment).
+#                        is a second, the `firmware` volume, for staged
+#                        firmware images (on unless turned off in `.env`).
 #   cap_drop: [ALL]      it binds a port above 1024 and opens a socket. Nothing
 #                        else.
 #   no-new-privileges    a setuid binary in the image could not gain anything;
@@ -387,14 +387,14 @@ services:
       FATHOM_AUDIT_SYSLOG: ${FATHOM_AUDIT_SYSLOG:-}
       FATHOM_AUDIT_SPOOL_MAX_AGE: ${FATHOM_AUDIT_SPOOL_MAX_AGE:-}
       FATHOM_AUDIT_SPOOL_MAX_BYTES: ${FATHOM_AUDIT_SPOOL_MAX_BYTES:-}
-      # Firmware (ADR-0045): on once FATHOM_FIRMWARE_FETCH_BASE_URL is set in
-      # `.env` -- the address your SWITCHES can reach this server on, which the
-      # server cannot work out for itself. The `:+` form sets the directory only
-      # when that is set (docs.docker.com/reference/compose-file/interpolation/,
-      # "Alternative value", read 2026-10-10), so an install without it starts
-      # as before, with firmware off.
+      # Firmware (ADR-0045): on by default (owner, 2026-11-01: set on the server,
+      # not in a file). The address your SWITCHES reach this server on is set on
+      # Admin › Firmware; these `.env` values are optional starting values. The
+      # `-` form (no colon) keeps the default only while the variable is unset, so
+      # `FATHOM_FIRMWARE_DIR=` with nothing after it turns firmware off
+      # (docs.docker.com/reference/compose-file/interpolation/, read 2026-11-01).
       FATHOM_FIRMWARE_FETCH_BASE_URL: ${FATHOM_FIRMWARE_FETCH_BASE_URL:-}
-      FATHOM_FIRMWARE_DIR: ${FATHOM_FIRMWARE_FETCH_BASE_URL:+/var/lib/fathom/firmware}
+      FATHOM_FIRMWARE_DIR: ${FATHOM_FIRMWARE_DIR-/var/lib/fathom/firmware}
       FATHOM_FIRMWARE_MAX_BYTES: ${FATHOM_FIRMWARE_MAX_BYTES:-}
       FATHOM_FIRMWARE_ORGANISATION_MAX_BYTES: ${FATHOM_FIRMWARE_ORGANISATION_MAX_BYTES:-}
       FATHOM_FIRMWARE_TOTAL_MAX_BYTES: ${FATHOM_FIRMWARE_TOTAL_MAX_BYTES:-}

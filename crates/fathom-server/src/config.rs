@@ -637,13 +637,10 @@ impl Config {
             "FATHOM_FIRMWARE_TOTAL_MAX_BYTES",
             crate::firmware::DEFAULT_TOTAL_MAX_BYTES,
         )?;
-        // Staging with nowhere for a device to fetch from looks whole until the first
-        // upgrade. Refused at startup.
-        if firmware_dir.is_some() && firmware_fetch_base_url.is_none() {
-            return Err(ConfigError::Unparseable {
-                variable: "FATHOM_FIRMWARE_FETCH_BASE_URL",
-            });
-        }
+        // A firmware directory with no download address is allowed (owner, 2026-11-01:
+        // firmware is set on the server, not in a file). The admin names the address on
+        // Admin › Firmware; until someone does, a download link is refused with a 409
+        // that says where to set it, and the page says so.
 
         let operator_notice_address = get("FATHOM_OPERATOR_NOTICE_ADDRESS")
             .map(|v| v.trim().to_string())
@@ -920,22 +917,16 @@ mod tests {
     }
 
     #[test]
-    fn staging_firmware_with_nowhere_to_fetch_it_from_is_refused_at_startup() {
-        // Half-configured looks whole until the first upgrade.
-        let err = Config::from_lookup(env(&[
+    fn firmware_needs_only_its_folder_and_the_address_can_come_from_the_admin() {
+        // Owner, 2026-11-01: firmware is set on the server, not in a file. A folder with no
+        // address starts; Admin › Firmware names the address.
+        let c = Config::from_lookup(env(&[
             ("DATABASE_URL", "postgres://u@h/db"),
             ("FATHOM_FIRMWARE_DIR", "/var/lib/fathom/firmware"),
         ]))
-        .unwrap_err();
-        assert!(
-            matches!(
-                err,
-                ConfigError::Unparseable {
-                    variable: "FATHOM_FIRMWARE_FETCH_BASE_URL"
-                }
-            ),
-            "{err:?}"
-        );
+        .unwrap();
+        assert_eq!(c.firmware_dir.as_deref(), Some("/var/lib/fathom/firmware"));
+        assert!(c.firmware_fetch_base_url.is_none());
 
         // The trailing slash is normalised because the URL is rendered into a command.
         let c = Config::from_lookup(env(&[

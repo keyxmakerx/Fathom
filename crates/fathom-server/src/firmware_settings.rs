@@ -56,7 +56,8 @@ pub struct FileValues {
     pub uploads_per_server: usize,
     pub uploads_per_organisation: usize,
     pub upload_idle_seconds: u64,
-    pub fetch_base_url: String,
+    /// `None` when `.env` names none: the admin sets it on Admin › Firmware.
+    pub fetch_base_url: Option<String>,
 }
 
 /// The admin's saved values. `None` in a field means "the settings file's".
@@ -120,7 +121,8 @@ pub struct Limits {
     pub uploads_per_server: usize,
     pub uploads_per_organisation: usize,
     pub upload_idle: Duration,
-    pub fetch_base_url: String,
+    /// `None` until someone names one: no download link can be issued until then.
+    pub fetch_base_url: Option<String>,
 }
 
 /// Work out [`Limits`] from the file, the admin's row, the organisation's ceiling and its own.
@@ -161,7 +163,7 @@ pub fn effective(
             .clone()
             .filter(|_| !locked)
             .or_else(|| server.fetch_base_url.clone())
-            .unwrap_or_else(|| file.fetch_base_url.clone()),
+            .or_else(|| file.fetch_base_url.clone()),
     }
 }
 
@@ -424,10 +426,7 @@ impl FileValues {
             "upload_idle_seconds".into(),
             Json::Int(self.upload_idle_seconds as i64),
         );
-        m.insert(
-            "fetch_base_url".into(),
-            Json::Str(self.fetch_base_url.clone()),
-        );
+        m.insert("fetch_base_url".into(), opt_str(&self.fetch_base_url));
         Json::Obj(m)
     }
 }
@@ -463,10 +462,7 @@ impl Limits {
             "upload_idle_seconds".into(),
             Json::Int(self.upload_idle.as_secs() as i64),
         );
-        m.insert(
-            "fetch_base_url".into(),
-            Json::Str(self.fetch_base_url.clone()),
-        );
+        m.insert("fetch_base_url".into(), opt_str(&self.fetch_base_url));
         Json::Obj(m)
     }
 }
@@ -1055,7 +1051,7 @@ mod tests {
             uploads_per_server: 3,
             uploads_per_organisation: 1,
             upload_idle_seconds: 120,
-            fetch_base_url: "https://fathom.example".into(),
+            fetch_base_url: Some("https://fathom.example".into()),
         }
     }
 
@@ -1080,7 +1076,7 @@ mod tests {
         assert_eq!(l.organisation_max_bytes, 20 << 30);
         assert_eq!(l.uploads_per_server, 3);
         assert_eq!(l.upload_idle, Duration::from_secs(120));
-        assert_eq!(l.fetch_base_url, "https://fathom.example");
+        assert_eq!(l.fetch_base_url.as_deref(), Some("https://fathom.example"));
     }
 
     #[test]
@@ -1094,7 +1090,7 @@ mod tests {
         let l = effective(&file(), &saved, None, &OrgOwn::default());
         assert_eq!(l.organisation_ceiling, 5 << 30);
         assert_eq!(l.uploads_per_server, 6);
-        assert_eq!(l.fetch_base_url, "http://10.0.0.5:8080");
+        assert_eq!(l.fetch_base_url.as_deref(), Some("http://10.0.0.5:8080"));
         assert_eq!(
             l.total_max_bytes,
             50 << 30,
@@ -1146,14 +1142,38 @@ mod tests {
             ..OrgOwn::default()
         };
         assert_eq!(
-            effective(&file(), &Saved::default(), None, &own).fetch_base_url,
-            "http://192.0.2.10:8080"
+            effective(&file(), &Saved::default(), None, &own)
+                .fetch_base_url
+                .as_deref(),
+            Some("http://192.0.2.10:8080")
         );
         let locked = ceiling(None, true);
         assert_eq!(
-            effective(&file(), &Saved::default(), Some(&locked), &own).fetch_base_url,
-            "https://fathom.example",
+            effective(&file(), &Saved::default(), Some(&locked), &own)
+                .fetch_base_url
+                .as_deref(),
+            Some("https://fathom.example"),
             "locked: the server's address"
+        );
+        let nowhere = FileValues {
+            fetch_base_url: None,
+            ..file()
+        };
+        assert_eq!(
+            effective(&nowhere, &Saved::default(), None, &OrgOwn::default()).fetch_base_url,
+            None,
+            "no address anywhere: none, and no link can be issued"
+        );
+        let saved = Saved {
+            fetch_base_url: Some("http://10.0.0.5:8080".into()),
+            ..Saved::default()
+        };
+        assert_eq!(
+            effective(&nowhere, &saved, None, &OrgOwn::default())
+                .fetch_base_url
+                .as_deref(),
+            Some("http://10.0.0.5:8080"),
+            "the admin's address alone is enough"
         );
     }
 

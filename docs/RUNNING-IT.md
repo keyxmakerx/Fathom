@@ -236,22 +236,25 @@ removing it changes nothing: `docker compose up -d --remove-orphans`, or in Port
 **Prune services** when you update the stack, or delete the stopped container by hand. The keys
 volume and every key in it stay as they are.
 
-**Firmware is off until you name an address.** Set `FATHOM_FIRMWARE_FETCH_BASE_URL` in `.env` to the
-address your switches can reach this server on (often not the one your browser uses), then
-`docker compose up -d`. Images upload in the browser; each device fetches its own over a one-time link.
-`FATHOM_FIRMWARE_MAX_BYTES` caps an image (default 2 GiB). `FATHOM_FIRMWARE_ORGANISATION_MAX_BYTES`
-caps what one organisation's images add up to (default 20 GiB), and `FATHOM_FIRMWARE_TOTAL_MAX_BYTES`
-what every image on the server adds up to (default 50 GiB). **Set the total below what the
-`firmware` volume can hold**: Fathom does not read the disk's free space, so this number is what
-keeps firmware from filling a disk the database shares. One upload runs at a time per organisation
-and three per server; an upload that sends nothing for two minutes is dropped. Device downloads are
-not limited.
+**Firmware is set up in Fathom, not in `.env`.** It is on from the first start. Sign in as the
+admin, open Admin › Firmware (`#admin/firmware`), type the address your switches can reach this
+server on (often not the one your browser uses) in "Address devices download from", and save. Until
+an address is set, images upload but no device can be given a link, and both firmware pages say so.
+On the same page you change the largest image (default 2 GiB), each organisation's total (20 GiB),
+the server's total (50 GiB), how many uploads run at once (one per organisation, three per server)
+and how long a stalled upload waits (two minutes), all without a restart. **Set the total below what
+the `firmware` volume can hold**: Fathom does not read the disk's free space, so this number is
+what keeps firmware from filling a disk the database shares. Device downloads are not limited.
 
-**These are starting values.** Once firmware is on, Admin › Firmware (`#admin/firmware`) changes any
-of them without a restart, and a value saved there wins over `.env` until you reset it. The admin
-also sets each organisation's ceiling and can lock it with a reason; an organisation's Stewards set
-their own total under that ceiling, and their own download address, on Steward › Firmware
-(`#steward/firmware`). Every change is sealed with who made it and the values before and after.
+The admin also sets each organisation's ceiling and can lock it with a reason; an organisation's
+Stewards set their own total under that ceiling, and their own download address, on Steward ›
+Firmware (`#steward/firmware`). Every change is sealed with who made it and the values before and
+after.
+
+`.env` is optional here. `FATHOM_FIRMWARE_FETCH_BASE_URL`, `FATHOM_FIRMWARE_MAX_BYTES`,
+`FATHOM_FIRMWARE_ORGANISATION_MAX_BYTES` and `FATHOM_FIRMWARE_TOTAL_MAX_BYTES` give starting values,
+and a value saved on Admin › Firmware wins over them. `FATHOM_FIRMWARE_DIR=` with nothing after it
+turns firmware off.
 
 **Your reverse proxy does HTTPS.** The browser generates your sign-in key with WebCrypto, which
 browsers allow only on HTTPS or `localhost`, so a plain-HTTP address on the network cannot sign in. The

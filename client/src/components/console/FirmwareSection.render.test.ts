@@ -142,6 +142,34 @@ describe('the firmware settings pages', () => {
     expect(html).toContain('Reset to the file');
   });
 
+  it('says when no download address is set anywhere, on both pages', () => {
+    const nowhere = { ...file, fetch_base_url: null };
+    const html = renderToStaticMarkup(
+      createElement(FirmwareSectionView, {
+        settings: parseAdminSettings(bytes({ ...admin, file: nowhere, server: { ...admin.server, saved: none }, limits: { ...admin.limits, fetch_base_url: null } })),
+        organisations: [],
+        busy: false,
+        error: null,
+        notice: null,
+        onSaveServer: noop,
+        onSaveOrganisation: noop,
+      }),
+    );
+    expect(html).toContain('admin-firmware-no-address');
+    expect(html).toContain('not set');
+    const steward2 = renderToStaticMarkup(
+      createElement(FirmwareSettingsView, {
+        settings: parseStewardSettings(bytes({ ...steward, file: nowhere, limits: { ...steward.limits, fetch_base_url: null } })),
+        busy: false,
+        error: null,
+        notice: null,
+        onSave: noop,
+      }),
+    );
+    expect(steward2).toContain('steward-firmware-no-address');
+    expect(steward2).toContain('Not set yet');
+  });
+
   it('says firmware is off when it is', () => {
     const html = renderToStaticMarkup(
       createElement(FirmwareSectionView, {
@@ -154,7 +182,7 @@ describe('the firmware settings pages', () => {
         onSaveOrganisation: noop,
       }),
     );
-    expect(html).toContain('FATHOM_FIRMWARE_FETCH_BASE_URL');
+    expect(html).toContain('FATHOM_FIRMWARE_DIR is empty');
     expect(html).not.toContain('Save');
   });
 

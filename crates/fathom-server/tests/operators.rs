@@ -8718,7 +8718,7 @@ async fn an_admin_sets_firmware_limits_and_locks_an_organisation() {
         uploads_per_server: 3,
         uploads_per_organisation: 1,
         upload_idle_seconds: 120,
-        fetch_base_url: "https://fathom.test.invalid".into(),
+        fetch_base_url: Some("https://fathom.test.invalid".into()),
     };
     operators_store.set_firmware_file(file.clone());
     let version = |page: &Json| match json_field(json_field(page, "server"), "version") {
@@ -8900,7 +8900,10 @@ async fn an_admin_sets_firmware_limits_and_locks_an_organisation() {
     .await
     .expect("under the ceiling");
     assert_eq!(under.organisation_max_bytes, 1 << 30);
-    assert_eq!(under.fetch_base_url, "http://192.0.2.10:8080");
+    assert_eq!(
+        under.fetch_base_url.as_deref(),
+        Some("http://192.0.2.10:8080")
+    );
     tx.commit().await.expect("commit");
 
     // A ceiling row edited in PostgreSQL directly no longer verifies, and is refused.

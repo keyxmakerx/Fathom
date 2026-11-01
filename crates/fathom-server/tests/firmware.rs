@@ -383,7 +383,7 @@ async fn app_with(
             FirmwareStore::open(
                 directory,
                 64 * 1024 * 1024,
-                "https://fathom.test.invalid".to_string(),
+                Some("https://fathom.test.invalid".to_string()),
                 ClientAddress::header(TEST_SOURCE_HEADER),
             )
             .expect("this test's staging directory is usable"),
@@ -2339,7 +2339,7 @@ fn a_missing_or_unwritable_staging_directory_is_refused_at_startup() {
     let err = match FirmwareStore::open(
         missing.clone(),
         1024,
-        "https://example.invalid".to_string(),
+        Some("https://example.invalid".to_string()),
         ClientAddress::peer(),
     ) {
         Ok(_) => panic!("a directory that does not exist cannot be staged into"),
@@ -2352,7 +2352,7 @@ fn a_missing_or_unwritable_staging_directory_is_refused_at_startup() {
     let err = match FirmwareStore::open(
         file.clone(),
         1024,
-        "https://example.invalid".to_string(),
+        Some("https://example.invalid".to_string()),
         ClientAddress::peer(),
     ) {
         Ok(_) => panic!("a file is not a directory"),
@@ -2366,7 +2366,7 @@ fn a_missing_or_unwritable_staging_directory_is_refused_at_startup() {
         FirmwareStore::open(
             good.clone(),
             1024,
-            "https://example.invalid".to_string(),
+            Some("https://example.invalid".to_string()),
             ClientAddress::peer(),
         )
         .is_ok(),
@@ -2703,7 +2703,7 @@ fn a_store_over(directory: &std::path::Path) -> FirmwareStore {
     FirmwareStore::open(
         directory.to_path_buf(),
         64 * 1024 * 1024,
-        "https://fathom.test.invalid".to_string(),
+        Some("https://fathom.test.invalid".to_string()),
         ClientAddress::header(TEST_SOURCE_HEADER),
     )
     .expect("this test's staging directory is usable")
@@ -3195,4 +3195,69 @@ async fn a_steward_sets_their_organisations_total_and_download_address() {
     )
     .await;
     assert_eq!(status, "403");
+}
+
+/// Owner, 2026-11-01: firmware is set on the server, not in `.env`. With no download address
+/// anywhere, firmware still works up to the link, which is refused saying where to set one;
+/// once a Steward (or the admin) names one, the link uses it.
+#[tokio::test]
+async fn with_no_address_in_the_file_a_link_waits_for_one_set_on_the_page() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(
+        app_with(&pool, Arc::clone(&ring), directory.clone(), |s| {
+            s.with_fetch_base_url(None)
+        })
+        .await,
+    )
+    .await;
+    let path = format!("/organisations/{}/firmware/settings", estate.organisation);
+
+    let (status, body) = call(addr, &estate.steward, "GET", &path, b"").await;
+    let text = String::from_utf8_lossy(&body).into_owned();
+    assert_eq!(status, "200", "{text}");
+    assert!(text.contains("\"fetch_base_url\":null"), "{text}");
+
+    let image = stage(
+        addr,
+        &estate.steward,
+        estate.organisation,
+        scope,
+        "junos-install-ex-x86-64-21.4R3-S5.5.tgz",
+        &an_image(200_000),
+    )
+    .await;
+    let (status, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &format!(
+            "/organisations/{}/firmware/{image}/fetch-urls",
+            estate.organisation
+        ),
+        b"",
+    )
+    .await;
+    let text = String::from_utf8_lossy(&body).into_owned();
+    assert_eq!(status, "409", "{text}");
+    assert!(text.contains("Admin › Firmware"), "{text}");
+
+    let (status, answer) = call(
+        addr,
+        &estate.steward,
+        "PUT",
+        &path,
+        b"{\"fetch_base_url\":\"http://10.0.0.5:8080\",\"max_bytes\":null}\n",
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&answer));
+    let link = issue_fetch_url(addr, &estate.steward, estate.organisation, &image).await;
+    assert!(
+        link.contains("http://10.0.0.5:8080/firmware/fetch/"),
+        "{link}"
+    );
 }
