@@ -1,12 +1,18 @@
 # ADR-0080: Termix in the work — plans, logins by reference, snippets and checks
 
-**Status:** proposed 2026-11-01. The choices are on sign-off card r72-termix-work with a
-recommended pick ticked on each. Nothing here is built. Where the owner picks differently, this
-record follows the card.
+**Status:** accepted 2026-11-01. The owner approved sign-off card r72-termix-work with the
+recommended pick on all four questions (1 to 4, A), the three recommended "Also build" ticks, and
+two more: the serial console and the "In Termix" column. Their note (decisions 8 to 11):
+
+> I don't mind as much though if fathom is reading stuff, I just didn't want it to read and then
+> make actions based on that. Also check what termix can do because it can do serial as well. Make
+> sure all of this is optional and alternative ways or walkthroughs are present
+
+Nothing here is built.
 
 **Builds on:** ADR-0078 (Termix beside Fathom, accepted and built), ADR-0071 part four (outside
 vaults), the maintenance plans of `docs/STATE.md` (#98: Plan, Do, Record).
-**Keeps:** invariant 2 under every recommended pick, rule 4 and ADR-0042, and ADR-0078's shape: the
+**Keeps:** invariant 2 except for decision 9's read-only fetch, which the owner allowed; rule 4 and ADR-0042; and ADR-0078's shape: the
 browser talks to Termix with the person's own key, and Fathom's server never calls Termix.
 
 ## What the owner asked for
@@ -47,7 +53,7 @@ them off, so every feature below that is a plugin's must work when the plugin is
 Read from code, not tried. A plugin route reached with an API key from another origin is the part
 most likely to surprise; the first piece of work (decision 1) settles it.
 
-## Proposed (the recommended picks on r72-termix-work)
+## Decided (the owner's answers on r72-termix-work)
 
 1. **Prove part one against a real Termix first** ("Also build", ticked). A CI job starts Termix
    26.10.6 from its published image beside Fathom, makes a user and an API key, and a drive script
@@ -94,6 +100,60 @@ most likely to surprise; the first piece of work (decision 1) settles it.
    status from `GET /host/status`, read when Do opens and when the person presses Refresh, never on
    a timer. It is Termix's opinion, labelled as Termix's.
 
+8. **Every part is optional, and each has a way without Termix** (owner's note). Termix itself is
+   already optional (ADR-0078 decision 6). Inside it, each piece below works alone and says plainly
+   when it is off: a missing Termix add-on (Secret Sources, Snippets, Automations, Serial) hides
+   only its own button and shows one line naming the add-on. And every step has its plain way,
+   always shown, so nobody needs Termix to finish a plan:
+
+   | With Termix | Without it, always there |
+   |---|---|
+   | Open in Termix | The management address and port with Copy, and "Connect with" lines for `ssh` from Windows (PowerShell) and Linux, in the style of the firmware By hand steps |
+   | Login by reference | The vault login, shown and copied as today |
+   | Send steps to Termix | Copy for each command block |
+   | Up or down from Termix | Nothing (Fathom does not ping) |
+   | Maintenance window in Termix | A line in the plan reminding the person to pause their own alerting |
+   | Serial in Termix | The console port's details and "Connect with" lines for PuTTY (Windows) and `screen` or `picocom` (Linux) |
+
+   Walkthroughs: OPERATING.md gets a Termix section per add-on (what it is for, how to turn it on,
+   what Fathom does without it), and Learn gets one lesson, "Doing a plan with Termix", built on the
+   practice lab's existing plan, that also shows the plain way for each step. Sources for each
+   command are cited when written, not from memory.
+
+9. **Reading is allowed; acting on what was read is not** (owner's note). This narrows the reading
+   of invariant 2 for Termix only, and says how far:
+   - A check step may offer **Fetch from Termix** beside its paste box (question 4 stays A; this is
+     an extra, off unless a Steward turns it on for the organisation). It runs the step's own
+     command through Termix's Snippets `/execute`, as the person's Termix user, only when the
+     person presses it, and only for a command on a fixed read-only list per platform (`show ...`,
+     `display ...`, `get ...` and similar, each list written from the vendor's docs). Anything else
+     is refused in the browser before it is sent.
+   - The answer goes through the redaction gate in the browser exactly like a paste (rule 4), and
+     is then treated as a paste: Fathom compares and says Matches, Differs or Can't tell.
+   - **Fathom never acts on it.** It does not mark the step done, change the design, open or close
+     an issue, or send anything further to Termix because of what it read. The person decides.
+   - Changing commands (question 3) stay with the person, as snippets they run. Fathom does not
+     call `/execute` for them.
+   The read-only list and the lockout of anything else are the security-relevant parts; they get
+   their own tests, against real command spellings from each platform.
+
+10. **Serial console through Termix** ("Also build", ticked by the owner). What Termix offers, read
+    from `Termix-SSH/Plugin-Serial` at `1260614` (1.0.2), 1 November 2026: a Serial tab opened
+    from Termix's rail, not tied to a host. The person picks the port and sets baud rate, data
+    bits, stop bits and parity. Termix's desktop app talks to the port directly; a browser uses
+    Web Serial (Chrome, Edge, Firefox 151 and newer). So Fathom cannot hand Termix "this device's
+    console" the way it hands a host. What Fathom does: a device's console port shows **Open
+    serial in Termix** (Termix's own link to its Serial view, `?view=serial`, to be proved by
+    decision 1's CI job before it is relied on), with the settings to pick beside it. Fathom has no
+    field for a console's speed today; one is added to the schema properly (CLAUDE.md rule 3),
+    defaulting to blank, with the vendor's documented default offered per platform where a source
+    exists. Without Termix: the plain lines in decision 8.
+
+11. **An "In Termix" column in Inventory › Devices** ("Also build", ticked by the owner). Filled
+    in the browser from the same host list Send to Termix reads, once per visit and on Refresh:
+    In Termix, Not in Termix, or blank when Termix is off or the key is not pasted. It is Termix's
+    view, read, never stored in the design.
+
 ## The other options, and why not now
 
 - **Question 1, B, Termix framed beside the plan.** Needs `frame-src` opened to the Termix origin
@@ -114,14 +174,18 @@ most likely to surprise; the first piece of work (decision 1) settles it.
   (`.context/conventions.md` notes the owner's long-term intent and that only the owner closes that
   gap). The output would also be a config-shaped answer arriving without a paste, so it must pass
   the redaction gate in the browser before anything is kept, the same as a paste.
-- **Question 4, C, Fathom fetches the check's output.** Only with 3 C, for the same reasons.
+- **Question 4, C, Fathom fetches the check's output.** Not picked as the default; the owner's note
+  allows reading, so it is offered as decision 9's optional, read-only Fetch from Termix instead.
 
-## Why invariant 2 still holds (recommended picks)
+## How this stands with invariant 2
 
 Fathom opens no connection to a device. The browser tells Termix things (a host, a reference, a
 snippet, a maintenance window) and asks it things (which host, up or down). Termix connects, in a
 tab the person opened, as the Termix user the key belongs to, when the person presses its buttons.
-Output reaches Fathom only by the person's paste.
+Output reaches Fathom by the person's paste, or by decision 9's Fetch from Termix, which runs only
+a read-only command the person pressed for and never leads Fathom to act. That is a narrower reading
+of invariant 2's "no API" than before, made by the owner for Termix only; `.context/conventions.md`
+already records that the owner closes such gaps.
 
 ## What this does not protect against
 
@@ -135,7 +199,5 @@ Output reaches Fathom only by the person's paste.
 ## Not decided here
 
 - A link from a step's Record to a Termix session recording ("Also build", left unticked).
-- Opening a console port's serial console through Termix's Serial plugin (unticked).
-- An "In Termix" column in Inventory (unticked again, as on r43-termix).
 - Termix's own Network Topology plugin draws hosts and links; importing Fathom's graph into it is
   not proposed.
