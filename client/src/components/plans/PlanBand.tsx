@@ -121,6 +121,12 @@ export function PlanBand({ controller }: { controller: PlansController }) {
               New plan
             </button>
           )}
+          {/* With no plan open there is no Exit in the bar, so the band says how to put it away. */}
+          {!plan && (
+            <button type="button" className="plans-btn" onClick={() => controller.setBandOpen(false)} data-testid="plans-band-close">
+              Close
+            </button>
+          )}
           {plan && (
             <>
               <button type="button" className="plans-btn" aria-pressed={controller.listMode} onClick={() => controller.setListMode(!controller.listMode)} data-testid="plans-list-toggle" id={LIST_TOGGLE_ID}>

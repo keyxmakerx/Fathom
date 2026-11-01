@@ -188,6 +188,8 @@ export function Bar({
   const pathFolded = fold >= 3;
   const lensesFolded = fold >= 4;
   const editsFolded = fold >= 5;
+  const canvasFolded = toolsOnCanvas && actionsFolded;
+  const canvasDoing = doing != null && doing.length > 0 && task == null;
 
   async function handleSignOut() {
     await signOut();
@@ -399,7 +401,7 @@ export function Bar({
             open design. */}
         {viewOnly === true && (
           <>
-            <span className="shell-chip" aria-label="view only">
+            <span className="shell-chip shell-bar__view-only" aria-label="view only">
               View only
             </span>
             <Sep />
@@ -415,8 +417,37 @@ export function Bar({
 
         {/* Undo and Redo act on an open design; zoom acts on the drawing,
             so it is Racks only (Inventory is lists). */}
-        {doing != null && doing.length > 0 && task == null && <DoingMenu items={doing} />}
-        {toolsOnCanvas && onShare && (
+        {/* On the drawing nothing else in this group folds, so a narrow bar (a phone) folds Doing, Share and
+            Admin into menus (Admin into the account menu) rather than clipping them off the right-hand edge. */}
+        {canvasFolded && (canvasDoing || onShare) && (
+          <Popover
+            align="right"
+            renderTrigger={({ open, triggerProps, triggerRef }) => (
+              <button
+                type="button"
+                className={open ? 'shell-chip shell-chip--ink shell-chip--on' : 'shell-chip shell-chip--ink'}
+                data-testid="shell-more"
+                ref={(el) => {
+                  triggerRef.current = el;
+                }}
+                {...triggerProps}
+              >
+                More ▾
+              </button>
+            )}
+          >
+            {canvasDoing &&
+              doing.map((item) => (
+                <PopoverRow key={item.id} onSelect={item.onSelect ?? (() => {})} disabled={item.onSelect == null} testId={`doing-${item.id}`}>
+                  {item.label}
+                  {item.hint != null && <span className="shell-doing__hint">{item.hint}</span>}
+                </PopoverRow>
+              ))}
+            {onShare && <PopoverRow onSelect={onShare} testId="shell-share">Share</PopoverRow>}
+          </Popover>
+        )}
+        {!canvasFolded && canvasDoing && <DoingMenu items={doing} />}
+        {!canvasFolded && toolsOnCanvas && onShare && (
           <button type="button" className="shell-chip shell-chip--ink" onClick={onShare} data-testid="shell-share">
             Share
           </button>
@@ -535,7 +566,7 @@ export function Bar({
             <Sep />
           </>
         )}
-        {adminPill &&
+        {adminPill && !actionsFolded &&
           (adminPill.onSelect && !adminPill.current ? (
             <button type="button" className="shell-admin-pill" data-testid="shell-admin-pill" onClick={adminPill.onSelect}>
               Admin
@@ -567,6 +598,12 @@ export function Bar({
             </button>
           )}
         >
+          {/* A narrow bar folds the Admin pill in here, at the top, so it can still be reached. */}
+          {adminPill && actionsFolded && (
+            <PopoverRow onSelect={adminPill.onSelect ?? (() => {})} current={adminPill.current ?? false} testId="shell-admin-pill">
+              Admin
+            </PopoverRow>
+          )}
           <VaultMenuRows />
           {menu}
           <ThemeMenu />

@@ -184,6 +184,53 @@ try {
     await ctx.close();
   }
 
+  // ---- The owner, 2026-11-01: after a plan, the tabs had gone and the bar ran off the right ----
+  // A long plan name widened the page; the phone then zoomed out and stretched its layout viewport, so
+  // the fixed tabs sat below the bottom of the screen. The bar's Doing, Share and Admin were clipped.
+  {
+    const ctx = await browser.newContext({ ...PHONE, viewport: { width: 1280, height: 844 } });
+    const p4 = await ctx.newPage();
+    p4.on('pageerror', (e) => pageErrors.push(e.message));
+    const click = (sel, text) => p4.evaluate(([q, t]) => { const el = [...document.querySelectorAll(q)].find((e) => !t || new RegExp(t, 'i').test(e.textContent)); el?.click(); return el != null; }, [sel, text]);
+    await p4.goto(`${BASE}/drive.html?scene=canvas&capability=steward`);
+    await p4.waitForSelector('.drawing', { timeout: 240_000 });
+    await click('[data-testid=shell-doing]');
+    await click('[data-testid=doing-plan]');
+    await click('.plans-btn', 'New plan');
+    await p4.locator('.plans-new input').first().fill('Swap the core switch in rack A-04 for the new Juniper EX4400 before Friday');
+    await p4.locator('.plans-new input').first().press('Enter');
+    await p4.waitForSelector('[data-testid=shell-task]', { timeout: 10_000 });
+    await p4.setViewportSize({ width: 390, height: 844 });
+    await p4.waitForSelector('.phone-tabs', { timeout: 10_000 });
+    await p4.waitForTimeout(500);
+    const fits = () => p4.evaluate(() => {
+      const bar = document.querySelector('.shell-bar');
+      const tabs = document.querySelector('.phone-tabs').getBoundingClientRect();
+      return { page: document.documentElement.scrollWidth, bar: bar.scrollWidth, tabsBottom: Math.round(tabs.bottom), scale: window.visualViewport.scale };
+    });
+    // Against the phone's own size: a page that widens also stretches innerWidth and innerHeight with it.
+    const PHONE_SIZE = { width: 390, height: 844 };
+    let f = { ...(await fits()), ...PHONE_SIZE };
+    check('plan open on a phone: nothing scrolls sideways', f.page <= f.width + 1, JSON.stringify(f));
+    check('plan open on a phone: the bar fits, with Exit in reach', f.bar <= f.width + 1 && (await p4.locator('[data-testid=shell-task-exit]').isVisible()), JSON.stringify(f));
+    check('plan open on a phone: the tabs are on the screen', f.tabsBottom <= f.height + 1, JSON.stringify(f));
+    await p4.screenshot({ path: SHOTS + 'phone-07-plan-open.png' });
+    await p4.locator('[data-testid=shell-task-exit]').click();
+    await p4.waitForTimeout(500);
+    f = { ...(await fits()), ...PHONE_SIZE };
+    check('after the plan: the tabs are still on the screen', f.tabsBottom <= f.height + 1 && f.page <= f.width + 1, JSON.stringify(f));
+    check('after the plan: the bar fits', f.bar <= f.width + 1, JSON.stringify(f));
+    await p4.locator('[data-testid=shell-more]').click();
+    const rows = (await p4.locator('.shell-popover__row').allInnerTexts()).join('|');
+    check('after the plan: Doing and Share are in More', /Plan a change/.test(rows) && /Share/.test(rows), rows);
+    await p4.locator('[data-testid=doing-plan]').click();
+    await p4.waitForSelector('[data-testid=plans-band-close]', { timeout: 5_000 });
+    await p4.locator('[data-testid=plans-band-close]').click();
+    check('the plans band with no plan open has a Close that puts it away', (await p4.locator('[data-testid=plans-band]').count()) === 0);
+    await p4.screenshot({ path: SHOTS + 'phone-08-after-plan.png' });
+    await ctx.close();
+  }
+
   // ---- A computer is unchanged ----
   {
     const desk = await browser.newContext({ viewport: { width: 1440, height: 900 } });
