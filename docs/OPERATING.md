@@ -358,8 +358,10 @@ with a management address gets "Open in Termix", and that one origin is added to
   browsers must reach Termix; the server need not.
 - If Termix's operator set `CORS_ALLOWED_ORIGINS`, Fathom's own address must be in that list, or
   browsers are refused. Unset, Termix allows any origin.
-- Fathom adds hosts to Termix with no user name and no password, tagged `fathom`: one device in the
+- Fathom adds hosts to Termix with no user name and no password (`authType` none: Termix asks at
+  connect time unless the person picks one of Termix's credentials on the host), tagged `fathom`: one device in the
   folder `Fathom`, or many from Inventory › Devices (Send to Termix) in `Fathom / <design>`. Credentials are Termix's to keep.
+- Tested against Termix 26.10.6 in CI. Termix before 26.10.2 also works; it did not ask for `authType`.
 - **Who may use it.** Each person uses their own Termix key, so each sees what their Termix user
   can. Leaving `FATHOM_TERMIX_URL` unset turns it off for the whole deployment. Inside an
   organisation a steward turns it off for everyone (Organisation › People, the Termix box) or for one

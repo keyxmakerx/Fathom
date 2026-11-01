@@ -679,7 +679,9 @@ terminal in a new tab, or adds the host first with no credentials. Inventory ›
 devices at once ("Send N to Termix"), skipping hosts Termix already has. The server only names the origin
 and adds it to `connect-src`; it never calls Termix. A steward turns it off for everyone in the organisation or
 for one person (migration 0056, Organisation › People); the address is then not given out and the buttons are
-gone. Not tried against a running Termix.
+gone. Proved against a real Termix 26.10.6 in CI (the `termix` job, `scripts/drive-termix.mjs`, ADR-0080
+decision 1); that run found Termix refuses a new host without `authType` since 26.10.2, so Fathom now sends
+`authType: none`.
 
 **AI access** (ADR-0072; migration 0046; `src/ai.rs`, `src/oauth.rs`, `src/mcp.rs`, `components/ai/`). A
 person a Steward names lets an AI app read designs they can read, in one organisation, at the tiers the
