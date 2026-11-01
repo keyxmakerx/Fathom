@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.32"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.33"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -373,6 +373,15 @@ schema:
                     # peer is a link to another site. Two field keys (543-544). 62 §16.2: new
                     # optional fields are minor. Whole change = MINOR. The reader still opens
                     # 0.10 to 0.31.
+                    #
+                    # 0.33 is the plan-to-maintenance flow (sign-off r73-plan-flow, 2026-11-01),
+                    # all additive: two optional MaintenancePlan fields, checks (typed checks
+                    # after the work, each with its answer) and release_notes (pasted, gated in
+                    # the browser); four optional PlanStep fields, if_when, branch_of and
+                    # if_taken (one If path under a step) and issue (the It's down issue
+                    # Troubleshoot opened from it); one optional Issue field, step, its other
+                    # end. Seven field keys (545-551). 62 §16.2: optional fields are minor.
+                    # Whole change = MINOR. The reader still opens 0.10 to 0.32.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -2126,6 +2135,8 @@ kinds:
       - { name: stage, type: "enum { planned, doing, recorded }", card: "1", emit: "—", doc: Where the plan is. }
       - { name: outcome, type: "enum { succeeded, partial, failed }", card: "0..1", emit: "—", doc: How it went; set when recorded. }
       - { name: record, type: Text, card: "0..1", emit: "—", doc: "What went wrong, or anything worth keeping; set when recorded." }
+      - { name: checks, type: Text, card: "0..1", emit: "—", doc: "0.33 — checks after the work, typed by a person or drafted by an AI, one per line, tab-separated: the answer (`open`, `ok`, `not_ok` or `cant_tell`), the check, then what was seen (may be empty). Record waits until none is `open`." }
+      - { name: release_notes, type: Text, card: "0..1", emit: "—", doc: "0.33 — release notes or a changelog pasted onto the plan. Pasted text, so it passed the redaction gate in the browser before it was stored." }
     identity: []
 
   - kind: PlanStep
@@ -2146,6 +2157,10 @@ kinds:
       - { name: state, type: "enum { planned, done, went_differently }", card: "1", emit: "—", doc: Where the step is. }
       - { name: note, type: Text, card: "0..1", emit: "—", doc: What happened instead; required for went_differently. }
       - { name: done_at, type: Text, card: "0..1", emit: "—", doc: "When it was marked, as an ISO time." }
+      - { name: if_when, type: Text, card: "0..1", emit: "—", doc: "0.33 — on a main-line step that has an If path: what would send the work down it, in a sentence." }
+      - { name: branch_of, type: Text, card: "0..1", emit: "—", doc: "0.33 — design id of the main-line step whose If path this step is on; `ordinal` then counts within that path. Absent for a step on the main line. One level only: a step on an If path has no If path of its own." }
+      - { name: if_taken, type: bool, card: "0..1", emit: "—", doc: "0.33 — set on the step that carries an If path when the work went down it. Absent means the If path was not taken, and its steps are not to do." }
+      - { name: issue, type: Text, card: "0..1", emit: "—", doc: "0.33 — design id of the It's down issue Troubleshoot opened from this step." }
     identity: []
 
   # Custom-field values (0.16, 2026-10-02). Appended at the tail because order is wire identity
@@ -2182,6 +2197,7 @@ kinds:
       - { name: stage, type: "enum { open, closed }", card: "1", emit: "—", doc: Where the issue is. }
       - { name: outcome, type: Text, card: "0..1", emit: "—", doc: "Where the answers point, frozen when saved, and anything typed." }
       - { name: plan, type: Text, card: "0..1", emit: "—", doc: Design id of a maintenance plan made from it. }
+      - { name: step, type: Text, card: "0..1", emit: "—", doc: "0.33 — design id of the plan step it was opened from (Troubleshoot on a step that went differently)." }
     identity: []
 
   - kind: IssueStep

@@ -50,7 +50,7 @@ export const OUTCOME_WORD = { succeeded: 'Succeeded', partial: 'Partial', failed
 export function stepWord(plan: Pick<Plan, 'stage'>, step: PlanStep, current: PlanStep | null): string {
   if (step.state === 'done') return '✓ DONE';
   if (step.state === 'went_differently') return '≠ WENT DIFFERENTLY';
-  return plan.stage === 'doing' && current?.id === step.id ? `STEP ${step.ordinal + 1}` : 'PLANNED';
+  return plan.stage === 'doing' && current?.id === step.id ? `STEP ${step.label}` : 'PLANNED';
 }
 
 /** The state column and checklist glyph for a step. */
@@ -129,7 +129,7 @@ export function progress(plan: Plan): { total: number; done: number; differently
   const done = plan.steps.filter((s) => s.state === 'done').length;
   const differently = plan.steps.filter((s) => s.state === 'went_differently').length;
   const cur = currentStep(plan);
-  return { total: plan.steps.length, done, differently, at: cur ? cur.ordinal + 1 : plan.steps.length };
+  return { total: plan.steps.length, done, differently, at: cur ? plan.steps.indexOf(cur) + 1 : plan.steps.length };
 }
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;

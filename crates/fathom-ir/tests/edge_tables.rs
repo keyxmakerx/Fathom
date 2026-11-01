@@ -134,9 +134,10 @@ fn slot_type_covers_every_registry_key() {
     // 458 -> 476: stock (524-541, schema 0.30).
     // 476 -> 477: `Device.firmware_target` (542, schema 0.31).
     // 477 -> 479: links between sites (543-544, schema 0.32).
+    // 479 -> 486: the plan-to-maintenance flow (545-551, schema 0.33).
     assert_eq!(
         FIELD_KEYS.len(),
-        479,
+        486,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

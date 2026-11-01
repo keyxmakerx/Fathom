@@ -70,6 +70,8 @@ export interface Issue {
   stage: IssueStage;
   outcome: string;
   planId: string;
+  /** The plan step it was opened from (Troubleshoot, 0.33); '' when none. */
+  stepId: string;
   steps: IssueStep[];
 }
 
@@ -117,6 +119,7 @@ export function readIssue(doc: Document, id: string): Issue {
     stage: (str(n, 'Issue.stage') || 'open') as IssueStage,
     outcome: str(n, 'Issue.outcome'),
     planId: str(n, 'Issue.plan'),
+    stepId: str(n, 'Issue.step'),
     steps: issueSteps(doc, id),
   };
 }
@@ -171,6 +174,8 @@ export interface CreateIssueOptions extends Actor {
   author?: string;
   /** The "where the answers point" sentence, frozen now. */
   outcome?: string;
+  /** The plan step Troubleshoot opened it from (0.33). */
+  step?: string;
   gate: TextGate;
 }
 
@@ -194,6 +199,11 @@ export function createIssue(doc: Document, opts: CreateIssueOptions): { doc: Doc
   if (opts.author) fields['Issue.author'] = text(gated(opts.gate, opts.author, 'the author'));
   const outcome = gated(opts.gate, opts.outcome, 'the outcome').trim();
   if (outcome !== '') fields['Issue.outcome'] = text(outcome);
+  if (opts.step) {
+    const s = findNode(doc, opts.step);
+    if (!s || s.absentSince !== undefined || parseNodeId(opts.step).kind !== 'PlanStep') throw new IssueRefusal('not-a-plan', 'that plan step is not in the design');
+    fields['Issue.step'] = text(opts.step);
+  }
   const id = addNode(b, 'Issue', fields);
   opts.steps.forEach((s, i) => {
     if (!TOPICS.includes(s.topic)) throw new IssueRefusal('bad-answer', `"${s.topic}" is not a topic`);

@@ -23,6 +23,8 @@ export interface Draft {
   affected: string[];
   /** Set once "Save as an issue" (or Plan a fix) has saved it: the steps are then read only. */
   savedId: string | null;
+  /** Opened from a plan (sign-off r73): the step, or null for a check after the work, and the words that sent it. */
+  from: { stepId: string | null; said: string } | null;
 }
 
 export const GLYPH: Record<Answer, string> = { ok: '✓', not_ok: '✗', cant_tell: '?', unanswered: '○' };
@@ -39,6 +41,7 @@ export function startDraft(doc: Document, deviceId: string, now: number): Draft 
     steps: chain.steps.map((s) => ({ ...s, answer: 'unanswered', note: '', pasted: false, answeredAt: '' })),
     affected: affectedLines(chain.deviceName, alsoAffected(doc, deviceId)),
     savedId: null,
+    from: null,
   };
 }
 

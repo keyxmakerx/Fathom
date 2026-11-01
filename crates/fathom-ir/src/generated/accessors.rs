@@ -1933,6 +1933,16 @@ mod body {
         pub fn record<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(370))
         }
+        /// `MaintenancePlan.checks` — `Text`, card `0..1`, emit `—`.
+        /// 0.33 — checks after the work, typed by a person or drafted by an AI, one per line, tab-separated: the answer (`open`, `ok`, `not_ok` or `cant_tell`), the check, then what was seen (may be empty). Record waits until none is `open`.
+        pub fn checks<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(545))
+        }
+        /// `MaintenancePlan.release_notes` — `Text`, card `0..1`, emit `—`.
+        /// 0.33 — release notes or a changelog pasted onto the plan. Pasted text, so it passed the redaction gate in the browser before it was stored.
+        pub fn release_notes<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(546))
+        }
     }
     /// Typed reads for `PlanStep` fields.
     pub mod plan_step {
@@ -1986,6 +1996,26 @@ mod body {
         pub fn done_at<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(380))
         }
+        /// `PlanStep.if_when` — `Text`, card `0..1`, emit `—`.
+        /// 0.33 — on a main-line step that has an If path: what would send the work down it, in a sentence.
+        pub fn if_when<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(547))
+        }
+        /// `PlanStep.branch_of` — `Text`, card `0..1`, emit `—`.
+        /// 0.33 — design id of the main-line step whose If path this step is on; `ordinal` then counts within that path. Absent for a step on the main line. One level only: a step on an If path has no If path of its own.
+        pub fn branch_of<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(548))
+        }
+        /// `PlanStep.if_taken` — `bool`, card `0..1`, emit `—`.
+        /// 0.33 — set on the step that carries an If path when the work went down it. Absent means the If path was not taken, and its steps are not to do.
+        pub fn if_taken<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&bool, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(549))
+        }
+        /// `PlanStep.issue` — `Text`, card `0..1`, emit `—`.
+        /// 0.33 — design id of the It's down issue Troubleshoot opened from this step.
+        pub fn issue<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(550))
+        }
     }
     /// Typed reads for `FieldValue` fields.
     pub mod field_value {
@@ -2036,6 +2066,11 @@ mod body {
         /// Design id of a maintenance plan made from it.
         pub fn plan<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(396))
+        }
+        /// `Issue.step` — `Text`, card `0..1`, emit `—`.
+        /// 0.33 — design id of the plan step it was opened from (Troubleshoot on a step that went differently).
+        pub fn step<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(551))
         }
     }
     /// Typed reads for `IssueStep` fields.
@@ -2954,6 +2989,13 @@ mod body {
             542 => Some((core::any::TypeId::of::<crate::scalar::OsVersion>(), "crate::scalar::OsVersion")),
             543 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
             544 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            545 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            546 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            547 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            548 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            549 => Some((core::any::TypeId::of::<bool>(), "bool")),
+            550 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            551 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             _ => None,
         }
     }
@@ -3441,6 +3483,13 @@ mod body {
             542 => crate::canon::slot_to::<crate::scalar::OsVersion>(542, "crate::scalar::OsVersion", value),
             543 => crate::canon::slot_to::<crate::scalar::Identifier>(543, "crate::scalar::Identifier", value),
             544 => crate::canon::slot_to::<crate::scalar::Identifier>(544, "crate::scalar::Identifier", value),
+            545 => crate::canon::slot_to::<crate::scalar::Text>(545, "crate::scalar::Text", value),
+            546 => crate::canon::slot_to::<crate::scalar::Text>(546, "crate::scalar::Text", value),
+            547 => crate::canon::slot_to::<crate::scalar::Text>(547, "crate::scalar::Text", value),
+            548 => crate::canon::slot_to::<crate::scalar::Text>(548, "crate::scalar::Text", value),
+            549 => crate::canon::slot_to::<bool>(549, "bool", value),
+            550 => crate::canon::slot_to::<crate::scalar::Text>(550, "crate::scalar::Text", value),
+            551 => crate::canon::slot_to::<crate::scalar::Text>(551, "crate::scalar::Text", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -3926,6 +3975,13 @@ mod body {
             542 => crate::canon::slot_from::<crate::scalar::OsVersion>(j),
             543 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
             544 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            545 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            546 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            547 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            548 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            549 => crate::canon::slot_from::<bool>(j),
+            550 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            551 => crate::canon::slot_from::<crate::scalar::Text>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

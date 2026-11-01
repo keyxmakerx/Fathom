@@ -246,6 +246,14 @@ describe('the panel', () => {
     expect(html).toContain('aria-current="step"');
   });
 
+  it('opened from a plan, says which step and what was written (sign-off r73)', () => {
+    const { draft } = drafted();
+    const from = { ...draft, from: { stepId: 'plan-step:01ARZ3NDEKTSV4RRFFQ69G5FAV', said: 'Step 4 of Junos upgrade: ae0 drops every few minutes' } };
+    const html = renderToStaticMarkup(createElement(TroublePanel, { controller: stub({ draft: from, focus: 0 }), besideChecks: false }));
+    expect(html).toContain('From Step 4 of Junos upgrade: ae0 drops every few minutes');
+    expect(renderToStaticMarkup(createElement(TroublePanel, { controller: stub({ draft, focus: 0 }), besideChecks: false }))).not.toContain('trouble-from');
+  });
+
   it('shows where the answers point, the tests, and a live Plan a fix after a Not OK', () => {
     let { draft } = drafted();
     draft = withAnswer(draft, 2, 'not_ok', NOW);

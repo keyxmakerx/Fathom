@@ -209,6 +209,9 @@ pub fn work_of_node_field(kind: NodeKind, field: &str) -> Work {
             PlanStepField::DoneAt.name(),
             PlanStepField::Before.name(),
             PlanStepField::After.name(),
+            // 0.33: going down an If path, and the issue Troubleshoot opened, happen on the night.
+            PlanStepField::IfTaken.name(),
+            PlanStepField::Issue.name(),
         ]
         .contains(&field),
         NodeKind::Issue => [IssueField::Stage.name(), IssueField::Outcome.name()].contains(&field),
