@@ -157,12 +157,24 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--s2);
+  min-width: 0;
+  max-width: 100%;
 }
 
+/* A select is as wide as its longest option; a long plan name must not push the band (and on a
+   phone, the whole page) wider than the window. */
 .plans-band__pick {
   display: inline-flex;
   align-items: center;
   gap: var(--s1);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.plans-band__pick .plans-select {
+  min-width: 0;
+  flex: 1 1 auto;
+  text-overflow: ellipsis;
 }
 
 .plans-band__pick-label {

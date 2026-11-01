@@ -52,6 +52,38 @@
   :root:has(.phone-tabs) .shell-bar__tabs {
     display: none;
   }
+  /* The bar fits the phone's width: tighter spacing, no rule left over from the folded views, the design
+     name shortened with an ellipsis, and no View only chip (the field view is always view only, and
+     the greyed Undo says so). Doing, Share and Admin fold into menus (Bar.tsx). */
+  :root:has(.phone-tabs) .shell-bar {
+    padding: 0 var(--s3);
+    gap: var(--s2);
+  }
+  :root:has(.phone-tabs) .shell-bar__leading,
+  :root:has(.phone-tabs) .shell-bar__trailing {
+    gap: var(--s2);
+  }
+  :root:has(.phone-tabs) .shell-bar__tabs + .shell-bar__sep-wrap,
+  :root:has(.phone-tabs) .shell-bar__view-only,
+  :root:has(.phone-tabs) .shell-bar__view-only + .shell-bar__sep-wrap,
+  :root:has(.phone-tabs) .shell-bar__path-rename {
+    display: none;
+  }
+  :root:has(.phone-tabs) .shell-bar__path,
+  :root:has(.phone-tabs) .shell-bar__path-part {
+    min-width: 0;
+  }
+  :root:has(.phone-tabs) .shell-bar__path-text {
+    max-width: 12ch;
+  }
+  /* An open plan, trace or "It's down" keeps its coloured chip and Exit beside the design's name; the
+     brand and the job's name give way (the band under the bar names the plan in full). */
+  :root:has(.phone-tabs) .shell-bar--task .shell-bar__brand,
+  :root:has(.phone-tabs) .shell-bar--task .shell-bar__brand + .shell-bar__sep-wrap,
+  :root:has(.phone-tabs) .shell-task__label,
+  :root:has(.phone-tabs) .shell-task__stage {
+    display: none;
+  }
   /* Inventory: lists to read and find in. Import, paste, columns, add and the tick boxes are a
      desk's job; the kind buttons stay. */
   :root:has(.phone-tabs) .inv-toolbar__row > :not(.inv-toolbar__kinds),

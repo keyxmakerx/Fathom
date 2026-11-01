@@ -12,6 +12,10 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  /* Nothing inside may widen the page. On a phone a page wider than the window makes the browser
+     zoom out and stretch its layout viewport, which pushes fixed parts (the field view's tabs)
+     below the bottom of the screen. */
+  overflow-x: clip;
   background: var(--page);
   color: var(--ink);
 }
@@ -22,6 +26,7 @@
   /* Folding (Bar.tsx) keeps the row inside the bar; this stops a last
      overflow scrolling the whole page sideways. */
   overflow-x: clip;
+  min-width: 0;
   height: 44px;
   box-sizing: border-box;
   border-bottom: var(--rule-mast) solid var(--ink);
@@ -1315,8 +1320,9 @@ button.shell-admin-pill {
 }
 .shell-task__label {
   font-weight: 700;
-  max-width: 240px;
+  max-width: min(240px, 30vw);
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
 .shell-task__stage {
