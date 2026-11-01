@@ -182,7 +182,7 @@ describe('the firmware settings pages', () => {
         onSaveOrganisation: noop,
       }),
     );
-    expect(html).toContain('FATHOM_FIRMWARE_DIR is empty');
+    expect(html).toContain('writable folder at /var/lib/fathom/firmware');
     expect(html).not.toContain('Save');
   });
 

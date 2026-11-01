@@ -242,6 +242,11 @@ pub struct Config {
     /// **Absent means the feature is off and its routes are not mounted**, not
     /// mounted and failing: a route that answers is a route an attacker can probe.
     pub firmware_dir: Option<String>,
+    /// True when `firmware_dir` is [`DEFAULT_FIRMWARE_DIR`] because `FATHOM_FIRMWARE_DIR` was
+    /// unset or empty (owner, 2026-11-01: firmware is not set up in a file). A defaulted folder
+    /// that does not exist means firmware is off, quietly, as on a host with no image; one that was
+    /// named and does not exist refuses the start.
+    pub firmware_dir_defaulted: bool,
     /// `FATHOM_CLIENT_ROOT`. A directory of built web client files, served for every
     /// path no API route claims (`src/client.rs`). The image sets `/srv/www`.
     /// **Absent means API only**, which is what the Vite dev server wants.
@@ -315,6 +320,9 @@ pub const DEFAULT_CHAIN_KEY: &str = "file:///var/lib/fathom/keys/chain.key";
 pub const DEFAULT_BOOTSTRAP_TOKEN_FILE: &str = "first-operator-token";
 
 /// Two gibibytes. A Junos install package is one to two gigabytes.
+/// Where the image keeps staged firmware (`deploy/Dockerfile`, the `firmware` volume's mount).
+pub const DEFAULT_FIRMWARE_DIR: &str = "/var/lib/fathom/firmware";
+
 pub const DEFAULT_FIRMWARE_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 /// The five levels `tracing` has, parsed by hand.
@@ -580,9 +588,21 @@ impl Config {
                 )?,
             };
 
-        let firmware_dir = get("FATHOM_FIRMWARE_DIR")
+        // `FATHOM_FIRMWARE=off` turns firmware off. Otherwise an unset or EMPTY
+        // `FATHOM_FIRMWARE_DIR` means the image's own folder: a compose text pasted into a
+        // front end before 2026-11-01 sets it empty, and that must not turn firmware off.
+        let firmware_off = get("FATHOM_FIRMWARE")
+            .map(|v| v.trim().to_ascii_lowercase())
+            .is_some_and(|v| v == "off");
+        let named_firmware_dir = get("FATHOM_FIRMWARE_DIR")
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty());
+        let firmware_dir_defaulted = !firmware_off && named_firmware_dir.is_none();
+        let firmware_dir = if firmware_off {
+            None
+        } else {
+            Some(named_firmware_dir.unwrap_or_else(|| DEFAULT_FIRMWARE_DIR.to_string()))
+        };
         let client_root = get("FATHOM_CLIENT_ROOT")
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty());
@@ -781,6 +801,7 @@ impl Config {
             setup_password,
             bootstrap_token_file,
             firmware_dir,
+            firmware_dir_defaulted,
             client_root,
             admin_hosts,
             admin_sources,
@@ -949,8 +970,35 @@ mod tests {
             crate::firmware::DEFAULT_TOTAL_MAX_BYTES
         );
 
-        // Neither set: the feature is simply off, and that is not an error.
-        let off = Config::from_lookup(env(&[("DATABASE_URL", "postgres://u@h/db")])).unwrap();
+        // Unset or empty: the image's own folder, marked as defaulted, so a host without
+        // it starts with firmware off rather than refusing (owner, 2026-11-01). Empty is
+        // what a compose text pasted before then passes.
+        for lookup in [
+            env(&[("DATABASE_URL", "postgres://u@h/db")]),
+            env(&[
+                ("DATABASE_URL", "postgres://u@h/db"),
+                ("FATHOM_FIRMWARE_DIR", ""),
+            ]),
+        ] {
+            let c = Config::from_lookup(lookup).unwrap();
+            assert_eq!(c.firmware_dir.as_deref(), Some(DEFAULT_FIRMWARE_DIR));
+            assert!(c.firmware_dir_defaulted);
+        }
+
+        // Named: not defaulted, so a missing folder refuses the start.
+        let named = Config::from_lookup(env(&[
+            ("DATABASE_URL", "postgres://u@h/db"),
+            ("FATHOM_FIRMWARE_DIR", "/srv/firmware"),
+        ]))
+        .unwrap();
+        assert!(!named.firmware_dir_defaulted);
+
+        // `FATHOM_FIRMWARE=off` is the one way to turn it off.
+        let off = Config::from_lookup(env(&[
+            ("DATABASE_URL", "postgres://u@h/db"),
+            ("FATHOM_FIRMWARE", "off"),
+        ]))
+        .unwrap();
         assert!(off.firmware_dir.is_none());
     }
 
