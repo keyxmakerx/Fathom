@@ -9,14 +9,11 @@ it covers: nothing here is built before the feature itself.
 ideas), ADR-0077 and its amendments (an AI proposes, a person accepts; four kinds of work at Off,
 Ideas or Proposes; the admin's ceiling, the organisation's rules and the connection's own, the
 strictest wins; Accept checks again).
-**Covers the newly approved designs:** the Work tab (#282), teams, leads and supervisors (#277),
+**Covers the newly approved designs:** the Work tab (ADR-0087, #282), teams, leads and supervisors (ADR-0081, #277),
 device reading (ADR-0082, #279), IP management (ADR-0083, #280), orders and the job engine
 (ADR-0084, #281), email (ADR-0085, #278), and Termix in the work (ADR-0078, ADR-0080).
 **Keeps, unchanged:** an AI connection never writes anything by itself. Everything below is
 something it reads, or an idea or a proposal that waits for a person.
-
-> Numbering note: #277 (teams) and #282 (the Work tab) both call themselves ADR-0081. This record
-> names them by subject and PR until one is renumbered.
 
 ## The ask, in the owner's words (project thread, 2026-11-02)
 
