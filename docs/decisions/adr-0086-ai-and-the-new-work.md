@@ -1,9 +1,13 @@
 # ADR-0086: What an AI connection may see and suggest in the new work
 
-**Status:** proposed 2026-11-02. Design only; nothing is built. The choices below are on the
-Sign-offs page as card **r86-ai-reach**, each with the recommended pick already chosen; this record
-is written on those picks and changes if the owner picks otherwise. Building waits on each feature
-it covers: nothing here is built before the feature itself.
+**Status:** accepted 2026-11-02 (owner, sign-off card **r86-ai-reach**: "approve", with every
+recommended pick, "Mail me when an AI idea arrives" ticked as well, and a note, below). Proposed the
+same day. Design only; nothing is built. Building waits on each feature it covers: nothing here is
+built before the feature itself.
+
+The owner's note on the card: "I like this idea, but do me a favor and make sure the admin can see
+what AI is being used and even have the ability to sign off. I don't want an AI outside the corp to
+be able to access this kinda data." Decision 10 answers it, and decision 6 takes the mail.
 
 **Builds on:** ADR-0072 (AI access keys: a key belongs to one person, reads an allowlist, sends
 ideas), ADR-0077 and its amendments (an AI proposes, a person accepts; four kinds of work at Off,
@@ -39,7 +43,7 @@ It never signs (it holds no person's key), never sends anything outside Fathom, 
 anything that runs on its own (a device read, an engine rule, a mail, a Termix action), and never
 approves.
 
-## Decided (on the recommended picks)
+## Decided (the recommended picks, as approved)
 
 ### 1. Work items: only those assigned to the person, and only suggestions *(card: question 1, A; question 2, A)*
 
@@ -135,13 +139,19 @@ may not start a read. This record says what "see" is:
   drafted file can do nothing a hand-written one could not. Only connections whose owner is a
   Steward of the organisation see this.
 
-### 6. Email: an AI never sends one and never causes one
+### 6. Email: an AI never sends one; one mail tells the person an idea is waiting
 
-No AI idea or proposal sends a mail, and an AI is never a recipient. When a person accepts an AI
+An AI never sends a mail, never chooses a recipient and is never one. When a person accepts an AI
 proposal, the mails ADR-0085 already sends for that act (work assigned, done and so on) go as for
-any act of theirs. A mail never carries an AI's words: ADR-0085 already sends the least, a link
-into Fathom. Mailing a person when an AI idea arrives is not in this record; it would be a seventh
-mail and needs its own card.
+any act of theirs.
+
+**Amended on acceptance (the owner ticked "Mail me when an AI idea arrives"):** a seventh kind of
+mail, **An AI idea is waiting on your work**, goes to the connection's owner, and only to them, when
+an idea or proposal arrives on a work item assigned to them. Like ADR-0085's six it carries a link
+into Fathom and never the AI's words, the item's text or anything the AI wrote. It is on by default
+and the person turns it off with the others in their mail settings. Because a connection may send
+300 ideas a day, it is gathered: at most one such mail an hour per person, naming how many ideas
+are waiting. Ideas on the canvas, outside the Work tab, send no mail.
 
 ### 7. Termix: nothing
 
@@ -178,6 +188,37 @@ toward the connection's 10 a minute and 300 a day. Every string an AI sends pass
 credential check (ADR-0077 decision 9), including comments, step answers and a drafted order
 definition, whose text also goes through the gate when the builder opens it.
 
+### 10. The admin sees which AI is used and signs off each connection
+
+Added on acceptance, for the owner's note. ADR-0072 decision 9 already gives the admin (Admin › AI,
+the operator plane) every key and connection on the server with its label, person, organisation,
+when it was made and last used and from where, and the AI account the person named (decision 24),
+with Disable. This adds:
+
+- **What it is.** Each row shows the app (Claude, Claude Code, or another app by its redirect's
+  host, ADR-0072 decision 16), its kinds of work at their levels, and whether it reaches the new
+  parts: **Your work**, **IP plan**, device readings.
+- **Sign-off.** A server-wide setting, **New AI connections wait for an admin**, on by default. A
+  connection a person allows, or a key they make, does nothing until an admin approves it in Admin ›
+  AI: every request before then is refused with "waiting for your admin". Approve releases what the
+  organisation and the person already chose; it widens nothing, so ADR-0072 decision 9's "an admin
+  grants nothing" stands in substance, and is reopened only so far as an admin may now hold a
+  connection back as well as stop it (CLAUDE.md rule 6, the owner's words). Widening a connection's
+  tiers or kinds later sends it back to waiting. The person and the organisation's Stewards are told
+  when it is approved or refused. Connections that exist before this is built wait once.
+- **Only the company's AI.** Admin › AI gains two server-wide lists, both narrowing only:
+  **AI apps allowed on this server** (Claude, Claude Code, other apps; an organisation's policy,
+  ADR-0072 decision 16, cannot allow an app the server does not), and **AI account domains**, for
+  example `corp.example`. With a domain listed, the AI account a person names (ADR-0072 decision 24)
+  must end in one of them, or Allow and Make key refuse. A Claude connection stays held to
+  Anthropic's published range (ADR-0072 decision 17).
+- **What this cannot prove, said plainly.** Fathom still cannot check which Claude account is really
+  signed in (ADR-0072 decision 23): a person could name the company address and use a personal
+  account. The admin's sign-off is the defence: they approve a connection knowing the person, and
+  can stop it. The check that would prove the account, Enterprise Managed Auth, is card
+  r42-ai-account, approved for after beta; when it is built, the domain list becomes a hard check
+  against the signed-in account rather than the stated one.
+
 ## Rejected
 
 - **The AI sees the team's queue too** (card question 1, B). Its strongest argument: an assistant
@@ -210,4 +251,5 @@ definition, whose text also goes through the gate when the builder opens it.
 Each piece lands in the same PR series as its feature, after that feature's own security sweep:
 decision 1 with the Work tab's next step (the reading narrowing first, since the Work tab is
 already built in #282); 2 with teams; 3 with ADR-0082's SNMP piece; 4 with ADR-0083's store; 5 with
-ADR-0084's engine; 6 and 7 need no code beyond tests that the paths do not exist.
+ADR-0084's engine; 6's seventh mail with the Work tab's mail; 7 needs no code beyond tests that
+the path does not exist; 10 first, before any of the others, since it guards the data they open.
