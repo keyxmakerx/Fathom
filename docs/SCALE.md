@@ -72,11 +72,32 @@ Both are built; for 1 the owner picked keeping the newest 500 changes in each sa
    design of tens of thousands of devices, and it reopens ADR-0049 and ADR-0063's whole-document
    head.
 
+## The estate index at a million devices
+
+**Measured 2026-11-02** with `scripts/bench-estate-index.sh` on PostgreSQL 16.15, 4 cores, 1,000
+designs of 1,000 devices and 20 search terms each (20,000,000 terms; 6.8 GB with indexes, 241 MB
+more for 0068's), second run of each query. The terms are synthetic and real rows carry more
+(every prefix of name, model and serial, and one per port), so the sizes are a floor: about 100
+terms a device would be roughly 35 GB at a million devices, an estimate.
+
+| What a person does | Before migration 0068 and the rewritten search | After |
+|---|---|---|
+| A save of a 1,000-device design rebuilds its rows | 3.1 s per row deleted (17.9 s for 10): about 30 to 50 minutes for the design | 20 ms for all 1,000 |
+| One common word (62,000 matches) | 350 to 560 ms | 0.13 to 0.4 ms |
+| A serial number with the device filter | 15.1 to 15.3 s | 0.1 to 1.2 ms |
+| Two common words | 130 to 320 ms | 17 ms |
+
+Why: the rows' foreign key cascades to `estate_terms`, and no index on it led with the element, so
+each deleted row read the organisation's whole term list; and search grouped every entry of every
+word, including `kind:device`, which every device carries. ADR-0089 §8.4 has the detail. A rebuild
+of a 1,000-device design also wrote 57 MB of WAL, all of which a synchronous standby receives
+(ADR-0090); rebuilding only the elements that changed is the next step.
+
 ## What was not measured
 
 The time to open a design after slimming (it follows the document's size, so expect it to fall
 about as much), and History's page time on a chain of millions (each page is a range read off the
 chain's primary key, and verify still walks the whole chain). Live co-editing under load (many people on one design), import of a large file, the canvas's
-own drawing time in a browser, and how long the estate index takes to rebuild a large design (it
+own drawing time in a browser, and the estate index under real rows rather than the synthetic ones above (its rebuild
 runs after the save, never in front of it, and search says how many designs are still catching up). The server's live path applies each change to its cached head, so
 its cost follows the head's size above.

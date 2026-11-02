@@ -220,7 +220,9 @@ async fn main() -> ExitCode {
                 &tx,
                 &ring,
                 &registered,
-                migrate::MIGRATIONS.len() as i32,
+                // The newest migration's number, not the count: numbers can have gaps while
+                // work that claimed them is still unmerged (0064 to 0067 against 0068).
+                migrate::MIGRATIONS.last().map_or(0, |m| m.version),
             )
             .await;
             match appended {

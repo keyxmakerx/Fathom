@@ -390,6 +390,14 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0063_termix_fetch.sql",
         sql: include_str!("../migrations/0063_termix_fetch.sql"),
     },
+    // The estate index's terms by element, so a design's rebuild does not read every term in
+    // the organisation once per row it deletes (ADR-0089 §8.4). 0064 to 0067 are claimed by
+    // work not yet merged; a gap is fine, every unrecorded version is applied in order.
+    Migration {
+        version: 68,
+        name: "0068_estate_terms_by_element.sql",
+        sql: include_str!("../migrations/0068_estate_terms_by_element.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.
