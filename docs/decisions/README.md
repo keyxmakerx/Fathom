@@ -120,6 +120,7 @@ question was not in the register. *R* is the reversal cost from `73` §1.2 — R
 | **[0087](adr-0087-the-work-tab.md)** | The Work tab: one list of work across designs, with Fathom numbers | Accepted |  |  |
 | **[0081](adr-0081-teams-leads-and-supervisors.md)** | Teams, leads and supervisors: a team holds Read or Draw like a person, leads and supervisors hand out work, every access change signed | Accepted |  |  |
 | **[0082](adr-0082-fathom-reads-devices-and-never-writes.md)** | Fathom reads devices and never writes to them: invariant 2 amended, SNMPv3 and SSH read-only, a reader helper | Accepted |  |  |
+| **[0085](adr-0085-email-and-notifications.md)** | Email and notifications over the SMTP setting | Accepted |  |  |
 
 ## What is not reopened
 
