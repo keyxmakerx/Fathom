@@ -1,6 +1,6 @@
 # ADR-0089: Site readers — device reading at estate scale
 
-**Status:** proposed 2026-11-02, design only. Waiting on sign-off card r88-scale-and-ha. Each
+**Status:** proposed 2026-11-02, design only. Waiting on sign-off card r89-scale-and-ha. Each
 "Recommended" below is the pick pre-selected on that card; nothing here is built.
 
 **Builds on:** ADR-0082 (Fathom reads devices and never writes to them; the separate reader helper,
@@ -134,7 +134,7 @@ it. Results remain suggestions and check answers, never facts (ADR-0082 §4.2).
 (nightly by default, hourly the most often). Readers read every device in it and Fathom shows what
 **differs from the drawing**: a new neighbour, a changed serial, a port that went down, new
 firmware. Nothing is accepted into the design without a person, and nothing alerts. This is
-ADR-0082 §4.6's scheduled read, which said it needs its own card: r88 is that card.
+ADR-0082 §4.6's scheduled read, which said it needs its own card: r89 is that card.
 
 **Also offered:**
 

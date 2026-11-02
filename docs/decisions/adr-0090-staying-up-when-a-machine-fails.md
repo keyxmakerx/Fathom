@@ -1,6 +1,6 @@
 # ADR-0090: Staying up when a machine fails — high availability
 
-**Status:** proposed 2026-11-02, design only. Waiting on sign-off card r88-scale-and-ha (questions 5
+**Status:** proposed 2026-11-02, design only. Waiting on sign-off card r89-scale-and-ha (questions 5
 and 6). Each "Recommended" is the pick pre-selected on that card; nothing here is built.
 
 **Builds on:** ADR-0063 (live co-editing over PostgreSQL `NOTIFY`), `docs/RUNNING-IT.md` "Running
