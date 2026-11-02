@@ -589,8 +589,48 @@ pub(crate) async fn best_through_teams<'a>(
     _now: i64,
     pass: &'a Mutex<QuorumPass>,
 ) -> Result<Option<Through>, AuthorityError> {
+    let live = live_team_grants(tx, ring, state, root_fpr, account, needed, pass, |scope| {
+        covering.contains(scope)
+    })
+    .await?;
+    Ok(widest_covering(&live, covering))
+}
+
+/// The widest of `live` (from [`live_team_grants`]) sitting at a scope in `covering`.
+pub(crate) fn widest_covering(
+    live: &[Through],
+    covering: &BTreeSet<Option<String>>,
+) -> Option<Through> {
+    let mut best: Option<&Through> = None;
+    for t in live.iter().filter(|t| covering.contains(&t.scope)) {
+        if best.is_none_or(|b| t.capability > b.capability) {
+            best = Some(t);
+        }
+    }
+    best.map(|b| Through {
+        scope: b.scope.clone(),
+        capability: b.capability,
+        act_id: b.act_id.clone(),
+    })
+}
+
+/// Every counting, unrevoked grant to a team `account` is a counting member of, with at least
+/// `needed` and at a scope `relevant` keeps. Never `steward` (T4). The walk
+/// [`best_through_teams`] runs, without its last step: which of these covers one place. A list
+/// route asking about many places walks once and picks per place with [`widest_covering`].
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn live_team_grants<'a>(
+    tx: &'a Transaction<'a>,
+    ring: &'a KeyRing,
+    state: &'a AuthorityState,
+    root_fpr: &'a [u8; 32],
+    account: &str,
+    needed: Capability,
+    pass: &'a Mutex<QuorumPass>,
+    relevant: impl Fn(&Option<String>) -> bool,
+) -> Result<Vec<Through>, AuthorityError> {
     if needed == Capability::Steward || state.team_acts.is_empty() {
-        return Ok(None);
+        return Ok(Vec::new());
     }
     let walk = Walk {
         tx,
@@ -606,7 +646,7 @@ pub(crate) async fn best_through_teams<'a>(
         .filter(|a| a.act == ACT_MEMBER_ADD && a.subject_id.as_deref() == Some(account))
         .map(|a| a.team_id.as_str())
         .collect();
-    let mut best: Option<Through> = None;
+    let mut out = Vec::new();
     for team in teams {
         if !walk.team_live(team).await? || walk.membership(team, account).await?.is_none() {
             continue;
@@ -622,22 +662,20 @@ pub(crate) async fn best_through_teams<'a>(
             if capability == Capability::Steward || !capability.covers(needed) {
                 continue;
             }
-            if !covering.contains(&g.scope_id) {
+            if !relevant(&g.scope_id) {
                 continue;
             }
             if !walk.live(g).await? {
                 continue;
             }
-            if best.as_ref().is_none_or(|b| capability > b.capability) {
-                best = Some(Through {
-                    scope: g.scope_id.clone(),
-                    capability,
-                    act_id: g.id.clone(),
-                });
-            }
+            out.push(Through {
+                scope: g.scope_id.clone(),
+                capability,
+                act_id: g.id.clone(),
+            });
         }
     }
-    Ok(best)
+    Ok(out)
 }
 
 // ---------------------------------------------------------------------------

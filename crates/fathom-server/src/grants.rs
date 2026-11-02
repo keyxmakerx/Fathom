@@ -4237,6 +4237,144 @@ pub(crate) async fn holds_in_verified_state(
     as_yes_or_no(authorise_in_verified_state(tx, auth, verified, scope, needed).await)
 }
 
+/// [`holding_in_verified_state`] with steps 2-5 done first: which of `scopes` the caller holds
+/// `needed` at, every step of §3.4 run for this one call.
+pub async fn holding(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    scopes: &[ScopeId],
+    needed: Capability,
+) -> Result<BTreeSet<ScopeId>, AuthorityError> {
+    let verified = verify_authority_state(tx, auth).await?;
+    holding_in_verified_state(tx, auth, &verified, scopes, needed).await
+}
+
+/// Which of `scopes` the caller holds `needed` at: [`holds_in_verified_state`] for many places
+/// at once, for a list route (the Work tab, Search, Everywhere) that would otherwise ask once per
+/// design. The answer for each place is the one [`authorise_in_verified_state`] gives there; what
+/// changes is the cost. Asked one place at a time, every candidate grant's row, signature and
+/// quorum were checked again for every place, and every place's ancestors were a query of their
+/// own, so a list of a few hundred designs took thousands of round trips. Here the places'
+/// ancestors are read in one query and each candidate grant, and the team walk, is checked once
+/// for the whole list, inside the same transaction and against the same verified state.
+/// Nothing outlives the call (§3.4: no verdict is stored). A place that is not in the
+/// organisation is answered `false`, as a refusal there would be.
+pub(crate) async fn holding_in_verified_state(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    verified: &VerifiedAuthorityState,
+    scopes: &[ScopeId],
+    needed: Capability,
+) -> Result<BTreeSet<ScopeId>, AuthorityError> {
+    let ring = auth.ring;
+    let account = auth.actor();
+    let organisation = &verified.organisation;
+    let root_fpr = &verified.root_fpr;
+    let state = &verified.state;
+
+    // 1. Every place's ancestors, in one read.
+    let wanted: Vec<String> = scopes.iter().map(|s| s.to_string()).collect();
+    let rows = tx
+        .query(
+            "SELECT id, path FROM scopes WHERE organisation_id = $1 AND id = ANY($2)",
+            &[organisation, &wanted],
+        )
+        .await?;
+    let mut covering_of: BTreeMap<String, BTreeSet<Option<String>>> = BTreeMap::new();
+    for row in rows {
+        let id: String = row.get(0);
+        let path: String = row.get(1);
+        let mut covering: BTreeSet<Option<String>> = BTreeSet::new();
+        covering.insert(None);
+        for ancestor in path.split('.') {
+            covering.insert(Some(ancestor.to_string()));
+        }
+        covering_of.insert(id, covering);
+    }
+    let any_covering: BTreeSet<Option<String>> = covering_of.values().flatten().cloned().collect();
+
+    // 6. The candidates, each checked once. The same filters, the same hard row check and the
+    //    same fresh quorum pass per candidate that the one-place walk gives it.
+    let now = now_unix();
+    let mut usable: Vec<&Grant> = Vec::new();
+    for grant in &state.grants {
+        if grant.subject_id != account {
+            continue;
+        }
+        if !any_covering.contains(&grant.scope_id) {
+            continue;
+        }
+        if !grant.capability.covers(needed) {
+            continue;
+        }
+        if state.revoked_by(&grant.id, now) || state.suspended_at(&grant.id, now, i64::MAX) {
+            continue;
+        }
+        if grant.effective_from_unix > now {
+            continue;
+        }
+        if grant.expires_at_unix != 0 && grant.expires_at_unix <= now {
+            continue;
+        }
+        verify_grant_row(tx, ring, root_fpr, grant).await?;
+        let pass = Mutex::new(QuorumPass::default());
+        if !grant_quorum_met(tx, ring, state, root_fpr, grant, &pass).await? {
+            continue;
+        }
+        usable.push(grant);
+    }
+
+    // 6b. Through teams, walked once, for the places that need it: those where the person's own
+    //     grants fall short of Draw, as in the one-place walk.
+    let short_of_draw = |covering: &BTreeSet<Option<String>>| {
+        !usable
+            .iter()
+            .any(|g| covering.contains(&g.scope_id) && g.capability >= Capability::Draw)
+    };
+    let team_covering: BTreeSet<Option<String>> = if needed == Capability::Steward {
+        BTreeSet::new()
+    } else {
+        covering_of
+            .values()
+            .filter(|covering| short_of_draw(covering))
+            .flatten()
+            .cloned()
+            .collect()
+    };
+    let through = if team_covering.is_empty() {
+        Vec::new()
+    } else {
+        let pass = Mutex::new(QuorumPass::default());
+        crate::teams::live_team_grants(
+            tx,
+            ring,
+            state,
+            root_fpr,
+            &account,
+            needed,
+            &pass,
+            |scope| team_covering.contains(scope),
+        )
+        .await?
+    };
+
+    // 7. The answer per place.
+    let mut out = BTreeSet::new();
+    for scope in scopes {
+        let Some(covering) = covering_of.get(&scope.to_string()) else {
+            continue;
+        };
+        let own = usable.iter().any(|g| covering.contains(&g.scope_id));
+        if own
+            || (short_of_draw(covering)
+                && crate::teams::widest_covering(&through, covering).is_some())
+        {
+            out.insert(*scope);
+        }
+    }
+    Ok(out)
+}
+
 /// As [`authorise_in_verified_state`], for `account` rather than the caller. The
 /// Share panel asks it of each member; the walk is the same one a request runs.
 async fn authorise_subject_in_verified_state(

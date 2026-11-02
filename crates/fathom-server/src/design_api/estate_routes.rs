@@ -206,33 +206,33 @@ async fn readable(
         )
         .await
         .map_err(SessionError::Db)?;
+    let mut listed = Vec::with_capacity(rows.len());
+    for row in rows {
+        let scope_text: String = row.get(1);
+        let scope: ScopeId = scope_text
+            .parse()
+            .map_err(|_| SessionError::Corrupt("design scope id"))?;
+        listed.push((row, scope));
+    }
+    // One permission walk for every design, not one per design: each used to re-check every
+    // grant and read its folder's ancestors on its own, so the Work tab's wait grew with the
+    // number of designs (2026-11-02).
+    let scopes: Vec<ScopeId> = listed.iter().map(|(_, s)| *s).collect();
+    let held = grants::holding_in_verified_state(tx, auth, &verified, &scopes, Capability::Read)
+        .await
+        .map_err(SessionError::Authority)?;
     let mut opener = designs::NameOpener::new(auth);
     let mut out = Readable {
         ids: Vec::new(),
         latest: BTreeMap::new(),
         names: BTreeMap::new(),
     };
-    for row in rows {
-        let id: String = row.get(0);
-        let scope_text: String = row.get(1);
-        let latest: i64 = row.get(2);
-        let scope: ScopeId = scope_text
-            .parse()
-            .map_err(|_| SessionError::Corrupt("design scope id"))?;
-        match grants::authorise_in_verified_state(
-            tx,
-            auth,
-            &verified,
-            Some(scope),
-            Capability::Read,
-        )
-        .await
-        {
-            Ok(_) => {}
-            Err(grants::AuthorityError::NotAuthorised)
-            | Err(grants::AuthorityError::QuorumNotMet { .. }) => continue,
-            Err(other) => return Err(SessionError::Authority(other).into()),
+    for (row, scope) in listed {
+        if !held.contains(&scope) {
+            continue;
         }
+        let id: String = row.get(0);
+        let latest: i64 = row.get(2);
         let sealed = match (
             row.get::<_, Option<Vec<u8>>>(3),
             row.get::<_, Option<Vec<u8>>>(4),

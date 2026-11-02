@@ -25,6 +25,11 @@ export const WORK_REFRESH_MS = 5000;
 
 type Loaded = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; answer: WorkAnswer };
 
+function remembered(memory: Map<string, WorkAnswer> | undefined, organisationId: string): Loaded {
+  const answer = memory?.get(organisationId);
+  return answer ? { status: 'ready', answer } : { status: 'loading' };
+}
+
 /**
  * The Work tab (sign-off r74): every maintenance plan, It's down issue and spare on order, away or
  * lent, in every design this person may open, as one list. Each row opens the real thing in its
@@ -32,8 +37,17 @@ type Loaded = { status: 'loading' } | { status: 'error'; message: string } | { s
  * again every few seconds while it is in view, and says who is in each design now. On a phone the
  * rows are cards and the filters one menu.
  */
-export function WorkPage({ organisationId, currentDesign = null }: { organisationId: string; currentDesign?: string | null }) {
-  const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' });
+export function WorkPage({
+  organisationId,
+  currentDesign = null,
+  memory,
+}: {
+  organisationId: string;
+  currentDesign?: string | null;
+  /** The last list per organisation, shown at once on coming back while a fresh one is fetched. */
+  memory?: Map<string, WorkAnswer>;
+}) {
+  const [loaded, setLoaded] = useState<Loaded>(() => remembered(memory, organisationId));
   const [done, setDone] = useState<{ open: boolean; answer: WorkAnswer | null; error: string | null }>({ open: false, answer: null, error: null });
   const [filters, setFilters] = useState<Filters>({ kind: 'all', mine: false, design: '' });
   const busy = useRef(false);
@@ -42,7 +56,10 @@ export function WorkPage({ organisationId, currentDesign = null }: { organisatio
     if (busy.current) return;
     busy.current = true;
     fetchWork(organisationId)
-      .then((answer) => setLoaded({ status: 'ready', answer }))
+      .then((answer) => {
+        memory?.set(organisationId, answer);
+        setLoaded({ status: 'ready', answer });
+      })
       .catch((e: unknown) =>
         // A list already shown stays shown when one refresh fails; the next one tries again.
         setLoaded((was) => (was.status === 'ready' ? was : { status: 'error', message: e instanceof Error ? e.message : String(e) })),
@@ -50,10 +67,10 @@ export function WorkPage({ organisationId, currentDesign = null }: { organisatio
       .finally(() => {
         busy.current = false;
       });
-  }, [organisationId]);
+  }, [organisationId, memory]);
 
   useEffect(() => {
-    setLoaded({ status: 'loading' });
+    setLoaded(remembered(memory, organisationId));
     setDone({ open: false, answer: null, error: null });
     load();
     const tick = window.setInterval(() => {
@@ -67,7 +84,7 @@ export function WorkPage({ organisationId, currentDesign = null }: { organisatio
       window.clearInterval(tick);
       document.removeEventListener('visibilitychange', onShow);
     };
-  }, [load]);
+  }, [load, memory, organisationId]);
 
   const showDone = () => {
     setDone({ open: true, answer: null, error: null });
