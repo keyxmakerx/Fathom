@@ -734,7 +734,16 @@ Settings shows it, read-only. A Steward then turns it on per organisation and li
 (Steward › Device reading, `device_read_set` on the organisation's history); loopback, link-local,
 multicast and reserved addresses are refused whatever is listed. A vault login or SNMP entry can be marked
 read-only (sealed in its details, shown on the Logins card). The reader answers a ping, proved through
-its socket in CI (the `reader` job). SNMPv3 and SSH reads are parts two and three.
+its socket in CI (the `reader` job).
+
+**Device reading, the reader's SNMPv3** (ADR-0082 §4.1 and §4.5; `helpers/reader/src/{ber,usm,snmp,purposes,address}.rs`).
+Fathom's own SNMPv3, able to send only GetRequest, GetNextRequest and GetBulkRequest: authPriv
+with HMAC-SHA-512, -256 or the older -96 and AES-128, no MD5, DES or Set anywhere. First contact
+learns the engine id without sending a login; a read needs that id confirmed and stops if it
+changes. It reads fixed lists only (system, entity inventory, interfaces, LLDP, MAC and ARP
+tables) and signs each reading with a SHA-256 digest. Proved in CI against net-snmp's `snmpd` with
+each protocol, and refused by name for a wrong password, a wrong privacy password, an unknown user
+and MD5. The server does not call it yet: Read on a device is the next part.
 
 **Termix in the work** (ADR-0080 decisions 2 to 11; schema 0.34, field keys 552-554; migration 0063;
 `components/termix/`, `components/plans/SeenBox.tsx`, `components/plans/checkSeen.ts`). Every part is
