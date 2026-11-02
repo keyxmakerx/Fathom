@@ -1,6 +1,6 @@
 // Issues as an Inventory kind (ADR-0061 troubleshooting): the saved "It's down" sessions, newest first, and an
 // Issue page for one (mockup r8-trouble-b): the checks as a list, the notes, and "Show on canvas". Read only.
-import { useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import type { Document } from '../../document/model';
 import { listIssues, type Issue } from '../../document/issues';
@@ -8,7 +8,7 @@ import { nameOf } from '../plans/plansModel';
 import { ANSWER_WORD, whenText } from './troubleModel';
 import './trouble.css';
 
-export function IssuePage({ issue, onBack, onShowOnCanvas }: { issue: Issue; onBack(): void; onShowOnCanvas?: (id: string) => void }) {
+export function IssuePage({ issue, onBack, onShowOnCanvas, work }: { issue: Issue; onBack(): void; onShowOnCanvas?: (id: string) => void; work?: ReactNode }) {
   const notes = issue.steps.filter((s) => s.note !== '');
   return (
     <article className="issue-page" data-testid="issue-page" aria-label={issue.title}>
@@ -24,6 +24,7 @@ export function IssuePage({ issue, onBack, onShowOnCanvas }: { issue: Issue; onB
         Opened {whenText(issue.openedAt)}
         {issue.author !== '' ? ` · ${issue.author}` : ''} · {issue.stage}
       </p>
+      {work}
       <table className="issue-page__table">
         <thead>
           <tr>
@@ -62,11 +63,26 @@ export function IssuePage({ issue, onBack, onShowOnCanvas }: { issue: Issue; onB
   );
 }
 
-export function IssuesList({ doc, onShowOnCanvas }: { doc: Document; onShowOnCanvas?: (issueId: string) => void }) {
+export function IssuesList({
+  doc,
+  onShowOnCanvas,
+  initialOpen = null,
+  work,
+}: {
+  doc: Document;
+  onShowOnCanvas?: (issueId: string) => void;
+  /** An issue to open at once: one the Work tab or a link asked for (sign-off r74). */
+  initialOpen?: string | null;
+  /** The Work tab's parts on the issue page: its number, who, when, the outside ticket and comments. */
+  work?: (issueId: string) => ReactNode;
+}) {
   const issues = listIssues(doc);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(initialOpen);
+  useEffect(() => {
+    if (initialOpen != null) setOpenId(initialOpen);
+  }, [initialOpen]);
   const open = openId == null ? undefined : issues.find((i) => i.id === openId);
-  if (open != null) return <IssuePage issue={open} onBack={() => setOpenId(null)} onShowOnCanvas={onShowOnCanvas} />;
+  if (open != null) return <IssuePage issue={open} onBack={() => setOpenId(null)} onShowOnCanvas={onShowOnCanvas} work={work?.(open.id)} />;
   return (
     <table className="inventory-place__grid" data-testid="issues-list">
       <thead>

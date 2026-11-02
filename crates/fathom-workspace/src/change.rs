@@ -25,7 +25,8 @@ use fathom_ir::canon::CanonError;
 use fathom_ir::generated::accessors::slot_from_canon;
 use fathom_ir::generated::ir_types::{
     CaptureField, DeviceField, DocField, DocLinkField, EdgeKind, FirmwareTargetField, LessonField,
-    LessonStepField, NodeKind, NoteField, OverlayMemberField, OverlayNetworkField, SCHEMA_VERSION,
+    LessonStepField, NodeKind, NoteField, OverlayMemberField, OverlayNetworkField, StockItemField,
+    SCHEMA_VERSION,
 };
 use fathom_ir::scalar::Text;
 
@@ -468,6 +469,9 @@ enum Read {
     Targets,
     /// `PlanStep.edit`: tab-separated; only a `field` edit's fourth part is a typed value.
     Edit,
+    /// 0.34 `assigned_to`: one account id, a bare ULID, which the shape detectors would read as
+    /// a token. Anything else in it is read as prose.
+    Account,
 }
 
 /// The text fields the credential check reads: kind, field, label, how to read it.
@@ -507,6 +511,7 @@ fn gated_fields() -> Vec<(NodeKind, fathom_ir::bag::FieldKey, &'static str, Read
         P::Record,
         P::Checks,
         P::ReleaseNotes,
+        P::Ticket,
     ] {
         v.push((NodeKind::MaintenancePlan, f.key(), "MaintenancePlan", prose));
     }
@@ -533,7 +538,15 @@ fn gated_fields() -> Vec<(NodeKind, fathom_ir::bag::FieldKey, &'static str, Read
     v.push((NodeKind::PlanStep, S::Edit.key(), "PlanStep", Read::Edit));
     // An issue and its steps (ADR-0061 troubleshooting): typed or pasted prose, same check as a plan;
     // `device`, `plan` and `targets` hold design ids only.
-    for f in [I::Title, I::Author, I::OpenedAt, I::Outcome] {
+    // 0.34: who it is assigned to, when it is due and its outside ticket are checked like the rest.
+    for f in [
+        I::Title,
+        I::Author,
+        I::OpenedAt,
+        I::Outcome,
+        I::Due,
+        I::Ticket,
+    ] {
         v.push((NodeKind::Issue, f.key(), "Issue", prose));
     }
     for f in [I::Device, I::Plan, I::Step] {
@@ -547,6 +560,27 @@ fn gated_fields() -> Vec<(NodeKind, fathom_ir::bag::FieldKey, &'static str, Read
         IS::Targets.key(),
         "IssueStep",
         Read::Targets,
+    ));
+    // 0.34: a stock item's outside ticket and who is seeing to it.
+    v.push((
+        NodeKind::StockItem,
+        StockItemField::Ticket.key(),
+        "StockItem",
+        prose,
+    ));
+    // 0.34: who the work is assigned to is an account id, not typed.
+    v.push((
+        NodeKind::MaintenancePlan,
+        P::AssignedTo.key(),
+        "MaintenancePlan",
+        Read::Account,
+    ));
+    v.push((NodeKind::Issue, I::AssignedTo.key(), "Issue", Read::Account));
+    v.push((
+        NodeKind::StockItem,
+        StockItemField::AssignedTo.key(),
+        "StockItem",
+        Read::Account,
     ));
     // Firmware (0.19): the reason a device is held, and a target's note, are typed prose.
     v.push((
@@ -619,7 +653,7 @@ fn credential_in_edge_text(
         .find(|(k, f, _, _)| *k == kind && *f == key)
         .and_then(|(_, _, label, read)| match read {
             Read::Lines(bare) => credential_line(text, bare).map(|l| (label, l)),
-            Read::Targets | Read::Edit => None,
+            Read::Targets | Read::Edit | Read::Account => None,
         })
 }
 
@@ -725,6 +759,13 @@ fn read_line(graph: &Graph, text: &str, read: Read) -> Option<usize> {
     match read {
         Read::Lines(bare) => credential_line(text, bare),
         Read::Targets => parts_credential_line(graph, text, '\n', None),
+        Read::Account => {
+            if fathom_id::Ulid::decode(text.trim()).is_ok() {
+                None
+            } else {
+                credential_line(text, true)
+            }
+        }
         Read::Edit => {
             let prose = text.starts_with("field\t").then_some(3);
             parts_credential_line(graph, text, '\t', prose)

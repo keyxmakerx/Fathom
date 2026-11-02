@@ -39,9 +39,9 @@ use deadpool_postgres::Transaction;
 use fathom_canon::Json;
 use fathom_graph::snap::Snapshot;
 use fathom_ir::generated::ir_types::{
-    AddressField, CardField, ChassisField, DeviceField, EdgeKind, ExternalPeerField,
-    MountedInField, NodeKind, PhysicalPortField, PowerSupplyField, RackField, StockItemField,
-    StoreField,
+    AddressField, CardField, ChassisField, DeviceField, EdgeKind, ExternalPeerField, IssueField,
+    MaintenancePlanField, MountedInField, NodeKind, PhysicalPortField, PlanStepField,
+    PowerSupplyField, RackField, StockItemField, StoreField,
 };
 
 use crate::crypto::{self, Key32, NONCE_LEN};
@@ -121,6 +121,41 @@ pub struct Row {
     /// A device's ports, so a link between sites can pick one (ADR-0079 decision 5).
     /// Not search terms: port names repeat on every device and would crowd out the rest.
     pub ports: Vec<Port>,
+    /// What the Work tab shows of a plan, an issue or a spare that is out (sign-off r74).
+    pub work: Option<Work>,
+}
+
+/// A piece of work, as the Work tab lists it. The status is each kind's own (r74: "nothing is
+/// said twice"): a plan's stage, an issue's stage, a spare's state.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Work {
+    /// Still going on: a plan planned or doing, an open issue, a spare on order, away or lent.
+    pub open: bool,
+    /// The kind's own status word: `planned`, `doing`, `recorded`, `open`, `closed`,
+    /// `on_order`, `in_repair` or `lent`.
+    pub state: String,
+    /// When: a plan's window start, an issue's or a spare's due date, as typed.
+    pub when: String,
+    /// The account it is assigned to, by id; empty for nobody.
+    pub assigned: String,
+    /// The same work in an outside tool: a link or a number.
+    pub ticket: String,
+    /// A plan's main-line steps, and how many of them are marked.
+    pub steps: i64,
+    pub steps_done: i64,
+    /// A plan's steps that went differently.
+    pub steps_differently: i64,
+    /// Comments: notes on the plan, issue or spare.
+    pub comments: i64,
+}
+
+/// The term every row of open work carries, and the one every finished one does.
+pub const WORK_OPEN: &str = "work:open";
+pub const WORK_DONE: &str = "work:done";
+
+/// How a Fathom number is written: `W-42`.
+pub fn number_word(n: i64) -> String {
+    format!("W-{n}")
 }
 
 /// One port on a device's row.
@@ -165,6 +200,19 @@ impl Row {
                 })
                 .collect();
             m.insert("ports".into(), Json::Arr(ports));
+        }
+        if let Some(w) = &self.work {
+            let mut o = BTreeMap::new();
+            o.insert("open".into(), Json::Bool(w.open));
+            o.insert("state".into(), s(&w.state));
+            o.insert("when".into(), s(&w.when));
+            o.insert("assigned".into(), s(&w.assigned));
+            o.insert("ticket".into(), s(&w.ticket));
+            o.insert("steps".into(), Json::Int(w.steps));
+            o.insert("stepsDone".into(), Json::Int(w.steps_done));
+            o.insert("stepsDifferently".into(), Json::Int(w.steps_differently));
+            o.insert("comments".into(), Json::Int(w.comments));
+            m.insert("work".into(), Json::Obj(o));
         }
         Json::Obj(m)
     }
@@ -370,6 +418,7 @@ pub fn rows_of_snapshot(snap: &Snapshot) -> Vec<Row> {
             },
             addresses,
             ports,
+            work: None,
         });
     }
 
@@ -404,6 +453,7 @@ pub fn rows_of_snapshot(snap: &Snapshot) -> Vec<Row> {
                 place: place.clone(),
                 addresses: Vec::new(),
                 ports: Vec::new(),
+                work: None,
             });
         }
         let mut ports = targets(EdgeKind::HasPort, id);
@@ -420,6 +470,7 @@ pub fn rows_of_snapshot(snap: &Snapshot) -> Vec<Row> {
                 place: place.clone(),
                 addresses: Vec::new(),
                 ports: Vec::new(),
+                work: None,
             });
         }
         ports.sort();
@@ -449,6 +500,7 @@ pub fn rows_of_snapshot(snap: &Snapshot) -> Vec<Row> {
                 place: place.clone(),
                 addresses: Vec::new(),
                 ports: Vec::new(),
+                work: None,
             });
         }
     }
@@ -468,6 +520,17 @@ pub fn rows_of_snapshot(snap: &Snapshot) -> Vec<Row> {
         if name.is_empty() {
             name = field(id, StockItemField::Part.key());
         }
+        let state = field(id, StockItemField::State.key());
+        let out = matches!(state.as_str(), "on_order" | "in_repair" | "lent");
+        let work = out.then(|| Work {
+            open: true,
+            state: state.clone(),
+            when: field(id, StockItemField::Due.key()),
+            assigned: field(id, StockItemField::AssignedTo.key()),
+            ticket: field(id, StockItemField::Ticket.key()),
+            comments: targets(EdgeKind::HasNote, id).len() as i64,
+            ..Work::default()
+        });
         rows.push(Row {
             element: (*id).clone(),
             kind: "spare",
@@ -483,7 +546,92 @@ pub fn rows_of_snapshot(snap: &Snapshot) -> Vec<Row> {
                 .join(", "),
             addresses: Vec::new(),
             ports: Vec::new(),
+            work,
         });
+    }
+
+    // Maintenance plans and "It's down" issues (sign-off r74): the Work tab's own rows.
+    let hostname_of = |device: &str| field(device, DeviceField::Hostname.key());
+    let place_of_device = |device: &str| {
+        targets(EdgeKind::HasChassis, device)
+            .first()
+            .map(|c| place_of_chassis(c))
+            .unwrap_or_default()
+    };
+    for id in &ids {
+        let (kind, _) = &fields[*id];
+        match kind {
+            NodeKind::MaintenancePlan => {
+                let stage = field(id, MaintenancePlanField::Stage.key());
+                let mut steps = 0;
+                let mut done = 0;
+                let mut differently = 0;
+                for step in targets(EdgeKind::HasStep, id) {
+                    // A step on an If path is not on the line of work until it is taken.
+                    if !field(&step, PlanStepField::BranchOf.key()).is_empty() {
+                        continue;
+                    }
+                    steps += 1;
+                    match field(&step, PlanStepField::State.key()).as_str() {
+                        "done" => done += 1,
+                        "went_differently" => {
+                            done += 1;
+                            differently += 1;
+                        }
+                        _ => {}
+                    }
+                }
+                rows.push(Row {
+                    element: (*id).clone(),
+                    kind: "plan",
+                    open: (*id).clone(),
+                    name: field(id, MaintenancePlanField::Title.key()),
+                    model: String::new(),
+                    serial: String::new(),
+                    device: String::new(),
+                    place: String::new(),
+                    addresses: Vec::new(),
+                    ports: Vec::new(),
+                    work: Some(Work {
+                        open: stage != "recorded",
+                        state: stage,
+                        when: field(id, MaintenancePlanField::WindowStart.key()),
+                        assigned: field(id, MaintenancePlanField::AssignedTo.key()),
+                        ticket: field(id, MaintenancePlanField::Ticket.key()),
+                        steps,
+                        steps_done: done,
+                        steps_differently: differently,
+                        comments: targets(EdgeKind::HasNote, id).len() as i64,
+                    }),
+                });
+            }
+            NodeKind::Issue => {
+                let stage = field(id, IssueField::Stage.key());
+                let device = field(id, IssueField::Device.key());
+                rows.push(Row {
+                    element: (*id).clone(),
+                    kind: "issue",
+                    open: (*id).clone(),
+                    name: field(id, IssueField::Title.key()),
+                    model: String::new(),
+                    serial: String::new(),
+                    device: hostname_of(&device),
+                    place: place_of_device(&device),
+                    addresses: Vec::new(),
+                    ports: Vec::new(),
+                    work: Some(Work {
+                        open: stage != "closed",
+                        state: stage,
+                        when: field(id, IssueField::Due.key()),
+                        assigned: field(id, IssueField::AssignedTo.key()),
+                        ticket: field(id, IssueField::Ticket.key()),
+                        comments: targets(EdgeKind::HasNote, id).len() as i64,
+                        ..Work::default()
+                    }),
+                });
+            }
+            _ => {}
+        }
     }
     rows
 }
@@ -505,6 +653,9 @@ fn words(value: &str) -> impl Iterator<Item = String> + '_ {
 pub fn terms_of(row: &Row) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     out.insert(format!("kind:{}", row.kind));
+    if let Some(work) = &row.work {
+        out.insert(if work.open { WORK_OPEN } else { WORK_DONE }.to_string());
+    }
     for value in row.searchable() {
         for word in words(value) {
             let chars: Vec<char> = word.chars().collect();
@@ -568,6 +719,12 @@ pub async fn replace_design(
     )
     .await
     .map_err(db)?;
+    let work: Vec<&str> = rows
+        .iter()
+        .filter(|r| r.work.is_some())
+        .map(|r| r.element.as_str())
+        .collect();
+    let numbers = give_numbers(tx, organisation, design, &work).await?;
     let mut elements = Vec::with_capacity(rows.len());
     let mut kinds = Vec::with_capacity(rows.len());
     let mut sealed = Vec::with_capacity(rows.len());
@@ -577,18 +734,23 @@ pub async fn replace_design(
     for row in rows {
         let nonce = crypto::random_nonce().map_err(|e| format!("{e:?}"))?;
         let aad = row_aad(organisation, design, &row.element, row.kind);
-        let body = crypto::seal(
-            &keys.seal,
-            &nonce,
-            &row.to_json().to_canonical_bytes(),
-            &aad,
-        )
-        .map_err(|e| format!("{e:?}"))?;
+        let number = numbers.get(&row.element).copied();
+        let mut json = row.to_json();
+        if let (Some(n), Json::Obj(m)) = (number, &mut json) {
+            m.insert("number".into(), Json::Int(n));
+        }
+        let body = crypto::seal(&keys.seal, &nonce, &json.to_canonical_bytes(), &aad)
+            .map_err(|e| format!("{e:?}"))?;
         elements.push(row.element.clone());
         kinds.push(row.kind.to_string());
         sealed.push(body);
         nonces.push(nonce.to_vec());
-        for term in terms_of(row).into_iter().chain(port_terms(row)) {
+        let number_term = number.map(|n| number_word(n).to_lowercase());
+        for term in terms_of(row)
+            .into_iter()
+            .chain(port_terms(row))
+            .chain(number_term)
+        {
             term_hashes.push(keys.term_hash(&term));
             term_elements.push(row.element.clone());
         }
@@ -626,6 +788,104 @@ pub async fn replace_design(
     .await
     .map_err(db)?;
     Ok(())
+}
+
+/// The Fathom number of each of `elements` in `design`, giving the next numbers in the
+/// organisation to any that has none yet (sign-off r74). A number is given once and kept: it
+/// outlives the index rows, which are replaced whole, and goes only with its design. In the
+/// caller's tenant transaction; the advisory lock keeps two rebuilds in one organisation from
+/// reading the same highest number, and the unique key would refuse it if they did.
+pub async fn give_numbers(
+    tx: &Transaction<'_>,
+    organisation: &str,
+    design: &str,
+    elements: &[&str],
+) -> Result<BTreeMap<String, i64>, String> {
+    let db = |e: tokio_postgres::Error| e.to_string();
+    let mut out = numbers_in(tx, organisation, design).await?;
+    let missing: Vec<&str> = elements
+        .iter()
+        .copied()
+        .filter(|e| !out.contains_key(*e))
+        .collect();
+    if missing.is_empty() {
+        return Ok(out);
+    }
+    tx.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended('fathom work numbers|' || $1, 0))",
+        &[&organisation],
+    )
+    .await
+    .map_err(db)?;
+    let top: i64 = tx
+        .query_one(
+            "SELECT coalesce(max(number), 0) FROM work_numbers WHERE organisation_id = $1",
+            &[&organisation],
+        )
+        .await
+        .map_err(db)?
+        .get(0);
+    let mut sorted = missing;
+    sorted.sort();
+    for (i, element) in sorted.into_iter().enumerate() {
+        let number = top + 1 + i as i64;
+        tx.execute(
+            "INSERT INTO work_numbers (organisation_id, design_id, element_id, number) \
+             VALUES ($1, $2, $3, $4)",
+            &[&organisation, &design, &element, &number],
+        )
+        .await
+        .map_err(db)?;
+        out.insert(element.to_string(), number);
+    }
+    Ok(out)
+}
+
+/// Every Fathom number given in `design`, by element.
+pub async fn numbers_in(
+    tx: &Transaction<'_>,
+    organisation: &str,
+    design: &str,
+) -> Result<BTreeMap<String, i64>, String> {
+    let rows = tx
+        .query(
+            "SELECT element_id, number FROM work_numbers \
+             WHERE organisation_id = $1 AND design_id = $2",
+            &[&organisation, &design],
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(rows.iter().map(|r| (r.get(0), r.get(1))).collect())
+}
+
+/// Open work (or finished work, with `done`) in `designs`, at most `limit`, newest numbers
+/// first: the Work tab (sign-off r74).
+pub async fn work(
+    tx: &Transaction<'_>,
+    keys: &IndexKeys,
+    organisation: &str,
+    designs: &[String],
+    done: bool,
+    limit: i64,
+) -> Result<Vec<Hit>, String> {
+    if designs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let term = keys.term_hash(if done { WORK_DONE } else { WORK_OPEN });
+    let rows = tx
+        .query(
+            "SELECT t.design_id, t.element_id FROM estate_terms t \
+             LEFT JOIN work_numbers n ON n.organisation_id = t.organisation_id \
+                  AND n.design_id = t.design_id AND n.element_id = t.element_id \
+             WHERE t.organisation_id = $1 AND t.term = $2 AND t.design_id = ANY($3) \
+             ORDER BY n.number DESC NULLS LAST, t.design_id, t.element_id \
+             LIMIT $4",
+            &[&organisation, &term, &designs, &limit.clamp(1, 1000)],
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let pairs: Vec<(String, String)> = rows.iter().map(|r| (r.get(0), r.get(1))).collect();
+    open_rows(tx, keys, organisation, &pairs).await
 }
 
 /// One result, opened.
@@ -905,6 +1165,7 @@ mod tests {
             place: "A-01 U12".into(),
             addresses: vec!["10.20.0.1".into()],
             ports: Vec::new(),
+            work: None,
         }
     }
 

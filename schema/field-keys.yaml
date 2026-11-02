@@ -598,3 +598,11 @@ fields:
   PlanStep.seen: 552
   PhysicalPort.console_baud: 553
   PlanStep.compared: 554
+  # The Work tab's ticket parts (schema 0.35, 2026-11-02, sign-off r74). Appended after 0.34's 554.
+  MaintenancePlan.assigned_to: 555
+  MaintenancePlan.ticket: 556
+  Issue.assigned_to: 557
+  Issue.due: 558
+  Issue.ticket: 559
+  StockItem.assigned_to: 560
+  StockItem.ticket: 561

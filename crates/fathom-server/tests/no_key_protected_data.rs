@@ -877,6 +877,12 @@ const TABLES: &[TableClaim] = &[
         why: "the design version each design's index rows were last built from. Ids and a \
               number.",
     },
+    TableClaim {
+        name: "work_numbers",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the Fathom number of each piece of work (a plan, an issue, a spare that is out), \
+              beside its design and element ids. Ids and a number (sign-off r74).",
+    },
 ];
 
 /// Schemas a migration may create besides `public`. Each one's tables are named `schema.table`

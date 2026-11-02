@@ -6,6 +6,9 @@
 //! - `POST /organisations/{organisation}/estate/page`, body `{"kind": text?, "after":
 //!   [design, element]?}`: Inventory's Everywhere view, one page at a time.
 //!
+//! - `POST /organisations/{organisation}/work/page` and `…/designs/{design}/work`: the Work tab
+//!   (sign-off r74), below.
+//!
 //! - `POST /organisations/{organisation}/estate/far`, body `{"ends": [[design, element], ...]}`:
 //!   for each far end of a link between sites (ADR-0079 decision 5), whether the caller may
 //!   open that design, whether the port is still there, its device and name, and where that
@@ -51,7 +54,18 @@ pub(super) fn routes() -> Router<DesignApiState> {
             "/organisations/{organisation}/estate/far",
             post(far_handler),
         )
+        .route(
+            "/organisations/{organisation}/work/page",
+            post(work_handler),
+        )
+        .route(
+            "/organisations/{organisation}/designs/{design}/work",
+            post(design_work_handler),
+        )
 }
+
+/// The most rows the Work tab reads at once, open or finished.
+const WORK_LIMIT: i64 = 500;
 
 /// The most far ends one request may ask about.
 const FAR_PER_REQUEST: usize = 64;
@@ -64,7 +78,15 @@ type FarPort = (String, String, Option<(String, String)>);
 /// estate does not start a thousand rebuilds at once. The next search queues the next ones.
 const QUEUE_PER_REQUEST: usize = 16;
 
-const KINDS: [&str; 5] = ["device", "card", "optic", "power_supply", "spare"];
+const KINDS: [&str; 7] = [
+    "device",
+    "card",
+    "optic",
+    "power_supply",
+    "spare",
+    "plan",
+    "issue",
+];
 
 fn kind_of(m: &mut BTreeMap<String, Json>) -> Result<Option<String>, RouteError> {
     match m.remove("kind") {
@@ -228,6 +250,15 @@ async fn readable(
 }
 
 fn answer(hits: Vec<estate::Hit>, readable: &Readable, behind: usize) -> Response {
+    json_response(Json::Obj(answer_fields(hits, readable, behind)))
+}
+
+/// [`answer`]'s fields, for a route that adds its own.
+fn answer_fields(
+    hits: Vec<estate::Hit>,
+    readable: &Readable,
+    behind: usize,
+) -> BTreeMap<String, Json> {
     let hits = hits
         .into_iter()
         .map(|hit| {
@@ -245,7 +276,7 @@ fn answer(hits: Vec<estate::Hit>, readable: &Readable, behind: usize) -> Respons
     m.insert("hits".into(), Json::Arr(hits));
     m.insert("designs".into(), Json::Int(readable.ids.len() as i64));
     m.insert("behind".into(), Json::Int(behind as i64));
-    json_response(Json::Obj(m))
+    m
 }
 
 /// Count the readable designs whose rows are older than the design, and queue a few.
@@ -492,5 +523,194 @@ async fn far_handler(
     let mut m = BTreeMap::new();
     m.insert("ends".into(), Json::Arr(answers));
     m.insert("behind".into(), Json::Int(behind as i64));
+    Ok(json_response(Json::Obj(m)))
+}
+
+/// The display names of those of `accounts` who are members here. Someone who has left is
+/// simply not named; the client says "someone no longer here".
+async fn names_of(
+    tx: &deadpool_postgres::Transaction<'_>,
+    organisation: &str,
+    accounts: &[String],
+) -> Result<BTreeMap<String, String>, RouteError> {
+    if accounts.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    let rows = tx
+        .query(
+            "SELECT a.id, a.display_name FROM memberships m \
+               JOIN accounts a ON a.id = m.account_id \
+              WHERE m.organisation_id = $1 AND a.id = ANY($2)",
+            &[&organisation, &accounts],
+        )
+        .await
+        .map_err(SessionError::Db)?;
+    Ok(rows
+        .iter()
+        .map(|r| (r.get::<_, String>(0), r.get::<_, String>(1)))
+        .collect())
+}
+
+fn people_json(names: &BTreeMap<String, String>) -> Json {
+    Json::Obj(
+        names
+            .iter()
+            .map(|(id, name)| (id.clone(), Json::Str(name.clone())))
+            .collect(),
+    )
+}
+
+/// `POST /organisations/{organisation}/work/page`, body `{"done": bool?}`: the Work tab (sign-off
+/// r74). Every plan, issue and spare that is out in the designs the caller may read, open work by
+/// default and finished work with `done`, newest Fathom number first. Beside the rows: `people`,
+/// the names of the accounts work is assigned to, and `here`, who is in each of those designs now,
+/// from live presence, so a row can say who is on it. The browser asks again every few seconds
+/// while the tab is in view; each ask re-checks Read on every design, as a search does.
+async fn work_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let mut body = object_body(&signed.body, &["done"])?;
+    let done = match body.remove("done") {
+        None | Some(Json::Null) => false,
+        Some(Json::Bool(b)) => b,
+        Some(_) => return Err(SessionError::Malformed("done").into()),
+    };
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key, session) =
+        begin_org_keep(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let readable = readable(&tx, &auth).await?;
+    let tenant = ctx.tenant();
+    let org = tenant.to_string();
+    let keys = IndexKeys::derive(&tenant_key, &org);
+    let hits = estate::work(&tx, &keys, &org, &readable.ids, done, WORK_LIMIT)
+        .await
+        .map_err(|_| SessionError::Corrupt("estate index"))?;
+
+    let mut accounts: Vec<String> = hits
+        .iter()
+        .filter_map(|h| match &h.row {
+            Json::Obj(m) => match m.get("work") {
+                Some(Json::Obj(w)) => match w.get("assigned") {
+                    Some(Json::Str(a)) if !a.is_empty() => Some(a.clone()),
+                    _ => None,
+                },
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    accounts.sort();
+    accounts.dedup();
+    let names = names_of(&tx, &org, &accounts).await?;
+    let behind = catch_up(&state, &tx, tenant, &session, &readable).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+
+    let mut designs: Vec<&str> = hits.iter().map(|h| h.design.as_str()).collect();
+    designs.sort();
+    designs.dedup();
+    let mut here = BTreeMap::new();
+    for design in designs {
+        let people = state.live.hub.people_in(design);
+        if people.is_empty() {
+            continue;
+        }
+        let list = people
+            .into_iter()
+            .map(|(account, name)| {
+                let mut o = BTreeMap::new();
+                o.insert(
+                    "initials".into(),
+                    Json::Str(crate::live::initials_of(&name)),
+                );
+                o.insert("account".into(), Json::Str(account));
+                o.insert("name".into(), Json::Str(name));
+                Json::Obj(o)
+            })
+            .collect();
+        here.insert(design.to_string(), Json::Arr(list));
+    }
+
+    let mut m = answer_fields(hits, &readable, behind);
+    m.insert("people".into(), people_json(&names));
+    m.insert("here".into(), Json::Obj(here));
+    m.insert("you".into(), Json::Str(ctx.actor().to_string()));
+    Ok(json_response(Json::Obj(m)))
+}
+
+/// `POST /organisations/{organisation}/designs/{design}/work`, body `{}`: what one design's plan,
+/// issue and spare pages show of the Work tab's parts (sign-off r74). `numbers`, the Fathom number
+/// of each piece of work in it that has one yet, and `people`, everyone who may be assigned work
+/// there: the members holding Draw on the design's folder. The caller needs Read on it.
+async fn design_work_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor((organisation, design)): PathExtractor<(String, String)>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let _ = object_body(&signed.body, &[])?;
+    let design: DesignId = design
+        .parse()
+        .map_err(|_| SessionError::Malformed("design"))?;
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key, _session) =
+        begin_org_keep(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let org = ctx.tenant().to_string();
+    let scope = design_scope(&tx, &ctx, design)
+        .await?
+        .ok_or(SessionError::Authority(
+            grants::AuthorityError::NotAuthorised,
+        ))?;
+    let members: Vec<String> = tx
+        .query(
+            "SELECT account_id FROM memberships WHERE organisation_id = $1 ORDER BY account_id",
+            &[&org],
+        )
+        .await
+        .map_err(SessionError::Db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    let drawers = grants::members_holding(&tx, &auth, scope, &members, Capability::Draw)
+        .await
+        .map_err(SessionError::Authority)?;
+    let names = names_of(&tx, &org, &drawers).await?;
+    let numbers = estate::numbers_in(&tx, &org, &design.to_string())
+        .await
+        .map_err(|_| SessionError::Corrupt("work numbers"))?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    let mut m = BTreeMap::new();
+    m.insert(
+        "numbers".into(),
+        Json::Obj(
+            numbers
+                .into_iter()
+                .map(|(e, n)| (e, Json::Int(n)))
+                .collect(),
+        ),
+    );
+    m.insert("people".into(), people_json(&names));
     Ok(json_response(Json::Obj(m)))
 }
