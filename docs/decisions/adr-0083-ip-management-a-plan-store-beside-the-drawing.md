@@ -1,8 +1,9 @@
 # ADR-0083: IP management — a plan store beside the drawing
 
-**Status:** proposed 2026-11-02. Waiting on sign-off card `rip-ip-store` (Sign-offs page). Each
-choice below is marked with the pick pre-selected on the card; a different answer on the card
-changes this record before it is accepted. Nothing here is built.
+**Status:** accepted 2026-11-02. Key Maker approved sign-off card `rip-ip-store` at 02:10 UTC with
+the pre-selected picks, and also ticked the three items the card left out (ASNs, NAT and DNS names,
+route targets), so all three are in the first build (decision 4). Key Maker's note alongside: "i
+want it all". Nothing here is built.
 
 **Builds on:** ADR-0067 (prefixes and VLANs read from the drawing, the file importer), ADR-0079 (the
 estate index across designs, sealed with keyed search terms), ADR-0074 (sites, buildings and closets
@@ -53,7 +54,7 @@ Read from NetBox's own documentation on 2026-11-02. The docs site's version pick
 What NetBox's *reserved* status does not have, by those pages: a holder, a reason tied to a piece of
 work, or an end date. Nothing in them frees a reservation that was forgotten.
 
-## Decided (pending the card)
+## Decided
 
 1. **An IP plan store per organisation, beside the designs.** *(card: Where the plan lives, A)*
    Aggregates, prefixes, ranges, reservations, VRFs and VLAN groups live in one store for the
@@ -109,8 +110,19 @@ work, or an end date. Nothing in them frees a reservation that was forgotten.
    - **Next free**: the next free address, prefix of a given length, or VLAN ID in a group, skipping
      what is drawn in any design, reserved, or in a populated range.
    - **VLAN groups** with ID ranges and a scope by folder; IDs and names unique inside a group.
-   - Not in the first build, unticked on the card: ASNs, NAT inside/outside pairs, DNS names on
-     addresses, route targets between VRFs. Each is a later schema bump, not a redesign.
+   - **ASNs** *(ticked on the card)*: ASN ranges (2-byte and 4-byte, private and public) with an
+     RIR and a folder, single ASNs, and next free ASN in a range, under the same lock and allocation
+     key as decision 5. A drawn `RoutingProtocol` whose `local_as` or `peer_as` is inside a planned
+     range matches it, and the difference checks of decision 2 cover ASNs too (configured but not
+     planned, used twice). The schema's existing `Asn` scalar is reused.
+   - **NAT pairs and DNS names** *(ticked on the card)*: an address or reservation may name its
+     NAT outside address (one-to-one, both in the store, each in its own VRF), and may carry a DNS
+     name. A DNS name is text held in the store only. Fathom does not resolve it or reach a DNS
+     server (invariant 2), and it is sealed like the rest of the record.
+   - **Route targets between VRFs** *(ticked on the card)*: an `IpVrf` carries its route
+     distinguisher and its import and export route targets, as NetBox's VRF does. A `RouteTarget`
+     record is shared by the VRFs that use it. The check *configured differently* also compares
+     them with a linked drawn `RoutingInstance`.
 
 5. **Handing out the next free: on the server, once.** The server allocates under a transaction-level
    lock on the parent block, as NetBox does. Two things go further than NetBox today:
@@ -143,7 +155,9 @@ work, or an end date. Nothing in them frees a reservation that was forgotten.
 
 The store's kinds go into `schema/schema.yaml` as a new `plan` layer (they belong to an organisation,
 not a design, and never emit config): `IpAggregate`, `IpPrefix`, `IpRange`, `IpReservation`, `IpVrf`,
-`VlanGroup`, with `InterfaceAddress` and a new `IpNetwork` scalar for both families. One minor bump,
+`VlanGroup`, `AsnRange`, `AsnAssignment`, `RouteTarget`, with `InterfaceAddress`, the existing
+`Asn`, and a new `IpNetwork` scalar for both families. NAT outside and DNS name are fields on
+`IpReservation` and on a planned address, not kinds of their own. One minor bump,
 with its migration notes, before any code. The design graph's `Address`, `Vlan` and
 `RoutingInstance` are unchanged; the link between a plan record and a drawn node is by value, VRF
 name and the estate index, not a stored edge, so moving or deleting a device never orphans a plan.
@@ -155,13 +169,14 @@ name and the estate index, not a stored edge, so moving or deleting a device nev
 2. IPv6 in `ipam.ts`, tested against the Rust vectors; the derived views read both families.
 3. Inventory › Addresses as the tree, Reserve, next free, the block panel.
 4. The difference checks.
-5. Import of plan kinds and NetBox-shaped export.
-6. Orders (ADR-0084) use the store for their IP breakdown.
+5. ASNs, NAT pairs, DNS names and route targets: their records, next free ASN, and their checks.
+6. Import of plan kinds and NetBox-shaped export, ASNs and route targets included.
+7. Orders (ADR-0084) use the store for their IP breakdown.
 
 ## Consequences
 
 - One new table pair (records and their unique hashes), one HKDF label, one schema layer.
 - The derived prefixes of ADR-0067 stay: a design with no plan behaves exactly as it does today.
 - Key rotation re-encrypts the store in bounded batches, as the index does.
-- `docs/decisions/README.md` gets this row when it is accepted (left out of the proposal so the
-  six design threads open this week don't collide on the same line).
+- `docs/decisions/README.md` is current to ADR-0079 and gets this row with the next index refresh,
+  together with 0080 to 0085, so the design threads open this week don't collide on the same line.
