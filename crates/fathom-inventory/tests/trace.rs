@@ -869,7 +869,7 @@ fn two_uplinks_in_one_vlan_are_two_paths_not_none() {
     b.cable(dist[2], pb);
     let t = trace(&b.g, &a.to_string(), "10.10.0.12", None);
     assert!(
-        t.stopped.contains("more than one path through acc"),
+        t.stopped.contains("more than one path from acc"),
         "{}",
         t.stopped
     );
@@ -891,4 +891,276 @@ fn a_vlan_stretched_across_a_three_tier_campus_is_followed() {
     let t = trace(&b.g, &a.to_string(), "10.10.0.12", None);
     assert!(t.stopped.is_empty(), "{}", t.stopped);
     assert_eq!(kinds(&t).iter().filter(|k| **k == "switch").count(), 6);
+}
+
+// ---- round 1: SVIs and irb, and LAGs (r96, 2026-11-02) ------------------------
+
+impl B {
+    fn vlan(&mut self, dev: NodeId, id: u16) -> NodeId {
+        let v = self.node(NodeKind::Vlan);
+        self.set(v, "Vlan.vlan_id", scalar::VlanId(id));
+        self.edge(EdgeKind::HasVlan, dev, v);
+        v
+    }
+
+    /// An SVI (`Vlan20`) or irb unit: an interface with no port, the gateway of `vlan`.
+    fn svi(&mut self, dev: NodeId, vlan: NodeId, name: &str, addr: &str, len: u8) -> NodeId {
+        let i = self.node(NodeKind::Interface);
+        self.set(i, "Interface.name", scalar::InterfaceName(name.to_owned()));
+        self.edge(EdgeKind::HasInterface, dev, i);
+        let u = self.node(NodeKind::LogicalUnit);
+        self.set(u, "LogicalUnit.index", 0u32);
+        self.edge(EdgeKind::HasUnit, i, u);
+        let n = self.node(NodeKind::Address);
+        self.set(
+            n,
+            "Address.value",
+            scalar::InterfaceAddress {
+                addr: ip(addr),
+                prefix_len: len,
+            },
+        );
+        self.edge(EdgeKind::HasAddress, u, n);
+        self.edge(EdgeKind::L3Interface, vlan, u);
+        u
+    }
+
+    /// A LAG `name` on `dev` over `ports`: member interfaces on each port, and one unit on
+    /// the aggregate, in `vlan` or holding `addr`.
+    fn lag(
+        &mut self,
+        dev: NodeId,
+        name: &str,
+        ports: &[NodeId],
+        vlan: Option<NodeId>,
+        addr: Option<(&str, u8)>,
+    ) -> NodeId {
+        let agg = self.node(NodeKind::AggregateInterface);
+        self.set(
+            agg,
+            "AggregateInterface.name",
+            scalar::InterfaceName(name.to_owned()),
+        );
+        self.edge(EdgeKind::HasInterface, dev, agg);
+        for (k, p) in ports.iter().enumerate() {
+            let i = self.node(NodeKind::Interface);
+            self.set(
+                i,
+                "Interface.name",
+                scalar::InterfaceName(format!("{name}-m{k}")),
+            );
+            self.edge(EdgeKind::HasInterface, dev, i);
+            self.edge(EdgeKind::Occupies, i, *p);
+            self.edge(EdgeKind::MemberOfAggregate, i, agg);
+        }
+        let u = self.node(NodeKind::LogicalUnit);
+        self.set(u, "LogicalUnit.index", 0u32);
+        self.edge(EdgeKind::HasUnit, agg, u);
+        if let Some(v) = vlan {
+            self.edge(EdgeKind::VlanMember, u, v);
+        }
+        if let Some((a, l)) = addr {
+            let n = self.node(NodeKind::Address);
+            self.set(
+                n,
+                "Address.value",
+                scalar::InterfaceAddress {
+                    addr: ip(a),
+                    prefix_len: l,
+                },
+            );
+            self.edge(EdgeKind::HasAddress, u, n);
+        }
+        u
+    }
+
+    /// A switch with one VLAN, `access` access ports and a LAG `ae0` over `links` ports.
+    /// Returns (switch, vlan, access ports, LAG ports).
+    fn lag_switch(
+        &mut self,
+        name: &str,
+        access: usize,
+        links: usize,
+    ) -> (NodeId, NodeId, Vec<NodeId>, Vec<NodeId>) {
+        let d = self.device(name);
+        let c = self.chassis(d);
+        let v = self.vlan(d, 10);
+        let acc: Vec<NodeId> = (0..access)
+            .map(|i| {
+                let label = format!("Et{}", i + 1);
+                let p = self.port(c, &label);
+                self.unit(d, p, &label, None, Some(v));
+                p
+            })
+            .collect();
+        let lp: Vec<NodeId> = (0..links)
+            .map(|i| self.port(c, &format!("Et{}", 40 + i)))
+            .collect();
+        self.lag(d, "ae0", &lp, Some(v), None);
+        (d, v, acc, lp)
+    }
+}
+
+#[test]
+fn an_l3_switch_routes_between_vlans_through_its_svis() {
+    // pc-a (VLAN 10) to pc-b (VLAN 20) through core's Vlan10 and Vlan20 SVIs.
+    let mut b = B::new();
+    let core = b.device("core");
+    let cc = b.chassis(core);
+    let v10 = b.vlan(core, 10);
+    let v20 = b.vlan(core, 20);
+    let p1 = b.port(cc, "Et1");
+    let p2 = b.port(cc, "Et2");
+    b.unit(core, p1, "Et1", None, Some(v10));
+    b.unit(core, p2, "Et2", None, Some(v20));
+    b.svi(core, v10, "Vlan10", "10.10.0.1", 24);
+    b.svi(core, v20, "Vlan20", "10.20.0.1", 24);
+    let (a, pa) = b.host("pc-a", "10.10.0.11");
+    b.route(a, (ip("0.0.0.0"), 0), via("10.10.0.1"));
+    let (_, pb) = b.host("pc-b", "10.20.0.12");
+    b.cable(pa, p1);
+    b.cable(p2, pb);
+    let t = trace(&b.g, &a.to_string(), "10.20.0.12", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    let at_core = t
+        .hops
+        .iter()
+        .find(|h| h.kind == "device" && h.title == "core")
+        .expect("core routes");
+    assert!(
+        at_core.detail.contains(&"in on Vlan10.0".to_owned()),
+        "{:?}",
+        at_core.detail
+    );
+    assert!(
+        at_core.detail.contains(&"out on Vlan20.0".to_owned()),
+        "{:?}",
+        at_core.detail
+    );
+    let sw = t
+        .hops
+        .iter()
+        .find(|h| h.kind == "switch" && h.title == "core")
+        .expect("core switches into VLAN 20");
+    assert_eq!(sw.detail[0], "VLAN 20: from Vlan20.0, out on Et2");
+    assert_eq!(t.hops.last().unwrap().title, "pc-b");
+}
+
+#[test]
+fn an_svi_with_no_port_in_its_vlan_says_so() {
+    let mut b = B::new();
+    let core = b.device("core");
+    let v20 = b.vlan(core, 20);
+    b.svi(core, v20, "irb.20", "10.20.0.1", 24);
+    let t = trace(&b.g, &core.to_string(), "10.20.0.12", None);
+    assert!(
+        t.stopped
+            .contains("irb.20.0 is the gateway of VLAN 20, and no port of core"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_lag_between_two_switches_is_one_path_not_two() {
+    let mut b = B::new();
+    let (a, pa) = b.host("pc-a", "10.10.0.11");
+    let (_, pb) = b.host("pc-b", "10.10.0.12");
+    let (_, _, acc_a, lag_a) = b.lag_switch("acc", 1, 2);
+    let (_, _, acc_b, lag_b) = b.lag_switch("dist", 1, 2);
+    b.cable(pa, acc_a[0]);
+    b.cable(lag_a[0], lag_b[0]);
+    b.cable(lag_a[1], lag_b[1]);
+    b.cable(acc_b[0], pb);
+    let t = trace(&b.g, &a.to_string(), "10.10.0.12", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    let sw = t
+        .hops
+        .iter()
+        .find(|h| h.kind == "switch" && h.title == "acc")
+        .expect("acc");
+    assert!(
+        sw.detail
+            .iter()
+            .any(|l| l.starts_with("ae0 bundles 2 links to dist")),
+        "{:?}",
+        sw.detail
+    );
+    assert_eq!(kinds(&t).iter().filter(|k| **k == "switch").count(), 2);
+}
+
+#[test]
+fn lag_links_to_two_different_switches_are_still_two_paths() {
+    // MLAG: acc's ae0 goes to dist-1 and dist-2, both of which reach pc-b. Not ranked yet.
+    let mut b = B::new();
+    let (a, pa) = b.host("pc-a", "10.10.0.11");
+    let (_, pb) = b.host("pc-b", "10.10.0.12");
+    let (_, _, acc, lag) = b.lag_switch("acc", 1, 2);
+    let d1 = b.vlan10_switch("dist-1", 2);
+    let d2 = b.vlan10_switch("dist-2", 2);
+    let core = b.vlan10_switch("core", 3);
+    b.cable(pa, acc[0]);
+    b.cable(lag[0], d1[0]);
+    b.cable(lag[1], d2[0]);
+    b.cable(d1[1], core[0]);
+    b.cable(d2[1], core[1]);
+    b.cable(core[2], pb);
+    let t = trace(&b.g, &a.to_string(), "10.10.0.12", None);
+    assert!(
+        t.stopped.contains("more than one path from acc in VLAN 10"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_routed_lag_leaves_by_its_links() {
+    // r1's ae0.0 holds 10.1.1.1/24 over two links to acc's ae0; the host is on acc.
+    let mut b = B::new();
+    let r = b.device("r1");
+    let rc = b.chassis(r);
+    let rl: Vec<NodeId> = (0..2).map(|i| b.port(rc, &format!("xe-0/0/{i}"))).collect();
+    b.lag(r, "ae0", &rl, None, Some(("10.1.1.1", 24)));
+    let (_, _, acc, lag) = b.lag_switch("acc", 1, 2);
+    b.cable(rl[0], lag[0]);
+    b.cable(rl[1], lag[1]);
+    let (_, hp) = b.host("h", "10.1.1.5");
+    b.cable(acc[0], hp);
+    let t = trace(&b.g, &r.to_string(), "10.1.1.5", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert!(
+        t.hops[1].detail.contains(&"out on ae0.0".to_owned()),
+        "{:?}",
+        t.hops[1].detail
+    );
+    assert!(
+        t.hops.iter().any(|h| h
+            .detail
+            .iter()
+            .any(|l| l.starts_with("ae0 bundles 2 links to acc"))),
+        "{:?}",
+        t.hops
+    );
+}
+
+#[test]
+fn a_reply_comes_back_into_a_routed_lag() {
+    // The host answers r1: its default route reaches ae0.0 over acc's LAG.
+    let mut b = B::new();
+    let r = b.device("r1");
+    let rc = b.chassis(r);
+    let rl: Vec<NodeId> = (0..2).map(|i| b.port(rc, &format!("xe-0/0/{i}"))).collect();
+    b.lag(r, "ae0", &rl, None, Some(("10.1.1.1", 24)));
+    let lo = b.port(rc, "lo");
+    b.unit(r, lo, "lo0", Some((ip("192.0.2.1"), 32)), None);
+    let (_, _, acc, lag) = b.lag_switch("acc", 1, 2);
+    b.cable(rl[0], lag[0]);
+    b.cable(rl[1], lag[1]);
+    let (h, hp) = b.host("h", "10.1.1.5");
+    b.route(h, (ip("0.0.0.0"), 0), via("10.1.1.1"));
+    b.cable(acc[0], hp);
+    let t = trace(&b.g, &h.to_string(), "192.0.2.1", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    let end = t.hops.last().unwrap();
+    assert_eq!(end.title, "r1");
 }
