@@ -318,7 +318,7 @@ describe('setPortMac (schema 0.21)', () => {
   });
 });
 
-describe('setPortConsoleBaud (schema 0.33, ADR-0080 decision 10)', () => {
+describe('setPortConsoleBaud (schema 0.34, ADR-0080 decision 10)', () => {
   it('stores a speed in bits per second, clears with blank or null, and refuses what is not a speed', async () => {
     const { addSketchPort, createSketchDevice } = await import('./commands');
     const { readPhysicalPortFields: read, edgesOut: out, findNode: find } = await import('./model');

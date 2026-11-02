@@ -498,11 +498,31 @@ fn gated_fields() -> Vec<(NodeKind, fathom_ir::bag::FieldKey, &'static str, Read
             prose,
         ),
     ];
-    for f in [P::Title, P::WindowStart, P::WindowEnd, P::Author, P::Record] {
+    // 0.33: the checks after the work and pasted release notes are prose like the record.
+    for f in [
+        P::Title,
+        P::WindowStart,
+        P::WindowEnd,
+        P::Author,
+        P::Record,
+        P::Checks,
+        P::ReleaseNotes,
+    ] {
         v.push((NodeKind::MaintenancePlan, f.key(), "MaintenancePlan", prose));
     }
-    for f in [S::Change, S::Before, S::After, S::Note, S::DoneAt] {
+    for f in [
+        S::Change,
+        S::Before,
+        S::After,
+        S::Note,
+        S::DoneAt,
+        S::IfWhen,
+    ] {
         v.push((NodeKind::PlanStep, f.key(), "PlanStep", prose));
+    }
+    // 0.33: the step an If path hangs from and the issue opened from a step are design ids.
+    for f in [S::BranchOf, S::Issue] {
+        v.push((NodeKind::PlanStep, f.key(), "PlanStep", Read::Targets));
     }
     v.push((
         NodeKind::PlanStep,
@@ -516,7 +536,7 @@ fn gated_fields() -> Vec<(NodeKind, fathom_ir::bag::FieldKey, &'static str, Read
     for f in [I::Title, I::Author, I::OpenedAt, I::Outcome] {
         v.push((NodeKind::Issue, f.key(), "Issue", prose));
     }
-    for f in [I::Device, I::Plan] {
+    for f in [I::Device, I::Plan, I::Step] {
         v.push((NodeKind::Issue, f.key(), "Issue", Read::Targets));
     }
     for f in [IS::Question, IS::Detail, IS::Note, IS::AnsweredAt] {

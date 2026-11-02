@@ -5,10 +5,10 @@ import { FETCH_STEP_TITLE, recordStepTitle } from '../firmware/upgradePlan';
 import { compareSeen, expectationOf, hexValues, isCheckStep } from './checkSeen';
 
 const step = (ordinal: number, change: string): PlanStep => ({
-  id: `PlanStep:${ordinal}`, ordinal, kind: 'other', change, before: '', after: '', targets: ['Device:a'], edit: null, state: 'planned', note: '', doneAt: '', seen: '', compared: null,
+  id: `PlanStep:${ordinal}`, ordinal, kind: 'other', change, before: '', after: '', targets: ['Device:a'], edit: null, state: 'planned', note: '', doneAt: '', seen: '', compared: null, label: String(ordinal + 1), ifWhen: '', branchOf: '', ifTaken: false, issue: '',
 });
 const plan = (steps: PlanStep[]): Plan => ({
-  id: 'MaintenancePlan:1', title: 'Upgrade EX2300 to 23.4R2', windowStart: '', windowEnd: '', author: '', stage: 'doing', outcome: null, record: '', steps,
+  id: 'MaintenancePlan:1', title: 'Upgrade EX2300 to 23.4R2', windowStart: '', windowEnd: '', author: '', stage: 'doing', outcome: null, record: '', steps, ifPaths: {}, checks: [], releaseNotes: '',
 });
 
 const SHA256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';

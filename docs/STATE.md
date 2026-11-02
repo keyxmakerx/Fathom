@@ -611,6 +611,16 @@ recorded failed, naming the way back) and opens a new, separate plan from where 
 the reverse of every done step, newest first (a cable cut, a cut re-made, a move back, a field's old value, a LAG
 removed), a check step for each that went differently, and room for steps of its own. A recorded plan that did not
 succeed can be backed out too; it stays as written. `scripts/drive-backout.mjs` drives it.
+**From a plan to the night itself** (sign-off r73-plan-flow; schema 0.33, field keys 545-551). Any main-line
+step can carry one **If path**: a reason and a few steps, drawn dashed under it, numbered 3a, 3b; one level only.
+It is off the line of work (and out of `OP_PLAN_PREVIEW`) until a step that went differently takes it, when its
+steps come next. A plan holds **release notes** pasted through the gate, with the lines that name what it touches
+marked (hostnames, interfaces, models, a version a step names). A step that went differently offers
+**Troubleshoot**: It's down on its device, carrying the note; the issue saved names the step (`Issue.step`) and
+the step names the issue (`PlanStep.issue`). Every plan ends with **After the work**: Fathom's Checks on what it
+touched, then typed checks (a firmware plan writes three) answered OK, Not OK or Can't tell; Not OK offers
+Troubleshoot, and Record waits until none is open. AI apps can propose all of it; release notes reach them at the
+notes tier. Not built: a check answered by Fathom reading the device (waits on SNMP).
 
 **Mesh VPNs** (sign-off r16-overlay; schema 0.26, field keys 479-485). An `OverlayNetwork` (Tailscale,
 Headscale, NetBird, ZeroTier, WireGuard, Nebula or other) hangs off the root; `OverlayMember` edges to Devices

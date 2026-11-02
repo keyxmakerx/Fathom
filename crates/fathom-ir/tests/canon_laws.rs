@@ -219,9 +219,11 @@ fn schema_version_is_the_trees() {
     // 0.30 -> 0.31: one optional `Device` field, `firmware_target` (542); MINOR.
     // 0.31 -> 0.32: links between sites. Two optional fields on `ExternalPeer` (`far_design`,
     // `far_element`), two field keys (543-544); MINOR.
-    // 0.32 -> 0.33: Termix in the work. `PlanStep.seen`, `PlanStep.compared` and
-    // `PhysicalPort.console_baud`, three field keys (545-547); MINOR.
-    assert_eq!(SCHEMA_VERSION, "0.33");
+    // 0.32 -> 0.33: the plan-to-maintenance flow. Seven optional fields on `MaintenancePlan`,
+    // `PlanStep` and `Issue`, seven field keys (545-551); MINOR.
+    // 0.33 -> 0.34: Termix in the work. `PlanStep.seen`, `PlanStep.compared` and
+    // `PhysicalPort.console_baud`, three field keys (552-554); MINOR.
+    assert_eq!(SCHEMA_VERSION, "0.34");
 }
 
 #[test]
@@ -766,9 +768,10 @@ fn dispatch_names_every_registry_key() {
     // 446 -> 458: the room builder (512-523, schema 0.29).
     // 458 -> 476: stock (524-541, schema 0.30).
     // 476 -> 477: `Device.firmware_target` (542, schema 0.31).
-    // 477 -> 479: links between sites (543-544, schema 0.33).
-    // 479 -> 482: Termix in the work (545-547, schema 0.33).
-    assert_eq!(FIELD_KEYS.len(), 482, "the registry grew or shrank");
+    // 477 -> 479: links between sites (543-544, schema 0.32).
+    // 479 -> 486: the plan-to-maintenance flow (545-551, schema 0.33).
+    // 486 -> 489: Termix in the work (552-554, schema 0.34).
+    assert_eq!(FIELD_KEYS.len(), 489, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

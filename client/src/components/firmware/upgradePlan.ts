@@ -24,6 +24,8 @@ export interface UpgradeTemplate {
   deviceIds: string[];
   title: string;
   steps: UpgradeStep[];
+  /** Checks after the work (sign-off r73): written for every firmware plan, answered before Record. */
+  checks?: string[];
   /** Add the steps to this plan, still being planned, instead of making a new one. */
   intoPlan?: string;
 }
@@ -143,6 +145,7 @@ export function buildUpgradePlan({ devices, label, version, target, image, kit }
   const deviceIds = devices.map((x) => x.deviceId);
   const title = upgradeTitle(label, version);
   const record = (muted: string): UpgradeStep => ({ kind: 'other', change: `${recordStepTitle(version)}\n${muted}` });
+  const checks = upgradeChecks(version, devices.length);
 
   // No image from Fathom: the vendor's own update, as written steps.
   const useKit = !staged && (kit !== undefined || !isImagePlatform(platform));
@@ -155,6 +158,7 @@ export function buildUpgradePlan({ devices, label, version, target, image, kit }
         ...k.steps.map((s): UpgradeStep => ({ kind: 'other', change: `${s.title}\n${s.muted}`, ...(s.after !== undefined ? { after: s.after } : {}) })),
         record('Type it as Running on the device page, or paste the config. "Behind" clears on its own.'),
       ],
+      checks,
     };
   }
 
@@ -194,7 +198,18 @@ export function buildUpgradePlan({ devices, label, version, target, image, kit }
       step('Install and reboot', 'Inside the window.', 5),
       { ...record('Paste the config back; Checks clears "behind" on its own.'), ...(last !== undefined ? { after: last } : {}) },
     ],
+    checks,
   };
+}
+
+/** A firmware plan's own checks after the work: the version, the links, and what the device carries. */
+export function upgradeChecks(version: string, deviceCount: number): string[] {
+  const it = deviceCount === 1 ? 'The device' : 'Each device';
+  return [
+    `${it} reports ${version} as running`,
+    `${it}'s links and LAGs are back up`,
+    `What ${deviceCount === 1 ? 'it' : 'they'} carry works again (routing, VPNs, the services behind ${deviceCount === 1 ? 'it' : 'them'})`,
+  ];
 }
 
 /** The command a step's Copy button copies: its detail, with the link put in where the placeholder is. */

@@ -19,7 +19,7 @@ import { newUlid } from './ulid';
 const PINNED =
   'fathom-plain 1\n' +
   'THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n' +
-  'schema 0.33\n' +
+  'schema 0.34\n' +
   '\n' +
   '{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}\n';
 
@@ -316,7 +316,7 @@ describe('readPlain refusals', () => {
   });
 
   it('refuses a mismatched schema version', () => {
-    const bumped = PINNED.replace('schema 0.33', 'schema 0.1');
+    const bumped = PINNED.replace('schema 0.34', 'schema 0.1');
     try {
       readPlain(bytesOf(bumped));
       throw new Error('expected a refusal');
@@ -325,7 +325,7 @@ describe('readPlain refusals', () => {
       expect((e as PlainError).reason).toEqual({
         kind: 'schema-version-mismatch',
         found: '0.1',
-        supported: '0.33',
+        supported: '0.34',
       });
     }
   });
@@ -334,7 +334,7 @@ describe('readPlain refusals', () => {
   // is no migration chain, so nothing shipped since is allowed to narrow
   // what already opened.
   it('opens a 0.10 vector and writes it back at the current version', () => {
-    const at010 = PINNED.replace('schema 0.33', 'schema 0.10');
+    const at010 = PINNED.replace('schema 0.34', 'schema 0.10');
     const doc = readPlain(bytesOf(at010));
     const rewritten = new TextDecoder().decode(writePlain(doc));
     expect(rewritten).toEqual(PINNED);
@@ -343,39 +343,39 @@ describe('readPlain refusals', () => {
   // ADR-0059 decision 9: a design saved at 0.11 keeps opening at 0.14, and
   // saving it again writes the current version, not the one it arrived at.
   it('opens a 0.11 vector and writes it back at the current version', () => {
-    const at011 = PINNED.replace('schema 0.33', 'schema 0.11');
+    const at011 = PINNED.replace('schema 0.34', 'schema 0.11');
     const doc = readPlain(bytesOf(at011));
     const rewritten = new TextDecoder().decode(writePlain(doc));
     expect(rewritten).toEqual(PINNED);
   });
 
   it('opens a 0.12 vector and refuses a 0.12 header holding a 0.13-only kind', () => {
-    const at012 = PINNED.replace('schema 0.33', 'schema 0.12');
+    const at012 = PINNED.replace('schema 0.34', 'schema 0.12');
     expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(at012))))).toEqual(PINNED);
     const doc = readPlain(bytesOf(PINNED));
     const withLabel: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId('Label', newUlid()), existence: newUlid(), fields: {} }] };
-    const bad = new TextDecoder().decode(writePlain(withLabel)).replace('schema 0.33', 'schema 0.12');
+    const bad = new TextDecoder().decode(writePlain(withLabel)).replace('schema 0.34', 'schema 0.12');
     expect(() => readPlain(bytesOf(bad))).toThrow('Label does not exist in schema 0.12');
   });
 
   it('opens a 0.13 vector, holds a Label there, and refuses a Doc under a 0.13 header', () => {
-    const at013 = PINNED.replace('schema 0.33', 'schema 0.13');
+    const at013 = PINNED.replace('schema 0.34', 'schema 0.13');
     expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(at013))))).toEqual(PINNED);
     const doc = readPlain(bytesOf(PINNED));
     const withLabel: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId('Label', newUlid()), existence: newUlid(), fields: {} }] };
-    const label013 = new TextDecoder().decode(writePlain(withLabel)).replace('schema 0.33', 'schema 0.13');
+    const label013 = new TextDecoder().decode(writePlain(withLabel)).replace('schema 0.34', 'schema 0.13');
     expect(() => readPlain(bytesOf(label013))).not.toThrow();
     const withDoc: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId('Doc', newUlid()), existence: newUlid(), fields: {} }] };
-    const bad = new TextDecoder().decode(writePlain(withDoc)).replace('schema 0.33', 'schema 0.13');
+    const bad = new TextDecoder().decode(writePlain(withDoc)).replace('schema 0.34', 'schema 0.13');
     expect(() => readPlain(bytesOf(bad))).toThrow('Doc does not exist in schema 0.13');
   });
 
   it('opens a 0.14 vector and refuses a plan under a 0.14 header', () => {
-    const at014 = PINNED.replace('schema 0.33', 'schema 0.14');
+    const at014 = PINNED.replace('schema 0.34', 'schema 0.14');
     expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(at014))))).toEqual(PINNED);
     const doc = readPlain(bytesOf(PINNED));
     const withPlan: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId('MaintenancePlan', newUlid()), existence: newUlid(), fields: {} }] };
-    const bad = new TextDecoder().decode(writePlain(withPlan)).replace('schema 0.33', 'schema 0.14');
+    const bad = new TextDecoder().decode(writePlain(withPlan)).replace('schema 0.34', 'schema 0.14');
     expect(() => readPlain(bytesOf(bad))).toThrow('MaintenancePlan does not exist in schema 0.14');
   });
 
@@ -383,9 +383,9 @@ describe('readPlain refusals', () => {
     const doc = readPlain(bytesOf(PINNED));
     const withIssue: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId('Issue', newUlid()), existence: newUlid(), fields: {} }] };
     for (const v of ['0.15', '0.16', '0.17']) {
-      const older = PINNED.replace('schema 0.33', `schema ${v}`);
+      const older = PINNED.replace('schema 0.34', `schema ${v}`);
       expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(older))))).toEqual(PINNED);
-      const bad = new TextDecoder().decode(writePlain(withIssue)).replace('schema 0.33', `schema ${v}`);
+      const bad = new TextDecoder().decode(writePlain(withIssue)).replace('schema 0.34', `schema ${v}`);
       expect(() => readPlain(bytesOf(bad))).toThrow(`Issue does not exist in schema ${v}`);
     }
   });
@@ -397,9 +397,9 @@ describe('readPlain refusals', () => {
       nodes: [...doc.nodes, { id: formatNodeId('FirmwareTarget', newUlid()), existence: newUlid(), fields: {} }],
     };
     for (const v of ['0.15', '0.16', '0.17', '0.18']) {
-      const older = PINNED.replace('schema 0.33', `schema ${v}`);
+      const older = PINNED.replace('schema 0.34', `schema ${v}`);
       expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(older))))).toEqual(PINNED);
-      const bad = new TextDecoder().decode(writePlain(withTarget)).replace('schema 0.33', `schema ${v}`);
+      const bad = new TextDecoder().decode(writePlain(withTarget)).replace('schema 0.34', `schema ${v}`);
       expect(() => readPlain(bytesOf(bad))).toThrow(`FirmwareTarget does not exist in schema ${v}`);
     }
   });
@@ -410,28 +410,28 @@ describe('readPlain refusals', () => {
       ...doc,
       nodes: [...doc.nodes, { id: formatNodeId('FirmwareTarget', newUlid()), existence: newUlid(), fields: {} }],
     };
-    const older = new TextDecoder().decode(writePlain(withTarget)).replace('schema 0.33', 'schema 0.19');
+    const older = new TextDecoder().decode(writePlain(withTarget)).replace('schema 0.34', 'schema 0.19');
     expect(readPlain(bytesOf(older)).nodes).toHaveLength(withTarget.nodes.length);
   });
 
   it('opens a 0.20 design (0.21 added only a port field)', () => {
-    const older = PINNED.replace('schema 0.33', 'schema 0.20');
+    const older = PINNED.replace('schema 0.34', 'schema 0.20');
     expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(older))))).toEqual(PINNED);
   });
 
   it('opens a 0.21 design (0.22 added only port faces)', () => {
-    const older = PINNED.replace('schema 0.33', 'schema 0.21');
+    const older = PINNED.replace('schema 0.34', 'schema 0.21');
     expect(readPlain(bytesOf(older)).nodes).toHaveLength(1);
   });
 
   it('opens a 0.22 design (0.23 added only kinds), and refuses any older header holding a cable run or tie', () => {
     const doc = readPlain(bytesOf(PINNED));
-    const older = PINNED.replace('schema 0.33', 'schema 0.22');
+    const older = PINNED.replace('schema 0.34', 'schema 0.22');
     expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(older))))).toEqual(PINNED);
     for (const kind of ['CableRun', 'CableTie'] as const) {
       const withIt: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId(kind, newUlid()), existence: newUlid(), fields: {} }] };
       for (const v of ['0.20', '0.21', '0.22']) {
-        const bad = new TextDecoder().decode(writePlain(withIt)).replace('schema 0.33', `schema ${v}`);
+        const bad = new TextDecoder().decode(writePlain(withIt)).replace('schema 0.34', `schema ${v}`);
         expect(() => readPlain(bytesOf(bad))).toThrow(`${kind} does not exist in schema ${v}`);
       }
     }
@@ -440,29 +440,29 @@ describe('readPlain refusals', () => {
   it('opens a 0.23 design (0.24 added only Cable.needs_finishing) and it may hold a cable run', () => {
     const doc = readPlain(bytesOf(PINNED));
     const withRun: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId('CableRun', newUlid()), existence: newUlid(), fields: {} }] };
-    const older = new TextDecoder().decode(writePlain(withRun)).replace('schema 0.33', 'schema 0.23');
+    const older = new TextDecoder().decode(writePlain(withRun)).replace('schema 0.34', 'schema 0.23');
     expect(readPlain(bytesOf(older)).nodes).toHaveLength(2);
   });
 
   it('opens a 0.25 design (0.26 added only kinds), and refuses any older header holding a VPN', () => {
     const doc = readPlain(bytesOf(PINNED));
-    const older = PINNED.replace('schema 0.33', 'schema 0.25');
+    const older = PINNED.replace('schema 0.34', 'schema 0.25');
     expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(older))))).toEqual(PINNED);
     const withIt: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId('OverlayNetwork', newUlid()), existence: newUlid(), fields: {} }] };
     for (const v of ['0.10', '0.23', '0.24', '0.25']) {
-      const bad = new TextDecoder().decode(writePlain(withIt)).replace('schema 0.33', `schema ${v}`);
+      const bad = new TextDecoder().decode(writePlain(withIt)).replace('schema 0.34', `schema ${v}`);
       expect(() => readPlain(bytesOf(bad))).toThrow(`OverlayNetwork does not exist in schema ${v}`);
     }
   });
 
   it('opens a 0.26 design (0.27 added only kinds), and refuses any older header holding a lesson', () => {
     const doc = readPlain(bytesOf(PINNED));
-    const older = PINNED.replace('schema 0.33', 'schema 0.26');
+    const older = PINNED.replace('schema 0.34', 'schema 0.26');
     expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(older))))).toEqual(PINNED);
     for (const kind of ['Lesson', 'LessonStep'] as const) {
       const withIt: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId(kind, newUlid()), existence: newUlid(), fields: {} }] };
       for (const v of ['0.24', '0.25', '0.26']) {
-        const bad = new TextDecoder().decode(writePlain(withIt)).replace('schema 0.33', `schema ${v}`);
+        const bad = new TextDecoder().decode(writePlain(withIt)).replace('schema 0.34', `schema ${v}`);
         expect(() => readPlain(bytesOf(bad))).toThrow(`${kind} does not exist in schema ${v}`);
       }
     }
@@ -470,59 +470,65 @@ describe('readPlain refusals', () => {
 
   it('opens a 0.27 design (0.28 added only kinds), and refuses any older header holding a card', () => {
     const doc = readPlain(bytesOf(PINNED));
-    const older = PINNED.replace('schema 0.33', 'schema 0.27');
+    const older = PINNED.replace('schema 0.34', 'schema 0.27');
     expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(older))))).toEqual(PINNED);
     const withIt: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId('Card', newUlid()), existence: newUlid(), fields: {} }] };
     for (const v of ['0.25', '0.26', '0.27']) {
-      const bad = new TextDecoder().decode(writePlain(withIt)).replace('schema 0.33', `schema ${v}`);
+      const bad = new TextDecoder().decode(writePlain(withIt)).replace('schema 0.34', `schema ${v}`);
       expect(() => readPlain(bytesOf(bad))).toThrow(`Card does not exist in schema ${v}`);
     }
   });
 
   it('opens a 0.28 design (0.29 added only kinds), and refuses any older header holding a room', () => {
     const doc = readPlain(bytesOf(PINNED));
-    const older = PINNED.replace('schema 0.33', 'schema 0.28');
+    const older = PINNED.replace('schema 0.34', 'schema 0.28');
     expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(older))))).toEqual(PINNED);
     const withIt: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId('Room', newUlid()), existence: newUlid(), fields: {} }] };
     for (const v of ['0.27', '0.28']) {
-      const bad = new TextDecoder().decode(writePlain(withIt)).replace('schema 0.33', `schema ${v}`);
+      const bad = new TextDecoder().decode(writePlain(withIt)).replace('schema 0.34', `schema ${v}`);
       expect(() => readPlain(bytesOf(bad))).toThrow(`Room does not exist in schema ${v}`);
     }
   });
 
   it('opens a 0.29 design (0.30 added only kinds), and refuses any older header holding a spare', () => {
     const doc = readPlain(bytesOf(PINNED));
-    const older = PINNED.replace('schema 0.33', 'schema 0.29');
+    const older = PINNED.replace('schema 0.34', 'schema 0.29');
     expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(older))))).toEqual(PINNED);
     for (const kind of ['Store', 'StockItem', 'StockLevel'] as const) {
       const withIt: Document = { ...doc, nodes: [...doc.nodes, { id: formatNodeId(kind, newUlid()), existence: newUlid(), fields: {} }] };
       for (const v of ['0.27', '0.28', '0.29']) {
-        const bad = new TextDecoder().decode(writePlain(withIt)).replace('schema 0.33', `schema ${v}`);
+        const bad = new TextDecoder().decode(writePlain(withIt)).replace('schema 0.34', `schema ${v}`);
         expect(() => readPlain(bytesOf(bad))).toThrow(`${kind} does not exist in schema ${v}`);
       }
     }
   });
 
   it('opens a 0.30 design (0.31 added only a Device field)', () => {
-    const older = PINNED.replace('schema 0.33', 'schema 0.30');
+    const older = PINNED.replace('schema 0.34', 'schema 0.30');
     expect(older).not.toEqual(PINNED);
     expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(older))))).toEqual(PINNED);
   });
 
   it('opens a 0.31 design (0.32 added only ExternalPeer fields)', () => {
-    const older = PINNED.replace('schema 0.33', 'schema 0.31');
+    const older = PINNED.replace('schema 0.34', 'schema 0.31');
     expect(older).not.toEqual(PINNED);
     expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(older))))).toEqual(PINNED);
   });
 
-  it('opens a 0.32 design (0.33 added only fields on PlanStep and PhysicalPort)', () => {
-    const older = PINNED.replace('schema 0.33', 'schema 0.32');
+  it('opens a 0.32 design (0.33 added only plan, step and issue fields)', () => {
+    const older = PINNED.replace('schema 0.34', 'schema 0.32');
+    expect(older).not.toEqual(PINNED);
+    expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(older))))).toEqual(PINNED);
+  });
+
+  it('opens a 0.33 design (0.34 added only fields on PlanStep and PhysicalPort)', () => {
+    const older = PINNED.replace('schema 0.34', 'schema 0.33');
     expect(older).not.toEqual(PINNED);
     expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(older))))).toEqual(PINNED);
   });
 
   it('refuses an unlisted older version', () => {
-    const at09 = PINNED.replace('schema 0.33', 'schema 0.9');
+    const at09 = PINNED.replace('schema 0.34', 'schema 0.9');
     try {
       readPlain(bytesOf(at09));
       throw new Error('expected a refusal');
@@ -542,7 +548,7 @@ describe('readPlain refusals', () => {
       ],
     };
     const atCurrent = new TextDecoder().decode(writePlain(withNetwork));
-    const at010 = atCurrent.replace('schema 0.33', 'schema 0.10');
+    const at010 = atCurrent.replace('schema 0.34', 'schema 0.10');
     try {
       readPlain(bytesOf(at010));
       throw new Error('expected a refusal');
@@ -564,7 +570,7 @@ describe('readPlain refusals', () => {
       nodes: [...doc.nodes, { id: formatNodeId('Tag', newUlid()), existence: newUlid(), fields: {} }],
     };
     const atCurrent = new TextDecoder().decode(writePlain(withTag));
-    const at010 = atCurrent.replace('schema 0.33', 'schema 0.10');
+    const at010 = atCurrent.replace('schema 0.34', 'schema 0.10');
     try {
       readPlain(bytesOf(at010));
       throw new Error('expected a refusal');
@@ -586,7 +592,7 @@ describe('readPlain refusals', () => {
       nodes: [...doc.nodes, { id: formatNodeId('Tag', newUlid()), existence: newUlid(), fields: {} }],
     };
     const at012 = new TextDecoder().decode(writePlain(withTag));
-    const at011 = at012.replace('schema 0.33', 'schema 0.11');
+    const at011 = at012.replace('schema 0.34', 'schema 0.11');
     try {
       readPlain(bytesOf(at011));
       throw new Error('expected a refusal');
@@ -602,14 +608,14 @@ describe('readPlain refusals', () => {
   });
 
   it('opens a 0.12 vector and writes it back at the current version', () => {
-    const at012 = PINNED.replace('schema 0.33', 'schema 0.12');
+    const at012 = PINNED.replace('schema 0.34', 'schema 0.12');
     const doc = readPlain(bytesOf(at012));
     const rewritten = new TextDecoder().decode(writePlain(doc));
     expect(rewritten).toEqual(PINNED);
   });
 
   it('opens a 0.13 vector and writes it back at the current version', () => {
-    const at013 = PINNED.replace('schema 0.33', 'schema 0.13');
+    const at013 = PINNED.replace('schema 0.34', 'schema 0.13');
     const doc = readPlain(bytesOf(at013));
     const rewritten = new TextDecoder().decode(writePlain(doc));
     expect(rewritten).toEqual(PINNED);
@@ -625,7 +631,7 @@ describe('readPlain refusals', () => {
     // The same payload under the current header round-trips.
     expect(new TextDecoder().decode(writePlain(readPlain(bytesOf(at016))))).toEqual(at016);
     for (const old of ['0.12', '0.13', '0.14', '0.15']) {
-      const atOld = at016.replace('schema 0.33', `schema ${old}`);
+      const atOld = at016.replace('schema 0.34', `schema ${old}`);
       try {
         readPlain(bytesOf(atOld));
         throw new Error('expected a refusal');

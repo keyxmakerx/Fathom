@@ -18,7 +18,7 @@ import {
   type Answer,
 } from '../../document/issues';
 import type { Document } from '../../document/model';
-import { PlanRefusal, addStep, createPlan } from '../../document/plans';
+import { PlanRefusal, addStep, createPlan, linkStepIssue } from '../../document/plans';
 import { buildCanon, isTypingTarget, type Canon } from '../checks/checksModel';
 import { ENGINE_DOWN, refusalText } from '../plans/usePlansController';
 import { outcomeText } from './pointing';
@@ -63,8 +63,9 @@ export interface TroubleController {
   /** Saved issues, newest first. */
   issues: Issue[];
   issuesOf(deviceId: string): Issue[];
-  /** Right-click "It's down" or the device's button: a chassis or device id. Returns whether a session opened. */
-  start(elementId: string): boolean;
+  /** Right-click "It's down" or the device's button: a chassis or device id. Returns whether a session opened.
+   * `from`: opened from a plan (Troubleshoot on a step, or a check after the work); the issue saved says so. */
+  start(elementId: string, from?: { stepId: string | null; said: string }): boolean;
   openIssue(id: string): void;
   focusStep(index: number): void;
   answer(index: number, answer: Answer): void;
@@ -223,15 +224,27 @@ export function useTroubleController({ doc, boot, redact, applyDocChange, actor,
   /** Saves the draft as an issue unless it is already saved; returns the doc and the issue's id. */
   const saveInto = (doc0: Document, d: Draft, gate: TextGate): { doc: Document; id: string } => {
     if (d.savedId !== null) return { doc: doc0, id: d.savedId };
-    return createIssue(doc0, {
+    const point = outcomeText(d.steps.map((s, i) => ({ ordinal: i, answer: s.answer, suspects: s.suspects, tests: s.tests })));
+    const from = doc0.batches.length;
+    const made = createIssue(doc0, {
       deviceId: d.deviceId,
       title: issueTitle(d.deviceName),
       steps: toDraftSteps(d),
       author: latest.current.authorName,
-      outcome: outcomeText(d.steps.map((s, i) => ({ ordinal: i, answer: s.answer, suspects: s.suspects, tests: s.tests }))),
+      // The words that sent it here are the plan's own, already stored; they lead the outcome.
+      outcome: d.from ? `From ${d.from.said}\n${point}` : point,
+      ...(d.from?.stepId ? { step: d.from.stepId } : {}),
       gate,
       ...stamp(),
     });
+    if (!d.from?.stepId) return made;
+    // The step says the issue back, in the same undo step, unless its plan is recorded and so never changes.
+    try {
+      return { doc: foldFrom(linkStepIssue(made.doc, d.from.stepId, made.id, stamp()), from), id: made.id };
+    } catch (e) {
+      if (e instanceof PlanRefusal && e.code === 'recorded') return made;
+      throw e;
+    }
   };
 
   const api: TroubleController = {
@@ -254,11 +267,12 @@ export function useTroubleController({ doc, boot, redact, applyDocChange, actor,
     confirmingClose,
     issues,
     issuesOf: (deviceId) => (doc ? issuesTouching(doc, deviceId, canon) : []),
-    start: (elementId) => {
+    start: (elementId, from) => {
       const now = latest.current;
       if (now.doc == null || !now.canEdit) return false;
       const device = buildCanon(now.doc)(elementId);
-      const made = startDraft(now.doc, device, Date.now());
+      const started = startDraft(now.doc, device, Date.now());
+      const made = started && from ? { ...started, from } : started;
       if (made == null) {
         setNotice("That is not a device Fathom can ask about.");
         return false;

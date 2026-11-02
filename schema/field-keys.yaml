@@ -586,7 +586,15 @@ fields:
   # Links between sites (schema 0.32, 2026-10-27, ADR-0079). Appended after 0.31's 542.
   ExternalPeer.far_design: 543
   ExternalPeer.far_element: 544
-  # Termix in the work (schema 0.33, 2026-11-01, ADR-0080). Appended after 0.32's 544.
-  PlanStep.seen: 545
-  PhysicalPort.console_baud: 546
-  PlanStep.compared: 547
+  # The plan-to-maintenance flow (schema 0.33, 2026-11-01, sign-off r73). Appended after 0.32's 544.
+  MaintenancePlan.checks: 545
+  MaintenancePlan.release_notes: 546
+  PlanStep.if_when: 547
+  PlanStep.branch_of: 548
+  PlanStep.if_taken: 549
+  PlanStep.issue: 550
+  Issue.step: 551
+  # Termix in the work (schema 0.34, 2026-11-01, ADR-0080). Appended after 0.33's 551.
+  PlanStep.seen: 552
+  PhysicalPort.console_baud: 553
+  PlanStep.compared: 554

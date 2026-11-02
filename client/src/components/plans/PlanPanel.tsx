@@ -3,7 +3,8 @@
 import { useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 
-import { OUTCOMES, backOutSteps, currentStep, type Plan, type PlanOutcome, type PlanStep } from '../../document/plans';
+import { OUTCOMES, backOutSteps, checksLeft, currentStep, type Plan, type PlanOutcome, type PlanStep } from '../../document/plans';
+import { AfterTheWork, IfPath, PlanChecks, ReleaseNotes, StepFollowUp, TakeIfPath } from './PlanFlow';
 import { clampOffset } from '../checks/checksModel';
 import { AddStepForm } from './AddStepForm';
 import { DeviceNames, Touches, TypedSentence, WhySlot, usePasteMark } from './PlanParts';
@@ -102,6 +103,7 @@ function PlanMode({ controller, plan }: { controller: PlansController; plan: Pla
               <StepHead step={s} />
             </p>
             <BeforeAfter step={s} />
+            <IfPath controller={controller} plan={plan} step={s} />
             {canEdit && (
               <p className="plans-step__tools">
                 <button type="button" className="plans-link" aria-label={`Move step ${i + 1} up`} disabled={i === 0} data-step={s.id} data-tool="up" onClick={() => tool(s.id, 'up', i, controller.moveStep(s.id, i - 1))}>
@@ -126,6 +128,8 @@ function PlanMode({ controller, plan }: { controller: PlansController; plan: Pla
       <PlanSnippets plan={plan} devices={devices} />
       {devices.length > 0 && <AlertingReminder />}
       {canEdit && devices.length > 0 && termixWindow.choice}
+      <PlanChecks controller={controller} plan={plan} />
+      <ReleaseNotes controller={controller} plan={plan} />
       {canEdit && (
         <p>
           <button
@@ -178,10 +182,12 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
     return (
       <li className="plans-step plans-step--marked" data-testid="plans-step" data-state={step.state}>
         <p className="plans-step__head">
-          {step.state === 'done' ? '✓' : '≠'} {step.ordinal + 1} · {firstLine(step.change)}
+          {step.state === 'done' ? '✓' : '≠'} {step.label} · {firstLine(step.change)}
         </p>
         {step.note !== '' && <p className="plans-step__note">{step.note}</p>}
         <SeenKept step={step} />
+        <StepFollowUp controller={controller} plan={plan} step={step} />
+        <TakeIfPath controller={controller} plan={plan} step={step} />
       </li>
     );
   }
@@ -189,7 +195,7 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
     return (
       <li className="plans-step plans-step--later" data-testid="plans-step" data-state="later">
         <p className="plans-step__head">
-          … {step.ordinal + 1} · {firstLine(step.change)}
+          … {step.label} · {firstLine(step.change)}
         </p>
       </li>
     );
@@ -336,6 +342,7 @@ function DoMode({ controller, plan }: { controller: PlansController; plan: Plan 
       <AllDevices controller={controller} plan={plan} />
       <PlanSnippets plan={plan} devices={devicesOf(controller, plan)} />
       <BackOut controller={controller} plan={plan} />
+      <ReleaseNotes controller={controller} plan={plan} />
     </>
   );
 }
@@ -348,8 +355,10 @@ function RecordMode({ controller, plan }: { controller: PlansController; plan: P
   const paste = usePasteMark();
   const devices = controller.doc ? touchedDevices(controller.doc, controller.canon, plan) : [];
   const termixWindow = useTermixWindow(plan, devicesOf(controller, plan));
+  const left = checksLeft(plan);
   return (
     <>
+      {(!recorded || plan.checks.length > 0) && <AfterTheWork controller={controller} plan={plan} />}
       <h3 className="plans-label" id={`${textId}-o`}>
         Outcome
       </h3>
@@ -388,10 +397,10 @@ function RecordMode({ controller, plan }: { controller: PlansController; plan: P
       ) : (
         controller.canEdit && (
           <p>
-            <button type="button" className="plans-btn btn-main" disabled={outcome == null} onClick={() => outcome != null && void controller.record(outcome, text, paste.pasted).then((ok) => (ok ? termixWindow.recorded() : undefined))}>
+            <button type="button" className="plans-btn btn-main" disabled={outcome == null || left > 0} onClick={() => outcome != null && void controller.record(outcome, text, paste.pasted).then((ok) => (ok ? termixWindow.recorded() : undefined))}>
               Record
             </button>
-            {outcome == null && <span className="plans-note"> Choose an outcome.</span>}
+            {left > 0 ? <span className="plans-note"> Answer the checks after the work first.</span> : outcome == null && <span className="plans-note"> Choose an outcome.</span>}
           </p>
         )
       )}
@@ -406,13 +415,15 @@ function RecordMode({ controller, plan }: { controller: PlansController; plan: P
         {plan.steps.map((s) => (
           <li key={s.id} className="plans-step plans-step--recorded" data-state={s.state}>
             <p className="plans-step__head">
-              {s.state === 'done' ? '✓' : '≠'} {s.ordinal + 1} · {firstLine(s.change)}
+              {s.state === 'done' ? '✓' : '≠'} {s.label} · {firstLine(s.change)}
             </p>
             {s.note !== '' && <p className="plans-step__note">{s.note}</p>}
             <SeenKept step={s} />
+            <StepFollowUp controller={controller} plan={plan} step={s} />
           </li>
         ))}
       </ol>
+      {plan.releaseNotes !== '' && <ReleaseNotes controller={controller} plan={plan} />}
     </>
   );
 }

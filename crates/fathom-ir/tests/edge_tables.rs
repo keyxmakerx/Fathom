@@ -133,11 +133,12 @@ fn slot_type_covers_every_registry_key() {
     // 446 -> 458: the room builder (512-523, schema 0.29).
     // 458 -> 476: stock (524-541, schema 0.30).
     // 476 -> 477: `Device.firmware_target` (542, schema 0.31).
-    // 477 -> 479: links between sites (543-544, schema 0.33).
-    // 479 -> 482: Termix in the work (545-547, schema 0.33).
+    // 477 -> 479: links between sites (543-544, schema 0.32).
+    // 479 -> 486: the plan-to-maintenance flow (545-551, schema 0.33).
+    // 486 -> 489: Termix in the work (552-554, schema 0.34).
     assert_eq!(
         FIELD_KEYS.len(),
-        482,
+        489,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

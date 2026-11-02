@@ -359,7 +359,7 @@ export const CONSOLE_BAUD_MIN = 50;
 export const CONSOLE_BAUD_MAX = 4_000_000;
 
 /**
- * `PhysicalPort.console_baud` (schema 0.33, ADR-0080 decision 10, `u32`): a console port's speed in
+ * `PhysicalPort.console_baud` (schema 0.34, ADR-0080 decision 10, `u32`): a console port's speed in
  * bits per second, typed as `9600` or `115 200`; `value: null` or blank clears it. One batch.
  */
 export function setPortConsoleBaud(doc: Document, portId: string, value: string | null, opts?: Actor): Document {

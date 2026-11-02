@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.33";
+export const SCHEMA_VERSION = "0.34";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -586,10 +586,10 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Doc: ["title", "body", "how", "model"],
   DocLink: ["title", "url"],
   DocFile: ["name", "size", "media", "checked", "removed", "file_id", "sha256"],
-  MaintenancePlan: ["title", "window_start", "window_end", "author", "stage", "outcome", "record"],
-  PlanStep: ["ordinal", "kind", "targets", "change", "before", "after", "edit", "state", "note", "done_at", "seen", "compared"],
+  MaintenancePlan: ["title", "window_start", "window_end", "author", "stage", "outcome", "record", "checks", "release_notes"],
+  PlanStep: ["ordinal", "kind", "targets", "change", "before", "after", "edit", "state", "note", "done_at", "if_when", "branch_of", "if_taken", "issue", "seen", "compared"],
   FieldValue: ["definition", "value"],
-  Issue: ["title", "device", "author", "opened_at", "stage", "outcome", "plan"],
+  Issue: ["title", "device", "author", "opened_at", "stage", "outcome", "plan", "step"],
   IssueStep: ["ordinal", "topic", "question", "detail", "targets", "answer", "note", "answered_at"],
   FirmwareTarget: ["model", "version", "platform", "image", "image_sha256", "note"],
   CableRun: ["form", "side", "label"],
@@ -1087,7 +1087,14 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "Device.firmware_target": 542,
   "ExternalPeer.far_design": 543,
   "ExternalPeer.far_element": 544,
-  "PlanStep.seen": 545,
-  "PhysicalPort.console_baud": 546,
-  "PlanStep.compared": 547,
+  "MaintenancePlan.checks": 545,
+  "MaintenancePlan.release_notes": 546,
+  "PlanStep.if_when": 547,
+  "PlanStep.branch_of": 548,
+  "PlanStep.if_taken": 549,
+  "PlanStep.issue": 550,
+  "Issue.step": 551,
+  "PlanStep.seen": 552,
+  "PhysicalPort.console_baud": 553,
+  "PlanStep.compared": 554,
 };

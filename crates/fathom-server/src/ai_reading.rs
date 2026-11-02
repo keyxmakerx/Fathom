@@ -273,17 +273,17 @@ const NODES: &[NodeRow] = &[
     NodeRow {
         tier: Tier::Layout,
         kind: NodeKind::MaintenancePlan,
-        fields: fields!(MaintenancePlanField: Title, WindowStart, WindowEnd, Stage, Outcome),
+        fields: fields!(MaintenancePlanField: Title, WindowStart, WindowEnd, Stage, Outcome, Checks),
     },
     NodeRow {
         tier: Tier::Layout,
         kind: NodeKind::PlanStep,
-        fields: fields!(PlanStepField: Ordinal, Kind, Targets, Change, State, DoneAt),
+        fields: fields!(PlanStepField: Ordinal, Kind, Targets, Change, State, DoneAt, IfWhen, BranchOf, IfTaken, Issue),
     },
     NodeRow {
         tier: Tier::Layout,
         kind: NodeKind::Issue,
-        fields: fields!(IssueField: Title, Device, OpenedAt, Stage, Plan),
+        fields: fields!(IssueField: Title, Device, OpenedAt, Stage, Plan, Step),
     },
     NodeRow {
         tier: Tier::Layout,
@@ -310,7 +310,7 @@ const NODES: &[NodeRow] = &[
     NodeRow {
         tier: Tier::Notes,
         kind: NodeKind::MaintenancePlan,
-        fields: fields!(MaintenancePlanField: Record),
+        fields: fields!(MaintenancePlanField: Record, ReleaseNotes),
     },
     NodeRow {
         tier: Tier::Notes,

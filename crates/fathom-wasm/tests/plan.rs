@@ -402,3 +402,143 @@ fn hostile_lines_do_not_trap_and_the_engine_stays_usable() {
     assert_eq!(again[5].step[2], "", "{:?}", again[5].step);
     assert!(again[5].step[4].contains("sw-a"), "{:?}", again[5].step);
 }
+
+/// Hang an If path step (schema 0.33) under the plan's step `parent`, and say whether it was taken.
+fn add_if_step(shell: &mut Shell, plan: &str, parent: &str, edit: &str, taken: bool) -> String {
+    let plain = shell.handle(OP_EXPORT_PLAIN, &[]);
+    let mut g: Graph = fathom_workspace::read_plain(&plain).unwrap();
+    let resolve = |g: &Graph, s: &str| match fathom_inventory::parse_display_id(g, s) {
+        Some(ElementId::Node(n)) => n,
+        other => panic!("{s}: {other:?}"),
+    };
+    let (plan_id, parent_id) = (resolve(&g, plan), resolve(&g, parent));
+    g.begin_batch(BatchId(at(2)), "if path").unwrap();
+    let set = |g: &mut Graph, n: NodeId, key: fathom_ir::bag::FieldKey, text: &str, p: u128| {
+        let v = fathom_inventory::parse_into_slot(key, text)
+            .or_else(|_| fathom_rules::graph::box_from_text(key, text))
+            .expect("parse");
+        g.set_field_boxed(ElementId::Node(n), key, v, prov(p))
+            .unwrap();
+    };
+    let step = g
+        .insert_node(NodeKind::PlanStep, at(900), prov(900))
+        .unwrap();
+    g.insert_edge(EdgeKind::HasStep, at(901), plan_id, step, prov(901))
+        .unwrap();
+    set(&mut g, step, PlanStepField::Ordinal.key(), "0", 902);
+    g.set_field(
+        ElementId::Node(step),
+        PlanStepField::Kind.key(),
+        PlanStepKind::Cable,
+        prov(903),
+    )
+    .unwrap();
+    set(
+        &mut g,
+        step,
+        PlanStepField::Change.key(),
+        "if it fails",
+        904,
+    );
+    set(&mut g, step, PlanStepField::Edit.key(), edit, 905);
+    g.set_field(
+        ElementId::Node(step),
+        PlanStepField::State.key(),
+        PlanStepState::Planned,
+        prov(906),
+    )
+    .unwrap();
+    set(&mut g, step, PlanStepField::BranchOf.key(), parent, 907);
+    set(
+        &mut g,
+        parent_id,
+        PlanStepField::IfWhen.key(),
+        "it is not back",
+        908,
+    );
+    if taken {
+        set(&mut g, parent_id, PlanStepField::IfTaken.key(), "true", 909);
+    }
+    g.end_batch().unwrap();
+    let bytes = fathom_workspace::write_plain(&g).unwrap();
+    let r = shell.handle(OP_LOAD_PLAIN, &bytes);
+    assert!(
+        matches!(decode_reply(&r), Ok(ReplyView::FaceRows(_))),
+        "{r:?}"
+    );
+    step.to_string()
+}
+
+#[test]
+fn an_if_path_is_off_the_line_until_it_is_taken_then_comes_right_after_its_step() {
+    let (mut shell, cable1, a1, a2, b2, _) = estate();
+    let plan = add_plan(
+        &mut shell,
+        &[
+            Spec {
+                edit: format!("cable\t{a2}\t{b2}"),
+                state: "planned",
+            },
+            Spec {
+                edit: format!("cut\t{cable1}"),
+                state: "planned",
+            },
+        ],
+    );
+    let first = preview(&mut shell, &plan);
+    assert_eq!(first.len(), 2);
+    let parent = first[0].step[0].clone();
+    let branch = add_if_step(
+        &mut shell,
+        &plan,
+        &parent,
+        &format!("cable\t{a1}\t{b2}"),
+        false,
+    );
+    let untaken = preview(&mut shell, &plan);
+    assert_eq!(
+        untaken
+            .iter()
+            .map(|o| o.step[0].clone())
+            .collect::<Vec<_>>(),
+        vec![parent.clone(), first[1].step[0].clone()],
+        "an If path not taken is not on the line"
+    );
+
+    let (mut shell, cable1, a1, a2, b2, _) = estate();
+    let plan = add_plan(
+        &mut shell,
+        &[
+            Spec {
+                edit: format!("cable\t{a2}\t{b2}"),
+                state: "planned",
+            },
+            Spec {
+                edit: format!("cut\t{cable1}"),
+                state: "planned",
+            },
+        ],
+    );
+    let first = preview(&mut shell, &plan);
+    let parent = first[0].step[0].clone();
+    let branch_taken = add_if_step(
+        &mut shell,
+        &plan,
+        &parent,
+        &format!("cable\t{a1}\t{b2}"),
+        true,
+    );
+    assert_eq!(branch, branch_taken, "the same ids, built the same way");
+    let taken = preview(&mut shell, &plan);
+    assert_eq!(
+        taken.iter().map(|o| o.step[0].clone()).collect::<Vec<_>>(),
+        vec![parent, branch_taken, first[1].step[0].clone()],
+        "a taken If path comes right after its step"
+    );
+    // b2 carries the main step's cable by then: the If path's cable meets it.
+    assert!(
+        taken[1].step[3].contains("already carries a cable"),
+        "{:?}",
+        taken[1].step[3]
+    );
+}

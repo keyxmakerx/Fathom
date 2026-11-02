@@ -6,10 +6,10 @@ import { FETCH_STEP_TITLE, LINK_PLACEHOLDER, recordStepTitle } from '../firmware
 import { LINK_INPUT, commandSteps, hostIdsFor, sendSnippets, snippetFolder, snippetFor, snippetSummary } from './snippets';
 
 const step = (ordinal: number, change: string, after = ''): PlanStep => ({
-  id: `PlanStep:${ordinal}`, ordinal, kind: 'other', change, before: '', after, targets: ['Device:a'], edit: null, state: 'planned', note: '', doneAt: '', seen: '', compared: null,
+  id: `PlanStep:${ordinal}`, ordinal, kind: 'other', change, before: '', after, targets: ['Device:a'], edit: null, state: 'planned', note: '', doneAt: '', seen: '', compared: null, label: String(ordinal + 1), ifWhen: '', branchOf: '', ifTaken: false, issue: '',
 });
 const plan = (steps: PlanStep[], title = 'Upgrade EX2300 to 23.4R2'): Plan => ({
-  id: 'MaintenancePlan:1', title, windowStart: '', windowEnd: '', author: '', stage: 'planned', outcome: null, record: '', steps,
+  id: 'MaintenancePlan:1', title, windowStart: '', windowEnd: '', author: '', stage: 'planned', outcome: null, record: '', steps, ifPaths: {}, checks: [], releaseNotes: '',
 });
 
 const firmware = plan([

@@ -120,6 +120,20 @@ export function setNodeField(b: Build, id: string, key: string, value: FieldEntr
   b.doc = { ...b.doc, nodes: b.doc.nodes.map((n) => (n.id === id ? { ...n, fields: { ...n.fields, [key]: next } } : n)) };
 }
 
+/** Takes a field off a node (presence absent), keeping the old value in history. Nothing to do when it is not set. */
+export function clearNodeField(b: Build, id: string, key: string): void {
+  const node = b.doc.nodes.find((n) => n.id === id);
+  if (!node) throw new UnknownReferenceError(id, parseNodeId(id).kind);
+  const existing = node.fields[key];
+  if (existing === undefined || existing.presence !== 'set') return;
+  requireFieldName(key);
+  const prov = assertHand(b.doc, { assertedAt: b.now, assertedBy: b.actor, supersedes: existing.prov });
+  b.doc = archiveField(prov.doc, id, key, existing);
+  const absent: FieldEntry = { presence: 'absent', prov: prov.id };
+  b.doc = { ...b.doc, nodes: b.doc.nodes.map((n) => (n.id === id ? { ...n, fields: { ...n.fields, [key]: absent } } : n)) };
+  b.ops.push({ type: 'set_field', element: id, key, presence: 'absent', prov: prov.id });
+}
+
 export function tombstone(b: Build, nodeIds: Set<string>, edgeIds: Set<string>): void {
   b.doc = {
     ...b.doc,
