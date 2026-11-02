@@ -594,3 +594,7 @@ fields:
   PlanStep.if_taken: 549
   PlanStep.issue: 550
   Issue.step: 551
+  # Termix in the work (schema 0.34, 2026-11-01, ADR-0080). Appended after 0.33's 551.
+  PlanStep.seen: 552
+  PhysicalPort.console_baud: 553
+  PlanStep.compared: 554

@@ -85,12 +85,15 @@ import { loadSheet, saveSheet } from './sheetPref';
 import { StockPanel, StoreBinPage } from './StockPanel';
 import { saveLook } from '../drawing/look';
 import { PasswordsPage, useVaultCount } from '../vault/Screens';
-import { VaultPlaceContext } from '../vault/useVault';
+import { VaultPlaceContext, useVault } from '../vault/useVault';
+import { edgesIn } from '../../document/model';
+import { referenceFor } from '../termix/loginRef';
 import { LabelsPreview } from '../../print/LabelsPreview';
 import { isLabelListKind, labelItems, storeLabel, type LabelItem } from '../../print/labels';
 import { isStoreId, storeById } from '../../document/stock';
 import { loadJsonPref, saveJsonPref } from '../../prefs';
 import { TermixSend } from '../termix/TermixSend';
+import { presenceCell, useTermixPresence } from '../termix/useTermixPresence';
 import { useTermix } from '../termix/useTermix';
 import { askPanel } from '../drawing/Editor';
 import { DEVICE_WORDS, deviceMenuItems, type MenuActions, type MenuItem } from '../drawing/contextMenuItems';
@@ -276,7 +279,9 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     return out;
   }, [rowsByKind, where, whereOn]);
 
-  const baseRows = useMemo<InvRow[]>(() => {
+  const termix = useTermix();
+  const presence = useTermixPresence(termix.url, kind === 'devices');
+  const docRows = useMemo<InvRow[]>(() => {
     if (!doc) return [];
     if (kind === 'addresses') {
       const labelOf = (id: string) => rowsByKind.devices?.find((r) => r.deviceNodeId === id)?.title ?? id;
@@ -287,6 +292,11 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     if (kind === 'models') return modelTableRows(modelRows(doc));
     return scoped[kind] ?? [];
   }, [doc, kind, rowsByKind, scoped, networksDerived, ipam, where]);
+  // In Termix (ADR-0080 decision 11): Termix's view laid over the rows, never written to the design.
+  const baseRows = useMemo<InvRow[]>(
+    () => (kind === 'devices' && termix.url ? docRows.map((r) => ({ ...r, cells: { ...r.cells, termix: presenceCell(presence.hosts, r.cells.mgmt ?? '') } })) : docRows),
+    [docRows, kind, termix.url, presence.hosts],
+  );
 
   const kindLabel = KINDS.find((k) => k.key === kind)!.label;
   // A page opens from the whole design, not the Where-narrowed list: a link can lead outside Where.
@@ -317,6 +327,13 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const firmwareCount = useMemo(() => (doc ? imageRows({ doc, images: firmware?.server.images ?? [] }).length : 0), [doc, firmware?.server.images]);
   const vaultPlace = useContext(VaultPlaceContext);
   const vaultCount = useVaultCount(vaultPlace?.organisation ?? '');
+  // A vault login marked on a ticked device goes to Termix by reference (ADR-0080 decision 3).
+  const vaultForTermix = useVault(vaultPlace?.organisation ?? '');
+  const termixReference = (chassisId: string): string | null => {
+    const deviceId = doc ? edgesIn(doc, chassisId, 'HasChassis')[0]?.from : undefined;
+    if (!vaultPlace || !deviceId || vaultForTermix.load.status !== 'ready') return null;
+    return referenceFor(vaultForTermix.load.value.outside, vaultPlace.design, deviceId)?.reference ?? null;
+  };
   const counts: Record<Kind, number | null> = {
     devices: scoped.devices?.length ?? 0,
     racks: scoped.racks?.length ?? 0,
@@ -351,7 +368,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
     push({ kind: h.kind, q: '', sorts: [], view: '', open: h.row.key, tab: '', find: '' });
   };
 
-  const columnsAll = useMemo(() => allColumns(kind, fieldDefs), [kind, fieldDefs]);
+  const columnsAll = useMemo(() => allColumns(kind, fieldDefs).filter((c) => c.key !== 'termix' || termix.url !== null), [kind, fieldDefs, termix.url]);
   const columns = useMemo<Column[]>(() => {
     const keys = prefs ?? loadColumnPrefs(kind) ?? defaultColumnKeys(kind, lens);
     const byKey = new Map(columnsAll.map((c) => [c.key, c]));
@@ -714,7 +731,6 @@ export function InventoryPlace(props: InventoryPlaceProps) {
 
   // Sign-off r58: a device's menu here is the canvas's own list. What only the canvas can do (open it,
   // trace, plan) goes there and runs; the rest happens here.
-  const termix = useTermix();
   const onCanvas = (then: string) => (id: string) => onShowOnRack({ kind: 'chassis', id }, then);
   const openDevicePageOf = (sel: Selection) => {
     const row = (rowsByKind.devices ?? []).find((r) => r.selection?.kind === sel.kind && r.selection.id === sel.id);
@@ -972,8 +988,10 @@ export function InventoryPlace(props: InventoryPlaceProps) {
                 termix={
                   kind === 'devices' ? (
                     <TermixSend
-                      devices={checkedRows.map((r) => ({ name: r.cells.name ?? '', address: r.cells.mgmt ?? '' }))}
+                      devices={checkedRows.map((r) => ({ name: r.cells.name ?? '', address: r.cells.mgmt ?? '', reference: termixReference(r.key) }))}
                       design={shellProps.path[shellProps.path.length - 1]?.label ?? ''}
+                      onSent={presence.refresh}
+                      onRefresh={columns.some((c) => c.key === 'termix') ? presence.refresh : undefined}
                     />
                   ) : undefined
                 }

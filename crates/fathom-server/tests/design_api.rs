@@ -508,7 +508,7 @@ fn a_plain_face_payload(seed: u128) -> Vec<u8> {
 /// of writing, whose minor component this is. Kept as its own named constant
 /// rather than a bare `14` at each call site so a future schema bump has one
 /// place to change.
-const CURRENT_SCHEMA_WIRE_VERSION: u32 = 33;
+const CURRENT_SCHEMA_WIRE_VERSION: u32 = 34;
 
 fn save_body(schema_version: u32, payload: &[u8]) -> Vec<u8> {
     let mut out = schema_version.to_le_bytes().to_vec();
@@ -1759,8 +1759,26 @@ async fn the_termix_address_needs_a_session_and_is_the_origin_alone() {
     assert_eq!(status, "200");
     assert_eq!(
         String::from_utf8_lossy(&body),
-        "{\"off\":null,\"url\":\"https://termix.example.lan\"}\n"
+        "{\"fetch\":false,\"off\":null,\"url\":\"https://termix.example.lan\"}\n"
     );
+
+    // Fetch from Termix is off until a steward turns it on (ADR-0080 decision 9), and saying the
+    // same thing twice changes nothing.
+    let fetch = format!("{path}/fetch");
+    let (status, body) = call(addr, &estate.steward, "POST", &fetch, b"{\"on\":true}\n").await;
+    assert_eq!(status, "200");
+    let text = String::from_utf8_lossy(&body);
+    assert!(text.contains("\"changed\":true"), "{text}");
+    let (_, body) = call(addr, &estate.steward, "POST", &fetch, b"{\"on\":true}\n").await;
+    let text = String::from_utf8_lossy(&body);
+    assert!(text.contains("\"changed\":false"), "{text}");
+    let (_, body) = call(addr, &estate.steward, "GET", &path, b"").await;
+    assert_eq!(
+        String::from_utf8_lossy(&body),
+        "{\"fetch\":true,\"off\":null,\"url\":\"https://termix.example.lan\"}\n"
+    );
+    let (status, _) = call(addr, &estate.steward, "POST", &fetch, b"{\"on\":\"yes\"}\n").await;
+    assert_eq!(status, "400");
 
     // Turned off by a steward, the address is not given out (ADR-0078 decision 6).
     let (status, _) = call(addr, &estate.steward, "POST", &path, b"{\"off\":true}\n").await;
@@ -1768,13 +1786,14 @@ async fn the_termix_address_needs_a_session_and_is_the_origin_alone() {
     let (_, body) = call(addr, &estate.steward, "GET", &path, b"").await;
     assert_eq!(
         String::from_utf8_lossy(&body),
-        "{\"off\":\"everyone\",\"url\":null}\n"
+        "{\"fetch\":false,\"off\":\"everyone\",\"url\":null}\n"
     );
     let people = format!("/organisations/{}/people", estate.organisation);
     let (_, body) = call(addr, &estate.steward, "GET", &people, b"").await;
     let text = String::from_utf8_lossy(&body);
     assert!(text.contains("\"termix\":true"), "{text}");
     assert!(text.contains("\"termix_off\":true"), "{text}");
+    assert!(text.contains("\"termix_fetch\":true"), "{text}");
 }
 
 // ---------------------------------------------------------------------------

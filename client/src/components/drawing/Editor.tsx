@@ -29,6 +29,8 @@ import { DevicePhoto } from '../docs/DevicePhoto';
 import { FirmwareChip, FirmwareSection } from '../firmware/FirmwareSection';
 import { AboutSection } from '../learn/AboutSection';
 import { TermixActions } from '../termix/TermixActions';
+import { ConnectLines } from '../termix/ConnectLines';
+import { SerialConsole } from '../termix/SerialConsole';
 import { MenuItems } from './ContextMenu';
 import { DEVICE_WORDS, type MenuItem } from './contextMenuItems';
 import {
@@ -303,6 +305,25 @@ export function SupplyAction({
         {label}
       </button>
       {refusal != null ? <div style={CAUTION_STYLE}>{refusal}</div> : null}
+    </>
+  );
+}
+
+/** ADR-0080 decision 10: a console port's speed, and the ways to open it (Termix's Serial, PuTTY, screen, picocom). */
+function PortConsoleField({ port, actions }: { port: PortView; actions: EditorActions }) {
+  if (port.service !== 'console') return null;
+  return (
+    <>
+      <div className="drawing-editor__field">
+        <div className="drawing-editor__field-label">Console speed</div>
+        <EditableValue
+          value={port.consoleBaud !== undefined ? String(port.consoleBaud) : ''}
+          placeholder={ABSENT}
+          editorKind="text"
+          onCommit={actions.onEdit ? (v) => actions.onEdit!({ kind: 'port', id: port.id, field: 'console_baud', value: v }) : undefined}
+        />
+      </div>
+      <SerialConsole {...(port.consoleBaud !== undefined ? { baud: port.consoleBaud } : {})} />
     </>
   );
 }
@@ -2372,7 +2393,8 @@ function panelFor(
                             />
                           </div>
                           {(chassis.managementAddress ?? '').length > 0 ? <div style={TYPED_NOTE_STYLE}>{MANAGEMENT_ADDRESS_NOTE}</div> : null}
-                          <TermixActions name={chassis.hostname} address={chassis.managementAddress ?? ''} />
+                          <TermixActions name={chassis.hostname} address={chassis.managementAddress ?? ''} deviceId={chassis.deviceId} />
+                          <ConnectLines address={chassis.managementAddress ?? ''} folded />
                           <TermixReveal chassisId={chassis.id} />
                         </Fold>
                       ),
@@ -2758,6 +2780,7 @@ function panelFor(
             surface fixture — `port.id` is the same `PhysicalPort` node id
             either way, `locatePort`'s own contract). */}
         <PortMacField port={port} actions={actions} />
+        <PortConsoleField port={port} actions={actions} />
         <FieldsSection ownerId={port.id} actions={actions} />
         <NotesSection ownerId={port.id} actions={actions} />
         <TagsSection ownerId={port.id} actions={actions} />
@@ -2779,6 +2802,7 @@ function panelFor(
         <PortCableSection view={view} port={port} actions={actions} />
         <OpticSection port={port} siblings={occupant.ports} actions={actions} />
         <PortMacField port={port} actions={actions} />
+        <PortConsoleField port={port} actions={actions} />
         <FieldsSection ownerId={port.id} actions={actions} />
         <NotesSection ownerId={port.id} actions={actions} />
         <TagsSection ownerId={port.id} actions={actions} />
@@ -2799,6 +2823,7 @@ function panelFor(
       <PortCableSection view={view} port={port} actions={actions} />
       <OpticSection port={port} siblings={fixture.ports} actions={actions} />
       <PortMacField port={port} actions={actions} />
+      <PortConsoleField port={port} actions={actions} />
       <FieldsSection ownerId={port.id} actions={actions} />
       <NotesSection ownerId={port.id} actions={actions} />
       <TagsSection ownerId={port.id} actions={actions} />

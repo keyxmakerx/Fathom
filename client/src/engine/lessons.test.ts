@@ -63,7 +63,7 @@ const ALL = lessons();
 
 describe('the lessons', () => {
   it('are the first lessons, each on a sample that exists', () => {
-    expect(ALL.map((l) => l.id)).toEqual(['vlans', 'single-points-of-failure', 'firewall-policy-order', 'cards-and-optics']);
+    expect(ALL.map((l) => l.id)).toEqual(['vlans', 'single-points-of-failure', 'firewall-policy-order', 'cards-and-optics', 'doing-a-plan-with-termix']);
     for (const l of ALL) expect(() => sample(l.sample)).not.toThrow();
   });
 

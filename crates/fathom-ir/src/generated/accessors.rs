@@ -1172,6 +1172,11 @@ mod body {
         pub fn mac<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::MacAddress, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(462))
         }
+        /// `PhysicalPort.console_baud` — `u32`, card `0..1`, emit `—`.
+        /// 0.34 (ADR-0080 decision 10): a console port's speed in bits per second (9600, 115200). Absent means nobody has said; the vendor's documented default is offered where a source exists.
+        pub fn console_baud<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(553))
+        }
         /// `PhysicalPort.speed_max` — `Bandwidth`, card `0..1`, emit `—`.
         /// The cage's ceiling — a different fact from Interface.speed.
         pub fn speed_max<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Bandwidth, crate::bag::FieldError> {
@@ -2015,6 +2020,16 @@ mod body {
         /// 0.33 — design id of the It's down issue Troubleshoot opened from this step.
         pub fn issue<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(550))
+        }
+        /// `PlanStep.seen` — `Text`, card `0..1`, emit `—`.
+        /// 0.34 (ADR-0080 decision 5): what the person pasted for a check step, the device's answer to the step's command, after the redaction gate ran on it in the browser. Kept on Record; Fathom compares it and never acts on it.
+        pub fn seen<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(552))
+        }
+        /// `PlanStep.compared` — `Text`, card `0..1`, emit `—`.
+        /// 0.34 (ADR-0080 decision 5): Fathom's comparison when the paste was kept, `matches`, `differs` or `cant_tell`, a tab, and why. Worked out in the browser from the paste before the gate, which removes long hex values such as a file's hash; only the gated paste and this line are kept, and the why passes the gate too.
+        pub fn compared<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(554))
         }
     }
     /// Typed reads for `FieldValue` fields.
@@ -2996,6 +3011,9 @@ mod body {
             549 => Some((core::any::TypeId::of::<bool>(), "bool")),
             550 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             551 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            552 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            553 => Some((core::any::TypeId::of::<u32>(), "u32")),
+            554 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             _ => None,
         }
     }
@@ -3490,6 +3508,9 @@ mod body {
             549 => crate::canon::slot_to::<bool>(549, "bool", value),
             550 => crate::canon::slot_to::<crate::scalar::Text>(550, "crate::scalar::Text", value),
             551 => crate::canon::slot_to::<crate::scalar::Text>(551, "crate::scalar::Text", value),
+            552 => crate::canon::slot_to::<crate::scalar::Text>(552, "crate::scalar::Text", value),
+            553 => crate::canon::slot_to::<u32>(553, "u32", value),
+            554 => crate::canon::slot_to::<crate::scalar::Text>(554, "crate::scalar::Text", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -3982,6 +4003,9 @@ mod body {
             549 => crate::canon::slot_from::<bool>(j),
             550 => crate::canon::slot_from::<crate::scalar::Text>(j),
             551 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            552 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            553 => crate::canon::slot_from::<u32>(j),
+            554 => crate::canon::slot_from::<crate::scalar::Text>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

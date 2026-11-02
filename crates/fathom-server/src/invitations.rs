@@ -1186,6 +1186,7 @@ pub async fn people(
     let typing = crate::teaching::on_in_organisation(tx, &organisation).await?;
     let termix_off = crate::termix::off_in_organisation(tx, &organisation).await?;
     let termix_off_everyone = crate::termix::off_for_everyone(tx, &organisation).await?;
+    let termix_fetch = crate::termix::fetch_on(tx, &organisation).await?;
     let added: BTreeSet<&str> = views
         .iter()
         .filter(|v| v.row.state == State::Added)
@@ -1266,6 +1267,7 @@ pub async fn people(
         ("people", Json::Arr(out)),
         ("waiting_count", Json::Int(waiting_count)),
         ("termix_off", Json::Bool(termix_off_everyone)),
+        ("termix_fetch", Json::Bool(termix_fetch)),
     ]))
 }
 

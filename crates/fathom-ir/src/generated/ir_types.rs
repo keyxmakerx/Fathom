@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.33";
+    pub const SCHEMA_VERSION: &str = "0.34";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -1069,7 +1069,7 @@ mod body {
                 NodeKind::SystemSettings => &[crate::bag::FieldKey(198), crate::bag::FieldKey(199), crate::bag::FieldKey(200)],
                 NodeKind::NtpServer => &[crate::bag::FieldKey(201), crate::bag::FieldKey(202), crate::bag::FieldKey(203)],
                 NodeKind::SyslogTarget => &[crate::bag::FieldKey(204), crate::bag::FieldKey(205), crate::bag::FieldKey(206), crate::bag::FieldKey(207)],
-                NodeKind::PhysicalPort => &[crate::bag::FieldKey(208), crate::bag::FieldKey(209), crate::bag::FieldKey(210), crate::bag::FieldKey(211), crate::bag::FieldKey(325), crate::bag::FieldKey(412), crate::bag::FieldKey(413), crate::bag::FieldKey(462), crate::bag::FieldKey(212), crate::bag::FieldKey(213), crate::bag::FieldKey(214), crate::bag::FieldKey(215)],
+                NodeKind::PhysicalPort => &[crate::bag::FieldKey(208), crate::bag::FieldKey(209), crate::bag::FieldKey(210), crate::bag::FieldKey(211), crate::bag::FieldKey(325), crate::bag::FieldKey(412), crate::bag::FieldKey(413), crate::bag::FieldKey(462), crate::bag::FieldKey(553), crate::bag::FieldKey(212), crate::bag::FieldKey(213), crate::bag::FieldKey(214), crate::bag::FieldKey(215)],
                 NodeKind::Cable => &[crate::bag::FieldKey(216), crate::bag::FieldKey(217), crate::bag::FieldKey(218), crate::bag::FieldKey(219), crate::bag::FieldKey(220), crate::bag::FieldKey(221), crate::bag::FieldKey(222), crate::bag::FieldKey(223), crate::bag::FieldKey(224), crate::bag::FieldKey(312), crate::bag::FieldKey(478)],
                 NodeKind::PassiveNode => &[crate::bag::FieldKey(225), crate::bag::FieldKey(226), crate::bag::FieldKey(227), crate::bag::FieldKey(228), crate::bag::FieldKey(229), crate::bag::FieldKey(350)],
                 NodeKind::Premises => &[crate::bag::FieldKey(230), crate::bag::FieldKey(231), crate::bag::FieldKey(232), crate::bag::FieldKey(233), crate::bag::FieldKey(234), crate::bag::FieldKey(235), crate::bag::FieldKey(236)],
@@ -1096,7 +1096,7 @@ mod body {
                 NodeKind::DocLink => &[crate::bag::FieldKey(355), crate::bag::FieldKey(356)],
                 NodeKind::DocFile => &[crate::bag::FieldKey(357), crate::bag::FieldKey(358), crate::bag::FieldKey(359), crate::bag::FieldKey(360), crate::bag::FieldKey(361), crate::bag::FieldKey(362), crate::bag::FieldKey(363)],
                 NodeKind::MaintenancePlan => &[crate::bag::FieldKey(364), crate::bag::FieldKey(365), crate::bag::FieldKey(366), crate::bag::FieldKey(367), crate::bag::FieldKey(368), crate::bag::FieldKey(369), crate::bag::FieldKey(370), crate::bag::FieldKey(545), crate::bag::FieldKey(546)],
-                NodeKind::PlanStep => &[crate::bag::FieldKey(371), crate::bag::FieldKey(372), crate::bag::FieldKey(373), crate::bag::FieldKey(374), crate::bag::FieldKey(375), crate::bag::FieldKey(376), crate::bag::FieldKey(377), crate::bag::FieldKey(378), crate::bag::FieldKey(379), crate::bag::FieldKey(380), crate::bag::FieldKey(547), crate::bag::FieldKey(548), crate::bag::FieldKey(549), crate::bag::FieldKey(550)],
+                NodeKind::PlanStep => &[crate::bag::FieldKey(371), crate::bag::FieldKey(372), crate::bag::FieldKey(373), crate::bag::FieldKey(374), crate::bag::FieldKey(375), crate::bag::FieldKey(376), crate::bag::FieldKey(377), crate::bag::FieldKey(378), crate::bag::FieldKey(379), crate::bag::FieldKey(380), crate::bag::FieldKey(547), crate::bag::FieldKey(548), crate::bag::FieldKey(549), crate::bag::FieldKey(550), crate::bag::FieldKey(552), crate::bag::FieldKey(554)],
                 NodeKind::FieldValue => &[crate::bag::FieldKey(382), crate::bag::FieldKey(381)],
                 NodeKind::Issue => &[crate::bag::FieldKey(390), crate::bag::FieldKey(391), crate::bag::FieldKey(392), crate::bag::FieldKey(393), crate::bag::FieldKey(394), crate::bag::FieldKey(395), crate::bag::FieldKey(396), crate::bag::FieldKey(551)],
                 NodeKind::IssueStep => &[crate::bag::FieldKey(397), crate::bag::FieldKey(398), crate::bag::FieldKey(399), crate::bag::FieldKey(400), crate::bag::FieldKey(401), crate::bag::FieldKey(402), crate::bag::FieldKey(403), crate::bag::FieldKey(404)],
@@ -8826,6 +8826,7 @@ mod body {
         PlateX,
         PlateY,
         Mac,
+        ConsoleBaud,
         SpeedMax,
         Transceiver,
         Notes,
@@ -8833,9 +8834,9 @@ mod body {
     }
 
     impl PhysicalPortField {
-        pub const COUNT: usize = 12;
+        pub const COUNT: usize = 13;
         /// Every field, declaration order.
-        pub const ALL: [PhysicalPortField; 12] = [
+        pub const ALL: [PhysicalPortField; 13] = [
             PhysicalPortField::Label,
             PhysicalPortField::Position,
             PhysicalPortField::Connector,
@@ -8844,6 +8845,7 @@ mod body {
             PhysicalPortField::PlateX,
             PhysicalPortField::PlateY,
             PhysicalPortField::Mac,
+            PhysicalPortField::ConsoleBaud,
             PhysicalPortField::SpeedMax,
             PhysicalPortField::Transceiver,
             PhysicalPortField::Notes,
@@ -8862,6 +8864,7 @@ mod body {
                 PhysicalPortField::PlateX => "plate_x",
                 PhysicalPortField::PlateY => "plate_y",
                 PhysicalPortField::Mac => "mac",
+                PhysicalPortField::ConsoleBaud => "console_baud",
                 PhysicalPortField::SpeedMax => "speed_max",
                 PhysicalPortField::Transceiver => "transceiver",
                 PhysicalPortField::Notes => "notes",
@@ -8879,6 +8882,7 @@ mod body {
                 PhysicalPortField::PlateX => crate::bag::FieldKey(412),
                 PhysicalPortField::PlateY => crate::bag::FieldKey(413),
                 PhysicalPortField::Mac => crate::bag::FieldKey(462),
+                PhysicalPortField::ConsoleBaud => crate::bag::FieldKey(553),
                 PhysicalPortField::SpeedMax => crate::bag::FieldKey(212),
                 PhysicalPortField::Transceiver => crate::bag::FieldKey(213),
                 PhysicalPortField::Notes => crate::bag::FieldKey(214),
@@ -10048,12 +10052,14 @@ mod body {
         BranchOf,
         IfTaken,
         Issue,
+        Seen,
+        Compared,
     }
 
     impl PlanStepField {
-        pub const COUNT: usize = 14;
+        pub const COUNT: usize = 16;
         /// Every field, declaration order.
-        pub const ALL: [PlanStepField; 14] = [
+        pub const ALL: [PlanStepField; 16] = [
             PlanStepField::Ordinal,
             PlanStepField::Kind,
             PlanStepField::Targets,
@@ -10068,6 +10074,8 @@ mod body {
             PlanStepField::BranchOf,
             PlanStepField::IfTaken,
             PlanStepField::Issue,
+            PlanStepField::Seen,
+            PlanStepField::Compared,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -10088,6 +10096,8 @@ mod body {
                 PlanStepField::BranchOf => "branch_of",
                 PlanStepField::IfTaken => "if_taken",
                 PlanStepField::Issue => "issue",
+                PlanStepField::Seen => "seen",
+                PlanStepField::Compared => "compared",
             }
         }
         /// The stable wire key (`schema/field-keys.yaml`).
@@ -10107,6 +10117,8 @@ mod body {
                 PlanStepField::BranchOf => crate::bag::FieldKey(548),
                 PlanStepField::IfTaken => crate::bag::FieldKey(549),
                 PlanStepField::Issue => crate::bag::FieldKey(550),
+                PlanStepField::Seen => crate::bag::FieldKey(552),
+                PlanStepField::Compared => crate::bag::FieldKey(554),
             }
         }
     }
@@ -11402,7 +11414,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 486] = [
+    pub const FIELD_KEYS: [(&str, u32); 489] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -11889,17 +11901,20 @@ mod body {
         ("PlanStep.if_taken", 549),
         ("PlanStep.issue", 550),
         ("Issue.step", 551),
+        ("PlanStep.seen", 552),
+        ("PhysicalPort.console_baud", 553),
+        ("PlanStep.compared", 554),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
     /// per key, least-significant bit first. Read it through [`field_required`];
     /// the array is public only so a test can pin its length.
-    pub const FIELD_REQUIRED_BITS: [u8; 69] = [
+    pub const FIELD_REQUIRED_BITS: [u8; 70] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
         0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0xa3, 0xfb, 0x1d, 0x59, 0x64,
         0xc0, 0xe6, 0x64, 0xc0, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x41, 0x38, 0x00, 0x10,
-        0x81, 0x9e, 0x10, 0x30, 0x00,
+        0x81, 0x9e, 0x10, 0x30, 0x00, 0x00,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

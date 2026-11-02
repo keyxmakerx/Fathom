@@ -288,8 +288,9 @@ const TABLES: &[TableClaim] = &[
     TableClaim {
         name: "organisation_termix",
         protection: Protection::NoKeyProtectedMaterial,
-        why: "Termix switched off for a whole organisation (0056): an id, one boolean, who set \
-              it and when. No Termix address and no Termix key.",
+        why: "Termix switched off for a whole organisation (0056), and Fetch from Termix \
+              switched on (0063): an id, two booleans, who set them and when. No Termix address \
+              and no Termix key.",
     },
     TableClaim {
         name: "member_termix",

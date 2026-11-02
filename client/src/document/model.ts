@@ -798,6 +798,8 @@ export interface PhysicalPortFields {
   plateY?: number;
   /** Schema 0.21 — the hardware address seen on this port, canonical `aa:bb:cc:dd:ee:ff`. */
   mac?: string;
+  /** Schema 0.33 — a console port's speed in bits per second (ADR-0080 decision 10). */
+  consoleBaud?: number;
 }
 
 export function readPhysicalPortFields(node: GraphNode): PhysicalPortFields {
@@ -809,6 +811,7 @@ export function readPhysicalPortFields(node: GraphNode): PhysicalPortFields {
     plateX: asNumber(fieldValue(node.fields, 'PhysicalPort.plate_x')),
     plateY: asNumber(fieldValue(node.fields, 'PhysicalPort.plate_y')),
     mac: asString(fieldValue(node.fields, 'PhysicalPort.mac')),
+    consoleBaud: asNumber(fieldValue(node.fields, 'PhysicalPort.console_baud')),
   };
 }
 
