@@ -99,6 +99,33 @@ try {
   check('Add route opens with the device filled in', (await page.locator('form[aria-label="Add a route"] select').count()) === 0);
   await page.screenshot({ path: SHOTS + 'routing-panel-add.png' });
 
+  // A trace on the Diagram look (r101): numbered hops, the rest faded, a stop as a caution box.
+  await page.keyboard.press('Escape');
+  const traceFrom = async (host, to) => {
+    await page.locator('.drawing-diagram-box', { hasText: host }).click();
+    await page.getByTestId('device-trace-from').click();
+    await page.waitForSelector('[data-testid=trace-panel]', { timeout: 5_000 });
+    await page.locator('[data-testid=trace-to]').fill(to);
+    await page.waitForTimeout(1200);
+  };
+  await traceFrom('srv-01', '203.0.113.1');
+  const hops = await page.locator('[data-testid=trace-hop]').allInnerTexts();
+  const dots = await page.getByTestId('diagram-trace-dot').allInnerTexts();
+  check('a trace from srv-01 numbers its hops on the drawing', dots.length >= 4 && dots.some((d) => d.split('·').includes('1')) && dots.includes('8'), dots.join(' | ') + ' // ' + hops.length + ' hops');
+  const faded = await page.locator('.react-flow__node.trace-faded').allInnerTexts();
+  check('the box the walk never touches is faded', faded.some((t) => t.includes('nas-01')) && !faded.some((t) => t.includes('core-sw')), faded.join(' | '));
+  // 203.0.113.1 is past edge-fw, outside the design: the walk stops there, and says so beside edge-fw.
+  check('a walk that leaves the design stops at its last box', (await page.locator('.drawing-diagram-box--stop', { hasText: 'edge-fw' }).count()) === 1);
+  await page.screenshot({ path: SHOTS + 'routing-trace.png' });
+  await page.locator('[data-testid=trace-panel]').getByRole('button', { name: /close/i }).first().click().catch(() => page.keyboard.press('Escape'));
+  await page.waitForTimeout(300);
+  await traceFrom('nas-01', '203.0.113.1');
+  const stop = page.getByTestId('diagram-trace-stop');
+  const stopText = (await stop.count()) > 0 ? await stop.innerText() : '';
+  check('a walk that stopped short draws a caution box beside the last device', /stopped here/i.test(stopText), stopText);
+  check('the stopped box takes the caution edge', (await page.locator('.drawing-diagram-box--stop', { hasText: 'nas-01' }).count()) === 1);
+  await page.screenshot({ path: SHOTS + 'routing-trace-stop.png' });
+
   // The lens off: the tab is gone.
   await page.getByRole('button', { name: 'Cables', exact: true }).click();
   await page.waitForTimeout(300);

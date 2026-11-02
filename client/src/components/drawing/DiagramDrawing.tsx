@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   Background,
   ConnectionMode,
@@ -39,6 +39,12 @@ import type { OverlayView } from '../../document/overlays';
 import { overlayShapes } from './overlayDraw';
 import { OverlayCard, OverlayLayer } from './OverlayLayer';
 import type { RoutingMarks, RoutingWord } from './routingLens';
+import { useChecksApi } from '../checks/checksStore';
+import { revealedResult } from '../trace/tracePlayback';
+import { useTraceRevealed, useTraceResult } from '../trace/traceStore';
+import '../trace/trace.css';
+import '../trace/tracePlay.css';
+import { diagramTrace, numberText } from './diagramTrace';
 
 /** The Diagram look: plain labelled boxes joined by square-cornered lines in the
  * sheath colour. It shows the same document as the Rack look; devices are added,
@@ -55,10 +61,12 @@ interface BoxData extends Record<string, unknown> {
   icon: IconKind | null;
   /** The Routing lens's words, above the Show menu's. */
   lens: RoutingWord[];
+  /** A trace stopped short here: the box takes the caution edge. */
+  stopped: boolean;
 }
 
 function DiagramBoxNode({ data }: NodeProps<Node<BoxData, 'diagramBox'>>) {
-  const cls = ['drawing-diagram-box', data.icon != null && 'drawing-diagram-box--icon', data.selected && 'drawing-diagram-box--selected'].filter(Boolean).join(' ');
+  const cls = ['drawing-diagram-box', data.icon != null && 'drawing-diagram-box--icon', data.selected && 'drawing-diagram-box--selected', data.stopped && 'drawing-diagram-box--stop'].filter(Boolean).join(' ');
   return (
     <div className={cls}>
       {data.icon != null && <DeviceIcon kind={data.icon} />}
@@ -86,6 +94,8 @@ interface LineData extends Record<string, unknown> {
   lit: boolean;
   /** A ticked VLAN group's trunk member: drawn dashed. */
   dashed: boolean;
+  /** On a path trace's walk: drawn heavier. */
+  onPath: boolean;
   /** Another cable is lit: this one fades to the phantom level. */
   dimmed: boolean;
   onSelect: (cableId: string) => void;
@@ -97,10 +107,10 @@ const WIDTH_VAR: Record<CableView['kind'], string> = { copper: 'var(--cable-copp
 
 function DiagramLineEdge({ data }: EdgeProps<Edge<LineData, 'diagramLine'>>) {
   if (!data) return null;
-  const { cable, route, stub, lit, dashed, dimmed, onSelect, onHover, onPanTo } = data;
+  const { cable, route, stub, lit, dashed, onPath, dimmed, onSelect, onHover, onPanTo } = data;
   // Round 10: cables are plain ink on the canvas; sheath colours live in the Rack look only.
   const colour = 'var(--ink)';
-  const width = WIDTH_VAR[cable.kind];
+  const width = onPath ? '4px' : WIDTH_VAR[cable.kind];
   const opacity = dimmed ? 'var(--phantom)' : 1;
   const tags =
     stub != null ? (
@@ -139,6 +149,8 @@ const nodeTypes = { diagramBox: DiagramBoxNode };
 const NOTE_W = 220;
 const NOTE_H = 64;
 const NOTE_GAP = 28;
+/** The stop's caution box sits this far right of the box the walk stopped at. */
+const STOP_GAP = 24;
 const edgeTypes = { diagramLine: DiagramLineEdge };
 
 export interface DiagramDrawingProps {
@@ -193,6 +205,17 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
     [view, style, roles],
   );
   const selectedId = selected?.kind === 'chassis' ? selected.id : null;
+
+  // A path trace (r101): what the walk touches stays; the rest fades; each hop is numbered. While it plays,
+  // only the hops lit so far count.
+  const traceFull = useTraceResult();
+  const revealed = useTraceRevealed();
+  const checks = useChecksApi();
+  const trace = useMemo(() => {
+    if (traceFull == null || (traceFull.hops.length === 0 && traceFull.stopped === '')) return null;
+    const canon = checks?.store.get().canon ?? ((id: string) => id);
+    return diagramTrace(revealedResult(traceFull, revealed), canon, boxes.map((b) => b.id), new Set(view.cables.map((c) => c.id)));
+  }, [traceFull, revealed, checks, boxes, view]);
   const shapes = useMemo(() => (overlays == null || overlays.length === 0 ? [] : overlayShapes(overlays, boxes)), [overlays, boxes]);
   const [openOverlayId, setOpenOverlayId] = useState<string | null>(null);
   const openOverlay = overlays?.find((o) => o.id === openOverlayId) ?? null;
@@ -215,9 +238,10 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         width: b.w,
         height: b.h,
         draggable: false,
-        data: { deviceId: b.id, hostname: b.hostname, selected: b.id === selectedId, words: words?.devices.get(b.id) ?? [], icon: style === 'icons' ? iconForRole(roles.get(b.id)) : null, lens: routing?.devices.get(b.id) ?? [] } satisfies BoxData,
+        className: trace != null && !trace.boxes.has(b.id) ? 'trace-faded' : undefined,
+        data: { deviceId: b.id, hostname: b.hostname, selected: b.id === selectedId, words: words?.devices.get(b.id) ?? [], icon: style === 'icons' ? iconForRole(roles.get(b.id)) : null, lens: routing?.devices.get(b.id) ?? [], stopped: trace?.stop?.boxId === b.id } satisfies BoxData,
       })),
-    [boxes, selectedId, words, style, roles, routing],
+    [boxes, selectedId, words, style, roles, routing, trace],
   );
 
   const litId = selectedCableId ?? hoverId;
@@ -244,11 +268,29 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         source: line.a,
         target: line.b,
         selectable: false,
-        className: line.cable.id === selectedCableId ? 'drawing-diagram-line--selected' : undefined,
-        data: { cable: line.cable, route, stub, lit, dashed: dashedCableIds?.has(line.cable.id) ?? false, dimmed: litId != null && !lit, onHover: setHoverId, onSelect: (id: string) => onSelect({ kind: 'cable', id }), onPanTo: panTo } satisfies LineData,
+        className: [line.cable.id === selectedCableId && 'drawing-diagram-line--selected', trace != null && !trace.cables.has(line.cable.id) && 'trace-faded'].filter(Boolean).join(' ') || undefined,
+        data: { cable: line.cable, route, stub, lit, dashed: dashedCableIds?.has(line.cable.id) ?? false, onPath: trace?.cables.has(line.cable.id) ?? false, dimmed: litId != null && !lit, onHover: setHoverId, onSelect: (id: string) => onSelect({ kind: 'cable', id }), onPanTo: panTo } satisfies LineData,
       } satisfies Edge<LineData, 'diagramLine'>;
     });
-  }, [boxes, view, drawnCableIds, dashedCableIds, litId, selectedCableId, settled.rect, settled.zoom, onSelect, panTo]);
+  }, [boxes, view, drawnCableIds, dashedCableIds, litId, selectedCableId, settled.rect, settled.zoom, onSelect, panTo, trace]);
+
+  // The trace's numbers: on a box's top-left corner, or a line's middle; and the stop's caution box.
+  const traceMarks = useMemo(() => {
+    if (trace == null) return null;
+    const dots: { key: string; text: string; x: number; y: number }[] = [];
+    for (const b of boxes) {
+      const ns = trace.boxNumbers.get(b.id);
+      if (ns != null) dots.push({ key: `b:${b.id}`, text: numberText(ns), x: b.x, y: b.y });
+    }
+    for (const e of edges) {
+      const ns = trace.cableNumbers.get(e.id);
+      const d = e.data as LineData | undefined;
+      if (ns != null && d != null) dots.push({ key: `c:${e.id}`, text: numberText(ns), x: (d.route.a.x + d.route.b.x) / 2, y: (d.route.a.y + d.route.b.y) / 2 });
+    }
+    const at = trace.stop?.boxId != null ? boxes.find((b) => b.id === trace.stop!.boxId) : undefined;
+    const stop = trace.stop == null ? null : { text: trace.stop.text, x: at != null ? at.x + at.w + STOP_GAP : 0, y: at != null ? at.y : 0 };
+    return { dots, stop };
+  }, [trace, boxes, edges]);
 
   // Show-menu words on the lines: placed so none overlap; a lost label is counted "+n".
   const labels = useMemo(() => {
@@ -386,13 +428,28 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
             {labels.map((l) => (
               <span
                 key={l.key}
-                className="drawing-layer-label"
+                className={trace != null && !trace.cables.has(l.key.slice(0, l.key.lastIndexOf(':'))) ? 'drawing-layer-label trace-faded-label' : 'drawing-layer-label'}
                 style={{ transform: `translate(${l.x}px, ${l.y}px) scale(${1 / settled.zoom}) translate(${l.ax === 'start' ? '0%' : l.ax === 'end' ? '-100%' : '-50%'}, -50%)` }}
               >
                 {l.text}
                 {l.more > 0 && <span className="drawing-layer-label__more"> +{l.more}</span>}
               </span>
             ))}
+          </ViewportPortal>
+        )}
+        {traceMarks != null && (
+          <ViewportPortal>
+            {traceMarks.dots.map((d) => (
+              <span key={d.key} className="trace-dot" data-testid="diagram-trace-dot" style={{ transform: `translate(${d.x}px, ${d.y}px) translate(-50%, -50%)`, '--trace-x': `${d.x}px`, '--trace-y': `${d.y}px` } as CSSProperties}>
+                {d.text}
+              </span>
+            ))}
+            {traceMarks.stop != null && (
+              <div className="drawing-trace-stop" role="note" data-testid="diagram-trace-stop" style={{ transform: `translate(${traceMarks.stop.x}px, ${traceMarks.stop.y}px)` }}>
+                <span className="drawing-trace-stop__head">Stopped here</span>
+                <span>Could not establish: {traceMarks.stop.text}</span>
+              </div>
+            )}
           </ViewportPortal>
         )}
       </ReactFlow>

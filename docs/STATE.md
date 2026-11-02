@@ -688,8 +688,10 @@ only. Read off the design, not a trace (`components/drawing/routingLens.ts`); `s
 drives it. While the lens is lit the device panel opens on a Routing tab (`RoutingTab.tsx`, `routingTable` in
 `document/routes.ts`): a table per routing table, default first, then each VRF; connected networks named by port
 or VLAN, then static routes, each saying whether it came from a paste or by hand; Add route with the device
-filled in; and a note that OSPF and BGP routes are not read yet. Not built yet: numbered trace hops, the VRF
-table picker.
+filled in; and a note that OSPF and BGP routes are not read yet. A path trace now shows on the Diagram look
+too (`diagramTrace.ts`): what the walk touches stays, the rest fades, each hop is numbered on its box or line,
+and a walk that stopped short dashes its last box in caution with a "Stopped here" box beside it giving the
+engine's reason. Not built yet: the VRF table picker.
 
 **Routes by hand** (sign-off r96, round 1; no schema change). Inventory › Networks, under Routes, lists every
 static route on every device, pasted or typed, and adds one: a device, To (`default` for 0.0.0.0/0, or a

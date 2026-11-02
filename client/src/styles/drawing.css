@@ -2792,3 +2792,41 @@
   gap: var(--s2);
   margin: var(--s2) 0 var(--s3);
 }
+
+/* A path trace on the Diagram look (r101): the box the walk stopped at takes the caution edge, and a caution
+   box beside it says why, in the engine's words. */
+.drawing-diagram-box--stop {
+  border-color: var(--caution);
+  border-style: dashed;
+}
+
+.drawing-trace-stop {
+  position: absolute;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 220px;
+  padding: var(--s1) var(--s2);
+  border: 2px dashed var(--caution);
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--t-small);
+  line-height: 1.35;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.drawing-trace-stop__head {
+  color: var(--caution);
+  font-family: var(--mono);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* A line's words fade with the line when a trace does not cross it. */
+.trace-faded-label {
+  opacity: var(--phantom);
+}
