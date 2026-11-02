@@ -1,7 +1,12 @@
 # ADR-0084: Orders and the job engine — order definitions in YAML, and a builder on a canvas
 
-**Status:** proposed 2026-11-02. Waiting on sign-off card `orders-engine` (Sign-offs page, 2 November). The design goes ahead on
-the picks pre-selected there; the owner can override any of them on the card. Nothing is built.
+**Status:** accepted 2026-11-02. The owner approved sign-off card `orders-engine` with every
+radio pick A (stages with `needs` and `send_back`; describe-only files; board and file both ways;
+open orders keep their version; Stewards make order types), ticked the three recommended extras
+plus "more starters" and "overdue jobs move on or reassign by themselves", and wrote: *"Overdue
+orders based on types and such CAN move. Also i want the IP stuff, and the engine ... before we
+release."* Decision 11 is the overdue answer; decision 12 the starters; decision 13 the release
+gate. Nothing is built.
 
 **Comes from:** sign-off card r75-work-plan, approved 2026-11-02 with every pick A, piece 7 ("Orders
 and jobs"), and the owner's note on it: *"we'll probably need a job engine, can you make it yaml
@@ -60,7 +65,7 @@ be two things at once: text a modder can read and diff, and a picture a non-code
 4. **A job is a small checklist with a team and a result.** Each job has a name, a `team` (decision
    8), optional `steps` ticked one by one, optional `asks` (order fields this job fills in, such as
    the circuit id), optional `when` (the job only exists for orders that match), optional `due`
-   (a duration from when the job becomes ready; an overdue job is marked, nothing else happens), and
+   (a duration from when the job becomes ready; an overdue job is marked, and moves only by an `overdue` rule, decision 11), optional `optional: true`, and
    optional `makes: plan` (opens a maintenance plan in a chosen design, and the job is done when
    the plan is recorded). Troubleshooting is not planned work, so `makes: issue` is not offered.
    A job's result is Done, Sent back (with a reason) or Cancelled (with a reason). A stage may say
@@ -105,6 +110,37 @@ be two things at once: text a modder can read and diff, and a picture a non-code
     tamper-evident history as other changes. It never touches a device, never sends anything by
     itself (email is ADR-0085's), and never changes a design except through a plan a person applies.
 
+11. **Overdue work may move, when the order type says so.** The owner's answer on the card: a
+    definition may give a job an `overdue` rule, and the engine carries it out by itself when the
+    job's `due` passes. The rule is declared in the file, so a person reading the order type sees
+    exactly what will happen; with no rule, overdue is only a mark, as before. The moves, from a
+    fixed list like decision 2's comparisons:
+    - `escalate: lead` or `escalate: overseer` puts the job in front of that role (ADR-0081) as
+      well as the team, marked overdue;
+    - `reassign: team` takes it off the person who picked it up and back to the team's queue;
+    - `reassign: <team-slug>` hands it to another team (mapped at install like any slug);
+    - `move_on` finishes the job as Skipped, overdue, so the stage can carry on. Allowed only on a
+      job marked `optional: true`, and never past an `approval`: a stage that needs a sign-off
+      waits for a person, whatever the clock says.
+    Rules may chain (`after: 1d, escalate: lead`, then `after: 3d, reassign: team`). Every automatic
+    move is recorded in the sealed history as the engine's, with the rule that fired and the
+    definition version, and is shown on the order. An automatic move never touches a device or a
+    design, never closes an order and never cancels one. Telling people about it is ADR-0085's.
+    The clock runs on the server, checked once a minute; a server that was down catches up when it
+    starts, firing each rule once, in order.
+
+12. **Starters: DIA, a new site build, and taking a service out.** All three ship under
+    `corpus/orders/` as files to copy, not as live types. DIA is written now (above). The other two
+    are drafted from general practice and marked as drafts until checked against one real order of
+    the owner's, so they don't encode guesses as process.
+
+13. **Orders, the engine and IP management ship together, before release.** The owner wants the IP
+    work (ADR-0083) and this engine in the release, so `reserves` is built against ADR-0083's store,
+    not left as a typed prefix (decision 9 becomes the interim state of the build, not of the
+    release). A definition file is read with the project's own YAML subset parser
+    (`crates/fathom-schema/src/subset.rs`, `62` §2.2), so no YAML crate is added; flow maps stay on
+    one line, as the example below does.
+
 ## A definition, as a modder sees it
 
 ```yaml
@@ -129,6 +165,9 @@ stages:
         team: order-desk                          # ADR-0081
         steps: [Customer contact confirmed, Site address confirmed, Contract signed]
         due: 1d
+        overdue:
+          - { after: 0d, escalate: lead }
+          - { after: 2d, reassign: team }
 
   - id: design
     name: Design
@@ -176,8 +215,36 @@ stages:
   then have to review per file. Decision 2's list can grow one comparison at a time.
 - **Definitions in the design graph.** Rejected for ADR-0062's reason: an order type belongs to the
   organisation, not to one site's drawing, and an order spans designs.
+- **Overdue as a mark only.** Recommended on the card and overruled by the owner: some order types
+  need work to move without a person. Decision 11 keeps what the recommendation protected (no
+  surprise moves, no skipped sign-offs) by making every move declared, listed and recorded.
 - **Moving open orders onto a new version automatically.** Rejected because a job a team is halfway
   through could vanish under them.
+
+## Building it
+
+Six pieces, one PR each, in this order. None starts before the Work tab (r75 piece 4) is on main,
+because an order is a piece of work there.
+
+1. **The definition and its check** (Rust, no UI): read a file through the subset parser, refuse
+   unknown keys, cycles, dangling `needs`, unreachable jobs, `move_on` without `optional`, and
+   unmatched slugs at install; versioned server records per organisation, sealed like custom field
+   definitions. Starters under `corpus/orders/`. A CLI `check` reuses it later if wanted.
+2. **The engine**: orders and jobs as server records, the Waiting → Ready → Done / Sent back /
+   Cancelled machine, `when`, `needs`, `send_back`, stage `approval` (ADR-0081's roles, no
+   self-approval), every move sealed. Needs ADR-0081 built.
+3. **The overdue clock** (decision 11): the once-a-minute check, catch-up on start, the escalate /
+   reassign / move_on moves, each sealed as the engine's.
+4. **Orders on the Work tab and a phone**: open an order from a type, its page (stage track, jobs,
+   asks, ticks, sign-offs), `makes: plan` opening a maintenance plan, the W- number and ticket link.
+5. **The builder**: Steward › Order types, the React Flow board (stages as columns, jobs as cards,
+   arrows for `needs`, dashed `send_back`), the File tab both ways, live check, versions, export and
+   import with team matching.
+6. **Addresses**: `reserves` against ADR-0083's store. Needs ADR-0083 built.
+
+Rough size: pieces 1 and 3 are small, 2 and 4 medium, 5 the largest (most of it client), 6 depends
+on ADR-0083's shape. No new external dependency is expected: the YAML subset parser exists, and
+React Flow is already the diagram's.
 
 ## What would change this
 

@@ -116,7 +116,7 @@ question was not in the register. *R* is the reversal cost from `73` §1.2 — R
 | **[0077](adr-0077-ai-changes-a-design.md)** | An AI connection may change a design | Accepted |  |  |
 | **[0078](adr-0078-termix-beside-fathom.md)** | Termix beside Fathom: open a device's terminal, Fathom never connects | Accepted |  |  |
 | **[0079](adr-0079-one-estate-across-designs.md)** | One estate across designs: the estate index, links between sites, and slimmer saves | Accepted |  |  |
-| **[0084](adr-0084-orders-and-the-job-engine.md)** | Orders and the job engine: order definitions in YAML, and a builder on a canvas | Proposed |  |  |
+| **[0084](adr-0084-orders-and-the-job-engine.md)** | Orders and the job engine: order definitions in YAML, and a builder on a canvas | Accepted |  |  |
 
 ## What is not reopened
 
