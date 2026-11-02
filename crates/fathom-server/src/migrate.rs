@@ -390,6 +390,13 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0063_termix_fetch.sql",
         sql: include_str!("../migrations/0063_termix_fetch.sql"),
     },
+    // Teams: a third kind of principal and the signed log of team acts (ADR-0081). 64 and 65
+    // are held by the Work tab and the IP plan, which merge separately.
+    Migration {
+        version: 66,
+        name: "0066_teams.sql",
+        sql: include_str!("../migrations/0066_teams.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

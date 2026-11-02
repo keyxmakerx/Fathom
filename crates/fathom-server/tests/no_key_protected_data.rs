@@ -395,6 +395,20 @@ const TABLES: &[TableClaim] = &[
               fingerprint, a signature, a chain sequence and a seal.",
     },
     TableClaim {
+        name: "teams",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "a team's display record (0066): an id, the organisation, a slug, a name and a \
+              deleted flag. Plain text under the tenant policy, as `accounts.display_name` is; \
+              it grants nothing, `team_acts` does.",
+    },
+    TableClaim {
+        name: "team_acts",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "append-only signed acts on teams (0066, ADR-0081): ids, act and role words, a \
+              capability, fingerprints, a 64-byte signature, a chain sequence and a seal. The \
+              permission map again, structure readable from a dump as for `scope_grants`.",
+    },
+    TableClaim {
         name: "organisation_auth_head",
         protection: Protection::NoKeyProtectedMaterial,
         why: "one row per organisation: the authority epoch, the chain sequence, how many \

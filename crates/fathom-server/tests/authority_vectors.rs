@@ -41,7 +41,7 @@
 //! valid signature.
 
 use fathom_server::authority::{
-    self, Capability, GrantFacts, RowFacts, SignatureRefused, SoftwareKey,
+    self, Capability, GrantFacts, RowFacts, SignatureRefused, SoftwareKey, TeamActFacts,
 };
 use fathom_server::chain::{self, ChainRef};
 use fathom_server::crypto::Key32;
@@ -114,6 +114,22 @@ const WYCHEPROOF: &[(&str, &str, &str, &str)] = &[
 // The same fixed inputs the script uses.
 // ---------------------------------------------------------------------------
 
+const TEAM_MEMBER_ADD_BYTES: &str = "12000000666174686f6d2f7465616d2f6163742f76311a00000030314a515a3030303030303030303030303030303030\
+     303041412000000041414141414141414141414141414141414141414141414141414141414141411a00000030314a51\
+     5a303030303030303030303030303030303030304a4a1a00000030314a515a3030303030303030303030303030303030\
+     303048480a0000006d656d6265725f6164641a00000030314a515a303030303030303030303030303030303030304343\
+     200000004242424242424242424242424242424242424242424242424242424242424242000000000000000000000000\
+     00000000000000001a00000030314a515a30303030303030303030303030303030303030444420000000434343434343\
+     4343434343434343434343434343434343434343434343434343040000006c656164800e80690000000007000000";
+const TEAM_GRANT_REVOKE_BYTES: &str = "12000000666174686f6d2f7465616d2f6163742f76311a00000030314a515a3030303030303030303030303030303030\
+     303041412000000041414141414141414141414141414141414141414141414141414141414141411a00000030314a51\
+     5a303030303030303030303030303030303030304a4a1a00000030314a515a3030303030303030303030303030303030\
+     303048480c0000006772616e745f7265766f6b6500000000200000000000000000000000000000000000000000000000\
+     000000000000000000000000000000001a00000030314a515a3030303030303030303030303030303030303042420000\
+     00001a00000030314a515a303030303030303030303030303030303030304b4b200000000cb4b2e04bbe95f6867ecc52\
+     614f9e217c008e00dc0ad040154ec7e3427f343a1a00000030314a515a30303030303030303030303030303030303030\
+     444420000000434343434343434343434343434343434343434343434343434343434343434307000000737465776172\
+     64800e80690000000007000000";
 const ORGANISATION: &str = "01JQZ0000000000000000000AA";
 const SCOPE: &str = "01JQZ0000000000000000000BB";
 const SUBJECT: &str = "01JQZ0000000000000000000CC";
@@ -548,4 +564,50 @@ fn the_key_check_code_is_the_one_the_browser_computes() {
         fathom_server::invitations::key_code(&counting.try_into().expect("32 bytes")),
         "000G40R40M"
     );
+}
+
+/// ADR-0081's team act, both shapes: every optional field present once and absent once.
+#[test]
+fn team_act_bytes_are_the_bytes_the_attack_round_describes() {
+    let add = authority::team_act_bytes(&TeamActFacts {
+        organisation: ORGANISATION,
+        root_pubkey_fpr: &ROOT_PUBKEY_FPR,
+        act_id: "01JQZ0000000000000000000JJ",
+        team: "01JQZ0000000000000000000HH",
+        act: "member_add",
+        subject: Some(SUBJECT),
+        subject_key_fpr: &SUBJECT_KEY_FPR,
+        role: None,
+        scope: None,
+        capability: None,
+        undoes: None,
+        undone_bytes: None,
+        signer: GRANTER,
+        signer_key_fpr: &GRANTER_KEY_FPR,
+        signer_authority: "lead",
+        at_unix: AT_UNIX,
+        auth_epoch: AUTH_EPOCH,
+    });
+    assert_eq!(hex(&add), TEAM_MEMBER_ADD_BYTES);
+
+    let revoke = authority::team_act_bytes(&TeamActFacts {
+        organisation: ORGANISATION,
+        root_pubkey_fpr: &ROOT_PUBKEY_FPR,
+        act_id: "01JQZ0000000000000000000JJ",
+        team: "01JQZ0000000000000000000HH",
+        act: "grant_revoke",
+        subject: None,
+        subject_key_fpr: &[0u8; 32],
+        role: None,
+        scope: Some(SCOPE),
+        capability: None,
+        undoes: Some("01JQZ0000000000000000000KK"),
+        undone_bytes: Some(b"the undone act's own signed bytes"),
+        signer: GRANTER,
+        signer_key_fpr: &GRANTER_KEY_FPR,
+        signer_authority: "steward",
+        at_unix: AT_UNIX,
+        auth_epoch: AUTH_EPOCH,
+    });
+    assert_eq!(hex(&revoke), TEAM_GRANT_REVOKE_BYTES);
 }

@@ -586,6 +586,18 @@ pub enum EntryType {
     // ---- Account name (migration 0049) -------------------------------------
     /// A person changed their own name. Names the account, not the name.
     AccountRenamed,
+    // ---- Teams (migration 0066, ADR-0081) -----------------------------------
+    /// Written by `teams.rs`, one per act. Each names the team, the actor and the person,
+    /// role, scope or capability the act touches; never a team's name.
+    TeamCreated,
+    TeamRenamed,
+    TeamDeleted,
+    TeamMemberAdded,
+    TeamMemberRemoved,
+    TeamRoleSet,
+    TeamRoleCleared,
+    TeamGrantSigned,
+    TeamGrantRevoked,
 }
 
 impl EntryType {
@@ -682,6 +694,15 @@ impl EntryType {
             Self::AiRecommendationDecided => "ai_recommendation_decided",
             Self::AiSwitchChanged => "ai_switch_changed",
             Self::AccountRenamed => "account_renamed",
+            Self::TeamCreated => "team_created",
+            Self::TeamRenamed => "team_renamed",
+            Self::TeamDeleted => "team_deleted",
+            Self::TeamMemberAdded => "team_member_added",
+            Self::TeamMemberRemoved => "team_member_removed",
+            Self::TeamRoleSet => "team_role_set",
+            Self::TeamRoleCleared => "team_role_cleared",
+            Self::TeamGrantSigned => "team_grant_signed",
+            Self::TeamGrantRevoked => "team_grant_revoked",
         }
     }
 
@@ -778,6 +799,15 @@ impl EntryType {
             "ai_recommendation_decided" => Some(Self::AiRecommendationDecided),
             "ai_switch_changed" => Some(Self::AiSwitchChanged),
             "account_renamed" => Some(Self::AccountRenamed),
+            "team_created" => Some(Self::TeamCreated),
+            "team_renamed" => Some(Self::TeamRenamed),
+            "team_deleted" => Some(Self::TeamDeleted),
+            "team_member_added" => Some(Self::TeamMemberAdded),
+            "team_member_removed" => Some(Self::TeamMemberRemoved),
+            "team_role_set" => Some(Self::TeamRoleSet),
+            "team_role_cleared" => Some(Self::TeamRoleCleared),
+            "team_grant_signed" => Some(Self::TeamGrantSigned),
+            "team_grant_revoked" => Some(Self::TeamGrantRevoked),
             _ => None,
         }
     }
@@ -879,7 +909,16 @@ impl EntryType {
             | Self::VaultRead
             | Self::VaultBreachPolicySet
             | Self::VaultOutsideChanged
-            | Self::VaultOutsideRead => &[ChainKind::Org],
+            | Self::VaultOutsideRead
+            | Self::TeamCreated
+            | Self::TeamRenamed
+            | Self::TeamDeleted
+            | Self::TeamMemberAdded
+            | Self::TeamMemberRemoved
+            | Self::TeamRoleSet
+            | Self::TeamRoleCleared
+            | Self::TeamGrantSigned
+            | Self::TeamGrantRevoked => &[ChainKind::Org],
             // **Two types are filed on two kinds.** `rewrap` because the master key
             // is deployment-wide (§7.2). `grant_suspended` because §1.1 gives the
             // operator plane this one authority-adjacent verb: the organisation

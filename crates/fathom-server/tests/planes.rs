@@ -71,6 +71,10 @@ const OPERATOR_MAY_SELECT: &[&str] = &[
     "grant_suspensions",
     "grant_revocations",
     "organisation_auth_head",
+    // ADR-0081 decision 7: operators see teams, members and roles, as they see grants. Both
+    // tables are ids, words, fingerprints, signatures and seals (0066), never a key or payload.
+    "teams",
+    "team_acts",
 ];
 
 /// Every privilege that is not `SELECT`. The operator plane holds none of

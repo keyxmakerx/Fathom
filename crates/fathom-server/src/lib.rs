@@ -100,6 +100,7 @@ pub mod rls;
 pub mod secret;
 pub mod sessions;
 pub mod teaching;
+pub mod teams;
 pub mod termix;
 pub mod vault;
 pub mod vault_breach;
