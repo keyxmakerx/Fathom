@@ -23,7 +23,7 @@ use std::net::IpAddr;
 use fathom_graph::{ElementId, Graph, NodeId, Origin};
 use fathom_ir::generated::accessors::{
     address, address_object, address_set, application, card, logical_unit, physical_port,
-    policy_set, security_policy, static_route, vlan,
+    policy_set, routing_instance, security_policy, static_route, vlan,
 };
 use fathom_ir::generated::ir_types::{EdgeKind, NodeKind, PolicyAction};
 use fathom_ir::scalar::{IpPrefix, IpRange};
@@ -415,9 +415,22 @@ impl Walk<'_> {
 
     fn route(&self, dev: NodeId, dest: IpAddr) -> Result<Chosen, String> {
         let name = display_name(self.g, dev);
-        if children(self.g, dev, EdgeKind::HasRoutingInstance).len() > 1 {
+        let instances = children(self.g, dev, EdgeKind::HasRoutingInstance);
+        if instances.len() > 1 {
             return Err(format!(
                 "{name} has more than one routing instance, and which one this flow uses could not be established"
+            ));
+        }
+        // A VRF alone (`vrf instance MGMT` on a switch with no default-table route) is still a
+        // table apart: reading its interfaces as one table with the rest would join networks the
+        // device keeps apart. Which table a flow is in is not read yet.
+        if let Some(vrf) = instances.iter().find_map(|ri| {
+            let n = self.g.node(*ri)?;
+            let v = routing_instance::name(n).ok()?.0.clone();
+            (v != "default").then_some(v)
+        }) {
+            return Err(format!(
+                "{name} has a routing instance other than its default ({vrf}), and which table this flow uses could not be established"
             ));
         }
         // (prefix length, preference when stated, candidate). A candidate that cannot be followed is

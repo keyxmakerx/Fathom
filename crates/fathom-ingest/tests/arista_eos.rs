@@ -2,6 +2,13 @@
 //! and the finding that made this test what it is rather than a
 //! `junos-srx`-shaped binding dictionary test.
 //!
+//! **Since 2026-11-02 EOS has a reader of its own** (`blockcfg::ingest_eos`,
+//! `corpus/dict/eos/`, its tests in `tests/eos.rs`), and the page sends an EOS
+//! paste there. What follows is still true of the set-form path this file
+//! runs, and it stays as the check that a paste read the wrong way still
+//! loses nothing; [`the_eos_reader_destroys_the_same_credentials`] runs the
+//! same config through the new reader.
+//!
 //! # Why there is no `corpus/dict/eos/` dictionary behind this test
 //!
 //! `crates/fathom-ingest/src/shape.rs` shapes exactly one statement grammar:
@@ -314,6 +321,22 @@ fn interface_names_round_trip() {
         assert!(
             capture.contains(name),
             "interface name `{name}` did not round-trip into the capture"
+        );
+    }
+}
+
+/// The same config through the reader the page now uses for EOS.
+#[test]
+fn the_eos_reader_destroys_the_same_credentials() {
+    let dict = Dictionary::load_platform(&repo_root(), "eos").expect("the eos dictionary loads");
+    assert!(fathom_ingest::blockcfg::looks_like_eos(CONFIG.as_bytes()));
+    let out =
+        fathom_ingest::blockcfg::ingest_eos(CONFIG.as_bytes(), &dict).expect("within the caps");
+    let rendered = everything(&out);
+    for secret in CREDENTIALS.iter().chain(["OspfMd5Key123"].iter()) {
+        assert!(
+            !rendered.contains(secret),
+            "credential `{secret}` survived the EOS reader"
         );
     }
 }

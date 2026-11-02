@@ -1,8 +1,9 @@
 //! The block-config front end — a switch's running or exported config in the
-//! `interface …` block style in, the same typed graph fragment out. Two
-//! dialects: TP-Link JetStream and Omada switches ([`TPLINK`]), and UniFi
+//! `interface …` block style in, the same typed graph fragment out. Three
+//! dialects: TP-Link JetStream and Omada switches ([`TPLINK`]), UniFi
 //! switches in the EdgeSwitch syntax ([`UNIFI`], unverified against a complete
-//! real config: `corpus/dict/README-unifi-sw.md`).
+//! real config: `corpus/dict/README-unifi-sw.md`), and Arista EOS ([`EOS`],
+//! `corpus/dict/README-eos.md`).
 //!
 //! # Why this is a front end, the way `iproute.rs` and `routeros.rs` are
 //!
@@ -63,7 +64,7 @@ use crate::{CaptureScope, IngestOutput, IngestRefusal, ResidueEntry};
 
 /// Words after which the rest of a line is a credential. Sources for each, by
 /// vendor, are in `corpus/dict/README-omada-sw.md`.
-const SECRET_WORDS: [&str; 18] = [
+const SECRET_WORDS: [&str; 19] = [
     "password",
     "secret",
     "key",
@@ -82,6 +83,10 @@ const SECRET_WORDS: [&str; 18] = [
     "psk",
     "snmptrap",
     "wpa-psk",
+    // Arista EOS: `key chain` → `key 1` → `key-string 7 …`, and VRRP's
+    // `ietf-md5 key-string` (EOS User Manual, read 2026-11-02, via the AVD
+    // `arista.avd.encrypt` filter's documentation of the key types).
+    "key-string",
 ];
 
 /// A credential keyword: one of [`SECRET_WORDS`], or a word ending the way a
@@ -118,8 +123,16 @@ fn is_secret_in_context(ws: &[Word], at: usize) -> bool {
         .checked_sub(1)
         .and_then(|p| ws.get(p))
         .map(|p| p.text.to_ascii_lowercase());
-    (matches!(w.as_str(), "simple" | "encrypt") && prev.as_deref() == Some("authentication"))
+    let snmp_user = ws.windows(2).take(at).any(|p| {
+        matches!(p, [a, b] if a.text.to_ascii_lowercase().ends_with("snmp-server") && b.text.eq_ignore_ascii_case("user"))
+    });
+    (matches!(w.as_str(), "simple" | "encrypt" | "text") && prev.as_deref() == Some("authentication"))
         || (matches!(w.as_str(), "des" | "aes") && before("encryption"))
+        // `snmp-server user NAME GROUP v3 auth sha … priv aes …`: the Cisco-
+        // style form. Arista's own page for it could not be read (2026-11-02),
+        // so every word from `auth` or `priv` on is taken as credential; the
+        // cost is the algorithm name.
+        || (snmp_user && matches!(w.as_str(), "auth" | "priv"))
 }
 
 /// A word run that starts a block. `exact` openers are the whole line
@@ -130,9 +143,26 @@ struct Opener {
 }
 
 /// What differs between the vendors this reader takes: which lines open a
-/// block. Everything else, the credential rule included, is shared.
+/// block, and for Arista whether indentation nests them. Everything else, the
+/// credential rule included, is shared.
 pub struct Dialect {
     openers: &'static [Opener],
+    /// Arista's `show running-config` indents a block's lines and nests blocks
+    /// in blocks (`router bgp 65101` holds `   vlan 11` and an indented `   !`
+    /// between its parts). With this set, an indented line never opens a
+    /// block, an indented separator does not end one, and an unindented line
+    /// that opens nothing ends a block whose lines were indented. A paste that
+    /// lost its indentation reads exactly as the other dialects read.
+    nests_by_indent: bool,
+    /// `interface Vlan10`: an SVI's name also says the VLAN it routes, so the
+    /// opener adds the name's two parts (`Vlan`, `10`), each real bytes of the
+    /// paste, after the name, and a dictionary can tie the SVI to its VLAN.
+    svi_prefix: Option<&'static str>,
+    /// Words after which the rest of the line is one value (`description
+    /// uplink to core`), where a vendor does not quote it.
+    tail_after: &'static [&'static str],
+    /// Whether `… vlan 10,20,30-32` is read as one statement per VLAN.
+    vlan_lists: bool,
 }
 
 /// TP-Link JetStream and Omada: `vlan 10` opens a block holding its `name`.
@@ -159,6 +189,10 @@ pub const TPLINK: Dialect = Dialect {
             exact: false,
         },
     ],
+    nests_by_indent: false,
+    svi_prefix: None,
+    tail_after: &[],
+    vlan_lists: false,
 };
 
 /// UniFi switches, in the EdgeSwitch syntax (README-unifi-sw.md). `vlan` is
@@ -179,6 +213,33 @@ pub const UNIFI: Dialect = Dialect {
             exact: false,
         },
     ],
+    nests_by_indent: false,
+    svi_prefix: None,
+    tail_after: &[],
+    vlan_lists: false,
+};
+
+/// Arista EOS. `vlan 10` opens a VLAN's block as on TP-Link; the global
+/// `vlan internal order …` is read as a line of its own and binds nothing,
+/// because its second word is not a VLAN id. Shape read off EOS configs that
+/// Arista's AVD generates (`examples/single-dc-l3ls/intended/configs`, read
+/// 2026-11-02): three-space indentation, `!` between blocks, nested blocks
+/// under `router bgp` with an indented `!` between their parts.
+pub const EOS: Dialect = Dialect {
+    openers: &[
+        Opener {
+            words: &["interface"],
+            exact: false,
+        },
+        Opener {
+            words: &["vlan"],
+            exact: false,
+        },
+    ],
+    nests_by_indent: true,
+    svi_prefix: Some("Vlan"),
+    tail_after: &["description"],
+    vlan_lists: true,
 };
 
 /// Does this paste look like a TP-Link JetStream or Omada switch config?
@@ -230,6 +291,47 @@ pub fn looks_like_unifi(paste: &[u8]) -> bool {
     lines
         .take_while(|l| l.starts_with('!'))
         .any(|l| l.starts_with("!System Description \"US"))
+}
+
+/// Does this paste look like an Arista EOS `show running-config`?
+///
+/// Arista names its ports `Ethernet1`, its bundles `Port-Channel1` (capital
+/// C) and its out-of-band port `Management1`. Cisco IOS writes
+/// `GigabitEthernet0/1` and `Port-channel1`, NX-OS `Ethernet1/1`,
+/// `port-channel1` and `mgmt0`, and both print a `version` line, which EOS
+/// does not. So: a `version` line rules it out, and otherwise an unindented
+/// `interface Port-ChannelN` or `interface ManagementN` and an `interface
+/// EthernetN` (no slash, or Arista's breakout `EthernetN/M`) must both be
+/// there. Whether every EOS release prints a header line that would make this
+/// exact (`! device: …`) could not be established (2026-11-02).
+pub fn looks_like_eos(paste: &[u8]) -> bool {
+    let body = paste.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(paste);
+    let Ok(text) = std::str::from_utf8(body) else {
+        return false;
+    };
+    let numbered = |rest: &str| {
+        !rest.is_empty()
+            && rest.chars().all(|c| c.is_ascii_digit() || c == '/')
+            && rest.starts_with(|c: char| c.is_ascii_digit())
+    };
+    let (mut ethernet, mut eos_only) = (false, false);
+    for line in text.split(['\n', '\r']) {
+        if line.starts_with("version ") {
+            return false;
+        }
+        let Some(name) = line.trim_end().strip_prefix("interface ") else {
+            continue;
+        };
+        if let Some(rest) = name.strip_prefix("Ethernet") {
+            ethernet |= numbered(rest);
+        } else if let Some(rest) = name
+            .strip_prefix("Port-Channel")
+            .or_else(|| name.strip_prefix("Management"))
+        {
+            eos_only |= numbered(rest);
+        }
+    }
+    ethernet && eos_only
 }
 
 /// `T2600G-28TS#show running-config`, `SG3428>`: the switch's own prompt, as
@@ -454,7 +556,46 @@ fn opener(ws: &[Word], dialect: &Dialect) -> Option<Vec<Seg>> {
         }
         _ => out.extend(rest.iter().map(seg)),
     }
+    if let (Some(prefix), Some(&"interface")) = (dialect.svi_prefix, words.first()) {
+        out.extend(svi_parts(rest, prefix));
+    }
     Some(out)
+}
+
+/// `Vlan10` (or `Vlan 10`) as `Vlan` and `10`, each from its own bytes; nothing
+/// for any other name.
+fn svi_parts(rest: &[Word], prefix: &str) -> Vec<Seg> {
+    let digits = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit());
+    match rest {
+        [one] if !one.quoted => match one.text.strip_prefix(prefix) {
+            Some(vid) if digits(vid) => {
+                let cut = one.span.start + prefix.len() as u32;
+                vec![
+                    (
+                        prefix.to_owned(),
+                        bare(ByteSpan {
+                            start: one.span.start,
+                            end: cut,
+                        }),
+                    ),
+                    (
+                        vid.to_owned(),
+                        bare(ByteSpan {
+                            start: cut,
+                            end: one.span.end,
+                        }),
+                    ),
+                ]
+            }
+            _ => Vec::new(),
+        },
+        [kind, number]
+            if !kind.quoted && !number.quoted && kind.text == prefix && digits(&number.text) =>
+        {
+            vec![seg(kind), seg(number)]
+        }
+        _ => Vec::new(),
+    }
 }
 
 /// Where the credential on a line starts, as an index into its words: the
@@ -533,6 +674,11 @@ pub fn ingest_unifi(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, Ing
     ingest_dialect(paste, dict, &UNIFI)
 }
 
+/// [`ingest_blockcfg`] for an Arista EOS `show running-config`.
+pub fn ingest_eos(paste: &[u8], dict: &Dictionary) -> Result<IngestOutput, IngestRefusal> {
+    ingest_dialect(paste, dict, &EOS)
+}
+
 fn ingest_dialect(
     paste: &[u8],
     dict: &Dictionary,
@@ -556,6 +702,8 @@ fn ingest_dialect(
     let mut noise: Vec<UnshapedLine> = Vec::new();
     // The block in force: its opener's segments.
     let mut block: Option<Vec<Seg>> = None;
+    // Whether a line of the block in force was indented ([`Dialect::nests_by_indent`]).
+    let mut block_indented = false;
     // Set when the last line held a credential keyword and was long enough
     // that a terminal may have hard-wrapped it (see [`WRAP_WIDTH`]).
     let mut may_continue = false;
@@ -618,8 +766,12 @@ fn ingest_dialect(
             outcomes.push(Outcome::new(LineOutcome::Unmapped { known_prefix: 0 }));
             continue;
         }
+        let indented = dialect.nests_by_indent
+            && frame::slice(&capture, span).starts_with(|c: char| c.is_whitespace());
         if is_separator(text) {
-            block = None;
+            if !indented {
+                block = None;
+            }
             outcomes.push(Outcome::new(LineOutcome::Header { columns: 0 }));
             continue;
         }
@@ -698,10 +850,17 @@ fn ingest_dialect(
 
         let mut path: Vec<Seg> = Vec::new();
         let mut secret = false;
-        if let Some(open) = opener(&ws, dialect) {
+        let opens = if indented { None } else { opener(&ws, dialect) };
+        if dialect.nests_by_indent && !indented && opens.is_none() && block_indented {
+            // An unindented line after an indented block is not in it.
+            block = None;
+        }
+        if let Some(open) = opens {
             block = Some(open.clone());
+            block_indented = false;
             path = open;
         } else {
+            block_indented |= indented && block.is_some();
             if let Some(ctx) = &block {
                 path.extend(ctx.iter().cloned());
             }
@@ -717,12 +876,43 @@ fn ingest_dialect(
                         path.extend(ws.iter().take(from).map(seg));
                         may_continue = wrappable(&capture, span);
                     }
-                    None => path.extend(ws.iter().map(seg)),
+                    None => match ws.first() {
+                        // `description uplink to core`: the rest of the line
+                        // is one value.
+                        Some(w)
+                            if !w.quoted
+                                && dialect.tail_after.contains(&w.text.as_str())
+                                && ws.len() > 2 =>
+                        {
+                            if let Some((words_and_tail, _)) = tail_path(&capture, span, &ws, 1) {
+                                path.extend(words_and_tail);
+                            }
+                        }
+                        _ => path.extend(ws.iter().map(seg)),
+                    },
                 },
             }
         }
         // An opener whose own line holds a credential (`line …` never does,
         // but nothing here assumes it) is caught by the sweep like any line.
+
+        // `… vlan 1-4094`, `… vlan none`: a VLAN list this reader does not read
+        // as members is kept whole with the `vlan` before it, so no entry
+        // takes it for one VLAN.
+        if dialect.vlan_lists && !secret && ends_in_vlan_list(&path, &ws) {
+            let whole = path
+                .last()
+                .is_some_and(|(t, tok)| is_vid(t) || vlan_list(t, tok.span).is_some());
+            if !whole && path.len() >= 2 {
+                if let (Some((_, last)), Some((_, before))) = (path.pop(), path.pop()) {
+                    let both = ByteSpan {
+                        start: before.span.start,
+                        end: last.span.end,
+                    };
+                    path.push((frame::slice(&capture, both).to_owned(), bare(both)));
+                }
+            }
+        }
 
         let mut nodes = Vec::new();
         let mut tokens = Vec::new();
@@ -742,13 +932,39 @@ fn ingest_dialect(
             forced.push((stmts.len(), last));
             may_continue = wrappable(&capture, span);
         }
-        stmts.push(Stmt {
-            line: line.ordinal,
-            span,
-            path: nodes,
-            tokens,
-            list_pos: 0,
-        });
+        // `switchport trunk allowed vlan 10,20,30-32`: one statement per VLAN,
+        // as a set-form `[ … ]` list is.
+        let members = if dialect.vlan_lists && !secret && ends_in_vlan_list(&path, &ws) {
+            path.last().and_then(|(t, tok)| vlan_list(t, tok.span))
+        } else {
+            None
+        };
+        match members {
+            Some(members) => {
+                for (pos, (vid, at)) in members.into_iter().enumerate() {
+                    let mut nodes = nodes.clone();
+                    let mut tokens = tokens.clone();
+                    if let (Some(n), Some(t)) = (nodes.last_mut(), tokens.last_mut()) {
+                        *n = node(&mut tree, &mut intern, &vid, span, line.ordinal, true);
+                        *t = bare(at);
+                    }
+                    stmts.push(Stmt {
+                        line: line.ordinal,
+                        span,
+                        path: nodes,
+                        tokens,
+                        list_pos: pos as u32,
+                    });
+                }
+            }
+            None => stmts.push(Stmt {
+                line: line.ordinal,
+                span,
+                path: nodes,
+                tokens,
+                list_pos: 0,
+            }),
+        }
         outcomes.push(Outcome::new(LineOutcome::Unmapped { known_prefix: 0 }));
     }
 
@@ -802,6 +1018,58 @@ fn ingest_dialect(
         uses_groups: false,
         truncated: false,
     })
+}
+
+/// A line whose last two words are `vlan` and what may be a VLAN list.
+fn ends_in_vlan_list(path: &[Seg], ws: &[Word]) -> bool {
+    ws.len() >= 2 && path.len() >= 2 && ws.iter().rev().nth(1).is_some_and(|w| w.text == "vlan")
+}
+
+/// One VLAN id, 1 to 4094, written plainly.
+fn is_vid(text: &str) -> bool {
+    text.bytes().all(|b| b.is_ascii_digit())
+        && text.parse::<u16>().is_ok_and(|v| (1..=4094).contains(&v))
+}
+
+/// The most VLANs one range is read as. `1-4094` is every VLAN, which says
+/// "all" rather than naming members; reading it as 4094 memberships would be
+/// a guess at which of them exist, so a range wider than this is not read and
+/// the line stays on the residue list.
+const VLAN_RANGE_MAX: u16 = 256;
+
+/// `10,20,30-32` as `10`, `20`, `30`, `31`, `32`, each with the bytes it was
+/// read from (a range's members all point at the range). `None` for anything
+/// else, a range wider than [`VLAN_RANGE_MAX`] included. A single VLAN is not
+/// a list and is read as the line's own last word.
+fn vlan_list(text: &str, span: ByteSpan) -> Option<Vec<(String, ByteSpan)>> {
+    if !text.contains([',', '-'])
+        || !text
+            .bytes()
+            .all(|b| b.is_ascii_digit() || b == b',' || b == b'-')
+    {
+        return None;
+    }
+    let vid = |t: &str| t.parse::<u16>().ok().filter(|v| (1..=4094).contains(v));
+    let mut out = Vec::new();
+    let mut at = span.start;
+    for part in text.split(',') {
+        let here = ByteSpan {
+            start: at,
+            end: at + part.len() as u32,
+        };
+        at = here.end + 1;
+        match part.split_once('-') {
+            None => out.push((vid(part)?.to_string(), here)),
+            Some((a, b)) => {
+                let (a, b) = (vid(a)?, vid(b)?);
+                if b < a || b - a >= VLAN_RANGE_MAX {
+                    return None;
+                }
+                out.extend((a..=b).map(|v| (v.to_string(), here)));
+            }
+        }
+    }
+    Some(out)
 }
 
 fn bare(span: ByteSpan) -> Token {

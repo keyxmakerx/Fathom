@@ -54,6 +54,16 @@ binds interfaces, VLAN names and the hostname, on the EdgeSwitch CLI's syntax: n
 config was found (`corpus/dict/README-unifi-sw.md`). Naming `unifi-sw` in the paste frame waits on the
 client.
 
+**Paste: Arista EOS (engine, 2026-11-02, sign-off r96 round 1).** An EOS `show running-config` is read by
+the same front end in its `EOS` dialect, picked by `EthernetN` ports beside a `Port-ChannelN` or
+`ManagementN` and no `version` line. It binds the hostname, VLANs and names, interfaces with description,
+`shutdown`/`no shutdown` and IPv4 address, Port-Channel links (`channel-group`), access, trunk and native
+VLAN membership (ranges up to 256 VLANs; `1-4094` is not read), SVIs tied to their VLAN, and static routes
+in the default table (`Null0` as discard). VRFs are read only so far as to keep them apart: `vrf instance`
+and an interface's `vrf` bind, `ip route vrf …` is residue, and the path trace refuses a device with a VRF
+until round 2. Indentation nests blocks (`router bgp` holds `vlan 11`); a paste that lost it reads by `!`.
+Built against configs Arista's AVD generates (`corpus/dict/README-eos.md`).
+
 **The server.** `crates/fathom-server` starts, answers a health check through a real PostgreSQL, shuts
 down cleanly, and runs as the one plain-HTTP published port of a composed stack, behind the operator's
 own TLS-terminating proxy. It stores identity and structure (accounts, organisations, memberships, the

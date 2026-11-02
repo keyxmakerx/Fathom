@@ -19,7 +19,8 @@ use fathom_ir::scalar::{self, Scalar};
 use fathom_ir::value::{self, PeerSpec};
 
 use crate::dict::{
-    Dictionary, EdgeTarget, Entry, KindSpec, Match, NextHopConst, SetEnumTy, ValueSpec, ValueTy,
+    Dictionary, EdgeTarget, Entry, KindSpec, Match, NextHopConst, NodeSpec, SetEnumTy, ValueSpec,
+    ValueTy,
 };
 use crate::frame::{ByteSpan, Diag, LineOrdinal, LineOutcome, Outcome, ShapeError};
 use crate::redact;
@@ -214,6 +215,9 @@ struct Builder {
     index: BTreeMap<(usize, Option<u32>, String), FragNodeId>,
     deferred: Vec<Deferred>,
     hops: Vec<DeferredHop>,
+    /// Edges between two nodes the same statement bound (`to: { node: n0 }`):
+    /// nothing to resolve, so they skip the deferred pass.
+    local_edges: Vec<FragEdge>,
 }
 
 pub(crate) fn bind(
@@ -232,6 +236,7 @@ pub(crate) fn bind(
         index: BTreeMap::new(),
         deferred: Vec::new(),
         hops: Vec::new(),
+        local_edges: Vec::new(),
     };
     b.index.insert(
         (NodeKind::Device.index(), None, String::new()),
@@ -310,6 +315,11 @@ pub(crate) fn bind(
     // 14 §7.3's deferred resolution, restricted to the fragment: scope is
     // pinned `Fragment`, so unresolved is always Pending, never Broken.
     let mut edges: Vec<FragEdge> = Vec::new();
+    for edge in std::mem::take(&mut b.local_edges) {
+        if !edges.iter().any(|e| same_edge(e, &edge)) {
+            edges.push(edge);
+        }
+    }
     let mut pending: Vec<PendingEdge> = Vec::new();
     let deferred_all = std::mem::take(&mut b.deferred);
     for deferred in &deferred_all {
@@ -462,7 +472,9 @@ fn bind_statement(
 
     // Keys first: a node whose key capture was redacted, or does not parse as
     // an Identifier, cannot be identified — so nothing on the line may bind
-    // (§4.6 rule 3).
+    // (§4.6 rule 3). Nor can one whose key is also a closed-typed field of the
+    // node and does not read as that type: `vlan internal order ascending` is
+    // not VLAN `internal` (see [`key_reads_as_its_field`]).
     let mut keys: Vec<Option<String>> = Vec::new();
     for node in &entry.nodes {
         match &node.key {
@@ -479,7 +491,10 @@ fn bind_statement(
                 let mut ok = true;
                 for name in names {
                     match seg(name) {
-                        Some((text, None)) if scalar::Identifier::parse(&text).is_ok() => {
+                        Some((text, None))
+                            if scalar::Identifier::parse(&text).is_ok()
+                                && key_reads_as_its_field(dict, node, name, &text) =>
+                        {
                             parts.push(text)
                         }
                         _ => {
@@ -575,10 +590,18 @@ fn bind_statement(
         };
         let also = match &spec.to {
             EdgeTarget::ByName { also, .. } => *also,
-            EdgeTarget::InterfaceUnit { .. } => None,
+            EdgeTarget::InterfaceUnit { .. } | EdgeTarget::Node(_) => None,
+        };
+        let local_to = match &spec.to {
+            EdgeTarget::Node(at) => match local.get(*at).copied() {
+                Some(to) => Some(to),
+                None => continue,
+            },
+            _ => None,
         };
         let target = match edge_target(entry, stmt, tree, &spec.to) {
-            Some(t) => t,
+            Some(t) => Some(t),
+            None if local_to.is_some() => None,
             None => {
                 if let Some(k) = dict.field_key(spec.kind.name(), "ordinal") {
                     diags.push(Diag::ValueUnparsed { key: FieldKey(k) });
@@ -608,14 +631,24 @@ fn bind_statement(
                 Err(()) => diags.push(Diag::ValueUnparsed { key: key_id }),
             }
         }
-        b.deferred.push(Deferred {
-            kind: spec.kind,
-            from,
-            target,
-            also,
-            fields,
-            prov,
-        });
+        match (local_to, target) {
+            (Some(to), _) => b.local_edges.push(FragEdge {
+                kind: spec.kind,
+                from,
+                to,
+                fields,
+                prov,
+            }),
+            (None, Some(target)) => b.deferred.push(Deferred {
+                kind: spec.kind,
+                from,
+                target,
+                also,
+                fields,
+                prov,
+            }),
+            (None, None) => continue,
+        }
         edges_made = edges_made.saturating_add(1);
     }
 
@@ -676,7 +709,8 @@ fn interface_like(name: &str) -> NodeKind {
     match prefix.as_str() {
         "st" => NodeKind::TunnelInterface,
         "reth" => NodeKind::RethInterface,
-        "ae" => NodeKind::AggregateInterface,
+        // Arista's bundles are `Port-Channel1`.
+        "ae" | "Port-Channel" => NodeKind::AggregateInterface,
         _ => NodeKind::Interface,
     }
 }
@@ -1039,6 +1073,20 @@ fn set_value(ty: SetEnumTy, raw: &str) -> Result<BoundValue, ()> {
     })
 }
 
+/// Whether a key capture that the same node also reads into a closed-typed
+/// field (`Vlan` keyed by `$v`, whose `vlan_id` comes from `$v`) reads as that
+/// type. A block config reuses an opener word for global settings (Arista's
+/// `vlan internal order ascending range …` beside `vlan 10`), and a node keyed
+/// by a value its own field refuses would be a node that is not there.
+fn key_reads_as_its_field(dict: &Dictionary, node: &NodeSpec, name: &str, text: &str) -> bool {
+    node.fields.iter().all(|f| match &f.value {
+        ValueSpec::From { from, ty } if from == name && ty.is_closed() => {
+            scalar_value(dict, *ty, text).is_ok()
+        }
+        _ => true,
+    })
+}
+
 fn known<T>(value: T, is_unknown: impl Fn(&T) -> bool) -> Result<T, ()> {
     if is_unknown(&value) {
         Err(())
@@ -1058,14 +1106,20 @@ fn edge_target(
     spec: &EdgeTarget,
 ) -> Option<PendingTarget> {
     match spec {
-        EdgeTarget::ByName { kind, from, .. } => {
+        EdgeTarget::ByName {
+            kind, from, prefix, ..
+        } => {
             let (text, redacted) = capture(entry, stmt, tree, from)?;
             if redacted.is_some() {
                 return None;
             }
+            let name = match prefix {
+                Some(p) => format!("{p}{text}"),
+                None => text,
+            };
             Some(PendingTarget::ByName {
                 kind: *kind,
-                name: scalar::Identifier::parse(&text).ok()?,
+                name: scalar::Identifier::parse(&name).ok()?,
             })
         }
         EdgeTarget::InterfaceUnit { from } => {
@@ -1082,6 +1136,7 @@ fn edge_target(
                 unit: unit.parse::<u32>().ok()?,
             })
         }
+        EdgeTarget::Node(_) => None,
     }
 }
 

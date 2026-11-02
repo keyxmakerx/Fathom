@@ -743,6 +743,37 @@ fn two_routing_instances_stop_the_route_lookup() {
     );
 }
 
+/// Arista's `vrf instance MGMT` on a switch with no default-table route: one
+/// instance, but a VRF, so the switch's interfaces are not one table.
+#[test]
+fn a_lone_vrf_stops_the_route_lookup_too() {
+    let (mut b, d) = lone();
+    let r = b.node(NodeKind::RoutingInstance);
+    b.set(
+        r,
+        "RoutingInstance.name",
+        scalar::Identifier("MGMT".to_owned()),
+    );
+    b.edge(EdgeKind::HasRoutingInstance, d, r);
+    let t = trace(&b.g, &d.to_string(), "10.1.1.5", None);
+    assert!(
+        t.stopped.contains("other than its default (MGMT)"),
+        "{}",
+        t.stopped
+    );
+    // The default table a person adds by hand is not a VRF.
+    let (mut b, d) = lone();
+    let r = b.node(NodeKind::RoutingInstance);
+    b.set(
+        r,
+        "RoutingInstance.name",
+        scalar::Identifier("default".to_owned()),
+    );
+    b.edge(EdgeKind::HasRoutingInstance, d, r);
+    let t = trace(&b.g, &d.to_string(), "10.1.1.5", None);
+    assert!(!t.stopped.contains("routing instance"), "{}", t.stopped);
+}
+
 #[test]
 fn a_dual_stack_start_does_not_invent_a_source() {
     let (mut b, d) = lone();

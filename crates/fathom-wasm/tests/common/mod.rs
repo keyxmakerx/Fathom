@@ -120,6 +120,7 @@ pub fn all_booted_shell() -> Shell {
         "linux-host",
         "omada-sw",
         "unifi-sw",
+        "eos",
     ] {
         let reply = shell.handle(OP_DICT, &frame_of(&platform_sources(platform)));
         assert!(reply.is_empty(), "{platform} must boot");
