@@ -883,6 +883,31 @@ const TABLES: &[TableClaim] = &[
         why: "the Fathom number of each piece of work (a plan, an issue, a spare that is out), \
               beside its design and element ids. Ids and a number (sign-off r74).",
     },
+    TableClaim {
+        name: "ipam_records",
+        protection: Protection::KeyProtected {
+            columns: &["sealed"],
+            under: "the IP plan store key, derived from the tenant key by HKDF under its own \
+                    label `fathom/ip-plan/v1` (ADR-0083 decision 1)",
+        },
+        why: "one record of the organisation's IP plan (a prefix, range, address, reservation, \
+              VRF, route target, VLAN group, VLAN, ASN range or ASN): its fields, sealed. Beside \
+              it in the clear: its id, kind, folder id, version and the tenant key epoch.",
+    },
+    TableClaim {
+        name: "ipam_unique",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "keyed hashes (HMAC under a key derived from the tenant key) of a record's VRF and \
+              network, beside the record id, so the database refuses a duplicate. What it learns \
+              is which records share a network (ADR-0083 decision 5).",
+    },
+    TableClaim {
+        name: "ipam_allocations",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "keyed hashes of what asked for a block (an allocation key such as a work number \
+              and slot), beside the record and parent ids, so the same request gets the same \
+              answer (ADR-0083 decision 5).",
+    },
 ];
 
 /// Schemas a migration may create besides `public`. Each one's tables are named `schema.table`

@@ -443,6 +443,14 @@ pub enum EntryType {
     /// A steward switched Termix off or back on (ADR-0078 decision 6, migration `0056`): for
     /// `everyone` in the organisation, or for one `account`; `off`, and the `actor`.
     TermixAccessSet,
+    /// A record of the IP plan store was made (ADR-0083, migration `0065`), by hand or
+    /// handed out by next free: its `record` id, `kind`, `version`, `fields` and the `actor`.
+    IpamRecordCreated,
+    /// A record of the IP plan store was changed: as [`EntryType::IpamRecordCreated`].
+    IpamRecordChanged,
+    /// A record of the IP plan store was deleted, or a reservation released: its `record`
+    /// id, `kind`, last `version` and the `actor`.
+    IpamRecordDeleted,
 
     // ---- The password vault, Mode A (migration 0041, storage §13.4) ---------
     //
@@ -659,6 +667,9 @@ impl EntryType {
             Self::TypeItYourselfSet => "type_it_yourself_set",
             Self::DesignMoved => "design_moved",
             Self::TermixAccessSet => "termix_access_set",
+            Self::IpamRecordCreated => "ipam_record_created",
+            Self::IpamRecordChanged => "ipam_record_changed",
+            Self::IpamRecordDeleted => "ipam_record_deleted",
             Self::VaultKeyEnrolled => "vault_key_enrolled",
             Self::VaultKeySuperseded => "vault_key_superseded",
             Self::VaultEntryCreated => "vault_entry_created",
@@ -755,6 +766,9 @@ impl EntryType {
             "type_it_yourself_set" => Some(Self::TypeItYourselfSet),
             "design_moved" => Some(Self::DesignMoved),
             "termix_access_set" => Some(Self::TermixAccessSet),
+            "ipam_record_created" => Some(Self::IpamRecordCreated),
+            "ipam_record_changed" => Some(Self::IpamRecordChanged),
+            "ipam_record_deleted" => Some(Self::IpamRecordDeleted),
             "vault_key_enrolled" => Some(Self::VaultKeyEnrolled),
             "vault_key_superseded" => Some(Self::VaultKeySuperseded),
             "vault_entry_created" => Some(Self::VaultEntryCreated),
@@ -868,6 +882,9 @@ impl EntryType {
             | Self::TypeItYourselfSet
             | Self::DesignMoved
             | Self::TermixAccessSet
+            | Self::IpamRecordCreated
+            | Self::IpamRecordChanged
+            | Self::IpamRecordDeleted
             | Self::VaultKeyEnrolled
             | Self::VaultKeySuperseded
             | Self::VaultEntryCreated

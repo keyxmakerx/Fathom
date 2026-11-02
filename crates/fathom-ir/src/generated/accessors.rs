@@ -2554,6 +2554,359 @@ mod body {
             crate::bag::typed(bag, crate::bag::FieldKey(541))
         }
     }
+    /// Typed reads for `IpamVrf` fields.
+    pub mod ipam_vrf {
+        /// `IpamVrf.name` — `Text`, card `1`, emit `—`.
+        /// What it is called; matched against a drawn RoutingInstance's name.
+        pub fn name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(562))
+        }
+        /// `IpamVrf.route_distinguisher` — `RouteDistinguisher`, card `0..1`, emit `—`.
+        pub fn route_distinguisher<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::RouteDistinguisher, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(563))
+        }
+        /// `IpamVrf.enforce_unique` — `bool`, card `1`, emit `—`.
+        /// When true the store refuses two records for the same network in this VRF.
+        pub fn enforce_unique<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&bool, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(564))
+        }
+        /// `IpamVrf.import_targets` — `Identifier`, card `0..n`, emit `—`.
+        /// Store ids of the PlanRouteTargets it imports.
+        pub fn import_targets<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&Vec<crate::scalar::Identifier>, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(565))
+        }
+        /// `IpamVrf.export_targets` — `Identifier`, card `0..n`, emit `—`.
+        /// Store ids of the PlanRouteTargets it exports.
+        pub fn export_targets<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&Vec<crate::scalar::Identifier>, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(566))
+        }
+        /// `IpamVrf.note` — `Text`, card `0..1`, emit `—`.
+        pub fn note<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(567))
+        }
+    }
+    /// Typed reads for `IpamRouteTarget` fields.
+    pub mod ipam_route_target {
+        /// `IpamRouteTarget.value` — `RouteTarget`, card `1`, emit `—`.
+        pub fn value<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::RouteTarget, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(568))
+        }
+        /// `IpamRouteTarget.note` — `Text`, card `0..1`, emit `—`.
+        pub fn note<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(569))
+        }
+    }
+    /// Typed reads for `IpamAggregate` fields.
+    pub mod ipam_aggregate {
+        /// `IpamAggregate.prefix` — `IpPrefix`, card `1`, emit `—`.
+        pub fn prefix<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::IpPrefix, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(570))
+        }
+        /// `IpamAggregate.rir` — `Text`, card `0..1`, emit `—`.
+        /// Who it came from: "RIPE NCC", "RFC 1918".
+        pub fn rir<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(571))
+        }
+        /// `IpamAggregate.folder` — `Identifier`, card `0..1`, emit `—`.
+        /// The site, building or closet folder it belongs to (ADR-0074); none is the organisation.
+        pub fn folder<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(572))
+        }
+        /// `IpamAggregate.note` — `Text`, card `0..1`, emit `—`.
+        pub fn note<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(573))
+        }
+    }
+    /// Typed reads for `IpamPrefix` fields.
+    pub mod ipam_prefix {
+        /// `IpamPrefix.prefix` — `IpPrefix`, card `1`, emit `—`.
+        pub fn prefix<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::IpPrefix, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(574))
+        }
+        /// `IpamPrefix.vrf` — `Identifier`, card `0..1`, emit `—`.
+        /// The IpamVrf's store id; none is the global table.
+        pub fn vrf<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(575))
+        }
+        /// `IpamPrefix.status` — `enum { container, active, reserved, deprecated }`, card `1`, emit `—`.
+        pub fn status<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::IpamPrefixStatus, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(576))
+        }
+        /// `IpamPrefix.is_pool` — `bool`, card `1`, emit `—`.
+        /// Every address in it is usable, the network and broadcast addresses included.
+        pub fn is_pool<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&bool, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(577))
+        }
+        /// `IpamPrefix.mark_utilised` — `bool`, card `1`, emit `—`.
+        /// Counts as full whatever is inside it.
+        pub fn mark_utilised<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&bool, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(578))
+        }
+        /// `IpamPrefix.role` — `Text`, card `0..1`, emit `—`.
+        pub fn role<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(579))
+        }
+        /// `IpamPrefix.folder` — `Identifier`, card `0..1`, emit `—`.
+        pub fn folder<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(580))
+        }
+        /// `IpamPrefix.vlan` — `VlanId`, card `0..1`, emit `—`.
+        pub fn vlan<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::VlanId, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(581))
+        }
+        /// `IpamPrefix.note` — `Text`, card `0..1`, emit `—`.
+        pub fn note<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(582))
+        }
+    }
+    /// Typed reads for `IpamRange` fields.
+    pub mod ipam_range {
+        /// `IpamRange.range` — `IpRange`, card `1`, emit `—`.
+        pub fn range<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::IpRange, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(583))
+        }
+        /// `IpamRange.vrf` — `Identifier`, card `0..1`, emit `—`.
+        pub fn vrf<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(584))
+        }
+        /// `IpamRange.status` — `enum { active, reserved, deprecated }`, card `1`, emit `—`.
+        pub fn status<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::IpamRangeStatus, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(585))
+        }
+        /// `IpamRange.populated` — `bool`, card `1`, emit `—`.
+        /// Counts as full, and next free never hands out an address inside it.
+        pub fn populated<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&bool, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(586))
+        }
+        /// `IpamRange.mark_utilised` — `bool`, card `1`, emit `—`.
+        pub fn mark_utilised<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&bool, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(587))
+        }
+        /// `IpamRange.role` — `Text`, card `0..1`, emit `—`.
+        pub fn role<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(588))
+        }
+        /// `IpamRange.folder` — `Identifier`, card `0..1`, emit `—`.
+        pub fn folder<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(589))
+        }
+        /// `IpamRange.note` — `Text`, card `0..1`, emit `—`.
+        pub fn note<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(590))
+        }
+    }
+    /// Typed reads for `IpamAddress` fields.
+    pub mod ipam_address {
+        /// `IpamAddress.address` — `InterfaceAddress`, card `1`, emit `—`.
+        pub fn address<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::InterfaceAddress, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(591))
+        }
+        /// `IpamAddress.vrf` — `Identifier`, card `0..1`, emit `—`.
+        pub fn vrf<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(592))
+        }
+        /// `IpamAddress.status` — `enum { active, reserved, deprecated, dhcp, slaac }`, card `1`, emit `—`.
+        pub fn status<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::IpamAddressStatus, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(593))
+        }
+        /// `IpamAddress.role` — `enum { loopback, secondary, anycast, vip, vrrp, hsrp, glbp, carp }`, card `0..1`, emit `—`.
+        pub fn role<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::IpamAddressRole, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(594))
+        }
+        /// `IpamAddress.dns_name` — `Fqdn`, card `0..1`, emit `—`.
+        /// Text kept in the store only; Fathom never resolves it (invariant 2).
+        pub fn dns_name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Fqdn, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(595))
+        }
+        /// `IpamAddress.nat_outside` — `Identifier`, card `0..1`, emit `—`.
+        /// The store id of its one-to-one NAT outside address.
+        pub fn nat_outside<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(596))
+        }
+        /// `IpamAddress.meant_for` — `Text`, card `0..1`, emit `—`.
+        /// The device and interface it is planned for, in words, until it is drawn.
+        pub fn meant_for<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(597))
+        }
+        /// `IpamAddress.folder` — `Identifier`, card `0..1`, emit `—`.
+        pub fn folder<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(598))
+        }
+        /// `IpamAddress.note` — `Text`, card `0..1`, emit `—`.
+        pub fn note<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(599))
+        }
+    }
+    /// Typed reads for `IpamReservation` fields.
+    pub mod ipam_reservation {
+        /// `IpamReservation.prefix` — `IpPrefix`, card `0..1`, emit `—`.
+        pub fn prefix<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::IpPrefix, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(600))
+        }
+        /// `IpamReservation.range` — `IpRange`, card `0..1`, emit `—`.
+        pub fn range<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::IpRange, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(601))
+        }
+        /// `IpamReservation.address` — `IpAddr`, card `0..1`, emit `—`.
+        pub fn address<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::IpAddr, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(602))
+        }
+        /// `IpamReservation.vrf` — `Identifier`, card `0..1`, emit `—`.
+        pub fn vrf<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(603))
+        }
+        /// `IpamReservation.holder` — `Identifier`, card `0..1`, emit `—`.
+        /// The account that holds it.
+        pub fn holder<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(604))
+        }
+        /// `IpamReservation.work` — `Text`, card `0..1`, emit `—`.
+        /// The piece of work that holds it: a Fathom number, later an order's job.
+        pub fn work<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(605))
+        }
+        /// `IpamReservation.reason` — `Text`, card `1`, emit `—`.
+        pub fn reason<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(606))
+        }
+        /// `IpamReservation.ends` — `Date`, card `1`, emit `—`.
+        pub fn ends<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Date, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(607))
+        }
+        /// `IpamReservation.allocation_key` — `Text`, card `0..1`, emit `—`.
+        /// What asked for it, such as W-1042/wan: the same key again gives the same block (decision 5).
+        pub fn allocation_key<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(608))
+        }
+        /// `IpamReservation.parent` — `Identifier`, card `0..1`, emit `—`.
+        /// The store id of the block it was handed out from.
+        pub fn parent<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(609))
+        }
+        /// `IpamReservation.dns_name` — `Fqdn`, card `0..1`, emit `—`.
+        pub fn dns_name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Fqdn, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(610))
+        }
+        /// `IpamReservation.nat_outside` — `Identifier`, card `0..1`, emit `—`.
+        pub fn nat_outside<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(611))
+        }
+        /// `IpamReservation.folder` — `Identifier`, card `0..1`, emit `—`.
+        pub fn folder<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(612))
+        }
+        /// `IpamReservation.note` — `Text`, card `0..1`, emit `—`.
+        pub fn note<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(613))
+        }
+    }
+    /// Typed reads for `IpamVlanGroup` fields.
+    pub mod ipam_vlan_group {
+        /// `IpamVlanGroup.name` — `Text`, card `1`, emit `—`.
+        pub fn name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(614))
+        }
+        /// `IpamVlanGroup.vid_ranges` — `Text`, card `1..n`, emit `—`.
+        /// Each lo-hi, inside 1-4094.
+        pub fn vid_ranges<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&Vec<crate::scalar::Text>, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(615))
+        }
+        /// `IpamVlanGroup.folder` — `Identifier`, card `0..1`, emit `—`.
+        pub fn folder<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(616))
+        }
+        /// `IpamVlanGroup.note` — `Text`, card `0..1`, emit `—`.
+        pub fn note<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(617))
+        }
+    }
+    /// Typed reads for `IpamVlan` fields.
+    pub mod ipam_vlan {
+        /// `IpamVlan.group` — `Identifier`, card `1`, emit `—`.
+        /// The IpamVlanGroup's store id.
+        pub fn group<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(618))
+        }
+        /// `IpamVlan.vid` — `VlanId`, card `1`, emit `—`.
+        pub fn vid<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::VlanId, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(619))
+        }
+        /// `IpamVlan.name` — `Text`, card `1`, emit `—`.
+        pub fn name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(620))
+        }
+        /// `IpamVlan.status` — `enum { active, reserved, deprecated }`, card `1`, emit `—`.
+        pub fn status<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::IpamVlanStatus, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(621))
+        }
+        /// `IpamVlan.allocation_key` — `Text`, card `0..1`, emit `—`.
+        pub fn allocation_key<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(622))
+        }
+        /// `IpamVlan.folder` — `Identifier`, card `0..1`, emit `—`.
+        pub fn folder<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(623))
+        }
+        /// `IpamVlan.note` — `Text`, card `0..1`, emit `—`.
+        pub fn note<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(624))
+        }
+    }
+    /// Typed reads for `IpamAsnRange` fields.
+    pub mod ipam_asn_range {
+        /// `IpamAsnRange.name` — `Text`, card `1`, emit `—`.
+        pub fn name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(625))
+        }
+        /// `IpamAsnRange.first` — `Asn`, card `1`, emit `—`.
+        pub fn first<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Asn, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(626))
+        }
+        /// `IpamAsnRange.last` — `Asn`, card `1`, emit `—`.
+        pub fn last<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Asn, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(627))
+        }
+        /// `IpamAsnRange.rir` — `Text`, card `0..1`, emit `—`.
+        pub fn rir<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(628))
+        }
+        /// `IpamAsnRange.folder` — `Identifier`, card `0..1`, emit `—`.
+        pub fn folder<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(629))
+        }
+        /// `IpamAsnRange.note` — `Text`, card `0..1`, emit `—`.
+        pub fn note<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(630))
+        }
+    }
+    /// Typed reads for `IpamAsn` fields.
+    pub mod ipam_asn {
+        /// `IpamAsn.asn` — `Asn`, card `1`, emit `—`.
+        pub fn asn<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Asn, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(631))
+        }
+        /// `IpamAsn.range` — `Identifier`, card `0..1`, emit `—`.
+        /// The IpamAsnRange's store id.
+        pub fn range<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(632))
+        }
+        /// `IpamAsn.meant_for` — `Text`, card `0..1`, emit `—`.
+        pub fn meant_for<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(633))
+        }
+        /// `IpamAsn.allocation_key` — `Text`, card `0..1`, emit `—`.
+        pub fn allocation_key<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(634))
+        }
+        /// `IpamAsn.folder` — `Identifier`, card `0..1`, emit `—`.
+        pub fn folder<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(635))
+        }
+        /// `IpamAsn.note` — `Text`, card `0..1`, emit `—`.
+        pub fn note<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(636))
+        }
+    }
     /// The declared slot type for a wire key: its `TypeId` and the exact type
     /// path the read accessors use, for every entry in the field-key registry,
     /// node and edge fields alike. `None` for a key this schema version does
@@ -3056,6 +3409,81 @@ mod body {
             559 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             560 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             561 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            562 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            563 => Some((core::any::TypeId::of::<crate::scalar::RouteDistinguisher>(), "crate::scalar::RouteDistinguisher")),
+            564 => Some((core::any::TypeId::of::<bool>(), "bool")),
+            565 => Some((core::any::TypeId::of::<Vec<crate::scalar::Identifier>>(), "Vec<crate::scalar::Identifier>")),
+            566 => Some((core::any::TypeId::of::<Vec<crate::scalar::Identifier>>(), "Vec<crate::scalar::Identifier>")),
+            567 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            568 => Some((core::any::TypeId::of::<crate::scalar::RouteTarget>(), "crate::scalar::RouteTarget")),
+            569 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            570 => Some((core::any::TypeId::of::<crate::scalar::IpPrefix>(), "crate::scalar::IpPrefix")),
+            571 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            572 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            573 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            574 => Some((core::any::TypeId::of::<crate::scalar::IpPrefix>(), "crate::scalar::IpPrefix")),
+            575 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            576 => Some((core::any::TypeId::of::<crate::generated::ir_types::IpamPrefixStatus>(), "crate::generated::ir_types::IpamPrefixStatus")),
+            577 => Some((core::any::TypeId::of::<bool>(), "bool")),
+            578 => Some((core::any::TypeId::of::<bool>(), "bool")),
+            579 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            580 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            581 => Some((core::any::TypeId::of::<crate::scalar::VlanId>(), "crate::scalar::VlanId")),
+            582 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            583 => Some((core::any::TypeId::of::<crate::scalar::IpRange>(), "crate::scalar::IpRange")),
+            584 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            585 => Some((core::any::TypeId::of::<crate::generated::ir_types::IpamRangeStatus>(), "crate::generated::ir_types::IpamRangeStatus")),
+            586 => Some((core::any::TypeId::of::<bool>(), "bool")),
+            587 => Some((core::any::TypeId::of::<bool>(), "bool")),
+            588 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            589 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            590 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            591 => Some((core::any::TypeId::of::<crate::scalar::InterfaceAddress>(), "crate::scalar::InterfaceAddress")),
+            592 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            593 => Some((core::any::TypeId::of::<crate::generated::ir_types::IpamAddressStatus>(), "crate::generated::ir_types::IpamAddressStatus")),
+            594 => Some((core::any::TypeId::of::<crate::generated::ir_types::IpamAddressRole>(), "crate::generated::ir_types::IpamAddressRole")),
+            595 => Some((core::any::TypeId::of::<crate::scalar::Fqdn>(), "crate::scalar::Fqdn")),
+            596 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            597 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            598 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            599 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            600 => Some((core::any::TypeId::of::<crate::scalar::IpPrefix>(), "crate::scalar::IpPrefix")),
+            601 => Some((core::any::TypeId::of::<crate::scalar::IpRange>(), "crate::scalar::IpRange")),
+            602 => Some((core::any::TypeId::of::<crate::scalar::IpAddr>(), "crate::scalar::IpAddr")),
+            603 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            604 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            605 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            606 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            607 => Some((core::any::TypeId::of::<crate::scalar::Date>(), "crate::scalar::Date")),
+            608 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            609 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            610 => Some((core::any::TypeId::of::<crate::scalar::Fqdn>(), "crate::scalar::Fqdn")),
+            611 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            612 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            613 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            614 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            615 => Some((core::any::TypeId::of::<Vec<crate::scalar::Text>>(), "Vec<crate::scalar::Text>")),
+            616 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            617 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            618 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            619 => Some((core::any::TypeId::of::<crate::scalar::VlanId>(), "crate::scalar::VlanId")),
+            620 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            621 => Some((core::any::TypeId::of::<crate::generated::ir_types::IpamVlanStatus>(), "crate::generated::ir_types::IpamVlanStatus")),
+            622 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            623 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            624 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            625 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            626 => Some((core::any::TypeId::of::<crate::scalar::Asn>(), "crate::scalar::Asn")),
+            627 => Some((core::any::TypeId::of::<crate::scalar::Asn>(), "crate::scalar::Asn")),
+            628 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            629 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            630 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            631 => Some((core::any::TypeId::of::<crate::scalar::Asn>(), "crate::scalar::Asn")),
+            632 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            633 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            634 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            635 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            636 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             _ => None,
         }
     }
@@ -3560,6 +3988,81 @@ mod body {
             559 => crate::canon::slot_to::<crate::scalar::Text>(559, "crate::scalar::Text", value),
             560 => crate::canon::slot_to::<crate::scalar::Text>(560, "crate::scalar::Text", value),
             561 => crate::canon::slot_to::<crate::scalar::Text>(561, "crate::scalar::Text", value),
+            562 => crate::canon::slot_to::<crate::scalar::Text>(562, "crate::scalar::Text", value),
+            563 => crate::canon::slot_to::<crate::scalar::RouteDistinguisher>(563, "crate::scalar::RouteDistinguisher", value),
+            564 => crate::canon::slot_to::<bool>(564, "bool", value),
+            565 => crate::canon::slot_to::<Vec<crate::scalar::Identifier>>(565, "Vec<crate::scalar::Identifier>", value),
+            566 => crate::canon::slot_to::<Vec<crate::scalar::Identifier>>(566, "Vec<crate::scalar::Identifier>", value),
+            567 => crate::canon::slot_to::<crate::scalar::Text>(567, "crate::scalar::Text", value),
+            568 => crate::canon::slot_to::<crate::scalar::RouteTarget>(568, "crate::scalar::RouteTarget", value),
+            569 => crate::canon::slot_to::<crate::scalar::Text>(569, "crate::scalar::Text", value),
+            570 => crate::canon::slot_to::<crate::scalar::IpPrefix>(570, "crate::scalar::IpPrefix", value),
+            571 => crate::canon::slot_to::<crate::scalar::Text>(571, "crate::scalar::Text", value),
+            572 => crate::canon::slot_to::<crate::scalar::Identifier>(572, "crate::scalar::Identifier", value),
+            573 => crate::canon::slot_to::<crate::scalar::Text>(573, "crate::scalar::Text", value),
+            574 => crate::canon::slot_to::<crate::scalar::IpPrefix>(574, "crate::scalar::IpPrefix", value),
+            575 => crate::canon::slot_to::<crate::scalar::Identifier>(575, "crate::scalar::Identifier", value),
+            576 => crate::canon::slot_to::<crate::generated::ir_types::IpamPrefixStatus>(576, "crate::generated::ir_types::IpamPrefixStatus", value),
+            577 => crate::canon::slot_to::<bool>(577, "bool", value),
+            578 => crate::canon::slot_to::<bool>(578, "bool", value),
+            579 => crate::canon::slot_to::<crate::scalar::Text>(579, "crate::scalar::Text", value),
+            580 => crate::canon::slot_to::<crate::scalar::Identifier>(580, "crate::scalar::Identifier", value),
+            581 => crate::canon::slot_to::<crate::scalar::VlanId>(581, "crate::scalar::VlanId", value),
+            582 => crate::canon::slot_to::<crate::scalar::Text>(582, "crate::scalar::Text", value),
+            583 => crate::canon::slot_to::<crate::scalar::IpRange>(583, "crate::scalar::IpRange", value),
+            584 => crate::canon::slot_to::<crate::scalar::Identifier>(584, "crate::scalar::Identifier", value),
+            585 => crate::canon::slot_to::<crate::generated::ir_types::IpamRangeStatus>(585, "crate::generated::ir_types::IpamRangeStatus", value),
+            586 => crate::canon::slot_to::<bool>(586, "bool", value),
+            587 => crate::canon::slot_to::<bool>(587, "bool", value),
+            588 => crate::canon::slot_to::<crate::scalar::Text>(588, "crate::scalar::Text", value),
+            589 => crate::canon::slot_to::<crate::scalar::Identifier>(589, "crate::scalar::Identifier", value),
+            590 => crate::canon::slot_to::<crate::scalar::Text>(590, "crate::scalar::Text", value),
+            591 => crate::canon::slot_to::<crate::scalar::InterfaceAddress>(591, "crate::scalar::InterfaceAddress", value),
+            592 => crate::canon::slot_to::<crate::scalar::Identifier>(592, "crate::scalar::Identifier", value),
+            593 => crate::canon::slot_to::<crate::generated::ir_types::IpamAddressStatus>(593, "crate::generated::ir_types::IpamAddressStatus", value),
+            594 => crate::canon::slot_to::<crate::generated::ir_types::IpamAddressRole>(594, "crate::generated::ir_types::IpamAddressRole", value),
+            595 => crate::canon::slot_to::<crate::scalar::Fqdn>(595, "crate::scalar::Fqdn", value),
+            596 => crate::canon::slot_to::<crate::scalar::Identifier>(596, "crate::scalar::Identifier", value),
+            597 => crate::canon::slot_to::<crate::scalar::Text>(597, "crate::scalar::Text", value),
+            598 => crate::canon::slot_to::<crate::scalar::Identifier>(598, "crate::scalar::Identifier", value),
+            599 => crate::canon::slot_to::<crate::scalar::Text>(599, "crate::scalar::Text", value),
+            600 => crate::canon::slot_to::<crate::scalar::IpPrefix>(600, "crate::scalar::IpPrefix", value),
+            601 => crate::canon::slot_to::<crate::scalar::IpRange>(601, "crate::scalar::IpRange", value),
+            602 => crate::canon::slot_to::<crate::scalar::IpAddr>(602, "crate::scalar::IpAddr", value),
+            603 => crate::canon::slot_to::<crate::scalar::Identifier>(603, "crate::scalar::Identifier", value),
+            604 => crate::canon::slot_to::<crate::scalar::Identifier>(604, "crate::scalar::Identifier", value),
+            605 => crate::canon::slot_to::<crate::scalar::Text>(605, "crate::scalar::Text", value),
+            606 => crate::canon::slot_to::<crate::scalar::Text>(606, "crate::scalar::Text", value),
+            607 => crate::canon::slot_to::<crate::scalar::Date>(607, "crate::scalar::Date", value),
+            608 => crate::canon::slot_to::<crate::scalar::Text>(608, "crate::scalar::Text", value),
+            609 => crate::canon::slot_to::<crate::scalar::Identifier>(609, "crate::scalar::Identifier", value),
+            610 => crate::canon::slot_to::<crate::scalar::Fqdn>(610, "crate::scalar::Fqdn", value),
+            611 => crate::canon::slot_to::<crate::scalar::Identifier>(611, "crate::scalar::Identifier", value),
+            612 => crate::canon::slot_to::<crate::scalar::Identifier>(612, "crate::scalar::Identifier", value),
+            613 => crate::canon::slot_to::<crate::scalar::Text>(613, "crate::scalar::Text", value),
+            614 => crate::canon::slot_to::<crate::scalar::Text>(614, "crate::scalar::Text", value),
+            615 => crate::canon::slot_to::<Vec<crate::scalar::Text>>(615, "Vec<crate::scalar::Text>", value),
+            616 => crate::canon::slot_to::<crate::scalar::Identifier>(616, "crate::scalar::Identifier", value),
+            617 => crate::canon::slot_to::<crate::scalar::Text>(617, "crate::scalar::Text", value),
+            618 => crate::canon::slot_to::<crate::scalar::Identifier>(618, "crate::scalar::Identifier", value),
+            619 => crate::canon::slot_to::<crate::scalar::VlanId>(619, "crate::scalar::VlanId", value),
+            620 => crate::canon::slot_to::<crate::scalar::Text>(620, "crate::scalar::Text", value),
+            621 => crate::canon::slot_to::<crate::generated::ir_types::IpamVlanStatus>(621, "crate::generated::ir_types::IpamVlanStatus", value),
+            622 => crate::canon::slot_to::<crate::scalar::Text>(622, "crate::scalar::Text", value),
+            623 => crate::canon::slot_to::<crate::scalar::Identifier>(623, "crate::scalar::Identifier", value),
+            624 => crate::canon::slot_to::<crate::scalar::Text>(624, "crate::scalar::Text", value),
+            625 => crate::canon::slot_to::<crate::scalar::Text>(625, "crate::scalar::Text", value),
+            626 => crate::canon::slot_to::<crate::scalar::Asn>(626, "crate::scalar::Asn", value),
+            627 => crate::canon::slot_to::<crate::scalar::Asn>(627, "crate::scalar::Asn", value),
+            628 => crate::canon::slot_to::<crate::scalar::Text>(628, "crate::scalar::Text", value),
+            629 => crate::canon::slot_to::<crate::scalar::Identifier>(629, "crate::scalar::Identifier", value),
+            630 => crate::canon::slot_to::<crate::scalar::Text>(630, "crate::scalar::Text", value),
+            631 => crate::canon::slot_to::<crate::scalar::Asn>(631, "crate::scalar::Asn", value),
+            632 => crate::canon::slot_to::<crate::scalar::Identifier>(632, "crate::scalar::Identifier", value),
+            633 => crate::canon::slot_to::<crate::scalar::Text>(633, "crate::scalar::Text", value),
+            634 => crate::canon::slot_to::<crate::scalar::Text>(634, "crate::scalar::Text", value),
+            635 => crate::canon::slot_to::<crate::scalar::Identifier>(635, "crate::scalar::Identifier", value),
+            636 => crate::canon::slot_to::<crate::scalar::Text>(636, "crate::scalar::Text", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -4062,6 +4565,81 @@ mod body {
             559 => crate::canon::slot_from::<crate::scalar::Text>(j),
             560 => crate::canon::slot_from::<crate::scalar::Text>(j),
             561 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            562 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            563 => crate::canon::slot_from::<crate::scalar::RouteDistinguisher>(j),
+            564 => crate::canon::slot_from::<bool>(j),
+            565 => crate::canon::slot_from::<Vec<crate::scalar::Identifier>>(j),
+            566 => crate::canon::slot_from::<Vec<crate::scalar::Identifier>>(j),
+            567 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            568 => crate::canon::slot_from::<crate::scalar::RouteTarget>(j),
+            569 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            570 => crate::canon::slot_from::<crate::scalar::IpPrefix>(j),
+            571 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            572 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            573 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            574 => crate::canon::slot_from::<crate::scalar::IpPrefix>(j),
+            575 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            576 => crate::canon::slot_from::<crate::generated::ir_types::IpamPrefixStatus>(j),
+            577 => crate::canon::slot_from::<bool>(j),
+            578 => crate::canon::slot_from::<bool>(j),
+            579 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            580 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            581 => crate::canon::slot_from::<crate::scalar::VlanId>(j),
+            582 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            583 => crate::canon::slot_from::<crate::scalar::IpRange>(j),
+            584 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            585 => crate::canon::slot_from::<crate::generated::ir_types::IpamRangeStatus>(j),
+            586 => crate::canon::slot_from::<bool>(j),
+            587 => crate::canon::slot_from::<bool>(j),
+            588 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            589 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            590 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            591 => crate::canon::slot_from::<crate::scalar::InterfaceAddress>(j),
+            592 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            593 => crate::canon::slot_from::<crate::generated::ir_types::IpamAddressStatus>(j),
+            594 => crate::canon::slot_from::<crate::generated::ir_types::IpamAddressRole>(j),
+            595 => crate::canon::slot_from::<crate::scalar::Fqdn>(j),
+            596 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            597 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            598 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            599 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            600 => crate::canon::slot_from::<crate::scalar::IpPrefix>(j),
+            601 => crate::canon::slot_from::<crate::scalar::IpRange>(j),
+            602 => crate::canon::slot_from::<crate::scalar::IpAddr>(j),
+            603 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            604 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            605 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            606 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            607 => crate::canon::slot_from::<crate::scalar::Date>(j),
+            608 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            609 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            610 => crate::canon::slot_from::<crate::scalar::Fqdn>(j),
+            611 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            612 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            613 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            614 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            615 => crate::canon::slot_from::<Vec<crate::scalar::Text>>(j),
+            616 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            617 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            618 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            619 => crate::canon::slot_from::<crate::scalar::VlanId>(j),
+            620 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            621 => crate::canon::slot_from::<crate::generated::ir_types::IpamVlanStatus>(j),
+            622 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            623 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            624 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            625 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            626 => crate::canon::slot_from::<crate::scalar::Asn>(j),
+            627 => crate::canon::slot_from::<crate::scalar::Asn>(j),
+            628 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            629 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            630 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            631 => crate::canon::slot_from::<crate::scalar::Asn>(j),
+            632 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            633 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            634 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            635 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            636 => crate::canon::slot_from::<crate::scalar::Text>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
