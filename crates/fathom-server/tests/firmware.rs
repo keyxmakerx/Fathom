@@ -3378,3 +3378,80 @@ async fn a_firmware_holder_stages_links_and_retires_but_cannot_see_activity_sett
         "a firmware holder must not hand out access"
     );
 }
+
+/// `0070`: the browser cleans a file name Fathom does not keep and sends the original;
+/// the original is sealed in the upload's history, and one that is not readable text,
+/// or is the name kept, is refused before anything is declared.
+#[tokio::test]
+async fn a_cleaned_file_name_keeps_the_original_in_the_sealed_history() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+    let org = estate.organisation;
+    let declare = format!("/organisations/{org}/scopes/{scope}/firmware");
+
+    let bytes = an_image(2_048);
+    let with_original = |kept: &str, original: &[u8]| {
+        let mut body = declaration(kept, bytes.len() as u64, &sha256_of(&bytes));
+        for field in [&b""[..], b"", b"", original] {
+            lp(&mut body, field);
+        }
+        body
+    };
+
+    for (kept, original, why) in [
+        ("a_b.bin", &b"a\nb.bin"[..], "a control character"),
+        ("a.bin", b"a.bin", "the name kept"),
+    ] {
+        let (status, _) = call(
+            addr,
+            &estate.steward,
+            "POST",
+            &declare,
+            &with_original(kept, original),
+        )
+        .await;
+        assert_eq!(status, "400", "an original that is {why} is refused");
+    }
+
+    let (status, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &declare,
+        &with_original("junos_install_1_.tgz", "junos install (1).tgz".as_bytes()),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let image = json_str(&body, "image_id");
+    let token = json_str(&body, "upload_token");
+    let (status, body) = raw_request(
+        addr,
+        "POST",
+        &format!("/firmware/uploads/{image}"),
+        &[(HEADER_UPLOAD_TOKEN, token)],
+        &bytes,
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+
+    let (status, body) = call(
+        addr,
+        &estate.steward,
+        "GET",
+        &format!("/organisations/{org}/firmware/activity"),
+        b"",
+    )
+    .await;
+    let text = String::from_utf8_lossy(&body);
+    assert_eq!(status, "200", "{text}");
+    assert!(
+        text.contains("\"filename\":\"junos_install_1_.tgz\"")
+            && text.contains("\"renamed_from\":\"junos install (1).tgz\""),
+        "the sealed upload names both: {text}"
+    );
+}

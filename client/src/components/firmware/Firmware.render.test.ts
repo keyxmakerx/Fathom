@@ -441,10 +441,11 @@ describe('warnings before a link (r62)', () => {
 });
 
 describe('the firmware activity (r62)', () => {
-  const base = { seq: 1, atUnix: 1_793_404_800, imageId: IMG_ID, byName: 'Key Maker', source: null, warningsPassed: [], filename: null, version: null, modelsBefore: [], modelsAfter: [] };
+  const base = { seq: 1, atUnix: 1_793_404_800, imageId: IMG_ID, byName: 'Key Maker', source: null, warningsPassed: [], filename: null, renamedFrom: null, version: null, modelsBefore: [], modelsAfter: [] };
 
   it('says who did what, with the warnings they went past', () => {
     expect(activityWords({ ...base, type: 'firmware_staged', version: '23.4R2' }, null).text).toBe('Uploaded (23.4R2) by Key Maker');
+    expect(activityWords({ ...base, type: 'firmware_staged', filename: 'junos_install.tgz', renamedFrom: 'junos install.tgz' }, null).text).toBe('Uploaded as junos_install.tgz, renamed from junos install.tgz by Key Maker');
     const link = activityWords({ ...base, type: 'firmware_fetch_issued', warningsPassed: ['wrong_model', 'downgrade'] }, null);
     expect(link.text).toBe('One-time link asked for by Key Maker');
     expect(link.flag).toBe('went past: wrong model, downgrade');

@@ -109,6 +109,7 @@ export function useFirmwareApi(inputs: FirmwareInputs): FirmwareApi | null {
         try {
           const declared = await declareImage(organisationId, scopeId, {
             filename: checked.ok.filename,
+            renamedFrom: checked.ok.renamedFrom,
             byteLength: checked.ok.byteLength,
             sha256: checked.ok.sha256,
             platform: checked.ok.platform,

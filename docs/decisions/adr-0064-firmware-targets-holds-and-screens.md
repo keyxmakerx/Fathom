@@ -158,3 +158,13 @@ as Read and Draw (`fathom/grant/v2`, capability `firmware`; migration 0069 widen
 - The client shows the upload, link, models and retire controls to a Firmware holder
   (`canStageFirmwareFor`, `components/home/capabilities.ts`) and offers Firmware in People, Invite,
   Waiting for you and Share.
+
+**File names are cleaned, not refused (2026-11-02, the owner's ask).** A file whose name holds
+anything but letters, digits, dot, dash and underscore, or starts with a dot, is no longer
+refused. The Upload form shows the name it will be kept under before anything is sent: accents
+dropped, every other run of characters made one `_`, leading dots removed, the extension kept
+when cut to 255 (`cleanFilename`, `components/firmware/uploadCheck.ts`). The server's rule for
+the kept name is unchanged, since that name goes into commands pasted into a device. The original
+name rides as an optional last declaration field, is stored in `firmware_images.renamed_from`
+(migration 0070), and is sealed in the `firmware_staged` entry. It must be 1 to 1024 bytes, hold
+no control characters, and differ from the kept name.

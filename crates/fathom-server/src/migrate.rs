@@ -420,6 +420,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0069_firmware_capability.sql",
         sql: include_str!("../migrations/0069_firmware_capability.sql"),
     },
+    // A cleaned firmware file name keeps the original (sign-off r95 follow-up).
+    Migration {
+        version: 70,
+        name: "0070_firmware_renamed_from.sql",
+        sql: include_str!("../migrations/0070_firmware_renamed_from.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

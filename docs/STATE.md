@@ -586,7 +586,7 @@ reason, and **Steward › Firmware** (`#steward/firmware`) sets the organisation
 ceiling and its download address; every row is sealed and every change filed with before and after. Uploading,
 models, one-time links and retiring need the **Firmware** permission (sign-off r95, ADR-0064 amendment):
 a folder level between Draw and Steward that includes Draw, granted to a person or a team; activity and
-settings stay a Steward's. A holder can **retire** an image: the file is deleted, links already given stop working, the act is
+settings stay a Steward's. A file name with other characters is cleaned, not refused, and the original is sealed with the upload (migration 0070). A holder can **retire** an image: the file is deleted, links already given stop working, the act is
 sealed. Asking for a link first lists what looks wrong (the image's models, an older version, not the
 chosen one); "Get the link anyway" seals the warnings passed. The image page and the plan show the
 organisation's firmware activity, flagging a download from an address that is none of the plan's devices'.
