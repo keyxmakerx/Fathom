@@ -28,6 +28,7 @@ import { WaitingPanel } from './WaitingPanel';
 import { PasswordsPage } from '../vault/Screens';
 import { initialPageLink, showPageLink } from '../home/pageLink';
 import { FirmwareSettingsPage } from './FirmwareSettingsPage';
+import { DeviceReadingPage } from './DeviceReadingPage';
 import { shownRail } from './stewardRail';
 import './organisation.css';
 
@@ -178,6 +179,7 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
 
   function content() {
     if (page.kind === 'firmware') return <FirmwareSettingsPage organisationId={org} />;
+    if (page.kind === 'device-reading') return <DeviceReadingPage organisationId={org} />;
     if (page.kind === 'passwords') {
       return <PasswordsPage organisation={org} organisationName={organisation.displayName} mode="admin" />;
     }

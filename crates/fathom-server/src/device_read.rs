@@ -79,6 +79,14 @@ pub fn reader_from(
 // ---------------------------------------------------------------------------
 
 /// Why an address may never be read, whatever a Steward listed, or `None`.
+///
+/// The blocks are from IANA's special-purpose address registries (IPv4 and IPv6, both last
+/// updated 2025-10-09, read 2026-11-02): "this network" 0.0.0.0/8 (RFC 791), loopback 127.0.0.0/8
+/// (RFC 1122), link-local 169.254.0.0/16 (RFC 3927), reserved 240.0.0.0/4 (RFC 1112, which takes
+/// in limited broadcast); multicast 224.0.0.0/4 (RFC 5771); and for IPv6 the unspecified ::/128,
+/// loopback ::1/128, link-local fe80::/10, multicast ff00::/8 (all RFC 4291), with IPv4-mapped
+/// ::ffff:0:0/96 judged as the IPv4 address it carries. Private-use space is allowed: it is where
+/// management networks live.
 pub fn refused(ip: IpAddr) -> Option<&'static str> {
     match ip {
         IpAddr::V4(v4) => refused_v4(v4),

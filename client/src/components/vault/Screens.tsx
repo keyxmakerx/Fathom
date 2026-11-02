@@ -297,6 +297,11 @@ function LoginCard({
       <div className="vault-card__head">
         <span className="vault-card__name">{entry.name}</span>
         <span className="vault-tag">{kindText(entry)}</span>
+        {entry.readOnly && (
+          <span className="vault-tag" title="Someone ticked “This is a read-only account”; device reading uses only these logins" data-testid="vault-read-only-tag">
+            Read-only ✓
+          </span>
+        )}
         {entry.critical && (
           <span className="vault-tag vault-tag--critical" title="Checked weekly; a breached password is refused" data-testid="vault-critical-tag">
             Critical

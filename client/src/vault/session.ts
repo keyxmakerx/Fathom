@@ -365,6 +365,8 @@ export interface NewLogin {
   name: string;
   kind: LoginKind;
   usedOn: UsedOn[];
+  /** "This is a read-only account" (ADR-0082 §4.1). */
+  readOnly?: boolean;
   secret: Secret;
 }
 
@@ -374,7 +376,7 @@ export async function storeLogin(organisation: string, recipients: Recipients, l
   const contentKey = newContentKey();
   const sealed = await sealSecret(organisation, id, 1, contentKey, login.secret);
   const share = await buildShare(organisation, u.account, id, 1, contentKey, recipients.keys);
-  return createLogin(organisation, { id, name: login.name, kind: login.kind, usedOn: login.usedOn, secretCt: sealed.ct, secretNonce: sealed.nonce, share });
+  return createLogin(organisation, { id, name: login.name, kind: login.kind, usedOn: login.usedOn, readOnly: login.readOnly, secretCt: sealed.ct, secretNonce: sealed.nonce, share });
 }
 
 /** Open my copy of a login. Refuses a copy no verified share covers, or whose digest is not the

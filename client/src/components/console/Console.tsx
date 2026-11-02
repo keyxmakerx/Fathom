@@ -27,6 +27,7 @@ import { initialPageLink, showPageLink } from '../home/pageLink';
 import { Operators } from './Operators';
 import { PlacementForm } from './PlacementForm';
 import { ActivityPanel } from './ActivityPanel';
+import { DeviceReadingLine } from './DeviceReadingLine';
 import { BackupsPanel } from './BackupsPanel';
 import { SmtpForm } from './SmtpForm';
 import { secondsLeft } from './placementCopy';
@@ -322,6 +323,7 @@ export function Console({ operatorId, onClaimNow }: ConsoleProps) {
           <SmtpForm actingOperatorId={operatorId} />
           <PlacementForm actingOperatorId={operatorId} currentHost={host} />
           <BackupsPanel />
+          <DeviceReadingLine />
         </section>
       )}
 
