@@ -7986,3 +7986,148 @@ async fn work_reaches_the_work_tab_with_a_fathom_number_and_only_for_readers() {
     assert_eq!(status, "200");
     assert!(String::from_utf8_lossy(&body).contains(&format!("\"{plan}\":{number}")));
 }
+
+/// **The IP plan store's routes (ADR-0083): a steward plans a prefix, next free looks without
+/// holding, a take hands out the lowest free block under a key and the same key again answers the
+/// same block, a member with no grant sees nothing, and a prefix with host bits is refused with a
+/// sentence a person can read.**
+#[tokio::test]
+async fn the_ip_plan_routes_plan_look_take_and_answer_the_same_block_twice() {
+    use fathom_canon::Json;
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let outsider = a_member_with(&pool, &ring, &estate, "outsider", None).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+    let base = format!("/organisations/{}/ipam", estate.organisation);
+    let prefix = |p: &str| {
+        Json::Obj(
+            [
+                ("prefix", jstr(p)),
+                ("status", jstr("container")),
+                ("is_pool", Json::Bool(false)),
+                ("mark_utilised", Json::Bool(false)),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+        )
+    };
+
+    let (status, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &format!("{base}/create"),
+        &canon(vec![
+            ("kind", jstr("prefix")),
+            ("fields", prefix("10.20.0.1/24")),
+        ]),
+    )
+    .await;
+    assert_eq!(status, "422", "{}", String::from_utf8_lossy(&body));
+    assert!(String::from_utf8_lossy(&body).contains("prefix is not valid here"));
+
+    let (status, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &format!("{base}/create"),
+        &canon(vec![
+            ("kind", jstr("prefix")),
+            ("fields", prefix("10.20.0.0/24")),
+        ]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let created = Json::parse_canonical(&body).expect("json");
+    let Json::Obj(top) = created else { panic!() };
+    let Some(Json::Obj(record)) = top.get("record") else {
+        panic!()
+    };
+    let Some(Json::Str(parent)) = record.get("id") else {
+        panic!()
+    };
+    assert_eq!(record.get("usable"), Some(&jstr("254")));
+
+    let look = canon(vec![
+        ("parent", jstr(parent)),
+        ("want", jstr("prefix")),
+        ("length", Json::Int(29)),
+    ]);
+    let (status, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &format!("{base}/next"),
+        &look,
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    assert!(String::from_utf8_lossy(&body).contains("\"free\":\"10.20.0.0/29\""));
+
+    let hold = Json::Obj(
+        [("reason", jstr("branch WAN")), ("work", jstr("W-77"))]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+    );
+    let take = canon(vec![
+        ("parent", jstr(parent)),
+        ("want", jstr("prefix")),
+        ("length", Json::Int(29)),
+        ("take", Json::Bool(true)),
+        ("key", jstr("W-77/wan")),
+        ("hold", hold),
+    ]);
+    let (status, first) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &format!("{base}/next"),
+        &take,
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&first));
+    let first = String::from_utf8_lossy(&first).into_owned();
+    assert!(first.contains("\"prefix\":\"10.20.0.0/29\""), "{first}");
+    assert!(first.contains("\"again\":false"), "{first}");
+    let (_, second) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &format!("{base}/next"),
+        &take,
+    )
+    .await;
+    let second = String::from_utf8_lossy(&second).into_owned();
+    assert!(second.contains("\"prefix\":\"10.20.0.0/29\""), "{second}");
+    assert!(second.contains("\"again\":true"), "{second}");
+
+    let (status, body) = call(
+        addr,
+        &outsider,
+        "POST",
+        &format!("{base}/list"),
+        &canon(vec![]),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    assert!(
+        String::from_utf8_lossy(&body).starts_with("{\"records\":[]"),
+        "a member with no grant sees nothing: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let (_, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &format!("{base}/list"),
+        &canon(vec![]),
+    )
+    .await;
+    let listed = String::from_utf8_lossy(&body).into_owned();
+    assert!(listed.contains("\"lapsed\":false"), "{listed}");
+    assert!(listed.contains("10.20.0.0/24"), "{listed}");
+}

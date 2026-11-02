@@ -396,6 +396,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0064_work.sql",
         sql: include_str!("../migrations/0064_work.sql"),
     },
+    // The IP plan store: sealed records, unique space and allocation keys (ADR-0083).
+    Migration {
+        version: 65,
+        name: "0065_ipam.sql",
+        sql: include_str!("../migrations/0065_ipam.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

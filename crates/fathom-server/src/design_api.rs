@@ -339,12 +339,16 @@ pub fn router(state: DesignApiState) -> Router {
         .merge(ai_routes::routes())
         .merge(vault_routes::routes())
         .merge(estate_routes::routes())
+        .merge(ipam_routes::routes())
         .with_state(state)
 }
 
 mod ai_routes;
 // The estate index (ADR-0079): search and Inventory across every design.
 mod estate_routes;
+
+// The IP plan store (ADR-0083): records beside the designs, and next free under a lock.
+mod ipam_routes;
 // The password vault's routes (ADR-0071). A child module, so it shares this file's extractor,
 // transaction opening and body helpers without making any of them public.
 mod vault_routes;

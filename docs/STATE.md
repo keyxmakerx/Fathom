@@ -227,6 +227,24 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   the tab asks again every five seconds while it is shown. Plans, issues and spares gain `assigned_to`
   (an account id, picked from those holding Draw) and `ticket` (an outside link, only http and https
   open); issues gain `due`. Comments are notes on the item. On a phone the rows become cards.
+- **The IP plan store, server half (ADR-0083 decisions 1, 3, 4 and 5; schema 0.36, field keys
+  562-636; migration 0065; 2026-11-02).** A fourth schema layer, `plan`, declares eleven kinds
+  (`IpamVrf`, `IpamRouteTarget`, `IpamAggregate`, `IpamPrefix`, `IpamRange`, `IpamAddress`,
+  `IpamReservation`, `IpamVlanGroup`, `IpamVlan`, `IpamAsnRange`, `IpamAsn`) that are records on the
+  server beside the designs; the plain face refuses a design holding one, in Rust and the browser.
+  `ipam.rs` keeps them per organisation, each sealed under a key derived from the tenant key
+  (`fathom/ip-plan/v1`), every change an organisation-chain entry with its fields, and checks every
+  value with the schema's own parsers. Read on a record's folder sees it; Draw plans in it, reserves
+  and releases what one holds; Steward makes aggregates, VRFs, route targets, VLAN groups and ASN
+  ranges and releases anyone's reservation. **Next free** (`POST …/ipam/next`) hands out the lowest
+  free prefix of a length, address, VLAN ID or ASN under a transaction-level advisory lock on the
+  parent, skipping what the plan holds, populated ranges and every address the estate index has
+  drawn; the same allocation key gives the same answer, and from another parent is refused. A keyed
+  hash of VRF and network, unique per organisation, refuses a duplicate in a VRF that enforces unique
+  space and anything handed out twice. A reservation is held by a person or a piece of work, ends
+  after 30 days unless told otherwise, and reads `lapsed` after its end. Routes: `…/ipam/list`,
+  `…/create`, `…/update` (with the version read), `…/delete`, `…/next`. **No screens yet**, no
+  difference checks and no NetBox files (ADR-0083 order steps 3, 4 and 6).
 - **Who did what on the console, from where (sign-offs r52, 2026-10-27).** Every console and sign-in
   request writes an `access` line with the client's address and the proxy it came through
   (`access_log.rs`), also sent to `FATHOM_ACCESS_SYSLOG` when set, best effort (`access_ship.rs`).
