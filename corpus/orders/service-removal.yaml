@@ -1,0 +1,40 @@
+# Starter order type: taking a service out (ADR-0084 decision 12).
+# DRAFT: written from general practice, not yet checked against a real order.
+fathom: order-definition/1
+id: service-removal
+name: Take a service out
+number: OUT
+
+fields:
+  - { use: customer-details }
+  - { key: site,    label: Site,       kind: site, required: true }
+  - { key: circuit, label: Circuit id, kind: text, required: true }
+  - { key: last_day, label: Last day of service, kind: date, required: true }
+  - { key: kit_back, label: Equipment to collect, kind: yes_no }
+
+stages:
+  - id: confirm
+    name: Order Management
+    jobs:
+      - id: confirm
+        name: Confirm the cease
+        team: order-desk
+        steps: [Customer confirmed in writing, Billing told the last day]
+  - id: deprovision
+    name: Provisioning
+    approval: approve_plans
+    jobs:
+      - { id: unconfigure, name: Remove the configuration, team: provisioning, makes: plan }
+      - { id: release, name: Release the addresses, team: ip-design }
+  - id: recover
+    name: Field
+    jobs:
+      - id: collect
+        name: Collect the equipment
+        team: field
+        optional: true
+        when: { field: kit_back, is: true }
+        due: 10d
+        overdue:
+          - { after: 0d, escalate: lead }
+          - { after: 5d, move_on: true }

@@ -262,6 +262,13 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   the tab asks again every five seconds while it is shown. Plans, issues and spares gain `assigned_to`
   (an account id, picked from those holding Draw) and `ticket` (an outside link, only http and https
   open); issues gain `due`. Comments are notes on the item. On a phone the rows become cards.
+- **Order types, read and checked (ADR-0084 piece 1 and decisions 14 to 17, sign-offs r103,
+  2026-11-02).** `crates/fathom-orders` reads an order definition (`order-definition/1`) or a shared
+  field set (`field-set/1`) through the YAML subset and returns every problem with its line: unknown
+  keys, ids that resolve nowhere, a loop across stages, lanes and `needs`, `send_back` outside its
+  lane, `move_on` on a job that isn't optional or behind a sign-off, field kinds and conditions.
+  Starters in `corpus/orders/`: DIA, a new site build in two lanes and taking a service out (both
+  drafts), and the Customer details field set. No server records, engine or screens yet.
 - **The IP plan store, server half (ADR-0083 decisions 1, 3, 4 and 5; schema 0.36, field keys
   562-636; migration 0065; 2026-11-02).** A fourth schema layer, `plan`, declares eleven kinds
   (`IpamVrf`, `IpamRouteTarget`, `IpamAggregate`, `IpamPrefix`, `IpamRange`, `IpamAddress`,

@@ -1,0 +1,71 @@
+# Starter order type: a new site build, in two lanes (ADR-0084 decisions 12 and 14).
+# DRAFT: written from general practice, not yet checked against a real order.
+# The Build lane and the Equipment lane run at the same time; installing the
+# rack waits for the equipment to be on site.
+fathom: order-definition/1
+id: site-build
+name: New site build
+number: SITE
+
+fields:
+  - { use: customer-details }
+  - { key: site,  label: Site,  kind: site, required: true }
+  - { key: racks, label: Racks, kind: number, min: 1, max: 20, required: true }
+  - { key: power, label: Needs power work, kind: yes_no }
+  - { key: electrician, label: Electrician booked, kind: date, when: { field: power, is: true } }
+  - { key: ship_to,  label: Ship to, kind: long_text, required: true }
+  - { key: tracking, label: Tracking number, kind: text }
+
+lanes:
+  - id: build
+    name: Build
+    stages:
+      - id: design
+        name: Design
+        approval: approve_plans
+        jobs:
+          - { id: site-design, name: Site design, team: network-design, makes: plan }
+      - id: construction
+        name: Construction
+        jobs:
+          - id: room
+            name: Build the room
+            team: construction
+            steps: [Cable trays in, Power to the rack, Earth bonded, Room signed off]
+          - id: power-work
+            name: Power work
+            team: construction
+            when: { field: power, is: true }
+            asks: [electrician]
+      - id: installation
+        name: Installation
+        jobs:
+          - id: rack
+            name: Install the rack
+            team: field
+            needs: [on-site]
+            makes: plan
+            send_back: { to: construction, label: Room not ready }
+
+  - id: equipment
+    name: Equipment
+    starts_after: design
+    stages:
+      - id: entry
+        name: Order Entry
+        jobs:
+          - { id: order-kit, name: Order the kit, team: order-entry, due: 2d }
+      - id: ship
+        name: Ship equipment
+        jobs:
+          - id: ship-it
+            name: Ship to the site
+            team: order-management
+            asks: [tracking]
+            due: 3d
+            overdue:
+              - { after: 0d, escalate: lead }
+      - id: delivered
+        name: Delivered
+        jobs:
+          - { id: on-site, name: Equipment on site, team: field, steps: [Boxes counted, Signed for] }

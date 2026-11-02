@@ -1,12 +1,13 @@
 # ADR-0084: Orders and the job engine — order definitions in YAML, and a builder on a canvas
 
-**Status:** accepted 2026-11-02. The owner approved sign-off card `orders-engine` with every
+**Status:** accepted 2026-11-02, with decisions 14 to 17 added the same day: the owner approved sign-off
+card r103 with every recommended pick (lanes, own fields plus shared sets, job holders then a lead). The owner approved sign-off card `orders-engine` with every
 radio pick A (stages with `needs` and `send_back`; describe-only files; board and file both ways;
 open orders keep their version; Stewards make order types), ticked the three recommended extras
 plus "more starters" and "overdue jobs move on or reassign by themselves", and wrote: *"Overdue
 orders based on types and such CAN move. Also i want the IP stuff, and the engine ... before we
 release."* Decision 11 is the overdue answer; decision 12 the starters; decision 13 the release
-gate. Nothing is built.
+gate. Piece 1 (read and check) is built; the rest is not.
 
 **Comes from:** sign-off card r75-work-plan, approved 2026-11-02 with every pick A, piece 7 ("Orders
 and jobs"), and the owner's note on it: *"we'll probably need a job engine, can you make it yaml
@@ -69,8 +70,8 @@ be two things at once: text a modder can read and diff, and a picture a non-code
    optional `makes: plan` (opens a maintenance plan in a chosen design, and the job is done when
    the plan is recorded). Troubleshooting is not planned work, so `makes: issue` is not offered.
    A job's result is Done, Sent back (with a reason) or Cancelled (with a reason). A stage may say
-   `approval: lead` or `approval: overseer`; it is then done only when such a person signs it off,
-   and nobody approves their own work (ADR-0081).
+   `approval: <power>`; it is then done only when someone holding that team power signs it off
+   (decision 17), and nobody approves their own work (ADR-0081).
 
 5. **The builder is a canvas over the same YAML, and either side can be edited.** Stages are columns,
    jobs are cards dragged within and between them, a `needs` is an arrow drawn from one card to
@@ -141,6 +142,58 @@ be two things at once: text a modder can read and diff, and a picture a non-code
     (`crates/fathom-schema/src/subset.rs`, `62` §2.2), so no YAML crate is added; flow maps stay on
     one line, as the example below does.
 
+## Added 2 November: lanes, shared field sets, changing answers (sign-off card r103)
+
+The owner's note on this record: *"make sure that fields can be templated based on type and changed,
+but another thing is that the order may need to be something like Construction > work sent to them,
+but meanwhile Order Entry or Order Management may need to send equipment somewhere."* Card r103 put
+three choices with picks ticked, and the owner approved every pick, asking only whether the file
+format covers it too: it does, as `lanes`, `starts_after`, `use` and `field_sets`. Nothing above is withdrawn: a definition with one line of stages reads as before.
+
+14. **Lanes: one order can run several lines of stages at once.** A definition says either
+    `stages:` (one lane, as above) or `lanes:`, a list of lanes each with an `id`, a `name`, its own
+    `stages`, and an optional `starts_after: <stage id in another lane>`; with none, a lane starts when
+    the order opens. Lanes run at the same time, and the order is done when every lane is. Waiting
+    across lanes is the `needs` a job already has: lane, stage and job ids are unique across the whole
+    definition, so a job names any other job. `send_back` stays within its own lane. The check builds
+    one graph (each stage's start and end, each job, stage order, `starts_after`, `needs`) and refuses
+    a loop, naming the jobs on it; that is also how a job that could never start shows. This answers
+    "Construction while Order Management ships equipment" without the free flowchart rejected below:
+    a lane is still left to right. The board draws lanes as rows; the order page shows one progress
+    line per lane.
+
+15. **Fields are the order type's own, plus shared field sets.** A Steward keeps a field set
+    (`fathom: field-set/1`: `id`, `name`, `fields`) once, such as Customer details, and an order type
+    uses it with `- { use: customer-details }` in its `fields`. Editing a set makes a new version of
+    each order type that uses it; open orders keep theirs (decision 6). An exported definition
+    carries the sets it uses under `field_sets:`, and a carried set is used before the
+    organisation's set of the same id, so the file stands alone in another organisation; import
+    shows which carried sets match one already there. A set cannot use another set, and a set field
+    that clashes with a field of the type is refused. Field kinds are `text`, `long_text`, `number`
+    (with `min`, `max`), `yes_no`, `date`, `choice`, `choices` (several), `site`, `device`, `team`,
+    `person` and `prefix`. A field may have `help` and a `when` that names a field declared before it,
+    so it is asked only when that answer says so. A field a job lists in `asks` is filled in by that
+    job rather than when the order opens.
+
+16. **Changing an answer once the order is open.** Whoever holds a job that asks for a field may change
+    it until that job is done; fields asked when the order opens belong to the order's first job's
+    team in the same way. After that, only a lead of that team, with a reason. Every change is
+    recorded in the sealed history with who, when and the value before. The engine (piece 2) enforces
+    this; the definition says nothing about it.
+
+17. **A stage's `approval` names a team power, not a role.** The teams work (ADR-0081, draft #303)
+    made roles editable by a Steward, with a fixed list of powers. So `approval: approve_plans` means
+    anyone holding that power on the job's team, or a Steward of the folder; the author, the assignee
+    and whoever asked never can. `escalate: lead | overseer` in an overdue rule still names role ids,
+    which stay fixed. `approve_plans` is the only power the check accepts for now.
+
+**Built (piece 1):** `crates/fathom-orders` reads a definition or a field set through the subset
+parser and checks everything above, returning every problem with its line. Starters:
+`corpus/orders/dia.yaml`, `site-build.yaml` (two lanes, a draft), `service-removal.yaml` (a draft)
+and `corpus/orders/field-sets/customer-details.yaml`. Not yet: server records and versions, the
+redaction gate on a definition's texts, and install-time team matching beyond
+`Definition::unmatched_teams`.
+
 ## A definition, as a modder sees it
 
 ```yaml
@@ -171,7 +224,7 @@ stages:
 
   - id: design
     name: Design
-    approval: lead                                # a team lead signs the design off
+    approval: approve_plans                       # someone with that power signs it off (decision 17)
     jobs:
       - id: addresses
         name: Reserve the WAN block
