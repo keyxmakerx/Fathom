@@ -1,0 +1,10 @@
+[package]
+name = "fathom-orders"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "ADR-0084 order definitions: read an order type file through the YAML subset and check it (lanes, stages, jobs, fields, shared field sets)"
+
+[dependencies]
+fathom-schema = { path = "../fathom-schema" }

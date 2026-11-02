@@ -1,0 +1,57 @@
+# Starter order type: Dedicated Internet Access (ADR-0084).
+# Copy it under Steward › Order types and match each team to one of yours.
+fathom: order-definition/1
+id: dia
+name: Dedicated Internet Access
+number: DIA
+
+fields:
+  - { use: customer-details }
+  - { key: site,      label: Site,       kind: site,   required: true }
+  - { key: bandwidth, label: Bandwidth,  kind: choice, choices: [100M, 1G, 10G], required: true }
+  - { key: circuit,   label: Circuit id, kind: text }
+  - { key: wan_v4,    label: WAN block,  kind: prefix, family: ipv4, size: 29 }
+
+stages:
+  - id: order
+    name: Order Management
+    jobs:
+      - id: check
+        name: Check the order
+        team: order-desk
+        steps: [Customer contact confirmed, Site address confirmed, Contract signed]
+        due: 1d
+        overdue:
+          - { after: 0d, escalate: lead }
+          - { after: 2d, reassign: team }
+
+  - id: design
+    name: Design
+    approval: approve_plans
+    jobs:
+      - { id: addresses, name: Reserve the WAN block, team: ip-design, reserves: wan_v4 }
+      - id: port
+        name: Pick the edge port
+        team: network-design
+        when: { field: bandwidth, in: [1G, 10G] }
+        steps: [Port with a free 10G optic chosen]
+
+  - id: provision
+    name: Provisioning
+    jobs:
+      - id: configure
+        name: Configure the edge router
+        team: provisioning
+        needs: [addresses, port]
+        asks: [circuit]
+        makes: plan
+        due: 2d
+
+  - id: install
+    name: Installation
+    jobs:
+      - id: handoff
+        name: Install the hand-off
+        team: field
+        steps: [Fibre patched, Light levels in range, Customer can reach the gateway]
+        send_back: { to: design, label: Port is wrong }
