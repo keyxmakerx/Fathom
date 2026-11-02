@@ -75,6 +75,9 @@ const OPERATOR_MAY_SELECT: &[&str] = &[
     // tables are ids, words, fingerprints, signatures and seals (0066), never a key or payload.
     "teams",
     "team_acts",
+    // ADR-0081 amendment (0071): a role's title, its powers and the root Steward's signature,
+    // read for the same reason as team_acts. Words, fingerprints and seals; no key, no payload.
+    "team_role_defs",
 ];
 
 /// Every privilege that is not `SELECT`. The operator plane holds none of
