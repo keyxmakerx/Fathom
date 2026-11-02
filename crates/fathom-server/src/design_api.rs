@@ -347,6 +347,7 @@ pub fn router(state: DesignApiState) -> Router {
         .merge(vault_routes::routes())
         .merge(estate_routes::routes())
         .merge(teams_routes::routes())
+        .merge(plan_approval_routes::routes())
         .merge(ipam_routes::routes())
         .with_state(state)
 }
@@ -361,6 +362,7 @@ mod ipam_routes;
 // transaction opening and body helpers without making any of them public.
 mod vault_routes;
 // Teams (ADR-0081): propose, sign, list, rename, history.
+mod plan_approval_routes;
 mod teams_routes;
 
 // ---- The extractor: `api::Signed`'s pattern, against `DesignApiState` ----

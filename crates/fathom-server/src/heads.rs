@@ -57,6 +57,9 @@ pub struct Applied {
     pub ticket: u64,
     /// The full face of the new head, when asked for (a checkpoint).
     pub plain: Option<Vec<u8>>,
+    /// The plans this change starts, as it leaves them (sign-off r102-plan-approval): the
+    /// caller refuses the change when the folder asks for approval and one has none.
+    pub starting: Vec<crate::plan_approval::PlanFacts>,
 }
 
 /// In-memory bytes are several times the serialised size.
@@ -228,6 +231,7 @@ impl Shard {
         let mut next = head.graph.clone();
         apply_change_in_place(&mut next, &doc, Actor::User(UserId(actor)))
             .map_err(|e| HeadError::Refused(e.to_string()))?;
+        let starting = crate::plan_approval::plans_starting(&head.graph, &next);
         let mut cost = head.cost.saturating_add(change.len() * COST_FACTOR);
         // A checkpoint is only worth having if it reads back; one that does
         // not is skipped (the change itself still stands) and logged. It is
@@ -266,7 +270,11 @@ impl Shard {
             self.bytes = self.bytes.saturating_sub(old);
         }
         self.bytes = self.bytes.saturating_add(cost);
-        Ok(Applied { ticket, plain })
+        Ok(Applied {
+            ticket,
+            plain,
+            starting,
+        })
     }
 }
 

@@ -700,6 +700,10 @@ three chain levels are the admin design's §7.1; the migration is `0009_chains_a
 | `fathom/key/retire/v1` | in-signature tag of `retire_bytes`, key retirement as a signed act | 0012 |
 | `fathom/team/act/v1` | `team_act_bytes`, every signed act on a team (create, delete, member and role changes, team grants and their revocation), the act named inside the bytes — ADR-0081, `docs/TEAMS-ATTACK-ROUND.md` T5 | 0066, `teams.rs` |
 | `fathom/team/role/v1` | `team_role_bytes`, a root Steward's definition of a team role: its title, its powers from the fixed list, or its retirement — ADR-0081 later item 3, card r102 version 2 | 0071, `roles.rs` |
+| `fathom/plan/rule/v1` | `plan_rule_bytes`, a folder's Steward asking for plans there to be approved before they start, or no longer — card r102 version 2 | 0072, `plan_approval.rs` |
+| `fathom/plan/approval/v1` | `plan_approval_bytes`, one person's approval of a plan as it reads (`before`), an emergency start with its reason, or an approval after one — card r102 version 2 | 0072, `plan_approval.rs` |
+| `fathom/plan/digest/v1` | hash tag of `plan_digest`, what an approval is over: the plan's title, window and team and its steps' words, steps in id order | 0072, `plan_approval.rs` |
+| `fathom/plan/approval/text/v1` | AEAD associated-data tag sealing an emergency reason or an ask's note under the organisation content key, bound to its table, row and key epoch | 0072, `plan_approval.rs` |
 | `fathom/session/bind/v1` | the sign-in challenge binding the fresh session public key to the account key that signs it (admin §4.2) | 0013, `sessions.rs` |
 | `fathom/session/evidence/v1` | the assurance evidence sealed onto the session row (admin §4.2) | 0013 |
 | `fathom/session/req/v1` | the canonical per-request signature message: method, path, body digest, nonce, time (admin §4.1) | 0013 |

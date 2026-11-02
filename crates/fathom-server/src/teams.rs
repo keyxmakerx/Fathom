@@ -664,6 +664,50 @@ pub(crate) async fn best_through_teams<'a>(
     Ok(best)
 }
 
+/// A team through which `account` holds `power` now, among the teams with a live grant covering
+/// `covering` (any capability: access to the folder is what counts). `only` narrows it to one
+/// team, a plan's own (sign-off r102-plan-approval). The team must stand, `account` must be a
+/// counting member, and the role's definition now must carry the power.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn power_through_teams<'a>(
+    tx: &'a Transaction<'a>,
+    ring: &'a KeyRing,
+    state: &'a AuthorityState,
+    root_fpr: &'a [u8; 32],
+    account: &str,
+    covering: &BTreeSet<Option<String>>,
+    power: Power,
+    only: Option<&str>,
+    pass: &'a Mutex<QuorumPass>,
+) -> Result<Option<String>, AuthorityError> {
+    let walk = Walk::new(tx, ring, state, root_fpr, pass);
+    let teams: BTreeSet<&str> = state
+        .team_acts
+        .iter()
+        .filter(|a| a.act == ACT_MEMBER_ADD && a.subject_id.as_deref() == Some(account))
+        .map(|a| a.team_id.as_str())
+        .filter(|t| only.is_none_or(|o| o == *t))
+        .collect();
+    for team in teams {
+        if !walk.team_live(team).await?
+            || walk.membership(team, account).await?.is_none()
+            || !walk.power_before(team, account, power, i64::MAX).await?
+        {
+            continue;
+        }
+        for g in state
+            .team_acts
+            .iter()
+            .filter(|g| g.act == ACT_GRANT && g.team_id == team && covering.contains(&g.scope_id))
+        {
+            if walk.live(g).await? {
+                return Ok(Some(team.to_string()));
+            }
+        }
+    }
+    Ok(None)
+}
+
 // ---------------------------------------------------------------------------
 // Proposing and committing an act
 // ---------------------------------------------------------------------------

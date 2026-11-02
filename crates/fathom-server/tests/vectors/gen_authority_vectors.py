@@ -391,6 +391,67 @@ team_role_tech_bytes = team_role(ROLE_DEF_ID, b"tech", b"Maintenance tech",
                                  b"emergency_start", False)
 team_role_retire_bytes = team_role(ROLE_DEF_ID, ROLE_ID, b"Night desk", b"", True)
 
+# Migration 0072: a folder's plan rule, an approval over a plan's digest, and the digest itself.
+TAG_PLAN_RULE = b"fathom/plan/rule/v1"
+TAG_PLAN_APPROVAL = b"fathom/plan/approval/v1"
+TAG_PLAN_DIGEST = b"fathom/plan/digest/v1"
+PLAN_RULE_ID = b"01JQZ0000000000000000000PP"
+PLAN_APPROVAL_ID = b"01JQZ0000000000000000000QQ"
+PLAN_DESIGN = b"01JQZ0000000000000000000RR"
+PLAN_ID = b"01JQZ0000000000000000000SS"
+PLAN_TEAM = b"01JQZ0000000000000000000TT"
+
+plan_rule_bytes = (
+    lp(TAG_PLAN_RULE)
+    + lp(ORGANISATION)
+    + lp(ROOT_PUBKEY_FPR)
+    + lp(PLAN_RULE_ID)
+    + lp(SCOPE)
+    + bytes([1])
+    + lp(GRANTER)
+    + lp(GRANTER_KEY_FPR)
+    + u64_le(AT_UNIX)
+    + u32_le(AUTH_EPOCH)
+)
+
+# Two steps, given out of id order: the digest sorts them.
+PLAN_STEPS = [
+    (b"01JQZ0000000000000000000VB",
+     [b"2", b"other", b"", b"Reboot core-1", b"", b"", b"", b"", b""]),
+    (b"01JQZ0000000000000000000VA",
+     [b"1", b"address", b"device:01JQZ0000000000000000000WW", b"Move core-1 to 10.0.0.2",
+      b"10.0.0.1", b"10.0.0.2", b"field\tDevice.mgmt\t10.0.0.2", b"", b""]),
+]
+_digest_input = (
+    lp(TAG_PLAN_DIGEST)
+    + lp(PLAN_ID)
+    + lp(b"Readdress core-1")
+    + lp(b"2026-11-03T22:00")
+    + lp(b"")
+    + lp(PLAN_TEAM)
+    + u32_le(len(PLAN_STEPS))
+)
+for _id, _fields in sorted(PLAN_STEPS):
+    _digest_input += lp(_id) + b"".join(lp(f) for f in _fields)
+plan_digest = hashlib.sha256(_digest_input).digest()
+
+plan_approval_bytes = (
+    lp(TAG_PLAN_APPROVAL)
+    + lp(ORGANISATION)
+    + lp(ROOT_PUBKEY_FPR)
+    + lp(PLAN_APPROVAL_ID)
+    + lp(PLAN_DESIGN)
+    + lp(PLAN_ID)
+    + lp(plan_digest)
+    + lp(b"emergency")
+    + lp(PLAN_TEAM)
+    + lp(b"Core switch down")
+    + lp(GRANTER)
+    + lp(GRANTER_KEY_FPR)
+    + u64_le(AT_UNIX)
+    + u32_le(AUTH_EPOCH)
+)
+
 succession_bytes = (
     lp(TAG_KEY_SUCCESSION)
     + lp(ACCOUNT)
@@ -603,6 +664,9 @@ if __name__ == "__main__":
         ("TEAM_GRANT_REVOKE_BYTES", team_grant_revoke_bytes),
         ("TEAM_ROLE_TECH_BYTES", team_role_tech_bytes),
         ("TEAM_ROLE_RETIRE_BYTES", team_role_retire_bytes),
+        ("PLAN_RULE_BYTES", plan_rule_bytes),
+        ("PLAN_DIGEST", plan_digest),
+        ("PLAN_APPROVAL_BYTES", plan_approval_bytes),
         ("ORG_CHAIN_KEY", org_chain_key),
         ("K_ROW", k_row),
         ("K_SEAL", k_seal),

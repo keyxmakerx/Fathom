@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 
 import type { DesignSummary } from '../../api/designs';
+import type { PlanRules } from '../../api/planApprovals';
 import type { Place, Scope } from '../../api/scopes';
 import { canStewardFor } from '../home/capabilities';
 import { EmptyState } from '../ui/EmptyState';
@@ -30,10 +31,66 @@ export interface FoldersPanelProps {
     designScopeIds: readonly string[];
     onImported: (made: { scopes: Scope[]; designs: DesignSummary[] }) => void;
   };
+  /** Sign-off r102: a folder's Steward asks for plans there to be approved before they start.
+   * Absent, nothing is shown. */
+  planApproval?: {
+    rules: PlanRules | null;
+    onSet: (scopeId: string, required: boolean) => Promise<void>;
+  };
+}
+
+/** The folder above `scope` that already asks for approval, if any (it reaches every folder inside). */
+function askedAbove(scopes: readonly Scope[], scope: Scope, rules: PlanRules): Scope | null {
+  const byId = new Map(scopes.map((s) => [s.scopeId, s]));
+  for (let at = scope.parentScopeId ? byId.get(scope.parentScopeId) : undefined; at; at = at.parentScopeId ? byId.get(at.parentScopeId) : undefined) {
+    if (rules.rules.some((r) => r.required && r.scope === at!.scopeId)) return at;
+  }
+  return null;
+}
+
+/** One folder's "plans need approval" switch, signed with this browser's key when changed. */
+function ApprovalSwitch({ scope, scopes, planApproval }: { scope: Scope; scopes: readonly Scope[]; planApproval: NonNullable<FoldersPanelProps['planApproval']> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const rules = planApproval.rules;
+  if (rules == null) return null;
+  const own = rules.rules.some((r) => r.required && r.scope === scope.scopeId);
+  const whole = rules.rules.some((r) => r.required && r.scope === null);
+  const above = whole ? null : askedAbove(scopes, scope, rules);
+  const inherited = whole || above != null;
+  return (
+    <span className="home-folders__approval">
+      <label title={inherited ? 'Set on a folder above this one' : undefined}>
+        <input
+          type="checkbox"
+          checked={own || inherited}
+          disabled={busy || (inherited && !own)}
+          data-testid="folder-plan-approval"
+          onChange={(e) => {
+            const want = e.currentTarget.checked;
+            setBusy(true);
+            setError(null);
+            planApproval
+              .onSet(scope.scopeId, want)
+              .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+              .finally(() => setBusy(false));
+          }}
+        />{' '}
+        Plans need approval
+      </label>
+      {inherited && !own && <span className="home__muted"> (from {whole ? 'the whole organisation' : above!.displayName})</span>}
+      {error && (
+        <span className="home__error" role="alert">
+          {' '}
+          {error}
+        </span>
+      )}
+    </span>
+  );
 }
 
 /** The organisation's folders: Sites, Buildings and Closets, and where to make more. */
-export function FoldersPanel({ organisationName, scopes, onCreateScope, scopeForm, onSetPlace, estate }: FoldersPanelProps) {
+export function FoldersPanel({ organisationName, scopes, onCreateScope, scopeForm, onSetPlace, estate, planApproval }: FoldersPanelProps) {
   const [editing, setEditing] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   return (
@@ -61,6 +118,17 @@ export function FoldersPanel({ organisationName, scopes, onCreateScope, scopeFor
           sees that closet and the path to it. Moving a design to another folder changes who can see it, so it needs steward on both.
         </p>
       </details>
+      {planApproval && (
+        <details className="home-folders__why">
+          <summary>Plans that need approval</summary>
+          <p className="home__muted">
+            Where a folder asks, a maintenance plan in it, or in any folder inside it, starts only once a lead or supervisor of the
+            plan’s team, or a Steward of the folder, has approved it as it reads. Any change to the plan afterwards needs approving
+            again. Whoever wrote the plan, is assigned it or asked for approval cannot approve it. A Maintenance tech can start one in an
+            emergency with a reason; it stays flagged until someone approves it after.
+          </p>
+        </details>
+      )}
       {scopeForm}
       {estate && importing && scopes.status === 'ready' && (
         <EstateImport
@@ -108,6 +176,7 @@ export function FoldersPanel({ organisationName, scopes, onCreateScope, scopeFor
                     {takesRole(scope.kind) ? 'Kind and role' : 'Kind of room'}
                   </button>
                 )}
+                {steward && planApproval && scopes.status === 'ready' && <ApprovalSwitch scope={scope} scopes={scopes.value} planApproval={planApproval} />}
                 {steward && child && (
                   <button
                     type="button"

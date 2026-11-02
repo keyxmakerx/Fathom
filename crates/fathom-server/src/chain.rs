@@ -612,6 +612,12 @@ pub enum EntryType {
     /// A root Steward set a role's title and powers, added a role or retired one (migration
     /// `0071`): the `role`, the `definition` row's id, the `actor`. Never the title.
     TeamRoleDefined,
+    /// A folder's Steward turned plan approval on or off there (migration `0072`): the
+    /// `scope`, `required`, the `actor`.
+    PlanRuleSet,
+    /// A plan approved, started in an emergency, or approved after one (migration `0072`):
+    /// the `design`, the `plan`, the `kind`, the `actor`. Never the reason.
+    PlanApprovalSigned,
 }
 
 impl EntryType {
@@ -722,6 +728,8 @@ impl EntryType {
             Self::TeamGrantSigned => "team_grant_signed",
             Self::TeamGrantRevoked => "team_grant_revoked",
             Self::TeamRoleDefined => "team_role_defined",
+            Self::PlanRuleSet => "plan_rule_set",
+            Self::PlanApprovalSigned => "plan_approval_signed",
         }
     }
 
@@ -832,6 +840,8 @@ impl EntryType {
             "team_grant_signed" => Some(Self::TeamGrantSigned),
             "team_grant_revoked" => Some(Self::TeamGrantRevoked),
             "team_role_defined" => Some(Self::TeamRoleDefined),
+            "plan_rule_set" => Some(Self::PlanRuleSet),
+            "plan_approval_signed" => Some(Self::PlanApprovalSigned),
             _ => None,
         }
     }
@@ -947,7 +957,9 @@ impl EntryType {
             | Self::TeamRoleCleared
             | Self::TeamGrantSigned
             | Self::TeamGrantRevoked
-            | Self::TeamRoleDefined => &[ChainKind::Org],
+            | Self::TeamRoleDefined
+            | Self::PlanRuleSet
+            | Self::PlanApprovalSigned => &[ChainKind::Org],
             // **Two types are filed on two kinds.** `rewrap` because the master key
             // is deployment-wide (§7.2). `grant_suspended` because §1.1 gives the
             // operator plane this one authority-adjacent verb: the organisation

@@ -424,6 +424,33 @@ const TABLES: &[TableClaim] = &[
               seal. What a role may do, readable from a dump as the permission map is.",
     },
     TableClaim {
+        name: "plan_rules",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "append-only signed folder rules (0072): a folder id, whether plans there must be \
+              approved before they start, fingerprints, a 64-byte signature, a chain sequence \
+              and a seal. A permission setting, readable from a dump as the permission map is.",
+    },
+    TableClaim {
+        name: "plan_approvals",
+        protection: Protection::KeyProtected {
+            columns: &["reason_ct"],
+            under: "the organisation content key, which is wrapped under the tenant key",
+        },
+        why: "append-only signed approvals of a plan (0072): design and plan ids, the plan's \
+              digest, the kind, a team id, fingerprints, a signature, a chain sequence and a \
+              seal, all public. An emergency start's reason is the person's words about the \
+              network, so it is sealed like the design's own words.",
+    },
+    TableClaim {
+        name: "plan_approval_asks",
+        protection: Protection::KeyProtected {
+            columns: &["note_ct"],
+            under: "the organisation content key, which is wrapped under the tenant key",
+        },
+        why: "who asked for a plan's approval and who sent it back (0072): ids, the plan's \
+              digest, the kind and a time. The note is sealed like an approval's reason.",
+    },
+    TableClaim {
         name: "organisation_auth_head",
         protection: Protection::NoKeyProtectedMaterial,
         why: "one row per organisation: the authority epoch, the chain sequence, how many \

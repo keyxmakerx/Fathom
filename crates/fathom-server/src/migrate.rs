@@ -420,6 +420,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0071_team_roles.sql",
         sql: include_str!("../migrations/0071_team_roles.sql"),
     },
+    // Plans a folder asks to be approved before they start (card r102-plan-approval v2).
+    Migration {
+        version: 72,
+        name: "0072_plan_approvals.sql",
+        sql: include_str!("../migrations/0072_plan_approvals.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.
