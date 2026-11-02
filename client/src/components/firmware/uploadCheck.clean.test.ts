@@ -60,3 +60,17 @@ describe('RenameNote', () => {
     expect(renderToStaticMarkup(createElement(RenameNote, { name: 'junos.tgz' }))).toBe('');
   });
 });
+
+describe('the upload buttons (r97)', () => {
+  it('draws the file button in the app ink with the sheen until a file is chosen', async () => {
+    const { createElement } = await import('react');
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    const { UploadForm } = await import('./UploadForm');
+    const { estate } = await import('../../document/firmwareFixture');
+    const api = { doc: estate().doc } as unknown as Parameters<typeof UploadForm>[0]['api'];
+    const out = renderToStaticMarkup(createElement(UploadForm, { api, onDone: () => {}, onCancel: () => {} }));
+    expect(out).toContain('class="fw-btn btn-main fw-file__pick fw-shine"');
+    expect(out).toContain('Choose file');
+    expect(out).toContain('No file chosen');
+  });
+});

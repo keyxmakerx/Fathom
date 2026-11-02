@@ -62,8 +62,15 @@ export function UploadForm({ api, onDone, onCancel }: { api: FirmwareApi; onDone
           File
         </label>
         <div>
-          <input id="fw-file" type="file" disabled={busy} onChange={(e) => setFile(e.currentTarget.files?.[0] ?? null)} />
-          {file ? <span className="fw-muted"> {sizeWords(file.size)}</span> : null}
+          <span className="fw-file">
+            <input id="fw-file" className="fw-file__input" type="file" disabled={busy} onChange={(e) => setFile(e.currentTarget.files?.[0] ?? null)} />
+            {/* The label is the button: the browser's own file button ignores the app's look (sign-off r97). */}
+            <label htmlFor="fw-file" className={`fw-btn btn-main fw-file__pick${file ? '' : ' fw-shine'}`} aria-hidden="true">
+              {file ? 'Choose another file' : 'Choose file'}
+            </label>
+            <span className="fw-file__name">{file ? file.name : 'No file chosen'}</span>
+            {file ? <span className="fw-muted">{sizeWords(file.size)}</span> : null}
+          </span>
           <RenameNote name={file?.name ?? null} />
         </div>
 
