@@ -10,7 +10,7 @@ import { PlacesMap } from './places/PlacesMap';
 import { focusFor, upperStopsFor, type UpperStop } from './places/placesMap';
 import { MIN_ZOOM } from './drawing/geometry';
 import { nextActive, SideSlots } from './shell/sideSlot';
-import { rememberedTab, useRightTab, type RightTab } from './shell/useRightTab';
+import { rememberedTab, SHOW_DETAILS_EVENT, useRightTab, type RightTab } from './shell/useRightTab';
 import { loadResume, patchResume } from './design/resume';
 import { isTypingTarget, matches } from './shell/shortcuts';
 import type { ShellProps } from './shell/types';
@@ -179,6 +179,13 @@ export function Shell({
     sideWasOpen.current = Object.fromEntries(tabs.map((t) => [t.id, t.open]));
     if (next !== sideActive) setSideActive(next);
   });
+  // The quick card's Details asks for the selection's panel: a side tab holding the panel (a plan, Checks, Docs)
+  // gives it back, or the Details tab is chosen underneath and nothing is seen to happen.
+  useEffect(() => {
+    const onShow = () => setSideActive(null);
+    window.addEventListener(SHOW_DETAILS_EVENT, onShow);
+    return () => window.removeEventListener(SHOW_DETAILS_EVENT, onShow);
+  }, []);
   const [sideEls, setSideEls] = useState<Record<string, HTMLElement | null>>({});
   const sideRefs = useRef(new Map<string, (el: HTMLElement | null) => void>());
   const sideRef = useCallback((id: string) => {
