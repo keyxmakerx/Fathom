@@ -1,9 +1,10 @@
 # ADR-0090: Staying up when a machine fails — high availability
 
-**Status:** proposed 2026-11-02, design only. On card r89-scale-and-ha the owner approved every
-pick and asked, in a note, for high availability built in, set up like their Palo Alto firewall
-pairs (§4.2). §4.3 and §4.4 are reworked after that note and go back to the owner as r89 version 2.
-Each "Recommended" is the pick pre-selected there; nothing here is built.
+**Status:** accepted 2026-11-02, design only; nothing here is built. On card r89-scale-and-ha the
+owner approved every pick and asked, in a note, for high availability built in, set up like their
+Palo Alto firewall pairs (§4.2). §4.3 and §4.4 were reworked after that note, and the owner approved
+r89 version 2 with every pick as recommended and no note (2026-11-02). Each "Recommended" below is
+the approved pick.
 
 **Builds on:** ADR-0063 (live co-editing over PostgreSQL `NOTIFY`), `docs/RUNNING-IT.md` "Running
 more than one server", ADR-0070 (backups), ADR-0089 (site readers).
@@ -109,7 +110,7 @@ only votes. Whichever side can still see the tie-breaker keeps going; the other 
 documentation gives the arithmetic: a cluster of three tolerates one failure, and a cluster of two
 tolerates none (§3).
 
-### 4.3 How much a database failure may lose (card question 5, reworked after the note)
+### 4.3 How much a database failure may lose (card question 5, reworked after the note; A approved on r89 v2)
 
 **Recommended (A): nothing that was saved, on two database machines and a tie-breaker.** Each save
 waits until the other database machine has it on disk before Fathom says "saved" (§3: synchronous
@@ -129,7 +130,7 @@ the wrong trade.
 
 Not offered: two machines and no tie-breaker (split brain, above).
 
-### 4.4 How Fathom delivers it (card question 6, reworked after the note)
+### 4.4 How Fathom delivers it (card question 6, reworked after the note; A approved on r89 v2)
 
 **Recommended (A): built in, set up like a firewall pair.** "Fathom HA" is a mode of the same
 install, not a separate product:

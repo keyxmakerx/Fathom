@@ -1,8 +1,11 @@
 # ADR-0089: Site readers — device reading at estate scale
 
-**Status:** proposed 2026-11-02, design only. The owner approved every pick on sign-off card
-r89-scale-and-ha (§4). §8, written after the owner asked what breaks at a million devices, waits on
-its own card. Nothing here is built.
+**Status:** accepted 2026-11-02, design only; nothing here is built. The owner approved every pick on
+sign-off card r89-scale-and-ha (§4), and every pick on r90-reading-at-a-million (§8), with a note
+that changed two of them: host keys are approved both in bulk and one device at a time (§8.2 item
+3), and MAC and ARP tables are read on a schedule as well as on request (§8.2 item 4). §9, the other
+half of that note (Zabbix, Splunk, Calix and Nokia), is proposed: it goes ahead on its recommended
+picks and waits on its own card for the owner to change them.
 
 **Builds on:** ADR-0082 (Fathom reads devices and never writes to them; the separate reader helper,
 §4.3), ADR-0079 (one estate across designs: the estate index, a design per site), ADR-0071 (the
@@ -201,7 +204,7 @@ run, since `docs/SCALE.md` lists the index's rebuild time as not yet measured.
 3. The site reader: join, approval, mutual TLS, sealed logins, signed results. Attack round first.
 4. The full-scale run (§6.3, §6.4); numbers into `docs/SCALE.md`.
 
-## 8. At a million devices: what this record changes (proposed, card "reading at a million")
+## 8. At a million devices: what this record changes (accepted on r90-reading-at-a-million)
 
 The owner asked (2026-11-02): *"What issues could crop up from this design, is this really the best
 method with the amount of traffic it would have with SNMP alone, or do we need to continue with the
@@ -220,7 +223,13 @@ connection per proxy, and offloading the server "when monitoring thousands of de
 manual, "Proxies", read 2026-11-02). SNMPv3 adds two discovery round trips per device and a ±150 s
 time window (RFC 3414 §4 and §3.2).
 
-### 8.2 Rules that do not survive a million devices (the owner's call, on the card)
+### 8.2 Rules that do not survive a million devices (the owner's call, approved on r90)
+
+The owner's note on r90, verbatim: *"3. should probably be both since a technician would have
+those? I'd imagine we'd want to pull MACs and ARPs wouldn't we? Right now we use Splunk and Zabbix.
+It we have an importing feature that'd be nice. Is there anything we could do for CPE Calix's and
+Nokias?"* Items 3 and 4 below carry the first two sentences; §9 carries the rest.
+
 
 1. **Audit:** ADR-0071 writes one `vault_read` entry per use on the organisation chain. Scheduled
    reads instead write one entry per batch, binding the SHA-256 of the batch's list of (device,
@@ -230,11 +239,26 @@ time window (RFC 3414 §4 and §3.2).
 2. **Logins:** "used on" may name a folder (site or building) or a management range, as well as a
    device. The owner's choice, the second admin for a shared login, Draw, and the per-batch audit
    all still apply.
-3. **First contact:** after a range's first read, a Steward may approve its SSH host keys and SNMPv3
-   engine IDs as one list (downloadable before approval). A key or engine ID that later changes
-   still stops reads of that device until a person confirms it (ADR-0082 §4.4 unchanged there).
-4. **Tiers:** inventory (ENTITY-MIB, `sysDescr`) weekly; interfaces and LLDP nightly; MAC and ARP
-   tables on request only.
+3. **First contact, both ways (the owner's "both").** After a range's first read, a Steward may
+   approve its SSH host keys and SNMPv3 engine IDs as one list (downloadable before approval). And
+   a technician, anyone with Draw on the design, may confirm **one** device: a new one, or one
+   whose key changed after a swap. The page shows the fingerprint the reader saw; the technician
+   reads the device's own fingerprint off its console and types its last eight characters. A match
+   confirms it; a mismatch confirms nothing and says so. Typing, not a button, is the point: it
+   proves someone compared the key with the device, which is what stops a reader being pointed at
+   an impostor. A key or engine ID that later changes still stops reads of that device until one of
+   the two confirms it (ADR-0082 §4.4 unchanged there). Each confirmation, bulk or single, is sealed
+   on the design's chain with who confirmed it and how.
+4. **Tiers:** inventory (ENTITY-MIB, `sysDescr`) weekly; interfaces and LLDP nightly. **MAC and ARP
+   tables** (the owner: *"we'd want to pull MACs and ARPs"*): on request anywhere, and on a
+   schedule for each site or range a Steward turns it on for (every night by default once on). The
+   reader keeps only the MAC addresses learned on **edge ports**, the ones with no LLDP neighbour
+   that is itself a switch or router, so "Find this MAC" answers with the port something is
+   plugged into, not every uplink it crossed; ARP tables (from routers and layer-3 switches) are
+   kept whole, since they map addresses to MACs. Both are stored as latest reading plus changes
+   (§8.3), so "where was this MAC last week" works. The walk itself costs the device the same
+   either way; the schedule and pacing (§4.8) are what limit that. Going ahead on this; the card
+   for §9 offers "every night everywhere" and "on request only" for the owner to change it.
 
 ### 8.3 Engineering changes, no question needed
 
@@ -252,7 +276,8 @@ time window (RFC 3414 §4 and §3.2).
   certificates renew over the existing link; readers report their clock offset; Admin lists readers
   that are behind. Results a reader holds while offline are sealed to the server's key.
 - **Later, a source beside the readers:** an existing monitoring system (LibreNMS, Zabbix and
-  others), so devices are not polled twice. Ticked on the card, its own record when built.
+  others), so devices are not polled twice. Ticked on r90; the owner named Zabbix and Splunk in the
+  note, so §9 takes it up now.
 
 ### 8.4 The estate index on main (fixed in its own PR, not here)
 
@@ -272,9 +297,123 @@ replaces rows built from a newer version. A rebuild of a 1,000-device design wro
 rebuilding only changed elements, and committing the index (derived data) without waiting for the
 synchronous standby, keep that off the HA link.
 
+## 9. What other systems already know: Zabbix, Splunk, Calix and Nokia (proposed, card "systems and CPE")
+
+The rest of the owner's note on r90 (§8.2): *"Right now we use Splunk and Zabbix. It we have an
+importing feature that'd be nice. Is there anything we could do for CPE Calix's and Nokias?"*
+
+### 9.1 Facts this rests on
+
+Read on 2026-11-02 from the sources named (CLAUDE.md rule 1). Where a vendor's own page could not be
+read, the third-party source is named as such.
+
+| Fact | Source |
+|---|---|
+| Splunk's REST API starts a search with a POST to `/services/search/jobs/` and exports its results with a GET on the job's `/results`; `output_mode` is one of `atom`, `csv`, `json`, `json_cols`, `json_rows`, `raw`, `xml`. Splunk Cloud Platform needs the REST API enabled through a support ticket; free trials cannot use it. | Splunk Enterprise 9.4 Search Manual, "Export data using the Splunk REST API" (help.splunk.com) |
+| A Zabbix host interface's `details` object is *"Required if interface 'type' is SNMP"*. | Zabbix 5.0 manual, API, Host interface object |
+| `host.get` with `selectInterfaces` returns each host's interfaces with the fields asked for. | sbcode.net, "Zabbix API examples" (third party) |
+| **Could not establish:** from Zabbix's own 7.0 pages (only their menus came through), which inventory fields `host.get` returns, and whether the API or a host export returns SNMP community strings or SNMPv3 passphrases. §9.3 is written so the answer does not matter. | — |
+| Nokia Altiplano's northbound APIs are REST and RESTCONF to the Access Controller, NETCONF, and Kafka notifications, used *"to configure devices and collect network information"*. | Nokia training, "Altiplano Northbound API" course page |
+| ServiceNow's Altiplano connector reads OLTs, ONUs/ONTs, cards, slots, ports, VLANs, LAGs and the PON links between OLT and ONT over REST, with an access token from Altiplano; its example query returns each ONU's detected serial number and hardware state. | ServiceNow docs, "Service Graph Connector for Nokia Altiplano" and "Examples of retrieving data from Nokia Altiplano via REST API" |
+| Nokia MF OLTs answer NETCONF directly (TCP 831 to 833); Altiplano-managed PON is read through Altiplano's REST API over HTTPS with an OAuth bearer token, and the OLT reports each ONT's serial to Altiplano. | RG Nets rXg manual, "Nokia PON/MF Systems" (third party) |
+| Calix Cloud has a "Subscriber/Device API" at `https://gcs.calix.com:8444/` (Canada `gcs-ca`), device path `/api/device`, Basic authentication with an "API for Web Clients (HTTPS)" user made in Calix Cloud's admin menu. | Postman collection "Calix Cloud - Subscriber/Device API" (documenter.gw.postman.com) |
+| Calix SMx has a northbound REST API under `https://{SMx}:{port}/rest/v1/`. Calix's own SMx API guide refuses automated reading, so its calls are not established here. | KalebFenley/smx-api README (third party, a proof of concept reading alarms) |
+| TR-369 (USP) is the Broadband Forum's successor to TR-069 (CWMP) for managing home gateways and Wi-Fi, and allows several controllers per device. | QA Cafe, "User Services Platform (TR-369) overview" |
+
+### 9.2 Why this is more than "nice"
+
+The owner expects close to a million entries at the start (§8). They will not be drawn by hand.
+Zabbix already lists the network's devices with their addresses, and the access systems (SMx,
+Calix Cloud, Altiplano) already list every ONT with its serial and the OLT port it hangs off.
+Reading them is how the estate is first filled; reading them again on a schedule is how it stays
+true **without polling a million CPEs**, which §8 exists to avoid.
+
+### 9.3 One shape for every outside system (recommended, A on the card)
+
+- **A source is a system, not a device:** a Zabbix server, a Splunk saved search, SMx, Calix
+  Cloud, Altiplano. A Steward adds it under Steward › Device reading › Sources: its address, the
+  reader that calls it, and a login from the vault.
+- **A reader calls it, never the server** (§4.1): the reader near it, or `local`. The same two
+  locks as for devices (§4.4): the source's address must be in that reader's ranges, and the calls
+  are fixed in the reader's code for each system, read calls only, named by purpose ("hosts",
+  "onts"). For Splunk the job names a saved search the Steward picked; the Splunk account's own
+  role bounds what any search can read.
+- **The login is a vault login** (ADR-0071), sealed per job to the reader (§4.3): a Zabbix API
+  token, a Splunk token, an SMx or Calix Cloud API user, an Altiplano client. Fathom asks for the
+  narrowest read-only role each system offers; which role that is gets established, with sources,
+  for each system when it is built, and goes into `docs/OPERATING.md`.
+- **Only named fields come back.** The reader keeps, for each system, a fixed list of the fields it
+  copies (host name, addresses, interface type, SNMP version, host groups, serial, model, ONT's OLT
+  and port), the same idea as the fixed OID list. Anything not on the list, including all of a
+  Zabbix interface's SNMP `details` beyond its version, is never copied. The redaction gate still
+  runs on what is copied (§4.5) and the server still refuses a credential that arrives. The list
+  comes first because the gate alone is not enough here: ADR-0067 records that it is
+  statement-driven and *"a bare secret in a cell with no statement around it is not caught"*, and a
+  community string in a field named `community` is exactly that. Its test uses a community string
+  and SNMPv3 passphrases of the lengths real devices accept (CLAUDE.md rule 2).
+- **Splunk rows are whatever the search returns**, and log lines can carry passwords. Only the
+  columns the Steward maps are kept; a column whose name says password, secret, community, key or
+  token cannot be mapped.
+- **The first run fills, later runs compare.** The first run creates what is missing, as NetBox
+  import on Folders does today (ADR-0074 §8): a Zabbix host group maps to a folder or site, a host
+  to a device in that site's design, and an existing design is not overwritten. Every later run is
+  a reading like a device's (§4.6): what differs from the record is listed for a person to accept.
+- **Each thing keeps its source's id** (a Zabbix `hostid`, an ONT serial) so a later run matches it.
+  These are new fields; they enter `schema/` through the ledger when built (CLAUDE.md rule 3).
+
+**(B on the card) Files only.** Export from each system and drop the file into Import. No
+connection and no stored token, but by hand, and today's importer caps a file at 2,000 rows and
+5 MB per design (ADR-0067), so a million entries is hundreds of drops, and nothing stays in step.
+
+### 9.4 Zabbix
+
+`host.get` with interfaces and inventory, read in pages by host group. What Zabbix holds (names,
+addresses, model and serial where its inventory is filled in) Fathom does not read from the device
+again; what it does not hold (LLDP neighbours, ports, MAC and ARP) still comes from Fathom's
+readers. Where Zabbix has a proxy at a site, the site reader can sit on the same machine: both need
+the same reach into the management network.
+
+### 9.5 Splunk
+
+Splunk holds events, not an inventory, and what it can give Fathom depends on what is logged into
+it (DHCP leases, neighbour or MAC moves). **Now, no new code:** a search's results saved as CSV go
+into today's importer, one site of up to 2,000 rows at a time. **Later:** a Splunk source runs a
+saved search the Steward picks, on a schedule, through a reader, with the REST calls in §9.1, and
+treats its rows as a reading.
+
+### 9.6 Calix and Nokia CPE (recommended, A on the card)
+
+- **(A) Through the systems that manage them:** SMx or Calix Cloud, and Altiplano. One call lists
+  thousands of ONTs with serial, model and which OLT and PON port they hang off. Fathom never
+  connects to a CPE: they sit in subscribers' homes, a site reader could not reach them anyway, and
+  the OLT already knows them. Where an OLT is not under such a system, the site reader may read the
+  OLT itself (Nokia MF OLTs answer NETCONF, §9.1; Calix OLTs not established), with that OLT
+  family's fixed list added to the reader on its own card.
+- **(B) The OLTs directly, everywhere,** with site readers. Needs a device login on every OLT and a
+  fixed list per OLT family, for what the management systems already hold.
+- **(C) As a TR-069 or TR-369 manager.** Rejected: those protocols manage a CPE and a manager can
+  change it, while Fathom reads and never writes (ADR-0082 §2); and every CPE would have to be set
+  up to answer one more manager.
+
+How a million CPEs show in Fathom is **not** decided here. The schema already says an ONT that only
+converts is a `PassiveNode` media converter and a CPE that routes is a `router` (`schema.yaml`,
+device roles). They will not be drawn one by one; how they show (listed under their OLT port, a
+count on the canvas) comes to the owner as mockups on its own card before it is built.
+
+### 9.7 Order
+
+After §7 step 1, and before the site reader, since the `local` reader can reach a Zabbix or SMx
+that the server can reach:
+
+1. The Splunk CSV route: a worked example in `docs/EXAMPLES.md`, no code.
+2. The Zabbix source, first, because it is how the estate is first filled.
+3. SMx, Calix Cloud and Altiplano sources, each with its role and its fixed lists.
+4. The Splunk saved-search source.
+
 ## Not decided here
 
 - Whether B of §4.3 (logins kept at the site) or B of §4.6 (live up/down) is ever built.
+- How CPEs show in Fathom (§9.6), and the OLT families a site reader reads directly.
 - The site reader's TLS and HPKE packages: chosen with a dependency record and the owner's tick.
 - Reading through a jump host or a controller API (UniFi, Omada).
 - FIPS 140-3 builds (the build thread keeps the reader's crypto behind one seam so it can be added).
