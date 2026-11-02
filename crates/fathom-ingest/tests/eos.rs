@@ -115,6 +115,7 @@ ip routing
 ip route 0.0.0.0/0 10.255.255.0
 ip route 10.99.0.0/16 Null0
 ip route vrf MGMT 0.0.0.0/0 172.16.1.1
+ip route vrf VRF10 10.98.0.0/16 Null0
 !
 ntp authentication-key 1 md5 0 NtpK3y
 snmp-server community c RO
@@ -344,7 +345,7 @@ fn an_svi_routes_its_vlan() {
 }
 
 #[test]
-fn vrfs_are_kept_apart_and_vrf_routes_are_not_read_yet() {
+fn vrfs_are_kept_apart_and_each_holds_its_own_routes() {
     let out = read(CONFIG);
     let vrf10 = index_of(&out, NodeKind::RoutingInstance, "\"VRF10\"");
     let mgmt = index_of(&out, NodeKind::RoutingInstance, "\"MGMT\"");
@@ -352,23 +353,28 @@ fn vrfs_are_kept_apart_and_vrf_routes_are_not_read_yet() {
     let mgmt_unit = unit_of(&out, index_of(&out, NodeKind::Interface, "\"Management1\""));
     assert!(edge(&out, EdgeKind::InRoutingInstance, svi_unit, vrf10));
     assert!(edge(&out, EdgeKind::InRoutingInstance, mgmt_unit, mgmt));
-    // The default table's routes are read; the VRF's route is residue.
-    let routes = names(&out, NodeKind::StaticRoute);
-    assert!(
-        routes
-            .iter()
-            .any(|r| r.contains("0.0.0.0") && r.contains("10.255.255.0")),
-        "{routes:?}"
+    // `vrf instance MGMT` and `ip route vrf MGMT` are one routing instance.
+    let instances = names(&out, NodeKind::RoutingInstance);
+    assert_eq!(
+        instances.iter().filter(|r| r.contains("\"MGMT\"")).count(),
+        1,
+        "{instances:?}"
     );
-    assert!(
-        !routes.iter().any(|r| r.contains("172.16.1.1")),
-        "{routes:?}"
-    );
-    assert!(out.residue.iter().any(|r| out
-        .capture
-        .text()
-        .get(r.span.start as usize..r.span.end as usize)
-        == Some("ip route vrf MGMT 0.0.0.0/0 172.16.1.1")));
+    let owner = |has: &str| {
+        let i = index_of(&out, NodeKind::StaticRoute, has) as usize;
+        out.fragment.nodes[i].owner.map(|o| o.0)
+    };
+    // The VRF's route belongs to the VRF, the default route to another table.
+    assert_eq!(owner("172.16.1.1"), Some(mgmt));
+    assert_eq!(owner("10.98.0.0"), Some(vrf10));
+    let default = owner("10.255.255.0").expect("the default route has an owner");
+    assert_ne!(default, mgmt);
+    assert_ne!(default, vrf10);
+    let null = names(&out, NodeKind::StaticRoute)
+        .into_iter()
+        .find(|r| r.contains("10.98.0.0"))
+        .unwrap();
+    assert!(null.contains("Discard"), "{null}");
 }
 
 /// A paste that lost its indentation (copied from a web page, say) reads the

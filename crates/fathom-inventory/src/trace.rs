@@ -13,7 +13,9 @@
 //! SVIs and irb (a gateway leaves through its device's ports in its VLAN), LAGs
 //! (the links of one bundle to one device are one way; which link a flow hashes
 //! onto is not read), connected and static routes (longest prefix, then
-//! connected over static, then preference), zone pairs
+//! connected over static, then preference), VRFs (each table looked up on its own; a flow is in
+//! the table its entry unit is in, and crosses to another only by a `next-table` route or a
+//! next hop that names another table's interface, both of which the config states), zone pairs
 //! and their policies. Not read, and said so: learned routes, NAT, and any
 //! policy qualifier the dictionaries do not bind (a trace lists policies as
 //! stored).
@@ -121,6 +123,9 @@ struct Walk<'a> {
     t: Trace,
 }
 
+/// A routing table on one device: `None` is its default table, `Some` a VRF.
+type Table = Option<NodeId>;
+
 /// A chosen route: the unit it leaves by, the address to reach next, and how
 /// it was read.
 struct Chosen {
@@ -174,7 +179,13 @@ impl Walk<'_> {
         });
 
         for _ in 0..MAX_STEPS {
-            if self.owns(dev, dest) || Some(dev) == dest_dev && ingress.is_some() {
+            // The table the flow is in on this device: the one its entry unit is in.
+            let table = self.flow_table(dev, ingress);
+            let holds = match table {
+                Ok(t) => self.owns_in(dev, dest, t),
+                Err(_) => self.owns(dev, dest) && !self.has_vrfs(dev),
+            };
+            if holds || Some(dev) == dest_dev && ingress.is_some() {
                 self.t.hops.push(Hop {
                     kind: "end",
                     title: display_name(self.g, dev),
@@ -185,7 +196,7 @@ impl Walk<'_> {
                 });
                 return Ok(());
             }
-            let chosen = match self.route(dev, dest) {
+            let chosen = match table.clone().and_then(|t| self.route(dev, dest, t, 0)) {
                 Ok(c) => c,
                 Err(e) => {
                     // The device is on the path even though its route is not read.
@@ -206,14 +217,18 @@ impl Walk<'_> {
             let mut hop = Hop {
                 kind: "device",
                 title: display_name(self.g, dev),
-                detail: vec![
-                    format!(
+                detail: {
+                    let mut d = vec![format!(
                         "in on {}",
                         ingress.map_or("the start".to_owned(), |u| display_name(self.g, u))
-                    ),
-                    chosen.words.clone(),
-                    format!("out on {}", display_name(self.g, chosen.unit)),
-                ],
+                    )];
+                    if let Ok(Some(t)) = table {
+                        d.push(format!("in VRF {}", self.table_name(Some(t))));
+                    }
+                    d.push(chosen.words.clone());
+                    d.push(format!("out on {}", display_name(self.g, chosen.unit)));
+                    d
+                },
                 nodes: vec![dev.to_string(), chosen.unit.to_string()],
                 why: "The longest matching prefix wins; a tie goes to the lower preference."
                     .to_owned(),
@@ -413,26 +428,107 @@ impl Walk<'_> {
 
     // ---- routes -------------------------------------------------------
 
-    fn route(&self, dev: NodeId, dest: IpAddr) -> Result<Chosen, String> {
+    // ---- tables ---------------------------------------------------------
+
+    /// Whether a routing instance is the device's default table: unnamed (a Junos paste's
+    /// `routing-options`, which never names it) or named `default` (EOS, and the Routes editor).
+    fn is_default_instance(&self, ri: NodeId) -> bool {
+        match self.g.node(ri).and_then(|n| routing_instance::name(n).ok()) {
+            None => true,
+            Some(n) => n.0 == "default",
+        }
+    }
+
+    /// The device's VRFs: every routing instance that is not its default table.
+    fn vrfs(&self, dev: NodeId) -> Vec<NodeId> {
+        children(self.g, dev, EdgeKind::HasRoutingInstance)
+            .into_iter()
+            .filter(|ri| !self.is_default_instance(*ri))
+            .collect()
+    }
+
+    fn has_vrfs(&self, dev: NodeId) -> bool {
+        !self.vrfs(dev).is_empty()
+    }
+
+    /// The table a unit is in: the VRF it is bound to, or `None` for the default table.
+    fn unit_table(&self, unit: NodeId) -> Table {
+        children(self.g, unit, EdgeKind::InRoutingInstance)
+            .into_iter()
+            .find(|ri| !self.is_default_instance(*ri))
+    }
+
+    fn table_name(&self, t: Table) -> String {
+        match t {
+            None => "the default table".to_owned(),
+            Some(ri) => self
+                .g
+                .node(ri)
+                .and_then(|n| routing_instance::name(n).ok())
+                .map_or_else(|| display_name(self.g, ri), |n| n.0.clone()),
+        }
+    }
+
+    /// The table a flow is in on `dev`: the one its entry unit is in. With no entry unit (the
+    /// start is the device itself, or the flow arrived on more than one unit) a device with VRFs
+    /// does not say which.
+    fn flow_table(&self, dev: NodeId, ingress: Option<NodeId>) -> Result<Table, String> {
+        if let Some(u) = ingress {
+            return Ok(self.unit_table(u));
+        }
+        let vrfs = self.vrfs(dev);
+        if vrfs.is_empty() {
+            return Ok(None);
+        }
+        let names: Vec<String> = vrfs.iter().map(|v| self.table_name(Some(*v))).collect();
+        Err(format!(
+            "{} has a routing instance other than its default ({}), and which table this flow uses could not be established; start from one of its interfaces or an address it holds",
+            display_name(self.g, dev),
+            names.join(", ")
+        ))
+    }
+
+    /// The device's units in one table.
+    fn table_units(&self, dev: NodeId, t: Table) -> Vec<NodeId> {
+        self.device_units(dev)
+            .into_iter()
+            .filter(|u| self.unit_table(*u) == t)
+            .collect()
+    }
+
+    fn owns_in(&self, dev: NodeId, ip: IpAddr, t: Table) -> bool {
+        self.table_units(dev, t)
+            .into_iter()
+            .any(|u| self.unit_addrs(u).contains(&ip))
+    }
+
+    // ---- routes -------------------------------------------------------
+
+    /// The route `dev` uses for `dest` in table `t`. `depth` counts `next-table` hand-offs, so
+    /// two tables that point at each other end in "could not establish".
+    fn route(&self, dev: NodeId, dest: IpAddr, t: Table, depth: u8) -> Result<Chosen, String> {
         let name = display_name(self.g, dev);
-        let instances = children(self.g, dev, EdgeKind::HasRoutingInstance);
-        if instances.len() > 1 {
+        if depth > 3 {
             return Err(format!(
-                "{name} has more than one routing instance, and which one this flow uses could not be established"
+                "routes on {name} hand {dest} from table to table more than three times; the design may hold a loop between its VRFs"
             ));
         }
-        // A VRF alone (`vrf instance MGMT` on a switch with no default-table route) is still a
-        // table apart: reading its interfaces as one table with the rest would join networks the
-        // device keeps apart. Which table a flow is in is not read yet.
-        if let Some(vrf) = instances.iter().find_map(|ri| {
-            let n = self.g.node(*ri)?;
-            let v = routing_instance::name(n).ok()?.0.clone();
-            (v != "default").then_some(v)
-        }) {
-            return Err(format!(
-                "{name} has a routing instance other than its default ({vrf}), and which table this flow uses could not be established"
-            ));
-        }
+        // The instances whose static routes are this table's.
+        let owners: Vec<NodeId> = match t {
+            Some(ri) => vec![ri],
+            None => {
+                let defaults: Vec<NodeId> = children(self.g, dev, EdgeKind::HasRoutingInstance)
+                    .into_iter()
+                    .filter(|ri| self.is_default_instance(*ri))
+                    .collect();
+                if defaults.len() > 1 {
+                    return Err(format!(
+                        "{name} has more than one routing instance for its default table, and which one this flow uses could not be established"
+                    ));
+                }
+                defaults
+            }
+        };
         // (prefix length, preference when stated, candidate). A candidate that cannot be followed is
         // kept, not returned: only the winning prefix may stop the trace.
         let mut found: Vec<(u8, Option<u32>, Result<Chosen, String>)> = Vec::new();
@@ -441,7 +537,7 @@ impl Walk<'_> {
         // against 1), so an equally specific static route is never the one used.
         let mut connected_lens: Vec<u8> = Vec::new();
 
-        for u in self.device_units(dev) {
+        for u in self.table_units(dev, t) {
             if self
                 .g
                 .node(u)
@@ -467,7 +563,7 @@ impl Walk<'_> {
             }
         }
 
-        for ri in children(self.g, dev, EdgeKind::HasRoutingInstance) {
+        for ri in owners {
             for r in children(self.g, ri, EdgeKind::HasStaticRoute) {
                 let Some(node) = self.g.node(r) else { continue };
                 let Ok(p) = static_route::destination(node) else {
@@ -477,14 +573,22 @@ impl Walk<'_> {
                     continue;
                 }
                 let pref = static_route::preference(node).ok().map(|p| u32::from(*p));
-                found.push((p.len, pref, self.static_choice(dev, r, p.addr, p.len, dest)));
+                found.push((
+                    p.len,
+                    pref,
+                    self.static_choice(dev, r, p.addr, p.len, dest, t, depth),
+                ));
             }
         }
 
         // Longest prefix first.
         let Some(longest) = found.iter().map(|(l, _, _)| *l).max() else {
+            let in_table = match t {
+                None => String::new(),
+                Some(_) => format!(" in VRF {}", self.table_name(t)),
+            };
             return Err(format!(
-                "no connected or static route on {name} covers {dest}; learned routes are not in the design, so the route on {name} could not be established"
+                "no connected or static route on {name}{in_table} covers {dest}; learned routes are not in the design, so the route on {name} could not be established"
             ));
         };
         let top: Vec<(Option<u32>, Result<Chosen, String>)> = found
@@ -529,6 +633,7 @@ impl Walk<'_> {
     }
 
     /// One static route as a way forward, or the reason it cannot be followed.
+    #[allow(clippy::too_many_arguments)]
     fn static_choice(
         &self,
         dev: NodeId,
@@ -536,6 +641,8 @@ impl Walk<'_> {
         addr: IpAddr,
         len: u8,
         dest: IpAddr,
+        t: Table,
+        depth: u8,
     ) -> Result<Chosen, String> {
         let name = display_name(self.g, dev);
         let node = self.g.node(r).ok_or("the route is gone")?;
@@ -550,7 +657,7 @@ impl Walk<'_> {
                 // The next hop resolves like any address: through the longest connected prefix on
                 // an interface that is not shut down.
                 let mut reach: Vec<(u8, NodeId)> = Vec::new();
-                for u in self.device_units(dev) {
+                for u in self.table_units(dev, t) {
                     if self
                         .g
                         .node(u)
@@ -612,11 +719,38 @@ impl Walk<'_> {
                     source: "StaticRoute.destination".to_owned(),
                 })
             }
+            [NextHop::NextTable(to)] => {
+                // A leak the config states: look the destination up again in the named table.
+                // Junos writes the table (`VRF-B.inet.0`); the instance is the part before it.
+                let want = to.0.split(".inet").next().unwrap_or(&to.0);
+                let target = children(self.g, dev, EdgeKind::HasRoutingInstance)
+                    .into_iter()
+                    .find(|ri| {
+                        self.g
+                            .node(*ri)
+                            .and_then(|n| routing_instance::name(n).ok())
+                            .is_some_and(|n| n.0 == want)
+                            || (want == "inet.0" && self.is_default_instance(*ri))
+                    });
+                let Some(target) = target else {
+                    return Err(format!(
+                        "the static route {addr}/{len} on {name} hands the flow to table {}, which is not in this design",
+                        to.0
+                    ));
+                };
+                let next_t = (!self.is_default_instance(target)).then_some(target);
+                let inner = self.route(dev, dest, next_t, depth + 1)?;
+                Ok(Chosen {
+                    words: format!(
+                        "{words} hands it to {}, then {}",
+                        self.table_name(next_t),
+                        inner.words
+                    ),
+                    ..inner
+                })
+            }
             [NextHop::Discard] | [NextHop::Reject] => Err(format!(
                 "the best route on {name} for {dest} is {addr}/{len}, which the config sets to discard"
-            )),
-            [_] => Err(format!(
-                "the static route {addr}/{len} on {name} uses a next hop this trace does not read"
             )),
             _ => Err(format!(
                 "the static route {addr}/{len} on {name} has more than one next hop; could not establish which one the flow takes"

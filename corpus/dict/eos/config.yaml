@@ -208,10 +208,10 @@ entries:
     versions: "*"
     reviewed_by: <named human>
 
-  # ---- VRFs, read only so far as to keep them apart. `vrf instance VRF10`
-  # is a routing instance, and an interface's `vrf VRF10` puts its unit in it.
-  # Until the path trace reads VRFs (sign-off r96, round 2) it refuses a
-  # device with one rather than join tables the device keeps apart.
+  # ---- VRFs. `vrf instance VRF10` is a routing instance, and an interface's
+  # `vrf VRF10` puts its unit in it. The path trace keeps each VRF's table
+  # apart (sign-off r96, round 2): a flow in VRF10 sees only VRF10's
+  # connected and static routes.
   - id: eos/vrf-instance
     path: [vrf, instance, "$n"]
     binds:
@@ -242,10 +242,10 @@ entries:
     versions: "*"
     reviewed_by: <named human>
 
-  # ---- static routes in the default table. `ip route vrf MGMT …` is not read
-  # here (VRFs are round 2 of sign-off r96): `vrf` is not a prefix, so it binds
-  # nothing and stays on the residue list. A route with a distance or a name
+  # ---- static routes in the default table. A route with a distance or a name
   # after the next hop binds, and the line is still residue for what follows.
+  # `ip route vrf …` is read by the entries after these: `vrf` is not a prefix,
+  # so these bind nothing from such a line.
   - id: eos/ip-route
     path: [ip, route, "$dest", "$nh"]
     partial: true
@@ -269,6 +269,43 @@ entries:
     binds:
       nodes:
         - { as: ri, kind: RoutingInstance }
+        - as: route
+          kind: StaticRoute
+          owner: ri
+          key: "$dest"
+          fields:
+            - { field: destination, from: "$dest", scalar: IpPrefix }
+            - { field: next_hop, next_hop_const: discard }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # ---- static routes in a VRF's table (sign-off r96, round 2). AVD writes
+  # `ip route vrf MGMT 0.0.0.0/0 172.16.1.1` in every device of its
+  # single-dc-l3ls example (dc1-leaf1a.cfg line 250, read 2026-11-02). The route
+  # belongs to the routing instance of that name, so the path trace looks it up
+  # only for a flow in that VRF.
+  - id: eos/ip-route-vrf
+    path: [ip, route, vrf, "$r", "$dest", "$nh"]
+    partial: true
+    binds:
+      nodes:
+        - { as: ri, kind: RoutingInstance, key: "$r", fields: [ { field: name, from: "$r", scalar: Identifier } ] }
+        - as: route
+          kind: StaticRoute
+          owner: ri
+          key: "$dest"
+          fields:
+            - { field: destination, from: "$dest", scalar: IpPrefix }
+            - { field: next_hop, next_hop: "$nh" }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: eos/ip-route-vrf.null0
+    path: [ip, route, vrf, "$r", "$dest", Null0]
+    partial: true
+    binds:
+      nodes:
+        - { as: ri, kind: RoutingInstance, key: "$r", fields: [ { field: name, from: "$r", scalar: Identifier } ] }
         - as: route
           kind: StaticRoute
           owner: ri

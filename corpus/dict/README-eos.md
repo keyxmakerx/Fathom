@@ -30,12 +30,14 @@ and `no shutdown`, `ip address`; `channel-group N mode …` as a link of `Port-C
 access vlan`, `switchport trunk allowed vlan` (a list, ranges up to 256 VLANs) and `switchport trunk
 native vlan` as VLAN membership; `interface VlanN` as the SVI routing VLAN N, with `ip address` and
 `ip address virtual` (the shared anycast gateway); `vrf instance NAME` and an interface's `vrf NAME`;
-`ip route PREFIX NEXT-HOP` and `ip route PREFIX Null0`.
+`ip route PREFIX NEXT-HOP` and `ip route PREFIX Null0`; `ip route vrf NAME PREFIX NEXT-HOP` and its `Null0`
+form as a route in that VRF's table (AVD writes `ip route vrf MGMT 0.0.0.0/0 172.16.1.1` on every device of
+the example, `dc1-leaf1a.cfg` line 250, read 2026-11-02). The path trace keeps each VRF's table apart.
 
 ## Not read, on purpose
 
-- `ip route vrf …`, and every route a VRF holds: round 2 of r96. Until then the path trace refuses a
-  device with a VRF rather than join tables the device keeps apart.
+- A VRF's routes leaked to another (`ip route vrf A … egress-vrf B …`, route maps between VRFs): residue.
+  The trace follows a leak only when the design states it as a next table.
 - A trunk with no `allowed vlan` line carries every VLAN, and `allowed vlan 1-4094` says the same: no
   membership is read, so the path trace says it could not establish a way across such a trunk.
 - `switchport mode`, `mlag`, `spanning-tree`, VXLAN, BGP, OSPF, route maps, prefix lists: residue.

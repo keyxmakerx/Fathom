@@ -1271,3 +1271,237 @@ fn a_splitter_whose_branches_hold_no_such_address_says_so() {
         t.stopped
     );
 }
+
+// ---- round 2: VRFs (r96) ------------------------------------------------------
+
+impl B {
+    fn vrf(&mut self, dev: NodeId, name: &str) -> NodeId {
+        let r = self.node(NodeKind::RoutingInstance);
+        self.set(
+            r,
+            "RoutingInstance.name",
+            scalar::Identifier(name.to_owned()),
+        );
+        self.edge(EdgeKind::HasRoutingInstance, dev, r);
+        r
+    }
+
+    fn vrf_route(&mut self, ri: NodeId, dest: (IpAddr, u8), hop: NextHop) -> NodeId {
+        let r = self.node(NodeKind::StaticRoute);
+        self.set(
+            r,
+            "StaticRoute.destination",
+            scalar::IpPrefix {
+                addr: dest.0,
+                len: dest.1,
+            },
+        );
+        self.set(r, "StaticRoute.next_hop", vec![hop]);
+        self.edge(EdgeKind::HasStaticRoute, ri, r);
+        r
+    }
+
+    /// A routed port on `dev` in `vrf`, cabled to a fresh host at `host_addr` whose
+    /// default route points back at `gw`.
+    #[allow(clippy::too_many_arguments)]
+    fn vrf_leg(
+        &mut self,
+        dev: NodeId,
+        chassis: NodeId,
+        vrf: Option<NodeId>,
+        port: &str,
+        gw: &str,
+        host: &str,
+        host_addr: &str,
+    ) -> (NodeId, NodeId) {
+        let p = self.port(chassis, port);
+        let u = self.unit(dev, p, port, Some((ip(gw), 24)), None);
+        if let Some(v) = vrf {
+            self.edge(EdgeKind::InRoutingInstance, u, v);
+        }
+        let (h, hp) = self.host(host, host_addr);
+        self.cable(p, hp);
+        self.route(h, (ip("0.0.0.0"), 0), via(gw));
+        (u, h)
+    }
+}
+
+/// pe-1 has two VRFs using the same space: RED and BLUE each hold 10.0.0.0/24 and one
+/// client network of their own.
+struct Vrfs {
+    b: B,
+    red: NodeId,
+    blue: NodeId,
+    red_client: NodeId,
+    blue_client: NodeId,
+}
+
+fn two_vrfs() -> Vrfs {
+    let mut b = B::new();
+    let pe = b.device("pe-1");
+    let c = b.chassis(pe);
+    let red = b.vrf(pe, "RED");
+    let blue = b.vrf(pe, "BLUE");
+    b.vrf_leg(
+        pe,
+        c,
+        Some(red),
+        "ge-0/0/1",
+        "10.0.0.1",
+        "red-srv",
+        "10.0.0.10",
+    );
+    b.vrf_leg(
+        pe,
+        c,
+        Some(blue),
+        "ge-0/0/2",
+        "10.0.0.1",
+        "blue-srv",
+        "10.0.0.10",
+    );
+    let (_, red_client) = b.vrf_leg(
+        pe,
+        c,
+        Some(red),
+        "ge-0/0/3",
+        "10.1.0.1",
+        "red-pc",
+        "10.1.0.10",
+    );
+    let (_, blue_client) = b.vrf_leg(
+        pe,
+        c,
+        Some(blue),
+        "ge-0/0/4",
+        "10.2.0.1",
+        "blue-pc",
+        "10.2.0.10",
+    );
+    Vrfs {
+        b,
+        red,
+        blue,
+        red_client,
+        blue_client,
+    }
+}
+
+#[test]
+fn each_vrf_reaches_its_own_copy_of_an_overlapping_network() {
+    let v = two_vrfs();
+    let t = trace(&v.b.g, &v.red_client.to_string(), "10.0.0.10", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(t.hops.last().unwrap().title, "red-srv");
+    let pe = t.hops.iter().find(|h| h.title == "pe-1").unwrap();
+    assert!(
+        pe.detail.contains(&"in VRF RED".to_owned()),
+        "{:?}",
+        pe.detail
+    );
+
+    let t = trace(&v.b.g, &v.blue_client.to_string(), "10.0.0.10", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(t.hops.last().unwrap().title, "blue-srv");
+}
+
+#[test]
+fn a_vrf_does_not_see_another_vrfs_networks() {
+    let v = two_vrfs();
+    // BLUE's client network is not in RED, and nothing leaks it.
+    let t = trace(&v.b.g, &v.red_client.to_string(), "10.2.0.10", None);
+    assert!(
+        t.stopped
+            .contains("no connected or static route on pe-1 in VRF RED covers 10.2.0.10"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_static_route_in_one_vrf_is_not_used_by_another() {
+    let mut v = two_vrfs();
+    v.b.vrf_route(v.blue, (ip("192.0.2.0"), 24), via("10.0.0.10"));
+    let t = trace(&v.b.g, &v.red_client.to_string(), "192.0.2.5", None);
+    assert!(t.stopped.contains("in VRF RED covers"), "{}", t.stopped);
+    let t = trace(&v.b.g, &v.blue_client.to_string(), "192.0.2.5", None);
+    // BLUE's route is followed to blue-srv, which holds no route of its own past its default.
+    let pe = t.hops.iter().find(|h| h.title == "pe-1").unwrap();
+    assert!(
+        pe.detail
+            .iter()
+            .any(|l| l.contains("static route 192.0.2.0/24 via 10.0.0.10")),
+        "{:?}",
+        pe.detail
+    );
+    assert!(t.hops.iter().any(|h| h.title == "blue-srv"), "{:?}", t.hops);
+}
+
+#[test]
+fn a_leak_the_config_states_crosses_into_the_other_vrf() {
+    let mut v = two_vrfs();
+    // RED reaches BLUE's client network through a next-table route, Junos style.
+    v.b.vrf_route(
+        v.red,
+        (ip("10.2.0.0"), 24),
+        NextHop::NextTable(scalar::Identifier("BLUE.inet.0".to_owned())),
+    );
+    let t = trace(&v.b.g, &v.red_client.to_string(), "10.2.0.10", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(t.hops.last().unwrap().title, "blue-pc");
+    let pe = t.hops.iter().find(|h| h.title == "pe-1").unwrap();
+    assert!(
+        pe.detail
+            .iter()
+            .any(|l| l.contains("hands it to BLUE, then connected: 10.2.0.10 is on 10.2.0.0/24")),
+        "{:?}",
+        pe.detail
+    );
+}
+
+#[test]
+fn a_leak_to_a_table_not_in_the_design_says_so() {
+    let mut v = two_vrfs();
+    v.b.vrf_route(
+        v.red,
+        (ip("10.2.0.0"), 24),
+        NextHop::NextTable(scalar::Identifier("GREEN.inet.0".to_owned())),
+    );
+    let t = trace(&v.b.g, &v.red_client.to_string(), "10.2.0.10", None);
+    assert!(
+        t.stopped
+            .contains("hands the flow to table GREEN.inet.0, which is not in this design"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn two_vrfs_that_hand_a_flow_back_and_forth_end_in_could_not_establish() {
+    let mut v = two_vrfs();
+    let to = |n: &str| NextHop::NextTable(scalar::Identifier(format!("{n}.inet.0")));
+    v.b.vrf_route(v.red, (ip("198.51.100.0"), 24), to("BLUE"));
+    v.b.vrf_route(v.blue, (ip("198.51.100.0"), 24), to("RED"));
+    let t = trace(&v.b.g, &v.red_client.to_string(), "198.51.100.1", None);
+    assert!(t.stopped.contains("more than three times"), "{}", t.stopped);
+}
+
+#[test]
+fn starting_on_a_device_with_vrfs_asks_for_an_interface() {
+    let v = two_vrfs();
+    let pe =
+        v.b.g
+            .nodes_of_kind(NodeKind::Device)
+            .map(|n| n.id)
+            .find(|d| fathom_inventory::display_name(&v.b.g, *d) == "pe-1")
+            .unwrap();
+    let t = trace(&v.b.g, &pe.to_string(), "10.1.0.10", None);
+    assert!(
+        t.stopped.contains("start from one of its interfaces"),
+        "{}",
+        t.stopped
+    );
+    // From an address the router holds, the table is known.
+    let t = trace(&v.b.g, "10.1.0.1", "10.1.0.10", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+}

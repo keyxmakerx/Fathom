@@ -59,9 +59,8 @@ the same front end in its `EOS` dialect, picked by `EthernetN` ports beside a `P
 `ManagementN` and no `version` line. It binds the hostname, VLANs and names, interfaces with description,
 `shutdown`/`no shutdown` and IPv4 address, Port-Channel links (`channel-group`), access, trunk and native
 VLAN membership (ranges up to 256 VLANs; `1-4094` is not read), SVIs tied to their VLAN, and static routes
-in the default table (`Null0` as discard). VRFs are read only so far as to keep them apart: `vrf instance`
-and an interface's `vrf` bind, `ip route vrf …` is residue, and the path trace refuses a device with a VRF
-until round 2. Indentation nests blocks (`router bgp` holds `vlan 11`); a paste that lost it reads by `!`.
+in the default table (`Null0` as discard). VRFs (r96 round 2): `vrf instance`, an interface's `vrf` and
+`ip route vrf NAME …` bind, the route into that VRF's table. Indentation nests blocks (`router bgp` holds `vlan 11`); a paste that lost it reads by `!`.
 Built against configs Arista's AVD generates (`corpus/dict/README-eos.md`).
 
 **The server.** `crates/fathom-server` starts, answers a health check through a real PostgreSQL, shuts
@@ -369,7 +368,7 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   route beats a static one of the same length; a static next hop leaves by the longest connected prefix on
   an interface that is up; an address two devices hold is refused as a start or end; two paths through a
   switch in one VLAN say "more than one path" instead of "none"; and VLANs are followed eight switches
-  deep. Round 1 (r96): an SVI or irb is a gateway that leaves through its device's ports in its VLAN, and a LAG's links to one device are one way (to two devices, as in MLAG, still "more than one path"). Downstream through a splitter, the branch whose device holds the next hop is followed (a PON splitter lights every branch; the ONT it is for takes it). Not built: st0 tunnels, VRFs (the audit doc ranks these). Not built: learned routes, NAT, port right-click, the
+  deep. Round 1 (r96): an SVI or irb is a gateway that leaves through its device's ports in its VLAN, and a LAG's links to one device are one way (to two devices, as in MLAG, still "more than one path"). Downstream through a splitter, the branch whose device holds the next hop is followed (a PON splitter lights every branch; the ONT it is for takes it). Round 2 (r96), VRFs: a flow uses the table of the unit it arrived on, sees only that table's connected and static routes, and a next hop resolves only in it, so two VRFs may hold the same network. A static route whose next hop is another table (Junos `next-table`) hands the flow across and the hop says so; a table not in the design, or more than three hand-offs, ends in "could not establish". A start with no interface on a device with VRFs asks for one. Not built: st0 tunnels (the audit doc ranks these). Not built: learned routes, NAT, port right-click, the
   Diagram look, the "Trace from here" offer from "It's down". `scripts/drive-trace.mjs` drives it.
 - **Sample home lab and the five first steps** (r15-start, round 10). Home's "Open the sample home lab" builds
   `corpus/samples/home-lab.json` (11 devices, 12 cables, VLANs 10 and 30) with the editor's own commands and saves
