@@ -117,6 +117,7 @@ question was not in the register. *R* is the reversal cost from `73` §1.2 — R
 | **[0078](adr-0078-termix-beside-fathom.md)** | Termix beside Fathom: open a device's terminal, Fathom never connects | Accepted |  |  |
 | **[0079](adr-0079-one-estate-across-designs.md)** | One estate across designs: the estate index, links between sites, and slimmer saves | Accepted |  |  |
 | **[0080](adr-0080-termix-in-the-work.md)** | Termix in the work: plans, logins by reference, snippets and checks | Accepted |  |  |
+| **[0081](adr-0081-the-work-tab.md)** | The Work tab: one list of work across designs, with Fathom numbers | Accepted |  |  |
 
 ## What is not reopened
 
