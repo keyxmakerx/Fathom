@@ -745,3 +745,49 @@ fn set_form_detection_never_reads_with_the_unifi_dictionary() {
     let reply = shell.handle(OP_PASTE, &frame(0, &srx_config()));
     assert_eq!(platform_of(&reply), "junos-srx");
 }
+
+/// An Arista EOS `show running-config`, cut from a config Arista's AVD
+/// generated (`examples/single-dc-l3ls`, read 2026-11-02) with short
+/// credentials in place of its hash and type-7 passwords.
+fn eos_paste() -> String {
+    "!\n\
+     username admin privilege 15 role network-admin secret 0 Adm1nPass9\n\
+     !\n\
+     hostname dc1-leaf1a\n\
+     !\n\
+     vlan 11\n   name VRF10_VLAN11\n!\n\
+     interface Port-Channel5\n   switchport trunk allowed vlan 11\n   switchport mode trunk\n!\n\
+     interface Ethernet5\n   channel-group 5 mode active\n!\n\
+     interface Management1\n   ip address 172.16.1.101/24\n!\n\
+     interface Vlan11\n   ip address virtual 10.10.11.1/24\n!\n\
+     ip route 0.0.0.0/0 172.16.1.1\n\
+     snmp-server user ops grp1 v3 auth sha Au7hPw1 priv aes Pr1vPw1\n\
+     router bgp 65101\n   neighbor 10.255.255.0 password 0 BgpPw1\n!\n\
+     end\n"
+        .to_owned()
+}
+
+const EOS_SECRETS: [&str; 4] = ["Adm1nPass9", "Au7hPw1", "Pr1vPw1", "BgpPw1"];
+
+#[test]
+fn an_arista_config_is_detected_read_and_no_credential_survives() {
+    let mut shell = common::all_booted_shell();
+    let reply = shell.handle(OP_PASTE, &frame(0, &eos_paste()));
+    assert_eq!(platform_of(&reply), "eos");
+    let stored = shell.handle(OP_EXPORT_PLAIN, &[]);
+    for k in EOS_SECRETS {
+        assert!(!contains(&reply, k), "reply leaks {k}");
+        assert!(!contains(&stored, k), "stored design leaks {k}");
+    }
+    // The paste welded: what it bound is in the design (its edges are
+    // checked in `fathom-ingest/tests/eos.rs`).
+    for kept in [
+        "dc1-leaf1a",
+        "Port-Channel5",
+        "Ethernet5",
+        "VRF10_VLAN11",
+        "Vlan11",
+    ] {
+        assert!(contains(&stored, kept), "{kept} was not stored");
+    }
+}

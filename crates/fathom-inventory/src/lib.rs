@@ -45,4 +45,4 @@ pub use inside::{
 pub use inventory::{column_keys, columns, rows, InvKind, Row};
 pub use rack::{elevation, rack_label, Elevation, Slot};
 pub use render::field_text;
-pub use trace::{trace, Flow, Hop, PolicyLine, Trace};
+pub use trace::{trace, trace_in, Flow, Hop, PolicyLine, Trace};

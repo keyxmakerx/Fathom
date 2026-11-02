@@ -152,6 +152,9 @@ pub fn display_name(g: &Graph, id: NodeId) -> String {
         // cannot tell from the frame beside it. `Rack.label` is `card: "1"`,
         // so there is always one to show.
         NodeKind::Rack => value_cell(g, id, key("Rack.label")),
+        // A patch panel or splitter: `PassiveNode.label` is `card: "1"`. Added 2026-11-02 when
+        // the path trace began naming splitters it passes through.
+        NodeKind::PassiveNode => value_cell(g, id, key("PassiveNode.label")),
         NodeKind::Site => value_cell(g, id, key("Site.name")),
         NodeKind::Cable => {
             let label = value_cell(g, id, key("Cable.label"));

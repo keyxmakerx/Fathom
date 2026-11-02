@@ -145,8 +145,8 @@ export class Mirror {
   }
 
   /** `OP_TRACE` over the estate `load` last put in the module. */
-  trace(from: string, to: string, flow?: { protocol: number; port: number }): TraceResult {
-    return this.engine.trace(from, to, flow);
+  trace(from: string, to: string, flow?: { protocol: number; port: number }, table?: string): TraceResult {
+    return this.engine.trace(from, to, flow, table);
   }
 
   /** `OP_CHECKS` over the estate `load` last put in the module. */

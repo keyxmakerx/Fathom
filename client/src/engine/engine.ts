@@ -11,7 +11,7 @@ import { type ByteLoader, type EngineWasm, fetchLoader, loadWasm } from './wasm'
 /** The `corpus/dict/` directories this client boots a dictionary for. `shell.rs`
  * holds them all at once, keyed by platform, and picks one per paste (named in the
  * frame, else detected; see `ERR_PLATFORM_CHOICE`). */
-export const DICT_PLATFORMS = ['junos-srx', 'opnsense', 'junos-ex', 'edgeos', 'routeros', 'pfsense', 'linux-host', 'omada-sw', 'unifi-sw'] as const;
+export const DICT_PLATFORMS = ['junos-srx', 'opnsense', 'junos-ex', 'edgeos', 'routeros', 'pfsense', 'linux-host', 'omada-sw', 'unifi-sw', 'eos'] as const;
 
 /** `corpus/dict/` directories this client deliberately does not boot a
  * dictionary for, and why — read by the coverage test below so an
@@ -136,7 +136,7 @@ export interface TracePolicy {
 
 export interface TraceHop {
   n: number;
-  kind: 'start' | 'device' | 'cable' | 'switch' | 'end' | 'stop';
+  kind: 'start' | 'device' | 'cable' | 'switch' | 'tunnel' | 'end' | 'stop';
   title: string;
   detail: string[];
   /** Display ids of the nodes to light on the canvas. */
@@ -907,10 +907,12 @@ export class Engine {
     return readInsideReply(rows);
   }
 
-  /** `OP_TRACE`: one flow's path. `flow` is `{ protocol, port }` (6 is TCP, 17 UDP), or omitted. A trace
-   * that stops short still returns; `stopped` says why. */
-  trace(from: string, to: string, flow?: { protocol: number; port: number }): TraceResult {
-    const req = new TextEncoder().encode(`${from}\n${to}\n${flow ? `${flow.protocol} ${flow.port}` : ''}`);
+  /** `OP_TRACE`: one flow's path. `flow` is `{ protocol, port }` (6 is TCP, 17 UDP), or omitted. `table` is
+   * the routing table picked on the Routing lens (`default` or a VRF's name): it settles a start device's
+   * table where the design does not. A trace that stops short still returns; `stopped` says why. */
+  trace(from: string, to: string, flow?: { protocol: number; port: number }, table?: string): TraceResult {
+    const lines = `${from}\n${to}\n${flow ? `${flow.protocol} ${flow.port}` : ''}`;
+    const req = new TextEncoder().encode(table ? `${lines}\n${table}` : lines);
     return readTraceReply(this.callFaces(OPCODES.OP_TRACE, req));
   }
 

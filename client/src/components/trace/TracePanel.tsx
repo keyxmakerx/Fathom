@@ -12,6 +12,7 @@ import { useTraceRevealed } from './traceStore';
 import { prefersReducedMotion } from '../drawing/motion';
 import { openElsewhere } from '../../api/estate';
 import type { TraceController } from './useTraceController';
+import type { Elsewhere } from './traceElsewhere';
 import { ThingName } from '../shell/ThingName';
 import './trace.css';
 
@@ -114,10 +115,13 @@ export function TracePanel({
   controller,
   onTie,
   continueIn,
+  elsewhere,
 }: {
   controller: TraceController;
   onTie?: (deviceId: string) => void;
   continueIn?: TraceContinuation | null;
+  /** Other designs that hold the address this trace did not reach (the estate index). */
+  elsewhere?: Elsewhere | null;
 }): JSX.Element | null {
   const [only, setOnly] = useState(false);
   const { from, result, query, target } = controller;
@@ -220,6 +224,22 @@ export function TracePanel({
                 Continue in {continueIn.label || 'the far site'}
               </button>
             </p>
+          )}
+          {continueIn == null && elsewhere != null && (
+            <div className="trace-end" data-testid="trace-elsewhere">
+              {elsewhere.hits.length === 0 ? (
+                <p>No other site you can open holds {elsewhere.address} so far: {elsewhere.behind} {elsewhere.behind === 1 ? 'site is' : 'sites are'} still being brought up to date.</p>
+              ) : (
+                elsewhere.hits.map((h) => (
+                  <p key={`${h.design}:${h.open}`}>
+                    {elsewhere.address} is on {h.device} in {h.site} ·{' '}
+                    <button type="button" className="trace-link" onClick={() => openElsewhere(h.design, h.open)}>
+                      Open it there
+                    </button>
+                  </p>
+                ))
+              )}
+            </div>
           )}
           {untied != null && (
             <p className="trace-end">

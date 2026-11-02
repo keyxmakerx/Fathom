@@ -96,7 +96,10 @@ import { findDevice, findShelf } from '../drawing/lookup';
 import { mediaCandidates } from '../checks/checksModel';
 import { CheckMarksContext, ChecksContext } from '../checks/checksStore';
 import { useChecksController } from '../checks/useChecksController';
+import { routingMarks, tableLit, tableNames } from '../drawing/routingLens';
+import { RoutingContext, type RoutingApi } from '../drawing/RoutingTab';
 import { TracePanel } from '../trace/TracePanel';
+import { useTraceElsewhere } from '../trace/traceElsewhere';
 import { InSideSlot, type SideTab } from '../shell/sideSlot';
 import { TraceContext } from '../trace/traceStore';
 import { useTraceController, type TraceEnd } from '../trace/useTraceController';
@@ -873,6 +876,17 @@ export function RacksPlace(props: RacksPlaceProps) {
     [realView],
   );
   const words = useMemo(() => layerWords(doc, displayView, layers), [doc, displayView, layers]);
+  // The Routing lens (sign-off r101): routed against switched, on the same boxes.
+  const routing = useMemo(() => (shellProps.lens === 'routing' ? routingMarks(doc, displayView) : undefined), [shellProps.lens, doc, displayView]);
+  // The Routing lens's table picker (r101): one table lit, the rest faded; a trace walks in it.
+  const [pickedTable, setPickedTable] = useState<string | null>(null);
+  const tableChoice = useMemo(() => {
+    if (shellProps.lens !== 'routing' || doc == null) return undefined;
+    const names = tableNames(doc, displayView);
+    if (names.length === 0) return undefined;
+    const current = pickedTable != null && names.includes(pickedTable) ? pickedTable : 'default';
+    return { names, current, lit: tableLit(doc, displayView, current), onPick: setPickedTable };
+  }, [shellProps.lens, doc, displayView, pickedTable]);
   const learn = useLearn();
   const learnExplainers = learn?.explainers;
   const notes = useMemo(
@@ -969,6 +983,8 @@ export function RacksPlace(props: RacksPlaceProps) {
     () => computeCableDraw([...closetCableIds], hiddenCableIdSet, effectiveCableGroupsState.none, tickedCableGroups),
     [closetCableIds, hiddenCableIdSet, effectiveCableGroupsState.none, tickedCableGroups],
   );
+  // The Rack look has no words on its lines; the lens dashes its switched cables there.
+  const rackDashed = useMemo(() => (routing == null ? cableDraw.dashedIds : new Set([...cableDraw.dashedIds, ...routing.switched])), [routing, cableDraw.dashedIds]);
   const cablesGroupsSummary = isCableGroupsFiltered(effectiveCableGroupsState)
     ? `${cableDraw.drawnIds.size} of ${closetCableIds.size}`
     : null;
@@ -1012,13 +1028,17 @@ export function RacksPlace(props: RacksPlaceProps) {
     ) : undefined;
 
   // Path trace (ADR-0061 item 9): the same module; opened from a device's right-click.
-  const trace = useTraceController({ doc, view: realView, boot: ensureMirror, mirrorNow });
+  const trace = useTraceController({ doc, view: realView, boot: ensureMirror, mirrorNow, table: tableChoice?.current ?? null });
+  // The device panel's Routing tab, while the Routing lens is lit (sign-off r101).
+  const routingApi = useMemo((): RoutingApi | null => (doc == null ? null : { lit: shellProps.lens === 'routing', doc, applyDocChange: canDraw ? applyDocChange : undefined }), [doc, shellProps.lens, canDraw, applyDocChange]);
   // A traced path that crosses a link between sites offers to continue there (ADR-0079 decision 5).
   const traceContinuation = useMemo(() => {
     if (doc == null || trace.result == null) return null;
     const link = siteLinkTouching(doc, trace.result.hops.flatMap((h) => h.nodes));
     return link ? { label: link.label, far: link.far } : null;
   }, [doc, trace.result]);
+  // An address this design does not hold: which other sites do (r96 round 2, the estate index).
+  const traceElsewhere = useTraceElsewhere(session.organisationId, session.designId, trace.result);
   const traceHandled = useRef<unknown>(null);
   useEffect(() => {
     if (traceRequest == null || traceHandled.current === traceRequest) return;
@@ -2222,7 +2242,7 @@ export function RacksPlace(props: RacksPlaceProps) {
 
   return (
     <SelectThing.Provider value={selectThing}>
-    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, cables: look === 'diagram' ? undefined : { value: cableStyle, onChange: changeCableStyle, colour: { value: cableColour, onChange: changeCableColour } }, aids: { ...showAids, items: showAids.items.filter((a) => a.id !== 'colourKey') } }} layersExtra={doc != null && look === 'rack' && keyRows.length > 0 ? <ColourKey rows={keyRows} onHighlight={setKeyCableIds} /> : undefined} mainView={mainView} designExtra={doc != null && isSample ? <SampleChip onReset={canDraw && loadFirstSave != null ? resetSample : undefined} /> : undefined} doing={doc != null ? doing : undefined} zoomStops={look === 'rack' ? zoomStops : undefined} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} autoEquipment={autoOpenEquipment(doc != null, canDraw, realView)} equipmentRequest={equipmentRequest} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} sideTabs={sideTabs} task={task} barExtra={
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, cables: look === 'diagram' ? undefined : { value: cableStyle, onChange: changeCableStyle, colour: { value: cableColour, onChange: changeCableColour } }, aids: { ...showAids, items: showAids.items.filter((a) => a.id !== 'colourKey') } }} layersExtra={doc != null && look === 'rack' && keyRows.length > 0 ? <ColourKey rows={keyRows} onHighlight={setKeyCableIds} /> : undefined} mainView={mainView} designExtra={doc != null && isSample ? <SampleChip onReset={canDraw && loadFirstSave != null ? resetSample : undefined} /> : undefined} doing={doc != null ? doing : undefined} zoomStops={look === 'rack' ? zoomStops : undefined} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor == null ? editor : <RoutingContext.Provider value={routingApi}>{editor}</RoutingContext.Provider>} history={historyView?.panel} rail={rail} autoEquipment={autoOpenEquipment(doc != null, canDraw, realView)} equipmentRequest={equipmentRequest} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} sideTabs={sideTabs} task={task} barExtra={
         doc != null ? (
           <MissingLinksChip found={missingLinks} onGo={handleGoToMissingLink} />
         ) : undefined
@@ -2259,6 +2279,8 @@ export function RacksPlace(props: RacksPlaceProps) {
           cameraHub={cameraHub}
           minimap={canvasAids.prefs.minimap}
           overlays={vpns}
+          routing={routing}
+          table={tableChoice}
         />
       ) : (
         <Drawing
@@ -2327,7 +2349,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           onAddEquipment={() => setEquipmentRequest((n) => n + 1)}
           emptyHint={canDraw && realView.racks.length === 0 && (realView.surfaces?.length ?? 0) === 0 && realView.free.length === 0 && realView.labels.length === 0 ? EMPTY_HINT : null}
           drawnCableIds={cableDraw.drawnIds}
-          dashedCableIds={cableDraw.dashedIds}
+          dashedCableIds={rackDashed}
           // ADR-0053 §1/§3 — Ctrl Z / Ctrl
           // Shift Z, at `Drawing.tsx`'s own existing keydown site.
           onUndo={shellProps.onUndo}
@@ -2443,7 +2465,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       {doc != null && jot == null && !trace.open && !checks.open && planted > 0 ? <PracticeNote count={planted} onOpenChecks={() => checks.setOpen(true)} /> : null}
       {doc != null && jot == null ? (
         <InSideSlot id="trace">
-          <TracePanel controller={trace} onTie={canDraw ? setTieFor : undefined} continueIn={traceContinuation} />
+          <TracePanel controller={trace} onTie={canDraw ? setTieFor : undefined} continueIn={traceContinuation} elsewhere={traceElsewhere} />
         </InSideSlot>
       ) : null}
       </TraceContext.Provider>

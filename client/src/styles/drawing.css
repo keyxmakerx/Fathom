@@ -1760,6 +1760,71 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The Routing lens's words on a box (sign-off r101): ink capitals; a host with no gateway in caution. */
+.drawing-diagram-box__lens {
+  max-width: 100%;
+  margin-top: 0;
+  line-height: 1.3;
+  font-family: var(--mono);
+  font-size: var(--t-small);
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drawing-diagram-box__lens--caution {
+  padding: 0 4px;
+  color: var(--caution);
+  background: var(--caution-wash);
+}
+/* The lit lens's key, bottom left of the canvas: what ink and dashes mean. */
+.drawing-lens-key {
+  position: absolute;
+  left: var(--s4);
+  bottom: var(--s4);
+  z-index: 5;
+  margin: 0;
+  padding: 2px 6px;
+  font-family: var(--mono);
+  font-size: var(--t-small);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: var(--page);
+  pointer-events: none;
+}
+
+/* The table picker, above the key while the design keeps a VRF (r101). */
+.drawing-lens-key {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+
+.drawing-lens-key__table {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--ink);
+  pointer-events: auto;
+}
+
+.drawing-lens-key__table select {
+  font: inherit;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);
+  padding: 2px var(--s1);
+}
+
+.drawing-lens-key__note {
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
 /* Show-menu words on the lines: ink on the page, no border, never a risk colour. */
 .drawing-layer-label {
   position: absolute;
@@ -2721,4 +2786,78 @@
 .dev-sections__move:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* The device panel's Routing tab (sign-off r101): the device's own table, ink on the page. */
+.routing-tab__table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: var(--s3);
+  font-size: var(--t-small);
+}
+.routing-tab__table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 1px solid var(--hairline);
+  padding: 2px 6px 2px 0;
+}
+.routing-tab__table td {
+  border-bottom: 1px solid var(--hairline);
+  padding: 4px 6px 4px 0;
+  vertical-align: top;
+}
+.routing-tab__mono {
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+.routing-tab__muted {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+.routing-tab__from {
+  white-space: nowrap;
+}
+.routing-tab__actions {
+  display: flex;
+  gap: var(--s2);
+  margin: var(--s2) 0 var(--s3);
+}
+
+/* A path trace on the Diagram look (r101): the box the walk stopped at takes the caution edge, and a caution
+   box beside it says why, in the engine's words. */
+.drawing-diagram-box--stop {
+  border-color: var(--caution);
+  border-style: dashed;
+}
+
+.drawing-trace-stop {
+  position: absolute;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 220px;
+  padding: var(--s1) var(--s2);
+  border: 2px dashed var(--caution);
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--t-small);
+  line-height: 1.35;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.drawing-trace-stop__head {
+  color: var(--caution);
+  font-family: var(--mono);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* A line's words fade with the line when a trace does not cross it. */
+.trace-faded-label {
+  opacity: var(--phantom);
 }

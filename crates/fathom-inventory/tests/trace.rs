@@ -13,7 +13,7 @@ use fathom_graph::{
     UserId,
 };
 use fathom_id::Ulid;
-use fathom_inventory::{trace, Flow, Trace};
+use fathom_inventory::{trace, trace_in, Flow, Trace};
 use fathom_ir::generated::ir_types::{CableEnd, EdgeKind, NodeKind, PolicyAction, FIELD_KEYS};
 use fathom_ir::scalar;
 use fathom_ir::value::{AddressValue, L4Spec, NextHop, PolicyScope};
@@ -743,6 +743,37 @@ fn two_routing_instances_stop_the_route_lookup() {
     );
 }
 
+/// Arista's `vrf instance MGMT` on a switch with no default-table route: one
+/// instance, but a VRF, so the switch's interfaces are not one table.
+#[test]
+fn a_lone_vrf_stops_the_route_lookup_too() {
+    let (mut b, d) = lone();
+    let r = b.node(NodeKind::RoutingInstance);
+    b.set(
+        r,
+        "RoutingInstance.name",
+        scalar::Identifier("MGMT".to_owned()),
+    );
+    b.edge(EdgeKind::HasRoutingInstance, d, r);
+    let t = trace(&b.g, &d.to_string(), "10.1.1.5", None);
+    assert!(
+        t.stopped.contains("other than its default (MGMT)"),
+        "{}",
+        t.stopped
+    );
+    // The default table a person adds by hand is not a VRF.
+    let (mut b, d) = lone();
+    let r = b.node(NodeKind::RoutingInstance);
+    b.set(
+        r,
+        "RoutingInstance.name",
+        scalar::Identifier("default".to_owned()),
+    );
+    b.edge(EdgeKind::HasRoutingInstance, d, r);
+    let t = trace(&b.g, &d.to_string(), "10.1.1.5", None);
+    assert!(!t.stopped.contains("routing instance"), "{}", t.stopped);
+}
+
 #[test]
 fn a_dual_stack_start_does_not_invent_a_source() {
     let (mut b, d) = lone();
@@ -760,4 +791,1301 @@ fn a_dual_stack_start_does_not_invent_a_source() {
     b.edge(EdgeKind::HasAddress, u, n);
     let t = trace(&b.g, &d.to_string(), "10.1.1.5", None);
     assert_eq!(t.hops[0].detail[0], "from this device");
+}
+
+// ---- the routing audit's fixes (2026-11-02) ------------------------------
+
+fn ip(s: &str) -> IpAddr {
+    s.parse().unwrap()
+}
+
+fn via(s: &str) -> NextHop {
+    NextHop::Address(scalar::IpAddr(ip(s)))
+}
+
+impl B {
+    fn host(&mut self, name: &str, addr: &str) -> (NodeId, NodeId) {
+        let h = self.device(name);
+        let c = self.chassis(h);
+        let p = self.port(c, "eth0");
+        self.unit(h, p, "eth0", Some((ip(addr), 24)), None);
+        (h, p)
+    }
+
+    /// A switch whose `n` ports all carry VLAN 10.
+    fn vlan10_switch(&mut self, name: &str, n: usize) -> Vec<NodeId> {
+        let d = self.device(name);
+        let c = self.chassis(d);
+        let v = self.node(NodeKind::Vlan);
+        self.set(v, "Vlan.vlan_id", scalar::VlanId(10));
+        self.edge(EdgeKind::HasVlan, d, v);
+        (0..n)
+            .map(|i| {
+                let label = format!("Et{}", i + 1);
+                let p = self.port(c, &label);
+                self.unit(d, p, &label, None, Some(v));
+                p
+            })
+            .collect()
+    }
+}
+
+#[test]
+fn a_connected_route_beats_an_equally_specific_static_one() {
+    // A pasted static route carries no preference; a connected route always outranks it.
+    let mut b = B::new();
+    let r = b.device("r1");
+    let c = b.chassis(r);
+    let lan = b.port(c, "ge0");
+    let wan = b.port(c, "ge1");
+    b.unit(r, lan, "ge0", Some((ip("10.1.1.1"), 24)), None);
+    b.unit(r, wan, "ge1", Some((ip("192.0.2.1"), 30)), None);
+    b.route(r, (ip("10.1.1.0"), 24), via("192.0.2.2"));
+    let (_, hp) = b.host("h", "10.1.1.5");
+    b.cable(lan, hp);
+    let t = trace(&b.g, &r.to_string(), "10.1.1.5", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert!(t.hops[1].detail.iter().any(|l| l.starts_with("connected")));
+}
+
+#[test]
+fn a_next_hop_resolves_through_the_longest_prefix_that_is_up() {
+    let mut b = B::new();
+    let r = b.device("r1");
+    let c = b.chassis(r);
+    let p0 = b.port(c, "ge0");
+    let p1 = b.port(c, "ge1");
+    let down = b.unit(r, p0, "ge0", Some((ip("192.0.2.1"), 24)), None);
+    b.set(down, "LogicalUnit.admin_up", false);
+    b.unit(r, p1, "ge1", Some((ip("192.0.2.129"), 25)), None);
+    b.route(r, (ip("0.0.0.0"), 0), via("192.0.2.130"));
+    let isp = b.device("isp");
+    let ic = b.chassis(isp);
+    let q = b.port(ic, "x");
+    b.unit(isp, q, "x", Some((ip("192.0.2.130"), 25)), None);
+    b.cable(p1, q);
+    let t = trace(&b.g, &r.to_string(), "8.8.8.8", None);
+    assert!(
+        t.hops[1].detail.iter().any(|l| l == "out on ge1.0"),
+        "{:?}",
+        t.hops[1].detail
+    );
+    assert!(titles(&t).contains(&"isp".to_owned()), "{:?}", titles(&t));
+}
+
+#[test]
+fn an_address_two_devices_hold_is_not_a_start() {
+    // One private range at two sites: the trace does not pick a site.
+    let mut b = B::new();
+    b.host("site-a-nas", "192.168.1.10");
+    b.host("site-b-nas", "192.168.1.10");
+    let t = trace(&b.g, "192.168.1.10", "192.168.1.20", None);
+    assert!(
+        t.stopped.contains("more than one device") && t.stopped.contains("site-b-nas"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn two_uplinks_in_one_vlan_are_two_paths_not_none() {
+    let mut b = B::new();
+    let (a, pa) = b.host("pc-a", "10.10.0.11");
+    let (_, pb) = b.host("pc-b", "10.10.0.12");
+    let acc = b.vlan10_switch("acc", 3);
+    let dist = b.vlan10_switch("dist", 3);
+    b.cable(pa, acc[0]);
+    b.cable(acc[1], dist[0]);
+    b.cable(acc[2], dist[1]);
+    b.cable(dist[2], pb);
+    let t = trace(&b.g, &a.to_string(), "10.10.0.12", None);
+    assert!(
+        t.stopped.contains("more than one path from acc"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_vlan_stretched_across_a_three_tier_campus_is_followed() {
+    // access, distribution, core, distribution, access, and one more: six switches in a line.
+    let mut b = B::new();
+    let (a, pa) = b.host("pc-a", "10.10.0.11");
+    let (_, pb) = b.host("pc-b", "10.10.0.12");
+    let mut prev = pa;
+    for i in 0..6 {
+        let ps = b.vlan10_switch(&format!("sw-{i}"), 2);
+        b.cable(prev, ps[0]);
+        prev = ps[1];
+    }
+    b.cable(prev, pb);
+    let t = trace(&b.g, &a.to_string(), "10.10.0.12", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(kinds(&t).iter().filter(|k| **k == "switch").count(), 6);
+}
+
+// ---- round 1: SVIs and irb, and LAGs (r96, 2026-11-02) ------------------------
+
+impl B {
+    fn vlan(&mut self, dev: NodeId, id: u16) -> NodeId {
+        let v = self.node(NodeKind::Vlan);
+        self.set(v, "Vlan.vlan_id", scalar::VlanId(id));
+        self.edge(EdgeKind::HasVlan, dev, v);
+        v
+    }
+
+    /// An SVI (`Vlan20`) or irb unit: an interface with no port, the gateway of `vlan`.
+    fn svi(&mut self, dev: NodeId, vlan: NodeId, name: &str, addr: &str, len: u8) -> NodeId {
+        let i = self.node(NodeKind::Interface);
+        self.set(i, "Interface.name", scalar::InterfaceName(name.to_owned()));
+        self.edge(EdgeKind::HasInterface, dev, i);
+        let u = self.node(NodeKind::LogicalUnit);
+        self.set(u, "LogicalUnit.index", 0u32);
+        self.edge(EdgeKind::HasUnit, i, u);
+        let n = self.node(NodeKind::Address);
+        self.set(
+            n,
+            "Address.value",
+            scalar::InterfaceAddress {
+                addr: ip(addr),
+                prefix_len: len,
+            },
+        );
+        self.edge(EdgeKind::HasAddress, u, n);
+        self.edge(EdgeKind::L3Interface, vlan, u);
+        u
+    }
+
+    /// A LAG `name` on `dev` over `ports`: member interfaces on each port, and one unit on
+    /// the aggregate, in `vlan` or holding `addr`.
+    fn lag(
+        &mut self,
+        dev: NodeId,
+        name: &str,
+        ports: &[NodeId],
+        vlan: Option<NodeId>,
+        addr: Option<(&str, u8)>,
+    ) -> NodeId {
+        let agg = self.node(NodeKind::AggregateInterface);
+        self.set(
+            agg,
+            "AggregateInterface.name",
+            scalar::InterfaceName(name.to_owned()),
+        );
+        self.edge(EdgeKind::HasInterface, dev, agg);
+        for (k, p) in ports.iter().enumerate() {
+            let i = self.node(NodeKind::Interface);
+            self.set(
+                i,
+                "Interface.name",
+                scalar::InterfaceName(format!("{name}-m{k}")),
+            );
+            self.edge(EdgeKind::HasInterface, dev, i);
+            self.edge(EdgeKind::Occupies, i, *p);
+            self.edge(EdgeKind::MemberOfAggregate, i, agg);
+        }
+        let u = self.node(NodeKind::LogicalUnit);
+        self.set(u, "LogicalUnit.index", 0u32);
+        self.edge(EdgeKind::HasUnit, agg, u);
+        if let Some(v) = vlan {
+            self.edge(EdgeKind::VlanMember, u, v);
+        }
+        if let Some((a, l)) = addr {
+            let n = self.node(NodeKind::Address);
+            self.set(
+                n,
+                "Address.value",
+                scalar::InterfaceAddress {
+                    addr: ip(a),
+                    prefix_len: l,
+                },
+            );
+            self.edge(EdgeKind::HasAddress, u, n);
+        }
+        u
+    }
+
+    /// A switch with one VLAN, `access` access ports and a LAG `ae0` over `links` ports.
+    /// Returns (switch, vlan, access ports, LAG ports).
+    fn lag_switch(
+        &mut self,
+        name: &str,
+        access: usize,
+        links: usize,
+    ) -> (NodeId, NodeId, Vec<NodeId>, Vec<NodeId>) {
+        let d = self.device(name);
+        let c = self.chassis(d);
+        let v = self.vlan(d, 10);
+        let acc: Vec<NodeId> = (0..access)
+            .map(|i| {
+                let label = format!("Et{}", i + 1);
+                let p = self.port(c, &label);
+                self.unit(d, p, &label, None, Some(v));
+                p
+            })
+            .collect();
+        let lp: Vec<NodeId> = (0..links)
+            .map(|i| self.port(c, &format!("Et{}", 40 + i)))
+            .collect();
+        self.lag(d, "ae0", &lp, Some(v), None);
+        (d, v, acc, lp)
+    }
+}
+
+#[test]
+fn an_l3_switch_routes_between_vlans_through_its_svis() {
+    // pc-a (VLAN 10) to pc-b (VLAN 20) through core's Vlan10 and Vlan20 SVIs.
+    let mut b = B::new();
+    let core = b.device("core");
+    let cc = b.chassis(core);
+    let v10 = b.vlan(core, 10);
+    let v20 = b.vlan(core, 20);
+    let p1 = b.port(cc, "Et1");
+    let p2 = b.port(cc, "Et2");
+    b.unit(core, p1, "Et1", None, Some(v10));
+    b.unit(core, p2, "Et2", None, Some(v20));
+    b.svi(core, v10, "Vlan10", "10.10.0.1", 24);
+    b.svi(core, v20, "Vlan20", "10.20.0.1", 24);
+    let (a, pa) = b.host("pc-a", "10.10.0.11");
+    b.route(a, (ip("0.0.0.0"), 0), via("10.10.0.1"));
+    let (_, pb) = b.host("pc-b", "10.20.0.12");
+    b.cable(pa, p1);
+    b.cable(p2, pb);
+    let t = trace(&b.g, &a.to_string(), "10.20.0.12", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    let at_core = t
+        .hops
+        .iter()
+        .find(|h| h.kind == "device" && h.title == "core")
+        .expect("core routes");
+    assert!(
+        at_core.detail.contains(&"in on Vlan10.0".to_owned()),
+        "{:?}",
+        at_core.detail
+    );
+    assert!(
+        at_core.detail.contains(&"out on Vlan20.0".to_owned()),
+        "{:?}",
+        at_core.detail
+    );
+    let sw = t
+        .hops
+        .iter()
+        .find(|h| h.kind == "switch" && h.title == "core")
+        .expect("core switches into VLAN 20");
+    assert_eq!(sw.detail[0], "VLAN 20: from Vlan20.0, out on Et2");
+    assert_eq!(t.hops.last().unwrap().title, "pc-b");
+}
+
+#[test]
+fn an_svi_with_no_port_in_its_vlan_says_so() {
+    let mut b = B::new();
+    let core = b.device("core");
+    let v20 = b.vlan(core, 20);
+    b.svi(core, v20, "irb.20", "10.20.0.1", 24);
+    let t = trace(&b.g, &core.to_string(), "10.20.0.12", None);
+    assert!(
+        t.stopped
+            .contains("irb.20.0 is the gateway of VLAN 20, and no port of core"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_lag_between_two_switches_is_one_path_not_two() {
+    let mut b = B::new();
+    let (a, pa) = b.host("pc-a", "10.10.0.11");
+    let (_, pb) = b.host("pc-b", "10.10.0.12");
+    let (_, _, acc_a, lag_a) = b.lag_switch("acc", 1, 2);
+    let (_, _, acc_b, lag_b) = b.lag_switch("dist", 1, 2);
+    b.cable(pa, acc_a[0]);
+    b.cable(lag_a[0], lag_b[0]);
+    b.cable(lag_a[1], lag_b[1]);
+    b.cable(acc_b[0], pb);
+    let t = trace(&b.g, &a.to_string(), "10.10.0.12", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    let sw = t
+        .hops
+        .iter()
+        .find(|h| h.kind == "switch" && h.title == "acc")
+        .expect("acc");
+    assert!(
+        sw.detail
+            .iter()
+            .any(|l| l.starts_with("ae0 bundles 2 links to dist")),
+        "{:?}",
+        sw.detail
+    );
+    assert_eq!(kinds(&t).iter().filter(|k| **k == "switch").count(), 2);
+}
+
+#[test]
+fn lag_links_to_two_different_switches_are_still_two_paths() {
+    // MLAG: acc's ae0 goes to dist-1 and dist-2, both of which reach pc-b. Not ranked yet.
+    let mut b = B::new();
+    let (a, pa) = b.host("pc-a", "10.10.0.11");
+    let (_, pb) = b.host("pc-b", "10.10.0.12");
+    let (_, _, acc, lag) = b.lag_switch("acc", 1, 2);
+    let d1 = b.vlan10_switch("dist-1", 2);
+    let d2 = b.vlan10_switch("dist-2", 2);
+    let core = b.vlan10_switch("core", 3);
+    b.cable(pa, acc[0]);
+    b.cable(lag[0], d1[0]);
+    b.cable(lag[1], d2[0]);
+    b.cable(d1[1], core[0]);
+    b.cable(d2[1], core[1]);
+    b.cable(core[2], pb);
+    let t = trace(&b.g, &a.to_string(), "10.10.0.12", None);
+    assert!(
+        t.stopped.contains("more than one path from acc in VLAN 10"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_routed_lag_leaves_by_its_links() {
+    // r1's ae0.0 holds 10.1.1.1/24 over two links to acc's ae0; the host is on acc.
+    let mut b = B::new();
+    let r = b.device("r1");
+    let rc = b.chassis(r);
+    let rl: Vec<NodeId> = (0..2).map(|i| b.port(rc, &format!("xe-0/0/{i}"))).collect();
+    b.lag(r, "ae0", &rl, None, Some(("10.1.1.1", 24)));
+    let (_, _, acc, lag) = b.lag_switch("acc", 1, 2);
+    b.cable(rl[0], lag[0]);
+    b.cable(rl[1], lag[1]);
+    let (_, hp) = b.host("h", "10.1.1.5");
+    b.cable(acc[0], hp);
+    let t = trace(&b.g, &r.to_string(), "10.1.1.5", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert!(
+        t.hops[1].detail.contains(&"out on ae0.0".to_owned()),
+        "{:?}",
+        t.hops[1].detail
+    );
+    assert!(
+        t.hops.iter().any(|h| h
+            .detail
+            .iter()
+            .any(|l| l.starts_with("ae0 bundles 2 links to acc"))),
+        "{:?}",
+        t.hops
+    );
+}
+
+#[test]
+fn a_reply_comes_back_into_a_routed_lag() {
+    // The host answers r1: its default route reaches ae0.0 over acc's LAG.
+    let mut b = B::new();
+    let r = b.device("r1");
+    let rc = b.chassis(r);
+    let rl: Vec<NodeId> = (0..2).map(|i| b.port(rc, &format!("xe-0/0/{i}"))).collect();
+    b.lag(r, "ae0", &rl, None, Some(("10.1.1.1", 24)));
+    let lo = b.port(rc, "lo");
+    b.unit(r, lo, "lo0", Some((ip("192.0.2.1"), 32)), None);
+    let (_, _, acc, lag) = b.lag_switch("acc", 1, 2);
+    b.cable(rl[0], lag[0]);
+    b.cable(rl[1], lag[1]);
+    let (h, hp) = b.host("h", "10.1.1.5");
+    b.route(h, (ip("0.0.0.0"), 0), via("10.1.1.1"));
+    b.cable(acc[0], hp);
+    let t = trace(&b.g, &h.to_string(), "192.0.2.1", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    let end = t.hops.last().unwrap();
+    assert_eq!(end.title, "r1");
+}
+
+impl B {
+    /// A 1:`n` splitter: its common port and its branch ports.
+    fn splitter(&mut self, name: &str, n: usize) -> (NodeId, Vec<NodeId>) {
+        let s = self.node(NodeKind::PassiveNode);
+        self.set(s, "PassiveNode.label", scalar::Text(name.to_owned()));
+        let common = self.node(NodeKind::PhysicalPort);
+        self.set(common, "PhysicalPort.label", scalar::Text("COM".to_owned()));
+        self.edge(EdgeKind::HasPort, s, common);
+        let outs = (0..n)
+            .map(|i| {
+                let o = self.node(NodeKind::PhysicalPort);
+                self.set(o, "PhysicalPort.label", scalar::Text(format!("{}", i + 1)));
+                self.edge(EdgeKind::HasPort, s, o);
+                self.edge(EdgeKind::PassThrough, common, o);
+                o
+            })
+            .collect();
+        (common, outs)
+    }
+}
+
+#[test]
+fn a_pon_splitter_is_followed_down_to_the_ont_the_flow_is_for() {
+    let mut b = B::new();
+    let olt = b.device("e7");
+    let oc = b.chassis(olt);
+    let pon = b.port(oc, "PON 1/1");
+    b.unit(olt, pon, "pon1", Some((ip("100.64.0.1"), 24)), None);
+    let (common, outs) = b.splitter("spl", 4);
+    b.cable(pon, common);
+    let mut onts = Vec::new();
+    for (i, o) in outs.iter().enumerate() {
+        let (ont, op) = b.host(&format!("ont-{i}"), &format!("100.64.0.{}", 10 + i));
+        b.cable(*o, op);
+        onts.push(ont);
+    }
+    let t = trace(&b.g, &olt.to_string(), "100.64.0.12", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    let spl = t
+        .hops
+        .iter()
+        .find(|h| h.title == "splitter")
+        .expect("a splitter hop");
+    assert!(
+        spl.detail[0] == "spl COM splits to 4 ports; the flow is for the branch on 3",
+        "{:?}",
+        spl.detail
+    );
+    assert_eq!(t.hops.last().unwrap().title, "ont-2");
+    // And back up: one way through the splitter.
+    let up = trace(&b.g, &onts[2].to_string(), "100.64.0.1", None);
+    assert!(up.stopped.is_empty(), "{}", up.stopped);
+}
+
+#[test]
+fn a_splitter_whose_branches_hold_no_such_address_says_so() {
+    let mut b = B::new();
+    let olt = b.device("e7");
+    let oc = b.chassis(olt);
+    let pon = b.port(oc, "PON 1/1");
+    b.unit(olt, pon, "pon1", Some((ip("100.64.0.1"), 24)), None);
+    let (common, outs) = b.splitter("spl", 2);
+    b.cable(pon, common);
+    for (i, o) in outs.iter().enumerate() {
+        let (_, op) = b.host(&format!("ont-{i}"), &format!("100.64.0.{}", 10 + i));
+        b.cable(*o, op);
+    }
+    let t = trace(&b.g, &olt.to_string(), "100.64.0.99", None);
+    assert!(
+        t.stopped
+            .contains("splits to 2 ports and no device on them holds 100.64.0.99"),
+        "{}",
+        t.stopped
+    );
+}
+
+// ---- round 2: VRFs (r96) ------------------------------------------------------
+
+impl B {
+    fn vrf(&mut self, dev: NodeId, name: &str) -> NodeId {
+        let r = self.node(NodeKind::RoutingInstance);
+        self.set(
+            r,
+            "RoutingInstance.name",
+            scalar::Identifier(name.to_owned()),
+        );
+        self.edge(EdgeKind::HasRoutingInstance, dev, r);
+        r
+    }
+
+    fn vrf_route(&mut self, ri: NodeId, dest: (IpAddr, u8), hop: NextHop) -> NodeId {
+        let r = self.node(NodeKind::StaticRoute);
+        self.set(
+            r,
+            "StaticRoute.destination",
+            scalar::IpPrefix {
+                addr: dest.0,
+                len: dest.1,
+            },
+        );
+        self.set(r, "StaticRoute.next_hop", vec![hop]);
+        self.edge(EdgeKind::HasStaticRoute, ri, r);
+        r
+    }
+
+    /// A routed port on `dev` in `vrf`, cabled to a fresh host at `host_addr` whose
+    /// default route points back at `gw`.
+    #[allow(clippy::too_many_arguments)]
+    fn vrf_leg(
+        &mut self,
+        dev: NodeId,
+        chassis: NodeId,
+        vrf: Option<NodeId>,
+        port: &str,
+        gw: &str,
+        host: &str,
+        host_addr: &str,
+    ) -> (NodeId, NodeId) {
+        let p = self.port(chassis, port);
+        let u = self.unit(dev, p, port, Some((ip(gw), 24)), None);
+        if let Some(v) = vrf {
+            self.edge(EdgeKind::InRoutingInstance, u, v);
+        }
+        let (h, hp) = self.host(host, host_addr);
+        self.cable(p, hp);
+        self.route(h, (ip("0.0.0.0"), 0), via(gw));
+        (u, h)
+    }
+}
+
+/// pe-1 has two VRFs using the same space: RED and BLUE each hold 10.0.0.0/24 and one
+/// client network of their own.
+struct Vrfs {
+    b: B,
+    red: NodeId,
+    blue: NodeId,
+    red_client: NodeId,
+    blue_client: NodeId,
+    pe: NodeId,
+}
+
+fn two_vrfs() -> Vrfs {
+    let mut b = B::new();
+    let pe = b.device("pe-1");
+    let c = b.chassis(pe);
+    let red = b.vrf(pe, "RED");
+    let blue = b.vrf(pe, "BLUE");
+    b.vrf_leg(
+        pe,
+        c,
+        Some(red),
+        "ge-0/0/1",
+        "10.0.0.1",
+        "red-srv",
+        "10.0.0.10",
+    );
+    b.vrf_leg(
+        pe,
+        c,
+        Some(blue),
+        "ge-0/0/2",
+        "10.0.0.1",
+        "blue-srv",
+        "10.0.0.10",
+    );
+    let (_, red_client) = b.vrf_leg(
+        pe,
+        c,
+        Some(red),
+        "ge-0/0/3",
+        "10.1.0.1",
+        "red-pc",
+        "10.1.0.10",
+    );
+    let (_, blue_client) = b.vrf_leg(
+        pe,
+        c,
+        Some(blue),
+        "ge-0/0/4",
+        "10.2.0.1",
+        "blue-pc",
+        "10.2.0.10",
+    );
+    Vrfs {
+        b,
+        red,
+        blue,
+        red_client,
+        blue_client,
+        pe,
+    }
+}
+
+#[test]
+fn a_table_picked_on_the_routing_lens_settles_where_a_device_start_does_not() {
+    let v = two_vrfs();
+    let pe = v.pe.to_string();
+    // From the device itself, with no table picked: which table is not established.
+    let t = trace(&v.b.g, &pe, "10.0.0.10", None);
+    assert!(
+        t.stopped
+            .contains("which table this flow uses could not be established"),
+        "{}",
+        t.stopped
+    );
+    // The same start, in each picked table, reaches that table's copy of the network.
+    let t = trace_in(&v.b.g, &pe, "10.0.0.10", None, Some("BLUE"));
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(t.hops.last().unwrap().title, "blue-srv");
+    let t = trace_in(&v.b.g, &pe, "10.0.0.10", None, Some("RED"));
+    assert_eq!(t.hops.last().unwrap().title, "red-srv");
+    // A table the start device does not have is said, not guessed.
+    let t = trace_in(&v.b.g, &pe, "10.0.0.10", None, Some("GREEN"));
+    assert!(
+        t.stopped.contains("pe-1 has no routing table named GREEN"),
+        "{}",
+        t.stopped
+    );
+    // A start with only a default table (red-pc) needs no pick, and the pick does not change it.
+    let t = trace_in(
+        &v.b.g,
+        &v.red_client.to_string(),
+        "10.0.0.10",
+        None,
+        Some("BLUE"),
+    );
+    assert_eq!(t.hops.last().unwrap().title, "red-srv");
+}
+
+#[test]
+fn each_vrf_reaches_its_own_copy_of_an_overlapping_network() {
+    let v = two_vrfs();
+    let t = trace(&v.b.g, &v.red_client.to_string(), "10.0.0.10", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(t.hops.last().unwrap().title, "red-srv");
+    let pe = t.hops.iter().find(|h| h.title == "pe-1").unwrap();
+    assert!(
+        pe.detail.contains(&"in VRF RED".to_owned()),
+        "{:?}",
+        pe.detail
+    );
+
+    let t = trace(&v.b.g, &v.blue_client.to_string(), "10.0.0.10", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(t.hops.last().unwrap().title, "blue-srv");
+}
+
+#[test]
+fn a_vrf_does_not_see_another_vrfs_networks() {
+    let v = two_vrfs();
+    // BLUE's client network is not in RED, and nothing leaks it.
+    let t = trace(&v.b.g, &v.red_client.to_string(), "10.2.0.10", None);
+    assert!(
+        t.stopped
+            .contains("no connected or static route on pe-1 in VRF RED covers 10.2.0.10"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_static_route_in_one_vrf_is_not_used_by_another() {
+    let mut v = two_vrfs();
+    v.b.vrf_route(v.blue, (ip("192.0.2.0"), 24), via("10.0.0.10"));
+    let t = trace(&v.b.g, &v.red_client.to_string(), "192.0.2.5", None);
+    assert!(t.stopped.contains("in VRF RED covers"), "{}", t.stopped);
+    let t = trace(&v.b.g, &v.blue_client.to_string(), "192.0.2.5", None);
+    // BLUE's route is followed to blue-srv, which holds no route of its own past its default.
+    let pe = t.hops.iter().find(|h| h.title == "pe-1").unwrap();
+    assert!(
+        pe.detail
+            .iter()
+            .any(|l| l.contains("static route 192.0.2.0/24 via 10.0.0.10")),
+        "{:?}",
+        pe.detail
+    );
+    assert!(t.hops.iter().any(|h| h.title == "blue-srv"), "{:?}", t.hops);
+}
+
+#[test]
+fn a_leak_the_config_states_crosses_into_the_other_vrf() {
+    let mut v = two_vrfs();
+    // RED reaches BLUE's client network through a next-table route, Junos style.
+    v.b.vrf_route(
+        v.red,
+        (ip("10.2.0.0"), 24),
+        NextHop::NextTable(scalar::Identifier("BLUE.inet.0".to_owned())),
+    );
+    let t = trace(&v.b.g, &v.red_client.to_string(), "10.2.0.10", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(t.hops.last().unwrap().title, "blue-pc");
+    let pe = t.hops.iter().find(|h| h.title == "pe-1").unwrap();
+    assert!(
+        pe.detail
+            .iter()
+            .any(|l| l.contains("hands it to BLUE, then connected: 10.2.0.10 is on 10.2.0.0/24")),
+        "{:?}",
+        pe.detail
+    );
+}
+
+#[test]
+fn a_leak_to_a_table_not_in_the_design_says_so() {
+    let mut v = two_vrfs();
+    v.b.vrf_route(
+        v.red,
+        (ip("10.2.0.0"), 24),
+        NextHop::NextTable(scalar::Identifier("GREEN.inet.0".to_owned())),
+    );
+    let t = trace(&v.b.g, &v.red_client.to_string(), "10.2.0.10", None);
+    assert!(
+        t.stopped
+            .contains("hands the flow to table GREEN.inet.0, which is not in this design"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn two_vrfs_that_hand_a_flow_back_and_forth_end_in_could_not_establish() {
+    let mut v = two_vrfs();
+    let to = |n: &str| NextHop::NextTable(scalar::Identifier(format!("{n}.inet.0")));
+    v.b.vrf_route(v.red, (ip("198.51.100.0"), 24), to("BLUE"));
+    v.b.vrf_route(v.blue, (ip("198.51.100.0"), 24), to("RED"));
+    let t = trace(&v.b.g, &v.red_client.to_string(), "198.51.100.1", None);
+    assert!(t.stopped.contains("more than three times"), "{}", t.stopped);
+}
+
+#[test]
+fn starting_on_a_device_with_vrfs_asks_for_an_interface() {
+    let v = two_vrfs();
+    let pe =
+        v.b.g
+            .nodes_of_kind(NodeKind::Device)
+            .map(|n| n.id)
+            .find(|d| fathom_inventory::display_name(&v.b.g, *d) == "pe-1")
+            .unwrap();
+    let t = trace(&v.b.g, &pe.to_string(), "10.1.0.10", None);
+    assert!(
+        t.stopped.contains("start from one of its interfaces"),
+        "{}",
+        t.stopped
+    );
+    // From an address the router holds, the table is known.
+    let t = trace(&v.b.g, "10.1.0.1", "10.1.0.10", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+}
+
+// ---- round 2: route-based IPsec (r96) -----------------------------------------
+//
+// host-a 10.1.0.10 --- srx-a ===== VPN ===== srx-b --- host-b 10.2.0.10
+//                      wan 198.51.100.1/30   wan 203.0.113.1/30
+//                      st0.0                 st0.0
+//
+// srx-a: 10.2.0.0/16 out st0.0; srx-b: 10.1.0.0/16 out st0.0. The WANs are not cabled to
+// anything: the tunnel hop does not trace the path between the gateways.
+
+impl B {
+    /// `st0` with unit 0 on `dev`, optionally numbered.
+    fn st0(&mut self, dev: NodeId, addr: Option<(IpAddr, u8)>) -> NodeId {
+        let i = self.node(NodeKind::TunnelInterface);
+        self.set(
+            i,
+            "TunnelInterface.name",
+            scalar::InterfaceName("st0".to_owned()),
+        );
+        self.edge(EdgeKind::HasInterface, dev, i);
+        let u = self.node(NodeKind::LogicalUnit);
+        self.set(u, "LogicalUnit.index", 0u32);
+        self.edge(EdgeKind::HasUnit, i, u);
+        if let Some((a, l)) = addr {
+            let n = self.node(NodeKind::Address);
+            self.set(
+                n,
+                "Address.value",
+                scalar::InterfaceAddress {
+                    addr: a,
+                    prefix_len: l,
+                },
+            );
+            self.edge(EdgeKind::HasAddress, u, n);
+        }
+        u
+    }
+
+    /// An IKE gateway to `peer` (None: dynamic) leaving by `ext`, and a route-based VPN using it
+    /// bound to `st0`.
+    fn vpn(
+        &mut self,
+        dev: NodeId,
+        name: &str,
+        peer: Option<&str>,
+        ext: NodeId,
+        st0: Option<NodeId>,
+    ) -> (NodeId, NodeId) {
+        let gw = self.node(NodeKind::IkeGateway);
+        self.set(
+            gw,
+            "IkeGateway.name",
+            scalar::Identifier(format!("GW-{name}")),
+        );
+        let spec = match peer {
+            Some(p) => fathom_ir::value::PeerSpec::Address(scalar::IpAddr(ip(p))),
+            None => fathom_ir::value::PeerSpec::Dynamic(fathom_ir::value::IkeId),
+        };
+        self.set(gw, "IkeGateway.peer", spec);
+        self.edge(EdgeKind::HasIkeGateway, dev, gw);
+        self.edge(EdgeKind::ExternalInterface, gw, ext);
+        let v = self.node(NodeKind::IpsecVpn);
+        self.set(v, "IpsecVpn.name", scalar::Identifier(name.to_owned()));
+        self.set(
+            v,
+            "IpsecVpn.mode",
+            fathom_ir::generated::ir_types::VpnMode::RouteBased,
+        );
+        self.edge(EdgeKind::HasIpsecVpn, dev, v);
+        self.edge(EdgeKind::UsesIkeGateway, v, gw);
+        if let Some(u) = st0 {
+            self.edge(EdgeKind::BindsInterface, v, u);
+        }
+        (v, gw)
+    }
+}
+
+fn out_of(u: NodeId) -> NextHop {
+    NextHop::Interface(fathom_id::NodeId(u.ulid))
+}
+
+struct Ipsec {
+    b: B,
+    srx_a: NodeId,
+    srx_b: NodeId,
+    st0_a: NodeId,
+    st0_b: NodeId,
+    wan_a: NodeId,
+    wan_b: NodeId,
+    vpn_a: NodeId,
+    vpn_b: NodeId,
+    gw_b: NodeId,
+}
+
+/// The two sites, routes in place, but no VPN objects yet.
+fn two_sites() -> Ipsec {
+    let mut b = B::new();
+    let site = |b: &mut B, name: &str, lan: &str, wan: &str, host: &str, host_addr: &str| {
+        let d = b.device(name);
+        let c = b.chassis(d);
+        let lp = b.port(c, "ge-0/0/1");
+        b.unit(d, lp, "ge-0/0/1", Some((ip(lan), 24)), None);
+        let wp = b.port(c, "ge-0/0/0");
+        let w = b.unit(d, wp, "ge-0/0/0", Some((ip(wan), 30)), None);
+        let (h, hp) = b.host(host, host_addr);
+        b.cable(lp, hp);
+        b.route(h, (ip("0.0.0.0"), 0), via(lan));
+        let st = b.st0(d, None);
+        (d, w, st)
+    };
+    let (srx_a, wan_a, st0_a) = site(
+        &mut b,
+        "srx-a",
+        "10.1.0.1",
+        "198.51.100.1",
+        "host-a",
+        "10.1.0.10",
+    );
+    let (srx_b, wan_b, st0_b) = site(
+        &mut b,
+        "srx-b",
+        "10.2.0.1",
+        "203.0.113.1",
+        "host-b",
+        "10.2.0.10",
+    );
+    b.route(srx_a, (ip("10.2.0.0"), 16), out_of(st0_a));
+    b.route(srx_b, (ip("10.1.0.0"), 16), out_of(st0_b));
+    let placeholder = srx_a;
+    Ipsec {
+        b,
+        srx_a,
+        srx_b,
+        st0_a,
+        st0_b,
+        wan_a,
+        wan_b,
+        vpn_a: placeholder,
+        vpn_b: placeholder,
+        gw_b: placeholder,
+    }
+}
+
+/// Both sites with a VPN each, their gateways naming each other's WAN address.
+fn site_to_site() -> Ipsec {
+    let mut s = two_sites();
+    let (vpn_a, _) =
+        s.b.vpn(s.srx_a, "TO-B", Some("203.0.113.1"), s.wan_a, Some(s.st0_a));
+    let (vpn_b, gw_b) = s.b.vpn(
+        s.srx_b,
+        "TO-A",
+        Some("198.51.100.1"),
+        s.wan_b,
+        Some(s.st0_b),
+    );
+    s.vpn_a = vpn_a;
+    s.vpn_b = vpn_b;
+    s.gw_b = gw_b;
+    s
+}
+
+#[test]
+fn a_route_out_of_st0_crosses_to_the_far_end_of_its_vpn() {
+    let s = site_to_site();
+    let t = trace(&s.b.g, "10.1.0.10", "10.2.0.10", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(t.hops.last().unwrap().title, "host-b");
+    let tun = t
+        .hops
+        .iter()
+        .find(|h| h.kind == "tunnel")
+        .expect("a tunnel hop");
+    assert_eq!(tun.title, "IPsec TO-B");
+    assert!(
+        tun.detail
+            .iter()
+            .any(|d| d.contains("srx-b") && d.contains("TO-A")),
+        "{:?}",
+        tun.detail
+    );
+    assert!(
+        tun.detail
+            .iter()
+            .any(|d| d
+                .contains("names 203.0.113.1, which srx-b holds; srx-b names 198.51.100.1 back")),
+        "{:?}",
+        tun.detail
+    );
+    assert!(tun
+        .detail
+        .contains(&"whether the tunnel is up is not read".to_owned()));
+    // srx-b is entered on its st0.0, then routes to its LAN.
+    let b = t.hops.iter().find(|h| h.title == "srx-b").unwrap();
+    assert!(b.detail[0].starts_with("in on st0"), "{:?}", b.detail);
+
+    // And back the other way.
+    let t = trace(&s.b.g, "10.2.0.10", "10.1.0.10", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(t.hops.last().unwrap().title, "host-a");
+}
+
+#[test]
+fn a_numbered_st0_is_reached_by_its_next_hop_address() {
+    let mut s = two_sites();
+    // Re-point srx-a at a numbered st0: 10.255.0.1/30 to 10.255.0.2/30 on srx-b.
+    let st_a = s.b.st0(s.srx_a, Some((ip("10.255.0.1"), 30)));
+    let st_b = s.b.st0(s.srx_b, Some((ip("10.255.0.2"), 30)));
+    s.b.vpn(s.srx_a, "TO-B", Some("203.0.113.1"), s.wan_a, Some(st_a));
+    s.b.vpn(s.srx_b, "TO-A", Some("198.51.100.1"), s.wan_b, Some(st_b));
+    s.b.route(s.srx_a, (ip("10.2.0.0"), 24), via("10.255.0.2"));
+    let t = trace(&s.b.g, "10.1.0.10", "10.2.0.10", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(t.hops.last().unwrap().title, "host-b");
+    // The far st0's own address is reachable too.
+    let t = trace(&s.b.g, "10.1.0.10", "10.255.0.2", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(t.hops.last().unwrap().title, "srx-b");
+}
+
+#[test]
+fn st0_with_no_vpn_bound_says_so() {
+    let s = two_sites();
+    let t = trace(&s.b.g, "10.1.0.10", "10.2.0.10", None);
+    assert!(
+        t.stopped
+            .contains("is a tunnel interface that no IPsec VPN in the design is bound to"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_peer_no_device_holds_ends_in_could_not_establish() {
+    let mut s = two_sites();
+    // The far site is behind NAT: srx-a names its public address, which nothing holds.
+    s.b.vpn(s.srx_a, "TO-B", Some("192.0.2.77"), s.wan_a, Some(s.st0_a));
+    let t = trace(&s.b.g, "10.1.0.10", "10.2.0.10", None);
+    assert!(
+        t.stopped
+            .contains("names peer 192.0.2.77, which no device in this design holds"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_peer_named_as_an_external_peer_says_where_it_leads() {
+    let mut s = two_sites();
+    let (_, gw) = s.b.vpn(
+        s.srx_a,
+        "TO-AWS",
+        Some("192.0.2.77"),
+        s.wan_a,
+        Some(s.st0_a),
+    );
+    let p = s.b.node(NodeKind::ExternalPeer);
+    s.b.set(
+        p,
+        "ExternalPeer.label",
+        scalar::Text("AWS eu-west-1 VGW".to_owned()),
+    );
+    s.b.edge(EdgeKind::PeerIs, gw, p);
+    let t = trace(&s.b.g, "10.1.0.10", "10.2.0.10", None);
+    assert!(
+        t.stopped
+            .contains("TO-AWS on srx-a leads to 192.0.2.77: AWS eu-west-1 VGW, which this design names but does not hold"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_far_end_with_no_gateway_back_is_not_guessed() {
+    let mut s = two_sites();
+    s.b.vpn(s.srx_a, "TO-B", Some("203.0.113.1"), s.wan_a, Some(s.st0_a));
+    // srx-b's gateway names some other address, not srx-a's.
+    s.b.vpn(s.srx_b, "TO-C", Some("192.0.2.9"), s.wan_b, Some(s.st0_b));
+    let t = trace(&s.b.g, "10.1.0.10", "10.2.0.10", None);
+    assert!(
+        t.stopped
+            .contains("no IPsec VPN on srx-b has a gateway back to srx-a"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_hub_with_a_dynamic_peer_is_the_far_end_of_its_spoke() {
+    let mut s = two_sites();
+    s.b.vpn(
+        s.srx_a,
+        "TO-HUB",
+        Some("203.0.113.1"),
+        s.wan_a,
+        Some(s.st0_a),
+    );
+    s.b.vpn(s.srx_b, "SPOKES", None, s.wan_b, Some(s.st0_b));
+    let t = trace(&s.b.g, "10.1.0.10", "10.2.0.10", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    let tun = t.hops.iter().find(|h| h.kind == "tunnel").unwrap();
+    assert!(
+        tun.detail
+            .iter()
+            .any(|d| d.contains("srx-b takes a dynamic peer")),
+        "{:?}",
+        tun.detail
+    );
+    // From the hub, which spoke is at the far end is not stated.
+    let t = trace(&s.b.g, "10.2.0.10", "10.1.0.10", None);
+    assert!(
+        t.stopped
+            .contains("takes a dynamic peer, so which device is at the far end"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_tunnel_drawn_in_the_design_states_both_ends() {
+    let mut s = two_sites();
+    // srx-b's gateway names nothing srx-a holds, yet a drawn tunnel joins the two VPNs.
+    let (va, _) =
+        s.b.vpn(s.srx_a, "TO-B", Some("203.0.113.1"), s.wan_a, Some(s.st0_a));
+    let (vb, _) =
+        s.b.vpn(s.srx_b, "TO-A", Some("192.0.2.9"), s.wan_b, Some(s.st0_b));
+    let tun = s.b.node(NodeKind::Tunnel);
+    s.b.set(tun, "Tunnel.name", scalar::Text("HQ to branch".to_owned()));
+    s.b.edge(EdgeKind::TunnelEndpoint, tun, va);
+    s.b.edge(EdgeKind::TunnelEndpoint, tun, vb);
+    let t = trace(&s.b.g, "10.1.0.10", "10.2.0.10", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    let hop = t.hops.iter().find(|h| h.kind == "tunnel").unwrap();
+    assert!(
+        hop.detail
+            .iter()
+            .any(|d| d.starts_with("the design draws this tunnel")),
+        "{:?}",
+        hop.detail
+    );
+}
+
+#[test]
+fn a_far_vpn_that_is_policy_based_is_not_followed() {
+    let mut s = two_sites();
+    s.b.vpn(s.srx_a, "TO-B", Some("203.0.113.1"), s.wan_a, Some(s.st0_a));
+    s.b.vpn(s.srx_b, "TO-A", Some("198.51.100.1"), s.wan_b, None);
+    let t = trace(&s.b.g, "10.1.0.10", "10.2.0.10", None);
+    assert!(
+        t.stopped
+            .contains("is bound to no tunnel interface (a policy-based VPN)"),
+        "{}",
+        t.stopped
+    );
+}
+
+// ---- round 2: VPNs entered by hand (r96) --------------------------------------
+//
+// laptop 10.0.0.5/24 (default via 10.0.0.1), 100.64.0.2 on the tailnet
+// pi     192.168.1.5/24 cabled to nas 192.168.1.20, 100.64.0.1 on the tailnet,
+//        offering 192.168.1.0/24
+
+impl B {
+    fn overlay(&mut self, name: &str, provider: &str, range: Option<(&str, u8)>) -> NodeId {
+        use fathom_ir::generated::ir_types::OverlayNetworkProvider as P;
+        let o = self.node(NodeKind::OverlayNetwork);
+        self.set(o, "OverlayNetwork.name", scalar::Text(name.to_owned()));
+        let p = match provider {
+            "tailscale" => P::Tailscale,
+            "wireguard" => P::Wireguard,
+            _ => P::Other,
+        };
+        self.set(o, "OverlayNetwork.provider", p);
+        if let Some((a, l)) = range {
+            self.set(
+                o,
+                "OverlayNetwork.range",
+                scalar::IpPrefix {
+                    addr: ip(a),
+                    len: l,
+                },
+            );
+        }
+        o
+    }
+
+    fn member(&mut self, vpn: NodeId, dev: NodeId, addr: Option<&str>, routes: &str) {
+        let e = self.edge(EdgeKind::OverlayMember, vpn, dev);
+        if let Some(a) = addr {
+            self.g
+                .set_field(
+                    ElementId::Edge(e),
+                    fk("OverlayMember.address"),
+                    scalar::IpAddr(ip(a)),
+                    prov(),
+                )
+                .unwrap();
+        }
+        if !routes.is_empty() {
+            self.g
+                .set_field(
+                    ElementId::Edge(e),
+                    fk("OverlayMember.routes"),
+                    scalar::Text(routes.to_owned()),
+                    prov(),
+                )
+                .unwrap();
+        }
+    }
+}
+
+struct Tailnet {
+    b: B,
+    vpn: NodeId,
+    laptop: NodeId,
+    pi: NodeId,
+}
+
+fn tailnet(provider: &str) -> Tailnet {
+    let mut b = B::new();
+    let (laptop, _) = b.host("laptop", "10.0.0.5");
+    b.route(laptop, (ip("0.0.0.0"), 0), via("10.0.0.1"));
+    let pi = b.device("pi");
+    let c = b.chassis(pi);
+    let p = b.port(c, "eth0");
+    b.unit(pi, p, "eth0", Some((ip("192.168.1.5"), 24)), None);
+    let (_, nas_port) = b.host("nas", "192.168.1.20");
+    b.cable(p, nas_port);
+    let vpn = b.overlay("home", provider, Some(("100.64.0.0", 10)));
+    b.member(vpn, laptop, Some("100.64.0.2"), "");
+    b.member(vpn, pi, Some("100.64.0.1"), "192.168.1.0/24");
+    Tailnet { b, vpn, laptop, pi }
+}
+
+#[test]
+fn a_subnet_a_vpn_member_offers_is_reached_through_the_vpn() {
+    let t0 = tailnet("tailscale");
+    let t = trace(&t0.b.g, &t0.laptop.to_string(), "192.168.1.20", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    let kinds: Vec<&str> = t.hops.iter().map(|h| h.kind).collect();
+    assert_eq!(
+        kinds,
+        ["start", "device", "tunnel", "device", "cable", "end"],
+        "{t:#?}"
+    );
+    let vpn = &t.hops[2];
+    assert_eq!(vpn.title, "Tailscale home");
+    assert!(
+        vpn.detail[0].contains("from laptop (100.64.0.2) to pi (100.64.0.1)"),
+        "{:?}",
+        vpn.detail
+    );
+    assert!(
+        vpn.detail.iter().any(|d| d.contains("--accept-routes")),
+        "{:?}",
+        vpn.detail
+    );
+    assert!(t.hops[1]
+        .detail
+        .contains(&"pi offers 192.168.1.0/24 on home".to_owned()));
+    assert_eq!(t.hops.last().unwrap().title, "nas");
+}
+
+#[test]
+fn a_members_vpn_address_ends_at_that_member() {
+    let t0 = tailnet("tailscale");
+    let t = trace(&t0.b.g, &t0.laptop.to_string(), "100.64.0.1", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(t.hops.last().unwrap().title, "pi");
+    // A member's own address is not a subnet route: no accept-routes note.
+    let vpn = t.hops.iter().find(|h| h.kind == "tunnel").unwrap();
+    assert!(!vpn.detail.iter().any(|d| d.contains("--accept-routes")));
+}
+
+#[test]
+fn a_wireguard_tunnel_carries_no_tailscale_note() {
+    let t0 = tailnet("wireguard");
+    let t = trace(&t0.b.g, &t0.laptop.to_string(), "192.168.1.20", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    let vpn = t.hops.iter().find(|h| h.kind == "tunnel").unwrap();
+    assert_eq!(vpn.title, "WireGuard home");
+    assert!(!vpn.detail.iter().any(|d| d.contains("--accept-routes")));
+}
+
+#[test]
+fn an_address_in_the_vpn_range_no_member_holds_says_so() {
+    let t0 = tailnet("tailscale");
+    let t = trace(&t0.b.g, &t0.laptop.to_string(), "100.64.0.99", None);
+    assert!(
+        t.stopped
+            .contains("100.64.0.99 is in the range of home (100.64.0.0/10), which laptop is a member of, but no member in the design holds it"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_route_of_the_devices_own_beside_the_vpn_is_not_guessed() {
+    let mut t0 = tailnet("tailscale");
+    // The laptop also has a static route of its own for the pi's LAN.
+    t0.b.route(t0.laptop, (ip("192.168.0.0"), 16), via("10.0.0.1"));
+    let t = trace(&t0.b.g, &t0.laptop.to_string(), "192.168.1.20", None);
+    assert!(
+        t.stopped.contains(
+            "laptop has a route of its own for 192.168.1.20 (a /16), and home offers it too"
+        ),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn two_members_offering_one_subnet_is_not_guessed() {
+    let mut t0 = tailnet("tailscale");
+    let pi2 = t0.b.device("pi-2");
+    let vpn = t0.vpn;
+    t0.b.member(vpn, pi2, Some("100.64.0.3"), "192.168.1.0/24");
+    let t = trace(&t0.b.g, &t0.laptop.to_string(), "192.168.1.20", None);
+    assert!(
+        t.stopped
+            .contains("more than one VPN member offers 192.168.1.20 to laptop"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_device_outside_the_vpn_routes_as_before() {
+    let t0 = tailnet("tailscale");
+    // The pi is a member, but the laptop's 10.0.0.0/24 is no member's: the pi has no route there.
+    let t = trace(&t0.b.g, &t0.pi.to_string(), "10.0.0.5", None);
+    assert!(
+        t.stopped.contains("no connected or static route on pi"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_trace_can_start_from_a_vpn_address() {
+    let t0 = tailnet("tailscale");
+    let t = trace(&t0.b.g, "100.64.0.2", "192.168.1.20", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(t.hops[0].title, "laptop");
+    assert_eq!(t.hops[0].detail, ["from 100.64.0.2"]);
+    assert_eq!(t.hops.last().unwrap().title, "nas");
 }

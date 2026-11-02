@@ -182,6 +182,7 @@ refused, not missed.
 | `interface-type p2mp-over-lan` | A real Junos value with no counterpart in the schema's `enum { broadcast, point_to_point, non_broadcast, p2mp }`. It falls to the generated `Unknown` arm and is refused, so the field stays empty and the line is diagnosed. | A schema enum change, if the owner wants it. |
 | `interface-type broadcast` | Junos has no such token — broadcast is the default, expressed by the statement's *absence*, which a dictionary cannot see. | Nothing at this layer; it is a defaults question. |
 | `reference-bandwidth 10g` | Juniper documents the option in bits per second and `Bandwidth::parse` takes digits only, so a suffixed argument is diagnosed rather than mis-scaled. That is the safe direction of error. | A suffix grammar in `Bandwidth::parse`, if real captures turn out to carry one. |
+| `set interfaces st0 unit 0 family inet` with no address (an unnumbered st0) | No Juniper page could be read that writes it (2026-11-02): Juniper's route-based VPN example ("Route-Based VPN with IKEv2", Junos VPN IPsec guide, read 2026-11-02) numbers st0 (`family inet address 10.11.11.10/24`), and the 12.3 examples that may show the other form refuse automated readers. So the unit is not created, and a route `next-hop st0.0` to it does not bind: the path trace says the route names no next hop. | A Juniper page that writes the form, then a `family inet` entry that creates the unit. |
 
 ## 6. Sources consulted
 

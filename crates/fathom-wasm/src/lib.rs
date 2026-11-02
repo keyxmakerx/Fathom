@@ -382,10 +382,12 @@ pub const OP_SYNC: u32 = 34;
 /// Trace one flow through the design (ADR-0061 item 9).
 ///
 /// Request: UTF-8, three lines: the start (a device, port or interface unit's display id), the
-/// end (a display id or an address), and the flow (`<ip protocol number> <port>`, or empty). Reply:
+/// end (a display id or an address), and the flow (`<ip protocol number> <port>`, or empty); and
+/// optionally a fourth, the routing table picked on the Routing lens (`default` or a VRF's name,
+/// empty for none; see `fathom_inventory::trace_in`). Reply:
 /// face rows, `FACE_TR_HEAD` first, then each hop's `FACE_TR_HOP` followed by its
 /// `FACE_TR_POL` rows. A trace that stops short still replies; the head says why. No estate is
-/// `ERR_NOT_INITIALISED`; a request that is not three lines is `ERR_BAD_FRAME`.
+/// `ERR_NOT_INITIALISED`; a request that is not three or four lines is `ERR_BAD_FRAME`.
 pub const OP_TRACE: u32 = 36;
 
 /// The most bytes of request `OP_SYNC` reads (32 MiB), a generous ceiling, since an ordinary delta is

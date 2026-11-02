@@ -54,6 +54,15 @@ binds interfaces, VLAN names and the hostname, on the EdgeSwitch CLI's syntax: n
 config was found (`corpus/dict/README-unifi-sw.md`). Naming `unifi-sw` in the paste frame waits on the
 client.
 
+**Paste: Arista EOS (engine, 2026-11-02, sign-off r96 round 1).** An EOS `show running-config` is read by
+the same front end in its `EOS` dialect, picked by `EthernetN` ports beside a `Port-ChannelN` or
+`ManagementN` and no `version` line. It binds the hostname, VLANs and names, interfaces with description,
+`shutdown`/`no shutdown` and IPv4 address, Port-Channel links (`channel-group`), access, trunk and native
+VLAN membership (ranges up to 256 VLANs; `1-4094` is not read), SVIs tied to their VLAN, and static routes
+in the default table (`Null0` as discard). VRFs (r96 round 2): `vrf instance`, an interface's `vrf` and
+`ip route vrf NAME …` bind, the route into that VRF's table. Indentation nests blocks (`router bgp` holds `vlan 11`); a paste that lost it reads by `!`.
+Built against configs Arista's AVD generates (`corpus/dict/README-eos.md`).
+
 **The server.** `crates/fathom-server` starts, answers a health check through a real PostgreSQL, shuts
 down cleanly, and runs as the one plain-HTTP published port of a composed stack, behind the operator's
 own TLS-terminating proxy. It stores identity and structure (accounts, organisations, memberships, the
@@ -358,7 +367,11 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   can't tell" and the reason). It stops at the first thing the design does not state. `OP_TRACE` (36) runs
   in the page; right-click a device, "Trace a path from here", then an address or device and an optional
   "TCP 445". Never a verdict. A pasted interface reaches a port only through a port tie (see Port ties); an
-  untied one stops the trace at "not tied to a port". Not built: learned routes, NAT, port right-click, the
+  untied one stops the trace at "not tied to a port". Since the routing audit (2 November): a connected
+  route beats a static one of the same length; a static next hop leaves by the longest connected prefix on
+  an interface that is up; an address two devices hold is refused as a start or end; two paths through a
+  switch in one VLAN say "more than one path" instead of "none"; and VLANs are followed eight switches
+  deep. Round 1 (r96): an SVI or irb is a gateway that leaves through its device's ports in its VLAN, and a LAG's links to one device are one way (to two devices, as in MLAG, still "more than one path"). Downstream through a splitter, the branch whose device holds the next hop is followed (a PON splitter lights every branch; the ONT it is for takes it). Round 2 (r96), VRFs: a flow uses the table of the unit it arrived on, sees only that table's connected and static routes, and a next hop resolves only in it, so two VRFs may hold the same network. A static route whose next hop is another table (Junos `next-table`) hands the flow across and the hop says so; a table not in the design, or more than three hand-offs, ends in "could not establish". A start with no interface on a device with VRFs asks for one. Route-based IPsec (r96 round 2): a route out of a tunnel interface (st0) crosses, as a `tunnel` hop, to the far end of the IPsec VPN bound to it, found from a Tunnel drawn in the design or from the two IKE gateways (this one's peer address is held by the far device, whose gateway names an address held here, or takes a dynamic peer). The hop says whether the tunnel is up is not read; the path between the gateways is a trace of its own. A peer nobody holds (NAT in front), an ExternalPeer, a dynamic peer seen from the hub, two candidates, or a policy-based far end end in "could not establish". An unnumbered st0 is not read (`corpus/dict/junos-srx/README-routing.md` §5). VPNs entered by hand (r96 round 2): on a device that is a member of an `OverlayNetwork` (Tailscale, WireGuard and the rest, Inventory › VPNs), another member's VPN address, or a subnet a member offers, is reached through the VPN as a `tunnel` hop, longest offer first, when the device's own table holds nothing more specific than a default route; when it does, the trace says which one is used is not in the design. A Tailscale subnet hop quotes Tailscale's own rule that Linux needs `--accept-routes` (tailscale.com/kb/1019, read 2026-11-02). An address in a VPN's range that no member holds, or two members offering one subnet, ends in "could not establish"; a trace may start from a VPN address. Not read: exit nodes (the design does not say a member uses one). Not built: learned routes, NAT, port right-click, the
   Diagram look, the "Trace from here" offer from "It's down". `scripts/drive-trace.mjs` drives it.
 - **Sample home lab and the five first steps** (r15-start, round 10). Home's "Open the sample home lab" builds
   `corpus/samples/home-lab.json` (11 devices, 12 cables, VLANs 10 and 30) with the editor's own commands and saves
@@ -679,6 +692,32 @@ Tailscale's `tskey-` keys (detector `key-prefix`, source Tailscale "Key prefixes
 dashed spoke to each, a two-member VPN as one dashed arc with its name, and each member's VPN address under its
 box; a badge opens a card with range, members, exit node and routes. Not yet: pasting `tailscale status` or
 `netbird status`, and the Rack look. `scripts/drive-vpns.mjs` drives it.
+
+**Routing lens on the canvas** (sign-off r101, option A; no schema change). With the Routing lens lit, the
+Diagram look writes on the same boxes: a device that routes says `ROUTES · n TABLES`, a VLAN gateway says
+`GW VLAN 11 · 10.10.11.1`, a host names its default gateway or says `NO GATEWAY` in caution, and a switch
+with VLANs and no address says `SWITCHES ONLY`. A cable whose ends share a network carries the prefix in
+ink; one in a VLAN is dashed with its VLANs. A key sits bottom left. The Rack look dashes switched cables
+only. Read off the design, not a trace (`components/drawing/routingLens.ts`); `scripts/drive-routing-lens.mjs`
+drives it. While the lens is lit the device panel opens on a Routing tab (`RoutingTab.tsx`, `routingTable` in
+`document/routes.ts`): a table per routing table, default first, then each VRF; connected networks named by port
+or VLAN, then static routes, each saying whether it came from a paste or by hand; Add route with the device
+filled in; and a note that OSPF and BGP routes are not read yet. A path trace now shows on the Diagram look
+too (`diagramTrace.ts`): what the walk touches stays, the rest fades, each hop is numbered on its box or line,
+and a walk that stopped short dashes its last box in caution with a "Stopped here" box beside it giving the
+engine's reason. When a device keeps a VRF, a Table picker sits above the key: one table lit, the rest at
+the phantom fade (`tableLit` in `routingLens.ts`; a host behind a switch on a VRF's port lights with it), and a
+trace started on a device with VRFs walks in the picked table (`trace_in`, the fourth line of `OP_TRACE`); a
+start on an interface keeps its own table. A trace to an address this design does not hold asks the estate
+index (ADR-0079) which other designs this person may read hold it, and the panel says "10.8.0.5 is on nas-01
+in Branch · Open it there" (`trace/traceElsewhere.ts`). It does not carry the walk across: past this site's
+edge is that design's own trace.
+
+**Routes by hand** (sign-off r96, round 1; no schema change). Inventory › Networks, under Routes, lists every
+static route on every device, pasted or typed, and adds one: a device, To (`default` for 0.0.0.0/0, or a
+prefix) and Via (an IPv4 next hop, or `discard`). A device with no routing instance gets `default`; one with
+several asks which. A pasted route is listed as "from a paste" and is not removed here. `document/routes.ts`;
+`src/engine/routes.trace.test.ts` traces a drawn host past its router once it has a gateway.
 
 **Live co-editing** (#98, ADR-0063 live). Changes are signed requests the server applies to its own
 head through the engine, refusing what the engine or the credential check refuses, then numbers, chains,

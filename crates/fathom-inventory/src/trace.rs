@@ -10,8 +10,16 @@
 //! the trace stops at the first such hop rather than guess past it.
 //!
 //! Read: cables and patch-panel pass-through, VLAN membership on switch ports,
-//! connected and static routes (longest prefix, then preference), zone pairs
-//! and their policies. Not read, and said so: learned routes, NAT, and any
+//! SVIs and irb (a gateway leaves through its device's ports in its VLAN), LAGs
+//! (the links of one bundle to one device are one way; which link a flow hashes
+//! onto is not read), connected and static routes (longest prefix, then
+//! connected over static, then preference), VRFs (each table looked up on its own; a flow is in
+//! the table its entry unit is in, and crosses to another only by a `next-table` route or a
+//! next hop that names another table's interface, both of which the config states), route-based
+//! IPsec (a route out of a tunnel interface such as st0 crosses to the far end of the VPN bound to
+//! it, found from a tunnel drawn in the design or from the two IKE gateways naming each other's
+//! addresses), mesh and client VPNs entered as an `OverlayNetwork` (a member's VPN address and the
+//! subnets it offers, against the device's own routes), zone pairs and their policies. Not read, and said so: learned routes, NAT, and any
 //! policy qualifier the dictionaries do not bind (a trace lists policies as
 //! stored).
 
@@ -19,20 +27,24 @@ use std::net::IpAddr;
 
 use fathom_graph::{ElementId, Graph, NodeId, Origin};
 use fathom_ir::generated::accessors::{
-    address, address_object, address_set, application, card, logical_unit, physical_port,
-    policy_set, security_policy, static_route, vlan,
+    address, address_object, address_set, application, card, external_peer, ike_gateway,
+    logical_unit, overlay_network, physical_port, policy_set, routing_instance, security_policy,
+    static_route, vlan,
 };
-use fathom_ir::generated::ir_types::{EdgeKind, NodeKind, PolicyAction};
-use fathom_ir::scalar::{IpPrefix, IpRange};
-use fathom_ir::value::{AddressValue, L4Spec, NextHop, PolicyScope};
+use fathom_ir::generated::ir_types::{
+    EdgeKind, NodeKind, OverlayNetworkProvider, PolicyAction, FIELD_KEYS,
+};
+use fathom_ir::scalar::{IpPrefix, IpRange, Scalar};
+use fathom_ir::value::{AddressValue, L4Spec, NextHop, PeerSpec, PolicyScope};
 
 use crate::element::{display_name, parse_display_id};
 
 /// The most hops one trace walks. A loop in the design ends here, said.
 const MAX_STEPS: usize = 24;
 
-/// How far one switch search wanders through further switches.
-const L2_DEPTH: usize = 4;
+/// How far one switch search wanders through further switches. A three-tier campus with a
+/// stretched VLAN (access, distribution, core, distribution, access) is five; MLAG pairs add more.
+const L2_DEPTH: usize = 8;
 /// Ports the switch search may visit in one trace, so a meshed fabric ends in "could not establish" and not a frozen tab.
 const SEARCH_BUDGET: u32 = 2_000;
 
@@ -60,7 +72,7 @@ pub struct PolicyLine {
 /// One hop. `nodes` are display ids the canvas highlights.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Hop {
-    /// `start`, `device`, `cable`, `switch`, `end` or `stop`.
+    /// `start`, `device`, `cable`, `switch`, `tunnel`, `end` or `stop`.
     pub kind: &'static str,
     pub title: String,
     pub detail: Vec<String>,
@@ -90,10 +102,21 @@ pub struct Trace {
 /// Trace one flow. `from` and `to` are display ids (a device, port or
 /// interface unit) or, for `to`, an address.
 pub fn trace(g: &Graph, from: &str, to: &str, flow: Option<Flow>) -> Trace {
+    trace_in(g, from, to, flow, None)
+}
+
+/// [`trace`], in the routing table a person picked (sign-off r101, the Routing
+/// lens's table picker): `default`, or a VRF's name. It settles which table a
+/// flow is in where the design does not, and only there: when the walk starts
+/// on a device itself, not on one of its interfaces, and that device has VRFs.
+/// A start device with VRFs but no table of that name stops the walk and says so.
+pub fn trace_in(g: &Graph, from: &str, to: &str, flow: Option<Flow>, table: Option<&str>) -> Trace {
     let mut w = Walk {
         steps: std::cell::Cell::new(0),
         g,
         flow,
+        picked: table.map(str::to_owned),
+        start_dev: None,
         t: Trace {
             from: from.to_owned(),
             to: to.to_owned(),
@@ -114,11 +137,31 @@ struct Walk<'a> {
     /// Switch-search steps taken; the search ends at `SEARCH_BUDGET`.
     steps: std::cell::Cell<u32>,
     flow: Option<Flow>,
+    /// The table the person picked, by name; see [`trace_in`].
+    picked: Option<String>,
+    /// The device the walk starts on, once read.
+    start_dev: Option<NodeId>,
     t: Trace,
 }
 
+/// A routing table on one device: `None` is its default table, `Some` a VRF.
+type Table = Option<NodeId>;
+
 /// A chosen route: the unit it leaves by, the address to reach next, and how
 /// it was read.
+/// One way into a VPN entered by hand.
+struct VpnWay {
+    vpn: NodeId,
+    vpn_name: String,
+    provider: Option<OverlayNetworkProvider>,
+    member: NodeId,
+    from_addr: Option<IpAddr>,
+    to_addr: Option<IpAddr>,
+    len: u8,
+    /// The subnet the member offers, or None when the destination is the member's VPN address.
+    offered: Option<IpPrefix>,
+}
+
 struct Chosen {
     unit: NodeId,
     next: IpAddr,
@@ -141,6 +184,7 @@ impl Walk<'_> {
 
     fn run(&mut self, from: &str, to: &str) -> Result<(), String> {
         let (mut dev, mut ingress, mut src) = self.start(from)?;
+        self.start_dev = Some(dev);
         let (dest, dest_dev) = self.end(to)?;
         // A source address is set only when the person gave it (an address as the start), or the start
         // interface (else the start device) holds exactly one address of the destination's family.
@@ -170,7 +214,13 @@ impl Walk<'_> {
         });
 
         for _ in 0..MAX_STEPS {
-            if self.owns(dev, dest) || Some(dev) == dest_dev && ingress.is_some() {
+            // The table the flow is in on this device: the one its entry unit is in.
+            let table = self.flow_table(dev, ingress);
+            let holds = match table {
+                Ok(t) => self.owns_in(dev, dest, t),
+                Err(_) => self.owns(dev, dest) && !self.has_vrfs(dev),
+            } || self.vpn_addrs(dev).contains(&dest);
+            if holds || Some(dev) == dest_dev && ingress.is_some() {
                 self.t.hops.push(Hop {
                     kind: "end",
                     title: display_name(self.g, dev),
@@ -181,35 +231,51 @@ impl Walk<'_> {
                 });
                 return Ok(());
             }
-            let chosen = match self.route(dev, dest) {
+            // A VPN the device is a member of, when it covers the destination and the device's
+            // own table holds nothing more specific than a default route.
+            if let Some(v) = self.vpn_choice(dev, dest)? {
+                let own = table
+                    .clone()
+                    .ok()
+                    .and_then(|t| self.own_cover(dev, dest, t));
+                if let Some(l) = own.filter(|l| *l > 0) {
+                    let n = display_name(self.g, dev);
+                    self.t.hops.push(self.arrival(dev, ingress));
+                    return Err(format!(
+                        "{n} has a route of its own for {dest} (a /{l}), and {} offers it too; which one {n} uses depends on how the VPN client installs its routes, which is not in the design",
+                        v.vpn_name
+                    ));
+                }
+                let (hop, vpn_hop) = self.vpn_hops(dev, ingress, &v);
+                self.t.hops.push(hop);
+                self.t.hops.push(vpn_hop);
+                dev = v.member;
+                ingress = None;
+                continue;
+            }
+            let chosen = match table.clone().and_then(|t| self.route(dev, dest, t, 0)) {
                 Ok(c) => c,
                 Err(e) => {
                     // The device is on the path even though its route is not read.
-                    self.t.hops.push(Hop {
-                        kind: "device",
-                        title: display_name(self.g, dev),
-                        detail: vec![format!(
-                            "in on {}",
-                            ingress.map_or("the start".to_owned(), |u| display_name(self.g, u))
-                        )],
-                        nodes: vec![dev.to_string()],
-                        why: "The flow reaches this device; its route is the first thing the design does not state.".to_owned(),
-                        ..Hop::default()
-                    });
+                    self.t.hops.push(self.arrival(dev, ingress));
                     return Err(e);
                 }
             };
             let mut hop = Hop {
                 kind: "device",
                 title: display_name(self.g, dev),
-                detail: vec![
-                    format!(
+                detail: {
+                    let mut d = vec![format!(
                         "in on {}",
                         ingress.map_or("the start".to_owned(), |u| display_name(self.g, u))
-                    ),
-                    chosen.words.clone(),
-                    format!("out on {}", display_name(self.g, chosen.unit)),
-                ],
+                    )];
+                    if let Ok(Some(t)) = table {
+                        d.push(format!("in VRF {}", self.table_name(Some(t))));
+                    }
+                    d.push(chosen.words.clone());
+                    d.push(format!("out on {}", display_name(self.g, chosen.unit)));
+                    d
+                },
                 nodes: vec![dev.to_string(), chosen.unit.to_string()],
                 why: "The longest matching prefix wins; a tie goes to the lower preference."
                     .to_owned(),
@@ -219,16 +285,23 @@ impl Walk<'_> {
             self.firewall(dev, ingress, chosen.unit, src, dest, &mut hop);
             self.t.hops.push(hop);
 
-            let port = self.port_of(chosen.unit)?;
-            let (mut steps, holder_port) =
-                self.arrive(port, chosen.next, unit_vlan(self.g, chosen.unit), 0)?;
+            // A tunnel interface has no cable: the flow is carried to the far end of its VPN.
+            if self.is_tunnel_unit(chosen.unit) {
+                let (hop, far_dev, far_unit) = self.cross(dev, chosen.unit)?;
+                self.t.hops.push(hop);
+                ingress = Some(far_unit);
+                dev = far_dev;
+                continue;
+            }
+
+            let (mut steps, holder_port) = self.leave(dev, chosen.unit, chosen.next)?;
             self.t.hops.append(&mut steps);
             let holder_dev = self
                 .g
                 .device_of(holder_port)
                 .ok_or("the far port is not on a device")?;
             // The unit that holds the next hop; none, or several, and the entry unit is not stated.
-            let entry: Vec<NodeId> = self
+            let mut entry: Vec<NodeId> = self
                 .units_on(holder_port)
                 .into_iter()
                 .filter(|u| {
@@ -237,6 +310,15 @@ impl Walk<'_> {
                         .any(|(a, l)| prefix_has(*a, *l, chosen.next))
                 })
                 .collect();
+            if entry.is_empty() {
+                // Arrived on a switch port: the unit that holds the next hop is the VLAN's
+                // gateway (an SVI or irb), wherever it sits on the device.
+                entry = self
+                    .device_units(holder_dev)
+                    .into_iter()
+                    .filter(|u| self.unit_addrs(*u).contains(&chosen.next))
+                    .collect();
+            }
             ingress = (entry.len() == 1).then(|| entry[0]);
             dev = holder_dev;
         }
@@ -280,9 +362,29 @@ impl Walk<'_> {
             };
         }
         if let Ok(ip) = text.trim().parse::<IpAddr>() {
-            return match self.holder_of(ip) {
-                Some((d, u)) => Ok((d, Some(u), Some(ip))),
-                None => Err(format!("no device in the design holds {ip}")),
+            let held = self.holders_of(ip);
+            return match held.as_slice() {
+                [(d, u)] => Ok((*d, Some(*u), Some(ip))),
+                [] => {
+                    // A VPN address entered by hand: the member, with no interface unit.
+                    let members: Vec<NodeId> = self
+                        .g
+                        .nodes_of_kind(NodeKind::Device)
+                        .map(|n| n.id)
+                        .filter(|d| live(self.g, *d) && self.vpn_addrs(*d).contains(&ip))
+                        .collect();
+                    match members.as_slice() {
+                        [d] => Ok((*d, None, Some(ip))),
+                        [] => Err(format!("no device in the design holds {ip}")),
+                        _ => Err(format!(
+                            "{ip} is a VPN address of more than one device; start from the device instead"
+                        )),
+                    }
+                }
+                _ => Err(format!(
+                    "{ip} is held by more than one device ({}); start from the device instead",
+                    self.names(&held)
+                )),
             };
         }
         Err(format!(
@@ -314,7 +416,15 @@ impl Walk<'_> {
             };
         }
         match text.trim().parse::<IpAddr>() {
-            Ok(ip) => Ok((ip, self.holder_of(ip).map(|(d, _)| d))),
+            // An address two devices hold (one private range at two sites) names no one device:
+            // the walk ends wherever the path meets a holder.
+            Ok(ip) => Ok((
+                ip,
+                match self.holders_of(ip).as_slice() {
+                    [(d, _)] => Some(*d),
+                    _ => None,
+                },
+            )),
             Err(_) => Err(format!("could not read \"{text}\" as an address or device")),
         }
     }
@@ -361,35 +471,160 @@ impl Walk<'_> {
         self.device_addrs(dev).contains(&ip)
     }
 
-    fn holder_of(&self, ip: IpAddr) -> Option<(NodeId, NodeId)> {
-        let mut found = None;
+    /// Every device that holds `ip`, with the first unit on it that does; one entry per device.
+    fn holders_of(&self, ip: IpAddr) -> Vec<(NodeId, NodeId)> {
+        let mut found = Vec::new();
         for d in self.g.nodes_of_kind(NodeKind::Device).map(|n| n.id) {
             if !live(self.g, d) {
                 continue;
             }
-            for u in self.device_units(d) {
-                if self.unit_addrs(u).contains(&ip) {
-                    found.get_or_insert((d, u));
-                }
+            if let Some(u) = self
+                .device_units(d)
+                .into_iter()
+                .find(|u| self.unit_addrs(*u).contains(&ip))
+            {
+                found.push((d, u));
             }
         }
+        found.sort();
         found
+    }
+
+    fn names(&self, held: &[(NodeId, NodeId)]) -> String {
+        held.iter()
+            .map(|(d, _)| display_name(self.g, *d))
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 
     // ---- routes -------------------------------------------------------
 
-    fn route(&self, dev: NodeId, dest: IpAddr) -> Result<Chosen, String> {
+    // ---- tables ---------------------------------------------------------
+
+    /// Whether a routing instance is the device's default table: unnamed (a Junos paste's
+    /// `routing-options`, which never names it) or named `default` (EOS, and the Routes editor).
+    fn is_default_instance(&self, ri: NodeId) -> bool {
+        match self.g.node(ri).and_then(|n| routing_instance::name(n).ok()) {
+            None => true,
+            Some(n) => n.0 == "default",
+        }
+    }
+
+    /// The device's VRFs: every routing instance that is not its default table.
+    fn vrfs(&self, dev: NodeId) -> Vec<NodeId> {
+        children(self.g, dev, EdgeKind::HasRoutingInstance)
+            .into_iter()
+            .filter(|ri| !self.is_default_instance(*ri))
+            .collect()
+    }
+
+    fn has_vrfs(&self, dev: NodeId) -> bool {
+        !self.vrfs(dev).is_empty()
+    }
+
+    /// The table a unit is in: the VRF it is bound to, or `None` for the default table.
+    fn unit_table(&self, unit: NodeId) -> Table {
+        children(self.g, unit, EdgeKind::InRoutingInstance)
+            .into_iter()
+            .find(|ri| !self.is_default_instance(*ri))
+    }
+
+    fn table_name(&self, t: Table) -> String {
+        match t {
+            None => "the default table".to_owned(),
+            Some(ri) => self
+                .g
+                .node(ri)
+                .and_then(|n| routing_instance::name(n).ok())
+                .map_or_else(|| display_name(self.g, ri), |n| n.0.clone()),
+        }
+    }
+
+    /// The table a flow is in on `dev`: the one its entry unit is in. With no entry unit (the
+    /// start is the device itself, or the flow arrived on more than one unit) a device with VRFs
+    /// does not say which.
+    fn flow_table(&self, dev: NodeId, ingress: Option<NodeId>) -> Result<Table, String> {
+        if let Some(u) = ingress {
+            return Ok(self.unit_table(u));
+        }
+        let vrfs = self.vrfs(dev);
+        if vrfs.is_empty() {
+            return Ok(None);
+        }
+        // A device with only its default table needs no pick; one with VRFs takes the person's.
+        if let (Some(name), Some(true)) = (&self.picked, self.start_dev.map(|s| s == dev)) {
+            if name == "default" {
+                return Ok(None);
+            }
+            return vrfs
+                .iter()
+                .find(|v| self.table_name(Some(**v)) == *name)
+                .map(|v| Some(*v))
+                .ok_or_else(|| {
+                    format!(
+                        "{} has no routing table named {name}",
+                        display_name(self.g, dev)
+                    )
+                });
+        }
+        let names: Vec<String> = vrfs.iter().map(|v| self.table_name(Some(*v))).collect();
+        Err(format!(
+            "{} has a routing instance other than its default ({}), and which table this flow uses could not be established; start from one of its interfaces or an address it holds",
+            display_name(self.g, dev),
+            names.join(", ")
+        ))
+    }
+
+    /// The device's units in one table.
+    fn table_units(&self, dev: NodeId, t: Table) -> Vec<NodeId> {
+        self.device_units(dev)
+            .into_iter()
+            .filter(|u| self.unit_table(*u) == t)
+            .collect()
+    }
+
+    fn owns_in(&self, dev: NodeId, ip: IpAddr, t: Table) -> bool {
+        self.table_units(dev, t)
+            .into_iter()
+            .any(|u| self.unit_addrs(u).contains(&ip))
+    }
+
+    // ---- routes -------------------------------------------------------
+
+    /// The route `dev` uses for `dest` in table `t`. `depth` counts `next-table` hand-offs, so
+    /// two tables that point at each other end in "could not establish".
+    fn route(&self, dev: NodeId, dest: IpAddr, t: Table, depth: u8) -> Result<Chosen, String> {
         let name = display_name(self.g, dev);
-        if children(self.g, dev, EdgeKind::HasRoutingInstance).len() > 1 {
+        if depth > 3 {
             return Err(format!(
-                "{name} has more than one routing instance, and which one this flow uses could not be established"
+                "routes on {name} hand {dest} from table to table more than three times; the design may hold a loop between its VRFs"
             ));
         }
+        // The instances whose static routes are this table's.
+        let owners: Vec<NodeId> = match t {
+            Some(ri) => vec![ri],
+            None => {
+                let defaults: Vec<NodeId> = children(self.g, dev, EdgeKind::HasRoutingInstance)
+                    .into_iter()
+                    .filter(|ri| self.is_default_instance(*ri))
+                    .collect();
+                if defaults.len() > 1 {
+                    return Err(format!(
+                        "{name} has more than one routing instance for its default table, and which one this flow uses could not be established"
+                    ));
+                }
+                defaults
+            }
+        };
         // (prefix length, preference when stated, candidate). A candidate that cannot be followed is
         // kept, not returned: only the winning prefix may stop the trace.
         let mut found: Vec<(u8, Option<u32>, Result<Chosen, String>)> = Vec::new();
+        // Prefix lengths a connected route covers. Every platform ranks a connected route above a
+        // static one for the same prefix (Junos direct 0 against static 5; IOS and EOS distance 0
+        // against 1), so an equally specific static route is never the one used.
+        let mut connected_lens: Vec<u8> = Vec::new();
 
-        for u in self.device_units(dev) {
+        for u in self.table_units(dev, t) {
             if self
                 .g
                 .node(u)
@@ -399,6 +634,7 @@ impl Walk<'_> {
             }
             for (a, l) in self.unit_prefixes(u) {
                 if prefix_has(a, l, dest) {
+                    connected_lens.push(l);
                     found.push((
                         l,
                         Some(0),
@@ -414,24 +650,32 @@ impl Walk<'_> {
             }
         }
 
-        for ri in children(self.g, dev, EdgeKind::HasRoutingInstance) {
+        for ri in owners {
             for r in children(self.g, ri, EdgeKind::HasStaticRoute) {
                 let Some(node) = self.g.node(r) else { continue };
                 let Ok(p) = static_route::destination(node) else {
                     continue;
                 };
-                if !prefix_has(p.addr, p.len, dest) {
+                if !prefix_has(p.addr, p.len, dest) || connected_lens.contains(&p.len) {
                     continue;
                 }
                 let pref = static_route::preference(node).ok().map(|p| u32::from(*p));
-                found.push((p.len, pref, self.static_choice(dev, r, p.addr, p.len, dest)));
+                found.push((
+                    p.len,
+                    pref,
+                    self.static_choice(dev, r, p.addr, p.len, dest, t, depth),
+                ));
             }
         }
 
         // Longest prefix first.
         let Some(longest) = found.iter().map(|(l, _, _)| *l).max() else {
+            let in_table = match t {
+                None => String::new(),
+                Some(_) => format!(" in VRF {}", self.table_name(t)),
+            };
             return Err(format!(
-                "no connected or static route on {name} covers {dest}; learned routes are not in the design, so the route on {name} could not be established"
+                "no connected or static route on {name}{in_table} covers {dest}; learned routes are not in the design, so the route on {name} could not be established"
             ));
         };
         let top: Vec<(Option<u32>, Result<Chosen, String>)> = found
@@ -476,6 +720,7 @@ impl Walk<'_> {
     }
 
     /// One static route as a way forward, or the reason it cannot be followed.
+    #[allow(clippy::too_many_arguments)]
     fn static_choice(
         &self,
         dev: NodeId,
@@ -483,6 +728,8 @@ impl Walk<'_> {
         addr: IpAddr,
         len: u8,
         dest: IpAddr,
+        t: Table,
+        depth: u8,
     ) -> Result<Chosen, String> {
         let name = display_name(self.g, dev);
         let node = self.g.node(r).ok_or("the route is gone")?;
@@ -494,15 +741,45 @@ impl Walk<'_> {
             [] => Err(format!("the static route {addr}/{len} on {name} names no next hop")),
             [NextHop::Address(a)] => {
                 let via = a.0;
-                let unit = self.device_units(dev).into_iter().find(|u| {
-                    self.unit_prefixes(*u)
+                // The next hop resolves like any address: through the longest connected prefix on
+                // an interface that is not shut down.
+                let mut reach: Vec<(u8, NodeId)> = Vec::new();
+                for u in self.table_units(dev, t) {
+                    if self
+                        .g
+                        .node(u)
+                        .is_some_and(|n| logical_unit::admin_up(n) == Ok(&false))
+                    {
+                        continue;
+                    }
+                    if let Some(l) = self
+                        .unit_prefixes(u)
                         .iter()
-                        .any(|(ua, l)| prefix_has(*ua, *l, via))
-                });
-                let Some(unit) = unit else {
-                    return Err(format!(
-                        "the static route {addr}/{len} on {name} goes via {via}, and no interface on {name} reaches {via}"
-                    ));
+                        .filter(|(ua, l)| prefix_has(*ua, *l, via))
+                        .map(|(_, l)| *l)
+                        .max()
+                    {
+                        reach.push((l, u));
+                    }
+                }
+                let best = reach.iter().map(|(l, _)| *l).max();
+                let units: Vec<NodeId> = reach
+                    .iter()
+                    .filter(|(l, _)| Some(*l) == best)
+                    .map(|(_, u)| *u)
+                    .collect();
+                let unit = match units.as_slice() {
+                    [u] => *u,
+                    [] => {
+                        return Err(format!(
+                            "the static route {addr}/{len} on {name} goes via {via}, and no interface on {name} that is up reaches {via}"
+                        ))
+                    }
+                    _ => {
+                        return Err(format!(
+                            "the static route {addr}/{len} on {name} goes via {via}, which more than one interface on {name} reaches; could not establish which one the flow leaves by"
+                        ))
+                    }
                 };
                 Ok(Chosen {
                     unit,
@@ -529,11 +806,38 @@ impl Walk<'_> {
                     source: "StaticRoute.destination".to_owned(),
                 })
             }
+            [NextHop::NextTable(to)] => {
+                // A leak the config states: look the destination up again in the named table.
+                // Junos writes the table (`VRF-B.inet.0`); the instance is the part before it.
+                let want = to.0.split(".inet").next().unwrap_or(&to.0);
+                let target = children(self.g, dev, EdgeKind::HasRoutingInstance)
+                    .into_iter()
+                    .find(|ri| {
+                        self.g
+                            .node(*ri)
+                            .and_then(|n| routing_instance::name(n).ok())
+                            .is_some_and(|n| n.0 == want)
+                            || (want == "inet.0" && self.is_default_instance(*ri))
+                    });
+                let Some(target) = target else {
+                    return Err(format!(
+                        "the static route {addr}/{len} on {name} hands the flow to table {}, which is not in this design",
+                        to.0
+                    ));
+                };
+                let next_t = (!self.is_default_instance(target)).then_some(target);
+                let inner = self.route(dev, dest, next_t, depth + 1)?;
+                Ok(Chosen {
+                    words: format!(
+                        "{words} hands it to {}, then {}",
+                        self.table_name(next_t),
+                        inner.words
+                    ),
+                    ..inner
+                })
+            }
             [NextHop::Discard] | [NextHop::Reject] => Err(format!(
                 "the best route on {name} for {dest} is {addr}/{len}, which the config sets to discard"
-            )),
-            [_] => Err(format!(
-                "the static route {addr}/{len} on {name} uses a next hop this trace does not read"
             )),
             _ => Err(format!(
                 "the static route {addr}/{len} on {name} has more than one next hop; could not establish which one the flow takes"
@@ -543,35 +847,602 @@ impl Walk<'_> {
 
     // ---- cables, patch panels, switches -----------------------------------
 
+    /// The units a port carries: its interface's own, and, for a link in a LAG, the
+    /// aggregate's (the units of a bundle live on ae0 or Port-Channel1, not on its members).
     fn units_on(&self, port: NodeId) -> Vec<NodeId> {
         let mut out = Vec::new();
-        for e in self
-            .g
-            .inn(port, EdgeKind::Occupies)
-            .filter(|e| e.absent_since.is_none())
-        {
-            out.extend(children(self.g, e.from, EdgeKind::HasUnit));
+        for i in parents(self.g, port, EdgeKind::Occupies) {
+            out.extend(children(self.g, i, EdgeKind::HasUnit));
+            for agg in children(self.g, i, EdgeKind::MemberOfAggregate) {
+                out.extend(children(self.g, agg, EdgeKind::HasUnit));
+            }
         }
         out.sort();
+        out.dedup();
         out
     }
 
-    fn port_of(&self, unit: NodeId) -> Result<NodeId, String> {
+    /// The LAG a port is a link of, when its interface is a member of one.
+    fn lag_of(&self, port: NodeId) -> Option<NodeId> {
+        parents(self.g, port, EdgeKind::Occupies)
+            .into_iter()
+            .flat_map(|i| children(self.g, i, EdgeKind::MemberOfAggregate))
+            .next()
+    }
+
+    /// The ports a LAG's member links occupy.
+    fn member_ports(&self, agg: NodeId) -> Vec<NodeId> {
+        let mut out: Vec<NodeId> = parents(self.g, agg, EdgeKind::MemberOfAggregate)
+            .into_iter()
+            .flat_map(|i| children(self.g, i, EdgeKind::Occupies))
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// A device hop that says only that the flow reached it.
+    fn arrival(&self, dev: NodeId, ingress: Option<NodeId>) -> Hop {
+        Hop {
+            kind: "device",
+            title: display_name(self.g, dev),
+            detail: vec![format!(
+                "in on {}",
+                ingress.map_or("the start".to_owned(), |u| display_name(self.g, u))
+            )],
+            nodes: vec![dev.to_string()],
+            why: "The flow reaches this device; its route is the first thing the design does not state.".to_owned(),
+            ..Hop::default()
+        }
+    }
+
+    /// The longest prefix in table `t` of `dev` that covers `dest`: a connected network on a unit
+    /// that is up, or a static route. Only the length; which one is chosen is `route`'s job.
+    fn own_cover(&self, dev: NodeId, dest: IpAddr, t: Table) -> Option<u8> {
+        let mut best: Option<u8> = None;
+        for u in self.table_units(dev, t) {
+            if self
+                .g
+                .node(u)
+                .is_some_and(|n| logical_unit::admin_up(n) == Ok(&false))
+            {
+                continue;
+            }
+            for (a, l) in self.unit_prefixes(u) {
+                if prefix_has(a, l, dest) {
+                    best = best.max(Some(l));
+                }
+            }
+        }
+        let owners: Vec<NodeId> = match t {
+            Some(ri) => vec![ri],
+            None => children(self.g, dev, EdgeKind::HasRoutingInstance)
+                .into_iter()
+                .filter(|ri| self.is_default_instance(*ri))
+                .collect(),
+        };
+        for ri in owners {
+            for r in children(self.g, ri, EdgeKind::HasStaticRoute) {
+                if let Some(p) = self
+                    .g
+                    .node(r)
+                    .and_then(|n| static_route::destination(n).ok())
+                {
+                    if prefix_has(p.addr, p.len, dest) {
+                        best = best.max(Some(p.len));
+                    }
+                }
+            }
+        }
+        best
+    }
+
+    // ---- VPNs entered by hand (OverlayNetwork) -----------------------------
+
+    /// The live OverlayMember edges of a VPN: (member device, its VPN address, exit node, routes).
+    fn vpn_members(&self, vpn: NodeId) -> Vec<(NodeId, Option<IpAddr>, bool, Vec<IpPrefix>)> {
+        let mut out: Vec<_> = self
+            .g
+            .out(vpn, EdgeKind::OverlayMember)
+            .filter(|e| e.absent_since.is_none() && live(self.g, e.to))
+            .map(|e| {
+                let addr = edge_field::<fathom_ir::scalar::IpAddr>(e, "OverlayMember.address")
+                    .map(|a| a.0);
+                let exit = edge_field::<bool>(e, "OverlayMember.exit_node") == Some(&true);
+                let routes = edge_field::<fathom_ir::scalar::Text>(e, "OverlayMember.routes")
+                    .map(|t| {
+                        t.0.lines()
+                            .filter_map(|l| IpPrefix::parse(l.trim()).ok())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                (e.to, addr, exit, routes)
+            })
+            .collect();
+        out.sort_by_key(|m| m.0);
+        out
+    }
+
+    /// The VPN addresses `dev` holds, one per VPN it is a member of with an address.
+    fn vpn_addrs(&self, dev: NodeId) -> Vec<IpAddr> {
+        parents(self.g, dev, EdgeKind::OverlayMember)
+            .into_iter()
+            .flat_map(|v| self.vpn_members(v))
+            .filter(|(d, _, _, _)| *d == dev)
+            .filter_map(|(_, a, _, _)| a)
+            .collect()
+    }
+
+    /// The other member of a VPN `dev` belongs to that the flow goes to: the one holding `dest` as
+    /// its VPN address, else the one offering the longest subnet covering it. None when no VPN of
+    /// `dev` covers `dest`.
+    fn vpn_choice(&self, dev: NodeId, dest: IpAddr) -> Result<Option<VpnWay>, String> {
+        let name = display_name(self.g, dev);
+        let mut found: Vec<VpnWay> = Vec::new();
+        let mut in_range: Vec<String> = Vec::new();
+        for vpn in parents(self.g, dev, EdgeKind::OverlayMember) {
+            let node = self.g.node(vpn);
+            let vpn_name = node
+                .and_then(|n| overlay_network::name(n).ok())
+                .map_or_else(|| display_name(self.g, vpn), |t| t.0.clone());
+            let provider = node
+                .and_then(|n| overlay_network::provider(n).ok())
+                .cloned();
+            let members = self.vpn_members(vpn);
+            let from_addr = members.iter().find(|m| m.0 == dev).and_then(|m| m.1);
+            let before = found.len();
+            for (m, addr, _, routes) in &members {
+                if *m == dev {
+                    continue;
+                }
+                if *addr == Some(dest) {
+                    found.push(VpnWay {
+                        vpn,
+                        vpn_name: vpn_name.clone(),
+                        provider: provider.clone(),
+                        member: *m,
+                        from_addr,
+                        to_addr: *addr,
+                        len: if dest.is_ipv4() { 32 } else { 128 },
+                        offered: None,
+                    });
+                }
+                for p in routes {
+                    if prefix_has(p.addr, p.len, dest) {
+                        found.push(VpnWay {
+                            vpn,
+                            vpn_name: vpn_name.clone(),
+                            provider: provider.clone(),
+                            member: *m,
+                            from_addr,
+                            to_addr: *addr,
+                            len: p.len,
+                            offered: Some(*p),
+                        });
+                    }
+                }
+            }
+            if found.len() == before {
+                if let Some(r) = node.and_then(|n| overlay_network::range(n).ok()) {
+                    if prefix_has(r.addr, r.len, dest) {
+                        in_range.push(format!("{vpn_name} ({}/{})", r.addr, r.len));
+                    }
+                }
+            }
+        }
+        let Some(longest) = found.iter().map(|w| w.len).max() else {
+            if let Some(v) = in_range.first() {
+                return Err(format!(
+                    "{dest} is in the range of {v}, which {name} is a member of, but no member in the design holds it"
+                ));
+            }
+            return Ok(None);
+        };
+        found.retain(|w| w.len == longest);
+        found.dedup_by(|a, b| a.member == b.member && a.vpn == b.vpn);
+        match found.len() {
+            1 => Ok(found.pop()),
+            _ => Err(format!(
+                "more than one VPN member offers {dest} to {name} ({}); could not establish which one the flow goes to",
+                found
+                    .iter()
+                    .map(|w| format!("{} on {}", display_name(self.g, w.member), w.vpn_name))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+        }
+    }
+
+    /// The device hop that sends the flow into a VPN, and the VPN hop to the member.
+    fn vpn_hops(&self, dev: NodeId, ingress: Option<NodeId>, v: &VpnWay) -> (Hop, Hop) {
+        let name = display_name(self.g, dev);
+        let member = display_name(self.g, v.member);
+        let what = match &v.offered {
+            Some(p) => format!("{member} offers {}/{} on {}", p.addr, p.len, v.vpn_name),
+            None => format!(
+                "{member} holds {} on {}",
+                v.to_addr.map_or(String::new(), |a| a.to_string()),
+                v.vpn_name
+            ),
+        };
+        let device = Hop {
+            kind: "device",
+            title: name.clone(),
+            detail: vec![
+                format!(
+                    "in on {}",
+                    ingress.map_or("the start".to_owned(), |u| display_name(self.g, u))
+                ),
+                what.clone(),
+                format!("out on {}", v.vpn_name),
+            ],
+            nodes: vec![dev.to_string()],
+            why: format!("{name} is a member of {}, and nothing in its own routes is more specific than a default route.", v.vpn_name),
+            source: "entered by hand".to_owned(),
+            ..Hop::default()
+        };
+        let label = match &v.provider {
+            Some(OverlayNetworkProvider::Tailscale) => "Tailscale",
+            Some(OverlayNetworkProvider::Headscale) => "Headscale",
+            Some(OverlayNetworkProvider::Netbird) => "NetBird",
+            Some(OverlayNetworkProvider::Zerotier) => "ZeroTier",
+            Some(OverlayNetworkProvider::Wireguard) => "WireGuard",
+            Some(OverlayNetworkProvider::Nebula) => "Nebula",
+            _ => "VPN",
+        };
+        let mut detail = vec![format!(
+            "from {name}{} to {member}{}",
+            v.from_addr.map_or(String::new(), |a| format!(" ({a})")),
+            v.to_addr.map_or(String::new(), |a| format!(" ({a})"))
+        )];
+        if v.offered.is_some()
+            && matches!(
+                v.provider,
+                Some(OverlayNetworkProvider::Tailscale | OverlayNetworkProvider::Headscale)
+            )
+        {
+            // tailscale.com/kb/1019/subnets, read 2026-11-02.
+            detail.push(format!(
+                "Tailscale says a Linux device uses offered subnets only with --accept-routes (Android, iOS, macOS, tvOS and Windows pick them up); whether {name} does is not in the design"
+            ));
+        }
+        detail.push("whether the VPN is connected is not read".to_owned());
+        let vpn = Hop {
+            kind: "tunnel",
+            title: format!("{label} {}", v.vpn_name),
+            detail,
+            nodes: vec![v.vpn.to_string(), v.member.to_string()],
+            why: format!("{what}: the flow is carried inside the VPN to {member}."),
+            source: "entered by hand".to_owned(),
+            ..Hop::default()
+        };
+        (device, vpn)
+    }
+
+    // ---- tunnels -------------------------------------------------------
+
+    /// Whether a unit is on a tunnel interface (st0 on an SRX): it has no cable of its own.
+    fn is_tunnel_unit(&self, unit: NodeId) -> bool {
+        self.g
+            .owner(unit)
+            .is_some_and(|i| i.kind == NodeKind::TunnelInterface)
+    }
+
+    fn peer_of(&self, gw: NodeId) -> Option<&PeerSpec> {
+        self.g.node(gw).and_then(|n| ike_gateway::peer(n).ok())
+    }
+
+    /// Words for the far end the design names but does not hold: an ExternalPeer.
+    fn external(&self, peer: NodeId) -> String {
+        let node = self.g.node(peer);
+        let label = node
+            .and_then(|n| external_peer::label(n).ok())
+            .map_or_else(|| display_name(self.g, peer), |l| l.0.clone());
+        let far = node
+            .and_then(|n| external_peer::far_design(n).ok())
+            .map_or(String::new(), |_| {
+                " (it is linked to another design, which this trace does not open)".to_owned()
+            });
+        format!("{label}, which this design names but does not hold{far}")
+    }
+
+    /// Carry the flow across the route-based IPsec VPN bound to `unit`: the far device and the
+    /// tunnel unit the flow comes out of. The far end is what a tunnel drawn in the design states
+    /// or, failing that, the device that holds this gateway's peer address and has a gateway back.
+    /// Whether the tunnel is up, and the path between the two gateways, are not read.
+    fn cross(&self, dev: NodeId, unit: NodeId) -> Result<(Hop, NodeId, NodeId), String> {
         let name = display_name(self.g, unit);
+        let dev_name = display_name(self.g, dev);
+        let vpn = match parents(self.g, unit, EdgeKind::BindsInterface).as_slice() {
+            [v] => *v,
+            [] => {
+                return Err(format!(
+                    "{name} on {dev_name} is a tunnel interface that no IPsec VPN in the design is bound to, so where it leads could not be established"
+                ))
+            }
+            _ => {
+                return Err(format!(
+                    "more than one IPsec VPN is bound to {name} on {dev_name}, so which one carries the flow could not be established"
+                ))
+            }
+        };
+        let vpn_name = display_name(self.g, vpn);
+        let gws = children(self.g, vpn, EdgeKind::UsesIkeGateway);
+        let mut how = Vec::new();
+        if let [gw] = gws.as_slice() {
+            if let Some(ext) = children(self.g, *gw, EdgeKind::ExternalInterface).first() {
+                how.push(format!(
+                    "IKE leaves {dev_name} by {}",
+                    display_name(self.g, *ext)
+                ));
+            }
+        }
+
+        // A tunnel drawn in the design states both ends.
+        let tunnels = parents(self.g, vpn, EdgeKind::TunnelEndpoint);
+        let far_vpn = if let [tun] = tunnels.as_slice() {
+            let others: Vec<NodeId> = children(self.g, *tun, EdgeKind::TunnelEndpoint)
+                .into_iter()
+                .filter(|v| *v != vpn)
+                .collect();
+            match others.as_slice() {
+                [o] => {
+                    how.push(format!(
+                        "the design draws this tunnel ({})",
+                        display_name(self.g, *tun)
+                    ));
+                    *o
+                }
+                [] => {
+                    return Err(match children(self.g, *tun, EdgeKind::TunnelPeer).first() {
+                        Some(p) => format!(
+                            "{vpn_name} on {dev_name} leads to {}",
+                            self.external(*p)
+                        ),
+                        None => format!(
+                            "the tunnel {vpn_name} on {dev_name} belongs to has no far end in the design"
+                        ),
+                    })
+                }
+                _ => {
+                    return Err(format!(
+                        "the tunnel {vpn_name} on {dev_name} belongs to has more than two ends"
+                    ))
+                }
+            }
+        } else if tunnels.len() > 1 {
+            return Err(format!(
+                "{vpn_name} on {dev_name} is an end of more than one tunnel in the design"
+            ));
+        } else {
+            self.far_by_gateways(dev, vpn, &gws, &mut how)?
+        };
+
+        let far_dev = self
+            .g
+            .device_of(far_vpn)
+            .ok_or_else(|| format!("{} is on no device", display_name(self.g, far_vpn)))?;
+        let far_name = display_name(self.g, far_dev);
+        if far_dev == dev {
+            return Err(format!(
+                "{vpn_name} on {dev_name} leads back to {dev_name}; the design may hold a loop"
+            ));
+        }
+        let far_vpn_name = display_name(self.g, far_vpn);
+        let far_unit = match children(self.g, far_vpn, EdgeKind::BindsInterface).as_slice() {
+            [u] => *u,
+            _ => {
+                return Err(format!(
+                    "{far_vpn_name} on {far_name}, the far end of {vpn_name}, is bound to no tunnel interface (a policy-based VPN); the trace does not follow policy-based VPNs yet"
+                ))
+            }
+        };
+        let far_unit_name = display_name(self.g, far_unit);
+        let mut detail = vec![
+            format!("from {name} on {dev_name}"),
+            format!("to {far_unit_name} on {far_name} ({far_vpn_name})"),
+        ];
+        detail.extend(how);
+        detail.push("whether the tunnel is up is not read".to_owned());
+        Ok((
+            Hop {
+                kind: "tunnel",
+                title: format!("IPsec {vpn_name}"),
+                detail,
+                nodes: vec![vpn.to_string(), far_vpn.to_string()],
+                why: format!(
+                    "{name} is a tunnel interface: the flow is carried inside {vpn_name} and comes out of {far_unit_name} on {far_name}. The path the encrypted packets take between the two gateways is a trace of its own."
+                ),
+                source: self.source_of(vpn, "IpsecVpn.name"),
+                ..Hop::default()
+            },
+            far_dev,
+            far_unit,
+        ))
+    }
+
+    /// The far VPN found from the IKE gateways: the device holding this gateway's peer address,
+    /// and on it the one VPN whose gateway names an address this device holds (or, if none does,
+    /// the one whose gateway takes a dynamic peer).
+    fn far_by_gateways(
+        &self,
+        dev: NodeId,
+        vpn: NodeId,
+        gws: &[NodeId],
+        how: &mut Vec<String>,
+    ) -> Result<NodeId, String> {
+        let dev_name = display_name(self.g, dev);
+        let vpn_name = display_name(self.g, vpn);
+        let gw = match gws {
+            [g] => *g,
+            [] => {
+                return Err(format!(
+                    "{vpn_name} on {dev_name} names no IKE gateway, so its far end could not be established"
+                ))
+            }
+            _ => {
+                return Err(format!(
+                    "{vpn_name} on {dev_name} names more than one IKE gateway, so its far end could not be established"
+                ))
+            }
+        };
+        let gw_name = display_name(self.g, gw);
+        let ext = children(self.g, gw, EdgeKind::PeerIs).first().copied();
+        let peer = match self.peer_of(gw) {
+            Some(PeerSpec::Address(a)) => a.0,
+            Some(_) => {
+                return Err(format!(
+                    "the IKE gateway {gw_name} on {dev_name} takes a dynamic peer, so which device is at the far end of {vpn_name} could not be established"
+                ))
+            }
+            None => {
+                return Err(match ext {
+                    Some(p) => format!("{vpn_name} on {dev_name} leads to {}", self.external(p)),
+                    None => format!(
+                        "the IKE gateway {gw_name} on {dev_name} has no peer address, so the far end of {vpn_name} could not be established"
+                    ),
+                })
+            }
+        };
+        let far = match self.holders_of(peer).as_slice() {
+            [(d, _)] => *d,
+            [] => {
+                return Err(match ext {
+                    Some(p) => format!(
+                        "{vpn_name} on {dev_name} leads to {peer}: {}",
+                        self.external(p)
+                    ),
+                    None => format!(
+                        "the IKE gateway {gw_name} on {dev_name} names peer {peer}, which no device in this design holds (if a NAT device stands in front of the peer, the far end could not be established)"
+                    ),
+                })
+            }
+            held => {
+                return Err(format!(
+                    "the IKE gateway {gw_name} on {dev_name} names peer {peer}, which more than one device holds ({}); could not establish which is the far end",
+                    self.names(held)
+                ))
+            }
+        };
+        let far_name = display_name(self.g, far);
+        let ours = self.device_addrs(dev);
+        let mut back: Vec<(NodeId, IpAddr)> = Vec::new();
+        let mut dynamic: Vec<NodeId> = Vec::new();
+        for v in children(self.g, far, EdgeKind::HasIpsecVpn) {
+            for g in children(self.g, v, EdgeKind::UsesIkeGateway) {
+                match self.peer_of(g) {
+                    Some(PeerSpec::Address(a)) if ours.contains(&a.0) => back.push((v, a.0)),
+                    Some(PeerSpec::Dynamic(_)) => dynamic.push(v),
+                    _ => {}
+                }
+            }
+        }
+        back.dedup();
+        dynamic.dedup();
+        let far_vpn = match (back.as_slice(), dynamic.as_slice()) {
+            ([(v, a)], _) => {
+                how.push(format!(
+                    "{gw_name} on {dev_name} names {peer}, which {far_name} holds; {far_name} names {a} back"
+                ));
+                *v
+            }
+            ([], [v]) => {
+                how.push(format!(
+                    "{gw_name} on {dev_name} names {peer}, which {far_name} holds; {far_name} takes a dynamic peer"
+                ));
+                *v
+            }
+            ([], []) => {
+                return Err(format!(
+                    "{far_name} holds {peer}, the peer of {vpn_name} on {dev_name}, but no IPsec VPN on {far_name} has a gateway back to {dev_name}, so where the flow comes out could not be established"
+                ))
+            }
+            _ => {
+                return Err(format!(
+                    "more than one IPsec VPN on {far_name} could be the far end of {vpn_name} on {dev_name}; could not establish which"
+                ))
+            }
+        };
+        Ok(far_vpn)
+    }
+
+    /// Leave `dev` by `unit` towards `next`: out of its port, out of a LAG's links, or, for
+    /// an SVI or irb, out of the device's own ports in that VLAN. Returns the hops and the
+    /// port on the device that holds `next`.
+    fn leave(&self, dev: NodeId, unit: NodeId, next: IpAddr) -> Result<(Vec<Hop>, NodeId), String> {
+        let name = display_name(self.g, unit);
+        let dev_name = display_name(self.g, dev);
         let iface = self
             .g
             .owner(unit)
             .ok_or_else(|| format!("{name} belongs to no interface"))?;
+        let hint = unit_vlan(self.g, unit);
+        let start = [dev];
+        if iface.kind == NodeKind::AggregateInterface {
+            let ports = self.member_ports(iface);
+            let agg = display_name(self.g, iface);
+            if ports.is_empty() {
+                return Err(format!(
+                    "no link of {agg} on {dev_name} is tied to a port, so the cable it leaves by could not be established"
+                ));
+            }
+            return self
+                .fan(dev, None, &ports, next, hint, &start, &|_, _| None)
+                .map_err(|m| m.text);
+        }
         let ports = children(self.g, iface, EdgeKind::Occupies);
         match ports.as_slice() {
-            [p] => Ok(*p),
-            [] => Err(format!(
-                "{name} is not tied to a port, so the cable it leaves by could not be established"
-            )),
-            _ => Err(format!(
-                "{name} sits on more than one port; could not establish which carries the flow"
-            )),
+            [p] => return self.search(*p, next, hint, &start).map_err(|m| m.text),
+            [] => {}
+            _ => {
+                return Err(format!(
+                    "{name} sits on more than one port; could not establish which carries the flow"
+                ))
+            }
         }
+        // No port of its own: an SVI or irb leaves through the device's ports in its VLAN.
+        let vlans: Vec<u16> = parents(self.g, unit, EdgeKind::L3Interface)
+            .into_iter()
+            .filter_map(|v| {
+                self.g
+                    .node(v)
+                    .and_then(|n| vlan::vlan_id(n).ok())
+                    .map(|v| v.0)
+            })
+            .collect();
+        let [vid] = vlans.as_slice() else {
+            return Err(format!(
+                "{name} is not tied to a port, so the cable it leaves by could not be established"
+            ));
+        };
+        let vid = *vid;
+        let candidates: Vec<NodeId> = self
+            .device_ports(dev)
+            .into_iter()
+            .filter(|p| self.vlans_on(*p).contains(&vid))
+            .collect();
+        if candidates.is_empty() {
+            return Err(format!(
+                "{name} is the gateway of VLAN {vid}, and no port of {dev_name} is read as carrying VLAN {vid}"
+            ));
+        }
+        let mk = |out: NodeId, note: Option<&str>| {
+            let mut detail = vec![format!(
+                "VLAN {vid}: from {name}, out on {}",
+                display_name(self.g, out)
+            )];
+            detail.extend(note.map(str::to_owned));
+            Some(Hop {
+                kind: "switch",
+                title: dev_name.clone(),
+                detail,
+                nodes: vec![dev.to_string(), unit.to_string(), out.to_string()],
+                why: format!("{name} is the gateway of VLAN {vid}; the device switches the frame to its ports in that VLAN."),
+                ..Hop::default()
+            })
+        };
+        self.fan(dev, Some(vid), &candidates, next, Some(vid), &start, &mk)
+            .map_err(|m| m.text)
     }
 
     /// The far end of the cable on `port`, with the cable.
@@ -660,8 +1531,15 @@ impl Walk<'_> {
     }
 
     /// Follow the cable from `from_port` through any patch panels to the port
-    /// where it meets a device that is not a panel. The steps are cable hops.
-    fn cable_chain(&self, from_port: NodeId) -> Result<(Vec<Hop>, NodeId), String> {
+    /// where it meets a device that is not a panel. The steps are cable hops. At a
+    /// splitter (a port that passes through to several), the branch that reaches a
+    /// device holding `next` is the one followed: downstream, a PON splitter sends the
+    /// light down every branch, and only the ONT it is for takes it.
+    fn cable_chain(
+        &self,
+        from_port: NodeId,
+        next: Option<IpAddr>,
+    ) -> Result<(Vec<Hop>, NodeId), String> {
         let mut hops = Vec::new();
         let mut here = from_port;
         for _ in 0..MAX_STEPS {
@@ -711,15 +1589,94 @@ impl Walk<'_> {
                     });
                     here = *next;
                 }
-                _ => {
-                    return Err(format!(
-                        "{} passes through to more than one port; could not establish which the cable takes",
-                        display_name(self.g, far)
-                    ))
+                many => {
+                    let Some(next) = next else {
+                        return Err(format!(
+                            "{} passes through to more than one port; could not establish which the cable takes",
+                            display_name(self.g, far)
+                        ));
+                    };
+                    return self.split(far, many, next).map(|(mut rest, end)| {
+                        hops.append(&mut rest);
+                        (hops, end)
+                    });
                 }
             }
         }
         Err("the cable path is longer than this trace walks".to_owned())
+    }
+
+    /// Choose the branch of a splitter at `at` that reaches a device holding `next`; when
+    /// no branch does, the only branch with a device on it at all.
+    fn split(
+        &self,
+        at: NodeId,
+        branches: &[NodeId],
+        next: IpAddr,
+    ) -> Result<(Vec<Hop>, NodeId), String> {
+        // A splitter is a passive node, not a device: name it by whatever owns the port.
+        let owner = self
+            .g
+            .owner(at)
+            .map_or(String::new(), |o| display_name(self.g, o));
+        let name = format!("{owner} {}", display_name(self.g, at))
+            .trim()
+            .to_owned();
+        let mut reached: Vec<(NodeId, Vec<Hop>, NodeId)> = Vec::new();
+        for b in branches {
+            self.steps.set(self.steps.get() + 1);
+            if self.steps.get() > SEARCH_BUDGET {
+                return Err(format!(
+                    "{name} splits into more branches than this trace searches; could not establish which one the flow takes"
+                ));
+            }
+            if let Ok((h, end)) = self.cable_chain(*b, Some(next)) {
+                reached.push((*b, h, end));
+            }
+        }
+        let holding: Vec<usize> = (0..reached.len())
+            .filter(|i| {
+                self.g
+                    .device_of(reached[*i].2)
+                    .is_some_and(|d| self.owns(d, next))
+            })
+            .collect();
+        let pick = match (holding.as_slice(), reached.len()) {
+            ([i], _) => *i,
+            ([], 1) => 0,
+            ([], 0) => {
+                return Err(format!(
+                    "{name} splits to {} ports and no cable is recorded on any of them",
+                    branches.len()
+                ))
+            }
+            ([], _) => {
+                return Err(format!(
+                    "{name} splits to {} ports and no device on them holds {next}; could not establish which branch the flow takes",
+                    branches.len()
+                ))
+            }
+            _ => {
+                return Err(format!(
+                    "more than one branch of {name} reaches a device holding {next}; could not establish which one the flow takes"
+                ))
+            }
+        };
+        let (branch, mut rest, end) = reached.swap_remove(pick);
+        let mut hops = vec![Hop {
+            kind: "cable",
+            title: "splitter".to_owned(),
+            detail: vec![format!(
+                "{name} splits to {} ports; the flow is for the branch on {}",
+                branches.len(),
+                display_name(self.g, branch)
+            )],
+            nodes: vec![at.to_string(), branch.to_string()],
+            why: "A splitter sends the signal down every branch; the device it is addressed to is on this one.".to_owned(),
+            ..Hop::default()
+        }];
+        hops.append(&mut rest);
+        Ok((hops, end))
     }
 
     fn dev_name(&self, port: NodeId) -> String {
@@ -748,25 +1705,33 @@ impl Walk<'_> {
         out
     }
 
-    /// Cross the cable from `from_port` and say what is at the other end: a
-    /// device holding `next` (done), or switches on the way to one. Returns the
-    /// hops and the port on the device that holds `next`.
-    fn arrive(
+    /// The switch search: cross the cable from `from_port` and say what is at the other end,
+    /// a device holding `next` (done) or switches on the way to one. `path` holds the devices
+    /// already crossed: a frame never comes back to one it left, so a way back is not a way on.
+    fn search(
         &self,
         from_port: NodeId,
         next: IpAddr,
         hint: Option<u16>,
-        depth: usize,
-    ) -> Result<(Vec<Hop>, NodeId), String> {
+        path: &[NodeId],
+    ) -> Result<(Vec<Hop>, NodeId), Miss> {
         self.steps.set(self.steps.get() + 1);
         if self.steps.get() > SEARCH_BUDGET {
-            return Err("the switches here form more paths than this trace searches; could not establish the path through them".to_owned());
+            return Err(Miss::plain("the switches here form more paths than this trace searches; could not establish the path through them"));
         }
-        let (mut hops, far) = self.cable_chain(from_port)?;
+        let (mut hops, far) = self
+            .cable_chain(from_port, Some(next))
+            .map_err(Miss::plain)?;
         let dev = self
             .g
             .device_of(far)
-            .ok_or("the far port is on no device")?;
+            .ok_or_else(|| Miss::plain("the far port is on no device"))?;
+        if path.contains(&dev) {
+            return Err(Miss {
+                text: String::new(),
+                kind: MissKind::Back,
+            });
+        }
         let dev_name = display_name(self.g, dev);
         if self.owns(dev, next) {
             return Ok((hops, far));
@@ -776,90 +1741,194 @@ impl Walk<'_> {
             .iter()
             .any(|u| !self.unit_addrs(*u).is_empty())
         {
-            return Err(format!(
+            return Err(Miss::plain(format!(
                 "the cable reaches {dev_name}, which does not hold {next}; could not establish where the flow goes from there"
-            ));
+            )));
         }
         // A port with no address of its own: a switch. Which VLAN?
-        if depth >= L2_DEPTH {
-            return Err("the path passes through more switches than this trace follows".to_owned());
+        // `path` holds the device the flow left plus the switches crossed so far.
+        if path.len() > L2_DEPTH {
+            return Err(Miss::plain(
+                "the path passes through more switches than this trace follows",
+            ));
         }
         let on = self.vlans_on(far);
         let vlan = match (on.as_slice(), hint) {
             ([], _) => {
-                return Err(format!(
+                return Err(Miss::plain(format!(
                     "could not establish the VLAN on {} of {dev_name}",
                     display_name(self.g, far)
-                ))
+                )))
             }
             ([v], None) => *v,
             ([v], Some(h)) if *v == h => *v,
             (vs, Some(h)) if vs.contains(&h) => h,
             (vs, Some(h)) => {
-                return Err(format!(
+                return Err(Miss::plain(format!(
                     "VLAN {h} is not among the VLANs read on {} of {dev_name} ({})",
                     display_name(self.g, far),
                     list(vs)
-                ))
+                )))
             }
             (vs, None) => {
-                return Err(format!(
+                return Err(Miss::plain(format!(
                 "{} of {dev_name} carries VLANs {}; could not establish which one the flow uses",
                 display_name(self.g, far),
                 list(vs)
-            ))
+            )))
             }
         };
 
-        let mut paths: Vec<(Vec<Hop>, NodeId)> = Vec::new();
-        let mut errs: Vec<String> = Vec::new();
+        // The other ports in the VLAN; the other links of the LAG the frame came in on lead back.
+        let came_in = self.lag_of(far);
         let candidates: Vec<NodeId> = self
             .device_ports(dev)
             .into_iter()
-            .filter(|p| *p != far && self.vlans_on(*p).contains(&vlan))
+            .filter(|p| *p != far && (came_in.is_none() || self.lag_of(*p) != came_in))
+            .filter(|p| self.vlans_on(*p).contains(&vlan))
             .collect();
-        for c in &candidates {
-            let sw = Hop {
+        let mk = |out: NodeId, note: Option<&str>| {
+            let mut detail = vec![format!(
+                "VLAN {vlan}: in on {}, out on {}",
+                display_name(self.g, far),
+                display_name(self.g, out)
+            )];
+            detail.extend(note.map(str::to_owned));
+            Some(Hop {
                 kind: "switch",
                 title: dev_name.clone(),
-                detail: vec![format!(
-                    "VLAN {vlan}: in on {}, out on {}",
-                    display_name(self.g, far),
-                    display_name(self.g, *c)
-                )],
-                nodes: vec![dev.to_string(), far.to_string(), c.to_string()],
+                detail,
+                nodes: vec![dev.to_string(), far.to_string(), out.to_string()],
                 why: "A switch carries a frame to the other ports in its VLAN.".to_owned(),
-                source: String::new(),
                 ..Hop::default()
-            };
-            match self.arrive(*c, next, Some(vlan), depth + 1) {
-                Ok((mut rest, hp)) => {
-                    let mut all = vec![sw];
+            })
+        };
+        let (mut rest, hp) = self.fan(dev, Some(vlan), &candidates, next, Some(vlan), path, &mk)?;
+        hops.append(&mut rest);
+        Ok((hops, hp))
+    }
+
+    /// Try every way out of `dev` among `candidates` and keep the one that reaches `next`.
+    /// The links of one LAG that all reach the same device are one way, not several. `mk`
+    /// makes the hop on `dev` for the port a way leaves by (with a note for a bundle).
+    #[allow(clippy::too_many_arguments)]
+    fn fan(
+        &self,
+        dev: NodeId,
+        vlan: Option<u16>,
+        candidates: &[NodeId],
+        next: IpAddr,
+        hint: Option<u16>,
+        path: &[NodeId],
+        mk: &dyn Fn(NodeId, Option<&str>) -> Option<Hop>,
+    ) -> Result<(Vec<Hop>, NodeId), Miss> {
+        let dev_name = display_name(self.g, dev);
+        let mut on_path = path.to_vec();
+        if !on_path.contains(&dev) {
+            on_path.push(dev);
+        }
+        // Group the candidates: one LAG whose links all reach one device is one way.
+        let mut ways: Vec<(Vec<NodeId>, Option<String>)> = Vec::new();
+        let mut seen: Vec<NodeId> = Vec::new();
+        for c in candidates {
+            match self.lag_of(*c) {
+                Some(agg) if !seen.contains(&agg) => {
+                    seen.push(agg);
+                    let links: Vec<NodeId> = candidates
+                        .iter()
+                        .copied()
+                        .filter(|p| self.lag_of(*p) == Some(agg))
+                        .collect();
+                    let fars: Vec<Option<NodeId>> = links
+                        .iter()
+                        .map(|p| {
+                            self.cable_chain(*p, None)
+                                .ok()
+                                .and_then(|(_, f)| self.g.device_of(f))
+                        })
+                        .collect();
+                    let one_far = fars[0].is_some() && fars.iter().all(|f| *f == fars[0]);
+                    if links.len() > 1 && one_far {
+                        let far_name = fars[0].map_or(String::new(), |d| display_name(self.g, d));
+                        let note = format!(
+                            "{} bundles {} links to {far_name} ({}); which link a given flow hashes onto is not read",
+                            display_name(self.g, agg),
+                            links.len(),
+                            links
+                                .iter()
+                                .map(|p| display_name(self.g, *p))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                        ways.push((links, Some(note)));
+                    } else {
+                        // Links to different devices (MLAG, or a mistake) are separate ways.
+                        ways.extend(links.into_iter().map(|p| (vec![p], None)));
+                    }
+                }
+                Some(_) => {}
+                None => ways.push((vec![*c], None)),
+            }
+        }
+
+        let mut paths: Vec<(Vec<Hop>, NodeId)> = Vec::new();
+        let mut errs: Vec<Miss> = Vec::new();
+        for (links, note) in &ways {
+            // A bundle is followed by its first link that arrives; the others are the same way.
+            let mut got = None;
+            let mut first_err = None;
+            for out in links {
+                match self.search(*out, next, hint, &on_path) {
+                    Ok(r) => {
+                        got = Some((*out, r));
+                        break;
+                    }
+                    Err(e) => {
+                        first_err.get_or_insert(e);
+                    }
+                }
+            }
+            match got {
+                Some((out, (mut rest, hp))) => {
+                    let mut all: Vec<Hop> = mk(out, note.as_deref()).into_iter().collect();
+                    if all.is_empty() {
+                        if let (Some(n), Some(first)) = (note, rest.first_mut()) {
+                            first.detail.push(n.clone());
+                        }
+                    }
                     all.append(&mut rest);
                     paths.push((all, hp));
                 }
-                Err(e) => errs.push(e),
+                None => errs.extend(first_err),
             }
         }
         if self.steps.get() > SEARCH_BUDGET {
-            return Err("the switches here form more paths than this trace searches; could not establish the path through them".to_owned());
+            return Err(Miss::plain("the switches here form more paths than this trace searches; could not establish the path through them"));
         }
-        match paths.len() {
-            1 => {
-                let (mut p, hp) = paths.remove(0);
-                hops.append(&mut p);
-                Ok((hops, hp))
-            }
-            0 => Err(format!(
-                "no port of {dev_name} in VLAN {vlan} leads to a device holding {next}{}",
-                match errs.first() {
-                    Some(e) if candidates.len() == 1 => format!(" ({e})"),
-                    _ => String::new(),
-                }
-            )),
-            n => Err(format!(
-                "{n} paths through {dev_name} in VLAN {vlan} lead to {next}; could not establish which one the flow takes"
-            )),
+        let within = vlan.map_or(String::new(), |v| format!(" in VLAN {v}"));
+        // A further switch with more than one way on is more than one way on from here too.
+        let deeper = errs.iter().find(|e| e.kind == MissKind::Ambiguous);
+        if paths.len() > 1 || (!paths.is_empty() && deeper.is_some()) {
+            return Err(Miss {
+                text: format!(
+                    "more than one path from {dev_name}{within} leads to {next}; could not establish which one the flow takes (redundant links are not ranked: spanning tree is not read)"
+                ),
+                kind: MissKind::Ambiguous,
+            });
+        }
+        if let Some(d) = deeper {
+            return Err(d.clone());
+        }
+        if paths.len() == 1 {
+            return Ok(paths.remove(0));
+        }
+        // No way on. When exactly one way was tried to its end, its reason is the one to give.
+        let ends: Vec<&Miss> = errs.iter().filter(|e| e.kind == MissKind::Plain).collect();
+        match ends.as_slice() {
+            [one] => Err((*one).clone()),
+            _ => Err(Miss::plain(format!(
+                "no port of {dev_name}{within} leads to a device holding {next}"
+            ))),
         }
     }
 
@@ -1251,6 +2320,32 @@ impl Walk<'_> {
 
 const PASTED: &str = "read from a pasted config";
 
+/// Why one branch of the switch search did not arrive.
+#[derive(Clone)]
+struct Miss {
+    text: String,
+    kind: MissKind,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MissKind {
+    /// The design does not say; the text says what.
+    Plain,
+    /// More than one way on.
+    Ambiguous,
+    /// The branch came back to a switch already crossed: not a way on, and not a reason.
+    Back,
+}
+
+impl Miss {
+    fn plain(text: impl Into<String>) -> Miss {
+        Miss {
+            text: text.into(),
+            kind: MissKind::Plain,
+        }
+    }
+}
+
 enum Place {
     Here,
     Elsewhere,
@@ -1285,6 +2380,12 @@ fn combine(parts: &[(&str, (State, String))]) -> (&'static str, String) {
     }
 }
 
+/// A field on an edge, by its declared name (the generated registry, never a hand-copied key).
+fn edge_field<'a, T: std::any::Any>(e: &'a fathom_graph::Edge, name: &str) -> Option<&'a T> {
+    let (_, k) = FIELD_KEYS.iter().find(|(n, _)| *n == name)?;
+    fathom_ir::bag::typed::<T, _>(e, fathom_ir::bag::FieldKey(*k)).ok()
+}
+
 fn live(g: &Graph, n: NodeId) -> bool {
     g.node(n).is_some_and(|node| node.absent_since.is_none())
 }
@@ -1294,6 +2395,17 @@ fn children(g: &Graph, n: NodeId, k: EdgeKind) -> Vec<NodeId> {
         .out(n, k)
         .filter(|e| e.absent_since.is_none())
         .map(|e| e.to)
+        .filter(|t| live(g, *t))
+        .collect();
+    v.sort();
+    v
+}
+
+fn parents(g: &Graph, n: NodeId, k: EdgeKind) -> Vec<NodeId> {
+    let mut v: Vec<NodeId> = g
+        .inn(n, k)
+        .filter(|e| e.absent_since.is_none())
+        .map(|e| e.from)
         .filter(|t| live(g, *t))
         .collect();
     v.sort();

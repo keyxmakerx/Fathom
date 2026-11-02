@@ -528,10 +528,16 @@ pub(crate) enum EdgeTarget {
         kind: NodeKind,
         from: String,
         also: Option<NodeKind>,
+        /// `prefix: Port-Channel`: the name is the capture with this stated
+        /// before it (`channel-group 3` names `Port-Channel3` on Arista).
+        prefix: Option<String>,
     },
     InterfaceUnit {
         from: String,
     },
+    /// `to: { node: n1 }`: another node the same entry binds (an SVI's VLAN
+    /// and the unit that routes it, read off one line).
+    Node(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -1638,7 +1644,16 @@ fn load_edge(
                 )
             })?),
         };
-        EdgeTarget::ByName { kind, from, also }
+        let prefix = by_name
+            .get("prefix")
+            .and_then(|n| n.as_str())
+            .map(str::to_owned);
+        EdgeTarget::ByName {
+            kind,
+            from,
+            also,
+            prefix,
+        }
     } else if let Some(unit) = to_node.get("interface_unit") {
         let text = unit.as_str().unwrap_or("");
         let name = text.strip_prefix('$').ok_or_else(|| {
@@ -1660,12 +1675,30 @@ fn load_edge(
         EdgeTarget::InterfaceUnit {
             from: name.to_owned(),
         }
+    } else if let Some(local) = to_node.get("node").and_then(|n| n.as_str()) {
+        let at = names.iter().position(|n| n == local).ok_or_else(|| {
+            err(
+                file,
+                to_node.line,
+                DictGate::Parse,
+                format!("`{id}`: edge `to: {{ node: {local} }}` names no bound node"),
+            )
+        })?;
+        if at == from {
+            return Err(err(
+                file,
+                to_node.line,
+                DictGate::Parse,
+                format!("`{id}`: an edge from `{local}` to itself"),
+            ));
+        }
+        EdgeTarget::Node(at)
     } else {
         return Err(err(
             file,
             to_node.line,
             DictGate::Parse,
-            format!("`{id}`: edge `to` is neither `by_name` nor `interface_unit`"),
+            format!("`{id}`: edge `to` is none of `by_name`, `interface_unit` or `node`"),
         ));
     };
     let ordinal_from_position = spec

@@ -55,6 +55,7 @@ import { Fold } from './Fold';
 import { CardsSection, OpticSection } from './Parts';
 import { OpenFarSite, SiteLinkPicker, siteLinkOf } from './SiteLink';
 import { LoginsTab, LoginsTabLabel } from '../vault/Screens';
+import { RoutingTab, useRoutingLit } from './RoutingTab';
 import { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, holderOf, rackHeightBlocker, swapModelChange, swapSummary } from './editorChanges';
 import { loadJsonPref, saveJsonPref } from '../../prefs';
 export { cableEndText, farEndOf, moveToRackChange, moveToShelfChange, moveToSurfaceChange, addSketchPortChange, removeSketchPortChange, addSketchPortRangeChange, duplicateDeviceChange, createShelfChange, createSurfaceChange, setCableFieldChange, disconnectCableChange, oneEndCableChange, needsFinishingChange, removeDeviceChange, rackHeightBlocker, swapModelChange, swapSummary };
@@ -1209,7 +1210,7 @@ function SketchPortsSection({ chassisId, ports, actions }: { chassisId: string; 
 
 /** A panel's tabs (UI-SPEC "Look"): every tab's body stays in the page,
  * the others hidden, so a tab never loses what was typed in it. */
-type PanelTab = { id: string; label: ReactNode; body: ReactNode };
+type PanelTab = { id: string; label: ReactNode; body: ReactNode; /** Shown only while this lens is lit. */ lens?: 'routing' };
 
 /** 'flat' where the page around the panel already has tabs of its own (Inventory's item page). */
 export const PanelTabsMode = createContext<'tabs' | 'flat'>('tabs');
@@ -1256,9 +1257,13 @@ function TermixReveal({ chassisId }: { chassisId: string }) {
 const PANEL_TAB_KEY = 'fathom.panel-tab';
 let lastTab: string | null = loadJsonPref(PANEL_TAB_KEY, (raw) => (typeof raw === 'string' ? raw : null), null);
 
-function PanelTabs({ tabs, initial }: { tabs: readonly PanelTab[]; initial?: string }) {
+function PanelTabs({ tabs: all, initial }: { tabs: readonly PanelTab[]; initial?: string }) {
   const mode = useContext(PanelTabsMode);
-  const [picked, setPickedState] = useState(initial ?? lastTab ?? tabs[0].id);
+  // A lens's own tab shows only while that lens is lit, and is the one shown first then (sign-off r101).
+  const routingLit = useRoutingLit();
+  const tabs = all.filter((t) => t.lens == null || (t.lens === 'routing' && routingLit));
+  const lensTab = tabs.find((t) => t.lens != null)?.id;
+  const [picked, setPickedState] = useState(lensTab ?? initial ?? lastTab ?? tabs[0].id);
   const setPicked = (id: string) => {
     lastTab = id;
     saveJsonPref(PANEL_TAB_KEY, id);
@@ -2477,6 +2482,12 @@ function panelFor(
 
                 </>
               ),
+            },
+            {
+              id: 'routing',
+              label: 'Routing',
+              lens: 'routing',
+              body: <RoutingTab deviceId={chassis.deviceId} />,
             },
             {
               id: 'logins',

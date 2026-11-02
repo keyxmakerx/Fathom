@@ -19,12 +19,13 @@ import {
 } from './document/commands';
 import { setChassisField, setDeviceField, setPortMac } from './document/edit';
 import { addNote, type NoteHow } from './document/notes';
-import { emptyDocument, formatEdgeId, formatNodeId, parseNodeId, type Document, type NodeKind } from './document/model';
+import { edgesOut, emptyDocument, findNode, formatEdgeId, formatNodeId, identifier, parseNodeId, token, type Document, type NodeKind } from './document/model';
 import { addSubnet, addVlan } from './document/networks';
+import { addRoute } from './document/routes';
 import { setFieldValue, type FieldDefView } from './document/fields';
 import { bulkEstate } from './components/inventory/bulkEstate';
 import { tagObject } from './document/tags';
-import { begin, createFreeBox, finish, setNodeField } from './document/freeform';
+import { addEdge, addNode, begin, createFreeBox, finish, setNodeField } from './document/freeform';
 import { setFirmwareHold, setTarget } from './document/firmware';
 import { newUlid } from './document/ulid';
 import { naturalLabelCompare, viewOf } from './document/view';
@@ -940,6 +941,63 @@ export function seedShowScene(catalogue: CatalogueModel[], me: string): Document
   return tagObject(working, chassis('fw-01').deviceId, 'edge', { actor: me });
 }
 
+/** The Routing lens's scene (sign-off r101), shaped like its mockup: edge-fw routes to the internet and
+ * to core-sw over a /30; core-sw is the gateway of VLAN 11 for acc-sw1, which switches it to srv-01
+ * (gateway set) and nas-01 (none). */
+export function seedRoutingScene(catalogue: CatalogueModel[], me: string): Document {
+  const { doc, rackId } = oneRack(catalogue, me, 20);
+  const find = (model: string) => catalogue.find((c) => c.model === model)!;
+  let working = place(doc, catalogue, rackId, find('SRX300'), 1, 'edge-fw', me);
+  working = place(working, catalogue, rackId, find('EX4300-48P'), 3, 'core-sw', me);
+  working = place(working, catalogue, rackId, find('USW-24-PoE'), 5, 'acc-sw1', me);
+  working = place(working, catalogue, rackId, find('R740xd'), 8, 'srv-01', me);
+  working = place(working, catalogue, rackId, find('RS822+'), 11, 'nas-01', me);
+  const ch = (host: string) => firstRack(working, catalogue).chassis.find((c) => c.hostname === host)!;
+  const rj = (host: string) =>
+    ch(host).ports.filter((p) => p.connector.toLowerCase() === 'rj45').sort((x, y) => naturalLabelCompare(x.label, y.label));
+  const fw = rj('edge-fw');
+  const core = rj('core-sw');
+  const acc = rj('acc-sw1');
+  const srv = rj('srv-01');
+  const nas = rj('nas-01');
+  const link = (a: string, b: string, sheath: Sheath) => {
+    working = connectPorts(working, a, b, { sheath }, { actor: me });
+  };
+  link(fw[1]!.id, core[0]!.id, 'green');
+  link(core[1]!.id, acc[0]!.id, 'blue');
+  link(acc[1]!.id, srv[0]!.id, 'blue');
+  link(acc[2]!.id, nas[0]!.id, 'blue');
+  const put = (prefix: string, address: string, port: { id: string; label: string }) => {
+    working = addSubnet(working, { prefix, attach: [{ target: { kind: 'port', portId: port.id, interfaceName: port.label }, address }] }, { actor: me });
+  };
+  put('203.0.113.0/30', '203.0.113.2/30', fw[0]!);
+  put('10.255.255.0/31', '10.255.255.0/31', fw[1]!);
+  put('10.255.255.0/31', '10.255.255.1/31', core[0]!);
+  put('10.10.11.0/24', '10.10.11.20/24', srv[0]!);
+  put('10.10.11.0/24', '10.10.11.30/24', nas[0]!);
+  working = addVlan(
+    working,
+    {
+      vlanId: 11,
+      name: 'Servers',
+      subnet: '10.10.11.0/24',
+      gatewayAddress: '10.10.11.1/24',
+      attach: [
+        { target: { kind: 'port', portId: core[1]!.id, interfaceName: core[1]!.label }, gateway: true },
+        { target: { kind: 'port', portId: acc[0]!.id, interfaceName: acc[0]!.label } },
+        { target: { kind: 'port', portId: acc[1]!.id, interfaceName: acc[1]!.label } },
+        { target: { kind: 'port', portId: acc[2]!.id, interfaceName: acc[2]!.label } },
+      ],
+    },
+    { actor: me },
+  );
+  working = addRoute(working, { deviceId: ch('edge-fw').deviceId, destination: 'default', via: '203.0.113.1' }, { actor: me }).doc;
+  working = addRoute(working, { deviceId: ch('edge-fw').deviceId, destination: '10.10.0.0/16', via: '10.255.255.1' }, { actor: me }).doc;
+  working = addRoute(working, { deviceId: ch('core-sw').deviceId, destination: 'default', via: '10.255.255.0' }, { actor: me }).doc;
+  working = addRoute(working, { deviceId: ch('srv-01').deviceId, destination: 'default', via: '10.10.11.1' }, { actor: me }).doc;
+  return working;
+}
+
 /** Successive versions of one design, for the History drive: two devices, a colleague's second device,
  * a cable, then a rename. Each document extends the one before it. */
 export function seedHistoryVersions(catalogue: CatalogueModel[], me: string, colleague: string): Document[] {
@@ -1080,4 +1138,29 @@ export function seedSweetchScene(catalogue: CatalogueModel[], me: string): Docum
   const portOf = (chassisId: string, label: string) =>
     viewOf(doc, catalogue).racks[0]!.chassis.find((c) => c.id === chassisId)!.ports.find((p) => p.label === label)!.id;
   return connectPorts(doc, portOf(sw.chassisId, 'Et49'), portOf(fw.chassisId, '10G to Arista'), { label: 'Arista Et49 to Painite, 10G DAC 3 m' }, { actor: me });
+}
+
+/** The Routing lens's scene with a VRF (r101's table picker): edge-fw also keeps VRF guest, whose port 3
+ * reaches guest-host on 10.99.0.0/24. Nothing else is in guest. */
+export function seedRoutingVrfScene(catalogue: CatalogueModel[], me: string): Document {
+  let working = seedRoutingScene(catalogue, me);
+  const rackId = firstRack(working, catalogue).id;
+  working = place(working, catalogue, rackId, catalogue.find((c) => c.model === 'RS822+')!, 14, 'guest-host', me);
+  const ch = (host: string) => firstRack(working, catalogue).chassis.find((c) => c.hostname === host)!;
+  const rj = (host: string) =>
+    ch(host).ports.filter((p) => p.connector.toLowerCase() === 'rj45').sort((x, y) => naturalLabelCompare(x.label, y.label));
+  const fw = rj('edge-fw')[2]!;
+  const guest = rj('guest-host')[0]!;
+  working = connectPorts(working, fw.id, guest.id, { sheath: 'yellow' }, { actor: me });
+  working = addSubnet(working, { prefix: '10.99.0.0/24', attach: [{ target: { kind: 'port', portId: fw.id, interfaceName: fw.label }, address: '10.99.0.1/24' }] }, { actor: me });
+  working = addSubnet(working, { prefix: '10.99.0.0/24', attach: [{ target: { kind: 'port', portId: guest.id, interfaceName: guest.label }, address: '10.99.0.10/24' }] }, { actor: me });
+  working = addRoute(working, { deviceId: ch('guest-host').deviceId, destination: 'default', via: '10.99.0.1' }, { actor: me }).doc;
+  const fwDevice = ch('edge-fw').deviceId;
+  const b = begin(working, { actor: me });
+  // edge-fw already keeps its default table (its routes by hand are in it); guest is the second.
+  const guestTable = addNode(b, 'RoutingInstance', { 'RoutingInstance.name': identifier('guest'), 'RoutingInstance.isolation': token('routing_table_only') });
+  addEdge(b, 'HasRoutingInstance', fwDevice, guestTable);
+  const iface = edgesOut(working, fwDevice, 'HasInterface').map((e) => findNode(working, e.to)!).find((n) => n.fields['Interface.name']?.value === fw.label)!;
+  addEdge(b, 'InRoutingInstance', edgesOut(working, iface.id, 'HasUnit')[0]!.to, guestTable);
+  return finish(b, 'VRF guest on edge-fw');
 }
