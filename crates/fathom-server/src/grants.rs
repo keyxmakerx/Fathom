@@ -489,7 +489,7 @@ fn account_key_row_state(key: &AccountKey) -> Vec<u8> {
     Json::Obj(map).to_canonical_bytes()
 }
 
-fn entry_metadata(entry_type: EntryType, fields: &[(&str, Json)]) -> Vec<u8> {
+pub(crate) fn entry_metadata(entry_type: EntryType, fields: &[(&str, Json)]) -> Vec<u8> {
     let mut map = BTreeMap::new();
     map.insert(
         "entry_type".to_string(),
@@ -501,7 +501,7 @@ fn entry_metadata(entry_type: EntryType, fields: &[(&str, Json)]) -> Vec<u8> {
     Json::Obj(map).to_canonical_bytes()
 }
 
-fn as_32(bytes: &[u8], what: &'static str) -> Result<[u8; 32], AuthorityError> {
+pub(crate) fn as_32(bytes: &[u8], what: &'static str) -> Result<[u8; 32], AuthorityError> {
     bytes.try_into().map_err(|_| AuthorityError::Corrupt(what))
 }
 
@@ -2950,13 +2950,16 @@ async fn next_epoch(tx: &Transaction<'_>, organisation: &str) -> Result<i32, Aut
 /// The head covers every seconding, suspension and revocation as well as live
 /// grants. Every verdict is computed from this one read, so two checks in one
 /// authorisation cannot disagree about what the database said.
-struct AuthorityState {
-    organisation: String,
+pub(crate) struct AuthorityState {
+    pub(crate) organisation: String,
     grants: Vec<Grant>,
     secondings: Vec<Seconding>,
     /// Ordered by `seq` ascending — the append-only history, not a snapshot.
     suspensions: Vec<Suspension>,
     revocations: Vec<Revocation>,
+    /// Every signed act on a team (ADR-0081), by chain position. In the head's digest and its
+    /// stored-seal check like every row above (attack round T7, T9).
+    pub(crate) team_acts: Vec<crate::teams::TeamAct>,
 }
 
 /// One seconding, as stored (§3.5).
@@ -3121,12 +3124,15 @@ async fn read_authority_state(
         });
     }
 
+    let team_acts = crate::teams::read_acts(tx, organisation).await?;
+
     Ok(AuthorityState {
         organisation: organisation.to_string(),
         grants,
         secondings,
         suspensions,
         revocations,
+        team_acts,
     })
 }
 
@@ -3219,6 +3225,7 @@ impl AuthorityState {
                 ),
             ));
         }
+        entries.extend(crate::teams::digest_entries(&self.team_acts, row_key));
         entries
     }
 
@@ -3294,7 +3301,7 @@ impl AuthorityState {
                 "grant revocation row seal",
             )?;
         }
-        Ok(())
+        crate::teams::verify_stored_seals(&self.team_acts, row_key)
     }
 
     /// Whether a revocation has taken effect against this grant by `at_unix`.
@@ -3594,7 +3601,7 @@ async fn grant_bytes_of(
 
 /// The scope ids a grant may sit at and still cover `scope`: the scope itself,
 /// every ancestor, and `None` — the organisation, which is above everything.
-async fn covering_scopes(
+pub(crate) async fn covering_scopes(
     tx: &Transaction<'_>,
     organisation: &str,
     scope: Option<&str>,
@@ -3809,7 +3816,7 @@ const POISON: &str = "the quorum pass lock is never held across an await and nev
 /// derived from rows read in the same transaction, and no second use can see it,
 /// so `no_verdict_is_cached_between_two_uses_in_one_process` is unaffected.
 #[derive(Default)]
-struct QuorumPass {
+pub(crate) struct QuorumPass {
     /// The grant ids on the path currently under evaluation. What makes every
     /// path simple, and therefore what makes the walk terminate.
     on_path: BTreeSet<String>,
@@ -3953,7 +3960,7 @@ async fn seconding_qualifies<'a>(
 /// whole-state seal check is what refuses a lying store. Memoised per pass, so
 /// each grant is verified once.
 #[allow(clippy::too_many_arguments)]
-async fn steward_held_at<'a>(
+pub(crate) async fn steward_held_at<'a>(
     tx: &'a Transaction<'a>,
     ring: &'a KeyRing,
     state: &'a AuthorityState,
@@ -4029,9 +4036,9 @@ async fn row_verifies<'a>(
 /// still does all seven steps every time, by calling both in sequence.
 pub(crate) struct VerifiedAuthorityState {
     pub(crate) organisation: String,
-    auth_epoch: i32,
+    pub(crate) auth_epoch: i32,
     pub(crate) root_fpr: [u8; 32],
-    state: AuthorityState,
+    pub(crate) state: AuthorityState,
 }
 
 /// Test-only instrumentation, always compiled (an integration test binary cannot
@@ -4284,6 +4291,34 @@ async fn authorise_subject_in_verified_state(
         };
     }
 
+    // 6b. Through teams (ADR-0081 decision 2): what each team the person is in may do here.
+    //     Read and Draw only, never Steward (attack round T4), and only when the person's own
+    //     grants have not already answered with Draw, which no team can beat.
+    if needed != Capability::Steward
+        && best
+            .as_ref()
+            .is_none_or(|b| b.capability < Capability::Draw)
+    {
+        let pass = Mutex::new(QuorumPass::default());
+        let through = crate::teams::best_through_teams(
+            tx, ring, state, root_fpr, account, &covering, needed, now, &pass,
+        )
+        .await?;
+        if let Some(found) = through {
+            let candidate = Capabilities {
+                organisation: organisation.clone(),
+                scope: found.scope,
+                capability: found.capability,
+                via_grant: found.act_id,
+                auth_epoch,
+            };
+            best = match best {
+                Some(current) if current.capability >= candidate.capability => Some(current),
+                _ => Some(candidate),
+            };
+        }
+    }
+
     match best {
         Some(capabilities) => Ok(capabilities),
         None if short_of_quorum => Err(AuthorityError::QuorumNotMet { needed: 2, have: 1 }),
@@ -4515,6 +4550,7 @@ mod tests {
             secondings: Vec::new(),
             suspensions: Vec::new(),
             revocations: Vec::new(),
+            team_acts: Vec::new(),
         };
         // No live steward at all, which is the most permissive input there is.
         assert_eq!(state.steward_count(1_000), 0);
