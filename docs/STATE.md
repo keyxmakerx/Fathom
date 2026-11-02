@@ -670,6 +670,12 @@ dashed spoke to each, a two-member VPN as one dashed arc with its name, and each
 box; a badge opens a card with range, members, exit node and routes. Not yet: pasting `tailscale status` or
 `netbird status`, and the Rack look. `scripts/drive-vpns.mjs` drives it.
 
+**Routes by hand** (sign-off r96, round 1; no schema change). Inventory › Networks, under Routes, lists every
+static route on every device, pasted or typed, and adds one: a device, To (`default` for 0.0.0.0/0, or a
+prefix) and Via (an IPv4 next hop, or `discard`). A device with no routing instance gets `default`; one with
+several asks which. A pasted route is listed as "from a paste" and is not removed here. `document/routes.ts`;
+`src/engine/routes.trace.test.ts` traces a drawn host past its router once it has a gateway.
+
 **Live co-editing** (#98, ADR-0063 live). Changes are signed requests the server applies to its own
 head through the engine, refusing what the engine or the credential check refuses, then numbers, chains,
 encrypts and streams them to other browsers. Different fields merge; on the same field the later one

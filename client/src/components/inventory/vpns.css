@@ -203,3 +203,9 @@
     gap: 2px;
   }
 }
+
+/* Routes (r96) reuse this section's look; a route row adds a Remove button. */
+.vpns__row-head--route {
+  grid-template-columns: minmax(160px, 2fr) 1fr 1.5fr 1fr auto;
+  align-items: center;
+}
