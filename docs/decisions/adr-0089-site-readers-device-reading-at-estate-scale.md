@@ -1,7 +1,8 @@
 # ADR-0089: Site readers — device reading at estate scale
 
-**Status:** proposed 2026-11-02, design only. Waiting on sign-off card r89-scale-and-ha. Each
-"Recommended" below is the pick pre-selected on that card; nothing here is built.
+**Status:** proposed 2026-11-02, design only. The owner approved every pick on sign-off card
+r89-scale-and-ha (§4). §8, written after the owner asked what breaks at a million devices, waits on
+its own card. Nothing here is built.
 
 **Builds on:** ADR-0082 (Fathom reads devices and never writes to them; the separate reader helper,
 §4.3), ADR-0079 (one estate across designs: the estate index, a design per site), ADR-0071 (the
@@ -199,6 +200,77 @@ run, since `docs/SCALE.md` lists the index's rebuild time as not yet measured.
 2. The simulator and the single-reader measurement (§6.1, §6.2).
 3. The site reader: join, approval, mutual TLS, sealed logins, signed results. Attack round first.
 4. The full-scale run (§6.3, §6.4); numbers into `docs/SCALE.md`.
+
+## 8. At a million devices: what this record changes (proposed, card "reading at a million")
+
+The owner asked (2026-11-02): *"What issues could crop up from this design, is this really the best
+method with the amount of traffic it would have with SNMP alone, or do we need to continue with the
+agent idea ... Will it impact database lookups, because remember we will have close to 1 million
+entries just starting off."* The full answer, in plain words, is the doc "Fathom at a million
+devices" (https://claude.ai/artifact/YZY4qs5wMidQEHRMKxJpvo). What it changes here:
+
+### 8.1 Site readers stay, for the network, not the volume
+
+A nightly read of 1,000,000 devices is about 35 devices a second (an estimate, not a measurement),
+which one server could send. A central reader still fails at that size because it needs every site
+to open SNMP and SSH inbound, carries SNMP over the WAN as UDP (about 80 round trips per access
+switch, each paying the WAN delay; large replies fragment), and reaches every management network
+from one box. Zabbix documents the same reasons for its proxies: remote locations, one outbound TCP
+connection per proxy, and offloading the server "when monitoring thousands of devices" (Zabbix
+manual, "Proxies", read 2026-11-02). SNMPv3 adds two discovery round trips per device and a ±150 s
+time window (RFC 3414 §4 and §3.2).
+
+### 8.2 Rules that do not survive a million devices (the owner's call, on the card)
+
+1. **Audit:** ADR-0071 writes one `vault_read` entry per use on the organisation chain. Scheduled
+   reads instead write one entry per batch, binding the SHA-256 of the batch's list of (device,
+   login, purpose, time, reader); the list is stored beside it, so any single read stays provable.
+   The org chain appends under one advisory lock (`chains.rs`) and `verify_org` walks every entry,
+   so a million entries a night is a cost on every later verify.
+2. **Logins:** "used on" may name a folder (site or building) or a management range, as well as a
+   device. The owner's choice, the second admin for a shared login, Draw, and the per-batch audit
+   all still apply.
+3. **First contact:** after a range's first read, a Steward may approve its SSH host keys and SNMPv3
+   engine IDs as one list (downloadable before approval). A key or engine ID that later changes
+   still stops reads of that device until a person confirms it (ADR-0082 §4.4 unchanged there).
+4. **Tiers:** inventory (ENTITY-MIB, `sysDescr`) weekly; interfaces and LLDP nightly; MAC and ARP
+   tables on request only.
+
+### 8.3 Engineering changes, no question needed
+
+- **Work plans, not job rows.** A reader receives one plan per range and paces itself; it reports in
+  batches. The database holds plans and leases, not a row per device per night.
+- **Latest and changes.** Each device keeps its latest reading (sealed) and a list of changes. An
+  unchanged device writes only "checked at", from a fingerprint the reader sends instead of the
+  reading. Reading writes commit with `synchronous_commit = local`: a reading lost in a failover is
+  read again. PostgreSQL allows exactly this: *"It is therefore possible, and useful, to have some
+  transactions commit synchronously and others asynchronously"* (`synchronous_commit`, v17 text).
+- **Ranges signed by a Steward.** §4.4's "signed update from the server" becomes "signed by a
+  Steward's own key", verified by the reader, so a Fathom server that has been taken over cannot
+  widen a reader's reach. To be confirmed against how ADR-0081 signs team acts.
+- **Fleet upkeep.** The server accepts the current and previous reader protocol version;
+  certificates renew over the existing link; readers report their clock offset; Admin lists readers
+  that are behind. Results a reader holds while offline are sealed to the server's key.
+- **Later, a source beside the readers:** an existing monitoring system (LibreNMS, Zabbix and
+  others), so devices are not polled twice. Ticked on the card, its own record when built.
+
+### 8.4 The estate index on main (fixed in its own PR, not here)
+
+Measured 2026-11-02 on PostgreSQL 16.15 (4 cores) with migration 0058's tables, 1,000 designs of
+1,000 devices and 20 terms each (20,000,000 term rows, 6.8 GB with indexes), second run:
+
+| Operation | main | fixed |
+|---|---|---|
+| Delete one design's rows (FK cascade to `estate_terms`) | 3.1 s for 1 row, 17.9 s for 10 (about 30 to 50 min for 1,000, extrapolated) | 20 ms for 1,000, with an index on `estate_terms (organisation_id, design_id, element_id)` (241 MB) |
+| One common term | 350 to 560 ms | 0.13 ms (no `GROUP BY` for one term) |
+| A rare term plus `kind:device` | 15.1 to 15.3 s | 0.2 to 1.2 ms (kind from `estate_rows`) |
+| Two common terms | 130 to 320 ms | 4 to 7 ms (rarer term drives, `EXISTS` on the other) |
+
+Also from reading the code: two servers can rebuild one design at once (the `Scheduler` is per
+process), and the older rebuild can commit last. The fix takes a per-design advisory lock and never
+replaces rows built from a newer version. A rebuild of a 1,000-device design wrote 57 MB of WAL;
+rebuilding only changed elements, and committing the index (derived data) without waiting for the
+synchronous standby, keep that off the HA link.
 
 ## Not decided here
 
