@@ -1,7 +1,8 @@
 # ADR-0085: Email and notifications over the SMTP setting
 
-**Status:** proposed 2026-11-02. Choices are on the Sign-offs page, card `r85-email`, with the
-recommended pick ticked. Nothing is built.
+**Status:** accepted 2026-11-02. The owner approved Sign-offs card r85-email with every pick as
+recommended (no AMP, links open Fathom, the least in a mail, all six mails, account holders only,
+`lettre`), and in the project chat: *"i'm gonna be honest i want it all lol"*. Nothing is built.
 
 **Builds on:** ADR-0055 (the `smtp` console setting, sealed, and decision 7's reset by mail),
 ADR-0065 decision 6 (device approval by mail), the r75 work plan item 8 (approved 2026-11-02).
@@ -62,7 +63,7 @@ DKIM, DMARC, alignment, and one-click unsubscribe (RFC 8058) on marketing and su
 SPF, DKIM, DMARC and reverse DNS belong to the operator's mail relay and domain, not to Fathom.
 Fathom's part is a well-formed message, TLS to the relay, and the headers below.
 
-## Decided (proposed; the card's picks)
+## Decided
 
 1. **No AMP.** Every mail is `multipart/alternative` with a plain text part and a plain HTML part.
    A button is a link. Revisit only if a hosted Fathom with one registered sender ever exists.
