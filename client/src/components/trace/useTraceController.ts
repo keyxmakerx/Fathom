@@ -81,9 +81,11 @@ interface Deps {
   view: Pick<ClosetView, 'racks' | 'unplaced'> & Partial<Pick<ClosetView, 'surfaces'>>;
   boot: () => Promise<Mirror>;
   mirrorNow: (load?: boolean) => Mirror | null;
+  /** The routing table lit on the Routing lens (r101): a start device with VRFs walks in it. */
+  table?: string | null;
 }
 
-export function useTraceController({ doc, view, boot, mirrorNow }: Deps): TraceController {
+export function useTraceController({ doc, view, boot, mirrorNow, table }: Deps): TraceController {
   const store = useMemo(createTraceStore, []);
   const player = useMemo(() => createTracePlayer(store), [store]);
   const playedKey = useRef('');
@@ -115,7 +117,7 @@ export function useTraceController({ doc, view, boot, mirrorNow }: Deps): TraceC
         await boot();
         const mirror = mirrorNow(true);
         if (mirror == null || run !== runRef.current) return;
-        const r = mirror.trace(from.deviceId, to, flow === 'none' ? undefined : flow);
+        const r = mirror.trace(from.deviceId, to, flow === 'none' ? undefined : flow, table ?? undefined);
         if (run !== runRef.current) return;
         setResult(r);
         setError('');
@@ -138,7 +140,7 @@ export function useTraceController({ doc, view, boot, mirrorNow }: Deps): TraceC
     return undefined;
     // `doc` re-runs the trace when the design changes under it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from?.deviceId, to, flowText, doc]);
+  }, [from?.deviceId, to, flowText, doc, table]);
 
   const suggestions = useMemo(() => {
     if (target != null || query.trim() === '' || address != null) return [];

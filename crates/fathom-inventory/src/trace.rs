@@ -102,10 +102,21 @@ pub struct Trace {
 /// Trace one flow. `from` and `to` are display ids (a device, port or
 /// interface unit) or, for `to`, an address.
 pub fn trace(g: &Graph, from: &str, to: &str, flow: Option<Flow>) -> Trace {
+    trace_in(g, from, to, flow, None)
+}
+
+/// [`trace`], in the routing table a person picked (sign-off r101, the Routing
+/// lens's table picker): `default`, or a VRF's name. It settles which table a
+/// flow is in where the design does not, and only there: when the walk starts
+/// on a device itself, not on one of its interfaces, and that device has VRFs.
+/// A start device with VRFs but no table of that name stops the walk and says so.
+pub fn trace_in(g: &Graph, from: &str, to: &str, flow: Option<Flow>, table: Option<&str>) -> Trace {
     let mut w = Walk {
         steps: std::cell::Cell::new(0),
         g,
         flow,
+        picked: table.map(str::to_owned),
+        start_dev: None,
         t: Trace {
             from: from.to_owned(),
             to: to.to_owned(),
@@ -126,6 +137,10 @@ struct Walk<'a> {
     /// Switch-search steps taken; the search ends at `SEARCH_BUDGET`.
     steps: std::cell::Cell<u32>,
     flow: Option<Flow>,
+    /// The table the person picked, by name; see [`trace_in`].
+    picked: Option<String>,
+    /// The device the walk starts on, once read.
+    start_dev: Option<NodeId>,
     t: Trace,
 }
 
@@ -169,6 +184,7 @@ impl Walk<'_> {
 
     fn run(&mut self, from: &str, to: &str) -> Result<(), String> {
         let (mut dev, mut ingress, mut src) = self.start(from)?;
+        self.start_dev = Some(dev);
         let (dest, dest_dev) = self.end(to)?;
         // A source address is set only when the person gave it (an address as the start), or the start
         // interface (else the start device) holds exactly one address of the destination's family.
@@ -534,6 +550,22 @@ impl Walk<'_> {
         let vrfs = self.vrfs(dev);
         if vrfs.is_empty() {
             return Ok(None);
+        }
+        // A device with only its default table needs no pick; one with VRFs takes the person's.
+        if let (Some(name), Some(true)) = (&self.picked, self.start_dev.map(|s| s == dev)) {
+            if name == "default" {
+                return Ok(None);
+            }
+            return vrfs
+                .iter()
+                .find(|v| self.table_name(Some(**v)) == *name)
+                .map(|v| Some(*v))
+                .ok_or_else(|| {
+                    format!(
+                        "{} has no routing table named {name}",
+                        display_name(self.g, dev)
+                    )
+                });
         }
         let names: Vec<String> = vrfs.iter().map(|v| self.table_name(Some(*v))).collect();
         Err(format!(

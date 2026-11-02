@@ -2468,14 +2468,19 @@ impl Shell {
             return protocol::encode_error(ERR_BAD_UTF8, "the trace request is not UTF-8");
         };
         let mut lines = text.split('\n');
-        let (Some(from), Some(to), Some(flow), None) =
-            (lines.next(), lines.next(), lines.next(), lines.next())
-        else {
+        let (Some(from), Some(to), Some(flow), table, None) = (
+            lines.next(),
+            lines.next(),
+            lines.next(),
+            lines.next(),
+            lines.next(),
+        ) else {
             return protocol::encode_error(
                 ERR_BAD_FRAME,
-                "a trace request is three lines: start, end, flow",
+                "a trace request is three lines (start, end, flow) and an optional fourth (table)",
             );
         };
+        let table = table.map(str::trim).filter(|t| !t.is_empty());
         let flow = flow.trim();
         let flow = if flow.is_empty() {
             None
@@ -2497,11 +2502,12 @@ impl Shell {
             }
             parsed
         };
-        protocol::encode_trace_reply(&fathom_inventory::trace(
+        protocol::encode_trace_reply(&fathom_inventory::trace_in(
             estate,
             from.trim(),
             to.trim(),
             flow,
+            table,
         ))
     }
 

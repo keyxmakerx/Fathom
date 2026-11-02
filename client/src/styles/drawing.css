@@ -1794,6 +1794,37 @@
   background: var(--page);
   pointer-events: none;
 }
+
+/* The table picker, above the key while the design keeps a VRF (r101). */
+.drawing-lens-key {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+
+.drawing-lens-key__table {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--ink);
+  pointer-events: auto;
+}
+
+.drawing-lens-key__table select {
+  font: inherit;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink);
+  background: var(--page);
+  border: var(--rule-hair) solid var(--ink);
+  padding: 2px var(--s1);
+}
+
+.drawing-lens-key__note {
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
 /* Show-menu words on the lines: ink on the page, no border, never a risk colour. */
 .drawing-layer-label {
   position: absolute;

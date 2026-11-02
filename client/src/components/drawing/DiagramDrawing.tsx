@@ -39,6 +39,14 @@ import type { OverlayView } from '../../document/overlays';
 import { overlayShapes } from './overlayDraw';
 import { OverlayCard, OverlayLayer } from './OverlayLayer';
 import type { RoutingMarks, RoutingWord } from './routingLens';
+
+/** The Routing lens's table picker: the tables to choose from, the lit one, and what it lights. */
+export interface TableChoice {
+  names: string[];
+  current: string;
+  lit: { chassis: ReadonlySet<string>; cables: ReadonlySet<string> };
+  onPick: (name: string) => void;
+}
 import { useChecksApi } from '../checks/checksStore';
 import { revealedResult } from '../trace/tracePlayback';
 import { useTraceRevealed, useTraceResult } from '../trace/traceStore';
@@ -177,9 +185,11 @@ export interface DiagramDrawingProps {
   overlays?: readonly OverlayView[];
   /** The Routing lens, while it is lit: words on boxes and lines, switched lines dashed. */
   routing?: RoutingMarks;
+  /** The Routing lens's table picker, when the design keeps a VRF: one table lit, the rest faded. */
+  table?: TableChoice;
 }
 
-function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest, drawnCableIds, dashedCableIds: dashedIn, words: wordsIn, style = 'boxes', cameraHub, minimap, notes, overlays, routing }: DiagramDrawingProps) {
+function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest, drawnCableIds, dashedCableIds: dashedIn, words: wordsIn, style = 'boxes', cameraHub, minimap, notes, overlays, routing, table }: DiagramDrawingProps) {
   const rf = useReactFlow();
   const learn = useLearn();
   // The Routing lens adds to what the Show menu writes: its word takes a line's middle, and a switched line is dashed.
@@ -238,10 +248,10 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         width: b.w,
         height: b.h,
         draggable: false,
-        className: trace != null && !trace.boxes.has(b.id) ? 'trace-faded' : undefined,
+        className: (trace != null && !trace.boxes.has(b.id)) || (table != null && !table.lit.chassis.has(b.id)) ? 'trace-faded' : undefined,
         data: { deviceId: b.id, hostname: b.hostname, selected: b.id === selectedId, words: words?.devices.get(b.id) ?? [], icon: style === 'icons' ? iconForRole(roles.get(b.id)) : null, lens: routing?.devices.get(b.id) ?? [], stopped: trace?.stop?.boxId === b.id } satisfies BoxData,
       })),
-    [boxes, selectedId, words, style, roles, routing, trace],
+    [boxes, selectedId, words, style, roles, routing, trace, table],
   );
 
   const litId = selectedCableId ?? hoverId;
@@ -268,11 +278,11 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
         source: line.a,
         target: line.b,
         selectable: false,
-        className: [line.cable.id === selectedCableId && 'drawing-diagram-line--selected', trace != null && !trace.cables.has(line.cable.id) && 'trace-faded'].filter(Boolean).join(' ') || undefined,
+        className: [line.cable.id === selectedCableId && 'drawing-diagram-line--selected', ((trace != null && !trace.cables.has(line.cable.id)) || (table != null && !table.lit.cables.has(line.cable.id))) && 'trace-faded'].filter(Boolean).join(' ') || undefined,
         data: { cable: line.cable, route, stub, lit, dashed: dashedCableIds?.has(line.cable.id) ?? false, onPath: trace?.cables.has(line.cable.id) ?? false, dimmed: litId != null && !lit, onHover: setHoverId, onSelect: (id: string) => onSelect({ kind: 'cable', id }), onPanTo: panTo } satisfies LineData,
       } satisfies Edge<LineData, 'diagramLine'>;
     });
-  }, [boxes, view, drawnCableIds, dashedCableIds, litId, selectedCableId, settled.rect, settled.zoom, onSelect, panTo, trace]);
+  }, [boxes, view, drawnCableIds, dashedCableIds, litId, selectedCableId, settled.rect, settled.zoom, onSelect, panTo, trace, table]);
 
   // The trace's numbers: on a box's top-left corner, or a line's middle; and the stop's caution box.
   const traceMarks = useMemo(() => {
@@ -428,7 +438,7 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
             {labels.map((l) => (
               <span
                 key={l.key}
-                className={trace != null && !trace.cables.has(l.key.slice(0, l.key.lastIndexOf(':'))) ? 'drawing-layer-label trace-faded-label' : 'drawing-layer-label'}
+                className={(trace ?? table?.lit) != null && !(trace ?? table!.lit).cables.has(l.key.slice(0, l.key.lastIndexOf(':'))) ? 'drawing-layer-label trace-faded-label' : 'drawing-layer-label'}
                 style={{ transform: `translate(${l.x}px, ${l.y}px) scale(${1 / settled.zoom}) translate(${l.ax === 'start' ? '0%' : l.ax === 'end' ? '-100%' : '-50%'}, -50%)` }}
               >
                 {l.text}
@@ -455,9 +465,22 @@ function DiagramInner({ view, selected, onSelect, zoom, onZoomChange, fitRequest
       </ReactFlow>
       {openOverlay != null && <OverlayCard overlay={openOverlay} onClose={() => setOpenOverlayId(null)} />}
       {routing != null && (
-        <p className="drawing-lens-key" data-testid="routing-lens-key">
-          Ink: routed · Dashed: switched · Boxes never move
-        </p>
+        <div className="drawing-lens-key" data-testid="routing-lens-key">
+          {table != null && (
+            <label className="drawing-lens-key__table">
+              Table{' '}
+              <select value={table.current} onChange={(e) => table.onPick(e.target.value)} data-testid="routing-table-picker">
+                {table.names.map((n) => (
+                  <option key={n} value={n}>
+                    {n === 'default' ? 'default' : `VRF ${n}`}
+                  </option>
+                ))}
+              </select>
+              <span className="drawing-lens-key__note">a trace from a device walks in it</span>
+            </label>
+          )}
+          <span>Ink: routed · Dashed: switched · Boxes never move</span>
+        </div>
       )}
       <CanvasTools wheel={wheel} onWheel={setWheel} />
       <CollabLayer />

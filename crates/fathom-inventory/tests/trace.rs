@@ -13,7 +13,7 @@ use fathom_graph::{
     UserId,
 };
 use fathom_id::Ulid;
-use fathom_inventory::{trace, Flow, Trace};
+use fathom_inventory::{trace, trace_in, Flow, Trace};
 use fathom_ir::generated::ir_types::{CableEnd, EdgeKind, NodeKind, PolicyAction, FIELD_KEYS};
 use fathom_ir::scalar;
 use fathom_ir::value::{AddressValue, L4Spec, NextHop, PolicyScope};
@@ -1334,6 +1334,7 @@ struct Vrfs {
     blue: NodeId,
     red_client: NodeId,
     blue_client: NodeId,
+    pe: NodeId,
 }
 
 fn two_vrfs() -> Vrfs {
@@ -1384,7 +1385,44 @@ fn two_vrfs() -> Vrfs {
         blue,
         red_client,
         blue_client,
+        pe,
     }
+}
+
+#[test]
+fn a_table_picked_on_the_routing_lens_settles_where_a_device_start_does_not() {
+    let v = two_vrfs();
+    let pe = v.pe.to_string();
+    // From the device itself, with no table picked: which table is not established.
+    let t = trace(&v.b.g, &pe, "10.0.0.10", None);
+    assert!(
+        t.stopped
+            .contains("which table this flow uses could not be established"),
+        "{}",
+        t.stopped
+    );
+    // The same start, in each picked table, reaches that table's copy of the network.
+    let t = trace_in(&v.b.g, &pe, "10.0.0.10", None, Some("BLUE"));
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(t.hops.last().unwrap().title, "blue-srv");
+    let t = trace_in(&v.b.g, &pe, "10.0.0.10", None, Some("RED"));
+    assert_eq!(t.hops.last().unwrap().title, "red-srv");
+    // A table the start device does not have is said, not guessed.
+    let t = trace_in(&v.b.g, &pe, "10.0.0.10", None, Some("GREEN"));
+    assert!(
+        t.stopped.contains("pe-1 has no routing table named GREEN"),
+        "{}",
+        t.stopped
+    );
+    // A start with only a default table (red-pc) needs no pick, and the pick does not change it.
+    let t = trace_in(
+        &v.b.g,
+        &v.red_client.to_string(),
+        "10.0.0.10",
+        None,
+        Some("BLUE"),
+    );
+    assert_eq!(t.hops.last().unwrap().title, "red-srv");
 }
 
 #[test]

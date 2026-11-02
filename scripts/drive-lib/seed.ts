@@ -19,13 +19,13 @@ import {
 } from './document/commands';
 import { setChassisField, setDeviceField, setPortMac } from './document/edit';
 import { addNote, type NoteHow } from './document/notes';
-import { emptyDocument, formatEdgeId, formatNodeId, parseNodeId, type Document, type NodeKind } from './document/model';
+import { edgesOut, emptyDocument, findNode, formatEdgeId, formatNodeId, identifier, parseNodeId, token, type Document, type NodeKind } from './document/model';
 import { addSubnet, addVlan } from './document/networks';
 import { addRoute } from './document/routes';
 import { setFieldValue, type FieldDefView } from './document/fields';
 import { bulkEstate } from './components/inventory/bulkEstate';
 import { tagObject } from './document/tags';
-import { begin, createFreeBox, finish, setNodeField } from './document/freeform';
+import { addEdge, addNode, begin, createFreeBox, finish, setNodeField } from './document/freeform';
 import { setFirmwareHold, setTarget } from './document/firmware';
 import { newUlid } from './document/ulid';
 import { naturalLabelCompare, viewOf } from './document/view';
@@ -1138,4 +1138,29 @@ export function seedSweetchScene(catalogue: CatalogueModel[], me: string): Docum
   const portOf = (chassisId: string, label: string) =>
     viewOf(doc, catalogue).racks[0]!.chassis.find((c) => c.id === chassisId)!.ports.find((p) => p.label === label)!.id;
   return connectPorts(doc, portOf(sw.chassisId, 'Et49'), portOf(fw.chassisId, '10G to Arista'), { label: 'Arista Et49 to Painite, 10G DAC 3 m' }, { actor: me });
+}
+
+/** The Routing lens's scene with a VRF (r101's table picker): edge-fw also keeps VRF guest, whose port 3
+ * reaches guest-host on 10.99.0.0/24. Nothing else is in guest. */
+export function seedRoutingVrfScene(catalogue: CatalogueModel[], me: string): Document {
+  let working = seedRoutingScene(catalogue, me);
+  const rackId = firstRack(working, catalogue).id;
+  working = place(working, catalogue, rackId, catalogue.find((c) => c.model === 'RS822+')!, 14, 'guest-host', me);
+  const ch = (host: string) => firstRack(working, catalogue).chassis.find((c) => c.hostname === host)!;
+  const rj = (host: string) =>
+    ch(host).ports.filter((p) => p.connector.toLowerCase() === 'rj45').sort((x, y) => naturalLabelCompare(x.label, y.label));
+  const fw = rj('edge-fw')[2]!;
+  const guest = rj('guest-host')[0]!;
+  working = connectPorts(working, fw.id, guest.id, { sheath: 'yellow' }, { actor: me });
+  working = addSubnet(working, { prefix: '10.99.0.0/24', attach: [{ target: { kind: 'port', portId: fw.id, interfaceName: fw.label }, address: '10.99.0.1/24' }] }, { actor: me });
+  working = addSubnet(working, { prefix: '10.99.0.0/24', attach: [{ target: { kind: 'port', portId: guest.id, interfaceName: guest.label }, address: '10.99.0.10/24' }] }, { actor: me });
+  working = addRoute(working, { deviceId: ch('guest-host').deviceId, destination: 'default', via: '10.99.0.1' }, { actor: me }).doc;
+  const fwDevice = ch('edge-fw').deviceId;
+  const b = begin(working, { actor: me });
+  // edge-fw already keeps its default table (its routes by hand are in it); guest is the second.
+  const guestTable = addNode(b, 'RoutingInstance', { 'RoutingInstance.name': identifier('guest'), 'RoutingInstance.isolation': token('routing_table_only') });
+  addEdge(b, 'HasRoutingInstance', fwDevice, guestTable);
+  const iface = edgesOut(working, fwDevice, 'HasInterface').map((e) => findNode(working, e.to)!).find((n) => n.fields['Interface.name']?.value === fw.label)!;
+  addEdge(b, 'InRoutingInstance', edgesOut(working, iface.id, 'HasUnit')[0]!.to, guestTable);
+  return finish(b, 'VRF guest on edge-fw');
 }

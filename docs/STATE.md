@@ -691,7 +691,10 @@ or VLAN, then static routes, each saying whether it came from a paste or by hand
 filled in; and a note that OSPF and BGP routes are not read yet. A path trace now shows on the Diagram look
 too (`diagramTrace.ts`): what the walk touches stays, the rest fades, each hop is numbered on its box or line,
 and a walk that stopped short dashes its last box in caution with a "Stopped here" box beside it giving the
-engine's reason. Not built yet: the VRF table picker.
+engine's reason. When a device keeps a VRF, a Table picker sits above the key: one table lit, the rest at
+the phantom fade (`tableLit` in `routingLens.ts`; a host behind a switch on a VRF's port lights with it), and a
+trace started on a device with VRFs walks in the picked table (`trace_in`, the fourth line of `OP_TRACE`); a
+start on an interface keeps its own table.
 
 **Routes by hand** (sign-off r96, round 1; no schema change). Inventory › Networks, under Routes, lists every
 static route on every device, pasted or typed, and adds one: a device, To (`default` for 0.0.0.0/0, or a

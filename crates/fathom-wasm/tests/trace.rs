@@ -130,6 +130,23 @@ fn no_estate_and_a_bad_frame_are_errors_not_traces() {
     }
 }
 
+#[test]
+fn a_fourth_line_names_the_picked_table_and_a_fifth_is_a_bad_frame() {
+    let (mut shell, device) = pasted();
+    let plain = trace(&mut shell, &device, "198.51.100.77", "6 443");
+    // This SRX has only its default table: a picked table changes nothing (r101's table picker).
+    let picked = face(&shell.handle(
+        OP_TRACE,
+        format!("{device}\n198.51.100.77\n6 443\nRED").as_bytes(),
+    ));
+    assert_eq!(picked[0].strings, plain[0].strings);
+    let reply = shell.handle(OP_TRACE, format!("{device}\na\n\nRED\nmore").as_bytes());
+    match decode_reply(&reply).expect("a reply") {
+        ReplyView::Error(e) => assert_eq!(e.code, ERR_BAD_FRAME),
+        other => panic!("expected an error, got {other:?}"),
+    }
+}
+
 /// Two SRX pastes joined by a route-based VPN (sign-off r96, round 2). The st0 lines are in the
 /// shape Juniper's route-based VPN example writes ("Route-Based VPN with IKEv2", Junos VPN IPsec
 /// guide, read 2026-11-02): `set interfaces st0 unit 0 family inet address 10.11.11.10/24`,

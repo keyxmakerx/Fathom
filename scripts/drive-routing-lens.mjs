@@ -81,6 +81,7 @@ try {
   check('a switched link carries its VLAN', labels.some((t) => /VLAN 11|TRUNK/.test(t)), labels.join(' | '));
   const dashed = await page.locator('.drawing-cable path[stroke-dasharray]').count();
   check('switched links are dashed', dashed >= 3, String(dashed));
+  check('with no VRF in the design there is no table to pick', (await page.getByTestId('routing-table-picker').count()) === 0);
   check('the key says what ink and dashes mean', (await page.getByTestId('routing-lens-key').innerText()).toLowerCase().includes('dashed: switched'));
   await page.screenshot({ path: SHOTS + 'routing-lens-on.png' });
 
@@ -130,6 +131,38 @@ try {
   await page.getByRole('button', { name: 'Cables', exact: true }).click();
   await page.waitForTimeout(300);
   check('with the lens off the Routing tab is not offered', (await page.getByTestId('routing-tab').count()) === 0);
+
+  // The table picker (r101): edge-fw keeps VRF guest; one table lit, the rest faded; a trace walks in it.
+  // The page remembers the Diagram look and the lens; only ask for them when they are not already on.
+  await page.goto(`${BASE}/drive.html?scene=routing-vrf`);
+  await page.waitForSelector('.react-flow__node', { timeout: 15_000 });
+  if ((await page.locator('.drawing-diagram-box').count()) === 0) await page.locator('[aria-label="Views"]').getByText('Diagram', { exact: true }).click();
+  await page.waitForSelector('.drawing-diagram-box');
+  if ((await page.getByTestId('routing-lens-key').count()) === 0) await page.getByRole('button', { name: 'Routing', exact: true }).click();
+  await page.click('button[aria-label="Fit to view"]').then(() => page.waitForTimeout(700));
+  const picker = page.getByTestId('routing-table-picker');
+  const options = (await picker.count()) > 0 ? await picker.locator('option').allInnerTexts() : [];
+  check('a design with a VRF offers its tables', options.join('|') === 'default|VRF guest', options.join('|'));
+  check('edge-fw keeps two tables', (await word('edge-fw')).includes('ROUTES · 2 TABLES'), await word('edge-fw'));
+  const fadedHosts = async () => (await page.locator('.react-flow__node.trace-faded .drawing-diagram-box__name').allInnerTexts()).sort().join(',');
+  check('default lit: guest-host is faded', (await fadedHosts()) === 'guest-host', await fadedHosts());
+  await picker.selectOption('guest');
+  await page.waitForTimeout(300);
+  check('guest lit: only edge-fw and guest-host stay', (await fadedHosts()) === 'acc-sw1,core-sw,nas-01,srv-01', await fadedHosts());
+  await page.screenshot({ path: SHOTS + 'routing-table-guest.png' });
+  await page.locator('.drawing-diagram-box', { hasText: 'edge-fw' }).click();
+  await page.getByTestId('device-trace-from').click();
+  await page.waitForSelector('[data-testid=trace-panel]', { timeout: 5_000 });
+  await page.locator('[data-testid=trace-to]').fill('10.99.0.10');
+  await page.waitForTimeout(1500);
+  let vrfHops = await page.locator('[data-testid=trace-hop]').allInnerTexts();
+  check('a trace from edge-fw walks in VRF guest to guest-host', vrfHops.length > 0 && vrfHops[vrfHops.length - 1].includes('guest-host') && (await page.getByTestId('diagram-trace-stop').count()) === 0, vrfHops.join(' // '));
+  await page.screenshot({ path: SHOTS + 'routing-table-trace.png' });
+  await picker.selectOption('default');
+  await page.waitForTimeout(1500);
+  vrfHops = await page.locator('[data-testid=trace-hop]').allInnerTexts();
+  check('the same trace in the default table does not reach guest-host', !vrfHops.some((h) => h.includes('guest-host')), vrfHops.join(' // '));
+
   check('no page errors', pageErrors.length === 0, pageErrors.join(' | '));
   console.log('    wrote ' + SHOTS + 'routing-lens-*.png');
 } finally {

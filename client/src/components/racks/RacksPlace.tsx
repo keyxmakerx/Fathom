@@ -96,7 +96,7 @@ import { findDevice, findShelf } from '../drawing/lookup';
 import { mediaCandidates } from '../checks/checksModel';
 import { CheckMarksContext, ChecksContext } from '../checks/checksStore';
 import { useChecksController } from '../checks/useChecksController';
-import { routingMarks } from '../drawing/routingLens';
+import { routingMarks, tableLit, tableNames } from '../drawing/routingLens';
 import { RoutingContext, type RoutingApi } from '../drawing/RoutingTab';
 import { TracePanel } from '../trace/TracePanel';
 import { InSideSlot, type SideTab } from '../shell/sideSlot';
@@ -877,6 +877,15 @@ export function RacksPlace(props: RacksPlaceProps) {
   const words = useMemo(() => layerWords(doc, displayView, layers), [doc, displayView, layers]);
   // The Routing lens (sign-off r101): routed against switched, on the same boxes.
   const routing = useMemo(() => (shellProps.lens === 'routing' ? routingMarks(doc, displayView) : undefined), [shellProps.lens, doc, displayView]);
+  // The Routing lens's table picker (r101): one table lit, the rest faded; a trace walks in it.
+  const [pickedTable, setPickedTable] = useState<string | null>(null);
+  const tableChoice = useMemo(() => {
+    if (shellProps.lens !== 'routing' || doc == null) return undefined;
+    const names = tableNames(doc, displayView);
+    if (names.length === 0) return undefined;
+    const current = pickedTable != null && names.includes(pickedTable) ? pickedTable : 'default';
+    return { names, current, lit: tableLit(doc, displayView, current), onPick: setPickedTable };
+  }, [shellProps.lens, doc, displayView, pickedTable]);
   const learn = useLearn();
   const learnExplainers = learn?.explainers;
   const notes = useMemo(
@@ -1018,7 +1027,7 @@ export function RacksPlace(props: RacksPlaceProps) {
     ) : undefined;
 
   // Path trace (ADR-0061 item 9): the same module; opened from a device's right-click.
-  const trace = useTraceController({ doc, view: realView, boot: ensureMirror, mirrorNow });
+  const trace = useTraceController({ doc, view: realView, boot: ensureMirror, mirrorNow, table: tableChoice?.current ?? null });
   // The device panel's Routing tab, while the Routing lens is lit (sign-off r101).
   const routingApi = useMemo((): RoutingApi | null => (doc == null ? null : { lit: shellProps.lens === 'routing', doc, applyDocChange: canDraw ? applyDocChange : undefined }), [doc, shellProps.lens, canDraw, applyDocChange]);
   // A traced path that crosses a link between sites offers to continue there (ADR-0079 decision 5).
@@ -2268,6 +2277,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           minimap={canvasAids.prefs.minimap}
           overlays={vpns}
           routing={routing}
+          table={tableChoice}
         />
       ) : (
         <Drawing

@@ -12,7 +12,8 @@
  *
  * Pure; nothing here reads the engine, so it says what is drawn and typed, not what a trace finds. */
 
-import type { Document } from '../../document/model';
+import { edgesOut, findNode, type Document } from '../../document/model';
+import type { EdgeKind } from '../../../../schema/generated/ir_types';
 import { deriveNetworks } from '../../document/networks-derive';
 import { instancesOf, listRoutes } from '../../document/routes';
 import { formatIpv4, parseCidr, rangeOf } from '../../document/ipam';
@@ -146,4 +147,78 @@ export function routingMarks(doc: Document | null, view: ClosetView): RoutingMar
     cables.set(id, { mid: vlanWord(e.ids, e.trunk) });
   }
   return { devices, cables, switched, routed };
+}
+
+/** The routing tables the design holds, for the Routing lens's table picker: `default` first, then each
+ * VRF's name once, however many devices keep it. Empty when no device keeps a VRF: there is nothing to pick. */
+export function tableNames(doc: Document | null, view: ClosetView): string[] {
+  if (doc == null) return [];
+  const names = new Set<string>();
+  for (const ch of [...view.racks.flatMap((r) => r.chassis), ...(view.unplaced ?? [])]) for (const i of instancesOf(doc, ch.deviceId)) if (i.name !== 'default') names.add(i.name);
+  return names.size === 0 ? [] : ['default', ...[...names].sort((a, b) => a.localeCompare(b))];
+}
+
+const liveOut = (doc: Document, from: string, kind: EdgeKind) => edgesOut(doc, from, kind).filter((e) => e.absentSince === undefined && findNode(doc, e.to)?.absentSince === undefined);
+
+/** What one table lights (r101, "one table lit, the rest at 0.28"). A port on a device with VRFs is in the
+ * tables its interface's units are in. A cable is in the tables of its ends; one with no such end takes the
+ * tables of the devices it joins, which take them from their other cables, so a host behind a switch on a
+ * VRF's port lights with that VRF. A cable that learns no table is in the default one. A box is lit when it
+ * keeps the table or a lit cable reaches it; with `default` lit, a box with no cable is lit too. */
+export function tableLit(doc: Document, view: ClosetView, table: string): { chassis: Set<string>; cables: Set<string> } {
+  const chassis = [...view.racks.flatMap((r) => r.chassis), ...(view.unplaced ?? [])];
+  const portTables = new Map<string, Set<string>>();
+  const keeps = new Set<string>();
+  const vrfDevice = new Set<string>();
+  for (const ch of chassis) {
+    const instances = instancesOf(doc, ch.deviceId);
+    const vrfs = new Map(instances.filter((i) => i.name !== 'default').map((i) => [i.id, i.name]));
+    // Every device holds a default table, so keeping one says nothing; a VRF device keeps the default beside its VRFs.
+    if (table === 'default' ? vrfs.size > 0 : instances.some((i) => i.name === table)) keeps.add(ch.id);
+    if (vrfs.size === 0) continue;
+    vrfDevice.add(ch.id);
+    for (const ie of liveOut(doc, ch.deviceId, 'HasInterface')) {
+      const iface = findNode(doc, ie.to)!;
+      const units = [ie.to, ...liveOut(doc, ie.to, 'MemberOfAggregate').map((e) => e.to)].flatMap((i) => liveOut(doc, i, 'HasUnit').map((e) => e.to));
+      if (units.length === 0) continue;
+      const tables = new Set(units.map((u) => vrfs.get(liveOut(doc, u, 'InRoutingInstance')[0]?.to ?? '') ?? 'default'));
+      const name = iface.fields['Interface.name'];
+      const occupied = liveOut(doc, ie.to, 'Occupies').map((e) => e.to);
+      const ports = occupied.length > 0 ? occupied : ch.ports.filter((p) => name?.presence === 'set' && p.label === name.value).map((p) => p.id);
+      for (const port of ports) portTables.set(port, new Set([...(portTables.get(port) ?? []), ...tables]));
+    }
+  }
+  const cableEnds = view.cables.map((c) => ({ id: c.id, ends: c.ends.filter((e): e is { portId: string; chassisId: string; rackId: string | null } => 'portId' in e) }));
+  const cableTables = new Map<string, Set<string>>();
+  for (const c of cableEnds) {
+    const t = new Set(c.ends.filter((e) => vrfDevice.has(e.chassisId)).flatMap((e) => [...(portTables.get(e.portId) ?? [])]));
+    if (t.size > 0) cableTables.set(c.id, t);
+  }
+  // Spread across devices with no VRF of their own until nothing changes.
+  const fixed = new Set(cableTables.keys());
+  for (let changed = true, rounds = 0; changed && rounds <= cableEnds.length; rounds++) {
+    changed = false;
+    const deviceTables = new Map<string, Set<string>>();
+    for (const c of cableEnds) for (const e of c.ends) if (!vrfDevice.has(e.chassisId)) for (const t of cableTables.get(c.id) ?? []) deviceTables.set(e.chassisId, new Set([...(deviceTables.get(e.chassisId) ?? []), t]));
+    for (const c of cableEnds) {
+      if (fixed.has(c.id)) continue;
+      const before = cableTables.get(c.id)?.size ?? 0;
+      const t = new Set([...(cableTables.get(c.id) ?? []), ...c.ends.flatMap((e) => [...(deviceTables.get(e.chassisId) ?? [])])]);
+      if (t.size > before) {
+        cableTables.set(c.id, t);
+        changed = true;
+      }
+    }
+  }
+  const cables = new Set<string>();
+  const lit = new Set(keeps);
+  const cabled = new Set<string>();
+  for (const c of cableEnds) {
+    for (const e of c.ends) cabled.add(e.chassisId);
+    if (!(cableTables.get(c.id) ?? new Set(['default'])).has(table)) continue;
+    cables.add(c.id);
+    for (const e of c.ends) lit.add(e.chassisId);
+  }
+  if (table === 'default') for (const ch of chassis) if (!cabled.has(ch.id)) lit.add(ch.id);
+  return { chassis: lit, cables };
 }

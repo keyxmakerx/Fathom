@@ -4,12 +4,12 @@ import { describe, expect, it } from 'vitest';
 import { connectPorts } from '../../document/cables';
 import { addSketchPort, createSketchDevice } from '../../document/commands';
 import { addAddress, interfaceChoices } from '../../document/ipam-write';
-import { moveFree } from '../../document/freeform';
-import { emptyDocument, parseNodeId, type Document } from '../../document/model';
+import { addEdge, addNode, begin, finish, moveFree } from '../../document/freeform';
+import { edgesOut, emptyDocument, findNode, identifier, parseNodeId, token, type Document } from '../../document/model';
 import { addVlan } from '../../document/networks';
 import { addRoute } from '../../document/routes';
 import { viewOf } from '../../document/view';
-import { networkOf, routingMarks } from './routingLens';
+import { networkOf, routingMarks, tableLit, tableNames } from './routingLens';
 
 function addDevice(doc: Document, ports: string[]): { doc: Document; deviceId: string; chassisId: string; portIds: string[] } {
   const before = new Set(doc.nodes.map((n) => n.id));
@@ -87,5 +87,46 @@ describe('the Routing lens', () => {
   it('draws nothing without a design', () => {
     const m = routingMarks(null, viewOf(emptyDocument(), []));
     expect(m.devices.size).toBe(0);
+  });
+});
+
+/** The router keeps a VRF, cust-a, and its port 1 (to host b) is in it. */
+function withVrf() {
+  const d = design();
+  // Host b's own gateway gives it a default table of its own; that alone does not light it with the default.
+  d.doc = addRoute(d.doc, { deviceId: d.b.deviceId, destination: 'default', via: '10.0.2.1' }).doc;
+  const b = begin(d.doc, {});
+  const tables: Record<string, string> = {};
+  for (const name of ['default', 'cust-a']) {
+    tables[name] = addNode(b, 'RoutingInstance', { 'RoutingInstance.name': identifier(name), 'RoutingInstance.isolation': token('routing_table_only') });
+    addEdge(b, 'HasRoutingInstance', d.r.deviceId, tables[name]);
+  }
+  const iface = edgesOut(d.doc, d.r.deviceId, 'HasInterface').map((e) => findNode(d.doc, e.to)!).find((n) => n.fields['Interface.name']?.value === '1')!;
+  const unit = edgesOut(d.doc, iface.id, 'HasUnit')[0]!.to;
+  addEdge(b, 'InRoutingInstance', unit, tables['cust-a']!);
+  return { ...d, doc: finish(b, 'a VRF') };
+}
+
+describe('the Routing lens table picker', () => {
+  it('offers nothing to pick until a device keeps a VRF', () => {
+    const d = design();
+    expect(tableNames(d.doc, viewOf(d.doc, []))).toEqual([]);
+    const v = withVrf();
+    expect(tableNames(v.doc, viewOf(v.doc, []))).toEqual(['default', 'cust-a']);
+  });
+
+  it('lights one table: the VRF reaches only the host on its port', () => {
+    const v = withVrf();
+    const view = viewOf(v.doc, []);
+    const cableOf = (portId: string) => view.cables.find((c) => c.ends.some((e) => 'portId' in e && e.portId === portId))!.id;
+    const cust = tableLit(v.doc, view, 'cust-a');
+    expect([...cust.chassis].sort()).toEqual([v.r.chassisId, v.b.chassisId].sort());
+    expect([...cust.cables]).toEqual([cableOf(v.b.portIds[0])]);
+    const def = tableLit(v.doc, view, 'default');
+    expect(def.chassis.has(v.a.chassisId) && def.chassis.has(v.r.chassisId)).toBe(true);
+    expect(def.chassis.has(v.b.chassisId)).toBe(false);
+    // The switch and its pc join no VRF device: they are in the default table.
+    expect(def.chassis.has(v.s.chassisId) && def.cables.has(cableOf(v.s.portIds[0]))).toBe(true);
+    expect(cust.chassis.has(v.s.chassisId)).toBe(false);
   });
 });

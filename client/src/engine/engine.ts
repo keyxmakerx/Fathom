@@ -907,10 +907,12 @@ export class Engine {
     return readInsideReply(rows);
   }
 
-  /** `OP_TRACE`: one flow's path. `flow` is `{ protocol, port }` (6 is TCP, 17 UDP), or omitted. A trace
-   * that stops short still returns; `stopped` says why. */
-  trace(from: string, to: string, flow?: { protocol: number; port: number }): TraceResult {
-    const req = new TextEncoder().encode(`${from}\n${to}\n${flow ? `${flow.protocol} ${flow.port}` : ''}`);
+  /** `OP_TRACE`: one flow's path. `flow` is `{ protocol, port }` (6 is TCP, 17 UDP), or omitted. `table` is
+   * the routing table picked on the Routing lens (`default` or a VRF's name): it settles a start device's
+   * table where the design does not. A trace that stops short still returns; `stopped` says why. */
+  trace(from: string, to: string, flow?: { protocol: number; port: number }, table?: string): TraceResult {
+    const lines = `${from}\n${to}\n${flow ? `${flow.protocol} ${flow.port}` : ''}`;
+    const req = new TextEncoder().encode(table ? `${lines}\n${table}` : lines);
     return readTraceReply(this.callFaces(OPCODES.OP_TRACE, req));
   }
 
