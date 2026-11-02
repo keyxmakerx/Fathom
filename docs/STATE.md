@@ -685,7 +685,11 @@ Diagram look writes on the same boxes: a device that routes says `ROUTES · n TA
 with VLANs and no address says `SWITCHES ONLY`. A cable whose ends share a network carries the prefix in
 ink; one in a VLAN is dashed with its VLANs. A key sits bottom left. The Rack look dashes switched cables
 only. Read off the design, not a trace (`components/drawing/routingLens.ts`); `scripts/drive-routing-lens.mjs`
-drives it. Not built yet: the panel's Routing tab, numbered trace hops, the VRF table picker.
+drives it. While the lens is lit the device panel opens on a Routing tab (`RoutingTab.tsx`, `routingTable` in
+`document/routes.ts`): a table per routing table, default first, then each VRF; connected networks named by port
+or VLAN, then static routes, each saying whether it came from a paste or by hand; Add route with the device
+filled in; and a note that OSPF and BGP routes are not read yet. Not built yet: numbered trace hops, the VRF
+table picker.
 
 **Routes by hand** (sign-off r96, round 1; no schema change). Inventory › Networks, under Routes, lists every
 static route on every device, pasted or typed, and adds one: a device, To (`default` for 0.0.0.0/0, or a

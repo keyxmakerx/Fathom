@@ -2756,3 +2756,39 @@
   opacity: 0.4;
   cursor: default;
 }
+
+/* The device panel's Routing tab (sign-off r101): the device's own table, ink on the page. */
+.routing-tab__table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: var(--s3);
+  font-size: var(--t-small);
+}
+.routing-tab__table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 1px solid var(--hairline);
+  padding: 2px 6px 2px 0;
+}
+.routing-tab__table td {
+  border-bottom: 1px solid var(--hairline);
+  padding: 4px 6px 4px 0;
+  vertical-align: top;
+}
+.routing-tab__mono {
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+.routing-tab__muted {
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+.routing-tab__from {
+  white-space: nowrap;
+}
+.routing-tab__actions {
+  display: flex;
+  gap: var(--s2);
+  margin: var(--s2) 0 var(--s3);
+}

@@ -36,9 +36,11 @@ function liveDevices(doc: Document): { id: string; hostname: string }[] {
     .sort((a, b) => a.hostname.localeCompare(b.hostname, undefined, { numeric: true }));
 }
 
-function AddRoute({ doc, applyDocChange, onClose }: { doc: Document; applyDocChange: (next: Document) => void; onClose: () => void }) {
+/** The Add route form. `device` fixes the device (the device panel's Routing tab), and the picker is not shown. */
+export function AddRoute({ doc, applyDocChange, onClose, device }: { doc: Document; applyDocChange: (next: Document) => void; onClose: () => void; device?: string }) {
   const devices = useMemo(() => liveDevices(doc), [doc]);
-  const [deviceId, setDeviceId] = useState('');
+  const [picked, setDeviceId] = useState('');
+  const deviceId = device ?? picked;
   const [destination, setDestination] = useState('default');
   const [via, setVia] = useState('');
   const [instanceId, setInstanceId] = useState('');
@@ -60,25 +62,27 @@ function AddRoute({ doc, applyDocChange, onClose }: { doc: Document; applyDocCha
         }
       }}
     >
-      <label className="vpns__field">
-        <span>Device</span>
-        <select
-          className="vpns__input"
-          value={deviceId}
-          onChange={(e) => {
-            setDeviceId(e.target.value);
-            setInstanceId('');
-          }}
-          autoFocus
-        >
-          <option value="">Pick a device…</option>
-          {devices.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.hostname}
-            </option>
-          ))}
-        </select>
-      </label>
+      {device == null ? (
+        <label className="vpns__field">
+          <span>Device</span>
+          <select
+            className="vpns__input"
+            value={deviceId}
+            onChange={(e) => {
+              setDeviceId(e.target.value);
+              setInstanceId('');
+            }}
+            autoFocus
+          >
+            <option value="">Pick a device…</option>
+            {devices.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.hostname}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       {tables.length > 1 ? (
         <label className="vpns__field">
           <span>Routing table</span>

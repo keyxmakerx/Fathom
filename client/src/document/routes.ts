@@ -6,6 +6,7 @@
 
 import { begin, finish, addNode, addEdge, tombstone } from './freeform';
 import type { CanonValue } from './canon';
+import { formatIpv4, parseCidr, rangeOf } from './ipam';
 import { edgesIn, edgesOut, findNode, identifier, ipAddr, ipPrefix, parseNodeId, token, type Document, type GraphNode } from './model';
 
 interface Actor {
@@ -200,4 +201,80 @@ export function removeRoute(doc: Document, routeId: string, opts?: Actor): Docum
   const edges = edgesIn(doc, routeId, 'HasStaticRoute').filter((e) => e.absentSince === undefined);
   tombstone(b, new Set([routeId]), new Set(edges.map((e) => e.id)));
   return finish(b, 'remove route');
+}
+
+// ---------------------------------------------------------------------------
+// One device's routing table, for the panel's Routing tab (sign-off r101, option A).
+
+export interface ConnectedView {
+  /** The network, `10.10.11.0/24`; an IPv6 address is shown as written. */
+  network: string;
+  /** `connected, Vlan11`. */
+  how: string;
+  pasted: boolean;
+}
+
+export interface TableView {
+  /** The routing instance, or '' when the device has none yet. */
+  id: string;
+  /** `default`, or the VRF's name. */
+  name: string;
+  connected: ConnectedView[];
+  statics: RouteView[];
+}
+
+/** Where a connected network sits, as the drawing names it: the port (`ge-0/0/1`, unit 0 left off),
+ * a VLAN's gateway by its VLAN (`VLAN 11`), and a bare port number as `port 0`. */
+function connectedOn(doc: Document, unitId: string): string {
+  const owner = edgesIn(doc, unitId, 'HasUnit')[0]?.from;
+  const iface = owner ? findNode(doc, owner) : undefined;
+  const name = iface ? str(iface, `${parseNodeId(iface.id).kind}.name`) : '';
+  const u = findNode(doc, unitId);
+  const idx = u?.fields['LogicalUnit.index'];
+  const index = idx && idx.presence === 'set' ? String(idx.value) : '0';
+  const vlan = edgesIn(doc, unitId, 'L3Interface')
+    .filter((e) => e.absentSince === undefined)
+    .map((e) => findNode(doc, e.from))
+    .find(live);
+  const vid = vlan?.fields['Vlan.vlan_id'];
+  // A VLAN's gateway is named by its VLAN; a port by its name, with "port" before a bare number.
+  if (vid && vid.presence === 'set') return `VLAN ${String(vid.value)}`;
+  const where = name === '' ? unitName(doc, unitId) : index === '0' ? name : `${name}.${index}`;
+  return /^\d/.test(where) ? `port ${where}` : where;
+}
+
+function networkOfAddress(value: string): string {
+  const p = parseCidr(value);
+  if (p == null || !value.includes('/')) return value;
+  return `${formatIpv4(rangeOf(p.ip, p.len).base)}/${p.len}`;
+}
+
+/** A device's tables: the default first, then each VRF by name; in each, its connected networks
+ * (one per address on a unit in that table) and then its static routes. */
+export function routingTable(doc: Document, deviceId: string): TableView[] {
+  const instances = instancesOf(doc, deviceId);
+  const isDefault = (name: string) => name === 'default';
+  const defaultId = instances.find((i) => isDefault(i.name))?.id ?? '';
+  const tables = new Map<string, TableView>();
+  tables.set(defaultId, { id: defaultId, name: 'default', connected: [], statics: [] });
+  for (const i of instances) if (!isDefault(i.name)) tables.set(i.id, { id: i.id, name: i.name, connected: [], statics: [] });
+  for (const ie of edgesOut(doc, deviceId, 'HasInterface')) {
+    if (ie.absentSince !== undefined) continue;
+    for (const ue of edgesOut(doc, ie.to, 'HasUnit')) {
+      const unit = findNode(doc, ue.to);
+      if (ue.absentSince !== undefined || !live(unit)) continue;
+      const vrf = edgesOut(doc, unit.id, 'InRoutingInstance').find((e) => e.absentSince === undefined)?.to;
+      const table = tables.get(vrf != null && tables.has(vrf) ? vrf : defaultId)!;
+      for (const ae of edgesOut(doc, unit.id, 'HasAddress')) {
+        const a = findNode(doc, ae.to);
+        if (ae.absentSince !== undefined || !live(a)) continue;
+        const v = a.fields['Address.value'];
+        if (!v || v.presence !== 'set' || typeof v.value !== 'string') continue;
+        table.connected.push({ network: networkOfAddress(v.value), how: `connected, ${connectedOn(doc, unit.id)}`, pasted: isPasted(doc, a) });
+      }
+    }
+  }
+  for (const r of listRoutes(doc)) if (r.deviceId === deviceId) (tables.get(r.instanceId) ?? tables.get(defaultId)!).statics.push(r);
+  for (const t of tables.values()) t.connected.sort((x, y) => x.network.localeCompare(y.network, undefined, { numeric: true }));
+  return [...tables.values()];
 }

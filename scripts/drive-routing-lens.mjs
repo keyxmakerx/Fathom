@@ -83,6 +83,26 @@ try {
   check('switched links are dashed', dashed >= 3, String(dashed));
   check('the key says what ink and dashes mean', (await page.getByTestId('routing-lens-key').innerText()).toLowerCase().includes('dashed: switched'));
   await page.screenshot({ path: SHOTS + 'routing-lens-on.png' });
+
+  // The device panel's Routing tab, shown first while the lens is lit.
+  await page.locator('.drawing-diagram-box', { hasText: 'core-sw' }).click();
+  await page.waitForSelector('[data-testid="routing-tab"]', { timeout: 10_000 }).catch(() => {});
+  const tab = page.getByTestId('routing-tab');
+  const tabText = (await tab.count()) > 0 ? await tab.innerText() : '';
+  check('core-sw\'s panel opens on its Routing tab', tabText !== '', tabText);
+  check('the tab lists the VLAN 11 network as connected, by its VLAN', /10\.10\.11\.0\/24\s+connected, VLAN 11\s/.test(tabText), tabText);
+  check('the tab lists the default route by hand', /default\s+via 10\.255\.255\.0\s+by hand/.test(tabText), tabText);
+  check('the tab says what is not read yet', tabText.includes('OSPF or BGP'), tabText);
+  await page.screenshot({ path: SHOTS + 'routing-panel.png' });
+  await page.getByTestId('routing-tab-add').click();
+  await page.waitForSelector('form[aria-label="Add a route"]');
+  check('Add route opens with the device filled in', (await page.locator('form[aria-label="Add a route"] select').count()) === 0);
+  await page.screenshot({ path: SHOTS + 'routing-panel-add.png' });
+
+  // The lens off: the tab is gone.
+  await page.getByRole('button', { name: 'Cables', exact: true }).click();
+  await page.waitForTimeout(300);
+  check('with the lens off the Routing tab is not offered', (await page.getByTestId('routing-tab').count()) === 0);
   check('no page errors', pageErrors.length === 0, pageErrors.join(' | '));
   console.log('    wrote ' + SHOTS + 'routing-lens-*.png');
 } finally {

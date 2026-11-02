@@ -97,6 +97,7 @@ import { mediaCandidates } from '../checks/checksModel';
 import { CheckMarksContext, ChecksContext } from '../checks/checksStore';
 import { useChecksController } from '../checks/useChecksController';
 import { routingMarks } from '../drawing/routingLens';
+import { RoutingContext, type RoutingApi } from '../drawing/RoutingTab';
 import { TracePanel } from '../trace/TracePanel';
 import { InSideSlot, type SideTab } from '../shell/sideSlot';
 import { TraceContext } from '../trace/traceStore';
@@ -1018,6 +1019,8 @@ export function RacksPlace(props: RacksPlaceProps) {
 
   // Path trace (ADR-0061 item 9): the same module; opened from a device's right-click.
   const trace = useTraceController({ doc, view: realView, boot: ensureMirror, mirrorNow });
+  // The device panel's Routing tab, while the Routing lens is lit (sign-off r101).
+  const routingApi = useMemo((): RoutingApi | null => (doc == null ? null : { lit: shellProps.lens === 'routing', doc, applyDocChange: canDraw ? applyDocChange : undefined }), [doc, shellProps.lens, canDraw, applyDocChange]);
   // A traced path that crosses a link between sites offers to continue there (ADR-0079 decision 5).
   const traceContinuation = useMemo(() => {
     if (doc == null || trace.result == null) return null;
@@ -2227,7 +2230,7 @@ export function RacksPlace(props: RacksPlaceProps) {
 
   return (
     <SelectThing.Provider value={selectThing}>
-    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, cables: look === 'diagram' ? undefined : { value: cableStyle, onChange: changeCableStyle, colour: { value: cableColour, onChange: changeCableColour } }, aids: { ...showAids, items: showAids.items.filter((a) => a.id !== 'colourKey') } }} layersExtra={doc != null && look === 'rack' && keyRows.length > 0 ? <ColourKey rows={keyRows} onHighlight={setKeyCableIds} /> : undefined} mainView={mainView} designExtra={doc != null && isSample ? <SampleChip onReset={canDraw && loadFirstSave != null ? resetSample : undefined} /> : undefined} doing={doc != null ? doing : undefined} zoomStops={look === 'rack' ? zoomStops : undefined} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor} history={historyView?.panel} rail={rail} autoEquipment={autoOpenEquipment(doc != null, canDraw, realView)} equipmentRequest={equipmentRequest} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} sideTabs={sideTabs} task={task} barExtra={
+    <Shell {...shellProps} path={jotPath} look={{ value: look, onChange: changeLook }} views={viewsMenu.group} viewsFolded={viewsMenu.folded} layers={{ value: layers, onToggle: toggleLayer, style: { value: diagramStyle, onChange: changeDiagramStyle }, cables: look === 'diagram' ? undefined : { value: cableStyle, onChange: changeCableStyle, colour: { value: cableColour, onChange: changeCableColour } }, aids: { ...showAids, items: showAids.items.filter((a) => a.id !== 'colourKey') } }} layersExtra={doc != null && look === 'rack' && keyRows.length > 0 ? <ColourKey rows={keyRows} onHighlight={setKeyCableIds} /> : undefined} mainView={mainView} designExtra={doc != null && isSample ? <SampleChip onReset={canDraw && loadFirstSave != null ? resetSample : undefined} /> : undefined} doing={doc != null ? doing : undefined} zoomStops={look === 'rack' ? zoomStops : undefined} onZoomFit={() => setFitRequest((n) => n + 1)} editor={editor == null ? editor : <RoutingContext.Provider value={routingApi}>{editor}</RoutingContext.Provider>} history={historyView?.panel} rail={rail} autoEquipment={autoOpenEquipment(doc != null, canDraw, realView)} equipmentRequest={equipmentRequest} viewOnly={!canDraw} cablesGroupsPopover={cablesGroupsPopover} cablesGroupsSummary={cablesGroupsSummary} hiddenCablesCount={hiddenCablesInClosetCount} onShowAllHiddenCables={handleShowAllHiddenCables} sideTabs={sideTabs} task={task} barExtra={
         doc != null ? (
           <MissingLinksChip found={missingLinks} onGo={handleGoToMissingLink} />
         ) : undefined
