@@ -5,6 +5,7 @@ import { addNote, notesOf as notesOfDoc, removeNote, type NoteHow } from '../../
 import { fieldForOwner, fieldsOf as fieldsOfDoc, setFieldValue, type FieldType } from '../../document/fields';
 import { useFieldDefinitions } from './useFieldDefinitions';
 import { asString, fieldValue, findNode, isNodeOfKind, type Document } from '../../document/model';
+import { WorkPlaceContext, type WorkPlace } from '../work/WorkFields';
 import { listTags, renameTag, tagObject, tagsOf as tagsOfDoc, untagObject } from '../../document/tags';
 import { skippedSentence } from '../../document/liveDoc';
 import { redo as redoBatch, redoSkipping, undo as undoBatch, undoSkipping, undoable } from '../../document/undo';
@@ -716,29 +717,36 @@ export function DesignPlace(props: DesignPlaceProps) {
     },
     [designId, onOpenScan, session.doc, goToInventory],
   );
+  const requestPlan = useCallback(
+    (id: string) => {
+      setPlanRequest({ id });
+      onPlaceChange('racks');
+    },
+    [onPlaceChange],
+  );
   const scanDoc = session.doc;
   const handledScan = useRef<object | null>(null);
   useEffect(() => {
     if (scanRequest == null || scanRequest.designId !== designId || scanDoc == null || handledScan.current === scanRequest) return;
     handledScan.current = scanRequest;
+    // Sign-off r74: a plan from the Work tab opens on the canvas, in its plan panel.
+    if (isNodeOfKind(scanRequest.nodeId, 'MaintenancePlan')) {
+      const plan = findNode(scanDoc, scanRequest.nodeId);
+      if (plan != null && plan.absentSince === undefined) requestPlan(scanRequest.nodeId);
+      else setScanMessage('That plan is no longer in this design.');
+      return;
+    }
     const hash = scanHash(scanDoc, scanRequest.nodeId);
     if (hash != null) goToInventory(hash, true);
     else {
       setScanMessage('That label is for something no longer in this design.');
       setScanning(true);
     }
-  }, [scanRequest, designId, scanDoc, goToInventory]);
+  }, [scanRequest, designId, scanDoc, goToInventory, requestPlan]);
 
   const requestUpgrade = useCallback(
     (template: UpgradeTemplate) => {
       setUpgradeRequest({ template });
-      onPlaceChange('racks');
-    },
-    [onPlaceChange],
-  );
-  const requestPlan = useCallback(
-    (id: string) => {
-      setPlanRequest({ id });
       onPlaceChange('racks');
     },
     [onPlaceChange],
@@ -1146,6 +1154,11 @@ export function DesignPlace(props: DesignPlaceProps) {
       />
     );
 
+  // Sign-off r74: the Work tab's parts on this design's plans, issues and spares.
+  const workPlace = useMemo<WorkPlace>(
+    () => ({ organisationId, designId, accountId, doc: session.doc, canDraw: session.canDraw, applyDocChange: session.applyDocChange, redact }),
+    [organisationId, designId, accountId, session.doc, session.canDraw, session.applyDocChange, redact],
+  );
   // The place stays mounted while the preview shows, so closing it loses nothing; print CSS hides it, `inert` disables it.
   // `inert`: Firefox 112+, Chrome 102+, Safari 15.5+ (html.global_attributes.inert, read 2026-09-26).
   return (
@@ -1157,7 +1170,9 @@ export function DesignPlace(props: DesignPlaceProps) {
           <PaletteRegistryContext.Provider value={paletteRegistry}>
             <DocsContext.Provider value={docs.api}>
               <LearnContext.Provider value={learn.api}>
-                <CollabContext.Provider value={collab}>{place}</CollabContext.Provider>
+                <CollabContext.Provider value={collab}>
+                  <WorkPlaceContext.Provider value={workPlace}>{place}</WorkPlaceContext.Provider>
+                </CollabContext.Provider>
               </LearnContext.Provider>
             </DocsContext.Provider>
           </PaletteRegistryContext.Provider>

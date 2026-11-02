@@ -372,6 +372,12 @@ pub struct Meta {
     pub kind: String,
     /// `(design id, element id)` pairs.
     pub used_on: Vec<(String, String)>,
+    /// A person ticked "This is a read-only account" (ADR-0082 §4.1, layer 1). Fathom cannot see
+    /// how the device configures the account, so this is the person's word, shown on the device's
+    /// Logins tab; device reading uses only a login that carries it. Sealed with the rest of the
+    /// metadata, and written into it only when true, so a login saved before the tick existed
+    /// keeps the same sealed bytes.
+    pub read_only: bool,
 }
 
 impl Meta {
@@ -428,7 +434,14 @@ impl Meta {
             name,
             kind: kind.to_string(),
             used_on,
+            read_only: false,
         })
+    }
+
+    /// The same metadata with the read-only tick set as given.
+    pub fn with_read_only(mut self, read_only: bool) -> Self {
+        self.read_only = read_only;
+        self
     }
 
     pub(crate) fn to_canonical(&self) -> Vec<u8> {
@@ -444,6 +457,9 @@ impl Meta {
                     .collect(),
             ),
         );
+        if self.read_only {
+            m.insert("readOnly".to_string(), Json::Bool(true));
+        }
         Json::Obj(m).to_canonical_bytes()
     }
 
@@ -455,6 +471,11 @@ impl Meta {
             (m.remove("name"), m.remove("kind"), m.remove("usedOn"))
         else {
             return Err(VaultError::Corrupt("vault metadata"));
+        };
+        let read_only = match m.remove("readOnly") {
+            None => false,
+            Some(Json::Bool(true)) => true,
+            Some(_) => return Err(VaultError::Corrupt("vault metadata")),
         };
         let mut used_on = Vec::with_capacity(list.len());
         for item in list {
@@ -470,6 +491,7 @@ impl Meta {
             name,
             kind,
             used_on,
+            read_only,
         })
     }
 }
@@ -1999,6 +2021,7 @@ impl EntryView {
                         .collect(),
                 ),
             ),
+            ("readOnly", Json::Bool(self.meta.read_only)),
             ("owner", s(&self.owner)),
             ("ownerName", s(&self.owner_name)),
             ("createdAt", Json::Int(self.created_ms)),
@@ -2192,6 +2215,30 @@ mod tests {
             "x",
             "login",
             vec![(d.clone(), "sw-1".into()), (d, "sw-1".into())]
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn the_read_only_tick_is_sealed_only_when_ticked() {
+        let plain = Meta::clean("sw monitor", "snmp", vec![]).unwrap();
+        // A login saved before the tick existed keeps exactly the bytes it was sealed with.
+        assert_eq!(
+            String::from_utf8(plain.to_canonical()).unwrap(),
+            "{\"kind\":\"snmp\",\"name\":\"sw monitor\",\"usedOn\":[]}\n"
+        );
+        assert!(
+            !Meta::from_canonical(&plain.to_canonical())
+                .unwrap()
+                .read_only
+        );
+        let ticked = plain.with_read_only(true);
+        let back = Meta::from_canonical(&ticked.to_canonical()).unwrap();
+        assert!(back.read_only);
+        assert_eq!(back, ticked);
+        // Only `true` is ever written, so anything else is not Fathom's.
+        assert!(Meta::from_canonical(
+            b"{\"kind\":\"snmp\",\"name\":\"x\",\"readOnly\":false,\"usedOn\":[]}\n"
         )
         .is_err());
     }

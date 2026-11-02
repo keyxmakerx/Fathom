@@ -108,6 +108,12 @@ makes it irrelevant.
   verified at use; granting is propose-then-sign; suspension cannot manufacture a sole steward; expiry
   is evaluated at use; the sole-steward flag is inside the signed grant bytes (`fathom/grant/v2`). It
   refuses to apply over a pre-release database with enrolled keys: recreate it.
+- **0066: teams** (ADR-0081, `teams.rs`; attacked first in `docs/TEAMS-ATTACK-ROUND.md`). A team is a
+  third principal kind; every change to one is a signed, append-only row in `team_acts`
+  (`fathom/team/act/v1`) inside the authority head. A person's access is their own grants plus their
+  teams' Read or Draw, resolved in the same per-request walk. Staffing a team is a root steward's act;
+  a lead adds and removes others, never themselves. Routes under `/organisations/{o}/teams`; no
+  screens yet, and no operator suspend, approvals or work assignment.
 - **0013: sessions** (`sessions.rs`, `api.rs`; admin §4). A signed message on every request that
   reaches design payload or vault ciphertext, single-use nonces, a browser-held session key, a MAC
   under a site-scoped row key.
@@ -218,6 +224,33 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   memory becomes it; Undo reaches those 500. `verify?deep=true` checks a slim checkpoint against one
   compaction of the whole replay. History pages from the server, newest first
   (`…/history?newest=N&before=SEQ`); the panel asks for 100 entries at a time.
+- **The Work tab (ADR-0087, sign-offs r74, schema 0.35, 2026-11-02).** Home and the bar gain **Work**:
+  maintenance plans, troubleshooting issues and spares on order, in repair or lent, from every design
+  the caller may read, in **Now** and **Coming up and waiting**, with kind chips, a site filter, **Mine**
+  and finished work behind a button (`components/work/`). The estate index gains plan and issue rows
+  and gives each work row a Fathom number, `W-42`, per organisation and never reused (migration 0064,
+  `work_numbers`). `POST …/work/page` answers the rows, account names and who is in each design now;
+  the tab asks again every five seconds while it is shown. Plans, issues and spares gain `assigned_to`
+  (an account id, picked from those holding Draw) and `ticket` (an outside link, only http and https
+  open); issues gain `due`. Comments are notes on the item. On a phone the rows become cards.
+- **The IP plan store, server half (ADR-0083 decisions 1, 3, 4 and 5; schema 0.36, field keys
+  562-636; migration 0065; 2026-11-02).** A fourth schema layer, `plan`, declares eleven kinds
+  (`IpamVrf`, `IpamRouteTarget`, `IpamAggregate`, `IpamPrefix`, `IpamRange`, `IpamAddress`,
+  `IpamReservation`, `IpamVlanGroup`, `IpamVlan`, `IpamAsnRange`, `IpamAsn`) that are records on the
+  server beside the designs; the plain face refuses a design holding one, in Rust and the browser.
+  `ipam.rs` keeps them per organisation, each sealed under a key derived from the tenant key
+  (`fathom/ip-plan/v1`), every change an organisation-chain entry with its fields, and checks every
+  value with the schema's own parsers. Read on a record's folder sees it; Draw plans in it, reserves
+  and releases what one holds; Steward makes aggregates, VRFs, route targets, VLAN groups and ASN
+  ranges and releases anyone's reservation. **Next free** (`POST …/ipam/next`) hands out the lowest
+  free prefix of a length, address, VLAN ID or ASN under a transaction-level advisory lock on the
+  parent, skipping what the plan holds, populated ranges and every address the estate index has
+  drawn; the same allocation key gives the same answer, and from another parent is refused. A keyed
+  hash of VRF and network, unique per organisation, refuses a duplicate in a VRF that enforces unique
+  space and anything handed out twice. A reservation is held by a person or a piece of work, ends
+  after 30 days unless told otherwise, and reads `lapsed` after its end. Routes: `…/ipam/list`,
+  `…/create`, `…/update` (with the version read), `…/delete`, `…/next`. **No screens yet**, no
+  difference checks and no NetBox files (ADR-0083 order steps 3, 4 and 6).
 - **Who did what on the console, from where (sign-offs r52, 2026-10-27).** Every console and sign-in
   request writes an `access` line with the client's address and the proxy it came through
   (`access_log.rs`), also sent to `FATHOM_ACCESS_SYSLOG` when set, best effort (`access_ship.rs`).
@@ -692,6 +725,16 @@ for one person (migration 0056, Organisation › People); the address is then no
 gone. Proved against a real Termix 26.10.6 in CI (the `termix` job, `scripts/drive-termix.mjs`, ADR-0080
 decision 1); that run found Termix refuses a new host without `authType` since 26.10.2, so Fathom now sends
 `authType: none`.
+
+**Device reading, part one** (ADR-0082 §4.3 and §4.4; migration 0067; `src/device_read.rs`,
+`src/device_read_admin.rs`, `helpers/reader/`, `components/organisation/DeviceReadingPage.tsx`). The
+switches and the reader's socket, no reads yet. The operator allows reading with `FATHOM_DEVICE_READ=on`
+and the `reader` compose profile (its own image, network and gate, `scripts/gate-reader.sh`); Admin ›
+Settings shows it, read-only. A Steward then turns it on per organisation and lists the management ranges
+(Steward › Device reading, `device_read_set` on the organisation's history); loopback, link-local,
+multicast and reserved addresses are refused whatever is listed. A vault login or SNMP entry can be marked
+read-only (sealed in its details, shown on the Logins card). The reader answers a ping, proved through
+its socket in CI (the `reader` job). SNMPv3 and SSH reads are parts two and three.
 
 **Termix in the work** (ADR-0080 decisions 2 to 11; schema 0.34, field keys 552-554; migration 0063;
 `components/termix/`, `components/plans/SeenBox.tsx`, `components/plans/checkSeen.ts`). Every part is

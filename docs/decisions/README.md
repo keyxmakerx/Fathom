@@ -117,6 +117,14 @@ question was not in the register. *R* is the reversal cost from `73` §1.2 — R
 | **[0078](adr-0078-termix-beside-fathom.md)** | Termix beside Fathom: open a device's terminal, Fathom never connects | Accepted |  |  |
 | **[0079](adr-0079-one-estate-across-designs.md)** | One estate across designs: the estate index, links between sites, and slimmer saves | Accepted |  |  |
 | **[0080](adr-0080-termix-in-the-work.md)** | Termix in the work: plans, logins by reference, snippets and checks | Accepted |  |  |
+| **[0081](adr-0081-teams-leads-and-supervisors.md)** | Teams, leads and supervisors: a team holds Read or Draw like a person, leads and supervisors hand out work, every access change signed | Accepted |  |  |
+| **[0082](adr-0082-fathom-reads-devices-and-never-writes.md)** | Fathom reads devices and never writes to them: invariant 2 amended, SNMPv3 and SSH read-only, a reader helper | Accepted |  |  |
+| **[0083](adr-0083-ip-management-a-plan-store-beside-the-drawing.md)** | IP management: a plan store beside the drawing | Accepted |  |  |
+| **[0084](adr-0084-orders-and-the-job-engine.md)** | Orders and the job engine: order definitions in YAML, and a builder on a canvas | Accepted |  |  |
+| **[0085](adr-0085-email-and-notifications.md)** | Email and notifications over the SMTP setting | Accepted |  |  |
+| **[0086](adr-0086-ai-and-the-new-work.md)** | What an AI connection may see and suggest in the new work | Accepted |  |  |
+| **[0087](adr-0087-the-work-tab.md)** | The Work tab: one list of work across designs, with Fathom numbers | Accepted |  |  |
+| **[0088](adr-0088-where-the-new-work-lives.md)** | Where the new work lives: one map of the app for seven features | Accepted |  |  |
 
 ## What is not reopened
 
@@ -130,6 +138,9 @@ document, the diagram as a view and never a source of truth, no plugin system, n
 Where an ADR above touches one of these, it **clarifies wording** (ADR-0002) or **corrects an
 implementation that did not match** (ADR-0011). None of them reverses one. A future document
 proposing any reversal is proposing a different product and should say so.
+That sentence dates from 2026-07-28. Since then the owner has reopened items on merit (CLAUDE.md
+rule 6): ADR-0042 keeps credentials in a vault, and ADR-0082 lets Fathom read a device, never write
+to one.
 
 ## The form
 

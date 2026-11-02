@@ -434,6 +434,11 @@ async fn main() -> ExitCode {
         client_address: client_address.clone(),
         connector: ai_connector.clone(),
     };
+    // ADR-0082: the reader's socket, shared by the Steward routes and Admin › Settings.
+    let device_reader = config.device_reader.clone().map(|path| {
+        Arc::new(fathom_server::device_read::SocketTransport { path })
+            as Arc<dyn fathom_server::device_read::Transport>
+    });
     let designs = fathom_server::design_api::DesignApiState {
         sessions: Arc::clone(&sessions),
         watch,
@@ -447,6 +452,7 @@ async fn main() -> ExitCode {
         invitation_limits: fathom_server::invitations::Limits::STANDARD,
         ai_connector,
         termix: config.termix.clone(),
+        device_reader: device_reader.clone(),
     };
 
     // The operator plane. ADR-0055 decision 3: the quorum is `min(2, live
@@ -1080,6 +1086,15 @@ async fn main() -> ExitCode {
                     ring.master_key_id(),
                     ring.chain_key_id(),
                 ),
+            },
+        ))
+        // ADR-0082 §4.4: `GET /admin/device-read`, whether this server reads devices. Shown,
+        // never set: it is `FATHOM_DEVICE_READ`, an environment setting.
+        .merge(fathom_server::device_read_admin::router(
+            fathom_server::device_read_admin::DeviceReadAdminState {
+                sessions: Arc::clone(&sessions),
+                client_address: client_address.clone(),
+                reader: device_reader.clone(),
             },
         ))
         // The confirmation and the sweep: the first verified `/admin` request on the new

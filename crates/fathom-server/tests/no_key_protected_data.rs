@@ -293,6 +293,13 @@ const TABLES: &[TableClaim] = &[
               and no Termix key.",
     },
     TableClaim {
+        name: "organisation_device_read",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "Device reading switched on for an organisation, and the management ranges a read \
+              may reach (0067): an id, one boolean, address ranges with their ports, who set them \
+              and when. No login, no community string and nothing a device answered.",
+    },
+    TableClaim {
         name: "member_termix",
         protection: Protection::NoKeyProtectedMaterial,
         why: "Termix switched off for one person (0056): ids, one boolean, who set it and when. \
@@ -393,6 +400,20 @@ const TABLES: &[TableClaim] = &[
         protection: Protection::NoKeyProtectedMaterial,
         why: "the positive, append-only fact that a grant is dead (§3.2). A revoker id, a \
               fingerprint, a signature, a chain sequence and a seal.",
+    },
+    TableClaim {
+        name: "teams",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "a team's display record (0066): an id, the organisation, a slug, a name and a \
+              deleted flag. Plain text under the tenant policy, as `accounts.display_name` is; \
+              it grants nothing, `team_acts` does.",
+    },
+    TableClaim {
+        name: "team_acts",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "append-only signed acts on teams (0066, ADR-0081): ids, act and role words, a \
+              capability, fingerprints, a 64-byte signature, a chain sequence and a seal. The \
+              permission map again, structure readable from a dump as for `scope_grants`.",
     },
     TableClaim {
         name: "organisation_auth_head",
@@ -876,6 +897,37 @@ const TABLES: &[TableClaim] = &[
         protection: Protection::NoKeyProtectedMaterial,
         why: "the design version each design's index rows were last built from. Ids and a \
               number.",
+    },
+    TableClaim {
+        name: "work_numbers",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "the Fathom number of each piece of work (a plan, an issue, a spare that is out), \
+              beside its design and element ids. Ids and a number (sign-off r74).",
+    },
+    TableClaim {
+        name: "ipam_records",
+        protection: Protection::KeyProtected {
+            columns: &["sealed"],
+            under: "the IP plan store key, derived from the tenant key by HKDF under its own \
+                    label `fathom/ip-plan/v1` (ADR-0083 decision 1)",
+        },
+        why: "one record of the organisation's IP plan (a prefix, range, address, reservation, \
+              VRF, route target, VLAN group, VLAN, ASN range or ASN): its fields, sealed. Beside \
+              it in the clear: its id, kind, folder id, version and the tenant key epoch.",
+    },
+    TableClaim {
+        name: "ipam_unique",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "keyed hashes (HMAC under a key derived from the tenant key) of a record's VRF and \
+              network, beside the record id, so the database refuses a duplicate. What it learns \
+              is which records share a network (ADR-0083 decision 5).",
+    },
+    TableClaim {
+        name: "ipam_allocations",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "keyed hashes of what asked for a block (an allocation key such as a work number \
+              and slot), beside the record and parent ids, so the same request gets the same \
+              answer (ADR-0083 decision 5).",
     },
 ];
 

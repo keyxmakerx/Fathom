@@ -94,6 +94,11 @@ const TAG_KEY_SUCCESSION: &[u8] = b"fathom/key/succession/v1";
 /// wrote. See [`retire_bytes`].
 const TAG_KEY_RETIRE: &[u8] = b"fathom/key/retire/v1";
 
+/// Every act on a team (ADR-0081; `docs/TEAMS-ATTACK-ROUND.md` T5). One tag for all of
+/// them, with the act's name inside the bytes, so no team act's signature verifies as a
+/// grant's or as a different act's.
+const TAG_TEAM_ACT: &[u8] = b"fathom/team/act/v1";
+
 /// §3.4's row-seal subkey, and its three in-MAC tags.
 const KDF_ROW_LABEL: &[u8] = b"fathom/chain/kdf/row/v1";
 const TAG_ROW: &[u8] = b"fathom/row/v1";
@@ -150,6 +155,10 @@ pub const LABELS: &[(&str, &str)] = &[
     (
         "fathom/key/retire/v1",
         "in-signature tag of retire_bytes (§8.4 is silent)",
+    ),
+    (
+        "fathom/team/act/v1",
+        "in-signature tag of team_act_bytes (ADR-0081, attack round T5)",
     ),
     (
         "fathom/chain/kdf/row/v1",
@@ -394,6 +403,81 @@ pub fn revoke_bytes(
     crypto::lp(&mut msg, grant_id.as_bytes());
     crypto::lp(&mut msg, &grant_hash);
     crypto::u64_le(&mut msg, revoked_at_unix as u64);
+    msg
+}
+
+/// Everything `team_act_bytes` covers (ADR-0081 decision 5).
+///
+/// Optional fields are the empty string, length-prefixed, so "absent" has one encoding; the
+/// act's name says which are meaningful. `undoes` and `undone_bytes` name the act a removal,
+/// clearance or revocation takes back, by id and by the hash of its own signed bytes (T10),
+/// so a removal is bound to the fact it removes and not to a row id alone.
+pub struct TeamActFacts<'a> {
+    pub organisation: &'a str,
+    pub root_pubkey_fpr: &'a [u8; 32],
+    pub act_id: &'a str,
+    pub team: &'a str,
+    pub act: &'a str,
+    pub subject: Option<&'a str>,
+    pub subject_key_fpr: &'a [u8; 32],
+    pub role: Option<&'a str>,
+    pub scope: Option<&'a str>,
+    pub capability: Option<Capability>,
+    pub undoes: Option<&'a str>,
+    pub undone_bytes: Option<&'a [u8]>,
+    pub signer: &'a str,
+    pub signer_key_fpr: &'a [u8; 32],
+    /// `steward` or `lead`: the authority the signer claims, checked at use (T1, T3).
+    pub signer_authority: &'a str,
+    pub at_unix: i64,
+    pub auth_epoch: i32,
+}
+
+/// The bytes a person signs for one team act.
+///
+/// ```text
+/// team_act_bytes = LP("fathom/team/act/v1")
+///                ‖ LP(organisation_id) ‖ LP(root_pubkey_fpr)
+///                ‖ LP(act_id) ‖ LP(team_id) ‖ LP(act)
+///                ‖ LP(subject_id_or_empty) ‖ LP(subject_key_fpr)
+///                ‖ LP(role_or_empty) ‖ LP(scope_id_or_empty) ‖ LP(capability_or_empty)
+///                ‖ LP(undoes_or_empty) ‖ LP(H(undone_act_bytes) or empty)
+///                ‖ LP(signer_id) ‖ LP(signer_key_fpr) ‖ LP(signer_authority)
+///                ‖ u64(at_unix) ‖ u32(auth_epoch)
+/// ```
+pub fn team_act_bytes(facts: &TeamActFacts<'_>) -> Vec<u8> {
+    let mut msg = Vec::with_capacity(384);
+    crypto::lp(&mut msg, TAG_TEAM_ACT);
+    crypto::lp(&mut msg, facts.organisation.as_bytes());
+    crypto::lp(&mut msg, facts.root_pubkey_fpr);
+    crypto::lp(&mut msg, facts.act_id.as_bytes());
+    crypto::lp(&mut msg, facts.team.as_bytes());
+    crypto::lp(&mut msg, facts.act.as_bytes());
+    crypto::lp(&mut msg, facts.subject.unwrap_or("").as_bytes());
+    crypto::lp(&mut msg, facts.subject_key_fpr);
+    crypto::lp(&mut msg, facts.role.unwrap_or("").as_bytes());
+    crypto::lp(&mut msg, facts.scope.unwrap_or("").as_bytes());
+    crypto::lp(
+        &mut msg,
+        facts
+            .capability
+            .map(|c| c.as_str())
+            .unwrap_or("")
+            .as_bytes(),
+    );
+    crypto::lp(&mut msg, facts.undoes.unwrap_or("").as_bytes());
+    match facts.undone_bytes {
+        Some(bytes) => {
+            let hash: [u8; 32] = Sha256::digest(bytes).into();
+            crypto::lp(&mut msg, &hash);
+        }
+        None => crypto::lp(&mut msg, b""),
+    }
+    crypto::lp(&mut msg, facts.signer.as_bytes());
+    crypto::lp(&mut msg, facts.signer_key_fpr);
+    crypto::lp(&mut msg, facts.signer_authority.as_bytes());
+    crypto::u64_le(&mut msg, facts.at_unix as u64);
+    crypto::u32_le(&mut msg, facts.auth_epoch as u32);
     msg
 }
 

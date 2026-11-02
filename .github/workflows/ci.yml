@@ -340,6 +340,63 @@ jobs:
           docker logs pbh
           docker rm -f pbh
 
+  # ADR-0082 §4.3: the device reader, `helpers/reader/`, is its own workspace with its own lockfile
+  # so that its SNMP and SSH packages never enter Fathom's (owner's answers 2026-11-02,
+  # r76-device-reading question 1 A and r87-reader-packages). This job runs the same gates over
+  # that lock, then format, clippy and tests, then builds its image and asks the running container
+  # to answer `ping` through its socket.
+  reader:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch cargo-deny and cargo-audit (pinned, checksummed)
+        run: |
+          ./scripts/ci/fetch-audit-tools.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Install the pinned toolchain (reads rust-toolchain.toml)
+        run: rustup toolchain install
+
+      - name: The reader lockfile's gates (gate-zero, look-alikes, deny, audit, cooldown, OSV)
+        run: ./scripts/gate-reader.sh
+
+      - name: Format
+        run: cargo fmt --manifest-path helpers/reader/Cargo.toml --check
+
+      - name: Clippy, warnings are errors
+        run: cargo clippy --manifest-path helpers/reader/Cargo.toml --all-targets --locked -- -D warnings
+
+      - name: Tests
+        run: cargo test --manifest-path helpers/reader/Cargo.toml --locked
+
+      - name: Build the image and ping it, locked down as compose runs it
+        run: |
+          set -euo pipefail
+          docker build -f deploy/reader.Dockerfile --target reader -t fathom-reader:ci .
+          docker volume create reader-ci
+          docker run -d --name rdr --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges:true --user 65532:65532 \
+            -v reader-ci:/run/fathom-reader fathom-reader:ci
+          for i in $(seq 1 20); do
+            docker run --rm -v reader-ci:/run/fathom-reader alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 \
+              test -S /run/fathom-reader/reader.sock && break
+            sleep 1
+          done
+          sudo python3 -I -c '
+          import socket, struct, json, sys, glob
+          path = glob.glob("/var/lib/docker/volumes/reader-ci/_data/reader.sock")[0]
+          s = socket.socket(socket.AF_UNIX); s.connect(path)
+          b = json.dumps({"op": "ping", "protocol": 1}).encode()
+          s.sendall(struct.pack(">I", len(b)) + b)
+          n = struct.unpack(">I", s.recv(4))[0]
+          a = json.loads(s.recv(n))
+          print(a); sys.exit(0 if a.get("ok") is True and a.get("protocol") == 1 else 1)
+          '
+          docker logs rdr
+          docker rm -f rdr
+
   # The client's own tests and typecheck. Until this job nothing ran vitest in CI: the image build
   # typechecks the client, but a red client test reached main unseen. The tests load the real
   # redaction gate, so the wasm engine is built first, and they run in the same pinned Node image

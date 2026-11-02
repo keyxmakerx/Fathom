@@ -443,6 +443,17 @@ pub enum EntryType {
     /// A steward switched Termix off or back on (ADR-0078 decision 6, migration `0056`): for
     /// `everyone` in the organisation, or for one `account`; `off`, and the `actor`.
     TermixAccessSet,
+    /// A record of the IP plan store was made (ADR-0083, migration `0065`), by hand or
+    /// handed out by next free: its `record` id, `kind`, `version`, `fields` and the `actor`.
+    IpamRecordCreated,
+    /// A record of the IP plan store was changed: as [`EntryType::IpamRecordCreated`].
+    IpamRecordChanged,
+    /// A record of the IP plan store was deleted, or a reservation released: its `record`
+    /// id, `kind`, last `version` and the `actor`.
+    IpamRecordDeleted,
+    /// A Steward turned device reading on or off, or changed its management ranges (ADR-0082
+    /// §4.4, migration `0067`): `on`, the whole `ranges` list after the change, and the `actor`.
+    DeviceReadSet,
 
     // ---- The password vault, Mode A (migration 0041, storage §13.4) ---------
     //
@@ -586,6 +597,18 @@ pub enum EntryType {
     // ---- Account name (migration 0049) -------------------------------------
     /// A person changed their own name. Names the account, not the name.
     AccountRenamed,
+    // ---- Teams (migration 0066, ADR-0081) -----------------------------------
+    /// Written by `teams.rs`, one per act. Each names the team, the actor and the person,
+    /// role, scope or capability the act touches; never a team's name.
+    TeamCreated,
+    TeamRenamed,
+    TeamDeleted,
+    TeamMemberAdded,
+    TeamMemberRemoved,
+    TeamRoleSet,
+    TeamRoleCleared,
+    TeamGrantSigned,
+    TeamGrantRevoked,
 }
 
 impl EntryType {
@@ -659,6 +682,10 @@ impl EntryType {
             Self::TypeItYourselfSet => "type_it_yourself_set",
             Self::DesignMoved => "design_moved",
             Self::TermixAccessSet => "termix_access_set",
+            Self::IpamRecordCreated => "ipam_record_created",
+            Self::IpamRecordChanged => "ipam_record_changed",
+            Self::IpamRecordDeleted => "ipam_record_deleted",
+            Self::DeviceReadSet => "device_read_set",
             Self::VaultKeyEnrolled => "vault_key_enrolled",
             Self::VaultKeySuperseded => "vault_key_superseded",
             Self::VaultEntryCreated => "vault_entry_created",
@@ -682,6 +709,15 @@ impl EntryType {
             Self::AiRecommendationDecided => "ai_recommendation_decided",
             Self::AiSwitchChanged => "ai_switch_changed",
             Self::AccountRenamed => "account_renamed",
+            Self::TeamCreated => "team_created",
+            Self::TeamRenamed => "team_renamed",
+            Self::TeamDeleted => "team_deleted",
+            Self::TeamMemberAdded => "team_member_added",
+            Self::TeamMemberRemoved => "team_member_removed",
+            Self::TeamRoleSet => "team_role_set",
+            Self::TeamRoleCleared => "team_role_cleared",
+            Self::TeamGrantSigned => "team_grant_signed",
+            Self::TeamGrantRevoked => "team_grant_revoked",
         }
     }
 
@@ -755,6 +791,10 @@ impl EntryType {
             "type_it_yourself_set" => Some(Self::TypeItYourselfSet),
             "design_moved" => Some(Self::DesignMoved),
             "termix_access_set" => Some(Self::TermixAccessSet),
+            "ipam_record_created" => Some(Self::IpamRecordCreated),
+            "ipam_record_changed" => Some(Self::IpamRecordChanged),
+            "ipam_record_deleted" => Some(Self::IpamRecordDeleted),
+            "device_read_set" => Some(Self::DeviceReadSet),
             "vault_key_enrolled" => Some(Self::VaultKeyEnrolled),
             "vault_key_superseded" => Some(Self::VaultKeySuperseded),
             "vault_entry_created" => Some(Self::VaultEntryCreated),
@@ -778,6 +818,15 @@ impl EntryType {
             "ai_recommendation_decided" => Some(Self::AiRecommendationDecided),
             "ai_switch_changed" => Some(Self::AiSwitchChanged),
             "account_renamed" => Some(Self::AccountRenamed),
+            "team_created" => Some(Self::TeamCreated),
+            "team_renamed" => Some(Self::TeamRenamed),
+            "team_deleted" => Some(Self::TeamDeleted),
+            "team_member_added" => Some(Self::TeamMemberAdded),
+            "team_member_removed" => Some(Self::TeamMemberRemoved),
+            "team_role_set" => Some(Self::TeamRoleSet),
+            "team_role_cleared" => Some(Self::TeamRoleCleared),
+            "team_grant_signed" => Some(Self::TeamGrantSigned),
+            "team_grant_revoked" => Some(Self::TeamGrantRevoked),
             _ => None,
         }
     }
@@ -868,6 +917,10 @@ impl EntryType {
             | Self::TypeItYourselfSet
             | Self::DesignMoved
             | Self::TermixAccessSet
+            | Self::IpamRecordCreated
+            | Self::IpamRecordChanged
+            | Self::IpamRecordDeleted
+            | Self::DeviceReadSet
             | Self::VaultKeyEnrolled
             | Self::VaultKeySuperseded
             | Self::VaultEntryCreated
@@ -879,7 +932,16 @@ impl EntryType {
             | Self::VaultRead
             | Self::VaultBreachPolicySet
             | Self::VaultOutsideChanged
-            | Self::VaultOutsideRead => &[ChainKind::Org],
+            | Self::VaultOutsideRead
+            | Self::TeamCreated
+            | Self::TeamRenamed
+            | Self::TeamDeleted
+            | Self::TeamMemberAdded
+            | Self::TeamMemberRemoved
+            | Self::TeamRoleSet
+            | Self::TeamRoleCleared
+            | Self::TeamGrantSigned
+            | Self::TeamGrantRevoked => &[ChainKind::Org],
             // **Two types are filed on two kinds.** `rewrap` because the master key
             // is deployment-wide (§7.2). `grant_suspended` because §1.1 gives the
             // operator plane this one authority-adjacent verb: the organisation

@@ -20,6 +20,17 @@ else."* This file is that record. `deny.toml` keeps `[[bans.deny]] name = "ring"
 `wrappers = ["rustls", "rustls-webpki"]`, so ring under any other parent still fails the build,
 and only `src/vault_outside/https.rs` names rustls.
 
+### Widened 2026-11-02: SMTP to the operator's relay
+
+On 2026-11-02 the owner approved sign-off card r85-email with A on the mail library: *"lettre,
+with only its SMTP parts, over the rustls and ring already in Fathom … ring's one exception grows
+from 'HTTPS to outside vaults' to 'and SMTP to your mail server'"* (ADR-0085 decision 9). So ring
+is allowed under rustls for two uses: outbound HTTPS to outside vaults, and outbound SMTP to the
+relay set in the console's `smtp` setting. `wrappers` does not change, because `lettre` reaches
+ring only through rustls. A third use still needs its own decision. `lettre` and what it brings
+get their own records when the client is built.
+
+
 ## Why not the alternatives
 
 - **`aws-lc-rs`**, rustls's default provider: more C than ring, and a CMake build. Still banned.

@@ -371,3 +371,22 @@
   gap: var(--s1);
   font-size: var(--t-small);
 }
+
+/* ADR-0088: the Steward list in quiet groups. A heading is a label, not a control. */
+.org-rail__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+
+.org-rail__group + .org-rail__group {
+  margin-top: var(--s3);
+}
+
+.org-rail__heading {
+  padding: 0 var(--s2);
+  font-size: var(--t-small);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+}

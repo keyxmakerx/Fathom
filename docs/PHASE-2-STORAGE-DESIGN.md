@@ -698,6 +698,7 @@ three chain levels are the admin design's §7.1; the migration is `0009_chains_a
 | `fathom/row/v1` | in-MAC tag of a row MAC under `K_row` (admin §3.4, §4.3) | 0011 |
 | `fathom/authhead/live/v2`, `fathom/authhead/seal/v1` | the authority head's whole-authority-state digest (grants, secondings, suspensions, revocations) and its seal. `live/v1` covered grants only and never shipped | 0011, 0012 |
 | `fathom/key/retire/v1` | in-signature tag of `retire_bytes`, key retirement as a signed act | 0012 |
+| `fathom/team/act/v1` | `team_act_bytes`, every signed act on a team (create, delete, member and role changes, team grants and their revocation), the act named inside the bytes — ADR-0081, `docs/TEAMS-ATTACK-ROUND.md` T5 | 0066, `teams.rs` |
 | `fathom/session/bind/v1` | the sign-in challenge binding the fresh session public key to the account key that signs it (admin §4.2) | 0013, `sessions.rs` |
 | `fathom/session/evidence/v1` | the assurance evidence sealed onto the session row (admin §4.2) | 0013 |
 | `fathom/session/req/v1` | the canonical per-request signature message: method, path, body digest, nonce, time (admin §4.1) | 0013 |

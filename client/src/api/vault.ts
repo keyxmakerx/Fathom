@@ -96,6 +96,8 @@ export interface VaultEntry {
   name: string;
   kind: LoginKind;
   usedOn: UsedOn[];
+  /** A person ticked "This is a read-only account" (ADR-0082 §4.1); device reading uses only these. */
+  readOnly: boolean;
   owner: string;
   ownerName: string;
   createdAt: number;
@@ -233,6 +235,7 @@ function entryView(raw: unknown): VaultEntry {
       const x = asRec(u, W);
       return { design: str(x, 'design', W), element: str(x, 'element', W) };
     }),
+    readOnly: r.readOnly === true,
     owner: str(r, 'owner', W),
     ownerName: str(r, 'ownerName', W),
     createdAt: int(r, 'createdAt', W),
@@ -360,7 +363,7 @@ const shareJson = (s: ShareBody) => ({
 
 export async function createLogin(
   organisation: string,
-  e: { id: string; name: string; kind: LoginKind; usedOn: UsedOn[]; secretCt: Uint8Array; secretNonce: Uint8Array; share: ShareBody },
+  e: { id: string; name: string; kind: LoginKind; usedOn: UsedOn[]; readOnly?: boolean; secretCt: Uint8Array; secretNonce: Uint8Array; share: ShareBody },
 ): Promise<VaultEntry> {
   const answer = await signedFetch(
     'POST',
@@ -370,6 +373,7 @@ export async function createLogin(
       name: e.name,
       kind: e.kind,
       usedOn: e.usedOn,
+      ...(e.readOnly ? { readOnly: true } : {}),
       secretCt: toHex(e.secretCt),
       secretNonce: toHex(e.secretNonce),
       share: shareJson(e.share),
@@ -396,9 +400,10 @@ export async function newEpoch(
 export async function setLoginDetails(
   organisation: string,
   credential: string,
-  e: { ifVersion: number; name: string; kind: LoginKind; usedOn: UsedOn[] },
+  e: { ifVersion: number; name: string; kind: LoginKind; usedOn: UsedOn[]; readOnly?: boolean },
 ): Promise<VaultEntry> {
-  return entryView(jsonObject(await signedFetch('POST', entryPath(organisation, credential, 'meta'), body(e)), W));
+  const { readOnly, ...rest } = e;
+  return entryView(jsonObject(await signedFetch('POST', entryPath(organisation, credential, 'meta'), body(readOnly ? { ...rest, readOnly: true } : rest)), W));
 }
 
 export async function revokeHolder(organisation: string, credential: string, ifVersion: number, keyId: string): Promise<VaultEntry> {

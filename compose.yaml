@@ -402,6 +402,11 @@ services:
       # ADR-0071 part four: where the optional Passbolt helper answers. Passbolt is offered
       # only while it does, so without the `passbolt` profile nothing is listening here.
       FATHOM_PASSBOLT_HELPER: /run/fathom-passbolt/helper.sock
+      # ADR-0082 §4.4: device reading, off unless the operator sets FATHOM_DEVICE_READ=on AND
+      # runs the `reader` profile. Even then each organisation's Steward turns it on and lists
+      # the management ranges it may reach.
+      FATHOM_DEVICE_READ: ${FATHOM_DEVICE_READ:-off}
+      FATHOM_DEVICE_READER: /run/fathom-reader/reader.sock
     volumes:
       # Read-only: the server reads the generated database password and, later,
       # the master key. It writes neither. **Unchanged, and deliberately so** --
@@ -423,6 +428,8 @@ services:
       # Read-only: the Passbolt helper's socket, when the `passbolt` profile runs it.
       # Connecting to a socket needs no write on its directory.
       - passbolt-socket:/run/fathom-passbolt:ro
+      # Read-only: the device reader's socket, when the `reader` profile runs it.
+      - reader-socket:/run/fathom-reader:ro
     tmpfs:
       - /tmp:size=64m,mode=1777,noexec,nosuid,nodev
     healthcheck:
@@ -523,6 +530,39 @@ services:
     mem_limit: 256m
     volumes:
       - passbolt-socket:/run/fathom-passbolt
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "3" }
+
+  # ADR-0082 §4.3: the device reader, the only part of Fathom that may open a connection to a
+  # device, and only to read. Off unless asked for: `docker compose --profile reader up -d` (or
+  # COMPOSE_PROFILES=reader), with FATHOM_DEVICE_READ=on for the server. Built from
+  # helpers/reader/ with its own lockfile, never in the server's.
+  #
+  # It needs a route to the devices, so unlike the Passbolt helper it has a network: `reader`,
+  # its own, which the database and the server are not on. So it cannot reach either of them by
+  # address, and the server reaches it only through the socket. A read-only filesystem, no
+  # capabilities, no new privileges, Docker's default seccomp profile, and one volume, shared
+  # with the server, holding its socket. It holds no login between jobs.
+  reader:
+    build:
+      context: .
+      dockerfile: deploy/reader.Dockerfile
+      target: reader
+    image: ghcr.io/keyxmakerx/fathom-reader:${FATHOM_TAG:-latest}${FATHOM_READER_DIGEST:+@${FATHOM_READER_DIGEST}}
+    profiles: [reader]
+    pull_policy: always
+    restart: unless-stopped
+    networks: [reader]
+    read_only: true
+    user: "65532:65532"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    volumes:
+      - reader-socket:/run/fathom-reader
     logging:
       driver: json-file
       options: { max-size: "5m", max-file: "3" }
@@ -783,6 +823,14 @@ volumes:
   # **Holds no key**: copy it anywhere, off the machine is the point. The keys
   # file that opens these goes somewhere else.
   backups:
+  # The device reader's socket, and nothing else (ADR-0082 §4.3). Empty unless the `reader`
+  # profile is on.
+  reader-socket:
   # The Passbolt helper's socket, and nothing else (ADR-0071 part four). Empty unless the
   # `passbolt` profile is on.
   passbolt-socket:
+
+# The device reader's own network (ADR-0082 §4.3): a route out to the devices, and no other
+# service on it. Every other service stays on compose's default network.
+networks:
+  reader: {}

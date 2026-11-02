@@ -92,6 +92,7 @@ TAG_GRANT_REVOKE = b"fathom/grant/revoke/v1"
 TAG_GRANT_SUSPEND = b"fathom/grant/suspend/v1"
 TAG_GRANT_UNSUSPEND = b"fathom/grant/unsuspend/v1"
 TAG_KEY_SUCCESSION = b"fathom/key/succession/v1"
+TAG_TEAM_ACT = b"fathom/team/act/v1"
 KDF_ROW = b"fathom/chain/kdf/row/v1"
 TAG_ROW = b"fathom/row/v1"
 TAG_AUTHHEAD_LIVE = b"fathom/authhead/live/v2"
@@ -323,6 +324,45 @@ unsuspend_bytes = (
     + u64_le(AT_UNIX)
 )
 
+# ADR-0081: team acts. Two, so every optional field is exercised both present and absent:
+# a lead adding a member (no role, scope, capability or undone act), and a steward revoking
+# a team grant at a scope (the undone act's bytes hashed in). TEAM and the act ids are their
+# own values so a swapped field shows.
+TEAM = b"01JQZ0000000000000000000HH"
+TEAM_ACT_ID = b"01JQZ0000000000000000000JJ"
+TEAM_UNDONE_ID = b"01JQZ0000000000000000000KK"
+TEAM_UNDONE_BYTES = b"the undone act's own signed bytes"
+
+
+def team_act(act_id, act, subject, subject_fpr, role, scope, capability, undoes, undone,
+             authority):
+    return (
+        lp(TAG_TEAM_ACT)
+        + lp(ORGANISATION)
+        + lp(ROOT_PUBKEY_FPR)
+        + lp(act_id)
+        + lp(TEAM)
+        + lp(act)
+        + lp(subject)
+        + lp(subject_fpr)
+        + lp(role)
+        + lp(scope)
+        + lp(capability)
+        + lp(undoes)
+        + lp(sha256(undone) if undone is not None else b"")
+        + lp(GRANTER)
+        + lp(GRANTER_KEY_FPR)
+        + lp(authority)
+        + u64_le(AT_UNIX)
+        + u32_le(AUTH_EPOCH)
+    )
+
+
+team_member_add_bytes = team_act(TEAM_ACT_ID, b"member_add", SUBJECT, SUBJECT_KEY_FPR,
+                                 b"", b"", b"", b"", None, b"lead")
+team_grant_revoke_bytes = team_act(TEAM_ACT_ID, b"grant_revoke", b"", bytes(32), b"", SCOPE,
+                                   b"", TEAM_UNDONE_ID, TEAM_UNDONE_BYTES, b"steward")
+
 succession_bytes = (
     lp(TAG_KEY_SUCCESSION)
     + lp(ACCOUNT)
@@ -531,6 +571,8 @@ if __name__ == "__main__":
         ("SUSPEND_BYTES", suspend_bytes),
         ("UNSUSPEND_BYTES", unsuspend_bytes),
         ("SUCCESSION_BYTES", succession_bytes),
+        ("TEAM_MEMBER_ADD_BYTES", team_member_add_bytes),
+        ("TEAM_GRANT_REVOKE_BYTES", team_grant_revoke_bytes),
         ("ORG_CHAIN_KEY", org_chain_key),
         ("K_ROW", k_row),
         ("K_SEAL", k_seal),

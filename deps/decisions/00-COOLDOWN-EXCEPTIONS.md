@@ -42,6 +42,9 @@ the same day. The row's full reasoning is in this file's history at `9a55417`.
 `rustls-webpki` 0.103.16, admitted for RUSTSEC-2026-0382 (paths through the distrusted emSign
 intermediates), cleared the window on its own on 2026-10-27 and the gate reported the row stale that
 day. Removed the same day. The row's full reasoning is in this file's history at `efdca34`.
+`crypto-bigint` 0.7.9, admitted for RUSTSEC-2026-0387 and the 2026-10-25 yank of 0.7.0 to 0.7.8,
+cleared the window on its own and the gate reported the row stale on 2026-11-02. Removed the same
+day. The row's full reasoning is in this file's history at `e7a788c`.
 
 ## What was NOT excepted, on the same day, and why
 

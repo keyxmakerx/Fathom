@@ -141,6 +141,9 @@ pub struct DesignApiState {
     /// ADR-0078: the operator's Termix, told to a signed-in browser; `None` when
     /// `FATHOM_TERMIX_URL` is unset.
     pub termix: Option<crate::termix::Termix>,
+    /// ADR-0082: the device reader, when the operator set `FATHOM_DEVICE_READ=on`; `None`
+    /// means no organisation can turn reading on and nothing is sent to a reader.
+    pub device_reader: Option<Arc<dyn crate::device_read::Transport>>,
 }
 
 /// Read every vendor directory under `<root>/corpus/catalogue/` into one flat
@@ -251,6 +254,10 @@ pub fn router(state: DesignApiState) -> Router {
             get(termix_handler).post(organisation_termix_handler),
         )
         .route(
+            "/organisations/{organisation}/device-read",
+            get(device_read_handler).post(device_read_set_handler),
+        )
+        .route(
             "/organisations/{organisation}/termix/fetch",
             post(termix_fetch_handler),
         )
@@ -339,15 +346,22 @@ pub fn router(state: DesignApiState) -> Router {
         .merge(ai_routes::routes())
         .merge(vault_routes::routes())
         .merge(estate_routes::routes())
+        .merge(teams_routes::routes())
+        .merge(ipam_routes::routes())
         .with_state(state)
 }
 
 mod ai_routes;
 // The estate index (ADR-0079): search and Inventory across every design.
 mod estate_routes;
+
+// The IP plan store (ADR-0083): records beside the designs, and next free under a lock.
+mod ipam_routes;
 // The password vault's routes (ADR-0071). A child module, so it shares this file's extractor,
 // transaction opening and body helpers without making any of them public.
 mod vault_routes;
+// Teams (ADR-0081): propose, sign, list, rename, history.
+mod teams_routes;
 
 // ---- The extractor: `api::Signed`'s pattern, against `DesignApiState` ----
 
@@ -3869,6 +3883,76 @@ async fn termix_switch(
         watch: &state.watch,
     };
     let answer = crate::termix::set(&tx, &auth, account.as_deref(), off).await?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(json_response(answer))
+}
+
+/// `GET /organisations/{o}/device-read`: whether this server allows device reading, whether its
+/// reader answers, and what a Steward set here (ADR-0082 §4.4). Any member may read it, so the
+/// device panel knows whether to offer Read now. See [`crate::device_read::view`].
+async fn device_read_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, _) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let settings = crate::device_read::load(&tx, &ctx.tenant().to_string())
+        .await
+        .map_err(SessionError::Db)?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    let reader = match &state.device_reader {
+        Some(t) => crate::device_read::ping(t.as_ref()).await,
+        None => false,
+    };
+    Ok(json_response(crate::device_read::view(
+        &settings,
+        state.device_reader.is_some(),
+        reader,
+    )))
+}
+
+/// `POST /organisations/{o}/device-read`: body `{"on": bool, "ranges"?: [{cidr, snmpPort?,
+/// sshPort?}]}`. A Steward turns reading on or off here and sets the management ranges, together;
+/// without `ranges` the list stays as it is.
+/// See [`crate::device_read::set`].
+async fn device_read_set_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let mut m = object_body(&signed.body, &["on", "ranges"])?;
+    let Some(Json::Bool(on)) = m.remove("on") else {
+        return Err(SessionError::Malformed("request body").into());
+    };
+    let ranges = match m.remove("ranges") {
+        None => None,
+        Some(j) => match crate::device_read::ranges_from_json(&j) {
+            Ok(r) => Some(r),
+            // The Steward typed it, so they are told which entry and why.
+            Err(why) => return Ok((StatusCode::BAD_REQUEST, format!("{why}\n")).into_response()),
+        },
+    };
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let answer =
+        crate::device_read::set(&tx, &auth, on, ranges, state.device_reader.is_some()).await?;
     tx.commit().await.map_err(SessionError::Db)?;
     Ok(json_response(answer))
 }

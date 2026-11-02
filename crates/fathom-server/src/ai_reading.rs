@@ -283,7 +283,7 @@ const NODES: &[NodeRow] = &[
     NodeRow {
         tier: Tier::Layout,
         kind: NodeKind::Issue,
-        fields: fields!(IssueField: Title, Device, OpenedAt, Stage, Plan, Step),
+        fields: fields!(IssueField: Title, Device, OpenedAt, Stage, Plan, Step, Due),
     },
     NodeRow {
         tier: Tier::Layout,
@@ -299,7 +299,7 @@ const NODES: &[NodeRow] = &[
     NodeRow {
         tier: Tier::Notes,
         kind: NodeKind::StockItem,
-        fields: fields!(StockItemField: Note),
+        fields: fields!(StockItemField: Note, Ticket),
     },
     // Only a spare's custom-field values: [`reading`] drops any other owner's.
     NodeRow {
@@ -310,7 +310,7 @@ const NODES: &[NodeRow] = &[
     NodeRow {
         tier: Tier::Notes,
         kind: NodeKind::MaintenancePlan,
-        fields: fields!(MaintenancePlanField: Record, ReleaseNotes),
+        fields: fields!(MaintenancePlanField: Record, ReleaseNotes, Ticket),
     },
     NodeRow {
         tier: Tier::Notes,
@@ -320,7 +320,7 @@ const NODES: &[NodeRow] = &[
     NodeRow {
         tier: Tier::Notes,
         kind: NodeKind::Issue,
-        fields: fields!(IssueField: Outcome),
+        fields: fields!(IssueField: Outcome, Ticket),
     },
     NodeRow {
         tier: Tier::Notes,

@@ -87,6 +87,8 @@ export function scanHash(doc: Document, nodeId: string): string | null {
   if (isNodeOfKind(nodeId, 'PhysicalPort')) return open('ports', `port:${nodeId}`);
   // A store's bin page lives under Parts › On hand; its own id is the open key.
   if (isNodeOfKind(nodeId, 'Store')) return open('parts', nodeId);
+  // Sign-off r74: the Work tab opens an It's down issue on its own page.
+  if (isNodeOfKind(nodeId, 'Issue')) return open('issues', nodeId);
   if (isNodeOfKind(nodeId, 'Chassis')) {
     // The device row's key names how the box is placed: in a rack, on a shelf, or fixed to a wall.
     const sel = edgesOut(doc, nodeId, 'SitsOn').length > 0 ? 'occupant' : edgesOut(doc, nodeId, 'FixedTo').length > 0 ? 'fixture' : 'chassis';
