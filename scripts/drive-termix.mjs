@@ -304,12 +304,16 @@ async function runProof(ctx, seed) {
   lastPage = page;
   const violations = [];
   const toTermix = [];
+  const openedAt = new Map();
+  const firstUrl = async (p) => { await until(() => openedAt.has(p), 15000); return openedAt.get(p) ?? p.url(); };
   const keyElsewhere = [];
   page.on('pageerror', (e) => console.log(`[pageerror] ${e}`));
   page.on('console', (m) => { if (m.type() === 'error') console.log(`[console.error] ${m.text()}`); });
   ctx.on('request', (r) => {
     const auth = r.headers().authorization ?? '';
     const origin = new URL(r.url()).origin;
+    // The address a tab was opened at, before Termix's own page can rewrite it.
+    if (origin === TERMIX_ORIGIN && r.isNavigationRequest()) { try { const p = r.frame().page(); if (!openedAt.has(p)) openedAt.set(p, r.url()); } catch { /* not a page's frame */ } }
     if (origin === TERMIX_ORIGIN && r.resourceType() === 'fetch') toTermix.push({ method: r.method(), url: r.url(), body: r.postData(), cookie: r.headers().cookie ?? '' });
     if (auth.includes('tmx_') && origin !== TERMIX_ORIGIN) keyElsewhere.push(r.url());
     if (r.postData()?.includes('tmx_') && origin !== TERMIX_ORIGIN) keyElsewhere.push(r.url());
@@ -361,8 +365,8 @@ async function runProof(ctx, seed) {
   await shot('t2-paste-key');
   const [tab] = await Promise.all([ctx.waitForEvent('page', { timeout: 15000 }), actions.getByRole('button', { name: 'Open', exact: true }).click()]);
   await until(() => tab.url().startsWith(TERMIX_ORIGIN), 15000);
-  const opened = new URL(tab.url());
-  check('T2c. a new tab opens Termix’s terminal for router-1’s host', opened.origin === TERMIX_ORIGIN && opened.searchParams.get('view') === 'terminal' && opened.searchParams.get('hostId') === String(router.id), tab.url());
+  const opened = new URL(await firstUrl(tab));
+  check('T2c. a new tab opens Termix’s terminal for router-1’s host', opened.origin === TERMIX_ORIGIN && opened.searchParams.get('view') === 'terminal' && opened.searchParams.get('hostId') === String(router.id), opened.href);
   await tab.waitForLoadState('domcontentloaded').catch(() => undefined);
   await tab.waitForTimeout(2500);
   await tab.screenshot({ path: `${SHOTS}t2-termix-tab.png` });
@@ -385,7 +389,7 @@ async function runProof(ctx, seed) {
   const piHost = (await hosts(TERMIX, key.token)).find((h) => h.ip === ADDR['pi-1']);
   check('T3b. Termix now has a host named pi-1 at 192.0.2.5 on port 22', piHost?.name === 'pi-1' && Number(piHost?.port) === 22, JSON.stringify(piHost ?? null).slice(0, 300));
   check('T3c. in the folder Fathom, tagged fathom', piHost?.folder === 'Fathom' && JSON.stringify(piHost?.tags ?? '').includes('fathom'), `${piHost?.folder} ${JSON.stringify(piHost?.tags)}`);
-  check('T3d. the tab opened that new host', new URL(piTab.url()).searchParams.get('hostId') === String(piHost?.id), piTab.url());
+  check('T3d. the tab opened that new host', new URL(await firstUrl(piTab)).searchParams.get('hostId') === String(piHost?.id), await firstUrl(piTab));
   await piTab.close();
   const posts = toTermix.filter((r) => r.method === 'POST');
   const sentBody = posts.map((r) => JSON.parse(r.body ?? '{}'));
@@ -483,7 +487,7 @@ async function runProof(ctx, seed) {
   check('T8d. in Do, the current step shows Open in Termix for its device', (await stepOpen.count()) === 1);
   const [stepTab] = await Promise.all([ctx.waitForEvent('page', { timeout: 15000 }), stepOpen.click()]);
   await until(() => stepTab.url().startsWith(TERMIX_ORIGIN), 15000);
-  check('T8e. and it opens router-1’s terminal, with the key pasted earlier', new URL(stepTab.url()).searchParams.get('hostId') === String(router.id), stepTab.url());
+  check('T8e. and it opens router-1’s terminal, with the key pasted earlier', new URL(await firstUrl(stepTab)).searchParams.get('hostId') === String(router.id), await firstUrl(stepTab));
   await stepTab.close();
   await shot('t8-do-step');
 
