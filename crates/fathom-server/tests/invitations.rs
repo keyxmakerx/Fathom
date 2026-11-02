@@ -389,6 +389,32 @@ async fn store(pool: &Pool, ring: Arc<KeyRing>) -> SessionStore {
 }
 
 async fn app(pool: &Pool, ring: Arc<KeyRing>, limits: Limits) -> axum::Router {
+    app_with_reader(pool, ring, limits, None).await
+}
+
+/// A reader that answers `ping` and nothing else: enough for the switch's routes, which never
+/// send a job.
+struct PingOnly;
+
+impl fathom_server::device_read::Transport for PingOnly {
+    fn call(&self, request: Json) -> fathom_server::device_read::ReaderFuture<'_> {
+        Box::pin(async move {
+            match &request {
+                Json::Obj(m) if m.get("op") == Some(&Json::Str("ping".into())) => {
+                    Ok(parse(b"{\"ok\":true,\"protocol\":1}\n"))
+                }
+                _ => Err("this stand-in answers ping only".to_string()),
+            }
+        })
+    }
+}
+
+async fn app_with_reader(
+    pool: &Pool,
+    ring: Arc<KeyRing>,
+    limits: Limits,
+    device_reader: Option<Arc<dyn fathom_server::device_read::Transport>>,
+) -> axum::Router {
     let sessions = Arc::new(store(pool, Arc::clone(&ring)).await);
     let watch = Arc::new(EpochWatch::new());
     let api_state = fathom_server::api::ApiState {
@@ -419,6 +445,7 @@ async fn app(pool: &Pool, ring: Arc<KeyRing>, limits: Limits) -> axum::Router {
         invitation_limits: limits,
         ai_connector: None,
         termix: None,
+        device_reader,
     };
     fathom_server::api::router(api_state).merge(design_api::router(design_state))
 }
@@ -3872,6 +3899,131 @@ async fn termix_a_steward_turns_it_off_for_one_person_or_everyone_and_a_member_c
     // A body that is not exactly `{"off": bool}` is refused.
     let (status, _) = call(addr, steward, "POST", &theirs, b"{\"off\":1}\n").await;
     assert_eq!(status, "400");
+    the_chains_verify(&pool, &ring, &estate).await;
+}
+
+/// What `GET /organisations/{o}/device-read` says to `person`.
+async fn device_read_for(addr: SocketAddr, estate: &Estate, person: &Person) -> Json {
+    let path = format!("/organisations/{}/device-read", estate.organisation);
+    let (status, body) = call(addr, person, "GET", &path, b"").await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    parse(&body)
+}
+
+#[tokio::test]
+async fn device_reading_needs_the_operator_then_a_steward_and_only_listed_ranges() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring, 1).await;
+    let member = a_member(
+        &pool,
+        &ring,
+        &estate,
+        "member",
+        Some((None, Capability::Draw)),
+    )
+    .await;
+    let steward = &estate.stewards[0];
+    let superuser = su().await;
+    let path = format!("/organisations/{}/device-read", estate.organisation);
+    let on_with = |ranges: &str| format!("{{\"on\":true,\"ranges\":{ranges}}}\n").into_bytes();
+
+    // A server whose operator did not allow reading: off, and a Steward cannot turn it on.
+    let off_server = serve(app(&pool, Arc::clone(&ring), Limits::STANDARD).await).await;
+    let view = device_read_for(off_server, &estate, &member).await;
+    assert!(!boolean(&view, "server"));
+    assert!(!boolean(&view, "usable"));
+    let (status, body) = call(
+        off_server,
+        steward,
+        "POST",
+        &path,
+        &on_with(r#"[{"cidr":"10.20.0.0/24"}]"#),
+    )
+    .await;
+    assert_eq!(status, "409", "{}", String::from_utf8_lossy(&body));
+    assert!(String::from_utf8_lossy(&body).contains("FATHOM_DEVICE_READ=on"));
+
+    // The operator allows it and a reader answers.
+    let addr = serve(
+        app_with_reader(
+            &pool,
+            Arc::clone(&ring),
+            Limits::STANDARD,
+            Some(Arc::new(PingOnly)),
+        )
+        .await,
+    )
+    .await;
+    let view = device_read_for(addr, &estate, &member).await;
+    assert!(boolean(&view, "server"));
+    assert!(boolean(&view, "reader"));
+    assert!(!boolean(&view, "on"));
+
+    // A member may not turn it on.
+    let (status, _) = call(
+        addr,
+        &member,
+        "POST",
+        &path,
+        &on_with(r#"[{"cidr":"10.20.0.0/24"}]"#),
+    )
+    .await;
+    assert_eq!(status, "403");
+
+    // A range that could reach this machine or everything is refused, and the Steward is told why.
+    for bad in [
+        r#"[{"cidr":"127.0.0.0/8"}]"#,
+        r#"[{"cidr":"0.0.0.0/0"}]"#,
+        r#"[{"cidr":"169.254.0.0/16"}]"#,
+        r#"[{"cidr":"10.20.0.1/24"}]"#,
+        r#"[{"cidr":"10.20.0.0/24"},{"cidr":"10.20.0.0/24"}]"#,
+    ] {
+        let (status, body) = call(addr, steward, "POST", &path, &on_with(bad)).await;
+        assert_eq!(status, "400", "{bad}: {}", String::from_utf8_lossy(&body));
+    }
+    assert_eq!(org_entries(&superuser, &estate, "device_read_set").await, 0);
+
+    // A Steward turns it on with one range: sealed once, and every member sees it.
+    let (status, body) = call(
+        addr,
+        steward,
+        "POST",
+        &path,
+        &on_with(r#"[{"cidr":"10.20.0.0/24","snmpPort":1161}]"#),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    assert!(boolean(&parse(&body), "changed"));
+    let view = device_read_for(addr, &estate, &member).await;
+    assert!(boolean(&view, "on"));
+    assert!(boolean(&view, "usable"));
+    let ranges = array(&view, "ranges");
+    assert_eq!(ranges.len(), 1);
+    assert_eq!(text(&ranges[0], "cidr"), "10.20.0.0/24");
+
+    // The same again seals nothing; turning it off seals once more.
+    let (_, body) = call(
+        addr,
+        steward,
+        "POST",
+        &path,
+        &on_with(r#"[{"cidr":"10.20.0.0/24","snmpPort":1161}]"#),
+    )
+    .await;
+    assert!(!boolean(&parse(&body), "changed"));
+    let (status, _) = call(addr, steward, "POST", &path, b"{\"on\":false}\n").await;
+    assert_eq!(status, "200");
+    assert!(!boolean(
+        &device_read_for(addr, &estate, &member).await,
+        "on"
+    ));
+    assert_eq!(org_entries(&superuser, &estate, "device_read_set").await, 2);
+
+    // Turning it off works even where the operator no longer allows reading.
+    let (status, _) = call(off_server, steward, "POST", &path, b"{\"on\":false}\n").await;
+    assert_eq!(status, "200");
     the_chains_verify(&pool, &ring, &estate).await;
 }
 

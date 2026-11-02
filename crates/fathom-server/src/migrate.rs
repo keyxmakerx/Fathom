@@ -390,6 +390,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0063_termix_fetch.sql",
         sql: include_str!("../migrations/0063_termix_fetch.sql"),
     },
+    // Device reading switched on by a Steward, and its management ranges (ADR-0082 §4.4).
+    Migration {
+        version: 67,
+        name: "0067_device_read.sql",
+        sql: include_str!("../migrations/0067_device_read.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

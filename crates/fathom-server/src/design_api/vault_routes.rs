@@ -240,7 +240,7 @@ fn obj_of(
     }
 }
 
-/// `{name, kind, usedOn: [{design, element}]}`, cleaned by [`Meta::clean`].
+/// `{name, kind, usedOn: [{design, element}], readOnly?}`, cleaned by [`Meta::clean`].
 fn meta_from(m: &mut BTreeMap<String, Json>) -> Result<Meta, RouteError> {
     let name = req_str(m, "name", "name")?;
     let kind = req_str(m, "kind", "kind")?;
@@ -258,7 +258,12 @@ fn meta_from(m: &mut BTreeMap<String, Json>) -> Result<Meta, RouteError> {
             .collect::<Result<Vec<_>, RouteError>>()?,
         Some(_) => return Err(malformed("usedOn")),
     };
-    Ok(Meta::clean(&name, &kind, used_on)?)
+    let read_only = match m.remove("readOnly") {
+        None | Some(Json::Bool(false)) => false,
+        Some(Json::Bool(true)) => true,
+        Some(_) => return Err(malformed("readOnly")),
+    };
+    Ok(Meta::clean(&name, &kind, used_on)?.with_read_only(read_only))
 }
 
 /// `{at, sharerKeyFpr, signature, viaRecovery?, wraps: [{keyId, wrap}]}`.
@@ -437,6 +442,7 @@ async fn create_entry_handler(
             "name",
             "kind",
             "usedOn",
+            "readOnly",
             "secretCt",
             "secretNonce",
             "share",
@@ -492,14 +498,17 @@ async fn new_epoch_handler(
 }
 
 /// `POST .../vault/entries/{cred}/meta`: rename, re-kind, or change where it is used. Body:
-/// `{ifVersion, name, kind, usedOn}`.
+/// `{ifVersion, name, kind, usedOn, readOnly?}`.
 async fn set_meta_handler(
     State(state): State<DesignApiState>,
     PathExtractor((organisation, credential)): PathExtractor<(String, String)>,
     signed: Signed,
 ) -> Result<Response, RouteError> {
     let credential = credential_path(&credential)?;
-    let mut m = object_body(&signed.body, &["ifVersion", "name", "kind", "usedOn"])?;
+    let mut m = object_body(
+        &signed.body,
+        &["ifVersion", "name", "kind", "usedOn", "readOnly"],
+    )?;
     let if_version = if_version_field(&mut m)?;
     let meta = meta_from(&mut m)?;
     let done = with_vault!(state, signed, organisation, |tx, auth| vault::set_meta(

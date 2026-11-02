@@ -73,6 +73,7 @@ pub mod crypto;
 pub mod db;
 pub mod design_api;
 pub mod designs;
+pub mod device_read;
 pub mod engine;
 pub mod estate;
 pub mod field_defs;

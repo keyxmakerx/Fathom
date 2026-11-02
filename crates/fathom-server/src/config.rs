@@ -299,6 +299,13 @@ pub struct Config {
     /// buttons and the content security policy unchanged. A malformed value is refused at
     /// startup, because it is written into a response header.
     pub termix: Option<crate::termix::Termix>,
+
+    /// ADR-0082 §4.4: `FATHOM_DEVICE_READ=on` lets this server read devices at all, through the
+    /// reader helper whose Unix socket is `FATHOM_DEVICE_READER` (default
+    /// `/run/fathom-reader/reader.sock`, the compose `reader` profile). Unset, empty or `off`
+    /// means no organisation can turn reading on and nothing is sent to the reader. Any other
+    /// value is refused at startup, so a typo never reads as on.
+    pub device_reader: Option<std::path::PathBuf>,
 }
 
 /// ADR-0043 §9's path, as stated in the operator's register: the master key is 32
@@ -740,6 +747,12 @@ impl Config {
             ),
         };
 
+        let device_reader = crate::device_read::reader_from(
+            get("FATHOM_DEVICE_READ").as_deref(),
+            get("FATHOM_DEVICE_READER").as_deref(),
+        )
+        .map_err(|variable| ConfigError::Unparseable { variable })?;
+
         // Trailing newline trimmed (a shell script wrote the file); otherwise the
         // password is taken exactly as generated.
         let database_password =
@@ -811,6 +824,7 @@ impl Config {
             firmware_fetch_base_url,
             ai_connector,
             termix,
+            device_reader,
         })
     }
 

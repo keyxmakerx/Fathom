@@ -447,6 +447,10 @@ async fn main() -> ExitCode {
         invitation_limits: fathom_server::invitations::Limits::STANDARD,
         ai_connector,
         termix: config.termix.clone(),
+        device_reader: config.device_reader.clone().map(|path| {
+            Arc::new(fathom_server::device_read::SocketTransport { path })
+                as Arc<dyn fathom_server::device_read::Transport>
+        }),
     };
 
     // The operator plane. ADR-0055 decision 3: the quorum is `min(2, live

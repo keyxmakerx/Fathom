@@ -443,6 +443,9 @@ pub enum EntryType {
     /// A steward switched Termix off or back on (ADR-0078 decision 6, migration `0056`): for
     /// `everyone` in the organisation, or for one `account`; `off`, and the `actor`.
     TermixAccessSet,
+    /// A Steward turned device reading on or off, or changed its management ranges (ADR-0082
+    /// §4.4, migration `0067`): `on`, the whole `ranges` list after the change, and the `actor`.
+    DeviceReadSet,
 
     // ---- The password vault, Mode A (migration 0041, storage §13.4) ---------
     //
@@ -659,6 +662,7 @@ impl EntryType {
             Self::TypeItYourselfSet => "type_it_yourself_set",
             Self::DesignMoved => "design_moved",
             Self::TermixAccessSet => "termix_access_set",
+            Self::DeviceReadSet => "device_read_set",
             Self::VaultKeyEnrolled => "vault_key_enrolled",
             Self::VaultKeySuperseded => "vault_key_superseded",
             Self::VaultEntryCreated => "vault_entry_created",
@@ -755,6 +759,7 @@ impl EntryType {
             "type_it_yourself_set" => Some(Self::TypeItYourselfSet),
             "design_moved" => Some(Self::DesignMoved),
             "termix_access_set" => Some(Self::TermixAccessSet),
+            "device_read_set" => Some(Self::DeviceReadSet),
             "vault_key_enrolled" => Some(Self::VaultKeyEnrolled),
             "vault_key_superseded" => Some(Self::VaultKeySuperseded),
             "vault_entry_created" => Some(Self::VaultEntryCreated),
@@ -868,6 +873,7 @@ impl EntryType {
             | Self::TypeItYourselfSet
             | Self::DesignMoved
             | Self::TermixAccessSet
+            | Self::DeviceReadSet
             | Self::VaultKeyEnrolled
             | Self::VaultKeySuperseded
             | Self::VaultEntryCreated
