@@ -1,10 +1,12 @@
 # ADR-0081: Teams, leads and supervisors
 
-**Status:** proposed 2026-11-02. Design only; nothing is built. The owner chose the shape on
+**Status:** accepted 2026-11-02. Design only; nothing is built. The owner chose the shape on
 sign-off card r75-work-plan (answer "teams": *A · Teams of people with a lead, supervisors over
-several teams, and a team given folder access the way a person is*). The choices inside that shape
-are on card **r76-teams**, each with the recommended pick ticked; this record is written on those
-picks, and changes if the owner picks otherwise.
+several teams, and a team given folder access the way a person is*), then approved card
+**r76-teams** on 2026-11-02 with every recommended pick (add: A, appoint: A, supervisor: A,
+approve: A, signed: A). On that card's "later" list the owner also ticked custom roles and
+departments as well as directory sync; see "Later, in this order" below. Building still waits
+on the attack round §3.7 requires ("Still to do before building").
 
 **Builds on:** `docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §3.1 (Read, Draw, Steward per folder), §3.3
 (signed grants), §3.4 (verified at every use), §3.7 (groups: five constraints decided 2026-09-12),
@@ -77,8 +79,9 @@ create. The team's queue on the Work tab is a routed job's home until someone ta
 - **Naming.** `.context/conventions.md` reserves *supervisor* for the AI layer's orchestrator, and
   that binds identifiers. So in code, tables and chain entries the role is **`overseer`**; the
   interface says **Supervisor**, which is the owner's word. This is the only place the two differ.
-- There are no departments or nested teams in this version. A supervisor is attached to the teams
-  they oversee, which covers "a supervisor over Provisioning and Installation".
+- There are no departments or nested teams in the first version. A supervisor is attached to the
+  teams they oversee, which covers "a supervisor over Provisioning and Installation". Departments
+  are wanted later (see "Later, in this order").
 
 ### 4. Who adds people to a team: the lead, from people already in the organisation
 
@@ -155,10 +158,27 @@ approvals off, which is the default, nothing changes from today.
 4. **An attack round on 1 to 3 before any schema is touched**, as §3.7 requires, with the lead's
    membership power (decision 4) as its first target.
 
+## Later, in this order (ticked on r76, 2026-11-02)
+
+Each comes after the first version is built and attacked, and each gets its own short ADR
+amendment and card before code.
+
+1. **Directory sync** (LDAP or Active Directory) fills a team's membership and nothing else,
+   marked synced (§3.7 constraint 4, decision 7 above).
+2. **Departments:** a department holds teams; a supervisor can be attached to a department and
+   oversees every team in it. A department is a grouping for work and oversight only. It holds
+   no grant, and access still comes only from grants to people and teams, so nesting never
+   makes a folder visible to anyone who could not already see it.
+3. **Custom roles:** a Steward builds a role from a fixed list of work powers (assign,
+   reassign, set due dates, approve, add members, see history), each one a power one of the three
+   built-in roles already has. A custom role never carries folder access and never more than a
+   Steward could appoint by hand; the three built-in roles stay as named presets. Appointing
+   someone to a custom role is signed like any role (decision 5).
+
 ## What it gives up, named
 
-- **Custom roles** (r75 option B, permission by permission) are not in this version. The three
-  roles are fixed. Custom roles could come later on top, if a real case needs one.
+- **Custom roles** (r75 option B, permission by permission) are not in the first version. The
+  three roles are fixed until the later step below adds custom roles on top of them.
 - **A lead can widen who sees a folder** by adding an organisation member to their team. That is
   the point of decision 4. It is bounded and signed, and the steward is told. Option B on r76
   closes it, at the cost of a steward's press for every team change.
