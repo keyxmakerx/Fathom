@@ -1,4 +1,4 @@
-# ADR-0081: The Work tab — one list of work across designs, with Fathom numbers
+# ADR-0087: The Work tab — one list of work across designs, with Fathom numbers
 
 **Status:** accepted 2026-11-02. The owner answered sign-off card r74-plans-view: where "A work tab
 over what exists", ticket "A assign status due", live "A live rows and who". Then, on r75, the plan

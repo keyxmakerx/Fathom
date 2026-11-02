@@ -388,7 +388,7 @@ schema:
                     # Issue (a plan has its window, an item its own due). Notable widens to
                     # MaintenancePlan, Issue and StockItem, so a comment on a piece of work is a
                     # Note, who and when from its provenance. Seven field keys (552-558). The
-                    # Fathom number is not a field: the server gives it (estate index, ADR-0081).
+                    # Fathom number is not a field: the server gives it (estate index, ADR-0087).
                     # 62 §16.2: optional fields and a widened class are minor. Whole change =
                     # MINOR. The reader still opens 0.10 to 0.33.
 

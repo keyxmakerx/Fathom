@@ -1,4 +1,4 @@
--- 0064 -- the Work tab (sign-off r74, 2026-11-02; ADR-0081).
+-- 0064 -- the Work tab (sign-off r74, 2026-11-02; ADR-0087).
 --
 -- Two changes to the estate index (0058), so one list can show the work going on across every
 -- design: maintenance plans and "It's down" issues become rows of their own, and each piece of

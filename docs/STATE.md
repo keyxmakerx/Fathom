@@ -218,7 +218,7 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   memory becomes it; Undo reaches those 500. `verify?deep=true` checks a slim checkpoint against one
   compaction of the whole replay. History pages from the server, newest first
   (`…/history?newest=N&before=SEQ`); the panel asks for 100 entries at a time.
-- **The Work tab (ADR-0081, sign-offs r74, schema 0.34, 2026-11-02).** Home and the bar gain **Work**:
+- **The Work tab (ADR-0087, sign-offs r74, schema 0.34, 2026-11-02).** Home and the bar gain **Work**:
   maintenance plans, troubleshooting issues and spares on order, in repair or lent, from every design
   the caller may read, in **Now** and **Coming up and waiting**, with kind chips, a site filter, **Mine**
   and finished work behind a button (`components/work/`). The estate index gains plan and issue rows
