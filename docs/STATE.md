@@ -355,7 +355,11 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   can't tell" and the reason). It stops at the first thing the design does not state. `OP_TRACE` (36) runs
   in the page; right-click a device, "Trace a path from here", then an address or device and an optional
   "TCP 445". Never a verdict. A pasted interface reaches a port only through a port tie (see Port ties); an
-  untied one stops the trace at "not tied to a port". Not built: learned routes, NAT, port right-click, the
+  untied one stops the trace at "not tied to a port". Since the routing audit (2 November): a connected
+  route beats a static one of the same length; a static next hop leaves by the longest connected prefix on
+  an interface that is up; an address two devices hold is refused as a start or end; two paths through a
+  switch in one VLAN say "more than one path" instead of "none"; and VLANs are followed eight switches
+  deep. Not built: SVI/irb, LAG members, st0 tunnels, VRFs (the audit doc ranks these). Not built: learned routes, NAT, port right-click, the
   Diagram look, the "Trace from here" offer from "It's down". `scripts/drive-trace.mjs` drives it.
 - **Sample home lab and the five first steps** (r15-start, round 10). Home's "Open the sample home lab" builds
   `corpus/samples/home-lab.json` (11 devices, 12 cables, VLANs 10 and 30) with the editor's own commands and saves

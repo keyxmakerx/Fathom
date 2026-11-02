@@ -31,8 +31,9 @@ use crate::element::{display_name, parse_display_id};
 /// The most hops one trace walks. A loop in the design ends here, said.
 const MAX_STEPS: usize = 24;
 
-/// How far one switch search wanders through further switches.
-const L2_DEPTH: usize = 4;
+/// How far one switch search wanders through further switches. A three-tier campus with a
+/// stretched VLAN (access, distribution, core, distribution, access) is five; MLAG pairs add more.
+const L2_DEPTH: usize = 8;
 /// Ports the switch search may visit in one trace, so a meshed fabric ends in "could not establish" and not a frozen tab.
 const SEARCH_BUDGET: u32 = 2_000;
 
@@ -221,7 +222,7 @@ impl Walk<'_> {
 
             let port = self.port_of(chosen.unit)?;
             let (mut steps, holder_port) =
-                self.arrive(port, chosen.next, unit_vlan(self.g, chosen.unit), 0)?;
+                self.arrive(port, chosen.next, unit_vlan(self.g, chosen.unit))?;
             self.t.hops.append(&mut steps);
             let holder_dev = self
                 .g
@@ -280,9 +281,14 @@ impl Walk<'_> {
             };
         }
         if let Ok(ip) = text.trim().parse::<IpAddr>() {
-            return match self.holder_of(ip) {
-                Some((d, u)) => Ok((d, Some(u), Some(ip))),
-                None => Err(format!("no device in the design holds {ip}")),
+            let held = self.holders_of(ip);
+            return match held.as_slice() {
+                [(d, u)] => Ok((*d, Some(*u), Some(ip))),
+                [] => Err(format!("no device in the design holds {ip}")),
+                _ => Err(format!(
+                    "{ip} is held by more than one device ({}); start from the device instead",
+                    self.names(&held)
+                )),
             };
         }
         Err(format!(
@@ -314,7 +320,15 @@ impl Walk<'_> {
             };
         }
         match text.trim().parse::<IpAddr>() {
-            Ok(ip) => Ok((ip, self.holder_of(ip).map(|(d, _)| d))),
+            // An address two devices hold (one private range at two sites) names no one device:
+            // the walk ends wherever the path meets a holder.
+            Ok(ip) => Ok((
+                ip,
+                match self.holders_of(ip).as_slice() {
+                    [(d, _)] => Some(*d),
+                    _ => None,
+                },
+            )),
             Err(_) => Err(format!("could not read \"{text}\" as an address or device")),
         }
     }
@@ -361,19 +375,30 @@ impl Walk<'_> {
         self.device_addrs(dev).contains(&ip)
     }
 
-    fn holder_of(&self, ip: IpAddr) -> Option<(NodeId, NodeId)> {
-        let mut found = None;
+    /// Every device that holds `ip`, with the first unit on it that does; one entry per device.
+    fn holders_of(&self, ip: IpAddr) -> Vec<(NodeId, NodeId)> {
+        let mut found = Vec::new();
         for d in self.g.nodes_of_kind(NodeKind::Device).map(|n| n.id) {
             if !live(self.g, d) {
                 continue;
             }
-            for u in self.device_units(d) {
-                if self.unit_addrs(u).contains(&ip) {
-                    found.get_or_insert((d, u));
-                }
+            if let Some(u) = self
+                .device_units(d)
+                .into_iter()
+                .find(|u| self.unit_addrs(*u).contains(&ip))
+            {
+                found.push((d, u));
             }
         }
+        found.sort();
         found
+    }
+
+    fn names(&self, held: &[(NodeId, NodeId)]) -> String {
+        held.iter()
+            .map(|(d, _)| display_name(self.g, *d))
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 
     // ---- routes -------------------------------------------------------
@@ -388,6 +413,10 @@ impl Walk<'_> {
         // (prefix length, preference when stated, candidate). A candidate that cannot be followed is
         // kept, not returned: only the winning prefix may stop the trace.
         let mut found: Vec<(u8, Option<u32>, Result<Chosen, String>)> = Vec::new();
+        // Prefix lengths a connected route covers. Every platform ranks a connected route above a
+        // static one for the same prefix (Junos direct 0 against static 5; IOS and EOS distance 0
+        // against 1), so an equally specific static route is never the one used.
+        let mut connected_lens: Vec<u8> = Vec::new();
 
         for u in self.device_units(dev) {
             if self
@@ -399,6 +428,7 @@ impl Walk<'_> {
             }
             for (a, l) in self.unit_prefixes(u) {
                 if prefix_has(a, l, dest) {
+                    connected_lens.push(l);
                     found.push((
                         l,
                         Some(0),
@@ -420,7 +450,7 @@ impl Walk<'_> {
                 let Ok(p) = static_route::destination(node) else {
                     continue;
                 };
-                if !prefix_has(p.addr, p.len, dest) {
+                if !prefix_has(p.addr, p.len, dest) || connected_lens.contains(&p.len) {
                     continue;
                 }
                 let pref = static_route::preference(node).ok().map(|p| u32::from(*p));
@@ -494,15 +524,45 @@ impl Walk<'_> {
             [] => Err(format!("the static route {addr}/{len} on {name} names no next hop")),
             [NextHop::Address(a)] => {
                 let via = a.0;
-                let unit = self.device_units(dev).into_iter().find(|u| {
-                    self.unit_prefixes(*u)
+                // The next hop resolves like any address: through the longest connected prefix on
+                // an interface that is not shut down.
+                let mut reach: Vec<(u8, NodeId)> = Vec::new();
+                for u in self.device_units(dev) {
+                    if self
+                        .g
+                        .node(u)
+                        .is_some_and(|n| logical_unit::admin_up(n) == Ok(&false))
+                    {
+                        continue;
+                    }
+                    if let Some(l) = self
+                        .unit_prefixes(u)
                         .iter()
-                        .any(|(ua, l)| prefix_has(*ua, *l, via))
-                });
-                let Some(unit) = unit else {
-                    return Err(format!(
-                        "the static route {addr}/{len} on {name} goes via {via}, and no interface on {name} reaches {via}"
-                    ));
+                        .filter(|(ua, l)| prefix_has(*ua, *l, via))
+                        .map(|(_, l)| *l)
+                        .max()
+                    {
+                        reach.push((l, u));
+                    }
+                }
+                let best = reach.iter().map(|(l, _)| *l).max();
+                let units: Vec<NodeId> = reach
+                    .iter()
+                    .filter(|(l, _)| Some(*l) == best)
+                    .map(|(_, u)| *u)
+                    .collect();
+                let unit = match units.as_slice() {
+                    [u] => *u,
+                    [] => {
+                        return Err(format!(
+                            "the static route {addr}/{len} on {name} goes via {via}, and no interface on {name} that is up reaches {via}"
+                        ))
+                    }
+                    _ => {
+                        return Err(format!(
+                            "the static route {addr}/{len} on {name} goes via {via}, which more than one interface on {name} reaches; could not establish which one the flow leaves by"
+                        ))
+                    }
                 };
                 Ok(Chosen {
                     unit,
@@ -756,17 +816,34 @@ impl Walk<'_> {
         from_port: NodeId,
         next: IpAddr,
         hint: Option<u16>,
-        depth: usize,
     ) -> Result<(Vec<Hop>, NodeId), String> {
+        self.search(from_port, next, hint, &[]).map_err(|m| m.text)
+    }
+
+    /// The switch search. `path` holds the switches already crossed: a frame
+    /// never comes back to a switch it left, so a way back is not a way on.
+    fn search(
+        &self,
+        from_port: NodeId,
+        next: IpAddr,
+        hint: Option<u16>,
+        path: &[NodeId],
+    ) -> Result<(Vec<Hop>, NodeId), Miss> {
         self.steps.set(self.steps.get() + 1);
         if self.steps.get() > SEARCH_BUDGET {
-            return Err("the switches here form more paths than this trace searches; could not establish the path through them".to_owned());
+            return Err(Miss::plain("the switches here form more paths than this trace searches; could not establish the path through them"));
         }
-        let (mut hops, far) = self.cable_chain(from_port)?;
+        let (mut hops, far) = self.cable_chain(from_port).map_err(Miss::plain)?;
         let dev = self
             .g
             .device_of(far)
-            .ok_or("the far port is on no device")?;
+            .ok_or_else(|| Miss::plain("the far port is on no device"))?;
+        if path.contains(&dev) {
+            return Err(Miss {
+                text: String::new(),
+                kind: MissKind::Back,
+            });
+        }
         let dev_name = display_name(self.g, dev);
         if self.owns(dev, next) {
             return Ok((hops, far));
@@ -776,43 +853,47 @@ impl Walk<'_> {
             .iter()
             .any(|u| !self.unit_addrs(*u).is_empty())
         {
-            return Err(format!(
+            return Err(Miss::plain(format!(
                 "the cable reaches {dev_name}, which does not hold {next}; could not establish where the flow goes from there"
-            ));
+            )));
         }
         // A port with no address of its own: a switch. Which VLAN?
-        if depth >= L2_DEPTH {
-            return Err("the path passes through more switches than this trace follows".to_owned());
+        if path.len() >= L2_DEPTH {
+            return Err(Miss::plain(
+                "the path passes through more switches than this trace follows",
+            ));
         }
         let on = self.vlans_on(far);
         let vlan = match (on.as_slice(), hint) {
             ([], _) => {
-                return Err(format!(
+                return Err(Miss::plain(format!(
                     "could not establish the VLAN on {} of {dev_name}",
                     display_name(self.g, far)
-                ))
+                )))
             }
             ([v], None) => *v,
             ([v], Some(h)) if *v == h => *v,
             (vs, Some(h)) if vs.contains(&h) => h,
             (vs, Some(h)) => {
-                return Err(format!(
+                return Err(Miss::plain(format!(
                     "VLAN {h} is not among the VLANs read on {} of {dev_name} ({})",
                     display_name(self.g, far),
                     list(vs)
-                ))
+                )))
             }
             (vs, None) => {
-                return Err(format!(
+                return Err(Miss::plain(format!(
                 "{} of {dev_name} carries VLANs {}; could not establish which one the flow uses",
                 display_name(self.g, far),
                 list(vs)
-            ))
+            )))
             }
         };
 
+        let mut on_path = path.to_vec();
+        on_path.push(dev);
         let mut paths: Vec<(Vec<Hop>, NodeId)> = Vec::new();
-        let mut errs: Vec<String> = Vec::new();
+        let mut errs: Vec<Miss> = Vec::new();
         let candidates: Vec<NodeId> = self
             .device_ports(dev)
             .into_iter()
@@ -832,7 +913,7 @@ impl Walk<'_> {
                 source: String::new(),
                 ..Hop::default()
             };
-            match self.arrive(*c, next, Some(vlan), depth + 1) {
+            match self.search(*c, next, Some(vlan), &on_path) {
                 Ok((mut rest, hp)) => {
                     let mut all = vec![sw];
                     all.append(&mut rest);
@@ -842,24 +923,33 @@ impl Walk<'_> {
             }
         }
         if self.steps.get() > SEARCH_BUDGET {
-            return Err("the switches here form more paths than this trace searches; could not establish the path through them".to_owned());
+            return Err(Miss::plain("the switches here form more paths than this trace searches; could not establish the path through them"));
         }
-        match paths.len() {
-            1 => {
-                let (mut p, hp) = paths.remove(0);
-                hops.append(&mut p);
-                Ok((hops, hp))
-            }
-            0 => Err(format!(
-                "no port of {dev_name} in VLAN {vlan} leads to a device holding {next}{}",
-                match errs.first() {
-                    Some(e) if candidates.len() == 1 => format!(" ({e})"),
-                    _ => String::new(),
-                }
-            )),
-            n => Err(format!(
-                "{n} paths through {dev_name} in VLAN {vlan} lead to {next}; could not establish which one the flow takes"
-            )),
+        // A further switch with more than one way on is more than one way on from here too.
+        let deeper = errs.iter().find(|e| e.kind == MissKind::Ambiguous);
+        if paths.len() > 1 || (!paths.is_empty() && deeper.is_some()) {
+            return Err(Miss {
+                text: format!(
+                    "more than one path through {dev_name} in VLAN {vlan} leads to {next}; could not establish which one the flow takes (redundant links are not ranked: spanning tree and link aggregation are not read)"
+                ),
+                kind: MissKind::Ambiguous,
+            });
+        }
+        if let Some(d) = deeper {
+            return Err(d.clone());
+        }
+        if paths.len() == 1 {
+            let (mut p, hp) = paths.remove(0);
+            hops.append(&mut p);
+            return Ok((hops, hp));
+        }
+        // No way on. When exactly one way was tried to its end, its reason is the one to give.
+        let ends: Vec<&Miss> = errs.iter().filter(|e| e.kind == MissKind::Plain).collect();
+        match ends.as_slice() {
+            [one] => Err((*one).clone()),
+            _ => Err(Miss::plain(format!(
+                "no port of {dev_name} in VLAN {vlan} leads to a device holding {next}"
+            ))),
         }
     }
 
@@ -1250,6 +1340,32 @@ impl Walk<'_> {
 }
 
 const PASTED: &str = "read from a pasted config";
+
+/// Why one branch of the switch search did not arrive.
+#[derive(Clone)]
+struct Miss {
+    text: String,
+    kind: MissKind,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MissKind {
+    /// The design does not say; the text says what.
+    Plain,
+    /// More than one way on.
+    Ambiguous,
+    /// The branch came back to a switch already crossed: not a way on, and not a reason.
+    Back,
+}
+
+impl Miss {
+    fn plain(text: impl Into<String>) -> Miss {
+        Miss {
+            text: text.into(),
+            kind: MissKind::Plain,
+        }
+    }
+}
 
 enum Place {
     Here,

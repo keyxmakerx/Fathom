@@ -761,3 +761,134 @@ fn a_dual_stack_start_does_not_invent_a_source() {
     let t = trace(&b.g, &d.to_string(), "10.1.1.5", None);
     assert_eq!(t.hops[0].detail[0], "from this device");
 }
+
+// ---- the routing audit's fixes (2026-11-02) ------------------------------
+
+fn ip(s: &str) -> IpAddr {
+    s.parse().unwrap()
+}
+
+fn via(s: &str) -> NextHop {
+    NextHop::Address(scalar::IpAddr(ip(s)))
+}
+
+impl B {
+    fn host(&mut self, name: &str, addr: &str) -> (NodeId, NodeId) {
+        let h = self.device(name);
+        let c = self.chassis(h);
+        let p = self.port(c, "eth0");
+        self.unit(h, p, "eth0", Some((ip(addr), 24)), None);
+        (h, p)
+    }
+
+    /// A switch whose `n` ports all carry VLAN 10.
+    fn vlan10_switch(&mut self, name: &str, n: usize) -> Vec<NodeId> {
+        let d = self.device(name);
+        let c = self.chassis(d);
+        let v = self.node(NodeKind::Vlan);
+        self.set(v, "Vlan.vlan_id", scalar::VlanId(10));
+        self.edge(EdgeKind::HasVlan, d, v);
+        (0..n)
+            .map(|i| {
+                let label = format!("Et{}", i + 1);
+                let p = self.port(c, &label);
+                self.unit(d, p, &label, None, Some(v));
+                p
+            })
+            .collect()
+    }
+}
+
+#[test]
+fn a_connected_route_beats_an_equally_specific_static_one() {
+    // A pasted static route carries no preference; a connected route always outranks it.
+    let mut b = B::new();
+    let r = b.device("r1");
+    let c = b.chassis(r);
+    let lan = b.port(c, "ge0");
+    let wan = b.port(c, "ge1");
+    b.unit(r, lan, "ge0", Some((ip("10.1.1.1"), 24)), None);
+    b.unit(r, wan, "ge1", Some((ip("192.0.2.1"), 30)), None);
+    b.route(r, (ip("10.1.1.0"), 24), via("192.0.2.2"));
+    let (_, hp) = b.host("h", "10.1.1.5");
+    b.cable(lan, hp);
+    let t = trace(&b.g, &r.to_string(), "10.1.1.5", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert!(t.hops[1].detail.iter().any(|l| l.starts_with("connected")));
+}
+
+#[test]
+fn a_next_hop_resolves_through_the_longest_prefix_that_is_up() {
+    let mut b = B::new();
+    let r = b.device("r1");
+    let c = b.chassis(r);
+    let p0 = b.port(c, "ge0");
+    let p1 = b.port(c, "ge1");
+    let down = b.unit(r, p0, "ge0", Some((ip("192.0.2.1"), 24)), None);
+    b.set(down, "LogicalUnit.admin_up", false);
+    b.unit(r, p1, "ge1", Some((ip("192.0.2.129"), 25)), None);
+    b.route(r, (ip("0.0.0.0"), 0), via("192.0.2.130"));
+    let isp = b.device("isp");
+    let ic = b.chassis(isp);
+    let q = b.port(ic, "x");
+    b.unit(isp, q, "x", Some((ip("192.0.2.130"), 25)), None);
+    b.cable(p1, q);
+    let t = trace(&b.g, &r.to_string(), "8.8.8.8", None);
+    assert!(
+        t.hops[1].detail.iter().any(|l| l == "out on ge1.0"),
+        "{:?}",
+        t.hops[1].detail
+    );
+    assert!(titles(&t).contains(&"isp".to_owned()), "{:?}", titles(&t));
+}
+
+#[test]
+fn an_address_two_devices_hold_is_not_a_start() {
+    // One private range at two sites: the trace does not pick a site.
+    let mut b = B::new();
+    b.host("site-a-nas", "192.168.1.10");
+    b.host("site-b-nas", "192.168.1.10");
+    let t = trace(&b.g, "192.168.1.10", "192.168.1.20", None);
+    assert!(
+        t.stopped.contains("more than one device") && t.stopped.contains("site-b-nas"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn two_uplinks_in_one_vlan_are_two_paths_not_none() {
+    let mut b = B::new();
+    let (a, pa) = b.host("pc-a", "10.10.0.11");
+    let (_, pb) = b.host("pc-b", "10.10.0.12");
+    let acc = b.vlan10_switch("acc", 3);
+    let dist = b.vlan10_switch("dist", 3);
+    b.cable(pa, acc[0]);
+    b.cable(acc[1], dist[0]);
+    b.cable(acc[2], dist[1]);
+    b.cable(dist[2], pb);
+    let t = trace(&b.g, &a.to_string(), "10.10.0.12", None);
+    assert!(
+        t.stopped.contains("more than one path through acc"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_vlan_stretched_across_a_three_tier_campus_is_followed() {
+    // access, distribution, core, distribution, access, and one more: six switches in a line.
+    let mut b = B::new();
+    let (a, pa) = b.host("pc-a", "10.10.0.11");
+    let (_, pb) = b.host("pc-b", "10.10.0.12");
+    let mut prev = pa;
+    for i in 0..6 {
+        let ps = b.vlan10_switch(&format!("sw-{i}"), 2);
+        b.cable(prev, ps[0]);
+        prev = ps[1];
+    }
+    b.cable(prev, pb);
+    let t = trace(&b.g, &a.to_string(), "10.10.0.12", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(kinds(&t).iter().filter(|k| **k == "switch").count(), 6);
+}
