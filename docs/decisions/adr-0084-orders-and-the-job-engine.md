@@ -1,7 +1,7 @@
 # ADR-0084: Orders and the job engine — order definitions in YAML, and a builder on a canvas
 
-**Status:** accepted 2026-11-02, with decisions 14 to 17 added the same day on sign-off card r103
-(picks ticked, awaiting the owner). The owner approved sign-off card `orders-engine` with every
+**Status:** accepted 2026-11-02, with decisions 14 to 17 added the same day: the owner approved sign-off
+card r103 with every recommended pick (lanes, own fields plus shared sets, job holders then a lead). The owner approved sign-off card `orders-engine` with every
 radio pick A (stages with `needs` and `send_back`; describe-only files; board and file both ways;
 open orders keep their version; Stewards make order types), ticked the three recommended extras
 plus "more starters" and "overdue jobs move on or reassign by themselves", and wrote: *"Overdue
@@ -147,8 +147,8 @@ be two things at once: text a modder can read and diff, and a picture a non-code
 The owner's note on this record: *"make sure that fields can be templated based on type and changed,
 but another thing is that the order may need to be something like Construction > work sent to them,
 but meanwhile Order Entry or Order Management may need to send equipment somewhere."* Card r103 put
-three choices with picks ticked; these decisions are built on the picks and change if the card's
-answers differ. Nothing above is withdrawn: a definition with one line of stages reads as before.
+three choices with picks ticked, and the owner approved every pick, asking only whether the file
+format covers it too: it does, as `lanes`, `starts_after`, `use` and `field_sets`. Nothing above is withdrawn: a definition with one line of stages reads as before.
 
 14. **Lanes: one order can run several lines of stages at once.** A definition says either
     `stages:` (one lane, as above) or `lanes:`, a list of lanes each with an `id`, a `name`, its own
