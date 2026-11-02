@@ -174,6 +174,23 @@ fn slots_to_snap(
 }
 
 impl Graph {
+    /// One field's canonical value on a live node: `None` when the node is gone or
+    /// tombstoned, or the field is unset or absent. The server reads a plan this way
+    /// to judge whether a change starts it (sign-off r102-plan-approval).
+    pub fn node_field(&self, id: NodeId, key: FieldKey) -> Option<Json> {
+        let node = self.nodes.get(&id)?;
+        if node.absent_since.is_some() {
+            return None;
+        }
+        let slot = node.fields.get(&key)?;
+        match (slot.presence, slot.value.as_deref()) {
+            (StoredPresence::Set, Some(v)) => slot_to_canon(key, v).ok(),
+            _ => None,
+        }
+    }
+}
+
+impl Graph {
     /// Everything the store holds, converted at the boundary.
     pub fn to_snapshot(&self) -> Result<Snapshot, SnapshotError> {
         if let Some(open) = &self.open {

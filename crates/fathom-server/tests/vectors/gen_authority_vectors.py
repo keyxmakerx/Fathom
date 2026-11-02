@@ -93,6 +93,7 @@ TAG_GRANT_SUSPEND = b"fathom/grant/suspend/v1"
 TAG_GRANT_UNSUSPEND = b"fathom/grant/unsuspend/v1"
 TAG_KEY_SUCCESSION = b"fathom/key/succession/v1"
 TAG_TEAM_ACT = b"fathom/team/act/v1"
+TAG_TEAM_ROLE = b"fathom/team/role/v1"
 KDF_ROW = b"fathom/chain/kdf/row/v1"
 TAG_ROW = b"fathom/row/v1"
 TAG_AUTHHEAD_LIVE = b"fathom/authhead/live/v2"
@@ -363,6 +364,94 @@ team_member_add_bytes = team_act(TEAM_ACT_ID, b"member_add", SUBJECT, SUBJECT_KE
 team_grant_revoke_bytes = team_act(TEAM_ACT_ID, b"grant_revoke", b"", bytes(32), b"", SCOPE,
                                    b"", TEAM_UNDONE_ID, TEAM_UNDONE_BYTES, b"steward")
 
+# Migration 0071: a role's definition. One with powers and not retired; the retired flag is a
+# single byte, so a definition with no powers and retired is the second shape.
+ROLE_DEF_ID = b"01JQZ0000000000000000000MM"
+ROLE_ID = b"01JQZ0000000000000000000NN"
+
+
+def team_role(def_id, role, title, powers, retired):
+    return (
+        lp(TAG_TEAM_ROLE)
+        + lp(ORGANISATION)
+        + lp(ROOT_PUBKEY_FPR)
+        + lp(def_id)
+        + lp(role)
+        + lp(title)
+        + lp(powers)
+        + bytes([1 if retired else 0])
+        + lp(GRANTER)
+        + lp(GRANTER_KEY_FPR)
+        + u64_le(AT_UNIX)
+        + u32_le(AUTH_EPOCH)
+    )
+
+
+team_role_tech_bytes = team_role(ROLE_DEF_ID, b"tech", b"Maintenance tech",
+                                 b"emergency_start", False)
+team_role_retire_bytes = team_role(ROLE_DEF_ID, ROLE_ID, b"Night desk", b"", True)
+
+# Migration 0072: a folder's plan rule, an approval over a plan's digest, and the digest itself.
+TAG_PLAN_RULE = b"fathom/plan/rule/v1"
+TAG_PLAN_APPROVAL = b"fathom/plan/approval/v1"
+TAG_PLAN_DIGEST = b"fathom/plan/digest/v1"
+PLAN_RULE_ID = b"01JQZ0000000000000000000PP"
+PLAN_APPROVAL_ID = b"01JQZ0000000000000000000QQ"
+PLAN_DESIGN = b"01JQZ0000000000000000000RR"
+PLAN_ID = b"01JQZ0000000000000000000SS"
+PLAN_TEAM = b"01JQZ0000000000000000000TT"
+
+plan_rule_bytes = (
+    lp(TAG_PLAN_RULE)
+    + lp(ORGANISATION)
+    + lp(ROOT_PUBKEY_FPR)
+    + lp(PLAN_RULE_ID)
+    + lp(SCOPE)
+    + bytes([1])
+    + lp(GRANTER)
+    + lp(GRANTER_KEY_FPR)
+    + u64_le(AT_UNIX)
+    + u32_le(AUTH_EPOCH)
+)
+
+# Two steps, given out of id order: the digest sorts them.
+PLAN_STEPS = [
+    (b"01JQZ0000000000000000000VB",
+     [b"2", b"other", b"", b"Reboot core-1", b"", b"", b"", b"", b""]),
+    (b"01JQZ0000000000000000000VA",
+     [b"1", b"address", b"device:01JQZ0000000000000000000WW", b"Move core-1 to 10.0.0.2",
+      b"10.0.0.1", b"10.0.0.2", b"field\tDevice.mgmt\t10.0.0.2", b"", b""]),
+]
+_digest_input = (
+    lp(TAG_PLAN_DIGEST)
+    + lp(PLAN_ID)
+    + lp(b"Readdress core-1")
+    + lp(b"2026-11-03T22:00")
+    + lp(b"")
+    + lp(PLAN_TEAM)
+    + u32_le(len(PLAN_STEPS))
+)
+for _id, _fields in sorted(PLAN_STEPS):
+    _digest_input += lp(_id) + b"".join(lp(f) for f in _fields)
+plan_digest = hashlib.sha256(_digest_input).digest()
+
+plan_approval_bytes = (
+    lp(TAG_PLAN_APPROVAL)
+    + lp(ORGANISATION)
+    + lp(ROOT_PUBKEY_FPR)
+    + lp(PLAN_APPROVAL_ID)
+    + lp(PLAN_DESIGN)
+    + lp(PLAN_ID)
+    + lp(plan_digest)
+    + lp(b"emergency")
+    + lp(PLAN_TEAM)
+    + lp(b"Core switch down")
+    + lp(GRANTER)
+    + lp(GRANTER_KEY_FPR)
+    + u64_le(AT_UNIX)
+    + u32_le(AUTH_EPOCH)
+)
+
 succession_bytes = (
     lp(TAG_KEY_SUCCESSION)
     + lp(ACCOUNT)
@@ -573,6 +662,11 @@ if __name__ == "__main__":
         ("SUCCESSION_BYTES", succession_bytes),
         ("TEAM_MEMBER_ADD_BYTES", team_member_add_bytes),
         ("TEAM_GRANT_REVOKE_BYTES", team_grant_revoke_bytes),
+        ("TEAM_ROLE_TECH_BYTES", team_role_tech_bytes),
+        ("TEAM_ROLE_RETIRE_BYTES", team_role_retire_bytes),
+        ("PLAN_RULE_BYTES", plan_rule_bytes),
+        ("PLAN_DIGEST", plan_digest),
+        ("PLAN_APPROVAL_BYTES", plan_approval_bytes),
         ("ORG_CHAIN_KEY", org_chain_key),
         ("K_ROW", k_row),
         ("K_SEAL", k_seal),

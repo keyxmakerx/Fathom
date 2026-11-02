@@ -57,6 +57,7 @@ use crate::grants::{
 };
 use crate::ids;
 use crate::keys::KeyRing;
+use crate::roles::{self, Power, Roles};
 
 /// The acts, by the name the bytes and the table use.
 pub const ACT_CREATE: &str = "create";
@@ -68,11 +69,12 @@ pub const ACT_ROLE_CLEAR: &str = "role_clear";
 pub const ACT_GRANT: &str = "grant";
 pub const ACT_GRANT_REVOKE: &str = "grant_revoke";
 
-pub const ROLE_LEAD: &str = "lead";
-/// The interface says *Supervisor*; see the module header.
-pub const ROLE_OVERSEER: &str = "overseer";
+/// The ready-made roles' ids. The interface says *Supervisor* for `overseer`; see the module
+/// header. Any other role is a Steward's (`crate::roles`).
+pub use crate::roles::{ROLE_LEAD, ROLE_OVERSEER, ROLE_TECH};
 
 pub const BY_STEWARD: &str = "steward";
+/// "By a role on this team that has the members power" (migration 0071 kept the stored name).
 pub const BY_LEAD: &str = "lead";
 
 /// One signed act, as stored.
@@ -302,6 +304,8 @@ struct Walk<'a> {
     pass: &'a Mutex<QuorumPass>,
     /// Act id → does it count.
     settled: Mutex<BTreeMap<String, bool>>,
+    /// What each role is, at each chain position.
+    roles: Roles<'a>,
 }
 
 const POISON: &str = "the team walk's lock is never held across an await";
@@ -316,6 +320,24 @@ fn is_a_disqualification(error: &AuthorityError) -> bool {
 }
 
 impl<'a> Walk<'a> {
+    fn new(
+        tx: &'a Transaction<'a>,
+        ring: &'a KeyRing,
+        state: &'a AuthorityState,
+        root_fpr: &'a [u8; 32],
+        pass: &'a Mutex<QuorumPass>,
+    ) -> Self {
+        Walk {
+            tx,
+            ring,
+            state,
+            root_fpr,
+            pass,
+            settled: Mutex::new(BTreeMap::new()),
+            roles: Roles::new(tx, ring, state, root_fpr, pass),
+        }
+    }
+
     fn acts(&self) -> &'a [TeamAct] {
         &self.state.team_acts
     }
@@ -424,20 +446,29 @@ impl<'a> Walk<'a> {
         Ok(self.well_formed(a).await? && self.steward_signed(a).await?)
     }
 
-    /// Was `account` a lead of `team` at chain position `before` (exclusive)?
-    async fn lead_before(
+    /// Did `account` hold, on `team`, a role whose definition gave `power`, at chain position
+    /// `before` (exclusive)? The role must have been set by a counting steward act and not
+    /// cleared before `before`, and the role's definition at `before` must carry the power.
+    pub(crate) async fn power_before(
         &self,
         team: &str,
         account: &str,
+        power: Power,
         before: i64,
     ) -> Result<bool, AuthorityError> {
         for set in self.acts().iter().filter(|r| {
             r.act == ACT_ROLE_SET
                 && r.team_id == team
-                && r.role.as_deref() == Some(ROLE_LEAD)
                 && r.subject_id.as_deref() == Some(account)
                 && r.chain_seq < before
         }) {
+            let Some(role) = set.role.as_deref() else {
+                continue;
+            };
+            match self.roles.at(role, before).await? {
+                Some(def) if def.has(power) => {}
+                _ => continue,
+            }
             if !self.counts_as_steward_act(set).await? {
                 continue;
             }
@@ -496,7 +527,7 @@ impl<'a> Walk<'a> {
         let verdict = self.well_formed(a).await?
             && self.team_stood_at(&a.team_id, a.chain_seq).await?
             && if a.signer_authority == BY_LEAD {
-                self.lead_before(&a.team_id, &a.signed_by, a.chain_seq)
+                self.power_before(&a.team_id, &a.signed_by, Power::Members, a.chain_seq)
                     .await?
             } else {
                 self.steward_signed(a).await?
@@ -632,14 +663,7 @@ pub(crate) async fn live_team_grants<'a>(
     if needed == Capability::Steward || state.team_acts.is_empty() {
         return Ok(Vec::new());
     }
-    let walk = Walk {
-        tx,
-        ring,
-        state,
-        root_fpr,
-        pass,
-        settled: Mutex::new(BTreeMap::new()),
-    };
+    let walk = Walk::new(tx, ring, state, root_fpr, pass);
     let teams: BTreeSet<&str> = state
         .team_acts
         .iter()
@@ -676,6 +700,50 @@ pub(crate) async fn live_team_grants<'a>(
         }
     }
     Ok(out)
+}
+
+/// A team through which `account` holds `power` now, among the teams with a live grant covering
+/// `covering` (any capability: access to the folder is what counts). `only` narrows it to one
+/// team, a plan's own (sign-off r102-plan-approval). The team must stand, `account` must be a
+/// counting member, and the role's definition now must carry the power.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn power_through_teams<'a>(
+    tx: &'a Transaction<'a>,
+    ring: &'a KeyRing,
+    state: &'a AuthorityState,
+    root_fpr: &'a [u8; 32],
+    account: &str,
+    covering: &BTreeSet<Option<String>>,
+    power: Power,
+    only: Option<&str>,
+    pass: &'a Mutex<QuorumPass>,
+) -> Result<Option<String>, AuthorityError> {
+    let walk = Walk::new(tx, ring, state, root_fpr, pass);
+    let teams: BTreeSet<&str> = state
+        .team_acts
+        .iter()
+        .filter(|a| a.act == ACT_MEMBER_ADD && a.subject_id.as_deref() == Some(account))
+        .map(|a| a.team_id.as_str())
+        .filter(|t| only.is_none_or(|o| o == *t))
+        .collect();
+    for team in teams {
+        if !walk.team_live(team).await?
+            || walk.membership(team, account).await?.is_none()
+            || !walk.power_before(team, account, power, i64::MAX).await?
+        {
+            continue;
+        }
+        for g in state
+            .team_acts
+            .iter()
+            .filter(|g| g.act == ACT_GRANT && g.team_id == team && covering.contains(&g.scope_id))
+        {
+            if walk.live(g).await? {
+                return Ok(Some(team.to_string()));
+            }
+        }
+    }
+    Ok(None)
 }
 
 // ---------------------------------------------------------------------------
@@ -807,7 +875,7 @@ async fn check_now<'a>(
         }
         ACT_ROLE_SET => {
             p.subject.is_some()
-                && matches!(p.role.as_deref(), Some(ROLE_LEAD | ROLE_OVERSEER))
+                && p.role.as_deref().is_some_and(roles::valid_role_id)
                 && p.capability.is_none()
                 && p.scope.is_none()
                 && p.undoes.is_none()
@@ -886,7 +954,10 @@ async fn check_now<'a>(
             }
         }
         _ => {
-            if walk.role(&p.team, actor, ROLE_LEAD).await?.is_none() {
+            if !walk
+                .power_before(&p.team, actor, Power::Members, i64::MAX)
+                .await?
+            {
                 return Err(refuse());
             }
         }
@@ -931,6 +1002,11 @@ async fn check_now<'a>(
         ACT_ROLE_SET => {
             let subject = p.subject.as_deref().unwrap_or_default();
             let role = p.role.as_deref().unwrap_or_default();
+            // Only a role that stands now: ready-made, or a Steward's not retired.
+            match walk.roles.at(role, i64::MAX).await? {
+                Some(def) if !def.retired => {}
+                _ => return Err(refuse()),
+            }
             if walk.role(&p.team, subject, role).await?.is_some() {
                 return Err(refuse());
             }
@@ -1038,14 +1114,7 @@ pub async fn propose_act(
         bytes: Vec::new(),
     };
     let pass = Mutex::new(QuorumPass::default());
-    let walk = Walk {
-        tx,
-        ring: auth.ring,
-        state: &verified.state,
-        root_fpr: &verified.root_fpr,
-        pass: &pass,
-        settled: Mutex::new(BTreeMap::new()),
-    };
+    let walk = Walk::new(tx, auth.ring, &verified.state, &verified.root_fpr, &pass);
     check_now(tx, &walk, &actor, &proposal).await?;
     proposal.bytes = proposal_bytes(&verified.state, &verified.root_fpr, &proposal)?;
     Ok(proposal)
@@ -1109,14 +1178,7 @@ pub async fn commit_act(
         return Err(AuthorityError::Stale("the proposal is too old"));
     }
     let pass = Mutex::new(QuorumPass::default());
-    let walk = Walk {
-        tx,
-        ring: auth.ring,
-        state: &verified.state,
-        root_fpr: &verified.root_fpr,
-        pass: &pass,
-        settled: Mutex::new(BTreeMap::new()),
-    };
+    let walk = Walk::new(tx, auth.ring, &verified.state, &verified.root_fpr, &pass);
     check_now(tx, &walk, &actor, proposal).await?;
     let message = proposal_bytes(&verified.state, &verified.root_fpr, proposal)?;
 
@@ -1323,8 +1385,11 @@ pub struct TeamView {
     pub members: Vec<Seat>,
     pub leads: Vec<Seat>,
     pub overseers: Vec<Seat>,
+    /// Everyone holding any role on the team, ready-made ones included, with the role's id.
+    pub roles: Vec<(String, Seat)>,
     pub grants: Vec<TeamGrant>,
-    /// May the caller add and remove members (a root steward, or this team's lead)?
+    /// May the caller add and remove members (a root steward, or someone whose role on this
+    /// team has the members power)?
     pub may_staff: bool,
 }
 
@@ -1341,19 +1406,21 @@ pub async fn list(
     tx: &Transaction<'_>,
     auth: &grants::Authority<'_>,
 ) -> Result<(bool, Vec<TeamView>), AuthorityError> {
+    let (steward, views, _) = list_with_roles(tx, auth).await?;
+    Ok((steward, views))
+}
+
+/// [`list`], plus every role as it stands now (ready-made first), for the screens to name them.
+pub async fn list_with_roles(
+    tx: &Transaction<'_>,
+    auth: &grants::Authority<'_>,
+) -> Result<(bool, Vec<TeamView>, Vec<roles::Definition>), AuthorityError> {
     let actor = auth.ctx.actor().to_string();
     let verified = grants::verify_authority_state(tx, auth).await?;
     let steward =
         grants::holds_in_verified_state(tx, auth, &verified, None, Capability::Steward).await?;
     let pass = Mutex::new(QuorumPass::default());
-    let walk = Walk {
-        tx,
-        ring: auth.ring,
-        state: &verified.state,
-        root_fpr: &verified.root_fpr,
-        pass: &pass,
-        settled: Mutex::new(BTreeMap::new()),
-    };
+    let walk = Walk::new(tx, auth.ring, &verified.state, &verified.root_fpr, &pass);
     let rows = tx
         .query(
             "SELECT id, slug, name FROM teams WHERE organisation_id = $1 AND NOT deleted \
@@ -1374,17 +1441,24 @@ pub async fn list(
             members: Vec::new(),
             leads: Vec::new(),
             overseers: Vec::new(),
+            roles: Vec::new(),
             grants: Vec::new(),
             may_staff: steward,
         };
         for a in walk.acts().iter().filter(|a| a.team_id == id) {
             match a.act.as_str() {
                 ACT_MEMBER_ADD if walk.live(a).await? => view.members.push(seat_of(tx, a).await?),
-                ACT_ROLE_SET if walk.live(a).await? => match a.role.as_deref() {
-                    Some(ROLE_LEAD) => view.leads.push(seat_of(tx, a).await?),
-                    Some(ROLE_OVERSEER) => view.overseers.push(seat_of(tx, a).await?),
-                    _ => {}
-                },
+                ACT_ROLE_SET if walk.live(a).await? => {
+                    let seat = seat_of(tx, a).await?;
+                    match a.role.as_deref() {
+                        Some(ROLE_LEAD) => view.leads.push(seat.clone()),
+                        Some(ROLE_OVERSEER) => view.overseers.push(seat.clone()),
+                        _ => {}
+                    }
+                    if let Some(role) = &a.role {
+                        view.roles.push((role.clone(), seat));
+                    }
+                }
                 ACT_GRANT if walk.live(a).await? => {
                     if let Some(capability) = a.capability {
                         view.grants.push(TeamGrant {
@@ -1400,17 +1474,20 @@ pub async fn list(
         let involved = view
             .members
             .iter()
-            .chain(view.leads.iter())
-            .chain(view.overseers.iter())
+            .chain(view.roles.iter().map(|(_, s)| s))
             .any(|s| s.account == actor);
-        if view.leads.iter().any(|s| s.account == actor) {
+        if walk
+            .power_before(&id, &actor, Power::Members, i64::MAX)
+            .await?
+        {
             view.may_staff = true;
         }
         if steward || involved {
             out.push(view);
         }
     }
-    Ok((steward, out))
+    let defs = walk.roles.all_now().await?;
+    Ok((steward, out, defs))
 }
 
 /// The organisation's people, for a caller who may staff a team to pick from: a root steward,
@@ -1464,14 +1541,7 @@ pub async fn history(
         return Err(refuse());
     }
     let pass = Mutex::new(QuorumPass::default());
-    let walk = Walk {
-        tx,
-        ring: auth.ring,
-        state: &verified.state,
-        root_fpr: &verified.root_fpr,
-        pass: &pass,
-        settled: Mutex::new(BTreeMap::new()),
-    };
+    let walk = Walk::new(tx, auth.ring, &verified.state, &verified.root_fpr, &pass);
     let mut out = Vec::new();
     for a in walk.acts().iter().filter(|a| a.team_id == team) {
         out.push(HistoryLine {

@@ -138,9 +138,10 @@ fn slot_type_covers_every_registry_key() {
     // 486 -> 489: Termix in the work (552-554, schema 0.34).
     // 489 -> 496: the Work tab's ticket parts (555-561, schema 0.35).
     // 496 -> 571: the IP plan store (562-636, schema 0.36).
+    // 571 -> 572: a plan's team (637, schema 0.38).
     assert_eq!(
         FIELD_KEYS.len(),
-        571,
+        572,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {

@@ -27,11 +27,12 @@ import type { TextGate } from './plans';
 import { newUlid } from './ulid';
 
 export type WorkKind = 'MaintenancePlan' | 'Issue' | 'StockItem';
-export type WorkField = 'assigned_to' | 'due' | 'ticket';
+export type WorkField = 'assigned_to' | 'due' | 'ticket' | 'team';
 
-/** Which of the three each kind carries: a plan has its window and a spare its own due. */
+/** Which each kind carries: a plan has its window and a spare its own due. Only a plan names its
+ * team (schema 0.38): whose lead or supervisor approves it where its folder asks (card r102). */
 const FIELDS: Record<WorkKind, readonly WorkField[]> = {
-  MaintenancePlan: ['assigned_to', 'ticket'],
+  MaintenancePlan: ['assigned_to', 'team', 'ticket'],
   Issue: ['assigned_to', 'due', 'ticket'],
   StockItem: ['assigned_to', 'ticket'],
 };
@@ -55,6 +56,8 @@ export interface WorkParts {
   /** An issue's due date; a spare's own `due`; empty for a plan. */
   due: string;
   ticket: string;
+  /** A plan's team, by its server id; empty when none, and for an issue or a spare. */
+  team: string;
 }
 
 export function readWork(doc: Document, id: string): WorkParts | null {
@@ -62,7 +65,7 @@ export function readWork(doc: Document, id: string): WorkParts | null {
   const node = findNode(doc, id);
   if (kind == null || !node || node.absentSince !== undefined) return null;
   const read = (f: string) => asString(fieldValue(node.fields, `${kind}.${f}`)) ?? '';
-  return { assignedTo: read('assigned_to'), due: kind === 'MaintenancePlan' ? '' : read('due'), ticket: read('ticket') };
+  return { assignedTo: read('assigned_to'), due: kind === 'MaintenancePlan' ? '' : read('due'), ticket: read('ticket'), team: kind === 'MaintenancePlan' ? read('team') : '' };
 }
 
 /** An ISO date (`2026-11-07`): what the date picker gives and the Work tab sorts by. */
@@ -109,6 +112,7 @@ export function setWorkField(
   if (field === 'ticket' && v !== '') v = opts.gate(v).trim();
   if (field === 'due' && v !== '' && !isIsoDate(v)) throw new WorkFieldError('a due date is a date, like 2026-11-07');
   if (field === 'assigned_to' && v !== '' && !/^[0-9A-HJKMNP-TV-Z]{26}$/.test(v)) throw new WorkFieldError('assign it to someone from the list');
+  if (field === 'team' && v !== '' && !/^[0-9A-HJKMNP-TV-Z]{26}$/.test(v)) throw new WorkFieldError('pick the team from the list');
   if (field === 'ticket' && v.length > 500) throw new WorkFieldError('an outside ticket is a link or a number, at most 500 characters');
   const key = `${kind}.${field}`;
   requireFieldName(key);
@@ -120,7 +124,8 @@ export function setWorkField(
   const entry: FieldEntry = v === '' ? { presence: 'absent', prov: prov.id } : { presence: 'set', prov: prov.id, value: text(v) };
   const op: Op = { type: 'set_field', element: id, key, presence: v === '' ? 'absent' : 'set', prov: prov.id };
   const next = replaceNode(working, id, (n) => ({ ...n, fields: { ...n.fields, [key]: entry } }));
-  const label = field === 'assigned_to' ? (v ? 'assign work' : 'unassign work') : field === 'due' ? 'set due date' : 'set outside ticket';
+  const label =
+    field === 'assigned_to' ? (v ? 'assign work' : 'unassign work') : field === 'due' ? 'set due date' : field === 'team' ? (v ? 'set team' : 'clear team') : 'set outside ticket';
   return withBatch(next, { id: newUlid(now), label, ops: [op] });
 }
 

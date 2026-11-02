@@ -33,7 +33,7 @@ const REASON_HINT: Record<CallOffReason, string> = {
 };
 
 /** While planning: start the maintenance, or call the plan off. Replaces the lone Start work. */
-export function WhatNext({ controller, plan, onStart }: { controller: PlansController; plan: Plan; onStart: () => void }) {
+export function WhatNext({ controller, plan, onStart, held = false }: { controller: PlansController; plan: Plan; onStart: () => void; held?: boolean }) {
   const [asking, setAsking] = useState(false);
   const [reason, setReason] = useState<CallOffReason>('not_needed');
   const [note, setNote] = useState('');
@@ -50,7 +50,7 @@ export function WhatNext({ controller, plan, onStart }: { controller: PlansContr
       {!asking ? (
         <>
           <p className="plans-step__actions">
-            <button type="button" className="plans-btn btn-main" disabled={plan.steps.length === 0} onClick={onStart} data-testid="plans-start">
+            <button type="button" className="plans-btn btn-main" disabled={plan.steps.length === 0 || held} onClick={onStart} data-testid="plans-start">
               Start the maintenance
             </button>
             <button type="button" className="plans-btn" onClick={() => setAsking(true)} data-testid="plans-call-off">
@@ -60,7 +60,9 @@ export function WhatNext({ controller, plan, onStart }: { controller: PlansContr
           <p className="plans-note">
             {plan.steps.length === 0
               ? 'Add a step before the maintenance can start.'
-              : plan.windowStart === ''
+              : held
+                ? 'It can start once this version of the plan is approved.'
+                : plan.windowStart === ''
                 ? 'No window is set, so it can start whenever you are ready.'
                 : 'Starting turns the plan into the maintenance: the steps become a checklist, one at a time.'}
           </p>

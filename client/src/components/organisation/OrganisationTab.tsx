@@ -14,6 +14,7 @@ import {
 } from '../../api/invitations';
 import type { Organisation } from '../../api/organisations';
 import { fetchPeople, removeAccess, secondSteward, type AccessRow, type People } from '../../api/people';
+import { fetchRules, setRule, type PlanRules } from '../../api/planApprovals';
 import type { Place, Scope } from '../../api/scopes';
 import { shareWith } from '../../api/share';
 import { AiPanel } from '../ai/AiPanel';
@@ -86,6 +87,19 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Sign-off r102: which folders ask for plans to be approved, asked when Folders opens.
+  const [planRules, setPlanRules] = useState<PlanRules | null>(null);
+  useEffect(() => {
+    if (page.kind !== 'folders' || aiOnly) return undefined;
+    let cancelled = false;
+    fetchRules(org).then(
+      (r) => !cancelled && setPlanRules(r),
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [org, page.kind, aiOnly]);
 
   const reload = useCallback(() => {
     if (aiOnly) return;
@@ -199,7 +213,23 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
       );
     }
     if (page.kind === 'folders') {
-      return <FoldersPanel organisationName={organisation.displayName} scopes={scopes} onCreateScope={onCreateScope} scopeForm={scopeForm} onSetPlace={onSetPlace} estate={estate} />;
+      return (
+        <FoldersPanel
+          organisationName={organisation.displayName}
+          scopes={scopes}
+          onCreateScope={onCreateScope}
+          scopeForm={scopeForm}
+          onSetPlace={onSetPlace}
+          estate={estate}
+          planApproval={{
+            rules: planRules,
+            onSet: async (scopeId, required) => {
+              await setRule(org, scopeId, required);
+              setPlanRules(await fetchRules(org));
+            },
+          }}
+        />
+      );
     }
     if (page.kind === 'invite') {
       return (

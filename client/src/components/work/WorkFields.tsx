@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 
+import { fetchTeams } from '../../api/teams';
 import { fetchDesignWork, type DesignWork } from '../../api/work';
 import type { Document } from '../../document/model';
 import { addNote, notesOf } from '../../document/notes';
@@ -52,7 +53,24 @@ function useDesignWork(place: WorkPlace | null, id: string): DesignWork | null {
   return got;
 }
 
-const LABEL: Record<WorkField, string> = { assigned_to: 'Assigned to', due: 'Due', ticket: 'Outside ticket' };
+const LABEL: Record<WorkField, string> = { assigned_to: 'Assigned to', due: 'Due', ticket: 'Outside ticket', team: 'Team' };
+
+/** The teams this person can see, to name a plan's team from (schema 0.38). Empty until asked, or
+ * when the list cannot be had: the row then shows the team's id as "a team you cannot see". */
+function useTeamNames(organisationId: string | undefined, wanted: boolean): { id: string; name: string }[] {
+  const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    if (!wanted || organisationId == null) return undefined;
+    let cancelled = false;
+    fetchTeams(organisationId)
+      .then((t) => !cancelled && setTeams(t.teams.map((x) => ({ id: x.id, name: x.name }))))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [organisationId, wanted]);
+  return teams;
+}
 
 /**
  * The Work tab's parts on one plan, issue or spare (sign-off r74): its Fathom number, who it is
@@ -62,6 +80,7 @@ const LABEL: Record<WorkField, string> = { assigned_to: 'Assigned to', due: 'Due
 export function WorkFields({ id }: { id: string }) {
   const place = useContext(WorkPlaceContext);
   const work = useDesignWork(place, id);
+  const teams = useTeamNames(place?.organisationId, workKindOf(id) === 'MaintenancePlan');
   const [ticket, setTicket] = useState<{ value: string; pasted: boolean } | null>(null);
   const [comment, setComment] = useState<{ value: string; pasted: boolean }>({ value: '', pasted: false });
   const [error, setError] = useState<string | null>(null);
@@ -131,6 +150,26 @@ export function WorkFields({ id }: { id: string }) {
             </select>
           ) : (
             <span>{parts.assignedTo === '' ? 'Nobody yet' : (assignedName ?? 'Someone who can no longer work here')}</span>
+          )}
+        </label>
+      )}
+      {fields.includes('team') && (
+        <label className="work-fields__row">
+          <span className="work-fields__label">{LABEL.team}</span>
+          {canDraw ? (
+            <select value={parts.team} onChange={(e) => apply('team', e.currentTarget.value)} aria-label={LABEL.team} data-testid="work-team">
+              <option value="">No team</option>
+              {parts.team !== '' && !teams.some((t) => t.id === parts.team) && <option value={parts.team}>A team you cannot see</option>}
+              {[...teams]
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+            </select>
+          ) : (
+            <span>{parts.team === '' ? 'No team' : (teams.find((t) => t.id === parts.team)?.name ?? 'A team you cannot see')}</span>
           )}
         </label>
       )}

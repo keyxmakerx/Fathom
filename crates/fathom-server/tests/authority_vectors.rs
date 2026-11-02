@@ -41,7 +41,8 @@
 //! valid signature.
 
 use fathom_server::authority::{
-    self, Capability, GrantFacts, RowFacts, SignatureRefused, SoftwareKey, TeamActFacts,
+    self, Capability, GrantFacts, PlanApprovalFacts, PlanRuleFacts, RowFacts, SignatureRefused,
+    SoftwareKey, TeamActFacts, TeamRoleFacts,
 };
 use fathom_server::chain::{self, ChainRef};
 use fathom_server::crypto::Key32;
@@ -130,6 +131,32 @@ const TEAM_GRANT_REVOKE_BYTES: &str = "12000000666174686f6d2f7465616d2f6163742f7
      614f9e217c008e00dc0ad040154ec7e3427f343a1a00000030314a515a30303030303030303030303030303030303030\
      444420000000434343434343434343434343434343434343434343434343434343434343434307000000737465776172\
      64800e80690000000007000000";
+const TEAM_ROLE_TECH_BYTES: &str = "13000000666174686f6d2f7465616d2f726f6c652f76311a00000030314a515a30303030303030303030303030303030\
+     30303041412000000041414141414141414141414141414141414141414141414141414141414141411a00000030314a\
+     515a303030303030303030303030303030303030304d4d0400000074656368100000004d61696e74656e616e63652074\
+     6563680f000000656d657267656e63795f7374617274001a00000030314a515a30303030303030303030303030303030\
+     3030304444200000004343434343434343434343434343434343434343434343434343434343434343800e8069000000\
+     0007000000";
+const TEAM_ROLE_RETIRE_BYTES: &str = "13000000666174686f6d2f7465616d2f726f6c652f76311a00000030314a515a30303030303030303030303030303030\
+     30303041412000000041414141414141414141414141414141414141414141414141414141414141411a00000030314a\
+     515a303030303030303030303030303030303030304d4d1a00000030314a515a30303030303030303030303030303030\
+     3030304e4e0a0000004e69676874206465736b00000000011a00000030314a515a303030303030303030303030303030\
+     303030304444200000004343434343434343434343434343434343434343434343434343434343434343800e80690000\
+     000007000000";
+const PLAN_RULE_BYTES: &str = "13000000666174686f6d2f706c616e2f72756c652f76311a00000030314a515a30303030303030303030303030303030\
+     30303041412000000041414141414141414141414141414141414141414141414141414141414141411a00000030314a\
+     515a3030303030303030303030303030303030303050501a00000030314a515a30303030303030303030303030303030\
+     3030304242011a00000030314a515a303030303030303030303030303030303030304444200000004343434343434343\
+     434343434343434343434343434343434343434343434343800e80690000000007000000";
+const PLAN_DIGEST: &str = "4550f9160efc8a15bdadfec6eaf746eccb1bc6436f69bc4b8418732b821f8a22";
+const PLAN_APPROVAL_BYTES: &str = "17000000666174686f6d2f706c616e2f617070726f76616c2f76311a00000030314a515a303030303030303030303030\
+     3030303030303041412000000041414141414141414141414141414141414141414141414141414141414141411a0000\
+     0030314a515a3030303030303030303030303030303030303051511a00000030314a515a303030303030303030303030\
+     3030303030303052521a00000030314a515a303030303030303030303030303030303030305353200000004550f9160e\
+     fc8a15bdadfec6eaf746eccb1bc6436f69bc4b8418732b821f8a2209000000656d657267656e63791a00000030314a51\
+     5a30303030303030303030303030303030303030545410000000436f72652073776974636820646f776e1a0000003031\
+     4a515a303030303030303030303030303030303030304444200000004343434343434343434343434343434343434343\
+     434343434343434343434343800e80690000000007000000";
 const ORGANISATION: &str = "01JQZ0000000000000000000AA";
 const SCOPE: &str = "01JQZ0000000000000000000BB";
 const SUBJECT: &str = "01JQZ0000000000000000000CC";
@@ -610,4 +637,103 @@ fn team_act_bytes_are_the_bytes_the_attack_round_describes() {
         auth_epoch: AUTH_EPOCH,
     });
     assert_eq!(hex(&revoke), TEAM_GRANT_REVOKE_BYTES);
+}
+
+/// Migration 0071's role definition, both shapes: a ready-made role with a power, and a
+/// Steward's role retired with none.
+#[test]
+fn team_role_bytes_are_the_bytes_the_script_builds() {
+    let tech = authority::team_role_bytes(&TeamRoleFacts {
+        organisation: ORGANISATION,
+        root_pubkey_fpr: &ROOT_PUBKEY_FPR,
+        def_id: "01JQZ0000000000000000000MM",
+        role: "tech",
+        title: "Maintenance tech",
+        powers: "emergency_start",
+        retired: false,
+        signer: GRANTER,
+        signer_key_fpr: &GRANTER_KEY_FPR,
+        at_unix: AT_UNIX,
+        auth_epoch: AUTH_EPOCH,
+    });
+    assert_eq!(hex(&tech), TEAM_ROLE_TECH_BYTES);
+    let retire = authority::team_role_bytes(&TeamRoleFacts {
+        organisation: ORGANISATION,
+        root_pubkey_fpr: &ROOT_PUBKEY_FPR,
+        def_id: "01JQZ0000000000000000000MM",
+        role: "01JQZ0000000000000000000NN",
+        title: "Night desk",
+        powers: "",
+        retired: true,
+        signer: GRANTER,
+        signer_key_fpr: &GRANTER_KEY_FPR,
+        at_unix: AT_UNIX,
+        auth_epoch: AUTH_EPOCH,
+    });
+    assert_eq!(hex(&retire), TEAM_ROLE_RETIRE_BYTES);
+}
+
+/// Migration 0072: a folder's plan rule, a plan's digest (steps given out of id order, so the
+/// sort is tested), and an emergency start over that digest.
+#[test]
+fn plan_approval_bytes_are_the_bytes_the_script_builds() {
+    let rule = authority::plan_rule_bytes(&PlanRuleFacts {
+        organisation: ORGANISATION,
+        root_pubkey_fpr: &ROOT_PUBKEY_FPR,
+        rule_id: "01JQZ0000000000000000000PP",
+        scope: SCOPE,
+        required: true,
+        signer: GRANTER,
+        signer_key_fpr: &GRANTER_KEY_FPR,
+        at_unix: AT_UNIX,
+        auth_epoch: AUTH_EPOCH,
+    });
+    assert_eq!(hex(&rule), PLAN_RULE_BYTES);
+    let s = |v: &[&str; 9]| v.map(|x| x.to_string());
+    let digest = authority::plan_digest(
+        "01JQZ0000000000000000000SS",
+        [
+            "Readdress core-1",
+            "2026-11-03T22:00",
+            "",
+            "01JQZ0000000000000000000TT",
+        ],
+        &[
+            (
+                "01JQZ0000000000000000000VB".to_string(),
+                s(&["2", "other", "", "Reboot core-1", "", "", "", "", ""]),
+            ),
+            (
+                "01JQZ0000000000000000000VA".to_string(),
+                s(&[
+                    "1",
+                    "address",
+                    "device:01JQZ0000000000000000000WW",
+                    "Move core-1 to 10.0.0.2",
+                    "10.0.0.1",
+                    "10.0.0.2",
+                    "field\tDevice.mgmt\t10.0.0.2",
+                    "",
+                    "",
+                ]),
+            ),
+        ],
+    );
+    assert_eq!(hex(&digest), PLAN_DIGEST);
+    let approval = authority::plan_approval_bytes(&PlanApprovalFacts {
+        organisation: ORGANISATION,
+        root_pubkey_fpr: &ROOT_PUBKEY_FPR,
+        approval_id: "01JQZ0000000000000000000QQ",
+        design: "01JQZ0000000000000000000RR",
+        plan: "01JQZ0000000000000000000SS",
+        plan_digest: &digest,
+        kind: "emergency",
+        team: "01JQZ0000000000000000000TT",
+        reason: "Core switch down",
+        signer: GRANTER,
+        signer_key_fpr: &GRANTER_KEY_FPR,
+        at_unix: AT_UNIX,
+        auth_epoch: AUTH_EPOCH,
+    });
+    assert_eq!(hex(&approval), PLAN_APPROVAL_BYTES);
 }

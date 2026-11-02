@@ -99,6 +99,21 @@ const TAG_KEY_RETIRE: &[u8] = b"fathom/key/retire/v1";
 /// grant's or as a different act's.
 const TAG_TEAM_ACT: &[u8] = b"fathom/team/act/v1";
 
+/// A role's definition: its title and powers, or its retirement (migration 0071). Its own tag,
+/// so a definition never verifies as a team act or a grant.
+const TAG_TEAM_ROLE: &[u8] = b"fathom/team/role/v1";
+
+/// A folder's plan rule: whether a plan in it must be approved before it starts (migration
+/// 0072, sign-off r102-plan-approval).
+const TAG_PLAN_RULE: &[u8] = b"fathom/plan/rule/v1";
+
+/// One person's approval of a plan as it reads now, an emergency start, or an approval after
+/// the fact (migration 0072). Its own tag, so it never verifies as any act above.
+const TAG_PLAN_APPROVAL: &[u8] = b"fathom/plan/approval/v1";
+
+/// The hash tag of what a plan says (`plan_digest`): what an approval is over.
+const TAG_PLAN_DIGEST: &[u8] = b"fathom/plan/digest/v1";
+
 /// §3.4's row-seal subkey, and its three in-MAC tags.
 const KDF_ROW_LABEL: &[u8] = b"fathom/chain/kdf/row/v1";
 const TAG_ROW: &[u8] = b"fathom/row/v1";
@@ -159,6 +174,24 @@ pub const LABELS: &[(&str, &str)] = &[
     (
         "fathom/team/act/v1",
         "in-signature tag of team_act_bytes (ADR-0081, attack round T5)",
+    ),
+    (
+        "fathom/team/role/v1",
+        "in-signature tag of team_role_bytes (ADR-0081 later item 3, card r102 v2)",
+    ),
+    (
+        "fathom/plan/rule/v1",
+        "in-signature tag of plan_rule_bytes: a folder's Steward asks for plans there to be \
+         approved before they start (card r102)",
+    ),
+    (
+        "fathom/plan/approval/v1",
+        "in-signature tag of plan_approval_bytes: an approval, an emergency start, or an \
+         approval after the fact (card r102)",
+    ),
+    (
+        "fathom/plan/digest/v1",
+        "hash tag of plan_digest, what an approval is over (card r102)",
     ),
     (
         "fathom/chain/kdf/row/v1",
@@ -487,6 +520,171 @@ pub fn team_act_bytes(facts: &TeamActFacts<'_>) -> Vec<u8> {
     crypto::u64_le(&mut msg, facts.at_unix as u64);
     crypto::u32_le(&mut msg, facts.auth_epoch as u32);
     msg
+}
+
+/// Everything `team_role_bytes` covers: one whole definition of a role (migration 0071).
+pub struct TeamRoleFacts<'a> {
+    pub organisation: &'a str,
+    pub root_pubkey_fpr: &'a [u8; 32],
+    pub def_id: &'a str,
+    /// `lead`, `overseer`, `tech`, or a ULID for a role a Steward made.
+    pub role: &'a str,
+    pub title: &'a str,
+    /// The canonical powers string (`roles::powers_text`), comma-separated in list order.
+    pub powers: &'a str,
+    pub retired: bool,
+    pub signer: &'a str,
+    pub signer_key_fpr: &'a [u8; 32],
+    pub at_unix: i64,
+    pub auth_epoch: i32,
+}
+
+/// The bytes a root Steward signs to define, change or retire a role.
+///
+/// ```text
+/// team_role_bytes = LP("fathom/team/role/v1")
+///                 ‖ LP(organisation_id) ‖ LP(root_pubkey_fpr)
+///                 ‖ LP(def_id) ‖ LP(role) ‖ LP(title) ‖ LP(powers) ‖ u8(retired)
+///                 ‖ LP(signer_id) ‖ LP(signer_key_fpr)
+///                 ‖ u64(at_unix) ‖ u32(auth_epoch)
+/// ```
+pub fn team_role_bytes(facts: &TeamRoleFacts<'_>) -> Vec<u8> {
+    let mut msg = Vec::with_capacity(256);
+    crypto::lp(&mut msg, TAG_TEAM_ROLE);
+    crypto::lp(&mut msg, facts.organisation.as_bytes());
+    crypto::lp(&mut msg, facts.root_pubkey_fpr);
+    crypto::lp(&mut msg, facts.def_id.as_bytes());
+    crypto::lp(&mut msg, facts.role.as_bytes());
+    crypto::lp(&mut msg, facts.title.as_bytes());
+    crypto::lp(&mut msg, facts.powers.as_bytes());
+    msg.push(u8::from(facts.retired));
+    crypto::lp(&mut msg, facts.signer.as_bytes());
+    crypto::lp(&mut msg, facts.signer_key_fpr);
+    crypto::u64_le(&mut msg, facts.at_unix as u64);
+    crypto::u32_le(&mut msg, facts.auth_epoch as u32);
+    msg
+}
+
+/// A folder's plan rule (migration 0072).
+pub struct PlanRuleFacts<'a> {
+    pub organisation: &'a str,
+    pub root_pubkey_fpr: &'a [u8; 32],
+    pub rule_id: &'a str,
+    /// The folder, or `""` for the whole organisation.
+    pub scope: &'a str,
+    pub required: bool,
+    pub signer: &'a str,
+    pub signer_key_fpr: &'a [u8; 32],
+    pub at_unix: i64,
+    pub auth_epoch: i32,
+}
+
+/// The bytes a folder's Steward signs to turn plan approval on or off there.
+///
+/// ```text
+/// plan_rule_bytes = LP("fathom/plan/rule/v1")
+///                 ‖ LP(organisation_id) ‖ LP(root_pubkey_fpr)
+///                 ‖ LP(rule_id) ‖ LP(scope_id or "") ‖ u8(required)
+///                 ‖ LP(signer_id) ‖ LP(signer_key_fpr)
+///                 ‖ u64(at_unix) ‖ u32(auth_epoch)
+/// ```
+pub fn plan_rule_bytes(facts: &PlanRuleFacts<'_>) -> Vec<u8> {
+    let mut msg = Vec::with_capacity(256);
+    crypto::lp(&mut msg, TAG_PLAN_RULE);
+    crypto::lp(&mut msg, facts.organisation.as_bytes());
+    crypto::lp(&mut msg, facts.root_pubkey_fpr);
+    crypto::lp(&mut msg, facts.rule_id.as_bytes());
+    crypto::lp(&mut msg, facts.scope.as_bytes());
+    msg.push(u8::from(facts.required));
+    crypto::lp(&mut msg, facts.signer.as_bytes());
+    crypto::lp(&mut msg, facts.signer_key_fpr);
+    crypto::u64_le(&mut msg, facts.at_unix as u64);
+    crypto::u32_le(&mut msg, facts.auth_epoch as u32);
+    msg
+}
+
+/// One approval of a plan (migration 0072).
+pub struct PlanApprovalFacts<'a> {
+    pub organisation: &'a str,
+    pub root_pubkey_fpr: &'a [u8; 32],
+    pub approval_id: &'a str,
+    pub design: &'a str,
+    /// The plan's ULID inside the design.
+    pub plan: &'a str,
+    /// `plan_digest` of the plan as the signer saw it.
+    pub plan_digest: &'a [u8; 32],
+    /// `before`, `emergency` or `after`.
+    pub kind: &'a str,
+    /// The team the signer acts through, or `""` for a folder's Steward.
+    pub team: &'a str,
+    /// An emergency start's reason, or `""`.
+    pub reason: &'a str,
+    pub signer: &'a str,
+    pub signer_key_fpr: &'a [u8; 32],
+    pub at_unix: i64,
+    pub auth_epoch: i32,
+}
+
+/// The bytes a person signs to approve a plan, start one in an emergency, or approve one after
+/// an emergency start.
+///
+/// ```text
+/// plan_approval_bytes = LP("fathom/plan/approval/v1")
+///                     ‖ LP(organisation_id) ‖ LP(root_pubkey_fpr)
+///                     ‖ LP(approval_id) ‖ LP(design_id) ‖ LP(plan_id) ‖ LP(plan_digest)
+///                     ‖ LP(kind) ‖ LP(team_id or "") ‖ LP(reason)
+///                     ‖ LP(signer_id) ‖ LP(signer_key_fpr)
+///                     ‖ u64(at_unix) ‖ u32(auth_epoch)
+/// ```
+pub fn plan_approval_bytes(facts: &PlanApprovalFacts<'_>) -> Vec<u8> {
+    let mut msg = Vec::with_capacity(384);
+    crypto::lp(&mut msg, TAG_PLAN_APPROVAL);
+    crypto::lp(&mut msg, facts.organisation.as_bytes());
+    crypto::lp(&mut msg, facts.root_pubkey_fpr);
+    crypto::lp(&mut msg, facts.approval_id.as_bytes());
+    crypto::lp(&mut msg, facts.design.as_bytes());
+    crypto::lp(&mut msg, facts.plan.as_bytes());
+    crypto::lp(&mut msg, facts.plan_digest);
+    crypto::lp(&mut msg, facts.kind.as_bytes());
+    crypto::lp(&mut msg, facts.team.as_bytes());
+    crypto::lp(&mut msg, facts.reason.as_bytes());
+    crypto::lp(&mut msg, facts.signer.as_bytes());
+    crypto::lp(&mut msg, facts.signer_key_fpr);
+    crypto::u64_le(&mut msg, facts.at_unix as u64);
+    crypto::u32_le(&mut msg, facts.auth_epoch as u32);
+    msg
+}
+
+/// What a plan says, as an approval is over it: its title, window and team, and every step's
+/// position, kind, targets, sentence, before and after, edit, If and path. A step's state and
+/// note, and the plan's stage, are left out: doing the work is not changing the plan. Steps go
+/// in id order. Every value is its text, `""` when unset; an ordinal is its decimal text.
+///
+/// ```text
+/// plan_digest = SHA-256( LP("fathom/plan/digest/v1") ‖ LP(plan_id)
+///                       ‖ LP(title) ‖ LP(window_start) ‖ LP(window_end) ‖ LP(team)
+///                       ‖ u32(step count)
+///                       ‖ for each step: LP(step_id) ‖ LP(ordinal) ‖ LP(kind) ‖ LP(targets)
+///                                       ‖ LP(change) ‖ LP(before) ‖ LP(after) ‖ LP(edit)
+///                                       ‖ LP(if_when) ‖ LP(branch_of) )
+/// ```
+pub fn plan_digest(plan: &str, head: [&str; 4], steps: &[(String, [String; 9])]) -> [u8; 32] {
+    let mut msg = Vec::with_capacity(512);
+    crypto::lp(&mut msg, TAG_PLAN_DIGEST);
+    crypto::lp(&mut msg, plan.as_bytes());
+    for value in head {
+        crypto::lp(&mut msg, value.as_bytes());
+    }
+    let mut sorted: Vec<&(String, [String; 9])> = steps.iter().collect();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    crypto::u32_le(&mut msg, sorted.len() as u32);
+    for (id, fields) in sorted {
+        crypto::lp(&mut msg, id.as_bytes());
+        for value in fields {
+            crypto::lp(&mut msg, value.as_bytes());
+        }
+    }
+    Sha256::digest(&msg).into()
 }
 
 /// Suspension and its lifting, in `revoke_bytes`' shape.
@@ -1177,6 +1375,9 @@ mod tests {
             TAG_ROW,
             TAG_AUTHHEAD_LIVE,
             TAG_AUTHHEAD_SEAL,
+            TAG_PLAN_RULE,
+            TAG_PLAN_APPROVAL,
+            TAG_PLAN_DIGEST,
         ] {
             let text = core::str::from_utf8(label).unwrap();
             assert!(

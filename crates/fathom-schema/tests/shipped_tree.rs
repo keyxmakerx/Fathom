@@ -118,7 +118,8 @@ fn shipped_tree_declaration_counts_hold() {
     // Termix in the work (schema 0.34): +3 field keys (552-554).
     // The Work tab's ticket parts (schema 0.35): +7 field keys (555-561).
     // The IP plan store (schema 0.36): +75 field keys (562-636).
-    assert_eq!(fk.entries.len(), 571, "field-key registry entries");
+    // A plan's team (schema 0.38): +1 field key (637).
+    assert_eq!(fk.entries.len(), 572, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -215,7 +216,8 @@ fn shipped_tree_declaration_counts_hold() {
     // 0.34 -> 0.35 is the Work tab's ticket parts: seven optional fields (555-561), Notable widened.
     // 0.35 -> 0.36 is the IP plan store: eleven `plan`-layer kinds no design holds (562-636).
     // 0.36 -> 0.37 is a plan called off: one variant, `called_off`, on `MaintenancePlan.stage`.
-    assert_eq!(tree.version.as_deref(), Some("0.37"));
+    // 0.37 -> 0.38 is a plan's team: one optional field, `MaintenancePlan.team` (637).
+    assert_eq!(tree.version.as_deref(), Some("0.38"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

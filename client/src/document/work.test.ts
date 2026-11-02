@@ -29,12 +29,23 @@ describe('the Work tab parts on a piece of work (sign-off r74)', () => {
     let doc = setWorkField(d0, plan, 'assigned_to', ACCOUNT, { gate: TYPED_AS_WRITTEN, ...tick() });
     doc = setWorkField(doc, plan, 'ticket', 'https://jira.example.com/browse/NET-42', { gate: TYPED_AS_WRITTEN, ...tick() });
     doc = setWorkField(doc, issue, 'due', '2026-11-07', { gate: TYPED_AS_WRITTEN, ...tick() });
-    expect(readWork(doc, plan)).toEqual({ assignedTo: ACCOUNT, due: '', ticket: 'https://jira.example.com/browse/NET-42' });
+    expect(readWork(doc, plan)).toEqual({ assignedTo: ACCOUNT, due: '', ticket: 'https://jira.example.com/browse/NET-42', team: '' });
     expect(readWork(doc, issue)?.due).toBe('2026-11-07');
     const back = undo(doc, doc.batches[doc.batches.length - 1].id, tick());
     expect(readWork(back, issue)?.due).toBe('');
     // Saved and opened again, the fields are there.
     expect(readWork(readPlain(writePlain(doc)), plan)?.assignedTo).toBe(ACCOUNT);
+  });
+
+  it('names the team that owns a plan (schema 0.38), by its id, and only on a plan', () => {
+    const { doc: d0, plan, issue } = planAndIssue();
+    const team = '01JQZ0000000000000000000TT';
+    const doc = setWorkField(d0, plan, 'team', team, { gate: TYPED_AS_WRITTEN, ...tick() });
+    expect(readWork(doc, plan)?.team).toBe(team);
+    expect(readWork(readPlain(writePlain(doc)), plan)?.team).toBe(team);
+    expect(() => setWorkField(doc, plan, 'team', 'Network Ops', { gate: TYPED_AS_WRITTEN })).toThrow(WorkFieldError);
+    expect(() => setWorkField(doc, issue, 'team', team, { gate: TYPED_AS_WRITTEN })).toThrow(WorkFieldError);
+    expect(readWork(setWorkField(doc, plan, 'team', '', { gate: TYPED_AS_WRITTEN, ...tick() }), plan)?.team).toBe('');
   });
 
   it('clears a field when it is emptied', () => {

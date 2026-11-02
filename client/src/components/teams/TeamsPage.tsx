@@ -1,7 +1,8 @@
 // Teams (ADR-0081; where they live: ADR-0088, UI-SPEC "Where the new work lives").
 //
 // One component for both places a team is seen. Steward › Teams is a root Steward's: every
-// team, New team, and on a team's page members, leads, supervisors, folders, rename and delete.
+// team, New team, and on a team's page members, roles, folders, rename and delete; and a Roles
+// tab, where a role's title and powers are set (migration 0071, card r102 version 2).
 // Home › Teams is for someone in, leading or supervising a team: the same page, read-only,
 // except that a lead adds and removes members. Every change is signed in this browser
 // (`api/teams.ts`); the server checks it again at every use.
@@ -11,7 +12,9 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { describeError } from '../../api/invitations';
 import type { Scope } from '../../api/scopes';
 import {
+  defineRole,
   doTeamAct,
+  POWERS,
   fetchHistory,
   fetchTeams,
   ledBy,
@@ -20,11 +23,16 @@ import {
   throughTeams,
   type ActChoice,
   type HistoryLine,
+  type Power,
+  type RoleChoice,
+  type RoleDef,
+  type RoleSeat,
   type Team,
   type TeamCapability,
   type TeamGrant,
   type TeamRole,
   type Teams,
+  titleOf,
 } from '../../api/teams';
 import { getSession } from '../../state/sessionState';
 import { dateTimeLabel } from '../organisation/model';
@@ -44,11 +52,42 @@ export function folderWords(scope: string | null, scopes: readonly Pick<Scope, '
 export const grantWords = (g: Pick<TeamGrant, 'capability' | 'scope'>, scopes: readonly Pick<Scope, 'scopeId' | 'path' | 'displayName'>[]): string =>
   `${g.capability === 'draw' ? 'Draw' : 'Read'} in ${folderWords(g.scope, scopes)}`;
 
-const roleWords = (role: TeamRole | null): string => (role === 'overseer' ? 'a supervisor' : 'lead');
+const PRESET_TITLES: Record<string, string> = { lead: 'Lead', overseer: 'Supervisor', tech: 'Maintenance tech' };
+
+/** The ready-made roles, for a server that sends no definitions. */
+const FALLBACK_ROLES: RoleDef[] = [
+  { role: 'lead', title: 'Lead', powers: POWERS.map((p) => p.power), preset: true, retired: false },
+  { role: 'overseer', title: 'Supervisor', powers: ['assign', 'due_dates', 'approve_plans', 'history'], preset: true, retired: false },
+];
+
+const rolesOf = (teams: Teams): RoleDef[] => (teams.roles.length > 0 ? teams.roles : FALLBACK_ROLES);
+
+/** "lead", "a supervisor", "a Night desk": a role's title as it reads mid-sentence. */
+export function roleWords(role: TeamRole | null, roles: readonly RoleDef[] = []): string {
+  const title = titleOf(roles, role);
+  if (role === 'lead' && title === 'Lead') return 'lead';
+  const shown = role !== null && PRESET_TITLES[role] === title ? title.toLowerCase() : title;
+  return `${/^[aeiou]/i.test(shown) ? 'an' : 'a'} ${shown}`;
+}
+
+/** Who holds `role` on `team`, from the holders list, or the older lists for a server that
+ * sends none. */
+function holders(team: Team, role: TeamRole): RoleSeat[] {
+  if (team.roles.length > 0 || (role !== 'lead' && role !== 'overseer')) return team.roles.filter((r) => r.role === role);
+  return (role === 'lead' ? team.leads : team.supervisors).map((s) => ({ ...s, role }));
+}
+
+const powerWords = (powers: readonly Power[]): string =>
+  powers.length === 0 ? 'No powers.' : `Can: ${POWERS.filter((p) => powers.includes(p.power)).map((p) => p.words.charAt(0).toLowerCase() + p.words.slice(1)).join(', ')}.`;
 
 /** One History line in words. `name` turns an account into a name, or "you"; the server's
  * names on the line are used for anyone it does not know. */
-export function historyWords(line: HistoryLine, name: (account: string | null, known?: string | null) => string, scopes: readonly Pick<Scope, 'scopeId' | 'path' | 'displayName'>[]): string {
+export function historyWords(
+  line: HistoryLine,
+  name: (account: string | null, known?: string | null) => string,
+  scopes: readonly Pick<Scope, 'scopeId' | 'path' | 'displayName'>[],
+  roles: readonly RoleDef[] = [],
+): string {
   const by = name(line.by, line.byName);
   const who = by.charAt(0).toUpperCase() + by.slice(1);
   const them = name(line.subject, line.subjectName);
@@ -62,9 +101,9 @@ export function historyWords(line: HistoryLine, name: (account: string | null, k
     case 'member_remove':
       return `${who} removed ${them}`;
     case 'role_set':
-      return `${who} made ${them} ${roleWords(line.role)}`;
+      return `${who} made ${them} ${roleWords(line.role, roles)}`;
     case 'role_clear':
-      return `${who} stopped ${them} being ${roleWords(line.role)}`;
+      return `${who} stopped ${them} being ${roleWords(line.role, roles)}`;
     case 'grant':
       return `${who} let the team ${line.capability === 'draw' ? 'draw' : 'read'} in ${folderWords(line.scope, scopes)}`;
     case 'grant_revoke':
@@ -91,11 +130,16 @@ export interface TeamsViewProps {
   onOpen: (team: string | null) => void;
   onAct: (choice: ActChoice, done: string) => void;
   onRename: (team: string, slug: string, name: string) => void;
+  /** A root Steward sets a role's title and powers, adds one or retires one. */
+  onDefineRole: (choice: RoleChoice, done: string) => void;
+  /** Which of Teams and Roles a root Steward sees first; Teams unless a test says otherwise. */
+  startTab?: 'teams' | 'roles';
 }
 
 /** The page, given what the server answered. Separate so a test can render it without a server. */
 export function TeamsView(props: TeamsViewProps) {
   const { teams, me, where, open, busy, error, notice, onOpen, onAct } = props;
+  const [tab, setTab] = useState<'teams' | 'roles'>(props.startTab ?? 'teams');
   const team = open === null ? null : teams.teams.find((t) => t.id === open) ?? null;
   const notes = (
     <>
@@ -111,12 +155,34 @@ export function TeamsView(props: TeamsViewProps) {
     return <TeamPage {...props} team={team} notes={notes} />;
   }
   const mayMake = where === 'steward' && teams.steward;
+  const tabs = mayMake && (
+    <div className="org-tabs" role="tablist" aria-label="Teams and roles">
+      <button type="button" role="tab" className="org-tab" aria-selected={tab === 'teams'} onClick={() => setTab('teams')}>
+        Teams
+      </button>
+      <button type="button" role="tab" className="org-tab" aria-selected={tab === 'roles'} onClick={() => setTab('roles')}>
+        Roles
+      </button>
+    </div>
+  );
+  if (mayMake && tab === 'roles') {
+    return (
+      <section className="org-page" data-testid="teams-roles">
+        <div className="org-page__title">Teams</div>
+        {tabs}
+        {notes}
+        <RolesView teams={teams} busy={busy} onDefine={props.onDefineRole} />
+      </section>
+    );
+  }
+  const mine = (t: Team) => rolesOf(teams).filter((d) => holders(t, d.role).some((s) => s.account === me));
   return (
     <section className="org-page" data-testid={`teams-${where}`}>
       <div className="org-page__title">Teams</div>
+      {tabs}
       <p className="org-field__hint">
         {where === 'steward'
-          ? 'A team is a group of people given folders together. Whoever joins gets what the team has; whoever leaves loses it. A lead may add and remove members; a supervisor sees the team’s work.'
+          ? 'A team is a group of people given folders together. Whoever joins gets what the team has; whoever leaves loses it. What a lead, supervisor or anyone else in a role may do is set on Roles.'
           : 'The teams you are in, lead or supervise, and the folders each gives its members.'}
       </p>
       {notes}
@@ -138,8 +204,11 @@ export function TeamsView(props: TeamsViewProps) {
                   <button type="button" className="org-link" onClick={() => onOpen(t.id)}>
                     {t.name}
                   </button>
-                  {t.leads.some((s) => s.account === me) && <span className="org-tag">you lead</span>}
-                  {t.supervisors.some((s) => s.account === me) && <span className="org-tag">you supervise</span>}
+                  {mine(t).map((d) => (
+                    <span key={d.role} className="org-tag">
+                      {d.role === 'lead' && d.title === 'Lead' ? 'you lead' : d.role === 'overseer' && d.title === 'Supervisor' ? 'you supervise' : `you’re ${roleWords(d.role, teams.roles)}`}
+                    </span>
+                  ))}
                   <div className="org-sub org-mono">{t.slug}</div>
                 </td>
                 <td>{t.members.length}</td>
@@ -223,7 +292,7 @@ function TeamPage({ team, teams, me, where, scopes, grantable, history, busy, on
   const names = useMemo(() => {
     const m = new Map<string, string>();
     for (const p of teams.people) m.set(p.account, p.name);
-    for (const t of teams.teams) for (const s of [...t.members, ...t.leads, ...t.supervisors]) if (s.name) m.set(s.account, s.name);
+    for (const t of teams.teams) for (const s of [...t.members, ...t.leads, ...t.supervisors, ...t.roles]) if (s.name) m.set(s.account, s.name);
     return m;
   }, [teams]);
   const name = (account: string | null, known?: string | null) =>
@@ -259,7 +328,13 @@ function TeamPage({ team, teams, me, where, scopes, grantable, history, busy, on
             <div className="org-row__main">
               <div>
                 <strong>{Name(s.account)}</strong>
-                {team.leads.some((l) => l.account === s.account) && <span className="org-tag">lead</span>}
+                {rolesOf(teams)
+                  .filter((d) => holders(team, d.role).some((h) => h.account === s.account))
+                  .map((d) => (
+                    <span key={d.role} className="org-tag">
+                      {d.title.toLowerCase()}
+                    </span>
+                  ))}
               </div>
             </div>
             <div className="org-row__actions">
@@ -288,25 +363,11 @@ function TeamPage({ team, teams, me, where, scopes, grantable, history, busy, on
         />
       )}
 
-      <RoleSection
-        title="Leads"
-        hint="A lead adds and removes members. They sign with their own key, so they need one."
-        role="lead"
-        seats={team.leads}
+      <TeamRoles
+        team={team}
+        teams={teams}
         steward={steward}
         busy={busy}
-        people={teams.people}
-        name={Name}
-        onAct={(choice, done) => onAct({ ...base, ...choice }, done)}
-      />
-      <RoleSection
-        title="Supervisors"
-        hint="A supervisor sees the team’s work. Approving it comes later."
-        role="overseer"
-        seats={team.supervisors}
-        steward={steward}
-        busy={busy}
-        people={teams.people}
         name={Name}
         onAct={(choice, done) => onAct({ ...base, ...choice }, done)}
       />
@@ -416,8 +477,8 @@ function TeamPage({ team, teams, me, where, scopes, grantable, history, busy, on
         <ul className="org-review" data-testid="team-history">
           {history.map((line) => (
             <li key={line.id}>
-              <span className="org-sub">{dateTimeLabel(line.at)}</span> {historyWords(line, name, scopes)}
-              {line.as === 'lead' && <span className="org-tag">as lead</span>}
+              <span className="org-sub">{dateTimeLabel(line.at)}</span> {historyWords(line, name, scopes, teams.roles)}
+              {line.as === 'lead' && <span className="org-tag">by their role</span>}
               {!line.counts && <span className="org-tag">does not count</span>}
             </li>
           ))}
@@ -427,39 +488,44 @@ function TeamPage({ team, teams, me, where, scopes, grantable, history, busy, on
   );
 }
 
-function RoleSection({
-  title,
-  hint,
-  role,
-  seats,
+/** A team's roles: who holds what, and for a Steward the picker that gives one. */
+function TeamRoles({
+  team,
+  teams,
   steward,
   busy,
-  people,
   name,
   onAct,
 }: {
-  title: string;
-  hint: string;
-  role: TeamRole;
-  seats: Team['leads'];
+  team: Team;
+  teams: Teams;
   steward: boolean;
   busy: boolean;
-  people: Teams['people'];
   name: (account: string) => string;
   onAct: (choice: Omit<ActChoice, 'as' | 'team'>, done: string) => void;
 }) {
-  const held = new Set(seats.map((s) => s.account));
-  const words = roleWords(role);
+  const defs = rolesOf(teams);
+  const seats = defs.flatMap((d) => holders(team, d.role).map((s) => ({ seat: s, def: d })));
+  const live = defs.filter((d) => !d.retired);
+  const [account, setAccount] = useState('');
+  const [role, setRole] = useState(live[0]?.role ?? '');
+  const taken = new Set(holders(team, role).map((s) => s.account));
+  const chosen = defs.find((d) => d.role === role) ?? null;
   return (
     <>
-      <div className="home__label">{title}</div>
-      {steward && <p className="org-field__hint">{hint}</p>}
-      {seats.length === 0 && <p className="home__muted">None.</p>}
-      <ul className="org-rows" data-testid={`team-${role}`}>
-        {seats.map((s) => (
+      <div className="home__label">Roles</div>
+      {steward && <p className="org-field__hint">What each role may do is set on the Roles tab. A role never gives access to a folder.</p>}
+      {seats.length === 0 && <p className="home__muted">Nobody holds a role in this team.</p>}
+      <ul className="org-rows" data-testid="team-roles">
+        {seats.map(({ seat: s, def: d }) => (
           <li key={s.act} className="org-row">
             <div className="org-row__main">
-              <strong>{name(s.account)}</strong>
+              <div>
+                <strong>{name(s.account)}</strong>
+                <span className="org-tag">{d.title}</span>
+                {d.retired && <span className="org-tag">retired</span>}
+              </div>
+              <div className="org-sub">{powerWords(d.retired ? [] : d.powers)}</div>
             </div>
             <div className="org-row__actions">
               {steward && (
@@ -467,7 +533,7 @@ function RoleSection({
                   type="button"
                   className="org-btn"
                   disabled={busy}
-                  onClick={() => onAct({ act: 'role_clear', subject: s.account, role, undoes: s.act }, `Signed. ${name(s.account)} is no longer ${words}.`)}
+                  onClick={() => onAct({ act: 'role_clear', subject: s.account, role: d.role, undoes: s.act }, `Signed. ${name(s.account)} is no longer ${roleWords(d.role, teams.roles)}.`)}
                 >
                   Stop
                 </button>
@@ -476,17 +542,205 @@ function RoleSection({
           </li>
         ))}
       </ul>
-      {steward && (
-        <PickPerson
-          label={role === 'lead' ? 'Make someone lead' : 'Make someone a supervisor'}
-          button="Sign"
+      {steward && live.length > 0 && teams.people.length > 0 && (
+        <form
+          className="org-inline"
+          data-testid="team-set-role"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (account === '' || chosen === null) return;
+            onAct({ act: 'role_set', subject: account, role }, `Signed. ${name(account)} is ${roleWords(role, teams.roles)} now.`);
+            setAccount('');
+          }}
+        >
+          <label className="org-field">
+            <span className="org-field__label">Give someone a role</span>
+            <select className="org-input" value={account} onChange={(e) => setAccount(e.target.value)}>
+              <option value="">Choose someone…</option>
+              {teams.people
+                .filter((p) => !taken.has(p.account))
+                .map((p) => (
+                  <option key={p.account} value={p.account}>
+                    {p.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label className="org-field">
+            <span className="org-field__label">As</span>
+            <select className="org-input" value={role} onChange={(e) => setRole(e.target.value)}>
+              {live.map((d) => (
+                <option key={d.role} value={d.role}>
+                  {d.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="submit" className="org-btn" disabled={busy || account === ''}>
+            Sign
+          </button>
+        </form>
+      )}
+    </>
+  );
+}
+
+/** Steward › Teams › Roles: every role with its powers, and the form that changes one. */
+export function RolesView({ teams, busy, onDefine, startEditing = null }: { teams: Teams; busy: boolean; onDefine: (choice: RoleChoice, done: string) => void; startEditing?: string | null }) {
+  const [editing, setEditing] = useState<string | null>(startEditing);
+  const roles = rolesOf(teams);
+  const holding = (role: string) => new Set(teams.teams.flatMap((t) => holders(t, role).map((s) => s.account))).size;
+  const current = editing === null ? null : editing === NEW_ROLE ? NEW_ROLE : roles.find((d) => d.role === editing) ?? null;
+  return (
+    <>
+      <p className="org-field__hint">
+        A role is what someone may do in a team’s work. Lead, Supervisor and Maintenance tech come ready-made; rename them, change their powers, or add your own. No role gives access to a folder:
+        only folders given to a person or a team do that.
+      </p>
+      <div className="org-scroll">
+        <table className="org-table" data-testid="roles-table">
+          <thead>
+            <tr>
+              <th>Role</th>
+              {POWERS.map((p) => (
+                <th key={p.power}>{p.words}</th>
+              ))}
+              <th>Held by</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {roles
+              .filter((d) => !d.retired)
+              .map((d) => (
+                <tr key={d.role}>
+                  <td>
+                    <strong>{d.title}</strong>
+                  </td>
+                  {POWERS.map((p) => (
+                    <td key={p.power} aria-label={d.powers.includes(p.power) ? 'yes' : 'no'}>
+                      {d.powers.includes(p.power) ? '✓' : '·'}
+                    </td>
+                  ))}
+                  <td>{holding(d.role)}</td>
+                  <td>
+                    <button type="button" className="org-btn" disabled={busy} onClick={() => setEditing(d.role)}>
+                      Change
+                    </button>
+                  </td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+      </div>
+      {current === null ? (
+        <div className="org-actions">
+          <button type="button" className="org-btn btn-main" disabled={busy} onClick={() => setEditing(NEW_ROLE)}>
+            New role
+          </button>
+        </div>
+      ) : (
+        <RoleForm
+          key={current === NEW_ROLE ? NEW_ROLE : current.role}
+          def={current === NEW_ROLE ? null : current}
+          held={current === NEW_ROLE ? 0 : holding(current.role)}
+          taken={roles.filter((d) => !d.retired && (current === NEW_ROLE || d.role !== current.role)).map((d) => d.title.toLowerCase())}
           busy={busy}
-          people={people.filter((p) => !held.has(p.account))}
-          testId={`team-set-${role}`}
-          onPick={(account) => onAct({ act: 'role_set', subject: account, role }, `Signed. ${name(account)} is ${words} now.`)}
+          onCancel={() => setEditing(null)}
+          onSave={(choice, done) => {
+            setEditing(null);
+            onDefine(choice, done);
+          }}
         />
       )}
     </>
+  );
+}
+
+const NEW_ROLE = '\u0000new';
+
+function RoleForm({
+  def,
+  held,
+  taken,
+  busy,
+  onCancel,
+  onSave,
+}: {
+  def: RoleDef | null;
+  held: number;
+  taken: readonly string[];
+  busy: boolean;
+  onCancel: () => void;
+  onSave: (choice: RoleChoice, done: string) => void;
+}) {
+  const [title, setTitle] = useState(def?.title ?? '');
+  const [powers, setPowers] = useState<Power[]>(def?.powers ?? []);
+  const [retiring, setRetiring] = useState(false);
+  const trimmed = title.trim();
+  const clash = taken.includes(trimmed.toLowerCase());
+  const ok = trimmed.length > 0 && trimmed.length <= 40 && !clash;
+  const toggle = (p: Power) => setPowers((now) => (now.includes(p) ? now.filter((x) => x !== p) : [...now, p]));
+  return (
+    <form
+      className="org-form"
+      data-testid="role-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!ok) return;
+        onSave({ role: def?.role, title: trimmed, powers, retired: false }, def ? `Signed. ${trimmed} is changed for everyone who holds it.` : `Signed. ${trimmed} is made; give it to people on a team’s page.`);
+      }}
+    >
+      <div className="org-form__title">{def ? `Change ${def.title}` : 'New role'}</div>
+      <label className="org-field">
+        <span className="org-field__label">Title</span>
+        <input className="org-input" value={title} maxLength={40} onChange={(e) => setTitle(e.target.value)} placeholder="Night desk" />
+        {clash && <span className="org-field__hint">Another role already has that title.</span>}
+      </label>
+      <fieldset className="org-field">
+        <legend className="org-field__label">May</legend>
+        {POWERS.map((p) => (
+          <label key={p.power} className="org-radio">
+            <input type="checkbox" checked={powers.includes(p.power)} onChange={() => toggle(p.power)} /> {p.words}
+          </label>
+        ))}
+      </fieldset>
+      <p className="org-note">
+        {def && held > 0 ? `${held} ${held === 1 ? 'person holds' : 'people hold'} this role; the change applies to them from now on. What they already did stands. ` : ''}
+        You sign this with this browser’s key. It is in the organisation’s history.
+      </p>
+      <div className="org-actions">
+        <button type="submit" className="org-btn btn-main" disabled={busy || !ok}>
+          {busy ? 'Signing…' : 'Sign and save'}
+        </button>
+        <button type="button" className="org-btn" onClick={onCancel}>
+          Cancel
+        </button>
+        {def && !def.preset && !retiring && (
+          <button type="button" className="org-btn" onClick={() => setRetiring(true)}>
+            Retire this role
+          </button>
+        )}
+      </div>
+      {def && retiring && (
+        <>
+          <p className="org-note">Everyone holding {def.title} loses its powers at once. It can’t be brought back; make a new role instead.</p>
+          <div className="org-actions">
+            <button
+              type="button"
+              className="org-btn btn-main"
+              disabled={busy}
+              onClick={() => onSave({ role: def.role, title: def.title, powers: def.powers, retired: true }, `Signed. ${def.title} is retired.`)}
+            >
+              Sign and retire
+            </button>
+            <button type="button" className="org-btn" onClick={() => setRetiring(false)}>
+              Keep it
+            </button>
+          </div>
+        </>
+      )}
+    </form>
   );
 }
 
@@ -644,6 +898,12 @@ export function TeamsPage({ organisation, where, scopes, grantable = [] }: { org
             setOpen(result.team);
             loadHistory(result.team);
           }
+        }, done)
+      }
+      onDefineRole={(choice, done) =>
+        void run(async () => {
+          await defineRole(organisation, choice);
+          await reload();
         }, done)
       }
       onRename={(team, slug, name) =>
