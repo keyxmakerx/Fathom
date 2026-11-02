@@ -29,7 +29,6 @@ months.
 
 | crate | version | expires | why the young release is the safer one |
 |---|---|---|---|
-| `crypto-bigint` | `0.7.9` | 2026-11-03 | RUSTSEC-2026-0387 (2026-10-23) is fixed from 0.7.6: subtraction, zero counting, division and Montgomery multiplication could branch on secret values under `p256` scalar and field arithmetic, so under every ES256 signature. **On 2026-10-25 crates.io yanked every 0.7 release from 0.7.0 to 0.7.8**, and `cargo-deny` refuses a yanked pin, so 0.7.6 cannot stay. 0.7.9 is the only live 0.7 release and the only one that is both patched and unyanked. Going back below 0.7.6 would restore the leak, and the older releases are yanked too. The yank is about API compatibility, not a new flaw: the 0.7.9 CHANGELOG says 0.7.6 to 0.7.8 were yanked for a breaking change to the blanket `Mul` impl for `NonZero<T>` (#1373). 0.7.9 reverts that and adds a `shr_vartime` change in `PrimeParams::new_vartime`. It also carries 0.7.7's and 0.7.8's changes (`BoxedUint` inversion, `mul_mod_special` boundaries, const-eval speed), read from the fetched crates and diffed against 0.7.8 on 2026-10-25. `ctutils ^0.4.5` is unchanged and no other lockfile line moves. Published 2026-10-25 19:09 GMT; clears the window on its own 2026-11-01. |
 
 <!-- cooldown:end -->
 
@@ -42,6 +41,9 @@ cleared the window on its own on 2026-10-26 and the gate reported the row stale 
 the same day. The row's full reasoning is in this file's history at `9a55417`.
 `rustls-webpki` 0.103.16, admitted for RUSTSEC-2026-0382 (paths through the distrusted emSign
 intermediates), cleared the window on its own on 2026-10-27 and the gate reported the row stale that
+`crypto-bigint` 0.7.9, admitted for RUSTSEC-2026-0387 and the 2026-10-25 yank of 0.7.0 to 0.7.8,
+cleared the window on its own and the gate reported the row stale on 2026-11-02. Removed the same
+day. The row's full reasoning is in this file's history at `e7a788c`.
 day. Removed the same day. The row's full reasoning is in this file's history at `efdca34`.
 
 ## What was NOT excepted, on the same day, and why
