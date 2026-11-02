@@ -693,7 +693,7 @@ gone. Proved against a real Termix 26.10.6 in CI (the `termix` job, `scripts/dri
 decision 1); that run found Termix refuses a new host without `authType` since 26.10.2, so Fathom now sends
 `authType: none`.
 
-**Termix in the work** (ADR-0080 decisions 2 to 11; schema 0.33, field keys 545-547; migration 0063;
+**Termix in the work** (ADR-0080 decisions 2 to 11; schema 0.34, field keys 552-554; migration 0063;
 `components/termix/`, `components/plans/SeenBox.tsx`, `components/plans/checkSeen.ts`). Every part is
 optional and has its plain way beside it (OPERATING.md, "Termix's add-ons"). A plan lists its devices with
 Open in Termix and Connect with ssh lines; Do shows Open in Termix on the current step and Termix's up or
