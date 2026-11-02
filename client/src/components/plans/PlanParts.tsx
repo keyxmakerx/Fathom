@@ -46,6 +46,13 @@ export function WhySlot({ controller }: { controller: PlansController }) {
  * `stepId` narrows it to one step. Never a cause: only what is touched. */
 export function Touches({ controller, plan, stepId }: { controller: PlansController; plan: Plan; stepId?: string }) {
   const { preview, unavailable } = controller;
+  if (plan.stage === 'called_off') {
+    return (
+      <p className="plans-note" data-testid="plans-touches-called-off">
+        Called off before any work, so nothing was changed.
+      </p>
+    );
+  }
   // A recorded plan is not read against the design again: what it touched is what it says, as recorded.
   if (plan.stage === 'recorded') {
     const devices = controller.doc ? touchedDevices(controller.doc, controller.canon, plan) : [];

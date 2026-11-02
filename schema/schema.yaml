@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.36"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.37"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -409,6 +409,12 @@ schema:
                     # families. Seventy-five field keys (562-636). 62 §16.2: new node kinds are
                     # minor; a new layer value is a new closed-vocabulary arm no stored design
                     # can carry. Whole change = MINOR. The reader still opens 0.10 to 0.35.
+                    #
+                    # 0.37 is a plan's other ending (sign-off r94-plan-next, 2026-11-02): one
+                    # enum variant, `called_off`, on MaintenancePlan.stage, for a plan stopped
+                    # before any work, its reason in the existing `record`. Nothing removed,
+                    # retyped or reordered. 62 §16.2: a new variant on a closed enum is minor.
+                    # Whole change = MINOR. The reader still opens 0.10 to 0.36.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -2153,15 +2159,16 @@ kinds:
     doc: |
       A planned change: a title, a window, and ordered steps (HasStep). Hung off the root
       through HasPlan. The plan never changes the live design; applying a step does, through
-      the same edit a person would make by hand. `stage` runs planned, doing, recorded;
-      `outcome` and `record` are set once, when it is recorded. Identity is weak on purpose,
+      the same edit a person would make by hand. `stage` runs planned, doing, recorded,
+      or planned to called_off when it is stopped before the work; `outcome` and `record`
+      are set once, when it is recorded (a called-off plan has only `record`). Identity is weak on purpose,
       Label's own precedent. Anyone who can read the design can read its plans.
     fields:
       - { name: title, type: Text, card: "1", emit: "—", doc: What the plan is called. }
       - { name: window_start, type: Text, card: "0..1", emit: "—", doc: "When the work may start, as typed (an ISO date or date and time)." }
       - { name: window_end, type: Text, card: "0..1", emit: "—", doc: When the work must be finished by. }
       - { name: author, type: Text, card: "0..1", emit: "—", doc: Who wrote the plan. }
-      - { name: stage, type: "enum { planned, doing, recorded }", card: "1", emit: "—", doc: Where the plan is. }
+      - { name: stage, type: "enum { planned, doing, recorded, called_off }", card: "1", emit: "—", doc: "Where the plan is. `called_off` (0.37) is a plan stopped before any work was done; `record` says why." }
       - { name: outcome, type: "enum { succeeded, partial, failed }", card: "0..1", emit: "—", doc: How it went; set when recorded. }
       - { name: record, type: Text, card: "0..1", emit: "—", doc: "What went wrong, or anything worth keeping; set when recorded." }
       - { name: checks, type: Text, card: "0..1", emit: "—", doc: "0.33 — checks after the work, typed by a person or drafted by an AI, one per line, tab-separated: the answer (`open`, `ok`, `not_ok` or `cant_tell`), the check, then what was seen (may be empty). Record waits until none is `open`." }

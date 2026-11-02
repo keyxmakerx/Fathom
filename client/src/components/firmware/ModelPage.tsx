@@ -230,7 +230,7 @@ export function ModelPage({ api, model, onOpenDevice }: { api: FirmwareApi; mode
                 <button type="button" className="fw-link" onClick={() => api.openPlan(p.id)}>
                   {p.title}
                 </button>
-                <span className="fw-muted">{p.stage}</span>
+                <span className="fw-muted">{p.stage.replace('_', ' ')}</span>
               </li>
             ))}
           </ul>

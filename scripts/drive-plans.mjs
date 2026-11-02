@@ -173,7 +173,7 @@ try {
     check('[flow] the band names the plan for the device', /fw-01/.test(await T(page, 'plans-band').innerText()), (await T(page, 'plans-band').innerText()).replace(/\s+/g, ' '));
     check('[flow] the add-step form is open with Move chosen', (await form(page).count()) === 1 && /Move/i.test(await labelled(page, 'Kind').evaluate((e) => e.options[e.selectedIndex].text)));
     check('[flow] focus is inside the form, not on the body', await page.evaluate(() => document.activeElement?.closest('[data-testid=plans-add-step]') != null));
-    check('[flow] Start work is off with no steps', await page.getByRole('button', { name: 'Start work' }).isDisabled());
+    check('[flow] Start the maintenance is off with no steps', await page.getByRole('button', { name: 'Start the maintenance' }).isDisabled());
     await shot(page, '01-plan-empty');
 
     // A move step: the device is filled in from the right-click.
@@ -223,10 +223,10 @@ try {
     await amber(page, '[flow] planning');
     await shot(page, '02-planned');
 
-    // Start work.
-    await page.getByRole('button', { name: 'Start work' }).click();
+    // Start the maintenance.
+    await page.getByRole('button', { name: 'Start the maintenance' }).click();
     await settle(page, 1200);
-    check('[do] Start work moves the panel to Do', (await T(page, 'plans-panel').getAttribute('data-mode')) === 'do');
+    check('[do] Start the maintenance moves the panel to Do', (await T(page, 'plans-panel').getAttribute('data-mode')) === 'do');
     check('[do] focus moves into the panel, not the body', await focusNotBody(page));
     const liveButtons = async () => page.locator('[data-testid=plans-panel] .plans-checklist button').allInnerTexts();
     check('[do] only the current step has buttons', (await T(page, 'plans-step').and(page.locator('[data-state=current]')).count()) === 1 && (await liveButtons()).join('|') === 'Mark done|Went differently', (await liveButtons()).join('|'));
@@ -420,8 +420,8 @@ try {
     // Past the last control the browser wraps through its own chrome: one body stop, right after the panel's last control.
     const wrapAt = order.indexOf('(BODY)');
     check('[keys] Tab never drops focus to the body except at the document wrap', fellToBody <= 1 && (wrapAt === -1 || /Open the trail/.test(order[wrapAt - 1] ?? '') || wrapAt === order.length - 1), `${fellToBody} at ${wrapAt}`);
-    check('[keys] Tab reaches the Start work button', order.includes('Start work'));
-    check('[keys] the panel header comes before its body in the tab order', order.indexOf('Fold the plan panel') === -1 || order.indexOf('Start work') > -1);
+    check('[keys] Tab reaches the Start the maintenance button', order.includes('Start the maintenance'));
+    check('[keys] the panel header comes before its body in the tab order', order.indexOf('Fold the plan panel') === -1 || order.indexOf('Start the maintenance') > -1);
     // Reorder and remove: the button that was pressed may go or turn off; focus must stay in the panel.
     await pick(labelled(page, 'Device'), /sw-02/);
     await pick(labelled(page, 'To rack'), /A-04/);
@@ -507,7 +507,7 @@ try {
       return el ? getComputedStyle(el).outlineColor : null;
     });
     if (tag.includes('dark')) check(`[${tag}] the plan colour is the light indigo`, col === 'rgb(164, 156, 242)', String(col));
-    await page.getByRole('button', { name: 'Start work' }).click();
+    await page.getByRole('button', { name: 'Start the maintenance' }).click();
     await settle(page, 1000);
     await shot(page, `11-${tag}-do`);
     await amber(page, `[${tag} do]`);

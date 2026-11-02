@@ -654,6 +654,13 @@ the step names the issue (`PlanStep.issue`). Every plan ends with **After the wo
 touched, then typed checks (a firmware plan writes three) answered OK, Not OK or Can't tell; Not OK offers
 Troubleshoot, and Record waits until none is open. AI apps can propose all of it; release notes reach them at the
 notes tier. Not built: a check answered by Fathom reading the device (waits on SNMP).
+**Where a plan goes** (sign-off r94-plan-next; schema 0.37, no field key). The plan panel opens on the way it runs,
+Plan, Maintenance (its window, or "No window set"), Checks after, Record, with where it is marked; the band says
+"Maintenance next" and the window. While planning, **What happens next** offers Start the maintenance beside **Call
+it off…**: Not needed, Done another way, or Troubleshooting first (which then opens It's down on the plan's first
+device, carrying the note). A called-off plan (`MaintenancePlan.stage` `called_off`, the reason and note in
+`record`) changes nothing in the design, draws no marks, is finished work on the Work tab, and can be planned again.
+Once a step is marked it is Back out or Record, as before.
 
 **Mesh VPNs** (sign-off r16-overlay; schema 0.26, field keys 479-485). An `OverlayNetwork` (Tailscale,
 Headscale, NetBird, ZeroTier, WireGuard, Nebula or other) hangs off the root; `OverlayMember` edges to Devices
@@ -742,7 +749,7 @@ optional and has its plain way beside it (OPERATING.md, "Termix's add-ons"). A p
 Open in Termix and Connect with ssh lines; Do shows Open in Termix on the current step and Termix's up or
 down (`GET /host/status`, on open and Refresh). A device's vault login pulled from Vaultwarden goes to
 Termix as a `bw://` reference when Termix runs Secret Sources. Steps with commands go to Termix as snippets
-(Snippets add-on). Start work opens a maintenance window per device (Automations add-on; ticked by default,
+(Snippets add-on). Start the maintenance opens a maintenance window per device (Automations add-on; ticked by default,
 the plan's window, at most 10080 minutes) and Record ends it only where the reason is still the plan's;
 the plan always says to pause your own alerting. A check step has a paste box: Fathom compares before the
 redaction gate (version, image hash; only a full hash can say Matches), then keeps the gated paste in

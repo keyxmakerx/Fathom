@@ -4,7 +4,7 @@
 // (firmware off, or not uploaded yet) is a row too, so the list never hides a choice.
 
 import type { FirmwareImage } from '../../api/firmware';
-import { listPlans } from '../../document/plans';
+import { isOver, listPlans } from '../../document/plans';
 import { listTargets, modelRows, type FwModelRow, type FwTarget } from '../../document/firmware';
 import { versionOlder } from '../../document/firmwareVersion';
 import type { Document } from '../../document/model';
@@ -79,7 +79,7 @@ interface Input {
 export function imageRows({ doc, images }: Input): FwImageRow[] {
   const targets = listTargets(doc);
   const byModel = new Map<string, FwModelRow>(modelRows(doc).map((r) => [r.model, r]));
-  const plans = listPlans(doc).filter((p) => p.stage !== 'recorded');
+  const plans = listPlans(doc).filter((p) => !isOver(p));
   const staged = images.filter((i) => i.state === 'staged');
   const stagedIds = new Set(staged.map((i) => i.imageId));
 

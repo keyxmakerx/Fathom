@@ -15,7 +15,10 @@ import {
   type GraphNode,
 } from '../../document/model';
 import {
+  calledOffWhy,
+  checksLeft,
   currentStep,
+  isOver,
   lagMembers,
   nextLagName,
   touchedBy,
@@ -40,7 +43,7 @@ export function holdSiblings(page: { parentElement: { children: ArrayLike<Elemen
   return () => held.forEach((el) => el.removeAttribute('inert'));
 }
 
-export const STAGE_WORD: Record<PlanStage, string> = { planned: 'PLANNING', doing: 'DOING', recorded: 'RECORDED' };
+export const STAGE_WORD: Record<PlanStage, string> = { planned: 'PLANNING', doing: 'DOING', recorded: 'RECORDED', called_off: 'CALLED OFF' };
 
 export const KIND_WORD: Record<StepKind, string> = { address: 'Address', route: 'Route', cable: 'Cable', move: 'Move', other: 'Other', lag: 'LAG', swap: 'Swap a part' };
 
@@ -101,7 +104,7 @@ function markFor(step: PlanStep, canon: Canon, word: string, doc?: Document | nu
 
 /** The marks the canvas draws: every step while planning or doing; none once recorded (Show these changes asks). */
 export function buildMarks(plan: Plan, canon: Canon, doc?: Document | null): PlanMark[] {
-  if (plan.stage === 'recorded') return [];
+  if (isOver(plan)) return [];
   const current = currentStep(plan);
   return plan.steps.flatMap((s) => markFor(s, canon, stepWord(plan, s, current), doc) ?? []);
 }
@@ -158,7 +161,11 @@ export function bandSentence(plan: Plan, doc?: Document | null, canon?: Canon): 
   const p = progress(plan);
   if (plan.stage === 'planned') {
     const win = windowText(plan.windowStart, plan.windowEnd);
-    return [win, plural(p.total, 'change', 'changes')].filter((x) => x !== '').join(' · ');
+    return [plural(p.total, 'change', 'changes'), win === '' ? 'Maintenance next, no window set' : `Maintenance next, ${win}`].join(' · ');
+  }
+  if (plan.stage === 'called_off') {
+    const why = calledOffWhy(plan);
+    return why == null || why.reason === '' ? 'Nothing was changed' : `${why.reason} · nothing was changed`;
   }
   if (plan.stage === 'doing') {
     const bits = [p.done > 0 ? `${p.done} done` : '', p.differently > 0 ? `${p.differently} went differently` : ''].filter((x) => x !== '');
@@ -168,6 +175,56 @@ export function bandSentence(plan: Plan, doc?: Document | null, canon?: Canon): 
   const outcome = plan.outcome ? OUTCOME_WORD[plan.outcome] : 'Recorded';
   const n = doc && canon ? touchedDevices(doc, canon, plan).length : touchedBy(plan).length;
   return n === 0 ? outcome : `${outcome} · on ${n} ${n === 1 ? "device's" : "devices'"} history`;
+}
+
+/** One stop on the way a plan goes (sign-off r94-plan-next): Plan, the maintenance, the checks after, Record. */
+export interface RouteStop {
+  key: 'plan' | 'work' | 'checks' | 'record' | 'off';
+  word: string;
+  detail: string;
+  at: 'done' | 'now' | 'next' | 'skipped';
+}
+
+/**
+ * Where the plan has been and where it goes next, so nobody has to guess whether it becomes a maintenance. Every
+ * plan runs Plan, Maintenance, Checks after, Record; one called off before the work stops after Plan instead.
+ */
+export function planRoute(plan: Plan): RouteStop[] {
+  const p = progress(plan);
+  const win = windowText(plan.windowStart, plan.windowEnd);
+  const checks = plan.checks.length;
+  const left = checksLeft(plan);
+  const stepsLeft = currentStep(plan) != null;
+  const stage = plan.stage;
+  const planStop: RouteStop = { key: 'plan', word: 'Plan', detail: plural(p.total, 'step', 'steps'), at: stage === 'planned' ? 'now' : 'done' };
+  if (stage === 'called_off') {
+    const why = calledOffWhy(plan);
+    return [
+      planStop,
+      { key: 'off', word: 'Called off', detail: why?.reason || 'Before any work', at: 'now' },
+      { key: 'work', word: 'Maintenance', detail: 'Not done', at: 'skipped' },
+      { key: 'record', word: 'Record', detail: 'Not needed', at: 'skipped' },
+    ];
+  }
+  const work: RouteStop = {
+    key: 'work',
+    word: 'Maintenance',
+    detail: stage === 'planned' ? (win === '' ? 'No window set' : win) : stage === 'doing' && stepsLeft ? `Step ${p.at} of ${p.total}` : 'Every step marked',
+    at: stage === 'planned' ? 'next' : stage === 'doing' && stepsLeft ? 'now' : 'done',
+  };
+  const after: RouteStop = {
+    key: 'checks',
+    word: 'Checks after',
+    detail: checks === 0 ? "Fathom's own" : left > 0 && stage !== 'recorded' ? `${left} of ${checks} to answer` : plural(checks, 'check', 'checks'),
+    at: stage === 'recorded' ? 'done' : stage === 'doing' && !stepsLeft ? 'now' : 'next',
+  };
+  const record: RouteStop = {
+    key: 'record',
+    word: 'Record',
+    detail: stage === 'recorded' ? (plan.outcome ? OUTCOME_WORD[plan.outcome] : 'Recorded') : 'How it went',
+    at: stage === 'recorded' ? 'done' : 'next',
+  };
+  return [planStop, work, after, record];
 }
 
 /** "3 of 4 as planned, 1 went differently." */

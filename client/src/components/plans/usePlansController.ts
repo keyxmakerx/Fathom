@@ -32,6 +32,9 @@ import {
   readPlan,
   recordPlan,
   backOut,
+  callOff,
+  planAgain,
+  type CallOffReason,
   removeStep,
   setPlanHead,
   startPlan,
@@ -163,6 +166,15 @@ export interface PlansController {
   record(outcome: PlanOutcome, text: string, pasted?: boolean): Promise<boolean>;
   /** A new plan back to where this one started, opened for planning (sign-off r16-backout). */
   backOut(): Promise<boolean>;
+  /**
+   * Stops the plan before any work (schema 0.37, sign-off r94-plan-next). With `troubleshoot` and It's down to hand,
+   * It's down opens on the plan's first device afterwards, carrying the plan and the note.
+   */
+  callOff(reason: CallOffReason, note: string, pasted?: boolean): Promise<boolean>;
+  /** A called-off plan back to planning. */
+  planAgain(): Promise<boolean>;
+  /** The device It's down would open on for the open plan: the first device it could touch, or null. */
+  troubleshootDevice: string | null;
   // Sign-off r73-plan-flow (schema 0.33): checks after the work, release notes, If paths, Troubleshoot.
   /** Fathom's own Checks on what the open plan touches (or could, while planning); null before they have run. */
   touchedFindings: CheckFinding[] | null;
@@ -324,7 +336,7 @@ export function usePlansController({
     };
   }, []);
   useEffect(() => {
-    if (doc == null || planId == null || stage === 'recorded') {
+    if (doc == null || planId == null || stage === 'recorded' || stage === 'called_off') {
       setPreview(null);
       return undefined;
     }
@@ -424,6 +436,7 @@ export function usePlansController({
     }
   }, []);
 
+  const troubleDevice = useMemo(() => (plan == null ? null : (couldTouch(plan).map(canon).find(isDevice) ?? null)), [plan, canon]);
   const stamp = () => ({ ...(latest.current.actor ?? {}), now: Date.now() });
 
   const openPlan = useCallback((id: string | null) => {
@@ -583,6 +596,18 @@ export function usePlansController({
     saveSeen: (stepId, seen, compare) => run((doc0, gate) => setSeen(doc0, stepId, { seen, compared: compare(seen), gate, ...stamp() }), 'pasted'),
     record: (outcome, text, pasted = false) =>
       run((doc0, gate) => (plan ? recordPlan(doc0, plan.id, { outcome, text, gate, ...stamp() }) : null), howOf(pasted)),
+    callOff: async (reason, note, pasted = false) => {
+      const ok = await run((doc0, gate) => (plan ? callOff(doc0, plan.id, { reason, note, gate, ...stamp() }) : null), howOf(pasted));
+      if (ok && reason === 'troubleshoot' && plan != null && onTroubleshoot != null && troubleDevice != null) {
+        // A pasted note reaches It's down only through the gate, as it reached the plan.
+        const gate = pasted ? redact() : TYPED_AS_WRITTEN;
+        const words = gate == null ? '' : gate(note).trim();
+        onTroubleshoot({ deviceId: troubleDevice, stepId: null, said: `Instead of ${plan.title}${words !== '' ? `: ${words}` : ''}` });
+      }
+      return ok;
+    },
+    planAgain: () => run((doc0) => (plan ? planAgain(doc0, plan.id, stamp()) : null)),
+    troubleshootDevice: troubleDevice,
     backOut: () =>
       run((doc0) => {
         if (plan == null) return null;

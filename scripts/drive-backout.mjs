@@ -196,7 +196,7 @@ try {
     await settle(page);
     check('[plan] three steps', (await T(page, 'plans-step').count()) === 3, await T(page, 'plans-panel').innerText());
 
-    await page.getByRole('button', { name: 'Start work' }).click();
+    await page.getByRole('button', { name: 'Start the maintenance' }).click();
     await settle(page, 1200);
     check('[do] no Back out before a step is marked', (await T(page, 'plans-back-out').count()) === 0);
     await page.getByRole('button', { name: 'Mark done' }).click();
@@ -231,7 +231,7 @@ try {
     await form(page).getByRole('button', { name: 'Add step' }).click();
     await settle(page);
     check('[back] a step of its own can be added', (await T(page, 'plans-step').count()) === 3);
-    await page.getByRole('button', { name: 'Start work' }).click();
+    await page.getByRole('button', { name: 'Start the maintenance' }).click();
     await settle(page, 1200);
     for (let i = 0; i < 3; i++) {
       await page.getByRole('button', { name: 'Mark done' }).click();

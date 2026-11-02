@@ -1923,8 +1923,8 @@ mod body {
         pub fn author<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(367))
         }
-        /// `MaintenancePlan.stage` — `enum { planned, doing, recorded }`, card `1`, emit `—`.
-        /// Where the plan is.
+        /// `MaintenancePlan.stage` — `enum { planned, doing, recorded, called_off }`, card `1`, emit `—`.
+        /// Where the plan is. `called_off` (0.37) is a plan stopped before any work was done; `record` says why.
         pub fn stage<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::MaintenancePlanStage, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(368))
         }

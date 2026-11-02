@@ -90,7 +90,7 @@ export function PlanListPage({ controller, plan }: { controller: PlansController
               <td data-label="After" className="plans-mono">
                 {s.after}
               </td>
-              <td data-label="State">{plan.stage === 'planned' ? 'Planned' : stateText(s, cur)}</td>
+              <td data-label="State">{plan.stage === 'planned' ? 'Planned' : plan.stage === 'called_off' ? 'Not done' : stateText(s, cur)}</td>
             </tr>
           ))}
         </tbody>
@@ -115,6 +115,11 @@ export function PlanListPage({ controller, plan }: { controller: PlansController
               Step {s.label}: {s.note}
             </p>
           ))}
+          {plan.stage === 'called_off' && (
+            <p>
+              Called off. {plan.record.replace(/\n/g, ' ')}
+            </p>
+          )}
           {plan.stage === 'recorded' && (
             <p>
               {plan.outcome ? `${OUTCOME_WORD[plan.outcome]}. ` : ''}

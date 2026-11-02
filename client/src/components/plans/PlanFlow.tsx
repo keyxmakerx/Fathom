@@ -5,6 +5,7 @@ import { useId, useMemo, useState } from 'react';
 import {
   CHECK_ANSWERS,
   checksLeft,
+  isOver,
   markedNoteLines,
   noteWords,
   type CheckAnswer,
@@ -222,7 +223,7 @@ export function StepFollowUp({ controller, plan, step }: { controller: PlansCont
         </p>
       ) : (
         controller.canTroubleshoot &&
-        plan.stage !== 'recorded' && (
+        !isOver(plan) && (
           <p className="plans-step__actions">
             <button type="button" className="plans-btn" data-testid="plans-troubleshoot" onClick={() => controller.troubleshoot(step.id)}>
               Troubleshoot
@@ -241,7 +242,7 @@ export function StepFollowUp({ controller, plan, step }: { controller: PlansCont
 /** The release notes or changelog on a plan: pasted through the redaction gate, lines naming what it touches marked. */
 export function ReleaseNotes({ controller, plan }: { controller: PlansController; plan: Plan }) {
   const doc = controller.doc;
-  const canChange = controller.canEdit && plan.stage !== 'recorded';
+  const canChange = controller.canEdit && !isOver(plan);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const paste = usePasteMark();

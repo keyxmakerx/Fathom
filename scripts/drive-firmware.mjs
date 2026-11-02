@@ -494,7 +494,7 @@ try {
     check('[plan] right-click plans for the one device: running -> target', /Devices . 1/i.test(devText) && /switch-1.*21\.4R3-S5 . 23\.4R2/.test(devText), devText.slice(0, 220));
     await shot(page, '11-plan');
 
-    await page.getByRole('button', { name: 'Start work' }).click();
+    await page.getByRole('button', { name: 'Start the maintenance' }).click();
     await settle(page, 700);
     await shot(page, '12-plan-doing');
     // Walk to the fetch step: mark done until the current step says "pull the image".

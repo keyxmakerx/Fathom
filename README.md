@@ -16,7 +16,7 @@ what is next is in GitHub issues and the roadmap below.
 
 **Plan, do, record.** Right-click a device and plan a change as ordered steps. Fathom draws the plan
 on the canvas in its own colour and lists what it touches before anything changes, with the checks
-the change would break and why. Start work and it becomes a checklist, one live step at a time;
+the change would break and why. Start the maintenance and it becomes a checklist, one live step at a time;
 a step that went differently is recorded as such, and **Back out** writes the plan back to where you
 started. The finished record is never edited again.
 
@@ -78,7 +78,7 @@ The large pieces ahead:
 
 | | | |
 |---|---|---|
-| **Termix** | Built, proved against a real Termix | From a device or a plan, "Open in Termix" opens the device's terminal in a new tab; Inventory can send many devices at once and shows which are in Termix. In a plan, steps with commands go to Termix as snippets, Start work can open a maintenance window, and a check step compares what you paste, or, if a steward turns it on, fetches a read-only command through Termix. A Vaultwarden login goes only as a reference, never the password, and Fathom's server never calls Termix. Every part is optional and has a plain way beside it (ADR-0078, ADR-0080). |
+| **Termix** | Built, proved against a real Termix | From a device or a plan, "Open in Termix" opens the device's terminal in a new tab; Inventory can send many devices at once and shows which are in Termix. In a plan, steps with commands go to Termix as snippets, Start the maintenance can open a maintenance window, and a check step compares what you paste, or, if a steward turns it on, fetches a read-only command through Termix. A Vaultwarden login goes only as a reference, never the password, and Fathom's server never calls Termix. Every part is optional and has a plain way beside it (ADR-0078, ADR-0080). |
 | **SNMP** | Planned | Read device state over SNMP (v3 first): what is up, interface status, what is plugged in. Today Fathom never touches a device; reading SNMP changes that rule, so it gets its own decision record before any code ([#58](https://github.com/keyxmakerx/Fathom/issues/58), [#56](https://github.com/keyxmakerx/Fathom/issues/56)). |
 | **Discovery** | Planned | Scan a network and approve what it finds before any of it enters a design ([#56](https://github.com/keyxmakerx/Fathom/issues/56)). Same rule change as SNMP. |
 | **Plans that branch** | Partly built | A step can carry one If path ("if the port is already in use, do this instead"), and release notes or a change log can be pasted into a plan, with the lines that name what it touches marked. Next: showing on the canvas what each path would change. |

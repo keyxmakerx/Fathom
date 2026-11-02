@@ -5,6 +5,7 @@ import { useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 
 import type { PointerEvent as ReactPointerEvent } from 'react';
 
 import { OUTCOMES, backOutSteps, checksLeft, currentStep, type Plan, type PlanOutcome, type PlanStep } from '../../document/plans';
+import { CalledOffMode, PlanRoute, WhatNext } from './PlanNext';
 import { AfterTheWork, IfPath, PlanChecks, ReleaseNotes, StepFollowUp, TakeIfPath } from './PlanFlow';
 import { clampOffset } from '../checks/checksModel';
 import { AddStepForm } from './AddStepForm';
@@ -131,19 +132,7 @@ function PlanMode({ controller, plan }: { controller: PlansController; plan: Pla
       {canEdit && devices.length > 0 && termixWindow.choice}
       <PlanChecks controller={controller} plan={plan} />
       <ReleaseNotes controller={controller} plan={plan} />
-      {canEdit && (
-        <p>
-          <button
-            type="button"
-            className="plans-btn btn-main"
-            disabled={plan.steps.length === 0}
-            onClick={() => void controller.start().then((ok) => (ok ? termixWindow.started() : undefined))}
-          >
-            Start work
-          </button>
-          {plan.steps.length === 0 && <span className="plans-note"> Add a step first.</span>}
-        </p>
-      )}
+      <WhatNext controller={controller} plan={plan} onStart={() => void controller.start().then((ok) => (ok ? termixWindow.started() : undefined))} />
       {canEdit && <AddStepForm controller={controller} stepCount={plan.steps.length} />}
     </>
   );
@@ -430,13 +419,14 @@ function RecordMode({ controller, plan }: { controller: PlansController; plan: P
 }
 
 /** What the panel is for now. */
-export function panelMode(plan: Plan): 'plan' | 'do' | 'record' {
+export function panelMode(plan: Plan): 'plan' | 'do' | 'record' | 'off' {
   if (plan.stage === 'planned') return 'plan';
+  if (plan.stage === 'called_off') return 'off';
   if (plan.stage === 'doing' && currentStep(plan) != null) return 'do';
   return 'record';
 }
 
-const HEADING = { plan: 'Plan', do: 'Do', record: 'Record' } as const;
+const HEADING = { plan: 'Plan', do: 'Do', record: 'Record', off: 'Called off' } as const;
 
 export function PlanPanel({ controller, plan, besideChecks }: { controller: PlansController; plan: Plan; besideChecks: boolean }) {
   // In the right-hand panel (r30-panels) the card has a place already; its header does not drag it.
@@ -542,11 +532,13 @@ export function PlanPanel({ controller, plan, besideChecks }: { controller: Plan
       <div ref={body} tabIndex={-1} className="plans-panel__body">
         <Notice controller={controller} />
         <WhySlot controller={controller} />
+        <PlanRoute plan={plan} />
         <UpgradeLinkScope plan={plan}>
           {mode === 'plan' && <PlanMode controller={controller} plan={plan} />}
           {mode === 'do' && <DoMode controller={controller} plan={plan} />}
           {mode === 'record' && <RecordMode key={plan.stage} controller={controller} plan={plan} />}
-          {mode !== 'record' && <FirmwarePlanExtras plan={plan} />}
+          {mode === 'off' && <CalledOffMode controller={controller} plan={plan} />}
+          {(mode === 'plan' || mode === 'do') && <FirmwarePlanExtras plan={plan} />}
         </UpgradeLinkScope>
         <WorkFields id={plan.id} />
       </div>

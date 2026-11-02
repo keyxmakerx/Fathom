@@ -63,6 +63,7 @@ const STATE_WORD: Record<string, string> = {
   planned: 'Planned',
   doing: 'Doing',
   recorded: 'Recorded',
+  called_off: 'Called off',
   open: 'Open',
   closed: 'Closed',
   on_order: 'On order',
