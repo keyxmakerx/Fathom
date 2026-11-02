@@ -1,9 +1,7 @@
 # ADR-0088: Where the new work lives — one map of the app for seven features
 
-**Status:** proposed 2026-11-02, on sign-off card **r88-ui-map** with the recommended pick selected
-on each of its six questions. The build threads go ahead on those picks (the owner's standing rule:
-where a choice can wait, build on the recommended default and let the owner override it on the
-card). Anything the owner changes on the card is changed here first.
+**Status:** accepted 2026-11-02. The owner approved sign-off card **r88-ui-map** with the
+recommended pick on all six questions (ip, teams, rail, mail, reading, phone: A) and no note.
 
 **Covers:** the Work tab (ADR-0087, #282), teams, leads and supervisors (ADR-0081), device reading
 (ADR-0082), IP management (ADR-0083), orders and the job engine (ADR-0084), email (ADR-0085) and the

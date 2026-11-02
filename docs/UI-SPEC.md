@@ -425,7 +425,7 @@ Built in part one. Pictures from the real-server drive: `reviews/vault/` in the 
   access allowed; who may connect; which apps; the most a connection may see; longest a
   connection lasts; ideas and changes from AI. Save sits at the foot and stays in view.
 
-## Where the new work lives (ADR-0088; card r88-ui-map)
+## Where the new work lives (ADR-0088, accepted; card r88-ui-map)
 
 One place for each of the seven pieces approved on 2026-11-02, so the threads building them hang off
 the same few spots. ADR-0088 has the reasons; this is the list.
