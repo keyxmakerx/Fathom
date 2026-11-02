@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.37";
+export const SCHEMA_VERSION = "0.38";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -33,6 +33,7 @@ export type NodeKind =
   | "ApplicationSet"
   | "NatRuleSet"
   | "NatRule"
+  | "NatPool"
   | "IkeProposal"
   | "IkePolicy"
   | "IkeGateway"
@@ -127,6 +128,7 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "ApplicationSet",
   "NatRuleSet",
   "NatRule",
+  "NatPool",
   "IkeProposal",
   "IkePolicy",
   "IkeGateway",
@@ -216,6 +218,7 @@ export type EdgeKind =
   | "HasApplication"
   | "HasNatRuleSet"
   | "HasNatRule"
+  | "HasNatPool"
   | "HasIkeProposal"
   | "HasIkePolicy"
   | "HasIkeGateway"
@@ -348,6 +351,7 @@ export const EDGE_KINDS: readonly EdgeKind[] = [
   "HasApplication",
   "HasNatRuleSet",
   "HasNatRule",
+  "HasNatPool",
   "HasIkeProposal",
   "HasIkePolicy",
   "HasIkeGateway",
@@ -569,7 +573,8 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Application: ["l4", "name", "app_id", "inactivity_timeout", "alg"],
   ApplicationSet: ["name"],
   NatRuleSet: ["name", "nat_type", "from", "to"],
-  NatRule: ["name", "ordinal", "match_source", "match_destination", "then"],
+  NatRule: ["name", "ordinal", "match_source", "match_destination", "then", "match_destination_port"],
+  NatPool: ["name", "nat_type", "address", "address_to", "port"],
   IkeProposal: ["name", "authentication_method", "dh_group", "encryption_algorithm", "authentication_algorithm", "lifetime_seconds"],
   IkePolicy: ["name", "mode", "pre_shared_key", "certificate_id", "description"],
   IkeGateway: ["name", "peer", "version", "local_identity", "remote_identity", "dpd", "nat_keepalive", "no_nat_traversal", "description"],
@@ -1212,4 +1217,10 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "IpamAsn.allocation_key": 634,
   "IpamAsn.folder": 635,
   "IpamAsn.note": 636,
+  "NatRule.match_destination_port": 637,
+  "NatPool.name": 638,
+  "NatPool.nat_type": 639,
+  "NatPool.address": 640,
+  "NatPool.address_to": 641,
+  "NatPool.port": 642,
 };

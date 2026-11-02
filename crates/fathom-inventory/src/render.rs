@@ -238,6 +238,7 @@ fn render_set<B: FieldBag + ?Sized>(bag: &B, k: FieldKey) -> String {
         LinkMedia,
         MaintenancePlanOutcome,
         MaintenancePlanStage,
+        NatPoolNatType,
         NatRuleSetNatType,
         PassiveNodeForm,
         PathSegmentBoundaryReason,

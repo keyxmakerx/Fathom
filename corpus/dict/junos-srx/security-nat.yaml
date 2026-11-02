@@ -1,0 +1,335 @@
+# corpus/dict/junos-srx/security-nat.yaml — `set security nat source|destination|static
+# …` (schema 0.38, sign-off r104 pick A: source, destination and static NAT, read and
+# traced).
+#
+# Every statement shape below was read on **2026-11-02** (ADR-0034) off these three
+# Juniper sources, each a worked example that prints the `set` lines:
+#
+#   Destination NAT topic, Examples 1 and 2:
+#   https://www.juniper.net/documentation/us/en/software/junos/nat/topics/topic-map/security-nat-destination.html
+#     set security nat destination pool dst-nat-pool-1 address 192.168.1.200/32
+#     set security nat destination pool P address 192.168.1.200/32 port 80
+#     set security nat destination rule-set rs1 from interface ge-0/0/0.0
+#     set security nat destination rule-set rs1 from zone untrust
+#     set security nat destination rule-set rs1 rule r1 match destination-address 203.0.113.200/32
+#     set security nat destination rule-set rs1 rule r1 match destination-port 80
+#     set security nat destination rule-set rs1 rule r1 then destination-nat pool dst-nat-pool-1
+#     (`off`: "Do not perform destination NAT".)
+#
+#   Static NAT topic:
+#   https://www.juniper.net/documentation/us/en/software/junos/nat/topics/topic-map/security-nat-static.html
+#     set security nat static rule-set rs1 from zone untrust
+#     set security nat static rule-set rs1 rule r1 match destination-address 203.0.113.200/32
+#     set security nat static rule-set rs1 rule r1 then static-nat prefix 192.168.1.200/32
+#
+#   Juniper, "207 source NAT" (the source NAT topic page itself refused the fetch):
+#   https://www.juniper.net/content/dam/www/assets/additional-resources/jp/ja/207-source-nat.pdf
+#     set security nat source rule-set 1 from zone trust
+#     set security nat source rule-set 1 to zone untrust
+#     set security nat source rule-set 1 rule 1A match source-address 0.0.0.0/0
+#     set security nat source rule-set 1 rule 1A then source-nat interface
+#     set security nat source pool src_nat_pool_napt address 100.100.100.20/32 to 100.100.100.29/32
+#     set security nat source rule-set 1 rule 1A then source-nat pool src_nat_pool_napt
+#
+# The third path word (`source`, `destination`, `static`) is captured as `$t` and read
+# as the rule set's or pool's `nat_type`, so one entry serves all three. A word that is
+# not one of the type's values refuses the node (`static pool` is not a thing). Rule
+# sets and pools are keyed on `[$t, name]`: source and destination are separate
+# namespaces on the device.
+#
+# `NatRule.ordinal` is assigned once, on first creation, in the order the paste names
+# the rules (display-set prints a rule set's rules in configured order).
+#
+# WHAT STAYS RESIDUE, deliberately:
+#   - `from routing-instance NAME`: named routing instances are not read anywhere yet.
+#   - `match source-address-name` / `destination-address-name`, `match application`,
+#     `match protocol`, port ranges (`destination-port 80 to 90`), `then static-nat
+#     inet`, `mapped-port`, `prefix-name`, pool `routing-instance`, `host-address-base`,
+#     `port no-translation`, `persistent-nat`, `proxy-arp`, `address-persistent`: not
+#     in the examples above, not bound. The trace says a device's NAT is partly read when
+#     any `security nat` line is residue.
+#
+# `reviewed_by: <named human>` is a placeholder, not a name (invariant 10).
+platform: junos-srx
+source: { cite: "Juniper, Destination NAT and Static NAT topics (Junos NAT guide), and 207 source NAT", read_on: "2026-11-02" }
+reviewed_by: <named human>
+entries:
+  # ---- rule sets ------------------------------------------------------------------
+  - id: junos-srx/security.nat.rule-set.from-zone
+    path: [security, nat, "$t", rule-set, "$rs", from, zone, "$z"]
+    binds:
+      nodes:
+        - as: set
+          kind: NatRuleSet
+          key: ["$t", "$rs"]
+          fields:
+            - { field: name, from: "$rs", scalar: Identifier }
+            - { field: nat_type, from: "$t", scalar: NatRuleSetNatType }
+            - { field: from, nat_scope: { zone: "$z" } }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.nat.rule-set.from-interface
+    path: [security, nat, "$t", rule-set, "$rs", from, interface, "$i"]
+    binds:
+      nodes:
+        - as: set
+          kind: NatRuleSet
+          key: ["$t", "$rs"]
+          fields:
+            - { field: name, from: "$rs", scalar: Identifier }
+            - { field: nat_type, from: "$t", scalar: NatRuleSetNatType }
+            - { field: from, nat_scope: { interface_unit: "$i" } }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.nat.rule-set.to-zone
+    path: [security, nat, "$t", rule-set, "$rs", to, zone, "$z"]
+    binds:
+      nodes:
+        - as: set
+          kind: NatRuleSet
+          key: ["$t", "$rs"]
+          fields:
+            - { field: name, from: "$rs", scalar: Identifier }
+            - { field: nat_type, from: "$t", scalar: NatRuleSetNatType }
+            - { field: to, nat_scope: { zone: "$z" } }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # ---- rules: match ---------------------------------------------------------------
+  - id: junos-srx/security.nat.rule.match-source-address
+    path: [security, nat, "$t", rule-set, "$rs", rule, "$r", match, source-address, "$a"]
+    binds:
+      nodes:
+        - as: set
+          kind: NatRuleSet
+          key: ["$t", "$rs"]
+          fields:
+            - { field: name, from: "$rs", scalar: Identifier }
+            - { field: nat_type, from: "$t", scalar: NatRuleSetNatType }
+        - as: rule
+          kind: NatRule
+          owner: set
+          key: "$r"
+          ordinal_on_create: true
+          fields:
+            - { field: name, from: "$r", scalar: Identifier }
+            - { field: match_source, append_scalar: IpPrefix, from: "$a" }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.nat.rule.match-destination-address
+    path: [security, nat, "$t", rule-set, "$rs", rule, "$r", match, destination-address, "$a"]
+    binds:
+      nodes:
+        - as: set
+          kind: NatRuleSet
+          key: ["$t", "$rs"]
+          fields:
+            - { field: name, from: "$rs", scalar: Identifier }
+            - { field: nat_type, from: "$t", scalar: NatRuleSetNatType }
+        - as: rule
+          kind: NatRule
+          owner: set
+          key: "$r"
+          ordinal_on_create: true
+          fields:
+            - { field: name, from: "$r", scalar: Identifier }
+            - { field: match_destination, append_scalar: IpPrefix, from: "$a" }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.nat.rule.match-destination-port
+    path: [security, nat, "$t", rule-set, "$rs", rule, "$r", match, destination-port, "$p"]
+    binds:
+      nodes:
+        - as: set
+          kind: NatRuleSet
+          key: ["$t", "$rs"]
+          fields:
+            - { field: name, from: "$rs", scalar: Identifier }
+            - { field: nat_type, from: "$t", scalar: NatRuleSetNatType }
+        - as: rule
+          kind: NatRule
+          owner: set
+          key: "$r"
+          ordinal_on_create: true
+          fields:
+            - { field: name, from: "$r", scalar: Identifier }
+            - { field: match_destination_port, append_scalar: L4Port, from: "$p" }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # ---- rules: then ----------------------------------------------------------------
+  - id: junos-srx/security.nat.rule.then-source-nat-interface
+    path: [security, nat, "$t", rule-set, "$rs", rule, "$r", then, source-nat, interface]
+    binds:
+      nodes:
+        - as: set
+          kind: NatRuleSet
+          key: ["$t", "$rs"]
+          fields:
+            - { field: name, from: "$rs", scalar: Identifier }
+            - { field: nat_type, from: "$t", scalar: NatRuleSetNatType }
+        - as: rule
+          kind: NatRule
+          owner: set
+          key: "$r"
+          ordinal_on_create: true
+          fields:
+            - { field: name, from: "$r", scalar: Identifier }
+            - { field: then, nat_action: interface }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.nat.rule.then-source-nat-off
+    path: [security, nat, "$t", rule-set, "$rs", rule, "$r", then, source-nat, "off"]
+    binds:
+      nodes:
+        - as: set
+          kind: NatRuleSet
+          key: ["$t", "$rs"]
+          fields:
+            - { field: name, from: "$rs", scalar: Identifier }
+            - { field: nat_type, from: "$t", scalar: NatRuleSetNatType }
+        - as: rule
+          kind: NatRule
+          owner: set
+          key: "$r"
+          ordinal_on_create: true
+          fields:
+            - { field: name, from: "$r", scalar: Identifier }
+            - { field: then, nat_action: "off" }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.nat.rule.then-source-nat-pool
+    path: [security, nat, "$t", rule-set, "$rs", rule, "$r", then, source-nat, pool, "$pool"]
+    binds:
+      nodes:
+        - as: set
+          kind: NatRuleSet
+          key: ["$t", "$rs"]
+          fields:
+            - { field: name, from: "$rs", scalar: Identifier }
+            - { field: nat_type, from: "$t", scalar: NatRuleSetNatType }
+        - as: rule
+          kind: NatRule
+          owner: set
+          key: "$r"
+          ordinal_on_create: true
+          fields:
+            - { field: name, from: "$r", scalar: Identifier }
+            - { field: then, nat_action: { pool: "$pool" } }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.nat.rule.then-destination-nat-pool
+    path: [security, nat, "$t", rule-set, "$rs", rule, "$r", then, destination-nat, pool, "$pool"]
+    binds:
+      nodes:
+        - as: set
+          kind: NatRuleSet
+          key: ["$t", "$rs"]
+          fields:
+            - { field: name, from: "$rs", scalar: Identifier }
+            - { field: nat_type, from: "$t", scalar: NatRuleSetNatType }
+        - as: rule
+          kind: NatRule
+          owner: set
+          key: "$r"
+          ordinal_on_create: true
+          fields:
+            - { field: name, from: "$r", scalar: Identifier }
+            - { field: then, nat_action: { pool: "$pool" } }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.nat.rule.then-destination-nat-off
+    path: [security, nat, "$t", rule-set, "$rs", rule, "$r", then, destination-nat, "off"]
+    binds:
+      nodes:
+        - as: set
+          kind: NatRuleSet
+          key: ["$t", "$rs"]
+          fields:
+            - { field: name, from: "$rs", scalar: Identifier }
+            - { field: nat_type, from: "$t", scalar: NatRuleSetNatType }
+        - as: rule
+          kind: NatRule
+          owner: set
+          key: "$r"
+          ordinal_on_create: true
+          fields:
+            - { field: name, from: "$r", scalar: Identifier }
+            - { field: then, nat_action: "off" }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.nat.rule.then-static-nat-prefix
+    path: [security, nat, "$t", rule-set, "$rs", rule, "$r", then, static-nat, prefix, "$p"]
+    binds:
+      nodes:
+        - as: set
+          kind: NatRuleSet
+          key: ["$t", "$rs"]
+          fields:
+            - { field: name, from: "$rs", scalar: Identifier }
+            - { field: nat_type, from: "$t", scalar: NatRuleSetNatType }
+        - as: rule
+          kind: NatRule
+          owner: set
+          key: "$r"
+          ordinal_on_create: true
+          fields:
+            - { field: name, from: "$r", scalar: Identifier }
+            - { field: then, nat_action: { static: "$p" } }
+    versions: "*"
+    reviewed_by: <named human>
+
+  # ---- pools ----------------------------------------------------------------------
+  - id: junos-srx/security.nat.pool.address
+    path: [security, nat, "$t", pool, "$pool", address, "$a"]
+    partial: true
+    binds:
+      nodes:
+        - as: pool
+          kind: NatPool
+          key: ["$t", "$pool"]
+          fields:
+            - { field: name, from: "$pool", scalar: Identifier }
+            - { field: nat_type, from: "$t", scalar: NatPoolNatType }
+            - { field: address, from: "$a", scalar: IpPrefix }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.nat.pool.address-to
+    path: [security, nat, "$t", pool, "$pool", address, "$a", to, "$b"]
+    binds:
+      nodes:
+        - as: pool
+          kind: NatPool
+          key: ["$t", "$pool"]
+          fields:
+            - { field: name, from: "$pool", scalar: Identifier }
+            - { field: nat_type, from: "$t", scalar: NatPoolNatType }
+            - { field: address, from: "$a", scalar: IpPrefix }
+            - { field: address_to, from: "$b", scalar: IpPrefix }
+    versions: "*"
+    reviewed_by: <named human>
+
+  - id: junos-srx/security.nat.pool.address-port
+    path: [security, nat, "$t", pool, "$pool", address, "$a", port, "$port"]
+    binds:
+      nodes:
+        - as: pool
+          kind: NatPool
+          key: ["$t", "$pool"]
+          fields:
+            - { field: name, from: "$pool", scalar: Identifier }
+            - { field: nat_type, from: "$t", scalar: NatPoolNatType }
+            - { field: address, from: "$a", scalar: IpPrefix }
+            - { field: port, from: "$port", scalar: L4Port }
+    versions: "*"
+    reviewed_by: <named human>

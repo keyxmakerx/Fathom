@@ -12,15 +12,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{
     AddressFamily, EdgeKind, EstablishTunnels, Family, HostProtocol, HostService, IkePolicyMode,
-    IpsecProposalProtocol, IpsecVpnDfBit, NodeKind, PolicyAction, ProtocolAdjacencyNetworkType,
-    RoutingProtocolProtocol,
+    IpsecProposalProtocol, IpsecVpnDfBit, NatPoolNatType, NatRuleSetNatType, NodeKind,
+    PolicyAction, ProtocolAdjacencyNetworkType, RoutingProtocolProtocol,
 };
 use fathom_ir::scalar::{self, Scalar};
 use fathom_ir::value::{self, PeerSpec};
 
 use crate::dict::{
-    Dictionary, EdgeTarget, Entry, KindSpec, Match, NextHopConst, NodeSpec, SetEnumTy, ValueSpec,
-    ValueTy,
+    Dictionary, EdgeTarget, Entry, KindSpec, ListTy, Match, NatActionSpec, NatScopeSpec,
+    NextHopConst, NodeSpec, SetEnumTy, ValueSpec, ValueTy,
 };
 use crate::frame::{ByteSpan, Diag, LineOrdinal, LineOutcome, Outcome, ShapeError};
 use crate::redact;
@@ -164,6 +164,25 @@ pub enum BoundValue {
     Address(value::AddressValue),
     /// `StaticRoute.next_hop`, one or more, in the order the statements said them.
     NextHops(Vec<BoundNextHop>),
+    // --- NAT on firewalls (schema 0.38, 2026-11-02) ---------------------------
+    L4Port(scalar::L4Port),
+    NatRuleSetNatType(NatRuleSetNatType),
+    NatPoolNatType(NatPoolNatType),
+    /// `NatRule.match_source` / `match_destination`, in statement order.
+    IpPrefixes(Vec<scalar::IpPrefix>),
+    /// `NatRule.match_destination_port`, in statement order.
+    L4Ports(Vec<scalar::L4Port>),
+    /// `NatRuleSet.from` / `.to`. Holds a fragment index; the weld swaps in the store id.
+    NatScope(BoundNatScope),
+    NatAction(value::NatAction),
+}
+
+/// `NatScope` as the fragment knows it. A routing-instance scope is not read:
+/// the reader does not bind named routing instances at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoundNatScope {
+    Zone(FragNodeId),
+    Interface(FragNodeId),
 }
 
 /// `PolicyScope` as the fragment knows it: zones are fragment nodes.
@@ -206,6 +225,8 @@ struct DeferredHop {
     /// How far the statement was understood, for the residue row if the unit
     /// never turns up.
     consumed: u8,
+    /// The unit is a NAT rule set's `from interface`, not a next hop.
+    nat_scope: bool,
 }
 
 struct Builder {
@@ -291,13 +312,12 @@ pub(crate) fn bind(
         match resolve(&b, &hop.target) {
             Some(unit) => {
                 let mut diags = Vec::new();
-                b.assert_node(
-                    hop.node,
-                    hop.key,
-                    BoundValue::NextHops(vec![BoundNextHop::Interface(unit)]),
-                    hop.prov,
-                    &mut diags,
-                );
+                let value = if hop.nat_scope {
+                    BoundValue::NatScope(BoundNatScope::Interface(unit))
+                } else {
+                    BoundValue::NextHops(vec![BoundNextHop::Interface(unit)])
+                };
+                b.assert_node(hop.node, hop.key, value, hop.prov, &mut diags);
             }
             None => {
                 // The route exists but its hop was not understood: the line is
@@ -568,9 +588,29 @@ fn bind_statement(
                         target,
                         prov,
                         consumed: cap_u8(m.consumed),
+                        nat_scope: false,
                     });
                     continue;
                 }
+            }
+            // So does a NAT rule set's `from interface ge-0/0/0.0`.
+            if let ValueSpec::NatScope {
+                scope: NatScopeSpec::InterfaceUnit,
+                from,
+            } = &field.value
+            {
+                match hop_unit_target(entry, stmt, tree, from) {
+                    Some(target) => b.hops.push(DeferredHop {
+                        node: id,
+                        key: key_id,
+                        target,
+                        prov,
+                        consumed: cap_u8(m.consumed),
+                        nat_scope: true,
+                    }),
+                    None => diags.push(Diag::ValueUnparsed { key: key_id }),
+                }
+                continue;
             }
             match bound_value(b, dict, entry, stmt, tree, &field.value, prov, &mut diags) {
                 Ok(value) => {
@@ -792,6 +832,20 @@ fn merge_assertion(
                     }
                 }
             }
+            (BoundValue::IpPrefixes(have), BoundValue::IpPrefixes(add)) => {
+                for p in add {
+                    if !have.contains(p) {
+                        have.push(*p);
+                    }
+                }
+            }
+            (BoundValue::L4Ports(have), BoundValue::L4Ports(add)) => {
+                for p in add {
+                    if !have.contains(p) {
+                        have.push(*p);
+                    }
+                }
+            }
             (have, add) if have == add => {}
             _ => diags.push(Diag::ValueUnparsed { key }),
         }
@@ -878,6 +932,38 @@ fn bound_value(
             let addr: scalar::IpAddr = parse(&text)?;
             Ok(BoundValue::NextHops(vec![BoundNextHop::Address(addr)]))
         }
+        ValueSpec::AppendScalar { ty, from } => {
+            let (text, redacted) = capture(entry, stmt, tree, from).ok_or(())?;
+            if redacted.is_some() {
+                return Err(());
+            }
+            Ok(match ty {
+                ListTy::IpPrefix => BoundValue::IpPrefixes(vec![parse(&text)?]),
+                ListTy::L4Port => BoundValue::L4Ports(vec![parse(&text)?]),
+            })
+        }
+        ValueSpec::NatScope { scope, from } => match scope {
+            NatScopeSpec::Zone => {
+                let zone = zone_ref(b, dict, entry, stmt, tree, from, prov, diags)?;
+                Ok(BoundValue::NatScope(BoundNatScope::Zone(zone)))
+            }
+            // Deferred by the caller; reaching here means it was not.
+            NatScopeSpec::InterfaceUnit => Err(()),
+        },
+        ValueSpec::NatAction { action } => Ok(BoundValue::NatAction(match action {
+            NatActionSpec::Interface => value::NatAction::Interface,
+            NatActionSpec::Off => value::NatAction::Off,
+            NatActionSpec::Pool { from } | NatActionSpec::Static { from } => {
+                let (text, redacted) = capture(entry, stmt, tree, from).ok_or(())?;
+                if redacted.is_some() {
+                    return Err(());
+                }
+                match action {
+                    NatActionSpec::Pool { .. } => value::NatAction::Pool(parse(&text)?),
+                    _ => value::NatAction::Static(parse(&text)?),
+                }
+            }
+        })),
         ValueSpec::NextHopConst { token } => Ok(BoundValue::NextHops(vec![match token {
             NextHopConst::Discard => BoundNextHop::Discard,
             NextHopConst::Reject => BoundNextHop::Reject,
@@ -1044,6 +1130,17 @@ fn scalar_value(dict: &Dictionary, ty: ValueTy, raw: &str) -> Result<BoundValue,
         ValueTy::PolicyAction => {
             BoundValue::PolicyAction(known(PolicyAction::from_token(&neutral), |v| {
                 matches!(v, PolicyAction::Unknown(_))
+            })?)
+        }
+        ValueTy::L4Port => BoundValue::L4Port(parse(mapped)?),
+        ValueTy::NatRuleSetNatType => {
+            BoundValue::NatRuleSetNatType(known(NatRuleSetNatType::from_token(&neutral), |v| {
+                matches!(v, NatRuleSetNatType::Unknown(_))
+            })?)
+        }
+        ValueTy::NatPoolNatType => {
+            BoundValue::NatPoolNatType(known(NatPoolNatType::from_token(&neutral), |v| {
+                matches!(v, NatPoolNatType::Unknown(_))
             })?)
         }
     })

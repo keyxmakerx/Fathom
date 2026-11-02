@@ -47,7 +47,7 @@ export { SCHEMA_VERSION };
 // version reads exactly like a current one. Every older version this reader
 // still opens, and no other -- byte-identical to
 // `fathom_workspace::ACCEPTED_OLDER_SCHEMA_VERSIONS`.
-export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12', '0.13', '0.14', '0.15', '0.16', '0.17', '0.18', '0.19', '0.20', '0.21', '0.22', '0.23', '0.24', '0.25', '0.26', '0.27', '0.28', '0.29', '0.30', '0.31', '0.32', '0.33', '0.34', '0.35', '0.36'];
+export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12', '0.13', '0.14', '0.15', '0.16', '0.17', '0.18', '0.19', '0.20', '0.21', '0.22', '0.23', '0.24', '0.25', '0.26', '0.27', '0.28', '0.29', '0.30', '0.31', '0.32', '0.33', '0.34', '0.35', '0.36', '0.37'];
 
 // Kinds 0.11 (ADR-0058) added. A payload declared at 0.10 cannot
 // legitimately hold one -- its editor never had the kind -- so finding one
@@ -123,6 +123,10 @@ const EDGE_KINDS_SINCE_0_30: ReadonlySet<EdgeKind> = new Set([
   'ForIssue',
 ]);
 
+// Kinds 0.38 (NAT pools, sign-off r104) added; every accepted older header is too old for them.
+const NODE_KINDS_SINCE_0_38: ReadonlySet<NodeKind> = new Set(['NatPool']);
+const EDGE_KINDS_SINCE_0_38: ReadonlySet<EdgeKind> = new Set(['HasNatPool']);
+
 // A kind first added at minor `m` is too new for any header below `m`. Mirrors the Rust table.
 const NODES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<NodeKind>]> = [
   [11, NODE_KINDS_SINCE_0_11],
@@ -139,6 +143,7 @@ const NODES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<NodeKind>]> = [
   [28, NODE_KINDS_SINCE_0_28],
   [29, NODE_KINDS_SINCE_0_29],
   [30, NODE_KINDS_SINCE_0_30],
+  [38, NODE_KINDS_SINCE_0_38],
 ];
 const EDGES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<EdgeKind>]> = [
   [11, EDGE_KINDS_SINCE_0_11],
@@ -155,6 +160,7 @@ const EDGES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<EdgeKind>]> = [
   [28, EDGE_KINDS_SINCE_0_28],
   [29, EDGE_KINDS_SINCE_0_29],
   [30, EDGE_KINDS_SINCE_0_30],
+  [38, EDGE_KINDS_SINCE_0_38],
 ];
 
 // The IP plan store's kinds (ADR-0083, schema 0.36): declared in the schema so the

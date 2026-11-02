@@ -65,7 +65,7 @@ use fathom_ir::scalar::Text;
 pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &[
     "0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17", "0.18", "0.19", "0.20", "0.21",
     "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28", "0.29", "0.30", "0.31", "0.32", "0.33",
-    "0.34", "0.35", "0.36",
+    "0.34", "0.35", "0.36", "0.37",
 ];
 
 /// Node kinds `0.11` (ADR-0058) added. A payload declared at `0.10` cannot
@@ -164,12 +164,16 @@ const EDGE_KINDS_SINCE_0_30: &[EdgeKind] = &[
     EdgeKind::ForIssue,
 ];
 
+/// Kinds `0.38` (NAT on firewalls) added; every accepted older header is too old for them.
+const NODE_KINDS_SINCE_0_38: &[NodeKind] = &[NodeKind::NatPool];
+const EDGE_KINDS_SINCE_0_38: &[EdgeKind] = &[EdgeKind::HasNatPool];
+
 /// Refuse a payload declared at `declared` that holds a kind newer than that
 /// version — decision 6's (ADR-0058) and decision 9's (ADR-0059) second
 /// halves, checked once per accepted older version: `0.10` cannot hold
 /// anything `0.11` to `0.19` added, and so on up the chain. `0.20` (the
 /// owner's ticked ideas), `0.21` (round 15), `0.22` (port faces), `0.24` (missing links), `0.25` (the LAG step), `0.31` (a device's own chosen version), `0.32` (links between sites), `0.33` (the plan-to-maintenance flow), `0.34` (Termix in the work), `0.35` (the Work tab's ticket parts), `0.36` (the IP plan store, whose kinds no design may hold) and `0.37` (a plan called off) added only fields and
-/// enum variants, no kind; `0.23` (cable runs and ties), `0.26` (mesh VPNs), `0.27` (the lesson builder), `0.28` (cards), `0.29` (the room builder) and `0.30` (stock) added kinds.
+/// enum variants, no kind; `0.23` (cable runs and ties), `0.26` (mesh VPNs), `0.27` (the lesson builder), `0.28` (cards), `0.29` (the room builder), `0.30` (stock) and `0.38` (NAT pools) added kinds.
 /// Refuse a payload holding any record of the IP plan store (ADR-0083): its
 /// kinds are declared in the schema so the store's fields exist there, but they
 /// are never nodes in a design, at any version.
@@ -188,7 +192,7 @@ fn reject_kinds_too_new_for_declared_version(
     declared: &str,
     snapshot: &Snapshot,
 ) -> Result<(), PlainError> {
-    // Nothing to check for the current version (`0.37`, everything is
+    // Nothing to check for the current version (`0.38`, everything is
     // legitimate there) or any value `SchemaVersionMismatch` already
     // refused above this call — only the accepted older headers name a
     // kind set their own editor could never have written.
@@ -200,7 +204,7 @@ fn reject_kinds_too_new_for_declared_version(
         .strip_prefix("0.")
         .and_then(|m| m.parse().ok())
         .unwrap_or(0);
-    let nodes_since: [(u32, &[NodeKind]); 14] = [
+    let nodes_since: [(u32, &[NodeKind]); 15] = [
         (11, NODE_KINDS_SINCE_0_11),
         (12, NODE_KINDS_SINCE_0_12),
         (13, NODE_KINDS_SINCE_0_13),
@@ -215,8 +219,9 @@ fn reject_kinds_too_new_for_declared_version(
         (28, NODE_KINDS_SINCE_0_28),
         (29, NODE_KINDS_SINCE_0_29),
         (30, NODE_KINDS_SINCE_0_30),
+        (38, NODE_KINDS_SINCE_0_38),
     ];
-    let edges_since: [(u32, &[EdgeKind]); 14] = [
+    let edges_since: [(u32, &[EdgeKind]); 15] = [
         (11, EDGE_KINDS_SINCE_0_11),
         (12, EDGE_KINDS_SINCE_0_12),
         (13, EDGE_KINDS_SINCE_0_13),
@@ -231,6 +236,7 @@ fn reject_kinds_too_new_for_declared_version(
         (28, EDGE_KINDS_SINCE_0_28),
         (29, EDGE_KINDS_SINCE_0_29),
         (30, EDGE_KINDS_SINCE_0_30),
+        (38, EDGE_KINDS_SINCE_0_38),
     ];
     for n in &snapshot.nodes {
         let k = n.id.kind;

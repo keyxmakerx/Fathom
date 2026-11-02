@@ -682,3 +682,10 @@ fields:
   IpamAsn.allocation_key: 634
   IpamAsn.folder: 635
   IpamAsn.note: 636
+  # 0.38: NAT on firewalls
+  NatRule.match_destination_port: 637
+  NatPool.name: 638
+  NatPool.nat_type: 639
+  NatPool.address: 640
+  NatPool.address_to: 641
+  NatPool.port: 642

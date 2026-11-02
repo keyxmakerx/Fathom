@@ -7,6 +7,8 @@
  * - A host (one network of its own) names its default gateway, `GW 10.10.11.1`, or says `NO GATEWAY`
  *   as a caution.
  * - A switch with VLANs and no address of its own says `SWITCHES ONLY`.
+ * - A firewall with NAT rules says how many: `NAT · 3 RULES` (sign-off r104, where B). A trace shows
+ *   each rule it applies as a line on that firewall's hop.
  * - A cable whose two ends hold addresses in one network is routed: drawn in ink, carrying the prefix.
  *   A cable in a VLAN is switched: drawn dashed, carrying its VLANs.
  *
@@ -52,6 +54,20 @@ function bare(a: string): string {
 }
 
 const DEFAULT = '0.0.0.0/0';
+
+/** The device's NAT rules, across its rule sets (schema 0.38's NatRuleSet and NatRule). */
+export function natRuleCount(doc: Document, deviceId: string): number {
+  const alive = (id: string) => {
+    const n = findNode(doc, id);
+    return n != null && n.absentSince === undefined;
+  };
+  let count = 0;
+  for (const s of edgesOut(doc, deviceId, 'HasNatRuleSet')) {
+    if (!alive(s.to)) continue;
+    count += edgesOut(doc, s.to, 'HasNatRule').filter((r) => alive(r.to)).length;
+  }
+  return count;
+}
 
 export function routingMarks(doc: Document | null, view: ClosetView): RoutingMarks {
   if (doc == null) return EMPTY;
@@ -110,6 +126,8 @@ export function routingMarks(doc: Document | null, view: ClosetView): RoutingMar
     } else if ((inVlans.get(d)?.size ?? 0) > 0) {
       words.push({ text: 'SWITCHES ONLY', caution: false });
     }
+    const nat = natRuleCount(doc, d);
+    if (nat > 0) words.push({ text: `NAT · ${nat} ${nat === 1 ? 'RULE' : 'RULES'}`, caution: false });
     if (words.length > 0) devices.set(ch.id, words);
   }
 

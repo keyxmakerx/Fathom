@@ -94,8 +94,9 @@ fn shipped_tree_declaration_counts_hold() {
     // Available inventory (schema 0.30): +3 kinds (`Store`, `StockItem`, `StockLevel`), +6 edges
     // (`HasStore`, `HasStock`, `HasStockLevel`, `InStore`, `ReservedFor`, `ForIssue`).
     // The IP plan store (schema 0.36, ADR-0083): +11 `plan`-layer kinds, no edges, no class.
-    assert_eq!(tree.kinds.len(), 93, "kind count");
-    assert_eq!(tree.edges.len(), 139, "edge count (107 + 8 derived)");
+    // NAT on firewalls (schema 0.38): +1 kind (`NatPool`), +1 edge (`HasNatPool`), +6 keys (637-642).
+    assert_eq!(tree.kinds.len(), 94, "kind count");
+    assert_eq!(tree.edges.len(), 140, "edge count (108 + 8 derived)");
     // Custom-field values (2026-10-02, schema 0.16): +1 kind (`FieldValue`), +1 edge
     // (`HasFieldValue`), +1 CLASS (`Fieldable`), +2 field keys (380 -> 382).
     assert_eq!(tree.scalars.len(), 61, "scalar count");
@@ -118,7 +119,8 @@ fn shipped_tree_declaration_counts_hold() {
     // Termix in the work (schema 0.34): +3 field keys (552-554).
     // The Work tab's ticket parts (schema 0.35): +7 field keys (555-561).
     // The IP plan store (schema 0.36): +75 field keys (562-636).
-    assert_eq!(fk.entries.len(), 571, "field-key registry entries");
+    // 571 -> 577: NAT on firewalls (637-642, schema 0.38).
+    assert_eq!(fk.entries.len(), 577, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -215,7 +217,8 @@ fn shipped_tree_declaration_counts_hold() {
     // 0.34 -> 0.35 is the Work tab's ticket parts: seven optional fields (555-561), Notable widened.
     // 0.35 -> 0.36 is the IP plan store: eleven `plan`-layer kinds no design holds (562-636).
     // 0.36 -> 0.37 is a plan called off: one variant, `called_off`, on `MaintenancePlan.stage`.
-    assert_eq!(tree.version.as_deref(), Some("0.37"));
+    // 0.37 -> 0.38 is NAT on firewalls: NatPool, HasNatPool, NatRule.match_destination_port.
+    assert_eq!(tree.version.as_deref(), Some("0.38"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

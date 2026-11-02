@@ -235,7 +235,19 @@ struct Estate {
     policies: Vec<NodeId>,
 }
 
+/// The firewall's units and zones, for a test that adds to the estate before it is sealed.
+struct FwIds {
+    fw: NodeId,
+    wan: NodeId,
+    zl: NodeId,
+    zw: NodeId,
+}
+
 fn estate() -> Estate {
+    estate_with(|_, _| {})
+}
+
+fn estate_with(extra: impl FnOnce(&mut B, &FwIds)) -> Estate {
     let mut b = B::new();
 
     let host = b.device("host-a");
@@ -430,6 +442,7 @@ fn estate() -> Estate {
         None,
     );
 
+    extra(&mut b, &FwIds { fw, wan, zl, zw });
     b.g.end_batch().unwrap();
     Estate {
         g: b.g,
@@ -540,7 +553,10 @@ fn a_firewall_hop_lists_every_policy_in_order_with_its_match_state() {
     assert_eq!(fw.unplaced.len(), 1);
     assert_eq!(fw.unplaced[0].state, "can't tell");
     assert!(fw.unplaced_why.contains("which interface and direction"));
-    assert!(fw.detail.iter().any(|d| d == "NAT is not read"));
+    assert!(fw
+        .detail
+        .iter()
+        .any(|d| d == "No NAT rules for this device are in the design"));
     assert_eq!(e.policies.len(), 5);
 }
 
@@ -2088,4 +2104,438 @@ fn a_trace_can_start_from_a_vpn_address() {
     assert_eq!(t.hops[0].title, "laptop");
     assert_eq!(t.hops[0].detail, ["from 100.64.0.2"]);
     assert_eq!(t.hops.last().unwrap().title, "nas");
+}
+
+// ---- NAT (schema 0.38, sign-off r104) ---------------------------------------------------------
+//
+// Juniper's order (NAT overview, read 2026-11-02): static NAT, destination NAT, route lookup,
+// policy lookup, reverse static NAT, source NAT; static takes precedence over destination, and an
+// interface-scoped rule set is more specific than a zone-scoped one (Destination NAT topic, same
+// day).
+
+fn pfx(s: &str) -> scalar::IpPrefix {
+    use fathom_ir::scalar::Scalar;
+    scalar::IpPrefix::parse(s).unwrap()
+}
+
+fn id_of(n: NodeId) -> fathom_id::NodeId {
+    fathom_id::NodeId(n.ulid)
+}
+
+impl B {
+    fn nat_set(
+        &mut self,
+        dev: NodeId,
+        name: &str,
+        kind: fathom_ir::generated::ir_types::NatRuleSetNatType,
+        from: fathom_ir::value::NatScope,
+        to: Option<fathom_ir::value::NatScope>,
+    ) -> NodeId {
+        let s = self.node(NodeKind::NatRuleSet);
+        self.set(s, "NatRuleSet.name", scalar::Identifier(name.to_owned()));
+        self.set(s, "NatRuleSet.nat_type", kind);
+        self.set(s, "NatRuleSet.from", from);
+        if let Some(t) = to {
+            self.set(s, "NatRuleSet.to", t);
+        }
+        self.edge(EdgeKind::HasNatRuleSet, dev, s);
+        s
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn nat_rule(
+        &mut self,
+        set: NodeId,
+        ordinal: u32,
+        name: &str,
+        src: &[&str],
+        dst: &[&str],
+        ports: &[u16],
+        then: fathom_ir::value::NatAction,
+    ) -> NodeId {
+        let r = self.node(NodeKind::NatRule);
+        self.set(r, "NatRule.name", scalar::Identifier(name.to_owned()));
+        self.set(r, "NatRule.ordinal", ordinal);
+        if !src.is_empty() {
+            self.set(
+                r,
+                "NatRule.match_source",
+                src.iter().map(|s| pfx(s)).collect::<Vec<_>>(),
+            );
+        }
+        if !dst.is_empty() {
+            self.set(
+                r,
+                "NatRule.match_destination",
+                dst.iter().map(|s| pfx(s)).collect::<Vec<_>>(),
+            );
+        }
+        if !ports.is_empty() {
+            self.set(
+                r,
+                "NatRule.match_destination_port",
+                ports.iter().map(|p| scalar::L4Port(*p)).collect::<Vec<_>>(),
+            );
+        }
+        self.set(r, "NatRule.then", then);
+        self.edge(EdgeKind::HasNatRule, set, r);
+        r
+    }
+
+    fn nat_pool(
+        &mut self,
+        dev: NodeId,
+        name: &str,
+        kind: fathom_ir::generated::ir_types::NatPoolNatType,
+        addr: &str,
+        to: Option<&str>,
+        port: Option<u16>,
+    ) {
+        let p = self.node(NodeKind::NatPool);
+        self.set(p, "NatPool.name", scalar::Identifier(name.to_owned()));
+        self.set(p, "NatPool.nat_type", kind);
+        self.set(p, "NatPool.address", pfx(addr));
+        if let Some(t) = to {
+            self.set(p, "NatPool.address_to", pfx(t));
+        }
+        if let Some(port) = port {
+            self.set(p, "NatPool.port", scalar::L4Port(port));
+        }
+        self.edge(EdgeKind::HasNatPool, dev, p);
+    }
+}
+
+mod nat {
+    use super::*;
+    use fathom_ir::generated::ir_types::{NatPoolNatType as P, NatRuleSetNatType as K};
+    use fathom_ir::value::{NatAction as A, NatScope as S};
+
+    fn pool(n: &str) -> A {
+        A::Pool(scalar::Identifier(n.to_owned()))
+    }
+
+    fn fw_hop(t: &Trace) -> &fathom_inventory::Hop {
+        t.hops
+            .iter()
+            .find(|h| h.kind == "device" && h.title == "fw-1")
+            .unwrap_or_else(|| panic!("no fw-1 hop: {:?}", t.hops))
+    }
+
+    fn says(t: &Trace, words: &str) -> bool {
+        t.hops
+            .iter()
+            .any(|h| h.detail.iter().any(|d| d.contains(words)))
+    }
+
+    /// From rtr-1 to the firewall's own outside address, which a destination NAT rule sends on
+    /// to host-a.
+    fn inbound(e: &Estate, flow: Option<Flow>) -> Trace {
+        trace(&e.g, "10.8.0.1", "203.0.113.1", flow)
+    }
+
+    #[test]
+    fn source_nat_interface_changes_the_source_after_the_policies() {
+        let e = estate_with(|b, ids| {
+            let s = b.nat_set(
+                ids.fw,
+                "lan-out",
+                K::Source,
+                S::Zone(id_of(ids.zl)),
+                Some(S::Zone(id_of(ids.zw))),
+            );
+            b.nat_rule(s, 0, "hide", &["10.1.0.0/24"], &[], &[], A::Interface);
+        });
+        let t = trace(&e.g, &e.host_unit.to_string(), "10.8.0.1", None);
+        assert_eq!(t.stopped, "", "{:?}", t.hops);
+        let hop = fw_hop(&t);
+        assert!(
+            hop.detail.iter().any(|d| d == "source NAT: source 10.1.0.10 becomes 203.0.113.1 (rule set lan-out, rule hide)"),
+            "{:?}",
+            hop.detail
+        );
+        assert!(!says(&t, "No NAT rules"), "{:?}", hop.detail);
+    }
+
+    #[test]
+    fn a_firewall_without_nat_rules_says_so() {
+        let e = estate();
+        let t = trace(&e.g, &e.host_unit.to_string(), "10.8.0.1", None);
+        assert!(fw_hop(&t)
+            .detail
+            .iter()
+            .any(|d| d == "No NAT rules for this device are in the design"));
+        assert!(!says(&t, "NAT is not read"));
+    }
+
+    #[test]
+    fn destination_nat_happens_before_the_route_and_the_walk_follows_it() {
+        let e = estate_with(|b, ids| {
+            b.nat_pool(ids.fw, "web", P::Destination, "10.1.0.10/32", None, None);
+            let s = b.nat_set(
+                ids.fw,
+                "from-internet",
+                K::Destination,
+                S::Zone(id_of(ids.zw)),
+                None,
+            );
+            b.nat_rule(s, 0, "web", &[], &["203.0.113.1/32"], &[], pool("web"));
+        });
+        let t = inbound(&e, None);
+        assert_eq!(t.stopped, "", "{:?}", t.hops);
+        let hop = fw_hop(&t);
+        assert_eq!(
+            hop.detail[1],
+            "destination NAT: 203.0.113.1 becomes 10.1.0.10 (rule set from-internet, rule web)"
+        );
+        let end = t.hops.last().unwrap();
+        assert_eq!(end.title, "host-a");
+        assert_eq!(end.detail, ["holds 10.1.0.10 (sent to 203.0.113.1)"]);
+    }
+
+    #[test]
+    fn a_pool_port_changes_the_flow_port() {
+        let e = estate_with(|b, ids| {
+            b.nat_pool(
+                ids.fw,
+                "web",
+                P::Destination,
+                "10.1.0.10/32",
+                None,
+                Some(8080),
+            );
+            let s = b.nat_set(
+                ids.fw,
+                "from-internet",
+                K::Destination,
+                S::Zone(id_of(ids.zw)),
+                None,
+            );
+            b.nat_rule(s, 0, "web", &[], &["203.0.113.1/32"], &[80], pool("web"));
+        });
+        let t = inbound(
+            &e,
+            Some(Flow {
+                protocol: 6,
+                port: 80,
+            }),
+        );
+        assert!(
+            says(&t, "203.0.113.1 becomes 10.1.0.10, port 80 becomes 8080"),
+            "{:?}",
+            t.hops
+        );
+        // Another port does not match the rule: the address stays the firewall's own.
+        let t = inbound(
+            &e,
+            Some(Flow {
+                protocol: 6,
+                port: 443,
+            }),
+        );
+        assert_eq!(t.hops.last().unwrap().title, "fw-1");
+        assert!(!says(&t, "becomes"));
+    }
+
+    #[test]
+    fn a_port_rule_with_no_port_given_stops_rather_than_guess() {
+        let e = estate_with(|b, ids| {
+            b.nat_pool(ids.fw, "web", P::Destination, "10.1.0.10/32", None, None);
+            let s = b.nat_set(
+                ids.fw,
+                "from-internet",
+                K::Destination,
+                S::Zone(id_of(ids.zw)),
+                None,
+            );
+            b.nat_rule(s, 0, "web", &[], &["203.0.113.1/32"], &[80], pool("web"));
+        });
+        let t = inbound(&e, None);
+        assert!(
+            t.stopped
+                .contains("destination NAT rule web in rule set from-internet may apply"),
+            "{}",
+            t.stopped
+        );
+    }
+
+    #[test]
+    fn static_nat_beats_destination_nat_and_reverses_on_the_way_out() {
+        let e = estate_with(|b, ids| {
+            b.nat_pool(
+                ids.fw,
+                "elsewhere",
+                P::Destination,
+                "10.1.0.99/32",
+                None,
+                None,
+            );
+            let d = b.nat_set(ids.fw, "dnat", K::Destination, S::Zone(id_of(ids.zw)), None);
+            b.nat_rule(
+                d,
+                0,
+                "other",
+                &[],
+                &["203.0.113.1/32"],
+                &[],
+                pool("elsewhere"),
+            );
+            let s = b.nat_set(
+                ids.fw,
+                "one-to-one",
+                K::Static,
+                S::Zone(id_of(ids.zw)),
+                None,
+            );
+            b.nat_rule(
+                s,
+                0,
+                "host",
+                &[],
+                &["203.0.113.1/32"],
+                &[],
+                A::Static(pfx("10.1.0.10/32")),
+            );
+        });
+        let t = inbound(&e, None);
+        assert_eq!(t.stopped, "", "{:?}", t.hops);
+        assert!(says(
+            &t,
+            "static NAT: 203.0.113.1 becomes 10.1.0.10 (rule set one-to-one, rule host)"
+        ));
+        assert_eq!(t.hops.last().unwrap().title, "host-a");
+
+        // The host's own flow out to the wan takes the outside address on the way.
+        let t = trace(&e.g, &e.host_unit.to_string(), "10.8.0.1", None);
+        assert!(
+            fw_hop(&t).detail.iter().any(|d| d == "static NAT, return direction: source 10.1.0.10 becomes 203.0.113.1 (rule set one-to-one, rule host)"),
+            "{:?}",
+            fw_hop(&t).detail
+        );
+    }
+
+    #[test]
+    fn an_interface_rule_set_outranks_a_zone_rule_set() {
+        let e = estate_with(|b, ids| {
+            b.nat_pool(ids.fw, "a", P::Destination, "10.1.0.10/32", None, None);
+            b.nat_pool(ids.fw, "b", P::Destination, "10.1.0.99/32", None, None);
+            let z = b.nat_set(
+                ids.fw,
+                "by-zone",
+                K::Destination,
+                S::Zone(id_of(ids.zw)),
+                None,
+            );
+            b.nat_rule(z, 0, "z", &[], &["203.0.113.1/32"], &[], pool("b"));
+            let i = b.nat_set(
+                ids.fw,
+                "by-interface",
+                K::Destination,
+                S::Interface(id_of(ids.wan)),
+                None,
+            );
+            b.nat_rule(i, 0, "i", &[], &["203.0.113.1/32"], &[], pool("a"));
+        });
+        let t = inbound(&e, None);
+        assert!(
+            says(
+                &t,
+                "203.0.113.1 becomes 10.1.0.10 (rule set by-interface, rule i)"
+            ),
+            "{:?}",
+            t.hops
+        );
+    }
+
+    #[test]
+    fn two_equal_rules_that_disagree_stop_the_trace() {
+        let e = estate_with(|b, ids| {
+            b.nat_pool(ids.fw, "a", P::Destination, "10.1.0.10/32", None, None);
+            b.nat_pool(ids.fw, "b", P::Destination, "10.1.0.99/32", None, None);
+            let z = b.nat_set(ids.fw, "one", K::Destination, S::Zone(id_of(ids.zw)), None);
+            b.nat_rule(z, 0, "x", &[], &["203.0.113.1/32"], &[], pool("a"));
+            let y = b.nat_set(ids.fw, "two", K::Destination, S::Zone(id_of(ids.zw)), None);
+            b.nat_rule(y, 0, "y", &[], &["203.0.0.0/16"], &[], pool("b"));
+        });
+        let t = inbound(&e, None);
+        assert!(
+            t.stopped
+                .contains("both match this flow and translate it differently"),
+            "{}",
+            t.stopped
+        );
+    }
+
+    #[test]
+    fn a_pool_of_many_addresses_stops_a_destination_but_not_a_source() {
+        let e = estate_with(|b, ids| {
+            b.nat_pool(
+                ids.fw,
+                "farm",
+                P::Destination,
+                "10.1.0.10/32",
+                Some("10.1.0.20/32"),
+                None,
+            );
+            let d = b.nat_set(ids.fw, "in", K::Destination, S::Zone(id_of(ids.zw)), None);
+            b.nat_rule(d, 0, "farm", &[], &["203.0.113.1/32"], &[], pool("farm"));
+            b.nat_pool(
+                ids.fw,
+                "out",
+                P::Source,
+                "203.0.113.1/32",
+                Some("203.0.113.2/32"),
+                None,
+            );
+            let s = b.nat_set(
+                ids.fw,
+                "lan-out",
+                K::Source,
+                S::Zone(id_of(ids.zl)),
+                Some(S::Zone(id_of(ids.zw))),
+            );
+            b.nat_rule(s, 0, "pool", &["10.1.0.0/24"], &[], &[], pool("out"));
+        });
+        let t = inbound(&e, None);
+        assert!(
+            t.stopped
+                .contains("one of 10.1.0.10 to 10.1.0.20 (pool farm)"),
+            "{}",
+            t.stopped
+        );
+        let t = trace(&e.g, &e.host_unit.to_string(), "10.8.0.1", None);
+        assert_eq!(t.stopped, "", "{:?}", t.hops);
+        assert!(says(&t, "source NAT: source 10.1.0.10 becomes one of 203.0.113.1 to 203.0.113.2 (pool out); which one is not read"));
+    }
+
+    #[test]
+    fn a_pool_the_design_does_not_hold_stops_the_trace() {
+        let e = estate_with(|b, ids| {
+            let d = b.nat_set(ids.fw, "in", K::Destination, S::Zone(id_of(ids.zw)), None);
+            b.nat_rule(d, 0, "web", &[], &["203.0.113.1/32"], &[], pool("missing"));
+        });
+        let t = inbound(&e, None);
+        assert!(
+            t.stopped.contains("NAT pool missing is not in the design"),
+            "{}",
+            t.stopped
+        );
+    }
+
+    #[test]
+    fn destination_nat_off_leaves_the_address() {
+        let e = estate_with(|b, ids| {
+            let d = b.nat_set(ids.fw, "in", K::Destination, S::Zone(id_of(ids.zw)), None);
+            b.nat_rule(d, 0, "keep", &[], &["203.0.113.1/32"], &[], A::Off);
+        });
+        let t = inbound(&e, None);
+        assert!(
+            says(
+                &t,
+                "destination NAT: off, 203.0.113.1 is not translated (rule set in, rule keep)"
+            ),
+            "{:?}",
+            t.hops
+        );
+        assert_eq!(t.hops.last().unwrap().title, "fw-1");
+    }
 }

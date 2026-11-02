@@ -867,6 +867,7 @@ mod tests {
                         | NodeKind::Zone
                         | NodeKind::NatRule
                         | NodeKind::NatRuleSet
+                        | NodeKind::NatPool
                         | NodeKind::IkeGateway
                         | NodeKind::IkePolicy
                         | NodeKind::IkeProposal

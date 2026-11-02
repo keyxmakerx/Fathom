@@ -820,6 +820,37 @@ mod body {
         pub fn then<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::value::NatAction, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(146))
         }
+        /// `NatRule.match_destination_port` — `L4Port`, card `0..n`, emit `O`.
+        /// 0.38. Junos `rule R match destination-port 80` (Juniper, Destination NAT topic, Example 2, read 2026-11-02).
+        pub fn match_destination_port<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&Vec<crate::scalar::L4Port>, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(637))
+        }
+    }
+    /// Typed reads for `NatPool` fields.
+    pub mod nat_pool {
+        /// `NatPool.name` — `Identifier`, card `1`, emit `R`.
+        pub fn name<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Identifier, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(638))
+        }
+        /// `NatPool.nat_type` — `enum { source, destination }`, card `1`, emit `R`.
+        pub fn nat_type<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::generated::ir_types::NatPoolNatType, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(639))
+        }
+        /// `NatPool.address` — `IpPrefix`, card `0..1`, emit `O`.
+        /// The pool's address, or the first of a range.
+        pub fn address<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::IpPrefix, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(640))
+        }
+        /// `NatPool.address_to` — `IpPrefix`, card `0..1`, emit `O`.
+        /// The last address of a range, as Junos writes it (`address 100.100.100.20/32 to 100.100.100.29/32`).
+        pub fn address_to<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::IpPrefix, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(641))
+        }
+        /// `NatPool.port` — `L4Port`, card `0..1`, emit `O`.
+        /// A destination pool's port (`address A port 80`).
+        pub fn port<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::L4Port, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(642))
+        }
     }
     /// Typed reads for `IkeProposal` fields.
     pub mod ike_proposal {
@@ -3484,6 +3515,12 @@ mod body {
             634 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             635 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
             636 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            637 => Some((core::any::TypeId::of::<Vec<crate::scalar::L4Port>>(), "Vec<crate::scalar::L4Port>")),
+            638 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
+            639 => Some((core::any::TypeId::of::<crate::generated::ir_types::NatPoolNatType>(), "crate::generated::ir_types::NatPoolNatType")),
+            640 => Some((core::any::TypeId::of::<crate::scalar::IpPrefix>(), "crate::scalar::IpPrefix")),
+            641 => Some((core::any::TypeId::of::<crate::scalar::IpPrefix>(), "crate::scalar::IpPrefix")),
+            642 => Some((core::any::TypeId::of::<crate::scalar::L4Port>(), "crate::scalar::L4Port")),
             _ => None,
         }
     }
@@ -4063,6 +4100,12 @@ mod body {
             634 => crate::canon::slot_to::<crate::scalar::Text>(634, "crate::scalar::Text", value),
             635 => crate::canon::slot_to::<crate::scalar::Identifier>(635, "crate::scalar::Identifier", value),
             636 => crate::canon::slot_to::<crate::scalar::Text>(636, "crate::scalar::Text", value),
+            637 => crate::canon::slot_to::<Vec<crate::scalar::L4Port>>(637, "Vec<crate::scalar::L4Port>", value),
+            638 => crate::canon::slot_to::<crate::scalar::Identifier>(638, "crate::scalar::Identifier", value),
+            639 => crate::canon::slot_to::<crate::generated::ir_types::NatPoolNatType>(639, "crate::generated::ir_types::NatPoolNatType", value),
+            640 => crate::canon::slot_to::<crate::scalar::IpPrefix>(640, "crate::scalar::IpPrefix", value),
+            641 => crate::canon::slot_to::<crate::scalar::IpPrefix>(641, "crate::scalar::IpPrefix", value),
+            642 => crate::canon::slot_to::<crate::scalar::L4Port>(642, "crate::scalar::L4Port", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -4640,6 +4683,12 @@ mod body {
             634 => crate::canon::slot_from::<crate::scalar::Text>(j),
             635 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
             636 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            637 => crate::canon::slot_from::<Vec<crate::scalar::L4Port>>(j),
+            638 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
+            639 => crate::canon::slot_from::<crate::generated::ir_types::NatPoolNatType>(j),
+            640 => crate::canon::slot_from::<crate::scalar::IpPrefix>(j),
+            641 => crate::canon::slot_from::<crate::scalar::IpPrefix>(j),
+            642 => crate::canon::slot_from::<crate::scalar::L4Port>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

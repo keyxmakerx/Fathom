@@ -9,7 +9,7 @@ import { edgesOut, emptyDocument, findNode, identifier, parseNodeId, token, type
 import { addVlan } from '../../document/networks';
 import { addRoute } from '../../document/routes';
 import { viewOf } from '../../document/view';
-import { networkOf, routingMarks, tableLit, tableNames } from './routingLens';
+import { natRuleCount, networkOf, routingMarks, tableLit, tableNames } from './routingLens';
 
 function addDevice(doc: Document, ports: string[]): { doc: Document; deviceId: string; chassisId: string; portIds: string[] } {
   const before = new Set(doc.nodes.map((n) => n.id));
@@ -82,6 +82,21 @@ describe('the Routing lens', () => {
     expect(m.switched.has(sc)).toBe(true);
     expect(m.cables.get(sc)?.mid).toBe('VLAN 20');
     expect(m.switched.has(ar)).toBe(false);
+  });
+
+  it('says how many NAT rules a firewall keeps, after its routes (sign-off r104)', () => {
+    const d = design();
+    const b = begin(d.doc, {});
+    const set = addNode(b, 'NatRuleSet', { 'NatRuleSet.name': identifier('from-internet'), 'NatRuleSet.nat_type': token('destination') });
+    addEdge(b, 'HasNatRuleSet', d.r.deviceId, set);
+    for (const name of ['web', 'mail', 'vpn']) {
+      const rule = addNode(b, 'NatRule', { 'NatRule.name': identifier(name) });
+      addEdge(b, 'HasNatRule', set, rule);
+    }
+    const doc = finish(b, 'NAT rules');
+    const m = routingMarks(doc, viewOf(doc, []));
+    expect((m.devices.get(d.r.chassisId) ?? []).map((w) => w.text)).toEqual(['ROUTES · 1 TABLE', 'NAT · 3 RULES']);
+    expect(natRuleCount(doc, d.a.deviceId)).toBe(0);
   });
 
   it('draws nothing without a design', () => {

@@ -70,9 +70,11 @@ fn dictionary_loads() {
 /// Syntax read off Juniper's `helpers`, `bootp` and `dhcp-relay` statement
 /// pages that day, quoted in the file. The five other §5.3 forms are named
 /// residue by WO-10 §11 item 4's decision.
+///
+/// 2026-11-02: +15 for NAT (schema 0.38, `corpus/dict/junos-srx/security-nat.yaml`).
 #[test]
-fn entry_count_is_104() {
-    assert_eq!(dict().entry_count(), 104);
+fn entry_count_is_119() {
+    assert_eq!(dict().entry_count(), 119);
 }
 
 /// `14` §6.5: no entry's path is a strict prefix of another's unless the

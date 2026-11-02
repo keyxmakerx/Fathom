@@ -210,8 +210,11 @@ fn measure(out: &IngestOutput) -> (Vec<Row>, usize, usize) {
 /// 2026-10-03 (schema 0.17, path trace): +18. The 9 `match application …` lines bind
 /// now (`any` onto `match_any_application`, names onto a MatchApplication edge),
 /// plus the three static routes and the six global address-book lines.
+///
+/// 2026-11-02 (schema 0.38, NAT): +4. The fixture's four `security nat source`
+/// lines (from zone, to zone, match source-address, then source-nat interface).
 const STATEMENTS: usize = 122;
-const BOUND: usize = 88;
+const BOUND: usize = 92;
 
 #[test]
 fn branch_configuration_bind_rate_is_pinned() {
