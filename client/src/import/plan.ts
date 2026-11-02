@@ -16,7 +16,7 @@ import { looksLikeSecret, type Mapping, type NewFieldType } from './mapping';
 import type { GatedTable } from './table';
 import { neutraliseElement, normKey, oneLine, toHostname, toSerial } from './text';
 
-export type Bucket = 'new' | 'match' | 'differ' | 'nomodel' | 'skipped';
+export type Bucket = 'new' | 'match' | 'differ' | 'unplaced' | 'nomodel' | 'skipped';
 
 /** A shared field: an existing definition, or one this import creates (by index into `Plan.newFields`). */
 export type FieldRef = { defId: string } | { fresh: number };
@@ -49,6 +49,9 @@ export interface PlanItem {
   tags: string[];
   notes: string[];
   fields: FieldValueSet[];
+  /** New with a catalogue model but no rack spot the file can give (no rack, no unit, or a unit
+   * that does not fit): it is added with this model, so it has its ports, on the canvas. */
+  model?: CatalogueModel;
   /** New and placeable only. */
   placement?: { rackId: string; unit: number; face: 'front' | 'rear'; model: CatalogueModel };
   /** Existing devices: values that disagree (Differ). */
@@ -239,7 +242,9 @@ export function buildPlan(table: GatedTable, given: Mapping, ctx: PlanContext): 
       return;
     }
 
-    // New: a device with a catalogue model and a free rack position is placed; anything else is a free box.
+    // New: a device with a catalogue model and a free rack position is placed. One with a model but no
+    // usable rack position keeps its model (and so its ports) and stands on the canvas; one with no
+    // model is a free box.
     const modelText = modelCol >= 0 ? cell(r, modelCol) : '';
     const vendorText = vendorCol >= 0 ? cell(r, vendorCol) : '';
     const model = modelText ? findModel(ctx.catalogue, modelText, vendorText) : null;
@@ -264,12 +269,17 @@ export function buildPlan(table: GatedTable, given: Mapping, ctx: PlanContext): 
       }
     }
     if (item.placement) return;
-    item.bucket = 'nomodel';
     item.reason = why;
+    if (model && model !== 'ambiguous') {
+      item.bucket = 'unplaced';
+      item.model = model;
+      return;
+    }
+    item.bucket = 'nomodel';
     if (modelText) item.notes.push(`Model in the file: ${modelText}`);
   });
 
-  const counts: Record<Bucket, number> = { new: 0, match: 0, differ: 0, nomodel: 0, skipped: 0 };
+  const counts: Record<Bucket, number> = { new: 0, match: 0, differ: 0, unplaced: 0, nomodel: 0, skipped: 0 };
   let warnings = 0;
   for (const i of items) {
     counts[i.bucket] += 1;

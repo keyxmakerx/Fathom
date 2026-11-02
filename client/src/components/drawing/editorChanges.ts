@@ -12,6 +12,11 @@ export function moveToRackChange(itemId: string, rackId: string, positionU: numb
   return { kind: 'move-placement', itemId, placement: { kind: 'rack', rackId, positionU, face } };
 }
 
+/** Out of its rack, shelf or wall, for a device whose spot is not known: it stands on the canvas. */
+export function takeOutChange(itemId: string): EditorChange {
+  return { kind: 'move-placement', itemId, placement: { kind: 'none' } };
+}
+
 export function moveToShelfChange(itemId: string, shelfId: string, slot: number): EditorChange {
   return { kind: 'move-placement', itemId, placement: { kind: 'shelf', shelfId, slot } };
 }

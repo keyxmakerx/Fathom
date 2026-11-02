@@ -20,10 +20,11 @@ import {
 } from '../../document/commands';
 import { connectOneEnd, connectToOutside, disconnect, setCableField, setCableNeedsFinishing } from '../../document/cables';
 import { addCableRun, addCableTie, moveCableTie, removeCableRun, removeCableTie } from '../../document/cableRuns';
-import { removeFree, setLabel, setLineLabel } from '../../document/freeform';
+import { foldFrom, removeFree, setLabel, setLineLabel } from '../../document/freeform';
 import { FieldValueError, setChassisField, setPortConsoleBaud, setPortMac, setDeviceField, setPassiveNodeField, setRackField, setRackHeight, setSurfaceLabel } from '../../document/edit';
 import { edgesIn, findNode, readDeviceFields, type Document } from '../../document/model';
 import { copyName, hostnamesOf } from '../racks/pick';
+import { pinOnCanvas } from '../racks/canvasSpots';
 import { fitSupply, removeSupply, setSupplyField } from '../../document/supplies';
 import { fitCard, moveOptic, removeCard, setCardField, setOptic } from '../../document/cards';
 import { addTemplatePorts } from '../../document/plate';
@@ -116,6 +117,8 @@ export function applyEditorChange(
     next = removeChassis(doc, change.chassisId, opts);
   } else if (change.kind === 'move-placement') {
     next = movePlacement(doc, change.itemId, change.placement, opts);
+    // Taken out of its rack, shelf or wall (its spot is not known): it stays drawn, beside the racks.
+    if (change.placement.kind === 'none') next = foldFrom(pinOnCanvas(next, [change.itemId], opts), doc.batches.length);
   } else if (change.kind === 'add-sketch-port') {
     next = addSketchPort(
       doc,

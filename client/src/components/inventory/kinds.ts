@@ -5,6 +5,8 @@
 
 import { applyEditorChange } from '../design/applyChange';
 import { addRack } from '../racks/emptyDesign';
+import { pinOnCanvas } from '../racks/canvasSpots';
+import { foldFrom } from '../../document/freeform';
 import { createSketchDevice } from '../../document/commands';
 import type { CatalogueModel } from '../../api/catalogue';
 import { SHEATH_VALUES, OWNERSHIP_VALUES } from '../../document/cables';
@@ -861,7 +863,7 @@ export { whereText };
 /** Kinds a row can be added to by name alone; cables are drawn and interfaces come with devices. */
 export const CAN_ADD: ReadonlySet<Kind> = new Set<Kind>(['devices', 'racks']);
 
-/** Adds a device (unplaced, no ports yet) or a rack with only a name. Throws on a refused name. */
+/** Adds a device (on the canvas, in no rack, no ports yet) or a rack with only a name. Throws on a refused name. */
 export function addThing(
   doc: Document,
   kind: Kind,
@@ -874,10 +876,12 @@ export function addThing(
   if (clean === '') throw new CellRefusal('Give it a name.');
   const before = new Set(doc.nodes.map((n) => n.id));
   if (kind === 'devices') {
-    const next = createSketchDevice(doc, { hostname: clean, ...opts });
-    const added = next.nodes.filter((n) => !before.has(n.id));
+    const made = createSketchDevice(doc, { hostname: clean, ...opts });
+    const added = made.nodes.filter((n) => !before.has(n.id));
     const deviceId = added.find((n) => parseNodeId(n.id).kind === 'Device')?.id ?? '';
     const chassisId = added.find((n) => parseNodeId(n.id).kind === 'Chassis')?.id ?? '';
+    // Not in a rack yet, but drawn: it stands on the canvas beside the racks until someone places it.
+    const next = foldFrom(pinOnCanvas(made, [chassisId], opts), doc.batches.length);
     return {
       doc: next,
       row: {

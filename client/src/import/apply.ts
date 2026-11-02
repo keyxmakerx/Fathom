@@ -2,13 +2,14 @@
 // the canvas use, then merges everything into ONE batch so a single undo removes the lot.
 // A fill never replaces a value that is there; only a Differ row the person set to "file" does.
 
-import { createSketchDevice, placeChassis } from '../document/commands';
+import { createSketchDevice, equipFromCatalogue, placeChassis } from '../document/commands';
 import { collapseBatches } from '../document/collapse';
 import { setChassisField, setDeviceField } from '../document/edit';
 import { fieldValue, setFieldValues, type FieldDefView, type FieldSet } from '../document/fields';
 import { findNode, parseNodeId, type Document } from '../document/model';
 import { addNote } from '../document/notes';
 import { tagObject } from '../document/tags';
+import { pinOnCanvas } from '../components/racks/canvasSpots';
 import { choiceKey, type Diff, type FieldRef, type Plan, type PlanItem } from './plan';
 
 export type Pick = 'mine' | 'theirs';
@@ -104,6 +105,7 @@ export async function applyPlan(doc: Document, plan: Plan, opts: ApplyOptions): 
     return next;
   };
 
+  const unplacedIds: string[] = [];
   let n = 0;
   for (const item of plan.items) {
     n += 1;
@@ -140,6 +142,11 @@ export async function applyPlan(doc: Document, plan: Plan, opts: ApplyOptions): 
         const added = addedNodeIds(before, w);
         const deviceId = added.find((id) => parseNodeId(id).kind === 'Device')!;
         const chassisId = added.find((id) => parseNodeId(id).kind === 'Chassis')!;
+        if (!item.placement) {
+          // No rack spot: its model still brings its ports, and it is drawn on the canvas beside the racks.
+          if (item.model) w = equipFromCatalogue(w, chassisId, item.model, stamp);
+          unplacedIds.push(chassisId);
+        }
         if (item.placement) w = setDeviceField(w, deviceId, 'hostname', item.name, stamp);
         if (item.role) w = setDeviceField(w, deviceId, 'role', item.role, stamp);
         if (item.mgmt) w = setDeviceField(w, deviceId, 'management_address', item.mgmt, stamp);
@@ -168,6 +175,10 @@ export async function applyPlan(doc: Document, plan: Plan, opts: ApplyOptions): 
         }
       }
     }
+  }
+  if (unplacedIds.length > 0) {
+    const live = new Set(working.nodes.filter((nd) => nd.absentSince === undefined).map((nd) => nd.id));
+    working = pinOnCanvas(working, unplacedIds.filter((id) => live.has(id)), stamp);
   }
   result.doc = collapseBatches(doc, working, opts.label);
   return result;

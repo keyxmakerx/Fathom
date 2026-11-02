@@ -74,6 +74,7 @@ const WHAT_HAPPENS: Record<Exclude<Bucket, 'skipped'>, { label: string; text: st
   new: { label: 'New', text: 'Added, placed in their racks' },
   match: { label: 'Match', text: 'Same name and no clash: blanks filled in, nothing overwritten' },
   differ: { label: 'Differ', text: 'Yours vs the file, side by side; you pick' },
+  unplaced: { label: 'No rack spot', text: 'Added with their model and ports, on the canvas beside the racks' },
   nomodel: { label: 'No model', text: 'Added as free boxes' },
 };
 
@@ -181,7 +182,7 @@ export function ImportDialog(props: ImportDialogProps) {
     }
   };
 
-  const importable = plan ? plan.counts.new + plan.counts.match + plan.counts.differ + plan.counts.nomodel : 0;
+  const importable = plan ? plan.counts.new + plan.counts.match + plan.counts.differ + plan.counts.unplaced + plan.counts.nomodel : 0;
 
   const run = async () => {
     if (!table || !plan || busy || !canImport) return;
@@ -456,6 +457,7 @@ export function ImportDialog(props: ImportDialogProps) {
               </div>
             ) : null}
 
+            <Names title="Added on the canvas, no rack spot" items={itemsOf('unplaced')} />
             <Names title="Added as free boxes" items={itemsOf('nomodel')} />
             <Names title="Left out" items={itemsOf('skipped')} />
             <Warnings items={plan.items.filter((i) => i.warnings.length > 0)} />
