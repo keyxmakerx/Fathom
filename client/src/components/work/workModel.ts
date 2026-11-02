@@ -21,6 +21,34 @@ export interface Filters {
   design: string;
 }
 
+export const NO_FILTERS: Filters = { kind: 'all', mine: false, design: '' };
+
+const filtersKey = (organisationId: string): string => `fathom.work.filters.${organisationId}`;
+
+/**
+ * The filters the Work tab was left on, for this browser tab's session: leaving Work for a design and
+ * coming back finds the same list (owner, 2026-11-02). Anything unreadable is the plain list.
+ */
+export function loadFilters(storage: Pick<Storage, 'getItem'> | undefined, organisationId: string): Filters {
+  try {
+    const raw: unknown = JSON.parse(storage?.getItem(filtersKey(organisationId)) ?? 'null');
+    if (raw == null || typeof raw !== 'object') return NO_FILTERS;
+    const r = raw as Record<string, unknown>;
+    const kind = KIND_FILTERS.find(([k]) => k === r.kind)?.[0] ?? 'all';
+    return { kind, mine: r.mine === true, design: typeof r.design === 'string' ? r.design : '' };
+  } catch {
+    return NO_FILTERS;
+  }
+}
+
+export function saveFilters(storage: Pick<Storage, 'setItem'> | undefined, organisationId: string, filters: Filters): void {
+  try {
+    storage?.setItem(filtersKey(organisationId), JSON.stringify(filters));
+  } catch {
+    // Storage full or blocked: the filters simply are not remembered.
+  }
+}
+
 export interface Sections {
   /** Doing now: a plan under way, an open issue. */
   now: WorkRow[];

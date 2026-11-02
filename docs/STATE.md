@@ -513,6 +513,10 @@ focus styles stay inside the app, so a password manager's own controls keep thei
 - Two places over one document: Canvas and Inventory. Inventory has a rail of kinds, a device grid
   grouped per rack, the Gaps section, one page as the editor, and Show on rack. Networks kind: VLANs,
   subnets, Docker networks with containers and published ports.
+- **Coming back finds it as left** (owner, 2026-11-02). Leaving Inventory or the Sheet for the canvas and
+  returning keeps the list, filter, sort, Where, scroll, the open page and its tab, and Parts' On hand. Only
+  something newly picked on the canvas is carried back (r60), opened over the same list. The Work tab keeps
+  its filters for the session. `scripts/drive-keep-place.mjs` drives it.
 - **Notes** are nodes on a device, port or rack: pasted through the gate or stored as typed, and saying so.
 - **Undo** is a new batch of reversing operations; only your own batches, and a colleague's later change
   refuses by name. The trail shows sealed and pending, with a comment on the next change.

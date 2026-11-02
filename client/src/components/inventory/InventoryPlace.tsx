@@ -164,6 +164,25 @@ function saveColumnPrefs(kind: Kind, keys: string[]): void {
   saveJsonPref(columnPrefsKey(kind), keys);
 }
 
+const ON_HAND_KEY = 'fathom.inventory.onHand';
+
+function readSession(key: string): string | null {
+  try {
+    return window.sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeSession(key: string, value: string | null): void {
+  try {
+    if (value == null) window.sessionStorage.removeItem(key);
+    else window.sessionStorage.setItem(key, value);
+  } catch {
+    // Storage blocked: the switch simply is not remembered.
+  }
+}
+
 /**
  * Inventory (ADR-0062): kinds down the left, a table in the middle, the selected thing's page
  * beside it. Every edit goes through the same document commands the canvas editor uses.
@@ -176,7 +195,12 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   // r31-bar A: the Sheet face, kept in this browser (`sheetPref.ts`).
   const [sheet, setSheet] = useState(loadSheet);
   // ADR-0076: Parts shows what is fitted, or what is on hand (spares, on order, away for repair).
-  const [onHand, setOnHand] = useState(false);
+  // Kept for the session, like the rest of the list, so leaving for the canvas and coming back keeps it.
+  const [onHand, setOnHandState] = useState(() => readSession(ON_HAND_KEY) === '1');
+  const setOnHand = (on: boolean) => {
+    setOnHandState(on);
+    writeSession(ON_HAND_KEY, on ? '1' : null);
+  };
   const kind: Kind = isKind(ls.kind) ? ls.kind : 'devices';
   const openKey = ls.open || null;
   const q = ls.q;
@@ -312,6 +336,17 @@ export function InventoryPlace(props: InventoryPlaceProps) {
   const rememberList = (extra?: Partial<ListMemory>) =>
     saveMemory(window.sessionStorage, listKey(ls), { top: scrollTop.current, checked: [...checkedRef.current], lastOpened: lastOpenedRef.current, ...extra });
   const scrollSave = useRef<number | null>(null);
+  // Leaving Inventory (for the canvas, say) mid-scroll still writes where the list was.
+  const rememberRef = useRef(rememberList);
+  rememberRef.current = rememberList;
+  useEffect(
+    () => () => {
+      if (scrollSave.current === null) return;
+      window.clearTimeout(scrollSave.current);
+      rememberRef.current();
+    },
+    [],
+  );
   const here = listKey(ls);
   useEffect(() => {
     if (!openKey && !adding) rememberList();

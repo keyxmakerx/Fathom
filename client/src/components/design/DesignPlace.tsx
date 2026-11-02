@@ -45,7 +45,7 @@ import { FirmwareContext } from '../firmware/context';
 import { useFirmwareApi } from '../firmware/useFirmware';
 import type { UpgradeTemplate } from '../firmware/upgradePlan';
 import { modelKey } from '../firmware/rows';
-import { EMPTY_STATE, formatHash } from '../inventory/listState';
+import { EMPTY_STATE, carryInto, formatHash, parseHash } from '../inventory/listState';
 import { InventoryPlace } from '../inventory/InventoryPlace';
 import { PasteGateBoundary } from '../paste/PasteGateBoundary';
 import { RacksPlace } from '../racks/RacksPlace';
@@ -887,12 +887,26 @@ export function DesignPlace(props: DesignPlaceProps) {
   // Sign-off r60: what is selected goes with you between Canvas and Inventory (Diagram and Sheet are the same
   // two places in another look). Inventory opens its page; the canvas selects it.
   const carryDoc = session.doc;
+  // What Inventory had open when it was left. Coming back with that same thing (or nothing) picked on the
+  // canvas lands on Inventory exactly as it was left: the address still holds its list, filter, sort, open
+  // page and tab, and the list's scroll is in the session's memory (owner, 2026-11-02: "still the same screen").
+  const inventoryLeftWith = useRef<string | null>(null);
+  useEffect(() => {
+    if (placeNow === 'inventory') inventoryLeftWith.current = selectedId;
+  }, [placeNow, selectedId]);
+  // A selection handed to the canvas is used once. Kept, the canvas picked it again on every return, and that
+  // stale pick was then carried back into Inventory, opening a page over the list that had been left.
+  useEffect(() => {
+    if (placeNow === 'inventory') setSelectRequest(null);
+  }, [placeNow]);
   const switchPlace = useCallback(
     (next: Place) => {
       if (next !== placeNow && selectedId != null && carryDoc != null) {
         if (next === 'inventory') {
+          if (selectedId === inventoryLeftWith.current) return onPlaceChange(next);
           const hash = scanHash(carryDoc, selectedId);
-          if (hash != null) return goToInventory(hash);
+          const target = hash != null ? parseHash(hash) : null;
+          if (target != null) return goToInventory(formatHash(carryInto(parseHash(window.location.hash), target)));
         } else {
           const selection = canvasSelectionOf(carryDoc, selectedId);
           if (selection != null) setSelectRequest({ selection });

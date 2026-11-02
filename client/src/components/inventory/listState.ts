@@ -91,6 +91,23 @@ export function carryWhere(landed: ListState, current: ListState): ListState {
   return { ...landed, where: current.where };
 }
 
+/**
+ * Where Inventory lands when something picked on the canvas is carried back to it (sign-off r60), given
+ * the list as it was left. The thing's page opens; Where always stays, and the filter, sort and saved
+ * view stay when the page is in the same list, so Back from it is the list that was left.
+ */
+export function carryInto(left: ListState | null, target: ListState): ListState {
+  if (left == null) return target;
+  const sameKind = left.kind === target.kind;
+  return {
+    ...target,
+    where: left.where,
+    q: sameKind ? left.q : target.q,
+    sorts: sameKind ? left.sorts : target.sorts,
+    view: sameKind ? left.view : target.view,
+  };
+}
+
 /** The Back label for the place being left: the open item, else the saved view that was open, else the kind. */
 export function placeLabel(left: { openTitle?: string; viewName?: string; kindLabel: string }): string {
   return left.openTitle || left.viewName || left.kindLabel;

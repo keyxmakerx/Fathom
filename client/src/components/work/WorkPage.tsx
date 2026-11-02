@@ -15,6 +15,8 @@ import {
   todayIso,
   whereOf,
   whoOf,
+  loadFilters,
+  saveFilters,
   type Filters,
   type KindFilter,
 } from './workModel';
@@ -35,7 +37,17 @@ type Loaded = { status: 'loading' } | { status: 'error'; message: string } | { s
 export function WorkPage({ organisationId, currentDesign = null }: { organisationId: string; currentDesign?: string | null }) {
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' });
   const [done, setDone] = useState<{ open: boolean; answer: WorkAnswer | null; error: string | null }>({ open: false, answer: null, error: null });
-  const [filters, setFilters] = useState<Filters>({ kind: 'all', mine: false, design: '' });
+  const store = typeof window === 'undefined' ? undefined : window.sessionStorage;
+  const [filters, setFiltersState] = useState<Filters>(() => loadFilters(store, organisationId));
+  const [filtersFor, setFiltersFor] = useState(organisationId);
+  if (filtersFor !== organisationId) {
+    setFiltersFor(organisationId);
+    setFiltersState(loadFilters(store, organisationId));
+  }
+  const setFilters = (next: Filters) => {
+    setFiltersState(next);
+    saveFilters(store, organisationId, next);
+  };
   const busy = useRef(false);
 
   const load = useCallback(() => {
