@@ -601,6 +601,19 @@ describe('the controller applies commands through the one write path', () => {
     spy.mockRestore();
   });
 
+  it('Edit title and time gives a plan made without a window, such as an AI one, its date and title', async () => {
+    const { doc, ports } = lab();
+    const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
+    const h = harness(made.doc, { open: made.id });
+    expect(await h.controller.editHead({ title: 'Junos upgrade on srx1500-lab', windowStart: '2026-11-08T02:00', windowEnd: '2026-11-08T04:00' })).toBe(true);
+    const plan = readPlan(h.applied[0], made.id);
+    expect([plan.title, plan.windowStart, plan.windowEnd]).toEqual(['Junos upgrade on srx1500-lab', '2026-11-08T02:00', '2026-11-08T04:00']);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const started = harness(startPlan(made.doc, made.id, tick()), { open: made.id });
+    expect(await started.controller.editHead({ windowStart: '2026-11-09T02:00' })).toBe(false);
+    spy.mockRestore();
+  });
+
   it('a reader can look but not change', async () => {
     const { doc } = lab();
     const h = harness(doc, { canEdit: false });
@@ -636,6 +649,15 @@ describe('the panel and the page, rendered', () => {
       band: renderToStaticMarkup(createElement(PlanBand, { controller: c })),
     };
   }
+
+  it('offers Edit title and time while the plan is being planned, to someone who can edit', () => {
+    const { doc, ports } = lab();
+    const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
+    expect(render(readPlan(made.doc, made.id), made.doc).band).toContain('Edit title and time');
+    expect(render(readPlan(made.doc, made.id), made.doc, { canEdit: false }).band).not.toContain('Edit title and time');
+    const started = startPlan(made.doc, made.id, tick());
+    expect(render(readPlan(started, made.id), started).band).not.toContain('Edit title and time');
+  });
 
   it('offers Back out once a step is marked, and not before', () => {
     const { doc, ports } = lab();
