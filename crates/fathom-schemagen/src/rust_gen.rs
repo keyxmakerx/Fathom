@@ -89,7 +89,7 @@ pub fn ir_types(x: &Extracted) -> Result<String, ExtractError> {
     );
     o.push_str("    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]\n");
     o.push_str(
-        "    pub enum Layer {\n        Config,\n        Physical,\n        Service,\n    }\n\n",
+        "    pub enum Layer {\n        Config,\n        Physical,\n        Service,\n        /// The IP plan store's records (ADR-0083): never held by a design.\n        Plan,\n    }\n\n",
     );
     o.push_str(
         "    /// The closed asserted-edge class vocabulary (62 §6.2): \

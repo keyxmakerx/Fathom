@@ -251,7 +251,20 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
             // schema 0.30: `HasStore`, `HasStock`, `HasStockLevel` read `from: [root]`.
             "Store",
             "StockItem",
-            "StockLevel"
+            "StockLevel",
+            // schema 0.36 (ADR-0083): the IP plan store's kinds have no edges at all; they are
+            // records on the server, and a design holding one is refused on read.
+            "IpamVrf",
+            "IpamRouteTarget",
+            "IpamAggregate",
+            "IpamPrefix",
+            "IpamRange",
+            "IpamAddress",
+            "IpamReservation",
+            "IpamVlanGroup",
+            "IpamVlan",
+            "IpamAsnRange",
+            "IpamAsn",
         ],
         "the set of kinds no node kind contains moved"
     );

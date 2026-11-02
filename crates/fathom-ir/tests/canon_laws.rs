@@ -225,7 +225,9 @@ fn schema_version_is_the_trees() {
     // `PhysicalPort.console_baud`, three field keys (552-554); MINOR.
     // 0.34 -> 0.35: the Work tab's ticket parts. Seven optional fields on `MaintenancePlan`,
     // `Issue` and `StockItem` (555-561), and `Notable` widened; MINOR.
-    assert_eq!(SCHEMA_VERSION, "0.35");
+    // 0.35 -> 0.36: the IP plan store (ADR-0083). Eleven `plan`-layer kinds no design may hold,
+    // seventy-five field keys (562-636); MINOR.
+    assert_eq!(SCHEMA_VERSION, "0.36");
 }
 
 #[test]
@@ -774,7 +776,8 @@ fn dispatch_names_every_registry_key() {
     // 479 -> 486: the plan-to-maintenance flow (545-551, schema 0.33).
     // 486 -> 489: Termix in the work (552-554, schema 0.34).
     // 489 -> 496: the Work tab's ticket parts (555-561, schema 0.35).
-    assert_eq!(FIELD_KEYS.len(), 496, "the registry grew or shrank");
+    // 496 -> 571: the IP plan store (562-636, schema 0.36).
+    assert_eq!(FIELD_KEYS.len(), 571, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

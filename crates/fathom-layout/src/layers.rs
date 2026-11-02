@@ -287,6 +287,21 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         // unchanged — the inspector is the right place for a list.
         NodeKind::AddressObject | NodeKind::Application => tabled(0, "inspector only"),
 
+        // --- the IP plan store (ADR-0083, schema 0.36) ------------------------
+        // Records on the server beside the designs; a design holding one is refused
+        // on read, so nothing here is ever drawn.
+        NodeKind::IpamVrf
+        | NodeKind::IpamRouteTarget
+        | NodeKind::IpamAggregate
+        | NodeKind::IpamPrefix
+        | NodeKind::IpamRange
+        | NodeKind::IpamAddress
+        | NodeKind::IpamReservation
+        | NodeKind::IpamVlanGroup
+        | NodeKind::IpamVlan
+        | NodeKind::IpamAsnRange
+        | NodeKind::IpamAsn => tabled(0, "never in a design: the IP plan store"),
+
         // --- no row in §4.1 ---------------------------------------------------
         // Drawn everywhere and counted. Grouped by why the gap exists, because
         // they are not one question and answering them needs different people.

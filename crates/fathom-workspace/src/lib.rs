@@ -65,7 +65,7 @@ use fathom_ir::scalar::Text;
 pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &[
     "0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17", "0.18", "0.19", "0.20", "0.21",
     "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28", "0.29", "0.30", "0.31", "0.32", "0.33",
-    "0.34",
+    "0.34", "0.35",
 ];
 
 /// Node kinds `0.11` (ADR-0058) added. A payload declared at `0.10` cannot
@@ -168,13 +168,27 @@ const EDGE_KINDS_SINCE_0_30: &[EdgeKind] = &[
 /// version — decision 6's (ADR-0058) and decision 9's (ADR-0059) second
 /// halves, checked once per accepted older version: `0.10` cannot hold
 /// anything `0.11` to `0.19` added, and so on up the chain. `0.20` (the
-/// owner's ticked ideas), `0.21` (round 15), `0.22` (port faces), `0.24` (missing links), `0.25` (the LAG step), `0.31` (a device's own chosen version), `0.32` (links between sites), `0.33` (the plan-to-maintenance flow), `0.34` (Termix in the work) and `0.35` (the Work tab's ticket parts) added only fields and
+/// owner's ticked ideas), `0.21` (round 15), `0.22` (port faces), `0.24` (missing links), `0.25` (the LAG step), `0.31` (a device's own chosen version), `0.32` (links between sites), `0.33` (the plan-to-maintenance flow), `0.34` (Termix in the work), `0.35` (the Work tab's ticket parts) and `0.36` (the IP plan store, whose kinds no design may hold) added only fields and
 /// enum variants, no kind; `0.23` (cable runs and ties), `0.26` (mesh VPNs), `0.27` (the lesson builder), `0.28` (cards), `0.29` (the room builder) and `0.30` (stock) added kinds.
+/// Refuse a payload holding any record of the IP plan store (ADR-0083): its
+/// kinds are declared in the schema so the store's fields exist there, but they
+/// are never nodes in a design, at any version.
+fn reject_plan_records(snapshot: &Snapshot) -> Result<(), PlainError> {
+    for n in &snapshot.nodes {
+        if n.id.kind.layer() == fathom_ir::generated::ir_types::Layer::Plan {
+            return Err(PlainError::PlanRecordInDesign {
+                element_kind: n.id.kind.name(),
+            });
+        }
+    }
+    Ok(())
+}
+
 fn reject_kinds_too_new_for_declared_version(
     declared: &str,
     snapshot: &Snapshot,
 ) -> Result<(), PlainError> {
-    // Nothing to check for the current version (`0.34`, everything is
+    // Nothing to check for the current version (`0.36`, everything is
     // legitimate there) or any value `SchemaVersionMismatch` already
     // refused above this call — only the accepted older headers name a
     // kind set their own editor could never have written.
@@ -282,6 +296,12 @@ pub enum PlainError {
     /// the header's version token itself, not what it holds.
     KindNotInDeclaredVersion {
         declared_version: String,
+        element_kind: &'static str,
+    },
+    /// A record of the IP plan store (a `plan`-layer kind, ADR-0083) inside a
+    /// design. Those kinds live on the server beside the designs, never in one,
+    /// at any version.
+    PlanRecordInDesign {
         element_kind: &'static str,
     },
     MalformedHeader {
@@ -398,6 +418,7 @@ pub fn read_plain_declared(bytes: &[u8]) -> Result<(Graph, String), PlainError> 
 
     let json = Json::parse_canonical(body)?;
     let snapshot = snapshot_from_json(&json)?;
+    reject_plan_records(&snapshot)?;
     reject_kinds_too_new_for_declared_version(declared, &snapshot)?;
     Ok((Graph::from_snapshot(&snapshot)?, declared.to_owned()))
 }
@@ -478,6 +499,7 @@ pub fn read_delta(bytes: &[u8]) -> Result<Delta, PlainError> {
         return Err(PlainError::MalformedHeader { line: 4 });
     }
     let fragment = snapshot_from_json(&Json::parse_canonical(body)?)?;
+    reject_plan_records(&fragment)?;
     reject_kinds_too_new_for_declared_version(declared, &fragment)?;
     Ok(Delta {
         schema: declared.to_owned(),
