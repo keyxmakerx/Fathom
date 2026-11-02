@@ -54,6 +54,7 @@ function world() {
 const api = (doc: Document, over: Partial<FirmwareApi> = {}): FirmwareApi => ({
   doc,
   canEdit: true,
+  canStage: true,
   isSteward: true,
   server: { status: 'ready', images: [image], error: null },
   reload: () => {},
@@ -93,7 +94,7 @@ describe('the Firmware list (r14-b1)', () => {
   });
 
   it('puts a Copy button for the whole hash beside the short one, for readers too', () => {
-    const reader = html(api(world().doc, { canEdit: false, isSteward: false }));
+    const reader = html(api(world().doc, { canEdit: false, canStage: false, isSteward: false }));
     expect(reader).toMatch(/9f2c…a41e <button type="button" class="fw-btn btn-quiet">Copy<\/button>/);
   });
 
@@ -111,10 +112,10 @@ describe('the Firmware list (r14-b1)', () => {
 
   it('a steward gets Upload image; a drawer gets the plan button but not upload; a reader gets neither', () => {
     expect(html(api(world().doc))).toContain('+ Upload image');
-    const drawer = html(api(world().doc, { isSteward: false }));
+    const drawer = html(api(world().doc, { canStage: false, isSteward: false }));
     expect(drawer).not.toContain('Upload image');
     expect(drawer).toContain('Plan an upgrade for them');
-    const reader = html(api(world().doc, { canEdit: false, isSteward: false }));
+    const reader = html(api(world().doc, { canEdit: false, canStage: false, isSteward: false }));
     expect(reader).not.toContain('Upload image');
     expect(reader).not.toContain('Plan an upgrade for them');
     expect(reader).toContain('23.4R2');
@@ -157,7 +158,7 @@ describe("a model's page (r14-b2)", () => {
     expect(writer).toContain('>Hold<');
     expect(writer).toContain('>Release<');
     expect(writer).toContain('<select');
-    const reader = html(api(world().doc, { canEdit: false, isSteward: false }));
+    const reader = html(api(world().doc, { canEdit: false, canStage: false, isSteward: false }));
     expect(reader).not.toContain('>Hold<');
     expect(reader).not.toContain('>Release<');
     expect(reader).not.toContain('<select');
@@ -190,7 +191,7 @@ describe('an image page', () => {
     expect(out).toContain(HASH);
     expect(out).toContain('ex4300-48t');
     expect(out).toContain('Get a one-time link');
-    const reader = html(api(doc, { canEdit: false, isSteward: false }));
+    const reader = html(api(doc, { canEdit: false, canStage: false, isSteward: false }));
     expect(reader).not.toContain('Get a one-time link');
     expect(reader).not.toContain('Choose this version for a model');
   });
@@ -198,7 +199,7 @@ describe('an image page', () => {
   it('gives a steward Edit models, and a writer who is not a steward does not get it', () => {
     const html = (a: FirmwareApi) => renderToStaticMarkup(createElement(ImagePage, { api: a, rowKey: 'img:' + IMG_ID, onOpenModel: noop }));
     expect(html(api(world().doc))).toContain('Edit models');
-    expect(html(api(world().doc, { isSteward: false }))).not.toContain('Edit models');
+    expect(html(api(world().doc, { canStage: false, isSteward: false }))).not.toContain('Edit models');
   });
 
   it('shows the SHA-512 with a Copy button and when the file was last checked', () => {
@@ -227,7 +228,18 @@ describe('an image page', () => {
   it('gives a steward Retire image, and a reader does not get it', () => {
     const html = (a: FirmwareApi) => renderToStaticMarkup(createElement(ImagePage, { api: a, rowKey: 'img:' + IMG_ID, onOpenModel: noop }));
     expect(html(api(world().doc))).toContain('Retire image…');
-    expect(html(api(world().doc, { canEdit: false, isSteward: false }))).not.toContain('Retire image');
+    expect(html(api(world().doc, { canEdit: false, canStage: false, isSteward: false }))).not.toContain('Retire image');
+  });
+
+  it('a Firmware holder (r95) gets Upload, Edit models, the link and Retire, but not the activity', () => {
+    const holder = api(world().doc, { canStage: true, isSteward: false });
+    expect(renderToStaticMarkup(createElement(FirmwareList, { api: holder, onOpenImage: noop, onOpenModel: noop, onOpenDevices: noop, onUpload: noop }))).toContain('+ Upload image');
+    expect(renderToStaticMarkup(createElement(FirmwareList, { api: holder, onOpenImage: noop, onOpenModel: noop, onOpenDevices: noop, onUpload: noop }))).toContain('class="fw-btn fw-shine"');
+    const page = renderToStaticMarkup(createElement(ImagePage, { api: holder, rowKey: 'img:' + IMG_ID, onOpenModel: noop }));
+    expect(page).toContain('Edit models');
+    expect(page).toContain('One-time link');
+    expect(page).toContain('Retire image…');
+    expect(renderToStaticMarkup(createElement(FirmwareActivityList, { api: holder, imageIds: [IMG_ID] }))).toBe('');
   });
 
   it('drops a retired image from the list and its page', () => {
@@ -305,7 +317,7 @@ describe("a device's firmware row", () => {
 
   it('a reader sees all of it and can change nothing', () => {
     const { doc, ids } = world();
-    const out = render(api(doc, { canEdit: false, isSteward: false }), ids.sw1!);
+    const out = render(api(doc, { canEdit: false, canStage: false, isSteward: false }), ids.sw1!);
     expect(out).toContain('Behind');
     expect(out).not.toContain('btn-quiet">Hold<');
     expect(out).not.toContain('Plan a firmware upgrade');
@@ -430,10 +442,11 @@ describe('warnings before a link (r62)', () => {
 });
 
 describe('the firmware activity (r62)', () => {
-  const base = { seq: 1, atUnix: 1_793_404_800, imageId: IMG_ID, byName: 'Key Maker', source: null, warningsPassed: [], filename: null, version: null, modelsBefore: [], modelsAfter: [] };
+  const base = { seq: 1, atUnix: 1_793_404_800, imageId: IMG_ID, byName: 'Key Maker', source: null, warningsPassed: [], filename: null, renamedFrom: null, version: null, modelsBefore: [], modelsAfter: [] };
 
   it('says who did what, with the warnings they went past', () => {
     expect(activityWords({ ...base, type: 'firmware_staged', version: '23.4R2' }, null).text).toBe('Uploaded (23.4R2) by Key Maker');
+    expect(activityWords({ ...base, type: 'firmware_staged', filename: 'junos_install.tgz', renamedFrom: 'junos install.tgz' }, null).text).toBe('Uploaded as junos_install.tgz, renamed from junos install.tgz by Key Maker');
     const link = activityWords({ ...base, type: 'firmware_fetch_issued', warningsPassed: ['wrong_model', 'downgrade'] }, null);
     expect(link.text).toBe('One-time link asked for by Key Maker');
     expect(link.flag).toBe('went past: wrong model, downgrade');
@@ -448,7 +461,7 @@ describe('the firmware activity (r62)', () => {
   });
 
   it('shows nothing to someone who is not a steward', () => {
-    const out = renderToStaticMarkup(createElement(FirmwareActivityList, { api: api(world().doc, { isSteward: false }), imageIds: [IMG_ID] }));
+    const out = renderToStaticMarkup(createElement(FirmwareActivityList, { api: api(world().doc, { canStage: false, isSteward: false }), imageIds: [IMG_ID] }));
     expect(out).toBe('');
   });
 });

@@ -8,7 +8,7 @@ import { sizeWords } from '../../api/firmware';
 import { modelRows } from '../../document/firmware';
 import { FIRMWARE_PLATFORMS } from '../../document/firmwareVersion';
 import type { FirmwareApi } from './context';
-import { checkUpload } from './uploadCheck';
+import { checkUpload, cleanFilename } from './uploadCheck';
 import './firmware.css';
 
 export function UploadForm({ api, onDone, onCancel }: { api: FirmwareApi; onDone: (imageId: string) => void; onCancel: () => void }) {
@@ -62,8 +62,16 @@ export function UploadForm({ api, onDone, onCancel }: { api: FirmwareApi; onDone
           File
         </label>
         <div>
-          <input id="fw-file" type="file" disabled={busy} onChange={(e) => setFile(e.currentTarget.files?.[0] ?? null)} />
-          {file ? <span className="fw-muted"> {sizeWords(file.size)}</span> : null}
+          <span className="fw-file">
+            <input id="fw-file" className="fw-file__input" type="file" disabled={busy} onChange={(e) => setFile(e.currentTarget.files?.[0] ?? null)} />
+            {/* The label is the button: the browser's own file button ignores the app's look (sign-off r97). */}
+            <label htmlFor="fw-file" className="fw-btn fw-file__pick" aria-hidden="true">
+              {file ? 'Choose another file' : 'Choose file'}
+            </label>
+            <span className="fw-file__name">{file ? file.name : 'No file chosen'}</span>
+            {file ? <span className="fw-muted">{sizeWords(file.size)}</span> : null}
+          </span>
+          <RenameNote name={file?.name ?? null} />
         </div>
 
         <label className="fw-label" htmlFor="fw-platform">
@@ -145,5 +153,18 @@ export function UploadForm({ api, onDone, onCancel }: { api: FirmwareApi; onDone
         </div>
       </form>
     </div>
+  );
+}
+
+/** When the file's name has characters Fathom does not keep, the name it will be kept under, before
+ * anything is sent. The original goes in the image's history. */
+export function RenameNote({ name }: { name: string | null }) {
+  if (name === null) return null;
+  const kept = cleanFilename(name);
+  if (kept === name) return null;
+  return (
+    <p className="fw-muted" data-testid="fw-rename">
+      Saved as <span className="fw-mono">{kept}</span>. Fathom keeps file names to letters, digits, dot, dash and underscore, because the name goes into commands you paste into a device. The history keeps the original name.
+    </p>
   );
 }

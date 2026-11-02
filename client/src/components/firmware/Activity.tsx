@@ -24,7 +24,7 @@ export function activityWords(a: FirmwareActivity, expected: ReadonlySet<string>
   const by = a.byName ? ` by ${a.byName}` : '';
   switch (a.type) {
     case 'firmware_staged':
-      return { text: `Uploaded${a.version ? ` (${a.version})` : ''}${by}`, flag: null };
+      return { text: `Uploaded${a.version ? ` (${a.version})` : ''}${a.renamedFrom ? ` as ${a.filename ?? 'a cleaned name'}, renamed from ${a.renamedFrom}` : ''}${by}`, flag: null };
     case 'firmware_fetch_issued': {
       const passed = a.warningsPassed.map((w) => WARNING_WORDS[w] ?? w);
       return { text: `One-time link asked for${by}`, flag: passed.length > 0 ? `went past: ${passed.join(', ')}` : null };

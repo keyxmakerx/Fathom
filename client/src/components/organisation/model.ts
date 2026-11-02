@@ -5,12 +5,13 @@
 import { BATCH_CAP, DAY_SECONDS, type Asked, type ConfirmRow, type Invitation } from '../../api/invitations';
 import type { AccessRow, Person } from '../../api/people';
 
-export const CAPABILITY_WORD: Record<Asked, string> = { read: 'Read', draw: 'Draw', steward: 'Steward' };
+export const CAPABILITY_WORD: Record<Asked, string> = { read: 'Read', draw: 'Draw', firmware: 'Firmware', steward: 'Steward' };
 
 /** What each level lets a person do, in the words the invite form shows. */
 export const CAPABILITY_HELP: Record<Asked, string> = {
   read: 'Read: can look at everything in the folder.',
   draw: 'Draw: can look and can change designs in the folder.',
+  firmware: 'Firmware: can also upload firmware images, set their models, make one-time links and retire them.',
   steward: 'Steward: can also invite and confirm people and remove their access. Needs a second steward to agree.',
 };
 

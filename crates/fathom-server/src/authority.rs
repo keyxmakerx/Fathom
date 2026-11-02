@@ -253,12 +253,18 @@ pub fn derive_organisation_id(root_pubkey: &[u8], id_salt: &[u8]) -> String {
 // The capability
 // ---------------------------------------------------------------------------
 
-/// §3.1's three capabilities. `steward` is the only grant-granting power in the
+/// §3.1's capabilities, in order. `steward` is the only grant-granting power in the
 /// product and it lives *inside* the scope.
+///
+/// `firmware` (sign-off r95, the owner's pick B and A, 2026-11-02) sits between `draw` and
+/// `steward`: it includes Draw, and Steward includes it. It lets someone stage firmware, issue a
+/// device's one-time download link, set an image's models and retire it, and nothing about
+/// access. A team may hold it; a team still never holds Steward (ADR-0081 T4).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Capability {
     Read,
     Draw,
+    Firmware,
     Steward,
 }
 
@@ -267,6 +273,7 @@ impl Capability {
         match self {
             Self::Read => "read",
             Self::Draw => "draw",
+            Self::Firmware => "firmware",
             Self::Steward => "steward",
         }
     }
@@ -275,6 +282,7 @@ impl Capability {
         match s {
             "read" => Some(Self::Read),
             "draw" => Some(Self::Draw),
+            "firmware" => Some(Self::Firmware),
             "steward" => Some(Self::Steward),
             _ => None,
         }
@@ -958,6 +966,13 @@ mod tests {
         assert!(Capability::Draw.covers(Capability::Read));
         assert!(!Capability::Read.covers(Capability::Draw));
         assert!(!Capability::Draw.covers(Capability::Steward));
+        // r95: Firmware includes Draw and Read, and Steward includes Firmware.
+        assert!(Capability::Firmware.covers(Capability::Draw));
+        assert!(Capability::Steward.covers(Capability::Firmware));
+        assert!(!Capability::Draw.covers(Capability::Firmware));
+        assert!(!Capability::Firmware.covers(Capability::Steward));
+        assert_eq!(Capability::parse("firmware"), Some(Capability::Firmware));
+        assert_eq!(Capability::Firmware.as_str(), "firmware");
     }
 
     #[test]

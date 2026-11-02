@@ -1,7 +1,7 @@
 // A device's firmware row group, in the editor on the canvas and on the Inventory page: what it
 // runs (typed here, or read from a paste), the chosen version (its model's, or for a device with no
 // model target, its own, schema 0.31), where that leaves it, a hold with its reason, a plan, and a
-// one-time link for a steward.
+// one-time link for someone who can stage firmware (r95).
 
 import { useContext, useState } from 'react';
 
@@ -202,7 +202,7 @@ export function FirmwareSection({ deviceId, folded = false }: { deviceId: string
           </button>
         ) : null}
       </div>
-      {image && api.isSteward ? <GetLink api={api} imageId={image.imageId} warnings={linkWarnings(api.doc, image, [device])} /> : null}
+      {image && api.canStage ? <GetLink api={api} imageId={image.imageId} warnings={linkWarnings(api.doc, image, [device])} /> : null}
     </div>
   );
   if (!folded) return body;

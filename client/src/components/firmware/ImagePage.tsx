@@ -131,7 +131,7 @@ export function ImagePage({ api, rowKey, onOpenModel }: { api: FirmwareApi; rowK
               </div>
             ))
           )}
-          {img && api.isSteward ? <ModelsEditor api={api} imageId={img.imageId} current={img.models} known={options} /> : null}
+          {img && api.canStage ? <ModelsEditor api={api} imageId={img.imageId} current={img.models} known={options} /> : null}
         </dd>
         <dt>Running</dt>
         <dd>{row.running}</dd>
@@ -171,7 +171,7 @@ export function ImagePage({ api, rowKey, onOpenModel }: { api: FirmwareApi; rowK
         </p>
       ) : null}
 
-      {img && img.state === 'staged' && api.isSteward ? (
+      {img && img.state === 'staged' && api.canStage ? (
         <div>
           <HowItGetsThere byHand={img.commands?.byHand}>
             <div className="fw-label">One-time link</div>
@@ -181,7 +181,7 @@ export function ImagePage({ api, rowKey, onOpenModel }: { api: FirmwareApi; rowK
       ) : null}
       {img && img.state === 'failed' ? <p className="fw-error">This upload failed: {img.failedReason ?? 'unknown reason'}. Nothing was staged.</p> : null}
       {img && api.isSteward ? <FirmwareActivityList api={api} imageIds={[img.imageId]} /> : null}
-      {img && img.state === 'staged' && api.isSteward ? <RetireImage api={api} imageId={img.imageId} /> : null}
+      {img && img.state === 'staged' && api.canStage ? <RetireImage api={api} imageId={img.imageId} /> : null}
     </div>
   );
 }

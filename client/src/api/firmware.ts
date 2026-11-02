@@ -255,18 +255,23 @@ export interface Declaration {
   version?: string;
   /** Catalogue models the image is for. */
   models?: readonly string[];
+  /** The file's own name when `filename` is Fathom's cleaned one; the history keeps it. */
+  renamedFrom?: string | null;
 }
 
 /**
  * The signed declaration body: `LP(filename) || LP(u64le length) || LP(sha256)`, and with `withMeta`
- * `|| LP(platform) || LP(version) || LP(models, comma-separated)`; an empty one means "not given".
+ * `|| LP(platform) || LP(version) || LP(models, comma-separated)`, then `|| LP(renamed from)` when the
+ * name was cleaned; an empty one means "not given".
  */
 export function declarationBody(d: Declaration, withMeta: boolean): Uint8Array {
   if (!/^[0-9a-f]{64}$/.test(d.sha256)) throw new Error('A SHA-256 is 64 hexadecimal characters.');
   const digest = new Uint8Array(32);
   for (let i = 0; i < 32; i += 1) digest[i] = Number.parseInt(d.sha256.slice(i * 2, i * 2 + 2), 16);
   const parts = [lp(utf8(d.filename)), lp(u64LE(d.byteLength)), lp(digest)];
-  if (withMeta) parts.push(lp(utf8(d.platform ?? '')), lp(utf8(d.version ?? '')), lp(utf8((d.models ?? []).join(','))));
+  const renamed = d.renamedFrom ?? '';
+  if (withMeta || renamed !== '') parts.push(lp(utf8(d.platform ?? '')), lp(utf8(d.version ?? '')), lp(utf8((d.models ?? []).join(','))));
+  if (renamed !== '') parts.push(lp(utf8(renamed)));
   return concatBytes(...parts);
 }
 
@@ -409,6 +414,8 @@ export interface FirmwareActivity {
   source: string | null;
   warningsPassed: string[];
   filename: string | null;
+  /** The file's own name, when Fathom cleaned it on upload. */
+  renamedFrom: string | null;
   version: string | null;
   modelsBefore: string[];
   modelsAfter: string[];
@@ -428,6 +435,7 @@ export function parseActivity(bytes: Uint8Array): FirmwareActivity[] {
       source: optStr(o, 'source'),
       warningsPassed: strings(o.warnings_passed),
       filename: optStr(o, 'filename'),
+      renamedFrom: optStr(o, 'renamed_from'),
       version: optStr(o, 'version'),
       modelsBefore: strings(o.models_before),
       modelsAfter: strings(o.models_after),

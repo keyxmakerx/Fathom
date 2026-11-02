@@ -404,6 +404,48 @@ async fn a_team_grant_reaches_its_members_and_nobody_else_and_never_steward() {
     .await
     .unwrap());
 
+    // r95: a team may hold Firmware, which reaches its members and covers Draw.
+    let racks = a_network(&pool, &org, "racks").await;
+    grant(
+        &pool,
+        &ring,
+        &org,
+        &org.stewards[0],
+        &team,
+        Some(racks),
+        Capability::Firmware,
+    )
+    .await
+    .expect("a steward grants the team Firmware on racks");
+    for needed in [Capability::Draw, Capability::Firmware] {
+        assert!(
+            may(&pool, &ring, &org, member.account, Some(racks), needed)
+                .await
+                .unwrap(),
+            "a team's Firmware gives its member {needed:?}"
+        );
+    }
+    assert!(!may(
+        &pool,
+        &ring,
+        &org,
+        member.account,
+        Some(net),
+        Capability::Firmware
+    )
+    .await
+    .unwrap());
+    assert!(!may(
+        &pool,
+        &ring,
+        &org,
+        member.account,
+        Some(racks),
+        Capability::Steward
+    )
+    .await
+    .unwrap());
+
     // T4: no team grant is `steward`, refused before any signature is asked for.
     let refused = grant(
         &pool,

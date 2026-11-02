@@ -30,7 +30,9 @@ export interface FirmwareApi {
   doc: Document;
   /** Draw or steward: may choose versions and hold devices. */
   canEdit: boolean;
-  /** Steward: may add images and issue links. The server enforces it too. */
+  /** Firmware or steward (r95): may add images, set their models, issue links and retire them. The server enforces it too. */
+  canStage: boolean;
+  /** Steward: may see where images went (the organisation's firmware activity). */
   isSteward: boolean;
   server: FirmwareServer;
   reload(): void;

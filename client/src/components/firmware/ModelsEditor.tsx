@@ -1,5 +1,5 @@
 // "Edit models" on an image page: replaces the whole list of catalogue models the image is for
-// (PUT .../firmware/{image}/models, steward). Checks the same rule the server does before sending.
+// (PUT .../firmware/{image}/models, firmware or steward). Checks the same rule the server does before sending.
 
 import { useState } from 'react';
 
