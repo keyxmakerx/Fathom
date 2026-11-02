@@ -116,6 +116,7 @@ question was not in the register. *R* is the reversal cost from `73` §1.2 — R
 | **[0077](adr-0077-ai-changes-a-design.md)** | An AI connection may change a design | Accepted |  |  |
 | **[0078](adr-0078-termix-beside-fathom.md)** | Termix beside Fathom: open a device's terminal, Fathom never connects | Accepted |  |  |
 | **[0079](adr-0079-one-estate-across-designs.md)** | One estate across designs: the estate index, links between sites, and slimmer saves | Accepted |  |  |
+| **[0081](adr-0081-teams-leads-and-supervisors.md)** | Teams, leads and supervisors: a team holds Read or Draw like a person, leads and supervisors hand out work, every access change signed | Proposed |  |  |
 
 ## What is not reopened
 
