@@ -498,3 +498,94 @@ jobs:
       - name: Down
         if: always()
         run: docker compose down -v
+
+  # ADR-0080 decision 1: Termix beside Fathom (ADR-0078), against a REAL Termix. Until this job the
+  # integration had been tested only with Termix's request and reply shapes read from its code.
+  # Termix 26.10.6 from its published image (the `-full` profile, which bundles every plugin
+  # ADR-0080 leans on), pinned by digest; the real server started with FATHOM_TERMIX_URL, the
+  # real built client, and a real Chromium drive Open in Termix, Add it to Termix and Send N to
+  # Termix (`scripts/drive-termix.mjs`). Termix's admin, its user and the API key are made through
+  # Termix's own API (`scripts/drive-lib/termix.mjs`). After `gates`, so nothing compiles here
+  # before the dependency gates have run (the ordering at the top of this file).
+  termix:
+    needs: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+      termix:
+        # ghcr.io/termix-ssh/termix:26.10.6-full, read 2026-11-01. Termix's own release workflow
+        # (`.github/workflows/docker.yml`, v26.10.6) publishes `-full` for the full plugin profile.
+        image: ghcr.io/termix-ssh/termix:26.10.6-full@sha256:66c196fe99c01c4768f9f56ff200cb14acaaa56fdeae2bac3e13252237320fe3
+        env:
+          PORT: "8080"
+        ports:
+          - 8080:8080
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Provision a non-superuser test role (RLS does not bind to a superuser)
+        run: |
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c \
+            "CREATE ROLE fathom_test LOGIN PASSWORD 'fathom_test_pw' NOSUPERUSER CREATEROLE;"
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c \
+            "CREATE DATABASE fathom_test OWNER fathom_test;"
+
+      - name: Install the pinned toolchain (reads rust-toolchain.toml)
+        run: rustup toolchain install
+
+      - name: Restore the cargo build
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target
+          key: cargo-v3-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-v3-${{ runner.os }}-
+
+      - name: Build the server
+        run: cargo build -p fathom-server --locked
+
+      - name: Build the wasm engine and the client
+        run: |
+          bash scripts/build-wasm.sh
+          docker run --rm -v "$PWD":/w -w /w/client \
+            node@sha256:f1127b82781601ca2a57c96811cf6be9da3d1f77d58ec13bab49e5f79cf8c84c \
+            sh -c 'npm ci --ignore-scripts && npm run build'
+
+      - name: Fetch Playwright and its Chromium (outside the client, never shipped)
+        run: |
+          npm install --prefix "$RUNNER_TEMP/pw" --no-save --ignore-scripts playwright@1.63.0
+          "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
+          echo "PW_PLAYWRIGHT=$RUNNER_TEMP/pw/node_modules/playwright/index.js" >> "$GITHUB_ENV"
+          echo "PW_CHROMIUM=$(node -e "console.log(require('$RUNNER_TEMP/pw/node_modules/playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+
+      - name: Drive Fathom against Termix
+        env:
+          TERMIX_URL: http://127.0.0.1:8080
+          FATHOM_SHOTS: ${{ runner.temp }}/termix-shots
+          FATHOM_DRIVE_DIR: ${{ runner.temp }}/termix-drive
+        run: node scripts/drive-termix.mjs
+
+      - name: Screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: termix-shots
+          path: ${{ runner.temp }}/termix-shots
+          if-no-files-found: ignore
+
+      - name: Termix's log, on failure
+        if: failure()
+        run: docker logs --tail 300 "${{ job.services.termix.id }}"

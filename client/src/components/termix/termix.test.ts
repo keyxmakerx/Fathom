@@ -89,7 +89,7 @@ describe('addresses and links', () => {
 
   it('adds a host with no password and no user name', () => {
     const body = newHostBody('core-sw1', '10.0.0.1/24');
-    expect(body).toEqual({ connectionType: 'ssh', name: 'core-sw1', ip: '10.0.0.1', port: 22, folder: 'Fathom', tags: ['fathom'], notes: 'Added from Fathom.' });
+    expect(body).toEqual({ connectionType: 'ssh', authType: 'none', name: 'core-sw1', ip: '10.0.0.1', port: 22, folder: 'Fathom', tags: ['fathom'], notes: 'Added from Fathom.' });
     for (const k of ['password', 'key', 'keyPassword', 'username', 'credentialId', 'sudoPassword']) expect(body).not.toHaveProperty(k);
     expect(newHostBody(' ', '10.0.0.1').name).toBe('10.0.0.1');
   });
@@ -158,7 +158,7 @@ describe('sending many devices', () => {
       f,
       (done) => steps.push(done),
     );
-    expect(r).toEqual({ added: 1, already: 1, repeated: 1, failed: ['bad: Termix answered 500.', 'typed: not an IP address or host name'] });
+    expect(r).toEqual({ added: 1, already: 1, repeated: 1, byReference: 0, failed: ['bad: Termix answered 500.', 'typed: not an IP address or host name'] });
     expect(posted.map((b) => b.ip)).toEqual(['10.0.0.2', '10.0.0.4']);
     expect(posted[0]!.folder).toBe('Fathom / HQ');
     expect(steps).toEqual([1, 2, 3, 4, 5]);

@@ -21,7 +21,7 @@ import {
 import { connectOneEnd, connectToOutside, disconnect, setCableField, setCableNeedsFinishing } from '../../document/cables';
 import { addCableRun, addCableTie, moveCableTie, removeCableRun, removeCableTie } from '../../document/cableRuns';
 import { removeFree, setLabel, setLineLabel } from '../../document/freeform';
-import { FieldValueError, setChassisField, setPortMac, setDeviceField, setPassiveNodeField, setRackField, setRackHeight, setSurfaceLabel } from '../../document/edit';
+import { FieldValueError, setChassisField, setPortConsoleBaud, setPortMac, setDeviceField, setPassiveNodeField, setRackField, setRackHeight, setSurfaceLabel } from '../../document/edit';
 import { edgesIn, findNode, readDeviceFields, type Document } from '../../document/model';
 import { copyName, hostnamesOf } from '../racks/pick';
 import { fitSupply, removeSupply, setSupplyField } from '../../document/supplies';
@@ -176,7 +176,7 @@ export function applyEditorChange(
   } else if (change.kind === 'free-remove') {
     next = removeFree(doc, [change.id], opts);
   } else if (change.kind === 'port') {
-    next = setPortMac(doc, change.id, change.value, opts);
+    next = change.field === 'console_baud' ? setPortConsoleBaud(doc, change.id, change.value, opts) : setPortMac(doc, change.id, change.value, opts);
   } else if (change.kind === 'add-sketch-ports') {
     next = addTemplatePorts(
       doc,

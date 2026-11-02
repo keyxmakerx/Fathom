@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.32"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.34"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -373,6 +373,21 @@ schema:
                     # peer is a link to another site. Two field keys (543-544). 62 §16.2: new
                     # optional fields are minor. Whole change = MINOR. The reader still opens
                     # 0.10 to 0.31.
+                    #
+                    # 0.33 is the plan-to-maintenance flow (sign-off r73-plan-flow, 2026-11-01),
+                    # all additive: two optional MaintenancePlan fields, checks (typed checks
+                    # after the work, each with its answer) and release_notes (pasted, gated in
+                    # the browser); four optional PlanStep fields, if_when, branch_of and
+                    # if_taken (one If path under a step) and issue (the It's down issue
+                    # Troubleshoot opened from it); one optional Issue field, step, its other
+                    # end. Seven field keys (545-551). 62 §16.2: optional fields are minor.
+                    # Whole change = MINOR. The reader still opens 0.10 to 0.32.
+                    # 0.34 is Termix in the work (ADR-0080 decisions 5 and 10, 2026-11-01), all
+                    # additive: two optional PlanStep fields, seen (what the person pasted for a
+                    # check step, after the redaction gate) and compared (Fathom's verdict on it),
+                    # and one optional PhysicalPort field, console_baud (a console port's speed in
+                    # bits per second). Three field keys (552-554). 62 §16.2: new optional fields are minor. Whole change = MINOR.
+                    # The reader still opens 0.10 to 0.33.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -1397,6 +1412,7 @@ kinds:
       - { name: plate_x, type: u16, card: "0..1", emit: "—", doc: "0.20 — where a hand-typed port sits across its faceplate: thousandths of the plate's width, left edge to the port's centre (0-1000). Absent means the computed layout places it. Layout only, never identity: position is tier 1." }
       - { name: plate_y, type: u16, card: "0..1", emit: "—", doc: "0.19 — plate_x's partner: thousandths of the plate's height, top edge to the port's centre (0-1000)." }
       - { name: mac, type: MacAddress, card: "0..1", emit: "—", doc: "0.21 — the hardware address seen on this port (a NAS's eth0), typed or pasted, so Find can answer a MAC with the port. Not identity: a NIC can be swapped." }
+      - { name: console_baud, type: u32, card: "0..1", emit: "—", doc: "0.34 (ADR-0080 decision 10): a console port's speed in bits per second (9600, 115200). Absent means nobody has said; the vendor's documented default is offered where a source exists." }
       - { name: speed_max, type: Bandwidth, card: "0..1", emit: "—", doc: The cage's ceiling — a different fact from Interface.speed. }
       - name: transceiver
         type: Transceiver
@@ -2126,6 +2142,8 @@ kinds:
       - { name: stage, type: "enum { planned, doing, recorded }", card: "1", emit: "—", doc: Where the plan is. }
       - { name: outcome, type: "enum { succeeded, partial, failed }", card: "0..1", emit: "—", doc: How it went; set when recorded. }
       - { name: record, type: Text, card: "0..1", emit: "—", doc: "What went wrong, or anything worth keeping; set when recorded." }
+      - { name: checks, type: Text, card: "0..1", emit: "—", doc: "0.33 — checks after the work, typed by a person or drafted by an AI, one per line, tab-separated: the answer (`open`, `ok`, `not_ok` or `cant_tell`), the check, then what was seen (may be empty). Record waits until none is `open`." }
+      - { name: release_notes, type: Text, card: "0..1", emit: "—", doc: "0.33 — release notes or a changelog pasted onto the plan. Pasted text, so it passed the redaction gate in the browser before it was stored." }
     identity: []
 
   - kind: PlanStep
@@ -2146,6 +2164,12 @@ kinds:
       - { name: state, type: "enum { planned, done, went_differently }", card: "1", emit: "—", doc: Where the step is. }
       - { name: note, type: Text, card: "0..1", emit: "—", doc: What happened instead; required for went_differently. }
       - { name: done_at, type: Text, card: "0..1", emit: "—", doc: "When it was marked, as an ISO time." }
+      - { name: if_when, type: Text, card: "0..1", emit: "—", doc: "0.33 — on a main-line step that has an If path: what would send the work down it, in a sentence." }
+      - { name: branch_of, type: Text, card: "0..1", emit: "—", doc: "0.33 — design id of the main-line step whose If path this step is on; `ordinal` then counts within that path. Absent for a step on the main line. One level only: a step on an If path has no If path of its own." }
+      - { name: if_taken, type: bool, card: "0..1", emit: "—", doc: "0.33 — set on the step that carries an If path when the work went down it. Absent means the If path was not taken, and its steps are not to do." }
+      - { name: issue, type: Text, card: "0..1", emit: "—", doc: "0.33 — design id of the It's down issue Troubleshoot opened from this step." }
+      - { name: seen, type: Text, card: "0..1", emit: "—", doc: "0.34 (ADR-0080 decision 5): what the person pasted for a check step, the device's answer to the step's command, after the redaction gate ran on it in the browser. Kept on Record; Fathom compares it and never acts on it." }
+      - { name: compared, type: Text, card: "0..1", emit: "—", doc: "0.34 (ADR-0080 decision 5): Fathom's comparison when the paste was kept, `matches`, `differs` or `cant_tell`, a tab, and why. Worked out in the browser from the paste before the gate, which removes long hex values such as a file's hash; only the gated paste and this line are kept, and the why passes the gate too." }
     identity: []
 
   # Custom-field values (0.16, 2026-10-02). Appended at the tail because order is wire identity
@@ -2182,6 +2206,7 @@ kinds:
       - { name: stage, type: "enum { open, closed }", card: "1", emit: "—", doc: Where the issue is. }
       - { name: outcome, type: Text, card: "0..1", emit: "—", doc: "Where the answers point, frozen when saved, and anything typed." }
       - { name: plan, type: Text, card: "0..1", emit: "—", doc: Design id of a maintenance plan made from it. }
+      - { name: step, type: Text, card: "0..1", emit: "—", doc: "0.33 — design id of the plan step it was opened from (Troubleshoot on a step that went differently)." }
     identity: []
 
   - kind: IssueStep

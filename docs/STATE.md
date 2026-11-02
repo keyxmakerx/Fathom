@@ -611,6 +611,16 @@ recorded failed, naming the way back) and opens a new, separate plan from where 
 the reverse of every done step, newest first (a cable cut, a cut re-made, a move back, a field's old value, a LAG
 removed), a check step for each that went differently, and room for steps of its own. A recorded plan that did not
 succeed can be backed out too; it stays as written. `scripts/drive-backout.mjs` drives it.
+**From a plan to the night itself** (sign-off r73-plan-flow; schema 0.33, field keys 545-551). Any main-line
+step can carry one **If path**: a reason and a few steps, drawn dashed under it, numbered 3a, 3b; one level only.
+It is off the line of work (and out of `OP_PLAN_PREVIEW`) until a step that went differently takes it, when its
+steps come next. A plan holds **release notes** pasted through the gate, with the lines that name what it touches
+marked (hostnames, interfaces, models, a version a step names). A step that went differently offers
+**Troubleshoot**: It's down on its device, carrying the note; the issue saved names the step (`Issue.step`) and
+the step names the issue (`PlanStep.issue`). Every plan ends with **After the work**: Fathom's Checks on what it
+touched, then typed checks (a firmware plan writes three) answered OK, Not OK or Can't tell; Not OK offers
+Troubleshoot, and Record waits until none is open. AI apps can propose all of it; release notes reach them at the
+notes tier. Not built: a check answered by Fathom reading the device (waits on SNMP).
 
 **Mesh VPNs** (sign-off r16-overlay; schema 0.26, field keys 479-485). An `OverlayNetwork` (Tailscale,
 Headscale, NetBird, ZeroTier, WireGuard, Nebula or other) hangs off the root; `OverlayMember` edges to Devices
@@ -679,7 +689,28 @@ terminal in a new tab, or adds the host first with no credentials. Inventory ›
 devices at once ("Send N to Termix"), skipping hosts Termix already has. The server only names the origin
 and adds it to `connect-src`; it never calls Termix. A steward turns it off for everyone in the organisation or
 for one person (migration 0056, Organisation › People); the address is then not given out and the buttons are
-gone. Not tried against a running Termix.
+gone. Proved against a real Termix 26.10.6 in CI (the `termix` job, `scripts/drive-termix.mjs`, ADR-0080
+decision 1); that run found Termix refuses a new host without `authType` since 26.10.2, so Fathom now sends
+`authType: none`.
+
+**Termix in the work** (ADR-0080 decisions 2 to 11; schema 0.34, field keys 552-554; migration 0063;
+`components/termix/`, `components/plans/SeenBox.tsx`, `components/plans/checkSeen.ts`). Every part is
+optional and has its plain way beside it (OPERATING.md, "Termix's add-ons"). A plan lists its devices with
+Open in Termix and Connect with ssh lines; Do shows Open in Termix on the current step and Termix's up or
+down (`GET /host/status`, on open and Refresh). A device's vault login pulled from Vaultwarden goes to
+Termix as a `bw://` reference when Termix runs Secret Sources. Steps with commands go to Termix as snippets
+(Snippets add-on). Start work opens a maintenance window per device (Automations add-on; ticked by default,
+the plan's window, at most 10080 minutes) and Record ends it only where the reason is still the plan's;
+the plan always says to pause your own alerting. A check step has a paste box: Fathom compares before the
+redaction gate (version, image hash; only a full hash can say Matches), then keeps the gated paste in
+`PlanStep.seen` and the verdict in `PlanStep.compared`. With Fetch from Termix turned on by a steward
+(`organisation_termix.fetch_on`, sealed as `termix_access_set`), a check step can run its own command
+through Snippets, only if it is on the platform's read-only list (`termix/readOnly.ts`: Junos, IOS XE,
+NX-OS, EOS; EOS takes no output filters, unsourced), via a temporary snippet that is read back and
+deleted; the answer goes into the paste box unkept. A console port records `PhysicalPort.console_baud` and
+shows PuTTY, screen and picocom lines, and Open Termix with "choose Serial on its left rail" (Termix's
+Serial has no direct link). Inventory › Devices has an In Termix column, read from Termix's host list.
+Learn has the lesson "Doing a plan with Termix, or without it" on the practice lab.
 
 **AI access** (ADR-0072; migration 0046; `src/ai.rs`, `src/oauth.rs`, `src/mcp.rs`, `components/ai/`). A
 person a Steward names lets an AI app read designs they can read, in one organisation, at the tiers the

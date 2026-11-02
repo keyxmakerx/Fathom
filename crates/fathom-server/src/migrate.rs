@@ -384,6 +384,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0062_firmware_settings.sql",
         sql: include_str!("../migrations/0062_firmware_settings.sql"),
     },
+    // Fetch from Termix, off unless a steward turns it on (ADR-0080 decision 9).
+    Migration {
+        version: 63,
+        name: "0063_termix_fetch.sql",
+        sql: include_str!("../migrations/0063_termix_fetch.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

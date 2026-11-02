@@ -6,17 +6,27 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { FIELD_KEYS } from '../../../../schema/generated/ir_types';
 import { IncompatibleConnectorError, PortAlreadyTerminatedError } from '../../document/cables';
-import type { Document } from '../../document/model';
+import { parseNodeId, type Document } from '../../document/model';
 import { foldFrom } from '../../document/freeform';
 import { reserve } from '../../document/stock';
 import {
   PlanRefusal,
+  addCheck,
+  addChecks,
   addStep,
+  answerCheck,
+  couldTouch,
+  removeCheck,
+  setIfWhen,
+  setReleaseNotes,
+  takeIfPath,
+  type CheckAnswer,
   createPlan,
   currentStep,
   listPlans,
   markDone,
   markWentDifferently,
+  setSeen,
   moveStep,
   planFromIdea,
   readPlan,
@@ -32,6 +42,7 @@ import {
   type TextGate,
 } from '../../document/plans';
 import type { CheckFinding, PlanStepPreview } from '../../engine/engine';
+import type { Comparison } from './checkSeen';
 import type { Mirror } from '../../engine/mirror';
 import type { UpgradeTemplate } from '../firmware/upgradePlan';
 import { buildCanon, CHECKS_DEBOUNCE_MS, isTypingTarget, standingDelay, type Canon } from '../checks/checksModel';
@@ -86,6 +97,15 @@ export function editFailureText(e: unknown): string {
 
 export const ENGINE_DOWN = "Fathom's engine did not start, so nothing was changed. Try again.";
 
+/** A design id that names a device (what It's down asks about). */
+const isDevice = (id: string): boolean => {
+  try {
+    return parseNodeId(id).kind === 'Device';
+  } catch {
+    return false;
+  }
+};
+
 const howOf = (pasted: boolean): 'typed' | 'pasted' => (pasted ? 'pasted' : 'typed');
 
 const fieldKey = (name: string): number | undefined => (FIELD_KEYS as Readonly<Record<string, number>>)[name];
@@ -130,16 +150,47 @@ export interface PlansController {
   planIdea(idea: IdeaForPlan): Promise<boolean>;
   // `pasted`: a real paste reached that form (see `PasteMark`); its text goes through the redaction gate.
   create(input: { title: string; windowStart?: string; windowEnd?: string }, pasted?: boolean): Promise<boolean>;
-  rename(title: string, pasted?: boolean): Promise<boolean>;
+  /** The open plan's title and window, while it is still being planned. */
+  editHead(patch: { title?: string; windowStart?: string; windowEnd?: string }, pasted?: boolean): Promise<boolean>;
   addStep(form: StepForm, pasted?: boolean): Promise<boolean>;
   removeStep(stepId: string): Promise<boolean>;
   moveStep(stepId: string, index: number): Promise<boolean>;
   start(): Promise<boolean>;
   done(stepId: string): Promise<boolean>;
   wentDifferently(stepId: string, note: string, pasted?: boolean): Promise<boolean>;
+  /** What the device answered for a check step (ADR-0080 decision 5). Always gated: it is device output, never typed prose. */
+  saveSeen(stepId: string, seen: string, compare: (raw: string) => Comparison): Promise<boolean>;
   record(outcome: PlanOutcome, text: string, pasted?: boolean): Promise<boolean>;
   /** A new plan back to where this one started, opened for planning (sign-off r16-backout). */
   backOut(): Promise<boolean>;
+  // Sign-off r73-plan-flow (schema 0.33): checks after the work, release notes, If paths, Troubleshoot.
+  /** Fathom's own Checks on what the open plan touches (or could, while planning); null before they have run. */
+  touchedFindings: CheckFinding[] | null;
+  addCheck(check: string, pasted?: boolean): Promise<boolean>;
+  removeCheck(index: number): Promise<boolean>;
+  answerCheck(index: number, answer: CheckAnswer, seen: string, pasted?: boolean): Promise<boolean>;
+  setReleaseNotes(notes: string, pasted?: boolean): Promise<boolean>;
+  setIfWhen(stepId: string, when: string, pasted?: boolean): Promise<boolean>;
+  /** A step on `branchOf`'s If path, from the same form as any step. */
+  addIfStep(branchOf: string, form: StepForm, pasted?: boolean): Promise<boolean>;
+  takeIfPath(stepId: string): Promise<boolean>;
+  /** Whether It's down can be opened from here (the page runs it). */
+  canTroubleshoot: boolean;
+  /** Opens It's down on the step's device, carrying what was written; the issue saved is tied to the step. */
+  troubleshoot(stepId: string): void;
+  /** A check answered Not OK: It's down on the first device the plan touched, carrying the check. */
+  troubleshootCheck(index: number): void;
+  /** Opens a saved issue (one tied to a step). */
+  openIssue: ((issueId: string) => void) | null;
+}
+
+/** What It's down is opened with from a plan: the device, and the words that sent it there. */
+export interface TroubleFrom {
+  deviceId: string;
+  /** The step it came from; null for a check after the work. */
+  stepId: string | null;
+  /** "Step 4 of Junos upgrade: ae0 drops every few minutes" */
+  said: string;
 }
 
 interface Inputs {
@@ -156,9 +207,28 @@ interface Inputs {
   canEdit: boolean;
   /** A plan to start with open (a link, or a test). */
   initialOpen?: string | null;
+  /** Fathom's Checks as they stand (the Checks controller's result); the panel narrows them to the plan. */
+  findings?: readonly CheckFinding[] | null;
+  /** Opens It's down (the page's troubleshoot controller). Left out, Troubleshoot is not offered. */
+  onTroubleshoot?: (from: TroubleFrom) => void;
+  onOpenIssue?: (issueId: string) => void;
 }
 
-export function usePlansController({ doc, boot, mirrorNow, loadCostMs, redact, applyDocChange, actor, authorName, canEdit, initialOpen = null }: Inputs): PlansController {
+export function usePlansController({
+  doc,
+  boot,
+  mirrorNow,
+  loadCostMs,
+  redact,
+  applyDocChange,
+  actor,
+  authorName,
+  canEdit,
+  initialOpen = null,
+  findings = null,
+  onTroubleshoot,
+  onOpenIssue,
+}: Inputs): PlansController {
   const [store] = useState(createPlansStore);
   const [openId, setOpenId] = useState<string | null>(initialOpen);
   const [bandShown, setBandShown] = useState(false);
@@ -189,6 +259,11 @@ export function usePlansController({ doc, boot, mirrorNow, loadCostMs, redact, a
   }, [doc, openId]);
   const stage = plan?.stage ?? null;
   const planId = plan?.id ?? null;
+  const touchedFindings = useMemo(() => {
+    if (plan == null || findings == null) return null;
+    const touched = new Set(couldTouch(plan).map(canon));
+    return findings.filter((f) => f.elements.some((e) => touched.has(canon(e.id))));
+  }, [plan, findings, canon]);
 
   // A plan that is gone (undone, or another editor's) closes itself.
   useEffect(() => {
@@ -428,6 +503,8 @@ export function usePlansController({ doc, boot, mirrorNow, loadCostMs, redact, a
         for (const s of t.steps) {
           next = addStep(next, made.id, { kind: s.kind, change: s.change, ...(s.after !== undefined ? { after: s.after } : {}), targets: t.deviceIds, gate, ...stamp() }).doc;
         }
+        // Its own checks after the work (sign-off r73), in the same undo step.
+        if (t.checks && t.checks.length > 0) next = foldFrom(addChecks(next, made.id, t.checks, { gate, ...stamp() }), doc0.batches.length);
         setOpenId(made.id);
         setBandShown(true);
         setListMode(false);
@@ -454,7 +531,7 @@ export function usePlansController({ doc, boot, mirrorNow, loadCostMs, redact, a
         update({ open: true });
         return made.doc;
       }, howOf(pasted)),
-    rename: (title, pasted = false) => run((doc0, gate) => (plan ? setPlanHead(doc0, plan.id, { title }, { gate, ...stamp() }) : null), howOf(pasted)),
+    editHead: (patch, pasted = false) => run((doc0, gate) => (plan ? setPlanHead(doc0, plan.id, patch, { gate, ...stamp() }) : null), howOf(pasted)),
     addStep: (form, pasted = false) =>
       run((doc0, gate) => {
         if (plan == null) return null;
@@ -502,6 +579,8 @@ export function usePlansController({ doc, boot, mirrorNow, loadCostMs, redact, a
       setRefused(null);
       return run((doc0, gate) => markWentDifferently(doc0, stepId, { note, gate, ...stamp() }), howOf(pasted));
     },
+    // The comparison reads the paste before the gate (a hash does not survive it); only gated text is kept.
+    saveSeen: (stepId, seen, compare) => run((doc0, gate) => setSeen(doc0, stepId, { seen, compared: compare(seen), gate, ...stamp() }), 'pasted'),
     record: (outcome, text, pasted = false) =>
       run((doc0, gate) => (plan ? recordPlan(doc0, plan.id, { outcome, text, gate, ...stamp() }) : null), howOf(pasted)),
     backOut: () =>
@@ -512,6 +591,45 @@ export function usePlansController({ doc, boot, mirrorNow, loadCostMs, redact, a
         setPrefill(null);
         return made.doc;
       }),
+    touchedFindings,
+    addCheck: (check, pasted = false) => run((doc0, gate) => (plan ? addCheck(doc0, plan.id, check, { gate, ...stamp() }) : null), howOf(pasted)),
+    removeCheck: (index) => run((doc0) => (plan ? removeCheck(doc0, plan.id, index, stamp()) : null)),
+    answerCheck: (index, answer, seen, pasted = false) =>
+      run((doc0, gate) => (plan ? answerCheck(doc0, plan.id, index, answer, { seen, gate, ...stamp() }) : null), howOf(pasted)),
+    setReleaseNotes: (notes, pasted = false) => run((doc0, gate) => (plan ? setReleaseNotes(doc0, plan.id, notes, { gate, ...stamp() }) : null), howOf(pasted)),
+    setIfWhen: (stepId, when, pasted = false) => run((doc0, gate) => setIfWhen(doc0, stepId, when, { gate, ...stamp() }), howOf(pasted)),
+    addIfStep: (branchOf, form, pasted = false) =>
+      run((doc0, gate) => {
+        if (plan == null) return null;
+        const built = buildStep(doc0, canon, form);
+        if ('error' in built) throw new PlanRefusal('bad-edit', built.error);
+        const out = addStep(doc0, plan.id, { ...built, branchOf, gate, ...stamp() });
+        if (form.kind === 'swap' && form.spare !== '') return foldFrom(reserve(out.doc, form.spare, out.id, stamp()), doc0.batches.length);
+        return out.doc;
+      }, howOf(pasted)),
+    takeIfPath: (stepId) => run((doc0) => takeIfPath(doc0, stepId, stamp())),
+    canTroubleshoot: onTroubleshoot != null && canEdit,
+    troubleshoot: (stepId) => {
+      const step = plan?.steps.find((s) => s.id === stepId);
+      const device = step && doc ? step.targets.map(canon).find(isDevice) : undefined;
+      if (plan == null || step == null || onTroubleshoot == null) return;
+      if (device === undefined) {
+        setNotice('This step names no device, so It\'s down has nothing to ask about. Right-click the device and choose It\'s down.');
+        return;
+      }
+      onTroubleshoot({ deviceId: device, stepId, said: `Step ${step.label} of ${plan.title}${step.note !== '' ? `: ${step.note}` : ''}` });
+    },
+    troubleshootCheck: (index) => {
+      const check = plan?.checks[index];
+      const device = plan ? couldTouch(plan).map(canon).find(isDevice) : undefined;
+      if (plan == null || check == null || onTroubleshoot == null) return;
+      if (device === undefined) {
+        setNotice('This plan names no device, so It\'s down has nothing to ask about. Right-click the device and choose It\'s down.');
+        return;
+      }
+      onTroubleshoot({ deviceId: device, stepId: null, said: `After ${plan.title}: ${check.text}${check.seen !== '' ? ` (${check.seen})` : ''}` });
+    },
+    openIssue: onOpenIssue ?? null,
   };
   return api;
 }

@@ -58,6 +58,8 @@ export interface People {
   termix: boolean;
   /** A steward turned Termix off for everyone here. */
   termixOff: boolean;
+  /** A steward turned Fetch from Termix on here (ADR-0080 decision 9). Absent reads as off. */
+  termixFetch?: boolean;
 }
 
 const CAPS = ['read', 'draw', 'steward'] as const;
@@ -68,6 +70,7 @@ export function parsePeople(bytes: Uint8Array): People {
     waitingCount: int(r, 'waiting_count', 'people'),
     termix: r.termix === true,
     termixOff: r.termix_off === true,
+    termixFetch: r.termix_fetch === true,
     people: arrayOf(r, 'people', 'people').map((entry, i): Person => {
       const what = `person ${i}`;
       const p = asRec(entry, what);

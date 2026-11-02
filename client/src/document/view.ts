@@ -143,6 +143,8 @@ export interface PortView {
   plate?: { x: number; y: number } | null;
   /** Schema 0.21 — the hardware address seen on this port, `aa:bb:cc:dd:ee:ff`. */
   mac?: string;
+  /** Schema 0.33 — a console port's speed in bits per second (ADR-0080 decision 10). */
+  consoleBaud?: number;
   /** Schema 0.28 — the card this port is on (`OnCard`), absent for a port fixed to the chassis. */
   cardId?: string;
   /** Schema 0.28 — the optic in the cage: absent when nobody looked, `null` for an empty cage. */
@@ -621,6 +623,7 @@ function portView(
         cable,
         service: fields.service ?? null,
         ...(fields.mac !== undefined ? { mac: fields.mac } : {}),
+    ...(fields.consoleBaud !== undefined ? { consoleBaud: fields.consoleBaud } : {}),
         ...extra,
       };
     }
@@ -641,6 +644,7 @@ function portView(
     service: fields.service ?? null,
     ...(fields.plateX !== undefined && fields.plateY !== undefined ? { plate: { x: fields.plateX, y: fields.plateY } } : {}),
     ...(fields.mac !== undefined ? { mac: fields.mac } : {}),
+    ...(fields.consoleBaud !== undefined ? { consoleBaud: fields.consoleBaud } : {}),
     ...extra,
   };
 }

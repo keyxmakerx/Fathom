@@ -14,11 +14,13 @@ export interface PeopleListProps {
   onOpenWaiting: () => void;
   /** Turn Termix off, or back on, for everyone here (ADR-0078 decision 6). */
   onSetTermixEveryone?: (off: boolean) => void;
+  /** ADR-0080 decision 9: a steward turns Fetch from Termix on or off for everyone here. */
+  onSetTermixFetch?: (on: boolean) => void;
   busy?: boolean;
 }
 
 /** Everyone, what they can do where, and whether they are in yet. */
-export function PeopleList({ people, needsYou, onOpenPerson, onInvite, onOpenWaiting, onSetTermixEveryone, busy = false }: PeopleListProps) {
+export function PeopleList({ people, needsYou, onOpenPerson, onInvite, onOpenWaiting, onSetTermixEveryone, onSetTermixFetch, busy = false }: PeopleListProps) {
   const waitingLines = needsYou.joined.length + needsYou.seconding.length;
   return (
     <section className="org-page">
@@ -95,6 +97,21 @@ export function PeopleList({ people, needsYou, onOpenPerson, onInvite, onOpenWai
               {people.termixOff ? 'Turn on for everyone' : 'Turn off for everyone'}
             </button>
           </div>
+          {!people.termixOff && onSetTermixFetch && (
+            <div data-testid="people-termix-fetch">
+              <div className="home__label">Fetch from Termix</div>
+              <p className="org-note">
+                {people.termixFetch
+                  ? 'On. A check step offers Fetch from Termix: Termix runs the step’s own command, only from a fixed read-only list for the device’s platform, and the answer is redacted in the browser like a paste. Fathom never acts on what it read.'
+                  : 'Off. A check step has its paste box only. Turned on, a check step also offers Fetch from Termix, which runs only read-only commands (show and the like) and never leads Fathom to act.'}
+              </p>
+              <div className="org-actions">
+                <button type="button" className="org-btn" disabled={busy} onClick={() => onSetTermixFetch(!people.termixFetch)}>
+                  {people.termixFetch ? 'Turn Fetch from Termix off' : 'Turn Fetch from Termix on'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </section>

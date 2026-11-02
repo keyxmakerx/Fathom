@@ -628,6 +628,10 @@ export function RacksPlace(props: RacksPlaceProps) {
     actor: actorOpts(accountId),
     authorName: shellProps.account?.initials,
     canEdit: canDraw,
+    // Sign-off r73: the checks after the work read Fathom's own Checks; Troubleshoot opens It's down from a step.
+    findings: checks.result?.findings ?? null,
+    onTroubleshoot: (from) => troubleRef.current?.start(from.deviceId, { stepId: from.stepId, said: from.said }),
+    onOpenIssue: (id) => troubleRef.current?.openIssue(id),
   });
   // "It's down" (ADR-0061 troubleshooting): the draft stays in memory; Plan a fix opens the plan in the plans surface.
   const trouble = useTroubleController({
@@ -644,6 +648,9 @@ export function RacksPlace(props: RacksPlaceProps) {
     },
     foldPlans: () => plans.setPanelOpen(false),
   });
+  // The plans controller is made first and reaches It's down through this.
+  const troubleRef = useRef<typeof trouble | null>(null);
+  troubleRef.current = trouble;
   const issueHandled = useRef<unknown>(null);
   useEffect(() => {
     if (initialIssue == null || doc == null || issueHandled.current === initialIssue) return;
@@ -2220,7 +2227,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           <MissingLinksChip found={missingLinks} onGo={handleGoToMissingLink} />
         ) : undefined
       }
-      band={doc != null && plans.bandOpen ? <PlanBand controller={plans} /> : undefined}
+      band={doc != null && plans.bandOpen ? <PlanBand controller={plans} onOpenAiIdeas={onOpenAiIdeas} /> : undefined}
     >
       <ChecksContext.Provider value={checks.api}>
       <NoteAuthorsContext.Provider value={noteAuthors}>

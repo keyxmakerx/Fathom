@@ -358,14 +358,75 @@ with a management address gets "Open in Termix", and that one origin is added to
   browsers must reach Termix; the server need not.
 - If Termix's operator set `CORS_ALLOWED_ORIGINS`, Fathom's own address must be in that list, or
   browsers are refused. Unset, Termix allows any origin.
-- Fathom adds hosts to Termix with no user name and no password, tagged `fathom`: one device in the
+- Fathom adds hosts to Termix with no user name and no password (`authType` none: Termix asks at
+  connect time unless the person picks one of Termix's credentials on the host), tagged `fathom`: one device in the
   folder `Fathom`, or many from Inventory › Devices (Send to Termix) in `Fathom / <design>`. Credentials are Termix's to keep.
+- Tested against Termix 26.10.6 in CI (`termix` job). Older Termix releases are not tested.
 - **Who may use it.** Each person uses their own Termix key, so each sees what their Termix user
   can. Leaving `FATHOM_TERMIX_URL` unset turns it off for the whole deployment. Inside an
   organisation a steward turns it off for everyone (Organisation › People, the Termix box) or for one
   person (their page); each change is on the organisation's history as `termix_access_set`. That
   hides Termix in Fathom and stops the server giving out its address; it does not stop someone who
   knows the address opening Termix themselves. To take Termix from a person, revoke their key in Termix.
+
+### Termix's add-ons, and the way without each (ADR-0080)
+
+Fathom uses four of Termix's add-ons when they are there, and one switch of its own. Each works
+alone. When an add-on is off, Fathom hides only the button that needs it and says so in one line;
+every step of a plan still has its plain way beside it, so nobody needs Termix, or any add-on, to
+finish a plan. Fathom asks Termix which add-ons are on (`GET /plugins`, with the person's key) when
+a page opens. A Termix admin turns one on in Termix; through Termix's API it is
+`PATCH /plugins/<id>` with `{"enabled": true}`, which the CI `termix` job does against Termix
+26.10.6. The ids below are the ones Termix answers.
+
+**Secret Sources** (`secret-sources`). For: a device whose login came from an outside vault
+(Vaultwarden, ADR-0071 part four) goes to Termix with its password as a reference,
+`bw://<item id>/password`, never the password. Termix fetches the password itself at connect time,
+and only if Termix's operator connected Secret Sources to a vault that can see that item. Turn on:
+in Termix, then connect it to your vault there. Without it: the host goes to Termix with no
+password and Fathom says so; the person uses the vault login in Fathom as before (shown and copied).
+A login held only in Fathom's own vault never goes to Termix, with or without it.
+
+**Snippets** (`snippets`). For: in a plan, Send the steps to Termix as snippets makes one snippet per step that
+carries commands, in the folder `Fathom / <plan name>`, which the person runs in Termix on the
+terminal they opened. Fathom never runs these. Without it: each command block has Copy.
+
+**Automations** (`automations`). For: Start work puts the plan's devices that Termix has into a
+maintenance window, with `Fathom: <plan name>` as the reason and the plan's window as its length
+(an hour when the plan has none, at most Termix's 10080 minutes); Record takes them out again, but
+only where the window's one reason is still the plan's. A host someone else owns in Termix is
+skipped and counted, and so is one already in maintenance. The person can untick it before Start
+work. Without it: the plan always says "pause alerting for these devices in your own monitoring";
+Fathom does not do it.
+
+Up or down beside a plan's devices needs no add-on: it is Termix's own `GET /host/status`, read
+when Do opens and on Refresh, never on a timer, and labelled as Termix's. Without Termix Fathom
+shows nothing there (Fathom does not ping). The In Termix column in Inventory › Devices is the same:
+Termix's host list, read on the visit and on Refresh, never stored in the design.
+
+**Serial** (`serial`). For: a device's console port shows Open Termix and the console speed, if
+recorded (Ports › the console port › Console speed). Termix's Serial tab is opened from Termix's
+left rail and is not tied to a host, so Fathom cannot open it at the device; the person picks the
+port and the speed there. In a browser it uses Web Serial (Chrome, Edge, Firefox 151 and newer;
+`Termix-SSH/Plugin-Serial` 1.0.2, read 1 November 2026). Without it, and always beside it: the
+lines for PuTTY (`putty.exe -serial COM3 -sercfg <speed>`, PuTTY manual §3.11), GNU screen
+(`screen /dev/ttyUSB0 <speed>`, the screen manual, Window Types) and picocom
+(`picocom -b <speed> /dev/ttyUSB0`, picocom(1)). Fathom does not guess a speed it has no record of.
+
+**Fetch from Termix** (Fathom's switch, off by default; needs Snippets). For: a check step offers
+Fetch from Termix beside its paste box. It runs the step's own command on the device, through
+Termix, as the person's Termix user, only when they press it, and only if the command is on
+Fathom's read-only list for the device's platform (`client/src/components/termix/readOnly.ts`:
+Junos, IOS XE, NX-OS and EOS, `show` and a few like it, with the display filters each vendor
+documents; anything else is refused in the browser before it is sent). Fathom makes a snippet in
+`Fathom / checks` holding exactly that command, reads it back, runs it only if it is unchanged, and
+deletes it afterwards. What comes back goes into the paste box, unkept: the redaction gate runs on
+it when the person keeps it, as on any paste, and Fathom never acts on it (it does not mark the
+step done, change the design, or send anything else to Termix). Turn on: a steward, in
+Steward › People, the Fetch from Termix box; the change is on the organisation's history as
+`termix_access_set`. A device needs its platform recorded (Firmware › Numbering, or a pasted
+config) for the button to appear. Without it: the person runs the command themselves and pastes
+what the device said.
 
 ## Restore
 

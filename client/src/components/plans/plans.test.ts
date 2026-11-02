@@ -5,11 +5,17 @@ import { describe, expect, it, vi } from 'vitest';
 import { addSketchPort, createSketchDevice } from '../../document/commands';
 import { IncompatibleConnectorError, PortAlreadyTerminatedError, connectPorts } from '../../document/cables';
 import { addEdge, addNode, begin, finish, setNodeField } from '../../document/freeform';
+import { setDeviceField } from '../../document/edit';
 import { edgesOut, emptyDocument, interfaceName, token, type Document } from '../../document/model';
 import {
   PlanRefusal,
+  addCheck,
   addStep,
+  answerCheck,
   createPlan,
+  setIfWhen,
+  setReleaseNotes,
+  takeIfPath,
   currentStep,
   markDone,
   markWentDifferently,
@@ -595,6 +601,19 @@ describe('the controller applies commands through the one write path', () => {
     spy.mockRestore();
   });
 
+  it('Edit title and time gives a plan made without a window, such as an AI one, its date and title', async () => {
+    const { doc, ports } = lab();
+    const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
+    const h = harness(made.doc, { open: made.id });
+    expect(await h.controller.editHead({ title: 'Junos upgrade on srx1500-lab', windowStart: '2026-11-08T02:00', windowEnd: '2026-11-08T04:00' })).toBe(true);
+    const plan = readPlan(h.applied[0], made.id);
+    expect([plan.title, plan.windowStart, plan.windowEnd]).toEqual(['Junos upgrade on srx1500-lab', '2026-11-08T02:00', '2026-11-08T04:00']);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const started = harness(startPlan(made.doc, made.id, tick()), { open: made.id });
+    expect(await started.controller.editHead({ windowStart: '2026-11-09T02:00' })).toBe(false);
+    spy.mockRestore();
+  });
+
   it('a reader can look but not change', async () => {
     const { doc } = lab();
     const h = harness(doc, { canEdit: false });
@@ -631,6 +650,15 @@ describe('the panel and the page, rendered', () => {
     };
   }
 
+  it('offers Edit title and time while the plan is being planned, to someone who can edit', () => {
+    const { doc, ports } = lab();
+    const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
+    expect(render(readPlan(made.doc, made.id), made.doc).band).toContain('Edit title and time');
+    expect(render(readPlan(made.doc, made.id), made.doc, { canEdit: false }).band).not.toContain('Edit title and time');
+    const started = startPlan(made.doc, made.id, tick());
+    expect(render(readPlan(started, made.id), started).band).not.toContain('Edit title and time');
+  });
+
   it('offers Back out once a step is marked, and not before', () => {
     const { doc, ports } = lab();
     const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }, null]);
@@ -639,6 +667,30 @@ describe('the panel and the page, rendered', () => {
     const first = readPlan(started, made.id).steps[0].id;
     const done = markDone(started, first, { check: () => null, ...tick() });
     expect(render(readPlan(done, made.id), done).panel).toContain('Back out…');
+  });
+
+  it('with no plan open, says how a person makes one and where an AI one arrives', () => {
+    const { doc } = lab();
+    let controller: PlansController | null = null;
+    const Probe = () => {
+      controller = usePlansController({
+        doc,
+        boot: () => Promise.reject(new Error('no engine')),
+        mirrorNow: () => null,
+        loadCostMs: () => null,
+        redact: () => null,
+        applyDocChange: () => {},
+        actor: undefined,
+        canEdit: true,
+      });
+      return null;
+    };
+    renderToStaticMarkup(createElement(Probe));
+    const band = (open?: () => void) => renderToStaticMarkup(createElement(PlanBand, { controller: controller!, onOpenAiIdeas: open }));
+    expect(band()).toContain('Make one yourself with New plan');
+    expect(band()).toContain('arrives as an AI idea');
+    expect(band()).not.toContain('plans-ai-ideas');
+    expect(band(() => {})).toContain('plans-ai-ideas');
   });
 
   it('the add-step form and the new-plan form say typed text is stored as typed', () => {
@@ -758,5 +810,101 @@ describe('the panel and the page, rendered', () => {
     const all = `${out.panel}${out.page}${out.band}`.toLowerCase();
     // The sentences ADR-0040 forbids.
     expect(all).not.toMatch(/amber|private|zero-knowledge|end-to-end/);
+  });
+});
+
+describe('the plan-to-maintenance flow, rendered (sign-off r73)', () => {
+  function panelFor(doc: Document, planId: string, extra: { findings?: CheckFinding[]; troubleshoot?: boolean } = {}): string {
+    let controller: PlansController | null = null;
+    const Probe = () => {
+      controller = usePlansController({
+        doc,
+        boot: () => Promise.reject(new Error('no engine')),
+        mirrorNow: () => null,
+        loadCostMs: () => null,
+        redact: () => null,
+        applyDocChange: () => {},
+        actor: undefined,
+        canEdit: true,
+        initialOpen: planId,
+        findings: extra.findings ?? null,
+        ...(extra.troubleshoot ? { onTroubleshoot: () => {}, onOpenIssue: () => {} } : {}),
+      });
+      return null;
+    };
+    renderToStaticMarkup(createElement(Probe));
+    const c = controller!;
+    return renderToStaticMarkup(createElement(PlanPanel, { controller: c, plan: c.plan!, besideChecks: false }));
+  }
+
+  function upgrade(): { doc: Document; id: string; steps: string[]; devices: string[] } {
+    const { doc: d0, devices } = lab();
+    let made = createPlan(d0, { title: 'Junos upgrade', gate, ...tick() });
+    const steps: string[] = [];
+    for (const [i, t] of [devices[0], devices[0]].entries()) {
+      const s = addStep(made.doc, made.id, { kind: 'other', change: `step ${i + 1}`, targets: [t], gate, ...tick() });
+      made = { doc: s.doc, id: made.id };
+      steps.push(s.id);
+    }
+    let doc = setIfWhen(made.doc, steps[0], "It isn't back in 15 minutes", { gate, ...tick() });
+    doc = addStep(doc, made.id, { kind: 'other', change: 'Console in, roll back', targets: [devices[1]], branchOf: steps[0], gate, ...tick() }).doc;
+    doc = addCheck(doc, made.id, 'BGP to the ISP is Established', { gate, ...tick() });
+    return { doc, id: made.id, steps, devices };
+  }
+
+  it('while planning: the If path under its step, the checks after the work, and a way to paste release notes', () => {
+    const { doc, id } = upgrade();
+    const html = panelFor(doc, id);
+    expect(html).toContain('data-testid="plans-if"');
+    expect(html).toContain("It isn&#x27;t back in 15 minutes");
+    expect(html).toContain('1a');
+    expect(html).toContain('Console in, roll back');
+    expect(html).toContain('Checks after the work');
+    expect(html).toContain('BGP to the ISP is Established');
+    expect(html).toContain('Paste release notes');
+    // The second step has no If path yet: it offers one.
+    expect(html).toContain('data-testid="plans-add-if"');
+  });
+
+  it('marks the release-note lines that name what the plan touches', () => {
+    const { doc, id, devices } = upgrade();
+    const named = setDeviceField(doc, devices[0], 'hostname', 'srx1500-lab', tick());
+    const html = panelFor(setReleaseNotes(named, id, 'Known issues\nPR1 LACP may flap on SRX1500-lab after upgrade\nPR2 slow web', { gate, ...tick() }), id);
+    expect(html).toContain('data-testid="plans-notes"');
+    expect((html.match(/data-hit="true"/g) ?? []).length).toBe(1);
+    expect(html).toContain('1 line names something this plan touches');
+  });
+
+  it('on the night: a step gone differently offers Troubleshoot and its If path', () => {
+    const { doc, id, steps } = upgrade();
+    let d = startPlan(doc, id, tick());
+    d = markWentDifferently(d, steps[0], { note: 'no ping after reboot', gate, ...tick() });
+    const html = panelFor(d, id, { troubleshoot: true });
+    expect(html).toContain('data-testid="plans-troubleshoot"');
+    expect(html).toContain('Take the If path');
+    // Without It's down on the page, Troubleshoot is not offered.
+    expect(panelFor(d, id)).not.toContain('data-testid="plans-troubleshoot"');
+    const taken = takeIfPath(d, steps[0], tick());
+    const after = panelFor(taken, id, { troubleshoot: true });
+    expect(after).not.toContain('Take the If path');
+    expect(after).toContain('Took the If path: 1a.');
+  });
+
+  it("after the work: Fathom's checks on what it touched, the typed checks, and Record waits on them", () => {
+    const { doc, id, steps, devices } = upgrade();
+    let d = startPlan(doc, id, tick());
+    for (const s of steps) d = markDone(d, s, { check: () => null, ...tick() });
+    const onIt = finding({ title: 'A port on it has no cable', elements: [{ id: devices[0], name: 'it' }] });
+    const elsewhere = finding({ title: 'Somewhere else', elements: [{ id: 'device:01ARZ3NDEKTSV4RRFFQ69G5FAV', name: 'x' }] });
+    const html = panelFor(d, id, { findings: [onIt, elsewhere] });
+    expect(html).toContain('data-testid="plans-after-work"');
+    expect(html).toContain('A port on it has no cable');
+    expect(html).not.toContain('Somewhere else');
+    expect(html).toContain('1 check to answer before Record.');
+    expect(html).toContain('Answer the checks after the work first.');
+    const answered = answerCheck(d, id, 0, 'not_ok', { seen: 'Idle', gate, ...tick() });
+    const next = panelFor(answered, id, { troubleshoot: true });
+    expect(next).not.toContain('to answer before Record');
+    expect(next).toContain('data-testid="plans-check-troubleshoot"');
   });
 });

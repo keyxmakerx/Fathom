@@ -22,10 +22,11 @@ import {
   type DeviceFieldKey,
   type RackFieldKey,
 } from './edit';
-import { addEdge, addNode, begin, finish, foldFrom, setNodeField, tombstone } from './freeform';
+import { addEdge, addNode, begin, clearNodeField, finish, foldFrom, setNodeField, tombstone } from './freeform';
 import {
   UnknownReferenceError,
   asNumber,
+  boolField,
   asString,
   edgesIn,
   edgesOut,
@@ -77,7 +78,10 @@ export type PlanRefusalCode =
   | 'steps-left'
   | 'refused-by-check'
   | 'bad-edit'
-  | 'bad-text';
+  | 'bad-text'
+  | 'checks-left'
+  | 'not-a-check'
+  | 'no-if-path';
 
 export class PlanRefusal extends Error {
   readonly code: PlanRefusalCode;
@@ -451,6 +455,31 @@ export interface PlanStep {
   state: StepState;
   note: string;
   doneAt: string;
+  /** What the person pasted for a check step, after the redaction gate (ADR-0080 decision 5); '' when nothing. */
+  seen: string;
+  /** Fathom's comparison when the paste was kept (`PlanStep.compared`); null when there is none. */
+  compared: { verdict: 'matches' | 'differs' | 'cant_tell'; why: string } | null;
+  /** What the step is called on screen: "3" on the main line, "3a" on step 3's If path (0.33). */
+  label: string;
+  /** On a main-line step with an If path: what would send the work down it. Empty otherwise. */
+  ifWhen: string;
+  /** The main-line step whose If path this step is on; '' on the main line. */
+  branchOf: string;
+  /** On a main-line step: the work went down its If path. */
+  ifTaken: boolean;
+  /** The It's down issue Troubleshoot opened from this step; '' when none. */
+  issue: string;
+}
+
+/** A check after the work (0.33), typed by a person or drafted by an AI. `open` is not answered yet. */
+export type CheckAnswer = 'open' | 'ok' | 'not_ok' | 'cant_tell';
+export const CHECK_ANSWERS: readonly CheckAnswer[] = ['ok', 'not_ok', 'cant_tell'];
+
+export interface AfterCheck {
+  text: string;
+  answer: CheckAnswer;
+  /** What was seen, typed with the answer; may be empty. */
+  seen: string;
 }
 
 export interface Plan {
@@ -462,7 +491,15 @@ export interface Plan {
   stage: PlanStage;
   outcome: PlanOutcome | null;
   record: string;
+  /** The line of work, in the order it is done: the main line, with a taken If path's steps right after its step.
+   * An If path not taken is not here; it is in `ifPaths` only. */
   steps: PlanStep[];
+  /** Every If path, by the id of the main-line step it hangs from, in its own order (0.33). */
+  ifPaths: Readonly<Record<string, PlanStep[]>>;
+  /** The checks after the work, in order (0.33). */
+  checks: AfterCheck[];
+  /** Release notes or a changelog pasted onto the plan (0.33); '' when none. */
+  releaseNotes: string;
 }
 
 const str = (n: GraphNode, key: string): string => asString(fieldValue(n.fields, key)) ?? '';
@@ -475,12 +512,21 @@ function live(doc: Document, id: string, kind: 'MaintenancePlan' | 'PlanStep'): 
   return n;
 }
 
+const VERDICTS = ['matches', 'differs', 'cant_tell'] as const;
+
+function readCompared(line: string): PlanStep['compared'] {
+  const i = line.indexOf('\t');
+  const verdict = (i < 0 ? line : line.slice(0, i)) as (typeof VERDICTS)[number];
+  return VERDICTS.includes(verdict) ? { verdict, why: i < 0 ? '' : line.slice(i + 1) } : null;
+}
+
 function readStep(n: GraphNode): PlanStep {
   const edit = decodeEdit(str(n, 'PlanStep.edit'));
   const typed = str(n, 'PlanStep.targets');
+  const ordinal = asNumber(fieldValue(n.fields, 'PlanStep.ordinal')) ?? 0;
   return {
     id: n.id,
-    ordinal: asNumber(fieldValue(n.fields, 'PlanStep.ordinal')) ?? 0,
+    ordinal,
     kind: (str(n, 'PlanStep.kind') || 'other') as StepKind,
     change: str(n, 'PlanStep.change'),
     before: str(n, 'PlanStep.before'),
@@ -490,20 +536,78 @@ function readStep(n: GraphNode): PlanStep {
     state: (str(n, 'PlanStep.state') || 'planned') as StepState,
     note: str(n, 'PlanStep.note'),
     doneAt: str(n, 'PlanStep.done_at'),
+    label: String(ordinal + 1),
+    ifWhen: str(n, 'PlanStep.if_when'),
+    branchOf: str(n, 'PlanStep.branch_of'),
+    ifTaken: fieldValue(n.fields, 'PlanStep.if_taken') === true,
+    issue: str(n, 'PlanStep.issue'),
+    seen: str(n, 'PlanStep.seen'),
+    compared: readCompared(str(n, 'PlanStep.compared')),
   };
 }
 
-export function planSteps(doc: Document, planId: string): PlanStep[] {
+/** Every step of the plan, either line, unordered. */
+function everyStep(doc: Document, planId: string): PlanStep[] {
   return edgesOut(doc, planId, 'HasStep')
     .map((e) => findNode(doc, e.to))
     .filter((n): n is GraphNode => n !== undefined && n.absentSince === undefined)
-    .map(readStep)
-    .sort((a, b) => a.ordinal - b.ordinal);
+    .map(readStep);
+}
+
+const byOrdinal = (a: PlanStep, b: PlanStep): number => a.ordinal - b.ordinal;
+
+/** The If-path letter for a position in it: a, b, ... z, then aa. */
+function pathLetter(i: number): string {
+  return i < 26 ? String.fromCharCode(97 + i) : `${pathLetter(Math.floor(i / 26) - 1)}${pathLetter(i % 26)}`;
+}
+
+/** The main line and the If paths. A step whose If path names no live main-line step is read on the main line. */
+function lines(steps: readonly PlanStep[]): { main: PlanStep[]; paths: Record<string, PlanStep[]> } {
+  const mainIds = new Set(steps.filter((s) => s.branchOf === '').map((s) => s.id));
+  const main = steps.filter((s) => !mainIds.has(s.branchOf)).sort(byOrdinal);
+  const paths: Record<string, PlanStep[]> = {};
+  for (const s of steps) if (mainIds.has(s.branchOf)) (paths[s.branchOf] ??= []).push(s);
+  main.forEach((s, i) => {
+    s.label = String(i + 1);
+    if (s.branchOf !== '') s.branchOf = '';
+    (paths[s.id] ?? []).sort(byOrdinal).forEach((b, j) => {
+      b.label = `${i + 1}${pathLetter(j)}`;
+    });
+  });
+  return { main, paths };
+}
+
+/** The main line's steps in order: what the add, move and remove commands count. */
+export function planSteps(doc: Document, planId: string): PlanStep[] {
+  return lines(everyStep(doc, planId)).main;
+}
+
+/** The steps of the If path under `stepId`, in order. */
+function pathSteps(doc: Document, planId: string, stepId: string): PlanStep[] {
+  return lines(everyStep(doc, planId)).paths[stepId] ?? [];
+}
+
+/** `checks` (0.33): one per line, tab-separated answer, check, what was seen. A line that does not read is left out. */
+export function decodeChecks(raw: string): AfterCheck[] {
+  if (raw === '') return [];
+  return raw.split('\n').flatMap((line): AfterCheck[] => {
+    const [answer, check = '', seen = ''] = line.split('\t');
+    if (check.trim() === '' || !(['open', ...CHECK_ANSWERS] as string[]).includes(answer)) return [];
+    return [{ answer: answer as CheckAnswer, text: check, seen }];
+  });
+}
+
+/** One line of text with no tab: what a check or its note is stored as. */
+const flat = (t: string): string => t.replace(/[\t\r\n]+/g, ' ').trim();
+
+export function encodeChecks(checks: readonly AfterCheck[]): string {
+  return checks.map((c) => [c.answer, flat(c.text), flat(c.seen)].join('\t')).join('\n');
 }
 
 export function readPlan(doc: Document, id: string): Plan {
   const n = live(doc, id, 'MaintenancePlan');
   const outcome = str(n, 'MaintenancePlan.outcome');
+  const { main, paths } = lines(everyStep(doc, id));
   return {
     id,
     title: str(n, 'MaintenancePlan.title'),
@@ -513,7 +617,10 @@ export function readPlan(doc: Document, id: string): Plan {
     stage: (str(n, 'MaintenancePlan.stage') || 'planned') as PlanStage,
     outcome: outcome === '' ? null : (outcome as PlanOutcome),
     record: str(n, 'MaintenancePlan.record'),
-    steps: planSteps(doc, id),
+    steps: main.flatMap((s) => (s.ifTaken && paths[s.id] ? [s, ...paths[s.id]] : [s])),
+    ifPaths: paths,
+    checks: decodeChecks(str(n, 'MaintenancePlan.checks')),
+    releaseNotes: str(n, 'MaintenancePlan.release_notes'),
   };
 }
 
@@ -530,9 +637,19 @@ export function currentStep(plan: Plan): PlanStep | null {
   return plan.steps.find((s) => s.state === 'planned') ?? null;
 }
 
-/** Everything a plan touches, once each, in step order. */
+/** Everything a plan touches, once each, in step order: the line of work, so an If path only once it is taken. */
 export function touchedBy(plan: Plan): string[] {
   return [...new Set(plan.steps.flatMap((s) => s.targets))];
+}
+
+/** Everything the plan could touch, If paths too: what planning shows before the night. */
+export function couldTouch(plan: Plan): string[] {
+  return [...new Set(plan.steps.flatMap((s) => [...s.targets, ...(plan.ifPaths[s.id] ?? []).flatMap((b) => b.targets)]))];
+}
+
+/** Typed checks still to answer: Record waits on these. */
+export function checksLeft(plan: Pick<Plan, 'checks'>): number {
+  return plan.checks.filter((c) => c.answer === 'open').length;
 }
 
 /** Recorded plans that touched `elementId`, newest first: what a thing's History shows. */
@@ -544,12 +661,13 @@ export function recordedPlansTouching(doc: Document, elementId: string): Plan[] 
 export function planProblems(plan: Plan): string[] {
   const out: string[] = [];
   let sawPlanned = false;
-  const ordinals = new Set<number>();
+  const ordinals = new Set<string>();
   for (const s of plan.steps) {
-    if (ordinals.has(s.ordinal)) out.push(`two steps are numbered ${s.ordinal + 1}`);
-    ordinals.add(s.ordinal);
+    const at = `${s.branchOf}|${s.ordinal}`;
+    if (ordinals.has(at)) out.push(`two steps are numbered ${s.label}`);
+    ordinals.add(at);
     if (s.state === 'planned') sawPlanned = true;
-    else if (sawPlanned) out.push(`step ${s.ordinal + 1} is marked ${s.state.replace('_', ' ')} before an earlier step`);
+    else if (sawPlanned) out.push(`step ${s.label} is marked ${s.state.replace('_', ' ')} before an earlier step`);
   }
   if (plan.stage === 'planned' && plan.steps.some((s) => s.state !== 'planned')) out.push('a step is marked before the plan started');
   if (plan.stage === 'recorded' && plan.steps.some((s) => s.state === 'planned')) out.push('the plan is recorded with steps left');
@@ -636,6 +754,8 @@ export interface AddStepOptions extends Actor {
   edit?: StepEdit;
   /** Design ids when there is no edit to read them from. */
   targets?: readonly string[];
+  /** Put the step on the If path of this main-line step (0.33), at its end. */
+  branchOf?: string;
   gate: TextGate;
 }
 
@@ -644,7 +764,11 @@ export function addStep(doc: Document, planId: string, opts: AddStepOptions): { 
   if (!STEP_KINDS.includes(opts.kind)) throw new PlanRefusal('bad-edit', `"${opts.kind}" is not a kind of step`);
   const change = gated(opts.gate, opts.change, 'the step').trim();
   if (change === '') throw new PlanRefusal('bad-text', 'a step needs words saying what changes');
-  const steps = planSteps(doc, planId);
+  const branchOf = opts.branchOf ?? '';
+  if (branchOf !== '' && !planSteps(doc, planId).some((s) => s.id === branchOf)) {
+    throw new PlanRefusal('no-if-path', 'an If path hangs from a step on the main line of this plan');
+  }
+  const steps = branchOf === '' ? planSteps(doc, planId) : pathSteps(doc, planId, branchOf);
   const fields: Record<string, ReturnType<typeof text>> = {
     'PlanStep.ordinal': uint(steps.length === 0 ? 0 : steps[steps.length - 1].ordinal + 1, 32),
     'PlanStep.kind': token(opts.kind),
@@ -667,10 +791,57 @@ export function addStep(doc: Document, planId: string, opts: AddStepOptions): { 
     }
     if (targets.length > 0) fields['PlanStep.targets'] = text(targets.join('\n'));
   }
+  if (branchOf !== '') fields['PlanStep.branch_of'] = text(branchOf);
   const b = begin(doc, opts);
   const id = addNode(b, 'PlanStep', fields);
   addEdge(b, 'HasStep', planId, id);
-  return { doc: finish(b, 'add step'), id };
+  return { doc: finish(b, branchOf === '' ? 'add step' : 'add step to the If path'), id };
+}
+
+/** The line a step is on: the main line, or the If path it belongs to, in order. */
+function lineOf(doc: Document, planId: string, stepId: string): PlanStep[] {
+  const { main, paths } = lines(everyStep(doc, planId));
+  if (main.some((s) => s.id === stepId)) return main;
+  return Object.values(paths).find((p) => p.some((s) => s.id === stepId)) ?? [];
+}
+
+/**
+ * What would send the work down a main-line step's If path (0.33), while planning. Empty takes the words away, which
+ * is refused while the path still holds steps: one If path per step, and never a path with no reason.
+ */
+export function setIfWhen(doc: Document, stepId: string, when: string, opts: Actor & { gate: TextGate }): Document {
+  const planId = planOf(doc, stepId);
+  requirePlanning(doc, planId);
+  if (!planSteps(doc, planId).some((s) => s.id === stepId)) {
+    throw new PlanRefusal('no-if-path', 'a step on an If path cannot have an If path of its own');
+  }
+  const words = flat(gated(opts.gate, when, 'the If'));
+  const b = begin(doc, opts);
+  if (words === '') {
+    if (pathSteps(doc, planId, stepId).length > 0) throw new PlanRefusal('no-if-path', "remove the If path's steps first");
+    clearNodeField(b, stepId, 'PlanStep.if_when');
+  } else {
+    setNodeField(b, stepId, 'PlanStep.if_when', text(words));
+  }
+  return finish(b, words === '' ? 'remove If path' : 'set If path');
+}
+
+/** On the night (0.33): a step that went differently has an If path, and the work goes down it. Its steps come next. */
+export function takeIfPath(doc: Document, stepId: string, opts?: Actor): Document {
+  const planId = planOf(doc, stepId);
+  const plan = readPlan(doc, planId);
+  if (plan.stage === 'recorded') throw new PlanRefusal('recorded', 'this plan is recorded and cannot change');
+  if (plan.stage !== 'doing') throw new PlanRefusal('not-doing', 'start the work before taking an If path');
+  const step = plan.steps.find((s) => s.id === stepId);
+  const path = plan.ifPaths[stepId] ?? [];
+  if (!step || step.branchOf !== '' || path.length === 0) throw new PlanRefusal('no-if-path', 'this step has no If path');
+  if (step.ifTaken) throw new PlanRefusal('step-done', 'the If path was already taken');
+  if (step.state !== 'went_differently') throw new PlanRefusal('out-of-order', 'mark the step Went differently first');
+  const after = plan.steps.slice(plan.steps.indexOf(step) + 1);
+  if (after.some((s) => s.state !== 'planned')) throw new PlanRefusal('out-of-order', 'a later step is already marked');
+  const b = begin(doc, opts);
+  setNodeField(b, stepId, 'PlanStep.if_taken', boolField(true));
+  return finish(b, truncateUtf8(`${plan.title}: took step ${step.label}'s If path`));
 }
 
 function renumber(b: ReturnType<typeof begin>, ordered: readonly PlanStep[]): void {
@@ -686,13 +857,15 @@ function planOf(doc: Document, stepId: string): string {
   return edge.from;
 }
 
+/** Removes a step while planning. A main-line step takes its If path with it. */
 export function removeStep(doc: Document, stepId: string, opts?: Actor): Document {
   const planId = planOf(doc, stepId);
   requirePlanning(doc, planId);
+  const gone = [stepId, ...pathSteps(doc, planId, stepId).map((s) => s.id)];
   const b = begin(doc, opts);
-  const edge = edgesIn(doc, stepId, 'HasStep')[0]!;
-  tombstone(b, new Set([stepId]), new Set([edge.id]));
-  renumber(b, planSteps(doc, planId).filter((s) => s.id !== stepId));
+  const edges = gone.map((id) => edgesIn(doc, id, 'HasStep')[0]!.id);
+  tombstone(b, new Set(gone), new Set(edges));
+  renumber(b, lineOf(doc, planId, stepId).filter((s) => s.id !== stepId));
   return finish(b, 'remove step');
 }
 
@@ -700,7 +873,7 @@ export function removeStep(doc: Document, stepId: string, opts?: Actor): Documen
 export function moveStep(doc: Document, stepId: string, index: number, opts?: Actor): Document {
   const planId = planOf(doc, stepId);
   requirePlanning(doc, planId);
-  const steps = planSteps(doc, planId);
+  const steps = lineOf(doc, planId, stepId);
   const from = steps.findIndex((s) => s.id === stepId);
   const to = Math.max(0, Math.min(steps.length - 1, index));
   if (from === to) return doc;
@@ -726,10 +899,11 @@ function requireTurn(doc: Document, stepId: string): { plan: Plan; step: PlanSte
   const plan = readPlan(doc, planId);
   if (plan.stage === 'recorded') throw new PlanRefusal('recorded', 'this plan is recorded and cannot change');
   if (plan.stage !== 'doing') throw new PlanRefusal('not-doing', 'start the work before marking a step');
-  const step = plan.steps.find((s) => s.id === stepId)!;
+  const step = plan.steps.find((s) => s.id === stepId);
+  if (!step) throw new PlanRefusal('no-if-path', "this step is on an If path that was not taken");
   // A second person marking the same step meets this: it is no longer planned.
   if (step.state !== 'planned') throw new PlanRefusal('step-done', 'this step was already marked');
-  if (plan.steps.some((s) => s.ordinal < step.ordinal && s.state === 'planned')) {
+  if (plan.steps.slice(0, plan.steps.indexOf(step)).some((s) => s.state === 'planned')) {
     throw new PlanRefusal('out-of-order', 'an earlier step is still to do');
   }
   return { plan, step };
@@ -775,7 +949,7 @@ export function markDone(doc: Document, stepId: string, opts: MarkDoneOptions): 
   const b = begin(applied, { actor: opts.actor, now });
   setNodeField(b, stepId, 'PlanStep.state', token('done'));
   setNodeField(b, stepId, 'PlanStep.done_at', text(new Date(now).toISOString()));
-  return relabelLast(finish(b, 'mark step'), from, truncateUtf8(`${plan.title}: step ${step.ordinal + 1} done`));
+  return relabelLast(finish(b, 'mark step'), from, truncateUtf8(`${plan.title}: step ${step.label} done`));
 }
 
 export interface WentDifferentlyOptions extends Actor {
@@ -793,7 +967,149 @@ export function markWentDifferently(doc: Document, stepId: string, opts: WentDif
   setNodeField(b, stepId, 'PlanStep.state', token('went_differently'));
   setNodeField(b, stepId, 'PlanStep.note', text(note));
   setNodeField(b, stepId, 'PlanStep.done_at', text(new Date(now).toISOString()));
-  return finish(b, truncateUtf8(`${plan.title}: step ${step.ordinal + 1} went differently`));
+  return finish(b, truncateUtf8(`${plan.title}: step ${step.label} went differently`));
+}
+
+// ---------------------------------------------------------------------------
+// Checks after the work, release notes, and the issue a step opened (0.33, sign-off r73-plan-flow)
+
+function requireOpen(doc: Document, planId: string): Plan {
+  const plan = readPlan(doc, planId);
+  if (plan.stage === 'recorded') throw new PlanRefusal('recorded', 'this plan is recorded and cannot change');
+  return plan;
+}
+
+function writeChecks(doc: Document, planId: string, checks: readonly AfterCheck[], label: string, opts?: Actor): Document {
+  const b = begin(doc, opts);
+  if (checks.length === 0) clearNodeField(b, planId, 'MaintenancePlan.checks');
+  else setNodeField(b, planId, 'MaintenancePlan.checks', text(encodeChecks(checks)));
+  return finish(b, label);
+}
+
+/** A check after the work, at the end of the list. While planning or during the work, by a person or an AI's plan. */
+export function addCheck(doc: Document, planId: string, check: string, opts: Actor & { gate: TextGate }): Document {
+  const plan = requireOpen(doc, planId);
+  const words = flat(gated(opts.gate, check, 'the check'));
+  if (words === '') throw new PlanRefusal('bad-text', 'a check needs words saying what to look at');
+  return writeChecks(doc, planId, [...plan.checks, { text: words, answer: 'open', seen: '' }], 'add check', opts);
+}
+
+/** Several checks at once (a firmware plan's own), each as given; blank ones are left out. One undo step. */
+export function addChecks(doc: Document, planId: string, checks: readonly string[], opts: Actor & { gate: TextGate }): Document {
+  const plan = requireOpen(doc, planId);
+  const words = checks.map((c) => flat(gated(opts.gate, c, 'the check'))).filter((c) => c !== '' && !plan.checks.some((x) => x.text === c));
+  if (words.length === 0) return doc;
+  return writeChecks(doc, planId, [...plan.checks, ...words.map((t): AfterCheck => ({ text: t, answer: 'open', seen: '' }))], 'add checks', opts);
+}
+
+export function removeCheck(doc: Document, planId: string, index: number, opts?: Actor): Document {
+  const plan = requireOpen(doc, planId);
+  if (!plan.checks[index]) throw new PlanRefusal('not-a-check', 'that check is not on this plan');
+  return writeChecks(doc, planId, plan.checks.filter((_, i) => i !== index), 'remove check', opts);
+}
+
+/** Answers a check once the work is under way: OK, Not OK or Can't tell, with what was seen. Answering again replaces it. */
+export function answerCheck(
+  doc: Document,
+  planId: string,
+  index: number,
+  answer: CheckAnswer,
+  opts: Actor & { seen?: string; gate: TextGate },
+): Document {
+  const plan = requireOpen(doc, planId);
+  if (plan.stage !== 'doing') throw new PlanRefusal('not-doing', 'checks are answered once the work has started');
+  const had = plan.checks[index];
+  if (!had) throw new PlanRefusal('not-a-check', 'that check is not on this plan');
+  if (!CHECK_ANSWERS.includes(answer)) throw new PlanRefusal('bad-edit', `"${answer}" is not an answer`);
+  const seen = opts.seen === undefined ? had.seen : flat(gated(opts.gate, opts.seen, 'what was seen'));
+  const next = plan.checks.map((c, i) => (i === index ? { ...c, answer, seen } : c));
+  return writeChecks(doc, planId, next, truncateUtf8(`${plan.title}: check answered`), opts);
+}
+
+/** Release notes or a changelog pasted onto the plan; '' takes them off. The caller passes the real gate for a paste. */
+export function setReleaseNotes(doc: Document, planId: string, notes: string, opts: Actor & { gate: TextGate }): Document {
+  requireOpen(doc, planId);
+  const kept = gated(opts.gate, notes, 'the release notes').replace(/\r\n?/g, '\n').trim();
+  const b = begin(doc, opts);
+  if (kept === '') clearNodeField(b, planId, 'MaintenancePlan.release_notes');
+  else setNodeField(b, planId, 'MaintenancePlan.release_notes', text(kept));
+  return finish(b, kept === '' ? 'remove release notes' : 'release notes');
+}
+
+/** Ties a step to the It's down issue Troubleshoot opened from it. The issue says the step back (`Issue.step`). */
+export function linkStepIssue(doc: Document, stepId: string, issueId: string, opts?: Actor): Document {
+  const planId = planOf(doc, stepId);
+  requireOpen(doc, planId);
+  if (nodeKindOf(issueId) !== 'Issue' || !liveNode(doc, issueId)) throw new PlanRefusal('bad-edit', 'that issue is not in the design');
+  const b = begin(doc, opts);
+  setNodeField(b, stepId, 'PlanStep.issue', text(issueId));
+  return finish(b, 'link issue');
+}
+
+/** The words a person would look for in release notes: what the plan touches, by the names people use, and versions. */
+export function noteWords(doc: Document, plan: Plan): string[] {
+  const out = new Set<string>();
+  const add = (w: string | undefined) => {
+    const t = (w ?? '').trim();
+    if (t.length >= 2) out.add(t);
+  };
+  for (const id of couldTouch(plan)) {
+    const n = findNode(doc, id);
+    if (!n || n.absentSince !== undefined) continue;
+    const kind = nodeKindOf(id) ?? '';
+    for (const key of ['Device.hostname', 'PhysicalPort.label', `${kind}.name`, 'Chassis.model', 'Card.model']) add(asString(fieldValue(n.fields, key)));
+    // A device's interfaces are what release notes name (ae0, ge-0/0/1).
+    if (kind === 'Device') {
+      for (const e of edgesOut(doc, id, 'HasInterface')) {
+        const i = findNode(doc, e.to);
+        if (i && i.absentSince === undefined) add(asString(fieldValue(i.fields, `${parseNodeId(i.id).kind}.name`)));
+      }
+    }
+  }
+  for (const s of plan.steps) for (const v of `${s.change}\n${s.after}`.match(/\b\d+(?:\.\d+)+[A-Za-z0-9.-]*\b/g) ?? []) add(v);
+  return [...out];
+}
+
+/** The release-note lines that name one of `words`, as whole words, ignoring case: what the box marks. */
+export function markedNoteLines(notes: string, words: readonly string[]): { line: number; words: string[] }[] {
+  if (notes === '' || words.length === 0) return [];
+  const esc = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return notes.split('\n').flatMap((line, i) => {
+    const hit = words.filter((w) => new RegExp(`(^|[^A-Za-z0-9_/-])${esc(w)}($|[^A-Za-z0-9_/-])`, 'i').test(line));
+    return hit.length > 0 ? [{ line: i, words: hit }] : [];
+  });
+}
+
+/** A check step's paste is the device's answer, not a novel: past this it is refused, and the person keeps the lines that matter. */
+export const MAX_SEEN = 32_000;
+
+export interface SeenOptions extends Actor {
+  /** What the device answered, as pasted or fetched. It always meets the real gate: it is device output. */
+  seen: string;
+  /**
+   * Fathom's comparison, worked out in the browser from the paste BEFORE the gate: the gate removes long
+   * hex values, a file's hash among them, so a hash can only be compared there. Nothing ungated is kept;
+   * the why passes the gate too.
+   */
+  compared: NonNullable<PlanStep['compared']>;
+  gate: TextGate;
+}
+
+/**
+ * Keeps what the person saw for the current step (ADR-0080 decision 5), after the redaction gate. It marks
+ * nothing: the person still marks Done or Went differently. A second paste replaces the first.
+ */
+export function setSeen(doc: Document, stepId: string, opts: SeenOptions): Document {
+  const { plan, step } = requireTurn(doc, stepId);
+  if (opts.seen.length > MAX_SEEN) throw new PlanRefusal('bad-text', 'that paste is too long to keep; paste only the lines the check needs');
+  const seen = gated(opts.gate, opts.seen, 'the paste').replace(/\s+$/, '');
+  if (seen.trim() === '') throw new PlanRefusal('bad-text', 'paste what the device answered');
+  if (!VERDICTS.includes(opts.compared.verdict)) throw new PlanRefusal('bad-text', 'that is not a comparison');
+  const why = gated(opts.gate, opts.compared.why, 'the comparison').replace(/[\t\n]+/g, ' ').trim();
+  const b = begin(doc, opts);
+  setNodeField(b, stepId, 'PlanStep.seen', text(seen));
+  setNodeField(b, stepId, 'PlanStep.compared', text(`${opts.compared.verdict}\t${why}`));
+  return finish(b, truncateUtf8(`${plan.title}: step ${step.ordinal + 1}, what the device said`));
 }
 
 export interface RecordOptions extends Actor {
@@ -809,6 +1125,7 @@ export function recordPlan(doc: Document, planId: string, opts: RecordOptions): 
   if (plan.stage === 'recorded') throw new PlanRefusal('recorded', 'this plan is recorded and cannot change');
   if (plan.stage !== 'doing') throw new PlanRefusal('not-doing', 'start the work before recording it');
   if (plan.steps.some((s) => s.state === 'planned')) throw new PlanRefusal('steps-left', 'mark every step before recording');
+  if (checksLeft(plan) > 0) throw new PlanRefusal('checks-left', 'answer every check after the work before recording');
   if (!OUTCOMES.includes(opts.outcome)) throw new PlanRefusal('bad-edit', `"${opts.outcome}" is not an outcome`);
   const b = begin(doc, opts);
   setNodeField(b, planId, 'MaintenancePlan.stage', token('recorded'));
@@ -885,7 +1202,7 @@ function priorPart(doc: Document, id: string): { model: string; serial: string }
 
 /** The reverse of one marked step, read against the design as it is now. */
 export function reverseOf(doc: Document, step: PlanStep): ReverseStep {
-  const n = step.ordinal + 1;
+  const n = step.label;
   const words = firstLineOf(step.change);
   if (step.state === 'went_differently') {
     return { kind: 'other', change: `Check step ${n}, it went differently: ${words}`, before: step.note, after: step.before, targets: step.targets.filter((t) => liveNode(doc, t)) };
@@ -953,7 +1270,7 @@ function firstLineOf(s: string): string {
 export function backOutSteps(doc: Document, plan: Plan): ReverseStep[] {
   return plan.steps
     .filter((s) => s.state !== 'planned' && !(s.state === 'went_differently' && s.note === BACKED_OUT_NOTE))
-    .sort((a, b) => b.ordinal - a.ordinal)
+    .reverse()
     .map((s) => reverseOf(doc, s));
 }
 

@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 
 import { TypedSentence, usePasteMark } from './PlanParts';
 import { LIST_TOGGLE_ID, STAGE_WORD, bandSentence } from './plansModel';
+import type { Plan } from '../../document/plans';
 import type { PlansController } from './usePlansController';
 // The stage tokens (--m-plan, --m-do and their washes) live with the canvas marks.
 import '../drawing/plans-canvas.css';
@@ -25,22 +26,24 @@ export function PlansBarChip({ controller }: { controller: PlansController }) {
   );
 }
 
-function NewPlanForm({ controller, onDone }: { controller: PlansController; onDone: () => void }) {
+/** Makes a plan; given `editing`, changes that plan's title and window instead (it is still being planned). */
+function NewPlanForm({ controller, onDone, editing }: { controller: PlansController; onDone: () => void; editing?: Plan }) {
   const id = useId();
-  const [title, setTitle] = useState('');
-  const [start, setStart] = useState('');
-  const [end, setEnd] = useState('');
+  const [title, setTitle] = useState(editing?.title ?? '');
+  const [start, setStart] = useState(editing?.windowStart ?? '');
+  const [end, setEnd] = useState(editing?.windowEnd ?? '');
   const [busy, setBusy] = useState(false);
   const paste = usePasteMark();
   return (
     <form
       className="plans-new"
-      data-testid="plans-new"
+      data-testid={editing ? 'plans-edit' : 'plans-new'}
       onSubmit={(e) => {
         e.preventDefault();
         if (title.trim() === '' || busy) return;
         setBusy(true);
-        void controller.create({ title, windowStart: start, windowEnd: end }, paste.pasted).then((ok) => {
+        const head = { title, windowStart: start, windowEnd: end };
+        void (editing ? controller.editHead(head, paste.pasted) : controller.create(head, paste.pasted)).then((ok) => {
           setBusy(false);
           if (ok) onDone();
         });
@@ -54,7 +57,7 @@ function NewPlanForm({ controller, onDone }: { controller: PlansController; onDo
       <label htmlFor={`${id}-e`}>To</label>
       <input id={`${id}-e`} className="plans-input" type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} />
       <button type="submit" className="plans-btn btn-main" disabled={title.trim() === '' || busy}>
-        Make plan
+        {editing ? 'Save' : 'Make plan'}
       </button>
       <button type="button" className="plans-btn" onClick={onDone}>
         Cancel
@@ -63,9 +66,14 @@ function NewPlanForm({ controller, onDone }: { controller: PlansController; onDo
   );
 }
 
-export function PlanBand({ controller }: { controller: PlansController }) {
+/**
+ * `onOpenAiIdeas`: there is no AI mode to switch to. A person makes a plan with New plan; an AI app drafts one
+ * as an AI idea, which a person accepts. With no plan open the band says so, and this opens the ideas.
+ */
+export function PlanBand({ controller, onOpenAiIdeas }: { controller: PlansController; onOpenAiIdeas?: () => void }) {
   const { plan, plans } = controller;
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(false);
   const pickId = useId();
   const newBtn = useRef<HTMLButtonElement>(null);
   const openBtn = useRef<HTMLButtonElement>(null);
@@ -96,7 +104,18 @@ export function PlanBand({ controller }: { controller: PlansController }) {
               {sentence !== '' && <span className="plans-band__sentence"> · {sentence}</span>}
             </>
           ) : (
-            'No plan open. Plans mark changes before they are made.'
+            <>
+              No plan open. Make one yourself with New plan, or right-click a device and choose Plan a change. A plan an AI app drafts
+              arrives as an AI idea for you to accept.
+              {onOpenAiIdeas && (
+                <>
+                  {' '}
+                  <button type="button" className="plans-link" onClick={onOpenAiIdeas} data-testid="plans-ai-ideas">
+                    AI ideas
+                  </button>
+                </>
+              )}
+            </>
           )}
         </span>
         <span className="plans-band__tools">
@@ -117,7 +136,16 @@ export function PlanBand({ controller }: { controller: PlansController }) {
             </select>
           </label>
           {controller.canEdit && (
-            <button ref={newBtn} type="button" className="plans-btn" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
+            <button
+              ref={newBtn}
+              type="button"
+              className="plans-btn"
+              aria-expanded={creating}
+              onClick={() => {
+                setEditing(false);
+                setCreating((c) => !c);
+              }}
+            >
               New plan
             </button>
           )}
@@ -125,6 +153,20 @@ export function PlanBand({ controller }: { controller: PlansController }) {
           {!plan && (
             <button type="button" className="plans-btn" onClick={() => controller.setBandOpen(false)} data-testid="plans-band-close">
               Close
+            </button>
+          )}
+          {plan && plan.stage === 'planned' && controller.canEdit && (
+            <button
+              type="button"
+              className="plans-btn"
+              aria-expanded={editing}
+              onClick={() => {
+                setCreating(false);
+                setEditing((v) => !v);
+              }}
+              data-testid="plans-edit-head"
+            >
+              Edit title and time
             </button>
           )}
           {plan && (
@@ -153,6 +195,9 @@ export function PlanBand({ controller }: { controller: PlansController }) {
         </span>
       </div>
       {creating && <NewPlanForm controller={controller} onDone={() => setCreating(false)} />}
+      {editing && plan && plan.stage === 'planned' && !creating && (
+        <NewPlanForm key={plan.id} controller={controller} editing={plan} onDone={() => setEditing(false)} />
+      )}
       {controller.notice != null && controller.plan == null && (
         <p className="plans-notice" role="alert">
           {controller.notice}

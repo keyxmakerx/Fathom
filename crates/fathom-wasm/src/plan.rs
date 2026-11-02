@@ -129,25 +129,63 @@ pub struct Step {
     pub edit: Edit,
 }
 
-/// The plan's steps still `planned`, in order. Done steps are already in the estate.
+/// The plan's steps still `planned`, in the order the work does them. Done steps are already in the estate.
+///
+/// An If path (schema 0.33) is not on that line until it is taken: a step whose `branch_of` names a main-line
+/// step comes right after that step, in its own `ordinal` order, only when the main-line step has `if_taken`.
+/// A `branch_of` naming no live main-line step of this plan reads as the main line, as the client reads it.
 pub fn planned_steps(g: &Graph, plan: NodeId) -> Vec<Step> {
-    let mut out: Vec<Step> = g
+    let ordinal = |n: NodeId| -> u32 {
+        field_text(g, n, PlanStepField::Ordinal.key())
+            .and_then(|t| t.parse().ok())
+            .unwrap_or(u32::MAX)
+    };
+    let all: Vec<NodeId> = g
         .out(plan, EdgeKind::HasStep)
         .filter(|e| e.absent_since.is_none())
         .filter_map(|e| g.node(e.to).filter(|n| n.absent_since.is_none()))
-        .filter(|n| field_text(g, n.id, PlanStepField::State.key()).as_deref() == Some("planned"))
-        .map(|n| Step {
-            id: n.id,
-            ordinal: field_text(g, n.id, PlanStepField::Ordinal.key())
-                .and_then(|t| t.parse().ok())
-                .unwrap_or(u32::MAX),
-            edit: field_text(g, n.id, PlanStepField::Edit.key())
+        .map(|n| n.id)
+        .collect();
+    // The main-line step a step's If path hangs from, when it names one of this plan's main-line steps.
+    let parent_of = |n: NodeId| -> Option<NodeId> {
+        let text = field_text(g, n, PlanStepField::BranchOf.key())?;
+        match fathom_inventory::parse_display_id(g, &text)? {
+            fathom_graph::ElementId::Node(p) => Some(p),
+            fathom_graph::ElementId::Edge(_) => None,
+        }
+    };
+    let main: std::collections::BTreeSet<NodeId> = all
+        .iter()
+        .copied()
+        .filter(|n| parent_of(*n).is_none_or(|p| !all.contains(&p)))
+        .collect();
+    let mut keyed: Vec<((u32, u32, u32), NodeId)> = Vec::with_capacity(all.len());
+    for n in &all {
+        match parent_of(*n).filter(|p| main.contains(p) && !main.contains(n)) {
+            None => keyed.push(((ordinal(*n), 0, 0), *n)),
+            Some(p) => {
+                let taken =
+                    field_text(g, p, PlanStepField::IfTaken.key()).as_deref() == Some("true");
+                if taken {
+                    keyed.push(((ordinal(p), 1, ordinal(*n)), *n));
+                }
+            }
+        }
+    }
+    keyed.sort_by_key(|(k, _)| *k);
+    keyed
+        .into_iter()
+        .filter(|(_, n)| {
+            field_text(g, *n, PlanStepField::State.key()).as_deref() == Some("planned")
+        })
+        .map(|((k, _, _), n)| Step {
+            id: n,
+            ordinal: k,
+            edit: field_text(g, n, PlanStepField::Edit.key())
                 .map(|t| Edit::parse(&t))
                 .unwrap_or(Edit::None),
         })
-        .collect();
-    out.sort_by_key(|s| s.ordinal);
-    out
+        .collect()
 }
 
 fn live(g: &Graph, display: &str) -> Option<NodeId> {

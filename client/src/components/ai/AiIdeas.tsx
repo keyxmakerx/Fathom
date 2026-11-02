@@ -131,7 +131,12 @@ export function AiIdeasPanel({ organisationId, designId, state, nameOf, onShow, 
           {error}
         </p>
       )}
-      {state.open.length === 0 && <p className="ai-muted">Nothing waiting.</p>}
+      {state.open.length === 0 && (
+        <p className="ai-muted" data-testid="ai-ideas-empty">
+          Nothing waiting. Ideas come from an AI app someone has connected, under Steward › AI. Ask it to draft a plan or a change
+          for this design, and it lands here for a person to accept.
+        </p>
+      )}
       {state.open.map((idea) => (
         <article key={idea.id} className="ai-idea">
           <div className="ai-idea__by">

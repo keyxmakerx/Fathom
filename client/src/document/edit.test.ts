@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { CatalogueModel } from '../api/catalogue';
 import { createRack, createShelf, placeChassis, UnknownReferenceError } from './commands';
-import { DEVICE_ROLES, FieldValueError, isIpAddr, setChassisField, setDeviceField, setPassiveNodeField, setPortMac, setRackField } from './edit';
+import { DEVICE_ROLES, FieldValueError, isIpAddr, setChassisField, setDeviceField, setPassiveNodeField, setPortConsoleBaud, setPortMac, setRackField } from './edit';
 import { edgesIn, emptyDocument, findNode, formatNodeId, readPassiveNodeFields, readRackFields, type Document } from './model';
 import { newUlid } from './ulid';
 
@@ -315,5 +315,22 @@ describe('setPortMac (schema 0.21)', () => {
     expect(read(find(setPortMac(set, portId, null), portId)!).mac).toBeUndefined();
     expect(() => setPortMac(doc, portId, '3c:22:fb')).toThrow(FieldValueError);
     expect(() => setPortMac(doc, portId, '3c:22-fb:01:02:03')).toThrow(FieldValueError);
+  });
+});
+
+describe('setPortConsoleBaud (schema 0.34, ADR-0080 decision 10)', () => {
+  it('stores a speed in bits per second, clears with blank or null, and refuses what is not a speed', async () => {
+    const { addSketchPort, createSketchDevice } = await import('./commands');
+    const { readPhysicalPortFields: read, edgesOut: out, findNode: find } = await import('./model');
+    let doc = createSketchDevice(emptyDocument(), { now: 1 });
+    const chassisId = doc.nodes.find((n) => n.id.startsWith('chassis:'))!.id;
+    doc = addSketchPort(doc, chassisId, { label: 'CON', connector: 'rj45', face: 'front', service: 'console' }, { now: 1 });
+    const portId = out(doc, chassisId, 'HasPort')[0]!.to;
+    expect(read(find(setPortConsoleBaud(doc, portId, '9600'), portId)!).consoleBaud).toBe(9600);
+    expect(read(find(setPortConsoleBaud(doc, portId, '115 200'), portId)!).consoleBaud).toBe(115200);
+    const set = setPortConsoleBaud(doc, portId, '9600');
+    expect(read(find(setPortConsoleBaud(set, portId, ''), portId)!).consoleBaud).toBeUndefined();
+    expect(read(find(setPortConsoleBaud(set, portId, null), portId)!).consoleBaud).toBeUndefined();
+    for (const bad of ['fast', '9600.5', '-9600', '10', '5000000']) expect(() => setPortConsoleBaud(doc, portId, bad)).toThrow(FieldValueError);
   });
 });

@@ -251,3 +251,18 @@ function GroupLink({ group, scope, plan }: { group: UpgradeGroup; scope: LinkSta
     </>
   );
 }
+
+/**
+ * The image's own hash for a hash check step (ADR-0080 decision 5), when Fathom holds the image the
+ * step's devices are chosen for: its SHA-512 for a SHA-512 step, otherwise its SHA-256. Null when not.
+ */
+export function useImageHash(plan: Plan, step: PlanStep): string | null {
+  const api = useContext(FirmwareContext);
+  if (!api) return null;
+  const groups = upgradeGroups(plan);
+  const group = groups.find((g) => step.targets.length > 0 && step.targets.every((t) => g.deviceIds.includes(t))) ?? (groups.length === 1 ? groups[0] : undefined);
+  const imageId = group ? imageOfGroup(api.doc, group) : null;
+  const image = imageId ? api.server.images.find((i) => i.imageId === imageId) : undefined;
+  if (!image) return null;
+  return /SHA-512/.test(stepTitle(step.change)) ? image.sha512 : image.sha256;
+}
