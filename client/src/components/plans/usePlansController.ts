@@ -148,7 +148,8 @@ export interface PlansController {
   planIdea(idea: IdeaForPlan): Promise<boolean>;
   // `pasted`: a real paste reached that form (see `PasteMark`); its text goes through the redaction gate.
   create(input: { title: string; windowStart?: string; windowEnd?: string }, pasted?: boolean): Promise<boolean>;
-  rename(title: string, pasted?: boolean): Promise<boolean>;
+  /** The open plan's title and window, while it is still being planned. */
+  editHead(patch: { title?: string; windowStart?: string; windowEnd?: string }, pasted?: boolean): Promise<boolean>;
   addStep(form: StepForm, pasted?: boolean): Promise<boolean>;
   removeStep(stepId: string): Promise<boolean>;
   moveStep(stepId: string, index: number): Promise<boolean>;
@@ -526,7 +527,7 @@ export function usePlansController({
         update({ open: true });
         return made.doc;
       }, howOf(pasted)),
-    rename: (title, pasted = false) => run((doc0, gate) => (plan ? setPlanHead(doc0, plan.id, { title }, { gate, ...stamp() }) : null), howOf(pasted)),
+    editHead: (patch, pasted = false) => run((doc0, gate) => (plan ? setPlanHead(doc0, plan.id, patch, { gate, ...stamp() }) : null), howOf(pasted)),
     addStep: (form, pasted = false) =>
       run((doc0, gate) => {
         if (plan == null) return null;
