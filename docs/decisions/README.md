@@ -121,6 +121,7 @@ question was not in the register. *R* is the reversal cost from `73` §1.2 — R
 | **[0081](adr-0081-teams-leads-and-supervisors.md)** | Teams, leads and supervisors: a team holds Read or Draw like a person, leads and supervisors hand out work, every access change signed | Accepted |  |  |
 | **[0082](adr-0082-fathom-reads-devices-and-never-writes.md)** | Fathom reads devices and never writes to them: invariant 2 amended, SNMPv3 and SSH read-only, a reader helper | Accepted |  |  |
 | **[0085](adr-0085-email-and-notifications.md)** | Email and notifications over the SMTP setting | Accepted |  |  |
+| **[0084](adr-0084-orders-and-the-job-engine.md)** | Orders and the job engine: order definitions in YAML, and a builder on a canvas | Accepted |  |  |
 
 ## What is not reopened
 
