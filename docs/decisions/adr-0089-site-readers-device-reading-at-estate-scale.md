@@ -6,7 +6,9 @@ that changed two of them: host keys are approved both in bulk and one device at 
 3), and MAC and ARP tables are read on a schedule as well as on request (§8.2 item 4). §9, the other
 half of that note (Zabbix, Splunk, Calix and Nokia), was approved on r91-systems-and-cpe with every
 pick, and a note that the owner runs Calix CMS and Nokia SAM, not SMx, Calix Cloud or Altiplano.
-§9.6 is reworked for that; it goes ahead on its recommended pick and waits on r91 version 2.
+On r91 version 2 the owner chose C for §9.6, to wait for SMx or Altiplano, and added that Calix
+CPE can only be pinged for now and Nokia's 7210 SAS-Mxp and SAS-K12 can be logged into directly
+(§9.6, as decided).
 
 **Builds on:** ADR-0082 (Fathom reads devices and never writes to them; the separate reader helper,
 §4.3), ADR-0079 (one estate across designs: the estate index, a design per site), ADR-0071 (the
@@ -298,7 +300,7 @@ replaces rows built from a newer version. A rebuild of a 1,000-device design wro
 rebuilding only changed elements, and committing the index (derived data) without waiting for the
 synchronous standby, keep that off the HA link.
 
-## 9. What other systems already know: Zabbix, Splunk, Calix and Nokia (accepted on r91-systems-and-cpe; §9.6 reworked, r91 v2)
+## 9. What other systems already know: Zabbix, Splunk, Calix and Nokia (accepted on r91-systems-and-cpe, versions 1 and 2)
 
 The rest of the owner's note on r90 (§8.2): *"Right now we use Splunk and Zabbix. It we have an
 importing feature that'd be nice. Is there anything we could do for CPE Calix's and Nokias?"*
@@ -387,7 +389,7 @@ into today's importer, one site of up to 2,000 rows at a time. **Later:** a Splu
 saved search the Steward picks, on a schedule, through a reader, with the REST calls in §9.1, and
 treats its rows as a reading.
 
-### 9.6 Calix and Nokia CPE (reworked after r91's note; recommended, r91 v2 A)
+### 9.6 Calix and Nokia CPE (reworked after r91's note; the owner chose C on r91 v2)
 
 r91 version 1 recommended reading CPE through SMx, Calix Cloud and Altiplano (§9.1). The owner
 approved it with a note: *"for 3. We don't use any of those, we use Calix CMS and Nokia SAM, which i
@@ -413,10 +415,34 @@ Rejected, as in version 1: reading CPE as a TR-069 or TR-369 manager. Those prot
 and a manager can change it, while Fathom reads and never writes (ADR-0082 §2); and every CPE would
 have to be set up to answer one more manager.
 
-**Which OLT families.** The first inventory read of each site names its OLTs (`sysDescr`,
-ENTITY-MIB), so Fathom lists the families it found and each family's fixed list is added in that
-order, most ONTs first, without anyone being asked to list their gear. C7s are not built for: Calix
-ends their support on 31 December 2026. Routers that SAM manages are read as devices like any other.
+**As decided (r91 v2, C, 2026-11-02).** The owner's note: *"Yea i think we will only be able to
+ping these devices for now, Nokia you can login directly though, so if the engine can account for
+MXPs and K12s."* So, until SMx or Altiplano is in:
+
+- **Calix CPE are pinged, nothing more.** A new reader purpose, "reachable": an ICMP echo to each
+  CPE address, on the design's schedule (§4.6, nightly by default), recording when it last
+  answered. No alerts and no live dot (r89 question 1 stands). The addresses come from what Fathom
+  already holds (a Zabbix or file import); Fathom does not sweep ranges looking for CPE. How the
+  reader container is allowed to send ICMP without broader privilege is settled, with sources, in
+  the build PR.
+- **Nokia 7210 SAS-Mxp and SAS-K12 are read as devices**, by the site readers, with a vault login
+  like any switch: the fixed SNMPv3 list (inventory, interfaces, LLDP) and, once the engine below
+  exists, the configuration over SSH. LibreNMS and Observium already recognise 7210s by their SNMP
+  `sysDescr` (`docs/surveys/nokia-7210-sas.md` §1, tier C), so the SNMP side is expected to work;
+  it is confirmed against a real Mxp and K12 before it is claimed.
+- **The engine for them waits on real configs, as ADR-0044 (E3) already says.** The 7210 survey
+  (2026-09-12) found Nokia documenting them in different guide families (Mxp with R6, R12, S, Sx
+  and T; the K models with D and Dxp, where the K12 is assumed to belong: the survey lists other K
+  models and this is not established), saw no 7210 configuration body at all, and so declared no platform
+  row (`schema/platforms.yaml`). It needs one `admin display-config` from an Mxp and one from a
+  K12. Before either is asked for, the redaction gate learns SR OS's secret keywords (survey §4:
+  `community`, `notify-community`, `password`, `secret`, `authentication-key`, the `hash2`
+  marker), and the way the captures travel is settled so they pass the gate before they are stored
+  or sent (CLAUDE.md rule 4). Their secret lengths are then checked against what a 7210 accepts
+  (rule 2; survey §6 item 10). Nothing is to be pasted into a chat.
+- **Calix OLTs** are still read as devices where a login exists (inventory, interfaces, LLDP);
+  their ONT lists wait with the rest of the Calix CPE. C7s are not built for: Calix ends their
+  support on 31 December 2026.
 
 How a million CPEs show in Fathom is **not** decided here. The schema already says an ONT that only
 converts is a `PassiveNode` media converter and a CPE that routes is a `router` (`schema.yaml`,
@@ -426,18 +452,19 @@ count on the canvas) comes to the owner as mockups on its own card before it is 
 ### 9.7 Order
 
 After §7 step 1. Steps 1 and 2 come before the site reader, since the `local` reader can reach a
-Zabbix that the server can reach; step 3 needs readers that reach the OLTs:
+Zabbix that the server can reach; step 3 needs readers that reach the sites:
 
 1. The Splunk CSV route: a worked example in `docs/EXAMPLES.md`, no code.
 2. The Zabbix source, first, because it is how the estate is first filled.
-3. ONT lists from the OLT families the first inventory reads find (§9.6 A), each with its fixed
-   list. SMx, Calix Cloud and Altiplano sources only when the owner moves to them.
-4. The Splunk saved-search source.
+3. The "reachable" purpose for Calix CPE, and the Nokia 7210 SAS-Mxp and SAS-K12 read as devices
+   (§9.6 as decided). Their config engine follows the survey's route, its own PR.
+4. SMx, Calix Cloud or Altiplano sources when the owner moves to them.
+5. The Splunk saved-search source.
 
 ## Not decided here
 
 - Whether B of §4.3 (logins kept at the site) or B of §4.6 (live up/down) is ever built.
-- How CPEs show in Fathom (§9.6), and the OLT families a site reader reads directly.
+- How CPEs show in Fathom (§9.6).
 - The site reader's TLS and HPKE packages: chosen with a dependency record and the owner's tick.
 - Reading through a jump host or a controller API (UniFi, Omada).
 - FIPS 140-3 builds (the build thread keeps the reader's crypto behind one seam so it can be added).
