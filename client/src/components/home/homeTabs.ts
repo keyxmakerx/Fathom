@@ -1,5 +1,5 @@
 /** Home's tabs (ADR-0060 decision 7). */
-export type HomeTab = 'designs' | 'passwords' | 'organisation' | 'ai' | 'admin';
+export type HomeTab = 'designs' | 'work' | 'passwords' | 'organisation' | 'ai' | 'admin';
 
 /** Pure: the tabs Home shows, each only to someone who may use it. Designs is
  * everyone's; Passwords is a member's own vault, for anyone in an organisation,
@@ -17,6 +17,7 @@ export function homeTabs({
   admin,
   waitingInvitee = false,
   member = false,
+  work = false,
 }: {
   organisationAdmin: boolean;
   /** Named to connect AI apps here, and no admin or steward (ADR-0072). */
@@ -26,9 +27,12 @@ export function homeTabs({
   waitingInvitee?: boolean;
   /** In a real organisation (not only the practice space). */
   member?: boolean;
+  /** In any organisation, the practice space included: the Work tab lists its work (sign-off r74). */
+  work?: boolean;
 }): HomeTab[] {
   const tabs: HomeTab[] = ['designs'];
   if (waitingInvitee) return tabs;
+  if (work) tabs.push('work');
   if (member) tabs.push('passwords');
   if (organisationAdmin) tabs.push('organisation');
   else if (aiMaker) tabs.push('ai');

@@ -33,6 +33,7 @@ import { canStewardFor } from './capabilities';
 import { pickDirectEntry, type DirectEntry } from './directEntry';
 import { groupDesignsByScope, scopesWithNoDesigns } from './groupByScope';
 import { HomeTabs } from './HomeTabs';
+import { WorkPage } from '../work/WorkPage';
 import { homeTabs, type HomeTab } from './homeTabs';
 import { newDesignTarget } from './newDesign';
 import { RecentRow } from './RecentRow';
@@ -321,7 +322,8 @@ export function Home({
   const canMakeDesigns =
     (scopes.status === 'ready' && scopes.value.some((scope) => canDrawFor(scope.capability))) ||
     (organisations.status === 'ready' && organisations.value.some((org) => org.organisationId === selectedOrgId && (org.role === 'admin' || org.practice)));
-  const tabs = homeTabs({ organisationAdmin, aiMaker, admin: admin !== undefined, waitingInvitee, member });
+  const inOrganisation = organisations.status === 'ready' && organisations.value.some((org) => org.organisationId === selectedOrgId);
+  const tabs = homeTabs({ organisationAdmin, aiMaker, admin: admin !== undefined, waitingInvitee, member, work: inOrganisation });
   const shownTab: HomeTab = tabs.includes(tab) ? tab : 'designs';
 
   function selectTab(next: HomeTab) {
@@ -671,6 +673,12 @@ export function Home({
               )
             }
           />
+        )}
+
+        {shownTab === 'work' && selectedOrganisation && (
+          <section className="home__section">
+            <WorkPage organisationId={selectedOrganisation.organisationId} />
+          </section>
         )}
 
         {shownTab === 'passwords' && selectedOrganisation && (

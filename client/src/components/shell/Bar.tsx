@@ -92,6 +92,7 @@ export interface BarProps {
   onShowAllHiddenCables?: () => void;
   /** r31-bar A: the four views as the bar's tabs. Without it the two places are the tabs. */
   mainView?: ShellProps['mainView'];
+  work?: ShellProps['work'];
   /** Right after the design's name: the Sample chip. */
   designExtra?: ReactNode;
   /** The Doing ▾ menu: what you can set about doing now. */
@@ -141,6 +142,7 @@ export function Bar({
   hiddenCablesCount,
   onShowAllHiddenCables,
   mainView,
+  work,
   designExtra,
   doing,
   toolsOnCanvas = false,
@@ -216,7 +218,7 @@ export function Bar({
             any has been, they are named but are not controls: a view needs a
             design, and Home is where you pick one. */}
         {mainView != null || place === null ? (
-          <ViewTabs view={mainView?.value ?? null} onChange={mainView?.onChange} backTo={mainView?.backTo} folded={task != null} />
+          <ViewTabs view={work?.on ? null : (mainView?.value ?? null)} onChange={mainView?.onChange} backTo={mainView?.backTo} folded={task != null} work={work} />
         ) : (
         <div className="shell-bar__tabs">
           <button
@@ -774,13 +776,25 @@ const VIEW_LABEL: Record<MainView, string> = { diagram: 'Diagram', canvas: 'Canv
 const VIEWS: readonly MainView[] = ['diagram', 'canvas', 'inventory', 'sheet'];
 
 /** r31-bar A: the four views. The ink underline slides to the one you choose (r31-motion). */
-function ViewTabs({ view, onChange, backTo, folded = false }: { view: MainView | null; onChange?: (view: MainView) => void; backTo?: string; folded?: boolean }) {
+function ViewTabs({
+  view,
+  onChange,
+  backTo,
+  folded = false,
+  work,
+}: {
+  view: MainView | null;
+  onChange?: (view: MainView) => void;
+  backTo?: string;
+  folded?: boolean;
+  work?: ShellProps['work'];
+}) {
   const rowRef = useRef<HTMLDivElement>(null);
   const [mark, setMark] = useState<{ left: number; width: number } | null>(null);
   useLayoutEffect(() => {
     const on = rowRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
     if (on != null) setMark({ left: on.offsetLeft, width: on.offsetWidth });
-  }, [view, folded]);
+  }, [view, folded, work?.on]);
   return (
     <div className={folded ? 'shell-bar__tabs shell-bar__tabs--views shell-bar__tabs--folded' : 'shell-bar__tabs shell-bar__tabs--views'} ref={rowRef} role="tablist" aria-label="Views">
       {VIEWS.map((v) =>
@@ -803,6 +817,20 @@ function ViewTabs({ view, onChange, backTo, folded = false }: { view: MainView |
           {VIEW_LABEL[v]}
         </button>
         ),
+      )}
+      {work != null && (
+        <button
+          type="button"
+          role="tab"
+          aria-selected={work.on}
+          aria-current={work.on ? 'page' : undefined}
+          className={work.on ? 'shell-bar__tab shell-bar__tab--on' : 'shell-bar__tab'}
+          data-testid="view-work"
+          title="Every site's work: plans, It's down and orders"
+          onClick={work.onOpen}
+        >
+          Work
+        </button>
       )}
       {mark != null && <span className="shell-bar__tabs-mark" aria-hidden="true" style={{ left: mark.left, width: mark.width }} />}
     </div>

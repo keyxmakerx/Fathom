@@ -1,5 +1,6 @@
 // The plan's side panel (mockups r6-maint-*): Plan lists the steps and what they touch, Do is the checklist with
 // only the current step live, Record takes the outcome. Docked right, draggable, folds, like the Checks panel.
+import { WorkFields } from '../work/WorkFields';
 import { useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 
@@ -503,6 +504,7 @@ export function PlanPanel({ controller, plan, besideChecks }: { controller: Plan
           {mode === 'record' && <RecordMode key={plan.stage} controller={controller} plan={plan} />}
           {mode !== 'record' && <FirmwarePlanExtras plan={plan} />}
         </UpgradeLinkScope>
+        <WorkFields id={plan.id} />
       </div>
     </aside>
   );

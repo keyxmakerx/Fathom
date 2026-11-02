@@ -11,9 +11,9 @@
 --
 -- **Fathom numbers.** `work_numbers` gives each piece of work (a plan, an issue, a spare on order,
 -- away or lent) one number in its organisation, the first time the server indexes it, and never
--- gives that number again: there is no update, and a row goes only when its design does. A
--- number is an id and a counter; nothing in it is readable. It is not a field of the design,
--- because two designs cannot agree on a counter between them.
+-- gives that number again: there is no update or delete, and a row goes only when its
+-- organisation does. A number is an id and a counter; nothing in it is readable. It is not a
+-- field of the design, because two designs cannot agree on a counter between them.
 
 ALTER TABLE estate_rows DROP CONSTRAINT IF EXISTS estate_rows_kind_check;
 ALTER TABLE estate_rows ADD CONSTRAINT estate_rows_kind_check
@@ -26,8 +26,9 @@ CREATE TABLE IF NOT EXISTS work_numbers (
     number          bigint  NOT NULL CHECK (number >= 1),
     PRIMARY KEY (organisation_id, design_id, element_id),
     UNIQUE (organisation_id, number),
-    FOREIGN KEY (design_id, organisation_id) REFERENCES designs (id, organisation_id)
-        ON DELETE CASCADE
+    -- Tied to the organisation, not the design: a number outlives its design, so the
+    -- counter (the highest number given) never goes back.
+    FOREIGN KEY (organisation_id) REFERENCES organisations (id) ON DELETE CASCADE
 );
 
 ALTER TABLE work_numbers ENABLE ROW LEVEL SECURITY;

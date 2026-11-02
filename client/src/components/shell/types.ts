@@ -189,6 +189,9 @@ export interface ShellProps {
   /** r31-bar A: the four views as the bar's tabs. With no design open (Home, Admin) `value` is `null`
    * and the tabs go back to the design last open, `backTo`; without `mainView` there they are only named. */
   mainView?: { value: MainView | null; onChange: (view: MainView) => void; backTo?: string };
+  /** Sign-off r74: the Work tab, every site's work in one list. A view of the organisation, not
+   * of a design, so it sits after the four; `on` while it is in view. */
+  work?: { on: boolean; onOpen: () => void };
   /** Right after the design's name in the bar: the Sample chip. */
   designExtra?: ReactNode;
   /** The Doing ▾ menu's rows. */

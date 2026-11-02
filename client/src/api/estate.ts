@@ -5,7 +5,7 @@
 import { body } from './fieldDefinitions';
 import { signedFetch } from './signedFetch';
 
-export type EstateKind = 'device' | 'card' | 'optic' | 'power_supply' | 'spare';
+export type EstateKind = 'device' | 'card' | 'optic' | 'power_supply' | 'spare' | 'plan' | 'issue';
 
 export interface EstateHit {
   design: string;
@@ -95,6 +95,8 @@ export const ESTATE_KIND_WORD: Record<EstateKind, string> = {
   optic: 'Optic',
   power_supply: 'Power supply',
   spare: 'Spare',
+  plan: 'Plan',
+  issue: 'Issue',
 };
 
 /** Ask the app to open a thing in another design, the way a scanned label does (ADR-0075). */

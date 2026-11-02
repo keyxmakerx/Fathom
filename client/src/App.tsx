@@ -1018,6 +1018,8 @@ export default function App() {
     zoom,
     onZoomIn: () => setZoom((z) => Math.min(400, z + 10)),
     onZoomOut: () => setZoom((z) => Math.max(10, z - 10)),
+    // Sign-off r74: the Work tab is Home's, for the whole organisation; the bar reaches it from anywhere.
+    work: accountSessionOpen ? { on: view.kind === 'home' && homeTab === 'work', onOpen: () => backToHome('work') } : undefined,
   };
 
   if (session.kind === 'operator' && !accountSessionOpen) {
