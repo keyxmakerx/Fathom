@@ -101,7 +101,7 @@ describe('Home › Teams', () => {
 });
 
 describe('a team’s History', () => {
-  const line = (over: Partial<HistoryLine>): HistoryLine => ({ id: 'X', act: 'member_add', subject: 'A', role: null, scope: null, capability: null, by: 'B', as: 'lead', at: 1_770_000_000, counts: true, ...over });
+  const line = (over: Partial<HistoryLine>): HistoryLine => ({ id: 'X', act: 'member_add', subject: 'A', role: null, scope: null, capability: null, by: 'B', as: 'lead', at: 1_770_000_000, counts: true, byName: null, subjectName: null, ...over });
   const name = (a: string | null) => ({ A: 'Ana', B: 'Ben' } as Record<string, string>)[a ?? ''] ?? 'someone';
 
   it('says each act in words', () => {
@@ -110,6 +110,12 @@ describe('a team’s History', () => {
     expect(historyWords(line({ act: 'role_clear', role: 'lead' }), name, scopes)).toBe('Ben stopped Ana being lead');
     expect(historyWords(line({ act: 'grant', subject: null, scope: 'S1', capability: 'read' }), name, scopes)).toBe('Ben let the team read in LON1');
     expect(historyWords(line({ act: 'grant_revoke', subject: null, scope: null }), name, scopes)).toBe('Ben took back the team’s access to the whole organisation');
+  });
+
+  it('names someone this browser does not know by the server’s name, and says “you” mid-sentence', () => {
+    const me = (a: string | null, known?: string | null) => (a === 'B' ? 'you' : a === 'A' ? 'Ana' : known ?? 'someone');
+    expect(historyWords(line({ by: 'K', byName: 'Key Maker', act: 'role_set', subject: 'B', role: 'lead' }), me, scopes)).toBe('Key Maker made you lead');
+    expect(historyWords(line({}), me, scopes)).toBe('You added Ana');
   });
 
   it('marks an act that no longer counts', () => {

@@ -14,7 +14,8 @@
 //!   (hex) and, for `create`, `"slug"` and `"name"`. Answers `{"act": id, "team": id}`.
 //! - `POST /organisations/{o}/teams/{team}/rename`: body `{"slug", "name"}`, a root steward's.
 //! - `GET  /organisations/{o}/teams/{team}/history`: `{"acts": [...]}`, oldest first, each with
-//!   `counts`: whether its signature and its signer's authority check now.
+//!   `counts`: whether its signature and its signer's authority check now; and `"names"`,
+//!   `{account: display name}` for everyone the acts name, so any member can read it.
 
 use std::collections::BTreeMap;
 
@@ -415,6 +416,15 @@ async fn history_handler(
     let lines = teams::history(&tx, &auth, &team)
         .await
         .map_err(SessionError::Authority)?;
+    let mut who: Vec<String> = lines
+        .iter()
+        .flat_map(|l| std::iter::once(l.act.signed_by.clone()).chain(l.act.subject_id.clone()))
+        .collect();
+    who.sort();
+    who.dedup();
+    let names = teams::names_of(&tx, &who)
+        .await
+        .map_err(SessionError::Authority)?;
     tx.commit().await.map_err(SessionError::Db)?;
     let acts = lines
         .iter()
@@ -443,5 +453,14 @@ async fn history_handler(
         .collect();
     let mut answer = BTreeMap::new();
     answer.insert("acts".to_string(), Json::Arr(acts));
+    answer.insert(
+        "names".to_string(),
+        Json::Obj(
+            names
+                .into_iter()
+                .map(|(account, name)| (account, Json::Str(name)))
+                .collect(),
+        ),
+    );
     Ok(json_response(Json::Obj(answer)))
 }

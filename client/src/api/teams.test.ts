@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { toHex, utf8 } from '../crypto/bytes';
-import { involvedIn, ledBy, parseTeams, slugOf, teamActBytes, throughTeams } from './teams';
+import { involvedIn, ledBy, parseHistory, parseTeams, slugOf, teamActBytes, throughTeams } from './teams';
 
 // The literals below are `TEAM_MEMBER_ADD_BYTES` and `TEAM_GRANT_REVOKE_BYTES` in
 // `crates/fathom-server/tests/authority_vectors.rs`, laid out there by an independent script.
@@ -107,5 +107,15 @@ describe('a short name from a name', () => {
     expect(slugOf('  Network Operations — London ')).toBe('network-operations-london');
     expect(slugOf('x'.repeat(47) + ' y')).toBe('x'.repeat(47));
     expect(slugOf('!!!')).toBe('');
+  });
+});
+
+describe('a team’s history', () => {
+  it('carries the server’s names for whoever each act names', () => {
+    const [line] = parseHistory(
+      utf8(JSON.stringify({ acts: [{ id: 'X', act: 'member_add', subject: 'A', role: null, scope: null, capability: null, by: 'K', as: 'steward', at: 1, counts: true }], names: { K: 'Key Maker', A: 'Ana' } })),
+    );
+    expect(line.byName).toBe('Key Maker');
+    expect(line.subjectName).toBe('Ana');
   });
 });

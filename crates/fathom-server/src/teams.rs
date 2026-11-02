@@ -1392,6 +1392,22 @@ pub async fn people_to_pick(
         .collect())
 }
 
+/// Display names for `accounts`, for a History tab a member who is not a steward can read.
+pub async fn names_of(
+    tx: &Transaction<'_>,
+    accounts: &[String],
+) -> Result<BTreeMap<String, String>, AuthorityError> {
+    Ok(tx
+        .query(
+            "SELECT id, display_name FROM accounts WHERE id = ANY($1)",
+            &[&accounts],
+        )
+        .await?
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect())
+}
+
 /// A team's History tab: every act on it, oldest first, each with whether it counts. For a
 /// root steward, and for anyone the team is visible to (its members, leads and supervisors).
 pub async fn history(

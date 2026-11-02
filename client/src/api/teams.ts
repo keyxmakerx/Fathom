@@ -62,6 +62,9 @@ export interface HistoryLine {
   at: number;
   /** Its signature and its signer's authority check now. */
   counts: boolean;
+  /** Display names from the server, so a member who is not a Steward can read the line. */
+  byName: string | null;
+  subjectName: string | null;
 }
 
 const base = (organisation: string) => `/organisations/${encodeURIComponent(organisation)}/teams`;
@@ -109,7 +112,10 @@ export async function fetchTeams(organisation: string): Promise<Teams> {
 }
 
 export function parseHistory(bytes: Uint8Array): HistoryLine[] {
-  return arrayOf(jsonObject(bytes, 'history'), 'acts', 'history').map((entry, i) => {
+  const r = jsonObject(bytes, 'history');
+  const names = r.names && typeof r.names === 'object' && !Array.isArray(r.names) ? (r.names as Rec) : {};
+  const nameOf = (account: string | null): string | null => (account !== null && typeof names[account] === 'string' ? (names[account] as string) : null);
+  return arrayOf(r, 'acts', 'history').map((entry, i) => {
     const what = `act ${i}`;
     const a = asRec(entry, what);
     const role = a.role === 'lead' || a.role === 'overseer' ? a.role : null;
@@ -124,6 +130,8 @@ export function parseHistory(bytes: Uint8Array): HistoryLine[] {
       as: a.as === 'lead' ? 'lead' : 'steward',
       at: int(a, 'at', what),
       counts: a.counts === true,
+      byName: nameOf(str(a, 'by', what)),
+      subjectName: nameOf(optStr(a, 'subject', what)),
     };
   });
 }

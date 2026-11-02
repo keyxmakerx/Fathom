@@ -46,22 +46,25 @@ export const grantWords = (g: Pick<TeamGrant, 'capability' | 'scope'>, scopes: r
 
 const roleWords = (role: TeamRole | null): string => (role === 'overseer' ? 'a supervisor' : 'lead');
 
-/** One History line in words. `name` turns an account into a name. */
-export function historyWords(line: HistoryLine, name: (account: string | null) => string, scopes: readonly Pick<Scope, 'scopeId' | 'path' | 'displayName'>[]): string {
-  const who = name(line.by);
+/** One History line in words. `name` turns an account into a name, or "you"; the server's
+ * names on the line are used for anyone it does not know. */
+export function historyWords(line: HistoryLine, name: (account: string | null, known?: string | null) => string, scopes: readonly Pick<Scope, 'scopeId' | 'path' | 'displayName'>[]): string {
+  const by = name(line.by, line.byName);
+  const who = by.charAt(0).toUpperCase() + by.slice(1);
+  const them = name(line.subject, line.subjectName);
   switch (line.act) {
     case 'create':
       return `${who} made the team`;
     case 'delete':
       return `${who} deleted the team`;
     case 'member_add':
-      return `${who} added ${name(line.subject)}`;
+      return `${who} added ${them}`;
     case 'member_remove':
-      return `${who} removed ${name(line.subject)}`;
+      return `${who} removed ${them}`;
     case 'role_set':
-      return `${who} made ${name(line.subject)} ${roleWords(line.role)}`;
+      return `${who} made ${them} ${roleWords(line.role)}`;
     case 'role_clear':
-      return `${who} stopped ${name(line.subject)} being ${roleWords(line.role)}`;
+      return `${who} stopped ${them} being ${roleWords(line.role)}`;
     case 'grant':
       return `${who} let the team ${line.capability === 'draw' ? 'draw' : 'read'} in ${folderWords(line.scope, scopes)}`;
     case 'grant_revoke':
@@ -223,7 +226,12 @@ function TeamPage({ team, teams, me, where, scopes, grantable, history, busy, on
     for (const t of teams.teams) for (const s of [...t.members, ...t.leads, ...t.supervisors]) if (s.name) m.set(s.account, s.name);
     return m;
   }, [teams]);
-  const name = (account: string | null) => (account === null ? 'someone' : account === me ? 'You' : names.get(account) || 'someone no longer here');
+  const name = (account: string | null, known?: string | null) =>
+    account === null ? 'someone' : account === me ? 'you' : names.get(account) || known || 'someone who has left';
+  const Name = (account: string) => {
+    const n = name(account);
+    return n.charAt(0).toUpperCase() + n.slice(1);
+  };
   const [renaming, setRenaming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [newName, setNewName] = useState(team.name);
@@ -249,8 +257,10 @@ function TeamPage({ team, teams, me, where, scopes, grantable, history, busy, on
         {team.members.map((s) => (
           <li key={s.act} className="org-row">
             <div className="org-row__main">
-              <strong>{name(s.account)}</strong>
-              {team.leads.some((l) => l.account === s.account) && <span className="org-tag">lead</span>}
+              <div>
+                <strong>{Name(s.account)}</strong>
+                {team.leads.some((l) => l.account === s.account) && <span className="org-tag">lead</span>}
+              </div>
             </div>
             <div className="org-row__actions">
               {mayTouch(s.account) && (
@@ -258,7 +268,7 @@ function TeamPage({ team, teams, me, where, scopes, grantable, history, busy, on
                   type="button"
                   className="org-btn"
                   disabled={busy}
-                  onClick={() => onAct({ ...base, act: 'member_remove', subject: s.account, undoes: s.act }, `Signed. ${name(s.account)} has left ${team.name} and lost what it gives.`)}
+                  onClick={() => onAct({ ...base, act: 'member_remove', subject: s.account, undoes: s.act }, `Signed. ${Name(s.account)} has left ${team.name} and lost what it gives.`)}
                 >
                   Remove
                 </button>
@@ -274,7 +284,7 @@ function TeamPage({ team, teams, me, where, scopes, grantable, history, busy, on
           busy={busy}
           people={teams.people.filter((p) => !memberIds.has(p.account) && mayTouch(p.account))}
           testId="team-add-member"
-          onPick={(account) => onAct({ ...base, act: 'member_add', subject: account }, `Signed. ${name(account)} is in ${team.name} and has what it gives.`)}
+          onPick={(account) => onAct({ ...base, act: 'member_add', subject: account }, `Signed. ${Name(account)} is in ${team.name} and has what it gives.`)}
         />
       )}
 
@@ -286,7 +296,7 @@ function TeamPage({ team, teams, me, where, scopes, grantable, history, busy, on
         steward={steward}
         busy={busy}
         people={teams.people}
-        name={name}
+        name={Name}
         onAct={(choice, done) => onAct({ ...base, ...choice }, done)}
       />
       <RoleSection
@@ -297,7 +307,7 @@ function TeamPage({ team, teams, me, where, scopes, grantable, history, busy, on
         steward={steward}
         busy={busy}
         people={teams.people}
-        name={name}
+        name={Name}
         onAct={(choice, done) => onAct({ ...base, ...choice }, done)}
       />
 
