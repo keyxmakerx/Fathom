@@ -425,6 +425,23 @@ Built in part one. Pictures from the real-server drive: `reviews/vault/` in the 
   access allowed; who may connect; which apps; the most a connection may see; longest a
   connection lasts; ideas and changes from AI. Save sits at the foot and stays in view.
 
+## Where the new work lives (ADR-0088; card r88-ui-map)
+
+One place for each of the seven pieces approved on 2026-11-02, so the threads building them hang off
+the same few spots. ADR-0088 has the reasons; this is the list.
+
+| Place | What goes there |
+|---|---|
+| The bar | **Work**, after the four views (#282). Nothing else new. |
+| Home's tabs | Designs · **Work** · **Teams** · **Addresses** · Passwords · Steward · Admin, each only for someone who holds it |
+| Steward, grouped | People (People, **Teams**, Waiting for you) · Estate (Folders, Firmware, **Device reading**) · Work (**Order types**, **Mail**) · Passwords and AI (Passwords, AI, AI rules) |
+| Admin | a **Mail** tab; AI gains Waiting for approval, allowed apps and account domains; Settings shows device reading on or off |
+| The work page | one page for every W-number; orders add the stage track, approvals add Approve, IP adds Reserve |
+| The device panel | **Read now** and a **Readings** tab beside Checks, Plans and History |
+| Inventory › Addresses | the IP tree, narrowed to this design's folder |
+| The account menu | **Mail**: each kind at once, in the digest, or off |
+| A phone | bottom tabs Scan · Find · Canvas · **Work** |
+
 ## On a phone (ADR-0075; mockup r39-phone)
 
 - Under 760px wide. The same pages, with the tool row, minimap, side-panel strip, view tabs, Inventory's
