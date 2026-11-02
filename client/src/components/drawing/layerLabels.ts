@@ -4,7 +4,7 @@
 import type { Document } from '../../document/model';
 import { deriveNetworks } from '../../document/networks-derive';
 import { docsOf } from '../../document/docs';
-import { listPlans } from '../../document/plans';
+import { isOver, listPlans } from '../../document/plans';
 import { buildCanon } from '../checks/checksModel';
 import { touchedDevices } from '../plans/plansModel';
 import { tagsOf } from '../../document/tags';
@@ -92,7 +92,7 @@ export function layerWords(doc: Document | null, view: ClosetView, layers: Layer
   if (wantMaint) {
     const canon = buildCanon(doc);
     for (const plan of listPlans(doc)) {
-      if (plan.stage === 'recorded') continue;
+      if (isOver(plan)) continue;
       const word = plan.stage === 'doing' ? 'doing' : 'planned';
       for (const d of touchedDevices(doc, canon, plan)) if (planned.get(d.id) !== 'doing') planned.set(d.id, word);
     }

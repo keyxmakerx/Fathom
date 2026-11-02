@@ -57,7 +57,8 @@ export type TextGate = (text: string) => string;
 /** The explicit "stored as typed" choice for text nobody pasted. Never the answer for a pasted field. */
 export const TYPED_AS_WRITTEN: TextGate = (text) => text;
 
-export type PlanStage = 'planned' | 'doing' | 'recorded';
+/** `called_off` (schema 0.37, sign-off r94-plan-next): stopped before any work, `record` saying why. */
+export type PlanStage = 'planned' | 'doing' | 'recorded' | 'called_off';
 export type StepKind = 'address' | 'route' | 'cable' | 'move' | 'other' | 'lag' | 'swap';
 export type StepState = 'planned' | 'done' | 'went_differently';
 export type PlanOutcome = 'succeeded' | 'partial' | 'failed';
@@ -71,6 +72,7 @@ export type PlanRefusalCode =
   | 'not-planning'
   | 'not-doing'
   | 'recorded'
+  | 'called-off'
   | 'no-steps'
   | 'out-of-order'
   | 'step-done'
@@ -624,6 +626,11 @@ export function readPlan(doc: Document, id: string): Plan {
   };
 }
 
+/** Over: recorded after the work, or called off before it. Nothing on it changes, except that a called-off plan can be planned again. */
+export function isOver(plan: Pick<Plan, 'stage'>): boolean {
+  return plan.stage === 'recorded' || plan.stage === 'called_off';
+}
+
 /** Every live plan, newest first. */
 export function listPlans(doc: Document): Plan[] {
   return doc.nodes
@@ -671,6 +678,7 @@ export function planProblems(plan: Plan): string[] {
   }
   if (plan.stage === 'planned' && plan.steps.some((s) => s.state !== 'planned')) out.push('a step is marked before the plan started');
   if (plan.stage === 'recorded' && plan.steps.some((s) => s.state === 'planned')) out.push('the plan is recorded with steps left');
+  if (plan.stage === 'called_off' && plan.steps.some((s) => s.state !== 'planned')) out.push('the plan is called off with steps marked');
   return out;
 }
 
@@ -694,10 +702,13 @@ function windowValue(value: string, what: string): string {
   return value;
 }
 
+const CALLED_OFF = 'this plan is called off; plan it again to change it';
+
 function requirePlanning(doc: Document, planId: string): void {
   live(doc, planId, 'MaintenancePlan');
   const stage = str(findNode(doc, planId)!, 'MaintenancePlan.stage');
   if (stage === 'recorded') throw new PlanRefusal('recorded', 'this plan is recorded and cannot change');
+  if (stage === 'called_off') throw new PlanRefusal('called-off', CALLED_OFF);
   if (stage !== 'planned' && stage !== '') throw new PlanRefusal('not-planning', 'steps can only change before work starts');
 }
 
@@ -898,6 +909,7 @@ function requireTurn(doc: Document, stepId: string): { plan: Plan; step: PlanSte
   const planId = planOf(doc, stepId);
   const plan = readPlan(doc, planId);
   if (plan.stage === 'recorded') throw new PlanRefusal('recorded', 'this plan is recorded and cannot change');
+  if (plan.stage === 'called_off') throw new PlanRefusal('called-off', CALLED_OFF);
   if (plan.stage !== 'doing') throw new PlanRefusal('not-doing', 'start the work before marking a step');
   const step = plan.steps.find((s) => s.id === stepId);
   if (!step) throw new PlanRefusal('no-if-path', "this step is on an If path that was not taken");
@@ -976,6 +988,7 @@ export function markWentDifferently(doc: Document, stepId: string, opts: WentDif
 function requireOpen(doc: Document, planId: string): Plan {
   const plan = readPlan(doc, planId);
   if (plan.stage === 'recorded') throw new PlanRefusal('recorded', 'this plan is recorded and cannot change');
+  if (plan.stage === 'called_off') throw new PlanRefusal('called-off', CALLED_OFF);
   return plan;
 }
 
@@ -1123,6 +1136,7 @@ export interface RecordOptions extends Actor {
 export function recordPlan(doc: Document, planId: string, opts: RecordOptions): Document {
   const plan = readPlan(doc, planId);
   if (plan.stage === 'recorded') throw new PlanRefusal('recorded', 'this plan is recorded and cannot change');
+  if (plan.stage === 'called_off') throw new PlanRefusal('called-off', CALLED_OFF);
   if (plan.stage !== 'doing') throw new PlanRefusal('not-doing', 'start the work before recording it');
   if (plan.steps.some((s) => s.state === 'planned')) throw new PlanRefusal('steps-left', 'mark every step before recording');
   if (checksLeft(plan) > 0) throw new PlanRefusal('checks-left', 'answer every check after the work before recording');
@@ -1133,6 +1147,55 @@ export function recordPlan(doc: Document, planId: string, opts: RecordOptions): 
   const record = gated(opts.gate, opts.text, 'the record').trim();
   if (record !== '') setNodeField(b, planId, 'MaintenancePlan.record', text(record));
   return finish(b, truncateUtf8(`${plan.title}: recorded as ${opts.outcome}`));
+}
+
+// ---------------------------------------------------------------------------
+// Calling a plan off (schema 0.37, sign-off r94-plan-next). Not every plan becomes a maintenance: one that is not
+// needed, was done another way, or waits on troubleshooting stops here, before any work, and stays on the record.
+
+export type CallOffReason = 'not_needed' | 'done_another_way' | 'troubleshoot';
+export const CALL_OFF_REASONS: readonly CallOffReason[] = ['not_needed', 'done_another_way', 'troubleshoot'];
+/** The record's first line: the reason, in words. */
+export const CALL_OFF_WORD: Record<CallOffReason, string> = {
+  not_needed: 'Not needed',
+  done_another_way: 'Done another way',
+  troubleshoot: 'Troubleshooting first',
+};
+
+export interface CallOffOptions extends Actor {
+  reason: CallOffReason;
+  /** Anything else worth keeping, typed or pasted. */
+  note?: string;
+  gate: TextGate;
+}
+
+/** Planning to called off. Only before the work starts: once a step is marked, Back out or Record says how it went. */
+export function callOff(doc: Document, planId: string, opts: CallOffOptions): Document {
+  requirePlanning(doc, planId);
+  if (!CALL_OFF_REASONS.includes(opts.reason)) throw new PlanRefusal('bad-edit', `"${opts.reason}" is not a reason`);
+  const plan = readPlan(doc, planId);
+  const note = gated(opts.gate, opts.note, 'the note').replace(/\r\n?/g, '\n').trim();
+  const b = begin(doc, opts);
+  setNodeField(b, planId, 'MaintenancePlan.stage', token('called_off'));
+  setNodeField(b, planId, 'MaintenancePlan.record', text(note === '' ? CALL_OFF_WORD[opts.reason] : `${CALL_OFF_WORD[opts.reason]}\n${note}`));
+  return finish(b, truncateUtf8(`${plan.title}: called off`));
+}
+
+/** Why a called-off plan stopped: the record's first line, and the rest. */
+export function calledOffWhy(plan: Pick<Plan, 'stage' | 'record'>): { reason: string; note: string } | null {
+  if (plan.stage !== 'called_off') return null;
+  const [reason = '', ...rest] = plan.record.split('\n');
+  return { reason: reason.trim(), note: rest.join('\n').trim() };
+}
+
+/** Called off back to planning, as it was: nothing was done, so nothing is undone. */
+export function planAgain(doc: Document, planId: string, opts?: Actor): Document {
+  const plan = readPlan(doc, planId);
+  if (plan.stage !== 'called_off') throw new PlanRefusal('not-planning', 'only a called-off plan can be planned again');
+  const b = begin(doc, opts);
+  setNodeField(b, planId, 'MaintenancePlan.stage', token('planned'));
+  clearNodeField(b, planId, 'MaintenancePlan.record');
+  return finish(b, truncateUtf8(`${plan.title}: planned again`));
 }
 
 // ---------------------------------------------------------------------------
@@ -1283,6 +1346,7 @@ export function backOutSteps(doc: Document, plan: Plan): ReverseStep[] {
 export function backOut(doc: Document, planId: string, opts: Actor & { author?: string }): { doc: Document; id: string } {
   const plan = readPlan(doc, planId);
   if (plan.stage === 'planned') throw new PlanRefusal('not-doing', 'nothing has been done yet; change the plan instead');
+  if (plan.stage === 'called_off') throw new PlanRefusal('called-off', 'this plan was called off before any work, so there is nothing to back out');
   const steps = backOutSteps(doc, plan);
   if (steps.length === 0) throw new PlanRefusal('no-steps', 'no step has been marked, so there is nothing to back out');
   const from = doc.batches.length;

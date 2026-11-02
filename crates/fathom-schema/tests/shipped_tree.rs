@@ -214,7 +214,8 @@ fn shipped_tree_declaration_counts_hold() {
     // 0.33 -> 0.34 is Termix in the work: `PlanStep.seen`, `.compared` and `PhysicalPort.console_baud` (552-554).
     // 0.34 -> 0.35 is the Work tab's ticket parts: seven optional fields (555-561), Notable widened.
     // 0.35 -> 0.36 is the IP plan store: eleven `plan`-layer kinds no design holds (562-636).
-    assert_eq!(tree.version.as_deref(), Some("0.36"));
+    // 0.36 -> 0.37 is a plan called off: one variant, `called_off`, on `MaintenancePlan.stage`.
+    assert_eq!(tree.version.as_deref(), Some("0.37"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

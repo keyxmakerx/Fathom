@@ -125,13 +125,18 @@ pub struct Row {
     pub work: Option<Work>,
 }
 
+/// A plan is still going on until it is recorded, or called off before any work (schema 0.37).
+fn plan_is_open(stage: &str) -> bool {
+    stage != "recorded" && stage != "called_off"
+}
+
 /// A piece of work, as the Work tab lists it. The status is each kind's own (r74: "nothing is
 /// said twice"): a plan's stage, an issue's stage, a spare's state.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Work {
     /// Still going on: a plan planned or doing, an open issue, a spare on order, away or lent.
     pub open: bool,
-    /// The kind's own status word: `planned`, `doing`, `recorded`, `open`, `closed`,
+    /// The kind's own status word: `planned`, `doing`, `recorded`, `called_off`, `open`, `closed`,
     /// `on_order`, `in_repair` or `lent`.
     pub state: String,
     /// When: a plan's window start, an issue's or a spare's due date, as typed.
@@ -593,7 +598,7 @@ pub fn rows_of_snapshot(snap: &Snapshot) -> Vec<Row> {
                     addresses: Vec::new(),
                     ports: Vec::new(),
                     work: Some(Work {
-                        open: stage != "recorded",
+                        open: plan_is_open(&stage),
                         state: stage,
                         when: field(id, MaintenancePlanField::WindowStart.key()),
                         assigned: field(id, MaintenancePlanField::AssignedTo.key()),
@@ -1184,6 +1189,15 @@ impl Scheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A called-off plan is finished work on the Work tab, as a recorded one is.
+    #[test]
+    fn a_plan_is_open_until_recorded_or_called_off() {
+        assert!(plan_is_open("planned"));
+        assert!(plan_is_open("doing"));
+        assert!(!plan_is_open("recorded"));
+        assert!(!plan_is_open("called_off"));
+    }
 
     fn row() -> Row {
         Row {

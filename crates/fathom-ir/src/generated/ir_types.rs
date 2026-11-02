@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.36";
+    pub const SCHEMA_VERSION: &str = "0.37";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -396,8 +396,9 @@ mod body {
         DocFile,
         /// A planned change: a title, a window, and ordered steps (HasStep). Hung off the root
         /// through HasPlan. The plan never changes the live design; applying a step does, through
-        /// the same edit a person would make by hand. `stage` runs planned, doing, recorded;
-        /// `outcome` and `record` are set once, when it is recorded. Identity is weak on purpose,
+        /// the same edit a person would make by hand. `stage` runs planned, doing, recorded,
+        /// or planned to called_off when it is stopped before the work; `outcome` and `record`
+        /// are set once, when it is recorded (a called-off plan has only `record`). Identity is weak on purpose,
         /// Label's own precedent. Anyone who can read the design can read its plans.
         MaintenancePlan,
         /// One step of a plan, in `ordinal` order. It holds its change as an `edit` the canvas
@@ -5471,6 +5472,7 @@ mod body {
         Planned,
         Doing,
         Recorded,
+        CalledOff,
         /// The generated unknown arm (62 §7 rule 2) — carries the
         /// unrecognised token verbatim; what makes a new variant a minor
         /// bump an old client survives (62 §16.2).
@@ -5479,10 +5481,11 @@ mod body {
 
     impl MaintenancePlanStage {
         /// Declared tokens, declaration order.
-        pub const DECLARED: [&'static str; 3] = [
+        pub const DECLARED: [&'static str; 4] = [
             "planned",
             "doing",
             "recorded",
+            "called_off",
         ];
         /// Neutral token → variant; anything undeclared lands in `Unknown`.
         pub fn from_token(token: &str) -> MaintenancePlanStage {
@@ -5490,6 +5493,7 @@ mod body {
                 "planned" => MaintenancePlanStage::Planned,
                 "doing" => MaintenancePlanStage::Doing,
                 "recorded" => MaintenancePlanStage::Recorded,
+                "called_off" => MaintenancePlanStage::CalledOff,
                 other => MaintenancePlanStage::Unknown(other.to_owned()),
             }
         }
@@ -5499,6 +5503,7 @@ mod body {
                 MaintenancePlanStage::Planned => "planned",
                 MaintenancePlanStage::Doing => "doing",
                 MaintenancePlanStage::Recorded => "recorded",
+                MaintenancePlanStage::CalledOff => "called_off",
                 MaintenancePlanStage::Unknown(t) => t,
             }
         }

@@ -12,6 +12,7 @@ import {
   addCheck,
   addStep,
   answerCheck,
+  callOff,
   createPlan,
   setIfWhen,
   setReleaseNotes,
@@ -53,7 +54,7 @@ import {
   windowText,
   bandSentence,
 } from './plansModel';
-import { ENGINE_DOWN, editFailureText, loadPanelPrefs, refusalText, usePlansController, type PlansController } from './usePlansController';
+import { ENGINE_DOWN, editFailureText, loadPanelPrefs, refusalText, usePlansController, type PlansController, type TroubleFrom } from './usePlansController';
 
 const tick = (() => {
   let now = 1_790_900_000_000;
@@ -198,7 +199,7 @@ describe('the words on the band and the page', () => {
     const { doc, ports } = lab();
     const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }, null]);
     const plan = readPlan(made.doc, made.id);
-    expect(bandSentence(plan)).toBe('2 changes');
+    expect(bandSentence(plan)).toBe('2 changes · Maintenance next, no window set');
     const doing = readPlan(startPlan(made.doc, made.id, tick()), made.id);
     expect(bandSentence(doing)).toBe('Step 1 of 2');
     expect(outcomeSentence({ ...doing, steps: doing.steps.map((s) => ({ ...s, state: 'done' as const })) })).toBe('2 of 2 as planned.');
@@ -449,7 +450,10 @@ interface Harness {
   applied: Document[];
 }
 
-function harness(doc: Document, opts: { gate?: ((t: string) => string) | null; mirror?: Partial<Mirror> | null; open?: string; canEdit?: boolean } = {}): Harness {
+function harness(
+  doc: Document,
+  opts: { gate?: ((t: string) => string) | null; mirror?: Partial<Mirror> | null; open?: string; canEdit?: boolean; onTroubleshoot?: (from: TroubleFrom) => void } = {},
+): Harness {
   const applied: Document[] = [];
   let live = doc;
   const mirror = (opts.mirror === undefined ? { checkCable: () => [], checkFieldEdit: () => [], planPreview: () => [] } : opts.mirror) as Mirror | null;
@@ -468,6 +472,7 @@ function harness(doc: Document, opts: { gate?: ((t: string) => string) | null; m
       actor: { actor: '01ARZ3NDEKTSV4RRFFQ69G5FAV' },
       canEdit: opts.canEdit ?? true,
       initialOpen: opts.open ?? null,
+      onTroubleshoot: opts.onTroubleshoot,
     });
     return null;
   };
@@ -614,6 +619,33 @@ describe('the controller applies commands through the one write path', () => {
     spy.mockRestore();
   });
 
+  it('calls a plan off for troubleshooting and opens It\'s down on its device, the pasted note gated', async () => {
+    const { doc, devices, ports } = lab();
+    const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
+    const opened: TroubleFrom[] = [];
+    const h = harness(made.doc, { open: made.id, onTroubleshoot: (f) => opened.push(f) });
+    expect(h.controller.troubleshootDevice).toBe(devices[0]);
+    expect(await h.controller.callOff('troubleshoot', 'uplink flaps, key hunter2-abc123', true)).toBe(true);
+    const plan = readPlan(h.applied[0], made.id);
+    expect(plan.stage).toBe('called_off');
+    expect(plan.record).toBe('Troubleshooting first\nuplink flaps, key <REDACTED>');
+    expect(opened).toEqual([{ deviceId: devices[0], stepId: null, said: 'Instead of Move uplink: uplink flaps, key <REDACTED>' }]);
+  });
+
+  it('calls a plan off as not needed without opening anything, and plans it again', async () => {
+    const { doc, ports } = lab();
+    const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
+    const opened: TroubleFrom[] = [];
+    const h = harness(made.doc, { open: made.id, onTroubleshoot: (f) => opened.push(f) });
+    expect(await h.controller.callOff('not_needed', '')).toBe(true);
+    expect(opened).toEqual([]);
+    const off = h.applied[0];
+    expect(readPlan(off, made.id).stage).toBe('called_off');
+    const again = harness(off, { open: made.id });
+    expect(await again.controller.planAgain()).toBe(true);
+    expect(readPlan(again.applied[0], made.id)).toMatchObject({ stage: 'planned', record: '' });
+  });
+
   it('a reader can look but not change', async () => {
     const { doc } = lab();
     const h = harness(doc, { canEdit: false });
@@ -659,6 +691,45 @@ describe('the panel and the page, rendered', () => {
     expect(render(readPlan(started, made.id), started).band).not.toContain('Edit title and time');
   });
 
+  it('shows where the plan goes, and offers Start the maintenance beside Call it off while planning', () => {
+    const { doc, ports } = lab();
+    const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
+    const out = render(readPlan(made.doc, made.id), made.doc);
+    expect(out.panel).toContain('data-testid="plans-route"');
+    const words = ['>Plan<', '>Maintenance<', '>Checks after<', '>Record<'].map((w) => out.panel.indexOf(w));
+    expect(words.every((i) => i > 0)).toBe(true);
+    expect(words).toEqual([...words].sort((a, b) => a - b));
+    expect(out.panel).toContain('What happens next');
+    expect(out.panel).toContain('Call it off…');
+    expect(out.panel.indexOf('Start the maintenance')).toBeLessThan(out.panel.indexOf('Call it off…'));
+    expect(out.band).toContain('Maintenance next, no window set');
+    expect(render(readPlan(made.doc, made.id), made.doc, { canEdit: false }).panel).not.toContain('Call it off');
+    const started = startPlan(made.doc, made.id, tick());
+    const doing = render(readPlan(started, made.id), started);
+    expect(doing.panel).not.toContain('Call it off');
+    expect(doing.panel).toContain('data-at="now" data-key="work"');
+  });
+
+  it('a called-off plan says why, what it would have done, offers Plan it again, and draws nothing', () => {
+    const { doc, ports } = lab();
+    const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
+    const off = callOff(made.doc, made.id, { reason: 'done_another_way', note: 'fixed by the ISP', gate, ...tick() });
+    const plan = readPlan(off, made.id);
+    const out = render(plan, off);
+    expect(out.panel).toContain('data-mode="off"');
+    expect(out.panel).toContain('Done another way');
+    expect(out.panel).toContain('fixed by the ISP');
+    expect(out.panel).toContain('What it would have done');
+    expect(out.panel).toContain('Plan it again');
+    expect(out.panel).not.toContain('Start the maintenance');
+    expect(out.panel).toContain('data-at="skipped" data-key="work"');
+    expect(out.band).toContain('CALLED OFF');
+    expect(out.band).toContain('Done another way · nothing was changed');
+    expect(out.page).toContain('Not done');
+    expect(buildMarks(plan, buildCanon(off))).toEqual([]);
+    expect(render(plan, off, { canEdit: false }).panel).not.toContain('Plan it again');
+  });
+
   it('offers Back out once a step is marked, and not before', () => {
     const { doc, ports } = lab();
     const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }, null]);
@@ -701,7 +772,7 @@ describe('the panel and the page, rendered', () => {
     expect(out.panel).toContain('Fathom does not redact what you type, only what you paste');
   });
 
-  it('Plan lists the steps with reorder, remove, the add form and Start work', () => {
+  it('Plan lists the steps with reorder, remove, the add form and Start the maintenance', () => {
     const { doc, ports } = lab();
     const made = planWith(doc, [
       { t: 'cable', a: ports[0], b: ports[1] },
@@ -712,7 +783,7 @@ describe('the panel and the page, rendered', () => {
     expect(out.panel).toContain('plans-step--planned');
     expect(out.panel).toContain('aria-label="Move step 2 up"');
     expect(out.panel).toContain('aria-label="Remove step 1"');
-    expect(out.panel).toContain('Start work');
+    expect(out.panel).toContain('Start the maintenance');
     expect(out.panel).toContain('Add a step');
     expect(out.band).toContain('PLANNING');
     expect(out.band).toContain('Move uplink');
@@ -737,7 +808,7 @@ describe('the panel and the page, rendered', () => {
     // Marked, then current, then later: the order a keyboard walks.
     const order = ['data-state="done"', 'data-state="current"', 'data-state="later"'].map((s) => out.panel.indexOf(s));
     expect(order).toEqual([...order].sort((a, b) => a - b));
-    expect(out.panel).not.toContain('Start work');
+    expect(out.panel).not.toContain('Start the maintenance');
     expect(out.band).toContain('Step 2 of 3');
   });
 
@@ -779,12 +850,12 @@ describe('the panel and the page, rendered', () => {
     }
   });
 
-  it('Plan puts Start work after What it touches, and the Add a step form behind a button once there are steps', () => {
+  it('Plan puts Start the maintenance after What it touches, and the Add a step form behind a button once there are steps', () => {
     const { doc, ports } = lab();
     const made = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
     const out = render(readPlan(made.doc, made.id), made.doc);
-    expect(out.panel.indexOf('What it touches')).toBeLessThan(out.panel.indexOf('Start work'));
-    expect(out.panel.indexOf('Start work')).toBeLessThan(out.panel.indexOf('Add a step'));
+    expect(out.panel.indexOf('What it touches')).toBeLessThan(out.panel.indexOf('Start the maintenance'));
+    expect(out.panel.indexOf('Start the maintenance')).toBeLessThan(out.panel.indexOf('Add a step'));
     expect(out.panel).not.toContain('data-testid="plans-add-step"');
     const empty = planWith(doc, []);
     expect(render(readPlan(empty.doc, empty.id), empty.doc).panel).toContain('data-testid="plans-add-step"');

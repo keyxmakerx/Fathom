@@ -415,7 +415,7 @@ A login held only in Fathom's own vault never goes to Termix, with or without it
 carries commands, in the folder `Fathom / <plan name>`, which the person runs in Termix on the
 terminal they opened. Fathom never runs these. Without it: each command block has Copy.
 
-**Automations** (`automations`). For: Start work puts the plan's devices that Termix has into a
+**Automations** (`automations`). For: Start the maintenance puts the plan's devices that Termix has into a
 maintenance window, with `Fathom: <plan name>` as the reason and the plan's window as its length
 (an hour when the plan has none, at most Termix's 10080 minutes); Record takes them out again, but
 only where the window's one reason is still the plan's. A host someone else owns in Termix is

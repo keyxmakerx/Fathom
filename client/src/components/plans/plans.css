@@ -750,3 +750,86 @@
   margin: 4px 0 0;
   font-size: var(--t-small);
 }
+
+/* Where the plan goes (sign-off r94-plan-next): Plan, Maintenance, Checks after, Record, with now in the stage's
+   tone. Done is ink, to come is hairline, a stop a called-off plan never reached is struck through. */
+.plans-route {
+  display: flex;
+  flex-direction: column;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  border-left: 3px solid var(--hairline);
+}
+
+.plans-route__stop {
+  display: grid;
+  grid-template-columns: 7.5em minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  margin-left: -3px;
+  padding: 2px 8px;
+  border-left: 3px solid var(--hairline);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.plans-route__word {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.plans-route__detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plans-route__stop[data-at='done'] {
+  border-left-color: var(--ink);
+  color: var(--ink);
+}
+
+.plans-route__stop[data-at='now'] {
+  border-left-color: var(--tone);
+  background: var(--wash);
+  color: var(--ink);
+}
+
+.plans-route__stop[data-at='now'] .plans-route__word {
+  color: var(--tone);
+}
+
+.plans-route__stop[data-at='skipped'] .plans-route__word,
+.plans-route__stop[data-at='skipped'] .plans-route__detail {
+  text-decoration: line-through;
+}
+
+.plans-next {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--hairline);
+}
+
+.plans-calloff__reasons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 8px;
+  padding: 0;
+  border: 0;
+}
+
+.plans-calloff__reason {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  cursor: pointer;
+}
+
+.plans-calloff__reason input {
+  margin-top: 4px;
+  accent-color: var(--ink);
+}

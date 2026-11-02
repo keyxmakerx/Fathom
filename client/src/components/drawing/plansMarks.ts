@@ -20,7 +20,7 @@ export const TONE_COLOUR: Record<PlanTone, string> = {
 };
 
 export function toneOf(stage: PlanStage, word: string): PlanTone {
-  if (stage === 'recorded') return 'record';
+  if (stage === 'recorded' || stage === 'called_off') return 'record';
   if (stage === 'doing') return /^[✓≠]/.test(word) ? 'done' : 'do';
   return 'plan';
 }

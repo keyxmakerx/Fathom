@@ -227,7 +227,9 @@ fn schema_version_is_the_trees() {
     // `Issue` and `StockItem` (555-561), and `Notable` widened; MINOR.
     // 0.35 -> 0.36: the IP plan store (ADR-0083). Eleven `plan`-layer kinds no design may hold,
     // seventy-five field keys (562-636); MINOR.
-    assert_eq!(SCHEMA_VERSION, "0.36");
+    // 0.36 -> 0.37: a plan called off. One variant, `called_off`, on `MaintenancePlan.stage`;
+    // no field key; MINOR.
+    assert_eq!(SCHEMA_VERSION, "0.37");
 }
 
 #[test]
