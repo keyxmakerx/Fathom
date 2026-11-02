@@ -871,7 +871,18 @@ async fn main() -> ExitCode {
     // is proved writable HERE with a probe file, so a deployment that cannot stage
     // learns it at startup, not mid-maintenance-window.
     let firmware = match &config.firmware_dir {
-        None => None,
+        None => {
+            tracing::info!("firmware is off: FATHOM_FIRMWARE=off");
+            None
+        }
+        Some(dir) if config.firmware_dir_defaulted && !std::path::Path::new(dir).is_dir() => {
+            tracing::info!(
+                directory = %dir,
+                "firmware is off: no FATHOM_FIRMWARE_DIR, and the default folder is not here \
+                 (it is in the container image)"
+            );
+            None
+        }
         Some(dir) => {
             let base = config.firmware_fetch_base_url.clone();
             match fathom_server::firmware::FirmwareStore::open(
@@ -906,6 +917,18 @@ async fn main() -> ExitCode {
                     );
                     fathom_server::firmware::spawn_recheck(pool.clone(), Arc::clone(&store));
                     Some(store)
+                }
+                // The image's own folder, not named by anyone, and not writable: a compose
+                // with a read-only root and no firmware volume. Start with firmware off and
+                // say what to add, rather than refusing a server that started yesterday.
+                Err(e) if config.firmware_dir_defaulted => {
+                    tracing::warn!(
+                        error = %e,
+                        directory = %dir,
+                        "firmware is off: mount a writable volume at this folder, owned by \
+                         65532, to turn it on (docs/RUNNING-IT.md)"
+                    );
+                    None
                 }
                 Err(e) => {
                     tracing::error!(

@@ -653,7 +653,8 @@ cannot be used to call `/mcp`.
 
 ## Firmware space and uploads
 
-Firmware is on by default in `compose.yaml`; `FATHOM_FIRMWARE_DIR=` (empty) turns it off. The
+Firmware is on by default; `FATHOM_FIRMWARE=off` turns it off. An unset or empty
+`FATHOM_FIRMWARE_DIR` means the image's folder, `/var/lib/fathom/firmware`. The
 address devices download from is set on Admin › Firmware, or by an organisation's Stewards for
 their own devices; `.env` may give a starting one. With none anywhere, a download link is refused
 with `409` saying where to set it (owner, 2026-11-01).

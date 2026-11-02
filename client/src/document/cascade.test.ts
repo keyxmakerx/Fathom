@@ -37,7 +37,10 @@ describe('cascadeRemoval — performance', () => {
     expect(result.nodeIds.size).toBe(5_002); // device + chassis + 5,000 ports
     expect(result.edgeIds.size).toBe(5_001); // HasChassis + 5,000 HasPort
     expect(elapsed).toBeLessThan(2_000);
-  });
+    // The 2 s bound above is what this test checks. Building the 125,000 edges is not
+    // measured, and on a busy CI runner it alone can pass vitest's 5 s default (PR #272,
+    // 2026-11-01), so the test as a whole gets room the measured call does not.
+  }, 30_000);
 });
 
 describe('cascadeRemoval — cables', () => {

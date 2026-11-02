@@ -3,7 +3,7 @@
 // asks for a one-time link a switch can fetch from. The bytes never pass through memory here: the
 // browser reads the File as it sends it.
 //
-// When the server runs without firmware (FATHOM_FIRMWARE_DIR set empty) these routes are not
+// When the server runs without firmware (FATHOM_FIRMWARE=off, or an image from before 2026-11-01) these routes are not
 // mounted and a list answers 404 with no body; `listFirmware` turns that into `FirmwareOff`.
 
 import { concatBytes, lp, u64LE, utf8 } from '../crypto/bytes';

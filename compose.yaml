@@ -389,12 +389,12 @@ services:
       FATHOM_AUDIT_SPOOL_MAX_BYTES: ${FATHOM_AUDIT_SPOOL_MAX_BYTES:-}
       # Firmware (ADR-0045): on by default (owner, 2026-11-01: set on the server,
       # not in a file). The address your SWITCHES reach this server on is set on
-      # Admin › Firmware; these `.env` values are optional starting values. The
-      # `-` form (no colon) keeps the default only while the variable is unset, so
-      # `FATHOM_FIRMWARE_DIR=` with nothing after it turns firmware off
-      # (docs.docker.com/reference/compose-file/interpolation/, read 2026-11-01).
+      # Admin › Firmware; these `.env` values are optional starting values. An
+      # empty FATHOM_FIRMWARE_DIR is the image's folder too (the server reads it
+      # so), and `FATHOM_FIRMWARE=off` is the one way to turn firmware off.
+      FATHOM_FIRMWARE: ${FATHOM_FIRMWARE:-}
       FATHOM_FIRMWARE_FETCH_BASE_URL: ${FATHOM_FIRMWARE_FETCH_BASE_URL:-}
-      FATHOM_FIRMWARE_DIR: ${FATHOM_FIRMWARE_DIR-/var/lib/fathom/firmware}
+      FATHOM_FIRMWARE_DIR: ${FATHOM_FIRMWARE_DIR:-/var/lib/fathom/firmware}
       FATHOM_FIRMWARE_MAX_BYTES: ${FATHOM_FIRMWARE_MAX_BYTES:-}
       FATHOM_FIRMWARE_ORGANISATION_MAX_BYTES: ${FATHOM_FIRMWARE_ORGANISATION_MAX_BYTES:-}
       FATHOM_FIRMWARE_TOTAL_MAX_BYTES: ${FATHOM_FIRMWARE_TOTAL_MAX_BYTES:-}

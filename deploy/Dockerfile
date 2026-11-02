@@ -249,7 +249,7 @@ ENV FATHOM_CLIENT_ROOT=/srv/www
 COPY --from=build --chown=65532:65532 /bootstrap-seed /var/lib/fathom/bootstrap
 ENV FATHOM_BOOTSTRAP_TOKEN_FILE=/var/lib/fathom/bootstrap/first-operator-token
 # The second writable path: staged firmware images, owned by 65532 for the same
-# reason. Only used when compose turns firmware on (FATHOM_FIRMWARE_DIR).
+# reason. The server uses it unless FATHOM_FIRMWARE_DIR names another or FATHOM_FIRMWARE=off.
 COPY --from=build --chown=65532:65532 /firmware-seed /var/lib/fathom/firmware
 # The backups volume's mount point (ADR-0070), read-only here, owned by 65532
 # for the same reason: whichever container mounts a fresh named volume first
