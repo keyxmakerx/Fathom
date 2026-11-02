@@ -4,8 +4,9 @@
 sign-off card r89-scale-and-ha (§4), and every pick on r90-reading-at-a-million (§8), with a note
 that changed two of them: host keys are approved both in bulk and one device at a time (§8.2 item
 3), and MAC and ARP tables are read on a schedule as well as on request (§8.2 item 4). §9, the other
-half of that note (Zabbix, Splunk, Calix and Nokia), is proposed: it goes ahead on its recommended
-picks and waits on card r91-systems-and-cpe for the owner to change them.
+half of that note (Zabbix, Splunk, Calix and Nokia), was approved on r91-systems-and-cpe with every
+pick, and a note that the owner runs Calix CMS and Nokia SAM, not SMx, Calix Cloud or Altiplano.
+§9.6 is reworked for that; it goes ahead on its recommended pick and waits on r91 version 2.
 
 **Builds on:** ADR-0082 (Fathom reads devices and never writes to them; the separate reader helper,
 §4.3), ADR-0079 (one estate across designs: the estate index, a design per site), ADR-0071 (the
@@ -297,7 +298,7 @@ replaces rows built from a newer version. A rebuild of a 1,000-device design wro
 rebuilding only changed elements, and committing the index (derived data) without waiting for the
 synchronous standby, keep that off the HA link.
 
-## 9. What other systems already know: Zabbix, Splunk, Calix and Nokia (proposed, card r91-systems-and-cpe)
+## 9. What other systems already know: Zabbix, Splunk, Calix and Nokia (accepted on r91-systems-and-cpe; §9.6 reworked, r91 v2)
 
 The rest of the owner's note on r90 (§8.2): *"Right now we use Splunk and Zabbix. It we have an
 importing feature that'd be nice. Is there anything we could do for CPE Calix's and Nokias?"*
@@ -318,20 +319,25 @@ read, the third-party source is named as such.
 | Nokia MF OLTs answer NETCONF directly (TCP 831 to 833); Altiplano-managed PON is read through Altiplano's REST API over HTTPS with an OAuth bearer token, and the OLT reports each ONT's serial to Altiplano. | RG Nets rXg manual, "Nokia PON/MF Systems" (third party) |
 | Calix Cloud has a "Subscriber/Device API" at `https://gcs.calix.com:8444/` (Canada `gcs-ca`), device path `/api/device`, Basic authentication with an "API for Web Clients (HTTPS)" user made in Calix Cloud's admin menu. | Postman collection "Calix Cloud - Subscriber/Device API" (documenter.gw.postman.com) |
 | Calix SMx has a northbound REST API under `https://{SMx}:{port}/rest/v1/`. Calix's own SMx API guide refuses automated reading, so its calls are not established here. | KalebFenley/smx-api README (third party, a proof of concept reading alarms) |
+| Calix's end-of-life page lists, for CMS, only an end of sale for its Dell R430 appliance (CAB-18-028) and an end of support for its Oracle server option (CAB-18-017), not for CMS itself. It says *"Calix C-Series systems will reach End of Support status on December 31, 2026"*, and that T-Series ONTs *"have reached End of Support status"*. | calix.com/eol |
+| CMS's northbound interface is *"a separately licensed part of CMS (R15.x, SOAP over HTTP or HTTPS)"*. | Joshkcal52/calix-gpon-cms-api README (third party) |
+| Polled directly over SNMP, E7 EXA nodes list *"the GPON ports, ONTs, ONT eth ports, and ethernet interfaces"* as interfaces; traffic and light levels came only through CMS. | LibreNMS community forum, "Calix E7 EXA GPON port traffic", 2023-07-07 (third party) |
+| Nokia's 5620 SAM manages Nokia's IP/MPLS routers and switches (7750 SR, 7450 ESS, 7210 SAS and others) and some third-party gear. | ipcisco.com, "Nokia 5620 SAM" (third party) |
+| Nokia's NSP *"has evolved from the 5620 SAM"*; its packet manager, NFM-P, is *"an advanced IP/MPLS and mobile network management system"* whose XML API is SOAP over HTTP or HTTPS with JMS notifications, and needs a licence key and a user group with the OSS management scope. | Nokia SReXperts Americas 2017, "Transitioning from 5620 SAM to the Network Services Platform"; NSP 24.4 Glossary and XML API Developer Guide |
+| **Could not establish:** whether 5620 SAM itself is still supported (Nokia's pages found say only that NSP evolved from it), or whether it holds any PON or CPE inventory. Nokia's PON element manager is a different product, AMS, *"element management system for the Intelligent Services Access Manager (ISAM) broadband access nodes"* (nokia.com, Access Management System). | — |
 | TR-369 (USP) is the Broadband Forum's successor to TR-069 (CWMP) for managing home gateways and Wi-Fi, and allows several controllers per device. | QA Cafe, "User Services Platform (TR-369) overview" |
 
 ### 9.2 Why this is more than "nice"
 
 The owner expects close to a million entries at the start (§8). They will not be drawn by hand.
-Zabbix already lists the network's devices with their addresses, and the access systems (SMx,
-Calix Cloud, Altiplano) already list every ONT with its serial and the OLT port it hangs off.
-Reading them is how the estate is first filled; reading them again on a schedule is how it stays
+Zabbix already lists the network's devices with their addresses, and the OLTs already know every
+ONT on their PON ports (§9.6). Reading them is how the estate is first filled; reading them again on a schedule is how it stays
 true **without polling a million CPEs**, which §8 exists to avoid.
 
 ### 9.3 One shape for every outside system (recommended, r91 question 2, A)
 
-- **A source is a system, not a device:** a Zabbix server, a Splunk saved search, SMx, Calix
-  Cloud, Altiplano. A Steward adds it under Steward › Device reading › Sources: its address, the
+- **A source is a system, not a device:** a Zabbix server, a Splunk saved search, and later SMx,
+  Calix Cloud or Altiplano if the owner moves to them (§9.6). A Steward adds it under Steward › Device reading › Sources: its address, the
   reader that calls it, and a login from the vault.
 - **A reader calls it, never the server** (§4.1): the reader near it, or `local`. The same two
   locks as for devices (§4.4): the source's address must be in that reader's ranges, and the calls
@@ -381,19 +387,36 @@ into today's importer, one site of up to 2,000 rows at a time. **Later:** a Splu
 saved search the Steward picks, on a schedule, through a reader, with the REST calls in §9.1, and
 treats its rows as a reading.
 
-### 9.6 Calix and Nokia CPE (recommended, r91 question 3, A)
+### 9.6 Calix and Nokia CPE (reworked after r91's note; recommended, r91 v2 A)
 
-- **(A) Through the systems that manage them:** SMx or Calix Cloud, and Altiplano. One call lists
-  thousands of ONTs with serial, model and which OLT and PON port they hang off. Fathom never
-  connects to a CPE: they sit in subscribers' homes, a site reader could not reach them anyway, and
-  the OLT already knows them. Where an OLT is not under such a system, the site reader may read the
-  OLT itself (Nokia MF OLTs answer NETCONF, §9.1; Calix OLTs not established), with that OLT
-  family's fixed list added to the reader on its own card.
-- **(B) The OLTs directly, everywhere,** with site readers. Needs a device login on every OLT and a
-  fixed list per OLT family, for what the management systems already hold.
-- **(C) As a TR-069 or TR-369 manager.** Rejected: those protocols manage a CPE and a manager can
-  change it, while Fathom reads and never writes (ADR-0082 §2); and every CPE would have to be set
-  up to answer one more manager.
+r91 version 1 recommended reading CPE through SMx, Calix Cloud and Altiplano (§9.1). The owner
+approved it with a note: *"for 3. We don't use any of those, we use Calix CMS and Nokia SAM, which i
+think both are unsupported now."* (Key Maker, 2026-11-02.) What the sources say about that (§9.1):
+Calix lists no end of support for CMS itself, but its C-Series (C7) systems lose support on 31
+December 2026. Whether 5620 SAM is still supported could not be established, and the sources found
+describe it managing IP/MPLS routers, not PON, so it likely does not know the CPE at all. Neither is
+a source worth building for first.
+
+- **(A) Read the OLTs directly with the site readers.** The OLT knows every ONT on its PON ports.
+  The readers already read the OLTs as network devices (nightly interfaces, weekly inventory), with
+  a login the vault already holds for them, so the ONT list is one more purpose on that OLT
+  family's fixed list, not a new connection. An E7 EXA already lists its ONTs as interfaces over
+  SNMP (§9.1); whether serials come the same way, or need the E7's CLI over SSH, is established
+  against a real E7 when built. It works whatever manages the OLT, so it survives a move off CMS
+  or SAM. Fathom never connects to a CPE.
+- **(B) Read CMS's northbound interface.** One connection for every Calix node CMS manages, but
+  it is a separately licensed part of an older system, and there is nothing equivalent for Nokia.
+- **(C) Wait until SMx or Altiplano is in.** Nothing built for CPE until then; §9.6's version 1
+  plan applies when it is.
+
+Rejected, as in version 1: reading CPE as a TR-069 or TR-369 manager. Those protocols manage a CPE
+and a manager can change it, while Fathom reads and never writes (ADR-0082 §2); and every CPE would
+have to be set up to answer one more manager.
+
+**Which OLT families.** The first inventory read of each site names its OLTs (`sysDescr`,
+ENTITY-MIB), so Fathom lists the families it found and each family's fixed list is added in that
+order, most ONTs first, without anyone being asked to list their gear. C7s are not built for: Calix
+ends their support on 31 December 2026. Routers that SAM manages are read as devices like any other.
 
 How a million CPEs show in Fathom is **not** decided here. The schema already says an ONT that only
 converts is a `PassiveNode` media converter and a CPE that routes is a `router` (`schema.yaml`,
@@ -402,12 +425,13 @@ count on the canvas) comes to the owner as mockups on its own card before it is 
 
 ### 9.7 Order
 
-After §7 step 1, and before the site reader, since the `local` reader can reach a Zabbix or SMx
-that the server can reach:
+After §7 step 1. Steps 1 and 2 come before the site reader, since the `local` reader can reach a
+Zabbix that the server can reach; step 3 needs readers that reach the OLTs:
 
 1. The Splunk CSV route: a worked example in `docs/EXAMPLES.md`, no code.
 2. The Zabbix source, first, because it is how the estate is first filled.
-3. SMx, Calix Cloud and Altiplano sources, each with its role and its fixed lists.
+3. ONT lists from the OLT families the first inventory reads find (§9.6 A), each with its fixed
+   list. SMx, Calix Cloud and Altiplano sources only when the owner moves to them.
 4. The Splunk saved-search source.
 
 ## Not decided here
