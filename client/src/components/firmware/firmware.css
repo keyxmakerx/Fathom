@@ -824,8 +824,8 @@ select.fw-input {
   padding-left: 18px;
 }
 
-/* Upload (sign-off r97): the file button in the app's ink, and a slow sheen across the
-   upload buttons so they catch the eye. The sheen stops for reduced motion. */
+/* Upload (sign-off r97): the file button drawn as the app's own button, and a slow dark
+   sheen across "+ Upload image" only, so it catches the eye. The sheen stops for reduced motion. */
 .fw-file {
   display: inline-flex;
   flex-wrap: wrap;
@@ -849,8 +849,14 @@ select.fw-input {
   font-size: var(--t-tab);
   line-height: 16px;
   padding: 3px 10px;
-  border: var(--rule-hair) solid var(--ink);
+  color: var(--ink);
+  background: var(--control-bg);
+  border: var(--rule-hair) solid var(--control-line);
   border-radius: var(--radius-control);
+}
+
+.fw-file__pick:hover {
+  border-color: var(--control-line-hover);
 }
 
 .fw-file__input:focus-visible + .fw-file__pick {
@@ -878,7 +884,7 @@ select.fw-input {
   position: absolute;
   inset: -2px auto -2px -60%;
   width: 45%;
-  background: linear-gradient(100deg, transparent, color-mix(in srgb, var(--page) 38%, transparent), transparent);
+  background: linear-gradient(100deg, transparent, color-mix(in srgb, var(--ink) 22%, transparent), transparent);
   transform: skewX(-18deg);
   animation: fw-shine 3.6s ease-in-out infinite;
   pointer-events: none;

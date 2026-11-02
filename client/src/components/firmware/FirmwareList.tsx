@@ -92,7 +92,7 @@ export function FirmwareList({ api, onOpenImage, onOpenModel, onOpenDevices, onU
         </div>
         <span className="fw-toolbar__grow" />
         {api.canStage && status !== 'off' ? (
-          <button type="button" className="fw-btn btn-main fw-shine" onClick={onUpload}>
+          <button type="button" className="fw-btn fw-shine" onClick={onUpload}>
             + Upload image
           </button>
         ) : null}

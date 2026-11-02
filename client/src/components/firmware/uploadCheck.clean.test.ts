@@ -62,14 +62,15 @@ describe('RenameNote', () => {
 });
 
 describe('the upload buttons (r97)', () => {
-  it('draws the file button in the app ink with the sheen until a file is chosen', async () => {
+  it('draws the file button as the app’s own button, with no sheen (r97 v2)', async () => {
     const { createElement } = await import('react');
     const { renderToStaticMarkup } = await import('react-dom/server');
     const { UploadForm } = await import('./UploadForm');
     const { estate } = await import('../../document/firmwareFixture');
     const api = { doc: estate().doc } as unknown as Parameters<typeof UploadForm>[0]['api'];
     const out = renderToStaticMarkup(createElement(UploadForm, { api, onDone: () => {}, onCancel: () => {} }));
-    expect(out).toContain('class="fw-btn btn-main fw-file__pick fw-shine"');
+    expect(out).toContain('class="fw-btn fw-file__pick"');
+    expect(out).not.toContain('fw-shine');
     expect(out).toContain('Choose file');
     expect(out).toContain('No file chosen');
   });

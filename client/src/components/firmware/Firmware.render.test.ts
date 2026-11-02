@@ -234,6 +234,7 @@ describe('an image page', () => {
   it('a Firmware holder (r95) gets Upload, Edit models, the link and Retire, but not the activity', () => {
     const holder = api(world().doc, { canStage: true, isSteward: false });
     expect(renderToStaticMarkup(createElement(FirmwareList, { api: holder, onOpenImage: noop, onOpenModel: noop, onOpenDevices: noop, onUpload: noop }))).toContain('+ Upload image');
+    expect(renderToStaticMarkup(createElement(FirmwareList, { api: holder, onOpenImage: noop, onOpenModel: noop, onOpenDevices: noop, onUpload: noop }))).toContain('class="fw-btn fw-shine"');
     const page = renderToStaticMarkup(createElement(ImagePage, { api: holder, rowKey: 'img:' + IMG_ID, onOpenModel: noop }));
     expect(page).toContain('Edit models');
     expect(page).toContain('One-time link');
