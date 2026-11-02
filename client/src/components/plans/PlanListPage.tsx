@@ -80,7 +80,7 @@ export function PlanListPage({ controller, plan }: { controller: PlansController
           {plan.steps.map((s) => (
             <tr key={s.id} data-state={s.state}>
               <td className="plans-table__stripe">
-                <span className="plans-sr">{s.ordinal + 1}</span>
+                <span className="plans-sr">{s.label}</span>
               </td>
               <td data-label="Kind">{KIND_WORD[s.kind]}</td>
               <td data-label="Change">{s.change.replace(/\n/g, " — ")}</td>
@@ -112,7 +112,7 @@ export function PlanListPage({ controller, plan }: { controller: PlansController
           {notes.length === 0 && plan.record === '' && <p className="plans-note">No notes yet.</p>}
           {notes.map((s) => (
             <p key={s.id}>
-              Step {s.ordinal + 1}: {s.note}
+              Step {s.label}: {s.note}
             </p>
           ))}
           {plan.stage === 'recorded' && (

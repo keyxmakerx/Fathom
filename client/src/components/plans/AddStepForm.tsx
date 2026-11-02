@@ -75,8 +75,12 @@ function Field({
 }
 
 /** Collapsed behind a button; open from the start when the plan has no steps, and when a right-click fills it. */
-export function AddStepForm({ controller, stepCount }: { controller: PlansController; stepCount: number }) {
-  const { doc, canon, prefill } = controller;
+/** `branch`: the form adds to that main-line step's If path (sign-off r73) instead of the main line. */
+export function AddStepForm({ controller, stepCount, branch }: { controller: PlansController; stepCount: number; branch?: { stepId: string; label: string } }) {
+  const { doc, canon } = controller;
+  // A right-click fills the main line's form, never an If path's.
+  const prefill = branch ? null : controller.prefill;
+  const words = branch ? `Add a step to step ${branch.label}'s If path` : 'Add a step';
   const [form, setForm] = useState<StepForm>(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   // Any paste into any text field of this form sends the whole form through the redaction gate.
@@ -144,7 +148,7 @@ export function AddStepForm({ controller, stepCount }: { controller: PlansContro
             setOpen(true);
           }}
         >
-          Add a step
+          {words}
         </button>
       </p>
     );
@@ -153,13 +157,13 @@ export function AddStepForm({ controller, stepCount }: { controller: PlansContro
   return (
     <form
       className="plans-form"
-      aria-label="Add a step"
+      aria-label={words}
       data-testid="plans-add-step"
       onSubmit={(e) => {
         e.preventDefault();
         if (busy) return;
         setBusy(true);
-        void controller.addStep(form, paste.pasted).then((ok) => {
+        void (branch ? controller.addIfStep(branch.stepId, form, paste.pasted) : controller.addStep(form, paste.pasted)).then((ok) => {
           setBusy(false);
           if (ok) {
             setForm({ ...EMPTY_FORM, kind: form.kind });
@@ -168,7 +172,7 @@ export function AddStepForm({ controller, stepCount }: { controller: PlansContro
         });
       }}
     >
-      <h3 className="plans-label">Add a step</h3>
+      <h3 className="plans-label">{words}</h3>
       <label htmlFor={kindId}>Kind</label>
       <select id={kindId} className="plans-select" value={form.kind} onChange={(e) => set('kind', e.target.value as StepKind)}>
         {STEP_KINDS.map((k) => (

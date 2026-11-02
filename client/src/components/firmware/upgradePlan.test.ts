@@ -4,7 +4,7 @@ import type { FirmwareImage } from '../../api/firmware';
 import type { FwDevice, FwTarget } from '../../document/firmware';
 import type { Plan, PlanStep } from '../../document/plans';
 import { KIT_CHOICES } from './kits';
-import { FETCH_STEP_TITLE, LINK_PLACEHOLDER, buildUpgradePlan, commandWithLink, commandsFit, labelled, maskedLink, parseUpgradeTitle, stepTitle, upgradeGroups, upgradeTitle } from './upgradePlan';
+import { FETCH_STEP_TITLE, LINK_PLACEHOLDER, buildUpgradePlan, commandWithLink, commandsFit, labelled, maskedLink, parseUpgradeTitle, stepTitle, upgradeChecks, upgradeGroups, upgradeTitle } from './upgradePlan';
 
 const HASH = '9f2c' + 'cd'.repeat(28) + 'a41e';
 
@@ -216,9 +216,19 @@ describe('an upgrade Fathom has no image for (schema 0.31)', () => {
   });
 });
 
+describe('checks after the work (sign-off r73)', () => {
+  it('every firmware plan comes with its own, naming the version', () => {
+    const one = buildUpgradePlan({ devices: [dev('d1', 'switch-1')], label: 'EX2300-24P', version: '23.4R2', target, image: image() });
+    expect(one.checks).toEqual(upgradeChecks('23.4R2', 1));
+    expect(one.checks![0]).toBe('The device reports 23.4R2 as running');
+    const kit = buildUpgradePlan({ devices: [{ ...dev('d1', 'a'), platform: 'frr' }, { ...dev('d2', 'b'), platform: 'frr' }], label: 'X', version: '9.1', target: { ...target, platform: 'frr' }, image: null });
+    expect(kit.checks![0]).toBe('Each device reports 9.1 as running');
+  });
+});
+
 describe('one plan holding several upgrades', () => {
-  const step = (id: string, change: string, targets: string[]): PlanStep => ({ id, ordinal: 0, kind: 'other', change, before: '', after: '', targets, edit: null, state: 'planned', note: '', doneAt: '' });
-  const plan = (title: string, steps: PlanStep[]): Plan => ({ id: 'p', title, windowStart: '', windowEnd: '', author: '', stage: 'planned', outcome: null, record: '', steps });
+  const step = (id: string, change: string, targets: string[]): PlanStep => ({ id, ordinal: 0, kind: 'other', change, before: '', after: '', targets, edit: null, state: 'planned', note: '', doneAt: '', label: '1', ifWhen: '', branchOf: '', ifTaken: false, issue: '' });
+  const plan = (title: string, steps: PlanStep[]): Plan => ({ id: 'p', title, windowStart: '', windowEnd: '', author: '', stage: 'planned', outcome: null, record: '', steps, ifPaths: {}, checks: [], releaseNotes: '' });
 
   it('is known by its record steps whatever it is called, and pairs each fetch with its devices', () => {
     const added = labelled(buildUpgradePlan({ devices: [dev('d9', 'core-1')], label: 'EX2300-24P', version: '23.4R2', target, image: image() }), 'EX2300-24P to 23.4R2');

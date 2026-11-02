@@ -56,6 +56,7 @@ export function Touches({ controller, plan, stepId }: { controller: PlansControl
     );
   }
   const rows = (preview ?? []).filter((r) => stepId === undefined || r.step === stepId);
+  const label = (r: { step: string; ordinal: number }): string => plan.steps.find((s) => s.id === r.step)?.label ?? String(r.ordinal + 1);
   const shown = rows.filter((r) => r.impact.length > 0 || r.findings.length > 0 || r.error !== '');
   if (unavailable) return <p className="plans-note">Checks are not running, so what this touches is not shown.</p>;
   if (preview == null) return plan.steps.length > 0 ? <p className="plans-note">Reading the design…</p> : null;
@@ -71,7 +72,7 @@ export function Touches({ controller, plan, stepId }: { controller: PlansControl
         ...(r.error !== ''
           ? [
               <li key={`${r.step}|e`} className="plans-touches__item">
-                Step {r.ordinal + 1} cannot be tried against the design: {r.error}
+                Step {label(r)} cannot be tried against the design: {r.error}
               </li>,
             ]
           : []),
@@ -82,7 +83,7 @@ export function Touches({ controller, plan, stepId }: { controller: PlansControl
               <span className="plans-touches__sev">
                 <span aria-hidden="true">{sev.glyph}</span> {sev.word}
               </span>{' '}
-              After step {r.ordinal + 1}: {f.title}
+              After step {label(r)}: {f.title}
               {f.elements[0] != null && f.elements[0].name !== '' ? (
                 <>
                   {' · on '}

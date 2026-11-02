@@ -279,6 +279,11 @@ function Footer({ draft, controller }: { draft: Draft; controller: TroubleContro
 function DraftBody({ draft, controller, onTie }: { draft: Draft; controller: TroubleController; onTie?: (deviceId: string) => void }) {
   return (
     <>
+      {draft.from != null && (
+        <p className="trouble-hint" data-testid="trouble-from">
+          From {draft.from.said}
+        </p>
+      )}
       <ol className="trouble-steps" data-testid="trouble-steps">
         {draft.steps.map((s, i) => (
           <Step key={`${draft.openedAt}|${i}`} step={s} index={i} controller={controller} onTie={onTie} />

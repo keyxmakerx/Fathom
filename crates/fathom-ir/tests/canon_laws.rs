@@ -219,7 +219,9 @@ fn schema_version_is_the_trees() {
     // 0.30 -> 0.31: one optional `Device` field, `firmware_target` (542); MINOR.
     // 0.31 -> 0.32: links between sites. Two optional fields on `ExternalPeer` (`far_design`,
     // `far_element`), two field keys (543-544); MINOR.
-    assert_eq!(SCHEMA_VERSION, "0.32");
+    // 0.32 -> 0.33: the plan-to-maintenance flow. Seven optional fields on `MaintenancePlan`,
+    // `PlanStep` and `Issue`, seven field keys (545-551); MINOR.
+    assert_eq!(SCHEMA_VERSION, "0.33");
 }
 
 #[test]
@@ -765,7 +767,8 @@ fn dispatch_names_every_registry_key() {
     // 458 -> 476: stock (524-541, schema 0.30).
     // 476 -> 477: `Device.firmware_target` (542, schema 0.31).
     // 477 -> 479: links between sites (543-544, schema 0.32).
-    assert_eq!(FIELD_KEYS.len(), 479, "the registry grew or shrank");
+    // 479 -> 486: the plan-to-maintenance flow (545-551, schema 0.33).
+    assert_eq!(FIELD_KEYS.len(), 486, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.
