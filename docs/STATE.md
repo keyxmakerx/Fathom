@@ -694,7 +694,10 @@ and a walk that stopped short dashes its last box in caution with a "Stopped her
 engine's reason. When a device keeps a VRF, a Table picker sits above the key: one table lit, the rest at
 the phantom fade (`tableLit` in `routingLens.ts`; a host behind a switch on a VRF's port lights with it), and a
 trace started on a device with VRFs walks in the picked table (`trace_in`, the fourth line of `OP_TRACE`); a
-start on an interface keeps its own table.
+start on an interface keeps its own table. A trace to an address this design does not hold asks the estate
+index (ADR-0079) which other designs this person may read hold it, and the panel says "10.8.0.5 is on nas-01
+in Branch · Open it there" (`trace/traceElsewhere.ts`). It does not carry the walk across: past this site's
+edge is that design's own trace.
 
 **Routes by hand** (sign-off r96, round 1; no schema change). Inventory › Networks, under Routes, lists every
 static route on every device, pasted or typed, and adds one: a device, To (`default` for 0.0.0.0/0, or a

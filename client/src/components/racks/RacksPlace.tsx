@@ -99,6 +99,7 @@ import { useChecksController } from '../checks/useChecksController';
 import { routingMarks, tableLit, tableNames } from '../drawing/routingLens';
 import { RoutingContext, type RoutingApi } from '../drawing/RoutingTab';
 import { TracePanel } from '../trace/TracePanel';
+import { useTraceElsewhere } from '../trace/traceElsewhere';
 import { InSideSlot, type SideTab } from '../shell/sideSlot';
 import { TraceContext } from '../trace/traceStore';
 import { useTraceController, type TraceEnd } from '../trace/useTraceController';
@@ -1036,6 +1037,8 @@ export function RacksPlace(props: RacksPlaceProps) {
     const link = siteLinkTouching(doc, trace.result.hops.flatMap((h) => h.nodes));
     return link ? { label: link.label, far: link.far } : null;
   }, [doc, trace.result]);
+  // An address this design does not hold: which other sites do (r96 round 2, the estate index).
+  const traceElsewhere = useTraceElsewhere(session.organisationId, session.designId, trace.result);
   const traceHandled = useRef<unknown>(null);
   useEffect(() => {
     if (traceRequest == null || traceHandled.current === traceRequest) return;
@@ -2462,7 +2465,7 @@ export function RacksPlace(props: RacksPlaceProps) {
       {doc != null && jot == null && !trace.open && !checks.open && planted > 0 ? <PracticeNote count={planted} onOpenChecks={() => checks.setOpen(true)} /> : null}
       {doc != null && jot == null ? (
         <InSideSlot id="trace">
-          <TracePanel controller={trace} onTie={canDraw ? setTieFor : undefined} continueIn={traceContinuation} />
+          <TracePanel controller={trace} onTie={canDraw ? setTieFor : undefined} continueIn={traceContinuation} elsewhere={traceElsewhere} />
         </InSideSlot>
       ) : null}
       </TraceContext.Provider>
