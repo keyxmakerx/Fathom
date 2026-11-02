@@ -93,6 +93,7 @@ TAG_GRANT_SUSPEND = b"fathom/grant/suspend/v1"
 TAG_GRANT_UNSUSPEND = b"fathom/grant/unsuspend/v1"
 TAG_KEY_SUCCESSION = b"fathom/key/succession/v1"
 TAG_TEAM_ACT = b"fathom/team/act/v1"
+TAG_TEAM_ROLE = b"fathom/team/role/v1"
 KDF_ROW = b"fathom/chain/kdf/row/v1"
 TAG_ROW = b"fathom/row/v1"
 TAG_AUTHHEAD_LIVE = b"fathom/authhead/live/v2"
@@ -363,6 +364,33 @@ team_member_add_bytes = team_act(TEAM_ACT_ID, b"member_add", SUBJECT, SUBJECT_KE
 team_grant_revoke_bytes = team_act(TEAM_ACT_ID, b"grant_revoke", b"", bytes(32), b"", SCOPE,
                                    b"", TEAM_UNDONE_ID, TEAM_UNDONE_BYTES, b"steward")
 
+# Migration 0071: a role's definition. One with powers and not retired; the retired flag is a
+# single byte, so a definition with no powers and retired is the second shape.
+ROLE_DEF_ID = b"01JQZ0000000000000000000MM"
+ROLE_ID = b"01JQZ0000000000000000000NN"
+
+
+def team_role(def_id, role, title, powers, retired):
+    return (
+        lp(TAG_TEAM_ROLE)
+        + lp(ORGANISATION)
+        + lp(ROOT_PUBKEY_FPR)
+        + lp(def_id)
+        + lp(role)
+        + lp(title)
+        + lp(powers)
+        + bytes([1 if retired else 0])
+        + lp(GRANTER)
+        + lp(GRANTER_KEY_FPR)
+        + u64_le(AT_UNIX)
+        + u32_le(AUTH_EPOCH)
+    )
+
+
+team_role_tech_bytes = team_role(ROLE_DEF_ID, b"tech", b"Maintenance tech",
+                                 b"emergency_start", False)
+team_role_retire_bytes = team_role(ROLE_DEF_ID, ROLE_ID, b"Night desk", b"", True)
+
 succession_bytes = (
     lp(TAG_KEY_SUCCESSION)
     + lp(ACCOUNT)
@@ -573,6 +601,8 @@ if __name__ == "__main__":
         ("SUCCESSION_BYTES", succession_bytes),
         ("TEAM_MEMBER_ADD_BYTES", team_member_add_bytes),
         ("TEAM_GRANT_REVOKE_BYTES", team_grant_revoke_bytes),
+        ("TEAM_ROLE_TECH_BYTES", team_role_tech_bytes),
+        ("TEAM_ROLE_RETIRE_BYTES", team_role_retire_bytes),
         ("ORG_CHAIN_KEY", org_chain_key),
         ("K_ROW", k_row),
         ("K_SEAL", k_seal),

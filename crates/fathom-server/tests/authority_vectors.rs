@@ -42,6 +42,7 @@
 
 use fathom_server::authority::{
     self, Capability, GrantFacts, RowFacts, SignatureRefused, SoftwareKey, TeamActFacts,
+    TeamRoleFacts,
 };
 use fathom_server::chain::{self, ChainRef};
 use fathom_server::crypto::Key32;
@@ -130,6 +131,18 @@ const TEAM_GRANT_REVOKE_BYTES: &str = "12000000666174686f6d2f7465616d2f6163742f7
      614f9e217c008e00dc0ad040154ec7e3427f343a1a00000030314a515a30303030303030303030303030303030303030\
      444420000000434343434343434343434343434343434343434343434343434343434343434307000000737465776172\
      64800e80690000000007000000";
+const TEAM_ROLE_TECH_BYTES: &str = "13000000666174686f6d2f7465616d2f726f6c652f76311a00000030314a515a30303030303030303030303030303030\
+     30303041412000000041414141414141414141414141414141414141414141414141414141414141411a00000030314a\
+     515a303030303030303030303030303030303030304d4d0400000074656368100000004d61696e74656e616e63652074\
+     6563680f000000656d657267656e63795f7374617274001a00000030314a515a30303030303030303030303030303030\
+     3030304444200000004343434343434343434343434343434343434343434343434343434343434343800e8069000000\
+     0007000000";
+const TEAM_ROLE_RETIRE_BYTES: &str = "13000000666174686f6d2f7465616d2f726f6c652f76311a00000030314a515a30303030303030303030303030303030\
+     30303041412000000041414141414141414141414141414141414141414141414141414141414141411a00000030314a\
+     515a303030303030303030303030303030303030304d4d1a00000030314a515a30303030303030303030303030303030\
+     3030304e4e0a0000004e69676874206465736b00000000011a00000030314a515a303030303030303030303030303030\
+     303030304444200000004343434343434343434343434343434343434343434343434343434343434343800e80690000\
+     000007000000";
 const ORGANISATION: &str = "01JQZ0000000000000000000AA";
 const SCOPE: &str = "01JQZ0000000000000000000BB";
 const SUBJECT: &str = "01JQZ0000000000000000000CC";
@@ -610,4 +623,38 @@ fn team_act_bytes_are_the_bytes_the_attack_round_describes() {
         auth_epoch: AUTH_EPOCH,
     });
     assert_eq!(hex(&revoke), TEAM_GRANT_REVOKE_BYTES);
+}
+
+/// Migration 0071's role definition, both shapes: a ready-made role with a power, and a
+/// Steward's role retired with none.
+#[test]
+fn team_role_bytes_are_the_bytes_the_script_builds() {
+    let tech = authority::team_role_bytes(&TeamRoleFacts {
+        organisation: ORGANISATION,
+        root_pubkey_fpr: &ROOT_PUBKEY_FPR,
+        def_id: "01JQZ0000000000000000000MM",
+        role: "tech",
+        title: "Maintenance tech",
+        powers: "emergency_start",
+        retired: false,
+        signer: GRANTER,
+        signer_key_fpr: &GRANTER_KEY_FPR,
+        at_unix: AT_UNIX,
+        auth_epoch: AUTH_EPOCH,
+    });
+    assert_eq!(hex(&tech), TEAM_ROLE_TECH_BYTES);
+    let retire = authority::team_role_bytes(&TeamRoleFacts {
+        organisation: ORGANISATION,
+        root_pubkey_fpr: &ROOT_PUBKEY_FPR,
+        def_id: "01JQZ0000000000000000000MM",
+        role: "01JQZ0000000000000000000NN",
+        title: "Night desk",
+        powers: "",
+        retired: true,
+        signer: GRANTER,
+        signer_key_fpr: &GRANTER_KEY_FPR,
+        at_unix: AT_UNIX,
+        auth_epoch: AUTH_EPOCH,
+    });
+    assert_eq!(hex(&retire), TEAM_ROLE_RETIRE_BYTES);
 }

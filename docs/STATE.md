@@ -117,6 +117,13 @@ makes it irrelevant.
   leading or supervising one (a lead staffs it there), and "Through teams" on Steward › People › a
   person. Each act is signed in the browser, its bytes rebuilt there first. No operator suspend,
   approvals or work assignment yet.
+- **0071: team roles** (ADR-0081 later item 3, brought forward by card r102 version 2; `roles.rs`). A
+  role is a title and powers from a fixed list (assign, due dates, approve plans, members, history,
+  emergency start). Lead, Supervisor (`overseer`) and Maintenance tech (`tech`) come ready-made; a
+  root Steward renames them, changes their powers, adds roles or retires their own, each a signed,
+  append-only row in `team_role_defs` (`fathom/team/role/v1`) inside the authority head. A lead's
+  member acts now need a role with the members power at the act's chain position. No power reaches
+  a folder. Steward › Teams has a Roles tab; a team's page lists who holds which role.
 - **0013: sessions** (`sessions.rs`, `api.rs`; admin §4). A signed message on every request that
   reaches design payload or vault ciphertext, single-use nonces, a browser-held session key, a MAC
   under a site-scoped row key.

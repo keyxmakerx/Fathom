@@ -100,6 +100,7 @@ pub mod oauth;
 pub mod operators;
 pub mod repo;
 pub mod rls;
+pub mod roles;
 pub mod secret;
 pub mod sessions;
 pub mod teaching;

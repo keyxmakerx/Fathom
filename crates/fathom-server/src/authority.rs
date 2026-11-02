@@ -99,6 +99,10 @@ const TAG_KEY_RETIRE: &[u8] = b"fathom/key/retire/v1";
 /// grant's or as a different act's.
 const TAG_TEAM_ACT: &[u8] = b"fathom/team/act/v1";
 
+/// A role's definition: its title and powers, or its retirement (migration 0071). Its own tag,
+/// so a definition never verifies as a team act or a grant.
+const TAG_TEAM_ROLE: &[u8] = b"fathom/team/role/v1";
+
 /// §3.4's row-seal subkey, and its three in-MAC tags.
 const KDF_ROW_LABEL: &[u8] = b"fathom/chain/kdf/row/v1";
 const TAG_ROW: &[u8] = b"fathom/row/v1";
@@ -159,6 +163,10 @@ pub const LABELS: &[(&str, &str)] = &[
     (
         "fathom/team/act/v1",
         "in-signature tag of team_act_bytes (ADR-0081, attack round T5)",
+    ),
+    (
+        "fathom/team/role/v1",
+        "in-signature tag of team_role_bytes (ADR-0081 later item 3, card r102 v2)",
     ),
     (
         "fathom/chain/kdf/row/v1",
@@ -476,6 +484,49 @@ pub fn team_act_bytes(facts: &TeamActFacts<'_>) -> Vec<u8> {
     crypto::lp(&mut msg, facts.signer.as_bytes());
     crypto::lp(&mut msg, facts.signer_key_fpr);
     crypto::lp(&mut msg, facts.signer_authority.as_bytes());
+    crypto::u64_le(&mut msg, facts.at_unix as u64);
+    crypto::u32_le(&mut msg, facts.auth_epoch as u32);
+    msg
+}
+
+/// Everything `team_role_bytes` covers: one whole definition of a role (migration 0071).
+pub struct TeamRoleFacts<'a> {
+    pub organisation: &'a str,
+    pub root_pubkey_fpr: &'a [u8; 32],
+    pub def_id: &'a str,
+    /// `lead`, `overseer`, `tech`, or a ULID for a role a Steward made.
+    pub role: &'a str,
+    pub title: &'a str,
+    /// The canonical powers string (`roles::powers_text`), comma-separated in list order.
+    pub powers: &'a str,
+    pub retired: bool,
+    pub signer: &'a str,
+    pub signer_key_fpr: &'a [u8; 32],
+    pub at_unix: i64,
+    pub auth_epoch: i32,
+}
+
+/// The bytes a root Steward signs to define, change or retire a role.
+///
+/// ```text
+/// team_role_bytes = LP("fathom/team/role/v1")
+///                 ‖ LP(organisation_id) ‖ LP(root_pubkey_fpr)
+///                 ‖ LP(def_id) ‖ LP(role) ‖ LP(title) ‖ LP(powers) ‖ u8(retired)
+///                 ‖ LP(signer_id) ‖ LP(signer_key_fpr)
+///                 ‖ u64(at_unix) ‖ u32(auth_epoch)
+/// ```
+pub fn team_role_bytes(facts: &TeamRoleFacts<'_>) -> Vec<u8> {
+    let mut msg = Vec::with_capacity(256);
+    crypto::lp(&mut msg, TAG_TEAM_ROLE);
+    crypto::lp(&mut msg, facts.organisation.as_bytes());
+    crypto::lp(&mut msg, facts.root_pubkey_fpr);
+    crypto::lp(&mut msg, facts.def_id.as_bytes());
+    crypto::lp(&mut msg, facts.role.as_bytes());
+    crypto::lp(&mut msg, facts.title.as_bytes());
+    crypto::lp(&mut msg, facts.powers.as_bytes());
+    msg.push(u8::from(facts.retired));
+    crypto::lp(&mut msg, facts.signer.as_bytes());
+    crypto::lp(&mut msg, facts.signer_key_fpr);
     crypto::u64_le(&mut msg, facts.at_unix as u64);
     crypto::u32_le(&mut msg, facts.auth_epoch as u32);
     msg

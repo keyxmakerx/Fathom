@@ -12,12 +12,18 @@
 //!   every field and the hex `bytes` to sign.
 //! - `POST /organisations/{o}/teams/sign`: the proposal's fields back, plus `"signature"`
 //!   (hex) and, for `create`, `"slug"` and `"name"`. Answers `{"act": id, "team": id}`.
+//! - `POST /organisations/{o}/teams/roles/propose`: a root Steward's, body `{"key", "role"?,
+//!   "title", "powers": [..], "retired"}`; no `role` makes a new one. Answers the proposal and
+//!   the hex `bytes`. `POST /organisations/{o}/teams/roles/sign`: its fields back plus
+//!   `"signature"`; answers `{"role": id}` (migration 0071).
+//! - The list also carries `"roles"`: every role as it stands, `{role, title, powers, preset,
+//!   retired}`, and each team its `"roles"`: `{role, account, name, act}` for every holder.
 //! - `POST /organisations/{o}/teams/{team}/rename`: body `{"slug", "name"}`, a root steward's.
 //! - `GET  /organisations/{o}/teams/{team}/history`: `{"acts": [...]}`, oldest first, each with
 //!   `counts`: whether its signature and its signer's authority check now; and `"names"`,
 //!   `{account: display name}` for everyone the acts name, so any member can read it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use axum::extract::{Path as PathExtractor, State};
 use axum::response::Response;
@@ -29,6 +35,7 @@ use super::{begin_org, json_response, object_body, str_field, DesignApiState, Ro
 use crate::authority::Capability;
 use crate::crypto::{hex, unhex};
 use crate::grants::Authority;
+use crate::roles::{self, Power, RoleProposal, RoleRequest};
 use crate::sessions::SessionError;
 use crate::teams::{self, NewTeam, TeamActProposal, TeamActRequest};
 
@@ -42,6 +49,14 @@ pub(super) fn routes() -> Router<DesignApiState> {
         .route(
             "/organisations/{organisation}/teams/sign",
             post(sign_handler),
+        )
+        .route(
+            "/organisations/{organisation}/teams/roles/propose",
+            post(role_propose_handler),
+        )
+        .route(
+            "/organisations/{organisation}/teams/roles/sign",
+            post(role_sign_handler),
         )
         .route(
             "/organisations/{organisation}/teams/{team}/rename",
@@ -187,7 +202,7 @@ async fn list_handler(
         tenant_key: &tenant_key,
         watch: &state.watch,
     };
-    let (steward, list) = teams::list(&tx, &auth)
+    let (steward, list, defs) = teams::list_with_roles(&tx, &auth)
         .await
         .map_err(SessionError::Authority)?;
     let people = if steward || list.iter().any(|t| t.may_staff) {
@@ -224,6 +239,22 @@ async fn list_handler(
             m.insert("leads".to_string(), seats(&t.leads));
             m.insert("supervisors".to_string(), seats(&t.overseers));
             m.insert(
+                "roles".to_string(),
+                Json::Arr(
+                    t.roles
+                        .iter()
+                        .map(|(role, s)| {
+                            let mut m = BTreeMap::new();
+                            m.insert("role".to_string(), Json::Str(role.clone()));
+                            m.insert("account".to_string(), Json::Str(s.account.clone()));
+                            m.insert("name".to_string(), Json::Str(s.name.clone()));
+                            m.insert("act".to_string(), Json::Str(s.act_id.clone()));
+                            Json::Obj(m)
+                        })
+                        .collect(),
+                ),
+            );
+            m.insert(
                 "grants".to_string(),
                 Json::Arr(
                     t.grants
@@ -248,6 +279,10 @@ async fn list_handler(
     let mut answer = BTreeMap::new();
     answer.insert("steward".to_string(), Json::Bool(steward));
     answer.insert("teams".to_string(), Json::Arr(teams_json));
+    answer.insert(
+        "roles".to_string(),
+        Json::Arr(defs.iter().map(definition_json).collect()),
+    );
     answer.insert(
         "people".to_string(),
         Json::Arr(
@@ -360,6 +395,168 @@ async fn sign_handler(
     let mut answer = BTreeMap::new();
     answer.insert("act".to_string(), Json::Str(act));
     answer.insert("team".to_string(), Json::Str(proposal.team));
+    Ok(json_response(Json::Obj(answer)))
+}
+
+fn definition_json(d: &roles::Definition) -> Json {
+    let mut m = BTreeMap::new();
+    m.insert("role".to_string(), Json::Str(d.role.clone()));
+    m.insert("title".to_string(), Json::Str(d.title.clone()));
+    m.insert(
+        "powers".to_string(),
+        Json::Arr(
+            Power::ALL
+                .into_iter()
+                .filter(|p| d.powers.contains(p))
+                .map(|p| Json::Str(p.as_str().to_string()))
+                .collect(),
+        ),
+    );
+    m.insert("preset".to_string(), Json::Bool(roles::is_preset(&d.role)));
+    m.insert("retired".to_string(), Json::Bool(d.retired));
+    Json::Obj(m)
+}
+
+fn powers_field(m: &mut BTreeMap<String, Json>) -> Result<BTreeSet<Power>, RouteError> {
+    match m.remove("powers") {
+        Some(Json::Arr(items)) => {
+            let mut set = BTreeSet::new();
+            for item in items {
+                let Json::Str(text) = item else {
+                    return Err(malformed("powers"));
+                };
+                let power = Power::parse(&text).ok_or_else(|| malformed("powers"))?;
+                if !set.insert(power) {
+                    return Err(malformed("powers"));
+                }
+            }
+            Ok(set)
+        }
+        _ => Err(malformed("powers")),
+    }
+}
+
+fn bool_field(m: &mut BTreeMap<String, Json>, key: &str) -> Result<bool, RouteError> {
+    match m.remove(key) {
+        Some(Json::Bool(b)) => Ok(b),
+        _ => Err(malformed("request body")),
+    }
+}
+
+fn role_proposal_json(p: &RoleProposal) -> Json {
+    let mut m = BTreeMap::new();
+    m.insert("def_id".to_string(), Json::Str(p.def_id.clone()));
+    m.insert("role".to_string(), Json::Str(p.role.clone()));
+    m.insert("title".to_string(), Json::Str(p.title.clone()));
+    m.insert("powers".to_string(), Json::Str(p.powers.clone()));
+    m.insert("retired".to_string(), Json::Bool(p.retired));
+    m.insert("signer".to_string(), Json::Str(p.signer.clone()));
+    m.insert(
+        "signer_key_fpr".to_string(),
+        Json::Str(hex(&p.signer_key_fpr)),
+    );
+    m.insert("at".to_string(), Json::Int(p.at_unix));
+    m.insert("auth_epoch".to_string(), Json::Int(i64::from(p.auth_epoch)));
+    m.insert("root_fpr".to_string(), Json::Str(hex(&p.root_fpr)));
+    m.insert("bytes".to_string(), Json::Str(hex(&p.bytes)));
+    Json::Obj(m)
+}
+
+async fn role_propose_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let mut m = object_body(&signed.body, &["key", "role", "title", "powers", "retired"])?;
+    let request = RoleRequest {
+        role: opt_str(&mut m, "role")?,
+        title: need_str(&mut m, "title")?,
+        powers: powers_field(&mut m)?,
+        retired: bool_field(&mut m, "retired")?,
+    };
+    let key = fpr(&need_str(&mut m, "key")?)?;
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let proposal = roles::propose(&tx, &auth, &request, &key)
+        .await
+        .map_err(SessionError::Authority)?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    Ok(json_response(role_proposal_json(&proposal)))
+}
+
+async fn role_sign_handler(
+    State(state): State<DesignApiState>,
+    PathExtractor(organisation): PathExtractor<String>,
+    signed: Signed,
+) -> Result<Response, RouteError> {
+    let mut m = object_body(
+        &signed.body,
+        &[
+            "def_id",
+            "role",
+            "title",
+            "powers",
+            "retired",
+            "signer",
+            "signer_key_fpr",
+            "at",
+            "auth_epoch",
+            "root_fpr",
+            "signature",
+        ],
+    )?;
+    let int = |m: &mut BTreeMap<String, Json>, key: &str| match m.remove(key) {
+        Some(Json::Int(n)) => Ok(n),
+        _ => Err(malformed("request body")),
+    };
+    let proposal = RoleProposal {
+        def_id: need_str(&mut m, "def_id")?,
+        role: need_str(&mut m, "role")?,
+        title: need_str(&mut m, "title")?,
+        powers: need_str(&mut m, "powers")?,
+        retired: bool_field(&mut m, "retired")?,
+        signer: need_str(&mut m, "signer")?,
+        signer_key_fpr: fpr(&need_str(&mut m, "signer_key_fpr")?)?,
+        at_unix: int(&mut m, "at")?,
+        auth_epoch: i32::try_from(int(&mut m, "auth_epoch")?)
+            .map_err(|_| malformed("authority epoch"))?,
+        root_fpr: fpr(&need_str(&mut m, "root_fpr")?)?,
+        // Rebuilt inside `roles::commit` from the fields; nothing sent is believed.
+        bytes: Vec::new(),
+    };
+    let signature = unhex(&need_str(&mut m, "signature")?)
+        .filter(|s| s.len() == 64)
+        .ok_or_else(|| malformed("signature"))?;
+    let mut client = state
+        .sessions
+        .pool()
+        .get()
+        .await
+        .map_err(SessionError::Pool)?;
+    let (tx, ctx, tenant_key) = begin_org(&state, &signed, &mut client, &organisation).await?;
+    let auth = Authority {
+        ring: &state.ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &state.watch,
+    };
+    let role = roles::commit(&tx, &auth, &proposal, &signature)
+        .await
+        .map_err(SessionError::Authority)?;
+    tx.commit().await.map_err(SessionError::Db)?;
+    let mut answer = BTreeMap::new();
+    answer.insert("role".to_string(), Json::Str(role));
     Ok(json_response(Json::Obj(answer)))
 }
 

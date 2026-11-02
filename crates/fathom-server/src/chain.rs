@@ -609,6 +609,9 @@ pub enum EntryType {
     TeamRoleCleared,
     TeamGrantSigned,
     TeamGrantRevoked,
+    /// A root Steward set a role's title and powers, added a role or retired one (migration
+    /// `0071`): the `role`, the `definition` row's id, the `actor`. Never the title.
+    TeamRoleDefined,
 }
 
 impl EntryType {
@@ -718,6 +721,7 @@ impl EntryType {
             Self::TeamRoleCleared => "team_role_cleared",
             Self::TeamGrantSigned => "team_grant_signed",
             Self::TeamGrantRevoked => "team_grant_revoked",
+            Self::TeamRoleDefined => "team_role_defined",
         }
     }
 
@@ -827,6 +831,7 @@ impl EntryType {
             "team_role_cleared" => Some(Self::TeamRoleCleared),
             "team_grant_signed" => Some(Self::TeamGrantSigned),
             "team_grant_revoked" => Some(Self::TeamGrantRevoked),
+            "team_role_defined" => Some(Self::TeamRoleDefined),
             _ => None,
         }
     }
@@ -941,7 +946,8 @@ impl EntryType {
             | Self::TeamRoleSet
             | Self::TeamRoleCleared
             | Self::TeamGrantSigned
-            | Self::TeamGrantRevoked => &[ChainKind::Org],
+            | Self::TeamGrantRevoked
+            | Self::TeamRoleDefined => &[ChainKind::Org],
             // **Two types are filed on two kinds.** `rewrap` because the master key
             // is deployment-wide (§7.2). `grant_suspended` because §1.1 gives the
             // operator plane this one authority-adjacent verb: the organisation

@@ -416,6 +416,14 @@ const TABLES: &[TableClaim] = &[
               permission map again, structure readable from a dump as for `scope_grants`.",
     },
     TableClaim {
+        name: "team_role_defs",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "append-only signed role definitions (0071): a role id, its title (a word like \
+              \"Maintenance tech\", plain text as a team's name is), the canonical powers \
+              list, a retired flag, fingerprints, a 64-byte signature, a chain sequence and a \
+              seal. What a role may do, readable from a dump as the permission map is.",
+    },
+    TableClaim {
         name: "organisation_auth_head",
         protection: Protection::NoKeyProtectedMaterial,
         why: "one row per organisation: the authority epoch, the chain sequence, how many \

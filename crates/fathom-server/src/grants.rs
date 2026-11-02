@@ -2985,6 +2985,10 @@ pub(crate) struct AuthorityState {
     /// Every signed act on a team (ADR-0081), by chain position. In the head's digest and its
     /// stored-seal check like every row above (attack round T7, T9).
     pub(crate) team_acts: Vec<crate::teams::TeamAct>,
+    /// Every definition of a team role (migration 0071), by chain position. Covered the same
+    /// way: a deleted definition would bring back an older one, possibly with a power since
+    /// taken away.
+    pub(crate) role_defs: Vec<crate::roles::RoleDef>,
 }
 
 /// One seconding, as stored (§3.5).
@@ -3150,6 +3154,7 @@ async fn read_authority_state(
     }
 
     let team_acts = crate::teams::read_acts(tx, organisation).await?;
+    let role_defs = crate::roles::read_defs(tx, organisation).await?;
 
     Ok(AuthorityState {
         organisation: organisation.to_string(),
@@ -3158,6 +3163,7 @@ async fn read_authority_state(
         suspensions,
         revocations,
         team_acts,
+        role_defs,
     })
 }
 
@@ -3251,6 +3257,7 @@ impl AuthorityState {
             ));
         }
         entries.extend(crate::teams::digest_entries(&self.team_acts, row_key));
+        entries.extend(crate::roles::digest_entries(&self.role_defs, row_key));
         entries
     }
 
@@ -3326,7 +3333,8 @@ impl AuthorityState {
                 "grant revocation row seal",
             )?;
         }
-        crate::teams::verify_stored_seals(&self.team_acts, row_key)
+        crate::teams::verify_stored_seals(&self.team_acts, row_key)?;
+        crate::roles::verify_stored_seals(&self.role_defs, row_key)
     }
 
     /// Whether a revocation has taken effect against this grant by `at_unix`.
@@ -4576,6 +4584,7 @@ mod tests {
             suspensions: Vec::new(),
             revocations: Vec::new(),
             team_acts: Vec::new(),
+            role_defs: Vec::new(),
         };
         // No live steward at all, which is the most permissive input there is.
         assert_eq!(state.steward_count(1_000), 0);

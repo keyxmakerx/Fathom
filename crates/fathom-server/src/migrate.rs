@@ -414,6 +414,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0067_device_read.sql",
         sql: include_str!("../migrations/0067_device_read.sql"),
     },
+    // Team roles with a title and powers a root Steward sets (ADR-0081, card r102 v2).
+    Migration {
+        version: 71,
+        name: "0071_team_roles.sql",
+        sql: include_str!("../migrations/0071_team_roles.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

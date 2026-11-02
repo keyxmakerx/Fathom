@@ -175,6 +175,13 @@ amendment and card before code.
    Steward could appoint by hand; the three built-in roles stay as named presets. Appointing
    someone to a custom role is signed like any role (decision 5).
 
+   **Amended 2026-11-02 (card r102 version 2, from the owner's note: "they should be able to set
+   the title and permissions of the role, we are just adding it by default").** Brought forward and
+   built in migration 0071. The three built-in roles are Lead, Supervisor and a new **Maintenance
+   tech**, and a Steward may rename them and change their powers too, not only add roles. One power
+   is new and no earlier role had it: *start a plan in an emergency*, approved afterwards (the
+   plan-approval half of the card). Directory sync and departments keep their place in this list.
+
 ## What it gives up, named
 
 - **Custom roles** (r75 option B, permission by permission) are not in the first version. The
