@@ -1505,3 +1505,357 @@ fn starting_on_a_device_with_vrfs_asks_for_an_interface() {
     let t = trace(&v.b.g, "10.1.0.1", "10.1.0.10", None);
     assert!(t.stopped.is_empty(), "{}", t.stopped);
 }
+
+// ---- round 2: route-based IPsec (r96) -----------------------------------------
+//
+// host-a 10.1.0.10 --- srx-a ===== VPN ===== srx-b --- host-b 10.2.0.10
+//                      wan 198.51.100.1/30   wan 203.0.113.1/30
+//                      st0.0                 st0.0
+//
+// srx-a: 10.2.0.0/16 out st0.0; srx-b: 10.1.0.0/16 out st0.0. The WANs are not cabled to
+// anything: the tunnel hop does not trace the path between the gateways.
+
+impl B {
+    /// `st0` with unit 0 on `dev`, optionally numbered.
+    fn st0(&mut self, dev: NodeId, addr: Option<(IpAddr, u8)>) -> NodeId {
+        let i = self.node(NodeKind::TunnelInterface);
+        self.set(
+            i,
+            "TunnelInterface.name",
+            scalar::InterfaceName("st0".to_owned()),
+        );
+        self.edge(EdgeKind::HasInterface, dev, i);
+        let u = self.node(NodeKind::LogicalUnit);
+        self.set(u, "LogicalUnit.index", 0u32);
+        self.edge(EdgeKind::HasUnit, i, u);
+        if let Some((a, l)) = addr {
+            let n = self.node(NodeKind::Address);
+            self.set(
+                n,
+                "Address.value",
+                scalar::InterfaceAddress {
+                    addr: a,
+                    prefix_len: l,
+                },
+            );
+            self.edge(EdgeKind::HasAddress, u, n);
+        }
+        u
+    }
+
+    /// An IKE gateway to `peer` (None: dynamic) leaving by `ext`, and a route-based VPN using it
+    /// bound to `st0`.
+    fn vpn(
+        &mut self,
+        dev: NodeId,
+        name: &str,
+        peer: Option<&str>,
+        ext: NodeId,
+        st0: Option<NodeId>,
+    ) -> (NodeId, NodeId) {
+        let gw = self.node(NodeKind::IkeGateway);
+        self.set(
+            gw,
+            "IkeGateway.name",
+            scalar::Identifier(format!("GW-{name}")),
+        );
+        let spec = match peer {
+            Some(p) => fathom_ir::value::PeerSpec::Address(scalar::IpAddr(ip(p))),
+            None => fathom_ir::value::PeerSpec::Dynamic(fathom_ir::value::IkeId),
+        };
+        self.set(gw, "IkeGateway.peer", spec);
+        self.edge(EdgeKind::HasIkeGateway, dev, gw);
+        self.edge(EdgeKind::ExternalInterface, gw, ext);
+        let v = self.node(NodeKind::IpsecVpn);
+        self.set(v, "IpsecVpn.name", scalar::Identifier(name.to_owned()));
+        self.set(
+            v,
+            "IpsecVpn.mode",
+            fathom_ir::generated::ir_types::VpnMode::RouteBased,
+        );
+        self.edge(EdgeKind::HasIpsecVpn, dev, v);
+        self.edge(EdgeKind::UsesIkeGateway, v, gw);
+        if let Some(u) = st0 {
+            self.edge(EdgeKind::BindsInterface, v, u);
+        }
+        (v, gw)
+    }
+}
+
+fn out_of(u: NodeId) -> NextHop {
+    NextHop::Interface(fathom_id::NodeId(u.ulid))
+}
+
+struct Ipsec {
+    b: B,
+    srx_a: NodeId,
+    srx_b: NodeId,
+    st0_a: NodeId,
+    st0_b: NodeId,
+    wan_a: NodeId,
+    wan_b: NodeId,
+    vpn_a: NodeId,
+    vpn_b: NodeId,
+    gw_b: NodeId,
+}
+
+/// The two sites, routes in place, but no VPN objects yet.
+fn two_sites() -> Ipsec {
+    let mut b = B::new();
+    let site = |b: &mut B, name: &str, lan: &str, wan: &str, host: &str, host_addr: &str| {
+        let d = b.device(name);
+        let c = b.chassis(d);
+        let lp = b.port(c, "ge-0/0/1");
+        b.unit(d, lp, "ge-0/0/1", Some((ip(lan), 24)), None);
+        let wp = b.port(c, "ge-0/0/0");
+        let w = b.unit(d, wp, "ge-0/0/0", Some((ip(wan), 30)), None);
+        let (h, hp) = b.host(host, host_addr);
+        b.cable(lp, hp);
+        b.route(h, (ip("0.0.0.0"), 0), via(lan));
+        let st = b.st0(d, None);
+        (d, w, st)
+    };
+    let (srx_a, wan_a, st0_a) = site(
+        &mut b,
+        "srx-a",
+        "10.1.0.1",
+        "198.51.100.1",
+        "host-a",
+        "10.1.0.10",
+    );
+    let (srx_b, wan_b, st0_b) = site(
+        &mut b,
+        "srx-b",
+        "10.2.0.1",
+        "203.0.113.1",
+        "host-b",
+        "10.2.0.10",
+    );
+    b.route(srx_a, (ip("10.2.0.0"), 16), out_of(st0_a));
+    b.route(srx_b, (ip("10.1.0.0"), 16), out_of(st0_b));
+    let placeholder = srx_a;
+    Ipsec {
+        b,
+        srx_a,
+        srx_b,
+        st0_a,
+        st0_b,
+        wan_a,
+        wan_b,
+        vpn_a: placeholder,
+        vpn_b: placeholder,
+        gw_b: placeholder,
+    }
+}
+
+/// Both sites with a VPN each, their gateways naming each other's WAN address.
+fn site_to_site() -> Ipsec {
+    let mut s = two_sites();
+    let (vpn_a, _) =
+        s.b.vpn(s.srx_a, "TO-B", Some("203.0.113.1"), s.wan_a, Some(s.st0_a));
+    let (vpn_b, gw_b) = s.b.vpn(
+        s.srx_b,
+        "TO-A",
+        Some("198.51.100.1"),
+        s.wan_b,
+        Some(s.st0_b),
+    );
+    s.vpn_a = vpn_a;
+    s.vpn_b = vpn_b;
+    s.gw_b = gw_b;
+    s
+}
+
+#[test]
+fn a_route_out_of_st0_crosses_to_the_far_end_of_its_vpn() {
+    let s = site_to_site();
+    let t = trace(&s.b.g, "10.1.0.10", "10.2.0.10", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(t.hops.last().unwrap().title, "host-b");
+    let tun = t
+        .hops
+        .iter()
+        .find(|h| h.kind == "tunnel")
+        .expect("a tunnel hop");
+    assert_eq!(tun.title, "IPsec TO-B");
+    assert!(
+        tun.detail
+            .iter()
+            .any(|d| d.contains("srx-b") && d.contains("TO-A")),
+        "{:?}",
+        tun.detail
+    );
+    assert!(
+        tun.detail
+            .iter()
+            .any(|d| d
+                .contains("names 203.0.113.1, which srx-b holds; srx-b names 198.51.100.1 back")),
+        "{:?}",
+        tun.detail
+    );
+    assert!(tun
+        .detail
+        .contains(&"whether the tunnel is up is not read".to_owned()));
+    // srx-b is entered on its st0.0, then routes to its LAN.
+    let b = t.hops.iter().find(|h| h.title == "srx-b").unwrap();
+    assert!(b.detail[0].starts_with("in on st0"), "{:?}", b.detail);
+
+    // And back the other way.
+    let t = trace(&s.b.g, "10.2.0.10", "10.1.0.10", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(t.hops.last().unwrap().title, "host-a");
+}
+
+#[test]
+fn a_numbered_st0_is_reached_by_its_next_hop_address() {
+    let mut s = two_sites();
+    // Re-point srx-a at a numbered st0: 10.255.0.1/30 to 10.255.0.2/30 on srx-b.
+    let st_a = s.b.st0(s.srx_a, Some((ip("10.255.0.1"), 30)));
+    let st_b = s.b.st0(s.srx_b, Some((ip("10.255.0.2"), 30)));
+    s.b.vpn(s.srx_a, "TO-B", Some("203.0.113.1"), s.wan_a, Some(st_a));
+    s.b.vpn(s.srx_b, "TO-A", Some("198.51.100.1"), s.wan_b, Some(st_b));
+    s.b.route(s.srx_a, (ip("10.2.0.0"), 24), via("10.255.0.2"));
+    let t = trace(&s.b.g, "10.1.0.10", "10.2.0.10", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(t.hops.last().unwrap().title, "host-b");
+    // The far st0's own address is reachable too.
+    let t = trace(&s.b.g, "10.1.0.10", "10.255.0.2", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(t.hops.last().unwrap().title, "srx-b");
+}
+
+#[test]
+fn st0_with_no_vpn_bound_says_so() {
+    let s = two_sites();
+    let t = trace(&s.b.g, "10.1.0.10", "10.2.0.10", None);
+    assert!(
+        t.stopped
+            .contains("is a tunnel interface that no IPsec VPN in the design is bound to"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_peer_no_device_holds_ends_in_could_not_establish() {
+    let mut s = two_sites();
+    // The far site is behind NAT: srx-a names its public address, which nothing holds.
+    s.b.vpn(s.srx_a, "TO-B", Some("192.0.2.77"), s.wan_a, Some(s.st0_a));
+    let t = trace(&s.b.g, "10.1.0.10", "10.2.0.10", None);
+    assert!(
+        t.stopped
+            .contains("names peer 192.0.2.77, which no device in this design holds"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_peer_named_as_an_external_peer_says_where_it_leads() {
+    let mut s = two_sites();
+    let (_, gw) = s.b.vpn(
+        s.srx_a,
+        "TO-AWS",
+        Some("192.0.2.77"),
+        s.wan_a,
+        Some(s.st0_a),
+    );
+    let p = s.b.node(NodeKind::ExternalPeer);
+    s.b.set(
+        p,
+        "ExternalPeer.label",
+        scalar::Text("AWS eu-west-1 VGW".to_owned()),
+    );
+    s.b.edge(EdgeKind::PeerIs, gw, p);
+    let t = trace(&s.b.g, "10.1.0.10", "10.2.0.10", None);
+    assert!(
+        t.stopped
+            .contains("TO-AWS on srx-a leads to 192.0.2.77: AWS eu-west-1 VGW, which this design names but does not hold"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_far_end_with_no_gateway_back_is_not_guessed() {
+    let mut s = two_sites();
+    s.b.vpn(s.srx_a, "TO-B", Some("203.0.113.1"), s.wan_a, Some(s.st0_a));
+    // srx-b's gateway names some other address, not srx-a's.
+    s.b.vpn(s.srx_b, "TO-C", Some("192.0.2.9"), s.wan_b, Some(s.st0_b));
+    let t = trace(&s.b.g, "10.1.0.10", "10.2.0.10", None);
+    assert!(
+        t.stopped
+            .contains("no IPsec VPN on srx-b has a gateway back to srx-a"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_hub_with_a_dynamic_peer_is_the_far_end_of_its_spoke() {
+    let mut s = two_sites();
+    s.b.vpn(
+        s.srx_a,
+        "TO-HUB",
+        Some("203.0.113.1"),
+        s.wan_a,
+        Some(s.st0_a),
+    );
+    s.b.vpn(s.srx_b, "SPOKES", None, s.wan_b, Some(s.st0_b));
+    let t = trace(&s.b.g, "10.1.0.10", "10.2.0.10", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    let tun = t.hops.iter().find(|h| h.kind == "tunnel").unwrap();
+    assert!(
+        tun.detail
+            .iter()
+            .any(|d| d.contains("srx-b takes a dynamic peer")),
+        "{:?}",
+        tun.detail
+    );
+    // From the hub, which spoke is at the far end is not stated.
+    let t = trace(&s.b.g, "10.2.0.10", "10.1.0.10", None);
+    assert!(
+        t.stopped
+            .contains("takes a dynamic peer, so which device is at the far end"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_tunnel_drawn_in_the_design_states_both_ends() {
+    let mut s = two_sites();
+    // srx-b's gateway names nothing srx-a holds, yet a drawn tunnel joins the two VPNs.
+    let (va, _) =
+        s.b.vpn(s.srx_a, "TO-B", Some("203.0.113.1"), s.wan_a, Some(s.st0_a));
+    let (vb, _) =
+        s.b.vpn(s.srx_b, "TO-A", Some("192.0.2.9"), s.wan_b, Some(s.st0_b));
+    let tun = s.b.node(NodeKind::Tunnel);
+    s.b.set(tun, "Tunnel.name", scalar::Text("HQ to branch".to_owned()));
+    s.b.edge(EdgeKind::TunnelEndpoint, tun, va);
+    s.b.edge(EdgeKind::TunnelEndpoint, tun, vb);
+    let t = trace(&s.b.g, "10.1.0.10", "10.2.0.10", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    let hop = t.hops.iter().find(|h| h.kind == "tunnel").unwrap();
+    assert!(
+        hop.detail
+            .iter()
+            .any(|d| d.starts_with("the design draws this tunnel")),
+        "{:?}",
+        hop.detail
+    );
+}
+
+#[test]
+fn a_far_vpn_that_is_policy_based_is_not_followed() {
+    let mut s = two_sites();
+    s.b.vpn(s.srx_a, "TO-B", Some("203.0.113.1"), s.wan_a, Some(s.st0_a));
+    s.b.vpn(s.srx_b, "TO-A", Some("198.51.100.1"), s.wan_b, None);
+    let t = trace(&s.b.g, "10.1.0.10", "10.2.0.10", None);
+    assert!(
+        t.stopped
+            .contains("is bound to no tunnel interface (a policy-based VPN)"),
+        "{}",
+        t.stopped
+    );
+}

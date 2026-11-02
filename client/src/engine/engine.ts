@@ -136,7 +136,7 @@ export interface TracePolicy {
 
 export interface TraceHop {
   n: number;
-  kind: 'start' | 'device' | 'cable' | 'switch' | 'end' | 'stop';
+  kind: 'start' | 'device' | 'cable' | 'switch' | 'tunnel' | 'end' | 'stop';
   title: string;
   detail: string[];
   /** Display ids of the nodes to light on the canvas. */

@@ -129,3 +129,67 @@ fn no_estate_and_a_bad_frame_are_errors_not_traces() {
         other => panic!("expected an error, got {other:?}"),
     }
 }
+
+/// Two SRX pastes joined by a route-based VPN (sign-off r96, round 2). The st0 lines are in the
+/// shape Juniper's route-based VPN example writes ("Route-Based VPN with IKEv2", Junos VPN IPsec
+/// guide, read 2026-11-02): `set interfaces st0 unit 0 family inet address 10.11.11.10/24`,
+/// `set routing-options static route 192.168.168.0/24 next-hop st0.0` and `bind-interface st0.0`.
+/// The trace crosses st0 to the other paste and ends at its LAN address.
+const SITE_A: &str = "\
+set system host-name srx-site-a
+set interfaces ge-0/0/0 unit 0 family inet address 198.51.100.1/30
+set interfaces ge-0/0/1 unit 0 family inet address 10.1.0.1/24
+set interfaces st0 unit 0 family inet address 10.255.0.1/30
+set routing-options static route 10.2.0.0/24 next-hop st0.0
+set security ike gateway GW-B address 203.0.113.1
+set security ike gateway GW-B external-interface ge-0/0/0.0
+set security ipsec vpn VPN-B ike gateway GW-B
+set security ipsec vpn VPN-B bind-interface st0.0
+";
+
+const SITE_B: &str = "\
+set system host-name srx-site-b
+set interfaces ge-0/0/0 unit 0 family inet address 203.0.113.1/30
+set interfaces ge-0/0/1 unit 0 family inet address 10.2.0.1/24
+set interfaces st0 unit 0 family inet address 10.255.0.2/30
+set routing-options static route 10.1.0.0/24 next-hop st0.0
+set security ike gateway GW-A address 198.51.100.1
+set security ike gateway GW-A external-interface ge-0/0/0.0
+set security ipsec vpn VPN-A ike gateway GW-A
+set security ipsec vpn VPN-A bind-interface st0.0
+";
+
+fn frame_with(text: &str, entropy: u128) -> Vec<u8> {
+    let mut f = Vec::with_capacity(25 + text.len());
+    f.extend_from_slice(&TS.to_le_bytes());
+    f.extend_from_slice(&entropy.to_le_bytes());
+    f.push(0);
+    f.extend_from_slice(text.as_bytes());
+    f
+}
+
+#[test]
+fn a_route_out_of_st0_crosses_to_the_other_pasted_site() {
+    let mut shell = common::booted_shell();
+    let a = face(&shell.handle(OP_PASTE, &frame_with(SITE_A, ENTROPY)));
+    let device_a = a.first().expect("a head").strings[5].clone();
+    let b = face(&shell.handle(OP_PASTE, &frame_with(SITE_B, ENTROPY + (1 << 40))));
+    assert_eq!(b[0].role, FACE_PASTE);
+
+    let rows = trace(&mut shell, &device_a, "10.2.0.1", "");
+    let head = &rows[0];
+    assert_eq!(head.strings[3], "", "the trace ends: {}", head.strings[3]);
+    let hops: Vec<&FaceRowView> = rows.iter().filter(|r| r.role == FACE_TR_HOP).collect();
+    let kinds: Vec<&str> = hops.iter().map(|h| h.strings[1].as_str()).collect();
+    assert_eq!(kinds, ["start", "device", "tunnel", "end"]);
+    let tunnel = hops[2];
+    assert_eq!(tunnel.strings[2], "IPsec VPN-B");
+    assert!(
+        tunnel.strings[3].contains(
+            "names 203.0.113.1, which srx-site-b holds; srx-site-b names 198.51.100.1 back"
+        ),
+        "{}",
+        tunnel.strings[3]
+    );
+    assert_eq!(hops[3].strings[2], "srx-site-b");
+}

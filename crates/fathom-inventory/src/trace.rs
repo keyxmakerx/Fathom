@@ -15,8 +15,10 @@
 //! onto is not read), connected and static routes (longest prefix, then
 //! connected over static, then preference), VRFs (each table looked up on its own; a flow is in
 //! the table its entry unit is in, and crosses to another only by a `next-table` route or a
-//! next hop that names another table's interface, both of which the config states), zone pairs
-//! and their policies. Not read, and said so: learned routes, NAT, and any
+//! next hop that names another table's interface, both of which the config states), route-based
+//! IPsec (a route out of a tunnel interface such as st0 crosses to the far end of the VPN bound to
+//! it, found from a tunnel drawn in the design or from the two IKE gateways naming each other's
+//! addresses), zone pairs and their policies. Not read, and said so: learned routes, NAT, and any
 //! policy qualifier the dictionaries do not bind (a trace lists policies as
 //! stored).
 
@@ -24,12 +26,12 @@ use std::net::IpAddr;
 
 use fathom_graph::{ElementId, Graph, NodeId, Origin};
 use fathom_ir::generated::accessors::{
-    address, address_object, address_set, application, card, logical_unit, physical_port,
-    policy_set, routing_instance, security_policy, static_route, vlan,
+    address, address_object, address_set, application, card, external_peer, ike_gateway,
+    logical_unit, physical_port, policy_set, routing_instance, security_policy, static_route, vlan,
 };
 use fathom_ir::generated::ir_types::{EdgeKind, NodeKind, PolicyAction};
 use fathom_ir::scalar::{IpPrefix, IpRange};
-use fathom_ir::value::{AddressValue, L4Spec, NextHop, PolicyScope};
+use fathom_ir::value::{AddressValue, L4Spec, NextHop, PeerSpec, PolicyScope};
 
 use crate::element::{display_name, parse_display_id};
 
@@ -66,7 +68,7 @@ pub struct PolicyLine {
 /// One hop. `nodes` are display ids the canvas highlights.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Hop {
-    /// `start`, `device`, `cable`, `switch`, `end` or `stop`.
+    /// `start`, `device`, `cable`, `switch`, `tunnel`, `end` or `stop`.
     pub kind: &'static str,
     pub title: String,
     pub detail: Vec<String>,
@@ -237,6 +239,15 @@ impl Walk<'_> {
             };
             self.firewall(dev, ingress, chosen.unit, src, dest, &mut hop);
             self.t.hops.push(hop);
+
+            // A tunnel interface has no cable: the flow is carried to the far end of its VPN.
+            if self.is_tunnel_unit(chosen.unit) {
+                let (hop, far_dev, far_unit) = self.cross(dev, chosen.unit)?;
+                self.t.hops.push(hop);
+                ingress = Some(far_unit);
+                dev = far_dev;
+                continue;
+            }
 
             let (mut steps, holder_port) = self.leave(dev, chosen.unit, chosen.next)?;
             self.t.hops.append(&mut steps);
@@ -792,6 +803,253 @@ impl Walk<'_> {
         out.sort();
         out.dedup();
         out
+    }
+
+    // ---- tunnels -------------------------------------------------------
+
+    /// Whether a unit is on a tunnel interface (st0 on an SRX): it has no cable of its own.
+    fn is_tunnel_unit(&self, unit: NodeId) -> bool {
+        self.g
+            .owner(unit)
+            .is_some_and(|i| i.kind == NodeKind::TunnelInterface)
+    }
+
+    fn peer_of(&self, gw: NodeId) -> Option<&PeerSpec> {
+        self.g.node(gw).and_then(|n| ike_gateway::peer(n).ok())
+    }
+
+    /// Words for the far end the design names but does not hold: an ExternalPeer.
+    fn external(&self, peer: NodeId) -> String {
+        let node = self.g.node(peer);
+        let label = node
+            .and_then(|n| external_peer::label(n).ok())
+            .map_or_else(|| display_name(self.g, peer), |l| l.0.clone());
+        let far = node
+            .and_then(|n| external_peer::far_design(n).ok())
+            .map_or(String::new(), |_| {
+                " (it is linked to another design, which this trace does not open)".to_owned()
+            });
+        format!("{label}, which this design names but does not hold{far}")
+    }
+
+    /// Carry the flow across the route-based IPsec VPN bound to `unit`: the far device and the
+    /// tunnel unit the flow comes out of. The far end is what a tunnel drawn in the design states
+    /// or, failing that, the device that holds this gateway's peer address and has a gateway back.
+    /// Whether the tunnel is up, and the path between the two gateways, are not read.
+    fn cross(&self, dev: NodeId, unit: NodeId) -> Result<(Hop, NodeId, NodeId), String> {
+        let name = display_name(self.g, unit);
+        let dev_name = display_name(self.g, dev);
+        let vpn = match parents(self.g, unit, EdgeKind::BindsInterface).as_slice() {
+            [v] => *v,
+            [] => {
+                return Err(format!(
+                    "{name} on {dev_name} is a tunnel interface that no IPsec VPN in the design is bound to, so where it leads could not be established"
+                ))
+            }
+            _ => {
+                return Err(format!(
+                    "more than one IPsec VPN is bound to {name} on {dev_name}, so which one carries the flow could not be established"
+                ))
+            }
+        };
+        let vpn_name = display_name(self.g, vpn);
+        let gws = children(self.g, vpn, EdgeKind::UsesIkeGateway);
+        let mut how = Vec::new();
+        if let [gw] = gws.as_slice() {
+            if let Some(ext) = children(self.g, *gw, EdgeKind::ExternalInterface).first() {
+                how.push(format!(
+                    "IKE leaves {dev_name} by {}",
+                    display_name(self.g, *ext)
+                ));
+            }
+        }
+
+        // A tunnel drawn in the design states both ends.
+        let tunnels = parents(self.g, vpn, EdgeKind::TunnelEndpoint);
+        let far_vpn = if let [tun] = tunnels.as_slice() {
+            let others: Vec<NodeId> = children(self.g, *tun, EdgeKind::TunnelEndpoint)
+                .into_iter()
+                .filter(|v| *v != vpn)
+                .collect();
+            match others.as_slice() {
+                [o] => {
+                    how.push(format!(
+                        "the design draws this tunnel ({})",
+                        display_name(self.g, *tun)
+                    ));
+                    *o
+                }
+                [] => {
+                    return Err(match children(self.g, *tun, EdgeKind::TunnelPeer).first() {
+                        Some(p) => format!(
+                            "{vpn_name} on {dev_name} leads to {}",
+                            self.external(*p)
+                        ),
+                        None => format!(
+                            "the tunnel {vpn_name} on {dev_name} belongs to has no far end in the design"
+                        ),
+                    })
+                }
+                _ => {
+                    return Err(format!(
+                        "the tunnel {vpn_name} on {dev_name} belongs to has more than two ends"
+                    ))
+                }
+            }
+        } else if tunnels.len() > 1 {
+            return Err(format!(
+                "{vpn_name} on {dev_name} is an end of more than one tunnel in the design"
+            ));
+        } else {
+            self.far_by_gateways(dev, vpn, &gws, &mut how)?
+        };
+
+        let far_dev = self
+            .g
+            .device_of(far_vpn)
+            .ok_or_else(|| format!("{} is on no device", display_name(self.g, far_vpn)))?;
+        let far_name = display_name(self.g, far_dev);
+        if far_dev == dev {
+            return Err(format!(
+                "{vpn_name} on {dev_name} leads back to {dev_name}; the design may hold a loop"
+            ));
+        }
+        let far_vpn_name = display_name(self.g, far_vpn);
+        let far_unit = match children(self.g, far_vpn, EdgeKind::BindsInterface).as_slice() {
+            [u] => *u,
+            _ => {
+                return Err(format!(
+                    "{far_vpn_name} on {far_name}, the far end of {vpn_name}, is bound to no tunnel interface (a policy-based VPN); the trace does not follow policy-based VPNs yet"
+                ))
+            }
+        };
+        let far_unit_name = display_name(self.g, far_unit);
+        let mut detail = vec![
+            format!("from {name} on {dev_name}"),
+            format!("to {far_unit_name} on {far_name} ({far_vpn_name})"),
+        ];
+        detail.extend(how);
+        detail.push("whether the tunnel is up is not read".to_owned());
+        Ok((
+            Hop {
+                kind: "tunnel",
+                title: format!("IPsec {vpn_name}"),
+                detail,
+                nodes: vec![vpn.to_string(), far_vpn.to_string()],
+                why: format!(
+                    "{name} is a tunnel interface: the flow is carried inside {vpn_name} and comes out of {far_unit_name} on {far_name}. The path the encrypted packets take between the two gateways is a trace of its own."
+                ),
+                source: self.source_of(vpn, "IpsecVpn.name"),
+                ..Hop::default()
+            },
+            far_dev,
+            far_unit,
+        ))
+    }
+
+    /// The far VPN found from the IKE gateways: the device holding this gateway's peer address,
+    /// and on it the one VPN whose gateway names an address this device holds (or, if none does,
+    /// the one whose gateway takes a dynamic peer).
+    fn far_by_gateways(
+        &self,
+        dev: NodeId,
+        vpn: NodeId,
+        gws: &[NodeId],
+        how: &mut Vec<String>,
+    ) -> Result<NodeId, String> {
+        let dev_name = display_name(self.g, dev);
+        let vpn_name = display_name(self.g, vpn);
+        let gw = match gws {
+            [g] => *g,
+            [] => {
+                return Err(format!(
+                    "{vpn_name} on {dev_name} names no IKE gateway, so its far end could not be established"
+                ))
+            }
+            _ => {
+                return Err(format!(
+                    "{vpn_name} on {dev_name} names more than one IKE gateway, so its far end could not be established"
+                ))
+            }
+        };
+        let gw_name = display_name(self.g, gw);
+        let ext = children(self.g, gw, EdgeKind::PeerIs).first().copied();
+        let peer = match self.peer_of(gw) {
+            Some(PeerSpec::Address(a)) => a.0,
+            Some(_) => {
+                return Err(format!(
+                    "the IKE gateway {gw_name} on {dev_name} takes a dynamic peer, so which device is at the far end of {vpn_name} could not be established"
+                ))
+            }
+            None => {
+                return Err(match ext {
+                    Some(p) => format!("{vpn_name} on {dev_name} leads to {}", self.external(p)),
+                    None => format!(
+                        "the IKE gateway {gw_name} on {dev_name} has no peer address, so the far end of {vpn_name} could not be established"
+                    ),
+                })
+            }
+        };
+        let far = match self.holders_of(peer).as_slice() {
+            [(d, _)] => *d,
+            [] => {
+                return Err(match ext {
+                    Some(p) => format!(
+                        "{vpn_name} on {dev_name} leads to {peer}: {}",
+                        self.external(p)
+                    ),
+                    None => format!(
+                        "the IKE gateway {gw_name} on {dev_name} names peer {peer}, which no device in this design holds (if a NAT device stands in front of the peer, the far end could not be established)"
+                    ),
+                })
+            }
+            held => {
+                return Err(format!(
+                    "the IKE gateway {gw_name} on {dev_name} names peer {peer}, which more than one device holds ({}); could not establish which is the far end",
+                    self.names(held)
+                ))
+            }
+        };
+        let far_name = display_name(self.g, far);
+        let ours = self.device_addrs(dev);
+        let mut back: Vec<(NodeId, IpAddr)> = Vec::new();
+        let mut dynamic: Vec<NodeId> = Vec::new();
+        for v in children(self.g, far, EdgeKind::HasIpsecVpn) {
+            for g in children(self.g, v, EdgeKind::UsesIkeGateway) {
+                match self.peer_of(g) {
+                    Some(PeerSpec::Address(a)) if ours.contains(&a.0) => back.push((v, a.0)),
+                    Some(PeerSpec::Dynamic(_)) => dynamic.push(v),
+                    _ => {}
+                }
+            }
+        }
+        back.dedup();
+        dynamic.dedup();
+        let far_vpn = match (back.as_slice(), dynamic.as_slice()) {
+            ([(v, a)], _) => {
+                how.push(format!(
+                    "{gw_name} on {dev_name} names {peer}, which {far_name} holds; {far_name} names {a} back"
+                ));
+                *v
+            }
+            ([], [v]) => {
+                how.push(format!(
+                    "{gw_name} on {dev_name} names {peer}, which {far_name} holds; {far_name} takes a dynamic peer"
+                ));
+                *v
+            }
+            ([], []) => {
+                return Err(format!(
+                    "{far_name} holds {peer}, the peer of {vpn_name} on {dev_name}, but no IPsec VPN on {far_name} has a gateway back to {dev_name}, so where the flow comes out could not be established"
+                ))
+            }
+            _ => {
+                return Err(format!(
+                    "more than one IPsec VPN on {far_name} could be the far end of {vpn_name} on {dev_name}; could not establish which"
+                ))
+            }
+        };
+        Ok(far_vpn)
     }
 
     /// Leave `dev` by `unit` towards `next`: out of its port, out of a LAG's links, or, for
