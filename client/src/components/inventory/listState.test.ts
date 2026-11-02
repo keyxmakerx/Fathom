@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { EMPTY_STATE, formatHash, parseHash, placeLabel, type ListState } from './listState';
+import { EMPTY_STATE, carryInto, formatHash, parseHash, placeLabel, type ListState } from './listState';
 import { nextSorts, sortRows } from './sorting';
 import type { InvRow } from './kinds';
 
@@ -104,5 +104,23 @@ describe('the Back label', () => {
   });
   it('an open item is named by itself', () => {
     expect(placeLabel({ openTitle: 'R12', viewName: 'Over half full', kindLabel: 'Racks' })).toBe('R12');
+  });
+});
+
+describe('carryInto: something picked on the canvas, carried back into the list that was left', () => {
+  const left: ListState = { ...EMPTY_STATE, kind: 'devices', q: 'name~bulk', sorts: [{ key: 'name', dir: 'asc' }], where: { site: 'LON1', row: '', rack: '' }, view: 'v1' };
+  const target: ListState = { ...EMPTY_STATE, kind: 'devices', open: 'occupant:c1' };
+
+  it('opens the page over the same list: filter, sort, saved view and Where kept', () => {
+    expect(carryInto(left, target)).toEqual({ ...left, open: 'occupant:c1', tab: '' });
+  });
+
+  it('keeps only Where when the page is in another list', () => {
+    const cable: ListState = { ...EMPTY_STATE, kind: 'cables', open: 'cable:k1' };
+    expect(carryInto(left, cable)).toEqual({ ...cable, where: left.where });
+  });
+
+  it('is the bare page when Inventory was never open', () => {
+    expect(carryInto(null, target)).toEqual(target);
   });
 });

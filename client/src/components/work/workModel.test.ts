@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { parseDesignWork, parseWork, type WorkRow } from '../../api/work';
-import { initialsOfName, isLate, numberOf, sections, sitesOf, stateLine, whereOf, whoOf } from './workModel';
+import { NO_FILTERS, initialsOfName, loadFilters, saveFilters, isLate, numberOf, sections, sitesOf, stateLine, whereOf, whoOf } from './workModel';
 
 const enc = (o: unknown) => new TextEncoder().encode(JSON.stringify(o));
 
@@ -108,5 +108,28 @@ describe('the Work tab (sign-off r74)', () => {
     expect(numberOf(row({ number: null }))).toBe('…');
     expect(whereOf(row({ kind: 'issue', device: 'srx1500-lab', place: 'Core U12' }))).toBe('Lab › srx1500-lab · Core U12');
     expect(whereOf(row({}), 'd1')).toBe('This design');
+  });
+});
+
+describe('the Work filters, kept for the session', () => {
+  const memory = () => {
+    const m = new Map<string, string>();
+    return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) };
+  };
+
+  it('come back as they were left, per organisation', () => {
+    const s = memory();
+    saveFilters(s, 'org1', { kind: 'issue', mine: true, design: 'd2' });
+    expect(loadFilters(s, 'org1')).toEqual({ kind: 'issue', mine: true, design: 'd2' });
+    expect(loadFilters(s, 'org2')).toEqual(NO_FILTERS);
+  });
+
+  it('are the plain list when nothing, or nothing readable, was kept', () => {
+    const s = memory();
+    expect(loadFilters(undefined, 'org1')).toEqual(NO_FILTERS);
+    s.setItem('fathom.work.filters.org1', '{not json');
+    expect(loadFilters(s, 'org1')).toEqual(NO_FILTERS);
+    s.setItem('fathom.work.filters.org1', JSON.stringify({ kind: 'nonsense', mine: 'yes', design: 4 }));
+    expect(loadFilters(s, 'org1')).toEqual(NO_FILTERS);
   });
 });
