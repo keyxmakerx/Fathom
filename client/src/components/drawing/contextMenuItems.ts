@@ -57,6 +57,7 @@ export const DEVICE_WORDS = {
   suggestCables: 'Suggest cables (LLDP)',
   addPort: 'Add a port',
   termix: 'Open in Termix',
+  takeOut: 'Take it out, spot not known',
   duplicate: 'Duplicate',
   copyLink: 'Copy link',
   printLabel: 'Print its label',
@@ -103,6 +104,8 @@ export interface MenuActions {
   /** Right-click "Fit a card" on a device (ADR-0073). Absent for a reader. */
   onFitCard?(chassisId: string): void;
   onRemoveDevice?(chassisId: string): void;
+  /** Takes a device out of its rack, shelf or wall when its spot is not known: it stays whole, drawn on the canvas. */
+  onTakeOut?(chassisId: string): void;
   /** Sign-off r58: opens the device's own page in Inventory. */
   onShowInInventory?(chassisId: string): void;
   /** Opens Swap model (or Give it a catalogue model, for a device with none) in its panel. */
@@ -293,8 +296,9 @@ export function deviceMenuItems(id: string, actions: MenuActions, where: DeviceM
   const look = DEVICE_GROUPS.look;
   const work = DEVICE_GROUPS.work;
   const copy = DEVICE_GROUPS.copy;
-  // A device on a shelf or a wall is the same box as a racked one: everything works on it. A free box has no
-  // inside or slots yet.
+  // A device on a shelf or a wall is the same box as a racked one: everything works on it. So does a free
+  // box, which is a device whose spot is not known: its model, ports, cards and firmware are all its own.
+  // Only "Open inside" waits for a place.
   const racked = where.free !== true;
   const items: MenuItem[] = [];
   if (actions.onOpen) items.push({ group: look, label: w.open, onSelect: () => actions.onOpen?.(id) });
@@ -307,18 +311,19 @@ export function deviceMenuItems(id: string, actions: MenuActions, where: DeviceM
   }
   if (actions.onItsDown) items.push({ group: work, label: w.itsDown, onSelect: () => actions.onItsDown?.(id) });
   if (actions.onPlanChange) items.push({ group: work, label: w.planChange, onSelect: () => actions.onPlanChange?.(id) });
-  if (actions.onPlanFirmware && racked) {
+  if (actions.onPlanFirmware) {
     const needs = actions.firmwareNeedsVersion?.(id) === true;
     items.push({ group: work, label: w.planFirmware, onSelect: () => actions.onPlanFirmware?.(id), disabled: needs ? FIRMWARE_NEEDS_VERSION : undefined });
   }
-  if (actions.onSwapModel && racked) {
+  if (actions.onSwapModel) {
     items.push({ group: work, label: actions.hasModel?.(id) === false ? w.giveModel : w.swapModel, onSelect: () => actions.onSwapModel?.(id) });
   }
-  if (actions.onFitCard && racked) items.push({ group: work, label: w.fitCard, onSelect: () => actions.onFitCard?.(id) });
+  if (actions.onFitCard) items.push({ group: work, label: w.fitCard, onSelect: () => actions.onFitCard?.(id) });
   if (actions.onSuggestCables) items.push({ group: work, label: w.suggestCables, onSelect: () => actions.onSuggestCables?.(id) });
-  if (actions.onAddPort && racked) {
+  if (actions.onAddPort) {
     items.push({ group: work, label: w.addPort, onSelect: () => actions.onAddPort?.(id), disabled: actions.addPortRefusal?.(id) ?? undefined });
   }
+  if (actions.onTakeOut && racked) items.push({ group: work, label: w.takeOut, onSelect: () => actions.onTakeOut?.(id) });
   if (actions.onOpenInTermix) items.push({ group: work, label: w.termix, onSelect: () => actions.onOpenInTermix?.(id), disabled: actions.termixRefusal?.(id) ?? undefined });
   const duplicate = where.free === true ? (actions.onDuplicateFree ? () => actions.onDuplicateFree?.([id]) : null) : actions.onDuplicateDevice ? () => actions.onDuplicateDevice?.(id) : null;
   if (duplicate) items.push({ group: copy, label: w.duplicate, onSelect: duplicate, keys: shortcutText('duplicate'), disabled: where.free === true ? undefined : actions.duplicateRefusal?.(id) ?? undefined });

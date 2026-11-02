@@ -458,6 +458,12 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   draw a line or add a dashed box. Marquee select, copy, paste, duplicate, alignment guides, arrow-key
   nudge, an Align / Spread / Group / Label menu, labels and areas that carry what sits inside. Shelf grips
   set height and slots. Not built: line routing, a highlighted drop unit, touch marquee.
+  A device whose rack spot is not known is a free box with its whole self (2026-11-02): an import row
+  whose model is in the catalogue but whose rack or unit is missing, taken or too small keeps the model
+  and its ports ("No rack spot"); every device an import or Inventory adds without a place is pinned on
+  the canvas right of the racks (`racks/canvasSpots.ts`), so none is drawn nowhere; a racked device's
+  menu has "Take it out, spot not known"; and a free box's menu offers swap model, firmware, cards and
+  ports like a racked one. Not built: "in this rack, spot unknown" (`MountedIn.position_u` is required).
 - **Look switch** (ADR-0061): Rack (faceplates, dressed cables) or Diagram (plain labelled boxes, square
   lines in sheath colour, view-and-select). Kept per browser, account and design (`drawing/look.ts`). A
   cable whose far end is off screen draws as stubs ending in a tag that pans to it (`drawing/stubs.ts`).

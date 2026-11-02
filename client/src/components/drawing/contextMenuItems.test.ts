@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { DEVICE_WORDS, FIRMWARE_NEEDS_VERSION, deviceMenuItems, menuItemsFor, type MenuActions } from './contextMenuItems';
 import { shortcutText } from '../shell/shortcuts';
 
-function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'onPlanFirmware' | 'firmwareNeedsVersion' | 'onSuggestCables' | 'onFitCard' | 'onAddCableRun' | 'onRemoveCableRun' | 'cableRunsOn' | 'looseState' | 'onSetNeedsFinishing' | 'onShowInInventory' | 'onSwapModel' | 'hasModel' | 'onAddPort' | 'addPortRefusal' | 'onOpenInTermix' | 'onCopyLink' | 'onPrintLabel' | 'termixRefusal' | 'duplicateRefusal' | 'onRemoveHolder' | 'holderOf'>> {
+function actions(): Required<Omit<MenuActions, 'onPlanChange' | 'onItsDown' | 'onPlanFirmware' | 'firmwareNeedsVersion' | 'onSuggestCables' | 'onFitCard' | 'onAddCableRun' | 'onRemoveCableRun' | 'cableRunsOn' | 'looseState' | 'onSetNeedsFinishing' | 'onShowInInventory' | 'onSwapModel' | 'hasModel' | 'onAddPort' | 'addPortRefusal' | 'onOpenInTermix' | 'onCopyLink' | 'onPrintLabel' | 'termixRefusal' | 'duplicateRefusal' | 'onRemoveHolder' | 'holderOf' | 'onTakeOut'>> {
   return {
     onSelect: vi.fn(),
     onOpen: vi.fn(),
