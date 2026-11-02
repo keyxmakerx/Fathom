@@ -108,6 +108,12 @@ makes it irrelevant.
   verified at use; granting is propose-then-sign; suspension cannot manufacture a sole steward; expiry
   is evaluated at use; the sole-steward flag is inside the signed grant bytes (`fathom/grant/v2`). It
   refuses to apply over a pre-release database with enrolled keys: recreate it.
+- **0066: teams** (ADR-0081, `teams.rs`; attacked first in `docs/TEAMS-ATTACK-ROUND.md`). A team is a
+  third principal kind; every change to one is a signed, append-only row in `team_acts`
+  (`fathom/team/act/v1`) inside the authority head. A person's access is their own grants plus their
+  teams' Read or Draw, resolved in the same per-request walk. Staffing a team is a root steward's act;
+  a lead adds and removes others, never themselves. Routes under `/organisations/{o}/teams`; no
+  screens yet, and no operator suspend, approvals or work assignment.
 - **0013: sessions** (`sessions.rs`, `api.rs`; admin §4). A signed message on every request that
   reaches design payload or vault ciphertext, single-use nonces, a browser-held session key, a MAC
   under a site-scoped row key.

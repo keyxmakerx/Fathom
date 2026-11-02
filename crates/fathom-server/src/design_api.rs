@@ -339,6 +339,7 @@ pub fn router(state: DesignApiState) -> Router {
         .merge(ai_routes::routes())
         .merge(vault_routes::routes())
         .merge(estate_routes::routes())
+        .merge(teams_routes::routes())
         .with_state(state)
 }
 
@@ -348,6 +349,8 @@ mod estate_routes;
 // The password vault's routes (ADR-0071). A child module, so it shares this file's extractor,
 // transaction opening and body helpers without making any of them public.
 mod vault_routes;
+// Teams (ADR-0081): propose, sign, list, rename, history.
+mod teams_routes;
 
 // ---- The extractor: `api::Signed`'s pattern, against `DesignApiState` ----
 
