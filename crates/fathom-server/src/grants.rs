@@ -2374,7 +2374,7 @@ pub async fn members_holding(
     Ok(out)
 }
 
-/// The Share panel hands out `read` and `draw` only; `steward` has a quorum and
+/// The Share panel hands out `read`, `draw` and `firmware` (r95); `steward` has a quorum and
 /// its own flow.
 pub fn is_shareable(capability: Capability) -> bool {
     capability != Capability::Steward
@@ -4317,12 +4317,12 @@ async fn authorise_subject_in_verified_state(
     }
 
     // 6b. Through teams (ADR-0081 decision 2): what each team the person is in may do here.
-    //     Read and Draw only, never Steward (attack round T4), and only when the person's own
-    //     grants have not already answered with Draw, which no team can beat.
+    //     Read, Draw and Firmware only, never Steward (attack round T4), and only when the
+    //     person's own grants have not already answered with Firmware, which no team can beat.
     if needed != Capability::Steward
         && best
             .as_ref()
-            .is_none_or(|b| b.capability < Capability::Draw)
+            .is_none_or(|b| b.capability < Capability::Firmware)
     {
         let pass = Mutex::new(QuorumPass::default());
         let through = crate::teams::best_through_teams(

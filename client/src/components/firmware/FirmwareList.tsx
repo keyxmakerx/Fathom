@@ -91,7 +91,7 @@ export function FirmwareList({ api, onOpenImage, onOpenModel, onOpenDevices, onU
           ))}
         </div>
         <span className="fw-toolbar__grow" />
-        {api.isSteward && status !== 'off' ? (
+        {api.canStage && status !== 'off' ? (
           <button type="button" className="fw-btn" onClick={onUpload}>
             + Upload image
           </button>
@@ -169,7 +169,7 @@ export function FirmwareList({ api, onOpenImage, onOpenModel, onOpenDevices, onU
           {all.length === 0
             ? status === 'loading'
               ? 'Reading what the server holds…'
-              : api.isSteward && status !== 'off'
+              : api.canStage && status !== 'off'
                 ? 'No images yet. Upload one, or choose a version on a model page.'
                 : api.canEdit
                   ? 'No images yet. Choose a version on a model page.'

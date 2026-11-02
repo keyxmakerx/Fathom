@@ -19,13 +19,13 @@
 //! A signature covers a digest of the body, so a signed upload of a one-to-two
 //! gigabyte Junos image would buffer it whole before the signature could refuse it.
 //!
-//! 1. **Declare** (signed, `steward`): filename, byte length and the claimed
+//! 1. **Declare** (signed, `firmware`, which Steward includes; sign-off r95): filename, byte length and the claimed
 //!    SHA-256. Mints a single-use upload token.
 //! 2. **Send the bytes** (upload token, no signature): streamed to disk, hashed as
 //!    written. The computed hash and length are compared with the declaration;
 //!    **on any mismatch the partial file is deleted and the upload refused** (trap
 //!    2 of `docs/UPGRADING-A-JUNIPER.md`, the reason this feature exists).
-//! 3. **Issue a fetch URL** (signed, `steward`): 256-bit, single-use, short-lived,
+//! 3. **Issue a fetch URL** (signed, `firmware`): 256-bit, single-use, short-lived,
 //!    bound to one image, sealed on issue and on redemption.
 //! 4. **Read back** (signed, `read`): what is staged, the hash Fathom computed, and
 //!    the operator commands with it.
@@ -1053,7 +1053,7 @@ fn parse_image(text: &str) -> Result<FirmwareImageId, FirmwareError> {
 // ---- 1. Declare ----
 
 /// `POST /organisations/{organisation}/scopes/{scope}/firmware`: declare an image
-/// and take a one-time upload token. **Requires `steward`.**
+/// and take a one-time upload token. **Requires `firmware`** (r95; Steward includes it).
 ///
 /// Body (length-prefixed): `LP(filename) ‖ LP(byte_length, 8 bytes LE) ‖ LP(sha256)
 /// [‖ LP(platform) [‖ LP(version) [‖ LP(models)]]]`. The last three are optional and
@@ -1104,7 +1104,7 @@ async fn declare_handler(
         &session,
         tenant,
         Some(scope_id),
-        Capability::Steward,
+        Capability::Firmware,
     )
     .await?;
 
@@ -1780,10 +1780,11 @@ async fn finish_upload(
 // ---- 3. A fetch URL ----
 
 /// `POST /organisations/{organisation}/firmware/{image}/fetch-urls`: mint a
-/// single-use URL a device can collect this image from. **Requires `steward`.**
+/// single-use URL a device can collect this image from. **Requires `firmware`** (r95).
 ///
 /// ADR-0045 §8: this publishes bytes to anything holding the token, so it is
-/// `steward`, sealed, and the answer is the only time the URL exists outside the
+/// `firmware` (Steward until sign-off r95, 2026-11-02, which a Steward grants on
+/// purpose), sealed, and the answer is the only time the URL exists outside the
 /// caller's screen.
 async fn issue_fetch_url_handler(
     State(state): State<FirmwareState>,
@@ -1800,9 +1801,9 @@ async fn issue_fetch_url_handler(
 
     // Authorised against the image's own scope when it exists, else the
     // ORGANISATION's (`design_api`'s "absent, not forbidden" rule), so a caller
-    // without `steward` cannot learn which image ids are real.
+    // without `firmware` cannot learn which image ids are real.
     let scope = image_scope(&tx, tenant, image).await?;
-    let ctx = authorise_in(&tx, &state, &session, tenant, scope, Capability::Steward).await?;
+    let ctx = authorise_in(&tx, &state, &session, tenant, scope, Capability::Firmware).await?;
 
     let row = tx
         .query_opt(
@@ -2502,7 +2503,7 @@ async fn list_handler(
 // ---- 6. Replace an image's models ----
 
 /// `PUT /organisations/{organisation}/firmware/{image}/models`: replace the list of
-/// catalogue models an image is for. **Requires `steward`**, and a change is sealed
+/// catalogue models an image is for. **Requires `firmware`** (r95), and a change is sealed
 /// as `firmware_models_changed` (the image, the old list and the new one).
 ///
 /// Body (canonical JSON, as the other JSON routes take): `{"models":["EX2300-24P"]}`
@@ -2525,7 +2526,7 @@ async fn models_handler(
     // Authorised against the image's own scope when it exists, else the
     // organisation's, as in `issue_fetch_url_handler`.
     let scope = image_scope(&tx, tenant, image).await?;
-    let ctx = authorise_in(&tx, &state, &session, tenant, scope, Capability::Steward).await?;
+    let ctx = authorise_in(&tx, &state, &session, tenant, scope, Capability::Firmware).await?;
 
     let current: Vec<String> = tx
         .query_opt(
@@ -2840,7 +2841,7 @@ fn parse_settings_body(body: &[u8]) -> Result<(Option<i64>, Option<String>), Fir
 // ---- 8. Retire ----
 
 /// `POST /organisations/{organisation}/firmware/{image}/retire`: delete a staged
-/// image's file and keep its record (`0060`). **Requires `steward`.**
+/// image's file and keep its record (`0060`). **Requires `firmware`** (r95).
 ///
 /// The row moves to `retired` and the act is sealed before the file is touched,
 /// so a crash between the two leaves a retired row with a file that serves
@@ -2858,7 +2859,7 @@ async fn retire_handler(
     let tx = client.transaction().await?;
     let (session, tx) = signed.verify_and_commit(&state, tx).await?;
     let scope = image_scope(&tx, tenant, image).await?;
-    let ctx = authorise_in(&tx, &state, &session, tenant, scope, Capability::Steward).await?;
+    let ctx = authorise_in(&tx, &state, &session, tenant, scope, Capability::Firmware).await?;
 
     let row = tx
         .query_opt(

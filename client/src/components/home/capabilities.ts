@@ -17,3 +17,11 @@ import type { DesignCapability } from '../../api/designs';
 export function canStewardFor(capability: DesignCapability): boolean {
   return capability === 'steward';
 }
+
+/** Firmware or steward (r95): may upload images, set their models, issue
+ * one-time links and retire them. Fails closed like `canStewardFor`: the
+ * server refuses anyone else, and offering the buttons would only lead to a
+ * refusal. */
+export function canStageFirmwareFor(capability: DesignCapability): boolean {
+  return capability === 'firmware' || capability === 'steward';
+}

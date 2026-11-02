@@ -12,9 +12,11 @@ import { sameBytes } from './json';
 import { signedFetch } from './signedFetch';
 
 /** What a person can do at a scope. `steward` is shown, never handed out. */
-export type Standing = 'steward' | 'draw' | 'read' | null;
-/** What the Share panel can set: View, Draw, or nothing of its own. */
-export type ShareChoice = 'read' | 'draw' | 'none';
+export type Standing = 'steward' | 'firmware' | 'draw' | 'read' | null;
+/** What the Share panel grants: View, Draw or Firmware (r95). */
+export type ShareCapability = 'read' | 'draw' | 'firmware';
+/** What the Share panel can set: one of those, or nothing of its own. */
+export type ShareChoice = ShareCapability | 'none';
 
 export interface AccessPerson {
   account: string;
@@ -25,7 +27,7 @@ export interface AccessPerson {
   /** The standing comes from a grant above this scope; changing it here would not change it. */
   inherited: boolean;
   /** Live View/Draw grants made exactly here. */
-  direct: { grant: string; capability: 'read' | 'draw' }[];
+  direct: { grant: string; capability: ShareCapability }[];
 }
 
 /** This browser does not hold the signing key the grant needs. */
@@ -50,7 +52,7 @@ function parseJson(bytes: Uint8Array, what: string): Record<string, unknown> {
 }
 
 const standingOf = (value: unknown): Standing =>
-  value === 'steward' || value === 'draw' || value === 'read' ? value : null;
+  value === 'steward' || value === 'firmware' || value === 'draw' || value === 'read' ? value : null;
 
 export function parseAccess(bytes: Uint8Array): AccessPerson[] {
   const people = parseJson(bytes, 'access').people;
@@ -70,7 +72,7 @@ export function parseAccess(bytes: Uint8Array): AccessPerson[] {
       inherited: p.inherited === true,
       direct: direct.flatMap((g: unknown) => {
         const row = (g ?? {}) as Record<string, unknown>;
-        return typeof row.grant === 'string' && (row.capability === 'read' || row.capability === 'draw')
+        return typeof row.grant === 'string' && (row.capability === 'read' || row.capability === 'draw' || row.capability === 'firmware')
           ? [{ grant: row.grant, capability: row.capability }]
           : [];
       }),
@@ -112,7 +114,7 @@ export function shareGrantBytes(f: {
   scope: string;
   subject: string;
   subjectKeyFpr: Uint8Array;
-  capability: 'read' | 'draw';
+  capability: ShareCapability;
   granter: string;
   granterKeyFpr: Uint8Array;
   effectiveFromUnix: number;
@@ -141,7 +143,7 @@ export async function shareWith(
   organisation: string,
   scope: string,
   person: string,
-  capability: 'read' | 'draw',
+  capability: ShareCapability,
 ): Promise<void> {
   const key = await signingKey();
   const granter = getSession()?.accountId;

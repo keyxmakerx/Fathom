@@ -184,3 +184,11 @@ amendment and card before code.
   closes it, at the cost of a steward's press for every team change.
 - **Assignments are not key-signed.** The trail says who moved work, under their session; it is not
   a hardware-touched proof. Moving work grants no access, so this is the right weight.
+
+## Amended 2026-11-02 (sign-off r95)
+
+Folder access gains a fourth level, **Firmware**, between Draw and Steward (ADR-0064's r95
+amendment). A steward may grant a team **Read, Draw or Firmware**; a team still never holds
+Steward (§3.7 constraint 3), and Firmware hands out nothing, so the constraint is unchanged.
+`team_acts` takes `firmware` (migration 0069) and `best_through_teams` is consulted for any need
+below Steward.

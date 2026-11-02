@@ -64,6 +64,7 @@ import { ChangeToast } from './ChangeToast';
 import { LiveNotices, announcement, hasLiveNotices } from './LiveNotices';
 import { presenceViewOf } from './liveSession';
 import { recordDesignOpen, recordDeviceOpen } from '../home/recent';
+import { canStageFirmwareFor } from '../home/capabilities';
 import { loadResume, patchResume } from './resume';
 import { useDesignSession } from './useDesignSession';
 import { LearnContext } from '../learn/context';
@@ -764,6 +765,7 @@ export function DesignPlace(props: DesignPlaceProps) {
     scopeId,
     doc: session.doc,
     canDraw: session.canDraw,
+    canStage: canStageFirmwareFor(capability),
     isSteward: capability === 'steward',
     applyDocChange: session.applyDocChange,
     actor: accountId ?? undefined,

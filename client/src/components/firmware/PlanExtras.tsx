@@ -189,10 +189,10 @@ export function FirmwarePlanExtras({ plan }: { plan: Plan }) {
           </li>
         ))}
       </ul>
-      {fetches.length === 0 ? null : api.isSteward ? (
+      {fetches.length === 0 ? null : api.canStage ? (
         fetches.map((g) => <GroupLink key={g.fetchStep!.id} group={g} scope={scope} plan={plan} />)
       ) : (
-        <p className="plans-note">A steward gets the one-time link on the day.</p>
+        <p className="plans-note">Someone who can stage firmware gets the one-time link on the day.</p>
       )}
       {api.isSteward ? (
         <FirmwareActivityList

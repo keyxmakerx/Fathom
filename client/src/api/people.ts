@@ -62,7 +62,7 @@ export interface People {
   termixFetch?: boolean;
 }
 
-const CAPS = ['read', 'draw', 'steward'] as const;
+const CAPS = ['read', 'draw', 'firmware', 'steward'] as const;
 
 export function parsePeople(bytes: Uint8Array): People {
   const r = jsonObject(bytes, 'people');

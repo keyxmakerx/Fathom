@@ -22,7 +22,7 @@ export const STEWARD_DEFAULT_DAYS = 365;
 export const DAY_SECONDS = 24 * 60 * 60;
 
 export type Asked = GrantCapability;
-const CAPABILITIES: readonly Asked[] = ['read', 'draw', 'steward'];
+const CAPABILITIES: readonly Asked[] = ['read', 'draw', 'firmware', 'steward'];
 
 const base = (organisation: string) => `/organisations/${encodeURIComponent(organisation)}/invitations`;
 

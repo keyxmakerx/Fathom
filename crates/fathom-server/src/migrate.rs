@@ -414,6 +414,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0067_device_read.sql",
         sql: include_str!("../migrations/0067_device_read.sql"),
     },
+    // The Firmware capability, between Draw and Steward (sign-off r95).
+    Migration {
+        version: 69,
+        name: "0069_firmware_capability.sql",
+        sql: include_str!("../migrations/0069_firmware_capability.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

@@ -82,12 +82,13 @@ fn fpr(text: &str) -> Result<[u8; 32], RouteError> {
         .ok_or_else(|| malformed("key fingerprint"))
 }
 
-/// `read` or `draw`; anything else, `steward` included, is malformed (T4).
+/// `read`, `draw` or `firmware` (r95); anything else, `steward` included, is malformed (T4).
 fn capability(text: Option<String>) -> Result<Option<Capability>, RouteError> {
     match text.as_deref() {
         None => Ok(None),
         Some("read") => Ok(Some(Capability::Read)),
         Some("draw") => Ok(Some(Capability::Draw)),
+        Some("firmware") => Ok(Some(Capability::Firmware)),
         Some(_) => Err(malformed("capability")),
     }
 }

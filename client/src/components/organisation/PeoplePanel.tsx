@@ -275,6 +275,7 @@ export function PersonPage({ person, folders, busy, error, notice, onBack, onRem
                 <select className="org-input" value={capability} onChange={(e) => setCapability(e.target.value as Exclude<Asked, 'steward'>)}>
                   <option value="read">{CAPABILITY_WORD.read}</option>
                   <option value="draw">{CAPABILITY_WORD.draw}</option>
+                  <option value="firmware">{CAPABILITY_WORD.firmware}</option>
                 </select>
               </label>
               <label className="org-field">

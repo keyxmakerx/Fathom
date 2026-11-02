@@ -38,6 +38,8 @@ export interface FirmwareInputs {
   doc: Document | null;
   /** Draw or steward. */
   canDraw: boolean;
+  /** Firmware or steward (r95). */
+  canStage: boolean;
   isSteward: boolean;
   applyDocChange: (next: Document) => void;
   actor?: string;
@@ -50,7 +52,7 @@ export interface FirmwareInputs {
 const refusal = (e: unknown): Refused => ({ refused: e instanceof FirmwareRefusal ? e.message : e instanceof Error ? e.message : 'That was refused.' });
 
 export function useFirmwareApi(inputs: FirmwareInputs): FirmwareApi | null {
-  const { organisationId, scopeId, doc, canDraw, isSteward, applyDocChange, actor, requestUpgrade, openModel, openPlan } = inputs;
+  const { organisationId, scopeId, doc, canDraw, canStage, isSteward, applyDocChange, actor, requestUpgrade, openModel, openPlan } = inputs;
   const [server, setServer] = useState<FirmwareServer>({ status: 'loading', images: [], error: null });
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((n) => n + 1), []);
@@ -89,6 +91,7 @@ export function useFirmwareApi(inputs: FirmwareInputs): FirmwareApi | null {
     return {
       doc,
       canEdit: canDraw,
+      canStage,
       isSteward,
       server,
       reload,
@@ -180,5 +183,5 @@ export function useFirmwareApi(inputs: FirmwareInputs): FirmwareApi | null {
       openModel: (model) => latest.current.openModel(model),
       openPlan: (id) => latest.current.openPlan(id),
     };
-  }, [doc, canDraw, isSteward, server, reload, edit, organisationId, scopeId]);
+  }, [doc, canDraw, canStage, isSteward, server, reload, edit, organisationId, scopeId]);
 }

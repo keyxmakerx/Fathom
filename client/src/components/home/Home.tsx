@@ -51,7 +51,7 @@ import { SkeletonRows } from '../ui/Skeleton';
 
 /** The design's access in the bar's words ("View only"), not the server's ("read"). */
 function accessWord(capability: string): string {
-  return capability === 'read' ? 'view only' : capability === 'draw' ? 'can draw' : capability === 'steward' ? 'steward' : capability;
+  return capability === 'read' ? 'view only' : capability === 'draw' ? 'can draw' : capability === 'firmware' ? 'can stage firmware' : capability === 'steward' ? 'steward' : capability;
 }
 
 export interface HomeProps {

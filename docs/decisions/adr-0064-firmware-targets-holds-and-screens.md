@@ -143,3 +143,18 @@ The Stewards' choice of scanners waits for the scanner add-on (r70).
 
 Still to build from the same card: the activity list on the Steward page as well, and the scanner
 add-on (its own sign-off card, r70, approved 2026-10-31 with MalwareBazaar added).
+
+## Amended 2026-11-02: a Firmware permission (sign-off r95)
+
+The owner chose B on r95: uploading is its own permission, not a steward's alone. **Firmware** is a
+folder access level between Draw and Steward, and includes Draw (r95 shape question, A). A steward
+grants it to a person or a team, at a folder or the whole organisation, with the same signed grant
+as Read and Draw (`fathom/grant/v2`, capability `firmware`; migration 0069 widens the three CHECKs).
+
+- **Firmware or Steward:** declare and upload an image, set its models, ask for a one-time link,
+  retire it.
+- **Steward only, unchanged:** the organisation's firmware activity (it shows where images went,
+  across every folder), Steward › Firmware settings, and handing out any access.
+- The client shows the upload, link, models and retire controls to a Firmware holder
+  (`canStageFirmwareFor`, `components/home/capabilities.ts`) and offers Firmware in People, Invite,
+  Waiting for you and Share.

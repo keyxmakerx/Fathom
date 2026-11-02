@@ -332,7 +332,7 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   shows beside the initials where the console answers. "New design" goes in the first Site the person may
   draw in. Names start as "Untitled design", sealed under the organisation key (`designs.name_*`); Rename
   needs `draw`. **People and access** (client, `components/organisation/`, `api/invitations.ts`,
-  `api/people.ts`): add a person (name, optional email, Read/Draw/Steward, folder) and get a one-time link
+  `api/people.ts`): add a person (name, optional email, Read/Draw/Firmware/Steward, folder) and get a one-time link
   and a sign-in name to send. A Read or Draw person is a member at once (ADR-0065, migration 0039: state
   `added` until the link is used, no key-check code). A Steward is still invited: they open the link, get a
   key and a key-check code to read out, and the steward confirms everyone waiting with one signature action
@@ -583,8 +583,10 @@ Retry-After), an upload idle for two minutes is dropped, and a declared size pas
 server's total is refused before any bytes arrive. Those limits start from the settings file; **Admin ›
 Firmware** (`#admin/firmware`) saves any of them, sets each organisation's ceiling and can lock it with a
 reason, and **Steward › Firmware** (`#steward/firmware`) sets the organisation's own total under the
-ceiling and its download address; every row is sealed and every change filed with before and after. A
-Steward can **retire** an image: the file is deleted, links already given stop working, the act is
+ceiling and its download address; every row is sealed and every change filed with before and after. Uploading,
+models, one-time links and retiring need the **Firmware** permission (sign-off r95, ADR-0064 amendment):
+a folder level between Draw and Steward that includes Draw, granted to a person or a team; activity and
+settings stay a Steward's. A holder can **retire** an image: the file is deleted, links already given stop working, the act is
 sealed. Asking for a link first lists what looks wrong (the image's models, an older version, not the
 chosen one); "Get the link anyway" seals the warnings passed. The image page and the plan show the
 organisation's firmware activity, flagging a download from an address that is none of the plan's devices'.

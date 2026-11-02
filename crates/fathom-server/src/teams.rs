@@ -784,7 +784,10 @@ async fn check_now<'a>(
         ACT_GRANT => {
             p.subject.is_none()
                 && p.role.is_none()
-                && matches!(p.capability, Some(Capability::Read | Capability::Draw))
+                && matches!(
+                    p.capability,
+                    Some(Capability::Read | Capability::Draw | Capability::Firmware)
+                )
                 && p.undoes.is_none()
         }
         ACT_GRANT_REVOKE => {
