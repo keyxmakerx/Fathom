@@ -5,7 +5,7 @@ sign-off card r89-scale-and-ha (§4), and every pick on r90-reading-at-a-million
 that changed two of them: host keys are approved both in bulk and one device at a time (§8.2 item
 3), and MAC and ARP tables are read on a schedule as well as on request (§8.2 item 4). §9, the other
 half of that note (Zabbix, Splunk, Calix and Nokia), is proposed: it goes ahead on its recommended
-picks and waits on its own card for the owner to change them.
+picks and waits on card r91-systems-and-cpe for the owner to change them.
 
 **Builds on:** ADR-0082 (Fathom reads devices and never writes to them; the separate reader helper,
 §4.3), ADR-0079 (one estate across designs: the estate index, a design per site), ADR-0071 (the
@@ -257,8 +257,8 @@ Nokias?"* Items 3 and 4 below carry the first two sentences; §9 carries the res
    plugged into, not every uplink it crossed; ARP tables (from routers and layer-3 switches) are
    kept whole, since they map addresses to MACs. Both are stored as latest reading plus changes
    (§8.3), so "where was this MAC last week" works. The walk itself costs the device the same
-   either way; the schedule and pacing (§4.8) are what limit that. Going ahead on this; the card
-   for §9 offers "every night everywhere" and "on request only" for the owner to change it.
+   either way; the schedule and pacing (§4.8) are what limit that. Going ahead on this; r91
+   question 1 offers "every night everywhere" and "on request only" for the owner to change it.
 
 ### 8.3 Engineering changes, no question needed
 
@@ -297,7 +297,7 @@ replaces rows built from a newer version. A rebuild of a 1,000-device design wro
 rebuilding only changed elements, and committing the index (derived data) without waiting for the
 synchronous standby, keep that off the HA link.
 
-## 9. What other systems already know: Zabbix, Splunk, Calix and Nokia (proposed, card "systems and CPE")
+## 9. What other systems already know: Zabbix, Splunk, Calix and Nokia (proposed, card r91-systems-and-cpe)
 
 The rest of the owner's note on r90 (§8.2): *"Right now we use Splunk and Zabbix. It we have an
 importing feature that'd be nice. Is there anything we could do for CPE Calix's and Nokias?"*
@@ -328,7 +328,7 @@ Calix Cloud, Altiplano) already list every ONT with its serial and the OLT port 
 Reading them is how the estate is first filled; reading them again on a schedule is how it stays
 true **without polling a million CPEs**, which §8 exists to avoid.
 
-### 9.3 One shape for every outside system (recommended, A on the card)
+### 9.3 One shape for every outside system (recommended, r91 question 2, A)
 
 - **A source is a system, not a device:** a Zabbix server, a Splunk saved search, SMx, Calix
   Cloud, Altiplano. A Steward adds it under Steward › Device reading › Sources: its address, the
@@ -361,7 +361,7 @@ true **without polling a million CPEs**, which §8 exists to avoid.
 - **Each thing keeps its source's id** (a Zabbix `hostid`, an ONT serial) so a later run matches it.
   These are new fields; they enter `schema/` through the ledger when built (CLAUDE.md rule 3).
 
-**(B on the card) Files only.** Export from each system and drop the file into Import. No
+**(r91 question 2, B) Files only.** Export from each system and drop the file into Import. No
 connection and no stored token, but by hand, and today's importer caps a file at 2,000 rows and
 5 MB per design (ADR-0067), so a million entries is hundreds of drops, and nothing stays in step.
 
@@ -381,7 +381,7 @@ into today's importer, one site of up to 2,000 rows at a time. **Later:** a Splu
 saved search the Steward picks, on a schedule, through a reader, with the REST calls in §9.1, and
 treats its rows as a reading.
 
-### 9.6 Calix and Nokia CPE (recommended, A on the card)
+### 9.6 Calix and Nokia CPE (recommended, r91 question 3, A)
 
 - **(A) Through the systems that manage them:** SMx or Calix Cloud, and Altiplano. One call lists
   thousands of ONTs with serial, model and which OLT and PON port they hang off. Fathom never
