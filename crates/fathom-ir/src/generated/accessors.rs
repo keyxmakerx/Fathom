@@ -1943,6 +1943,16 @@ mod body {
         pub fn release_notes<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(546))
         }
+        /// `MaintenancePlan.assigned_to` — `Text`, card `0..1`, emit `—`.
+        /// 0.34 — the account the work is assigned to, by id. Absent means nobody yet.
+        pub fn assigned_to<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(552))
+        }
+        /// `MaintenancePlan.ticket` — `Text`, card `0..1`, emit `—`.
+        /// 0.34 — the same work in an outside tool: a link to its Jira, ServiceNow or GLPI ticket, or its number there.
+        pub fn ticket<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(553))
+        }
     }
     /// Typed reads for `PlanStep` fields.
     pub mod plan_step {
@@ -2071,6 +2081,21 @@ mod body {
         /// 0.33 — design id of the plan step it was opened from (Troubleshoot on a step that went differently).
         pub fn step<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(551))
+        }
+        /// `Issue.assigned_to` — `Text`, card `0..1`, emit `—`.
+        /// 0.34 — the account the issue is assigned to, by id. Absent means nobody yet.
+        pub fn assigned_to<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(554))
+        }
+        /// `Issue.due` — `Text`, card `0..1`, emit `—`.
+        /// 0.34 — when it should be sorted by, as an ISO date.
+        pub fn due<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(555))
+        }
+        /// `Issue.ticket` — `Text`, card `0..1`, emit `—`.
+        /// 0.34 — the same issue in an outside tool: a link to its ticket, or its number there.
+        pub fn ticket<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(556))
         }
     }
     /// Typed reads for `IssueStep` fields.
@@ -2489,6 +2514,16 @@ mod body {
         /// Words for it.
         pub fn note<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(539))
+        }
+        /// `StockItem.assigned_to` — `Text`, card `0..1`, emit `—`.
+        /// 0.34 — who is seeing to it while it is on order, away or lent: an account, by id.
+        pub fn assigned_to<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(557))
+        }
+        /// `StockItem.ticket` — `Text`, card `0..1`, emit `—`.
+        /// 0.34 — its order, repair or loan in an outside tool: a link or a number.
+        pub fn ticket<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(558))
         }
     }
     /// Typed reads for `StockLevel` fields.
@@ -2996,6 +3031,13 @@ mod body {
             549 => Some((core::any::TypeId::of::<bool>(), "bool")),
             550 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             551 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            552 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            553 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            554 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            555 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            556 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            557 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            558 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             _ => None,
         }
     }
@@ -3490,6 +3532,13 @@ mod body {
             549 => crate::canon::slot_to::<bool>(549, "bool", value),
             550 => crate::canon::slot_to::<crate::scalar::Text>(550, "crate::scalar::Text", value),
             551 => crate::canon::slot_to::<crate::scalar::Text>(551, "crate::scalar::Text", value),
+            552 => crate::canon::slot_to::<crate::scalar::Text>(552, "crate::scalar::Text", value),
+            553 => crate::canon::slot_to::<crate::scalar::Text>(553, "crate::scalar::Text", value),
+            554 => crate::canon::slot_to::<crate::scalar::Text>(554, "crate::scalar::Text", value),
+            555 => crate::canon::slot_to::<crate::scalar::Text>(555, "crate::scalar::Text", value),
+            556 => crate::canon::slot_to::<crate::scalar::Text>(556, "crate::scalar::Text", value),
+            557 => crate::canon::slot_to::<crate::scalar::Text>(557, "crate::scalar::Text", value),
+            558 => crate::canon::slot_to::<crate::scalar::Text>(558, "crate::scalar::Text", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -3982,6 +4031,13 @@ mod body {
             549 => crate::canon::slot_from::<bool>(j),
             550 => crate::canon::slot_from::<crate::scalar::Text>(j),
             551 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            552 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            553 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            554 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            555 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            556 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            557 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            558 => crate::canon::slot_from::<crate::scalar::Text>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

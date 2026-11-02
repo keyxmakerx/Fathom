@@ -384,6 +384,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0062_firmware_settings.sql",
         sql: include_str!("../migrations/0062_firmware_settings.sql"),
     },
+    // The Work tab: plans and issues in the estate index, and Fathom numbers (r74).
+    Migration {
+        version: 64,
+        name: "0064_work.sql",
+        sql: include_str!("../migrations/0064_work.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

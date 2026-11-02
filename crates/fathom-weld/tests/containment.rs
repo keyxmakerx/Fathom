@@ -164,7 +164,9 @@ fn every_kind_pair_has_at_most_one_containment_edge() {
     // `from: [root]`, +0; `Store`, `StockItem` and `StockLevel` join `Placeable`, +3 (their pins);
     // `StockItem` joins `Fieldable`, +1 (`HasFieldValue`). `InStore`, `ReservedFor` and `ForIssue`
     // are REFERENCE.
-    assert_eq!(resolved, 162, "the containment pair set moved");
+    // 162 -> 165 (the Work tab, schema 0.34): `Notable` widened, so `HasNote` adds
+    // (MaintenancePlan, Note), (Issue, Note) and (StockItem, Note), +3.
+    assert_eq!(resolved, 165, "the containment pair set moved");
 
     // The 43 containment kinds are all still containment kinds, and every
     // kind but `LearnedRoute` and `Site` is somebody's containment child.

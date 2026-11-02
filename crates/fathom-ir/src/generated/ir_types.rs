@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.33";
+    pub const SCHEMA_VERSION: &str = "0.34";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -1095,10 +1095,10 @@ mod body {
                 NodeKind::Doc => &[crate::bag::FieldKey(351), crate::bag::FieldKey(352), crate::bag::FieldKey(353), crate::bag::FieldKey(354)],
                 NodeKind::DocLink => &[crate::bag::FieldKey(355), crate::bag::FieldKey(356)],
                 NodeKind::DocFile => &[crate::bag::FieldKey(357), crate::bag::FieldKey(358), crate::bag::FieldKey(359), crate::bag::FieldKey(360), crate::bag::FieldKey(361), crate::bag::FieldKey(362), crate::bag::FieldKey(363)],
-                NodeKind::MaintenancePlan => &[crate::bag::FieldKey(364), crate::bag::FieldKey(365), crate::bag::FieldKey(366), crate::bag::FieldKey(367), crate::bag::FieldKey(368), crate::bag::FieldKey(369), crate::bag::FieldKey(370), crate::bag::FieldKey(545), crate::bag::FieldKey(546)],
+                NodeKind::MaintenancePlan => &[crate::bag::FieldKey(364), crate::bag::FieldKey(365), crate::bag::FieldKey(366), crate::bag::FieldKey(367), crate::bag::FieldKey(368), crate::bag::FieldKey(369), crate::bag::FieldKey(370), crate::bag::FieldKey(545), crate::bag::FieldKey(546), crate::bag::FieldKey(552), crate::bag::FieldKey(553)],
                 NodeKind::PlanStep => &[crate::bag::FieldKey(371), crate::bag::FieldKey(372), crate::bag::FieldKey(373), crate::bag::FieldKey(374), crate::bag::FieldKey(375), crate::bag::FieldKey(376), crate::bag::FieldKey(377), crate::bag::FieldKey(378), crate::bag::FieldKey(379), crate::bag::FieldKey(380), crate::bag::FieldKey(547), crate::bag::FieldKey(548), crate::bag::FieldKey(549), crate::bag::FieldKey(550)],
                 NodeKind::FieldValue => &[crate::bag::FieldKey(382), crate::bag::FieldKey(381)],
-                NodeKind::Issue => &[crate::bag::FieldKey(390), crate::bag::FieldKey(391), crate::bag::FieldKey(392), crate::bag::FieldKey(393), crate::bag::FieldKey(394), crate::bag::FieldKey(395), crate::bag::FieldKey(396), crate::bag::FieldKey(551)],
+                NodeKind::Issue => &[crate::bag::FieldKey(390), crate::bag::FieldKey(391), crate::bag::FieldKey(392), crate::bag::FieldKey(393), crate::bag::FieldKey(394), crate::bag::FieldKey(395), crate::bag::FieldKey(396), crate::bag::FieldKey(551), crate::bag::FieldKey(554), crate::bag::FieldKey(555), crate::bag::FieldKey(556)],
                 NodeKind::IssueStep => &[crate::bag::FieldKey(397), crate::bag::FieldKey(398), crate::bag::FieldKey(399), crate::bag::FieldKey(400), crate::bag::FieldKey(401), crate::bag::FieldKey(402), crate::bag::FieldKey(403), crate::bag::FieldKey(404)],
                 NodeKind::FirmwareTarget => &[crate::bag::FieldKey(405), crate::bag::FieldKey(406), crate::bag::FieldKey(407), crate::bag::FieldKey(408), crate::bag::FieldKey(409), crate::bag::FieldKey(410)],
                 NodeKind::CableRun => &[crate::bag::FieldKey(414), crate::bag::FieldKey(415), crate::bag::FieldKey(416)],
@@ -1111,7 +1111,7 @@ mod body {
                 NodeKind::Room => &[crate::bag::FieldKey(519), crate::bag::FieldKey(520)],
                 NodeKind::RoomCorner => &[crate::bag::FieldKey(521), crate::bag::FieldKey(522), crate::bag::FieldKey(523)],
                 NodeKind::Store => &[crate::bag::FieldKey(524), crate::bag::FieldKey(525), crate::bag::FieldKey(526)],
-                NodeKind::StockItem => &[crate::bag::FieldKey(527), crate::bag::FieldKey(528), crate::bag::FieldKey(529), crate::bag::FieldKey(530), crate::bag::FieldKey(531), crate::bag::FieldKey(532), crate::bag::FieldKey(533), crate::bag::FieldKey(534), crate::bag::FieldKey(535), crate::bag::FieldKey(536), crate::bag::FieldKey(537), crate::bag::FieldKey(538), crate::bag::FieldKey(539)],
+                NodeKind::StockItem => &[crate::bag::FieldKey(527), crate::bag::FieldKey(528), crate::bag::FieldKey(529), crate::bag::FieldKey(530), crate::bag::FieldKey(531), crate::bag::FieldKey(532), crate::bag::FieldKey(533), crate::bag::FieldKey(534), crate::bag::FieldKey(535), crate::bag::FieldKey(536), crate::bag::FieldKey(537), crate::bag::FieldKey(538), crate::bag::FieldKey(539), crate::bag::FieldKey(557), crate::bag::FieldKey(558)],
                 NodeKind::StockLevel => &[crate::bag::FieldKey(540), crate::bag::FieldKey(541)],
             }
         }
@@ -2255,7 +2255,7 @@ mod body {
                 EdgeKind::HasSurface => &[NodeKind::Premises],
                 EdgeKind::FixedTo => &[NodeKind::Chassis, NodeKind::PassiveNode],
                 EdgeKind::HasCapture => &[NodeKind::Device],
-                EdgeKind::HasNote => &[NodeKind::Device, NodeKind::PhysicalPort, NodeKind::Rack, NodeKind::Cable, NodeKind::Vlan, NodeKind::ContainerNetwork],
+                EdgeKind::HasNote => &[NodeKind::Device, NodeKind::PhysicalPort, NodeKind::Rack, NodeKind::Cable, NodeKind::Vlan, NodeKind::ContainerNetwork, NodeKind::MaintenancePlan, NodeKind::Issue, NodeKind::StockItem],
                 EdgeKind::HasContainerNetwork => &[NodeKind::Device],
                 EdgeKind::HasContainer => &[NodeKind::Device],
                 EdgeKind::HasPublishedPort => &[NodeKind::Container],
@@ -9983,12 +9983,14 @@ mod body {
         Record,
         Checks,
         ReleaseNotes,
+        AssignedTo,
+        Ticket,
     }
 
     impl MaintenancePlanField {
-        pub const COUNT: usize = 9;
+        pub const COUNT: usize = 11;
         /// Every field, declaration order.
-        pub const ALL: [MaintenancePlanField; 9] = [
+        pub const ALL: [MaintenancePlanField; 11] = [
             MaintenancePlanField::Title,
             MaintenancePlanField::WindowStart,
             MaintenancePlanField::WindowEnd,
@@ -9998,6 +10000,8 @@ mod body {
             MaintenancePlanField::Record,
             MaintenancePlanField::Checks,
             MaintenancePlanField::ReleaseNotes,
+            MaintenancePlanField::AssignedTo,
+            MaintenancePlanField::Ticket,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -10013,6 +10017,8 @@ mod body {
                 MaintenancePlanField::Record => "record",
                 MaintenancePlanField::Checks => "checks",
                 MaintenancePlanField::ReleaseNotes => "release_notes",
+                MaintenancePlanField::AssignedTo => "assigned_to",
+                MaintenancePlanField::Ticket => "ticket",
             }
         }
         /// The stable wire key (`schema/field-keys.yaml`).
@@ -10027,6 +10033,8 @@ mod body {
                 MaintenancePlanField::Record => crate::bag::FieldKey(370),
                 MaintenancePlanField::Checks => crate::bag::FieldKey(545),
                 MaintenancePlanField::ReleaseNotes => crate::bag::FieldKey(546),
+                MaintenancePlanField::AssignedTo => crate::bag::FieldKey(552),
+                MaintenancePlanField::Ticket => crate::bag::FieldKey(553),
             }
         }
     }
@@ -10154,12 +10162,15 @@ mod body {
         Outcome,
         Plan,
         Step,
+        AssignedTo,
+        Due,
+        Ticket,
     }
 
     impl IssueField {
-        pub const COUNT: usize = 8;
+        pub const COUNT: usize = 11;
         /// Every field, declaration order.
-        pub const ALL: [IssueField; 8] = [
+        pub const ALL: [IssueField; 11] = [
             IssueField::Title,
             IssueField::Device,
             IssueField::Author,
@@ -10168,6 +10179,9 @@ mod body {
             IssueField::Outcome,
             IssueField::Plan,
             IssueField::Step,
+            IssueField::AssignedTo,
+            IssueField::Due,
+            IssueField::Ticket,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -10182,6 +10196,9 @@ mod body {
                 IssueField::Outcome => "outcome",
                 IssueField::Plan => "plan",
                 IssueField::Step => "step",
+                IssueField::AssignedTo => "assigned_to",
+                IssueField::Due => "due",
+                IssueField::Ticket => "ticket",
             }
         }
         /// The stable wire key (`schema/field-keys.yaml`).
@@ -10195,6 +10212,9 @@ mod body {
                 IssueField::Outcome => crate::bag::FieldKey(395),
                 IssueField::Plan => crate::bag::FieldKey(396),
                 IssueField::Step => crate::bag::FieldKey(551),
+                IssueField::AssignedTo => crate::bag::FieldKey(554),
+                IssueField::Due => crate::bag::FieldKey(555),
+                IssueField::Ticket => crate::bag::FieldKey(556),
             }
         }
     }
@@ -10755,12 +10775,14 @@ mod body {
         LentTo,
         CameFrom,
         Note,
+        AssignedTo,
+        Ticket,
     }
 
     impl StockItemField {
-        pub const COUNT: usize = 13;
+        pub const COUNT: usize = 15;
         /// Every field, declaration order.
-        pub const ALL: [StockItemField; 13] = [
+        pub const ALL: [StockItemField; 15] = [
             StockItemField::Part,
             StockItemField::Model,
             StockItemField::Name,
@@ -10774,6 +10796,8 @@ mod body {
             StockItemField::LentTo,
             StockItemField::CameFrom,
             StockItemField::Note,
+            StockItemField::AssignedTo,
+            StockItemField::Ticket,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -10793,6 +10817,8 @@ mod body {
                 StockItemField::LentTo => "lent_to",
                 StockItemField::CameFrom => "came_from",
                 StockItemField::Note => "note",
+                StockItemField::AssignedTo => "assigned_to",
+                StockItemField::Ticket => "ticket",
             }
         }
         /// The stable wire key (`schema/field-keys.yaml`).
@@ -10811,6 +10837,8 @@ mod body {
                 StockItemField::LentTo => crate::bag::FieldKey(537),
                 StockItemField::CameFrom => crate::bag::FieldKey(538),
                 StockItemField::Note => crate::bag::FieldKey(539),
+                StockItemField::AssignedTo => crate::bag::FieldKey(557),
+                StockItemField::Ticket => crate::bag::FieldKey(558),
             }
         }
     }
@@ -11402,7 +11430,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 486] = [
+    pub const FIELD_KEYS: [(&str, u32); 493] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -11889,17 +11917,24 @@ mod body {
         ("PlanStep.if_taken", 549),
         ("PlanStep.issue", 550),
         ("Issue.step", 551),
+        ("MaintenancePlan.assigned_to", 552),
+        ("MaintenancePlan.ticket", 553),
+        ("Issue.assigned_to", 554),
+        ("Issue.due", 555),
+        ("Issue.ticket", 556),
+        ("StockItem.assigned_to", 557),
+        ("StockItem.ticket", 558),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
     /// per key, least-significant bit first. Read it through [`field_required`];
     /// the array is public only so a test can pin its length.
-    pub const FIELD_REQUIRED_BITS: [u8; 69] = [
+    pub const FIELD_REQUIRED_BITS: [u8; 70] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
         0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0xa3, 0xfb, 0x1d, 0x59, 0x64,
         0xc0, 0xe6, 0x64, 0xc0, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x41, 0x38, 0x00, 0x10,
-        0x81, 0x9e, 0x10, 0x30, 0x00,
+        0x81, 0x9e, 0x10, 0x30, 0x00, 0x00,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

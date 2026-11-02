@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.33"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.34"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -382,6 +382,15 @@ schema:
                     # Troubleshoot opened from it); one optional Issue field, step, its other
                     # end. Seven field keys (545-551). 62 §16.2: optional fields are minor.
                     # Whole change = MINOR. The reader still opens 0.10 to 0.32.
+                    #
+                    # 0.34 is the Work tab's ticket parts (sign-off r74, 2026-11-02), all additive:
+                    # assigned_to and ticket on MaintenancePlan, Issue and StockItem, and due on
+                    # Issue (a plan has its window, an item its own due). Notable widens to
+                    # MaintenancePlan, Issue and StockItem, so a comment on a piece of work is a
+                    # Note, who and when from its provenance. Seven field keys (552-558). The
+                    # Fathom number is not a field: the server gives it (estate index, ADR-0081).
+                    # 62 §16.2: optional fields and a widened class are minor. Whole change =
+                    # MINOR. The reader still opens 0.10 to 0.33.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -640,13 +649,14 @@ classes:
     doc: |
       Anything a person can put somewhere on the diagram. ADR-0035.
   - class: Notable
-    members: [Device, PhysicalPort, Rack, Cable, Vlan, ContainerNetwork]
+    members: [Device, PhysicalPort, Rack, Cable, Vlan, ContainerNetwork, MaintenancePlan, Issue, StockItem]
     doc: |
       The owners of Note (ADR-0053 §5). Device, not Chassis: the device has the page, the
       hostname and the capture, so a note about the box belongs where those already live.
       Rack joins Notable rather than gaining a `notes` field of its own — the rack's
       deliberate "no notes field" (ADR-0053 §5) stays true, because a note reached
-      through Notable's containment edge is a node, never a field on Rack.
+      through Notable's containment edge is a node, never a field on Rack. 0.34: a plan,
+      an issue and a stock item join, so the comments on a piece of work are its notes.
   - class: Taggable
     members: [Device, PassiveNode, PhysicalPort, Cable, Rack, Premises, Vlan, ContainerNetwork, Container]
     doc: |
@@ -2137,6 +2147,8 @@ kinds:
       - { name: record, type: Text, card: "0..1", emit: "—", doc: "What went wrong, or anything worth keeping; set when recorded." }
       - { name: checks, type: Text, card: "0..1", emit: "—", doc: "0.33 — checks after the work, typed by a person or drafted by an AI, one per line, tab-separated: the answer (`open`, `ok`, `not_ok` or `cant_tell`), the check, then what was seen (may be empty). Record waits until none is `open`." }
       - { name: release_notes, type: Text, card: "0..1", emit: "—", doc: "0.33 — release notes or a changelog pasted onto the plan. Pasted text, so it passed the redaction gate in the browser before it was stored." }
+      - { name: assigned_to, type: Text, card: "0..1", emit: "—", doc: "0.34 — the account the work is assigned to, by id. Absent means nobody yet." }
+      - { name: ticket, type: Text, card: "0..1", emit: "—", doc: "0.34 — the same work in an outside tool: a link to its Jira, ServiceNow or GLPI ticket, or its number there." }
     identity: []
 
   - kind: PlanStep
@@ -2198,6 +2210,9 @@ kinds:
       - { name: outcome, type: Text, card: "0..1", emit: "—", doc: "Where the answers point, frozen when saved, and anything typed." }
       - { name: plan, type: Text, card: "0..1", emit: "—", doc: Design id of a maintenance plan made from it. }
       - { name: step, type: Text, card: "0..1", emit: "—", doc: "0.33 — design id of the plan step it was opened from (Troubleshoot on a step that went differently)." }
+      - { name: assigned_to, type: Text, card: "0..1", emit: "—", doc: "0.34 — the account the issue is assigned to, by id. Absent means nobody yet." }
+      - { name: due, type: Text, card: "0..1", emit: "—", doc: "0.34 — when it should be sorted by, as an ISO date." }
+      - { name: ticket, type: Text, card: "0..1", emit: "—", doc: "0.34 — the same issue in an outside tool: a link to its ticket, or its number there." }
     identity: []
 
   - kind: IssueStep
@@ -2441,6 +2456,8 @@ kinds:
       - { name: lent_to, type: Text, card: "0..1", emit: "—", doc: "Who has it, while it is lent." }
       - { name: came_from, type: Text, card: "0..1", emit: "—", doc: "Where it was fitted before it came here, frozen in words when it was taken out: \"core-sw1 · slot 1\"." }
       - { name: note, type: Text, card: "0..1", emit: "—", doc: Words for it. }
+      - { name: assigned_to, type: Text, card: "0..1", emit: "—", doc: "0.34 — who is seeing to it while it is on order, away or lent: an account, by id." }
+      - { name: ticket, type: Text, card: "0..1", emit: "—", doc: "0.34 — its order, repair or loan in an outside tool: a link or a number." }
     identity: []
 
   - kind: StockLevel

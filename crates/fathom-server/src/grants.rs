@@ -2349,6 +2349,31 @@ pub async fn access_at_scope(
     Ok(rows)
 }
 
+/// Which of `members` hold `needed` at `scope`: who a piece of work there may be assigned to
+/// (sign-off r74). The caller needs only `read` there, since what it learns is who else can
+/// work in a place it can already see. The walk is the one a request by each of them runs.
+pub async fn members_holding(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    scope: ScopeId,
+    members: &[String],
+    needed: Capability,
+) -> Result<Vec<String>, AuthorityError> {
+    let verified = verify_authority_state(tx, auth).await?;
+    authorise_in_verified_state(tx, auth, &verified, Some(scope), Capability::Read).await?;
+    let mut out = Vec::new();
+    for member in members {
+        match authorise_subject_in_verified_state(tx, auth, &verified, member, Some(scope), needed)
+            .await
+        {
+            Ok(_) => out.push(member.clone()),
+            Err(AuthorityError::NotAuthorised | AuthorityError::QuorumNotMet { .. }) => {}
+            Err(other) => return Err(other),
+        }
+    }
+    Ok(out)
+}
+
 /// The Share panel hands out `read` and `draw` only; `steward` has a quorum and
 /// its own flow.
 pub fn is_shareable(capability: Capability) -> bool {

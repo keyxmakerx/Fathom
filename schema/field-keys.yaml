@@ -594,3 +594,11 @@ fields:
   PlanStep.if_taken: 549
   PlanStep.issue: 550
   Issue.step: 551
+  # The Work tab's ticket parts (schema 0.34, 2026-11-02, sign-off r74). Appended after 0.33's 551.
+  MaintenancePlan.assigned_to: 552
+  MaintenancePlan.ticket: 553
+  Issue.assigned_to: 554
+  Issue.due: 555
+  Issue.ticket: 556
+  StockItem.assigned_to: 557
+  StockItem.ticket: 558
