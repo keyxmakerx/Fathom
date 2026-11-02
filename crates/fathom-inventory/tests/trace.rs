@@ -1859,3 +1859,195 @@ fn a_far_vpn_that_is_policy_based_is_not_followed() {
         t.stopped
     );
 }
+
+// ---- round 2: VPNs entered by hand (r96) --------------------------------------
+//
+// laptop 10.0.0.5/24 (default via 10.0.0.1), 100.64.0.2 on the tailnet
+// pi     192.168.1.5/24 cabled to nas 192.168.1.20, 100.64.0.1 on the tailnet,
+//        offering 192.168.1.0/24
+
+impl B {
+    fn overlay(&mut self, name: &str, provider: &str, range: Option<(&str, u8)>) -> NodeId {
+        use fathom_ir::generated::ir_types::OverlayNetworkProvider as P;
+        let o = self.node(NodeKind::OverlayNetwork);
+        self.set(o, "OverlayNetwork.name", scalar::Text(name.to_owned()));
+        let p = match provider {
+            "tailscale" => P::Tailscale,
+            "wireguard" => P::Wireguard,
+            _ => P::Other,
+        };
+        self.set(o, "OverlayNetwork.provider", p);
+        if let Some((a, l)) = range {
+            self.set(
+                o,
+                "OverlayNetwork.range",
+                scalar::IpPrefix {
+                    addr: ip(a),
+                    len: l,
+                },
+            );
+        }
+        o
+    }
+
+    fn member(&mut self, vpn: NodeId, dev: NodeId, addr: Option<&str>, routes: &str) {
+        let e = self.edge(EdgeKind::OverlayMember, vpn, dev);
+        if let Some(a) = addr {
+            self.g
+                .set_field(
+                    ElementId::Edge(e),
+                    fk("OverlayMember.address"),
+                    scalar::IpAddr(ip(a)),
+                    prov(),
+                )
+                .unwrap();
+        }
+        if !routes.is_empty() {
+            self.g
+                .set_field(
+                    ElementId::Edge(e),
+                    fk("OverlayMember.routes"),
+                    scalar::Text(routes.to_owned()),
+                    prov(),
+                )
+                .unwrap();
+        }
+    }
+}
+
+struct Tailnet {
+    b: B,
+    vpn: NodeId,
+    laptop: NodeId,
+    pi: NodeId,
+}
+
+fn tailnet(provider: &str) -> Tailnet {
+    let mut b = B::new();
+    let (laptop, _) = b.host("laptop", "10.0.0.5");
+    b.route(laptop, (ip("0.0.0.0"), 0), via("10.0.0.1"));
+    let pi = b.device("pi");
+    let c = b.chassis(pi);
+    let p = b.port(c, "eth0");
+    b.unit(pi, p, "eth0", Some((ip("192.168.1.5"), 24)), None);
+    let (_, nas_port) = b.host("nas", "192.168.1.20");
+    b.cable(p, nas_port);
+    let vpn = b.overlay("home", provider, Some(("100.64.0.0", 10)));
+    b.member(vpn, laptop, Some("100.64.0.2"), "");
+    b.member(vpn, pi, Some("100.64.0.1"), "192.168.1.0/24");
+    Tailnet { b, vpn, laptop, pi }
+}
+
+#[test]
+fn a_subnet_a_vpn_member_offers_is_reached_through_the_vpn() {
+    let t0 = tailnet("tailscale");
+    let t = trace(&t0.b.g, &t0.laptop.to_string(), "192.168.1.20", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    let kinds: Vec<&str> = t.hops.iter().map(|h| h.kind).collect();
+    assert_eq!(
+        kinds,
+        ["start", "device", "tunnel", "device", "cable", "end"],
+        "{t:#?}"
+    );
+    let vpn = &t.hops[2];
+    assert_eq!(vpn.title, "Tailscale home");
+    assert!(
+        vpn.detail[0].contains("from laptop (100.64.0.2) to pi (100.64.0.1)"),
+        "{:?}",
+        vpn.detail
+    );
+    assert!(
+        vpn.detail.iter().any(|d| d.contains("--accept-routes")),
+        "{:?}",
+        vpn.detail
+    );
+    assert!(t.hops[1]
+        .detail
+        .contains(&"pi offers 192.168.1.0/24 on home".to_owned()));
+    assert_eq!(t.hops.last().unwrap().title, "nas");
+}
+
+#[test]
+fn a_members_vpn_address_ends_at_that_member() {
+    let t0 = tailnet("tailscale");
+    let t = trace(&t0.b.g, &t0.laptop.to_string(), "100.64.0.1", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(t.hops.last().unwrap().title, "pi");
+    // A member's own address is not a subnet route: no accept-routes note.
+    let vpn = t.hops.iter().find(|h| h.kind == "tunnel").unwrap();
+    assert!(!vpn.detail.iter().any(|d| d.contains("--accept-routes")));
+}
+
+#[test]
+fn a_wireguard_tunnel_carries_no_tailscale_note() {
+    let t0 = tailnet("wireguard");
+    let t = trace(&t0.b.g, &t0.laptop.to_string(), "192.168.1.20", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    let vpn = t.hops.iter().find(|h| h.kind == "tunnel").unwrap();
+    assert_eq!(vpn.title, "WireGuard home");
+    assert!(!vpn.detail.iter().any(|d| d.contains("--accept-routes")));
+}
+
+#[test]
+fn an_address_in_the_vpn_range_no_member_holds_says_so() {
+    let t0 = tailnet("tailscale");
+    let t = trace(&t0.b.g, &t0.laptop.to_string(), "100.64.0.99", None);
+    assert!(
+        t.stopped
+            .contains("100.64.0.99 is in the range of home (100.64.0.0/10), which laptop is a member of, but no member in the design holds it"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_route_of_the_devices_own_beside_the_vpn_is_not_guessed() {
+    let mut t0 = tailnet("tailscale");
+    // The laptop also has a static route of its own for the pi's LAN.
+    t0.b.route(t0.laptop, (ip("192.168.0.0"), 16), via("10.0.0.1"));
+    let t = trace(&t0.b.g, &t0.laptop.to_string(), "192.168.1.20", None);
+    assert!(
+        t.stopped.contains(
+            "laptop has a route of its own for 192.168.1.20 (a /16), and home offers it too"
+        ),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn two_members_offering_one_subnet_is_not_guessed() {
+    let mut t0 = tailnet("tailscale");
+    let pi2 = t0.b.device("pi-2");
+    let vpn = t0.vpn;
+    t0.b.member(vpn, pi2, Some("100.64.0.3"), "192.168.1.0/24");
+    let t = trace(&t0.b.g, &t0.laptop.to_string(), "192.168.1.20", None);
+    assert!(
+        t.stopped
+            .contains("more than one VPN member offers 192.168.1.20 to laptop"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_device_outside_the_vpn_routes_as_before() {
+    let t0 = tailnet("tailscale");
+    // The pi is a member, but the laptop's 10.0.0.0/24 is no member's: the pi has no route there.
+    let t = trace(&t0.b.g, &t0.pi.to_string(), "10.0.0.5", None);
+    assert!(
+        t.stopped.contains("no connected or static route on pi"),
+        "{}",
+        t.stopped
+    );
+}
+
+#[test]
+fn a_trace_can_start_from_a_vpn_address() {
+    let t0 = tailnet("tailscale");
+    let t = trace(&t0.b.g, "100.64.0.2", "192.168.1.20", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    assert_eq!(t.hops[0].title, "laptop");
+    assert_eq!(t.hops[0].detail, ["from 100.64.0.2"]);
+    assert_eq!(t.hops.last().unwrap().title, "nas");
+}

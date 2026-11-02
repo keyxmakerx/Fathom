@@ -18,7 +18,8 @@
 //! next hop that names another table's interface, both of which the config states), route-based
 //! IPsec (a route out of a tunnel interface such as st0 crosses to the far end of the VPN bound to
 //! it, found from a tunnel drawn in the design or from the two IKE gateways naming each other's
-//! addresses), zone pairs and their policies. Not read, and said so: learned routes, NAT, and any
+//! addresses), mesh and client VPNs entered as an `OverlayNetwork` (a member's VPN address and the
+//! subnets it offers, against the device's own routes), zone pairs and their policies. Not read, and said so: learned routes, NAT, and any
 //! policy qualifier the dictionaries do not bind (a trace lists policies as
 //! stored).
 
@@ -27,10 +28,13 @@ use std::net::IpAddr;
 use fathom_graph::{ElementId, Graph, NodeId, Origin};
 use fathom_ir::generated::accessors::{
     address, address_object, address_set, application, card, external_peer, ike_gateway,
-    logical_unit, physical_port, policy_set, routing_instance, security_policy, static_route, vlan,
+    logical_unit, overlay_network, physical_port, policy_set, routing_instance, security_policy,
+    static_route, vlan,
 };
-use fathom_ir::generated::ir_types::{EdgeKind, NodeKind, PolicyAction};
-use fathom_ir::scalar::{IpPrefix, IpRange};
+use fathom_ir::generated::ir_types::{
+    EdgeKind, NodeKind, OverlayNetworkProvider, PolicyAction, FIELD_KEYS,
+};
+use fathom_ir::scalar::{IpPrefix, IpRange, Scalar};
 use fathom_ir::value::{AddressValue, L4Spec, NextHop, PeerSpec, PolicyScope};
 
 use crate::element::{display_name, parse_display_id};
@@ -130,6 +134,19 @@ type Table = Option<NodeId>;
 
 /// A chosen route: the unit it leaves by, the address to reach next, and how
 /// it was read.
+/// One way into a VPN entered by hand.
+struct VpnWay {
+    vpn: NodeId,
+    vpn_name: String,
+    provider: Option<OverlayNetworkProvider>,
+    member: NodeId,
+    from_addr: Option<IpAddr>,
+    to_addr: Option<IpAddr>,
+    len: u8,
+    /// The subnet the member offers, or None when the destination is the member's VPN address.
+    offered: Option<IpPrefix>,
+}
+
 struct Chosen {
     unit: NodeId,
     next: IpAddr,
@@ -186,7 +203,7 @@ impl Walk<'_> {
             let holds = match table {
                 Ok(t) => self.owns_in(dev, dest, t),
                 Err(_) => self.owns(dev, dest) && !self.has_vrfs(dev),
-            };
+            } || self.vpn_addrs(dev).contains(&dest);
             if holds || Some(dev) == dest_dev && ingress.is_some() {
                 self.t.hops.push(Hop {
                     kind: "end",
@@ -198,21 +215,33 @@ impl Walk<'_> {
                 });
                 return Ok(());
             }
+            // A VPN the device is a member of, when it covers the destination and the device's
+            // own table holds nothing more specific than a default route.
+            if let Some(v) = self.vpn_choice(dev, dest)? {
+                let own = table
+                    .clone()
+                    .ok()
+                    .and_then(|t| self.own_cover(dev, dest, t));
+                if let Some(l) = own.filter(|l| *l > 0) {
+                    let n = display_name(self.g, dev);
+                    self.t.hops.push(self.arrival(dev, ingress));
+                    return Err(format!(
+                        "{n} has a route of its own for {dest} (a /{l}), and {} offers it too; which one {n} uses depends on how the VPN client installs its routes, which is not in the design",
+                        v.vpn_name
+                    ));
+                }
+                let (hop, vpn_hop) = self.vpn_hops(dev, ingress, &v);
+                self.t.hops.push(hop);
+                self.t.hops.push(vpn_hop);
+                dev = v.member;
+                ingress = None;
+                continue;
+            }
             let chosen = match table.clone().and_then(|t| self.route(dev, dest, t, 0)) {
                 Ok(c) => c,
                 Err(e) => {
                     // The device is on the path even though its route is not read.
-                    self.t.hops.push(Hop {
-                        kind: "device",
-                        title: display_name(self.g, dev),
-                        detail: vec![format!(
-                            "in on {}",
-                            ingress.map_or("the start".to_owned(), |u| display_name(self.g, u))
-                        )],
-                        nodes: vec![dev.to_string()],
-                        why: "The flow reaches this device; its route is the first thing the design does not state.".to_owned(),
-                        ..Hop::default()
-                    });
+                    self.t.hops.push(self.arrival(dev, ingress));
                     return Err(e);
                 }
             };
@@ -320,7 +349,22 @@ impl Walk<'_> {
             let held = self.holders_of(ip);
             return match held.as_slice() {
                 [(d, u)] => Ok((*d, Some(*u), Some(ip))),
-                [] => Err(format!("no device in the design holds {ip}")),
+                [] => {
+                    // A VPN address entered by hand: the member, with no interface unit.
+                    let members: Vec<NodeId> = self
+                        .g
+                        .nodes_of_kind(NodeKind::Device)
+                        .map(|n| n.id)
+                        .filter(|d| live(self.g, *d) && self.vpn_addrs(*d).contains(&ip))
+                        .collect();
+                    match members.as_slice() {
+                        [d] => Ok((*d, None, Some(ip))),
+                        [] => Err(format!("no device in the design holds {ip}")),
+                        _ => Err(format!(
+                            "{ip} is a VPN address of more than one device; start from the device instead"
+                        )),
+                    }
+                }
                 _ => Err(format!(
                     "{ip} is held by more than one device ({}); start from the device instead",
                     self.names(&held)
@@ -803,6 +847,244 @@ impl Walk<'_> {
         out.sort();
         out.dedup();
         out
+    }
+
+    /// A device hop that says only that the flow reached it.
+    fn arrival(&self, dev: NodeId, ingress: Option<NodeId>) -> Hop {
+        Hop {
+            kind: "device",
+            title: display_name(self.g, dev),
+            detail: vec![format!(
+                "in on {}",
+                ingress.map_or("the start".to_owned(), |u| display_name(self.g, u))
+            )],
+            nodes: vec![dev.to_string()],
+            why: "The flow reaches this device; its route is the first thing the design does not state.".to_owned(),
+            ..Hop::default()
+        }
+    }
+
+    /// The longest prefix in table `t` of `dev` that covers `dest`: a connected network on a unit
+    /// that is up, or a static route. Only the length; which one is chosen is `route`'s job.
+    fn own_cover(&self, dev: NodeId, dest: IpAddr, t: Table) -> Option<u8> {
+        let mut best: Option<u8> = None;
+        for u in self.table_units(dev, t) {
+            if self
+                .g
+                .node(u)
+                .is_some_and(|n| logical_unit::admin_up(n) == Ok(&false))
+            {
+                continue;
+            }
+            for (a, l) in self.unit_prefixes(u) {
+                if prefix_has(a, l, dest) {
+                    best = best.max(Some(l));
+                }
+            }
+        }
+        let owners: Vec<NodeId> = match t {
+            Some(ri) => vec![ri],
+            None => children(self.g, dev, EdgeKind::HasRoutingInstance)
+                .into_iter()
+                .filter(|ri| self.is_default_instance(*ri))
+                .collect(),
+        };
+        for ri in owners {
+            for r in children(self.g, ri, EdgeKind::HasStaticRoute) {
+                if let Some(p) = self
+                    .g
+                    .node(r)
+                    .and_then(|n| static_route::destination(n).ok())
+                {
+                    if prefix_has(p.addr, p.len, dest) {
+                        best = best.max(Some(p.len));
+                    }
+                }
+            }
+        }
+        best
+    }
+
+    // ---- VPNs entered by hand (OverlayNetwork) -----------------------------
+
+    /// The live OverlayMember edges of a VPN: (member device, its VPN address, exit node, routes).
+    fn vpn_members(&self, vpn: NodeId) -> Vec<(NodeId, Option<IpAddr>, bool, Vec<IpPrefix>)> {
+        let mut out: Vec<_> = self
+            .g
+            .out(vpn, EdgeKind::OverlayMember)
+            .filter(|e| e.absent_since.is_none() && live(self.g, e.to))
+            .map(|e| {
+                let addr = edge_field::<fathom_ir::scalar::IpAddr>(e, "OverlayMember.address")
+                    .map(|a| a.0);
+                let exit = edge_field::<bool>(e, "OverlayMember.exit_node") == Some(&true);
+                let routes = edge_field::<fathom_ir::scalar::Text>(e, "OverlayMember.routes")
+                    .map(|t| {
+                        t.0.lines()
+                            .filter_map(|l| IpPrefix::parse(l.trim()).ok())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                (e.to, addr, exit, routes)
+            })
+            .collect();
+        out.sort_by_key(|m| m.0);
+        out
+    }
+
+    /// The VPN addresses `dev` holds, one per VPN it is a member of with an address.
+    fn vpn_addrs(&self, dev: NodeId) -> Vec<IpAddr> {
+        parents(self.g, dev, EdgeKind::OverlayMember)
+            .into_iter()
+            .flat_map(|v| self.vpn_members(v))
+            .filter(|(d, _, _, _)| *d == dev)
+            .filter_map(|(_, a, _, _)| a)
+            .collect()
+    }
+
+    /// The other member of a VPN `dev` belongs to that the flow goes to: the one holding `dest` as
+    /// its VPN address, else the one offering the longest subnet covering it. None when no VPN of
+    /// `dev` covers `dest`.
+    fn vpn_choice(&self, dev: NodeId, dest: IpAddr) -> Result<Option<VpnWay>, String> {
+        let name = display_name(self.g, dev);
+        let mut found: Vec<VpnWay> = Vec::new();
+        let mut in_range: Vec<String> = Vec::new();
+        for vpn in parents(self.g, dev, EdgeKind::OverlayMember) {
+            let node = self.g.node(vpn);
+            let vpn_name = node
+                .and_then(|n| overlay_network::name(n).ok())
+                .map_or_else(|| display_name(self.g, vpn), |t| t.0.clone());
+            let provider = node
+                .and_then(|n| overlay_network::provider(n).ok())
+                .cloned();
+            let members = self.vpn_members(vpn);
+            let from_addr = members.iter().find(|m| m.0 == dev).and_then(|m| m.1);
+            let before = found.len();
+            for (m, addr, _, routes) in &members {
+                if *m == dev {
+                    continue;
+                }
+                if *addr == Some(dest) {
+                    found.push(VpnWay {
+                        vpn,
+                        vpn_name: vpn_name.clone(),
+                        provider: provider.clone(),
+                        member: *m,
+                        from_addr,
+                        to_addr: *addr,
+                        len: if dest.is_ipv4() { 32 } else { 128 },
+                        offered: None,
+                    });
+                }
+                for p in routes {
+                    if prefix_has(p.addr, p.len, dest) {
+                        found.push(VpnWay {
+                            vpn,
+                            vpn_name: vpn_name.clone(),
+                            provider: provider.clone(),
+                            member: *m,
+                            from_addr,
+                            to_addr: *addr,
+                            len: p.len,
+                            offered: Some(*p),
+                        });
+                    }
+                }
+            }
+            if found.len() == before {
+                if let Some(r) = node.and_then(|n| overlay_network::range(n).ok()) {
+                    if prefix_has(r.addr, r.len, dest) {
+                        in_range.push(format!("{vpn_name} ({}/{})", r.addr, r.len));
+                    }
+                }
+            }
+        }
+        let Some(longest) = found.iter().map(|w| w.len).max() else {
+            if let Some(v) = in_range.first() {
+                return Err(format!(
+                    "{dest} is in the range of {v}, which {name} is a member of, but no member in the design holds it"
+                ));
+            }
+            return Ok(None);
+        };
+        found.retain(|w| w.len == longest);
+        found.dedup_by(|a, b| a.member == b.member && a.vpn == b.vpn);
+        match found.len() {
+            1 => Ok(found.pop()),
+            _ => Err(format!(
+                "more than one VPN member offers {dest} to {name} ({}); could not establish which one the flow goes to",
+                found
+                    .iter()
+                    .map(|w| format!("{} on {}", display_name(self.g, w.member), w.vpn_name))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+        }
+    }
+
+    /// The device hop that sends the flow into a VPN, and the VPN hop to the member.
+    fn vpn_hops(&self, dev: NodeId, ingress: Option<NodeId>, v: &VpnWay) -> (Hop, Hop) {
+        let name = display_name(self.g, dev);
+        let member = display_name(self.g, v.member);
+        let what = match &v.offered {
+            Some(p) => format!("{member} offers {}/{} on {}", p.addr, p.len, v.vpn_name),
+            None => format!(
+                "{member} holds {} on {}",
+                v.to_addr.map_or(String::new(), |a| a.to_string()),
+                v.vpn_name
+            ),
+        };
+        let device = Hop {
+            kind: "device",
+            title: name.clone(),
+            detail: vec![
+                format!(
+                    "in on {}",
+                    ingress.map_or("the start".to_owned(), |u| display_name(self.g, u))
+                ),
+                what.clone(),
+                format!("out on {}", v.vpn_name),
+            ],
+            nodes: vec![dev.to_string()],
+            why: format!("{name} is a member of {}, and nothing in its own routes is more specific than a default route.", v.vpn_name),
+            source: "entered by hand".to_owned(),
+            ..Hop::default()
+        };
+        let label = match &v.provider {
+            Some(OverlayNetworkProvider::Tailscale) => "Tailscale",
+            Some(OverlayNetworkProvider::Headscale) => "Headscale",
+            Some(OverlayNetworkProvider::Netbird) => "NetBird",
+            Some(OverlayNetworkProvider::Zerotier) => "ZeroTier",
+            Some(OverlayNetworkProvider::Wireguard) => "WireGuard",
+            Some(OverlayNetworkProvider::Nebula) => "Nebula",
+            _ => "VPN",
+        };
+        let mut detail = vec![format!(
+            "from {name}{} to {member}{}",
+            v.from_addr.map_or(String::new(), |a| format!(" ({a})")),
+            v.to_addr.map_or(String::new(), |a| format!(" ({a})"))
+        )];
+        if v.offered.is_some()
+            && matches!(
+                v.provider,
+                Some(OverlayNetworkProvider::Tailscale | OverlayNetworkProvider::Headscale)
+            )
+        {
+            // tailscale.com/kb/1019/subnets, read 2026-11-02.
+            detail.push(format!(
+                "Tailscale says a Linux device uses offered subnets only with --accept-routes (Android, iOS, macOS, tvOS and Windows pick them up); whether {name} does is not in the design"
+            ));
+        }
+        detail.push("whether the VPN is connected is not read".to_owned());
+        let vpn = Hop {
+            kind: "tunnel",
+            title: format!("{label} {}", v.vpn_name),
+            detail,
+            nodes: vec![v.vpn.to_string(), v.member.to_string()],
+            why: format!("{what}: the flow is carried inside the VPN to {member}."),
+            source: "entered by hand".to_owned(),
+            ..Hop::default()
+        };
+        (device, vpn)
     }
 
     // ---- tunnels -------------------------------------------------------
@@ -2064,6 +2346,12 @@ fn combine(parts: &[(&str, (State, String))]) -> (&'static str, String) {
     } else {
         ("can't tell", cants.join("; "))
     }
+}
+
+/// A field on an edge, by its declared name (the generated registry, never a hand-copied key).
+fn edge_field<'a, T: std::any::Any>(e: &'a fathom_graph::Edge, name: &str) -> Option<&'a T> {
+    let (_, k) = FIELD_KEYS.iter().find(|(n, _)| *n == name)?;
+    fathom_ir::bag::typed::<T, _>(e, fathom_ir::bag::FieldKey(*k)).ok()
 }
 
 fn live(g: &Graph, n: NodeId) -> bool {
