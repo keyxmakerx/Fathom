@@ -792,8 +792,30 @@ function ViewTabs({
   const rowRef = useRef<HTMLDivElement>(null);
   const [mark, setMark] = useState<{ left: number; width: number } | null>(null);
   useLayoutEffect(() => {
-    const on = rowRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
-    if (on != null) setMark({ left: on.offsetLeft, width: on.offsetWidth });
+    const row = rowRef.current;
+    if (row == null) return;
+    const measure = () => {
+      const on = row.querySelector<HTMLElement>('[aria-current="page"]');
+      setMark((prev) => {
+        if (on == null) return prev;
+        if (prev != null && prev.left === on.offsetLeft && prev.width === on.offsetWidth) return prev;
+        return { left: on.offsetLeft, width: on.offsetWidth };
+      });
+    };
+    measure();
+    // Folding for a job slides the other views' width to nothing, so the chosen
+    // view only reaches its place when that slide ends: measure again then, or the
+    // underline stays where the view used to be, under the path.
+    const onEnd = (e: TransitionEvent) => {
+      if (e.target !== row && (e.target as HTMLElement).classList.contains('shell-bar__tab')) measure();
+    };
+    row.addEventListener('transitionend', onEnd);
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    ro?.observe(row);
+    return () => {
+      row.removeEventListener('transitionend', onEnd);
+      ro?.disconnect();
+    };
   }, [view, folded, work?.on]);
   return (
     <div className={folded ? 'shell-bar__tabs shell-bar__tabs--views shell-bar__tabs--folded' : 'shell-bar__tabs shell-bar__tabs--views'} ref={rowRef} role="tablist" aria-label="Views">
