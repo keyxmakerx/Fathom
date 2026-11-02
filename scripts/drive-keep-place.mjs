@@ -143,6 +143,7 @@ try {
   await page.waitForSelector('.inv-table__row', { timeout: 15_000 });
   await page.waitForTimeout(300);
   const after = { hash: await hashOf(), top: await scrollOf() };
+  await shot('keep-01b-list-back.png');
   check('the list comes back with its filter and sort', after.hash === before.hash, `before=${before.hash} after=${after.hash}`);
   check('the filter line still reads it', (await page.getByLabel('Filter devices').count()) > 0 && (await page.getByLabel('Filter devices').inputValue()) === 'name~bulk');
   check('the list comes back at its scroll', Math.abs(after.top - before.top) < 40, `before=${before.top} after=${after.top}`);
@@ -159,6 +160,7 @@ try {
   await toInventory();
   await page.waitForSelector('.inv-page', { timeout: 5_000 }).catch(() => {});
   const openAfter = await hashOf();
+  await shot('keep-02b-page-back.png');
   check('the open page comes back open, on its tab', openAfter === openBefore, `before=${openBefore} after=${openAfter}`);
   await page.goBack();
   await page.waitForSelector('.inv-table__row', { timeout: 10_000 }).catch(() => {});
@@ -192,6 +194,7 @@ try {
   await page.getByRole('tab', { name: 'Sheet', exact: true }).click();
   await page.waitForSelector('[data-testid="sheet-tab-ports"]', { timeout: 15_000 });
   await page.waitForTimeout(300);
+  await shot('keep-04b-sheet-back.png');
   check('the Sheet comes back on the tab it was left on', (await page.locator('[data-testid="sheet-tab-ports"]').getAttribute('aria-current')) === 'page', await hashOf());
   check('and at its scroll, even left straight after scrolling', sheetBefore.top > 0 && Math.abs((await scrollOf()) - sheetBefore.top) < 40, `before=${sheetBefore.top} after=${await scrollOf()}`);
 
