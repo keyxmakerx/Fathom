@@ -33,7 +33,8 @@ showed. The owner also asked for Ansible support, with learning on it.
    `Device.management_address`), `group_vars` with connection settings per platform, and
    playbooks that push changes using the platform's resource modules, always offered with
    `--check --diff` first. **Fathom never connects to a device and never runs Ansible** (ADR-0045
-   unchanged). The first use is changing the admin password.
+   unchanged). Reopened by ADR-0082 for read-only fetches only: Fathom may read a device
+   with a read-only login a person chose, and still never runs Ansible or pushes a change. The first use is changing the admin password.
 4. **Where a new password lives** (card ansible-password, A and C). Default: in the credential
    vault of ADR-0042, Mode A, sealed in the browser, handed over inside an Ansible Vault file the
    browser writes (format: docs.ansible.com, "Using encrypted variables and files", page dated
