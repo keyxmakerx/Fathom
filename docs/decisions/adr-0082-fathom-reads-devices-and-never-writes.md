@@ -1,10 +1,10 @@
 # ADR-0082: Fathom reads devices and never writes to them
 
-**Status:** accepted 2026-11-02 in principle. The owner approved sign-off card r75-work-plan with
-"Reading devices" option A: *"Fathom may read a device (SSH and SNMPv3, read-only, started by a
-person, logins from the vault), and never writes to it or acts on what it read by itself."* The
-details in §4 are on card **r76-device-reading** with the recommended pick pre-selected; this record
-is written on those picks and changes if the owner picks otherwise.
+**Status:** accepted 2026-11-02. The owner approved sign-off card r75-work-plan with "Reading
+devices" option A: *"Fathom may read a device (SSH and SNMPv3, read-only, started by a person, logins
+from the vault), and never writes to it or acts on what it read by itself."* Then the owner approved
+card r76-device-reading with every recommended pick (questions 1 to 5, A), adding in the thread:
+*"i want it all"*. So SSH follows SNMPv3 directly rather than waiting (§4.7).
 
 **Amends:** `.context/conventions.md` invariant 2, which read *"The application never touches a
 network device. No SSH, no NETCONF, no API. All output is copy-paste. This is a permanent product
@@ -103,7 +103,7 @@ allows (CLAUDE.md rule 2: test against what a real device accepts).
   changes another device, or starts another read. An AI connection (ADR-0077) may *see* a reading if
   its key allows that detail, and may *propose* from it like anything else; it cannot start a read.
 
-### 4.3 Where the read runs (card r76 question 1, A)
+### 4.3 Where the read runs (card r76-device-reading, question 1, A)
 
 In a **separate reader helper**, the way the Passbolt helper is separated (ADR-0071 part four). The
 server passes it one job at a time over a Unix socket: the address, the protocol, the fixed command
@@ -116,7 +116,7 @@ Rejected: reading inside the server. Fewer moving parts, but the server's depend
 carry an SSH client and the denylist could no longer say "nothing in the server opens a socket to a
 device".
 
-### 4.4 Who may read what (card r76 questions 2 and 3, A)
+### 4.4 Who may read what (card r76-device-reading, questions 2 and 3, A)
 
 - **Off by default, twice.** The server operator turns device reading on with a setting
   (`FATHOM_DEVICE_READ`), and then a Steward turns it on for their organisation. That keeps
@@ -133,7 +133,7 @@ device".
 - **Host keys confirmed by a person.** The first SSH read shows the host key fingerprint and waits for
   a person to confirm it; a changed key stops every read of that device until someone confirms again.
 
-### 4.5 SNMPv3 settings (card r76 question 4, A)
+### 4.5 SNMPv3 settings (card r76-device-reading, question 4, A)
 
 authPriv only. Offered, best first: HMAC-SHA-512 or -256 (RFC 7860) with AES-128 (RFC 3826);
 HMAC-SHA-96 is accepted and marked *older* on the login. HMAC-MD5-96 and CBC-DES are refused. DES on
@@ -146,11 +146,11 @@ By hand first (r29-login). A schedule per design (daily or weekly) is allowed by
 not built in the first part; it gets its own card when it is, because a schedule is the one case
 where no person presses anything at the time.
 
-### 4.7 What is built first (card r76 question 5, A)
+### 4.7 What is built first (card r76-device-reading, question 5, A)
 
 SNMPv3 first: model, serial and firmware (ENTITY-MIB, `sysDescr`), interfaces and their up/down
 state, LLDP neighbours, and the MAC and ARP tables, feeding the readers that exist and the checks
-after the work. SSH from the fixed list second, reusing every paste reader. Waits on #274 for the
+after the work. SSH from the fixed list second, straight after (the owner wants both), reusing every paste reader. Waits on #274 for the
 checks after the work.
 
 ## 5. What changes elsewhere

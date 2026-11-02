@@ -117,7 +117,7 @@ question was not in the register. *R* is the reversal cost from `73` §1.2 — R
 | **[0078](adr-0078-termix-beside-fathom.md)** | Termix beside Fathom: open a device's terminal, Fathom never connects | Accepted |  |  |
 | **[0079](adr-0079-one-estate-across-designs.md)** | One estate across designs: the estate index, links between sites, and slimmer saves | Accepted |  |  |
 | **[0080](adr-0080-termix-in-the-work.md)** | Termix in the work: plans, logins by reference, snippets and checks | Accepted |  |  |
-| **[0082](adr-0082-fathom-reads-devices-and-never-writes.md)** | Fathom reads devices and never writes to them: invariant 2 amended, SNMPv3 and SSH read-only, a reader helper | Accepted in principle (details on card r76) |  |  |
+| **[0082](adr-0082-fathom-reads-devices-and-never-writes.md)** | Fathom reads devices and never writes to them: invariant 2 amended, SNMPv3 and SSH read-only, a reader helper | Accepted |  |  |
 
 ## What is not reopened
 
