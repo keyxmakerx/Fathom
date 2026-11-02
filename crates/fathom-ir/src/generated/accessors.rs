@@ -1958,6 +1958,11 @@ mod body {
         pub fn ticket<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(556))
         }
+        /// `MaintenancePlan.team` — `Text`, card `0..1`, emit `—`.
+        /// 0.38 — the team that owns the plan, by its server id (ADR-0081). Where a folder asks for approval, that team's lead or supervisor approves it. Absent means no team: any team with access to the folder may.
+        pub fn team<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(637))
+        }
     }
     /// Typed reads for `PlanStep` fields.
     pub mod plan_step {
@@ -3484,6 +3489,7 @@ mod body {
             634 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             635 => Some((core::any::TypeId::of::<crate::scalar::Identifier>(), "crate::scalar::Identifier")),
             636 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            637 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             _ => None,
         }
     }
@@ -4063,6 +4069,7 @@ mod body {
             634 => crate::canon::slot_to::<crate::scalar::Text>(634, "crate::scalar::Text", value),
             635 => crate::canon::slot_to::<crate::scalar::Identifier>(635, "crate::scalar::Identifier", value),
             636 => crate::canon::slot_to::<crate::scalar::Text>(636, "crate::scalar::Text", value),
+            637 => crate::canon::slot_to::<crate::scalar::Text>(637, "crate::scalar::Text", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -4640,6 +4647,7 @@ mod body {
             634 => crate::canon::slot_from::<crate::scalar::Text>(j),
             635 => crate::canon::slot_from::<crate::scalar::Identifier>(j),
             636 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            637 => crate::canon::slot_from::<crate::scalar::Text>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

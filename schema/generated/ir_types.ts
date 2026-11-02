@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.37";
+export const SCHEMA_VERSION = "0.38";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -608,7 +608,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Doc: ["title", "body", "how", "model"],
   DocLink: ["title", "url"],
   DocFile: ["name", "size", "media", "checked", "removed", "file_id", "sha256"],
-  MaintenancePlan: ["title", "window_start", "window_end", "author", "stage", "outcome", "record", "checks", "release_notes", "assigned_to", "ticket"],
+  MaintenancePlan: ["title", "window_start", "window_end", "author", "stage", "outcome", "record", "checks", "release_notes", "assigned_to", "ticket", "team"],
   PlanStep: ["ordinal", "kind", "targets", "change", "before", "after", "edit", "state", "note", "done_at", "if_when", "branch_of", "if_taken", "issue", "seen", "compared"],
   FieldValue: ["definition", "value"],
   Issue: ["title", "device", "author", "opened_at", "stage", "outcome", "plan", "step", "assigned_to", "due", "ticket"],
@@ -1212,4 +1212,5 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "IpamAsn.allocation_key": 634,
   "IpamAsn.folder": 635,
   "IpamAsn.note": 636,
+  "MaintenancePlan.team": 637,
 };

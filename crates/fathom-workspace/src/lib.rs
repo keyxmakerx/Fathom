@@ -65,7 +65,7 @@ use fathom_ir::scalar::Text;
 pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &[
     "0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17", "0.18", "0.19", "0.20", "0.21",
     "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28", "0.29", "0.30", "0.31", "0.32", "0.33",
-    "0.34", "0.35", "0.36",
+    "0.34", "0.35", "0.36", "0.37",
 ];
 
 /// Node kinds `0.11` (ADR-0058) added. A payload declared at `0.10` cannot
@@ -168,7 +168,7 @@ const EDGE_KINDS_SINCE_0_30: &[EdgeKind] = &[
 /// version — decision 6's (ADR-0058) and decision 9's (ADR-0059) second
 /// halves, checked once per accepted older version: `0.10` cannot hold
 /// anything `0.11` to `0.19` added, and so on up the chain. `0.20` (the
-/// owner's ticked ideas), `0.21` (round 15), `0.22` (port faces), `0.24` (missing links), `0.25` (the LAG step), `0.31` (a device's own chosen version), `0.32` (links between sites), `0.33` (the plan-to-maintenance flow), `0.34` (Termix in the work), `0.35` (the Work tab's ticket parts), `0.36` (the IP plan store, whose kinds no design may hold) and `0.37` (a plan called off) added only fields and
+/// owner's ticked ideas), `0.21` (round 15), `0.22` (port faces), `0.24` (missing links), `0.25` (the LAG step), `0.31` (a device's own chosen version), `0.32` (links between sites), `0.33` (the plan-to-maintenance flow), `0.34` (Termix in the work), `0.35` (the Work tab's ticket parts), `0.36` (the IP plan store, whose kinds no design may hold), `0.37` (a plan called off) and `0.38` (a plan's team) added only fields and
 /// enum variants, no kind; `0.23` (cable runs and ties), `0.26` (mesh VPNs), `0.27` (the lesson builder), `0.28` (cards), `0.29` (the room builder) and `0.30` (stock) added kinds.
 /// Refuse a payload holding any record of the IP plan store (ADR-0083): its
 /// kinds are declared in the schema so the store's fields exist there, but they
@@ -188,7 +188,7 @@ fn reject_kinds_too_new_for_declared_version(
     declared: &str,
     snapshot: &Snapshot,
 ) -> Result<(), PlainError> {
-    // Nothing to check for the current version (`0.37`, everything is
+    // Nothing to check for the current version (`0.38`, everything is
     // legitimate there) or any value `SchemaVersionMismatch` already
     // refused above this call — only the accepted older headers name a
     // kind set their own editor could never have written.
