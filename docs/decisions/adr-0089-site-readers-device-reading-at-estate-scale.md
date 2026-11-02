@@ -262,9 +262,9 @@ Measured 2026-11-02 on PostgreSQL 16.15 (4 cores) with migration 0058's tables, 
 | Operation | main | fixed |
 |---|---|---|
 | Delete one design's rows (FK cascade to `estate_terms`) | 3.1 s for 1 row, 17.9 s for 10 (about 30 to 50 min for 1,000, extrapolated) | 20 ms for 1,000, with an index on `estate_terms (organisation_id, design_id, element_id)` (241 MB) |
-| One common term | 350 to 560 ms | 0.13 ms (no `GROUP BY` for one term) |
-| A rare term plus `kind:device` | 15.1 to 15.3 s | 0.2 to 1.2 ms (kind from `estate_rows`) |
-| Two common terms | 130 to 320 ms | 4 to 7 ms (rarer term drives, `EXISTS` on the other) |
+| One common term | 350 to 560 ms | 0.13 to 0.4 ms (no `GROUP BY`; stops at the limit) |
+| A rare term plus `kind:device` | 15.1 to 15.3 s | 0.1 to 1.2 ms (kind from `estate_rows`) |
+| Two common terms | 130 to 320 ms | 17 ms (rarer term drives, `NOT EXISTS` probes for the others) |
 
 Also from reading the code: two servers can rebuild one design at once (the `Scheduler` is per
 process), and the older rebuild can commit last. The fix takes a per-design advisory lock and never
