@@ -1760,6 +1760,40 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The Routing lens's words on a box (sign-off r101): ink capitals; a host with no gateway in caution. */
+.drawing-diagram-box__lens {
+  max-width: 100%;
+  margin-top: 0;
+  line-height: 1.3;
+  font-family: var(--mono);
+  font-size: var(--t-small);
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drawing-diagram-box__lens--caution {
+  padding: 0 4px;
+  color: var(--caution);
+  background: var(--caution-wash);
+}
+/* The lit lens's key, bottom left of the canvas: what ink and dashes mean. */
+.drawing-lens-key {
+  position: absolute;
+  left: var(--s4);
+  bottom: var(--s4);
+  z-index: 5;
+  margin: 0;
+  padding: 2px 6px;
+  font-family: var(--mono);
+  font-size: var(--t-small);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: var(--page);
+  pointer-events: none;
+}
 /* Show-menu words on the lines: ink on the page, no border, never a risk colour. */
 .drawing-layer-label {
   position: absolute;

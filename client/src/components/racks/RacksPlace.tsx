@@ -96,6 +96,7 @@ import { findDevice, findShelf } from '../drawing/lookup';
 import { mediaCandidates } from '../checks/checksModel';
 import { CheckMarksContext, ChecksContext } from '../checks/checksStore';
 import { useChecksController } from '../checks/useChecksController';
+import { routingMarks } from '../drawing/routingLens';
 import { TracePanel } from '../trace/TracePanel';
 import { InSideSlot, type SideTab } from '../shell/sideSlot';
 import { TraceContext } from '../trace/traceStore';
@@ -873,6 +874,8 @@ export function RacksPlace(props: RacksPlaceProps) {
     [realView],
   );
   const words = useMemo(() => layerWords(doc, displayView, layers), [doc, displayView, layers]);
+  // The Routing lens (sign-off r101): routed against switched, on the same boxes.
+  const routing = useMemo(() => (shellProps.lens === 'routing' ? routingMarks(doc, displayView) : undefined), [shellProps.lens, doc, displayView]);
   const learn = useLearn();
   const learnExplainers = learn?.explainers;
   const notes = useMemo(
@@ -969,6 +972,8 @@ export function RacksPlace(props: RacksPlaceProps) {
     () => computeCableDraw([...closetCableIds], hiddenCableIdSet, effectiveCableGroupsState.none, tickedCableGroups),
     [closetCableIds, hiddenCableIdSet, effectiveCableGroupsState.none, tickedCableGroups],
   );
+  // The Rack look has no words on its lines; the lens dashes its switched cables there.
+  const rackDashed = useMemo(() => (routing == null ? cableDraw.dashedIds : new Set([...cableDraw.dashedIds, ...routing.switched])), [routing, cableDraw.dashedIds]);
   const cablesGroupsSummary = isCableGroupsFiltered(effectiveCableGroupsState)
     ? `${cableDraw.drawnIds.size} of ${closetCableIds.size}`
     : null;
@@ -2259,6 +2264,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           cameraHub={cameraHub}
           minimap={canvasAids.prefs.minimap}
           overlays={vpns}
+          routing={routing}
         />
       ) : (
         <Drawing
@@ -2327,7 +2333,7 @@ export function RacksPlace(props: RacksPlaceProps) {
           onAddEquipment={() => setEquipmentRequest((n) => n + 1)}
           emptyHint={canDraw && realView.racks.length === 0 && (realView.surfaces?.length ?? 0) === 0 && realView.free.length === 0 && realView.labels.length === 0 ? EMPTY_HINT : null}
           drawnCableIds={cableDraw.drawnIds}
-          dashedCableIds={cableDraw.dashedIds}
+          dashedCableIds={rackDashed}
           // ADR-0053 §1/§3 — Ctrl Z / Ctrl
           // Shift Z, at `Drawing.tsx`'s own existing keydown site.
           onUndo={shellProps.onUndo}

@@ -679,6 +679,14 @@ dashed spoke to each, a two-member VPN as one dashed arc with its name, and each
 box; a badge opens a card with range, members, exit node and routes. Not yet: pasting `tailscale status` or
 `netbird status`, and the Rack look. `scripts/drive-vpns.mjs` drives it.
 
+**Routing lens on the canvas** (sign-off r101, option A; no schema change). With the Routing lens lit, the
+Diagram look writes on the same boxes: a device that routes says `ROUTES · n TABLES`, a VLAN gateway says
+`GW VLAN 11 · 10.10.11.1`, a host names its default gateway or says `NO GATEWAY` in caution, and a switch
+with VLANs and no address says `SWITCHES ONLY`. A cable whose ends share a network carries the prefix in
+ink; one in a VLAN is dashed with its VLANs. A key sits bottom left. The Rack look dashes switched cables
+only. Read off the design, not a trace (`components/drawing/routingLens.ts`); `scripts/drive-routing-lens.mjs`
+drives it. Not built yet: the panel's Routing tab, numbered trace hops, the VRF table picker.
+
 **Routes by hand** (sign-off r96, round 1; no schema change). Inventory › Networks, under Routes, lists every
 static route on every device, pasted or typed, and adds one: a device, To (`default` for 0.0.0.0/0, or a
 prefix) and Via (an IPv4 next hop, or `discard`). A device with no routing instance gets `default`; one with
