@@ -115,6 +115,21 @@ describe('declaring', () => {
     expect(new TextDecoder().decode(readLp(v.rest).value)).toBe('a,b');
   });
 
+  it('sends the original name last, after empty labels, when the name was cleaned', () => {
+    const body = declarationBody({ filename: 'a_b.tgz', byteLength: 5, sha256: HASH, renamedFrom: 'a b.tgz' }, false);
+    let r = readLp(body);
+    for (let i = 0; i < 2; i += 1) r = readLp(r.rest);
+    const labels: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      r = readLp(r.rest);
+      labels.push(new TextDecoder().decode(r.value));
+    }
+    expect(labels).toEqual(['', '', '']);
+    const last = readLp(r.rest);
+    expect(new TextDecoder().decode(last.value)).toBe('a b.tgz');
+    expect(last.rest.length).toBe(0);
+  });
+
   it('refuses a hash that is not 64 hex characters before anything is sent', () => {
     expect(() => declarationBody({ filename: 'a', byteLength: 1, sha256: 'abc' }, false)).toThrow('64');
   });

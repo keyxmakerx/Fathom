@@ -398,3 +398,38 @@
   align-items: flex-end;
   gap: var(--s3);
 }
+
+/* Steward › Teams: Teams and Roles (migration 0071). The Inventory item page's tab look. */
+.org-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  border-bottom: var(--rule-hair) solid var(--hairline);
+  margin-bottom: var(--s3);
+}
+
+.org-page .org-tab {
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  padding: var(--s1) var(--s2);
+  box-shadow: none;
+  font-size: var(--t-tab);
+  letter-spacing: var(--control-track);
+  cursor: pointer;
+}
+
+.org-page .org-tab[aria-selected='true'] {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+  text-shadow: 0 0 0 currentColor;
+}
+
+/* A wide table (the roles' powers) scrolls inside the page rather than widening it. */
+.org-scroll {
+  overflow-x: auto;
+}
+
+.org-scroll .org-table td:not(:first-child) {
+  text-align: center;
+}

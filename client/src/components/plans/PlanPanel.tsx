@@ -21,6 +21,7 @@ import { PlanDevices } from '../termix/PlanDevices';
 import { PlanSnippets } from '../termix/PlanSnippets';
 import { AlertingReminder, WindowNote, useTermixWindow } from '../termix/PlanWindow';
 import { SeenBox, SeenKept } from './SeenBox';
+import { EmergencyFlag, PlanApprovalSection, usePlanApproval, type PlanApprovalState } from './PlanApproval';
 import { reachable } from '../termix/planDevices';
 
 /** The devices a plan, or one of its steps, names, with their management addresses (ADR-0080 decision 2). */
@@ -68,7 +69,7 @@ function Notice({ controller }: { controller: PlansController }) {
   );
 }
 
-function PlanMode({ controller, plan }: { controller: PlansController; plan: Plan }) {
+function PlanMode({ controller, plan, approval }: { controller: PlansController; plan: Plan; approval: PlanApprovalState | null }) {
   const { canEdit } = controller;
   const devices = devicesOf(controller, plan);
   const termixWindow = useTermixWindow(plan, devices);
@@ -132,7 +133,8 @@ function PlanMode({ controller, plan }: { controller: PlansController; plan: Pla
       {canEdit && devices.length > 0 && termixWindow.choice}
       <PlanChecks controller={controller} plan={plan} />
       <ReleaseNotes controller={controller} plan={plan} />
-      <WhatNext controller={controller} plan={plan} onStart={() => void controller.start().then((ok) => (ok ? termixWindow.started() : undefined))} />
+      <PlanApprovalSection state={approval} canEdit={canEdit} onEmergencyStarted={() => void controller.start().then((ok) => (ok ? termixWindow.started() : undefined))} />
+      <WhatNext controller={controller} plan={plan} held={approval?.startHeld ?? false} onStart={() => void controller.start().then((ok) => (ok ? termixWindow.started() : undefined))} />
       {canEdit && <AddStepForm controller={controller} stepCount={plan.steps.length} />}
     </>
   );
@@ -438,6 +440,7 @@ export function PlanPanel({ controller, plan, besideChecks }: { controller: Plan
   const appliedRef = useRef(applied);
   appliedRef.current = applied;
   const mode = panelMode(plan);
+  const approval = usePlanApproval(plan);
   const body = useRef<HTMLDivElement>(null);
   const lastMode = useRef(`${mode}|${plan.stage}`);
   // Opened with nothing holding focus (Open panel just went): the panel takes it.
@@ -533,8 +536,9 @@ export function PlanPanel({ controller, plan, besideChecks }: { controller: Plan
         <Notice controller={controller} />
         <WhySlot controller={controller} />
         <PlanRoute plan={plan} />
+        {mode !== 'plan' && <EmergencyFlag state={approval} />}
         <UpgradeLinkScope plan={plan}>
-          {mode === 'plan' && <PlanMode controller={controller} plan={plan} />}
+          {mode === 'plan' && <PlanMode controller={controller} plan={plan} approval={approval} />}
           {mode === 'do' && <DoMode controller={controller} plan={plan} />}
           {mode === 'record' && <RecordMode key={plan.stage} controller={controller} plan={plan} />}
           {mode === 'off' && <CalledOffMode controller={controller} plan={plan} />}

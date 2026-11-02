@@ -625,3 +625,14 @@
   font-size: 13px;
   color: var(--muted);
 }
+
+/* Sign-off r102: a folder's "plans need approval" switch, at the end of its row. */
+.home-folders__approval {
+  margin-left: auto;
+  font-size: var(--t-small);
+  white-space: nowrap;
+}
+
+.home-folders__approval label {
+  cursor: pointer;
+}

@@ -3261,3 +3261,197 @@ async fn with_no_address_in_the_file_a_link_waits_for_one_set_on_the_page() {
         "{link}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The Firmware permission (sign-off r95)
+// ---------------------------------------------------------------------------
+
+/// Sign-off r95: a person given `firmware` does every firmware act a steward
+/// did (declare and upload, set models, issue a one-time link, retire) and
+/// nothing else a steward does: not the organisation's firmware activity, not
+/// its firmware settings, and not handing out access.
+#[tokio::test]
+async fn a_firmware_holder_stages_links_and_retires_but_cannot_see_activity_settings_or_grant() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let holder = a_member_with(&pool, &ring, &estate, "fw", Some(Capability::Firmware)).await;
+    let other = a_member_with(&pool, &ring, &estate, "other", None).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+    let org = estate.organisation;
+
+    let bytes = an_image(4_096);
+    let image = stage(
+        addr,
+        &holder,
+        org,
+        scope,
+        "junos-install-23.4R2.tgz",
+        &bytes,
+    )
+    .await;
+
+    let (status, body) =
+        put_models(addr, &holder, org, &image, &models_body(&["ex4300-48t"])).await;
+    assert_eq!(
+        status, "200",
+        "a firmware holder sets an image's models: {body}"
+    );
+
+    let answer = issue_fetch_url(addr, &holder, org, &image).await;
+    assert!(
+        !json_str(answer.as_bytes(), "fetch_url").is_empty(),
+        "a firmware holder gets a one-time link: {answer}"
+    );
+
+    let (status, body) = call(
+        addr,
+        &holder,
+        "GET",
+        &format!("/organisations/{org}/firmware/activity"),
+        b"",
+    )
+    .await;
+    assert_eq!(
+        status,
+        "403",
+        "the organisation's firmware activity stays a steward's: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let (status, _) = call(
+        addr,
+        &holder,
+        "GET",
+        &format!("/organisations/{org}/firmware/settings"),
+        b"",
+    )
+    .await;
+    assert_eq!(status, "403", "firmware settings stay a steward's");
+
+    let (status, body) = call(
+        addr,
+        &holder,
+        "POST",
+        &format!("/organisations/{org}/firmware/{image}/retire"),
+        b"",
+    )
+    .await;
+    assert_eq!(
+        status,
+        "200",
+        "a firmware holder retires an image: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    // Granting is a steward's act, and firmware is below steward.
+    let mut client = pool.get().await.expect("connection");
+    let tx = client.transaction().await.expect("begin");
+    let ctx = repo::open_tenant_context(&tx, org, holder.account)
+        .await
+        .expect("tenant context");
+    let tenant_key = keys::tenant_key(&tx, &ring, &ctx)
+        .await
+        .expect("tenant key");
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring: &ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let refused = grants::propose_grant(
+        &tx,
+        &auth,
+        &GrantRequest {
+            scope: None,
+            subject: other.account,
+            capability: Capability::Read,
+            expires_at_unix: now_unix() + 30 * 24 * 3600,
+        },
+    )
+    .await;
+    assert!(
+        refused.is_err(),
+        "a firmware holder must not hand out access"
+    );
+}
+
+/// `0070`: the browser cleans a file name Fathom does not keep and sends the original;
+/// the original is sealed in the upload's history, and one that is not readable text,
+/// or is the name kept, is refused before anything is declared.
+#[tokio::test]
+async fn a_cleaned_file_name_keeps_the_original_in_the_sealed_history() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let scope = a_scope(&pool, &estate).await;
+    let directory = a_staging_directory();
+    let addr = serve(app(&pool, Arc::clone(&ring), directory.clone()).await).await;
+    let org = estate.organisation;
+    let declare = format!("/organisations/{org}/scopes/{scope}/firmware");
+
+    let bytes = an_image(2_048);
+    let with_original = |kept: &str, original: &[u8]| {
+        let mut body = declaration(kept, bytes.len() as u64, &sha256_of(&bytes));
+        for field in [&b""[..], b"", b"", original] {
+            lp(&mut body, field);
+        }
+        body
+    };
+
+    for (kept, original, why) in [
+        ("a_b.bin", &b"a\nb.bin"[..], "a control character"),
+        ("a.bin", b"a.bin", "the name kept"),
+    ] {
+        let (status, _) = call(
+            addr,
+            &estate.steward,
+            "POST",
+            &declare,
+            &with_original(kept, original),
+        )
+        .await;
+        assert_eq!(status, "400", "an original that is {why} is refused");
+    }
+
+    let (status, body) = call(
+        addr,
+        &estate.steward,
+        "POST",
+        &declare,
+        &with_original("junos_install_1_.tgz", "junos install (1).tgz".as_bytes()),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let image = json_str(&body, "image_id");
+    let token = json_str(&body, "upload_token");
+    let (status, body) = raw_request(
+        addr,
+        "POST",
+        &format!("/firmware/uploads/{image}"),
+        &[(HEADER_UPLOAD_TOKEN, token)],
+        &bytes,
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+
+    let (status, body) = call(
+        addr,
+        &estate.steward,
+        "GET",
+        &format!("/organisations/{org}/firmware/activity"),
+        b"",
+    )
+    .await;
+    let text = String::from_utf8_lossy(&body);
+    assert_eq!(status, "200", "{text}");
+    assert!(
+        text.contains("\"filename\":\"junos_install_1_.tgz\"")
+            && text.contains("\"renamed_from\":\"junos install (1).tgz\""),
+        "the sealed upload names both: {text}"
+    );
+}

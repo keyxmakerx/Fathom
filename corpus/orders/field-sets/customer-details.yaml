@@ -1,0 +1,9 @@
+# Starter shared field set (ADR-0084 decision 15): used by every starter order type.
+fathom: field-set/1
+id: customer-details
+name: Customer details
+
+fields:
+  - { key: customer,      label: Customer,      kind: text, required: true }
+  - { key: contact_name,  label: Contact name,  kind: text, required: true }
+  - { key: contact_phone, label: Contact phone, kind: text }

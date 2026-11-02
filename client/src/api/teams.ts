@@ -12,8 +12,36 @@ import { NoSigningKeyHere, ownKeyFingerprint, signingKey } from './share';
 import { signedFetch } from './signedFetch';
 
 export type TeamAct = 'create' | 'delete' | 'member_add' | 'member_remove' | 'role_set' | 'role_clear' | 'grant' | 'grant_revoke';
-/** `overseer` is the wire word; the screens say Supervisor (ADR-0081 decision 3). */
-export type TeamRole = 'lead' | 'overseer';
+/** A role's id: `lead`, `overseer` (the screens say Supervisor, ADR-0081 decision 3), `tech`,
+ * or a ULID for a role a Steward made (migration 0071). Its title is in `Teams.roles`. */
+export type TeamRole = string;
+
+/** The fixed list of powers a role may carry, in the server's order (`roles.rs`). */
+export const POWERS = [
+  { power: 'assign', words: 'Assign and reassign work' },
+  { power: 'due_dates', words: 'Set due dates' },
+  { power: 'approve_plans', words: 'Approve plans' },
+  { power: 'members', words: 'Add and remove members' },
+  { power: 'history', words: 'See the team’s history' },
+  { power: 'emergency_start', words: 'Start a plan in an emergency' },
+] as const;
+export type Power = (typeof POWERS)[number]['power'];
+const isPower = (v: unknown): v is Power => POWERS.some((p) => p.power === v);
+
+/** A role as it stands now. */
+export interface RoleDef {
+  role: TeamRole;
+  title: string;
+  powers: Power[];
+  /** Lead, Supervisor and Maintenance tech come ready-made: changed, never retired. */
+  preset: boolean;
+  retired: boolean;
+}
+
+/** Someone holding a role on a team. */
+export interface RoleSeat extends Seat {
+  role: TeamRole;
+}
 export type TeamCapability = 'read' | 'draw';
 
 export interface Seat {
@@ -37,8 +65,11 @@ export interface Team {
   members: Seat[];
   leads: Seat[];
   supervisors: Seat[];
+  /** Everyone holding any role on the team, ready-made ones included. */
+  roles: RoleSeat[];
   grants: TeamGrant[];
-  /** The caller may add and remove members: a Steward of the organisation, or this team's lead. */
+  /** The caller may add and remove members: a Steward of the organisation, or someone whose
+   * role on this team has the members power. */
   mayStaff: boolean;
 }
 
@@ -48,6 +79,8 @@ export interface Teams {
   teams: Team[];
   /** The organisation's people to pick from, for a caller who may staff some team; else empty. */
   people: { account: string; name: string }[];
+  /** Every role, ready-made first. */
+  roles: RoleDef[];
 }
 
 export interface HistoryLine {
@@ -92,6 +125,10 @@ export function parseTeams(bytes: Uint8Array): Teams {
         members: seats(t, 'members', what),
         leads: seats(t, 'leads', what),
         supervisors: seats(t, 'supervisors', what),
+        roles: (Array.isArray(t.roles) ? t.roles : []).map((entry, j) => {
+          const r = asRec(entry, `${what} role ${j}`);
+          return { role: str(r, 'role', what), account: str(r, 'account', what), name: str(r, 'name', what), act: str(r, 'act', what) };
+        }),
         grants: arrayOf(t, 'grants', what).flatMap((g) => {
           const row = asRec(g, what);
           const capability = capabilityOf(row.capability);
@@ -104,7 +141,25 @@ export function parseTeams(bytes: Uint8Array): Teams {
       const p = asRec(entry, `person ${i}`);
       return { account: str(p, 'account', 'person'), name: str(p, 'name', 'person') };
     }),
+    roles: (Array.isArray(r.roles) ? r.roles : []).map((entry, i): RoleDef => {
+      const what = `role ${i}`;
+      const d = asRec(entry, what);
+      return {
+        role: str(d, 'role', what),
+        title: str(d, 'title', what),
+        powers: (Array.isArray(d.powers) ? d.powers : []).filter(isPower),
+        preset: d.preset === true,
+        retired: d.retired === true,
+      };
+    }),
   };
+}
+
+/** A role's title, or a plain word for one this browser was not told about. */
+export function titleOf(roles: readonly RoleDef[], role: TeamRole | null): string {
+  const found = roles.find((d) => d.role === role);
+  if (found) return found.title;
+  return role === 'lead' ? 'Lead' : role === 'overseer' ? 'Supervisor' : role === 'tech' ? 'Maintenance tech' : 'a role';
 }
 
 export async function fetchTeams(organisation: string): Promise<Teams> {
@@ -118,7 +173,7 @@ export function parseHistory(bytes: Uint8Array): HistoryLine[] {
   return arrayOf(r, 'acts', 'history').map((entry, i) => {
     const what = `act ${i}`;
     const a = asRec(entry, what);
-    const role = a.role === 'lead' || a.role === 'overseer' ? a.role : null;
+    const role = typeof a.role === 'string' ? a.role : null;
     return {
       id: str(a, 'id', what),
       act: str(a, 'act', what) as TeamAct,
@@ -328,7 +383,98 @@ export function ledBy(teams: readonly Team[], account: string): { leads: Team[];
   };
 }
 
-/** Is `account` in, leading or supervising any of `teams`? Home shows Teams only then. */
+/** Is `account` in, or holding a role on, any of `teams`? Home shows Teams only then. */
 export function involvedIn(teams: readonly Team[], account: string): boolean {
-  return teams.some((t) => [...t.members, ...t.leads, ...t.supervisors].some((s) => s.account === account));
+  return teams.some((t) => [...t.members, ...t.leads, ...t.supervisors, ...t.roles].some((s) => s.account === account));
+}
+
+/** `authority::team_role_bytes`, pinned by the same vectors as `tests/authority_vectors.rs`. */
+export function teamRoleBytes(f: {
+  organisation: string;
+  rootPubkeyFpr: Uint8Array;
+  defId: string;
+  role: string;
+  title: string;
+  powers: string;
+  retired: boolean;
+  signer: string;
+  signerKeyFpr: Uint8Array;
+  atUnix: number;
+  authEpoch: number;
+}): Uint8Array {
+  return concatBytes(
+    lp(utf8('fathom/team/role/v1')),
+    lp(utf8(f.organisation)),
+    lp(f.rootPubkeyFpr),
+    lp(utf8(f.defId)),
+    lp(utf8(f.role)),
+    lp(utf8(f.title)),
+    lp(utf8(f.powers)),
+    new Uint8Array([f.retired ? 1 : 0]),
+    lp(utf8(f.signer)),
+    lp(f.signerKeyFpr),
+    u64LE(f.atUnix),
+    u32LE(f.authEpoch),
+  );
+}
+
+/** The powers as the server writes them: in the fixed order, comma-separated. */
+export const powersText = (powers: readonly Power[]): string =>
+  POWERS.filter((p) => powers.includes(p.power))
+    .map((p) => p.power)
+    .join(',');
+
+export interface RoleChoice {
+  /** Absent for a new role, whose id the server chooses. */
+  role?: TeamRole;
+  title: string;
+  powers: Power[];
+  retired: boolean;
+}
+
+/** A root Steward defines, changes or retires a role: propose, rebuild and compare the bytes,
+ * sign with this browser's key, send. Answers the role's id. */
+export async function defineRole(organisation: string, choice: RoleChoice): Promise<string> {
+  const key = await signingKey();
+  const signer = getSession()?.accountId;
+  if (!signer) throw new NoSigningKeyHere();
+  const keyFpr = await ownKeyFingerprint();
+  const proposal = jsonObject(
+    await signedFetch('POST', `${base(organisation)}/roles/propose`, body({ key: toHex(keyFpr), role: choice.role, title: choice.title, powers: choice.powers, retired: choice.retired })),
+    'proposal',
+  );
+  const powers = powersText(choice.powers);
+  const role = str(proposal, 'role', 'proposal');
+  if (
+    (choice.role !== undefined && role !== choice.role) ||
+    textOf(proposal, 'title') !== choice.title ||
+    textOf(proposal, 'powers') !== powers ||
+    proposal.retired !== choice.retired ||
+    textOf(proposal, 'signer') !== signer ||
+    textOf(proposal, 'signer_key_fpr') !== toHex(keyFpr)
+  ) {
+    throw new Error('The server proposed a change that is not the one you chose, so it was not signed.');
+  }
+  const local = teamRoleBytes({
+    organisation,
+    rootPubkeyFpr: fromHex(str(proposal, 'root_fpr', 'proposal')),
+    defId: str(proposal, 'def_id', 'proposal'),
+    role,
+    title: choice.title,
+    powers,
+    retired: choice.retired,
+    signer,
+    signerKeyFpr: keyFpr,
+    atUnix: int(proposal, 'at', 'proposal'),
+    authEpoch: int(proposal, 'auth_epoch', 'proposal'),
+  });
+  if (!sameBytes(local, fromHex(str(proposal, 'bytes', 'proposal')))) {
+    throw new Error('The server proposed bytes that are not the change you chose, so they were not signed.');
+  }
+  const signature = await signMessage(key, local);
+  const back: Record<string, unknown> = {};
+  for (const k of ['def_id', 'role', 'title', 'powers', 'retired', 'signer', 'signer_key_fpr', 'at', 'auth_epoch', 'root_fpr']) back[k] = proposal[k];
+  back.signature = toHex(signature);
+  const answer = jsonObject(await signedFetch('POST', `${base(organisation)}/roles/sign`, body(back)), 'sign');
+  return str(answer, 'role', 'sign');
 }

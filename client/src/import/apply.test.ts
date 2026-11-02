@@ -16,6 +16,12 @@ import { tagsOf } from '../document/tags';
 import { redo, undo, undoable } from '../document/undo';
 import { writePlain } from '../document/plain';
 import { applyPlan } from './apply';
+import { pinOf } from '../document/freeform';
+import { viewOf } from '../document/view';
+import { undrawnDevices } from '../components/racks/canvasSpots';
+import { closetRightPx } from '../components/drawing/rows';
+import { RACK_NODE_WIDTH } from '../components/drawing/RackNode';
+import { U_PX } from '../components/drawing/geometry';
 import { devicesByName } from './existing';
 import { buildPlan, choiceKey } from './plan';
 import { ACTOR, CATALOGUE, COST_CENTRE, NOW, addDevice, docWithRack, fixture, freshDefs, fullMapping, gated, miniXml, readImport } from './testkit';
@@ -71,6 +77,24 @@ describe('importing the NetBox CSV', () => {
     expect(d.size).toBe(2 + 5);
     expect(readChassisFields(findNode(out.doc, sw02.chassisId)!).serial).toBe('JN123457CD');
     void doc;
+  });
+
+  it('keeps the model of a device with no rack spot, and draws every unplaced device on the canvas beside the rack', async () => {
+    const { out, rackId } = await setup();
+    const d = devicesByName(out.doc);
+    // core-01's unit is taken: it is not mounted, but it is still an EX4300-48P with that model's ports.
+    const core = d.get('core-01')!;
+    expect(core.model).toBe('EX4300-48P');
+    expect(edgesOut(out.doc, core.chassisId, 'MountedIn')).toEqual([]);
+    expect(edgesOut(out.doc, core.chassisId, 'HasPort').length).toBeGreaterThan(0);
+    const view = viewOf(out.doc, []);
+    const undrawn = undrawnDevices(view);
+    for (const n of ['core-01', 'wifi-ap-3', 'core-switch-2']) expect(undrawn).not.toContain(d.get(n)!.chassisId);
+    const rackRight = closetRightPx(view, RACK_NODE_WIDTH, U_PX);
+    const spots = ['core-01', 'wifi-ap-3', 'core-switch-2'].map((n) => pinOf(out.doc, d.get(n)!.chassisId)!);
+    for (const p of spots) expect(p.x).toBeGreaterThan(rackRight);
+    expect(new Set(spots.map((p) => `${p.x},${p.y}`)).size).toBe(spots.length);
+    void rackId;
   });
 
   it('is ONE undo step: one undo removes everything, one redo puts it all back, and every state loads', async () => {

@@ -32,7 +32,7 @@ import {
   type WaitingRow,
 } from './model';
 
-const CAPS: Asked[] = ['read', 'draw', 'steward'];
+const CAPS: Asked[] = ['read', 'draw', 'firmware', 'steward'];
 
 // ---- The table of people to confirm together ----------------------------
 

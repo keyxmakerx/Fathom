@@ -2,6 +2,7 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState, type Rea
 
 import { FIT_CARD_EVENT } from '../drawing/Parts';
 import { askPanel } from '../drawing/Editor';
+import { takeOutChange } from '../drawing/editorChanges';
 import { DEVICE_WORDS, deviceMenuItems, type MenuActions } from '../drawing/contextMenuItems';
 import { deviceMenuActions, firmwareNeedsVersion as firmwareNeedsVersionOf } from '../drawing/deviceMenuActions';
 import { useTermix } from '../termix/useTermix';
@@ -26,14 +27,12 @@ import {
   removeChassis,
   resizeShelf,
 } from '../../document/commands';
-import { nextFreeSpot } from '../drawing/freeLayout';
-import { closetRightPx } from '../drawing/rows';
-import { RACK_NODE_WIDTH } from '../drawing/RackNode';
+import { openCanvasSpots } from './canvasSpots';
 import { requestRename } from '../drawing/NameEdit';
 import type { PaletteAction } from '../shell/palette';
 import { usePaletteActions } from '../shell/paletteRegistry';
 import { shortcutText } from '../shell/shortcuts';
-import { BOX_H, BOX_W, createLabel, createLine, moveFree, removeFree, setLabel } from '../../document/freeform';
+import { createLabel, createLine, moveFree, removeFree, setLabel } from '../../document/freeform';
 import { FieldValueError, isDeviceRole, setDeviceField } from '../../document/edit';
 import { useResumeView } from './useResumeView';
 import type { CameraHub } from '../drawing/camera';
@@ -78,7 +77,7 @@ import {
   type StoredCableGroupsState,
 } from '../drawing/cableGroups';
 import { CableGroupsPopover } from '../drawing/CableGroupsPopover';
-import { CAMERA_STOPS, U_PX } from '../drawing/geometry';
+import { CAMERA_STOPS } from '../drawing/geometry';
 import { DiagramDrawing } from '../drawing/DiagramDrawing';
 import { layerWords } from '../drawing/layerLabels';
 import { useLearn } from '../learn/context';
@@ -1345,21 +1344,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   // before the card shows; the card's choice is the only thing that writes. The raw text is never kept.
   const [pasteState, setPasteState] = useState<PasteState | null>(null);
   // `n` free spots for new boxes, each clear of the ones before it.
-  const openSpots = useCallback(
-    (n: number) => {
-      const taken = [...realView.free.map((f) => ({ x: f.x, y: f.y, w: BOX_W, h: BOX_H })), ...realView.labels.map((l) => ({ x: l.x, y: l.y, w: l.form === 'area' ? l.w : 64, h: l.form === 'area' ? l.h : 22 }))];
-      // With racks or surfaces drawn, the grid starts to their right so a new box never lands on top of them.
-      const right = realView.racks.length > 0 || realView.surfaces.length > 0 ? closetRightPx(realView, RACK_NODE_WIDTH, U_PX) : 0;
-      const spots: { x: number; y: number }[] = [];
-      for (let i = 0; i < n; i += 1) {
-        const spot = right > 0 ? nextFreeSpot(taken, undefined, undefined, { x: right + 96, y: 0 }) : nextFreeSpot(taken);
-        spots.push(spot);
-        taken.push({ ...spot, w: BOX_W, h: BOX_H });
-      }
-      return spots;
-    },
-    [realView],
-  );
+  const openSpots = useCallback((n: number) => openCanvasSpots(realView, n), [realView]);
   const openSpot = useCallback(() => openSpots(1)[0]!, [openSpots]);
   // Held only while the card asks "which device is this from?"; cleared on every other outcome.
   const pendingPasteRef = useRef<string | null>(null);
@@ -1887,6 +1872,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   };
   const deviceMenu: Partial<MenuActions> = {
     onShowInInventory: onOpenInventory,
+    onTakeOut: canDraw ? (id) => void handleEdit(takeOutChange(id)) : undefined,
     ...deviceMenuActions({
       doc,
       view: realView,

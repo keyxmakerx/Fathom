@@ -414,6 +414,30 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0067_device_read.sql",
         sql: include_str!("../migrations/0067_device_read.sql"),
     },
+    // The Firmware capability, between Draw and Steward (sign-off r95).
+    Migration {
+        version: 69,
+        name: "0069_firmware_capability.sql",
+        sql: include_str!("../migrations/0069_firmware_capability.sql"),
+    },
+    // A cleaned firmware file name keeps the original (sign-off r95 follow-up).
+    Migration {
+        version: 70,
+        name: "0070_firmware_renamed_from.sql",
+        sql: include_str!("../migrations/0070_firmware_renamed_from.sql"),
+    },
+    // Team roles with a title and powers a root Steward sets (ADR-0081, card r102 v2).
+    Migration {
+        version: 71,
+        name: "0071_team_roles.sql",
+        sql: include_str!("../migrations/0071_team_roles.sql"),
+    },
+    // Plans a folder asks to be approved before they start (card r102-plan-approval v2).
+    Migration {
+        version: 72,
+        name: "0072_plan_approvals.sql",
+        sql: include_str!("../migrations/0072_plan_approvals.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

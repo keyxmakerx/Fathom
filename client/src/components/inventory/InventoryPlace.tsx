@@ -100,7 +100,7 @@ import { useTermix } from '../termix/useTermix';
 import { askPanel } from '../drawing/Editor';
 import { DEVICE_WORDS, deviceMenuItems, type MenuActions, type MenuItem } from '../drawing/contextMenuItems';
 import { deviceMenuActions } from '../drawing/deviceMenuActions';
-import { duplicateDeviceChange, removeDeviceChange } from '../drawing/editorChanges';
+import { duplicateDeviceChange, removeDeviceChange, takeOutChange } from '../drawing/editorChanges';
 
 const EMPTY_VIEW: ClosetView = { premisesId: '', racks: [], cables: [], rows: [], surfaces: [], unplaced: [], free: [], lines: [], labels: [] };
 const EMPTY_NETWORKS_DERIVED: NetworksDerived = { vlanRows: [], subnetRows: [], dockerNetworkRows: [], dockerUnattachedContainers: [] };
@@ -793,6 +793,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
         }
       : undefined,
     onRemoveDevice: canDraw ? (id) => void handleEdit(removeDeviceChange(id)) : undefined,
+    onTakeOut: canDraw ? (id) => void handleEdit(takeOutChange(id)) : undefined,
     ...deviceMenuActions({
       doc: doc ?? null,
       view,

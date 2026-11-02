@@ -833,3 +833,62 @@
   margin-top: 4px;
   accent-color: var(--ink);
 }
+
+/* A plan's approval (sign-off r102-plan-approval): where it stands, who approved or sent it back,
+   and the buttons this person may use. The emergency start reads as a warning, in the danger tone. */
+.plans-approval {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--hairline);
+}
+
+.plans-approval__state {
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.plans-approval__state--ok::before {
+  content: '✓ ';
+  color: var(--m-do);
+}
+
+.plans-approval__lines {
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: var(--t-small, 0.875rem);
+}
+
+.plans-approval__lines li + li {
+  margin-top: 4px;
+}
+
+.plans-approval__quote {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink);
+  quotes: '“' '”';
+}
+
+.plans-approval--flag {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  background: var(--danger-wash);
+}
+
+.plans-approval--flag .plans-approval__state {
+  color: var(--danger);
+}
+
+.plans-btn--warn {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.plans-btn--warn:hover:not(:disabled) {
+  background: var(--danger-wash);
+}

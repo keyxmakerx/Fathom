@@ -404,6 +404,48 @@ async fn a_team_grant_reaches_its_members_and_nobody_else_and_never_steward() {
     .await
     .unwrap());
 
+    // r95: a team may hold Firmware, which reaches its members and covers Draw.
+    let racks = a_network(&pool, &org, "racks").await;
+    grant(
+        &pool,
+        &ring,
+        &org,
+        &org.stewards[0],
+        &team,
+        Some(racks),
+        Capability::Firmware,
+    )
+    .await
+    .expect("a steward grants the team Firmware on racks");
+    for needed in [Capability::Draw, Capability::Firmware] {
+        assert!(
+            may(&pool, &ring, &org, member.account, Some(racks), needed)
+                .await
+                .unwrap(),
+            "a team's Firmware gives its member {needed:?}"
+        );
+    }
+    assert!(!may(
+        &pool,
+        &ring,
+        &org,
+        member.account,
+        Some(net),
+        Capability::Firmware
+    )
+    .await
+    .unwrap());
+    assert!(!may(
+        &pool,
+        &ring,
+        &org,
+        member.account,
+        Some(racks),
+        Capability::Steward
+    )
+    .await
+    .unwrap());
+
     // T4: no team grant is `steward`, refused before any signature is asked for.
     let refused = grant(
         &pool,
@@ -938,4 +980,135 @@ async fn a_deleted_team_gives_nothing_and_an_operator_kind_never_reaches_the_tab
         )
         .await;
     assert!(refused.is_err(), "a team is not an account");
+}
+
+/// Which of `scopes` `who` may reach with `needed`, asked of many places at once, as the Work
+/// tab, Search and Everywhere ask it.
+async fn may_many(
+    pool: &Pool,
+    ring: &KeyRing,
+    org: &Org,
+    who: AccountId,
+    scopes: &[ScopeId],
+    needed: Capability,
+) -> Vec<ScopeId> {
+    let mut client = pool.get().await.unwrap();
+    let (tx, ctx, tenant_key) = acting(&mut client, ring, org.id, who).await;
+    let watch = EpochWatch::new();
+    let auth = Authority {
+        ring,
+        ctx: &ctx,
+        tenant_key: &tenant_key,
+        watch: &watch,
+    };
+    let answer = grants::holding(&tx, &auth, scopes, needed)
+        .await
+        .expect("an answer");
+    tx.rollback().await.unwrap();
+    scopes
+        .iter()
+        .copied()
+        .filter(|s| answer.contains(s))
+        .collect()
+}
+
+#[tokio::test]
+async fn asking_about_many_places_at_once_answers_as_asking_one_at_a_time() {
+    let pool = support::migrated_pool().await;
+    let ring = keyring(209);
+    let org = an_org(&pool, &ring, 1).await;
+    let net = a_network(&pool, &org, "leeds").await;
+    let other = a_network(&pool, &org, "york").await;
+    let building = repo::create_scope(
+        &pool,
+        org.id,
+        org.stewards[0].account,
+        Some(net),
+        ScopeKind::Building,
+        "head office",
+    )
+    .await
+    .expect("building")
+    .id;
+    let member = a_member(&pool, &ring, &org, "member").await;
+    let outsider = a_member(&pool, &ring, &org, "outsider").await;
+    let team = a_team(&pool, &ring, &org, "network-design").await;
+    grant(
+        &pool,
+        &ring,
+        &org,
+        &org.stewards[0],
+        &team,
+        Some(net),
+        Capability::Read,
+    )
+    .await
+    .expect("a steward grants the team Read on Leeds");
+    add(
+        &pool,
+        &ring,
+        &org,
+        &org.stewards[0],
+        teams::BY_STEWARD,
+        &team,
+        member.account,
+    )
+    .await
+    .expect("a root steward adds a member");
+
+    let places = [net, other, building];
+    for who in [org.stewards[0].account, member.account, outsider.account] {
+        for needed in [Capability::Read, Capability::Draw, Capability::Steward] {
+            let mut one_at_a_time = Vec::new();
+            for place in places {
+                if may(&pool, &ring, &org, who, Some(place), needed)
+                    .await
+                    .unwrap()
+                {
+                    one_at_a_time.push(place);
+                }
+            }
+            assert_eq!(
+                may_many(&pool, &ring, &org, who, &places, needed).await,
+                one_at_a_time,
+                "{who} {needed:?}"
+            );
+        }
+    }
+    // And the answers are the ones the grants give: the steward everywhere, the member through
+    // the team on Leeds and the building under it, the outsider nowhere.
+    assert_eq!(
+        may_many(
+            &pool,
+            &ring,
+            &org,
+            member.account,
+            &places,
+            Capability::Read
+        )
+        .await,
+        vec![net, building]
+    );
+    assert_eq!(
+        may_many(
+            &pool,
+            &ring,
+            &org,
+            org.stewards[0].account,
+            &places,
+            Capability::Read
+        )
+        .await,
+        places.to_vec()
+    );
+    assert!(may_many(
+        &pool,
+        &ring,
+        &org,
+        outsider.account,
+        &places,
+        Capability::Read
+    )
+    .await
+    .is_empty());
 }

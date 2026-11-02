@@ -175,6 +175,13 @@ amendment and card before code.
    Steward could appoint by hand; the three built-in roles stay as named presets. Appointing
    someone to a custom role is signed like any role (decision 5).
 
+   **Amended 2026-11-02 (card r102 version 2, from the owner's note: "they should be able to set
+   the title and permissions of the role, we are just adding it by default").** Brought forward and
+   built in migration 0071. The three built-in roles are Lead, Supervisor and a new **Maintenance
+   tech**, and a Steward may rename them and change their powers too, not only add roles. One power
+   is new and no earlier role had it: *start a plan in an emergency*, approved afterwards (the
+   plan-approval half of the card). Directory sync and departments keep their place in this list.
+
 ## What it gives up, named
 
 - **Custom roles** (r75 option B, permission by permission) are not in the first version. The
@@ -184,3 +191,11 @@ amendment and card before code.
   closes it, at the cost of a steward's press for every team change.
 - **Assignments are not key-signed.** The trail says who moved work, under their session; it is not
   a hardware-touched proof. Moving work grants no access, so this is the right weight.
+
+## Amended 2026-11-02 (sign-off r95)
+
+Folder access gains a fourth level, **Firmware**, between Draw and Steward (ADR-0064's r95
+amendment). A steward may grant a team **Read, Draw or Firmware**; a team still never holds
+Steward (§3.7 constraint 3), and Firmware hands out nothing, so the constraint is unchanged.
+`team_acts` takes `firmware` (migration 0069) and `best_through_teams` is consulted for any need
+below Steward.

@@ -126,6 +126,23 @@ makes it irrelevant.
   leading or supervising one (a lead staffs it there), and "Through teams" on Steward › People › a
   person. Each act is signed in the browser, its bytes rebuilt there first. No operator suspend,
   approvals or work assignment yet.
+- **0071: team roles** (ADR-0081 later item 3, brought forward by card r102 version 2; `roles.rs`). A
+  role is a title and powers from a fixed list (assign, due dates, approve plans, members, history,
+  emergency start). Lead, Supervisor (`overseer`) and Maintenance tech (`tech`) come ready-made; a
+  root Steward renames them, changes their powers, adds roles or retires their own, each a signed,
+  append-only row in `team_role_defs` (`fathom/team/role/v1`) inside the authority head. A lead's
+  member acts now need a role with the members power at the act's chain position. No power reaches
+  a folder. Steward › Teams has a Roles tab; a team's page lists who holds which role.
+- **0072: plan approvals** (card r102 version 2; `plan_approval.rs`, schema 0.38 `MaintenancePlan.team`).
+  A folder's Steward signs whether plans there, and in the folders inside it, must be approved
+  before they start (`plan_rules`, `fathom/plan/rule/v1`, in the authority head). An approval is
+  signed over `plan_digest` (title, window, team and every step's words; not the stage or a step's
+  state), so any change to the plan leaves it behind. Approvers: a Steward of the folder, or a holder
+  of approve plans on the plan's team (any team with access when it names none); never its maker,
+  assignee or whoever asked. A holder of emergency start may start it with a reason; it stays flagged
+  until approved after. A change, or a whole-version save, that moves a plan to doing or recorded is
+  refused without one. Reasons and notes are sealed under the organisation content key. No email yet
+  (waits on ADR-0085); orders' stage approvals wait on ADR-0084.
 - **0013: sessions** (`sessions.rs`, `api.rs`; admin §4). A signed message on every request that
   reaches design payload or vault ciphertext, single-use nonces, a browser-held session key, a MAC
   under a site-scoped row key.
@@ -245,6 +262,13 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   the tab asks again every five seconds while it is shown. Plans, issues and spares gain `assigned_to`
   (an account id, picked from those holding Draw) and `ticket` (an outside link, only http and https
   open); issues gain `due`. Comments are notes on the item. On a phone the rows become cards.
+- **Order types, read and checked (ADR-0084 piece 1 and decisions 14 to 17, sign-offs r103,
+  2026-11-02).** `crates/fathom-orders` reads an order definition (`order-definition/1`) or a shared
+  field set (`field-set/1`) through the YAML subset and returns every problem with its line: unknown
+  keys, ids that resolve nowhere, a loop across stages, lanes and `needs`, `send_back` outside its
+  lane, `move_on` on a job that isn't optional or behind a sign-off, field kinds and conditions.
+  Starters in `corpus/orders/`: DIA, a new site build in two lanes and taking a service out (both
+  drafts), and the Customer details field set. No server records, engine or screens yet.
 - **The IP plan store, server half (ADR-0083 decisions 1, 3, 4 and 5; schema 0.36, field keys
   562-636; migration 0065; 2026-11-02).** A fourth schema layer, `plan`, declares eleven kinds
   (`IpamVrf`, `IpamRouteTarget`, `IpamAggregate`, `IpamPrefix`, `IpamRange`, `IpamAddress`,
@@ -344,7 +368,7 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   shows beside the initials where the console answers. "New design" goes in the first Site the person may
   draw in. Names start as "Untitled design", sealed under the organisation key (`designs.name_*`); Rename
   needs `draw`. **People and access** (client, `components/organisation/`, `api/invitations.ts`,
-  `api/people.ts`): add a person (name, optional email, Read/Draw/Steward, folder) and get a one-time link
+  `api/people.ts`): add a person (name, optional email, Read/Draw/Firmware/Steward, folder) and get a one-time link
   and a sign-in name to send. A Read or Draw person is a member at once (ADR-0065, migration 0039: state
   `added` until the link is used, no key-check code). A Steward is still invited: they open the link, get a
   key and a key-check code to read out, and the steward confirms everyone waiting with one signature action
@@ -458,6 +482,12 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   draw a line or add a dashed box. Marquee select, copy, paste, duplicate, alignment guides, arrow-key
   nudge, an Align / Spread / Group / Label menu, labels and areas that carry what sits inside. Shelf grips
   set height and slots. Not built: line routing, a highlighted drop unit, touch marquee.
+  A device whose rack spot is not known is a free box with its whole self (2026-11-02): an import row
+  whose model is in the catalogue but whose rack or unit is missing, taken or too small keeps the model
+  and its ports ("No rack spot"); every device an import or Inventory adds without a place is pinned on
+  the canvas right of the racks (`racks/canvasSpots.ts`), so none is drawn nowhere; a racked device's
+  menu has "Take it out, spot not known"; and a free box's menu offers swap model, firmware, cards and
+  ports like a racked one. Not built: "in this rack, spot unknown" (`MountedIn.position_u` is required).
 - **Look switch** (ADR-0061): Rack (faceplates, dressed cables) or Diagram (plain labelled boxes, square
   lines in sheath colour, view-and-select). Kept per browser, account and design (`drawing/look.ts`). A
   cable whose far end is off screen draws as stubs ending in a tag that pans to it (`drawing/stubs.ts`).
@@ -603,8 +633,10 @@ Retry-After), an upload idle for two minutes is dropped, and a declared size pas
 server's total is refused before any bytes arrive. Those limits start from the settings file; **Admin ›
 Firmware** (`#admin/firmware`) saves any of them, sets each organisation's ceiling and can lock it with a
 reason, and **Steward › Firmware** (`#steward/firmware`) sets the organisation's own total under the
-ceiling and its download address; every row is sealed and every change filed with before and after. A
-Steward can **retire** an image: the file is deleted, links already given stop working, the act is
+ceiling and its download address; every row is sealed and every change filed with before and after. Uploading,
+models, one-time links and retiring need the **Firmware** permission (sign-off r95, ADR-0064 amendment):
+a folder level between Draw and Steward that includes Draw, granted to a person or a team; activity and
+settings stay a Steward's. A file name with other characters is cleaned, not refused, and the original is sealed with the upload (migration 0070). A holder can **retire** an image: the file is deleted, links already given stop working, the act is
 sealed. Asking for a link first lists what looks wrong (the image's models, an older version, not the
 chosen one); "Get the link anyway" seals the warnings passed. The image page and the plan show the
 organisation's firmware activity, flagging a download from an address that is none of the plan's devices'.
@@ -787,7 +819,16 @@ Settings shows it, read-only. A Steward then turns it on per organisation and li
 (Steward › Device reading, `device_read_set` on the organisation's history); loopback, link-local,
 multicast and reserved addresses are refused whatever is listed. A vault login or SNMP entry can be marked
 read-only (sealed in its details, shown on the Logins card). The reader answers a ping, proved through
-its socket in CI (the `reader` job). SNMPv3 and SSH reads are parts two and three.
+its socket in CI (the `reader` job).
+
+**Device reading, the reader's SNMPv3** (ADR-0082 §4.1 and §4.5; `helpers/reader/src/{ber,usm,snmp,purposes,address}.rs`).
+Fathom's own SNMPv3, able to send only GetRequest, GetNextRequest and GetBulkRequest: authPriv
+with HMAC-SHA-512, -256 or the older -96 and AES-128, no MD5, DES or Set anywhere. First contact
+learns the engine id without sending a login; a read needs that id confirmed and stops if it
+changes. It reads fixed lists only (system, entity inventory, interfaces, LLDP, MAC and ARP
+tables) and signs each reading with a SHA-256 digest. Proved in CI against net-snmp's `snmpd` with
+each protocol, and refused by name for a wrong password, a wrong privacy password, an unknown user
+and MD5. The server does not call it yet: Read on a device is the next part.
 
 **Termix in the work** (ADR-0080 decisions 2 to 11; schema 0.34, field keys 552-554; migration 0063;
 `components/termix/`, `components/plans/SeenBox.tsx`, `components/plans/checkSeen.ts`). Every part is

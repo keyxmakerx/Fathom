@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 
 import { signOut } from '../../api/auth';
 import {
@@ -33,6 +33,7 @@ import { canStewardFor } from './capabilities';
 import { pickDirectEntry, type DirectEntry } from './directEntry';
 import { groupDesignsByScope, scopesWithNoDesigns } from './groupByScope';
 import { HomeTabs } from './HomeTabs';
+import type { WorkAnswer } from '../../api/work';
 import { WorkPage } from '../work/WorkPage';
 import { homeTabs, type HomeTab } from './homeTabs';
 import { fetchTeams, involvedIn } from '../../api/teams';
@@ -53,7 +54,7 @@ import { SkeletonRows } from '../ui/Skeleton';
 
 /** The design's access in the bar's words ("View only"), not the server's ("read"). */
 function accessWord(capability: string): string {
-  return capability === 'read' ? 'view only' : capability === 'draw' ? 'can draw' : capability === 'steward' ? 'steward' : capability;
+  return capability === 'read' ? 'view only' : capability === 'draw' ? 'can draw' : capability === 'firmware' ? 'can stage firmware' : capability === 'steward' ? 'steward' : capability;
 }
 
 export interface HomeProps {
@@ -140,6 +141,9 @@ export function Home({
   onWaitingInviteeChange,
 }: HomeProps) {
   const [organisations, setOrganisations] = useState<Loadable<Organisation[]>>({ status: 'loading' });
+  // The Work tab's last list, per organisation, so coming back to the tab shows it at once while
+  // a fresh one is fetched. Held here, not in the module, so it ends with this sign-in.
+  const workMemory = useRef(new Map<string, WorkAnswer>());
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [designs, setDesigns] = useState<Loadable<DesignSummary[]>>({ status: 'loading' });
   const [scopes, setScopes] = useState<Loadable<Scope[]>>({ status: 'loading' });
@@ -696,7 +700,7 @@ export function Home({
 
         {shownTab === 'work' && selectedOrganisation && (
           <section className="home__section">
-            <WorkPage organisationId={selectedOrganisation.organisationId} />
+            <WorkPage organisationId={selectedOrganisation.organisationId} memory={workMemory.current} />
           </section>
         )}
 

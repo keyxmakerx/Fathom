@@ -15,7 +15,7 @@ export interface InviteFormProps {
   onCancel: () => void;
 }
 
-const CAPABILITIES: Asked[] = ['read', 'draw', 'steward'];
+const CAPABILITIES: Asked[] = ['read', 'draw', 'firmware', 'steward'];
 
 /** Add someone: who, what they can do, and where. Read and draw are granted as
  * they are added (ADR-0065); a steward is still invited and confirmed. */

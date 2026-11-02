@@ -2374,7 +2374,7 @@ pub async fn members_holding(
     Ok(out)
 }
 
-/// The Share panel hands out `read` and `draw` only; `steward` has a quorum and
+/// The Share panel hands out `read`, `draw` and `firmware` (r95); `steward` has a quorum and
 /// its own flow.
 pub fn is_shareable(capability: Capability) -> bool {
     capability != Capability::Steward
@@ -2985,6 +2985,13 @@ pub(crate) struct AuthorityState {
     /// Every signed act on a team (ADR-0081), by chain position. In the head's digest and its
     /// stored-seal check like every row above (attack round T7, T9).
     pub(crate) team_acts: Vec<crate::teams::TeamAct>,
+    /// Every definition of a team role (migration 0071), by chain position. Covered the same
+    /// way: a deleted definition would bring back an older one, possibly with a power since
+    /// taken away.
+    pub(crate) role_defs: Vec<crate::roles::RoleDef>,
+    /// Every folder's plan rule (migration 0072), by chain position. Covered the same way: a
+    /// deleted rule would quietly turn plan approval off.
+    pub(crate) plan_rules: Vec<crate::plan_approval::PlanRule>,
 }
 
 /// One seconding, as stored (§3.5).
@@ -3150,6 +3157,8 @@ async fn read_authority_state(
     }
 
     let team_acts = crate::teams::read_acts(tx, organisation).await?;
+    let role_defs = crate::roles::read_defs(tx, organisation).await?;
+    let plan_rules = crate::plan_approval::read_rules(tx, organisation).await?;
 
     Ok(AuthorityState {
         organisation: organisation.to_string(),
@@ -3158,6 +3167,8 @@ async fn read_authority_state(
         suspensions,
         revocations,
         team_acts,
+        role_defs,
+        plan_rules,
     })
 }
 
@@ -3251,6 +3262,11 @@ impl AuthorityState {
             ));
         }
         entries.extend(crate::teams::digest_entries(&self.team_acts, row_key));
+        entries.extend(crate::roles::digest_entries(&self.role_defs, row_key));
+        entries.extend(crate::plan_approval::digest_entries(
+            &self.plan_rules,
+            row_key,
+        ));
         entries
     }
 
@@ -3326,7 +3342,9 @@ impl AuthorityState {
                 "grant revocation row seal",
             )?;
         }
-        crate::teams::verify_stored_seals(&self.team_acts, row_key)
+        crate::teams::verify_stored_seals(&self.team_acts, row_key)?;
+        crate::roles::verify_stored_seals(&self.role_defs, row_key)?;
+        crate::plan_approval::verify_stored_seals(&self.plan_rules, row_key)
     }
 
     /// Whether a revocation has taken effect against this grant by `at_unix`.
@@ -4237,6 +4255,144 @@ pub(crate) async fn holds_in_verified_state(
     as_yes_or_no(authorise_in_verified_state(tx, auth, verified, scope, needed).await)
 }
 
+/// [`holding_in_verified_state`] with steps 2-5 done first: which of `scopes` the caller holds
+/// `needed` at, every step of §3.4 run for this one call.
+pub async fn holding(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    scopes: &[ScopeId],
+    needed: Capability,
+) -> Result<BTreeSet<ScopeId>, AuthorityError> {
+    let verified = verify_authority_state(tx, auth).await?;
+    holding_in_verified_state(tx, auth, &verified, scopes, needed).await
+}
+
+/// Which of `scopes` the caller holds `needed` at: [`holds_in_verified_state`] for many places
+/// at once, for a list route (the Work tab, Search, Everywhere) that would otherwise ask once per
+/// design. The answer for each place is the one [`authorise_in_verified_state`] gives there; what
+/// changes is the cost. Asked one place at a time, every candidate grant's row, signature and
+/// quorum were checked again for every place, and every place's ancestors were a query of their
+/// own, so a list of a few hundred designs took thousands of round trips. Here the places'
+/// ancestors are read in one query and each candidate grant, and the team walk, is checked once
+/// for the whole list, inside the same transaction and against the same verified state.
+/// Nothing outlives the call (§3.4: no verdict is stored). A place that is not in the
+/// organisation is answered `false`, as a refusal there would be.
+pub(crate) async fn holding_in_verified_state(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    verified: &VerifiedAuthorityState,
+    scopes: &[ScopeId],
+    needed: Capability,
+) -> Result<BTreeSet<ScopeId>, AuthorityError> {
+    let ring = auth.ring;
+    let account = auth.actor();
+    let organisation = &verified.organisation;
+    let root_fpr = &verified.root_fpr;
+    let state = &verified.state;
+
+    // 1. Every place's ancestors, in one read.
+    let wanted: Vec<String> = scopes.iter().map(|s| s.to_string()).collect();
+    let rows = tx
+        .query(
+            "SELECT id, path FROM scopes WHERE organisation_id = $1 AND id = ANY($2)",
+            &[organisation, &wanted],
+        )
+        .await?;
+    let mut covering_of: BTreeMap<String, BTreeSet<Option<String>>> = BTreeMap::new();
+    for row in rows {
+        let id: String = row.get(0);
+        let path: String = row.get(1);
+        let mut covering: BTreeSet<Option<String>> = BTreeSet::new();
+        covering.insert(None);
+        for ancestor in path.split('.') {
+            covering.insert(Some(ancestor.to_string()));
+        }
+        covering_of.insert(id, covering);
+    }
+    let any_covering: BTreeSet<Option<String>> = covering_of.values().flatten().cloned().collect();
+
+    // 6. The candidates, each checked once. The same filters, the same hard row check and the
+    //    same fresh quorum pass per candidate that the one-place walk gives it.
+    let now = now_unix();
+    let mut usable: Vec<&Grant> = Vec::new();
+    for grant in &state.grants {
+        if grant.subject_id != account {
+            continue;
+        }
+        if !any_covering.contains(&grant.scope_id) {
+            continue;
+        }
+        if !grant.capability.covers(needed) {
+            continue;
+        }
+        if state.revoked_by(&grant.id, now) || state.suspended_at(&grant.id, now, i64::MAX) {
+            continue;
+        }
+        if grant.effective_from_unix > now {
+            continue;
+        }
+        if grant.expires_at_unix != 0 && grant.expires_at_unix <= now {
+            continue;
+        }
+        verify_grant_row(tx, ring, root_fpr, grant).await?;
+        let pass = Mutex::new(QuorumPass::default());
+        if !grant_quorum_met(tx, ring, state, root_fpr, grant, &pass).await? {
+            continue;
+        }
+        usable.push(grant);
+    }
+
+    // 6b. Through teams, walked once, for the places that need it: those where the person's own
+    //     grants fall short of Draw, as in the one-place walk.
+    let short_of_draw = |covering: &BTreeSet<Option<String>>| {
+        !usable
+            .iter()
+            .any(|g| covering.contains(&g.scope_id) && g.capability >= Capability::Draw)
+    };
+    let team_covering: BTreeSet<Option<String>> = if needed == Capability::Steward {
+        BTreeSet::new()
+    } else {
+        covering_of
+            .values()
+            .filter(|covering| short_of_draw(covering))
+            .flatten()
+            .cloned()
+            .collect()
+    };
+    let through = if team_covering.is_empty() {
+        Vec::new()
+    } else {
+        let pass = Mutex::new(QuorumPass::default());
+        crate::teams::live_team_grants(
+            tx,
+            ring,
+            state,
+            root_fpr,
+            &account,
+            needed,
+            &pass,
+            |scope| team_covering.contains(scope),
+        )
+        .await?
+    };
+
+    // 7. The answer per place.
+    let mut out = BTreeSet::new();
+    for scope in scopes {
+        let Some(covering) = covering_of.get(&scope.to_string()) else {
+            continue;
+        };
+        let own = usable.iter().any(|g| covering.contains(&g.scope_id));
+        if own
+            || (short_of_draw(covering)
+                && crate::teams::widest_covering(&through, covering).is_some())
+        {
+            out.insert(*scope);
+        }
+    }
+    Ok(out)
+}
+
 /// As [`authorise_in_verified_state`], for `account` rather than the caller. The
 /// Share panel asks it of each member; the walk is the same one a request runs.
 async fn authorise_subject_in_verified_state(
@@ -4317,12 +4473,12 @@ async fn authorise_subject_in_verified_state(
     }
 
     // 6b. Through teams (ADR-0081 decision 2): what each team the person is in may do here.
-    //     Read and Draw only, never Steward (attack round T4), and only when the person's own
-    //     grants have not already answered with Draw, which no team can beat.
+    //     Read, Draw and Firmware only, never Steward (attack round T4), and only when the
+    //     person's own grants have not already answered with Firmware, which no team can beat.
     if needed != Capability::Steward
         && best
             .as_ref()
-            .is_none_or(|b| b.capability < Capability::Draw)
+            .is_none_or(|b| b.capability < Capability::Firmware)
     {
         let pass = Mutex::new(QuorumPass::default());
         let through = crate::teams::best_through_teams(
@@ -4576,6 +4732,8 @@ mod tests {
             suspensions: Vec::new(),
             revocations: Vec::new(),
             team_acts: Vec::new(),
+            role_defs: Vec::new(),
+            plan_rules: Vec::new(),
         };
         // No live steward at all, which is the most permissive input there is.
         assert_eq!(state.steward_count(1_000), 0);

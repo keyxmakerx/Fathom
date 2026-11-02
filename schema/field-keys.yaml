@@ -682,3 +682,4 @@ fields:
   IpamAsn.allocation_key: 634
   IpamAsn.folder: 635
   IpamAsn.note: 636
+  MaintenancePlan.team: 637

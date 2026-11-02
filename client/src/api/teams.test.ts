@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { toHex, utf8 } from '../crypto/bytes';
-import { involvedIn, ledBy, parseHistory, parseTeams, slugOf, teamActBytes, throughTeams } from './teams';
+import { involvedIn, ledBy, parseHistory, parseTeams, powersText, slugOf, teamActBytes, teamRoleBytes, throughTeams, titleOf } from './teams';
 
 // The literals below are `TEAM_MEMBER_ADD_BYTES` and `TEAM_GRANT_REVOKE_BYTES` in
 // `crates/fathom-server/tests/authority_vectors.rs`, laid out there by an independent script.
@@ -56,6 +56,31 @@ describe('a team act’s signed bytes', () => {
   });
 });
 
+// `TEAM_ROLE_TECH_BYTES` and `TEAM_ROLE_RETIRE_BYTES`, from the same script (migration 0071).
+const ROLE_TECH = '13000000666174686f6d2f7465616d2f726f6c652f76311a00000030314a515a3030303030303030303030303030303030303041412000000041414141414141414141414141414141414141414141414141414141414141411a00000030314a515a303030303030303030303030303030303030304d4d0400000074656368100000004d61696e74656e616e636520746563680f000000656d657267656e63795f7374617274001a00000030314a515a303030303030303030303030303030303030304444200000004343434343434343434343434343434343434343434343434343434343434343800e80690000000007000000';
+const ROLE_RETIRE = '13000000666174686f6d2f7465616d2f726f6c652f76311a00000030314a515a3030303030303030303030303030303030303041412000000041414141414141414141414141414141414141414141414141414141414141411a00000030314a515a303030303030303030303030303030303030304d4d1a00000030314a515a303030303030303030303030303030303030304e4e0a0000004e69676874206465736b00000000011a00000030314a515a303030303030303030303030303030303030304444200000004343434343434343434343434343434343434343434343434343434343434343800e80690000000007000000';
+
+describe('a role definition’s signed bytes', () => {
+  const role = {
+    organisation: common.organisation,
+    rootPubkeyFpr: common.rootPubkeyFpr,
+    defId: '01JQZ0000000000000000000MM',
+    signer: common.signer,
+    signerKeyFpr: common.signerKeyFpr,
+    atUnix: common.atUnix,
+    authEpoch: common.authEpoch,
+  };
+  it('are the bytes the server builds for a ready-made role changed', () => {
+    expect(toHex(teamRoleBytes({ ...role, role: 'tech', title: 'Maintenance tech', powers: powersText(['emergency_start']), retired: false }))).toBe(ROLE_TECH);
+  });
+  it('are the bytes the server builds for a Steward’s role retired', () => {
+    expect(toHex(teamRoleBytes({ ...role, role: '01JQZ0000000000000000000NN', title: 'Night desk', powers: '', retired: true }))).toBe(ROLE_RETIRE);
+  });
+  it('writes powers in the server’s order whatever order they were ticked in', () => {
+    expect(powersText(['emergency_start', 'assign', 'history'])).toBe('assign,history,emergency_start');
+  });
+});
+
 const wire = {
   steward: false,
   teams: [
@@ -70,10 +95,15 @@ const wire = {
         { act: 'G1', scope: null, capability: 'read' },
         { act: 'G2', scope: 'S1', capability: 'steward' },
       ],
+      roles: [{ role: 'tech', account: 'D', name: 'Dee', act: 'X4' }],
       may_staff: true,
     },
   ],
   people: [{ account: 'A', name: 'Ana' }],
+  roles: [
+    { role: 'lead', title: 'Lead', powers: ['assign', 'members', 'nonsense'], preset: true, retired: false },
+    { role: 'tech', title: 'Field engineer', powers: ['emergency_start'], preset: true, retired: false },
+  ],
 };
 
 describe('the teams list', () => {
@@ -84,6 +114,11 @@ describe('the teams list', () => {
     expect(t.teams[0].supervisors[0].name).toBe('Cy');
     expect(t.teams[0].grants).toEqual([{ act: 'G1', scope: null, capability: 'read' }]);
     expect(t.teams[0].mayStaff).toBe(true);
+    expect(t.teams[0].roles).toEqual([{ role: 'tech', account: 'D', name: 'Dee', act: 'X4' }]);
+    // A power this browser does not know is dropped, never shown as something it is not.
+    expect(t.roles[0].powers).toEqual(['assign', 'members']);
+    expect(titleOf(t.roles, 'tech')).toBe('Field engineer');
+    expect(titleOf(t.roles, 'overseer')).toBe('Supervisor');
   });
 
   it('reads an answer with no people as none to pick from', () => {
@@ -94,6 +129,7 @@ describe('the teams list', () => {
     const { teams } = parseTeams(utf8(JSON.stringify(wire)));
     expect(involvedIn(teams, 'A')).toBe(true);
     expect(involvedIn(teams, 'C')).toBe(true);
+    expect(involvedIn(teams, 'D')).toBe(true);
     expect(involvedIn(teams, 'Z')).toBe(false);
     expect(throughTeams(teams, 'A').map((x) => x.team.id)).toEqual(['T1']);
     expect(throughTeams(teams, 'B')).toEqual([]);

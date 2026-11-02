@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.37";
+    pub const SCHEMA_VERSION: &str = "0.38";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -1195,7 +1195,7 @@ mod body {
                 NodeKind::Doc => &[crate::bag::FieldKey(351), crate::bag::FieldKey(352), crate::bag::FieldKey(353), crate::bag::FieldKey(354)],
                 NodeKind::DocLink => &[crate::bag::FieldKey(355), crate::bag::FieldKey(356)],
                 NodeKind::DocFile => &[crate::bag::FieldKey(357), crate::bag::FieldKey(358), crate::bag::FieldKey(359), crate::bag::FieldKey(360), crate::bag::FieldKey(361), crate::bag::FieldKey(362), crate::bag::FieldKey(363)],
-                NodeKind::MaintenancePlan => &[crate::bag::FieldKey(364), crate::bag::FieldKey(365), crate::bag::FieldKey(366), crate::bag::FieldKey(367), crate::bag::FieldKey(368), crate::bag::FieldKey(369), crate::bag::FieldKey(370), crate::bag::FieldKey(545), crate::bag::FieldKey(546), crate::bag::FieldKey(555), crate::bag::FieldKey(556)],
+                NodeKind::MaintenancePlan => &[crate::bag::FieldKey(364), crate::bag::FieldKey(365), crate::bag::FieldKey(366), crate::bag::FieldKey(367), crate::bag::FieldKey(368), crate::bag::FieldKey(369), crate::bag::FieldKey(370), crate::bag::FieldKey(545), crate::bag::FieldKey(546), crate::bag::FieldKey(555), crate::bag::FieldKey(556), crate::bag::FieldKey(637)],
                 NodeKind::PlanStep => &[crate::bag::FieldKey(371), crate::bag::FieldKey(372), crate::bag::FieldKey(373), crate::bag::FieldKey(374), crate::bag::FieldKey(375), crate::bag::FieldKey(376), crate::bag::FieldKey(377), crate::bag::FieldKey(378), crate::bag::FieldKey(379), crate::bag::FieldKey(380), crate::bag::FieldKey(547), crate::bag::FieldKey(548), crate::bag::FieldKey(549), crate::bag::FieldKey(550), crate::bag::FieldKey(552), crate::bag::FieldKey(554)],
                 NodeKind::FieldValue => &[crate::bag::FieldKey(382), crate::bag::FieldKey(381)],
                 NodeKind::Issue => &[crate::bag::FieldKey(390), crate::bag::FieldKey(391), crate::bag::FieldKey(392), crate::bag::FieldKey(393), crate::bag::FieldKey(394), crate::bag::FieldKey(395), crate::bag::FieldKey(396), crate::bag::FieldKey(551), crate::bag::FieldKey(557), crate::bag::FieldKey(558), crate::bag::FieldKey(559)],
@@ -10391,12 +10391,13 @@ mod body {
         ReleaseNotes,
         AssignedTo,
         Ticket,
+        Team,
     }
 
     impl MaintenancePlanField {
-        pub const COUNT: usize = 11;
+        pub const COUNT: usize = 12;
         /// Every field, declaration order.
-        pub const ALL: [MaintenancePlanField; 11] = [
+        pub const ALL: [MaintenancePlanField; 12] = [
             MaintenancePlanField::Title,
             MaintenancePlanField::WindowStart,
             MaintenancePlanField::WindowEnd,
@@ -10408,6 +10409,7 @@ mod body {
             MaintenancePlanField::ReleaseNotes,
             MaintenancePlanField::AssignedTo,
             MaintenancePlanField::Ticket,
+            MaintenancePlanField::Team,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -10425,6 +10427,7 @@ mod body {
                 MaintenancePlanField::ReleaseNotes => "release_notes",
                 MaintenancePlanField::AssignedTo => "assigned_to",
                 MaintenancePlanField::Ticket => "ticket",
+                MaintenancePlanField::Team => "team",
             }
         }
         /// The stable wire key (`schema/field-keys.yaml`).
@@ -10441,6 +10444,7 @@ mod body {
                 MaintenancePlanField::ReleaseNotes => crate::bag::FieldKey(546),
                 MaintenancePlanField::AssignedTo => crate::bag::FieldKey(555),
                 MaintenancePlanField::Ticket => crate::bag::FieldKey(556),
+                MaintenancePlanField::Team => crate::bag::FieldKey(637),
             }
         }
     }
@@ -12408,7 +12412,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 571] = [
+    pub const FIELD_KEYS: [(&str, u32); 572] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -12980,6 +12984,7 @@ mod body {
         ("IpamAsn.allocation_key", 634),
         ("IpamAsn.folder", 635),
         ("IpamAsn.note", 636),
+        ("MaintenancePlan.team", 637),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit

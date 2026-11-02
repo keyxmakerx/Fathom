@@ -19,13 +19,13 @@
 //! A signature covers a digest of the body, so a signed upload of a one-to-two
 //! gigabyte Junos image would buffer it whole before the signature could refuse it.
 //!
-//! 1. **Declare** (signed, `steward`): filename, byte length and the claimed
+//! 1. **Declare** (signed, `firmware`, which Steward includes; sign-off r95): filename, byte length and the claimed
 //!    SHA-256. Mints a single-use upload token.
 //! 2. **Send the bytes** (upload token, no signature): streamed to disk, hashed as
 //!    written. The computed hash and length are compared with the declaration;
 //!    **on any mismatch the partial file is deleted and the upload refused** (trap
 //!    2 of `docs/UPGRADING-A-JUNIPER.md`, the reason this feature exists).
-//! 3. **Issue a fetch URL** (signed, `steward`): 256-bit, single-use, short-lived,
+//! 3. **Issue a fetch URL** (signed, `firmware`): 256-bit, single-use, short-lived,
 //!    bound to one image, sealed on issue and on redemption.
 //! 4. **Read back** (signed, `read`): what is staged, the hash Fathom computed, and
 //!    the operator commands with it.
@@ -1053,7 +1053,7 @@ fn parse_image(text: &str) -> Result<FirmwareImageId, FirmwareError> {
 // ---- 1. Declare ----
 
 /// `POST /organisations/{organisation}/scopes/{scope}/firmware`: declare an image
-/// and take a one-time upload token. **Requires `steward`.**
+/// and take a one-time upload token. **Requires `firmware`** (r95; Steward includes it).
 ///
 /// Body (length-prefixed): `LP(filename) ‖ LP(byte_length, 8 bytes LE) ‖ LP(sha256)
 /// [‖ LP(platform) [‖ LP(version) [‖ LP(models)]]]`. The last three are optional and
@@ -1078,9 +1078,16 @@ async fn declare_handler(
         platform,
         version,
         models,
+        renamed_from,
     } = parse_declaration(&signed.body)?;
     if !safe_filename(&filename) {
         return Err(FirmwareError::UnsafeFilename);
+    }
+    if renamed_from
+        .as_deref()
+        .is_some_and(|r| !acceptable_renamed_from(r, &filename))
+    {
+        return Err(FirmwareError::Malformed(RENAMED_FROM_SHAPE));
     }
     if platform.as_deref().is_some_and(|p| !safe_platform(p)) {
         return Err(FirmwareError::Malformed(PLATFORM_SHAPE));
@@ -1104,7 +1111,7 @@ async fn declare_handler(
         &session,
         tenant,
         Some(scope_id),
-        Capability::Steward,
+        Capability::Firmware,
     )
     .await?;
 
@@ -1164,8 +1171,8 @@ async fn declare_handler(
         .execute(
             "INSERT INTO firmware_images \
                  (id, organisation_id, scope_id, filename, byte_length, declared_sha256, \
-                  state, created_by, platform, version, models) \
-             SELECT $1, $2, $3, $4, $5, $6, 'declared', $7, $8, $9, $10 WHERE EXISTS \
+                  state, created_by, platform, version, models, renamed_from) \
+             SELECT $1, $2, $3, $4, $5, $6, 'declared', $7, $8, $9, $10, $11 WHERE EXISTS \
                  (SELECT 1 FROM scopes WHERE id = $3 AND organisation_id = $2)",
             &[
                 &image.to_string(),
@@ -1178,6 +1185,7 @@ async fn declare_handler(
                 &platform,
                 &version,
                 &models,
+                &renamed_from,
             ],
         )
         .await?;
@@ -1237,17 +1245,33 @@ struct Declaration {
     platform: Option<String>,
     version: Option<String>,
     models: Vec<String>,
+    /// The file's own name, when the browser cleaned it into `filename` (`0070`).
+    renamed_from: Option<String>,
 }
 
-/// Three fields as before, then optionally `LP(platform)`, `LP(version)` and
-/// `LP(models)`. A three-field body (every client before 0038) parses exactly as it
-/// did; an empty field means "not given", so a version can be sent without a platform.
+/// The longest original name a declaration may carry (`0070`), in bytes.
+pub const RENAMED_FROM_MAX: usize = 1024;
+
+/// An original file name worth keeping: 1 to [`RENAMED_FROM_MAX`] bytes, no control
+/// characters, and not the name kept (then nothing was renamed). Shown back only as
+/// text; it is never joined to a path or a command.
+pub fn acceptable_renamed_from(original: &str, kept: &str) -> bool {
+    !original.is_empty()
+        && original.len() <= RENAMED_FROM_MAX
+        && !original.chars().any(char::is_control)
+        && original != kept
+}
+
+/// Three fields as before, then optionally `LP(platform)`, `LP(version)`,
+/// `LP(models)` and `LP(renamed from)`. A three-field body (every client before 0038)
+/// parses exactly as it did; an empty field means "not given", so a version can be
+/// sent without a platform.
 fn parse_declaration(body: &[u8]) -> Result<Declaration, FirmwareError> {
     let bad = || FirmwareError::Malformed("declaration body");
     let (filename, rest) = crypto::read_lp(body).ok_or_else(bad)?;
     let (length, rest) = crypto::read_lp(rest).ok_or_else(bad)?;
     let (digest, mut rest) = crypto::read_lp(rest).ok_or_else(bad)?;
-    let mut optional = [None, None, None];
+    let mut optional = [None, None, None, None];
     for slot in &mut optional {
         if rest.is_empty() {
             break;
@@ -1261,7 +1285,7 @@ fn parse_declaration(body: &[u8]) -> Result<Declaration, FirmwareError> {
     if !rest.is_empty() {
         return Err(bad());
     }
-    let [platform, version, models] = optional;
+    let [platform, version, models, renamed_from] = optional;
     let models = match models {
         None => Vec::new(),
         Some(text) => split_models(&text).ok_or(FirmwareError::Malformed(MODELS_SHAPE))?,
@@ -1281,6 +1305,7 @@ fn parse_declaration(body: &[u8]) -> Result<Declaration, FirmwareError> {
         platform,
         version,
         models,
+        renamed_from,
     })
 }
 
@@ -1326,6 +1351,8 @@ fn strings(items: &[String]) -> Json {
 const PLATFORM_SHAPE: &str =
     "platform (a short slug: lower-case letters, digits and dash, 1 to 32 characters)";
 const VERSION_SHAPE: &str = "version (letters, digits and . ( ) - _ only, 1 to 64 characters)";
+const RENAMED_FROM_SHAPE: &str =
+    "original file name (1 to 1024 bytes, no control characters, not the name kept)";
 
 /// A platform slug such as `junos`, `ios-xe`, `nx-os`, `eos`: `^[a-z0-9-]{1,32}$`,
 /// the same rule as `0038`'s `CHECK`. It selects which vendor's steps are rendered
@@ -1428,7 +1455,7 @@ async fn upload_handler(
     let row = tx
         .query_opt(
             "SELECT byte_length, declared_sha256, state, created_by, scope_id, filename, \
-                    platform, version, models \
+                    platform, version, models, renamed_from \
              FROM firmware_images WHERE id = $1 AND organisation_id = $2",
             &[&image.to_string(), &organisation],
         )
@@ -1443,6 +1470,7 @@ async fn upload_handler(
     let platform: Option<String> = row.get(6);
     let version: Option<String> = row.get(7);
     let models: Vec<String> = row.get(8);
+    let renamed_from: Option<String> = row.get(9);
     if state_text != "declared" {
         return Err(FirmwareError::AlreadyUploaded);
     }
@@ -1497,6 +1525,7 @@ async fn upload_handler(
             platform: platform.as_deref(),
             version: version.as_deref(),
             models: &models,
+            renamed_from: renamed_from.as_deref(),
         },
         &created_by,
         received,
@@ -1554,6 +1583,7 @@ struct Labels<'a> {
     platform: Option<&'a str>,
     version: Option<&'a str>,
     models: &'a [String],
+    renamed_from: Option<&'a str>,
 }
 
 /// Read the body frame by frame, write through a bounded buffer, hash on the way.
@@ -1780,10 +1810,11 @@ async fn finish_upload(
 // ---- 3. A fetch URL ----
 
 /// `POST /organisations/{organisation}/firmware/{image}/fetch-urls`: mint a
-/// single-use URL a device can collect this image from. **Requires `steward`.**
+/// single-use URL a device can collect this image from. **Requires `firmware`** (r95).
 ///
 /// ADR-0045 §8: this publishes bytes to anything holding the token, so it is
-/// `steward`, sealed, and the answer is the only time the URL exists outside the
+/// `firmware` (Steward until sign-off r95, 2026-11-02, which a Steward grants on
+/// purpose), sealed, and the answer is the only time the URL exists outside the
 /// caller's screen.
 async fn issue_fetch_url_handler(
     State(state): State<FirmwareState>,
@@ -1800,9 +1831,9 @@ async fn issue_fetch_url_handler(
 
     // Authorised against the image's own scope when it exists, else the
     // ORGANISATION's (`design_api`'s "absent, not forbidden" rule), so a caller
-    // without `steward` cannot learn which image ids are real.
+    // without `firmware` cannot learn which image ids are real.
     let scope = image_scope(&tx, tenant, image).await?;
-    let ctx = authorise_in(&tx, &state, &session, tenant, scope, Capability::Steward).await?;
+    let ctx = authorise_in(&tx, &state, &session, tenant, scope, Capability::Firmware).await?;
 
     let row = tx
         .query_opt(
@@ -2502,7 +2533,7 @@ async fn list_handler(
 // ---- 6. Replace an image's models ----
 
 /// `PUT /organisations/{organisation}/firmware/{image}/models`: replace the list of
-/// catalogue models an image is for. **Requires `steward`**, and a change is sealed
+/// catalogue models an image is for. **Requires `firmware`** (r95), and a change is sealed
 /// as `firmware_models_changed` (the image, the old list and the new one).
 ///
 /// Body (canonical JSON, as the other JSON routes take): `{"models":["EX2300-24P"]}`
@@ -2525,7 +2556,7 @@ async fn models_handler(
     // Authorised against the image's own scope when it exists, else the
     // organisation's, as in `issue_fetch_url_handler`.
     let scope = image_scope(&tx, tenant, image).await?;
-    let ctx = authorise_in(&tx, &state, &session, tenant, scope, Capability::Steward).await?;
+    let ctx = authorise_in(&tx, &state, &session, tenant, scope, Capability::Firmware).await?;
 
     let current: Vec<String> = tx
         .query_opt(
@@ -2840,7 +2871,7 @@ fn parse_settings_body(body: &[u8]) -> Result<(Option<i64>, Option<String>), Fir
 // ---- 8. Retire ----
 
 /// `POST /organisations/{organisation}/firmware/{image}/retire`: delete a staged
-/// image's file and keep its record (`0060`). **Requires `steward`.**
+/// image's file and keep its record (`0060`). **Requires `firmware`** (r95).
 ///
 /// The row moves to `retired` and the act is sealed before the file is touched,
 /// so a crash between the two leaves a retired row with a file that serves
@@ -2858,7 +2889,7 @@ async fn retire_handler(
     let tx = client.transaction().await?;
     let (session, tx) = signed.verify_and_commit(&state, tx).await?;
     let scope = image_scope(&tx, tenant, image).await?;
-    let ctx = authorise_in(&tx, &state, &session, tenant, scope, Capability::Steward).await?;
+    let ctx = authorise_in(&tx, &state, &session, tenant, scope, Capability::Firmware).await?;
 
     let row = tx
         .query_opt(
@@ -3070,6 +3101,10 @@ fn staged_metadata(
     }
     if !labels.models.is_empty() {
         map.insert("models".to_string(), strings(labels.models));
+    }
+    // `0070`: sealed only when the name was cleaned, so every other entry keeps its bytes.
+    if let Some(original) = labels.renamed_from {
+        map.insert("renamed_from".to_string(), Json::Str(original.to_string()));
     }
     map.insert("image".to_string(), Json::Str(image.to_string()));
     map.insert(
@@ -3423,6 +3458,29 @@ mod tests {
         );
     }
 
+    /// `0070`: an original name is kept only when it is text a person could read
+    /// back, and only when it differs from the name kept.
+    #[test]
+    fn an_original_name_is_kept_only_when_it_is_readable_and_different() {
+        assert!(acceptable_renamed_from(
+            "junos install (1).tgz",
+            "junos_install_1_.tgz"
+        ));
+        assert!(acceptable_renamed_from("日本.bin", "firmware.bin"));
+        assert!(!acceptable_renamed_from("", "a.bin"));
+        assert!(!acceptable_renamed_from("a.bin", "a.bin"));
+        assert!(!acceptable_renamed_from("a\nb.bin", "a_b.bin"));
+        assert!(!acceptable_renamed_from("a\u{1b}[2Jb", "a_2Jb"));
+        assert!(!acceptable_renamed_from(
+            &"x".repeat(RENAMED_FROM_MAX + 1),
+            "x.bin"
+        ));
+        assert!(acceptable_renamed_from(
+            &"x".repeat(RENAMED_FROM_MAX),
+            "x.bin"
+        ));
+    }
+
     /// `0038`: the platform and version ride as optional trailing fields, and an
     /// empty one means "not given".
     #[test]
@@ -3451,6 +3509,19 @@ mod tests {
         let d = parse_declaration(&only_platform).expect("platform alone");
         assert_eq!(d.platform.as_deref(), Some("eos"));
         assert_eq!(d.version, None);
+
+        let mut renamed = base.clone();
+        for field in [&b""[..], b"", b"", b"a b.bin"] {
+            crypto::lp(&mut renamed, field);
+        }
+        let d = parse_declaration(&renamed).expect("the original name, last");
+        assert_eq!(d.renamed_from.as_deref(), Some("a b.bin"));
+        let mut past_it = renamed;
+        crypto::lp(&mut past_it, b"x");
+        assert!(
+            parse_declaration(&past_it).is_err(),
+            "nothing after the original name"
+        );
 
         let mut extra = both.clone();
         crypto::lp(&mut extra, b"a sixth field");

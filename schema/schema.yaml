@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.37"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.38"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -415,6 +415,12 @@ schema:
                     # before any work, its reason in the existing `record`. Nothing removed,
                     # retyped or reordered. 62 §16.2: a new variant on a closed enum is minor.
                     # Whole change = MINOR. The reader still opens 0.10 to 0.36.
+                    #
+                    # 0.38 is a plan's team (sign-off r102-plan-approval version 2, 2026-11-02):
+                    # one optional field, MaintenancePlan.team, the team that owns the plan, by
+                    # its server id (field key 637). Its lead or supervisor approves the plan
+                    # where a folder asks for approval. Nothing removed, retyped or reordered.
+                    # Whole change = MINOR. The reader still opens 0.10 to 0.37.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -2175,6 +2181,7 @@ kinds:
       - { name: release_notes, type: Text, card: "0..1", emit: "—", doc: "0.33 — release notes or a changelog pasted onto the plan. Pasted text, so it passed the redaction gate in the browser before it was stored." }
       - { name: assigned_to, type: Text, card: "0..1", emit: "—", doc: "0.34 — the account the work is assigned to, by id. Absent means nobody yet." }
       - { name: ticket, type: Text, card: "0..1", emit: "—", doc: "0.34 — the same work in an outside tool: a link to its Jira, ServiceNow or GLPI ticket, or its number there." }
+      - { name: team, type: Text, card: "0..1", emit: "—", doc: "0.38 — the team that owns the plan, by its server id (ADR-0081). Where a folder asks for approval, that team's lead or supervisor approves it. Absent means no team: any team with access to the folder may." }
     identity: []
 
   - kind: PlanStep

@@ -4,13 +4,13 @@ import { fetchAccess, setShare } from '../api/share';
 import type { AccessPerson, ShareChoice, Standing } from '../api/share';
 import './share.css';
 
-const LABEL: Record<'steward' | 'draw' | 'read', string> = { steward: 'Steward', draw: 'Draw', read: 'View' };
+const LABEL: Record<'steward' | 'firmware' | 'draw' | 'read', string> = { steward: 'Steward', firmware: 'Firmware', draw: 'Draw', read: 'View' };
 
 /** The select's value for a person, or `null` when this panel does not set it
  * (a steward, you, or a standing that comes from above this scope). */
 export function choiceFor(person: AccessPerson): ShareChoice | null {
   if (person.you || person.standing === 'steward' || person.inherited) return null;
-  return person.standing === 'read' || person.standing === 'draw' ? person.standing : 'none';
+  return person.standing === 'read' || person.standing === 'draw' || person.standing === 'firmware' ? person.standing : 'none';
 }
 
 function standingText(standing: Standing, inherited: boolean): string {
@@ -56,6 +56,7 @@ export function AccessTable({ people, busy, onChoose }: AccessTableProps) {
                     <option value="none">No access</option>
                     <option value="read">View</option>
                     <option value="draw">Draw</option>
+                    <option value="firmware">Firmware</option>
                   </select>
                 )}
               </td>
@@ -136,7 +137,7 @@ export function SharePanel({ organisationId, scopeId, title, onClose }: SharePan
         </p>
       )}
       <p className="share-panel__note">
-        View: see everything, change nothing. Draw: edit. Only people already in your organisation can be added; they need to be in it first.
+        View: see everything, change nothing. Draw: edit. Firmware: edit, and also upload firmware and make its one-time links. Only people already in your organisation can be added; they need to be in it first.
       </p>
       <p className="share-panel__note">They&rsquo;ll see everything inside this, and keep access until you remove them.</p>
     </div>

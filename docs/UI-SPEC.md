@@ -443,9 +443,11 @@ the same few spots. ADR-0088 has the reasons; this is the list.
 | A phone | bottom tabs Scan · Find · Canvas · **Work** |
 
 **Teams (built).** Steward › Teams lists every team (name, short name, members, folders) with New
-team. A team's page, top to bottom: Members (a lead marked), Leads, Supervisors, Folders (Read or
-Draw, in a folder or the whole organisation), Rename and Delete, then History, where an act that no
-longer counts says so. Home › Teams is the same page for someone in, leading or supervising a team,
+team, and a **Roles** tab beside it: every role with a tick per power and how many hold it, Change
+(title and powers) and New role, and Retire for a Steward's own role (card r102 version 2). A team's
+page, top to bottom: Members (each one's roles marked), Roles (who holds which, with what it may do,
+and Give someone a role), Folders (Read or Draw, in a folder or the whole organisation), Rename and
+Delete, then History, where an act that no longer counts says so. Home › Teams is the same page for someone in, leading or supervising a team,
 read-only except that a lead adds and removes members other than themselves. Steward › People › a
 person shows **Through teams**: each team they are in and what it gives, and any they lead or supervise.
 

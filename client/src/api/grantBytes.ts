@@ -5,7 +5,8 @@
 
 import { concatBytes, lp, u32LE, u64LE, utf8 } from '../crypto/bytes';
 
-export type GrantCapability = 'read' | 'draw' | 'steward';
+/** In order: each covers those before it (`authority.rs`). `firmware` is r95. */
+export type GrantCapability = 'read' | 'draw' | 'firmware' | 'steward';
 
 /** Everything `authority::grant_bytes` covers. `scope` is `''` for the organisation. */
 export interface GrantFacts {

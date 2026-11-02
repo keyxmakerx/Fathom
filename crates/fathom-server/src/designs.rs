@@ -825,6 +825,7 @@ pub async fn write_version_in_tx(
     grants::authorise_account(tx, auth, scope, Capability::Draw)
         .await
         .map_err(DesignError::Authority)?;
+    refuse_unapproved_starts_in_version(tx, auth, design, scope, payload).await?;
     write_version_locked(
         tx,
         auth.ring,
@@ -835,6 +836,60 @@ pub async fn write_version_in_tx(
         Some(base),
     )
     .await
+}
+
+/// A whole version saved over the head must not start a plan its folder asks to be approved
+/// (sign-off r102-plan-approval), exactly as a change may not. Only read when some folder in
+/// the organisation asks, so a save elsewhere costs one query.
+async fn refuse_unapproved_starts_in_version(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    design: DesignId,
+    scope: Option<ScopeId>,
+    payload: &[u8],
+) -> Result<(), DesignError> {
+    let tenant = auth.ctx.tenant().to_string();
+    let asked = tx
+        .query_opt(
+            "SELECT 1 FROM plan_rules WHERE organisation_id = $1 AND required LIMIT 1",
+            &[&tenant],
+        )
+        .await?;
+    if asked.is_none() {
+        return Ok(());
+    }
+    let design_text = design.to_string();
+    lock_design(tx, &design_text, &tenant).await?;
+    let current = match read_version_locked(tx, auth.ring, auth.ctx, design, None, None).await {
+        Ok(current) => Some(current.payload),
+        Err(DesignError::NoSuchVersion) => None,
+        Err(e) => return Err(e),
+    };
+    // A graph is not `Send`: both are built, compared and dropped before the next await.
+    let starting = {
+        let after =
+            fathom_workspace::read_plain(payload).map_err(DesignError::InvalidPlainPayload)?;
+        let before = match &current {
+            Some(bytes) => fathom_workspace::read_plain(bytes)
+                .map_err(|_| DesignError::Corrupt("design head"))?,
+            None => fathom_graph::Graph::new(),
+        };
+        crate::plan_approval::plans_starting(&before, &after)
+    };
+    let scope_text = scope.map(|s| s.to_string());
+    match crate::plan_approval::refuse_unapproved_starts(
+        tx,
+        auth,
+        &design_text,
+        scope_text.as_deref(),
+        &starting,
+    )
+    .await
+    .map_err(DesignError::Authority)?
+    {
+        None => Ok(()),
+        Some(why) => Err(DesignError::ChangeRefused(why.to_string())),
+    }
 }
 
 /// The shared core of every version write: the row lock, the next version
@@ -2059,6 +2114,30 @@ pub async fn write_change_in_tx(
         );
     };
 
+    // A plan this change starts must be approved where its folder asks (sign-off
+    // r102-plan-approval). Checked before anything is stored; refused, the copy is dropped.
+    if !applied.starting.is_empty() {
+        let scope_text = scope.map(|s| s.to_string());
+        match crate::plan_approval::refuse_unapproved_starts(
+            tx,
+            auth,
+            &design_text,
+            scope_text.as_deref(),
+            &applied.starting,
+        )
+        .await
+        {
+            Ok(None) => {}
+            Ok(Some(why)) => {
+                store.abort(&design_text, applied.ticket);
+                return Err(DesignError::ChangeRefused(why.to_string()));
+            }
+            Err(e) => {
+                store.abort(&design_text, applied.ticket);
+                return Err(DesignError::Authority(e));
+            }
+        }
+    }
     let stored = store_change(
         tx, auth.ring, ctx, design, version, &batch_id, &digest, doc, schema,
     )
