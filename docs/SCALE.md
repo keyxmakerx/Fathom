@@ -97,7 +97,10 @@ of a 1,000-device design also wrote 57 MB of WAL, all of which a synchronous sta
 
 The time to open a design after slimming (it follows the document's size, so expect it to fall
 about as much), and History's page time on a chain of millions (each page is a range read off the
-chain's primary key, and verify still walks the whole chain). Live co-editing under load (many people on one design), import of a large file, the canvas's
+chain's primary key, and verify still walks the whole chain). Live co-editing under load (many people on one design), the Work tab, Search and Everywhere at
+thousands of designs (their shared permission check was batched in PR #294 and timed only at 40 and
+200 designs; ADR-0089 §6 item 5 plans the run, and §7 step 4 replaces the Work tab's five-second
+polling with a push), import of a large file, the canvas's
 own drawing time in a browser, and the estate index under real rows rather than the synthetic ones above (its rebuild
 runs after the save, never in front of it, and search says how many designs are still catching up). The server's live path applies each change to its cached head, so
 its cost follows the head's size above.

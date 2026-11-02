@@ -196,6 +196,12 @@ Before anything here is called done:
    arriving and the "differs from drawing" lists, measured end to end.
 4. A reader killed mid-run and a Fathom server killed mid-run (ADR-0090): no job lost, no device
    read twice at once.
+5. **The pages people keep open, at estate size** (added 2026-11-02 from the "Speed up the Work
+   tab loading" thread, PR #294). The Work tab, Search and Everywhere all first ask which designs a
+   person may read (`readable`); #294 batches that check and timed it at 40 and 200 designs with a
+   test it did not commit. Measured here at thousands of designs and their plans, with estate search
+   (§8.4) behind it, as a committed script beside `scripts/bench-estate-index.sh`, and with many
+   people holding the Work tab open at once.
 
 The record side (hundreds of designs, the estate index at 100,000 devices) is measured in the same
 run, since `docs/SCALE.md` lists the index's rebuild time as not yet measured.
@@ -205,7 +211,14 @@ run, since `docs/SCALE.md` lists the index's rebuild time as not yet measured.
 1. Scheduled reads with the local reader (A of §4.6), leases and the queue in PostgreSQL.
 2. The simulator and the single-reader measurement (§6.1, §6.2).
 3. The site reader: join, approval, mutual TLS, sealed logins, signed results. Attack round first.
-4. The full-scale run (§6.3, §6.4); numbers into `docs/SCALE.md`.
+4. **The Work tab pushed, not polled.** Today each open Work tab asks the server every five seconds,
+   and each ask runs the permission check above: a thousand people with it open is about 200 checks
+   a second while nothing changes. Instead it gets a stream like a design's (ADR-0063,
+   `live.rs`): one more `NOTIFY` channel through each server's one listener, and a stream per
+   person that re-checks the session and the grant before each delivery, so the check runs when
+   something changed. Fathom already holds live design streams open per person, so this adds no
+   new kind of connection. Before step 5, so step 5 measures the pushed version.
+5. The full-scale run (§6.3 to §6.5); numbers into `docs/SCALE.md`.
 
 ## 8. At a million devices: what this record changes (accepted on r90-reading-at-a-million)
 
