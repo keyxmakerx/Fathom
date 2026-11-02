@@ -1164,3 +1164,79 @@ fn a_reply_comes_back_into_a_routed_lag() {
     let end = t.hops.last().unwrap();
     assert_eq!(end.title, "r1");
 }
+
+impl B {
+    /// A 1:`n` splitter: its common port and its branch ports.
+    fn splitter(&mut self, name: &str, n: usize) -> (NodeId, Vec<NodeId>) {
+        let s = self.node(NodeKind::PassiveNode);
+        self.set(s, "PassiveNode.label", scalar::Text(name.to_owned()));
+        let common = self.node(NodeKind::PhysicalPort);
+        self.set(common, "PhysicalPort.label", scalar::Text("COM".to_owned()));
+        self.edge(EdgeKind::HasPort, s, common);
+        let outs = (0..n)
+            .map(|i| {
+                let o = self.node(NodeKind::PhysicalPort);
+                self.set(o, "PhysicalPort.label", scalar::Text(format!("{}", i + 1)));
+                self.edge(EdgeKind::HasPort, s, o);
+                self.edge(EdgeKind::PassThrough, common, o);
+                o
+            })
+            .collect();
+        (common, outs)
+    }
+}
+
+#[test]
+fn a_pon_splitter_is_followed_down_to_the_ont_the_flow_is_for() {
+    let mut b = B::new();
+    let olt = b.device("e7");
+    let oc = b.chassis(olt);
+    let pon = b.port(oc, "PON 1/1");
+    b.unit(olt, pon, "pon1", Some((ip("100.64.0.1"), 24)), None);
+    let (common, outs) = b.splitter("spl", 4);
+    b.cable(pon, common);
+    let mut onts = Vec::new();
+    for (i, o) in outs.iter().enumerate() {
+        let (ont, op) = b.host(&format!("ont-{i}"), &format!("100.64.0.{}", 10 + i));
+        b.cable(*o, op);
+        onts.push(ont);
+    }
+    let t = trace(&b.g, &olt.to_string(), "100.64.0.12", None);
+    assert!(t.stopped.is_empty(), "{}", t.stopped);
+    let spl = t
+        .hops
+        .iter()
+        .find(|h| h.title == "splitter")
+        .expect("a splitter hop");
+    assert!(
+        spl.detail[0] == "spl COM splits to 4 ports; the flow is for the branch on 3",
+        "{:?}",
+        spl.detail
+    );
+    assert_eq!(t.hops.last().unwrap().title, "ont-2");
+    // And back up: one way through the splitter.
+    let up = trace(&b.g, &onts[2].to_string(), "100.64.0.1", None);
+    assert!(up.stopped.is_empty(), "{}", up.stopped);
+}
+
+#[test]
+fn a_splitter_whose_branches_hold_no_such_address_says_so() {
+    let mut b = B::new();
+    let olt = b.device("e7");
+    let oc = b.chassis(olt);
+    let pon = b.port(oc, "PON 1/1");
+    b.unit(olt, pon, "pon1", Some((ip("100.64.0.1"), 24)), None);
+    let (common, outs) = b.splitter("spl", 2);
+    b.cable(pon, common);
+    for (i, o) in outs.iter().enumerate() {
+        let (_, op) = b.host(&format!("ont-{i}"), &format!("100.64.0.{}", 10 + i));
+        b.cable(*o, op);
+    }
+    let t = trace(&b.g, &olt.to_string(), "100.64.0.99", None);
+    assert!(
+        t.stopped
+            .contains("splits to 2 ports and no device on them holds 100.64.0.99"),
+        "{}",
+        t.stopped
+    );
+}

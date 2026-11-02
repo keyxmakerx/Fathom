@@ -359,7 +359,7 @@ focus styles stay inside the app, so a password manager's own controls keep thei
   route beats a static one of the same length; a static next hop leaves by the longest connected prefix on
   an interface that is up; an address two devices hold is refused as a start or end; two paths through a
   switch in one VLAN say "more than one path" instead of "none"; and VLANs are followed eight switches
-  deep. Round 1 (r96): an SVI or irb is a gateway that leaves through its device's ports in its VLAN, and a LAG's links to one device are one way (to two devices, as in MLAG, still "more than one path"). Not built: st0 tunnels, VRFs (the audit doc ranks these). Not built: learned routes, NAT, port right-click, the
+  deep. Round 1 (r96): an SVI or irb is a gateway that leaves through its device's ports in its VLAN, and a LAG's links to one device are one way (to two devices, as in MLAG, still "more than one path"). Downstream through a splitter, the branch whose device holds the next hop is followed (a PON splitter lights every branch; the ONT it is for takes it). Not built: st0 tunnels, VRFs (the audit doc ranks these). Not built: learned routes, NAT, port right-click, the
   Diagram look, the "Trace from here" offer from "It's down". `scripts/drive-trace.mjs` drives it.
 - **Sample home lab and the five first steps** (r15-start, round 10). Home's "Open the sample home lab" builds
   `corpus/samples/home-lab.json` (11 devices, 12 cables, VLANs 10 and 30) with the editor's own commands and saves

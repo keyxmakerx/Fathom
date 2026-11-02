@@ -812,8 +812,15 @@ impl Walk<'_> {
     }
 
     /// Follow the cable from `from_port` through any patch panels to the port
-    /// where it meets a device that is not a panel. The steps are cable hops.
-    fn cable_chain(&self, from_port: NodeId) -> Result<(Vec<Hop>, NodeId), String> {
+    /// where it meets a device that is not a panel. The steps are cable hops. At a
+    /// splitter (a port that passes through to several), the branch that reaches a
+    /// device holding `next` is the one followed: downstream, a PON splitter sends the
+    /// light down every branch, and only the ONT it is for takes it.
+    fn cable_chain(
+        &self,
+        from_port: NodeId,
+        next: Option<IpAddr>,
+    ) -> Result<(Vec<Hop>, NodeId), String> {
         let mut hops = Vec::new();
         let mut here = from_port;
         for _ in 0..MAX_STEPS {
@@ -863,15 +870,94 @@ impl Walk<'_> {
                     });
                     here = *next;
                 }
-                _ => {
-                    return Err(format!(
-                        "{} passes through to more than one port; could not establish which the cable takes",
-                        display_name(self.g, far)
-                    ))
+                many => {
+                    let Some(next) = next else {
+                        return Err(format!(
+                            "{} passes through to more than one port; could not establish which the cable takes",
+                            display_name(self.g, far)
+                        ));
+                    };
+                    return self.split(far, many, next).map(|(mut rest, end)| {
+                        hops.append(&mut rest);
+                        (hops, end)
+                    });
                 }
             }
         }
         Err("the cable path is longer than this trace walks".to_owned())
+    }
+
+    /// Choose the branch of a splitter at `at` that reaches a device holding `next`; when
+    /// no branch does, the only branch with a device on it at all.
+    fn split(
+        &self,
+        at: NodeId,
+        branches: &[NodeId],
+        next: IpAddr,
+    ) -> Result<(Vec<Hop>, NodeId), String> {
+        // A splitter is a passive node, not a device: name it by whatever owns the port.
+        let owner = self
+            .g
+            .owner(at)
+            .map_or(String::new(), |o| display_name(self.g, o));
+        let name = format!("{owner} {}", display_name(self.g, at))
+            .trim()
+            .to_owned();
+        let mut reached: Vec<(NodeId, Vec<Hop>, NodeId)> = Vec::new();
+        for b in branches {
+            self.steps.set(self.steps.get() + 1);
+            if self.steps.get() > SEARCH_BUDGET {
+                return Err(format!(
+                    "{name} splits into more branches than this trace searches; could not establish which one the flow takes"
+                ));
+            }
+            if let Ok((h, end)) = self.cable_chain(*b, Some(next)) {
+                reached.push((*b, h, end));
+            }
+        }
+        let holding: Vec<usize> = (0..reached.len())
+            .filter(|i| {
+                self.g
+                    .device_of(reached[*i].2)
+                    .is_some_and(|d| self.owns(d, next))
+            })
+            .collect();
+        let pick = match (holding.as_slice(), reached.len()) {
+            ([i], _) => *i,
+            ([], 1) => 0,
+            ([], 0) => {
+                return Err(format!(
+                    "{name} splits to {} ports and no cable is recorded on any of them",
+                    branches.len()
+                ))
+            }
+            ([], _) => {
+                return Err(format!(
+                    "{name} splits to {} ports and no device on them holds {next}; could not establish which branch the flow takes",
+                    branches.len()
+                ))
+            }
+            _ => {
+                return Err(format!(
+                    "more than one branch of {name} reaches a device holding {next}; could not establish which one the flow takes"
+                ))
+            }
+        };
+        let (branch, mut rest, end) = reached.swap_remove(pick);
+        let mut hops = vec![Hop {
+            kind: "cable",
+            title: "splitter".to_owned(),
+            detail: vec![format!(
+                "{name} splits to {} ports; the flow is for the branch on {}",
+                branches.len(),
+                display_name(self.g, branch)
+            )],
+            nodes: vec![at.to_string(), branch.to_string()],
+            why: "A splitter sends the signal down every branch; the device it is addressed to is on this one.".to_owned(),
+            ..Hop::default()
+        }];
+        hops.append(&mut rest);
+        Ok((hops, end))
     }
 
     fn dev_name(&self, port: NodeId) -> String {
@@ -914,7 +1000,9 @@ impl Walk<'_> {
         if self.steps.get() > SEARCH_BUDGET {
             return Err(Miss::plain("the switches here form more paths than this trace searches; could not establish the path through them"));
         }
-        let (mut hops, far) = self.cable_chain(from_port).map_err(Miss::plain)?;
+        let (mut hops, far) = self
+            .cable_chain(from_port, Some(next))
+            .map_err(Miss::plain)?;
         let dev = self
             .g
             .device_of(far)
@@ -1035,7 +1123,7 @@ impl Walk<'_> {
                     let fars: Vec<Option<NodeId>> = links
                         .iter()
                         .map(|p| {
-                            self.cable_chain(*p)
+                            self.cable_chain(*p, None)
                                 .ok()
                                 .and_then(|(_, f)| self.g.device_of(f))
                         })
