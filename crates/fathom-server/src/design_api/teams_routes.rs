@@ -4,7 +4,7 @@
 //!
 //! - `GET  /organisations/{o}/teams`: the teams the caller may see, as
 //!   `{"steward": bool, "teams": [{id, slug, name, members, leads, supervisors, grants,
-//!   may_staff}]}`. Every seat is `{"account", "act"}`; every grant `{"act", "scope",
+//!   may_staff}]}`. Every seat is `{"account", "name", "act"}`; every grant `{"act", "scope",
 //!   "capability"}`. Supervisors are `overseer` rows (the module header says why).
 //! - `POST /organisations/{o}/teams/propose`: body `{"act", "as", "key", "team"?, "subject"?,
 //!   "role"?, "scope"?, "capability"?, "undoes"?, "slug"?, "name"?}`, where `as` is `steward`
@@ -14,7 +14,8 @@
 //!   (hex) and, for `create`, `"slug"` and `"name"`. Answers `{"act": id, "team": id}`.
 //! - `POST /organisations/{o}/teams/{team}/rename`: body `{"slug", "name"}`, a root steward's.
 //! - `GET  /organisations/{o}/teams/{team}/history`: `{"acts": [...]}`, oldest first, each with
-//!   `counts`: whether its signature and its signer's authority check now.
+//!   `counts`: whether its signature and its signer's authority check now; and `"names"`,
+//!   `{account: display name}` for everyone the acts name, so any member can read it.
 
 use std::collections::BTreeMap;
 
@@ -189,6 +190,13 @@ async fn list_handler(
     let (steward, list) = teams::list(&tx, &auth)
         .await
         .map_err(SessionError::Authority)?;
+    let people = if steward || list.iter().any(|t| t.may_staff) {
+        teams::people_to_pick(&tx, &organisation)
+            .await
+            .map_err(SessionError::Authority)?
+    } else {
+        Vec::new()
+    };
     tx.commit().await.map_err(SessionError::Db)?;
 
     let seats = |seats: &[teams::Seat]| {
@@ -198,6 +206,7 @@ async fn list_handler(
                 .map(|s| {
                     let mut m = BTreeMap::new();
                     m.insert("account".to_string(), Json::Str(s.account.clone()));
+                    m.insert("name".to_string(), Json::Str(s.name.clone()));
                     m.insert("act".to_string(), Json::Str(s.act_id.clone()));
                     Json::Obj(m)
                 })
@@ -239,6 +248,20 @@ async fn list_handler(
     let mut answer = BTreeMap::new();
     answer.insert("steward".to_string(), Json::Bool(steward));
     answer.insert("teams".to_string(), Json::Arr(teams_json));
+    answer.insert(
+        "people".to_string(),
+        Json::Arr(
+            people
+                .into_iter()
+                .map(|(account, name)| {
+                    let mut m = BTreeMap::new();
+                    m.insert("account".to_string(), Json::Str(account));
+                    m.insert("name".to_string(), Json::Str(name));
+                    Json::Obj(m)
+                })
+                .collect(),
+        ),
+    );
     Ok(json_response(Json::Obj(answer)))
 }
 
@@ -393,6 +416,15 @@ async fn history_handler(
     let lines = teams::history(&tx, &auth, &team)
         .await
         .map_err(SessionError::Authority)?;
+    let mut who: Vec<String> = lines
+        .iter()
+        .flat_map(|l| std::iter::once(l.act.signed_by.clone()).chain(l.act.subject_id.clone()))
+        .collect();
+    who.sort();
+    who.dedup();
+    let names = teams::names_of(&tx, &who)
+        .await
+        .map_err(SessionError::Authority)?;
     tx.commit().await.map_err(SessionError::Db)?;
     let acts = lines
         .iter()
@@ -421,5 +453,14 @@ async fn history_handler(
         .collect();
     let mut answer = BTreeMap::new();
     answer.insert("acts".to_string(), Json::Arr(acts));
+    answer.insert(
+        "names".to_string(),
+        Json::Obj(
+            names
+                .into_iter()
+                .map(|(account, name)| (account, Json::Str(name)))
+                .collect(),
+        ),
+    );
     Ok(json_response(Json::Obj(answer)))
 }

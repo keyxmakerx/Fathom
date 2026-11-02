@@ -112,8 +112,11 @@ makes it irrelevant.
   third principal kind; every change to one is a signed, append-only row in `team_acts`
   (`fathom/team/act/v1`) inside the authority head. A person's access is their own grants plus their
   teams' Read or Draw, resolved in the same per-request walk. Staffing a team is a root steward's act;
-  a lead adds and removes others, never themselves. Routes under `/organisations/{o}/teams`; no
-  screens yet, and no operator suspend, approvals or work assignment.
+  a lead adds and removes others, never themselves. Routes under `/organisations/{o}/teams`. Screens
+  (`client/src/components/teams/`): Steward › Teams and a team's page, Home › Teams for anyone in,
+  leading or supervising one (a lead staffs it there), and "Through teams" on Steward › People › a
+  person. Each act is signed in the browser, its bytes rebuilt there first. No operator suspend,
+  approvals or work assignment yet.
 - **0013: sessions** (`sessions.rs`, `api.rs`; admin §4). A signed message on every request that
   reaches design payload or vault ciphertext, single-use nonces, a browser-held session key, a MAC
   under a site-scoped row key.

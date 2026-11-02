@@ -35,6 +35,8 @@ import { groupDesignsByScope, scopesWithNoDesigns } from './groupByScope';
 import { HomeTabs } from './HomeTabs';
 import { WorkPage } from '../work/WorkPage';
 import { homeTabs, type HomeTab } from './homeTabs';
+import { fetchTeams, involvedIn } from '../../api/teams';
+import { TeamsPage } from '../teams/TeamsPage';
 import { newDesignTarget } from './newDesign';
 import { RecentRow } from './RecentRow';
 import { whenLabel } from '../history/HistoryPanel';
@@ -323,7 +325,24 @@ export function Home({
     (scopes.status === 'ready' && scopes.value.some((scope) => canDrawFor(scope.capability))) ||
     (organisations.status === 'ready' && organisations.value.some((org) => org.organisationId === selectedOrgId && (org.role === 'admin' || org.practice)));
   const inOrganisation = organisations.status === 'ready' && organisations.value.some((org) => org.organisationId === selectedOrgId);
-  const tabs = homeTabs({ organisationAdmin, aiMaker, admin: admin !== undefined, waitingInvitee, member, work: inOrganisation });
+  // ADR-0081: Teams is for someone in, leading or supervising a team here.
+  const [inTeam, setInTeam] = useState(false);
+  useEffect(() => {
+    setInTeam(false);
+    const me = accountId;
+    if (!member || selectedOrgId === null || me === null) return;
+    let cancelled = false;
+    fetchTeams(selectedOrgId).then(
+      (t) => {
+        if (!cancelled) setInTeam(involvedIn(t.teams, me));
+      },
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [member, selectedOrgId, accountId]);
+  const tabs = homeTabs({ organisationAdmin, aiMaker, admin: admin !== undefined, waitingInvitee, member, work: inOrganisation, teams: inTeam });
   const shownTab: HomeTab = tabs.includes(tab) ? tab : 'designs';
 
   function selectTab(next: HomeTab) {
@@ -678,6 +697,12 @@ export function Home({
         {shownTab === 'work' && selectedOrganisation && (
           <section className="home__section">
             <WorkPage organisationId={selectedOrganisation.organisationId} />
+          </section>
+        )}
+
+        {shownTab === 'teams' && selectedOrganisation && (
+          <section className="home__section">
+            <TeamsPage organisation={selectedOrganisation.organisationId} where="home" scopes={scopes.status === 'ready' ? scopes.value : []} />
           </section>
         )}
 
