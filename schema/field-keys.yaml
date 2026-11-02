@@ -594,11 +594,15 @@ fields:
   PlanStep.if_taken: 549
   PlanStep.issue: 550
   Issue.step: 551
-  # The Work tab's ticket parts (schema 0.34, 2026-11-02, sign-off r74). Appended after 0.33's 551.
-  MaintenancePlan.assigned_to: 552
-  MaintenancePlan.ticket: 553
-  Issue.assigned_to: 554
-  Issue.due: 555
-  Issue.ticket: 556
-  StockItem.assigned_to: 557
-  StockItem.ticket: 558
+  # Termix in the work (schema 0.34, 2026-11-01, ADR-0080). Appended after 0.33's 551.
+  PlanStep.seen: 552
+  PhysicalPort.console_baud: 553
+  PlanStep.compared: 554
+  # The Work tab's ticket parts (schema 0.35, 2026-11-02, sign-off r74). Appended after 0.34's 554.
+  MaintenancePlan.assigned_to: 555
+  MaintenancePlan.ticket: 556
+  Issue.assigned_to: 557
+  Issue.due: 558
+  Issue.ticket: 559
+  StockItem.assigned_to: 560
+  StockItem.ticket: 561

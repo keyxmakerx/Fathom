@@ -1172,6 +1172,11 @@ mod body {
         pub fn mac<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::MacAddress, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(462))
         }
+        /// `PhysicalPort.console_baud` — `u32`, card `0..1`, emit `—`.
+        /// 0.34 (ADR-0080 decision 10): a console port's speed in bits per second (9600, 115200). Absent means nobody has said; the vendor's documented default is offered where a source exists.
+        pub fn console_baud<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&u32, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(553))
+        }
         /// `PhysicalPort.speed_max` — `Bandwidth`, card `0..1`, emit `—`.
         /// The cage's ceiling — a different fact from Interface.speed.
         pub fn speed_max<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Bandwidth, crate::bag::FieldError> {
@@ -1946,12 +1951,12 @@ mod body {
         /// `MaintenancePlan.assigned_to` — `Text`, card `0..1`, emit `—`.
         /// 0.34 — the account the work is assigned to, by id. Absent means nobody yet.
         pub fn assigned_to<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(552))
+            crate::bag::typed(bag, crate::bag::FieldKey(555))
         }
         /// `MaintenancePlan.ticket` — `Text`, card `0..1`, emit `—`.
         /// 0.34 — the same work in an outside tool: a link to its Jira, ServiceNow or GLPI ticket, or its number there.
         pub fn ticket<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(553))
+            crate::bag::typed(bag, crate::bag::FieldKey(556))
         }
     }
     /// Typed reads for `PlanStep` fields.
@@ -2026,6 +2031,16 @@ mod body {
         pub fn issue<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
             crate::bag::typed(bag, crate::bag::FieldKey(550))
         }
+        /// `PlanStep.seen` — `Text`, card `0..1`, emit `—`.
+        /// 0.34 (ADR-0080 decision 5): what the person pasted for a check step, the device's answer to the step's command, after the redaction gate ran on it in the browser. Kept on Record; Fathom compares it and never acts on it.
+        pub fn seen<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(552))
+        }
+        /// `PlanStep.compared` — `Text`, card `0..1`, emit `—`.
+        /// 0.34 (ADR-0080 decision 5): Fathom's comparison when the paste was kept, `matches`, `differs` or `cant_tell`, a tab, and why. Worked out in the browser from the paste before the gate, which removes long hex values such as a file's hash; only the gated paste and this line are kept, and the why passes the gate too.
+        pub fn compared<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
+            crate::bag::typed(bag, crate::bag::FieldKey(554))
+        }
     }
     /// Typed reads for `FieldValue` fields.
     pub mod field_value {
@@ -2085,17 +2100,17 @@ mod body {
         /// `Issue.assigned_to` — `Text`, card `0..1`, emit `—`.
         /// 0.34 — the account the issue is assigned to, by id. Absent means nobody yet.
         pub fn assigned_to<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(554))
+            crate::bag::typed(bag, crate::bag::FieldKey(557))
         }
         /// `Issue.due` — `Text`, card `0..1`, emit `—`.
         /// 0.34 — when it should be sorted by, as an ISO date.
         pub fn due<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(555))
+            crate::bag::typed(bag, crate::bag::FieldKey(558))
         }
         /// `Issue.ticket` — `Text`, card `0..1`, emit `—`.
         /// 0.34 — the same issue in an outside tool: a link to its ticket, or its number there.
         pub fn ticket<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(556))
+            crate::bag::typed(bag, crate::bag::FieldKey(559))
         }
     }
     /// Typed reads for `IssueStep` fields.
@@ -2518,12 +2533,12 @@ mod body {
         /// `StockItem.assigned_to` — `Text`, card `0..1`, emit `—`.
         /// 0.34 — who is seeing to it while it is on order, away or lent: an account, by id.
         pub fn assigned_to<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(557))
+            crate::bag::typed(bag, crate::bag::FieldKey(560))
         }
         /// `StockItem.ticket` — `Text`, card `0..1`, emit `—`.
         /// 0.34 — its order, repair or loan in an outside tool: a link or a number.
         pub fn ticket<B: crate::bag::FieldBag + ?Sized>(bag: &B) -> Result<&crate::scalar::Text, crate::bag::FieldError> {
-            crate::bag::typed(bag, crate::bag::FieldKey(558))
+            crate::bag::typed(bag, crate::bag::FieldKey(561))
         }
     }
     /// Typed reads for `StockLevel` fields.
@@ -3032,12 +3047,15 @@ mod body {
             550 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             551 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             552 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
-            553 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            553 => Some((core::any::TypeId::of::<u32>(), "u32")),
             554 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             555 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             556 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             557 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             558 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            559 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            560 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
+            561 => Some((core::any::TypeId::of::<crate::scalar::Text>(), "crate::scalar::Text")),
             _ => None,
         }
     }
@@ -3533,12 +3551,15 @@ mod body {
             550 => crate::canon::slot_to::<crate::scalar::Text>(550, "crate::scalar::Text", value),
             551 => crate::canon::slot_to::<crate::scalar::Text>(551, "crate::scalar::Text", value),
             552 => crate::canon::slot_to::<crate::scalar::Text>(552, "crate::scalar::Text", value),
-            553 => crate::canon::slot_to::<crate::scalar::Text>(553, "crate::scalar::Text", value),
+            553 => crate::canon::slot_to::<u32>(553, "u32", value),
             554 => crate::canon::slot_to::<crate::scalar::Text>(554, "crate::scalar::Text", value),
             555 => crate::canon::slot_to::<crate::scalar::Text>(555, "crate::scalar::Text", value),
             556 => crate::canon::slot_to::<crate::scalar::Text>(556, "crate::scalar::Text", value),
             557 => crate::canon::slot_to::<crate::scalar::Text>(557, "crate::scalar::Text", value),
             558 => crate::canon::slot_to::<crate::scalar::Text>(558, "crate::scalar::Text", value),
+            559 => crate::canon::slot_to::<crate::scalar::Text>(559, "crate::scalar::Text", value),
+            560 => crate::canon::slot_to::<crate::scalar::Text>(560, "crate::scalar::Text", value),
+            561 => crate::canon::slot_to::<crate::scalar::Text>(561, "crate::scalar::Text", value),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }
@@ -4032,12 +4053,15 @@ mod body {
             550 => crate::canon::slot_from::<crate::scalar::Text>(j),
             551 => crate::canon::slot_from::<crate::scalar::Text>(j),
             552 => crate::canon::slot_from::<crate::scalar::Text>(j),
-            553 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            553 => crate::canon::slot_from::<u32>(j),
             554 => crate::canon::slot_from::<crate::scalar::Text>(j),
             555 => crate::canon::slot_from::<crate::scalar::Text>(j),
             556 => crate::canon::slot_from::<crate::scalar::Text>(j),
             557 => crate::canon::slot_from::<crate::scalar::Text>(j),
             558 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            559 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            560 => crate::canon::slot_from::<crate::scalar::Text>(j),
+            561 => crate::canon::slot_from::<crate::scalar::Text>(j),
             _ => Err(crate::canon::CanonError::UnknownKey { key: key.0 }),
         }
     }

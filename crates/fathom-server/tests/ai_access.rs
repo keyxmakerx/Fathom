@@ -417,7 +417,7 @@ fn a_payload(seed: u128) -> Vec<u8> {
     fathom_workspace::write_plain(&g).expect("a graph this crate built must write")
 }
 
-const CURRENT_SCHEMA_WIRE_VERSION: u32 = 34;
+const CURRENT_SCHEMA_WIRE_VERSION: u32 = 35;
 
 fn save_body(payload: &[u8]) -> Vec<u8> {
     let mut out = CURRENT_SCHEMA_WIRE_VERSION.to_le_bytes().to_vec();

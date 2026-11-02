@@ -353,3 +353,29 @@ export function setPortMac(doc: Document, portId: string, value: string | null, 
   const built = setFieldEntry(doc, now, actor, portId, node.fields[wireKey], wireKey, encoded);
   return commitField(built.doc, now, portId, wireKey, built.entry, built.op, `set ${wireKey}`);
 }
+
+/** The speeds a console port is set to, in bits per second: anything from 50 to 4,000,000. */
+export const CONSOLE_BAUD_MIN = 50;
+export const CONSOLE_BAUD_MAX = 4_000_000;
+
+/**
+ * `PhysicalPort.console_baud` (schema 0.34, ADR-0080 decision 10, `u32`): a console port's speed in
+ * bits per second, typed as `9600` or `115 200`; `value: null` or blank clears it. One batch.
+ */
+export function setPortConsoleBaud(doc: Document, portId: string, value: string | null, opts?: Actor): Document {
+  const node = findNode(doc, portId);
+  if (!node || node.absentSince !== undefined || !portId.startsWith('physical-port:')) throw new UnknownReferenceError(portId, 'PhysicalPort');
+  const wireKey = 'PhysicalPort.console_baud';
+  const typed = (value ?? '').replace(/[\s,_]/g, '');
+  let encoded: FieldEntry['value'] | undefined;
+  if (typed !== '') {
+    const n = /^\d+$/.test(typed) ? Number(typed) : NaN;
+    if (!Number.isInteger(n) || n < CONSOLE_BAUD_MIN || n > CONSOLE_BAUD_MAX) {
+      throw new FieldValueError(wireKey, value ?? '', 'is not a console speed (write it in bits per second, like 9600 or 115200)');
+    }
+    encoded = uint(n, 32);
+  }
+  const { actor, now } = resolve(opts);
+  const built = setFieldEntry(doc, now, actor, portId, node.fields[wireKey], wireKey, encoded);
+  return commitField(built.doc, now, portId, wireKey, built.entry, built.op, `set ${wireKey}`);
+}

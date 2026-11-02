@@ -1,4 +1,4 @@
-// The Work tab's ticket parts on one piece of work (sign-off r74, schema 0.34): who it is assigned
+// The Work tab's ticket parts on one piece of work (sign-off r74, schema 0.35): who it is assigned
 // to, when an issue is due, and the same work in an outside tool. A plan, an issue and a spare that
 // is out each carry them; comments are Notes on the item (`notes.ts`), who and when from their
 // provenance. The Fathom number is not here: the server gives it (`api/work.ts`).

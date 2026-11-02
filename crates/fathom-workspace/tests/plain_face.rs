@@ -60,7 +60,7 @@ use std::collections::BTreeSet;
 const PINNED: &str = concat!(
     "fathom-plain 1\n",
     "THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n",
-    "schema 0.34\n",
+    "schema 0.35\n",
     "\n",
     r#"{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}"#,
     "\n",
@@ -1113,13 +1113,22 @@ fn a_0_32_header_opens() {
     read_plain(older.as_bytes()).expect("a 0.32 payload opens");
 }
 
-/// The Work tab's ticket parts (0.34) add only fields: a 0.33 design opens as it is.
+/// Termix in the work (0.34) adds only fields: a 0.33 design opens as it is.
 #[test]
 fn a_0_33_header_opens() {
     use fathom_ir::generated::ir_types::SCHEMA_VERSION;
     let older = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.33", 1);
     assert_ne!(older, PINNED, "the substitution must have landed");
     read_plain(older.as_bytes()).expect("a 0.33 payload opens");
+}
+
+/// The Work tab's ticket parts (0.35) add only fields: a 0.34 design opens as it is.
+#[test]
+fn a_0_34_header_opens() {
+    use fathom_ir::generated::ir_types::SCHEMA_VERSION;
+    let older = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.34", 1);
+    assert_ne!(older, PINNED, "the substitution must have landed");
+    read_plain(older.as_bytes()).expect("a 0.34 payload opens");
 }
 
 /// A 0.15 design holds plans, and a 0.14 one does not (the plan kinds arrived at 0.15).

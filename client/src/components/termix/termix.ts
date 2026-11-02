@@ -6,7 +6,8 @@
 // - An API key is `tmx_` and 64 hex characters, made by a Termix admin for one Termix user, sent
 //   as `Authorization: Bearer` (`src/backend/utils/auth-manager.ts`, `handleApiKeyAuth`).
 // - `GET /host/db/host` lists the hosts that user can see; `POST /host/db/host` adds one, and
-//   needs only `ip` and `port` (`src/backend/database/routes/host.ts`).
+//   needs `ip`, `port` and, since v26.10.2, `authType` (`src/backend/database/routes/host.ts`; found
+//   by the CI job against a real Termix 26.10.6, ADR-0080 decision 1, 1 November 2026).
 // - `/?view=terminal&hostId=<id>` opens one host's terminal full screen, signing in first when
 //   the browser is signed out (`src/main.tsx`, `FullscreenApp`; the `terminal` tab is the bundled
 //   ssh-terminal plugin's).
@@ -16,8 +17,21 @@
 // Nothing here sends a password. A host Fathom adds carries a name, an address, port 22, a
 // folder and a tag; the person picks a Termix credential in Termix.
 
+import { isOurReference } from './loginRef';
+
 /** Where the key waits: this tab only, gone when the tab closes (ADR-0078 decision 3). */
 const KEY_SLOT = 'fathom.termix.key';
+
+/** Told when the key is pasted or forgotten, so every Termix button on the page follows. */
+export const KEY_EVENT = 'fathom:termix-key';
+
+function told(): void {
+  try {
+    window.dispatchEvent(new Event(KEY_EVENT));
+  } catch {
+    // no window (tests)
+  }
+}
 
 /** `tmx_` and 64 hex characters, as Termix makes them. */
 export function isTermixKey(value: string): boolean {
@@ -39,6 +53,7 @@ export function saveKey(key: string, store: Pick<Storage, 'setItem'> | null = sa
   } catch {
     // Without storage the key lasts as long as the component holding it.
   }
+  told();
 }
 
 export function forgetKey(store: Pick<Storage, 'removeItem'> | null = safeSession()): void {
@@ -47,6 +62,7 @@ export function forgetKey(store: Pick<Storage, 'removeItem'> | null = safeSessio
   } catch {
     // nothing to forget
   }
+  told();
 }
 
 function safeSession(): Storage | null {
@@ -130,10 +146,20 @@ export function folderFor(design: string): string {
   return d ? `Fathom / ${d}` : 'Fathom';
 }
 
-/** What Fathom sends to add a host: no credential, no user name. */
-export function newHostBody(name: string, address: string, folder = 'Fathom'): Record<string, unknown> {
+/**
+ * What Fathom sends to add a host: no credential, no user name. `authType: 'none'` is the one Termix
+ * value that carries no secret: Termix then asks at connect time, keyboard-interactive
+ * (`src/backend/hosts/connect/build-connect-config.ts`, v26.10.6), and the person can pick one of
+ * Termix's own credentials on the host instead. Termix refuses a new host without an `authType`
+ * since v26.10.2.
+ */
+export function newHostBody(name: string, address: string, folder = 'Fathom', reference?: string | null): Record<string, unknown> {
+  // A login by reference (ADR-0080 decision 3): the password field holds `bw://<id>/password`, which
+  // Termix resolves itself. Nothing but that exact shape is ever put there.
+  const byReference = reference != null && isOurReference(reference);
   return {
     connectionType: 'ssh',
+    ...(byReference ? { authType: 'password', password: reference } : { authType: 'none' }),
     name: name.trim() || bareAddress(address),
     ip: bareAddress(address),
     port: 22,
@@ -143,11 +169,18 @@ export function newHostBody(name: string, address: string, folder = 'Fathom'): R
   };
 }
 
-export class TermixError extends Error {}
+export class TermixError extends Error {
+  /** Termix's HTTP status, when it answered at all. */
+  readonly status: number | null;
+  constructor(message: string, status: number | null = null) {
+    super(message);
+    this.status = status;
+  }
+}
 
 type Fetch = typeof fetch;
 
-async function call(origin: string, key: string, method: string, path: string, body: unknown, f: Fetch): Promise<unknown> {
+export async function call(origin: string, key: string, method: string, path: string, body: unknown, f: Fetch = fetch): Promise<unknown> {
   let res: Response;
   try {
     res = await f(new URL(path, origin).toString(), {
@@ -162,9 +195,9 @@ async function call(origin: string, key: string, method: string, path: string, b
       'This browser could not reach Termix. Check that it is running, and if its operator set CORS_ALLOWED_ORIGINS, that Fathom’s address is in it.',
     );
   }
-  if (res.status === 401) throw new TermixError('Termix refused the API key. It may have expired or been switched off; paste a new one.');
-  if (res.status === 403) throw new TermixError('The Termix user this key belongs to is not allowed to do that.');
-  if (!res.ok) throw new TermixError(`Termix answered ${res.status}.`);
+  if (res.status === 401) throw new TermixError('Termix refused the API key. It may have expired or been switched off; paste a new one.', 401);
+  if (res.status === 403) throw new TermixError('The Termix user this key belongs to is not allowed to do that.', 403);
+  if (!res.ok) throw new TermixError(`Termix answered ${res.status}.`, res.status);
   try {
     return await res.json();
   } catch {
@@ -176,10 +209,36 @@ export async function listHosts(origin: string, key: string, f: Fetch = fetch): 
   return parseHosts(await call(origin, key, 'GET', '/host/db/host', undefined, f));
 }
 
-export async function addHost(origin: string, key: string, name: string, address: string, f: Fetch = fetch, folder?: string): Promise<TermixHost> {
-  const [made] = parseHosts([await call(origin, key, 'POST', '/host/db/host', newHostBody(name, address, folder), f)]);
+export async function addHost(
+  origin: string,
+  key: string,
+  name: string,
+  address: string,
+  f: Fetch = fetch,
+  folder?: string,
+  reference?: string | null,
+): Promise<TermixHost> {
+  const [made] = parseHosts([await call(origin, key, 'POST', '/host/db/host', newHostBody(name, address, folder, reference), f)]);
   if (!made) throw new TermixError('Termix added the host but did not say which one it is.');
   return made;
+}
+
+/**
+ * The Termix add-ons running for this key's user: `GET /plugins` answers every installed one with
+ * `id`, `enabled` and `state` (core v26.10.6, `src/backend/database/routes/plugins.ts`). An add-on
+ * counts when it is enabled and active. A Termix that will not say is taken to run none, so every
+ * add-on's button stays hidden and the plain way is what shows.
+ */
+export async function listAddOns(origin: string, key: string, f: Fetch = fetch): Promise<Set<string>> {
+  const body = await call(origin, key, 'GET', '/plugins', undefined, f);
+  const out = new Set<string>();
+  if (!Array.isArray(body)) return out;
+  for (const row of body) {
+    if (typeof row !== 'object' || row === null) continue;
+    const r = row as Record<string, unknown>;
+    if (typeof r.id === 'string' && r.enabled === true && (r.state === undefined || r.state === 'active')) out.add(r.id);
+  }
+  return out;
 }
 
 export interface SendResult {
@@ -188,6 +247,8 @@ export interface SendResult {
   already: number;
   /** Two devices with one address are sent once. */
   repeated: number;
+  /** Of those added, how many sign in with a vault login by reference. */
+  byReference: number;
   failed: string[];
 }
 
@@ -200,13 +261,13 @@ export interface SendResult {
 export async function sendHosts(
   origin: string,
   key: string,
-  devices: readonly { name: string; address: string }[],
+  devices: readonly { name: string; address: string; reference?: string | null }[],
   folder: string,
   f: Fetch = fetch,
   onStep?: (done: number, total: number) => void,
 ): Promise<SendResult> {
   const hosts = await listHosts(origin, key, f);
-  const out: SendResult = { added: 0, already: 0, repeated: 0, failed: [] };
+  const out: SendResult = { added: 0, already: 0, repeated: 0, byReference: 0, failed: [] };
   const seen = new Set<string>();
   const todo = devices.filter((d) => bareAddress(d.address) !== '');
   let done = 0;
@@ -217,8 +278,9 @@ export async function sendHosts(
     else if (matchHost(hosts, at)) out.already++;
     else {
       try {
-        await addHost(origin, key, d.name, d.address, f, folder);
+        await addHost(origin, key, d.name, d.address, f, folder, d.reference);
         out.added++;
+        if (d.reference) out.byReference++;
       } catch (e) {
         if (e instanceof TermixError && /API key/.test(e.message)) throw e;
         out.failed.push(`${d.name || at}: ${e instanceof Error ? e.message : String(e)}`);
@@ -233,6 +295,7 @@ export async function sendHosts(
 /** The result in one sentence. */
 export function sendSummary(r: SendResult): string {
   const parts = [`Added ${r.added} to Termix`];
+  if (r.byReference) parts[0] += ` (${r.byReference} with ${r.byReference === 1 ? 'its' : 'their'} vault login by reference)`;
   if (r.already) parts.push(`${r.already} ${r.already === 1 ? 'was' : 'were'} already there`);
   if (r.repeated) parts.push(`${r.repeated} shared an address with another device`);
   if (r.failed.length) parts.push(`${r.failed.length} not added (${r.failed.slice(0, 2).join('; ')})`);

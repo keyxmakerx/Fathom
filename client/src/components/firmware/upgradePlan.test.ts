@@ -227,7 +227,7 @@ describe('checks after the work (sign-off r73)', () => {
 });
 
 describe('one plan holding several upgrades', () => {
-  const step = (id: string, change: string, targets: string[]): PlanStep => ({ id, ordinal: 0, kind: 'other', change, before: '', after: '', targets, edit: null, state: 'planned', note: '', doneAt: '', label: '1', ifWhen: '', branchOf: '', ifTaken: false, issue: '' });
+  const step = (id: string, change: string, targets: string[]): PlanStep => ({ id, ordinal: 0, kind: 'other', change, before: '', after: '', targets, edit: null, state: 'planned', note: '', doneAt: '', label: '1', ifWhen: '', branchOf: '', ifTaken: false, issue: '', seen: '', compared: null });
   const plan = (title: string, steps: PlanStep[]): Plan => ({ id: 'p', title, windowStart: '', windowEnd: '', author: '', stage: 'planned', outcome: null, record: '', steps, ifPaths: {}, checks: [], releaseNotes: '' });
 
   it('is known by its record steps whatever it is called, and pairs each fetch with its devices', () => {

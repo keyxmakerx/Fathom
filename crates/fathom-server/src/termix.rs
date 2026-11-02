@@ -130,6 +130,84 @@ pub(crate) async fn off_for_everyone(
         .is_some())
 }
 
+/// Whether a steward turned Fetch from Termix on for `organisation` (ADR-0080 decision 9). No row
+/// reads as off.
+pub(crate) async fn fetch_on(
+    tx: &Transaction<'_>,
+    organisation: &str,
+) -> Result<bool, tokio_postgres::Error> {
+    Ok(tx
+        .query_opt(
+            "SELECT 1 FROM organisation_termix WHERE organisation_id = $1 AND fetch_on",
+            &[&organisation],
+        )
+        .await?
+        .is_some())
+}
+
+/// A steward turns Fetch from Termix on, or off, for the whole organisation (ADR-0080 decision
+/// 9). Answers `{"fetch", "changed", "changed_seq"}`; setting it to what it already is seals
+/// nothing. Sealed as `termix_access_set` with `fetch` in its metadata.
+pub async fn set_fetch(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    on: bool,
+) -> Result<Json, InviteError> {
+    let organisation = auth.ctx.tenant().to_string();
+    let actor = auth.ctx.actor().to_string();
+    let verified = grants::verify_authority_state(tx, auth).await?;
+    let mut check = StewardCheck::new();
+    if grants::steward_anchors(tx, auth, &verified, &mut check)
+        .await?
+        .is_empty()
+    {
+        return Err(InviteError::Authority(AuthorityError::NotAuthorised));
+    }
+    let current = tx
+        .query_opt(
+            "SELECT fetch_on FROM organisation_termix WHERE organisation_id = $1 FOR UPDATE",
+            &[&organisation],
+        )
+        .await?
+        .is_some_and(|r| r.get(0));
+    let mut answer = BTreeMap::new();
+    answer.insert("fetch".to_string(), Json::Bool(on));
+    if current == on {
+        answer.insert("changed".to_string(), Json::Bool(false));
+        answer.insert("changed_seq".to_string(), Json::Null);
+        return Ok(Json::Obj(answer));
+    }
+    let mut meta = BTreeMap::new();
+    meta.insert("actor".to_string(), Json::Str(actor.clone()));
+    meta.insert(
+        "entry_type".to_string(),
+        Json::Str(EntryType::TermixAccessSet.as_str().to_string()),
+    );
+    meta.insert("everyone".to_string(), Json::Bool(true));
+    meta.insert("fetch".to_string(), Json::Bool(on));
+    meta.insert("organisation".to_string(), Json::Str(organisation.clone()));
+    let appended = chains::append_org(
+        tx,
+        auth.ring,
+        auth.ctx,
+        auth.tenant_key,
+        EntryType::TermixAccessSet,
+        &Json::Obj(meta).to_canonical_bytes(),
+    )
+    .await?;
+    tx.execute(
+        "INSERT INTO organisation_termix (organisation_id, termix_off, fetch_on, set_by) \
+         VALUES ($1, false, $2, $3) \
+         ON CONFLICT (organisation_id) DO UPDATE \
+         SET fetch_on = EXCLUDED.fetch_on, set_by = EXCLUDED.set_by, set_at = now()",
+        &[&organisation, &on, &actor],
+    )
+    .await?;
+    answer.insert("changed".to_string(), Json::Bool(true));
+    answer.insert("changed_seq".to_string(), Json::Int(appended.seq));
+    Ok(Json::Obj(answer))
+}
+
 /// The members of `organisation` a steward turned it off for, one by one.
 pub(crate) async fn off_in_organisation(
     tx: &Transaction<'_>,

@@ -16,6 +16,18 @@ import { useTypeItYourself } from '../typing/typeItYourself';
 import '../typing/typing.css';
 import './plans.css';
 import { InSlot } from '../shell/sideSlot';
+import { PlanDevices } from '../termix/PlanDevices';
+import { PlanSnippets } from '../termix/PlanSnippets';
+import { AlertingReminder, WindowNote, useTermixWindow } from '../termix/PlanWindow';
+import { SeenBox, SeenKept } from './SeenBox';
+import { reachable } from '../termix/planDevices';
+
+/** The devices a plan, or one of its steps, names, with their management addresses (ADR-0080 decision 2). */
+function devicesOf(controller: PlansController, plan: Plan, step?: PlanStep) {
+  const doc = controller.doc;
+  if (doc == null) return [];
+  return reachable(doc, touchedDevices(doc, controller.canon, step ? { ...plan, steps: [step] } : plan));
+}
 
 /** Words under a step: before → after, as typed. */
 function BeforeAfter({ step }: { step: PlanStep }) {
@@ -57,6 +69,8 @@ function Notice({ controller }: { controller: PlansController }) {
 
 function PlanMode({ controller, plan }: { controller: PlansController; plan: Plan }) {
   const { canEdit } = controller;
+  const devices = devicesOf(controller, plan);
+  const termixWindow = useTermixWindow(plan, devices);
   const list = useRef<HTMLOListElement>(null);
   // Up, Down and Remove can turn their own button off or take it away: focus goes on to a sibling, never the body.
   const want = useRef<{ id: string; tool: 'up' | 'down' | 'remove'; index: number } | null>(null);
@@ -111,11 +125,20 @@ function PlanMode({ controller, plan }: { controller: PlansController; plan: Pla
       </ol>
       <h3 className="plans-label">What it touches</h3>
       <Touches controller={controller} plan={plan} />
+      <PlanDevices devices={devices} heading="Devices" />
+      <PlanSnippets plan={plan} devices={devices} />
+      {devices.length > 0 && <AlertingReminder />}
+      {canEdit && devices.length > 0 && termixWindow.choice}
       <PlanChecks controller={controller} plan={plan} />
       <ReleaseNotes controller={controller} plan={plan} />
       {canEdit && (
         <p>
-          <button type="button" className="plans-btn btn-main" disabled={plan.steps.length === 0} onClick={() => void controller.start()}>
+          <button
+            type="button"
+            className="plans-btn btn-main"
+            disabled={plan.steps.length === 0}
+            onClick={() => void controller.start().then((ok) => (ok ? termixWindow.started() : undefined))}
+          >
             Start work
           </button>
           {plan.steps.length === 0 && <span className="plans-note"> Add a step first.</span>}
@@ -163,6 +186,7 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
           {step.state === 'done' ? '✓' : '≠'} {step.label} · {firstLine(step.change)}
         </p>
         {step.note !== '' && <p className="plans-step__note">{step.note}</p>}
+        <SeenKept step={step} />
         <StepFollowUp controller={controller} plan={plan} step={step} />
         <TakeIfPath controller={controller} plan={plan} step={step} />
       </li>
@@ -183,6 +207,8 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
       {secondLine(step.change) !== '' && <p className="plans-step__sub plans-step__sub--block">{secondLine(step.change)}</p>}
       <BeforeAfter step={step} />
       <StepCopy step={step} />
+      <PlanDevices devices={devicesOf(controller, plan, step)} withState />
+      <SeenBox controller={controller} plan={plan} step={step} devices={devicesOf(controller, plan, step)} />
       <Touches controller={controller} plan={plan} stepId={step.id} />
       {refused != null && (
         <div className="plans-refused" role="alert" data-testid="plans-refused">
@@ -254,6 +280,18 @@ function DoStep({ controller, plan, step }: { controller: PlansController; plan:
   );
 }
 
+/** Every device the plan names, folded under the checklist, for opening the rest at once. */
+function AllDevices({ controller, plan }: { controller: PlansController; plan: Plan }) {
+  const devices = devicesOf(controller, plan);
+  if (devices.length === 0) return null;
+  return (
+    <details className="plans-devices" data-testid="plans-all-devices">
+      <summary>{devices.length === 1 ? 'The device in this plan' : `All ${devices.length} devices in this plan`}</summary>
+      <PlanDevices devices={devices} withState />
+    </details>
+  );
+}
+
 /** Back out (sign-off r16-backout): asks once, then opens a new plan back to where this one started. */
 function BackOut({ controller, plan }: { controller: PlansController; plan: Plan }) {
   const [asking, setAsking] = useState(false);
@@ -296,11 +334,14 @@ function DoMode({ controller, plan }: { controller: PlansController; plan: Plan 
       <h3 className="plans-label">
         Step {p.at} of {p.total}
       </h3>
+      <WindowNote planId={plan.id} />
       <ol className="plans-checklist">
         {plan.steps.map((s) => (
           <DoStep key={s.id} controller={controller} plan={plan} step={s} />
         ))}
       </ol>
+      <AllDevices controller={controller} plan={plan} />
+      <PlanSnippets plan={plan} devices={devicesOf(controller, plan)} />
       <BackOut controller={controller} plan={plan} />
       <ReleaseNotes controller={controller} plan={plan} />
     </>
@@ -314,6 +355,7 @@ function RecordMode({ controller, plan }: { controller: PlansController; plan: P
   const textId = useId();
   const paste = usePasteMark();
   const devices = controller.doc ? touchedDevices(controller.doc, controller.canon, plan) : [];
+  const termixWindow = useTermixWindow(plan, devicesOf(controller, plan));
   const left = checksLeft(plan);
   return (
     <>
@@ -356,7 +398,7 @@ function RecordMode({ controller, plan }: { controller: PlansController; plan: P
       ) : (
         controller.canEdit && (
           <p>
-            <button type="button" className="plans-btn btn-main" disabled={outcome == null || left > 0} onClick={() => outcome != null && void controller.record(outcome, text, paste.pasted)}>
+            <button type="button" className="plans-btn btn-main" disabled={outcome == null || left > 0} onClick={() => outcome != null && void controller.record(outcome, text, paste.pasted).then((ok) => (ok ? termixWindow.recorded() : undefined))}>
               Record
             </button>
             {left > 0 ? <span className="plans-note"> Answer the checks after the work first.</span> : outcome == null && <span className="plans-note"> Choose an outcome.</span>}
@@ -368,6 +410,7 @@ function RecordMode({ controller, plan }: { controller: PlansController; plan: P
           Saved to the history of <DeviceNames devices={devices} />
         </p>
       )}
+      <WindowNote planId={plan.id} />
       <BackOut controller={controller} plan={plan} />
       <ol className="plans-checklist plans-checklist--read">
         {plan.steps.map((s) => (
@@ -376,6 +419,7 @@ function RecordMode({ controller, plan }: { controller: PlansController; plan: P
               {s.state === 'done' ? '✓' : '≠'} {s.label} · {firstLine(s.change)}
             </p>
             {s.note !== '' && <p className="plans-step__note">{s.note}</p>}
+            <SeenKept step={s} />
             <StepFollowUp controller={controller} plan={plan} step={s} />
           </li>
         ))}

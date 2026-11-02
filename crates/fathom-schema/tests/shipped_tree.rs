@@ -114,8 +114,9 @@ fn shipped_tree_declaration_counts_hold() {
     // A device's own chosen version (schema 0.31): +1 (`Device.firmware_target`, 542).
     // Links between sites (schema 0.32): +2 field keys (543-544).
     // The plan-to-maintenance flow (schema 0.33): +7 field keys (545-551).
-    // The Work tab's ticket parts (schema 0.34): +7 field keys (552-558).
-    assert_eq!(fk.entries.len(), 493, "field-key registry entries");
+    // Termix in the work (schema 0.34): +3 field keys (552-554).
+    // The Work tab's ticket parts (schema 0.35): +7 field keys (555-561).
+    assert_eq!(fk.entries.len(), 496, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -208,8 +209,9 @@ fn shipped_tree_declaration_counts_hold() {
     // 0.30 -> 0.31 is a device's own chosen version: one optional `Device` field (542).
     // 0.31 -> 0.32 is links between sites: two optional `ExternalPeer` fields (543-544).
     // 0.32 -> 0.33 is the plan-to-maintenance flow: seven optional plan, step and issue fields (545-551).
-    // 0.33 -> 0.34 is the Work tab's ticket parts: seven optional fields (552-558), Notable widened.
-    assert_eq!(tree.version.as_deref(), Some("0.34"));
+    // 0.33 -> 0.34 is Termix in the work: `PlanStep.seen`, `.compared` and `PhysicalPort.console_baud` (552-554).
+    // 0.34 -> 0.35 is the Work tab's ticket parts: seven optional fields (555-561), Notable widened.
+    assert_eq!(tree.version.as_deref(), Some("0.35"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and

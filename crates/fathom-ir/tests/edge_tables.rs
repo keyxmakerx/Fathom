@@ -135,10 +135,11 @@ fn slot_type_covers_every_registry_key() {
     // 476 -> 477: `Device.firmware_target` (542, schema 0.31).
     // 477 -> 479: links between sites (543-544, schema 0.32).
     // 479 -> 486: the plan-to-maintenance flow (545-551, schema 0.33).
-    // 486 -> 493: the Work tab's ticket parts (552-558, schema 0.34).
+    // 486 -> 489: Termix in the work (552-554, schema 0.34).
+    // 489 -> 496: the Work tab's ticket parts (555-561, schema 0.35).
     assert_eq!(
         FIELD_KEYS.len(),
-        493,
+        496,
         "the registry the tables are cut from"
     );
     for (name, key) in FIELD_KEYS {
