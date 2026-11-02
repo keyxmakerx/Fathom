@@ -28,6 +28,7 @@ import { WaitingPanel } from './WaitingPanel';
 import { PasswordsPage } from '../vault/Screens';
 import { initialPageLink, showPageLink } from '../home/pageLink';
 import { FirmwareSettingsPage } from './FirmwareSettingsPage';
+import { shownRail } from './stewardRail';
 import './organisation.css';
 
 type Page =
@@ -40,7 +41,12 @@ type Page =
   | { kind: 'passwords' }
   | { kind: 'ai' }
   | { kind: 'ai-rules' }
-  | { kind: 'firmware' };
+  | { kind: 'firmware' }
+  // ADR-0088: reserved for the build threads; hidden in the rail until built, and until then they show People.
+  | { kind: 'teams' }
+  | { kind: 'device-reading' }
+  | { kind: 'order-types' }
+  | { kind: 'mail' };
 
 export interface OrganisationTabProps {
   organisation: Organisation;
@@ -336,29 +342,23 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
   return (
     <div className="org">
       <nav className="org-rail" aria-label="Steward">
-        <button type="button" className={current === 'people' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} aria-current={current === 'people' ? 'page' : undefined} onClick={() => go({ kind: 'people' })}>
-          People
-        </button>
-        {waitingReady && (
-          <button type="button" className={current === 'waiting' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} data-testid="rail-waiting" aria-current={current === 'waiting' ? 'page' : undefined} onClick={() => go({ kind: 'waiting' })}>
-            Waiting for you{needs > 0 ? ` (${needs})` : ''}
-          </button>
-        )}
-        <button type="button" className={current === 'folders' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} aria-current={current === 'folders' ? 'page' : undefined} onClick={() => go({ kind: 'folders' })}>
-          Folders
-        </button>
-        <button type="button" className={current === 'passwords' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} data-testid="rail-passwords" aria-current={current === 'passwords' ? 'page' : undefined} onClick={() => go({ kind: 'passwords' })}>
-          Passwords
-        </button>
-        <button type="button" className={current === 'ai' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} data-testid="rail-ai" aria-current={current === 'ai' ? 'page' : undefined} onClick={() => go({ kind: 'ai' })}>
-          AI
-        </button>
-        <button type="button" className={current === 'ai-rules' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} data-testid="rail-ai-rules" aria-current={current === 'ai-rules' ? 'page' : undefined} onClick={() => go({ kind: 'ai-rules' })}>
-          AI rules
-        </button>
-        <button type="button" className={current === 'firmware' ? 'org-rail__item org-rail__item--on' : 'org-rail__item'} data-testid="rail-firmware" aria-current={current === 'firmware' ? 'page' : undefined} onClick={() => go({ kind: 'firmware' })}>
-          Firmware
-        </button>
+        {shownRail({ waitingReady }).map((group) => (
+          <div className="org-rail__group" key={group.heading} role="group" aria-label={group.heading}>
+            <div className="org-rail__heading">{group.heading}</div>
+            {group.entries.map((entry) => (
+              <button
+                key={entry.page}
+                type="button"
+                className={current === entry.page ? 'org-rail__item org-rail__item--on' : 'org-rail__item'}
+                data-testid={entry.page === 'people' || entry.page === 'folders' ? undefined : `rail-${entry.page}`}
+                aria-current={current === entry.page ? 'page' : undefined}
+                onClick={() => go({ kind: entry.page })}
+              >
+                {entry.page === 'waiting' && needs > 0 ? `${entry.label} (${needs})` : entry.label}
+              </button>
+            ))}
+          </div>
+        ))}
       </nav>
       <div className="org__body">{content()}</div>
     </div>
