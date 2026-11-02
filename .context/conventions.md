@@ -77,14 +77,16 @@ what the detector needs.
 ## Hard invariants — every document must be consistent with these
 
 > **Standing note on invariants 1, 2 and 4. Read before arguing from them.**
-> ADR-0040 amends invariant 4, and its own text below carries the scoping. Invariants 1 and 2 are
-> unamended and every other invariant binds as written. But the owner has changed what 1 and 2 are
-> understood to scope, and several documents argue from the old reading:
+> ADR-0040 amends invariant 4 and ADR-0082 amends invariant 2 (2026-11-02); their own text below
+> carries the scoping. Invariant 1 is unamended and every other invariant binds as written. But the
+> owner has changed what 1 and 2 are understood to scope, and several documents argue from the old
+> reading:
 > - Invariant 1 applies "only for demo mode like it is currently" (owner, 2026-08-18), not to the full
 >   server solution. He took the server pivot (`docs/archive/40-stack/49-the-server-product.md` §1: data on the
 >   server, live multi-user editing, multi-tenant) and dropped the single offline HTML file.
-> - Invariant 2's "permanent product boundary" is contradicted by his stated long-term intent
->   (`48` §1, `49` §16): monitoring, config pulls, an SCP firmware distribution path.
+> - Invariant 2's "permanent product boundary" was contradicted by his stated long-term intent
+>   (`48` §1, `49` §16): monitoring, config pulls, an SCP firmware distribution path. ADR-0082
+>   closes that one: Fathom reads devices and never writes to them.
 >
 > This note amends nothing. Amending invariant 1 is `03`'s and the owner's (`48` §1, open decision 1);
 > ADR-0040 §9 item 3 does not touch it. Do not reason from "the product can never connect to anything,
@@ -98,8 +100,15 @@ what the detector needs.
    reporting. **Top-level navigation is covered by no CSP directive and is closed only by
    `sandbox`. Where `sandbox` cannot be delivered, that channel is open and the artifact must not
    hold secrets.**
-2. **The application never touches a network device.** No SSH, no NETCONF, no API. All output is
-   copy-paste. This is a permanent product boundary, not a phase-1 limitation.
+2. **The application reads from a network device and never writes to one.** A read is started by
+   a person, or by a schedule a person set, and uses a login from the vault that its owner chose to
+   let Fathom use. Fathom never changes a device's configuration or state, never sends an SNMP
+   SetRequest, never runs a command outside its fixed read-only list, and never acts on what it
+   read: a reading becomes suggestions or check answers, and a person accepts each one. Every change
+   to a device stays copy-paste, or a file a person runs. Scoped by ADR-0082 (read it before relying
+   on this paragraph); it formerly read "The application never touches a network device. No SSH, no
+   NETCONF, no API. All output is copy-paste. This is a permanent product boundary, not a phase-1
+   limitation."
 3. **The application stores no device credential IN THE DESIGN, and never stores one silently.**
    Scoped by ADR-0042 (read it before relying on this paragraph); it formerly read "The application
    stores no device credential". Fathom now keeps a credential vault, by owner decision. What binds: a
