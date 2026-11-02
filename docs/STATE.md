@@ -218,6 +218,15 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   memory becomes it; Undo reaches those 500. `verify?deep=true` checks a slim checkpoint against one
   compaction of the whole replay. History pages from the server, newest first
   (`…/history?newest=N&before=SEQ`); the panel asks for 100 entries at a time.
+- **The Work tab (ADR-0087, sign-offs r74, schema 0.35, 2026-11-02).** Home and the bar gain **Work**:
+  maintenance plans, troubleshooting issues and spares on order, in repair or lent, from every design
+  the caller may read, in **Now** and **Coming up and waiting**, with kind chips, a site filter, **Mine**
+  and finished work behind a button (`components/work/`). The estate index gains plan and issue rows
+  and gives each work row a Fathom number, `W-42`, per organisation and never reused (migration 0064,
+  `work_numbers`). `POST …/work/page` answers the rows, account names and who is in each design now;
+  the tab asks again every five seconds while it is shown. Plans, issues and spares gain `assigned_to`
+  (an account id, picked from those holding Draw) and `ticket` (an outside link, only http and https
+  open); issues gain `due`. Comments are notes on the item. On a phone the rows become cards.
 - **Who did what on the console, from where (sign-offs r52, 2026-10-27).** Every console and sign-in
   request writes an `access` line with the client's address and the proxy it came through
   (`access_log.rs`), also sent to `FATHOM_ACCESS_SYSLOG` when set, best effort (`access_ship.rs`).

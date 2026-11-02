@@ -704,6 +704,27 @@ impl Hub {
         true
     }
 
+    /// Who is in `design` now, here or through another process: `(account, name)`, once each,
+    /// by account. The Work tab shows them beside the work in that design (sign-off r74).
+    pub fn people_in(&self, design: &str) -> Vec<(String, String)> {
+        let h = self.lock();
+        let mut out: BTreeMap<String, String> = BTreeMap::new();
+        if let Some(people) = h.people.get(design) {
+            for account in people.keys() {
+                out.insert(account.clone(), Self::local_name(&h, design, account));
+            }
+        }
+        if let Some(people) = h.remote.get(design) {
+            let now = Instant::now();
+            for ((account, _), r) in people {
+                if now.duration_since(r.heard) < PRESENCE_TTL {
+                    out.entry(account.clone()).or_insert_with(|| r.name.clone());
+                }
+            }
+        }
+        out.into_iter().collect()
+    }
+
     /// The presence frame's JSON for `account`: itself, and the others in the
     /// same view (none until it has said which view it is in).
     fn presence_json(&self, design: &str, account: &str) -> String {

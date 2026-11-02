@@ -1,5 +1,6 @@
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 
+import { WorkFields } from '../work/WorkFields';
 import { getSession } from '../../state/sessionState';
 import { viewOfAll, type ClosetView } from '../../document/view';
 import { guessModel } from '../../document/guessModel';
@@ -24,6 +25,7 @@ import type { FieldDefView } from '../../document/fields';
 import { ListToolbar, type KindFilter } from './ListToolbar';
 import { isKind, kindNoun } from './kinds';
 import { listIssues } from '../../document/issues';
+import { isNodeOfKind } from '../../document/model';
 import { EverywherePanel } from './EverywherePanel';
 import { IssuesList } from '../troubleshoot/IssuesList';
 import { modelRows } from '../../document/firmware';
@@ -864,7 +866,7 @@ export function InventoryPlace(props: InventoryPlaceProps) {
             </div>
           ) : kind === 'issues' ? (
             <div className="inventory-place__main">
-              <IssuesList doc={doc} onShowOnCanvas={onShowIssue} />
+              <IssuesList doc={doc} onShowOnCanvas={onShowIssue} initialOpen={openKey != null && isNodeOfKind(openKey, 'Issue') ? openKey : null} work={(id) => <WorkFields id={id} />} />
             </div>
           ) : kind === 'parts' && doc && openKey && isStoreId(openKey) ? (
             // A scanned bin label opens here (ADR-0075).

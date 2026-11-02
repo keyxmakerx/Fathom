@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.34";
+export const SCHEMA_VERSION = "0.35";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -586,10 +586,10 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Doc: ["title", "body", "how", "model"],
   DocLink: ["title", "url"],
   DocFile: ["name", "size", "media", "checked", "removed", "file_id", "sha256"],
-  MaintenancePlan: ["title", "window_start", "window_end", "author", "stage", "outcome", "record", "checks", "release_notes"],
+  MaintenancePlan: ["title", "window_start", "window_end", "author", "stage", "outcome", "record", "checks", "release_notes", "assigned_to", "ticket"],
   PlanStep: ["ordinal", "kind", "targets", "change", "before", "after", "edit", "state", "note", "done_at", "if_when", "branch_of", "if_taken", "issue", "seen", "compared"],
   FieldValue: ["definition", "value"],
-  Issue: ["title", "device", "author", "opened_at", "stage", "outcome", "plan", "step"],
+  Issue: ["title", "device", "author", "opened_at", "stage", "outcome", "plan", "step", "assigned_to", "due", "ticket"],
   IssueStep: ["ordinal", "topic", "question", "detail", "targets", "answer", "note", "answered_at"],
   FirmwareTarget: ["model", "version", "platform", "image", "image_sha256", "note"],
   CableRun: ["form", "side", "label"],
@@ -602,7 +602,7 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Room: ["label", "floor"],
   RoomCorner: ["x_mm", "y_mm", "seq"],
   Store: ["name", "place", "note"],
-  StockItem: ["part", "model", "name", "serial", "count", "state", "bin", "optic", "due", "rma", "lent_to", "came_from", "note"],
+  StockItem: ["part", "model", "name", "serial", "count", "state", "bin", "optic", "due", "rma", "lent_to", "came_from", "note", "assigned_to", "ticket"],
   StockLevel: ["model", "at_least"],
 };
 
@@ -1097,4 +1097,11 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "PlanStep.seen": 552,
   "PhysicalPort.console_baud": 553,
   "PlanStep.compared": 554,
+  "MaintenancePlan.assigned_to": 555,
+  "MaintenancePlan.ticket": 556,
+  "Issue.assigned_to": 557,
+  "Issue.due": 558,
+  "Issue.ticket": 559,
+  "StockItem.assigned_to": 560,
+  "StockItem.ticket": 561,
 };

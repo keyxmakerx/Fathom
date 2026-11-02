@@ -86,6 +86,7 @@ export function Shell({
   onShowAllHiddenCables,
   sideTabs,
   mainView,
+  work,
   designExtra,
   doing,
   layersExtra,
@@ -297,6 +298,7 @@ export function Shell({
         hiddenCablesCount={hiddenCablesCount}
         onShowAllHiddenCables={onShowAllHiddenCables}
         mainView={mainView}
+        work={work}
         designExtra={designExtra}
         doing={doing}
         toolsOnCanvas={toolsOnCanvas}

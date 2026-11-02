@@ -504,11 +504,11 @@ fn a_plain_face_payload(seed: u128) -> Vec<u8> {
 }
 
 /// ADR-0049 #4's wire number for the schema version currently declared on
-/// line 3 of every payload [`a_plain_face_payload`] writes -- `"0.33"` at time
+/// line 3 of every payload [`a_plain_face_payload`] writes -- `"0.34"` at time
 /// of writing, whose minor component this is. Kept as its own named constant
 /// rather than a bare `14` at each call site so a future schema bump has one
 /// place to change.
-const CURRENT_SCHEMA_WIRE_VERSION: u32 = 34;
+const CURRENT_SCHEMA_WIRE_VERSION: u32 = 35;
 
 fn save_body(schema_version: u32, payload: &[u8]) -> Vec<u8> {
     let mut out = schema_version.to_le_bytes().to_vec();
@@ -7762,4 +7762,227 @@ async fn a_saved_device_is_found_across_the_estate_and_only_by_those_who_may_rea
         text.contains("\"here\"") && text.contains(&hostname),
         "an index from before port terms still answers: {text}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// The Work tab (sign-off r74)
+// ---------------------------------------------------------------------------
+
+/// A design with one maintenance plan, assigned to `assignee`, and one closed issue.
+fn a_payload_with_work(seed: u128, title: &str, assignee: &str) -> (Vec<u8>, String, String) {
+    use fathom_ir::generated::ir_types::{
+        IssueField, IssueStage, MaintenancePlanField, MaintenancePlanStage,
+    };
+    let prov = ProvenanceRecord {
+        id: ProvenanceId(Ulid(seed * 10 + 2)),
+        origin: Origin::Hand,
+        asserted_at: Timestamp(0),
+        asserted_by: Actor::User(UserId(Ulid(seed * 10 + 3))),
+        confidence: Confidence::Asserted,
+        supersedes: None,
+    };
+    let mut g = Graph::new();
+    g.begin_batch(BatchId(Ulid(seed * 10)), "work fixture")
+        .expect("open batch");
+    let plan = g
+        .insert_node(NodeKind::MaintenancePlan, Ulid(seed * 10 + 1), prov.clone())
+        .expect("plan");
+    g.set_field(
+        plan.into(),
+        MaintenancePlanField::Title.key(),
+        scalar::Text(title.into()),
+        prov.clone(),
+    )
+    .expect("title");
+    g.set_field(
+        plan.into(),
+        MaintenancePlanField::Stage.key(),
+        MaintenancePlanStage::from_token("planned"),
+        prov.clone(),
+    )
+    .expect("stage");
+    g.set_field(
+        plan.into(),
+        MaintenancePlanField::AssignedTo.key(),
+        scalar::Text(assignee.into()),
+        prov.clone(),
+    )
+    .expect("assigned");
+    g.set_field(
+        plan.into(),
+        MaintenancePlanField::Ticket.key(),
+        scalar::Text("https://jira.example.com/browse/NET-42".into()),
+        prov.clone(),
+    )
+    .expect("ticket");
+    let device = g
+        .insert_node(NodeKind::Device, Ulid(seed * 10 + 5), prov.clone())
+        .expect("device")
+        .to_string();
+    let issue = g
+        .insert_node(NodeKind::Issue, Ulid(seed * 10 + 4), prov.clone())
+        .expect("issue");
+    for (key, value) in [
+        (IssueField::Title.key(), "uplink flapping"),
+        (IssueField::Device.key(), device.as_str()),
+        (IssueField::OpenedAt.key(), "2026-11-01T10:00:00Z"),
+    ] {
+        g.set_field(issue.into(), key, scalar::Text(value.into()), prov.clone())
+            .expect("issue field");
+    }
+    g.set_field(
+        issue.into(),
+        IssueField::Stage.key(),
+        IssueStage::from_token("closed"),
+        prov,
+    )
+    .expect("issue stage");
+    g.end_batch().expect("close batch");
+    (
+        fathom_workspace::write_plain(&g).expect("a graph this crate built must write"),
+        plan.to_string(),
+        issue.to_string(),
+    )
+}
+
+/// **Every plan and issue in a design reaches the Work tab with a Fathom number, open work and
+/// finished work apart, and only for those who may read the design.** The number finds the work
+/// from Search, the title is not stored in the clear, and the design's own route names the
+/// numbers and who may be assigned there.
+#[tokio::test]
+async fn work_reaches_the_work_tab_with_a_fathom_number_and_only_for_readers() {
+    let _site = support::lock_the_site_chain().await;
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let (_scope, design) = a_scope_and_design(&pool, &estate).await;
+    let drawer = a_member_with(&pool, &ring, &estate, "drawer", Some(Capability::Draw)).await;
+    let reader = a_member_with(&pool, &ring, &estate, "reader", Some(Capability::Read)).await;
+    let outsider = a_member_with(&pool, &ring, &estate, "outsider", None).await;
+    let addr = serve(app(&pool, Arc::clone(&ring), Vec::new()).await).await;
+
+    let title = unique("junos-upgrade");
+    let (payload, plan, issue) = a_payload_with_work(43, &title, &drawer.account.to_string());
+    let versions_path = format!(
+        "/organisations/{}/designs/{}/versions?base=0",
+        estate.organisation, design
+    );
+    let (status, body) = call(
+        addr,
+        &drawer,
+        "POST",
+        &versions_path,
+        &save_body(CURRENT_SCHEMA_WIRE_VERSION, &payload),
+    )
+    .await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+
+    let work = format!("/organisations/{}/work/page", estate.organisation);
+    let open = canon(vec![]);
+    let mut text = String::new();
+    for _ in 0..40 {
+        let (status, body) = call(addr, &reader, "POST", &work, &open).await;
+        assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+        text = String::from_utf8_lossy(&body).into_owned();
+        if text.contains(&title) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    let answer = fathom_canon::Json::parse_canonical(text.as_bytes()).expect("canonical JSON");
+    let fathom_canon::Json::Obj(answer) = answer else {
+        panic!("an object")
+    };
+    let Some(fathom_canon::Json::Arr(hits)) = answer.get("hits") else {
+        panic!("hits: {text}")
+    };
+    assert_eq!(hits.len(), 1, "only the open plan: {text}");
+    let fathom_canon::Json::Obj(row) = &hits[0] else {
+        panic!("a row")
+    };
+    assert_eq!(row.get("element"), Some(&jstr(&plan)));
+    assert_eq!(row.get("kind"), Some(&jstr("plan")));
+    let Some(fathom_canon::Json::Int(number)) = row.get("number") else {
+        panic!("a Fathom number: {text}")
+    };
+    assert!(*number >= 1);
+    assert!(text.contains("NET-42"), "the outside ticket: {text}");
+    match answer.get("people") {
+        Some(fathom_canon::Json::Obj(p)) => assert!(
+            p.contains_key(&drawer.account.to_string()),
+            "the assignee is named: {text}"
+        ),
+        _ => panic!("people: {text}"),
+    }
+
+    let (status, body) = call(
+        addr,
+        &reader,
+        "POST",
+        &work,
+        &canon(vec![("done", fathom_canon::Json::Bool(true))]),
+    )
+    .await;
+    assert_eq!(status, "200");
+    let done = String::from_utf8_lossy(&body);
+    assert!(
+        done.contains(&issue) && !done.contains(&title),
+        "finished work apart: {done}"
+    );
+
+    let (status, body) = call(addr, &outsider, "POST", &work, &open).await;
+    assert_eq!(status, "200");
+    assert!(
+        !String::from_utf8_lossy(&body).contains(&title),
+        "a member with no grant sees no work"
+    );
+
+    // The number finds the plan from Search.
+    let search = format!("/organisations/{}/estate/search", estate.organisation);
+    let (_, body) = call(
+        addr,
+        &reader,
+        "POST",
+        &search,
+        &canon(vec![("q", jstr(&format!("W-{number}")))]),
+    )
+    .await;
+    assert!(String::from_utf8_lossy(&body).contains(&title));
+
+    let su = support::superuser_client_on_test_database().await;
+    let leaked: i64 = su
+        .query_one(
+            "SELECT count(*) FROM estate_rows WHERE position($1::bytea IN sealed) > 0",
+            &[&title.as_bytes()],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(leaked, 0, "the title is not stored in the clear");
+
+    // The design's own route: its numbers, and who may be assigned there (Draw on its folder).
+    let mine = format!(
+        "/organisations/{}/designs/{}/work",
+        estate.organisation, design
+    );
+    let (status, body) = call(addr, &reader, "POST", &mine, &canon(vec![])).await;
+    assert_eq!(status, "200", "{}", String::from_utf8_lossy(&body));
+    let text = String::from_utf8_lossy(&body);
+    assert!(text.contains(&plan) && text.contains(&issue), "{text}");
+    assert!(text.contains(&drawer.account.to_string()), "{text}");
+    assert!(
+        !text.contains(&reader.account.to_string())
+            && !text.contains(&outsider.account.to_string()),
+        "only those who can draw there: {text}"
+    );
+    let (status, _) = call(addr, &outsider, "POST", &mine, &canon(vec![])).await;
+    assert_ne!(
+        status, "200",
+        "someone who cannot read the design is refused"
+    );
+
+    // A rebuild keeps the numbers it gave.
+    let (status, body) = call(addr, &reader, "POST", &mine, &canon(vec![])).await;
+    assert_eq!(status, "200");
+    assert!(String::from_utf8_lossy(&body).contains(&format!("\"{plan}\":{number}")));
 }

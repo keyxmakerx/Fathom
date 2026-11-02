@@ -6,6 +6,7 @@
 // Who uses it and why (r38): whoever keeps the spares cupboard, to know what is on hand before a swap; whoever
 // plans a swap, to keep one for the step; a teacher, to show a lab's spares. Read sees it; Draw edits it.
 
+import { WorkFields } from '../work/WorkFields';
 import { useId, useMemo, useState, type ReactNode } from 'react';
 
 import { readFacts } from '../../document/facts';
@@ -105,6 +106,11 @@ function stateLine(doc: Document, i: StockItemView): string {
 // ---------------------------------------------------------------------------
 // One item, opened
 
+/** On order, away for repair or lent: the Work tab lists it. */
+function isOut(state: string): boolean {
+  return state === 'on_order' || state === 'in_repair' || state === 'lent';
+}
+
 function ItemDetail({ doc, item, canDraw, apply, fieldDefs }: { doc: Document; item: StockItemView; canDraw: boolean; apply: (next: Document) => void; fieldDefs: readonly FieldDefView[] }) {
   const stores = listStores(doc);
   const issues = useMemo(() => listIssues(doc).filter((i) => i.stage !== 'closed'), [doc]);
@@ -134,6 +140,7 @@ function ItemDetail({ doc, item, canDraw, apply, fieldDefs }: { doc: Document; i
         {item.cameFrom ? <p className="stock__note">Came from {item.cameFrom}.</p> : null}
         {item.note ? <p className="stock__note">{item.note}</p> : null}
         <p className="stock__note">Read only. Switch to Draw to change stock.</p>
+        {isOut(item.state) ? <WorkFields id={item.id} /> : null}
       </div>
     );
   }
@@ -374,6 +381,8 @@ function ItemDetail({ doc, item, canDraw, apply, fieldDefs }: { doc: Document; i
         </form>
       ) : null}
       {error ? <p className="stock__error">{error}</p> : null}
+      {/* Sign-off r74: a spare on order, away or lent is a piece of work. */}
+      {isOut(item.state) ? <WorkFields id={item.id} /> : null}
     </div>
   );
 }
