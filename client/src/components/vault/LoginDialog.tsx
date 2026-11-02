@@ -35,6 +35,7 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
   const [note, setNote] = useState(secret?.note ?? '');
   const [shown, setShown] = useState(false);
   const [devices, setDevices] = useState<UsedOn[]>(entry?.usedOn ?? usedOn ?? []);
+  const [readOnly, setReadOnly] = useState(entry?.readOnly ?? false);
   const [others, setOthers] = useState<string[]>(entry ? holderAccounts(entry).filter((a) => a !== overview.me) : []);
   const [aloneOk, setAloneOk] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -49,7 +50,8 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
   const secretChanged = entry != null && secret != null && (username !== secret.username || password !== secret.password || note !== secret.note);
   const holdersChanged = entry != null && (removed.length > 0 || others.some((a) => !holderAccounts(entry).includes(a)));
   const detailsChanged =
-    entry != null && (name !== entry.name || kind !== entry.kind || JSON.stringify(devices) !== JSON.stringify(entry.usedOn));
+    entry != null &&
+    (name !== entry.name || kind !== entry.kind || readOnly !== entry.readOnly || JSON.stringify(devices) !== JSON.stringify(entry.usedOn));
 
   const deviceChoices = useMemo(() => {
     if (!place) return [];
@@ -99,11 +101,11 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
         onDone(saved);
       };
       if (!entry) {
-        done(await storeLogin(organisation, recipients, { name: name.trim(), kind, usedOn: devices, secret: { username, password, note } }));
+        done(await storeLogin(organisation, recipients, { name: name.trim(), kind, usedOn: devices, readOnly, secret: { username, password, note } }));
         return;
       }
       let current = entry;
-      if (detailsChanged) current = await renameLogin(organisation, entry.id, { ifVersion: current.version, name: name.trim(), kind, usedOn: devices });
+      if (detailsChanged) current = await renameLogin(organisation, entry.id, { ifVersion: current.version, name: name.trim(), kind, usedOn: devices, readOnly });
       if (secretChanged || holdersChanged) {
         current = await reshareLogin(organisation, current, recipients, secretChanged ? 'changed' : 'shared', { username, password, note });
       }
@@ -187,6 +189,17 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
             </span>
           </label>
         </div>
+        {(kind === 'login' || kind === 'snmp') && (
+          <div className="vault-field">
+            <label className="vault-check">
+              <input type="checkbox" checked={readOnly} onChange={(e) => setReadOnly(e.target.checked)} data-testid="vault-read-only" /> This is a read-only account
+            </label>
+            <p className="vault-small">
+              Tick it only if the device itself lets this account read and not change anything, such as an SNMPv3 user with no write view or
+              a read-only role. Fathom can’t check that, so it reads a device only with a login that carries this tick.
+            </p>
+          </div>
+        )}
         <label className="vault-field">
           <span className="vault-field__label">Note (sealed with the password)</span>
           <textarea className="vault-input vault-textarea" value={note} onChange={(e) => setNote(e.target.value)} rows={2} />

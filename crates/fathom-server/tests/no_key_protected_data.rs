@@ -293,6 +293,13 @@ const TABLES: &[TableClaim] = &[
               and no Termix key.",
     },
     TableClaim {
+        name: "organisation_device_read",
+        protection: Protection::NoKeyProtectedMaterial,
+        why: "Device reading switched on for an organisation, and the management ranges a read \
+              may reach (0067): an id, one boolean, address ranges with their ports, who set them \
+              and when. No login, no community string and nothing a device answered.",
+    },
+    TableClaim {
         name: "member_termix",
         protection: Protection::NoKeyProtectedMaterial,
         why: "Termix switched off for one person (0056): ids, one boolean, who set it and when. \

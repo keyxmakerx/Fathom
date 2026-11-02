@@ -464,6 +464,7 @@ async fn app(
         termix: Some(
             fathom_server::termix::Termix::parse("https://termix.example.lan").expect("an origin"),
         ),
+        device_reader: None,
     };
     fathom_server::api::router(api_state).merge(design_api::router(design_state))
 }

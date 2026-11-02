@@ -369,6 +369,30 @@ with a management address gets "Open in Termix", and that one origin is added to
   hides Termix in Fathom and stops the server giving out its address; it does not stop someone who
   knows the address opening Termix themselves. To take Termix from a person, revoke their key in Termix.
 
+### Device reading (ADR-0082)
+
+**`FATHOM_DEVICE_READ`** is `off` unless set to `on`; anything else is refused at startup (exit
+code 2). On, the server talks to the reader over the Unix socket **`FATHOM_DEVICE_READER`**
+(default `/run/fathom-reader/reader.sock`, which must be absolute). The reader is its own image
+(`ghcr.io/keyxmakerx/fathom-reader`) and compose profile:
+
+```sh
+FATHOM_DEVICE_READ=on docker compose --profile reader up -d
+```
+
+- **The server never opens a connection to a device.** Only the reader does, from its own network
+  (`reader` in `compose.yaml`), and the server reaches it only through the socket, which the
+  server's container mounts read-only.
+- **On here is not on everywhere.** Each organisation's Steward turns reading on for that
+  organisation and lists the management ranges a read may reach (Steward › Device reading). A
+  range is /8 or narrower for IPv4 and /32 or narrower for IPv6; loopback, link-local, multicast,
+  reserved and unspecified addresses are refused whatever is listed. Each change is on the
+  organisation's history as `device_read_set`.
+- Admin › Settings › Device reading shows whether this server reads and whether its reader is
+  answering. It cannot change either: change the variable and restart.
+- This part carries the switches and the socket only. The reader answers a ping and nothing else
+  until SNMPv3 and SSH reads arrive in the parts after it.
+
 ### Termix's add-ons, and the way without each (ADR-0080)
 
 Fathom uses four of Termix's add-ons when they are there, and one switch of its own. Each works

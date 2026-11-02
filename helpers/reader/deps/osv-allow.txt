@@ -1,0 +1,3 @@
+# OSV.dev allow-list for the device reader's lockfile only (scripts/gate-reader.sh). Fathom's own
+# is deps/osv-allow.txt, and the format and rules are that file's. Empty: serde_json's closure has
+# no finding. The rsa advisory the owner accepted on r87-reader-packages arrives with russh.

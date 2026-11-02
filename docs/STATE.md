@@ -726,6 +726,16 @@ gone. Proved against a real Termix 26.10.6 in CI (the `termix` job, `scripts/dri
 decision 1); that run found Termix refuses a new host without `authType` since 26.10.2, so Fathom now sends
 `authType: none`.
 
+**Device reading, part one** (ADR-0082 §4.3 and §4.4; migration 0067; `src/device_read.rs`,
+`src/device_read_admin.rs`, `helpers/reader/`, `components/organisation/DeviceReadingPage.tsx`). The
+switches and the reader's socket, no reads yet. The operator allows reading with `FATHOM_DEVICE_READ=on`
+and the `reader` compose profile (its own image, network and gate, `scripts/gate-reader.sh`); Admin ›
+Settings shows it, read-only. A Steward then turns it on per organisation and lists the management ranges
+(Steward › Device reading, `device_read_set` on the organisation's history); loopback, link-local,
+multicast and reserved addresses are refused whatever is listed. A vault login or SNMP entry can be marked
+read-only (sealed in its details, shown on the Logins card). The reader answers a ping, proved through
+its socket in CI (the `reader` job). SNMPv3 and SSH reads are parts two and three.
+
 **Termix in the work** (ADR-0080 decisions 2 to 11; schema 0.34, field keys 552-554; migration 0063;
 `components/termix/`, `components/plans/SeenBox.tsx`, `components/plans/checkSeen.ts`). Every part is
 optional and has its plain way beside it (OPERATING.md, "Termix's add-ons"). A plan lists its devices with

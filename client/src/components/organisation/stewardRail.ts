@@ -50,7 +50,7 @@ export const STEWARD_RAIL: readonly StewardGroup[] = [
     entries: [
       { page: 'folders', label: 'Folders', built: true, owner: 'built' },
       { page: 'firmware', label: 'Firmware', built: true, owner: 'built' },
-      { page: 'device-reading', label: 'Device reading', built: false, owner: 'ADR-0082 device reading' },
+      { page: 'device-reading', label: 'Device reading', built: true, owner: 'ADR-0082 device reading' },
     ],
   },
   {

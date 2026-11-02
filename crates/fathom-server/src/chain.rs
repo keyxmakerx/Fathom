@@ -451,6 +451,9 @@ pub enum EntryType {
     /// A record of the IP plan store was deleted, or a reservation released: its `record`
     /// id, `kind`, last `version` and the `actor`.
     IpamRecordDeleted,
+    /// A Steward turned device reading on or off, or changed its management ranges (ADR-0082
+    /// §4.4, migration `0067`): `on`, the whole `ranges` list after the change, and the `actor`.
+    DeviceReadSet,
 
     // ---- The password vault, Mode A (migration 0041, storage §13.4) ---------
     //
@@ -682,6 +685,7 @@ impl EntryType {
             Self::IpamRecordCreated => "ipam_record_created",
             Self::IpamRecordChanged => "ipam_record_changed",
             Self::IpamRecordDeleted => "ipam_record_deleted",
+            Self::DeviceReadSet => "device_read_set",
             Self::VaultKeyEnrolled => "vault_key_enrolled",
             Self::VaultKeySuperseded => "vault_key_superseded",
             Self::VaultEntryCreated => "vault_entry_created",
@@ -790,6 +794,7 @@ impl EntryType {
             "ipam_record_created" => Some(Self::IpamRecordCreated),
             "ipam_record_changed" => Some(Self::IpamRecordChanged),
             "ipam_record_deleted" => Some(Self::IpamRecordDeleted),
+            "device_read_set" => Some(Self::DeviceReadSet),
             "vault_key_enrolled" => Some(Self::VaultKeyEnrolled),
             "vault_key_superseded" => Some(Self::VaultKeySuperseded),
             "vault_entry_created" => Some(Self::VaultEntryCreated),
@@ -915,6 +920,7 @@ impl EntryType {
             | Self::IpamRecordCreated
             | Self::IpamRecordChanged
             | Self::IpamRecordDeleted
+            | Self::DeviceReadSet
             | Self::VaultKeyEnrolled
             | Self::VaultKeySuperseded
             | Self::VaultEntryCreated

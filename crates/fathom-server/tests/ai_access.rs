@@ -363,6 +363,7 @@ async fn app_with(
         invitation_limits: fathom_server::invitations::Limits::STANDARD,
         ai_connector: connector,
         termix: None,
+        device_reader: None,
     };
     fathom_server::api::router(api_state)
         .merge(design_api::router(design_state))
