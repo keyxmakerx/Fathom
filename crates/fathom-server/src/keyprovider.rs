@@ -523,31 +523,46 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Writes an executable `#!/bin/sh` script at `path`, from a child shell
+    /// rather than from this process.
+    ///
+    /// Tests run on parallel threads. If this process held the script open
+    /// for writing while another test thread forked to run its own command,
+    /// the forked child would carry that write handle until it exec'd, and
+    /// running the script in that window fails with "text file busy"
+    /// (ETXTBSY): `CommandFailedToStart` instead of what the test checks.
+    /// That flake failed the gates on main on 2026-11-02. Writing from a
+    /// child keeps the write handle out of this process entirely.
+    fn write_script(path: &Path, body: &str) {
+        let status = std::process::Command::new("/bin/sh")
+            .args([
+                "-c",
+                r#"printf '#!/bin/sh\n%s\n' "$1" > "$2" && chmod 700 "$2""#,
+                "sh",
+                body,
+            ])
+            .arg(path)
+            .status()
+            .expect("run /bin/sh to write a test script");
+        assert!(status.success(), "writing the test script failed");
+    }
+
     #[test]
     fn a_command_key_is_read_from_standard_output_and_a_failing_command_is_not_a_key() {
-        use std::io::Write;
-        use std::os::unix::fs::PermissionsExt;
-
         let dir = std::env::temp_dir().join(format!("fathom-cmdtest-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         let hex = "ab".repeat(KEY_LEN);
         let good = dir.join("good.sh");
-        let mut f = std::fs::File::create(&good).unwrap();
-        writeln!(f, "#!/bin/sh\nprintf '%s' {hex}").unwrap();
-        drop(f);
-        std::fs::set_permissions(&good, std::fs::Permissions::from_mode(0o700)).unwrap();
+        write_script(&good, &format!("printf '%s' {hex}"));
         assert_eq!(
             KeySource::Command(good).load(false).unwrap().expose(),
             &[0xabu8; KEY_LEN]
         );
 
         let bad = dir.join("bad.sh");
-        let mut f = std::fs::File::create(&bad).unwrap();
-        writeln!(f, "#!/bin/sh\nexit 3").unwrap();
-        drop(f);
-        std::fs::set_permissions(&bad, std::fs::Permissions::from_mode(0o700)).unwrap();
+        write_script(&bad, "exit 3");
         assert_eq!(
             KeySource::Command(bad).load(false).unwrap_err(),
             KeyError::CommandFailed
@@ -621,19 +636,13 @@ mod tests {
 
     #[test]
     fn a_key_command_that_never_finishes_is_killed_rather_than_holding_startup_open() {
-        use std::io::Write;
-        use std::os::unix::fs::PermissionsExt;
-
         let dir = std::env::temp_dir().join(format!("fathom-hangtest-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         // A wrapper whose KMS endpoint is unreachable, in one line.
         let hangs = dir.join("hangs.sh");
-        let mut f = std::fs::File::create(&hangs).unwrap();
-        writeln!(f, "#!/bin/sh\nsleep 60").unwrap();
-        drop(f);
-        std::fs::set_permissions(&hangs, std::fs::Permissions::from_mode(0o700)).unwrap();
+        write_script(&hangs, "sleep 60");
 
         let started = std::time::Instant::now();
         assert_eq!(
@@ -650,19 +659,13 @@ mod tests {
 
     #[test]
     fn a_key_command_that_streams_is_bounded_rather_than_read_whole() {
-        use std::io::Write;
-        use std::os::unix::fs::PermissionsExt;
-
         let dir = std::env::temp_dir().join(format!("fathom-streamtest-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         let streams = dir.join("streams.sh");
-        let mut f = std::fs::File::create(&streams).unwrap();
         // Far more than any key, and nothing this process should hold.
-        writeln!(f, "#!/bin/sh\nyes AAAAAAAAAAAAAAAA | head -c 200000").unwrap();
-        drop(f);
-        std::fs::set_permissions(&streams, std::fs::Permissions::from_mode(0o700)).unwrap();
+        write_script(&streams, "yes AAAAAAAAAAAAAAAA | head -c 200000");
 
         assert_eq!(
             load_command_within(&streams, std::time::Duration::from_secs(5), 4096).unwrap_err(),
