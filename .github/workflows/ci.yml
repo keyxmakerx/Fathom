@@ -379,15 +379,17 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends snmpd
           snmpd -v | head -3
+          # The package starts its own agent under a profile that reads only /etc/snmp; stop it
+          # and run one from the standard places with this config, as root, as a device would.
+          sudo systemctl stop snmpd || true
           ADDR=$(hostname -I | awk '{print $1}')
-          mkdir -p "$RUNNER_TEMP/snmpd"
-          sed "s/@ADDR@/$ADDR/" scripts/ci/reader-snmpd.conf > "$RUNNER_TEMP/snmpd/snmpd.conf"
-          SNMP_PERSISTENT_DIR="$RUNNER_TEMP/snmpd" snmpd -C -c "$RUNNER_TEMP/snmpd/snmpd.conf" \
-            -Lf "$RUNNER_TEMP/snmpd/snmpd.log" -p "$RUNNER_TEMP/snmpd/snmpd.pid" -u "$(id -u)"
-          sleep 2
+          sed "s/@ADDR@/$ADDR/" scripts/ci/reader-snmpd.conf | sudo tee /etc/snmp/snmpd.conf >/dev/null
+          trap 'sudo cat /tmp/fathom-snmpd.log || true' EXIT
+          sudo snmpd -C -c /etc/snmp/snmpd.conf -Lf /tmp/fathom-snmpd.log -p /tmp/fathom-snmpd.pid
+          for i in $(seq 1 20); do ss -lun | grep -q ":16161 " && break; sleep 1; done
+          ss -lun | grep ":16161 "
           FATHOM_READER_TEST_AGENT="$ADDR:16161" \
             cargo test --manifest-path helpers/reader/Cargo.toml --locked --test agent -- --nocapture
-          cat "$RUNNER_TEMP/snmpd/snmpd.log"
 
       - name: Build the image and ping it, locked down as compose runs it
         run: |
