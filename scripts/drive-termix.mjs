@@ -464,12 +464,12 @@ async function runProof(ctx, seed) {
   check('T12a. the plan reminds the person to pause their own alerting', (await planPanel.getByTestId('alerting-reminder').count()) === 1);
   const windowBox = planPanel.getByTestId('termix-window').locator('input[type=checkbox]');
   check('T12b. putting the devices into maintenance in Termix is offered, ticked', (await windowBox.count()) === 1 && (await windowBox.isChecked()));
-  await planPanel.getByRole('button', { name: 'Start work' }).click();
+  await planPanel.getByRole('button', { name: 'Start the maintenance' }).click();
   const current = planPanel.locator('[data-testid=plans-step][data-state=current]');
   await current.waitFor({ timeout: 10000 });
   const windowSaid = planPanel.getByTestId('termix-window-said');
   await windowSaid.waitFor({ timeout: 15000 });
-  check('T12c. Start work put router-1 into maintenance in Termix, and says so', /^Put 1 device into maintenance in Termix/.test(await windowSaid.innerText()), await windowSaid.innerText());
+  check('T12c. Start the maintenance put router-1 into maintenance in Termix, and says so', /^Put 1 device into maintenance in Termix/.test(await windowSaid.innerText()), await windowSaid.innerText());
   const inMaint = await termixCall(TERMIX, 'GET', `/plugin-api/automations/maintenance/${router.id}`, { bearer: key.token });
   check('T12d. Termix has router-1 in maintenance, with the plan’s name as the reason', Array.isArray(inMaint.json?.active?.reasons) && inMaint.json.active.reasons.some((x) => /^Fathom: /.test(x)), inMaint.text.slice(0, 300));
   // ---- T13. Termix's up or down (ADR-0080 decision 7) ------------------------------------------
