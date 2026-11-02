@@ -6,8 +6,9 @@
 # (ADR-0032 item 5). It builds only when an operator switches the compose `reader` profile on, and
 # answers the server over one Unix socket (README.md here).
 #
-# This first part answers `ping` only. SNMPv3 (its own encoder on RustCrypto pieces) and SSH
-# (russh 0.65.0 on ring) are added in the next parts, each with its records in deps/decisions/.
+# SNMPv3 is Fathom's own encoder on RustCrypto pieces (r87 question 1 A): HMAC with SHA-1 or
+# SHA-2, AES-128 in CFB mode, and the operating system's random source for the AES salt. SSH
+# (russh 0.65.0 on ring) comes in the next part, with its records in deps/decisions/.
 [workspace]
 
 [package]
@@ -20,6 +21,13 @@ publish = false
 [dependencies]
 # The version the Passbolt helper already records.
 serde_json = "=1.0.154"
+# SNMPv3's USM (RFC 3414, RFC 7860) and its privacy (RFC 3826). The versions measured for r87.
+hmac = "=0.13.0"
+sha1 = "=0.11.0"
+sha2 = "=0.11.1"
+aes = "=0.9.3"
+cfb-mode = "=0.9.1"
+getrandom = "=0.3.4"
 
 [profile.release]
 panic = "abort"

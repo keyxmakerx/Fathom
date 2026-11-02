@@ -4,9 +4,9 @@
 #
 # The owner approved the reader's packages on sign-off card r87-reader-packages, 2026-11-02:
 # Fathom's own SNMPv3 encoder on RustCrypto pieces, russh 0.65.0 on ring with RSA host keys, the
-# rsa advisory, two release candidates and the measured size. Those packages arrive in the next
-# parts with their records; this lock holds serde_json's closure only, so no advisory is ignored
-# yet and ring is still denied here.
+# rsa advisory, two release candidates and the measured size. The SNMPv3 part adds the RustCrypto
+# pieces, with their records; russh arrives with SSH. No advisory is ignored yet and ring is still
+# denied here.
 
 [graph]
 all-features = true

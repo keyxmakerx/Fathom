@@ -371,6 +371,26 @@ jobs:
       - name: Tests
         run: cargo test --manifest-path helpers/reader/Cargo.toml --locked
 
+      # CLAUDE.md rule 2: the SNMPv3 code is tested against a real agent, not against itself.
+      # net-snmp's snmpd with one read-only user per protocol Fathom offers, and one it refuses.
+      - name: Read a real SNMPv3 agent (net-snmp)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends snmpd
+          snmpd -v | head -3
+          # The package starts its own agent under a profile that reads only /etc/snmp; stop it
+          # and run one from the standard places with this config, as root, as a device would.
+          sudo systemctl stop snmpd || true
+          ADDR=$(hostname -I | awk '{print $1}')
+          sed "s/@ADDR@/$ADDR/" scripts/ci/reader-snmpd.conf | sudo tee /etc/snmp/snmpd.conf >/dev/null
+          trap 'sudo cat /tmp/fathom-snmpd.log || true' EXIT
+          sudo snmpd -C -c /etc/snmp/snmpd.conf -Lf /tmp/fathom-snmpd.log -p /tmp/fathom-snmpd.pid
+          for i in $(seq 1 20); do ss -lun | grep -q ":16161 " && break; sleep 1; done
+          ss -lun | grep ":16161 "
+          FATHOM_READER_TEST_AGENT="$ADDR:16161" \
+            cargo test --manifest-path helpers/reader/Cargo.toml --locked --test agent -- --nocapture
+
       - name: Build the image and ping it, locked down as compose runs it
         run: |
           set -euo pipefail

@@ -1,7 +1,7 @@
 //! **Fathom's device reader** (ADR-0082 §4.3). The only part of Fathom that may open a connection
 //! to a network device, and only to read: SNMPv3 GetRequest, GetNextRequest and GetBulkRequest, and
 //! SSH `exec` of an exact command from a fixed per-platform list. Nothing here can write to a
-//! device. This first part answers `ping`; the reads come in the next parts.
+//! device. It answers `ping` and `snmp_read`; SSH comes in the next part.
 //!
 //! # The protocol
 //!
@@ -17,6 +17,12 @@
 //! the reader that produced it ([`READER_ID`], `local` here).
 
 use serde_json::{json, Map, Value};
+
+pub mod address;
+pub mod ber;
+pub mod purposes;
+pub mod snmp;
+pub mod usm;
 
 /// The longest frame either way.
 pub const MAX_FRAME: usize = 1024 * 1024;
@@ -68,14 +74,203 @@ fn run(m: &Map<String, Value>) -> Result<Value, Refused> {
         Some(_) => return Err(refused("this reader speaks protocol 1 only")),
         None => return Err(refused("the request has no protocol")),
     }
-    let allowed: &[&str] = match field(m, "op")? {
-        "ping" => &["op", "protocol"],
-        _ => return Err(refused("unknown step")),
-    };
-    if let Some(k) = m.keys().find(|k| !allowed.contains(&k.as_str())) {
-        return Err(refused(format!("the request has an unknown field {k}")));
+    match field(m, "op")? {
+        "ping" => {
+            only(m, &["op", "protocol"])?;
+            Ok(json!({ "maxDeviceConnections": MAX_DEVICE_CONNECTIONS }))
+        }
+        "snmp_read" => {
+            only(m, &["op", "protocol", "job", "login"])?;
+            snmp_read(m)
+        }
+        _ => Err(refused("unknown step")),
     }
-    Ok(json!({ "maxDeviceConnections": MAX_DEVICE_CONNECTIONS }))
+}
+
+fn only(m: &Map<String, Value>, allowed: &[&str]) -> Result<(), Refused> {
+    match m.keys().find(|k| !allowed.contains(&k.as_str())) {
+        Some(k) => Err(refused(format!("the request has an unknown field {k}"))),
+        None => Ok(()),
+    }
+}
+
+/// How long one device's read may take, inside the server's 60-second wait.
+pub const READ_BUDGET: std::time::Duration = std::time::Duration::from_secs(50);
+
+fn hex(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+fn unhex(s: &str) -> Option<Vec<u8>> {
+    if !s.len().is_multiple_of(2) || s.len() > 64 {
+        return None;
+    }
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok())
+        .collect()
+}
+
+/// The SHA-256 of a reading's canonical JSON (keys sorted, no spaces), so an unchanged device can
+/// be told from a changed one without the whole reading.
+pub fn digest(reading: &Value) -> String {
+    use sha2::{Digest, Sha256};
+    let bytes = serde_json::to_vec(reading).unwrap_or_default();
+    hex(&Sha256::digest(&bytes))
+}
+
+/// `snmp_read`. The job is self-contained: `{version: 1, device, address, port, ranges,
+/// purposes, engineId}`, and the login comes in its own envelope, `{user, auth, authPassword,
+/// privPassword}`, used for this job only.
+///
+/// - Without `engineId` the reader only discovers the device's engine and answers
+///   `outcome: "engine"`: no login is sent to an engine nobody confirmed.
+/// - With it, the engine must still match, and the reader reads each purpose in turn. One that
+///   fails is named in `failed`; a refused login or a changed engine stops the whole read
+///   (`outcome: "failed"`) and is never retried.
+fn snmp_read(m: &Map<String, Value>) -> Result<Value, Refused> {
+    use std::net::{IpAddr, SocketAddr};
+    use std::time::Instant;
+
+    let job = m
+        .get("job")
+        .and_then(Value::as_object)
+        .ok_or_else(|| refused("the request has no job"))?;
+    only(
+        job,
+        &[
+            "version", "device", "address", "port", "ranges", "purposes", "engineId",
+        ],
+    )?;
+    if job.get("version").and_then(Value::as_u64) != Some(1) {
+        return Err(refused("this reader reads job version 1 only"));
+    }
+    let device = field(job, "device")?.to_string();
+    let ip: IpAddr = field(job, "address")?
+        .parse()
+        .map_err(|_| refused("the job's address is not an IP address"))?;
+    let port = job
+        .get("port")
+        .and_then(Value::as_u64)
+        .and_then(|p| u16::try_from(p).ok())
+        .filter(|p| *p > 0)
+        .ok_or_else(|| refused("the job has no port"))?;
+    if let Some(why) = address::refused(ip) {
+        return Err(refused(format!("{ip} is {why} and is never read")));
+    }
+    let ranges: Vec<&str> = job
+        .get("ranges")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    if !ranges.iter().any(|r| address::inside(ip, r)) {
+        return Err(refused(format!(
+            "{ip} is not inside a range listed for reading"
+        )));
+    }
+    let purposes: Vec<&str> = job
+        .get("purposes")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    if purposes.is_empty() {
+        return Err(refused("the job names no purpose"));
+    }
+    if let Some(p) = purposes.iter().find(|p| !purposes::KNOWN.contains(p)) {
+        return Err(refused(format!("unknown purpose {p}")));
+    }
+    let expected = match job.get("engineId") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(s)) => {
+            Some(unhex(s).ok_or_else(|| refused("the job's engineId is not hex"))?)
+        }
+        Some(_) => return Err(refused("the job's engineId is not hex")),
+    };
+
+    let peer = SocketAddr::new(ip, port);
+    let started = Instant::now();
+    let deadline = started + READ_BUDGET;
+    let base = |outcome: &str| json!({"device": device, "address": ip.to_string(), "port": port, "outcome": outcome});
+    let failed = |e: snmp::ReadError| {
+        let mut v = base("failed");
+        v["failure"] = json!({"code": e.code, "message": e.message});
+        v["durationMs"] = json!(started.elapsed().as_millis() as u64);
+        Ok(v)
+    };
+
+    let engine = match snmp::discover(peer, deadline) {
+        Ok(e) => e,
+        Err(e) => return failed(e),
+    };
+    let Some(expected) = expected else {
+        let mut v = base("engine");
+        v["engineId"] = json!(hex(&engine.id));
+        v["durationMs"] = json!(started.elapsed().as_millis() as u64);
+        return Ok(v);
+    };
+    if engine.id != expected {
+        return failed(snmp::fail(
+            "engine_changed",
+            format!(
+                "the device's SNMP engine id is now {}; someone must confirm it again",
+                hex(&engine.id)
+            ),
+        ));
+    }
+
+    let login = login_from(m.get("login"))?;
+    let mut session = match snmp::Session::new(peer, engine, &login, deadline) {
+        Ok(s) => s,
+        Err(e) => return failed(e),
+    };
+    drop(login);
+
+    let mut reading = Map::new();
+    let mut incomplete = Vec::new();
+    let mut failures = Map::new();
+    for p in purposes::KNOWN.iter().filter(|p| purposes.contains(p)) {
+        let mut cut = false;
+        match purposes::read(&mut session, p, &mut cut) {
+            Ok(v) => {
+                reading.insert((*p).to_string(), v);
+                if cut {
+                    incomplete.push(*p);
+                }
+            }
+            Err(e) if matches!(e.code, "login_refused" | "engine_changed") => return failed(e),
+            Err(e) => {
+                failures.insert(
+                    (*p).to_string(),
+                    json!({"code": e.code, "message": e.message}),
+                );
+            }
+        }
+    }
+    let reading = Value::Object(reading);
+    let mut v = base("read");
+    v["engineId"] = json!(hex(&expected));
+    v["digest"] = json!(digest(&reading));
+    v["reading"] = reading;
+    v["incomplete"] = json!(incomplete);
+    v["failed"] = Value::Object(failures);
+    v["durationMs"] = json!(started.elapsed().as_millis() as u64);
+    Ok(v)
+}
+
+fn login_from(v: Option<&Value>) -> Result<snmp::Login, Refused> {
+    let l = v
+        .and_then(Value::as_object)
+        .ok_or_else(|| refused("the request has no login"))?;
+    only(l, &["user", "auth", "authPassword", "privPassword"])?;
+    let auth = usm::Auth::parse(field(l, "auth")?).ok_or_else(|| {
+        refused("the login's authentication is not one Fathom offers (sha512, sha256 or sha1)")
+    })?;
+    Ok(snmp::Login {
+        user: field(l, "user")?.to_string(),
+        auth,
+        auth_password: field(l, "authPassword")?.as_bytes().to_vec(),
+        priv_password: field(l, "privPassword")?.as_bytes().to_vec(),
+    })
 }
 
 /// Read one frame: four bytes of length, big-endian, then that many bytes.
