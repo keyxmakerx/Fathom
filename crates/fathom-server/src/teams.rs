@@ -1243,7 +1243,26 @@ pub async fn rename(
 #[derive(Clone, Debug)]
 pub struct Seat {
     pub account: String,
+    /// Their display name, so a member who is not a steward can read the page.
+    pub name: String,
     pub act_id: String,
+}
+
+async fn seat_of(tx: &Transaction<'_>, a: &TeamAct) -> Result<Seat, AuthorityError> {
+    let account = a.subject_id.clone().unwrap_or_default();
+    let name = tx
+        .query_opt(
+            "SELECT display_name FROM accounts WHERE id = $1",
+            &[&account],
+        )
+        .await?
+        .map(|r| r.get::<_, String>(0))
+        .unwrap_or_default();
+    Ok(Seat {
+        account,
+        name,
+        act_id: a.id.clone(),
+    })
 }
 
 /// One folder a team may open.
@@ -1318,15 +1337,11 @@ pub async fn list(
             may_staff: steward,
         };
         for a in walk.acts().iter().filter(|a| a.team_id == id) {
-            let seat = || Seat {
-                account: a.subject_id.clone().unwrap_or_default(),
-                act_id: a.id.clone(),
-            };
             match a.act.as_str() {
-                ACT_MEMBER_ADD if walk.live(a).await? => view.members.push(seat()),
+                ACT_MEMBER_ADD if walk.live(a).await? => view.members.push(seat_of(tx, a).await?),
                 ACT_ROLE_SET if walk.live(a).await? => match a.role.as_deref() {
-                    Some(ROLE_LEAD) => view.leads.push(seat()),
-                    Some(ROLE_OVERSEER) => view.overseers.push(seat()),
+                    Some(ROLE_LEAD) => view.leads.push(seat_of(tx, a).await?),
+                    Some(ROLE_OVERSEER) => view.overseers.push(seat_of(tx, a).await?),
                     _ => {}
                 },
                 ACT_GRANT if walk.live(a).await? => {
@@ -1355,6 +1370,26 @@ pub async fn list(
         }
     }
     Ok((steward, out))
+}
+
+/// The organisation's people, for a caller who may staff a team to pick from: a root steward,
+/// or a lead (T13 lets either add only a member of the organisation). Names only.
+pub async fn people_to_pick(
+    tx: &Transaction<'_>,
+    organisation: &str,
+) -> Result<Vec<(String, String)>, AuthorityError> {
+    Ok(tx
+        .query(
+            "SELECT m.account_id, a.display_name FROM memberships m \
+             JOIN accounts a ON a.id = m.account_id \
+             WHERE m.organisation_id = $1 AND a.disabled_at IS NULL \
+             ORDER BY a.display_name, m.account_id",
+            &[&organisation],
+        )
+        .await?
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect())
 }
 
 /// A team's History tab: every act on it, oldest first, each with whether it counts. For a

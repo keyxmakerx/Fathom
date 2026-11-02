@@ -390,3 +390,11 @@
   letter-spacing: 0.07em;
   color: var(--muted);
 }
+
+/* A one-line pick and its button (Teams: add a member, give a folder). */
+.org-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--s3);
+}

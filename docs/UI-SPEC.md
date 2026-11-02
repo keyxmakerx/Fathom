@@ -442,6 +442,13 @@ the same few spots. ADR-0088 has the reasons; this is the list.
 | The account menu | **Mail**: each kind at once, in the digest, or off |
 | A phone | bottom tabs Scan · Find · Canvas · **Work** |
 
+**Teams (built).** Steward › Teams lists every team (name, short name, members, folders) with New
+team. A team's page, top to bottom: Members (a lead marked), Leads, Supervisors, Folders (Read or
+Draw, in a folder or the whole organisation), Rename and Delete, then History, where an act that no
+longer counts says so. Home › Teams is the same page for someone in, leading or supervising a team,
+read-only except that a lead adds and removes members other than themselves. Steward › People › a
+person shows **Through teams**: each team they are in and what it gives, and any they lead or supervise.
+
 ## On a phone (ADR-0075; mockup r39-phone)
 
 - Under 760px wide. The same pages, with the tool row, minimap, side-panel strip, view tabs, Inventory's

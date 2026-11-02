@@ -6,11 +6,11 @@ describe('the Steward list (ADR-0088)', () => {
   it('shows today’s pages in their groups, and no heading for a group with nothing built', () => {
     const shown = shownRail({ waitingReady: true });
     expect(shown.map((g) => g.heading)).toEqual(['People', 'Estate', 'Passwords and AI']);
-    expect(shown.flatMap((g) => g.entries.map((e) => e.page))).toEqual(['people', 'waiting', 'folders', 'firmware', 'device-reading', 'passwords', 'ai', 'ai-rules']);
+    expect(shown.flatMap((g) => g.entries.map((e) => e.page))).toEqual(['people', 'teams', 'waiting', 'folders', 'firmware', 'device-reading', 'passwords', 'ai', 'ai-rules']);
   });
 
   it('leaves Waiting for you out until its count has loaded', () => {
-    expect(shownRail({ waitingReady: false })[0].entries.map((e) => e.page)).toEqual(['people']);
+    expect(shownRail({ waitingReady: false })[0].entries.map((e) => e.page)).toEqual(['people', 'teams']);
   });
 
   it('puts a page a thread has built in its fixed place', () => {

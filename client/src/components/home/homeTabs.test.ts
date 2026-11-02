@@ -22,6 +22,11 @@ describe('homeTabs', () => {
     expect(homeTabs({ organisationAdmin: false, admin: false, work: true, waitingInvitee: true })).toEqual(['designs']);
   });
 
+  it('gives someone in, leading or supervising a team the Teams tab, after Work (ADR-0081)', () => {
+    expect(homeTabs({ organisationAdmin: false, admin: false, member: true, work: true, teams: true })).toEqual(['designs', 'work', 'teams', 'passwords']);
+    expect(homeTabs({ organisationAdmin: true, admin: false, member: true, work: true, teams: false })).toEqual(['designs', 'work', 'passwords', 'organisation']);
+  });
+
   it('gives every member their own Passwords, admins included', () => {
     expect(homeTabs({ organisationAdmin: false, admin: false, member: true })).toEqual(['designs', 'passwords']);
     expect(homeTabs({ organisationAdmin: false, admin: true, member: true })).toEqual(['designs', 'passwords', 'admin']);

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import type { Asked } from '../../api/invitations';
 import type { AccessRow, People, Person } from '../../api/people';
@@ -138,10 +138,12 @@ export interface PersonPageProps {
   termixOffForEveryone?: boolean;
   /** Draw the page with the Withdraw question already asked (a test seam, like `refusing`). */
   withdrawing?: boolean;
+  /** "Through teams" (ADR-0081): what they have from the teams they are in. */
+  throughTeams?: ReactNode;
 }
 
 /** One person: exactly what they can do, in the folders you steward. */
-export function PersonPage({ person, folders, busy, error, notice, onBack, onRemove, onGive, onWithdraw, onOpenWaiting, onSetTyping, onSetTermix, termixOffForEveryone = false, withdrawing: withdrawingFirst = false }: PersonPageProps) {
+export function PersonPage({ person, folders, busy, error, notice, onBack, onRemove, onGive, onWithdraw, onOpenWaiting, onSetTyping, onSetTermix, termixOffForEveryone = false, withdrawing: withdrawingFirst = false, throughTeams }: PersonPageProps) {
   const [removing, setRemoving] = useState<string | null>(null);
   const [withdrawing, setWithdrawing] = useState(withdrawingFirst);
   const [giving, setGiving] = useState(false);
@@ -214,6 +216,7 @@ export function PersonPage({ person, folders, busy, error, notice, onBack, onRem
               );
             })}
           </ul>
+          {throughTeams}
 
           {!giving && folders.length > 0 && (
             <div className="org-actions">

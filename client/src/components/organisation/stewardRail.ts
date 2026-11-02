@@ -41,7 +41,7 @@ export const STEWARD_RAIL: readonly StewardGroup[] = [
     heading: 'People',
     entries: [
       { page: 'people', label: 'People', built: true, owner: 'built' },
-      { page: 'teams', label: 'Teams', built: false, owner: 'ADR-0081 teams' },
+      { page: 'teams', label: 'Teams', built: true, owner: 'ADR-0081 teams' },
       { page: 'waiting', label: 'Waiting for you', built: true, owner: 'built' },
     ],
   },

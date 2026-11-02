@@ -557,6 +557,32 @@ async fn a_lead_staffs_their_team_but_never_adds_themselves_or_grants_it_anythin
             .unwrap()
     );
 
+    // What the lead's page shows: their team, staffable, with names; and people to pick from.
+    {
+        let mut client = pool.get().await.unwrap();
+        let (tx, ctx, tenant_key) = acting(&mut client, &ring, org.id, lead.account).await;
+        let watch = EpochWatch::new();
+        let auth = Authority {
+            ring: &ring,
+            ctx: &ctx,
+            tenant_key: &tenant_key,
+            watch: &watch,
+        };
+        let (steward, list) = teams::list(&tx, &auth).await.unwrap();
+        assert!(!steward);
+        assert_eq!(list.len(), 1);
+        assert!(list[0].may_staff);
+        assert_eq!(list[0].members.len(), 1);
+        assert_eq!(list[0].members[0].name, "recruit");
+        let people = teams::people_to_pick(&tx, &org.id.to_string())
+            .await
+            .unwrap();
+        assert!(people
+            .iter()
+            .any(|(a, n)| *a == recruit.account.to_string() && n == "recruit"));
+        tx.rollback().await.unwrap();
+    }
+
     // T2: never themselves.
     let refused = add(
         &pool,

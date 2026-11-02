@@ -30,6 +30,7 @@ import { initialPageLink, showPageLink } from '../home/pageLink';
 import { FirmwareSettingsPage } from './FirmwareSettingsPage';
 import { DeviceReadingPage } from './DeviceReadingPage';
 import { shownRail } from './stewardRail';
+import { TeamsPage, ThroughTeams } from '../teams/TeamsPage';
 import './organisation.css';
 
 type Page =
@@ -180,6 +181,7 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
   function content() {
     if (page.kind === 'firmware') return <FirmwareSettingsPage organisationId={org} />;
     if (page.kind === 'device-reading') return <DeviceReadingPage organisationId={org} />;
+    if (page.kind === 'teams') return <TeamsPage organisation={org} where="steward" scopes={scopes.status === 'ready' ? scopes.value : []} grantable={folders} />;
     if (page.kind === 'passwords') {
       return <PasswordsPage organisation={org} organisationName={organisation.displayName} mode="admin" />;
     }
@@ -278,6 +280,7 @@ export function OrganisationTab({ organisation, scopes, onCreateScope, scopeForm
           notice={notice}
           onBack={() => go({ kind: 'people' })}
           onOpenWaiting={() => go({ kind: 'waiting' })}
+          throughTeams={person.state === 'active' ? <ThroughTeams organisation={org} account={person.account} scopes={scopes.status === 'ready' ? scopes.value : []} /> : undefined}
           onRemove={(row: AccessRow) =>
             void act(async () => {
               const result = await removeAccess(org, row);

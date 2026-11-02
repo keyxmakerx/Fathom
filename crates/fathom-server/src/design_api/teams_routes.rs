@@ -4,7 +4,7 @@
 //!
 //! - `GET  /organisations/{o}/teams`: the teams the caller may see, as
 //!   `{"steward": bool, "teams": [{id, slug, name, members, leads, supervisors, grants,
-//!   may_staff}]}`. Every seat is `{"account", "act"}`; every grant `{"act", "scope",
+//!   may_staff}]}`. Every seat is `{"account", "name", "act"}`; every grant `{"act", "scope",
 //!   "capability"}`. Supervisors are `overseer` rows (the module header says why).
 //! - `POST /organisations/{o}/teams/propose`: body `{"act", "as", "key", "team"?, "subject"?,
 //!   "role"?, "scope"?, "capability"?, "undoes"?, "slug"?, "name"?}`, where `as` is `steward`
@@ -189,6 +189,13 @@ async fn list_handler(
     let (steward, list) = teams::list(&tx, &auth)
         .await
         .map_err(SessionError::Authority)?;
+    let people = if steward || list.iter().any(|t| t.may_staff) {
+        teams::people_to_pick(&tx, &organisation)
+            .await
+            .map_err(SessionError::Authority)?
+    } else {
+        Vec::new()
+    };
     tx.commit().await.map_err(SessionError::Db)?;
 
     let seats = |seats: &[teams::Seat]| {
@@ -198,6 +205,7 @@ async fn list_handler(
                 .map(|s| {
                     let mut m = BTreeMap::new();
                     m.insert("account".to_string(), Json::Str(s.account.clone()));
+                    m.insert("name".to_string(), Json::Str(s.name.clone()));
                     m.insert("act".to_string(), Json::Str(s.act_id.clone()));
                     Json::Obj(m)
                 })
@@ -239,6 +247,20 @@ async fn list_handler(
     let mut answer = BTreeMap::new();
     answer.insert("steward".to_string(), Json::Bool(steward));
     answer.insert("teams".to_string(), Json::Arr(teams_json));
+    answer.insert(
+        "people".to_string(),
+        Json::Arr(
+            people
+                .into_iter()
+                .map(|(account, name)| {
+                    let mut m = BTreeMap::new();
+                    m.insert("account".to_string(), Json::Str(account));
+                    m.insert("name".to_string(), Json::Str(name));
+                    Json::Obj(m)
+                })
+                .collect(),
+        ),
+    );
     Ok(json_response(Json::Obj(answer)))
 }
 
