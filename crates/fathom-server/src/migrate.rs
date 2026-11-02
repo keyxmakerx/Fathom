@@ -396,8 +396,13 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0064_work.sql",
         sql: include_str!("../migrations/0064_work.sql"),
     },
-    // Teams: a third kind of principal and the signed log of team acts (ADR-0081). 64 and 65
-    // are held by the Work tab and the IP plan, which merge separately.
+    // The IP plan store: sealed records, unique space and allocation keys (ADR-0083).
+    Migration {
+        version: 65,
+        name: "0065_ipam.sql",
+        sql: include_str!("../migrations/0065_ipam.sql"),
+    },
+    // Teams: a third kind of principal and the signed log of team acts (ADR-0081).
     Migration {
         version: 66,
         name: "0066_teams.sql",

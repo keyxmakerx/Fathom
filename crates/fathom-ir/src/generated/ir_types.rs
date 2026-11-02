@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.35";
+    pub const SCHEMA_VERSION: &str = "0.36";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -22,6 +22,8 @@ mod body {
         Config,
         Physical,
         Service,
+        /// The IP plan store's records (ADR-0083): never held by a design.
+        Plan,
     }
 
     /// The closed asserted-edge class vocabulary (62 §6.2): containment
@@ -495,12 +497,43 @@ mod body {
         /// HasStockLevel; one per model, the editor keeps that, as FirmwareTarget does. The rule
         /// `stock.below-minimum` reads it against the spare StockItems of that model.
         StockLevel,
+        /// A VRF in the plan (ADR-0083 decision 4): its own address space, or one that refuses a
+        /// duplicate when `enforce_unique` is set (off by default, as NetBox's is). Linked to a drawn
+        /// RoutingInstance by name. The global table is the absence of a VRF.
+        IpamVrf,
+        /// A route target shared by the VRFs that import or export it (ADR-0083 decision 4).
+        IpamRouteTarget,
+        /// The root of a branch of the address tree: space the organisation holds, from an RIR or
+        /// private (ADR-0083 decision 4). Always in the global table, as NetBox's are.
+        IpamAggregate,
+        /// A block in the address tree (ADR-0083 decision 4), nested under its aggregate and any
+        /// larger prefix by containment within one VRF; nothing stores the parent. Statuses are
+        /// NetBox's four so an export round-trips.
+        IpamPrefix,
+        /// A stretch of addresses inside a prefix, such as a DHCP pool (ADR-0083 decision 4).
+        IpamRange,
+        /// One address meant for an interface, before or after it is drawn (ADR-0083 decisions 2 and
+        /// 4). Host bits and the length are kept, as a drawn Address keeps them.
+        IpamAddress,
+        /// A hold on a prefix, a range or one address, by a person or a piece of work, with a reason
+        /// and an end (ADR-0083 decision 3). Exactly one of prefix, range and address is set. Lapsed
+        /// and In use are worked out, not stored: lapsed from `ends`, in use from the drawing.
+        IpamReservation,
+        /// VLAN IDs handed out together (ADR-0083 decision 4). IDs and names are unique inside a group.
+        /// Its ranges do not overlap; each is written lo-hi, as "100-199".
+        IpamVlanGroup,
+        /// A VLAN ID planned in a group (ADR-0083 decision 4); matched to a drawn Vlan by ID and name.
+        IpamVlan,
+        /// ASNs held together, 2-byte or 4-byte, private or public (ADR-0083 decision 4).
+        IpamAsnRange,
+        /// One ASN in the plan, from a range or on its own (ADR-0083 decision 4).
+        IpamAsn,
     }
 
     impl NodeKind {
-        pub const COUNT: usize = 82;
+        pub const COUNT: usize = 93;
         /// Every kind, declaration order.
-        pub const ALL: [NodeKind; 82] = [
+        pub const ALL: [NodeKind; 93] = [
             NodeKind::Site,
             NodeKind::Device,
             NodeKind::Chassis,
@@ -583,6 +616,17 @@ mod body {
             NodeKind::Store,
             NodeKind::StockItem,
             NodeKind::StockLevel,
+            NodeKind::IpamVrf,
+            NodeKind::IpamRouteTarget,
+            NodeKind::IpamAggregate,
+            NodeKind::IpamPrefix,
+            NodeKind::IpamRange,
+            NodeKind::IpamAddress,
+            NodeKind::IpamReservation,
+            NodeKind::IpamVlanGroup,
+            NodeKind::IpamVlan,
+            NodeKind::IpamAsnRange,
+            NodeKind::IpamAsn,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -671,6 +715,17 @@ mod body {
                 NodeKind::Store => "Store",
                 NodeKind::StockItem => "StockItem",
                 NodeKind::StockLevel => "StockLevel",
+                NodeKind::IpamVrf => "IpamVrf",
+                NodeKind::IpamRouteTarget => "IpamRouteTarget",
+                NodeKind::IpamAggregate => "IpamAggregate",
+                NodeKind::IpamPrefix => "IpamPrefix",
+                NodeKind::IpamRange => "IpamRange",
+                NodeKind::IpamAddress => "IpamAddress",
+                NodeKind::IpamReservation => "IpamReservation",
+                NodeKind::IpamVlanGroup => "IpamVlanGroup",
+                NodeKind::IpamVlan => "IpamVlan",
+                NodeKind::IpamAsnRange => "IpamAsnRange",
+                NodeKind::IpamAsn => "IpamAsn",
             }
         }
         pub fn from_name(name: &str) -> Option<NodeKind> {
@@ -757,6 +812,17 @@ mod body {
                 "Store" => Some(NodeKind::Store),
                 "StockItem" => Some(NodeKind::StockItem),
                 "StockLevel" => Some(NodeKind::StockLevel),
+                "IpamVrf" => Some(NodeKind::IpamVrf),
+                "IpamRouteTarget" => Some(NodeKind::IpamRouteTarget),
+                "IpamAggregate" => Some(NodeKind::IpamAggregate),
+                "IpamPrefix" => Some(NodeKind::IpamPrefix),
+                "IpamRange" => Some(NodeKind::IpamRange),
+                "IpamAddress" => Some(NodeKind::IpamAddress),
+                "IpamReservation" => Some(NodeKind::IpamReservation),
+                "IpamVlanGroup" => Some(NodeKind::IpamVlanGroup),
+                "IpamVlan" => Some(NodeKind::IpamVlan),
+                "IpamAsnRange" => Some(NodeKind::IpamAsnRange),
+                "IpamAsn" => Some(NodeKind::IpamAsn),
                 _ => None,
             }
         }
@@ -849,6 +915,17 @@ mod body {
                 NodeKind::Store => &[],
                 NodeKind::StockItem => &[],
                 NodeKind::StockLevel => &[&["model"]],
+                NodeKind::IpamVrf => &[&["name"]],
+                NodeKind::IpamRouteTarget => &[&["value"]],
+                NodeKind::IpamAggregate => &[&["prefix"]],
+                NodeKind::IpamPrefix => &[],
+                NodeKind::IpamRange => &[],
+                NodeKind::IpamAddress => &[],
+                NodeKind::IpamReservation => &[],
+                NodeKind::IpamVlanGroup => &[&["name"]],
+                NodeKind::IpamVlan => &[],
+                NodeKind::IpamAsnRange => &[&["name"]],
+                NodeKind::IpamAsn => &[&["asn"]],
             }
         }
         /// The kind's layer (62 §4.2).
@@ -936,6 +1013,17 @@ mod body {
                 NodeKind::Store => Layer::Physical,
                 NodeKind::StockItem => Layer::Physical,
                 NodeKind::StockLevel => Layer::Physical,
+                NodeKind::IpamVrf => Layer::Plan,
+                NodeKind::IpamRouteTarget => Layer::Plan,
+                NodeKind::IpamAggregate => Layer::Plan,
+                NodeKind::IpamPrefix => Layer::Plan,
+                NodeKind::IpamRange => Layer::Plan,
+                NodeKind::IpamAddress => Layer::Plan,
+                NodeKind::IpamReservation => Layer::Plan,
+                NodeKind::IpamVlanGroup => Layer::Plan,
+                NodeKind::IpamVlan => Layer::Plan,
+                NodeKind::IpamAsnRange => Layer::Plan,
+                NodeKind::IpamAsn => Layer::Plan,
             }
         }
         /// Whether the kind participates in emit at all (62 §4.2); `false`
@@ -1024,6 +1112,17 @@ mod body {
                 NodeKind::Store => false,
                 NodeKind::StockItem => false,
                 NodeKind::StockLevel => false,
+                NodeKind::IpamVrf => false,
+                NodeKind::IpamRouteTarget => false,
+                NodeKind::IpamAggregate => false,
+                NodeKind::IpamPrefix => false,
+                NodeKind::IpamRange => false,
+                NodeKind::IpamAddress => false,
+                NodeKind::IpamReservation => false,
+                NodeKind::IpamVlanGroup => false,
+                NodeKind::IpamVlan => false,
+                NodeKind::IpamAsnRange => false,
+                NodeKind::IpamAsn => false,
             }
         }
         /// The kind's declared field keys, declaration order (62 §4.3). A key
@@ -1113,6 +1212,17 @@ mod body {
                 NodeKind::Store => &[crate::bag::FieldKey(524), crate::bag::FieldKey(525), crate::bag::FieldKey(526)],
                 NodeKind::StockItem => &[crate::bag::FieldKey(527), crate::bag::FieldKey(528), crate::bag::FieldKey(529), crate::bag::FieldKey(530), crate::bag::FieldKey(531), crate::bag::FieldKey(532), crate::bag::FieldKey(533), crate::bag::FieldKey(534), crate::bag::FieldKey(535), crate::bag::FieldKey(536), crate::bag::FieldKey(537), crate::bag::FieldKey(538), crate::bag::FieldKey(539), crate::bag::FieldKey(560), crate::bag::FieldKey(561)],
                 NodeKind::StockLevel => &[crate::bag::FieldKey(540), crate::bag::FieldKey(541)],
+                NodeKind::IpamVrf => &[crate::bag::FieldKey(562), crate::bag::FieldKey(563), crate::bag::FieldKey(564), crate::bag::FieldKey(565), crate::bag::FieldKey(566), crate::bag::FieldKey(567)],
+                NodeKind::IpamRouteTarget => &[crate::bag::FieldKey(568), crate::bag::FieldKey(569)],
+                NodeKind::IpamAggregate => &[crate::bag::FieldKey(570), crate::bag::FieldKey(571), crate::bag::FieldKey(572), crate::bag::FieldKey(573)],
+                NodeKind::IpamPrefix => &[crate::bag::FieldKey(574), crate::bag::FieldKey(575), crate::bag::FieldKey(576), crate::bag::FieldKey(577), crate::bag::FieldKey(578), crate::bag::FieldKey(579), crate::bag::FieldKey(580), crate::bag::FieldKey(581), crate::bag::FieldKey(582)],
+                NodeKind::IpamRange => &[crate::bag::FieldKey(583), crate::bag::FieldKey(584), crate::bag::FieldKey(585), crate::bag::FieldKey(586), crate::bag::FieldKey(587), crate::bag::FieldKey(588), crate::bag::FieldKey(589), crate::bag::FieldKey(590)],
+                NodeKind::IpamAddress => &[crate::bag::FieldKey(591), crate::bag::FieldKey(592), crate::bag::FieldKey(593), crate::bag::FieldKey(594), crate::bag::FieldKey(595), crate::bag::FieldKey(596), crate::bag::FieldKey(597), crate::bag::FieldKey(598), crate::bag::FieldKey(599)],
+                NodeKind::IpamReservation => &[crate::bag::FieldKey(600), crate::bag::FieldKey(601), crate::bag::FieldKey(602), crate::bag::FieldKey(603), crate::bag::FieldKey(604), crate::bag::FieldKey(605), crate::bag::FieldKey(606), crate::bag::FieldKey(607), crate::bag::FieldKey(608), crate::bag::FieldKey(609), crate::bag::FieldKey(610), crate::bag::FieldKey(611), crate::bag::FieldKey(612), crate::bag::FieldKey(613)],
+                NodeKind::IpamVlanGroup => &[crate::bag::FieldKey(614), crate::bag::FieldKey(615), crate::bag::FieldKey(616), crate::bag::FieldKey(617)],
+                NodeKind::IpamVlan => &[crate::bag::FieldKey(618), crate::bag::FieldKey(619), crate::bag::FieldKey(620), crate::bag::FieldKey(621), crate::bag::FieldKey(622), crate::bag::FieldKey(623), crate::bag::FieldKey(624)],
+                NodeKind::IpamAsnRange => &[crate::bag::FieldKey(625), crate::bag::FieldKey(626), crate::bag::FieldKey(627), crate::bag::FieldKey(628), crate::bag::FieldKey(629), crate::bag::FieldKey(630)],
+                NodeKind::IpamAsn => &[crate::bag::FieldKey(631), crate::bag::FieldKey(632), crate::bag::FieldKey(633), crate::bag::FieldKey(634), crate::bag::FieldKey(635), crate::bag::FieldKey(636)],
             }
         }
     }
@@ -6012,6 +6122,233 @@ mod body {
         }
     }
 
+    /// Inline enum on `IpamPrefix.status` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IpamPrefixStatus {
+        Container,
+        Active,
+        Reserved,
+        Deprecated,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl IpamPrefixStatus {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 4] = [
+            "container",
+            "active",
+            "reserved",
+            "deprecated",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> IpamPrefixStatus {
+            match token {
+                "container" => IpamPrefixStatus::Container,
+                "active" => IpamPrefixStatus::Active,
+                "reserved" => IpamPrefixStatus::Reserved,
+                "deprecated" => IpamPrefixStatus::Deprecated,
+                other => IpamPrefixStatus::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                IpamPrefixStatus::Container => "container",
+                IpamPrefixStatus::Active => "active",
+                IpamPrefixStatus::Reserved => "reserved",
+                IpamPrefixStatus::Deprecated => "deprecated",
+                IpamPrefixStatus::Unknown(t) => t,
+            }
+        }
+    }
+
+    /// Inline enum on `IpamRange.status` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IpamRangeStatus {
+        Active,
+        Reserved,
+        Deprecated,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl IpamRangeStatus {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 3] = [
+            "active",
+            "reserved",
+            "deprecated",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> IpamRangeStatus {
+            match token {
+                "active" => IpamRangeStatus::Active,
+                "reserved" => IpamRangeStatus::Reserved,
+                "deprecated" => IpamRangeStatus::Deprecated,
+                other => IpamRangeStatus::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                IpamRangeStatus::Active => "active",
+                IpamRangeStatus::Reserved => "reserved",
+                IpamRangeStatus::Deprecated => "deprecated",
+                IpamRangeStatus::Unknown(t) => t,
+            }
+        }
+    }
+
+    /// Inline enum on `IpamAddress.status` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IpamAddressStatus {
+        Active,
+        Reserved,
+        Deprecated,
+        Dhcp,
+        Slaac,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl IpamAddressStatus {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 5] = [
+            "active",
+            "reserved",
+            "deprecated",
+            "dhcp",
+            "slaac",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> IpamAddressStatus {
+            match token {
+                "active" => IpamAddressStatus::Active,
+                "reserved" => IpamAddressStatus::Reserved,
+                "deprecated" => IpamAddressStatus::Deprecated,
+                "dhcp" => IpamAddressStatus::Dhcp,
+                "slaac" => IpamAddressStatus::Slaac,
+                other => IpamAddressStatus::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                IpamAddressStatus::Active => "active",
+                IpamAddressStatus::Reserved => "reserved",
+                IpamAddressStatus::Deprecated => "deprecated",
+                IpamAddressStatus::Dhcp => "dhcp",
+                IpamAddressStatus::Slaac => "slaac",
+                IpamAddressStatus::Unknown(t) => t,
+            }
+        }
+    }
+
+    /// Inline enum on `IpamAddress.role` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IpamAddressRole {
+        Loopback,
+        Secondary,
+        Anycast,
+        Vip,
+        Vrrp,
+        Hsrp,
+        Glbp,
+        Carp,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl IpamAddressRole {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 8] = [
+            "loopback",
+            "secondary",
+            "anycast",
+            "vip",
+            "vrrp",
+            "hsrp",
+            "glbp",
+            "carp",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> IpamAddressRole {
+            match token {
+                "loopback" => IpamAddressRole::Loopback,
+                "secondary" => IpamAddressRole::Secondary,
+                "anycast" => IpamAddressRole::Anycast,
+                "vip" => IpamAddressRole::Vip,
+                "vrrp" => IpamAddressRole::Vrrp,
+                "hsrp" => IpamAddressRole::Hsrp,
+                "glbp" => IpamAddressRole::Glbp,
+                "carp" => IpamAddressRole::Carp,
+                other => IpamAddressRole::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                IpamAddressRole::Loopback => "loopback",
+                IpamAddressRole::Secondary => "secondary",
+                IpamAddressRole::Anycast => "anycast",
+                IpamAddressRole::Vip => "vip",
+                IpamAddressRole::Vrrp => "vrrp",
+                IpamAddressRole::Hsrp => "hsrp",
+                IpamAddressRole::Glbp => "glbp",
+                IpamAddressRole::Carp => "carp",
+                IpamAddressRole::Unknown(t) => t,
+            }
+        }
+    }
+
+    /// Inline enum on `IpamVlan.status` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IpamVlanStatus {
+        Active,
+        Reserved,
+        Deprecated,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl IpamVlanStatus {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 3] = [
+            "active",
+            "reserved",
+            "deprecated",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> IpamVlanStatus {
+            match token {
+                "active" => IpamVlanStatus::Active,
+                "reserved" => IpamVlanStatus::Reserved,
+                "deprecated" => IpamVlanStatus::Deprecated,
+                other => IpamVlanStatus::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                IpamVlanStatus::Active => "active",
+                IpamVlanStatus::Reserved => "reserved",
+                IpamVlanStatus::Deprecated => "deprecated",
+                IpamVlanStatus::Unknown(t) => t,
+            }
+        }
+    }
+
     /// Inline enum on `TunnelEndpoint.side` (62 §7 rule 4; codegen-named).
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum TunnelEndpointSide {
@@ -6990,6 +7327,66 @@ mod body {
         fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
             match j {
                 fathom_canon::Json::Str(t) => Ok(StockItemState::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for IpamPrefixStatus {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(IpamPrefixStatus::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for IpamRangeStatus {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(IpamRangeStatus::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for IpamAddressStatus {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(IpamAddressStatus::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for IpamAddressRole {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(IpamAddressRole::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
+    impl crate::canon::CanonicalValue for IpamVlanStatus {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(IpamVlanStatus::from_token(t)),
                 _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
             }
         }
@@ -10887,6 +11284,570 @@ mod body {
         }
     }
 
+    /// Fields of kind `IpamVrf`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IpamVrfField {
+        Name,
+        RouteDistinguisher,
+        EnforceUnique,
+        ImportTargets,
+        ExportTargets,
+        Note,
+    }
+
+    impl IpamVrfField {
+        pub const COUNT: usize = 6;
+        /// Every field, declaration order.
+        pub const ALL: [IpamVrfField; 6] = [
+            IpamVrfField::Name,
+            IpamVrfField::RouteDistinguisher,
+            IpamVrfField::EnforceUnique,
+            IpamVrfField::ImportTargets,
+            IpamVrfField::ExportTargets,
+            IpamVrfField::Note,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                IpamVrfField::Name => "name",
+                IpamVrfField::RouteDistinguisher => "route_distinguisher",
+                IpamVrfField::EnforceUnique => "enforce_unique",
+                IpamVrfField::ImportTargets => "import_targets",
+                IpamVrfField::ExportTargets => "export_targets",
+                IpamVrfField::Note => "note",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                IpamVrfField::Name => crate::bag::FieldKey(562),
+                IpamVrfField::RouteDistinguisher => crate::bag::FieldKey(563),
+                IpamVrfField::EnforceUnique => crate::bag::FieldKey(564),
+                IpamVrfField::ImportTargets => crate::bag::FieldKey(565),
+                IpamVrfField::ExportTargets => crate::bag::FieldKey(566),
+                IpamVrfField::Note => crate::bag::FieldKey(567),
+            }
+        }
+    }
+
+    /// Fields of kind `IpamRouteTarget`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IpamRouteTargetField {
+        Value,
+        Note,
+    }
+
+    impl IpamRouteTargetField {
+        pub const COUNT: usize = 2;
+        /// Every field, declaration order.
+        pub const ALL: [IpamRouteTargetField; 2] = [
+            IpamRouteTargetField::Value,
+            IpamRouteTargetField::Note,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                IpamRouteTargetField::Value => "value",
+                IpamRouteTargetField::Note => "note",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                IpamRouteTargetField::Value => crate::bag::FieldKey(568),
+                IpamRouteTargetField::Note => crate::bag::FieldKey(569),
+            }
+        }
+    }
+
+    /// Fields of kind `IpamAggregate`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IpamAggregateField {
+        Prefix,
+        Rir,
+        Folder,
+        Note,
+    }
+
+    impl IpamAggregateField {
+        pub const COUNT: usize = 4;
+        /// Every field, declaration order.
+        pub const ALL: [IpamAggregateField; 4] = [
+            IpamAggregateField::Prefix,
+            IpamAggregateField::Rir,
+            IpamAggregateField::Folder,
+            IpamAggregateField::Note,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                IpamAggregateField::Prefix => "prefix",
+                IpamAggregateField::Rir => "rir",
+                IpamAggregateField::Folder => "folder",
+                IpamAggregateField::Note => "note",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                IpamAggregateField::Prefix => crate::bag::FieldKey(570),
+                IpamAggregateField::Rir => crate::bag::FieldKey(571),
+                IpamAggregateField::Folder => crate::bag::FieldKey(572),
+                IpamAggregateField::Note => crate::bag::FieldKey(573),
+            }
+        }
+    }
+
+    /// Fields of kind `IpamPrefix`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IpamPrefixField {
+        Prefix,
+        Vrf,
+        Status,
+        IsPool,
+        MarkUtilised,
+        Role,
+        Folder,
+        Vlan,
+        Note,
+    }
+
+    impl IpamPrefixField {
+        pub const COUNT: usize = 9;
+        /// Every field, declaration order.
+        pub const ALL: [IpamPrefixField; 9] = [
+            IpamPrefixField::Prefix,
+            IpamPrefixField::Vrf,
+            IpamPrefixField::Status,
+            IpamPrefixField::IsPool,
+            IpamPrefixField::MarkUtilised,
+            IpamPrefixField::Role,
+            IpamPrefixField::Folder,
+            IpamPrefixField::Vlan,
+            IpamPrefixField::Note,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                IpamPrefixField::Prefix => "prefix",
+                IpamPrefixField::Vrf => "vrf",
+                IpamPrefixField::Status => "status",
+                IpamPrefixField::IsPool => "is_pool",
+                IpamPrefixField::MarkUtilised => "mark_utilised",
+                IpamPrefixField::Role => "role",
+                IpamPrefixField::Folder => "folder",
+                IpamPrefixField::Vlan => "vlan",
+                IpamPrefixField::Note => "note",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                IpamPrefixField::Prefix => crate::bag::FieldKey(574),
+                IpamPrefixField::Vrf => crate::bag::FieldKey(575),
+                IpamPrefixField::Status => crate::bag::FieldKey(576),
+                IpamPrefixField::IsPool => crate::bag::FieldKey(577),
+                IpamPrefixField::MarkUtilised => crate::bag::FieldKey(578),
+                IpamPrefixField::Role => crate::bag::FieldKey(579),
+                IpamPrefixField::Folder => crate::bag::FieldKey(580),
+                IpamPrefixField::Vlan => crate::bag::FieldKey(581),
+                IpamPrefixField::Note => crate::bag::FieldKey(582),
+            }
+        }
+    }
+
+    /// Fields of kind `IpamRange`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IpamRangeField {
+        Range,
+        Vrf,
+        Status,
+        Populated,
+        MarkUtilised,
+        Role,
+        Folder,
+        Note,
+    }
+
+    impl IpamRangeField {
+        pub const COUNT: usize = 8;
+        /// Every field, declaration order.
+        pub const ALL: [IpamRangeField; 8] = [
+            IpamRangeField::Range,
+            IpamRangeField::Vrf,
+            IpamRangeField::Status,
+            IpamRangeField::Populated,
+            IpamRangeField::MarkUtilised,
+            IpamRangeField::Role,
+            IpamRangeField::Folder,
+            IpamRangeField::Note,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                IpamRangeField::Range => "range",
+                IpamRangeField::Vrf => "vrf",
+                IpamRangeField::Status => "status",
+                IpamRangeField::Populated => "populated",
+                IpamRangeField::MarkUtilised => "mark_utilised",
+                IpamRangeField::Role => "role",
+                IpamRangeField::Folder => "folder",
+                IpamRangeField::Note => "note",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                IpamRangeField::Range => crate::bag::FieldKey(583),
+                IpamRangeField::Vrf => crate::bag::FieldKey(584),
+                IpamRangeField::Status => crate::bag::FieldKey(585),
+                IpamRangeField::Populated => crate::bag::FieldKey(586),
+                IpamRangeField::MarkUtilised => crate::bag::FieldKey(587),
+                IpamRangeField::Role => crate::bag::FieldKey(588),
+                IpamRangeField::Folder => crate::bag::FieldKey(589),
+                IpamRangeField::Note => crate::bag::FieldKey(590),
+            }
+        }
+    }
+
+    /// Fields of kind `IpamAddress`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IpamAddressField {
+        Address,
+        Vrf,
+        Status,
+        Role,
+        DnsName,
+        NatOutside,
+        MeantFor,
+        Folder,
+        Note,
+    }
+
+    impl IpamAddressField {
+        pub const COUNT: usize = 9;
+        /// Every field, declaration order.
+        pub const ALL: [IpamAddressField; 9] = [
+            IpamAddressField::Address,
+            IpamAddressField::Vrf,
+            IpamAddressField::Status,
+            IpamAddressField::Role,
+            IpamAddressField::DnsName,
+            IpamAddressField::NatOutside,
+            IpamAddressField::MeantFor,
+            IpamAddressField::Folder,
+            IpamAddressField::Note,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                IpamAddressField::Address => "address",
+                IpamAddressField::Vrf => "vrf",
+                IpamAddressField::Status => "status",
+                IpamAddressField::Role => "role",
+                IpamAddressField::DnsName => "dns_name",
+                IpamAddressField::NatOutside => "nat_outside",
+                IpamAddressField::MeantFor => "meant_for",
+                IpamAddressField::Folder => "folder",
+                IpamAddressField::Note => "note",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                IpamAddressField::Address => crate::bag::FieldKey(591),
+                IpamAddressField::Vrf => crate::bag::FieldKey(592),
+                IpamAddressField::Status => crate::bag::FieldKey(593),
+                IpamAddressField::Role => crate::bag::FieldKey(594),
+                IpamAddressField::DnsName => crate::bag::FieldKey(595),
+                IpamAddressField::NatOutside => crate::bag::FieldKey(596),
+                IpamAddressField::MeantFor => crate::bag::FieldKey(597),
+                IpamAddressField::Folder => crate::bag::FieldKey(598),
+                IpamAddressField::Note => crate::bag::FieldKey(599),
+            }
+        }
+    }
+
+    /// Fields of kind `IpamReservation`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IpamReservationField {
+        Prefix,
+        Range,
+        Address,
+        Vrf,
+        Holder,
+        Work,
+        Reason,
+        Ends,
+        AllocationKey,
+        Parent,
+        DnsName,
+        NatOutside,
+        Folder,
+        Note,
+    }
+
+    impl IpamReservationField {
+        pub const COUNT: usize = 14;
+        /// Every field, declaration order.
+        pub const ALL: [IpamReservationField; 14] = [
+            IpamReservationField::Prefix,
+            IpamReservationField::Range,
+            IpamReservationField::Address,
+            IpamReservationField::Vrf,
+            IpamReservationField::Holder,
+            IpamReservationField::Work,
+            IpamReservationField::Reason,
+            IpamReservationField::Ends,
+            IpamReservationField::AllocationKey,
+            IpamReservationField::Parent,
+            IpamReservationField::DnsName,
+            IpamReservationField::NatOutside,
+            IpamReservationField::Folder,
+            IpamReservationField::Note,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                IpamReservationField::Prefix => "prefix",
+                IpamReservationField::Range => "range",
+                IpamReservationField::Address => "address",
+                IpamReservationField::Vrf => "vrf",
+                IpamReservationField::Holder => "holder",
+                IpamReservationField::Work => "work",
+                IpamReservationField::Reason => "reason",
+                IpamReservationField::Ends => "ends",
+                IpamReservationField::AllocationKey => "allocation_key",
+                IpamReservationField::Parent => "parent",
+                IpamReservationField::DnsName => "dns_name",
+                IpamReservationField::NatOutside => "nat_outside",
+                IpamReservationField::Folder => "folder",
+                IpamReservationField::Note => "note",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                IpamReservationField::Prefix => crate::bag::FieldKey(600),
+                IpamReservationField::Range => crate::bag::FieldKey(601),
+                IpamReservationField::Address => crate::bag::FieldKey(602),
+                IpamReservationField::Vrf => crate::bag::FieldKey(603),
+                IpamReservationField::Holder => crate::bag::FieldKey(604),
+                IpamReservationField::Work => crate::bag::FieldKey(605),
+                IpamReservationField::Reason => crate::bag::FieldKey(606),
+                IpamReservationField::Ends => crate::bag::FieldKey(607),
+                IpamReservationField::AllocationKey => crate::bag::FieldKey(608),
+                IpamReservationField::Parent => crate::bag::FieldKey(609),
+                IpamReservationField::DnsName => crate::bag::FieldKey(610),
+                IpamReservationField::NatOutside => crate::bag::FieldKey(611),
+                IpamReservationField::Folder => crate::bag::FieldKey(612),
+                IpamReservationField::Note => crate::bag::FieldKey(613),
+            }
+        }
+    }
+
+    /// Fields of kind `IpamVlanGroup`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IpamVlanGroupField {
+        Name,
+        VidRanges,
+        Folder,
+        Note,
+    }
+
+    impl IpamVlanGroupField {
+        pub const COUNT: usize = 4;
+        /// Every field, declaration order.
+        pub const ALL: [IpamVlanGroupField; 4] = [
+            IpamVlanGroupField::Name,
+            IpamVlanGroupField::VidRanges,
+            IpamVlanGroupField::Folder,
+            IpamVlanGroupField::Note,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                IpamVlanGroupField::Name => "name",
+                IpamVlanGroupField::VidRanges => "vid_ranges",
+                IpamVlanGroupField::Folder => "folder",
+                IpamVlanGroupField::Note => "note",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                IpamVlanGroupField::Name => crate::bag::FieldKey(614),
+                IpamVlanGroupField::VidRanges => crate::bag::FieldKey(615),
+                IpamVlanGroupField::Folder => crate::bag::FieldKey(616),
+                IpamVlanGroupField::Note => crate::bag::FieldKey(617),
+            }
+        }
+    }
+
+    /// Fields of kind `IpamVlan`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IpamVlanField {
+        Group,
+        Vid,
+        Name,
+        Status,
+        AllocationKey,
+        Folder,
+        Note,
+    }
+
+    impl IpamVlanField {
+        pub const COUNT: usize = 7;
+        /// Every field, declaration order.
+        pub const ALL: [IpamVlanField; 7] = [
+            IpamVlanField::Group,
+            IpamVlanField::Vid,
+            IpamVlanField::Name,
+            IpamVlanField::Status,
+            IpamVlanField::AllocationKey,
+            IpamVlanField::Folder,
+            IpamVlanField::Note,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                IpamVlanField::Group => "group",
+                IpamVlanField::Vid => "vid",
+                IpamVlanField::Name => "name",
+                IpamVlanField::Status => "status",
+                IpamVlanField::AllocationKey => "allocation_key",
+                IpamVlanField::Folder => "folder",
+                IpamVlanField::Note => "note",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                IpamVlanField::Group => crate::bag::FieldKey(618),
+                IpamVlanField::Vid => crate::bag::FieldKey(619),
+                IpamVlanField::Name => crate::bag::FieldKey(620),
+                IpamVlanField::Status => crate::bag::FieldKey(621),
+                IpamVlanField::AllocationKey => crate::bag::FieldKey(622),
+                IpamVlanField::Folder => crate::bag::FieldKey(623),
+                IpamVlanField::Note => crate::bag::FieldKey(624),
+            }
+        }
+    }
+
+    /// Fields of kind `IpamAsnRange`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IpamAsnRangeField {
+        Name,
+        First,
+        Last,
+        Rir,
+        Folder,
+        Note,
+    }
+
+    impl IpamAsnRangeField {
+        pub const COUNT: usize = 6;
+        /// Every field, declaration order.
+        pub const ALL: [IpamAsnRangeField; 6] = [
+            IpamAsnRangeField::Name,
+            IpamAsnRangeField::First,
+            IpamAsnRangeField::Last,
+            IpamAsnRangeField::Rir,
+            IpamAsnRangeField::Folder,
+            IpamAsnRangeField::Note,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                IpamAsnRangeField::Name => "name",
+                IpamAsnRangeField::First => "first",
+                IpamAsnRangeField::Last => "last",
+                IpamAsnRangeField::Rir => "rir",
+                IpamAsnRangeField::Folder => "folder",
+                IpamAsnRangeField::Note => "note",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                IpamAsnRangeField::Name => crate::bag::FieldKey(625),
+                IpamAsnRangeField::First => crate::bag::FieldKey(626),
+                IpamAsnRangeField::Last => crate::bag::FieldKey(627),
+                IpamAsnRangeField::Rir => crate::bag::FieldKey(628),
+                IpamAsnRangeField::Folder => crate::bag::FieldKey(629),
+                IpamAsnRangeField::Note => crate::bag::FieldKey(630),
+            }
+        }
+    }
+
+    /// Fields of kind `IpamAsn`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum IpamAsnField {
+        Asn,
+        Range,
+        MeantFor,
+        AllocationKey,
+        Folder,
+        Note,
+    }
+
+    impl IpamAsnField {
+        pub const COUNT: usize = 6;
+        /// Every field, declaration order.
+        pub const ALL: [IpamAsnField; 6] = [
+            IpamAsnField::Asn,
+            IpamAsnField::Range,
+            IpamAsnField::MeantFor,
+            IpamAsnField::AllocationKey,
+            IpamAsnField::Folder,
+            IpamAsnField::Note,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                IpamAsnField::Asn => "asn",
+                IpamAsnField::Range => "range",
+                IpamAsnField::MeantFor => "meant_for",
+                IpamAsnField::AllocationKey => "allocation_key",
+                IpamAsnField::Folder => "folder",
+                IpamAsnField::Note => "note",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                IpamAsnField::Asn => crate::bag::FieldKey(631),
+                IpamAsnField::Range => crate::bag::FieldKey(632),
+                IpamAsnField::MeantFor => crate::bag::FieldKey(633),
+                IpamAsnField::AllocationKey => crate::bag::FieldKey(634),
+                IpamAsnField::Folder => crate::bag::FieldKey(635),
+                IpamAsnField::Note => crate::bag::FieldKey(636),
+            }
+        }
+    }
+
     /// Fields of edge `UsesProposal`, declaration order, keyed by the wire registry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum UsesProposalField {
@@ -11442,7 +12403,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 496] = [
+    pub const FIELD_KEYS: [(&str, u32); 571] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -11939,17 +12900,92 @@ mod body {
         ("Issue.ticket", 559),
         ("StockItem.assigned_to", 560),
         ("StockItem.ticket", 561),
+        ("IpamVrf.name", 562),
+        ("IpamVrf.route_distinguisher", 563),
+        ("IpamVrf.enforce_unique", 564),
+        ("IpamVrf.import_targets", 565),
+        ("IpamVrf.export_targets", 566),
+        ("IpamVrf.note", 567),
+        ("IpamRouteTarget.value", 568),
+        ("IpamRouteTarget.note", 569),
+        ("IpamAggregate.prefix", 570),
+        ("IpamAggregate.rir", 571),
+        ("IpamAggregate.folder", 572),
+        ("IpamAggregate.note", 573),
+        ("IpamPrefix.prefix", 574),
+        ("IpamPrefix.vrf", 575),
+        ("IpamPrefix.status", 576),
+        ("IpamPrefix.is_pool", 577),
+        ("IpamPrefix.mark_utilised", 578),
+        ("IpamPrefix.role", 579),
+        ("IpamPrefix.folder", 580),
+        ("IpamPrefix.vlan", 581),
+        ("IpamPrefix.note", 582),
+        ("IpamRange.range", 583),
+        ("IpamRange.vrf", 584),
+        ("IpamRange.status", 585),
+        ("IpamRange.populated", 586),
+        ("IpamRange.mark_utilised", 587),
+        ("IpamRange.role", 588),
+        ("IpamRange.folder", 589),
+        ("IpamRange.note", 590),
+        ("IpamAddress.address", 591),
+        ("IpamAddress.vrf", 592),
+        ("IpamAddress.status", 593),
+        ("IpamAddress.role", 594),
+        ("IpamAddress.dns_name", 595),
+        ("IpamAddress.nat_outside", 596),
+        ("IpamAddress.meant_for", 597),
+        ("IpamAddress.folder", 598),
+        ("IpamAddress.note", 599),
+        ("IpamReservation.prefix", 600),
+        ("IpamReservation.range", 601),
+        ("IpamReservation.address", 602),
+        ("IpamReservation.vrf", 603),
+        ("IpamReservation.holder", 604),
+        ("IpamReservation.work", 605),
+        ("IpamReservation.reason", 606),
+        ("IpamReservation.ends", 607),
+        ("IpamReservation.allocation_key", 608),
+        ("IpamReservation.parent", 609),
+        ("IpamReservation.dns_name", 610),
+        ("IpamReservation.nat_outside", 611),
+        ("IpamReservation.folder", 612),
+        ("IpamReservation.note", 613),
+        ("IpamVlanGroup.name", 614),
+        ("IpamVlanGroup.vid_ranges", 615),
+        ("IpamVlanGroup.folder", 616),
+        ("IpamVlanGroup.note", 617),
+        ("IpamVlan.group", 618),
+        ("IpamVlan.vid", 619),
+        ("IpamVlan.name", 620),
+        ("IpamVlan.status", 621),
+        ("IpamVlan.allocation_key", 622),
+        ("IpamVlan.folder", 623),
+        ("IpamVlan.note", 624),
+        ("IpamAsnRange.name", 625),
+        ("IpamAsnRange.first", 626),
+        ("IpamAsnRange.last", 627),
+        ("IpamAsnRange.rir", 628),
+        ("IpamAsnRange.folder", 629),
+        ("IpamAsnRange.note", 630),
+        ("IpamAsn.asn", 631),
+        ("IpamAsn.range", 632),
+        ("IpamAsn.meant_for", 633),
+        ("IpamAsn.allocation_key", 634),
+        ("IpamAsn.folder", 635),
+        ("IpamAsn.note", 636),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
     /// per key, least-significant bit first. Read it through [`field_required`];
     /// the array is public only so a test can pin its length.
-    pub const FIELD_REQUIRED_BITS: [u8; 71] = [
+    pub const FIELD_REQUIRED_BITS: [u8; 80] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
         0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0xa3, 0xfb, 0x1d, 0x59, 0x64,
         0xc0, 0xe6, 0x64, 0xc0, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x41, 0x38, 0x00, 0x10,
-        0x81, 0x9e, 0x10, 0x30, 0x00, 0x00, 0x00,
+        0x81, 0x9e, 0x10, 0x30, 0x00, 0x00, 0x14, 0x45, 0x87, 0x8e, 0x02, 0xc0, 0x40, 0x3c, 0x8e, 0x00,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

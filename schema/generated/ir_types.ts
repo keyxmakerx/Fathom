@@ -3,7 +3,7 @@
 
 /** `schema.yaml`'s declared `schema.version`, verbatim (62 §16.1). Mirrors
  * `fathom_ir::generated::SCHEMA_VERSION` — same source, both emitters. */
-export const SCHEMA_VERSION = "0.35";
+export const SCHEMA_VERSION = "0.36";
 
 /** Node kinds, declaration order (62 §2.3). */
 export type NodeKind =
@@ -88,7 +88,18 @@ export type NodeKind =
   | "RoomCorner"
   | "Store"
   | "StockItem"
-  | "StockLevel";
+  | "StockLevel"
+  | "IpamVrf"
+  | "IpamRouteTarget"
+  | "IpamAggregate"
+  | "IpamPrefix"
+  | "IpamRange"
+  | "IpamAddress"
+  | "IpamReservation"
+  | "IpamVlanGroup"
+  | "IpamVlan"
+  | "IpamAsnRange"
+  | "IpamAsn";
 export const NODE_KINDS: readonly NodeKind[] = [
   "Site",
   "Device",
@@ -172,6 +183,17 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "Store",
   "StockItem",
   "StockLevel",
+  "IpamVrf",
+  "IpamRouteTarget",
+  "IpamAggregate",
+  "IpamPrefix",
+  "IpamRange",
+  "IpamAddress",
+  "IpamReservation",
+  "IpamVlanGroup",
+  "IpamVlan",
+  "IpamAsnRange",
+  "IpamAsn",
 ];
 
 /** Asserted edge kinds, declaration order. */
@@ -604,6 +626,17 @@ export const KIND_FIELDS: Readonly<Record<NodeKind, readonly string[]>> = {
   Store: ["name", "place", "note"],
   StockItem: ["part", "model", "name", "serial", "count", "state", "bin", "optic", "due", "rma", "lent_to", "came_from", "note", "assigned_to", "ticket"],
   StockLevel: ["model", "at_least"],
+  IpamVrf: ["name", "route_distinguisher", "enforce_unique", "import_targets", "export_targets", "note"],
+  IpamRouteTarget: ["value", "note"],
+  IpamAggregate: ["prefix", "rir", "folder", "note"],
+  IpamPrefix: ["prefix", "vrf", "status", "is_pool", "mark_utilised", "role", "folder", "vlan", "note"],
+  IpamRange: ["range", "vrf", "status", "populated", "mark_utilised", "role", "folder", "note"],
+  IpamAddress: ["address", "vrf", "status", "role", "dns_name", "nat_outside", "meant_for", "folder", "note"],
+  IpamReservation: ["prefix", "range", "address", "vrf", "holder", "work", "reason", "ends", "allocation_key", "parent", "dns_name", "nat_outside", "folder", "note"],
+  IpamVlanGroup: ["name", "vid_ranges", "folder", "note"],
+  IpamVlan: ["group", "vid", "name", "status", "allocation_key", "folder", "note"],
+  IpamAsnRange: ["name", "first", "last", "rir", "folder", "note"],
+  IpamAsn: ["asn", "range", "meant_for", "allocation_key", "folder", "note"],
 };
 
 /** The field-key registry — append-only, keys never reused (62 §17.1). */
@@ -1104,4 +1137,79 @@ export const FIELD_KEYS: Readonly<Record<string, number>> = {
   "Issue.ticket": 559,
   "StockItem.assigned_to": 560,
   "StockItem.ticket": 561,
+  "IpamVrf.name": 562,
+  "IpamVrf.route_distinguisher": 563,
+  "IpamVrf.enforce_unique": 564,
+  "IpamVrf.import_targets": 565,
+  "IpamVrf.export_targets": 566,
+  "IpamVrf.note": 567,
+  "IpamRouteTarget.value": 568,
+  "IpamRouteTarget.note": 569,
+  "IpamAggregate.prefix": 570,
+  "IpamAggregate.rir": 571,
+  "IpamAggregate.folder": 572,
+  "IpamAggregate.note": 573,
+  "IpamPrefix.prefix": 574,
+  "IpamPrefix.vrf": 575,
+  "IpamPrefix.status": 576,
+  "IpamPrefix.is_pool": 577,
+  "IpamPrefix.mark_utilised": 578,
+  "IpamPrefix.role": 579,
+  "IpamPrefix.folder": 580,
+  "IpamPrefix.vlan": 581,
+  "IpamPrefix.note": 582,
+  "IpamRange.range": 583,
+  "IpamRange.vrf": 584,
+  "IpamRange.status": 585,
+  "IpamRange.populated": 586,
+  "IpamRange.mark_utilised": 587,
+  "IpamRange.role": 588,
+  "IpamRange.folder": 589,
+  "IpamRange.note": 590,
+  "IpamAddress.address": 591,
+  "IpamAddress.vrf": 592,
+  "IpamAddress.status": 593,
+  "IpamAddress.role": 594,
+  "IpamAddress.dns_name": 595,
+  "IpamAddress.nat_outside": 596,
+  "IpamAddress.meant_for": 597,
+  "IpamAddress.folder": 598,
+  "IpamAddress.note": 599,
+  "IpamReservation.prefix": 600,
+  "IpamReservation.range": 601,
+  "IpamReservation.address": 602,
+  "IpamReservation.vrf": 603,
+  "IpamReservation.holder": 604,
+  "IpamReservation.work": 605,
+  "IpamReservation.reason": 606,
+  "IpamReservation.ends": 607,
+  "IpamReservation.allocation_key": 608,
+  "IpamReservation.parent": 609,
+  "IpamReservation.dns_name": 610,
+  "IpamReservation.nat_outside": 611,
+  "IpamReservation.folder": 612,
+  "IpamReservation.note": 613,
+  "IpamVlanGroup.name": 614,
+  "IpamVlanGroup.vid_ranges": 615,
+  "IpamVlanGroup.folder": 616,
+  "IpamVlanGroup.note": 617,
+  "IpamVlan.group": 618,
+  "IpamVlan.vid": 619,
+  "IpamVlan.name": 620,
+  "IpamVlan.status": 621,
+  "IpamVlan.allocation_key": 622,
+  "IpamVlan.folder": 623,
+  "IpamVlan.note": 624,
+  "IpamAsnRange.name": 625,
+  "IpamAsnRange.first": 626,
+  "IpamAsnRange.last": 627,
+  "IpamAsnRange.rir": 628,
+  "IpamAsnRange.folder": 629,
+  "IpamAsnRange.note": 630,
+  "IpamAsn.asn": 631,
+  "IpamAsn.range": 632,
+  "IpamAsn.meant_for": 633,
+  "IpamAsn.allocation_key": 634,
+  "IpamAsn.folder": 635,
+  "IpamAsn.note": 636,
 };

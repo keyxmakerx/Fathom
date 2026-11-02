@@ -60,7 +60,7 @@ use std::collections::BTreeSet;
 const PINNED: &str = concat!(
     "fathom-plain 1\n",
     "THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.\n",
-    "schema 0.35\n",
+    "schema 0.36\n",
     "\n",
     r#"{"batches":[{"id":"00000000000000000000000002","label":"seed","ops":[{"add_node":{"node":"device:00000000000000000000000001","prov":"00000000000000000000000003"}}]}],"edges":[],"history":[],"nodes":[{"existence":"00000000000000000000000003","fields":{},"id":"device:00000000000000000000000001"}],"provenance":[{"asserted_at":0,"asserted_by":{"user":"00000000000000000000000004"},"confidence":"asserted","id":"00000000000000000000000003","origin":"hand"}]}"#,
     "\n",
@@ -1131,6 +1131,15 @@ fn a_0_34_header_opens() {
     read_plain(older.as_bytes()).expect("a 0.34 payload opens");
 }
 
+/// The IP plan store (0.36) adds kinds no design may hold: a 0.35 design opens as it is.
+#[test]
+fn a_0_35_header_opens() {
+    use fathom_ir::generated::ir_types::SCHEMA_VERSION;
+    let older = PINNED.replacen(&format!("schema {SCHEMA_VERSION}"), "schema 0.35", 1);
+    assert_ne!(older, PINNED, "the substitution must have landed");
+    read_plain(older.as_bytes()).expect("a 0.35 payload opens");
+}
+
 /// A 0.15 design holds plans, and a 0.14 one does not (the plan kinds arrived at 0.15).
 #[test]
 fn a_0_15_header_holds_a_plan_and_a_0_16_one_too() {
@@ -1148,6 +1157,35 @@ fn a_0_15_header_holds_a_plan_and_a_0_16_one_too() {
             1,
         );
         read_plain(old.as_bytes()).expect("a plan is legitimate at this header");
+    }
+}
+
+/// The IP plan store's kinds (ADR-0083) are never nodes in a design: a payload holding one is
+/// refused at the current version and at every older one.
+#[test]
+fn a_plan_record_in_a_design_is_refused_at_every_version() {
+    use fathom_ir::generated::ir_types::SCHEMA_VERSION;
+    let mut g = Graph::new();
+    g.begin_batch(BatchId(ulid(0)), "build").expect("open");
+    g.insert_node(NodeKind::IpamPrefix, ulid(1), prov(1))
+        .expect("the graph itself does not look at layers");
+    g.end_batch().expect("close");
+    let text = String::from_utf8(write_plain(&g).expect("writes")).expect("UTF-8");
+    for version in [SCHEMA_VERSION, "0.35", "0.10"] {
+        let at = text.replacen(
+            &format!("schema {SCHEMA_VERSION}"),
+            &format!("schema {version}"),
+            1,
+        );
+        assert!(
+            matches!(
+                read_plain(at.as_bytes()).err(),
+                Some(PlainError::PlanRecordInDesign {
+                    element_kind: "IpamPrefix"
+                })
+            ),
+            "refused at {version}"
+        );
     }
 }
 

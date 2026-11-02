@@ -87,6 +87,7 @@ pub mod health;
 pub mod healthcheck;
 pub mod ids;
 pub mod invitations;
+pub mod ipam;
 pub mod json_in;
 pub mod keyprovider;
 pub mod keys;

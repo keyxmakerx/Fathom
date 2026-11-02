@@ -93,7 +93,8 @@ fn shipped_tree_declaration_counts_hold() {
     // (`HasFloorPlan`, `HasRoom`, `HasRoomCorner`), +12 keys (512-523).
     // Available inventory (schema 0.30): +3 kinds (`Store`, `StockItem`, `StockLevel`), +6 edges
     // (`HasStore`, `HasStock`, `HasStockLevel`, `InStore`, `ReservedFor`, `ForIssue`).
-    assert_eq!(tree.kinds.len(), 82, "kind count");
+    // The IP plan store (schema 0.36, ADR-0083): +11 `plan`-layer kinds, no edges, no class.
+    assert_eq!(tree.kinds.len(), 93, "kind count");
     assert_eq!(tree.edges.len(), 139, "edge count (107 + 8 derived)");
     // Custom-field values (2026-10-02, schema 0.16): +1 kind (`FieldValue`), +1 edge
     // (`HasFieldValue`), +1 CLASS (`Fieldable`), +2 field keys (380 -> 382).
@@ -116,7 +117,8 @@ fn shipped_tree_declaration_counts_hold() {
     // The plan-to-maintenance flow (schema 0.33): +7 field keys (545-551).
     // Termix in the work (schema 0.34): +3 field keys (552-554).
     // The Work tab's ticket parts (schema 0.35): +7 field keys (555-561).
-    assert_eq!(fk.entries.len(), 496, "field-key registry entries");
+    // The IP plan store (schema 0.36): +75 field keys (562-636).
+    assert_eq!(fk.entries.len(), 571, "field-key registry entries");
     // ADR-0037 (2026-08-16) moved exactly ONE of these: version 0.2 -> 0.3. Two
     // `Device.role` variants is not a kind, not an edge, not a field and not a
     // key — the registry is untouched at 307 — and `role` is an INLINE enum, so
@@ -211,7 +213,8 @@ fn shipped_tree_declaration_counts_hold() {
     // 0.32 -> 0.33 is the plan-to-maintenance flow: seven optional plan, step and issue fields (545-551).
     // 0.33 -> 0.34 is Termix in the work: `PlanStep.seen`, `.compared` and `PhysicalPort.console_baud` (552-554).
     // 0.34 -> 0.35 is the Work tab's ticket parts: seven optional fields (555-561), Notable widened.
-    assert_eq!(tree.version.as_deref(), Some("0.35"));
+    // 0.35 -> 0.36 is the IP plan store: eleven `plan`-layer kinds no design holds (562-636).
+    assert_eq!(tree.version.as_deref(), Some("0.36"));
 }
 
 /// The `Placeable` class means *"every kind the diagram can draw as a box"*, and
@@ -224,6 +227,9 @@ fn shipped_tree_declaration_counts_hold() {
 /// ADR-0035's, not `62`'s: a later record could decide that some kinds are
 /// deliberately unplaceable, and then this test changes to say which, in one
 /// place, with the reasoning beside it.
+///
+/// ADR-0083 (schema 0.36) is that later record: the `plan` layer's kinds are records
+/// of the IP plan store on the server, never nodes in a design, so nothing places one.
 #[test]
 fn every_kind_but_the_pin_itself_is_placeable() {
     let (tree, _) = check(&schema_root()).expect("tree loads");
@@ -235,6 +241,7 @@ fn every_kind_but_the_pin_itself_is_placeable() {
     let mut want: Vec<&str> = tree
         .kinds
         .iter()
+        .filter(|k| k.layer.as_deref() != Some("plan"))
         .map(|k| k.name.as_str())
         .filter(|n| *n != "LayoutPin")
         .collect();

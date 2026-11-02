@@ -47,7 +47,7 @@ export { SCHEMA_VERSION };
 // version reads exactly like a current one. Every older version this reader
 // still opens, and no other -- byte-identical to
 // `fathom_workspace::ACCEPTED_OLDER_SCHEMA_VERSIONS`.
-export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12', '0.13', '0.14', '0.15', '0.16', '0.17', '0.18', '0.19', '0.20', '0.21', '0.22', '0.23', '0.24', '0.25', '0.26', '0.27', '0.28', '0.29', '0.30', '0.31', '0.32', '0.33', '0.34'];
+export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12', '0.13', '0.14', '0.15', '0.16', '0.17', '0.18', '0.19', '0.20', '0.21', '0.22', '0.23', '0.24', '0.25', '0.26', '0.27', '0.28', '0.29', '0.30', '0.31', '0.32', '0.33', '0.34', '0.35'];
 
 // Kinds 0.11 (ADR-0058) added. A payload declared at 0.10 cannot
 // legitimately hold one -- its editor never had the kind -- so finding one
@@ -157,6 +157,21 @@ const EDGES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<EdgeKind>]> = [
   [30, EDGE_KINDS_SINCE_0_30],
 ];
 
+// The IP plan store's kinds (ADR-0083, schema 0.36): declared in the schema so the
+// store's fields exist there, never held by a design at any version. Mirrors
+// `fathom_workspace::reject_plan_records`.
+const PLAN_KINDS: ReadonlySet<NodeKind> = new Set<NodeKind>([
+  'IpamVrf', 'IpamRouteTarget', 'IpamAggregate', 'IpamPrefix', 'IpamRange', 'IpamAddress',
+  'IpamReservation', 'IpamVlanGroup', 'IpamVlan', 'IpamAsnRange', 'IpamAsn',
+]);
+
+function rejectPlanRecords(doc: Document): void {
+  for (const n of doc.nodes) {
+    const kind = parseNodeId(n.id).kind;
+    if (PLAN_KINDS.has(kind)) throw new PlainError({ kind: 'plan-record-in-design', elementKind: kind });
+  }
+}
+
 function rejectKindsTooNewForDeclaredVersion(declared: string, doc: Document): void {
   // Nothing to check for the current version (everything is legitimate
   // there) or any value the version check above this call already refused.
@@ -185,6 +200,8 @@ export type PlainErrorReason =
    * decision 6) -- distinct from `schema-version-mismatch`, which is about
    * the header's version token itself, not what it holds. */
   | { kind: 'kind-not-in-declared-version'; declaredVersion: string; elementKind: string }
+  /** A record of the IP plan store inside a design (ADR-0083). */
+  | { kind: 'plan-record-in-design'; elementKind: string }
   | { kind: 'malformed-header'; line: number }
   | { kind: 'json'; message: string }
   | { kind: 'shape'; path: string; expected: string };
@@ -210,6 +227,8 @@ function plainErrorMessage(r: PlainErrorReason): string {
       return `schema version "${r.found}" does not match the supported "${r.supported}"`;
     case 'kind-not-in-declared-version':
       return `${r.elementKind} does not exist in schema ${r.declaredVersion}`;
+    case 'plan-record-in-design':
+      return `${r.elementKind} belongs to the IP plan store, not a design`;
     case 'malformed-header':
       return `malformed header at line ${r.line}`;
     case 'json':
@@ -382,6 +401,7 @@ export function readPlain(bytes: Uint8Array): Document {
     throw new PlainError({ kind: 'json', message: e instanceof Error ? e.message : String(e) });
   }
   const doc = jsonToDocument(json);
+  rejectPlanRecords(doc);
   rejectKindsTooNewForDeclaredVersion(declared, doc);
   return doc;
 }

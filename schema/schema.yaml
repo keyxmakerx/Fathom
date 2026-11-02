@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.35"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.36"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -397,6 +397,18 @@ schema:
                     # Fathom number is not a field: the server gives it (estate index, ADR-0087).
                     # 62 §16.2: optional fields and a widened class are minor. Whole change =
                     # MINOR. The reader still opens 0.10 to 0.34.
+                    #
+                    # 0.36 is the IP plan store (ADR-0083, 2026-11-02), all additive: a fourth
+                    # layer, `plan`, for records the organisation's IP plan store keeps on the
+                    # server and a design never holds (a design naming one is refused on read).
+                    # Eleven new kinds -- IpamVrf, IpamRouteTarget, IpamAggregate, IpamPrefix,
+                    # IpamRange, IpamAddress, IpamReservation, IpamVlanGroup, IpamVlan,
+                    # IpamAsnRange, IpamAsn -- all emits: false, no edges and no classes: a record
+                    # names another by store id, and meets the drawing by value. No new scalar:
+                    # the ADR's IpNetwork is the existing IpPrefix, which already reads both
+                    # families. Seventy-five field keys (562-636). 62 §16.2: new node kinds are
+                    # minor; a new layer value is a new closed-vocabulary arm no stored design
+                    # can carry. Whole change = MINOR. The reader still opens 0.10 to 0.35.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -2481,6 +2493,189 @@ kinds:
       - { name: at_least, type: u32, card: "1", emit: "—", doc: How many spares to keep. }
     identity:
       - [ model ]
+
+  # ======================= plan layer — the IP plan store (ADR-0083, schema 0.36) =======================
+  # These kinds are records in the organisation's IP plan store on the server, never nodes in a
+  # design: a design file holding one is refused on read (fathom-workspace). They are declared here
+  # so every field the store keeps exists in `schema/` first (CLAUDE.md rule 3), with wire keys,
+  # and so the store validates each value through the same canonical parsers as a design does.
+  # They have no edges: a record names another by its store id in an Identifier field, and a
+  # plan record meets the drawing by value (address, VRF name), never by a stored edge (ADR-0083
+  # "Schema"). The ADR's working names (IpPrefix, IpRange, RouteTarget, ...) collide with the
+  # scalars of those names, and `Plan…` would read as a maintenance plan, so every plan kind
+  # carries an `Ipam` prefix instead.
+  - kind: IpamVrf
+    layer: plan
+    emits: false
+    doc: |
+      A VRF in the plan (ADR-0083 decision 4): its own address space, or one that refuses a
+      duplicate when `enforce_unique` is set (off by default, as NetBox's is). Linked to a drawn
+      RoutingInstance by name. The global table is the absence of a VRF.
+    fields:
+      - { name: name, type: Text, card: "1", emit: "—", doc: "What it is called; matched against a drawn RoutingInstance's name." }
+      - { name: route_distinguisher, type: RouteDistinguisher, card: "0..1", emit: "—" }
+      - { name: enforce_unique, type: bool, card: "1", emit: "—", doc: "When true the store refuses two records for the same network in this VRF." }
+      - { name: import_targets, type: Identifier, card: "0..n", emit: "—", doc: Store ids of the PlanRouteTargets it imports. }
+      - { name: export_targets, type: Identifier, card: "0..n", emit: "—", doc: Store ids of the PlanRouteTargets it exports. }
+      - { name: note, type: Text, card: "0..1", emit: "—" }
+    identity:
+      - [ name ]
+
+  - kind: IpamRouteTarget
+    layer: plan
+    emits: false
+    doc: A route target shared by the VRFs that import or export it (ADR-0083 decision 4).
+    fields:
+      - { name: value, type: RouteTarget, card: "1", emit: "—" }
+      - { name: note, type: Text, card: "0..1", emit: "—" }
+    identity:
+      - [ value ]
+
+  - kind: IpamAggregate
+    layer: plan
+    emits: false
+    doc: |
+      The root of a branch of the address tree: space the organisation holds, from an RIR or
+      private (ADR-0083 decision 4). Always in the global table, as NetBox's are.
+    fields:
+      - { name: prefix, type: IpPrefix, card: "1", emit: "—" }
+      - { name: rir, type: Text, card: "0..1", emit: "—", doc: "Who it came from: \"RIPE NCC\", \"RFC 1918\"." }
+      - { name: folder, type: Identifier, card: "0..1", emit: "—", doc: "The site, building or closet folder it belongs to (ADR-0074); none is the organisation." }
+      - { name: note, type: Text, card: "0..1", emit: "—" }
+    identity:
+      - [ prefix ]
+
+  - kind: IpamPrefix
+    layer: plan
+    emits: false
+    doc: |
+      A block in the address tree (ADR-0083 decision 4), nested under its aggregate and any
+      larger prefix by containment within one VRF; nothing stores the parent. Statuses are
+      NetBox's four so an export round-trips.
+    fields:
+      - { name: prefix, type: IpPrefix, card: "1", emit: "—" }
+      - { name: vrf, type: Identifier, card: "0..1", emit: "—", doc: The IpamVrf's store id; none is the global table. }
+      - { name: status, type: "enum { container, active, reserved, deprecated }", card: "1", emit: "—" }
+      - { name: is_pool, type: bool, card: "1", emit: "—", doc: "Every address in it is usable, the network and broadcast addresses included." }
+      - { name: mark_utilised, type: bool, card: "1", emit: "—", doc: Counts as full whatever is inside it. }
+      - { name: role, type: Text, card: "0..1", emit: "—" }
+      - { name: folder, type: Identifier, card: "0..1", emit: "—" }
+      - { name: vlan, type: VlanId, card: "0..1", emit: "—" }
+      - { name: note, type: Text, card: "0..1", emit: "—" }
+    identity: []
+
+  - kind: IpamRange
+    layer: plan
+    emits: false
+    doc: A stretch of addresses inside a prefix, such as a DHCP pool (ADR-0083 decision 4).
+    fields:
+      - { name: range, type: IpRange, card: "1", emit: "—" }
+      - { name: vrf, type: Identifier, card: "0..1", emit: "—" }
+      - { name: status, type: "enum { active, reserved, deprecated }", card: "1", emit: "—" }
+      - { name: populated, type: bool, card: "1", emit: "—", doc: "Counts as full, and next free never hands out an address inside it." }
+      - { name: mark_utilised, type: bool, card: "1", emit: "—" }
+      - { name: role, type: Text, card: "0..1", emit: "—" }
+      - { name: folder, type: Identifier, card: "0..1", emit: "—" }
+      - { name: note, type: Text, card: "0..1", emit: "—" }
+    identity: []
+
+  - kind: IpamAddress
+    layer: plan
+    emits: false
+    doc: |
+      One address meant for an interface, before or after it is drawn (ADR-0083 decisions 2 and
+      4). Host bits and the length are kept, as a drawn Address keeps them.
+    fields:
+      - { name: address, type: InterfaceAddress, card: "1", emit: "—" }
+      - { name: vrf, type: Identifier, card: "0..1", emit: "—" }
+      - { name: status, type: "enum { active, reserved, deprecated, dhcp, slaac }", card: "1", emit: "—" }
+      - { name: role, type: "enum { loopback, secondary, anycast, vip, vrrp, hsrp, glbp, carp }", card: "0..1", emit: "—" }
+      - { name: dns_name, type: Fqdn, card: "0..1", emit: "—", doc: "Text kept in the store only; Fathom never resolves it (invariant 2)." }
+      - { name: nat_outside, type: Identifier, card: "0..1", emit: "—", doc: "The store id of its one-to-one NAT outside address." }
+      - { name: meant_for, type: Text, card: "0..1", emit: "—", doc: "The device and interface it is planned for, in words, until it is drawn." }
+      - { name: folder, type: Identifier, card: "0..1", emit: "—" }
+      - { name: note, type: Text, card: "0..1", emit: "—" }
+    identity: []
+
+  - kind: IpamReservation
+    layer: plan
+    emits: false
+    doc: |
+      A hold on a prefix, a range or one address, by a person or a piece of work, with a reason
+      and an end (ADR-0083 decision 3). Exactly one of prefix, range and address is set. Lapsed
+      and In use are worked out, not stored: lapsed from `ends`, in use from the drawing.
+    fields:
+      - { name: prefix, type: IpPrefix, card: "0..1", emit: "—" }
+      - { name: range, type: IpRange, card: "0..1", emit: "—" }
+      - { name: address, type: IpAddr, card: "0..1", emit: "—" }
+      - { name: vrf, type: Identifier, card: "0..1", emit: "—" }
+      - { name: holder, type: Identifier, card: "0..1", emit: "—", doc: The account that holds it. }
+      - { name: work, type: Text, card: "0..1", emit: "—", doc: "The piece of work that holds it: a Fathom number, later an order's job." }
+      - { name: reason, type: Text, card: "1", emit: "—" }
+      - { name: ends, type: Date, card: "1", emit: "—" }
+      - { name: allocation_key, type: Text, card: "0..1", emit: "—", doc: "What asked for it, such as W-1042/wan: the same key again gives the same block (decision 5)." }
+      - { name: parent, type: Identifier, card: "0..1", emit: "—", doc: The store id of the block it was handed out from. }
+      - { name: dns_name, type: Fqdn, card: "0..1", emit: "—" }
+      - { name: nat_outside, type: Identifier, card: "0..1", emit: "—" }
+      - { name: folder, type: Identifier, card: "0..1", emit: "—" }
+      - { name: note, type: Text, card: "0..1", emit: "—" }
+    identity: []
+
+  - kind: IpamVlanGroup
+    layer: plan
+    emits: false
+    doc: |
+      VLAN IDs handed out together (ADR-0083 decision 4). IDs and names are unique inside a group.
+      Its ranges do not overlap; each is written lo-hi, as "100-199".
+    fields:
+      - { name: name, type: Text, card: "1", emit: "—" }
+      - { name: vid_ranges, type: Text, card: "1..n", emit: "—", doc: "Each lo-hi, inside 1-4094." }
+      - { name: folder, type: Identifier, card: "0..1", emit: "—" }
+      - { name: note, type: Text, card: "0..1", emit: "—" }
+    identity:
+      - [ name ]
+
+  - kind: IpamVlan
+    layer: plan
+    emits: false
+    doc: A VLAN ID planned in a group (ADR-0083 decision 4); matched to a drawn Vlan by ID and name.
+    fields:
+      - { name: group, type: Identifier, card: "1", emit: "—", doc: The IpamVlanGroup's store id. }
+      - { name: vid, type: VlanId, card: "1", emit: "—" }
+      - { name: name, type: Text, card: "1", emit: "—" }
+      - { name: status, type: "enum { active, reserved, deprecated }", card: "1", emit: "—" }
+      - { name: allocation_key, type: Text, card: "0..1", emit: "—" }
+      - { name: folder, type: Identifier, card: "0..1", emit: "—" }
+      - { name: note, type: Text, card: "0..1", emit: "—" }
+    identity: []
+
+  - kind: IpamAsnRange
+    layer: plan
+    emits: false
+    doc: ASNs held together, 2-byte or 4-byte, private or public (ADR-0083 decision 4).
+    fields:
+      - { name: name, type: Text, card: "1", emit: "—" }
+      - { name: first, type: Asn, card: "1", emit: "—" }
+      - { name: last, type: Asn, card: "1", emit: "—" }
+      - { name: rir, type: Text, card: "0..1", emit: "—" }
+      - { name: folder, type: Identifier, card: "0..1", emit: "—" }
+      - { name: note, type: Text, card: "0..1", emit: "—" }
+    identity:
+      - [ name ]
+
+  - kind: IpamAsn
+    layer: plan
+    emits: false
+    doc: One ASN in the plan, from a range or on its own (ADR-0083 decision 4).
+    fields:
+      - { name: asn, type: Asn, card: "1", emit: "—" }
+      - { name: range, type: Identifier, card: "0..1", emit: "—", doc: The IpamAsnRange's store id. }
+      - { name: meant_for, type: Text, card: "0..1", emit: "—" }
+      - { name: allocation_key, type: Text, card: "0..1", emit: "—" }
+      - { name: folder, type: Identifier, card: "0..1", emit: "—" }
+      - { name: note, type: Text, card: "0..1", emit: "—" }
+    identity:
+      - [ asn ]
 
 edges:
   # reverse_index is true throughout: 12's DepKey::Adjacency and 19 §8.3's increment scope

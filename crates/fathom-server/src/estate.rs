@@ -1020,6 +1020,38 @@ pub async fn page(
     open_rows(tx, keys, organisation, &pairs).await
 }
 
+/// Every drawn address in the organisation's designs, as the index holds them (a device's
+/// management and interface addresses, without their prefix lengths): what the IP plan
+/// store's next free skips (ADR-0083 decision 4). Server-side only; nothing here is answered
+/// to a person, so it reads every design, not just the ones the caller may open.
+pub async fn all_addresses(
+    tx: &Transaction<'_>,
+    keys: &IndexKeys,
+    organisation: &str,
+) -> Result<Vec<String>, String> {
+    let rows = tx
+        .query(
+            "SELECT design_id, element_id FROM estate_rows \
+             WHERE organisation_id = $1 AND kind = 'device'",
+            &[&organisation],
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let pairs: Vec<(String, String)> = rows.iter().map(|r| (r.get(0), r.get(1))).collect();
+    let mut out = Vec::new();
+    for hit in open_rows(tx, keys, organisation, &pairs).await? {
+        if let Json::Obj(m) = hit.row {
+            if let Some(Json::Arr(addresses)) = m.get("addresses") {
+                out.extend(addresses.iter().filter_map(|a| match a {
+                    Json::Str(s) => Some(s.clone()),
+                    _ => None,
+                }));
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// The device rows holding the far ports `ends` (design, port) name, opened: what a link
 /// between sites reads to find its far port and whether that port links back (ADR-0079
 /// decision 5). Found through [`port_terms`], so one request opens at most the devices it

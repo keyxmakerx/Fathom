@@ -36,6 +36,8 @@ pub enum Layer {
     Config,
     Physical,
     Service,
+    /// The IP plan store's records (ADR-0083): declared here, never held by a design.
+    Plan,
 }
 
 impl Layer {
@@ -44,6 +46,7 @@ impl Layer {
             Layer::Config => "Config",
             Layer::Physical => "Physical",
             Layer::Service => "Service",
+            Layer::Plan => "Plan",
         }
     }
 }
@@ -298,6 +301,7 @@ pub fn extract(root: &Path, tree: &SchemaTree) -> Result<Extracted, ExtractError
             Some("config") => Layer::Config,
             Some("physical") => Layer::Physical,
             Some("service") => Layer::Service,
+            Some("plan") => Layer::Plan,
             other => {
                 return err(format!(
                     "kind `{name}` layer `{}` outside the closed vocabulary (62 §4.2)",
