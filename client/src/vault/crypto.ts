@@ -304,6 +304,14 @@ export interface Secret {
   username: string;
   password: string;
   note: string;
+  /** An SNMPv3 login's privacy password when it differs from the authentication one. Sealed as
+   * `x`, and only when set, so every other login keeps the same bytes. */
+  privacy?: string;
+}
+
+/** What a secret seals as: `{u, p, n}`, plus `x` for a privacy password of its own. */
+export function secretFields(secret: Secret): { u: string; p: string; n: string; x?: string } {
+  return { u: secret.username, p: secret.password, n: secret.note, ...(secret.privacy ? { x: secret.privacy } : {}) };
 }
 
 export const MAX_SECRET_BYTES = 8_192;
@@ -313,16 +321,17 @@ export function newContentKey(): Uint8Array {
 }
 
 export async function sealSecret(organisation: string, credential: string, epoch: number, contentKey: Uint8Array, secret: Secret): Promise<{ ct: Uint8Array; nonce: Uint8Array }> {
-  const plain = utf8(JSON.stringify({ u: secret.username, p: secret.password, n: secret.note }));
+  const plain = utf8(JSON.stringify(secretFields(secret)));
   if (plain.length + 16 > MAX_SECRET_BYTES) throw new Error('That is too long to store. Keep the note shorter.');
   return seal(await aesKey(contentKey), plain, secretAad(organisation, credential, epoch));
 }
 
 export async function openSecret(organisation: string, credential: string, epoch: number, contentKey: Uint8Array, ct: Uint8Array, nonce: Uint8Array): Promise<Secret> {
   const plain = await open(await aesKey(contentKey), ct, nonce, secretAad(organisation, credential, epoch));
-  const parsed = JSON.parse(new TextDecoder().decode(plain)) as { u?: unknown; p?: unknown; n?: unknown };
+  const parsed = JSON.parse(new TextDecoder().decode(plain)) as { u?: unknown; p?: unknown; n?: unknown; x?: unknown };
   const s = (v: unknown) => (typeof v === 'string' ? v : '');
-  return { username: s(parsed.u), password: s(parsed.p), note: s(parsed.n) };
+  const privacy = s(parsed.x);
+  return { username: s(parsed.u), password: s(parsed.p), note: s(parsed.n), ...(privacy ? { privacy } : {}) };
 }
 
 /** Verify an ES256 signature by an account key. */

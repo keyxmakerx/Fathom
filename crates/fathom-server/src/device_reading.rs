@@ -1,0 +1,1183 @@
+//! Reading one device and keeping what it said (ADR-0082 §4.1, §4.2 and §4.6; sign-offs r90,
+//! r91 and r100; migration `0073`).
+//!
+//! A read goes like this, and every step can refuse:
+//!
+//! 1. **Who and where.** The person can draw on the design; reading is on for the organisation
+//!    and allowed by the server; the device's management address, read from the design itself and
+//!    never from the request, is inside a range a Steward listed ([`crate::device_read`]).
+//! 2. **Which agent.** Before any login is sent, the SNMPv3 agent at that address has a confirmed
+//!    engine id: confirmed for this one device by someone typing its last 8 characters, or for a
+//!    whole range by a Steward (r90 "keys": A). An agent nobody confirmed is only asked who it is.
+//! 3. **Which login.** A vault login Fathom may use (Mode B), ticked read-only, an SNMP login
+//!    that names its authentication; marked on the device, or the login the Steward set for the
+//!    range (r90 "logins": A). Opening it files `vault_read` with purpose `read`.
+//! 4. **The reader reads**, outside the database transaction, and answers.
+//! 5. **Through the gate, then sealed.** Every string the device answered passes the redaction
+//!    gate's detector ([`fathom_ingest::redact::looks_like_credential_bare`]) before it is
+//!    stored or sent on (CLAUDE.md rule 4). The answer is sealed under a key of its own and one
+//!    `device_read_done` entry is filed with its SHA-256.
+//!
+//! Nothing here acts on what was read. The differences from the drawing are worked out in the
+//! browser, which shows them as suggestions; a person's Accept is an ordinary edit of the design.
+
+use std::collections::BTreeMap;
+use std::net::IpAddr;
+
+use deadpool_postgres::Transaction;
+use fathom_canon::Json;
+use sha2::{Digest, Sha256};
+
+use crate::authority::Capability;
+use crate::chain::EntryType;
+use crate::chains;
+use crate::crypto::{self, Key32, NONCE_LEN};
+use crate::device_read::{Range, Settings, Transport, PROTOCOL};
+use crate::grants::{self, Authority, AuthorityError, StewardCheck};
+use crate::keys::DataKey;
+use crate::repo::{DesignId, ScopeId};
+use crate::vault::{entry_metadata, VaultError};
+use crate::vault_fathom::{self, FathomKey, UsedLogin};
+
+/// The purposes of a device reading, and of a MAC and ARP reading (r91: on request).
+pub const DEVICE_PURPOSES: [&str; 4] = ["system", "inventory", "interfaces", "lldp"];
+/// MAC and ARP, with what decides which ports are edge ports: the interfaces and the LLDP
+/// neighbours, read in the same pass so the filter uses one moment's facts.
+pub const MACARP_PURPOSES: [&str; 4] = ["interfaces", "lldp", "mac", "arp"];
+
+/// How many readings of each kind a device keeps (r90: the latest plus what changed).
+pub const KEEP: i64 = 10;
+
+/// What a string the gate stopped reads as instead.
+pub const WITHHELD: &str = "[withheld: it looked like a password]";
+
+// ---------------------------------------------------------------------------
+// Keys
+// ---------------------------------------------------------------------------
+
+/// The reading store's keys, derived from the tenant key under their own label, so they open
+/// nothing else and nothing else opens them.
+pub struct ReadingKeys {
+    seal: Key32,
+    address: Key32,
+    field: Key32,
+    epoch: i32,
+}
+
+impl ReadingKeys {
+    pub fn derive(tenant_key: &DataKey, organisation: &str) -> Self {
+        let mut info = b"fathom/device-reading/v1|".to_vec();
+        info.extend_from_slice(organisation.as_bytes());
+        let root = crypto::hkdf_expand(&tenant_key.key, &info);
+        Self {
+            seal: crypto::hkdf_expand(&root, b"seal"),
+            address: crypto::hkdf_expand(&root, b"address"),
+            field: crypto::hkdf_expand(&root, b"field"),
+            epoch: tenant_key.epoch,
+        }
+    }
+
+    /// The row key for an address: an HMAC, so the address is never in the clear.
+    fn address_mac(&self, address: IpAddr) -> Vec<u8> {
+        crypto::mac(self.address.expose(), canonical_ip(address).as_bytes()).to_vec()
+    }
+
+    fn field_mac(&self, design: &str, element: &str, field: &str) -> Vec<u8> {
+        let mut m = Vec::new();
+        for part in [design, element, field] {
+            crypto::lp(&mut m, part.as_bytes());
+        }
+        crypto::mac(self.field.expose(), &m).to_vec()
+    }
+
+    fn seal(&self, what: &[u8], aad: &[u8]) -> Result<(Vec<u8>, Vec<u8>), VaultError> {
+        let nonce = crypto::random_nonce()?;
+        let sealed = crypto::seal(&self.seal, &nonce, what, aad)?;
+        Ok((sealed, nonce.to_vec()))
+    }
+
+    fn open(
+        &self,
+        epoch: i32,
+        sealed: &[u8],
+        nonce: &[u8],
+        aad: &[u8],
+    ) -> Result<Json, VaultError> {
+        if epoch != self.epoch {
+            return Err(VaultError::Corrupt(
+                "a reading sealed under another key epoch",
+            ));
+        }
+        let nonce: [u8; NONCE_LEN] = nonce
+            .try_into()
+            .map_err(|_| VaultError::Corrupt("a reading's nonce"))?;
+        let plain = crypto::open(&self.seal, &nonce, sealed, aad)
+            .map_err(|_| VaultError::Corrupt("a sealed reading"))?;
+        Json::parse_canonical(&plain).map_err(|_| VaultError::Corrupt("a reading's body"))
+    }
+}
+
+fn aad(table: &str, parts: &[&str]) -> Vec<u8> {
+    let mut a = b"fathom device reading 1".to_vec();
+    crypto::lp(&mut a, table.as_bytes());
+    for p in parts {
+        crypto::lp(&mut a, p.as_bytes());
+    }
+    a
+}
+
+/// An address as one spelling: an IPv4-mapped IPv6 address is the IPv4 one.
+fn canonical_ip(ip: IpAddr) -> String {
+    match ip {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4).to_string(),
+        v4 => v4.to_string(),
+    }
+}
+
+fn s(v: &str) -> Json {
+    Json::Str(v.to_string())
+}
+
+fn obj(fields: Vec<(&str, Json)>) -> Json {
+    Json::Obj(
+        fields
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+    )
+}
+
+fn now_ms() -> i64 {
+    crypto::now_unix() * 1000
+}
+
+// ---------------------------------------------------------------------------
+// 1. Who and where
+// ---------------------------------------------------------------------------
+
+/// The device a read is for, as the design says.
+#[derive(Clone, Debug)]
+pub struct Target {
+    pub design: String,
+    pub element: String,
+    pub address: IpAddr,
+    pub range: Range,
+}
+
+/// The design's folder, or not found.
+async fn scope_of(
+    tx: &Transaction<'_>,
+    organisation: &str,
+    design: &str,
+) -> Result<ScopeId, VaultError> {
+    tx.query_opt(
+        "SELECT scope_id FROM designs WHERE id = $1 AND organisation_id = $2",
+        &[&design, &organisation],
+    )
+    .await?
+    .ok_or(VaultError::NotFound)?
+    .get::<_, String>(0)
+    .parse::<ScopeId>()
+    .map_err(|_| VaultError::Corrupt("design scope id"))
+}
+
+/// Refused unless the signed-in person holds `capability` on the design.
+pub async fn require(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    design: &str,
+    capability: Capability,
+) -> Result<ScopeId, VaultError> {
+    let scope = scope_of(tx, &auth.ctx.tenant().to_string(), design).await?;
+    match grants::authorise_account(tx, auth, Some(scope), capability).await {
+        Ok(_) => Ok(scope),
+        Err(AuthorityError::NotAuthorised) => Err(VaultError::NotAllowed(match capability {
+            Capability::Read => "you can't see that design",
+            _ => "reading a device needs Draw on its design",
+        })),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// The device's management address, from the design's head. The request never names it, so
+/// nobody can have one device's reading filed under another.
+pub fn management_address(plain: &[u8], element: &str) -> Result<String, &'static str> {
+    use fathom_ir::generated::ir_types::{DeviceField, NodeKind};
+    let graph = fathom_workspace::read_plain(plain).map_err(|_| "the design could not be read")?;
+    let snap = graph
+        .to_snapshot()
+        .map_err(|_| "the design could not be read")?;
+    let node = snap
+        .nodes
+        .iter()
+        .find(|n| n.absent_since.is_none() && n.id.to_string() == element)
+        .ok_or("that device is not in the design")?;
+    if node.id.kind != NodeKind::Device {
+        return Err("only a device is read");
+    }
+    let value = node
+        .fields
+        .iter()
+        .find(|f| f.key == DeviceField::ManagementAddress.key())
+        .and_then(|f| match &f.value {
+            Some(Json::Str(v)) => Some(v.trim().to_string()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    if value.is_empty() {
+        return Err("the device has no management address; add one on Details › Management");
+    }
+    Ok(value)
+}
+
+/// Steps 1 of a read: the person, the switches, the address, the range.
+pub async fn target(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    settings: &Settings,
+    reader_present: bool,
+    design: &str,
+    element: &str,
+) -> Result<Target, VaultError> {
+    if !reader_present {
+        return Err(VaultError::NotAllowed(
+            "this server does not read devices; its operator turns it on with FATHOM_DEVICE_READ=on",
+        ));
+    }
+    if !settings.on {
+        return Err(VaultError::NotAllowed(
+            "reading is off for this organisation; a Steward turns it on under Device reading",
+        ));
+    }
+    let scope = require(tx, auth, design, Capability::Draw).await?;
+    let design_id: DesignId = design
+        .parse()
+        .map_err(|_| VaultError::Malformed("design"))?;
+    let head = crate::designs::read_version_in_tx(tx, auth, None, design_id, Some(scope), None)
+        .await
+        .map_err(|_| VaultError::Corrupt("the design's head"))?;
+    let text = management_address(&head.payload, element).map_err(VaultError::NotAllowed)?;
+    let bare = text.split('/').next().unwrap_or("");
+    let address: IpAddr = bare.parse().map_err(|_| {
+        VaultError::NotAllowed("the device's management address is not an IP address")
+    })?;
+    let range = settings
+        .range_for(address)
+        .map_err(VaultError::NotAllowed)?
+        .clone();
+    Ok(Target {
+        design: design.to_string(),
+        element: element.to_string(),
+        address,
+        range,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// 2. Which agent
+// ---------------------------------------------------------------------------
+
+/// An agent as the store holds it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Engine {
+    pub state: String,
+    pub address: String,
+    pub engine_id: String,
+    /// The id that was approved before, for a `changed` one.
+    pub previous: Option<String>,
+    pub design: String,
+    pub element: String,
+    pub seen_at_ms: i64,
+    pub approved_by: Option<String>,
+}
+
+impl Engine {
+    fn body(&self) -> Json {
+        obj(vec![
+            ("address", s(&self.address)),
+            ("design", s(&self.design)),
+            ("element", s(&self.element)),
+            ("engineId", s(&self.engine_id)),
+            ("previous", self.previous.as_deref().map_or(Json::Null, s)),
+        ])
+    }
+
+    pub fn to_json(&self) -> Json {
+        let mut m = match self.body() {
+            Json::Obj(m) => m,
+            _ => BTreeMap::new(),
+        };
+        m.insert("state".into(), s(&self.state));
+        m.insert("seenAt".into(), Json::Int(self.seen_at_ms));
+        m.insert(
+            "approvedBy".into(),
+            self.approved_by.as_deref().map_or(Json::Null, s),
+        );
+        Json::Obj(m)
+    }
+}
+
+fn engine_from_row(
+    keys: &ReadingKeys,
+    organisation: &str,
+    row: &tokio_postgres::Row,
+) -> Result<Engine, VaultError> {
+    let mac: Vec<u8> = row.get("address_mac");
+    let body = keys.open(
+        row.get("key_epoch"),
+        &row.get::<_, Vec<u8>>("sealed"),
+        &row.get::<_, Vec<u8>>("nonce"),
+        &aad("engines", &[organisation, &crate::crypto::hex(&mac)]),
+    )?;
+    let Json::Obj(m) = body else {
+        return Err(VaultError::Corrupt("an engine row"));
+    };
+    let get = |k: &str| match m.get(k) {
+        Some(Json::Str(v)) => Ok(v.clone()),
+        _ => Err(VaultError::Corrupt("an engine row")),
+    };
+    Ok(Engine {
+        state: row.get("state"),
+        address: get("address")?,
+        engine_id: get("engineId")?,
+        previous: match m.get("previous") {
+            Some(Json::Str(p)) => Some(p.clone()),
+            _ => None,
+        },
+        design: get("design")?,
+        element: get("element")?,
+        seen_at_ms: row.get("seen_ms"),
+        approved_by: row.get("approved_by"),
+    })
+}
+
+const ENGINE_COLUMNS: &str = "address_mac, state, key_epoch, sealed, nonce, approved_by, \
+    (extract(epoch from seen_at) * 1000)::bigint AS seen_ms";
+
+/// The agent on record for an address, if any.
+pub async fn engine_at(
+    tx: &Transaction<'_>,
+    keys: &ReadingKeys,
+    organisation: &str,
+    address: IpAddr,
+) -> Result<Option<Engine>, VaultError> {
+    let row = tx
+        .query_opt(
+            &format!(
+                "SELECT {ENGINE_COLUMNS} FROM device_read_engines \
+                  WHERE organisation_id = $1 AND address_mac = $2 FOR UPDATE"
+            ),
+            &[&organisation, &keys.address_mac(address)],
+        )
+        .await?;
+    row.map(|r| engine_from_row(keys, organisation, &r))
+        .transpose()
+}
+
+async fn write_engine(
+    tx: &Transaction<'_>,
+    keys: &ReadingKeys,
+    organisation: &str,
+    actor: &str,
+    address: IpAddr,
+    engine: &Engine,
+) -> Result<(), VaultError> {
+    let mac = keys.address_mac(address);
+    let (sealed, nonce) = keys.seal(
+        &engine.body().to_canonical_bytes(),
+        &aad("engines", &[organisation, &crate::crypto::hex(&mac)]),
+    )?;
+    let approved = engine.state == "approved";
+    tx.execute(
+        "INSERT INTO device_read_engines \
+             (organisation_id, address_mac, state, key_epoch, sealed, nonce, seen_by, \
+              approved_by, approved_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, \
+                 CASE WHEN $8 THEN $7 ELSE NULL END, CASE WHEN $8 THEN now() ELSE NULL END) \
+         ON CONFLICT (organisation_id, address_mac) DO UPDATE SET \
+             state = EXCLUDED.state, key_epoch = EXCLUDED.key_epoch, sealed = EXCLUDED.sealed, \
+             nonce = EXCLUDED.nonce, \
+             seen_by = CASE WHEN $8 THEN device_read_engines.seen_by ELSE EXCLUDED.seen_by END, \
+             seen_at = CASE WHEN $8 THEN device_read_engines.seen_at ELSE now() END, \
+             approved_by = EXCLUDED.approved_by, approved_at = EXCLUDED.approved_at",
+        &[
+            &organisation,
+            &mac,
+            &engine.state,
+            &keys.epoch,
+            &sealed,
+            &nonce,
+            &actor,
+            &approved,
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+/// Record what answered at an address. A new agent is `seen`; one that differs from the
+/// approved id is `changed`, keeping the approved id as `previous`; an approved agent that
+/// answers with its own id stays as it is.
+pub async fn record_seen(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    keys: &ReadingKeys,
+    target: &Target,
+    engine_id: &str,
+) -> Result<Engine, VaultError> {
+    let organisation = auth.ctx.tenant().to_string();
+    let actor = auth.ctx.actor().to_string();
+    let current = engine_at(tx, keys, &organisation, target.address).await?;
+    let (state, previous) = match &current {
+        Some(e) if e.state == "approved" && e.engine_id == engine_id => return Ok(e.clone()),
+        Some(e) if e.state == "approved" => ("changed", Some(e.engine_id.clone())),
+        Some(e) if e.state == "changed" => ("changed", e.previous.clone()),
+        _ => ("seen", None),
+    };
+    let engine = Engine {
+        state: state.to_string(),
+        address: canonical_ip(target.address),
+        engine_id: engine_id.to_string(),
+        previous,
+        design: target.design.clone(),
+        element: target.element.clone(),
+        seen_at_ms: now_ms(),
+        approved_by: None,
+    };
+    write_engine(tx, keys, &organisation, &actor, target.address, &engine).await?;
+    Ok(engine)
+}
+
+/// An engine id as the reader writes it: lower-case hex, 10 to 64 characters (RFC 3411
+/// SnmpEngineID is 5 to 32 octets).
+pub fn engine_id_ok(id: &str) -> bool {
+    (10..=64).contains(&id.len())
+        && id.len().is_multiple_of(2)
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// Whether `typed` is the last 8 characters of `engine_id`, ignoring case and spaces.
+pub fn last_eight_match(engine_id: &str, typed: &str) -> bool {
+    let typed: String = typed
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .to_ascii_lowercase();
+    typed.len() == 8 && engine_id.len() >= 8 && engine_id.ends_with(&typed)
+}
+
+/// Someone with Draw confirms one device's agent by typing the last 8 characters of its id.
+pub async fn approve_typed(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    keys: &ReadingKeys,
+    target: &Target,
+    typed: &str,
+) -> Result<Engine, VaultError> {
+    let organisation = auth.ctx.tenant().to_string();
+    let actor = auth.ctx.actor().to_string();
+    let Some(mut engine) = engine_at(tx, keys, &organisation, target.address).await? else {
+        return Err(VaultError::NotAllowed(
+            "nothing has answered at that address yet; press Read now to ask it",
+        ));
+    };
+    if engine.state == "approved" {
+        return Ok(engine);
+    }
+    if !last_eight_match(&engine.engine_id, typed) {
+        return Err(VaultError::NotAllowed(
+            "those are not the last 8 characters of the engine id the device gave",
+        ));
+    }
+    engine.state = "approved".to_string();
+    engine.previous = None;
+    engine.design = target.design.clone();
+    engine.element = target.element.clone();
+    engine.approved_by = Some(actor.clone());
+    write_engine(tx, keys, &organisation, &actor, target.address, &engine).await?;
+    chains::append_org(
+        tx,
+        auth.ring,
+        auth.ctx,
+        auth.tenant_key,
+        EntryType::DeviceReadEngineApproved,
+        &entry_metadata(
+            EntryType::DeviceReadEngineApproved,
+            &[
+                ("actor", s(&actor)),
+                ("count", Json::Int(1)),
+                ("design", s(&target.design)),
+                ("element", s(&target.element)),
+                ("how", s("typed")),
+            ],
+        ),
+    )
+    .await?;
+    Ok(engine)
+}
+
+async fn require_steward(tx: &Transaction<'_>, auth: &Authority<'_>) -> Result<(), VaultError> {
+    let verified = grants::verify_authority_state(tx, auth).await?;
+    let mut check = StewardCheck::new();
+    if grants::steward_anchors(tx, auth, &verified, &mut check)
+        .await?
+        .is_empty()
+    {
+        return Err(VaultError::NotAllowed(
+            "only a Steward approves agents for a whole range",
+        ));
+    }
+    Ok(())
+}
+
+/// The Steward's list: every agent waiting for someone, newest first.
+pub async fn waiting(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    keys: &ReadingKeys,
+) -> Result<Vec<Engine>, VaultError> {
+    require_steward(tx, auth).await?;
+    let organisation = auth.ctx.tenant().to_string();
+    let rows = tx
+        .query(
+            &format!(
+                "SELECT {ENGINE_COLUMNS} FROM device_read_engines \
+                  WHERE organisation_id = $1 AND state <> 'approved' \
+                  ORDER BY seen_at DESC LIMIT 2000"
+            ),
+            &[&organisation],
+        )
+        .await?;
+    rows.iter()
+        .map(|r| engine_from_row(keys, &organisation, r))
+        .collect()
+}
+
+/// A Steward approves agents in one batch, by address: one entry on the log for the batch (r90
+/// "log": A). A `changed` agent is approved only on its own, never with the rest (r100).
+pub async fn approve_batch(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    keys: &ReadingKeys,
+    addresses: &[IpAddr],
+) -> Result<usize, VaultError> {
+    require_steward(tx, auth).await?;
+    if addresses.is_empty() || addresses.len() > 2000 {
+        return Err(VaultError::Malformed("addresses"));
+    }
+    let organisation = auth.ctx.tenant().to_string();
+    let actor = auth.ctx.actor().to_string();
+    let mut found = Vec::with_capacity(addresses.len());
+    for a in addresses {
+        let Some(e) = engine_at(tx, keys, &organisation, *a).await? else {
+            return Err(VaultError::NotFound);
+        };
+        if e.state == "changed" && addresses.len() > 1 {
+            return Err(VaultError::NotAllowed(
+                "an agent whose id changed is approved on its own, never with the rest",
+            ));
+        }
+        found.push((*a, e));
+    }
+    let mut count = 0;
+    for (a, mut e) in found {
+        if e.state == "approved" {
+            continue;
+        }
+        e.state = "approved".to_string();
+        e.previous = None;
+        e.approved_by = Some(actor.clone());
+        write_engine(tx, keys, &organisation, &actor, a, &e).await?;
+        count += 1;
+    }
+    if count > 0 {
+        chains::append_org(
+            tx,
+            auth.ring,
+            auth.ctx,
+            auth.tenant_key,
+            EntryType::DeviceReadEngineApproved,
+            &entry_metadata(
+                EntryType::DeviceReadEngineApproved,
+                &[
+                    ("actor", s(&actor)),
+                    ("count", Json::Int(count as i64)),
+                    ("how", s("range")),
+                ],
+            ),
+        )
+        .await?;
+    }
+    Ok(count)
+}
+
+// ---------------------------------------------------------------------------
+// 3. Which login
+// ---------------------------------------------------------------------------
+
+/// The login for this read: the one asked for, which the vault then checks; `by_range` when it
+/// is the login the Steward set for the device's range.
+pub async fn open_login(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    fk: &FathomKey,
+    target: &Target,
+    login: &str,
+) -> Result<(UsedLogin, String), VaultError> {
+    let by_range = target.range.login.as_deref() == Some(login);
+    vault_fathom::use_login_to_read(
+        tx,
+        auth,
+        fk,
+        login,
+        &target.design,
+        &target.element,
+        by_range,
+    )
+    .await
+}
+
+// ---------------------------------------------------------------------------
+// 4. The reader
+// ---------------------------------------------------------------------------
+
+/// The job the reader takes (`helpers/reader/src/lib.rs`, `snmp_read`): self-contained and
+/// versioned, so a reader elsewhere (ADR-0089) takes the same.
+pub fn job(target: &Target, purposes: &[&str], engine_id: Option<&str>) -> Json {
+    obj(vec![
+        ("version", Json::Int(1)),
+        ("device", s(&target.element)),
+        ("address", s(&canonical_ip(target.address))),
+        ("port", Json::Int(target.range.snmp_port as i64)),
+        ("ranges", Json::Arr(vec![s(&target.range.cidr())])),
+        (
+            "purposes",
+            Json::Arr(purposes.iter().map(|p| s(p)).collect()),
+        ),
+        ("engineId", engine_id.map_or(Json::Null, s)),
+    ])
+}
+
+/// The request, with the login in its own envelope. The caller drops it as soon as it is sent.
+pub fn request(job: Json, login: Option<(&UsedLogin, &str)>) -> Json {
+    let mut m = BTreeMap::from([
+        ("op".to_string(), s("snmp_read")),
+        ("protocol".to_string(), Json::Int(PROTOCOL)),
+        ("job".to_string(), job),
+    ]);
+    if let Some((l, auth)) = login {
+        m.insert(
+            "login".to_string(),
+            obj(vec![
+                ("user", s(&l.user)),
+                ("auth", s(auth)),
+                ("authPassword", s(&l.password)),
+                (
+                    "privPassword",
+                    s(l.privacy.as_deref().unwrap_or(&l.password)),
+                ),
+            ]),
+        );
+    }
+    Json::Obj(m)
+}
+
+/// Ask the reader. Its words, when it refuses, are its own; they never carry a password.
+pub async fn ask(transport: &dyn Transport, request: Json) -> Result<Json, VaultError> {
+    match transport.call(request).await {
+        Ok(Json::Obj(m)) => {
+            if matches!(m.get("ok"), Some(Json::Bool(false))) {
+                tracing::warn!(error = ?m.get("error"), "the device reader refused a job");
+                return Err(VaultError::NotAllowed(
+                    "the device reader refused this read; its log says why",
+                ));
+            }
+            Ok(Json::Obj(m))
+        }
+        Ok(_) => Err(VaultError::Corrupt("the device reader's answer")),
+        Err(e) => {
+            tracing::warn!(error = %e, "the device reader did not answer");
+            Err(VaultError::NotAllowed("the device reader did not answer"))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 5. Through the gate, sealed, filed
+// ---------------------------------------------------------------------------
+
+/// Every string in `v` the redaction gate's detector reads as a credential is replaced by
+/// [`WITHHELD`]. Answers how many were. Object keys are the reader's own words and are kept.
+pub fn gate(v: &mut Json) -> usize {
+    match v {
+        Json::Str(text) => {
+            if fathom_ingest::redact::looks_like_credential_bare(text) {
+                *text = WITHHELD.to_string();
+                1
+            } else {
+                0
+            }
+        }
+        Json::Arr(items) => items.iter_mut().map(gate).sum(),
+        Json::Obj(m) => m.values_mut().map(gate).sum(),
+        _ => 0,
+    }
+}
+
+/// SHA-256 over the canonical bytes, hex: what the reader computes over the same JSON.
+pub fn digest(v: &Json) -> String {
+    crate::crypto::hex(&Sha256::digest(v.to_canonical_bytes()))
+}
+
+/// MAC rows learned on edge ports only (r90): a port where LLDP sees a neighbour that says it is
+/// a bridge or a router faces another switch, and what it learned is that switch's. Answers the
+/// rows kept and how many were left out.
+pub fn edge_macs(mac: &Json, lldp: Option<&Json>) -> (Json, usize) {
+    let mut inner_ports: std::collections::BTreeSet<i64> = Default::default();
+    if let Some(Json::Arr(neighbours)) = lldp {
+        for n in neighbours {
+            let Json::Obj(m) = n else { continue };
+            let switchy = matches!(m.get("capEnabled"), Some(Json::Arr(caps)) if caps.iter().any(|c| matches!(c, Json::Str(c) if c == "bridge" || c == "router")));
+            if !switchy {
+                continue;
+            }
+            if let Some(Json::Int(i)) = m.get("ifIndex") {
+                inner_ports.insert(*i);
+            }
+        }
+    }
+    let Json::Arr(rows) = mac else {
+        return (Json::Arr(Vec::new()), 0);
+    };
+    let mut kept = Vec::new();
+    let mut left = 0;
+    for r in rows {
+        let on_inner = matches!(r, Json::Obj(m) if matches!(m.get("ifIndex"), Some(Json::Int(i)) if inner_ports.contains(i)));
+        if on_inner {
+            left += 1;
+        } else {
+            kept.push(r.clone());
+        }
+    }
+    (Json::Arr(kept), left)
+}
+
+/// What is kept of a reader's answer: the reading, and the facts about the read.
+pub fn kept(answer: &Json, kind: &str) -> Json {
+    let Json::Obj(m) = answer else {
+        return Json::Null;
+    };
+    let mut out = BTreeMap::new();
+    for k in [
+        "outcome",
+        "engineId",
+        "incomplete",
+        "failed",
+        "durationMs",
+        "reader",
+    ] {
+        if let Some(v) = m.get(k) {
+            out.insert(k.to_string(), v.clone());
+        }
+    }
+    let mut reading = m
+        .get("reading")
+        .cloned()
+        .unwrap_or(Json::Obj(BTreeMap::new()));
+    if kind == "macarp" {
+        if let Json::Obj(r) = &mut reading {
+            let lldp = r.get("lldp").cloned();
+            if let Some(mac) = r.get("mac").cloned() {
+                let (edge, left) = edge_macs(&mac, lldp.as_ref());
+                r.insert("mac".into(), edge);
+                out.insert("macLeftOut".into(), Json::Int(left as i64));
+            }
+        }
+    }
+    let withheld = gate(&mut reading);
+    out.insert("withheld".into(), Json::Int(withheld as i64));
+    out.insert("digest".into(), s(&digest(&reading)));
+    out.insert("reading".into(), reading);
+    Json::Obj(out)
+}
+
+/// File one read and keep it. Answers the reading's id.
+#[allow(clippy::too_many_arguments)]
+pub async fn store(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    keys: &ReadingKeys,
+    target: &Target,
+    kind: &str,
+    login: &str,
+    body: &Json,
+) -> Result<String, VaultError> {
+    let organisation = auth.ctx.tenant().to_string();
+    let actor = auth.ctx.actor().to_string();
+    let field = |k: &str| match body {
+        Json::Obj(m) => m.get(k).cloned().unwrap_or(Json::Null),
+        _ => Json::Null,
+    };
+    let appended = chains::append_org(
+        tx,
+        auth.ring,
+        auth.ctx,
+        auth.tenant_key,
+        EntryType::DeviceReadDone,
+        &entry_metadata(
+            EntryType::DeviceReadDone,
+            &[
+                ("actor", s(&actor)),
+                ("design", s(&target.design)),
+                ("digest", field("digest")),
+                ("element", s(&target.element)),
+                ("kind", s(kind)),
+                ("login", s(login)),
+                ("outcome", field("outcome")),
+                ("reader", field("reader")),
+            ],
+        ),
+    )
+    .await?;
+    let id = crate::ids::new_ulid().to_string();
+    let (sealed, nonce) = keys.seal(
+        &body.to_canonical_bytes(),
+        &aad(
+            "readings",
+            &[&organisation, &id, &target.design, &target.element, kind],
+        ),
+    )?;
+    tx.execute(
+        "INSERT INTO device_readings (organisation_id, id, design_id, element_id, kind, read_by, \
+             chain_seq, key_epoch, sealed, nonce) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        &[
+            &organisation,
+            &id,
+            &target.design,
+            &target.element,
+            &kind,
+            &actor,
+            &appended.seq,
+            &keys.epoch,
+            &sealed,
+            &nonce,
+        ],
+    )
+    .await?;
+    tx.execute(
+        "DELETE FROM device_readings WHERE organisation_id = $1 AND design_id = $2 \
+            AND element_id = $3 AND kind = $4 AND id NOT IN ( \
+              SELECT id FROM device_readings WHERE organisation_id = $1 AND design_id = $2 \
+                 AND element_id = $3 AND kind = $4 ORDER BY read_at DESC, id DESC LIMIT $5)",
+        &[&organisation, &target.design, &target.element, &kind, &KEEP],
+    )
+    .await?;
+    Ok(id)
+}
+
+// ---------------------------------------------------------------------------
+// What a device's panel shows
+// ---------------------------------------------------------------------------
+
+/// What changed between two MAC-and-ARP readings: MACs and ARP entries new and gone.
+pub fn table_changes(newer: &Json, older: &Json) -> Json {
+    fn keys_of(v: &Json, table: &str, key: &[&str]) -> std::collections::BTreeSet<String> {
+        let mut out = std::collections::BTreeSet::new();
+        if let Json::Obj(m) = v {
+            if let Some(Json::Obj(r)) = m.get("reading") {
+                if let Some(Json::Arr(rows)) = r.get(table) {
+                    for row in rows {
+                        if let Json::Obj(f) = row {
+                            let k: Vec<String> = key
+                                .iter()
+                                .map(|k| match f.get(*k) {
+                                    Some(Json::Str(v)) => v.clone(),
+                                    Some(Json::Int(n)) => n.to_string(),
+                                    _ => String::new(),
+                                })
+                                .collect();
+                            out.insert(k.join("|"));
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+    let count = |table: &str, key: &[&str]| {
+        let a = keys_of(newer, table, key);
+        let b = keys_of(older, table, key);
+        obj(vec![
+            ("new", Json::Int(a.difference(&b).count() as i64)),
+            ("gone", Json::Int(b.difference(&a).count() as i64)),
+        ])
+    };
+    obj(vec![
+        ("mac", count("mac", &["mac", "ifIndex"])),
+        ("arp", count("arp", &["ip", "mac"])),
+    ])
+}
+
+/// Everything the Readings tab shows for one device: the latest reading in full, the earlier
+/// ones as a line each, the latest MAC and ARP tables with what changed since the one before,
+/// what was dismissed, and whether the agent is confirmed.
+pub async fn panel(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    keys: &ReadingKeys,
+    design: &str,
+    element: &str,
+) -> Result<Json, VaultError> {
+    require(tx, auth, design, Capability::Read).await?;
+    let organisation = auth.ctx.tenant().to_string();
+    let rows = tx
+        .query(
+            "SELECT id, kind, read_by, (extract(epoch from read_at) * 1000)::bigint, key_epoch, \
+                    sealed, nonce, \
+                    (SELECT display_name FROM accounts a WHERE a.id = r.read_by) \
+               FROM device_readings r \
+              WHERE organisation_id = $1 AND design_id = $2 AND element_id = $3 \
+              ORDER BY read_at DESC, id DESC",
+            &[&organisation, &design, &element],
+        )
+        .await?;
+    let mut device: Vec<Json> = Vec::new();
+    let mut macarp: Vec<Json> = Vec::new();
+    for r in rows.iter() {
+        let id: String = r.get(0);
+        let kind: String = r.get(1);
+        let latest_of_kind = match kind.as_str() {
+            "device" => device.is_empty(),
+            _ => macarp.len() < 2,
+        };
+        let mut line = BTreeMap::from([
+            ("id".to_string(), s(&id)),
+            ("readBy".to_string(), s(&r.get::<_, String>(2))),
+            (
+                "readByName".to_string(),
+                r.get::<_, Option<String>>(7).map_or(Json::Null, Json::Str),
+            ),
+            ("readAt".to_string(), Json::Int(r.get(3))),
+        ]);
+        let body = keys.open(
+            r.get(4),
+            &r.get::<_, Vec<u8>>(5),
+            &r.get::<_, Vec<u8>>(6),
+            &aad("readings", &[&organisation, &id, design, element, &kind]),
+        )?;
+        if let Json::Obj(b) = &body {
+            for (k, v) in b {
+                if k != "reading" || latest_of_kind {
+                    line.insert(k.clone(), v.clone());
+                }
+            }
+        }
+        match kind.as_str() {
+            "device" => device.push(Json::Obj(line)),
+            _ => macarp.push(Json::Obj(line)),
+        }
+    }
+    let changes = match (macarp.first(), macarp.get(1)) {
+        (Some(a), Some(b)) => table_changes(a, b),
+        _ => Json::Null,
+    };
+    let dismissed = tx
+        .query(
+            "SELECT key_epoch, sealed, nonce, field_mac FROM device_read_dismissals \
+              WHERE organisation_id = $1 AND design_id = $2 AND element_id = $3",
+            &[&organisation, &design, &element],
+        )
+        .await?
+        .iter()
+        .map(|r| {
+            keys.open(
+                r.get(0),
+                &r.get::<_, Vec<u8>>(1),
+                &r.get::<_, Vec<u8>>(2),
+                &aad(
+                    "dismissals",
+                    &[
+                        &organisation,
+                        design,
+                        element,
+                        &crate::crypto::hex(&r.get::<_, Vec<u8>>(3)),
+                    ],
+                ),
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(obj(vec![
+        ("readings", Json::Arr(device)),
+        ("macArp", Json::Arr(macarp.into_iter().take(1).collect())),
+        ("macArpChanges", changes),
+        ("dismissed", Json::Arr(dismissed)),
+    ]))
+}
+
+/// Dismiss one difference: `field` is the browser's name for it (`serial`, `port:<id>:alias`),
+/// `value` what the device read. A later read with another value shows it again (r100).
+pub async fn dismiss(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    keys: &ReadingKeys,
+    design: &str,
+    element: &str,
+    field: &str,
+    value: &str,
+) -> Result<(), VaultError> {
+    require(tx, auth, design, Capability::Draw).await?;
+    if field.is_empty()
+        || field.len() > 200
+        || value.len() > 2000
+        || field.chars().any(char::is_control)
+        || value.chars().any(char::is_control)
+    {
+        return Err(VaultError::Malformed("field or value"));
+    }
+    let organisation = auth.ctx.tenant().to_string();
+    let actor = auth.ctx.actor().to_string();
+    let mac = keys.field_mac(design, element, field);
+    let (sealed, nonce) = keys.seal(
+        &obj(vec![("field", s(field)), ("value", s(value))]).to_canonical_bytes(),
+        &aad(
+            "dismissals",
+            &[&organisation, design, element, &crate::crypto::hex(&mac)],
+        ),
+    )?;
+    tx.execute(
+        "INSERT INTO device_read_dismissals (organisation_id, design_id, element_id, field_mac, \
+             key_epoch, sealed, nonce, dismissed_by) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
+         ON CONFLICT (organisation_id, design_id, element_id, field_mac) DO UPDATE SET \
+             key_epoch = EXCLUDED.key_epoch, sealed = EXCLUDED.sealed, nonce = EXCLUDED.nonce, \
+             dismissed_by = EXCLUDED.dismissed_by, dismissed_at = now()",
+        &[
+            &organisation,
+            &design,
+            &element,
+            &mac,
+            &keys.epoch,
+            &sealed,
+            &nonce,
+            &actor,
+        ],
+    )
+    .await?;
+    chains::append_org(
+        tx,
+        auth.ring,
+        auth.ctx,
+        auth.tenant_key,
+        EntryType::DeviceReadDismissed,
+        &entry_metadata(
+            EntryType::DeviceReadDismissed,
+            &[
+                ("actor", s(&actor)),
+                ("design", s(design)),
+                ("element", s(element)),
+            ],
+        ),
+    )
+    .await?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn j(text: &str) -> Json {
+        crate::foreign_json::parse(text.as_bytes()).unwrap()
+    }
+
+    #[test]
+    fn the_last_eight_must_be_typed_whole() {
+        let id = "80000009030001c2b3d4e5f60";
+        assert!(last_eight_match(id, "3d4e5f60"));
+        assert!(last_eight_match(id, "3D4E 5F60"));
+        assert!(!last_eight_match(id, "d4e5f60"), "seven is not eight");
+        assert!(!last_eight_match(id, "2b3d4e5f"));
+        assert!(!last_eight_match(id, ""));
+        assert!(engine_id_ok("80000009030001c2b3d4"));
+        assert!(
+            !engine_id_ok("80000009030001C2B3D4"),
+            "the reader writes lower case"
+        );
+        assert!(!engine_id_ok("8000"));
+    }
+
+    /// Rule 2: what a real switch lets a person type into a port description. Cisco IOS takes
+    /// up to 200 characters of free text in `description`, so a password typed there arrives.
+    #[test]
+    fn a_password_typed_into_a_description_never_arrives() {
+        let mut v = j(
+            r#"{"interfaces":[{"descr":"Gi1/0/7","alias":"enable secret cisco123"},{"descr":"Gi1/0/8","alias":"AP-2F-east"}],"system":{"name":"access-sw3"}}"#,
+        );
+        assert_eq!(gate(&mut v), 1);
+        let text = String::from_utf8(v.to_canonical_bytes()).unwrap();
+        assert!(!text.contains("cisco123"), "{text}");
+        assert!(text.contains("AP-2F-east"));
+        assert!(text.contains(WITHHELD));
+    }
+
+    #[test]
+    fn only_macs_on_edge_ports_are_kept() {
+        let lldp = j(
+            r#"[{"ifIndex":48,"capEnabled":["bridge","router"]},{"ifIndex":7,"capEnabled":["telephone"]}]"#,
+        );
+        let mac = j(
+            r#"[{"mac":"3c:22:fb:10:aa:01","ifIndex":7},{"mac":"00:1b:63:84:45:e6","ifIndex":48},{"mac":"f0:18:98:2c:11:07","ifIndex":4}]"#,
+        );
+        let (kept, left) = edge_macs(&mac, Some(&lldp));
+        assert_eq!(left, 1);
+        let text = String::from_utf8(kept.to_canonical_bytes()).unwrap();
+        assert!(
+            text.contains("3c:22:fb:10:aa:01"),
+            "a phone's port is an edge port"
+        );
+        assert!(
+            !text.contains("00:1b:63:84:45:e6"),
+            "the uplink's MACs are the other switch's"
+        );
+    }
+
+    #[test]
+    fn what_changed_counts_new_and_gone() {
+        let a = j(
+            r#"{"reading":{"mac":[{"mac":"a","ifIndex":1},{"mac":"b","ifIndex":2}],"arp":[{"ip":"10.0.0.1","mac":"a"}]}}"#,
+        );
+        let b =
+            j(r#"{"reading":{"mac":[{"mac":"a","ifIndex":1},{"mac":"c","ifIndex":3}],"arp":[]}}"#);
+        assert_eq!(
+            table_changes(&a, &b).to_canonical_bytes(),
+            br#"{"arp":{"gone":0,"new":1},"mac":{"gone":1,"new":1}}"#
+                .iter()
+                .copied()
+                .chain(*b"\n")
+                .collect::<Vec<u8>>()
+        );
+    }
+
+    #[test]
+    fn the_job_names_the_address_from_the_design_and_one_range() {
+        let target = Target {
+            design: "01K8DESIGN0000000000000000".into(),
+            element: "dev-1".into(),
+            address: "::ffff:10.20.0.14".parse().unwrap(),
+            range: Range::parse("10.20.0.0/24", Some(1161), None).unwrap(),
+        };
+        let text =
+            String::from_utf8(job(&target, &DEVICE_PURPOSES, Some("8000aa")).to_canonical_bytes())
+                .unwrap();
+        assert!(text.contains(r#""address":"10.20.0.14""#), "{text}");
+        assert!(text.contains(r#""port":1161"#));
+        assert!(text.contains(r#""ranges":["10.20.0.0/24"]"#));
+        let no_login = request(job(&target, &["system"], None), None);
+        assert!(!String::from_utf8(no_login.to_canonical_bytes())
+            .unwrap()
+            .contains("login"));
+    }
+}

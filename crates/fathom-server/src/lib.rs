@@ -75,6 +75,7 @@ pub mod design_api;
 pub mod designs;
 pub mod device_read;
 pub mod device_read_admin;
+pub mod device_reading;
 pub mod engine;
 pub mod estate;
 pub mod field_defs;

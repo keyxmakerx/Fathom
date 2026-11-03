@@ -179,6 +179,10 @@ pub struct Range {
     pub prefix: u8,
     pub snmp_port: u16,
     pub ssh_port: u16,
+    /// The vault login a Steward set for reading inside this range (r90, logins by range): its
+    /// entry id, never the login itself. A device in the range is read with it without each
+    /// device being marked on the login. `None` leaves each device to its own logins.
+    pub login: Option<String>,
 }
 
 impl Range {
@@ -225,6 +229,7 @@ impl Range {
             prefix,
             snmp_port: snmp_port.unwrap_or(161),
             ssh_port: ssh_port.unwrap_or(22),
+            login: None,
         };
         if range.snmp_port == 0 || range.ssh_port == 0 {
             return Err("a port is 1 to 65535");
@@ -269,23 +274,28 @@ impl Range {
         format!("{}/{}", self.network, self.prefix)
     }
 
+    /// `login` is written only when set, so a list saved before it existed keeps its bytes.
     pub fn to_json(&self) -> Json {
-        Json::Obj(BTreeMap::from([
+        let mut m = BTreeMap::from([
             ("cidr".to_string(), Json::Str(self.cidr())),
             ("snmpPort".to_string(), Json::Int(self.snmp_port as i64)),
             ("sshPort".to_string(), Json::Int(self.ssh_port as i64)),
-        ]))
+        ]);
+        if let Some(l) = &self.login {
+            m.insert("login".to_string(), Json::Str(l.clone()));
+        }
+        Json::Obj(m)
     }
 
-    /// `{cidr, snmpPort?, sshPort?}`; unknown fields are refused.
+    /// `{cidr, snmpPort?, sshPort?, login?}`; unknown fields are refused.
     pub fn from_json(j: &Json) -> Result<Self, &'static str> {
         let Json::Obj(m) = j else {
-            return Err("each range is {cidr, snmpPort, sshPort}");
+            return Err("each range is {cidr, snmpPort, sshPort, login}");
         };
         if m.keys()
-            .any(|k| !matches!(k.as_str(), "cidr" | "snmpPort" | "sshPort"))
+            .any(|k| !matches!(k.as_str(), "cidr" | "snmpPort" | "sshPort" | "login"))
         {
-            return Err("each range is {cidr, snmpPort, sshPort}");
+            return Err("each range is {cidr, snmpPort, sshPort, login}");
         }
         let Some(Json::Str(cidr)) = m.get("cidr") else {
             return Err("each range has a cidr, such as 10.20.0.0/24");
@@ -301,7 +311,18 @@ impl Range {
                 Some(_) => Err("a port is 1 to 65535"),
             }
         };
-        Self::parse(cidr, port("snmpPort")?, port("sshPort")?)
+        let login = match m.get("login") {
+            None | Some(Json::Null) => None,
+            Some(Json::Str(l))
+                if fathom_id::Ulid::decode(l).map(|u| u.to_string()).as_deref() == Ok(l) =>
+            {
+                Some(l.clone())
+            }
+            Some(_) => return Err("a range's login is a vault login's id"),
+        };
+        let mut range = Self::parse(cidr, port("snmpPort")?, port("sshPort")?)?;
+        range.login = login;
+        Ok(range)
     }
 }
 
