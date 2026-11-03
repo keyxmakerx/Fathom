@@ -50,10 +50,13 @@ inside the drawing.
    IP adds **Reserve** and the held block in the plan colour. These are parts of that page, never
    pages of their own.
 
-6. **On a device:** **Read now** in the device panel's header and a **Readings** tab beside Checks,
-   Plans and History, listing differences with Add or Accept, one undo step each. The first SSH
-   read's host-key confirm is a dialog from Read now. The Logins list marks each login *read-only*.
-   A planned-but-not-drawn address shows in the plan colour on its port. *(card: reading, A)*
+6. **On a device:** **Read now** in the device panel's header and a **Readings** tab in the device
+   panel's own tabs, after Ports (Details, Ports, Readings, Logins, Notes), listing differences with
+   Add or Accept, one undo step each. The first SSH read's host-key confirm is a dialog from Read now.
+   The Logins list marks each login *read-only*. A planned-but-not-drawn address shows in the plan
+   colour on its port. *(card: reading, A; amended 2026-11-02 by card r100-device-reading-screens,
+   approved with every pick A, which moved Readings from the right-edge dock beside Checks, Plans
+   and History into the device panel, because a reading belongs to one device.)*
 
 7. **Your own mail settings** are in the account menu, under **Mail**: each kind at once, in the
    digest, or off, with the security mails listed as always on. *(card: mail, A)*
