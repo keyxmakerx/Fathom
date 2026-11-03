@@ -1,6 +1,10 @@
 //! fathom-ingest: paste in, typed graph fragment out — one platform
 //! (`junos-srx`, set form), the first half of `14`'s on-ramp (WO-03).
 //!
+//! Section marks in this crate (`14 §N`, or a bare `14`) are the parsers and ingest spec,
+//! docs/archive/10-core/14-parsers-and-ingest.md, which this crate was built from and which is
+//! history now. `11` is the IR schema, docs/archive/10-core/11-ir-schema.md.
+//!
 //! The governing rule, quoted once from `14`'s preamble register and binding
 //! on every stage below:
 //!

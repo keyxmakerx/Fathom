@@ -1,5 +1,9 @@
 //! fathom-ir: the minimal home the generated IR types need to compile.
 //!
+//! Section marks in this crate are archived specs the IR was built from, history now: `11`
+//! is the IR schema (docs/archive/10-core/11-ir-schema.md), `19` the physical and service
+//! model, `62` the schema spec, and `37`, `75` and `35` planning documents beside them.
+//!
 //! Three layers live here, deliberately separated:
 //!
 //! - `scalar` — the semantic scalars (11 §4.3's catalogue as bound by

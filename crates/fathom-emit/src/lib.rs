@@ -1,5 +1,9 @@
 //! fathom-emit: the junos-srx emitters — graph to `(line, provenance)` pairs.
 //!
+//! Section marks in this crate are archived specs this crate was built from, history now:
+//! `13` is emitters and provenance (docs/archive/10-core/13-emitters-and-provenance.md), `11`
+//! the IR schema, `12` the rule engine, `53` interaction and keyboard, `62` the schema spec.
+//!
 //! One platform (`junos-srx`), one emit unit (`11` §9.2's `IpsecVpn` closure),
 //! seven covered kinds. Every emitted statement is one logical line carrying
 //! the provenance that produced it (conventions invariant 6: *"Emitters return
