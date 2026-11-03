@@ -28,7 +28,7 @@
 //! ```text
 //! line 1   fathom-plain 1
 //! line 2   THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.
-//! line 3   schema <SCHEMA_VERSION>      (0.3 at time of writing — ADR-0037)
+//! line 3   schema <SCHEMA_VERSION>
 //! line 4   (empty)
 //! line 5   <the snapshot as canonical JSON, one line, ending in the final LF>
 //! ```
@@ -59,121 +59,10 @@ use fathom_ir::bag::FieldKey;
 use fathom_ir::generated::ir_types::{EdgeKind, NodeKind, FIELD_KEYS, SCHEMA_VERSION};
 use fathom_ir::scalar::Text;
 
-/// Every 0.10-to-0.34 move is additive, so a payload declared at an older
-/// version reads exactly like a current one — nothing renamed, retyped or
-/// removed. Every older version this crate still opens, and no other.
-pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &[
-    "0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17", "0.18", "0.19", "0.20", "0.21",
-    "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28", "0.29", "0.30", "0.31", "0.32", "0.33",
-    "0.34", "0.35", "0.36", "0.37", "0.38",
-];
+/// The older headers this crate opens, generated from `schema.oldest_readable`.
+/// Every move since is additive, so an older payload reads like a current one.
+pub use fathom_ir::generated::ir_types::ACCEPTED_OLDER_SCHEMA_VERSIONS;
 
-/// Node kinds `0.11` (ADR-0058) added. A payload declared at `0.10` cannot
-/// legitimately hold one — its editor never had the kind — so finding one
-/// is a sign the header is lying, not a design to open.
-const NODE_KINDS_SINCE_0_11: &[NodeKind] = &[
-    NodeKind::ContainerNetwork,
-    NodeKind::Container,
-    NodeKind::PublishedPort,
-];
-
-/// Edge kinds `0.11` (ADR-0058) added. Same reasoning as
-/// [`NODE_KINDS_SINCE_0_11`].
-const EDGE_KINDS_SINCE_0_11: &[EdgeKind] = &[
-    EdgeKind::HasContainerNetwork,
-    EdgeKind::HasContainer,
-    EdgeKind::HasPublishedPort,
-    EdgeKind::AttachedTo,
-    EdgeKind::ParentUnit,
-];
-
-/// Node kinds `0.12` (ADR-0059) added. A payload declared at `0.10` or
-/// `0.11` cannot legitimately hold one, [`NODE_KINDS_SINCE_0_11`]'s own
-/// reasoning.
-const NODE_KINDS_SINCE_0_12: &[NodeKind] = &[NodeKind::Tag];
-
-/// Edge kinds `0.12` (ADR-0059) added. Same reasoning as
-/// [`NODE_KINDS_SINCE_0_12`].
-const EDGE_KINDS_SINCE_0_12: &[EdgeKind] = &[EdgeKind::HasTag, EdgeKind::TaggedWith];
-
-/// Kinds `0.13` (ADR-0060 step 7) added; same reasoning, now for `0.10` to `0.12`.
-const NODE_KINDS_SINCE_0_13: &[NodeKind] = &[NodeKind::Label, NodeKind::Line];
-const EDGE_KINDS_SINCE_0_13: &[EdgeKind] =
-    &[EdgeKind::HasLabel, EdgeKind::HasLine, EdgeKind::LineEnd];
-
-/// Kinds `0.14` (ADR-0061 round 7, docs) added; same reasoning, for `0.10` to `0.13`.
-const NODE_KINDS_SINCE_0_14: &[NodeKind] = &[NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile];
-const EDGE_KINDS_SINCE_0_14: &[EdgeKind] = &[
-    EdgeKind::HasDoc,
-    EdgeKind::DocOn,
-    EdgeKind::HasDocLink,
-    EdgeKind::HasDocFile,
-];
-
-/// Kinds `0.15` (ADR-0061 round 7, maintenance plans) added; same reasoning, for `0.10` to `0.14`.
-const NODE_KINDS_SINCE_0_15: &[NodeKind] = &[NodeKind::MaintenancePlan, NodeKind::PlanStep];
-const EDGE_KINDS_SINCE_0_15: &[EdgeKind] = &[EdgeKind::HasPlan, EdgeKind::HasStep];
-
-/// Kinds `0.16` (custom-field values) added; same reasoning, for `0.10` to `0.15`.
-const NODE_KINDS_SINCE_0_16: &[NodeKind] = &[NodeKind::FieldValue];
-const EDGE_KINDS_SINCE_0_16: &[EdgeKind] = &[EdgeKind::HasFieldValue];
-
-/// Kinds `0.18` (ADR-0061 troubleshooting) added; every accepted older header is too old for them.
-const NODE_KINDS_SINCE_0_18: &[NodeKind] = &[NodeKind::Issue, NodeKind::IssueStep];
-const EDGE_KINDS_SINCE_0_18: &[EdgeKind] = &[EdgeKind::HasIssue, EdgeKind::HasIssueStep];
-
-/// Kinds `0.19` (firmware targets) added; every accepted older header is too old for them.
-const NODE_KINDS_SINCE_0_19: &[NodeKind] = &[NodeKind::FirmwareTarget];
-const EDGE_KINDS_SINCE_0_19: &[EdgeKind] = &[EdgeKind::HasFirmwareTarget];
-
-/// Kinds `0.23` (cable runs and ties) added; every accepted older header is too old for them.
-const NODE_KINDS_SINCE_0_23: &[NodeKind] = &[NodeKind::CableRun, NodeKind::CableTie];
-const EDGE_KINDS_SINCE_0_23: &[EdgeKind] =
-    &[EdgeKind::HasCableRun, EdgeKind::HasCableTie, EdgeKind::Ties];
-
-/// Kinds `0.26` (mesh VPNs) added; every accepted older header is too old for them.
-const NODE_KINDS_SINCE_0_26: &[NodeKind] = &[NodeKind::OverlayNetwork];
-const EDGE_KINDS_SINCE_0_26: &[EdgeKind] = &[EdgeKind::HasOverlay, EdgeKind::OverlayMember];
-
-/// Kinds `0.27` (the lesson builder) added; every accepted older header is too old for them.
-const NODE_KINDS_SINCE_0_27: &[NodeKind] = &[NodeKind::Lesson, NodeKind::LessonStep];
-const EDGE_KINDS_SINCE_0_27: &[EdgeKind] = &[EdgeKind::HasLesson, EdgeKind::HasLessonStep];
-
-/// Kinds `0.28` (cards and optics) added; every accepted older header is too old for them.
-const NODE_KINDS_SINCE_0_28: &[NodeKind] = &[NodeKind::Card];
-const EDGE_KINDS_SINCE_0_28: &[EdgeKind] = &[EdgeKind::HasCard, EdgeKind::OnCard];
-
-/// Kinds `0.29` (the room builder) added; every accepted older header is too old for them.
-const NODE_KINDS_SINCE_0_29: &[NodeKind] =
-    &[NodeKind::FloorPlan, NodeKind::Room, NodeKind::RoomCorner];
-const EDGE_KINDS_SINCE_0_29: &[EdgeKind] = &[
-    EdgeKind::HasFloorPlan,
-    EdgeKind::HasRoom,
-    EdgeKind::HasRoomCorner,
-];
-
-/// Kinds `0.30` (available inventory) added; every accepted older header is too old for them.
-const NODE_KINDS_SINCE_0_30: &[NodeKind] =
-    &[NodeKind::Store, NodeKind::StockItem, NodeKind::StockLevel];
-const EDGE_KINDS_SINCE_0_30: &[EdgeKind] = &[
-    EdgeKind::HasStore,
-    EdgeKind::HasStock,
-    EdgeKind::HasStockLevel,
-    EdgeKind::InStore,
-    EdgeKind::ReservedFor,
-    EdgeKind::ForIssue,
-];
-
-/// Kinds `0.39` (NAT on firewalls) added; every accepted older header is too old for them.
-const NODE_KINDS_SINCE_0_39: &[NodeKind] = &[NodeKind::NatPool];
-const EDGE_KINDS_SINCE_0_39: &[EdgeKind] = &[EdgeKind::HasNatPool];
-
-/// Refuse a payload declared at `declared` that holds a kind newer than that
-/// version — decision 6's (ADR-0058) and decision 9's (ADR-0059) second
-/// halves, checked once per accepted older version: `0.10` cannot hold
-/// anything `0.11` to `0.19` added, and so on up the chain. `0.20` (the
-/// owner's ticked ideas), `0.21` (round 15), `0.22` (port faces), `0.24` (missing links), `0.25` (the LAG step), `0.31` (a device's own chosen version), `0.32` (links between sites), `0.33` (the plan-to-maintenance flow), `0.34` (Termix in the work), `0.35` (the Work tab's ticket parts), `0.36` (the IP plan store, whose kinds no design may hold), `0.37` (a plan called off) and `0.38` (a plan's team) added only fields and
-/// enum variants, no kind; `0.23` (cable runs and ties), `0.26` (mesh VPNs), `0.27` (the lesson builder), `0.28` (cards), `0.29` (the room builder), `0.30` (stock) and `0.39` (NAT pools) added kinds.
 /// Refuse a payload holding any record of the IP plan store (ADR-0083): its
 /// kinds are declared in the schema so the store's fields exist there, but they
 /// are never nodes in a design, at any version.
@@ -188,81 +77,43 @@ fn reject_plan_records(snapshot: &Snapshot) -> Result<(), PlainError> {
     Ok(())
 }
 
+/// Refuse a payload declared at an older version that holds a kind its editor
+/// never had (ADR-0058 decision 6, ADR-0059 decision 9). Each kind's first minor
+/// is its `since:` in `schema/schema.yaml`.
 fn reject_kinds_too_new_for_declared_version(
     declared: &str,
     snapshot: &Snapshot,
 ) -> Result<(), PlainError> {
-    // Nothing to check for the current version (`0.39`, everything is
-    // legitimate there) or any value `SchemaVersionMismatch` already
-    // refused above this call — only the accepted older headers name a
-    // kind set their own editor could never have written.
+    // The current version holds anything; any other unaccepted value was refused earlier.
     if !ACCEPTED_OLDER_SCHEMA_VERSIONS.contains(&declared) {
         return Ok(());
     }
-    // A kind set introduced at minor `m` is too new for any declared version below it.
     let declared_minor: u32 = declared
         .strip_prefix("0.")
         .and_then(|m| m.parse().ok())
         .unwrap_or(0);
-    let nodes_since: [(u32, &[NodeKind]); 15] = [
-        (11, NODE_KINDS_SINCE_0_11),
-        (12, NODE_KINDS_SINCE_0_12),
-        (13, NODE_KINDS_SINCE_0_13),
-        (14, NODE_KINDS_SINCE_0_14),
-        (15, NODE_KINDS_SINCE_0_15),
-        (16, NODE_KINDS_SINCE_0_16),
-        (18, NODE_KINDS_SINCE_0_18),
-        (19, NODE_KINDS_SINCE_0_19),
-        (23, NODE_KINDS_SINCE_0_23),
-        (26, NODE_KINDS_SINCE_0_26),
-        (27, NODE_KINDS_SINCE_0_27),
-        (28, NODE_KINDS_SINCE_0_28),
-        (29, NODE_KINDS_SINCE_0_29),
-        (30, NODE_KINDS_SINCE_0_30),
-        (39, NODE_KINDS_SINCE_0_39),
-    ];
-    let edges_since: [(u32, &[EdgeKind]); 15] = [
-        (11, EDGE_KINDS_SINCE_0_11),
-        (12, EDGE_KINDS_SINCE_0_12),
-        (13, EDGE_KINDS_SINCE_0_13),
-        (14, EDGE_KINDS_SINCE_0_14),
-        (15, EDGE_KINDS_SINCE_0_15),
-        (16, EDGE_KINDS_SINCE_0_16),
-        (18, EDGE_KINDS_SINCE_0_18),
-        (19, EDGE_KINDS_SINCE_0_19),
-        (23, EDGE_KINDS_SINCE_0_23),
-        (26, EDGE_KINDS_SINCE_0_26),
-        (27, EDGE_KINDS_SINCE_0_27),
-        (28, EDGE_KINDS_SINCE_0_28),
-        (29, EDGE_KINDS_SINCE_0_29),
-        (30, EDGE_KINDS_SINCE_0_30),
-        (39, EDGE_KINDS_SINCE_0_39),
-    ];
-    for n in &snapshot.nodes {
-        let k = n.id.kind;
-        if nodes_since
-            .iter()
-            .any(|(m, kinds)| declared_minor < *m && kinds.contains(&k))
-        {
-            return Err(PlainError::KindNotInDeclaredVersion {
-                declared_version: declared.to_owned(),
-                element_kind: k.name(),
-            });
-        }
+    let too_new = |since: Option<u32>| since.is_some_and(|m| declared_minor < m);
+    let kind = snapshot
+        .nodes
+        .iter()
+        .map(|n| n.id.kind)
+        .find(|k| too_new(k.since_minor()))
+        .map(NodeKind::name)
+        .or_else(|| {
+            snapshot
+                .edges
+                .iter()
+                .map(|e| e.id.kind)
+                .find(|k| too_new(k.since_minor()))
+                .map(EdgeKind::name)
+        });
+    match kind {
+        Some(element_kind) => Err(PlainError::KindNotInDeclaredVersion {
+            declared_version: declared.to_owned(),
+            element_kind,
+        }),
+        None => Ok(()),
     }
-    for e in &snapshot.edges {
-        let k = e.id.kind;
-        if edges_since
-            .iter()
-            .any(|(m, kinds)| declared_minor < *m && kinds.contains(&k))
-        {
-            return Err(PlainError::KindNotInDeclaredVersion {
-                declared_version: declared.to_owned(),
-                element_kind: k.name(),
-            });
-        }
-    }
-    Ok(())
 }
 
 /// Line 1's magic. Deliberately not `.fathom`'s: this face does not claim the

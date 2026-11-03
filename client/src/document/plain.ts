@@ -16,7 +16,14 @@
 // here (never reimplement a gate the format already has one for).
 //
 import { toCanonicalBytes, parseCanonical, type CanonValue } from './canon';
-import { SCHEMA_VERSION, type NodeKind, type EdgeKind } from '../../../schema/generated/ir_types';
+import {
+  ACCEPTED_OLDER_SCHEMA_VERSIONS,
+  EDGE_KIND_SINCE,
+  NODE_KIND_SINCE,
+  PLAN_NODE_KINDS,
+  SCHEMA_VERSION,
+  type NodeKind,
+} from '../../../schema/generated/ir_types';
 import {
   compareEdgeId,
   compareHistoryRecord,
@@ -43,133 +50,12 @@ export const PLAIN_WARNING =
   'THIS FILE IS PLAINTEXT. EVERY PROTECTION THE WORKSPACE HAS ENDS HERE.';
 export { SCHEMA_VERSION };
 
-// Every 0.10-to-0.35 move is additive, so a payload declared at an older
-// version reads exactly like a current one. Every older version this reader
-// still opens, and no other -- byte-identical to
-// `fathom_workspace::ACCEPTED_OLDER_SCHEMA_VERSIONS`.
-export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = ['0.10', '0.11', '0.12', '0.13', '0.14', '0.15', '0.16', '0.17', '0.18', '0.19', '0.20', '0.21', '0.22', '0.23', '0.24', '0.25', '0.26', '0.27', '0.28', '0.29', '0.30', '0.31', '0.32', '0.33', '0.34', '0.35', '0.36', '0.37', '0.38'];
+// The older headers this reader opens, and the minor each kind first appeared at, are
+// generated from `schema/schema.yaml` (`oldest_readable`, `since:`) for Rust and here alike.
+export { ACCEPTED_OLDER_SCHEMA_VERSIONS };
 
-// Kinds 0.11 (ADR-0058) added. A payload declared at 0.10 cannot
-// legitimately hold one -- its editor never had the kind -- so finding one
-// is a sign the header is lying, not a design to open. Mirrors
-// `fathom_workspace::{NODE_KINDS_SINCE_0_11, EDGE_KINDS_SINCE_0_11}`.
-const NODE_KINDS_SINCE_0_11: ReadonlySet<NodeKind> = new Set(['ContainerNetwork', 'Container', 'PublishedPort']);
-const EDGE_KINDS_SINCE_0_11: ReadonlySet<EdgeKind> = new Set([
-  'HasContainerNetwork',
-  'HasContainer',
-  'HasPublishedPort',
-  'AttachedTo',
-  'ParentUnit',
-]);
-
-// Kinds 0.12 (ADR-0059) added. A payload declared at 0.10 or 0.11 cannot
-// legitimately hold one, `NODE_KINDS_SINCE_0_11`'s own reasoning. Mirrors
-// `fathom_workspace::{NODE_KINDS_SINCE_0_12, EDGE_KINDS_SINCE_0_12}`.
-const NODE_KINDS_SINCE_0_12: ReadonlySet<NodeKind> = new Set(['Tag']);
-const EDGE_KINDS_SINCE_0_12: ReadonlySet<EdgeKind> = new Set(['HasTag', 'TaggedWith']);
-
-// Kinds 0.13 (ADR-0060 step 7) added; same reasoning, for 0.10 to 0.12.
-const NODE_KINDS_SINCE_0_13: ReadonlySet<NodeKind> = new Set(['Label', 'Line']);
-const EDGE_KINDS_SINCE_0_13: ReadonlySet<EdgeKind> = new Set(['HasLabel', 'HasLine', 'LineEnd']);
-
-// Kinds 0.14 (ADR-0061 round 7, docs) added; same reasoning, for 0.10 to 0.13.
-const NODE_KINDS_SINCE_0_14: ReadonlySet<NodeKind> = new Set(['Doc', 'DocLink', 'DocFile']);
-const EDGE_KINDS_SINCE_0_14: ReadonlySet<EdgeKind> = new Set(['HasDoc', 'DocOn', 'HasDocLink', 'HasDocFile']);
-
-// Kinds 0.15 (ADR-0061 round 7, maintenance plans) added; same reasoning, for 0.10 to 0.14.
-const NODE_KINDS_SINCE_0_15: ReadonlySet<NodeKind> = new Set(['MaintenancePlan', 'PlanStep']);
-const EDGE_KINDS_SINCE_0_15: ReadonlySet<EdgeKind> = new Set(['HasPlan', 'HasStep']);
-
-// Kinds 0.16 (custom-field values) added; same reasoning, for 0.10 to 0.15.
-const NODE_KINDS_SINCE_0_16: ReadonlySet<NodeKind> = new Set(['FieldValue']);
-const EDGE_KINDS_SINCE_0_16: ReadonlySet<EdgeKind> = new Set(['HasFieldValue']);
-
-// Kinds 0.18 (ADR-0061 troubleshooting) added; every accepted older header is too old for them.
-const NODE_KINDS_SINCE_0_18: ReadonlySet<NodeKind> = new Set(['Issue', 'IssueStep']);
-const EDGE_KINDS_SINCE_0_18: ReadonlySet<EdgeKind> = new Set(['HasIssue', 'HasIssueStep']);
-
-// Kinds 0.19 (firmware targets) added; every accepted older header is too old for them.
-const NODE_KINDS_SINCE_0_19: ReadonlySet<NodeKind> = new Set(['FirmwareTarget']);
-const EDGE_KINDS_SINCE_0_19: ReadonlySet<EdgeKind> = new Set(['HasFirmwareTarget']);
-
-// Kinds 0.23 (cable runs and ties) added; every accepted older header is too old for them.
-const NODE_KINDS_SINCE_0_23: ReadonlySet<NodeKind> = new Set(['CableRun', 'CableTie']);
-const EDGE_KINDS_SINCE_0_23: ReadonlySet<EdgeKind> = new Set(['HasCableRun', 'HasCableTie', 'Ties']);
-
-// Kinds 0.26 (mesh VPNs) added; every accepted older header is too old for them.
-const NODE_KINDS_SINCE_0_26: ReadonlySet<NodeKind> = new Set(['OverlayNetwork']);
-const EDGE_KINDS_SINCE_0_26: ReadonlySet<EdgeKind> = new Set(['HasOverlay', 'OverlayMember']);
-
-// Kinds 0.27 (the lesson builder) added; every accepted older header is too old for them.
-const NODE_KINDS_SINCE_0_27: ReadonlySet<NodeKind> = new Set(['Lesson', 'LessonStep']);
-const EDGE_KINDS_SINCE_0_27: ReadonlySet<EdgeKind> = new Set(['HasLesson', 'HasLessonStep']);
-
-// Kinds 0.28 (cards and optics) added; every accepted older header is too old for them.
-const NODE_KINDS_SINCE_0_28: ReadonlySet<NodeKind> = new Set(['Card']);
-const EDGE_KINDS_SINCE_0_28: ReadonlySet<EdgeKind> = new Set(['HasCard', 'OnCard']);
-
-// Kinds 0.29 (the room builder) added; every accepted older header is too old for them.
-const NODE_KINDS_SINCE_0_29: ReadonlySet<NodeKind> = new Set(['FloorPlan', 'Room', 'RoomCorner']);
-const EDGE_KINDS_SINCE_0_29: ReadonlySet<EdgeKind> = new Set(['HasFloorPlan', 'HasRoom', 'HasRoomCorner']);
-
-// Kinds 0.30 (spares and stores, ADR-0076) added; every accepted older header is too old for them.
-const NODE_KINDS_SINCE_0_30: ReadonlySet<NodeKind> = new Set(['Store', 'StockItem', 'StockLevel']);
-const EDGE_KINDS_SINCE_0_30: ReadonlySet<EdgeKind> = new Set([
-  'HasStore',
-  'HasStock',
-  'HasStockLevel',
-  'InStore',
-  'ReservedFor',
-  'ForIssue',
-]);
-
-// Kinds 0.39 (NAT pools, sign-off r104) added; every accepted older header is too old for them.
-const NODE_KINDS_SINCE_0_39: ReadonlySet<NodeKind> = new Set(['NatPool']);
-const EDGE_KINDS_SINCE_0_39: ReadonlySet<EdgeKind> = new Set(['HasNatPool']);
-
-// A kind first added at minor `m` is too new for any header below `m`. Mirrors the Rust table.
-const NODES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<NodeKind>]> = [
-  [11, NODE_KINDS_SINCE_0_11],
-  [12, NODE_KINDS_SINCE_0_12],
-  [13, NODE_KINDS_SINCE_0_13],
-  [14, NODE_KINDS_SINCE_0_14],
-  [15, NODE_KINDS_SINCE_0_15],
-  [16, NODE_KINDS_SINCE_0_16],
-  [18, NODE_KINDS_SINCE_0_18],
-  [19, NODE_KINDS_SINCE_0_19],
-  [23, NODE_KINDS_SINCE_0_23],
-  [26, NODE_KINDS_SINCE_0_26],
-  [27, NODE_KINDS_SINCE_0_27],
-  [28, NODE_KINDS_SINCE_0_28],
-  [29, NODE_KINDS_SINCE_0_29],
-  [30, NODE_KINDS_SINCE_0_30],
-  [39, NODE_KINDS_SINCE_0_39],
-];
-const EDGES_SINCE: ReadonlyArray<readonly [number, ReadonlySet<EdgeKind>]> = [
-  [11, EDGE_KINDS_SINCE_0_11],
-  [12, EDGE_KINDS_SINCE_0_12],
-  [13, EDGE_KINDS_SINCE_0_13],
-  [14, EDGE_KINDS_SINCE_0_14],
-  [15, EDGE_KINDS_SINCE_0_15],
-  [16, EDGE_KINDS_SINCE_0_16],
-  [18, EDGE_KINDS_SINCE_0_18],
-  [19, EDGE_KINDS_SINCE_0_19],
-  [23, EDGE_KINDS_SINCE_0_23],
-  [26, EDGE_KINDS_SINCE_0_26],
-  [27, EDGE_KINDS_SINCE_0_27],
-  [28, EDGE_KINDS_SINCE_0_28],
-  [29, EDGE_KINDS_SINCE_0_29],
-  [30, EDGE_KINDS_SINCE_0_30],
-  [39, EDGE_KINDS_SINCE_0_39],
-];
-
-// The IP plan store's kinds (ADR-0083, schema 0.36): declared in the schema so the
-// store's fields exist there, never held by a design at any version. Mirrors
-// `fathom_workspace::reject_plan_records`.
-const PLAN_KINDS: ReadonlySet<NodeKind> = new Set<NodeKind>([
-  'IpamVrf', 'IpamRouteTarget', 'IpamAggregate', 'IpamPrefix', 'IpamRange', 'IpamAddress',
-  'IpamReservation', 'IpamVlanGroup', 'IpamVlan', 'IpamAsnRange', 'IpamAsn',
-]);
+// The IP plan store's kinds (ADR-0083) are never held by a design, at any version.
+const PLAN_KINDS: ReadonlySet<NodeKind> = new Set(PLAN_NODE_KINDS);
 
 function rejectPlanRecords(doc: Document): void {
   for (const n of doc.nodes) {
@@ -179,19 +65,19 @@ function rejectPlanRecords(doc: Document): void {
 }
 
 function rejectKindsTooNewForDeclaredVersion(declared: string, doc: Document): void {
-  // Nothing to check for the current version (everything is legitimate
-  // there) or any value the version check above this call already refused.
+  // The current version holds anything; any other unaccepted value was refused earlier.
   if (!ACCEPTED_OLDER_SCHEMA_VERSIONS.includes(declared)) return;
   const minor = Number.parseInt(declared.slice(2), 10);
+  const tooNew = (since: number | undefined): boolean => since !== undefined && minor < since;
   for (const n of doc.nodes) {
     const kind = parseNodeId(n.id).kind;
-    if (NODES_SINCE.some(([since, kinds]) => minor < since && kinds.has(kind))) {
+    if (tooNew(NODE_KIND_SINCE[kind])) {
       throw new PlainError({ kind: 'kind-not-in-declared-version', declaredVersion: declared, elementKind: kind });
     }
   }
   for (const e of doc.edges) {
     const kind = parseEdgeId(e.id).kind;
-    if (EDGES_SINCE.some(([since, kinds]) => minor < since && kinds.has(kind))) {
+    if (tooNew(EDGE_KIND_SINCE[kind])) {
       throw new PlainError({ kind: 'kind-not-in-declared-version', declaredVersion: declared, elementKind: kind });
     }
   }
