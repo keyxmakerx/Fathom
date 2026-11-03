@@ -92,6 +92,10 @@ pub enum ChangeError {
         kind: &'static str,
         line: usize,
     },
+    /// A submitted change adds an edge of a retired kind (`retired: true`).
+    RetiredKind {
+        kind: &'static str,
+    },
 }
 
 impl From<PlainError> for ChangeError {
@@ -171,6 +175,10 @@ impl fmt::Display for ChangeError {
                 f,
                 "the change's {kind} text still carries something that looks like a credential, \
                  at line {line}; it was refused before it reached storage"
+            ),
+            Self::RetiredKind { kind } => write!(
+                f,
+                "a {kind} is retired and no change may add one; draw a cable between the two ports instead"
             ),
         }
     }

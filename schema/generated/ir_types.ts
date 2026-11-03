@@ -576,6 +576,10 @@ export const EDGE_KIND_SINCE: Readonly<Partial<Record<EdgeKind, number>>> = {
   ReservedFor: 30,
   ForIssue: 30,
 };
+/** Edge kinds marked `retired: true`: read where history names them, never added by a new change. */
+export const RETIRED_EDGE_KINDS: readonly EdgeKind[] = [
+  "Link",
+];
 /** Node kinds of the `plan` layer: the IP plan store's records, never held by a design. */
 export const PLAN_NODE_KINDS: readonly NodeKind[] = [
   "IpamVrf",

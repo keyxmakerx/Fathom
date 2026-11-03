@@ -170,6 +170,9 @@ pub struct EdgeGen {
     pub root_from: bool,
     /// As [`KindGen::since`]. Always `None` on derived edges.
     pub since: Option<u32>,
+    /// `retired: true`: kept so the history that names it still reads, but no
+    /// change may add a new one. Always `false` on derived edges.
+    pub retired: bool,
 }
 
 /// A named enum file under `schema/enums/` (§7).
@@ -426,6 +429,13 @@ pub fn extract(root: &Path, tree: &SchemaTree) -> Result<Extracted, ExtractError
                 ))
             }
         };
+        let retired = match e.get("retired") {
+            None => false,
+            Some(v) => match v.as_bool() {
+                Some(b) => b,
+                None => return err(format!("edge `{name}` retired: must be true or false")),
+            },
+        };
         edges.push(EdgeGen {
             name: name.clone(),
             class: Some(class),
@@ -439,6 +449,7 @@ pub fn extract(root: &Path, tree: &SchemaTree) -> Result<Extracted, ExtractError
             symmetric,
             root_from,
             since: since_of(e, &name)?,
+            retired,
         });
     }
     let mut derived_edges = Vec::new();
@@ -461,6 +472,7 @@ pub fn extract(root: &Path, tree: &SchemaTree) -> Result<Extracted, ExtractError
             symmetric: false,
             root_from: false,
             since: None,
+            retired: false,
         });
     }
 
