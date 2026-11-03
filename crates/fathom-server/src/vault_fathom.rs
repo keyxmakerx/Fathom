@@ -42,8 +42,8 @@ use crate::grants::{self, Authority, AuthorityError};
 use crate::keyprovider::{KeyError, KeySource};
 use crate::vault::{
     self, canonical_recipients, current_wrap, entry_metadata, fresh, hex, is_steward,
-    live_person_key, lock_entry, require_steward, verify_account_signature, MetaOpener, Recipient,
-    VaultError, MAX_SECRET_BYTES, RECOVERY_RECIPIENT,
+    live_person_key, lock_entry, require_steward, verify_account_signature, Meta, MetaOpener,
+    Recipient, VaultError, MAX_SECRET_BYTES, RECOVERY_RECIPIENT,
 };
 
 const TAG_MODE: &[u8] = b"fathom/vault/mode/v1";
@@ -54,7 +54,7 @@ const TAG_COPY_AAD: &[u8] = b"fathom/vault/fathom-copy/v1";
 pub const DEFAULT_VAULT_KEY: &str = "file:///var/lib/fathom/keys/vault.key";
 
 /// What Fathom may open a login for. Each is a word on the login's card and in the history.
-pub const PURPOSES: [&str; 2] = ["autopopulate", "check"];
+pub const PURPOSES: [&str; 3] = ["autopopulate", "check", "read"];
 
 // ---------------------------------------------------------------------------
 // The server's vault key
@@ -196,12 +196,19 @@ pub struct Consent {
 pub struct UsedLogin {
     pub user: String,
     pub password: String,
+    /// An SNMPv3 login's privacy password, when it has its own (`x` in the sealed secret).
+    /// Without one, the authentication password is the privacy password too, as net-snmp's
+    /// `createUser` takes it when only one is given.
+    pub privacy: Option<String>,
 }
 
 impl Drop for UsedLogin {
     fn drop(&mut self) {
         wipe_string(&mut self.user);
         wipe_string(&mut self.password);
+        if let Some(p) = self.privacy.as_mut() {
+            wipe_string(p);
+        }
     }
 }
 
@@ -225,15 +232,15 @@ fn check_secret_shape(plain: &[u8]) -> Result<(), VaultError> {
     }
     match Json::parse_canonical(plain) {
         Ok(Json::Obj(m))
-            if m.len() == 3
-                && ["u", "p", "n"]
-                    .iter()
-                    .all(|k| matches!(m.get(*k), Some(Json::Str(_)))) =>
+            if ["u", "p", "n"]
+                .iter()
+                .all(|k| matches!(m.get(*k), Some(Json::Str(_))))
+                && (m.len() == 3 || (m.len() == 4 && matches!(m.get("x"), Some(Json::Str(_))))) =>
         {
             Ok(())
         }
         _ => Err(VaultError::Malformed(
-            "a login copy is {u, p, n}, three strings, as canonical JSON",
+            "a login copy is {u, p, n} and an SNMP privacy password x if it has one, strings, as canonical JSON",
         )),
     }
 }
@@ -250,7 +257,19 @@ fn parse_secret(mut plain: Vec<u8>) -> Result<UsedLogin, VaultError> {
     if let Some(Json::Str(mut note)) = m.remove("n") {
         wipe_string(&mut note);
     }
-    Ok(UsedLogin { user, password })
+    let privacy = match m.remove("x") {
+        Some(Json::Str(x)) if !x.is_empty() => Some(x),
+        Some(Json::Str(mut x)) => {
+            wipe_string(&mut x);
+            None
+        }
+        _ => None,
+    };
+    Ok(UsedLogin {
+        user,
+        password,
+        privacy,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -820,6 +839,77 @@ pub async fn use_login(
     element: &str,
     purpose: &str,
 ) -> Result<UsedLogin, VaultError> {
+    open_for(
+        tx,
+        auth,
+        fk,
+        credential,
+        design,
+        element,
+        purpose,
+        false,
+        &|_: &Meta| Ok(()),
+    )
+    .await
+    .map(|(login, _)| login)
+}
+
+/// [`use_login`] for device reading (ADR-0082 §4.1): the login must carry the read-only tick
+/// and be an SNMP login that names its authentication, both checked before anything is filed
+/// or opened. `by_range` is true when a Steward set this login for the device's management range
+/// (r90, logins by range), so it need not also be marked as used on the device. Answers the
+/// login and its authentication.
+pub async fn use_login_to_read(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    fk: &FathomKey,
+    credential: &str,
+    design: &str,
+    element: &str,
+    by_range: bool,
+) -> Result<(UsedLogin, String), VaultError> {
+    let (login, meta) = open_for(
+        tx,
+        auth,
+        fk,
+        credential,
+        design,
+        element,
+        "read",
+        by_range,
+        &|meta: &Meta| {
+            if !meta.read_only {
+                return Err(VaultError::NotAllowed(
+                    "Fathom reads a device only with a login ticked as a read-only account",
+                ));
+            }
+            if meta.kind != "snmp" || meta.snmp_auth.is_none() {
+                return Err(VaultError::NotAllowed(
+                    "reading over SNMPv3 needs an SNMP login that names its authentication (SHA-512, SHA-256 or SHA-1)",
+                ));
+            }
+            Ok(())
+        },
+    )
+    .await?;
+    let auth_name = meta
+        .snmp_auth
+        .ok_or(VaultError::Corrupt("an SNMP login's authentication"))?;
+    Ok((login, auth_name))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn open_for(
+    tx: &Transaction<'_>,
+    auth: &Authority<'_>,
+    fk: &FathomKey,
+    credential: &str,
+    design: &str,
+    element: &str,
+    purpose: &str,
+    unmarked_ok: bool,
+    accept: &(dyn Fn(&Meta) -> Result<(), VaultError> + Sync),
+) -> Result<(UsedLogin, Meta), VaultError> {
     let tenant = auth.ctx.tenant().to_string();
     let me = auth.ctx.actor().to_string();
     if !PURPOSES.contains(&purpose) {
@@ -900,15 +990,17 @@ pub async fn use_login(
             row.get(3),
         )
         .await?;
-    if !meta
-        .used_on
-        .iter()
-        .any(|(d, e)| d == design && e == element)
+    if !unmarked_ok
+        && !meta
+            .used_on
+            .iter()
+            .any(|(d, e)| d == design && e == element)
     {
         return Err(VaultError::NotAllowed(
             "this login is not marked as used on that device",
         ));
     }
+    accept(&meta)?;
     let appended = chains::append_org(
         tx,
         auth.ring,
@@ -957,7 +1049,7 @@ pub async fn use_login(
         &copy_aad(&tenant, credential, epoch, &key_id),
     )
     .map_err(|_| VaultError::Corrupt("Fathom's copy did not open"))?;
-    parse_secret(plain)
+    Ok((parse_secret(plain)?, meta))
 }
 
 #[cfg(test)]

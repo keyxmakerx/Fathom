@@ -8,6 +8,10 @@ import { arrayOf, asRec, bool, int, jsonObject, optStr, str, type Rec } from './
 import { signedFetch } from './signedFetch';
 
 export const LOGIN_KINDS = ['login', 'snmp', 'wifi', 'api', 'other'] as const;
+/** The SNMPv3 authentications an SNMP login may name, best first; MD5 is refused (ADR-0082 §4.5). */
+export const SNMP_AUTHS = ['sha512', 'sha256', 'sha1'] as const;
+export type SnmpAuth = (typeof SNMP_AUTHS)[number];
+export const SNMP_AUTH_LABELS: Record<SnmpAuth, string> = { sha512: 'SHA-512', sha256: 'SHA-256', sha1: 'SHA-1 (older)' };
 export type LoginKind = (typeof LOGIN_KINDS)[number];
 
 export const KIND_LABELS: Record<LoginKind, string> = {
@@ -98,6 +102,8 @@ export interface VaultEntry {
   usedOn: UsedOn[];
   /** A person ticked "This is a read-only account" (ADR-0082 §4.1); device reading uses only these. */
   readOnly: boolean;
+  /** An SNMP login's SNMPv3 authentication, or null. */
+  snmpAuth: SnmpAuth | null;
   owner: string;
   ownerName: string;
   createdAt: number;
@@ -236,6 +242,7 @@ function entryView(raw: unknown): VaultEntry {
       return { design: str(x, 'design', W), element: str(x, 'element', W) };
     }),
     readOnly: r.readOnly === true,
+    snmpAuth: (SNMP_AUTHS as readonly unknown[]).includes(r.snmpAuth) ? (r.snmpAuth as SnmpAuth) : null,
     owner: str(r, 'owner', W),
     ownerName: str(r, 'ownerName', W),
     createdAt: int(r, 'createdAt', W),
@@ -363,7 +370,7 @@ const shareJson = (s: ShareBody) => ({
 
 export async function createLogin(
   organisation: string,
-  e: { id: string; name: string; kind: LoginKind; usedOn: UsedOn[]; readOnly?: boolean; secretCt: Uint8Array; secretNonce: Uint8Array; share: ShareBody },
+  e: { id: string; name: string; kind: LoginKind; usedOn: UsedOn[]; readOnly?: boolean; snmpAuth?: SnmpAuth | null; secretCt: Uint8Array; secretNonce: Uint8Array; share: ShareBody },
 ): Promise<VaultEntry> {
   const answer = await signedFetch(
     'POST',
@@ -374,6 +381,7 @@ export async function createLogin(
       kind: e.kind,
       usedOn: e.usedOn,
       ...(e.readOnly ? { readOnly: true } : {}),
+      ...(e.kind === 'snmp' && e.snmpAuth ? { snmpAuth: e.snmpAuth } : {}),
       secretCt: toHex(e.secretCt),
       secretNonce: toHex(e.secretNonce),
       share: shareJson(e.share),
@@ -400,10 +408,11 @@ export async function newEpoch(
 export async function setLoginDetails(
   organisation: string,
   credential: string,
-  e: { ifVersion: number; name: string; kind: LoginKind; usedOn: UsedOn[]; readOnly?: boolean },
+  e: { ifVersion: number; name: string; kind: LoginKind; usedOn: UsedOn[]; readOnly?: boolean; snmpAuth?: SnmpAuth | null },
 ): Promise<VaultEntry> {
-  const { readOnly, ...rest } = e;
-  return entryView(jsonObject(await signedFetch('POST', entryPath(organisation, credential, 'meta'), body(readOnly ? { ...rest, readOnly: true } : rest)), W));
+  const { readOnly, snmpAuth, ...rest } = e;
+  const sent = { ...rest, ...(readOnly ? { readOnly: true } : {}), ...(e.kind === 'snmp' && snmpAuth ? { snmpAuth } : {}) };
+  return entryView(jsonObject(await signedFetch('POST', entryPath(organisation, credential, 'meta'), body(sent)), W));
 }
 
 export async function revokeHolder(organisation: string, credential: string, ifVersion: number, keyId: string): Promise<VaultEntry> {

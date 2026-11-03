@@ -6,7 +6,7 @@ import { useContext, useState, type ReactNode } from 'react';
 
 import type { VaultEntry, VaultOverview } from '../../api/vault';
 import type { Secret } from '../../vault/crypto';
-import { setCritical } from '../../api/vault';
+import { setCritical, SNMP_AUTH_LABELS } from '../../api/vault';
 import { coverWithCurrentKeys, fathomCopyStale, runDueChecks, makeRecoverySheet, recoverLogins, refreshFathomCopy, removeLogin, revealLogin, takeAwayCopy, vaultUnlocked } from '../../vault/session';
 import { describeError } from '../design/useDesignSession';
 import { BreachPolicyCard, breachText } from './BreachPolicy';
@@ -297,6 +297,7 @@ function LoginCard({
       <div className="vault-card__head">
         <span className="vault-card__name">{entry.name}</span>
         <span className="vault-tag">{kindText(entry)}</span>
+        {entry.snmpAuth && <span className="vault-tag" data-testid="vault-snmp-auth-tag">SNMPv3 {SNMP_AUTH_LABELS[entry.snmpAuth]}</span>}
         {entry.readOnly && (
           <span className="vault-tag" title="Someone ticked “This is a read-only account”; device reading uses only these logins" data-testid="vault-read-only-tag">
             Read-only ✓

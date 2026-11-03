@@ -209,13 +209,15 @@ fn snmp_read(m: &Map<String, Value>) -> Result<Value, Refused> {
         return Ok(v);
     };
     if engine.id != expected {
-        return failed(snmp::fail(
+        // The new id travels as its own field too, so the server can ask someone to confirm it
+        // without a second round trip; nothing else is sent to an engine nobody confirmed.
+        let now = hex(&engine.id);
+        let mut v = failed(snmp::fail(
             "engine_changed",
-            format!(
-                "the device's SNMP engine id is now {}; someone must confirm it again",
-                hex(&engine.id)
-            ),
-        ));
+            format!("the device's SNMP engine id is now {now}; someone must confirm it again"),
+        ))?;
+        v["engineId"] = json!(now);
+        return Ok(v);
     }
 
     let login = login_from(m.get("login"))?;

@@ -6,8 +6,23 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { describeError } from '../../api/invitations';
-import { fetchDeviceReading, rangeProblem, saveDeviceReading, type DeviceReading, type ReadRange } from '../../api/deviceRead';
+import {
+  approveEngines,
+  fetchDeviceReading,
+  fetchEngines,
+  lastEight,
+  rangeProblem,
+  saveDeviceReading,
+  type DeviceReading,
+  type ReadEngine,
+  type ReadRange,
+} from '../../api/deviceRead';
+import { SNMP_AUTH_LABELS, type VaultEntry } from '../../api/vault';
+import { forgetReadSettings } from '../reading/store';
+import { inRange } from '../reading/ranges';
+import { useVault } from '../vault/useVault';
 import { dateTimeLabel } from './model';
+import '../reading/reading.css';
 
 type Load = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; value: DeviceReading };
 
@@ -15,9 +30,25 @@ interface Row {
   cidr: string;
   snmpPort: string;
   sshPort: string;
+  /** A read-only SNMP login for the whole range (a vault entry id), or ''. */
+  login?: string;
 }
 
-const toRow = (r: ReadRange): Row => ({ cidr: r.cidr, snmpPort: String(r.snmpPort), sshPort: String(r.sshPort) });
+const toRow = (r: ReadRange): Row => ({ cidr: r.cidr, snmpPort: String(r.snmpPort), sshPort: String(r.sshPort), login: r.login ?? '' });
+
+/** A login a Steward may set for a range: SNMP, ticked read-only, its authentication said, and copied for Fathom to use. */
+export interface RangeLogin {
+  id: string;
+  name: string;
+  auth: string;
+}
+
+export function rangeLogins(entries: readonly VaultEntry[]): RangeLogin[] {
+  return entries
+    .filter((e) => e.kind === 'snmp' && e.readOnly && e.snmpAuth !== null && e.fathom?.state === 'on')
+    .map((e) => ({ id: e.id, name: e.name, auth: e.snmpAuth ? SNMP_AUTH_LABELS[e.snmpAuth] : '' }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
 
 function portOf(text: string, fallback: number): number | null {
   const t = text.trim();
@@ -31,13 +62,13 @@ function portOf(text: string, fallback: number): number | null {
 export function rowsToRanges(rows: readonly Row[]): { ranges: ReadRange[] } | { problem: string } {
   const ranges: ReadRange[] = [];
   for (const [i, row] of rows.entries()) {
-    if (row.cidr.trim() === '' && row.snmpPort.trim() === '' && row.sshPort.trim() === '') continue;
+    if (row.cidr.trim() === '' && row.snmpPort.trim() === '' && row.sshPort.trim() === '' && !row.login) continue;
     const problem = rangeProblem(row.cidr);
     if (problem) return { problem: `Range ${i + 1}: ${problem}` };
     const snmpPort = portOf(row.snmpPort, 161);
     const sshPort = portOf(row.sshPort, 22);
     if (snmpPort === null || sshPort === null) return { problem: `Range ${i + 1}: a port is 1 to 65535.` };
-    ranges.push({ cidr: row.cidr.trim(), snmpPort, sshPort });
+    ranges.push({ cidr: row.cidr.trim(), snmpPort, sshPort, login: row.login ? row.login : null });
   }
   return { ranges };
 }
@@ -56,12 +87,15 @@ export function DeviceReadingView({
   error,
   notice,
   onSave,
+  logins = [],
 }: {
   settings: DeviceReading;
   busy: boolean;
   error: string | null;
   notice: string | null;
   onSave: (on: boolean, ranges: ReadRange[]) => void;
+  /** Logins that may be set for a range; a login already set stays listed even when it no longer fits. */
+  logins?: readonly RangeLogin[];
 }) {
   const [on, setOn] = useState(settings.on);
   const [rows, setRows] = useState<Row[]>(() => (settings.ranges.length > 0 ? settings.ranges.map(toRow) : [{ cidr: '', snmpPort: '', sshPort: '' }]));
@@ -99,7 +133,8 @@ export function DeviceReadingView({
       <div className="org-field__label">Management ranges</div>
       <p className="org-field__hint">
         Such as 10.20.0.0/24. Ports are 161 for SNMP and 22 for SSH unless you change them. This machine’s own addresses, link-local and
-        multicast are never read, whatever is listed.
+        multicast are never read, whatever is listed. A login set for a range can read every device in it; only SNMP logins ticked
+        read-only and copied for Fathom to use are offered.
       </p>
       <table className="org-table" data-testid="device-reading-ranges">
         <thead>
@@ -107,6 +142,7 @@ export function DeviceReadingView({
             <th>Range</th>
             <th>SNMP port</th>
             <th>SSH port</th>
+            <th>Read-only login</th>
             <th aria-label="Remove" />
           </tr>
         </thead>
@@ -146,6 +182,23 @@ export function DeviceReadingView({
                   onChange={(e) => edit(i, { sshPort: e.target.value })}
                 />
               </td>
+              <td>
+                <select
+                  className="org-input"
+                  aria-label={`Read-only login for range ${i + 1}`}
+                  value={row.login ?? ''}
+                  disabled={busy}
+                  onChange={(e) => edit(i, { login: e.target.value })}
+                >
+                  <option value="">None: marked on each device</option>
+                  {logins.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name} · SNMPv3 {l.auth}
+                    </option>
+                  ))}
+                  {row.login && !logins.some((l) => l.id === row.login) ? <option value={row.login}>A login no longer offered</option> : null}
+                </select>
+              </td>
               <td className="org-table__actions">
                 <button type="button" className="home__btn btn-small" disabled={busy} onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}>
                   Remove
@@ -160,7 +213,7 @@ export function DeviceReadingView({
           type="button"
           className="home__btn btn-small"
           disabled={busy || rows.length >= 64}
-          onClick={() => setRows((rs) => [...rs, { cidr: '', snmpPort: '', sshPort: '' }])}
+          onClick={() => setRows((rs) => [...rs, { cidr: '', snmpPort: '', sshPort: '', login: '' }])}
         >
           Add a range
         </button>
@@ -197,7 +250,133 @@ export function DeviceReadingView({
   );
 }
 
+/** Agents waiting for a Steward, grouped by the range they answered in (sign-off r100, r90 "keys bulk per range"). */
+export function EnginesView({
+  engines,
+  ranges,
+  busy,
+  error,
+  onApprove,
+}: {
+  engines: readonly ReadEngine[];
+  ranges: readonly ReadRange[];
+  busy: boolean;
+  error: string | null;
+  onApprove: (addresses: string[]) => void;
+}) {
+  const waiting = engines.filter((e) => e.state !== 'approved');
+  const groups = new Map<string, ReadEngine[]>();
+  for (const e of waiting) {
+    const cidr = ranges.find((r) => inRange(e.address, r.cidr))?.cidr ?? 'Outside the listed ranges';
+    groups.set(cidr, [...(groups.get(cidr) ?? []), e]);
+  }
+  return (
+    <section className="org-page" data-testid="device-reading-engines">
+      <div className="org-field__label">Waiting for approval</div>
+      <p className="org-field__hint">
+        The first time an address answers, Fathom keeps the agent it answered with (its SNMP engine ID) and sends no login until someone
+        confirms it. Someone with Draw confirms one device by typing; you can approve a whole range here. One entry goes in the
+        organisation’s log for each batch.
+      </p>
+      {waiting.length === 0 ? <p className="org-field__hint">Nothing is waiting.</p> : null}
+      {[...groups.entries()].map(([cidr, list]) => {
+        const fresh = list.filter((e) => e.state === 'seen');
+        const changed = list.filter((e) => e.state === 'changed');
+        return (
+          <div className="engines" key={cidr} data-testid="engine-range">
+            <div className="engines__head">
+              <span>
+                <b>{cidr}</b>
+              </span>
+              <span className="muted">
+                {fresh.length} answered for the first time{changed.length ? `, ${changed.length} changed` : ''}
+              </span>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Address</th>
+                  <th>Engine ID</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {list.map((e) => (
+                  <tr key={e.address}>
+                    <td className="m">{e.address}</td>
+                    <td className="m">…{lastEight(e.engineId)}</td>
+                    <td>
+                      {e.state === 'changed' ? (
+                        <span>
+                          <span className="chg">changed since last read{e.previous ? ` (was …${lastEight(e.previous)})` : ''}</span>{' '}
+                          <button type="button" className="home__btn btn-small" disabled={busy} onClick={() => onApprove([e.address])}>
+                            Approve this one
+                          </button>
+                        </span>
+                      ) : (
+                        <span className="muted">new</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="engines__foot">
+              <span className="muted">{changed.length ? 'A changed one is never approved with the rest. It is listed on its own.' : ''}</span>
+              {fresh.length ? (
+                <button type="button" className="home__btn" disabled={busy} onClick={() => onApprove(fresh.map((e) => e.address))} data-testid="approve-new">
+                  Approve {fresh.length} new
+                </button>
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
+      {error && (
+        <p className="home__error" role="alert">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function Engines({ organisationId, ranges }: { organisationId: string; ranges: readonly ReadRange[] }) {
+  const [engines, setEngines] = useState<ReadEngine[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const reload = useCallback(() => {
+    fetchEngines(organisationId).then(setEngines, (e: unknown) => setError(describeError(e)));
+  }, [organisationId]);
+  useEffect(reload, [reload]);
+  if (engines === null) return error ? <p className="home__error">{error}</p> : null;
+  return (
+    <EnginesView
+      engines={engines}
+      ranges={ranges}
+      busy={busy}
+      error={error}
+      onApprove={(addresses) => {
+        setBusy(true);
+        setError(null);
+        approveEngines(organisationId, addresses).then(
+          () => {
+            setBusy(false);
+            reload();
+          },
+          (e: unknown) => {
+            setError(describeError(e));
+            setBusy(false);
+          },
+        );
+      }}
+    />
+  );
+}
+
 export function DeviceReadingPage({ organisationId }: { organisationId: string }) {
+  const vault = useVault(organisationId);
+  const logins = vault.load.status === 'ready' ? rangeLogins(vault.load.value.entries) : [];
   const [load, setLoad] = useState<Load>({ status: 'loading' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -224,8 +403,10 @@ export function DeviceReadingPage({ organisationId }: { organisationId: string }
     );
   }
   return (
+    <>
     <DeviceReadingView
       key={round}
+      logins={logins}
       settings={load.value}
       busy={busy}
       error={error}
@@ -239,6 +420,7 @@ export function DeviceReadingPage({ organisationId }: { organisationId: string }
             setNotice(changed ? 'Saved, and recorded.' : 'Nothing had changed.');
             setBusy(false);
             setRound((r) => r + 1);
+            forgetReadSettings(organisationId);
             reload();
           },
           (e: unknown) => {
@@ -248,5 +430,7 @@ export function DeviceReadingPage({ organisationId }: { organisationId: string }
         );
       }}
     />
+    {load.value.on ? <Engines organisationId={organisationId} ranges={load.value.ranges} /> : null}
+    </>
   );
 }

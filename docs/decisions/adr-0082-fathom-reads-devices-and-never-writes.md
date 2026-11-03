@@ -163,6 +163,24 @@ checks after the work.
   device with a read-only login you chose; it never changes one."* The four forbidden sentences
   (CLAUDE.md rule 5) stay forbidden.
 
+## As built: read on a device (2026-11-02, sign-off r100)
+
+- **Where.** A Readings tab in the device panel after Ports; Read now beside ⋯; a chip and a count on
+  the tab, nothing on the canvas (r100: where A, canvas A).
+- **The agent before the login.** A first read of an address asks only for its SNMP engine ID and
+  sends no login. Someone with Draw confirms it by typing its last 8 characters, or a Steward approves a
+  range's new ones as one batch with one log entry (r90). A changed ID stops every read of that address
+  until it is approved on its own. This is §4.4's host-key rule, applied to SNMP.
+- **Which login.** Read-only SNMP logins with their authentication said and a Fathom copy, marked on
+  the device or set by a Steward for its range (r90). Logins by folder are not built yet.
+- **What is kept.** The reading, sealed under the organisation's key (HKDF label
+  `fathom/device-reading/v1|org`), the last 10 per device and kind; every read, refusal, approval and
+  dismissal is on the organisation's history.
+- **Differences** are worked out in the browser against the open design: name, serial, firmware and
+  LLDP neighbours. Accept all is one undo step (r100 accept A); Dismiss lasts until the device says
+  something else (r100 dismiss A). Port descriptions are not compared: the drawing keeps no description
+  on a physical port.
+
 ## Not decided here
 
 - The SNMP and SSH crates, chosen by the build thread with a dependency record and the owner's tick.

@@ -378,7 +378,15 @@ pub struct Meta {
     /// metadata, and written into it only when true, so a login saved before the tick existed
     /// keeps the same sealed bytes.
     pub read_only: bool,
+    /// For an SNMP login, which SNMPv3 authentication the device's user has: `sha512`,
+    /// `sha256` or `sha1` (ADR-0082 §4.5). It names a protocol, not a secret, so it sits with the
+    /// metadata where the Read dialog can show it; written only when set, like `read_only`.
+    pub snmp_auth: Option<String>,
 }
+
+/// The SNMPv3 authentications a login may name, best first. HMAC-MD5-96 is refused (ADR-0082
+/// §4.5), so it has no spelling here.
+pub const SNMP_AUTHS: [&str; 3] = ["sha512", "sha256", "sha1"];
 
 impl Meta {
     /// Cleaned and bounded, or refused. A name the redaction gate's bare check reads as a
@@ -435,6 +443,7 @@ impl Meta {
             kind: kind.to_string(),
             used_on,
             read_only: false,
+            snmp_auth: None,
         })
     }
 
@@ -442,6 +451,22 @@ impl Meta {
     pub fn with_read_only(mut self, read_only: bool) -> Self {
         self.read_only = read_only;
         self
+    }
+
+    /// The same metadata with an SNMP login's authentication set, or refused when it names one
+    /// Fathom does not offer or the login is not an SNMP one.
+    pub fn with_snmp_auth(mut self, auth: Option<&str>) -> Result<Self, VaultError> {
+        match auth {
+            None => self.snmp_auth = None,
+            Some(a) if self.kind == "snmp" && SNMP_AUTHS.contains(&a) => {
+                self.snmp_auth = Some(a.to_string())
+            }
+            Some(_) if self.kind != "snmp" => {
+                return Err(bad("only an SNMP login names an SNMP authentication"))
+            }
+            Some(_) => return Err(bad("SNMP authentication is sha512, sha256 or sha1")),
+        }
+        Ok(self)
     }
 
     pub(crate) fn to_canonical(&self) -> Vec<u8> {
@@ -460,6 +485,9 @@ impl Meta {
         if self.read_only {
             m.insert("readOnly".to_string(), Json::Bool(true));
         }
+        if let Some(a) = &self.snmp_auth {
+            m.insert("snmpAuth".to_string(), Json::Str(a.clone()));
+        }
         Json::Obj(m).to_canonical_bytes()
     }
 
@@ -477,6 +505,11 @@ impl Meta {
             Some(Json::Bool(true)) => true,
             Some(_) => return Err(VaultError::Corrupt("vault metadata")),
         };
+        let snmp_auth = match m.remove("snmpAuth") {
+            None => None,
+            Some(Json::Str(a)) if SNMP_AUTHS.contains(&a.as_str()) => Some(a),
+            Some(_) => return Err(VaultError::Corrupt("vault metadata")),
+        };
         let mut used_on = Vec::with_capacity(list.len());
         for item in list {
             match item {
@@ -492,6 +525,7 @@ impl Meta {
             kind,
             used_on,
             read_only,
+            snmp_auth,
         })
     }
 }
@@ -2022,6 +2056,13 @@ impl EntryView {
                 ),
             ),
             ("readOnly", Json::Bool(self.meta.read_only)),
+            (
+                "snmpAuth",
+                self.meta
+                    .snmp_auth
+                    .as_ref()
+                    .map_or(Json::Null, |a| Json::Str(a.clone())),
+            ),
             ("owner", s(&self.owner)),
             ("ownerName", s(&self.owner_name)),
             ("createdAt", Json::Int(self.created_ms)),

@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-import { KIND_LABELS, LOGIN_KINDS, recordBreach, type LoginKind, type UsedOn, type VaultEntry, type VaultOverview } from '../../api/vault';
+import { KIND_LABELS, LOGIN_KINDS, recordBreach, SNMP_AUTH_LABELS, SNMP_AUTHS, type LoginKind, type SnmpAuth, type UsedOn, type VaultEntry, type VaultOverview } from '../../api/vault';
 import { effectivePolicy, timesBreached } from '../../vault/breach';
 import type { Secret } from '../../vault/crypto';
 import { chooseRecipients, holderAccounts, renameLogin, reshareLogin, storeLogin } from '../../vault/session';
@@ -36,6 +36,8 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
   const [shown, setShown] = useState(false);
   const [devices, setDevices] = useState<UsedOn[]>(entry?.usedOn ?? usedOn ?? []);
   const [readOnly, setReadOnly] = useState(entry?.readOnly ?? false);
+  const [snmpAuth, setSnmpAuth] = useState<SnmpAuth>(entry?.snmpAuth ?? 'sha256');
+  const [privacy, setPrivacy] = useState(secret?.privacy ?? '');
   const [others, setOthers] = useState<string[]>(entry ? holderAccounts(entry).filter((a) => a !== overview.me) : []);
   const [aloneOk, setAloneOk] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -47,11 +49,18 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
   const people = overview.people.filter((p) => p.account !== overview.me);
   const alone = others.length === 0 && overview.recovery == null;
   const removed = entry ? holderAccounts(entry).filter((a) => a !== overview.me && !others.includes(a)) : [];
-  const secretChanged = entry != null && secret != null && (username !== secret.username || password !== secret.password || note !== secret.note);
+  const secretChanged =
+    entry != null && secret != null && (username !== secret.username || password !== secret.password || note !== secret.note || privacy !== (secret.privacy ?? ''));
+  const auth = kind === 'snmp' ? snmpAuth : null;
   const holdersChanged = entry != null && (removed.length > 0 || others.some((a) => !holderAccounts(entry).includes(a)));
   const detailsChanged =
     entry != null &&
-    (name !== entry.name || kind !== entry.kind || readOnly !== entry.readOnly || JSON.stringify(devices) !== JSON.stringify(entry.usedOn));
+    (name !== entry.name ||
+      kind !== entry.kind ||
+      readOnly !== entry.readOnly ||
+      auth !== entry.snmpAuth ||
+      JSON.stringify(devices) !== JSON.stringify(entry.usedOn));
+  const theSecret = { username, password, note, ...(kind === 'snmp' && privacy ? { privacy } : {}) };
 
   const deviceChoices = useMemo(() => {
     if (!place) return [];
@@ -101,13 +110,13 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
         onDone(saved);
       };
       if (!entry) {
-        done(await storeLogin(organisation, recipients, { name: name.trim(), kind, usedOn: devices, readOnly, secret: { username, password, note } }));
+        done(await storeLogin(organisation, recipients, { name: name.trim(), kind, usedOn: devices, readOnly, snmpAuth: auth, secret: theSecret }));
         return;
       }
       let current = entry;
-      if (detailsChanged) current = await renameLogin(organisation, entry.id, { ifVersion: current.version, name: name.trim(), kind, usedOn: devices, readOnly });
+      if (detailsChanged) current = await renameLogin(organisation, entry.id, { ifVersion: current.version, name: name.trim(), kind, usedOn: devices, readOnly, snmpAuth: auth });
       if (secretChanged || holdersChanged) {
-        current = await reshareLogin(organisation, current, recipients, secretChanged ? 'changed' : 'shared', { username, password, note });
+        current = await reshareLogin(organisation, current, recipients, secretChanged ? 'changed' : 'shared', theSecret);
       }
       done(current);
     } catch (e) {
@@ -156,7 +165,7 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
             <input className="vault-input vault-input--mono" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" spellCheck={false} data-bwignore="" data-testid="vault-username" />
           </label>
           <label className="vault-field">
-            <span className="vault-field__label">{kind === 'api' ? 'Key' : 'Password'}</span>
+            <span className="vault-field__label">{kind === 'api' ? 'Key' : kind === 'snmp' ? 'Authentication password' : 'Password'}</span>
             <span className="vault-inline">
               <input
                 className="vault-input vault-input--mono"
@@ -189,6 +198,36 @@ export function LoginDialog({ organisation, overview, place, entry, secret, used
             </span>
           </label>
         </div>
+        {kind === 'snmp' && (
+          <div className="vault-row2" data-testid="vault-snmp">
+            <label className="vault-field">
+              <span className="vault-field__label">SNMPv3 authentication</span>
+              <select className="vault-input" value={snmpAuth} onChange={(e) => setSnmpAuth(e.target.value as SnmpAuth)} data-testid="vault-snmp-auth">
+                {SNMP_AUTHS.map((a) => (
+                  <option key={a} value={a}>
+                    {SNMP_AUTH_LABELS[a]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="vault-field">
+              <span className="vault-field__label">Privacy password (AES), if it differs</span>
+              <input
+                className="vault-input vault-input--mono"
+                type={shown ? 'text' : 'password'}
+                value={privacy}
+                onChange={(e) => setPrivacy(e.target.value)}
+                autoComplete="new-password"
+                spellCheck={false}
+                data-bwignore=""
+                data-testid="vault-snmp-privacy"
+              />
+            </label>
+          </div>
+        )}
+        {kind === 'snmp' && (
+          <p className="vault-small">Fathom reads SNMPv3 with authentication and AES privacy only. MD5 and DES are not offered. Left empty, the privacy password is the authentication password.</p>
+        )}
         {(kind === 'login' || kind === 'snmp') && (
           <div className="vault-field">
             <label className="vault-check">
