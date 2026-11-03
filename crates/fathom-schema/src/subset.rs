@@ -1,4 +1,4 @@
-//! The 62 §2.2 YAML-subset parser.
+//! The §2.2 YAML-subset parser.
 //!
 //! This is not a general YAML implementation and must never become one. The
 //! subset exists "so that the file has exactly one spelling for every
@@ -14,7 +14,7 @@ use crate::value::{Node, Value};
 
 /// Which dialect of the subset a source file is parsed under.
 ///
-/// `Schema` is the 62 §2.2 subset exactly as shipped — folded (`>`) block
+/// `Schema` is the §2.2 subset exactly as shipped — folded (`>`) block
 /// scalars, same-indent sequences and multi-line flow are refused the same
 /// way they always were. `Corpus` carries exactly the three extensions the
 /// seed corpus bundles are written in, no more: `key: >` folded block scalars

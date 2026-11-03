@@ -1,15 +1,15 @@
 //! Tree → canonical JSON, for the blocks `schema.json` carries verbatim.
 //!
 //! The canonical form itself — the [`Json`] type and its byte emitter — moved
-//! to `fathom-canon` (WO-05 §4.1): 35 §5.1 C8 asks for *"one implementation
-//! per job"*, and the workspace face needs the same bytes. This module keeps
+//! to `fathom-canon`: one implementation per job, and the workspace face needs
+//! the same bytes. This module keeps
 //! the one thing that cannot move, because it reads
 //! `fathom_schema::value::Node`: the tree conversion.
 //!
-//! Floats are structurally excluded from the IR (11 §14.1, 12 §3.4), but the
+//! Floats are structurally excluded from the IR, but the
 //! tree itself carries them in one place — `matching:`, the residue-guard
-//! constants (11 §10.4) — and `schema.json` transcribes every tree block so
-//! the bump checker (62 §16.4) can classify every diff. The canonical float
+//! constants — and `schema.json` transcribes every tree block so
+//! the bump checker (§16.4) can classify every diff. The canonical float
 //! form is Rust's shortest round-trip decimal (`f64` `Display`): a pure,
 //! platform-independent function of the parsed value, which is itself a pure
 //! function of the tree's bytes (the subset parser admits only simple
@@ -23,7 +23,7 @@ use std::collections::BTreeMap;
 
 /// Generic parsed-tree → JSON conversion for the blocks `schema.json`
 /// carries verbatim. Sequences keep declaration order (order is data,
-/// 62 §2.3); maps sort (canonical form). Duplicate keys and floats refuse.
+/// §2.3); maps sort (canonical form). Duplicate keys and floats refuse.
 pub fn from_node(node: &Node, context: &str) -> Result<Json, String> {
     match &node.value {
         Value::Null => Ok(Json::Null),

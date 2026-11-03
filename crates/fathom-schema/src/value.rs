@@ -1,4 +1,4 @@
-//! The parsed value tree. Maps preserve declaration order — 62 §2.3 makes
+//! The parsed value tree. Maps preserve declaration order — §2.3 makes
 //! declaration order the diff order and the generated iteration order, so an
 //! order-losing map type here would destroy the property the subset exists for.
 
@@ -7,9 +7,9 @@ pub enum Value {
     Null,
     Bool(bool),
     Int(i64),
-    /// Accepted pragmatically: 62 §2.2's table lists integer spellings only,
+    /// Accepted pragmatically: §2.2's table lists integer spellings only,
     /// but the shipped tree carries the residue-guard constants 0.75 / 0.15
-    /// (11 §10.4). Filed with 62 §22; parsed rather than refused meanwhile.
+    /// (11 §10.4). Filed with §22; parsed rather than refused meanwhile.
     Float(f64),
     Str(String),
     Seq(Vec<Node>),

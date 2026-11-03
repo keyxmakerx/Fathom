@@ -1,6 +1,6 @@
 //! `fathom-schemagen [--check] [path-to-schema-dir]`
 //!
-//! Regenerates the 62 §17.1 artifacts from the schema tree (default `schema`)
+//! Regenerates the §17.1 artifacts from the schema tree (default `schema`)
 //! into the tree's parent — the repo root — at their fixed repo-relative
 //! paths. `--check` compares instead of writing (the CLI face of
 //! `schema.codegen.stale`; the same check runs as a cargo test in this

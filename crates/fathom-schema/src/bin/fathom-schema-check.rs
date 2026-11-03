@@ -2,7 +2,7 @@
 //!
 //! Exit codes: 0 clean (warnings allowed), 1 failures, 2 could not run.
 //! The unimplemented gates are listed on every run so that a clean exit is
-//! never mistaken for full 62 §18 coverage.
+//! never mistaken for full §18 coverage.
 
 use fathom_schema::{check, Severity};
 use std::path::PathBuf;
@@ -39,7 +39,7 @@ const NOT_YET_CHECKABLE: &[(&str, &str)] = &[
 ];
 
 /// Gates that ARE checked, but elsewhere in the workspace — listed on every
-/// run so this binary's report stays the one honest inventory of 62 §18
+/// run so this binary's report stays the one honest inventory of §18
 /// coverage.
 const CHECKED_ELSEWHERE: &[(&str, &str)] = &[
     (
