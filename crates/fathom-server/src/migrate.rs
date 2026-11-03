@@ -450,6 +450,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0074_system_account.sql",
         sql: include_str!("../migrations/0074_system_account.sql"),
     },
+    // Orders: order types, orders and each order's history (ADR-0084 piece 2; r103, r105).
+    Migration {
+        version: 75,
+        name: "0075_orders.sql",
+        sql: include_str!("../migrations/0075_orders.sql"),
+    },
 ];
 
 /// A cheap checksum over a migration's bytes.

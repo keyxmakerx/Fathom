@@ -159,6 +159,11 @@ fathom-ir = { path = "../fathom-ir" }
 # closure count is unchanged by this line.
 fathom-ingest = { path = "../fathom-ingest" }
 
+# ADR-0084's order definitions and engine. A path member, not an external dependency:
+# `fathom-orders` names only `fathom-schema`, already a dependency of this crate, so
+# gate-zero's closure count is unchanged by this line.
+fathom-orders = { path = "../fathom-orders" }
+
 # ---------------------------------------------------------------------------
 # PHASE 2's KEY HIERARCHY. Every version below is `docs/PHASE-2-STORAGE-DESIGN.md`
 # §12.4's table, and each has its own `deps/decisions/` record because this

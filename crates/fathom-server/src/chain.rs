@@ -628,6 +628,12 @@ pub enum EntryType {
     /// A difference between a reading and the drawing dismissed (migration `0073`): the
     /// `design`, `element`, the `actor`. Never the field or the value.
     DeviceReadDismissed,
+    /// An order type saved, or a new version of one (migration `0075`, ADR-0084): the
+    /// `definition` id, the `version`, the `actor`. Never the file.
+    OrderTypeSaved,
+    /// One thing done on one order (migration `0075`, ADR-0084): the `order` id, the `seq`, the
+    /// `action` word, the `actor`. Never an answer, a reason or any other text.
+    OrderEvent,
 }
 
 impl EntryType {
@@ -743,6 +749,8 @@ impl EntryType {
             Self::DeviceReadDone => "device_read_done",
             Self::DeviceReadEngineApproved => "device_read_engine_approved",
             Self::DeviceReadDismissed => "device_read_dismissed",
+            Self::OrderTypeSaved => "order_type_saved",
+            Self::OrderEvent => "order_event",
         }
     }
 
@@ -858,6 +866,8 @@ impl EntryType {
             "device_read_done" => Some(Self::DeviceReadDone),
             "device_read_engine_approved" => Some(Self::DeviceReadEngineApproved),
             "device_read_dismissed" => Some(Self::DeviceReadDismissed),
+            "order_type_saved" => Some(Self::OrderTypeSaved),
+            "order_event" => Some(Self::OrderEvent),
             _ => None,
         }
     }
@@ -978,7 +988,9 @@ impl EntryType {
             | Self::PlanApprovalSigned
             | Self::DeviceReadDone
             | Self::DeviceReadEngineApproved
-            | Self::DeviceReadDismissed => &[ChainKind::Org],
+            | Self::DeviceReadDismissed
+            | Self::OrderTypeSaved
+            | Self::OrderEvent => &[ChainKind::Org],
             // **Two types are filed on two kinds.** `rewrap` because the master key
             // is deployment-wide (§7.2). `grant_suspended` because §1.1 gives the
             // operator plane this one authority-adjacent verb: the organisation

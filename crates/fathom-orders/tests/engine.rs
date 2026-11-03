@@ -606,7 +606,7 @@ fn a_history_replays_to_the_same_order() {
         },
     );
     r.finish("bo@network-design", "port");
-    let again = Order::replay(starter("dia.yaml"), r.order.events(), &Org).expect("replays");
+    let again = Order::replay(starter("dia.yaml"), r.order.events()).expect("replays");
     for job in r.order.definition().jobs() {
         assert_eq!(again.job(&job.id), r.order.job(&job.id), "{}", job.id);
     }
@@ -616,7 +616,7 @@ fn a_history_replays_to_the_same_order() {
     // A history that no longer fits is refused, not shown wrong.
     let mut events = r.order.events().to_vec();
     events.swap(1, 2);
-    assert!(Order::replay(starter("dia.yaml"), &events, &Org).is_err());
+    assert!(Order::replay(starter("dia.yaml"), &events).is_err());
 }
 
 #[test]

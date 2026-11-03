@@ -99,6 +99,7 @@ pub mod mcp;
 pub mod migrate;
 pub mod oauth;
 pub mod operators;
+pub mod orders;
 pub mod plan_approval;
 pub mod repo;
 pub mod rls;

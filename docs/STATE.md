@@ -290,8 +290,16 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   and rebuilds it by replaying them: jobs move Waiting, Ready, Done, Cancelled or left out by `when`;
   stages wait for a sign-off by the stage's power and never by the opener or a worker; a send-back
   restarts its lane from the target stage; answers follow decision 16. A job's `holds` (a device or a
-  `port` field) counts as busy from when it is ready until the order closes. No server tables or
-  screens yet.
+  `port` field) counts as busy from when it is ready until the order closes. No screens yet.
+- **Orders on the server (ADR-0084 piece 2's server half; migration 0075; 2026-11-03).**
+  `orders.rs` keeps order types (a Steward's, each save a new version, slugs matched to standing
+  teams) and orders (any member opens one; W- numbers from the shared work counter). An order's
+  history is its only record: one sealed row per action under the organisation content key, each
+  an `order_event` on the organisation chain with ids and the action word only, replayed by the
+  engine on every read. Who may act is the engine's answer from the caller's membership, roles and
+  powers on the order's teams (`teams::order_people`). Every text in a type, answer or reason goes
+  through the redaction gate's bare check. Routes under `/organisations/{o}/order-types` and
+  `/organisations/{o}/orders`. Not yet: the overdue clock, the screens, and `holds` in the clash check.
 - **The IP plan store, server half (ADR-0083 decisions 1, 3, 4 and 5; schema 0.36, field keys
   562-636; migration 0065; 2026-11-02).** A fourth schema layer, `plan`, declares eleven kinds
   (`IpamVrf`, `IpamRouteTarget`, `IpamAggregate`, `IpamPrefix`, `IpamRange`, `IpamAddress`,

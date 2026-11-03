@@ -746,6 +746,81 @@ pub(crate) async fn power_through_teams<'a>(
     Ok(None)
 }
 
+/// One account's standing on one team now, for ADR-0084's order engine: whether it is a counting
+/// member, the roles it holds and the powers those roles carry now. Roles count without
+/// membership, as they do on the team page: an overseer need not be a member.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TeamStanding {
+    pub member: bool,
+    pub roles: BTreeSet<String>,
+    pub powers: BTreeSet<Power>,
+}
+
+/// What the order engine asks about the people, read once per request (ADR-0084 piece 2):
+/// whether the caller is a Steward of the organisation, every team that stands now (id to
+/// slug), and the caller's standing on each of `teams`. A team that does not stand gives an
+/// empty standing.
+pub struct OrderPeople {
+    pub steward: bool,
+    pub live: BTreeMap<String, String>,
+    pub standing: BTreeMap<String, TeamStanding>,
+}
+
+pub(crate) async fn order_people(
+    tx: &Transaction<'_>,
+    auth: &grants::Authority<'_>,
+    teams: &BTreeSet<String>,
+) -> Result<OrderPeople, AuthorityError> {
+    let account = auth.ctx.actor().to_string();
+    let verified = grants::verify_authority_state(tx, auth).await?;
+    let steward =
+        grants::holds_in_verified_state(tx, auth, &verified, None, Capability::Steward).await?;
+    let pass = Mutex::new(QuorumPass::default());
+    let walk = Walk::new(tx, auth.ring, &verified.state, &verified.root_fpr, &pass);
+    let mut live = BTreeMap::new();
+    for row in tx
+        .query(
+            "SELECT id, slug FROM teams WHERE organisation_id = $1 AND NOT deleted",
+            &[&verified.organisation],
+        )
+        .await?
+    {
+        let id: String = row.get(0);
+        if walk.team_live(&id).await? {
+            live.insert(id, row.get::<_, String>(1));
+        }
+    }
+    let mut standing = BTreeMap::new();
+    for team in teams {
+        let mut s = TeamStanding::default();
+        if live.contains_key(team) {
+            s.member = walk.membership(team, &account).await?.is_some();
+            for a in walk.acts().iter().filter(|a| {
+                a.act == ACT_ROLE_SET
+                    && &a.team_id == team
+                    && a.subject_id.as_deref() == Some(account.as_str())
+            }) {
+                if let Some(role) = &a.role {
+                    if walk.live(a).await? {
+                        s.roles.insert(role.clone());
+                    }
+                }
+            }
+            for power in Power::ALL {
+                if walk.power_before(team, &account, power, i64::MAX).await? {
+                    s.powers.insert(power);
+                }
+            }
+        }
+        standing.insert(team.clone(), s);
+    }
+    Ok(OrderPeople {
+        steward,
+        live,
+        standing,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Proposing and committing an act
 // ---------------------------------------------------------------------------

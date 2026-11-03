@@ -129,6 +129,24 @@ pub trait People {
     fn is_steward(&self, account: &str) -> bool;
 }
 
+/// The people as replay sees them: whoever acted was allowed to then.
+struct AsItWas;
+
+impl People for AsItWas {
+    fn on_team(&self, _: &str, _: &str) -> bool {
+        true
+    }
+    fn has_power(&self, _: &str, _: &str, _: &str) -> bool {
+        true
+    }
+    fn has_role(&self, _: &str, _: &str, _: &str) -> bool {
+        true
+    }
+    fn is_steward(&self, _: &str) -> bool {
+        true
+    }
+}
+
 /// Why an action was refused. The order is unchanged.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Refusal(pub String);
@@ -319,11 +337,12 @@ impl Order {
     /// Rebuilds an order from its history. Every event must apply as it did
     /// when it was taken; one that doesn't means the history and the
     /// definition disagree, and the server should refuse to show the order.
-    pub fn replay(
-        def: Definition,
-        events: &[Event],
-        people: &dyn People,
-    ) -> Result<Order, Refusal> {
+    /// Rebuilds an order from its stored history. History is trusted for
+    /// who could act: each event was checked against the people as they
+    /// stood when it was taken, and a team change since must not undo it.
+    /// Everything that does not depend on people (order, sign-off by someone
+    /// too close, a closed order) is checked again.
+    pub fn replay(def: Definition, events: &[Event]) -> Result<Order, Refusal> {
         let Some((first, rest)) = events.split_first() else {
             return Err(no("an order's history starts with Open"));
         };
@@ -333,7 +352,7 @@ impl Order {
         let mut order = Order::open(def, by, first.at, answers.clone())?;
         for (i, e) in rest.iter().enumerate() {
             order
-                .apply(e.clone(), people)
+                .apply(e.clone(), &AsItWas)
                 .map_err(|r| no(format!("event {} no longer applies: {r}", i + 2)))?;
         }
         Ok(order)
