@@ -909,6 +909,14 @@
   list-style: none;
 }
 
+.plans-clash__offer {
+  margin-left: 6px;
+}
+
+.plans-clashes__move {
+  margin-top: 6px;
+}
+
 .plans-clash-confirm {
   display: flex;
   flex-direction: column;

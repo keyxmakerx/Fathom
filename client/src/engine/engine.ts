@@ -656,6 +656,92 @@ function readPlanReply(rows: FaceRow[]): PlanStepPreview[] {
   return out;
 }
 
+/** A window as typed: start and end, either possibly empty. */
+export interface WindowText {
+  start: string;
+  end: string;
+}
+
+/** `FACE_CLASH` and its `FACE_CLASH_WHO` (`OP_WORK_CLASHES`, sign-off r105). */
+export interface WorkClash {
+  kind: 'plan' | 'issue';
+  /** The other plan or issue. */
+  id: string;
+  title: string;
+  /** 'planned' or 'doing' for a plan; 'open' for an issue. */
+  stage: string;
+  /** The devices both touch, in name order. */
+  devices: CheckElement[];
+  /** The ports both touch: the tighter clash. */
+  ports: CheckElement[];
+  /** The other plan's window as typed; empty for an issue. */
+  window: WindowText;
+  /** The plan's team (a server id), whoever it is assigned to (an account id), and its author's name. */
+  team: string;
+  assignedTo: string;
+  author: string;
+  /** A window for the other plan from when this one ends, the same length: what this plan's owner can offer. */
+  theirsAfterMine: WindowText | null;
+}
+
+/** `OP_WORK_CLASHES` on a plan, decoded. */
+export interface PlanClashes {
+  /** The earliest window for this plan, the same length, that meets no other plan on its devices. */
+  mineFree: WindowText | null;
+  clashes: WorkClash[];
+}
+
+/** `FACE_RUNNING`: a plan under way on the device, and its finished steps there, newest first. */
+export interface RunningHere {
+  plan: string;
+  steps: string[];
+}
+
+const windowOf = (start: string, end: string): WindowText | null => (start === '' && end === '' ? null : { start, end });
+
+function readClashesReply(rows: FaceRow[]): PlanClashes {
+  if (rows.length === 0) return { mineFree: null, clashes: [] };
+  const head = rows[0];
+  if (head.role !== FACES.FACE_CLASH_HEAD) {
+    throw new Error(`OP_WORK_CLASHES reply: record 0 is not the FACE_CLASH_HEAD (got role ${head.role})`);
+  }
+  const clashes: WorkClash[] = [];
+  for (let i = 1; i < rows.length; i += 2) {
+    const c = rows[i];
+    const who = rows[i + 1];
+    if (c.role !== FACES.FACE_CLASH || who?.role !== FACES.FACE_CLASH_WHO) {
+      throw new Error(`OP_WORK_CLASHES reply: expected FACE_CLASH then FACE_CLASH_WHO at record ${i}`);
+    }
+    const s = c.strings;
+    const w = who.strings;
+    clashes.push({
+      kind: s[0] === 'issue' ? 'issue' : 'plan',
+      id: s[1],
+      title: s[2],
+      stage: s[3],
+      devices: parseElements(s[4]),
+      ports: parseElements(s[5]),
+      window: { start: s[6], end: s[7] },
+      team: w[0],
+      assignedTo: w[1],
+      author: w[2],
+      theirsAfterMine: windowOf(w[3], w[4]),
+    });
+  }
+  return { mineFree: windowOf(head.strings[0], head.strings[1]), clashes };
+}
+
+function readRunningReply(rows: FaceRow[]): RunningHere[] {
+  return rows.map((row) => {
+    if (row.role !== FACES.FACE_RUNNING) {
+      throw new Error(`OP_WORK_CLASHES reply: unexpected role ${row.role} (${row.roleName ?? 'unknown'})`);
+    }
+    return { plan: row.strings[0], steps: row.strings[1] === '' ? [] : row.strings[1].split('\n') };
+  });
+}
+
+const workFrame = (mode: 0 | 1, id: string): Uint8Array => concatBytes(new Uint8Array([mode]), new TextEncoder().encode(id));
+
 function readChecksReply(rows: FaceRow[]): ChecksResult {
   const head = rows[0];
   if (!head || head.role !== FACES.FACE_CHECK_HEAD) {
@@ -929,6 +1015,16 @@ export class Engine {
   /** `OP_PLAN_PREVIEW`: what the plan's steps still to do would add, in order. Never writes. */
   planPreview(planId: string): PlanStepPreview[] {
     return readPlanReply(this.callFaces(OPCODES.OP_PLAN_PREVIEW, new TextEncoder().encode(planId)));
+  }
+
+  /** `OP_WORK_CLASHES` on a plan: other open work on its devices at an overlapping time. Never writes. */
+  workClashes(planId: string): PlanClashes {
+    return readClashesReply(this.callFaces(OPCODES.OP_WORK_CLASHES, workFrame(0, planId)));
+  }
+
+  /** `OP_WORK_CLASHES` on a device (or a port on it): the plans under way there. Never writes. */
+  runningOn(deviceId: string): RunningHere[] {
+    return readRunningReply(this.callFaces(OPCODES.OP_WORK_CLASHES, workFrame(1, deviceId)));
   }
 
   /** `OP_CHECK_GESTURE`, a field edit: `key` is a field key id from the registry. */

@@ -1,176 +1,74 @@
-// Work that clashes inside one design (sign-off r105, part 1): another open plan or an open It's down issue on a
-// device this plan could touch, at a time that overlaps. Pure: no React, no server. Across designs and people is
-// part 2 and lives on the server's work index.
-import type { Canon } from '../checks/checksModel';
-import { edgesOut, findNode, parseNodeId, type Document } from '../../document/model';
-import { listIssues } from '../../document/issues';
-import { couldTouch, isOver, listPlans, touchedBy, type Plan, type PlanStep } from '../../document/plans';
-import { nameOf } from './plansModel';
+// Work that lands on the same devices (sign-off r105). The engine decides what clashes and what time is free
+// (`fathom_inventory::work`, asked through `OP_WORK_CLASHES`); this file only words it for the page and turns the
+// engine's ids back into the plans the page already reads. Nothing here decides a clash.
+import type { PlanClashes, RunningHere as EngineRunning, WindowText, WorkClash } from '../../engine/engine';
+import type { Document } from '../../document/model';
+import { readPlan, type Plan, type PlanStep } from '../../document/plans';
 
-/** A time span in milliseconds; an open end is infinite. */
-export interface Span {
-  from: number;
-  to: number;
-}
+export type { PlanClashes, WindowText, WorkClash };
 
-const ALWAYS: Span = { from: -Infinity, to: Infinity };
+export const NO_CLASHES: PlanClashes = { mineFree: null, clashes: [] };
 
-/** A window as typed (an ISO date, or date and time). A bare date's end runs to the end of that day. Anything that
- * does not read as a date leaves that end open, so an unread window clashes rather than hides (r105 "when" A). */
-export function windowSpan(start: string, end: string): Span {
-  const read = (t: string, endOfDay: boolean): number | null => {
-    const s = t.trim();
-    if (s === '') return null;
-    const ms = Date.parse(s);
-    if (Number.isNaN(ms)) return null;
-    return endOfDay && /^\d{4}-\d{2}-\d{2}$/.test(s) ? ms + 86_400_000 - 1 : ms;
-  };
-  const from = read(start, false);
-  const to = read(end, true);
-  // A start with no end is that one moment's day, when the start is a bare date; otherwise it runs open.
-  const startDayEnd = from !== null && to === null ? read(start, true) : null;
-  return {
-    from: from ?? -Infinity,
-    to: to ?? (startDayEnd !== null && startDayEnd !== from ? startDayEnd : Infinity),
-  };
-}
-
-export function overlaps(a: Span, b: Span): boolean {
-  return a.from <= b.to && b.from <= a.to;
-}
-
-/** When a plan is busy: its window, or always when it has none. */
-export function planSpan(plan: Pick<Plan, 'windowStart' | 'windowEnd'>): Span {
-  return plan.windowStart.trim() === '' && plan.windowEnd.trim() === '' ? ALWAYS : windowSpan(plan.windowStart, plan.windowEnd);
-}
-
-const kindOf = (id: string): string => {
-  try {
-    return parseNodeId(id).kind;
-  } catch {
-    return '';
-  }
-};
-
-const live = (doc: Document, id: string): boolean => {
-  const n = findNode(doc, id);
-  return n !== undefined && n.absentSince === undefined;
-};
-
-/** The ports a plan could touch: a port named outright, and both ends of a cable it makes or cuts. */
-function portsOf(doc: Document, ids: readonly string[]): Set<string> {
-  const out = new Set<string>();
-  for (const id of ids) {
-    const kind = kindOf(id);
-    if (kind === 'PhysicalPort') out.add(id);
-    else if (kind === 'Cable') edgesOut(doc, id, 'Terminates').forEach((e) => out.add(e.to));
-  }
-  return out;
-}
-
-/** The devices a list of ids resolves to: ports and chassis to their device, a cable to the devices it joins. */
-function devicesOf(doc: Document, canon: Canon, ids: readonly string[]): Set<string> {
-  const out = new Set<string>();
-  const add = (id: string): void => {
-    const dev = canon(id);
-    if (kindOf(dev) === 'Device' && live(doc, dev)) out.add(dev);
-  };
-  for (const id of ids) {
-    if (kindOf(id) === 'Cable') edgesOut(doc, id, 'Terminates').forEach((e) => add(e.to));
-    else add(id);
-  }
-  return out;
-}
-
-export interface Clash {
-  kind: 'plan' | 'issue';
-  /** The other plan or issue. */
-  id: string;
-  title: string;
-  /** 'planned' or 'doing' for a plan; 'open' for an issue. */
-  stage: string;
-  /** The devices both touch, by name, in name order. */
-  devices: string[];
-  /** The ports both touch, by name ("core-sw1 · Gi1/0/48"): the tighter clash, shown in bold (r105 "what" A). */
-  ports: string[];
-  /** The other plan's window as typed; '' for an issue or a plan with none. */
-  windowStart: string;
-  windowEnd: string;
-}
-
-const byName = (a: string, b: string): number => a.localeCompare(b, undefined, { numeric: true });
-
-/** Other open work on the devices `plan` could touch, at a time that overlaps its window. Called-off and recorded
- * plans and closed issues are never a clash. Empty for a plan that is itself over. */
-export function planClashes(doc: Document, canon: Canon, plan: Plan): Clash[] {
-  if (isOver(plan)) return [];
-  const mine = couldTouch(plan);
-  const myDevices = devicesOf(doc, canon, mine);
-  if (myDevices.size === 0) return [];
-  const myPorts = portsOf(doc, mine);
-  const mySpan = planSpan(plan);
-  const names = (ids: Iterable<string>): string[] => [...ids].map((id) => nameOf(doc, canon, id)).sort(byName);
-  const out: Clash[] = [];
-
-  for (const other of listPlans(doc)) {
-    if (other.id === plan.id || isOver(other)) continue;
-    if (!overlaps(mySpan, planSpan(other))) continue;
-    const theirs = couldTouch(other);
-    const shared = [...devicesOf(doc, canon, theirs)].filter((d) => myDevices.has(d));
-    if (shared.length === 0) continue;
-    const ports = [...portsOf(doc, theirs)].filter((p) => myPorts.has(p));
-    out.push({
-      kind: 'plan',
-      id: other.id,
-      title: other.title,
-      stage: other.stage,
-      devices: names(shared),
-      ports: names(ports),
-      windowStart: other.windowStart,
-      windowEnd: other.windowEnd,
-    });
-  }
-  // An open issue has no window: it is open now, so it clashes with any window (r105 "when" A).
-  for (const issue of listIssues(doc)) {
-    if (issue.stage !== 'open') continue;
-    const theirs = [issue.deviceId, ...issue.steps.flatMap((s) => s.targets)];
-    const shared = [...devicesOf(doc, canon, theirs)].filter((d) => myDevices.has(d));
-    if (shared.length === 0) continue;
-    const ports = [...portsOf(doc, theirs)].filter((p) => myPorts.has(p));
-    out.push({ kind: 'issue', id: issue.id, title: issue.title, stage: issue.stage, devices: names(shared), ports: names(ports), windowStart: '', windowEnd: '' });
-  }
-  // A plan already under way first, then issues, then plans still being planned.
-  const rank = (c: Clash): number => (c.kind === 'plan' && c.stage === 'doing' ? 0 : c.kind === 'issue' ? 1 : 2);
-  return out.sort((a, b) => rank(a) - rank(b) || byName(a.title, b.title));
-}
-
-/** One line per clash, for the note Start anyway leaves on the plan: "Started while … was open on …". */
-export function clashNote(clashes: readonly Clash[]): string {
-  const one = (c: Clash): string => {
-    const what = c.kind === 'issue' ? `It's down "${c.title}"` : `plan "${c.title}" (${c.stage === 'doing' ? 'under way' : 'planned'})`;
-    const where = c.ports.length > 0 ? `the same port ${c.ports.join(', ')}` : c.devices.join(', ');
-    return `${what} on ${where}`;
-  };
-  return `Started anyway while other work was open on these devices: ${clashes.map(one).join('; ')}.`;
-}
-
-/** A plan under way on `deviceId`, for It's down (r105 "trouble" A): the plan, and its finished steps that touched
- * the device, newest first. Only plans in Do; a plan still being planned has changed nothing. */
+/** A plan under way on a device, for It's down: the plan, and its finished steps there, newest first. */
 export interface RunningHere {
   plan: Plan;
   steps: PlanStep[];
 }
 
-export function runningOn(doc: Document, canon: Canon, deviceId: string): RunningHere[] {
-  const dev = canon(deviceId);
+/** The engine's answer as the page's own plans. A plan the document no longer holds is left out. */
+export function runningFrom(doc: Document, rows: readonly EngineRunning[]): RunningHere[] {
   const out: RunningHere[] = [];
-  for (const plan of listPlans(doc)) {
-    if (plan.stage !== 'doing') continue;
-    if (!devicesOf(doc, canon, touchedBy(plan)).has(dev)) continue;
-    const steps = plan.steps
-      .filter((s) => s.state !== 'planned' && devicesOf(doc, canon, s.targets).has(dev))
-      .sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || ''));
-    out.push({ plan, steps });
+  for (const r of rows) {
+    let plan: Plan;
+    try {
+      plan = readPlan(doc, r.plan);
+    } catch {
+      continue;
+    }
+    const byId = new Map(plan.steps.map((s) => [s.id, s]));
+    out.push({ plan, steps: r.steps.flatMap((id) => byId.get(id) ?? []) });
   }
   return out;
+}
+
+/** "Sat 8 Nov 02:00–04:00", or the dates alone for whole days; the window as typed when it does not read. */
+export function windowWords(w: WindowText): string {
+  const read = (t: string): { date: Date; bare: boolean } | null => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/.exec(t.trim());
+    if (!m) return null;
+    const date = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4] ?? 0), Number(m[5] ?? 0));
+    return Number.isNaN(date.getTime()) ? null : { date, bare: m[4] === undefined };
+  };
+  const day = (d: Date) => d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  const time = (d: Date) => d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const a = read(w.start);
+  const b = read(w.end);
+  if (a == null) return [w.start, w.end].filter((t) => t !== '').join(' to ');
+  if (a.bare) return b == null || !b.bare || b.date.getTime() === a.date.getTime() ? day(a.date) : `${day(a.date)} to ${day(b.date)}`;
+  if (b == null) return `${day(a.date)} ${time(a.date)}`;
+  const sameDay = a.date.toDateString() === b.date.toDateString();
+  return `${day(a.date)} ${time(a.date)}–${sameDay ? '' : `${day(b.date)} `}${time(b.date)}`;
+}
+
+const where = (c: WorkClash): string =>
+  c.ports.length > 0 ? `the same port ${c.ports.map((p) => p.name).join(', ')}` : c.devices.map((d) => d.name).join(', ');
+
+/** The note Start anyway leaves on the plan: one line naming each clash. */
+export function clashNote(clashes: readonly WorkClash[]): string {
+  const one = (c: WorkClash): string => {
+    const what = c.kind === 'issue' ? `It's down "${c.title}"` : `plan "${c.title}" (${c.stage === 'doing' ? 'under way' : 'planned'})`;
+    return `${what} on ${where(c)}`;
+  };
+  return `Started anyway while other work was open on these devices: ${clashes.map(one).join('; ')}.`;
+}
+
+/** The note offered to whoever has the other work (sign-off r105, from the owner's note): what clashes, and a time
+ * for their plan after this one when the engine found one. It changes nothing of theirs; they decide. */
+export function offerNote(mine: { title: string; window: WindowText }, c: WorkClash): string {
+  const when = mine.window.start === '' && mine.window.end === '' ? 'with no window set' : windowWords(mine.window);
+  const head = `Plan "${mine.title}" (${when}) also works on ${where(c)}.`;
+  if (c.kind === 'issue') return `${head} It will check this issue's notes before it starts.`;
+  return c.theirsAfterMine == null
+    ? `${head} Could the two be done at different times?`
+    : `${head} This plan could run after it, at ${windowWords(c.theirsAfterMine)}, if that suits.`;
 }

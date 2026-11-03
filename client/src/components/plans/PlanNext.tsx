@@ -4,9 +4,9 @@
 import { useId, useState } from 'react';
 
 import { CALL_OFF_REASONS, CALL_OFF_WORD, calledOffWhy, type CallOffReason, type Plan } from '../../document/plans';
-import { clashNote, type Clash } from './clashes';
+import { clashNote, windowWords, type WorkClash } from './clashes';
 import { TypedSentence, usePasteMark } from './PlanParts';
-import { firstLine, planRoute, windowText } from './plansModel';
+import { firstLine, planRoute } from './plansModel';
 import type { PlansController } from './usePlansController';
 
 const AT_WORD = { done: 'done', now: 'now', next: 'to come', skipped: 'not done' } as const;
@@ -35,10 +35,11 @@ const REASON_HINT: Record<CallOffReason, string> = {
 
 const CLASH_STAGE: Record<string, string> = { planned: 'planned', doing: 'under way', open: 'open issue' };
 
-/** One clash as a line: what it is, where, and when, with a shared port in bold (sign-off r105 "what" A). */
-function ClashLine({ clash, onOpen }: { clash: Clash; onOpen: ((c: Clash) => void) | null }) {
+/** One clash as a line: what it is, where, when and whose, with a shared port in bold (sign-off r105 "what" A), and
+ * Let them know, which leaves the other work a note offering a time (r105, from the owner's note). */
+function ClashLine({ clash, onOpen, onOffer }: { clash: WorkClash; onOpen: ((c: WorkClash) => void) | null; onOffer: ((c: WorkClash) => void) | null }) {
   const what = clash.kind === 'issue' ? `It's down: ${clash.title}` : clash.title;
-  const when = clash.kind === 'plan' ? windowText(clash.windowStart, clash.windowEnd) : '';
+  const when = clash.kind === 'plan' ? windowWords(clash.window) : '';
   return (
     <li className="plans-clash" data-kind={clash.kind} data-testid="plans-clash">
       {onOpen ? (
@@ -50,36 +51,67 @@ function ClashLine({ clash, onOpen }: { clash: Clash; onOpen: ((c: Clash) => voi
       )}
       <span className="plans-note">
         {' · '}
-        {clash.devices.join(', ')} · {CLASH_STAGE[clash.stage] ?? clash.stage}
+        {clash.devices.map((d) => d.name).join(', ')} · {CLASH_STAGE[clash.stage] ?? clash.stage}
         {when !== '' && ` · ${when}`}
+        {clash.author !== '' && ` · by ${clash.author}`}
       </span>
       {clash.ports.length > 0 && (
         <>
           {' · '}
-          <strong>same port {clash.ports.join(', ')}</strong>
+          <strong>same port {clash.ports.map((p) => p.name).join(', ')}</strong>
         </>
+      )}
+      {onOffer && (
+        <button
+          type="button"
+          className="btn-small plans-clash__offer"
+          onClick={() => onOffer(clash)}
+          title={clash.theirsAfterMine ? `Suggests ${windowWords(clash.theirsAfterMine)}, after this plan` : 'Leaves them a note naming the clash'}
+          data-testid="plans-clash-offer"
+        >
+          Let them know
+        </button>
       )}
     </li>
   );
 }
 
-/** Other open work on the devices this plan touches (sign-off r105). Shown while planning and during the work. */
+/** Other open work on the devices this plan touches (sign-off r105). Shown while planning and during the work. The
+ * engine finds it, and the first free time for this plan; Move mine takes that time, while the plan is still planned. */
 export function PlanClashes({ controller }: { controller: PlansController }) {
-  const { clashes } = controller;
+  const { clashes, mineFree, plan } = controller;
+  const [told, setTold] = useState<ReadonlySet<string>>(new Set());
   if (clashes.length === 0) return null;
-  const open = (c: Clash): void => {
+  const open = (c: WorkClash): void => {
     if (c.kind === 'plan') controller.openPlan(c.id);
     else controller.openIssue?.(c.id);
   };
-  const canOpen = (c: Clash): boolean => c.kind === 'plan' || controller.openIssue != null;
+  const canOpen = (c: WorkClash): boolean => c.kind === 'plan' || controller.openIssue != null;
+  const offer = (c: WorkClash): void => {
+    void controller.offer(c).then((ok) => ok && setTold((t) => new Set(t).add(c.id)));
+  };
+  const canMove = controller.canEdit && mineFree != null && plan?.stage === 'planned';
   return (
     <section className="plans-clashes" aria-label="Also on these devices" data-testid="plans-clashes">
       <h3 className="plans-label">Also on these devices</h3>
       <ul className="plans-clashes__list">
         {clashes.map((c) => (
-          <ClashLine key={c.id} clash={c} onOpen={canOpen(c) ? open : null} />
+          <ClashLine key={c.id} clash={c} onOpen={canOpen(c) ? open : null} onOffer={controller.canEdit && !told.has(c.id) ? offer : null} />
         ))}
       </ul>
+      {told.size > 0 && (
+        <p className="plans-note" role="status">
+          Note left. It changes nothing of theirs; they decide.
+        </p>
+      )}
+      {canMove && (
+        <div className="plans-clashes__move">
+          <button type="button" className="btn-small" onClick={() => void controller.moveMine()} data-testid="plans-clash-move">
+            Move mine to {windowWords(mineFree)}
+          </button>
+          <span className="plans-note"> the first time no other plan here takes, the same length</span>
+        </div>
+      )}
     </section>
   );
 }

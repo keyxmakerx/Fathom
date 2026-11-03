@@ -39,7 +39,8 @@ import {
   type Draft,
 } from './troubleModel';
 import { createTroubleStore, type TroubleStore } from './troubleStore';
-import { runningOn, type RunningHere } from '../plans/clashes';
+import type { Mirror } from '../../engine/mirror';
+import { runningFrom, type RunningHere } from '../plans/clashes';
 
 export interface TroubleController {
   store: TroubleStore;
@@ -92,6 +93,8 @@ interface Inputs {
   actor: { actor: string } | undefined;
   authorName?: string;
   canEdit: boolean;
+  /** The engine's module, brought up to this document; what is under way on the device is asked of it (r105). */
+  mirrorNow?: (load?: boolean) => Mirror | null;
   /** Opens a maintenance plan in the plans controller (Plan a fix). */
   openPlan: (id: string) => void;
   /** Starting a session folds an open plan panel so the two never stand on each other. */
@@ -100,7 +103,7 @@ interface Inputs {
 
 const IDENTITY: Canon = (id) => id;
 
-export function useTroubleController({ doc, boot, redact, applyDocChange, actor, authorName, canEdit, openPlan, foldPlans }: Inputs): TroubleController {
+export function useTroubleController({ doc, boot, mirrorNow, redact, applyDocChange, actor, authorName, canEdit, openPlan, foldPlans }: Inputs): TroubleController {
   const [store] = useState(createTroubleStore);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [viewingId, setViewingId] = useState<string | null>(null);
@@ -117,7 +120,28 @@ export function useTroubleController({ doc, boot, redact, applyDocChange, actor,
   const canon = useMemo<Canon>(() => (doc ? buildCanon(doc) : IDENTITY), [doc]);
   const issues = useMemo(() => (doc ? listIssues(doc) : []), [doc]);
   const draftDevice = draft?.deviceId ?? null;
-  const runningHere = useMemo(() => (doc && draftDevice ? runningOn(doc, canon, draftDevice) : []), [doc, canon, draftDevice]);
+  // What is under way on the device (r105 "trouble" A): the engine decides it, over the design as it is now.
+  const [runningHere, setRunningHere] = useState<RunningHere[]>([]);
+  const mirrorRef = useRef(mirrorNow);
+  mirrorRef.current = mirrorNow;
+  useEffect(() => {
+    if (doc == null || draftDevice == null || mirrorRef.current == null) {
+      setRunningHere([]);
+      return undefined;
+    }
+    let cancelled = false;
+    const device = canon(draftDevice);
+    boot()
+      .then(() => {
+        if (cancelled) return;
+        const mirror = mirrorRef.current?.();
+        setRunningHere(mirror ? runningFrom(doc, mirror.runningOn(device)) : []);
+      })
+      .catch(() => !cancelled && setRunningHere([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [doc, canon, draftDevice, boot]);
   const viewing = useMemo(() => {
     if (doc == null || viewingId == null) return null;
     try {

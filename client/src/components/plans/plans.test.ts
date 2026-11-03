@@ -33,7 +33,7 @@ import { PlanBand } from './PlanBand';
 import { PlanListPage } from './PlanListPage';
 import { PlanClashes } from './PlanNext';
 import { PlanPanel } from './PlanPanel';
-import { clashNote } from './clashes';
+import { clashNote, type WorkClash } from './clashes';
 import { notesOf } from '../../document/notes';
 import {
   EMPTY_FORM,
@@ -984,31 +984,91 @@ describe('the plan-to-maintenance flow, rendered (sign-off r73)', () => {
 });
 
 describe('work that clashes on the same devices (sign-off r105)', () => {
-  it('names the other plan, shows a shared port, and Start anyway leaves a note in the same undo step', async () => {
+  // The engine decides the clashes and the free time (clashes.engine.test.ts asks the real one); here a stand-in
+  // answers, and the page's words and buttons are what is tested.
+  const theirs = (id: string): WorkClash => ({
+    kind: 'plan',
+    id,
+    title: 'Replace PSU',
+    stage: 'planned',
+    devices: [{ id: 'device:x', name: 'core-sw1' }],
+    ports: [{ id: 'port:x', name: 'core-sw1 Gi1/0/48' }],
+    window: { start: '2026-11-04T23:00', end: '2026-11-05T01:00' },
+    team: '',
+    assignedTo: '',
+    author: 'KM',
+    theirsAfterMine: { start: '2026-11-05T02:00', end: '2026-11-05T04:00' },
+  });
+  const FREE = { start: '2026-11-05T01:00', end: '2026-11-05T05:00' };
+
+  it('names the other work, the shared port and whose it is, and offers Move mine while planning', () => {
+    const { doc, ports } = lab();
+    const a = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
+    const h = harness(a.doc, { open: a.id });
+    const html = renderToStaticMarkup(createElement(PlanClashes, { controller: { ...h.controller, clashes: [theirs('maintenanceplan:b')], mineFree: FREE } }));
+    expect(html).toContain('Also on these devices');
+    expect(html).toContain('same port core-sw1 Gi1/0/48');
+    expect(html).toContain('by KM');
+    expect(html).toContain('Let them know');
+    expect(html).toContain('Move mine to Thu 5 Nov 01:00–05:00');
+    // Without a free time, or for someone who cannot edit, no buttons.
+    expect(renderToStaticMarkup(createElement(PlanClashes, { controller: { ...h.controller, clashes: [theirs('x')], mineFree: null } }))).not.toContain('Move mine');
+    const viewer = renderToStaticMarkup(createElement(PlanClashes, { controller: { ...h.controller, canEdit: false, clashes: [theirs('x')], mineFree: FREE } }));
+    expect(viewer).not.toContain('Move mine');
+    expect(viewer).not.toContain('Let them know');
+  });
+
+  it('Move mine takes the time the engine gives now, in one undo step', async () => {
+    const { doc, ports } = lab();
+    const a = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
+    const asked: string[] = [];
+    const workClashes = (id: string) => (asked.push(id), { mineFree: FREE, clashes: [theirs('x')] });
+    const h = harness(a.doc, { open: a.id, mirror: { checkCable: () => [], checkFieldEdit: () => [], planPreview: () => [], workClashes } });
+    expect(await h.controller.moveMine()).toBe(true);
+    expect(asked).toEqual([a.id]);
+    expect(h.applied).toHaveLength(1);
+    expect(h.applied[0].batches.length).toBe(a.doc.batches.length + 1);
+    expect(readPlan(h.applied[0], a.id)).toMatchObject({ windowStart: FREE.start, windowEnd: FREE.end });
+  });
+
+  it('Move mine does nothing when the engine finds no free time', async () => {
+    const { doc, ports } = lab();
+    const a = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
+    const workClashes = () => ({ mineFree: null, clashes: [] });
+    const h = harness(a.doc, { open: a.id, mirror: { checkCable: () => [], checkFieldEdit: () => [], planPreview: () => [], workClashes } });
+    expect(await h.controller.moveMine()).toBe(false);
+    expect(h.applied).toEqual([]);
+  });
+
+  it('Let them know leaves a note on their plan offering a time, and changes nothing else of theirs', async () => {
     const { doc, ports } = lab();
     const a = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
     const b = planWith(a.doc, [{ t: 'cable', a: ports[0], b: ports[2] }]);
     const h = harness(b.doc, { open: a.id });
-    expect(h.controller.clashes.map((c) => [c.id, c.ports.length])).toEqual([[b.id, 1]]);
-    const html = renderToStaticMarkup(createElement(PlanClashes, { controller: h.controller }));
-    expect(html).toContain('Also on these devices');
-    expect(html).toContain('same port');
-
-    const note = clashNote(h.controller.clashes);
-    expect(await h.controller.start(note)).toBe(true);
+    const before = readPlan(b.doc, b.id);
+    expect(await h.controller.offer(theirs(b.id))).toBe(true);
     const after = h.applied[0];
     expect(after.batches.length).toBe(b.doc.batches.length + 1);
-    expect(readPlan(after, a.id).stage).toBe('doing');
-    expect(notesOf(after, a.id).map((n) => n.text)).toEqual([note]);
+    const notes = notesOf(after, b.id).map((n) => n.text);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('This plan could run after it, at Thu 5 Nov 02:00–04:00, if that suits.');
+    expect(readPlan(after, b.id)).toMatchObject({ windowStart: before.windowStart, windowEnd: before.windowEnd, stage: before.stage });
   });
 
-  it('shows nothing, and Start adds no note, when nothing else is open there', async () => {
+  it('Start anyway leaves the clash note in the same undo step; Start alone adds none', async () => {
     const { doc, ports } = lab();
     const a = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
     const h = harness(a.doc, { open: a.id });
-    expect(h.controller.clashes).toEqual([]);
-    expect(renderToStaticMarkup(createElement(PlanClashes, { controller: h.controller }))).toBe('');
-    expect(await h.controller.start()).toBe(true);
-    expect(notesOf(h.applied[0], a.id)).toEqual([]);
+    const note = clashNote([theirs('x')]);
+    expect(await h.controller.start(note)).toBe(true);
+    const after = h.applied[0];
+    expect(after.batches.length).toBe(a.doc.batches.length + 1);
+    expect(readPlan(after, a.id).stage).toBe('doing');
+    expect(notesOf(after, a.id).map((n) => n.text)).toEqual([note]);
+    const plain = harness(a.doc, { open: a.id });
+    expect(plain.controller.clashes).toEqual([]);
+    expect(renderToStaticMarkup(createElement(PlanClashes, { controller: plain.controller }))).toBe('');
+    expect(await plain.controller.start()).toBe(true);
+    expect(notesOf(plain.applied[0], a.id)).toEqual([]);
   });
 });
