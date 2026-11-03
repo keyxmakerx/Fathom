@@ -16,6 +16,7 @@ use deadpool_postgres::{Pool, Transaction};
 
 use fathom_server::authority::{self, Capability, GrantFacts, SoftwareKey};
 use fathom_server::crypto::{self, Key32};
+use fathom_server::device_reading;
 use fathom_server::grants::{self, Authority, EpochWatch, GenesisGrant, GrantRequest};
 use fathom_server::keys::{self, KeyRing};
 use fathom_server::repo::{self, AccountId, OrganisationId, ScopeKind};
@@ -343,14 +344,26 @@ async fn a_login(
     design: &str,
     holders: &[(&vault::KeyView, String)],
 ) -> vault::EntryView {
-    let org = estate.organisation;
-    let id = format!("cred_{}", fathom_server::ids::new_ulid());
     let meta = Meta::clean(
         "core-sw admin",
         "login",
         vec![(design.to_string(), "dev-1".to_string())],
     )
     .unwrap();
+    a_login_with(pool, ring, estate, owner, meta, holders).await
+}
+
+/// [`a_login`] with the metadata given.
+async fn a_login_with(
+    pool: &Pool,
+    ring: &KeyRing,
+    estate: &Estate,
+    owner: &Person,
+    meta: Meta,
+    holders: &[(&vault::KeyView, String)],
+) -> vault::EntryView {
+    let org = estate.organisation;
+    let id = format!("cred_{}", fathom_server::ids::new_ulid());
     let share = a_share(org, &id, 1, owner, holders);
     let id2 = id.clone();
     let made = with_auth(pool, ring, org, owner.account, |tx, auth| {
@@ -451,7 +464,21 @@ async fn turn_on(
     c: Consent,
     password: &str,
 ) -> Result<vault_fathom::FathomView, VaultError> {
-    let (id, version, copy) = (entry.id.clone(), entry.version, the_login(password));
+    turn_on_with(pool, ring, org, who, fk, entry, c, the_login(password)).await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn turn_on_with(
+    pool: &Pool,
+    ring: &KeyRing,
+    org: OrganisationId,
+    who: &Person,
+    fk: &Arc<FathomKey>,
+    entry: &vault::EntryView,
+    c: Consent,
+    copy: Vec<u8>,
+) -> Result<vault_fathom::FathomView, VaultError> {
+    let (id, version) = (entry.id.clone(), entry.version);
     let fk = Arc::clone(fk);
     with_auth(pool, ring, org, who.account, |tx, auth| {
         Box::pin(async move { vault_fathom::turn_on(tx, auth, &fk, &id, version, c, copy).await })
@@ -950,5 +977,441 @@ async fn admins_set_the_policy_owners_mark_critical_and_only_holders_record_a_ch
             .filter(|t| *t == "vault_breach_policy_set")
             .count(),
         3
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Device reading (ADR-0082 §4.1; migration 0073)
+// ---------------------------------------------------------------------------
+
+/// An SNMP login, ticked read-only or not, naming SHA-256, marked on `dev-1`, in force for
+/// Fathom with its own privacy password.
+#[allow(clippy::too_many_arguments)]
+async fn an_snmp_login(
+    pool: &Pool,
+    ring: &KeyRing,
+    estate: &Estate,
+    owner: &Person,
+    held: &vault::KeyView,
+    fk: &Arc<FathomKey>,
+    design: &str,
+    read_only: bool,
+) -> vault::EntryView {
+    let org = estate.organisation;
+    let meta = Meta::clean(
+        "core-ro",
+        "snmp",
+        vec![(design.to_string(), "dev-1".to_string())],
+    )
+    .unwrap()
+    .with_read_only(read_only)
+    .with_snmp_auth(Some("sha256"))
+    .unwrap();
+    let login = a_login_with(
+        pool,
+        ring,
+        estate,
+        owner,
+        meta,
+        &[(held, owner.account.to_string())],
+    )
+    .await;
+    let c = consent(org, &login, owner, &fk.id().to_string(), 1);
+    let copy =
+        b"{\"n\":\"\",\"p\":\"authpassword256\",\"u\":\"fathom256\",\"x\":\"privpassword256\"}\n"
+            .to_vec();
+    turn_on_with(pool, ring, org, owner, fk, &login, c, copy)
+        .await
+        .expect("on");
+    login
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn use_to_read(
+    pool: &Pool,
+    ring: &KeyRing,
+    org: OrganisationId,
+    who: &Person,
+    fk: &Arc<FathomKey>,
+    credential: &str,
+    design: &str,
+    element: &str,
+    by_range: bool,
+) -> Result<(String, String, Option<String>, String), VaultError> {
+    let (id, d, e) = (
+        credential.to_string(),
+        design.to_string(),
+        element.to_string(),
+    );
+    let fk = Arc::clone(fk);
+    with_auth(pool, ring, org, who.account, |tx, auth| {
+        Box::pin(async move {
+            vault_fathom::use_login_to_read(tx, auth, &fk, &id, &d, &e, by_range)
+                .await
+                .map(|(l, a)| (l.user.clone(), l.password.clone(), l.privacy.clone(), a))
+        })
+    })
+    .await
+}
+
+#[tokio::test]
+async fn a_device_is_read_only_with_a_read_only_snmp_login_marked_on_it_or_set_for_its_range() {
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let fk = fathom_key();
+    let estate = bootstrap(&pool, &ring).await;
+    let org = estate.organisation;
+    let alice = a_member(&pool, &ring, &estate, "alice", Some(Capability::Draw)).await;
+    let a = enrol_vault(&pool, &ring, org, &alice).await;
+    let design = a_design(&pool, &estate).await;
+
+    let ro = an_snmp_login(&pool, &ring, &estate, &alice, &a, &fk, &design, true).await;
+    let used = use_to_read(
+        &pool, &ring, org, &alice, &fk, &ro.id, &design, "dev-1", false,
+    )
+    .await
+    .expect("read-only, marked");
+    assert_eq!(
+        used,
+        (
+            "fathom256".to_string(),
+            "authpassword256".to_string(),
+            Some("privpassword256".to_string()),
+            "sha256".to_string()
+        )
+    );
+    // Not marked on dev-2, unless it is the login the Steward set for the range.
+    let refused = use_to_read(
+        &pool, &ring, org, &alice, &fk, &ro.id, &design, "dev-2", false,
+    )
+    .await;
+    assert!(
+        matches!(refused, Err(VaultError::NotAllowed(_))),
+        "{refused:?}"
+    );
+    use_to_read(
+        &pool, &ring, org, &alice, &fk, &ro.id, &design, "dev-2", true,
+    )
+    .await
+    .expect("the range's login");
+
+    // Without the read-only tick it is never used to read, and nothing is filed for it.
+    let before = chain_types(org).await.len();
+    let rw = an_snmp_login(&pool, &ring, &estate, &alice, &a, &fk, &design, false).await;
+    let after_made = chain_types(org).await.len();
+    let refused = use_to_read(
+        &pool, &ring, org, &alice, &fk, &rw.id, &design, "dev-1", false,
+    )
+    .await;
+    assert!(
+        matches!(refused, Err(VaultError::NotAllowed(_))),
+        "{refused:?}"
+    );
+    assert!(after_made > before);
+    assert_eq!(
+        chain_types(org).await.len(),
+        after_made,
+        "a refusal files nothing"
+    );
+
+    // An ordinary login is not an SNMP one.
+    let plain = a_login(
+        &pool,
+        &ring,
+        &estate,
+        &alice,
+        &design,
+        &[(&a, alice.account.to_string())],
+    )
+    .await;
+    let c = consent(org, &plain, &alice, &fk.id().to_string(), 1);
+    turn_on(&pool, &ring, org, &alice, &fk, &plain, c, "S3cret-Pass!")
+        .await
+        .expect("on");
+    let refused = use_to_read(
+        &pool, &ring, org, &alice, &fk, &plain.id, &design, "dev-1", true,
+    )
+    .await;
+    assert!(
+        matches!(refused, Err(VaultError::NotAllowed(_))),
+        "{refused:?}"
+    );
+
+    // MD5 has no spelling; a non-SNMP login names no SNMP authentication.
+    let m = Meta::clean("x", "snmp", vec![]).unwrap();
+    assert!(m.clone().with_snmp_auth(Some("md5")).is_err());
+    assert!(Meta::clean("x", "login", vec![])
+        .unwrap()
+        .with_snmp_auth(Some("sha256"))
+        .is_err());
+}
+
+fn target(design: &str, address: &str) -> device_reading::Target {
+    device_reading::Target {
+        design: design.to_string(),
+        element: "dev-1".to_string(),
+        address: address.parse().unwrap(),
+        range: fathom_server::device_read::Range::parse("10.20.0.0/24", None, None).unwrap(),
+    }
+}
+
+async fn as_who<T: 'static, F>(
+    pool: &Pool,
+    ring: &KeyRing,
+    org: OrganisationId,
+    who: &Person,
+    f: F,
+) -> T
+where
+    F: for<'a> FnOnce(
+            &'a Transaction<'a>,
+            &'a Authority<'a>,
+            device_reading::ReadingKeys,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = T> + 'a>>
+        + 'static,
+{
+    with_auth(pool, ring, org, who.account, |tx, auth| {
+        let keys =
+            device_reading::ReadingKeys::derive(auth.tenant_key, &auth.ctx.tenant().to_string());
+        f(tx, auth, keys)
+    })
+    .await
+}
+
+fn parse(text: &str) -> fathom_canon::Json {
+    fathom_canon::Json::parse_canonical(
+        &fathom_server::foreign_json::parse(text.as_bytes())
+            .unwrap()
+            .to_canonical_bytes(),
+    )
+    .unwrap()
+}
+
+#[tokio::test]
+async fn an_agent_is_confirmed_before_any_login_and_what_a_device_said_is_kept_sealed() {
+    let pool = support::migrated_pool().await;
+    let ring = ring();
+    let estate = bootstrap(&pool, &ring).await;
+    let org = estate.organisation;
+    let alice = a_member(&pool, &ring, &estate, "alice", Some(Capability::Draw)).await;
+    let design = a_design(&pool, &estate).await;
+    let t = target(&design, "10.20.0.14");
+
+    // Seen, then a wrong last 8, then the right ones.
+    let t1 = t.clone();
+    let seen = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
+        Box::pin(async move {
+            device_reading::record_seen(tx, auth, &keys, &t1, "80000009030001c2b3d4e5f60a").await
+        })
+    })
+    .await
+    .expect("seen");
+    assert_eq!(seen.state, "seen");
+    let t1 = t.clone();
+    let wrong = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
+        Box::pin(
+            async move { device_reading::approve_typed(tx, auth, &keys, &t1, "3d4e5f6a").await },
+        )
+    })
+    .await;
+    assert!(matches!(wrong, Err(VaultError::NotAllowed(_))), "{wrong:?}");
+    let t1 = t.clone();
+    let ok = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
+        Box::pin(
+            async move { device_reading::approve_typed(tx, auth, &keys, &t1, "d4e5f60a").await },
+        )
+    })
+    .await
+    .expect("typed");
+    assert_eq!(ok.state, "approved");
+
+    // The same agent again stays approved; another id is `changed`, keeping the approved one.
+    let t1 = t.clone();
+    let again = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
+        Box::pin(async move {
+            device_reading::record_seen(tx, auth, &keys, &t1, "80000009030001c2b3d4e5f60a").await
+        })
+    })
+    .await
+    .unwrap();
+    assert_eq!(again.state, "approved");
+    let t1 = t.clone();
+    let changed = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
+        Box::pin(async move {
+            device_reading::record_seen(tx, auth, &keys, &t1, "8000000903000a11b2c3d4e5f6").await
+        })
+    })
+    .await
+    .unwrap();
+    assert_eq!(changed.state, "changed");
+    assert_eq!(
+        changed.previous.as_deref(),
+        Some("80000009030001c2b3d4e5f60a")
+    );
+
+    // A second device seen for the first time. Alice is no Steward: no list for her.
+    let t2 = target(&design, "10.20.0.15");
+    as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
+        Box::pin(async move {
+            device_reading::record_seen(tx, auth, &keys, &t2, "80000009030001c2b3d4e57a11").await
+        })
+    })
+    .await
+    .unwrap();
+    let refused = as_who(&pool, &ring, org, &alice, |tx, auth, keys| {
+        Box::pin(async move { device_reading::waiting(tx, auth, &keys).await })
+    })
+    .await;
+    assert!(
+        matches!(refused, Err(VaultError::NotAllowed(_))),
+        "{refused:?}"
+    );
+    let list = as_who(&pool, &ring, org, &estate.steward, |tx, auth, keys| {
+        Box::pin(async move { device_reading::waiting(tx, auth, &keys).await })
+    })
+    .await
+    .expect("the Steward's list");
+    assert_eq!(list.len(), 2);
+
+    // The changed one never goes with the rest; on its own, it does. One entry per batch.
+    let both: Vec<std::net::IpAddr> =
+        vec!["10.20.0.14".parse().unwrap(), "10.20.0.15".parse().unwrap()];
+    let refused = as_who(&pool, &ring, org, &estate.steward, move |tx, auth, keys| {
+        Box::pin(async move { device_reading::approve_batch(tx, auth, &keys, &both).await })
+    })
+    .await;
+    assert!(
+        matches!(refused, Err(VaultError::NotAllowed(_))),
+        "{refused:?}"
+    );
+    let one: Vec<std::net::IpAddr> = vec!["10.20.0.15".parse().unwrap()];
+    let n = as_who(&pool, &ring, org, &estate.steward, move |tx, auth, keys| {
+        Box::pin(async move { device_reading::approve_batch(tx, auth, &keys, &one).await })
+    })
+    .await
+    .unwrap();
+    assert_eq!(n, 1);
+    let types = chain_types(org).await;
+    assert_eq!(
+        types
+            .iter()
+            .filter(|t| *t == "device_read_engine_approved")
+            .count(),
+        2,
+        "one typed, one batch"
+    );
+
+    // A read kept: through the gate, sealed, filed, the latest shown in full.
+    let answer = parse(
+        r#"{"outcome":"read","engineId":"80000009030001c2b3d4e5f60a","reader":"local","durationMs":4200,"incomplete":[],"failed":{},
+            "reading":{"system":{"name":"access-sw3","descr":"Cisco IOS XE 17.12.3"},
+                       "interfaces":[{"ifIndex":7,"descr":"Gi1/0/7","alias":"enable secret cisco123"},{"ifIndex":8,"descr":"Gi1/0/8","alias":"MARKER-AP-2F-east"}]}}"#,
+    );
+    for _ in 0..2 {
+        let body = device_reading::kept(&answer, "device");
+        let t1 = t.clone();
+        as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
+            Box::pin(async move {
+                device_reading::store(tx, auth, &keys, &t1, "device", "cred_x", &body).await
+            })
+        })
+        .await
+        .expect("stored");
+    }
+    let mac = |macs: &str| {
+        parse(&format!(
+            r#"{{"outcome":"read","reading":{{"lldp":[{{"ifIndex":48,"capEnabled":["bridge"]}}],"mac":[{macs}],"arp":[]}}}}"#
+        ))
+    };
+    for a in [
+        mac(r#"{"mac":"aa","ifIndex":7},{"mac":"up","ifIndex":48}"#),
+        mac(r#"{"mac":"aa","ifIndex":7},{"mac":"bb","ifIndex":9}"#),
+    ] {
+        let body = device_reading::kept(&a, "macarp");
+        let t1 = t.clone();
+        as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
+            Box::pin(async move {
+                device_reading::store(tx, auth, &keys, &t1, "macarp", "cred_x", &body).await
+            })
+        })
+        .await
+        .expect("stored");
+    }
+    let d = design.clone();
+    as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
+        Box::pin(async move {
+            device_reading::dismiss(tx, auth, &keys, &d, "dev-1", "port:7:alias", "AP-2F-east")
+                .await
+        })
+    })
+    .await
+    .expect("dismissed");
+    let d = design.clone();
+    let panel = as_who(&pool, &ring, org, &alice, move |tx, auth, keys| {
+        Box::pin(async move { device_reading::panel(tx, auth, &keys, &d, "dev-1").await })
+    })
+    .await
+    .expect("panel");
+    let text = String::from_utf8(panel.to_canonical_bytes()).unwrap();
+    assert!(!text.contains("cisco123"), "the gate ran before storing");
+    assert!(text.contains("MARKER-AP-2F-east"));
+    assert!(
+        text.contains(r#""macArpChanges":{"arp":{"gone":0,"new":0},"mac":{"gone":0,"new":1}}"#),
+        "{text}"
+    );
+    assert!(
+        text.contains(r#""macLeftOut":0"#),
+        "the newest table's uplink row is gone already"
+    );
+    assert!(text.contains(r#""field":"port:7:alias""#));
+    let fathom_canon::Json::Obj(p) = &panel else {
+        panic!()
+    };
+    let fathom_canon::Json::Arr(readings) = &p["readings"] else {
+        panic!()
+    };
+    assert_eq!(readings.len(), 2);
+    let full = |r: &fathom_canon::Json| matches!(r, fathom_canon::Json::Obj(m) if m.contains_key("reading"));
+    assert!(
+        full(&readings[0]) && !full(&readings[1]),
+        "only the latest in full"
+    );
+
+    // Nothing a device said is in the clear anywhere.
+    let su = support::superuser_client_on_test_database().await;
+    for table in [
+        "device_readings",
+        "device_read_engines",
+        "device_read_dismissals",
+    ] {
+        let rows = su
+            .query(
+                &format!("SELECT t::text FROM {table} t WHERE organisation_id = $1"),
+                &[&org.to_string()],
+            )
+            .await
+            .unwrap();
+        assert!(!rows.is_empty(), "{table}");
+        for r in rows {
+            let row: String = r.get(0);
+            for marker in [
+                "MARKER",
+                "10.20.0.14",
+                "access-sw3",
+                "80000009030001c2b3d4e5f60a",
+                "AP-2F-east",
+            ] {
+                assert!(!row.contains(marker), "{table}: {marker}");
+            }
+        }
+    }
+    let types = chain_types(org).await;
+    assert_eq!(types.iter().filter(|t| *t == "device_read_done").count(), 4);
+    assert_eq!(
+        types
+            .iter()
+            .filter(|t| *t == "device_read_dismissed")
+            .count(),
+        1
     );
 }

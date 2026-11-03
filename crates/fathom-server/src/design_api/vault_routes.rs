@@ -240,7 +240,7 @@ fn obj_of(
     }
 }
 
-/// `{name, kind, usedOn: [{design, element}], readOnly?}`, cleaned by [`Meta::clean`].
+/// `{name, kind, usedOn: [{design, element}], readOnly?, snmpAuth?}`, cleaned by [`Meta::clean`].
 fn meta_from(m: &mut BTreeMap<String, Json>) -> Result<Meta, RouteError> {
     let name = req_str(m, "name", "name")?;
     let kind = req_str(m, "kind", "kind")?;
@@ -263,7 +263,14 @@ fn meta_from(m: &mut BTreeMap<String, Json>) -> Result<Meta, RouteError> {
         Some(Json::Bool(true)) => true,
         Some(_) => return Err(malformed("readOnly")),
     };
-    Ok(Meta::clean(&name, &kind, used_on)?.with_read_only(read_only))
+    let snmp_auth = match m.remove("snmpAuth") {
+        None | Some(Json::Null) => None,
+        Some(Json::Str(a)) => Some(a),
+        Some(_) => return Err(malformed("snmpAuth")),
+    };
+    Ok(Meta::clean(&name, &kind, used_on)?
+        .with_read_only(read_only)
+        .with_snmp_auth(snmp_auth.as_deref())?)
 }
 
 /// `{at, sharerKeyFpr, signature, viaRecovery?, wraps: [{keyId, wrap}]}`.
@@ -443,6 +450,7 @@ async fn create_entry_handler(
             "kind",
             "usedOn",
             "readOnly",
+            "snmpAuth",
             "secretCt",
             "secretNonce",
             "share",
@@ -498,7 +506,7 @@ async fn new_epoch_handler(
 }
 
 /// `POST .../vault/entries/{cred}/meta`: rename, re-kind, or change where it is used. Body:
-/// `{ifVersion, name, kind, usedOn, readOnly?}`.
+/// `{ifVersion, name, kind, usedOn, readOnly?, snmpAuth?}`.
 async fn set_meta_handler(
     State(state): State<DesignApiState>,
     PathExtractor((organisation, credential)): PathExtractor<(String, String)>,
@@ -507,7 +515,14 @@ async fn set_meta_handler(
     let credential = credential_path(&credential)?;
     let mut m = object_body(
         &signed.body,
-        &["ifVersion", "name", "kind", "usedOn", "readOnly"],
+        &[
+            "ifVersion",
+            "name",
+            "kind",
+            "usedOn",
+            "readOnly",
+            "snmpAuth",
+        ],
     )?;
     let if_version = if_version_field(&mut m)?;
     let meta = meta_from(&mut m)?;

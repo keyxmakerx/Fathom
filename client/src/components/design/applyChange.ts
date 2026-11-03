@@ -18,7 +18,7 @@ import {
   removeSketchPort,
   resizeShelf,
 } from '../../document/commands';
-import { connectOneEnd, connectToOutside, disconnect, setCableField, setCableNeedsFinishing } from '../../document/cables';
+import { connectOneEnd, connectPorts, connectToOutside, disconnect, setCableField, setCableNeedsFinishing } from '../../document/cables';
 import { addCableRun, addCableTie, moveCableTie, removeCableRun, removeCableTie } from '../../document/cableRuns';
 import { foldFrom, removeFree, setLabel, setLineLabel } from '../../document/freeform';
 import { FieldValueError, setChassisField, setPortConsoleBaud, setPortMac, setDeviceField, setPassiveNodeField, setRackField, setRackHeight, setSurfaceLabel } from '../../document/edit';
@@ -41,7 +41,13 @@ export function applyEditorChange(
 ): { doc: Document; notice?: string } {
   let next: Document;
   let notice: string | undefined;
-  if (change.kind === 'device') {
+  if (change.kind === 'all') {
+    next = doc;
+    for (const one of change.changes) next = applyEditorChange(next, one, catalogue, opts).doc;
+    next = foldFrom(next, doc.batches.length);
+  } else if (change.kind === 'cable-connect') {
+    next = connectPorts(doc, change.fromPortId, change.toPortId, {}, opts);
+  } else if (change.kind === 'device') {
     next = setDeviceField(doc, change.id, change.field, change.value, opts);
   } else if (change.kind === 'chassis') {
     next = setChassisField(doc, change.id, change.field, change.value, opts);

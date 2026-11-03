@@ -349,10 +349,12 @@ pub fn router(state: DesignApiState) -> Router {
         .merge(teams_routes::routes())
         .merge(plan_approval_routes::routes())
         .merge(ipam_routes::routes())
+        .merge(device_read_routes::routes())
         .with_state(state)
 }
 
 mod ai_routes;
+mod device_read_routes;
 // The estate index (ADR-0079): search and Inventory across every design.
 mod estate_routes;
 
