@@ -1252,3 +1252,72 @@ fn a_0_15_to_0_18_header_opens_but_cannot_hold_a_firmware_target() {
         }
     }
 }
+
+/// The `since:` keys in `schema/schema.yaml` reproduce the tables this crate
+/// used to hand-write, kind for kind; a design-layer kind not listed is as old
+/// as the oldest readable version.
+#[test]
+fn since_keys_match_the_old_hand_written_tables() {
+    use fathom_ir::generated::ir_types::{EdgeKind as E, Layer, NodeKind as N};
+    let nodes: &[(u32, &[N])] = &[
+        (11, &[N::ContainerNetwork, N::Container, N::PublishedPort]),
+        (12, &[N::Tag]),
+        (13, &[N::Label, N::Line]),
+        (14, &[N::Doc, N::DocLink, N::DocFile]),
+        (15, &[N::MaintenancePlan, N::PlanStep]),
+        (16, &[N::FieldValue]),
+        (18, &[N::Issue, N::IssueStep]),
+        (19, &[N::FirmwareTarget]),
+        (23, &[N::CableRun, N::CableTie]),
+        (26, &[N::OverlayNetwork]),
+        (27, &[N::Lesson, N::LessonStep]),
+        (28, &[N::Card]),
+        (29, &[N::FloorPlan, N::Room, N::RoomCorner]),
+        (30, &[N::Store, N::StockItem, N::StockLevel]),
+        (39, &[N::NatPool]),
+    ];
+    let edges: &[(u32, &[E])] = &[
+        (
+            11,
+            &[
+                E::HasContainerNetwork,
+                E::HasContainer,
+                E::HasPublishedPort,
+                E::AttachedTo,
+                E::ParentUnit,
+            ],
+        ),
+        (12, &[E::HasTag, E::TaggedWith]),
+        (13, &[E::HasLabel, E::HasLine, E::LineEnd]),
+        (14, &[E::HasDoc, E::DocOn, E::HasDocLink, E::HasDocFile]),
+        (15, &[E::HasPlan, E::HasStep]),
+        (16, &[E::HasFieldValue]),
+        (18, &[E::HasIssue, E::HasIssueStep]),
+        (19, &[E::HasFirmwareTarget]),
+        (23, &[E::HasCableRun, E::HasCableTie, E::Ties]),
+        (26, &[E::HasOverlay, E::OverlayMember]),
+        (27, &[E::HasLesson, E::HasLessonStep]),
+        (28, &[E::HasCard, E::OnCard]),
+        (29, &[E::HasFloorPlan, E::HasRoom, E::HasRoomCorner]),
+        (
+            30,
+            &[
+                E::HasStore,
+                E::HasStock,
+                E::HasStockLevel,
+                E::InStore,
+                E::ReservedFor,
+                E::ForIssue,
+            ],
+        ),
+        (39, &[E::HasNatPool]),
+    ];
+    for k in N::ALL.iter().filter(|k| k.layer() != Layer::Plan) {
+        let want = nodes.iter().find(|(_, ks)| ks.contains(k)).map(|(m, _)| *m);
+        assert_eq!(k.since_minor(), want, "{}", k.name());
+    }
+    for k in &E::ALL {
+        let want = edges.iter().find(|(_, ks)| ks.contains(k)).map(|(m, _)| *m);
+        assert_eq!(k.since_minor(), want, "{}", k.name());
+    }
+}

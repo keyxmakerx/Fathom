@@ -79,6 +79,28 @@ pub fn ir_types(x: &Extracted) -> Result<String, ExtractError> {
         "    pub const SCHEMA_VERSION: &str = \"{}\";\n",
         x.version
     );
+    o.push_str(
+        "    /// `schema.oldest_readable`: the oldest declared version a reader still\n\
+         \x20   /// opens. Every move since is additive.\n",
+    );
+    let _ = writeln!(
+        o,
+        "    pub const OLDEST_READABLE_SCHEMA_VERSION: &str = \"{}\";\n",
+        x.oldest_readable
+    );
+    o.push_str(
+        "    /// Every declared version from `OLDEST_READABLE_SCHEMA_VERSION` up to, not\n\
+         \x20   /// including, `SCHEMA_VERSION`: the older headers a reader accepts.\n",
+    );
+    let older: Vec<String> = older_versions(x)
+        .iter()
+        .map(|v| format!("\"{v}\""))
+        .collect();
+    let _ = writeln!(
+        o,
+        "    pub const ACCEPTED_OLDER_SCHEMA_VERSIONS: &[&str] = &[{}];\n",
+        older.join(", ")
+    );
 
     // ---- closed vocabularies ----------------------------------------------
     o.push_str(
@@ -225,6 +247,23 @@ pub fn ir_types(x: &Extracted) -> Result<String, ExtractError> {
     o.push_str("        pub const fn emits(self) -> bool {\n            match self {\n");
     for k in &x.kinds {
         let _ = writeln!(o, "                NodeKind::{} => {},", k.name, k.emits);
+    }
+    o.push_str("            }\n        }\n");
+    o.push_str(
+        "        /// The schema minor that first declared the kind (`since:`); `None`\n\
+         \x20       /// when it is as old as `OLDEST_READABLE_SCHEMA_VERSION`. A header\n\
+         \x20       /// declaring an older minor cannot hold it.\n",
+    );
+    o.push_str(
+        "        pub const fn since_minor(self) -> Option<u32> {\n            match self {\n",
+    );
+    for k in &x.kinds {
+        let _ = writeln!(
+            o,
+            "                NodeKind::{} => {},",
+            k.name,
+            since(k.since)
+        );
     }
     o.push_str("            }\n        }\n");
     o.push_str(
@@ -630,6 +669,19 @@ fn edge_tables(o: &mut String, x: &Extracted) -> Result<(), ExtractError> {
          stored\n        /// instance, canonical order by `NodeId` (62 §6.2; \
          11 §7.4).\n",
     );
+    o.push_str("        /// As `NodeKind::since_minor`.\n");
+    o.push_str(
+        "        pub const fn since_minor(self) -> Option<u32> {\n            match self {\n",
+    );
+    for e in &x.edges {
+        let _ = writeln!(
+            o,
+            "                EdgeKind::{} => {},",
+            e.name,
+            since(e.since)
+        );
+    }
+    o.push_str("            }\n        }\n");
     o.push_str("        pub const fn symmetric(self) -> bool {\n            match self {\n");
     for e in &x.edges {
         let _ = writeln!(
@@ -1064,4 +1116,18 @@ fn slot_ty(x: &Extracted, f: &FieldGen) -> String {
     } else {
         base
     }
+}
+
+fn since(m: Option<u32>) -> String {
+    match m {
+        Some(m) => format!("Some({m})"),
+        None => "None".to_owned(),
+    }
+}
+
+/// `oldest_readable` up to, not including, `version`, as `0.N` strings.
+pub(crate) fn older_versions(x: &Extracted) -> Vec<String> {
+    let lo = crate::extract::minor_of(&x.oldest_readable).unwrap_or(0);
+    let hi = crate::extract::minor_of(&x.version).unwrap_or(0);
+    (lo..hi).map(|m| format!("0.{m}")).collect()
 }

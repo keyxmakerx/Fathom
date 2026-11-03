@@ -140,6 +140,9 @@ pub struct KindGen {
     /// fails where the field is looked up rather than silently matching
     /// nothing.
     pub identity: Vec<Vec<String>>,
+    /// The schema minor that first declared the kind (`since:`), or `None` when it
+    /// is at least as old as `schema.oldest_readable`.
+    pub since: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -165,6 +168,8 @@ pub struct EdgeGen {
     pub symmetric: bool,
     /// `true` exactly when `from:` is `[root]`.
     pub root_from: bool,
+    /// As [`KindGen::since`]. Always `None` on derived edges.
+    pub since: Option<u32>,
 }
 
 /// A named enum file under `schema/enums/` (62 §7).
@@ -192,6 +197,8 @@ pub struct InlineEnumGen {
 /// Everything the emitters read. All sequences are declaration order.
 pub struct Extracted {
     pub version: String,
+    /// `schema.oldest_readable`: the oldest declared version a reader still opens.
+    pub oldest_readable: String,
     pub scalars: Vec<ScalarBind>,
     pub kinds: Vec<KindGen>,
     pub edges: Vec<EdgeGen>,
@@ -218,6 +225,11 @@ impl Extracted {
     }
 }
 
+/// The minor of a `0.N` version string.
+pub fn minor_of(v: &str) -> Option<u32> {
+    v.strip_prefix("0.")?.parse().ok()
+}
+
 /// Rust-primitive field types, exactly `fathom_schema::gates`' list.
 const PRIMITIVES: [&str; 9] = ["bool", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64"];
 
@@ -228,6 +240,37 @@ pub fn extract(root: &Path, tree: &SchemaTree) -> Result<Extracted, ExtractError
     let version = match &tree.version {
         Some(v) => v.clone(),
         None => return err("schema.yaml declares no schema.version (62 §16.1)"),
+    };
+    let version_minor = minor_of(&version)
+        .ok_or_else(|| ExtractError(format!("schema.version `{version}` is not `0.N`")))?;
+    let oldest_readable = match schema_node
+        .get("schema")
+        .and_then(|s| s.get("oldest_readable"))
+        .and_then(|v| v.as_str())
+    {
+        Some(v) => v.to_owned(),
+        None => return err("schema.yaml declares no schema.oldest_readable"),
+    };
+    let oldest_minor = match minor_of(&oldest_readable) {
+        Some(m) if m <= version_minor => m,
+        _ => {
+            return err(format!(
+                "schema.oldest_readable `{oldest_readable}` is not `0.N` at or below `{version}`"
+            ))
+        }
+    };
+    // `since:` names the minor that first declared a kind or edge; it must lie
+    // after the oldest readable version and no later than the current one.
+    let since_of = |n: &Node, name: &str| -> Result<Option<u32>, ExtractError> {
+        let Some(v) = n.get("since") else {
+            return Ok(None);
+        };
+        match v.as_str().and_then(minor_of) {
+            Some(m) if m > oldest_minor && m <= version_minor => Ok(Some(m)),
+            _ => err(format!(
+                "`{name}` since: must be `0.N` after `{oldest_readable}` and no later than `{version}`"
+            )),
+        }
     };
 
     // ---- enums (files already enumerated, in sorted order, by the model) --
@@ -333,6 +376,7 @@ pub fn extract(root: &Path, tree: &SchemaTree) -> Result<Extracted, ExtractError
             doc: doc_of(k),
             fields,
             identity,
+            since: since_of(k, &name)?,
         });
     }
 
@@ -394,6 +438,7 @@ pub fn extract(root: &Path, tree: &SchemaTree) -> Result<Extracted, ExtractError
             in_l0,
             symmetric,
             root_from,
+            since: since_of(e, &name)?,
         });
     }
     let mut derived_edges = Vec::new();
@@ -415,6 +460,7 @@ pub fn extract(root: &Path, tree: &SchemaTree) -> Result<Extracted, ExtractError
             in_l0: (0, None),
             symmetric: false,
             root_from: false,
+            since: None,
         });
     }
 
@@ -437,6 +483,7 @@ pub fn extract(root: &Path, tree: &SchemaTree) -> Result<Extracted, ExtractError
 
     let x = Extracted {
         version,
+        oldest_readable,
         scalars,
         kinds,
         edges,

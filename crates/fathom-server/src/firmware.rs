@@ -9,10 +9,11 @@
 //!
 //! # The line this module does not cross
 //!
-//! **Fathom never connects to a device, holds a device credential, runs an upgrade
-//! or modifies a device's configuration.** There is no outbound socket, no column
-//! in `0017` a credential could arrive in, and no code path naming a device. The
-//! device makes one inbound `GET` for a public vendor artefact (CLAUDE.md rule 4).
+//! **This module never connects to a device, holds a device credential, runs an
+//! upgrade or modifies a device's configuration.** There is no outbound socket, no
+//! column in `0017` a credential could arrive in, and no code path naming a device.
+//! The device makes one inbound `GET` for a public vendor artefact. Device reading
+//! (ADR-0082) is elsewhere and never writes either.
 //!
 //! # Why four routes and not one upload
 //!

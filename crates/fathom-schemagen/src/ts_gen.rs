@@ -54,6 +54,49 @@ pub fn ir_types_ts(x: &Extracted) -> String {
         x.derived_edges.iter().map(|e| e.name.as_str()),
     );
 
+    // Which versions a reader opens, and which kinds each may hold.
+    let _ = writeln!(
+        o,
+        "\n/** `schema.oldest_readable`. Mirrors `fathom_ir::generated::OLDEST_READABLE_SCHEMA_VERSION`. */\n\
+         export const OLDEST_READABLE_SCHEMA_VERSION = \"{}\";",
+        x.oldest_readable
+    );
+    let older: Vec<String> = crate::rust_gen::older_versions(x)
+        .iter()
+        .map(|v| format!("\"{v}\""))
+        .collect();
+    let _ = writeln!(
+        o,
+        "/** The older headers a reader accepts. Mirrors `fathom_ir::generated::ACCEPTED_OLDER_SCHEMA_VERSIONS`. */\n\
+         export const ACCEPTED_OLDER_SCHEMA_VERSIONS: readonly string[] = [{}];",
+        older.join(", ")
+    );
+    o.push_str("/** The minor that first declared a node kind (`since:`); absent when as old as the oldest readable. */\n");
+    o.push_str("export const NODE_KIND_SINCE: Readonly<Partial<Record<NodeKind, number>>> = {\n");
+    for k in &x.kinds {
+        if let Some(m) = k.since {
+            let _ = writeln!(o, "  {}: {m},", k.name);
+        }
+    }
+    o.push_str("};\n/** As `NODE_KIND_SINCE`, for asserted edge kinds. */\n");
+    o.push_str("export const EDGE_KIND_SINCE: Readonly<Partial<Record<EdgeKind, number>>> = {\n");
+    for e in &x.edges {
+        if let Some(m) = e.since {
+            let _ = writeln!(o, "  {}: {m},", e.name);
+        }
+    }
+    o.push_str("};\n");
+    o.push_str("/** Node kinds of the `plan` layer: the IP plan store's records, never held by a design. */\n");
+    list(
+        &mut o,
+        "PLAN_NODE_KINDS",
+        "NodeKind",
+        x.kinds
+            .iter()
+            .filter(|k| matches!(k.layer, crate::extract::Layer::Plan))
+            .map(|k| k.name.as_str()),
+    );
+
     // Named enums: declared tokens. Unknown tokens surface as plain strings
     // (62 §7 rule 2's unknown arm, mirrored as the type's escape hatch).
     o.push_str("\n// Named enums (schema/enums/): declared tokens; an undeclared token is\n");
