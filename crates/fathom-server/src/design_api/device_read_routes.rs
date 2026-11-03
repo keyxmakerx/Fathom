@@ -9,7 +9,8 @@
 //!   characters of `engineId` and sends them back as `confirm`.
 //!   `{"outcome": "read", id, ...}` — read, through the gate, sealed and filed.
 //!   `{"outcome": "failed", failure: {code, message}, engineId?, previous?}` — the device or the
-//!   login refused; filed, nothing kept.
+//!   login refused; filed, nothing kept. Code `already_reading` when this server is reading the
+//!   same device now (r106): nothing sent, nothing filed.
 //! - `GET /organisations/{o}/designs/{d}/device-read/{element}`: what the Readings tab shows
 //!   ([`crate::device_reading::panel`]).
 //! - `POST /organisations/{o}/designs/{d}/device-read/dismiss`: body `{element, field, value}`.
@@ -130,11 +131,18 @@ async fn read_handler(
     let fk = state.fathom_key.clone();
 
     // 1. Who, where, which agent, which login.
-    let next = in_org!(state, signed, organisation, |tx, auth, keys| {
+    let (next, _claim) = in_org!(state, signed, organisation, |tx, auth, keys| {
         let settings = crate::device_read::load(&tx, &auth.ctx.tenant().to_string())
             .await
             .map_err(SessionError::Db)?;
         let target = reading::target(&tx, &auth, &settings, true, &design, &element).await?;
+        // One read per device at a time (r106), claimed before any login is opened, so a read
+        // turned away files nothing; the claim is let go however this handler returns.
+        let Some(claim) =
+            reading::ReadingNow::claim(&auth.ctx.tenant().to_string(), target.address)
+        else {
+            return Ok(json_response(already_reading()));
+        };
         let mut engine =
             reading::engine_at(&tx, &keys, &auth.ctx.tenant().to_string(), target.address).await?;
         if let Some(typed) = &confirm {
@@ -151,9 +159,12 @@ async fn read_handler(
                 let fk = fk.as_ref().ok_or(VaultError::NoServerKey)?;
                 let (used, auth_name) =
                     reading::open_login(&tx, &auth, fk, &target, &login).await?;
-                Next::Read(target, e.engine_id, used, auth_name, login)
+                (
+                    Next::Read(target, e.engine_id, used, auth_name, login),
+                    claim,
+                )
             }
-            _ => Next::Discover(target),
+            _ => (Next::Discover(target), claim),
         }
     });
 
@@ -278,6 +289,23 @@ fn confirm_answer(e: &reading::Engine) -> Json {
 }
 
 /// A refusal as the person sees it: the reader's code and words, which never carry a password.
+/// Someone is reading this device now; nothing was sent to it and nothing is filed.
+fn already_reading() -> Json {
+    Json::Obj(BTreeMap::from([
+        ("outcome".to_string(), s("failed")),
+        (
+            "failure".to_string(),
+            Json::Obj(BTreeMap::from([
+                ("code".to_string(), s(reading::ALREADY_READING)),
+                (
+                    "message".to_string(),
+                    s("Someone is reading this device now. Try again once that read is answered; it takes a few seconds."),
+                ),
+            ])),
+        ),
+    ]))
+}
+
 fn failed_answer(a: &BTreeMap<String, Json>) -> Json {
     Json::Obj(BTreeMap::from([
         ("outcome".to_string(), s("failed")),

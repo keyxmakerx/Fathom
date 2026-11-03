@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { DeviceReading, ReadingPanel } from '../../api/deviceRead';
 import type { VaultEntry } from '../../api/vault';
 import { setDeviceField } from '../../document/edit';
-import { emptyDocument, type Document } from '../../document/model';
+import { createIssue } from '../../document/issues';
+import { edgesOut, emptyDocument, type Document } from '../../document/model';
+import { TYPED_AS_WRITTEN, addStep, createPlan, startPlan } from '../../document/plans';
 import { addBox, eth, tick } from '../troubleshoot/fixtures';
 import { ReadLine, ReadNow, ReadingChip, ReadingsTab, usableLogins, when, whyOff } from './Reading';
 import { ReadingContext, resetReadingStore, seedReading, type ReadingPlace } from './store';
@@ -30,6 +32,10 @@ const reading = {
   interfaces: [{ index: 48, name: 'Gi1/0/48', type: 6, operStatus: 1 }],
   lldp: { local: [{ portNum: 48, portId: 'Gi1/0/48' }], remote: [{ localPortNum: 48, sysName: 'dist-sw2', portId: 'Te1/1/3' }] },
 };
+
+function chassisOf(doc: Document, device: string): string {
+  return edgesOut(doc, device, 'HasChassis')[0]!.to;
+}
 
 function panel(over: Partial<ReadingPanel> = {}): ReadingPanel {
   return {
@@ -67,6 +73,24 @@ describe('device reading in the device panel (sign-off r100)', () => {
     expect(tab).toContain('Read MAC and ARP');
     expect(render(place, createElement(ReadingChip, { deviceId: device }))).toContain('3 differ from drawing');
     expect(render(place, createElement(ReadLine, { deviceId: device }))).toContain('Read <b>today at');
+  });
+
+  it('says a plan under way and an open issue, marks the row a plan sets, and leaves it out of Accept all (r106)', () => {
+    let { doc, device } = estate();
+    const gate = TYPED_AS_WRITTEN;
+    const p = createPlan(doc, { title: 'Swap the chassis', gate, ...tick() });
+    doc = addStep(p.doc, p.id, { kind: 'other', change: 'Record the serial', edit: { t: 'field', id: chassisOf(doc, device), key: 'Chassis.serial', value: 'FOC99' }, gate, ...tick() }).doc;
+    doc = startPlan(doc, p.id, tick());
+    doc = createIssue(doc, { deviceId: device, title: 'Uplink flapping', steps: [{ topic: 'link', question: 'Is the uplink up?' }], gate, ...tick() }).doc;
+    seedReading(DESIGN, device, { panel: { status: 'ready', value: panel() } }, ORG, on);
+    const place: ReadingPlace = { organisation: ORG, design: DESIGN, doc, canDraw: true, onEdit: () => undefined };
+    const tab = render(place, createElement(ReadingsTab, { deviceId: device }));
+    expect(tab).toContain('Plan “Swap the chassis” is under way on this device. Read now still reads');
+    expect(tab).toContain('“Uplink flapping” is open on this device');
+    expect(tab).toContain('The plan “Swap the chassis”, under way now, sets this to FOC99. Accepting it here would put back what the plan changes.');
+    expect(tab).toContain('Accept all 2');
+    expect(tab).toContain('Leaves out 1 a plan changes.');
+    expect(render(place, createElement(ReadLine, { deviceId: device }))).toContain('Plan “Swap the chassis” under way');
   });
 
   it('shows a reader nothing to press, and a dismissed difference not at all', () => {

@@ -9,6 +9,7 @@
 // physical port.
 
 import type { EditorChange } from '../drawing';
+import type { PlannedValue, WorkOnDevice } from './workOnDevice';
 import { asString, edgesIn, edgesOut, fieldValue, findNode, isNodeOfKind, readPhysicalPortFields, type Document } from '../../document/model';
 
 /** What the server writes in place of a string the redaction gate stopped. */
@@ -30,6 +31,8 @@ export interface Difference {
   why: string;
   /** The edit Accept makes, and the button's word; null when there is nothing Fathom can do but dismiss. */
   accept: { label: 'Accept' | 'Add' | 'Add cable'; change: EditorChange } | null;
+  /** r106: a plan not over sets this field. The row says so, and Accept all leaves it out. */
+  planned?: PlannedValue;
 }
 
 export interface Comparison {
@@ -295,8 +298,24 @@ export function compare(
   return out;
 }
 
-/** "Accept all": every difference with an edit, as one change and one undo step. */
+/** Marks each difference whose field a plan sets (r106). */
+export function withWork(c: Comparison, work: WorkOnDevice): Comparison {
+  const sets = work.sets as Partial<Record<string, PlannedValue>>;
+  return { ...c, differs: c.differs.map((d) => (sets[d.field] ? { ...d, planned: sets[d.field] } : d)) };
+}
+
+/** True when a plan sets this field to something other than what the device said (r106). */
+export function againstPlan(d: Difference): boolean {
+  return d.planned !== undefined && d.planned.value !== d.read;
+}
+
+/** What "Accept all" takes: each difference with an edit, but not one that would undo what a plan sets (r106). */
+export function acceptable(differs: readonly Difference[]): Difference[] {
+  return differs.filter((d) => d.accept !== null && !againstPlan(d));
+}
+
+/** "Accept all": every acceptable difference, as one change and one undo step. */
 export function acceptAll(differs: readonly Difference[]): EditorChange | null {
-  const changes = differs.flatMap((d) => (d.accept ? [d.accept.change] : []));
+  const changes = acceptable(differs).flatMap((d) => (d.accept ? [d.accept.change] : []));
   return changes.length === 0 ? null : { kind: 'all', changes };
 }

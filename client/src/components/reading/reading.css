@@ -24,7 +24,12 @@
 .diff__why { color: var(--muted); font-size: var(--t-micro); letter-spacing: 0.02em; }
 .diff__acts { display: flex; gap: 4px; margin-top: 4px; }
 .diff__error { color: var(--danger); }
-.group-acts { display: flex; justify-content: flex-end; }
+.diff__plan { color: var(--muted); font-size: var(--t-small); }
+.read-line__work { color: var(--ink); flex-basis: 100%; }
+.work-note { font-size: var(--t-small); display: grid; gap: 6px; margin-bottom: 8px; }
+.work-note div { padding: 6px 8px; border: var(--rule-hair) solid var(--hairline); border-left-width: 3px; }
+.work-note .q { color: var(--muted); font-size: var(--t-micro); letter-spacing: var(--track-head); text-transform: uppercase; display: block; margin-bottom: 2px; }
+.group-acts { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
 .fold { font-size: var(--t-small); color: var(--muted); }
 .fold b { color: var(--ink); font-weight: 400; }
 .earlier { font-size: var(--t-small); display: flex; flex-direction: column; gap: 3px; }
