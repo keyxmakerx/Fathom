@@ -51,42 +51,15 @@ env:
   CARGO_PROFILE_TEST_DEBUG: "0"
 
 jobs:
-  gates:
+  # Everything that runs without compiling anything: the dependency gates, then nothing else.
+  # Every job that compiles workspace code (lint, rust-tests, termix) needs this one, so the
+  # ordering at the top of this file holds across jobs as it held inside the one job it was
+  # split out of on 2026-11-02, to let the compiling work spread over several runners.
+  dependency-gates:
     runs-on: ubuntu-latest
-
-    # `crates/fathom-server`'s repository-layer tests (Phase 2: accounts,
-    # organisations, the scope hierarchy) run against a real PostgreSQL, not
-    # a mock. `POSTGRES_USER` here is the image's initdb bootstrap role,
-    # which the official image always creates as a SUPERUSER regardless of
-    # the name given it -- and Postgres exempts superusers from row-level
-    # security unconditionally, `FORCE ROW LEVEL SECURITY` or not. Testing
-    # the tenant-isolation policies in
-    # `migrations/0002_identity_and_scope.sql` through THIS role would make
-    # every isolation assertion pass whether or not the policies actually
-    # work. So the step below this service provisions a second, deliberately
-    # non-superuser role and database -- the MIGRATION role
-    # (`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §15.0) -- and only that
-    # role's connection string is ever handed to `cargo test` as
-    # `FATHOM_MIGRATE_DATABASE_URL`. The RUNTIME role (`fathom_app`,
-    # `DATABASE_URL`) is not created here at all: it comes from
-    # `migrations/0006_runtime_role.sql`, inside the chain, and
-    # `tests/support::migrated_pool` provisions its login off the migration
-    # role's connection every run -- exactly what `src/main.rs` does at
-    # startup, proved here rather than assumed.
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U postgres"
-          --health-interval=5s
-          --health-timeout=3s
-          --health-retries=10
+    timeout-minutes: 20
+    outputs:
+      rust: ${{ steps.scope.outputs.rust }}
 
     steps:
       - uses: actions/checkout@v4
@@ -95,9 +68,9 @@ jobs:
           # first parent is the base, so `HEAD^1..HEAD` is exactly the change.
           fetch-depth: 2
 
-      # The test suite takes most of this job's time. A pull request that
-      # changes only paths no Rust code reads skips it; every gate, format,
-      # clippy and the schema check still run. Anything else, and every push
+      # The test suite takes most of a run's time. A pull request that
+      # changes only paths no Rust code reads skips it (rust-tests reads this
+      # job's output); every gate, format, clippy and the schema check still run. Anything else, and every push
       # to main, runs the whole suite. Rust tests read `client/src/engine/`,
       # `client/src/document/vectors/`, `docs/archive/` and `design/`, so
       # those count as Rust.
@@ -119,23 +92,6 @@ jobs:
           done < <(git diff --name-only HEAD^1 HEAD)
           echo "rust=$rust" >> "$GITHUB_OUTPUT"
           echo "Rust test suite needed: $rust"
-
-      # CREATEROLE, and only that, on top of NOSUPERUSER:
-      # `crates/fathom-server/migrations/0005_planes.sql` creates the second
-      # database role -- the sightless operator plane -- inside the migration
-      # chain, so that "run the chain from an empty database" produces the
-      # whole fence rather than half of it. the database init script (inline in `compose.yaml`)
-      # grants the deployment's `fathom` role the same attribute, for the
-      # same reason and with the same accounting written out there. It is NOT
-      # superuser and NOT BYPASSRLS, which is what
-      # `fathom_server::rls::assert_rls_binds` checks and what makes every
-      # isolation assertion in this suite mean something.
-      - name: Provision a non-superuser test role (RLS does not bind to a superuser)
-        run: |
-          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c \
-            "CREATE ROLE fathom_test LOGIN PASSWORD 'fathom_test_pw' NOSUPERUSER CREATEROLE;"
-          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c \
-            "CREATE DATABASE fathom_test OWNER fathom_test;"
 
       # ---- Layer 1, and everything else that needs no toolchain at all. ----
 
@@ -237,31 +193,132 @@ jobs:
       - name: Layer 5 — the version cooldown
         run: ./scripts/crate-cooldown.sh
 
-      # ---- The verification floor (78 §6). Everything below this line compiles. ----
+  # ---- The verification floor (78 §6). Everything from here compiles, after dependency-gates. ----
+
+  lint:
+    needs: dependency-gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain (reads rust-toolchain.toml)
+        run: rustup toolchain install
+      # Clippy's output is check metadata, which the test build does not make, so it keeps a
+      # cache of its own beside rust-tests' one (see the comment there).
+      - name: Cache the clippy build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target
+          key: cargo-lint-v1-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-lint-v1-${{ runner.os }}-
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy, warnings are errors
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Schema gates
+        run: cargo run --locked -p fathom-schema --bin fathom-schema-check
+
+  # The test suite, spread over three runners (2026-11-02). In one job it was six of the twelve
+  # minutes a run took, and Termix waited behind it. `scripts/ci/parallel-tests.sh` deals the
+  # same units out the same way on every share, so the three together run every test once; the
+  # `gates` job below fails unless all three passed. A pull request that changes only paths no
+  # Rust code reads skips it (dependency-gates decides); format, clippy and the schema check
+  # still run.
+  rust-tests:
+    needs: dependency-gates
+    if: needs.dependency-gates.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    # `crates/fathom-server`'s repository-layer tests (Phase 2: accounts,
+    # organisations, the scope hierarchy) run against a real PostgreSQL, not
+    # a mock. `POSTGRES_USER` here is the image's initdb bootstrap role,
+    # which the official image always creates as a SUPERUSER regardless of
+    # the name given it -- and Postgres exempts superusers from row-level
+    # security unconditionally, `FORCE ROW LEVEL SECURITY` or not. Testing
+    # the tenant-isolation policies in
+    # `migrations/0002_identity_and_scope.sql` through THIS role would make
+    # every isolation assertion pass whether or not the policies actually
+    # work. So the step below this service provisions a second, deliberately
+    # non-superuser role and database -- the MIGRATION role
+    # (`docs/PHASE-2-ADMIN-AND-AUDIT-DESIGN.md` §15.0) -- and only that
+    # role's connection string is ever handed to `cargo test` as
+    # `FATHOM_MIGRATE_DATABASE_URL`. The RUNTIME role (`fathom_app`,
+    # `DATABASE_URL`) is not created here at all: it comes from
+    # `migrations/0006_runtime_role.sql`, inside the chain, and
+    # `tests/support::migrated_pool` provisions its login off the migration
+    # role's connection every run -- exactly what `src/main.rs` does at
+    # startup, proved here rather than assumed.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+
+      # CREATEROLE, and only that, on top of NOSUPERUSER:
+      # `crates/fathom-server/migrations/0005_planes.sql` creates the second
+      # database role -- the sightless operator plane -- inside the migration
+      # chain, so that "run the chain from an empty database" produces the
+      # whole fence rather than half of it. the database init script (inline in `compose.yaml`)
+      # grants the deployment's `fathom` role the same attribute, for the
+      # same reason and with the same accounting written out there. It is NOT
+      # superuser and NOT BYPASSRLS, which is what
+      # `fathom_server::rls::assert_rls_binds` checks and what makes every
+      # isolation assertion in this suite mean something.
+      - name: Provision a non-superuser test role (RLS does not bind to a superuser)
+        run: |
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c \
+            "CREATE ROLE fathom_test LOGIN PASSWORD 'fathom_test_pw' NOSUPERUSER CREATEROLE;"
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c \
+            "CREATE DATABASE fathom_test OWNER fathom_test;"
+
+      - name: Install the pinned toolchain (reads rust-toolchain.toml)
+        run: rustup toolchain install
 
       # The build cache, added 2026-10-02: without it every run compiled the
       # whole workspace from nothing. GitHub's own action, pinned to the
       # commit `git ls-remote` gave for v6.1.0 on 2026-10-02. It holds build
       # output only (`target`); v3 because Cargo.toml's dev profile changed what is built, and a
       # cache built under the old settings would be restored and then rebuilt on every run
-      # without ever being saved again. The crates themselves still come from the
-      # checksummed `cargo fetch --locked` above, after every dependency gate
-      # has run. Cargo's own fingerprints decide what is rebuilt; the key
+      # without ever being saved again. The crates themselves still come from
+      # crates.io checked against the lockfile's checksums (`--locked`), and only
+      # once dependency-gates has passed over that same lockfile. Cargo's own fingerprints decide what is rebuilt; the key
       # (lockfile and toolchain file) only decides when a new cache is saved.
+      # Share 1 saves it; the other two only restore, so three runners do not race to save the
+      # same key.
       - name: Cache the cargo build
+        if: matrix.shard == 1
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: target
           key: cargo-v3-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: |
             cargo-v3-${{ runner.os }}-
+      - name: Restore the cargo build
+        if: matrix.shard != 1
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target
+          key: cargo-v3-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-v3-${{ runner.os }}-
 
-      - name: Format
-        run: cargo fmt --all --check
-      - name: Clippy, warnings are errors
-        run: cargo clippy --all-targets --locked -- -D warnings
-      - name: Tests
-        if: steps.scope.outputs.rust == 'true'
+      - name: Tests, share ${{ matrix.shard }} of 3
         # `FATHOM_MIGRATE_DATABASE_URL` is the non-superuser, CREATEROLE-
         # holding role/database the step above provisioned -- see its
         # comment. `DATABASE_URL` names the RUNTIME role instead
@@ -275,10 +332,29 @@ jobs:
         env:
           DATABASE_URL: postgres://fathom_app:fathom_app_pw@127.0.0.1:5432/fathom_test
           FATHOM_MIGRATE_DATABASE_URL: postgres://fathom_test:fathom_test_pw@127.0.0.1:5432/fathom_test
-        # Test binaries run side by side (about 20 minutes one after another).
+          TEST_SHARD: ${{ matrix.shard }}/3
         run: ./scripts/ci/parallel-tests.sh
-      - name: Schema gates
-        run: cargo run --locked -p fathom-schema --bin fathom-schema-check
+
+  # The one check that says the Rust floor held, under the name the single job had before the
+  # split, so anything that waits on `gates` still waits on all of it: the dependency gates,
+  # lint, and every share of the tests. rust-tests may be skipped (no Rust in the change); the
+  # other two must have passed.
+  gates:
+    needs: [dependency-gates, lint, rust-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every part of the floor passed
+        env:
+          DEPS: ${{ needs.dependency-gates.result }}
+          LINT: ${{ needs.lint.result }}
+          TESTS: ${{ needs.rust-tests.result }}
+          RUST: ${{ needs.dependency-gates.outputs.rust }}
+        run: |
+          echo "dependency-gates: $DEPS  lint: $LINT  rust-tests: $TESTS"
+          [ "$DEPS" = success ] && [ "$LINT" = success ] \
+            && { [ "$TESTS" = success ] || { [ "$TESTS" = skipped ] && [ "$RUST" = false ]; }; }
 
   # ADR-0071 part four, Passbolt: the optional helper, `helpers/passbolt/`, is its own workspace
   # with its own lockfile so that rpgp's packages never enter Fathom's (owner's answers
@@ -582,10 +658,11 @@ jobs:
   # ADR-0080 leans on), pinned by digest; the real server started with FATHOM_TERMIX_URL, the
   # real built client, and a real Chromium drive Open in Termix, Add it to Termix and Send N to
   # Termix (`scripts/drive-termix.mjs`). Termix's admin, its user and the API key are made through
-  # Termix's own API (`scripts/drive-lib/termix.mjs`). After `gates`, so nothing compiles here
-  # before the dependency gates have run (the ordering at the top of this file).
+  # Termix's own API (`scripts/drive-lib/termix.mjs`). After `dependency-gates`, so nothing
+  # compiles here before the dependency gates have run (the ordering at the top of this file);
+  # not after the tests, which it does not use, so it no longer waits the length of the suite.
   termix:
-    needs: gates
+    needs: dependency-gates
     runs-on: ubuntu-latest
     timeout-minutes: 45
     services:
