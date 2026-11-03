@@ -50,7 +50,7 @@ pub fn role_word(g: &Graph, id: NodeId) -> Option<String> {
     bound(g, id, key("Device.role"))
 }
 
-/// One field row of the inspector table (54 §18): name, rendered value,
+/// One field row of the inspector table: name, rendered value,
 /// and the provenance cell ("hand · 2026-07-31" | "unset" |
 /// "absent — asserted · hand · 2026-07-31").
 pub struct FieldRow {
@@ -85,7 +85,7 @@ pub struct ElementPage {
     /// `NodeKind::name()`.
     pub kind_word: &'static str,
     pub name: String,
-    /// The full display id, never truncated (54 §18).
+    /// The full display id, never truncated.
     pub id: String,
     pub context: Option<String>,
     /// The kind's schema fields, declaration order.

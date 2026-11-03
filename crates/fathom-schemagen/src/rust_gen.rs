@@ -344,7 +344,7 @@ pub fn ir_types(x: &Extracted) -> Result<String, ExtractError> {
             let v = camel(t)?;
             if v == "Unknown" {
                 // The shipped tree's Link.media declares `unknown` (its own
-                // filed form-vs-content collision with 62 §7 rule 2). The
+                // filed form-vs-content collision with §7 rule 2). The
                 // declared variant folds into the generated arm: the token
                 // round-trips through `Unknown("unknown")`, nothing collides,
                 // and DECLARED still lists it as the schema fact it is.
@@ -502,7 +502,7 @@ fn edge_kind_enum(o: &mut String, name: &str, edges: &[EdgeGen], doc: &str) {
     o.push_str("    }\n\n");
 }
 
-/// `card: "1"` as a packed bitset, one bit per field key (62 §4.3).
+/// `card: "1"` as a packed bitset, one bit per field key (§4.3).
 ///
 /// **Why a bitset and not a per-kind slice.** `NodeKind::fields()` already
 /// exists and is a slice table; a second one keyed the same way would have
@@ -582,7 +582,7 @@ fn required_field_bits(o: &mut String, x: &Extracted) -> Result<(), ExtractError
 /// The static schema tables an L0-enforcing store reads: endpoint kind sets,
 /// both L0 cardinality bounds, the symmetric flag, the root-containment flag
 /// and the declared field keys. Every one of these is a schema fact
-/// (62 §6.2); generating them is what keeps a store from hand-copying one
+/// (§6.2); generating them is what keeps a store from hand-copying one
 /// (ADR-0008).
 fn edge_tables(o: &mut String, x: &Extracted) -> Result<(), ExtractError> {
     let bound = |b: &(u32, Option<u32>)| -> String {
@@ -747,7 +747,7 @@ fn named_enum(
 }
 
 /// A schema enum: declared variants plus the generated `Unknown(String)` arm
-/// (62 §7 rule 2). `declared` is the full token list for the `DECLARED`
+/// (§7 rule 2). `declared` is the full token list for the `DECLARED`
 /// const (it may include a folded `unknown` token, which stays a schema fact
 /// even when it emits no arm of its own).
 fn named_enum_with_declared(
@@ -823,7 +823,7 @@ fn named_enum_with_declared(
 /// WO-05 §4.2 rule 10: a schema enum wires as the `Str` of its neutral token,
 /// and `from_token` is total — so an undeclared token survives a read inside
 /// the generated `Unknown` arm, which is what makes a new schema token a minor
-/// bump an old build can still read (62 §16.2). Generated rather than
+/// bump an old build can still read (§16.2). Generated rather than
 /// hand-written because the token table is a schema fact (ADR-0008).
 ///
 /// `CanonKey` is emitted for exactly the enums the registry uses as

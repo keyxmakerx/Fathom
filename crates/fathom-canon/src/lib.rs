@@ -1,4 +1,4 @@
-//! The canonical JSON byte contract (62 §17.1), in one place.
+//! The canonical JSON byte contract, in one place.
 //!
 //! Canonical form is a *byte* contract: object keys sorted (`BTreeMap` **is**
 //! the sort), no insignificant whitespace, one line plus one trailing LF,
@@ -7,13 +7,13 @@
 //! string, deterministically.
 //!
 //! The emitter moved here verbatim from `fathom-schemagen`, which now
-//! re-exports it: 35 §5.1 C8 asks for *"one implementation per job"*, and two
+//! re-exports it: one implementation per job, because two
 //! copies of a byte contract are two contracts as soon as one is edited.
 //!
-//! Floats are structurally excluded from the IR (11 §14.1, 12 §3.4), but the
+//! Floats are structurally excluded from the IR, but the
 //! tree itself carries them in one place — `matching:`, the residue-guard
-//! constants (11 §10.4) — and `schema.json` transcribes every tree block so
-//! the bump checker (62 §16.4) can classify every diff. The canonical float
+//! constants — and `schema.json` transcribes every tree block so
+//! the bump checker can classify every diff. The canonical float
 //! form is Rust's shortest round-trip decimal (`f64` `Display`): a pure,
 //! platform-independent function of the parsed value. Non-finite values have
 //! no JSON spelling and no way into a parsed tree.

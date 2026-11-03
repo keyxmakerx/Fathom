@@ -1,5 +1,5 @@
 //! Emitter for `schema/generated/ir_types.ts` — the TypeScript mirror for
-//! the UI boundary only, never the wire format (62 §17.1). It carries the
+//! the UI boundary only, never the wire format (§17.1). It carries the
 //! kind/edge universes, the named-enum token unions, per-kind field name
 //! lists and the field-key registry; everything richer (cards, docs,
 //! spelling maps, inline enums) is a reading of `schema.json`, deliberately
@@ -98,7 +98,7 @@ pub fn ir_types_ts(x: &Extracted) -> String {
     );
 
     // Named enums: declared tokens. Unknown tokens surface as plain strings
-    // (62 §7 rule 2's unknown arm, mirrored as the type's escape hatch).
+    // (§7 rule 2's unknown arm, mirrored as the type's escape hatch).
     o.push_str("\n// Named enums (schema/enums/): declared tokens; an undeclared token is\n");
     o.push_str("// carried as a plain string — the unknown arm's mirror (62 §7 rule 2).\n");
     for e in &x.enums {

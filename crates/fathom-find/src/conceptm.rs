@@ -1,4 +1,4 @@
-//! Matcher 3 — concept, 16 §7, with §3.3's leftmost-longest surface matching
+//! Matcher 3 — concept, §7, with §3.3's leftmost-longest surface matching
 //! and §3.4's breadth resolution.
 //!
 //! Scoring uses the pre-breadth query concepts with §7.2's one-hop traversal —

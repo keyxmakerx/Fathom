@@ -30,7 +30,7 @@ fn err<T>(msg: impl Into<String>) -> Result<T, ExtractError> {
     Err(ExtractError(msg.into()))
 }
 
-/// The closed layer vocabulary (62 §4.2; 19 §2.2).
+/// The closed layer vocabulary (§4.2; 19 §2.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Layer {
     Config,
@@ -51,8 +51,8 @@ impl Layer {
     }
 }
 
-/// The closed asserted-edge class vocabulary (62 §6.2). Derived edges have
-/// none — they live in a separate arena (62 §11.4).
+/// The closed asserted-edge class vocabulary (§6.2). Derived edges have
+/// none — they live in a separate arena (§11.4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EdgeClass {
     Containment,
@@ -68,7 +68,7 @@ impl EdgeClass {
     }
 }
 
-/// One `scalars:` row: a name bound to an impl path (62 §3.2).
+/// One `scalars:` row: a name bound to an impl path (§3.2).
 #[derive(Debug)]
 pub struct ScalarBind {
     pub name: String,
@@ -155,7 +155,7 @@ pub struct EdgeGen {
     pub doc: Vec<String>,
     pub fields: Vec<FieldGen>,
     /// The declared `from:` set with class names expanded to their members
-    /// (62 §6.2: class names admitted and expanded at codegen). Empty
+    /// (§6.2: class names admitted and expanded at codegen). Empty
     /// exactly when the set is `[root]`. Derived edges carry an empty set.
     pub from_kinds: Vec<String>,
     /// As `from_kinds`, for `to:`.
@@ -172,7 +172,7 @@ pub struct EdgeGen {
     pub since: Option<u32>,
 }
 
-/// A named enum file under `schema/enums/` (62 §7).
+/// A named enum file under `schema/enums/` (§7).
 #[derive(Debug)]
 pub struct EnumGen {
     /// File stem — the name field declarations reference (`enum(<stem>)`).
@@ -185,7 +185,7 @@ pub struct EnumGen {
 }
 
 /// An inline enum (`type: "enum { a, b }"`), named `<Owner><Field>` per
-/// 62 §7 rule 4.
+/// §7 rule 4.
 #[derive(Debug)]
 pub struct InlineEnumGen {
     pub rust_name: String,
@@ -383,7 +383,7 @@ pub fn extract(root: &Path, tree: &SchemaTree) -> Result<Extracted, ExtractError
     // ---- edges and derived edges ------------------------------------------
     // The endpoint vocabulary the `from:`/`to:` sets resolve against: kind
     // names as declared, plus class names expanded to their members
-    // (62 §6.2). Built from the gated model so the two readings cannot
+    // (§6.2). Built from the gated model so the two readings cannot
     // disagree about what a class contains.
     let kind_names: BTreeMap<&str, ()> = kinds.iter().map(|k| (k.name.as_str(), ())).collect();
     let mut class_members: BTreeMap<&str, Vec<String>> = BTreeMap::new();
@@ -453,7 +453,7 @@ pub fn extract(root: &Path, tree: &SchemaTree) -> Result<Extracted, ExtractError
             doc: doc_of(e),
             fields,
             // Derived edges carry no endpoint or bound tables: they live in a
-            // separate arena and no store writes them (62 §11.4).
+            // separate arena and no store writes them (§11.4).
             from_kinds: Vec::new(),
             to_kinds: Vec::new(),
             out_l0: (0, None),
@@ -756,7 +756,7 @@ fn endpoint_set(
     Ok((out, false))
 }
 
-/// One cardinality bound, at the L0 level (62 §6.2). Accepts a bare integer
+/// One cardinality bound, at the L0 level (§6.2). Accepts a bare integer
 /// `N`, a range `A..B` with `B` an integer or `n`, or the two-level map form
 /// `{ l0: <range>, l1: <range> }` whose `l1` entry is read and discarded here
 /// — the lower/relaxed level is not the store's to enforce (11 §7.1).

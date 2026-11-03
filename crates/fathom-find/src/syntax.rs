@@ -1,9 +1,9 @@
-//! Matcher 2 — syntax, 16 §6, in the first-cut form the spec's §6.2 permits:
+//! Matcher 2 — syntax, §6, in the first-cut form the spec's §6.2 permits:
 //! exact prefix over the sorted command-key list plus a per-token map with
 //! trigram-filtered Jaro-Winkler fuzz at distance guards. Whole-command
 //! Levenshtein runs at distance 1 only; distance 2 stays off (§6.3).
 //!
-//! Documented divergence from 16 §13 (WO-06): §6.4's token branch
+//! Documented divergence from §13 (WO-06): §6.4's token branch
 //! (`0.60·cover + 0.40·mean_jw`) carries no key-length term, so every key
 //! that aligns all five tokens of trace B's query — the bare leaf, its
 //! `detail` form, the `index ⟨n⟩ detail` form, the R09 `node all` form —
@@ -12,7 +12,7 @@
 //! leaf to lead via the longer keys' "`Ŝ_prefix` term", but §6.2's prefix
 //! score fires only for a key the query string-prefixes, and `show
 //! security ike sec assoc` prefixes none. A length tie-break is not
-//! derivable from §6 as written; the contradiction is filed in 73 §14 and
+//! derivable from §6 as written; the contradiction is filed as a spec gap and
 //! the tie is pinned by `trace_b_syntax_tie_is_pinned` (tests/golden.rs).
 //! Related, same filing: `token_matches` scores a sub-token strict prefix
 //! at jw 1.0 where §13's arithmetic carried `assoc` at 0.883 — the tie
@@ -47,7 +47,7 @@ pub struct SyntaxHit {
 }
 
 /// Jaro similarity, then Winkler's prefix boost: p = 0.1, prefix cap 4,
-/// boost only when Jaro > 0.7 (16 §6.3, pinned so it cannot drift).
+/// boost only when Jaro > 0.7 (§6.3, pinned so it cannot drift).
 pub fn jaro_winkler(a: &str, b: &str) -> f64 {
     let jaro = jaro(a, b);
     if jaro > 0.7 {
@@ -172,7 +172,7 @@ fn is_strict_prefix_of_dict(idx: &CorpusIndex, tok: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Fuzzy candidates for one query token (16 §6.3): trigram recall filter,
+/// Fuzzy candidates for one query token (§6.3): trigram recall filter,
 /// Jaro-Winkler rescoring, accept ≥ 0.86, keep the best 3.
 fn fuzzy_candidates(idx: &CorpusIndex, tok: &str) -> Vec<(String, f64)> {
     let mut counts: BTreeMap<u32, u32> = BTreeMap::new();
@@ -407,7 +407,7 @@ mod tests {
 
     #[test]
     fn worked_jaro_winkler_pairs() {
-        // 16 §6.3's hand-computed table, the design's own checkpoints.
+        // §6.3's hand-computed table, the design's own checkpoints.
         let jw = jaro_winkler("secuirty", "security");
         assert!((jw - 0.975).abs() < 0.005, "secuirty/security = {jw}");
         let jw = jaro_winkler("assoc", "associations");

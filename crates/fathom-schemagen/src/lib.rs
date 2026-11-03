@@ -1,9 +1,13 @@
-//! fathom-schemagen: 62 §17's generator.
+//! fathom-schemagen: §17's generator.
+//!
+//! Section marks follow `fathom-schema`: a bare §N is the schema spec
+//! (docs/archive/60-content/62-schema-spec.md), "11 §N" the IR schema and "19" the
+//! physical and service model, all three history now.
 //!
 //! Reads the `schema/` tree through `fathom-schema` (one parser, one gated
 //! model — this crate adds a codegen view, not a second parser), refuses to
 //! generate while any failure-severity gate fires, and deterministically
-//! emits the five generated artifacts (62 §17.1):
+//! emits the five generated artifacts (§17.1):
 //!
 //! | artifact | repo path |
 //! |---|---|
@@ -13,7 +17,7 @@
 //! | the UI-boundary mirror | `schema/generated/ir_types.ts` |
 //! | the declared migration chain | `schema/migrations/manifest.toml` |
 //!
-//! Determinism (62 §17.2), by construction and by test: output is a function
+//! Determinism (§17.2), by construction and by test: output is a function
 //! of the tree's bytes alone — no timestamps, no environment reads, no
 //! absolute paths in any output, `BTreeMap`/declaration-order iteration
 //! everywhere. `schema.codegen.stale` and `schema.codegen.nondeterministic`
@@ -132,12 +136,12 @@ pub fn generate(schema_root: &Path) -> Result<Vec<Artifact>, GenError> {
 }
 
 /// `schema.json` — canonical, content-hashed, one file for many consumers
-/// (62 §17.1): every top-level block of `schema.yaml` (kinds with fields and
+/// (§17.1): every top-level block of `schema.yaml` (kinds with fields and
 /// identity nested, edges, derived edges, scalars, classes, constraints,
 /// emission, matching, scopes, naming_eligible, and the version), plus
 /// enums, platforms, and the field-key registry. Completeness is not
 /// optional: `schema/released/` snapshots are this file, and the bump
-/// checker (62 §16.4) classifies released-snapshot diffs against §16.2's
+/// checker (§16.4) classifies released-snapshot diffs against §16.2's
 /// table — whose rows include constraint changes — so an uncarried block is
 /// a class of schema change the checker is permanently blind to. A
 /// cross-check below refuses generation if any tree block goes uncarried.
@@ -214,7 +218,7 @@ fn schema_json(x: &Extracted) -> Result<Json, GenError> {
     root.insert("schema".to_owned(), Json::Obj(schema));
 
     // The completeness cross-check: every top-level block of schema.yaml
-    // must be carried, or the released-snapshot diff (62 §16.4) is blind to
+    // must be carried, or the released-snapshot diff (§16.4) is blind to
     // a whole class of change. A new block added to the tree (and to the
     // schema.order.toplevel vocabulary) that is not also carried here is a
     // generation refusal, not a silent omission.
@@ -232,7 +236,7 @@ fn schema_json(x: &Extracted) -> Result<Json, GenError> {
     Ok(Json::Obj(root))
 }
 
-/// `schema/migrations/manifest.toml` — the declared chain (62 §17.1),
+/// `schema/migrations/manifest.toml` — the declared chain (§17.1),
 /// checked complete from 1.0 by CI once anything releases.
 fn migrations_manifest(x: &Extracted) -> String {
     let mut o = String::new();

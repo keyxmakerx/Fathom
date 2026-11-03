@@ -1,15 +1,14 @@
 //! A first-party reader for the two sections of the WebAssembly binary format
 //! the artifact audit needs: imports (id 2) and exports (id 7).
 //!
-//! 34 §7.5 and 42 §9.4 check 5 specify the audit over `wasm-objdump -x`. No
-//! such tool is in this repository and none may be added (78 §5.2), so the
+//! The audit was first specified over `wasm-objdump -x`. No such tool is in this repository and none may be added, so the
 //! audit parses the binary itself: the preamble is `\0asm` and a u32 version,
 //! then a sequence of sections, each an id byte and a LEB128 payload size.
 //! Everything below is safe Rust over a byte slice; nothing is executed.
 
-/// The committed import allowlist (34 §7.5; 42 §9.4 check 5). The only names
-/// that may ever appear here are `fathom_entropy` and `fathom_now_ms`
-/// (38 §2 G1) — and neither is needed yet: the finder draws no entropy and
+/// The committed import allowlist. The only names
+/// that may ever appear here are `fathom_entropy` and `fathom_now_ms`,
+/// and neither is needed yet: the finder draws no entropy and
 /// reads no clock, so the list is EMPTY and the audit asserts the import
 /// section is too. Growing this list is a planning decision, never a fix
 /// for a red gate.

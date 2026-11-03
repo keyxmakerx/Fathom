@@ -1,4 +1,4 @@
-//! Matcher 1 — lexical BM25F, 16 §5.2's formula with §5.3's parameters.
+//! Matcher 1 — lexical BM25F, §5.2's formula with §5.3's parameters.
 //! No transcendental arithmetic at query time: IDF is the index's quantised
 //! milli-nat value; everything here is IEEE basic ops in a fixed order.
 
@@ -17,7 +17,7 @@ pub const KAPPA: f64 = 6.0;
 /// ("one function, compiled once, used twice", §4), so a hyphenated query
 /// token does not score as three independent whole terms. The value is
 /// step 7's; the application point is not in §5.2 and is filed as a spec
-/// gap in 73 §14.
+/// gap.
 pub const W_WHOLE_MILLI: u32 = 1000;
 /// See `W_WHOLE_MILLI`.
 pub const W_SUB_MILLI: u32 = 600;
@@ -101,8 +101,8 @@ mod tests {
     use std::collections::BTreeSet;
 
     /// WO-06 MINOR 1 — the query-side weights are implementation constants
-    /// (16 §4.1 step 7's multiplier at the query side; absent from §5.2's
-    /// formula; filed in 73 §14). Pinned so any change is deliberate.
+    /// (§4.1 step 7's multiplier at the query side; absent from §5.2's
+    /// formula; filed as a spec gap). Pinned so any change is deliberate.
     #[test]
     fn query_side_weights_pinned() {
         let lex = Lexicons::new(BTreeSet::new());

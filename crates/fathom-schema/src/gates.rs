@@ -1,6 +1,6 @@
-//! The mechanically-checkable subset of 62 §18's gates.
+//! The mechanically-checkable subset of §18's gates.
 //!
-//! Codes come from 62 §18.1 (failures) and §18.2 (warnings) where the spec
+//! Codes come from §18.1 (failures) and §18.2 (warnings) where the spec
 //! names one. A finding whose code the spec does not name is emitted with a
 //! `proposed:` prefix — the gap is 62's to close, not this tool's to paper
 //! over, and a proposed code in output is a standing reminder to file it.
@@ -32,7 +32,7 @@ pub struct Finding {
     pub message: String,
 }
 
-/// 62 §2.3's fixed top-level order for schema.yaml.
+/// §2.3's fixed top-level order for schema.yaml.
 const TOPLEVEL_ORDER: [&str; 11] = [
     "schema",
     "scalars",
@@ -53,7 +53,7 @@ const TOPLEVEL_ORDER: [&str; 11] = [
 const BUILTIN_TYPES: [&str; 1] = ["NodeId"];
 
 /// Endpoint token for workspace-root containment. 11/19 write `*root*`; the
-/// tree transcribes it as `root` (a filed form gap, 62 §22).
+/// tree transcribes it as `root` (a filed form gap, §22).
 const ROOT_ENDPOINT: &str = "root";
 
 /// Rust-primitive field types, used throughout 11 §6's and 19's own field
@@ -310,7 +310,7 @@ pub fn run(tree: &SchemaTree) -> Vec<Finding> {
         }
     }
 
-    // ---- identity term gates (62 §8.2, §8.4) -------------------------------
+    // ---- identity term gates (§8.2, §8.4) -------------------------------
     for k in &tree.kinds {
         let field_names: BTreeSet<&str> = k.fields.iter().map(|f| f.name.as_str()).collect();
         let derived_fields: BTreeSet<&str> = k
@@ -320,7 +320,7 @@ pub fn run(tree: &SchemaTree) -> Vec<Finding> {
             .map(|f| f.name.as_str())
             .collect();
         for (tier, line) in &k.identity {
-            // 62 §8.1's own worked example — `[ edge_in(TunnelEndpoint via
+            // §8.1's own worked example — `[ edge_in(TunnelEndpoint via
             // IpsecVpn), side ]` — resolves the bare `side` against the named
             // edge's fields, so the tier's edge field-names join the scope.
             let mut edge_fields: BTreeSet<&str> = BTreeSet::new();
@@ -357,7 +357,7 @@ pub fn run(tree: &SchemaTree) -> Vec<Finding> {
         }
     }
 
-    // ---- schema.scope.absent-unshipped (62 §9.5's decision) ----------------
+    // ---- schema.scope.absent-unshipped (§9.5's decision) ----------------
     for s in &tree.import_scopes {
         match s.absence.as_deref() {
             Some("nothing") => {}
@@ -381,7 +381,7 @@ pub fn run(tree: &SchemaTree) -> Vec<Finding> {
         }
     }
 
-    // ---- schema.identity.unexercised (warning, 62 §18.2) -------------------
+    // ---- schema.identity.unexercised (warning, §18.2) -------------------
     for s in &tree.import_scopes {
         for kn in &s.kinds {
             let Some(kind) = tree.kinds.iter().find(|k| &k.name == kn) else {
@@ -591,7 +591,7 @@ fn check_identity_term(
         return;
     }
     if let Some(inner) = term.strip_prefix("edge(").and_then(|s| s.strip_suffix(')')) {
-        // `edge(Terminates:A)` carries an end qualifier the 62 §8.1 grammar
+        // `edge(Terminates:A)` carries an end qualifier the §8.1 grammar
         // does not have — a filed form-vs-content note in the tree. The edge
         // is resolved by the name before the qualifier.
         let name = inner.split(':').next().unwrap_or("").trim();
@@ -612,7 +612,7 @@ fn check_identity_term(
                 // which is the qualifier's whole job (the tree's filed
                 // form-vs-content note on Cable). Otherwise the tightest
                 // declared out-bound governs: relaxed L0 with tight L1 is
-                // unambiguous per hop (62 §6.2).
+                // unambiguous per hop (§6.2).
                 let qualified = inner.contains(':');
                 let bound = e.l1_out_bound.as_deref().or(e.out_bound.as_deref());
                 let tight = qualified || matches!(bound, Some("1") | Some("0..1"));

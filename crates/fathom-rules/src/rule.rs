@@ -1,6 +1,6 @@
-//! A rule: the 63 §4 document, the 12 §4 selector and the compiled condition.
+//! A rule: the rule pack document, the §4 selector and the compiled condition.
 //!
-//! Loading is where a rule is held to the pack gates (63 §19): the id matches the
+//! Loading is where a rule is held to the pack gates (rule pack spec §19): the id matches the
 //! directory, the prose is within bounds, a claim has a source or says why not, the
 //! wording avoids the forbidden words, and the condition compiles against the real schema.
 //! A rule that fails any of them does not load; there is no half-loaded rule.
@@ -61,7 +61,7 @@ pub enum Card {
     Many,
 }
 
-/// What a rule does when a field it reads has never been set (12 §2.2).
+/// What a rule does when a field it reads has never been set (§2.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OnUnset {
     /// Claim nothing about this instance. The default.

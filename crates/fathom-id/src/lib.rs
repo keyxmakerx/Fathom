@@ -1,11 +1,11 @@
 //! Identifiers: ULID over Crockford base32, and the typed id newtypes.
 //!
-//! Scope is 71 §3.3's phase-0 row: "ULID, `CommandId`, `ConceptId`, Crockford
-//! base32. Node IDs defined but unused." There is deliberately no `new()` that
+//! ULID, `CommandId`, `ConceptId`, Crockford base32, and the graph's node and
+//! edge ids. There is deliberately no `new()` that
 //! reads a clock or an RNG: invariant 9 quarantines nondeterminism at the host
 //! boundary, so a ULID is only ever constructed from parts the caller supplies
 //! (in the shipped product, via the `fathom_entropy` / `fathom_now_ms` imports
-//! — the only two the WASM core is permitted, 42 §9.4 check 5).
+//! — the only two host imports the WASM core is permitted).
 
 #![forbid(unsafe_code)]
 
@@ -148,11 +148,11 @@ macro_rules! ulid_newtype {
 }
 
 ulid_newtype! {
-    /// Graph node id (11 §3). Defined in phase 0, unused until the graph exists.
+    /// Graph node id.
     NodeId
 }
 ulid_newtype! {
-    /// Graph edge id (11 §3, ADR-0007's first-class edges).
+    /// Graph edge id (ADR-0007's first-class edges).
     EdgeId
 }
 
@@ -187,7 +187,7 @@ fn check_segment(s: &str, allow_slash: bool) -> Result<(), IdError> {
 }
 
 /// A corpus command entry id: `<platform>/<dotted.path>`, e.g.
-/// `junos-srx/ike.sa.show` (61 §3.3, as resolved by the seed corpus header F1).
+/// `junos-srx/ike.sa.show` (as resolved by the seed corpus header F1).
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct CommandId(String);
 
@@ -224,7 +224,7 @@ impl fmt::Display for CommandId {
 }
 
 /// A concept id: `concept:<dotted.path>`, e.g. `concept:p2.installed`
-/// (16 §3.1's concept layer, as spelled throughout the seed corpus).
+/// (the concept layer, as spelled throughout the seed corpus).
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct ConceptId(String);
 

@@ -371,7 +371,7 @@ impl SchemaTree {
                         from: list("from"),
                         to: list("to"),
                         // `out` is either a bare range string or a two-level
-                        // flow map `{ l0: "...", l1: "..." }` (62 §6.2).
+                        // flow map `{ l0: "...", l1: "..." }` (§6.2).
                         out_bound: e.get("out").and_then(|v| {
                             v.as_str()
                                 .map(str::to_owned)

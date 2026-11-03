@@ -1,4 +1,4 @@
-//! fex's parser: the grammar of 12 §3.4, recursive descent, depth-bounded.
+//! fex's parser: the grammar of §3.4, recursive descent, depth-bounded.
 
 use crate::lex::{err, lex, Error, Tok};
 use crate::value::Ip;
