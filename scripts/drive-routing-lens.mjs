@@ -163,6 +163,21 @@ try {
   vrfHops = await page.locator('[data-testid=trace-hop]').allInnerTexts();
   check('the same trace in the default table does not reach guest-host', !vrfHops.some((h) => h.includes('guest-host')), vrfHops.join(' // '));
 
+  // NAT (r104): the firewall's box counts its rules, and a trace through it shows the rule it applies.
+  await page.goto(`${BASE}/drive.html?scene=routing-nat`);
+  await page.waitForSelector('.react-flow__node', { timeout: 15_000 });
+  if ((await page.locator('.drawing-diagram-box').count()) === 0) await page.locator('[aria-label="Views"]').getByText('Diagram', { exact: true }).click();
+  await page.waitForSelector('.drawing-diagram-box');
+  if ((await page.getByTestId('routing-lens-key').count()) === 0) await page.getByRole('button', { name: 'Routing', exact: true }).click();
+  await page.click('button[aria-label="Fit to view"]').then(() => page.waitForTimeout(700));
+  check('edge-fw counts its NAT rules', (await word('edge-fw')).includes('NAT · 3 RULES'), await word('edge-fw'));
+  await page.screenshot({ path: SHOTS + 'routing-nat-box.png' });
+  await page.keyboard.press('Escape');
+  await traceFrom('srv-01', '203.0.113.1');
+  const natHops = await page.locator('[data-testid=trace-hop]').allInnerTexts();
+  check('the trace shows source NAT on edge-fw\'s hop, naming the rule', natHops.some((h) => h.includes('source NAT: source 10.10.11.20 becomes 203.0.113.2 (rule set inside-out, rule hide)')), natHops.join(' // '));
+  await page.screenshot({ path: SHOTS + 'routing-nat-trace.png' });
+
   check('no page errors', pageErrors.length === 0, pageErrors.join(' | '));
   console.log('    wrote ' + SHOTS + 'routing-lens-*.png');
 } finally {

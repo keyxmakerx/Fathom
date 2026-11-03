@@ -26,6 +26,7 @@ import {
   seedShowScene,
   seedRoutingScene,
   seedRoutingVrfScene,
+  seedRoutingNatScene,
   seedConflictingChange,
   seedConnectedDevices,
   seedDockerScene,
@@ -189,6 +190,7 @@ async function main() {
   else if (scene === 'show') doc = seedShowScene(catalogue, ME);
   else if (scene === 'routing') doc = seedRoutingScene(catalogue, ME);
   else if (scene === 'routing-vrf') doc = seedRoutingVrfScene(catalogue, ME);
+  else if (scene === 'routing-nat') doc = seedRoutingNatScene(catalogue, ME);
   else if (scene === 'conflict') doc = seedConflictingChange(catalogue, ME, COLLEAGUE);
   else if (scene === 'note' || scene === 'typed') doc = seedSingleDevice(catalogue, ME);
   else if (scene === 'freestanding') doc = seedFreestanding(catalogue, ME);

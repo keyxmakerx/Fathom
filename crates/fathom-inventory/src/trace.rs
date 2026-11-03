@@ -19,7 +19,8 @@
 //! IPsec (a route out of a tunnel interface such as st0 crosses to the far end of the VPN bound to
 //! it, found from a tunnel drawn in the design or from the two IKE gateways naming each other's
 //! addresses), mesh and client VPNs entered as an `OverlayNetwork` (a member's VPN address and the
-//! subnets it offers, against the device's own routes), zone pairs and their policies. Not read, and said so: learned routes, NAT, and any
+//! subnets it offers, against the device's own routes), zone pairs and their policies, and NAT (static,
+//! destination and source, in Juniper's order; see `nat.rs`). Not read, and said so: learned routes, and any
 //! policy qualifier the dictionaries do not bind (a trace lists policies as
 //! stored).
 
@@ -38,6 +39,8 @@ use fathom_ir::scalar::{IpPrefix, IpRange, Scalar};
 use fathom_ir::value::{AddressValue, L4Spec, NextHop, PeerSpec, PolicyScope};
 
 use crate::element::{display_name, parse_display_id};
+
+mod nat;
 
 /// The most hops one trace walks. A loop in the design ends here, said.
 const MAX_STEPS: usize = 24;
@@ -185,7 +188,9 @@ impl Walk<'_> {
     fn run(&mut self, from: &str, to: &str) -> Result<(), String> {
         let (mut dev, mut ingress, mut src) = self.start(from)?;
         self.start_dev = Some(dev);
-        let (dest, dest_dev) = self.end(to)?;
+        let (mut dest, mut dest_dev) = self.end(to)?;
+        // The address the flow was sent to, before any NAT on the way.
+        let sent_to = dest;
         // A source address is set only when the person gave it (an address as the start), or the start
         // interface (else the start device) holds exactly one address of the destination's family.
         if src.is_none() {
@@ -213,7 +218,35 @@ impl Walk<'_> {
             ..Hop::default()
         });
 
-        for _ in 0..MAX_STEPS {
+        for step in 0..MAX_STEPS {
+            // NAT on traffic the start device sends itself is not read: the walk translates
+            // what arrives on a device, from its first hop on.
+            let first = step == 0;
+            let mut nat_lines: Vec<String> = Vec::new();
+            if first {
+                if self.nat_rule_count(dev) > 0 {
+                    nat_lines
+                        .push("NAT on traffic this device starts itself is not read".to_owned());
+                }
+            } else {
+                match self.nat_in(dev, ingress, src, dest) {
+                    Ok(Some(a)) => {
+                        if let Some(n) = a.addr {
+                            dest = n;
+                            dest_dev = match self.holders_of(n).as_slice() {
+                                [(d, _)] => Some(*d),
+                                _ => None,
+                            };
+                        }
+                        nat_lines.push(a.line);
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        self.t.hops.push(self.arrival(dev, ingress));
+                        return Err(e);
+                    }
+                }
+            }
             // The table the flow is in on this device: the one its entry unit is in.
             let table = self.flow_table(dev, ingress);
             let holds = match table {
@@ -221,10 +254,16 @@ impl Walk<'_> {
                 Err(_) => self.owns(dev, dest) && !self.has_vrfs(dev),
             } || self.vpn_addrs(dev).contains(&dest);
             if holds || Some(dev) == dest_dev && ingress.is_some() {
+                let mut detail = nat_lines.clone();
+                detail.push(if dest == sent_to {
+                    format!("holds {dest}")
+                } else {
+                    format!("holds {dest} (sent to {sent_to})")
+                });
                 self.t.hops.push(Hop {
                     kind: "end",
                     title: display_name(self.g, dev),
-                    detail: vec![format!("holds {dest}")],
+                    detail,
                     nodes: vec![dev.to_string()],
                     why: "The address is one this device holds.".to_owned(),
                     ..Hop::default()
@@ -240,7 +279,9 @@ impl Walk<'_> {
                     .and_then(|t| self.own_cover(dev, dest, t));
                 if let Some(l) = own.filter(|l| *l > 0) {
                     let n = display_name(self.g, dev);
-                    self.t.hops.push(self.arrival(dev, ingress));
+                    let mut h = self.arrival(dev, ingress);
+                    h.detail.extend(nat_lines.iter().cloned());
+                    self.t.hops.push(h);
                     return Err(format!(
                         "{n} has a route of its own for {dest} (a /{l}), and {} offers it too; which one {n} uses depends on how the VPN client installs its routes, which is not in the design",
                         v.vpn_name
@@ -257,7 +298,9 @@ impl Walk<'_> {
                 Ok(c) => c,
                 Err(e) => {
                     // The device is on the path even though its route is not read.
-                    self.t.hops.push(self.arrival(dev, ingress));
+                    let mut h = self.arrival(dev, ingress);
+                    h.detail.extend(nat_lines.iter().cloned());
+                    self.t.hops.push(h);
                     return Err(e);
                 }
             };
@@ -269,6 +312,7 @@ impl Walk<'_> {
                         "in on {}",
                         ingress.map_or("the start".to_owned(), |u| display_name(self.g, u))
                     )];
+                    d.extend(nat_lines.iter().cloned());
                     if let Ok(Some(t)) = table {
                         d.push(format!("in VRF {}", self.table_name(Some(t))));
                     }
@@ -283,6 +327,20 @@ impl Walk<'_> {
                 ..Hop::default()
             };
             self.firewall(dev, ingress, chosen.unit, src, dest, &mut hop);
+            // Reverse static and source NAT come after the policies, which read the source as sent.
+            if !first {
+                match self.nat_out(dev, ingress, chosen.unit, src, dest) {
+                    Ok(Some(a)) => {
+                        src = a.addr;
+                        hop.detail.push(a.line);
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        self.t.hops.push(hop);
+                        return Err(e);
+                    }
+                }
+            }
             self.t.hops.push(hop);
 
             // A tunnel interface has no cable: the flow is carried to the far end of its VPN.
@@ -2038,7 +2096,10 @@ impl Walk<'_> {
                 "No policy set between these zones is in the design; could not establish what the device does with this flow".to_owned(),
             );
         }
-        hop.detail.push("NAT is not read".to_owned());
+        if self.nat_rule_count(dev) == 0 {
+            hop.detail
+                .push("No NAT rules for this device are in the design".to_owned());
+        }
         hop.detail
             .push("Policies are listed as stored; qualifiers the config uses but Fathom does not read are not shown".to_owned());
     }

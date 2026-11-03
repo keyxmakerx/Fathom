@@ -12,7 +12,7 @@ mod body {
     /// Written into every plaintext face header and checked exactly on
     /// read (17 §2.2: know you cannot read a file before doing anything
     /// else with it).
-    pub const SCHEMA_VERSION: &str = "0.38";
+    pub const SCHEMA_VERSION: &str = "0.39";
 
     /// The closed layer vocabulary (62 §4.2; 19 §2.2). Drives emit exclusion,
     /// the re-identification scope filter, the diagram layer mask and the
@@ -118,6 +118,13 @@ mod body {
         NatRuleSet,
         /// One NAT rule (11 §6.6). NatAction::Off is the explicit no-NAT rule.
         NatRule,
+        /// A NAT pool (0.39): the addresses a `NatAction::Pool` rule translates to, by the pool's
+        /// name. Junos writes `security nat destination pool P address 192.168.1.200/32 port 80`
+        /// and `security nat source pool P address 100.100.100.20/32 to 100.100.100.29/32`
+        /// (Juniper, Destination NAT topic, Examples 1 and 2; Juniper "207 source NAT", pool-based
+        /// slides; both read 2026-11-02). Source and destination pools are separate namespaces on
+        /// the device, so `nat_type` is part of what a rule's pool name means.
+        NatPool,
         /// IKE phase-1 proposal (11 §6.7). The AEAD constraint is declared in constraints:.
         IkeProposal,
         /// IKE phase-1 policy (11 §6.7).
@@ -532,9 +539,9 @@ mod body {
     }
 
     impl NodeKind {
-        pub const COUNT: usize = 93;
+        pub const COUNT: usize = 94;
         /// Every kind, declaration order.
-        pub const ALL: [NodeKind; 93] = [
+        pub const ALL: [NodeKind; 94] = [
             NodeKind::Site,
             NodeKind::Device,
             NodeKind::Chassis,
@@ -561,6 +568,7 @@ mod body {
             NodeKind::ApplicationSet,
             NodeKind::NatRuleSet,
             NodeKind::NatRule,
+            NodeKind::NatPool,
             NodeKind::IkeProposal,
             NodeKind::IkePolicy,
             NodeKind::IkeGateway,
@@ -660,6 +668,7 @@ mod body {
                 NodeKind::ApplicationSet => "ApplicationSet",
                 NodeKind::NatRuleSet => "NatRuleSet",
                 NodeKind::NatRule => "NatRule",
+                NodeKind::NatPool => "NatPool",
                 NodeKind::IkeProposal => "IkeProposal",
                 NodeKind::IkePolicy => "IkePolicy",
                 NodeKind::IkeGateway => "IkeGateway",
@@ -757,6 +766,7 @@ mod body {
                 "ApplicationSet" => Some(NodeKind::ApplicationSet),
                 "NatRuleSet" => Some(NodeKind::NatRuleSet),
                 "NatRule" => Some(NodeKind::NatRule),
+                "NatPool" => Some(NodeKind::NatPool),
                 "IkeProposal" => Some(NodeKind::IkeProposal),
                 "IkePolicy" => Some(NodeKind::IkePolicy),
                 "IkeGateway" => Some(NodeKind::IkeGateway),
@@ -860,6 +870,7 @@ mod body {
                 NodeKind::ApplicationSet => &[],
                 NodeKind::NatRuleSet => &[],
                 NodeKind::NatRule => &[],
+                NodeKind::NatPool => &[],
                 NodeKind::IkeProposal => &[],
                 NodeKind::IkePolicy => &[],
                 NodeKind::IkeGateway => &[&["owner(Device)", "name"], &["owner(Device)", "peer.address", "edge(ExternalInterface)"], &["edge_in(TunnelEndpoint via IpsecVpn)", "side"]],
@@ -958,6 +969,7 @@ mod body {
                 NodeKind::ApplicationSet => Layer::Config,
                 NodeKind::NatRuleSet => Layer::Config,
                 NodeKind::NatRule => Layer::Config,
+                NodeKind::NatPool => Layer::Config,
                 NodeKind::IkeProposal => Layer::Config,
                 NodeKind::IkePolicy => Layer::Config,
                 NodeKind::IkeGateway => Layer::Config,
@@ -1057,6 +1069,7 @@ mod body {
                 NodeKind::ApplicationSet => true,
                 NodeKind::NatRuleSet => true,
                 NodeKind::NatRule => true,
+                NodeKind::NatPool => true,
                 NodeKind::IkeProposal => true,
                 NodeKind::IkePolicy => true,
                 NodeKind::IkeGateway => true,
@@ -1156,7 +1169,8 @@ mod body {
                 NodeKind::Application => &[crate::bag::FieldKey(132), crate::bag::FieldKey(133), crate::bag::FieldKey(134), crate::bag::FieldKey(135), crate::bag::FieldKey(136)],
                 NodeKind::ApplicationSet => &[crate::bag::FieldKey(137)],
                 NodeKind::NatRuleSet => &[crate::bag::FieldKey(138), crate::bag::FieldKey(139), crate::bag::FieldKey(140), crate::bag::FieldKey(141)],
-                NodeKind::NatRule => &[crate::bag::FieldKey(142), crate::bag::FieldKey(143), crate::bag::FieldKey(144), crate::bag::FieldKey(145), crate::bag::FieldKey(146)],
+                NodeKind::NatRule => &[crate::bag::FieldKey(142), crate::bag::FieldKey(143), crate::bag::FieldKey(144), crate::bag::FieldKey(145), crate::bag::FieldKey(146), crate::bag::FieldKey(638)],
+                NodeKind::NatPool => &[crate::bag::FieldKey(639), crate::bag::FieldKey(640), crate::bag::FieldKey(641), crate::bag::FieldKey(642), crate::bag::FieldKey(643)],
                 NodeKind::IkeProposal => &[crate::bag::FieldKey(147), crate::bag::FieldKey(148), crate::bag::FieldKey(149), crate::bag::FieldKey(150), crate::bag::FieldKey(151), crate::bag::FieldKey(152)],
                 NodeKind::IkePolicy => &[crate::bag::FieldKey(153), crate::bag::FieldKey(154), crate::bag::FieldKey(155), crate::bag::FieldKey(156), crate::bag::FieldKey(157)],
                 NodeKind::IkeGateway => &[crate::bag::FieldKey(158), crate::bag::FieldKey(159), crate::bag::FieldKey(160), crate::bag::FieldKey(161), crate::bag::FieldKey(162), crate::bag::FieldKey(163), crate::bag::FieldKey(164), crate::bag::FieldKey(165), crate::bag::FieldKey(166)],
@@ -1270,6 +1284,8 @@ mod body {
         HasNatRuleSet,
         /// 11 §7.2.
         HasNatRule,
+        /// A device's NAT pools (0.39).
+        HasNatPool,
         /// 11 §7.2 — crypto objects hang off Device, not off each other; the config tree writes
         /// them as independently deletable siblings. The chain between them is reference.
         HasIkeProposal,
@@ -1635,9 +1651,9 @@ mod body {
     }
 
     impl EdgeKind {
-        pub const COUNT: usize = 131;
+        pub const COUNT: usize = 132;
         /// Every kind, declaration order.
-        pub const ALL: [EdgeKind; 131] = [
+        pub const ALL: [EdgeKind; 132] = [
             EdgeKind::HasDevice,
             EdgeKind::HasChassis,
             EdgeKind::HasRedundancyGroup,
@@ -1656,6 +1672,7 @@ mod body {
             EdgeKind::HasApplication,
             EdgeKind::HasNatRuleSet,
             EdgeKind::HasNatRule,
+            EdgeKind::HasNatPool,
             EdgeKind::HasIkeProposal,
             EdgeKind::HasIkePolicy,
             EdgeKind::HasIkeGateway,
@@ -1793,6 +1810,7 @@ mod body {
                 EdgeKind::HasApplication => "HasApplication",
                 EdgeKind::HasNatRuleSet => "HasNatRuleSet",
                 EdgeKind::HasNatRule => "HasNatRule",
+                EdgeKind::HasNatPool => "HasNatPool",
                 EdgeKind::HasIkeProposal => "HasIkeProposal",
                 EdgeKind::HasIkePolicy => "HasIkePolicy",
                 EdgeKind::HasIkeGateway => "HasIkeGateway",
@@ -1928,6 +1946,7 @@ mod body {
                 "HasApplication" => Some(EdgeKind::HasApplication),
                 "HasNatRuleSet" => Some(EdgeKind::HasNatRuleSet),
                 "HasNatRule" => Some(EdgeKind::HasNatRule),
+                "HasNatPool" => Some(EdgeKind::HasNatPool),
                 "HasIkeProposal" => Some(EdgeKind::HasIkeProposal),
                 "HasIkePolicy" => Some(EdgeKind::HasIkePolicy),
                 "HasIkeGateway" => Some(EdgeKind::HasIkeGateway),
@@ -2065,6 +2084,7 @@ mod body {
                 EdgeKind::HasApplication => EdgeClass::Containment,
                 EdgeKind::HasNatRuleSet => EdgeClass::Containment,
                 EdgeKind::HasNatRule => EdgeClass::Containment,
+                EdgeKind::HasNatPool => EdgeClass::Containment,
                 EdgeKind::HasIkeProposal => EdgeClass::Containment,
                 EdgeKind::HasIkePolicy => EdgeClass::Containment,
                 EdgeKind::HasIkeGateway => EdgeClass::Containment,
@@ -2292,6 +2312,7 @@ mod body {
                 EdgeKind::HasApplication => &[NodeKind::Device],
                 EdgeKind::HasNatRuleSet => &[NodeKind::Device],
                 EdgeKind::HasNatRule => &[NodeKind::NatRuleSet],
+                EdgeKind::HasNatPool => &[NodeKind::Device],
                 EdgeKind::HasIkeProposal => &[NodeKind::Device],
                 EdgeKind::HasIkePolicy => &[NodeKind::Device],
                 EdgeKind::HasIkeGateway => &[NodeKind::Device],
@@ -2355,7 +2376,7 @@ mod body {
                 EdgeKind::EntersAt => &[NodeKind::PathSegment],
                 EdgeKind::ExitsAt => &[NodeKind::PathSegment],
                 EdgeKind::MustTraverse => &[NodeKind::PathSegment],
-                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::Label, NodeKind::Line, NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile, NodeKind::MaintenancePlan, NodeKind::PlanStep, NodeKind::Issue, NodeKind::IssueStep, NodeKind::FirmwareTarget, NodeKind::CableRun, NodeKind::CableTie, NodeKind::OverlayNetwork, NodeKind::Lesson, NodeKind::LessonStep, NodeKind::Card, NodeKind::FloorPlan, NodeKind::Room, NodeKind::RoomCorner, NodeKind::Store, NodeKind::StockItem, NodeKind::StockLevel, NodeKind::FieldValue],
+                EdgeKind::HasLayoutPin => &[NodeKind::Site, NodeKind::Device, NodeKind::Chassis, NodeKind::RedundancyGroup, NodeKind::ExternalPeer, NodeKind::Interface, NodeKind::AggregateInterface, NodeKind::RethInterface, NodeKind::TunnelInterface, NodeKind::LogicalUnit, NodeKind::Address, NodeKind::Vlan, NodeKind::RoutingInstance, NodeKind::StaticRoute, NodeKind::LearnedRoute, NodeKind::RoutingProtocol, NodeKind::ProtocolAdjacency, NodeKind::Zone, NodeKind::PolicySet, NodeKind::SecurityPolicy, NodeKind::AddressObject, NodeKind::AddressSet, NodeKind::Application, NodeKind::ApplicationSet, NodeKind::NatRuleSet, NodeKind::NatRule, NodeKind::NatPool, NodeKind::IkeProposal, NodeKind::IkePolicy, NodeKind::IkeGateway, NodeKind::IpsecProposal, NodeKind::IpsecPolicy, NodeKind::IpsecVpn, NodeKind::TrafficSelector, NodeKind::Tunnel, NodeKind::SecurityFlowSettings, NodeKind::SystemSettings, NodeKind::NtpServer, NodeKind::SyslogTarget, NodeKind::PhysicalPort, NodeKind::Cable, NodeKind::PassiveNode, NodeKind::Premises, NodeKind::Tenant, NodeKind::Service, NodeKind::ServiceType, NodeKind::ServiceEndpoint, NodeKind::ServicePath, NodeKind::PathSegment, NodeKind::Rack, NodeKind::DhcpRelay, NodeKind::PowerSupply, NodeKind::Surface, NodeKind::Capture, NodeKind::Note, NodeKind::ContainerNetwork, NodeKind::Container, NodeKind::PublishedPort, NodeKind::Tag, NodeKind::Label, NodeKind::Line, NodeKind::Doc, NodeKind::DocLink, NodeKind::DocFile, NodeKind::MaintenancePlan, NodeKind::PlanStep, NodeKind::Issue, NodeKind::IssueStep, NodeKind::FirmwareTarget, NodeKind::CableRun, NodeKind::CableTie, NodeKind::OverlayNetwork, NodeKind::Lesson, NodeKind::LessonStep, NodeKind::Card, NodeKind::FloorPlan, NodeKind::Room, NodeKind::RoomCorner, NodeKind::Store, NodeKind::StockItem, NodeKind::StockLevel, NodeKind::FieldValue],
                 EdgeKind::HasRack => &[NodeKind::Premises],
                 EdgeKind::MountedIn => &[NodeKind::Chassis, NodeKind::PassiveNode],
                 EdgeKind::HasDhcpRelay => &[NodeKind::Device],
@@ -2428,6 +2449,7 @@ mod body {
                 EdgeKind::HasApplication => &[NodeKind::Application, NodeKind::ApplicationSet],
                 EdgeKind::HasNatRuleSet => &[NodeKind::NatRuleSet],
                 EdgeKind::HasNatRule => &[NodeKind::NatRule],
+                EdgeKind::HasNatPool => &[NodeKind::NatPool],
                 EdgeKind::HasIkeProposal => &[NodeKind::IkeProposal],
                 EdgeKind::HasIkePolicy => &[NodeKind::IkePolicy],
                 EdgeKind::HasIkeGateway => &[NodeKind::IkeGateway],
@@ -2564,6 +2586,7 @@ mod body {
                 EdgeKind::HasApplication => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasNatRuleSet => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasNatRule => EdgeCardBound { min: 0, max: None },
+                EdgeKind::HasNatPool => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasIkeProposal => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasIkePolicy => EdgeCardBound { min: 0, max: None },
                 EdgeKind::HasIkeGateway => EdgeCardBound { min: 0, max: None },
@@ -2700,6 +2723,7 @@ mod body {
                 EdgeKind::HasApplication => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::HasNatRuleSet => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::HasNatRule => EdgeCardBound { min: 1, max: Some(1) },
+                EdgeKind::HasNatPool => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::HasIkeProposal => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::HasIkePolicy => EdgeCardBound { min: 1, max: Some(1) },
                 EdgeKind::HasIkeGateway => EdgeCardBound { min: 1, max: Some(1) },
@@ -2837,6 +2861,7 @@ mod body {
                 EdgeKind::HasApplication => false,
                 EdgeKind::HasNatRuleSet => false,
                 EdgeKind::HasNatRule => false,
+                EdgeKind::HasNatPool => false,
                 EdgeKind::HasIkeProposal => false,
                 EdgeKind::HasIkePolicy => false,
                 EdgeKind::HasIkeGateway => false,
@@ -2973,6 +2998,7 @@ mod body {
                 EdgeKind::HasApplication => false,
                 EdgeKind::HasNatRuleSet => false,
                 EdgeKind::HasNatRule => false,
+                EdgeKind::HasNatPool => false,
                 EdgeKind::HasIkeProposal => false,
                 EdgeKind::HasIkePolicy => false,
                 EdgeKind::HasIkeGateway => false,
@@ -3109,6 +3135,7 @@ mod body {
                 EdgeKind::HasApplication => &[],
                 EdgeKind::HasNatRuleSet => &[],
                 EdgeKind::HasNatRule => &[],
+                EdgeKind::HasNatPool => &[],
                 EdgeKind::HasIkeProposal => &[],
                 EdgeKind::HasIkePolicy => &[],
                 EdgeKind::HasIkeGateway => &[],
@@ -4170,6 +4197,41 @@ mod body {
                 NatRuleSetNatType::Destination => "destination",
                 NatRuleSetNatType::Static => "static",
                 NatRuleSetNatType::Unknown(t) => t,
+            }
+        }
+    }
+
+    /// Inline enum on `NatPool.nat_type` (62 §7 rule 4; codegen-named).
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum NatPoolNatType {
+        Source,
+        Destination,
+        /// The generated unknown arm (62 §7 rule 2) — carries the
+        /// unrecognised token verbatim; what makes a new variant a minor
+        /// bump an old client survives (62 §16.2).
+        Unknown(String),
+    }
+
+    impl NatPoolNatType {
+        /// Declared tokens, declaration order.
+        pub const DECLARED: [&'static str; 2] = [
+            "source",
+            "destination",
+        ];
+        /// Neutral token → variant; anything undeclared lands in `Unknown`.
+        pub fn from_token(token: &str) -> NatPoolNatType {
+            match token {
+                "source" => NatPoolNatType::Source,
+                "destination" => NatPoolNatType::Destination,
+                other => NatPoolNatType::Unknown(other.to_owned()),
+            }
+        }
+        /// The neutral token (the carried one for `Unknown`).
+        pub fn token(&self) -> &str {
+            match self {
+                NatPoolNatType::Source => "source",
+                NatPoolNatType::Destination => "destination",
+                NatPoolNatType::Unknown(t) => t,
             }
         }
     }
@@ -6821,6 +6883,18 @@ mod body {
         }
     }
 
+    impl crate::canon::CanonicalValue for NatPoolNatType {
+        fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
+            Ok(fathom_canon::Json::Str(self.token().to_owned()))
+        }
+        fn from_canon(j: &fathom_canon::Json) -> Result<Self, crate::canon::CanonError> {
+            match j {
+                fathom_canon::Json::Str(t) => Ok(NatPoolNatType::from_token(t)),
+                _ => Err(crate::canon::CanonError::Shape { expected: "a schema enum token" }),
+            }
+        }
+    }
+
     impl crate::canon::CanonicalValue for IkePolicyMode {
         fn to_canon(&self) -> Result<fathom_canon::Json, crate::canon::CanonError> {
             Ok(fathom_canon::Json::Str(self.token().to_owned()))
@@ -8649,17 +8723,19 @@ mod body {
         MatchSource,
         MatchDestination,
         Then,
+        MatchDestinationPort,
     }
 
     impl NatRuleField {
-        pub const COUNT: usize = 5;
+        pub const COUNT: usize = 6;
         /// Every field, declaration order.
-        pub const ALL: [NatRuleField; 5] = [
+        pub const ALL: [NatRuleField; 6] = [
             NatRuleField::Name,
             NatRuleField::Ordinal,
             NatRuleField::MatchSource,
             NatRuleField::MatchDestination,
             NatRuleField::Then,
+            NatRuleField::MatchDestinationPort,
         ];
         /// Dense index, declaration order — the `EnumMap` key.
         pub const fn index(self) -> usize { self as usize }
@@ -8671,6 +8747,7 @@ mod body {
                 NatRuleField::MatchSource => "match_source",
                 NatRuleField::MatchDestination => "match_destination",
                 NatRuleField::Then => "then",
+                NatRuleField::MatchDestinationPort => "match_destination_port",
             }
         }
         /// The stable wire key (`schema/field-keys.yaml`).
@@ -8681,6 +8758,51 @@ mod body {
                 NatRuleField::MatchSource => crate::bag::FieldKey(144),
                 NatRuleField::MatchDestination => crate::bag::FieldKey(145),
                 NatRuleField::Then => crate::bag::FieldKey(146),
+                NatRuleField::MatchDestinationPort => crate::bag::FieldKey(638),
+            }
+        }
+    }
+
+    /// Fields of kind `NatPool`, declaration order, keyed by the wire registry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum NatPoolField {
+        Name,
+        NatType,
+        Address,
+        AddressTo,
+        Port,
+    }
+
+    impl NatPoolField {
+        pub const COUNT: usize = 5;
+        /// Every field, declaration order.
+        pub const ALL: [NatPoolField; 5] = [
+            NatPoolField::Name,
+            NatPoolField::NatType,
+            NatPoolField::Address,
+            NatPoolField::AddressTo,
+            NatPoolField::Port,
+        ];
+        /// Dense index, declaration order — the `EnumMap` key.
+        pub const fn index(self) -> usize { self as usize }
+        /// The declared field name.
+        pub const fn name(self) -> &'static str {
+            match self {
+                NatPoolField::Name => "name",
+                NatPoolField::NatType => "nat_type",
+                NatPoolField::Address => "address",
+                NatPoolField::AddressTo => "address_to",
+                NatPoolField::Port => "port",
+            }
+        }
+        /// The stable wire key (`schema/field-keys.yaml`).
+        pub const fn key(self) -> crate::bag::FieldKey {
+            match self {
+                NatPoolField::Name => crate::bag::FieldKey(639),
+                NatPoolField::NatType => crate::bag::FieldKey(640),
+                NatPoolField::Address => crate::bag::FieldKey(641),
+                NatPoolField::AddressTo => crate::bag::FieldKey(642),
+                NatPoolField::Port => crate::bag::FieldKey(643),
             }
         }
     }
@@ -12412,7 +12534,7 @@ mod body {
     /// The field-key registry, declaration order (62 §17.1): stable integer
     /// keys per field, append-only, keys never reused. Mirrored in
     /// `schema.json`; the wire format's field addressing (11 §14.1).
-    pub const FIELD_KEYS: [(&str, u32); 572] = [
+    pub const FIELD_KEYS: [(&str, u32); 578] = [
         ("Site.name", 1),
         ("Site.code", 2),
         ("Site.address", 3),
@@ -12985,17 +13107,24 @@ mod body {
         ("IpamAsn.folder", 635),
         ("IpamAsn.note", 636),
         ("MaintenancePlan.team", 637),
+        ("NatRule.match_destination_port", 638),
+        ("NatPool.name", 639),
+        ("NatPool.nat_type", 640),
+        ("NatPool.address", 641),
+        ("NatPool.address_to", 642),
+        ("NatPool.port", 643),
     ];
 
     /// Every field key the schema declares at `card: "1"`, packed one bit
     /// per key, least-significant bit first. Read it through [`field_required`];
     /// the array is public only so a test can pin its length.
-    pub const FIELD_REQUIRED_BITS: [u8; 80] = [
+    pub const FIELD_REQUIRED_BITS: [u8; 81] = [
         0xc2, 0x00, 0x46, 0x08, 0x03, 0x02, 0x82, 0x09, 0x8c, 0x0c, 0x02, 0x0f, 0x00, 0x04, 0x76, 0x80,
         0x25, 0xde, 0x0c, 0x42, 0x80, 0x20, 0xa1, 0x23, 0x00, 0x12, 0x80, 0x00, 0x46, 0xa0, 0x10, 0xd8,
         0xc3, 0x30, 0x06, 0x06, 0x40, 0xf0, 0x13, 0xc8, 0xc1, 0x6d, 0x8e, 0xa3, 0xfb, 0x1d, 0x59, 0x64,
         0xc0, 0xe6, 0x64, 0xc0, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x41, 0x38, 0x00, 0x10,
-        0x81, 0x9e, 0x10, 0x30, 0x00, 0x00, 0x14, 0x45, 0x87, 0x8e, 0x02, 0xc0, 0x40, 0x3c, 0x8e, 0x00,
+        0x81, 0x9e, 0x10, 0x30, 0x00, 0x00, 0x14, 0x45, 0x87, 0x8e, 0x02, 0xc0, 0x40, 0x3c, 0x8e, 0x80,
+        0x01,
     ];
 
     /// Whether `schema/schema.yaml` declares this field `card: "1"` —

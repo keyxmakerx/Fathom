@@ -210,3 +210,44 @@ fn a_route_out_of_st0_crosses_to_the_other_pasted_site() {
     );
     assert_eq!(hops[3].strings[2], "srx-site-b");
 }
+
+/// NAT read from a paste and applied on the walk (sign-off r104). Site B publishes 10.2.0.100 to
+/// the VPN and sends it on to its own 10.2.0.1, in the statement shapes Juniper's Destination NAT
+/// topic prints (Example 1, read 2026-11-02). The trace from site A crosses st0, takes the NAT
+/// line on site B's hop, and ends at the translated address.
+#[test]
+fn destination_nat_from_a_paste_moves_the_end_of_the_walk() {
+    let site_b_nat = format!(
+        "{SITE_B}\
+set security zones security-zone vpn interfaces st0.0
+set security nat destination pool web address 10.2.0.1/32
+set security nat destination rule-set from-vpn from zone vpn
+set security nat destination rule-set from-vpn rule web match destination-address 10.2.0.100/32
+set security nat destination rule-set from-vpn rule web then destination-nat pool web
+"
+    );
+    let mut shell = common::booted_shell();
+    let a = face(&shell.handle(OP_PASTE, &frame_with(SITE_A, ENTROPY)));
+    let device_a = a.first().expect("a head").strings[5].clone();
+    let b = face(&shell.handle(OP_PASTE, &frame_with(&site_b_nat, ENTROPY + (1 << 40))));
+    assert_eq!(b[0].role, FACE_PASTE);
+
+    let rows = trace(&mut shell, &device_a, "10.2.0.100", "");
+    let head = &rows[0];
+    assert_eq!(head.strings[3], "", "the trace ends: {}", head.strings[3]);
+    let hops: Vec<&FaceRowView> = rows.iter().filter(|r| r.role == FACE_TR_HOP).collect();
+    let end = hops.last().expect("an end hop");
+    assert_eq!(end.strings[1], "end");
+    assert_eq!(end.strings[2], "srx-site-b");
+    assert!(
+        end.strings[3]
+            .contains("destination NAT: 10.2.0.100 becomes 10.2.0.1 (rule set from-vpn, rule web)"),
+        "{}",
+        end.strings[3]
+    );
+    assert!(
+        end.strings[3].contains("holds 10.2.0.1 (sent to 10.2.0.100)"),
+        "{}",
+        end.strings[3]
+    );
+}

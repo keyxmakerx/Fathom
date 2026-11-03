@@ -1164,3 +1164,44 @@ export function seedRoutingVrfScene(catalogue: CatalogueModel[], me: string): Do
   addEdge(b, 'InRoutingInstance', edgesOut(working, iface.id, 'HasUnit')[0]!.to, guestTable);
   return finish(b, 'VRF guest on edge-fw');
 }
+
+/** The Routing lens's scene with NAT on edge-fw (sign-off r104): zone inside on its link to core-sw,
+ * zone outside on its internet port. Source NAT hides 10.10.0.0/16 behind the outside interface;
+ * destination NAT publishes 203.0.113.2 port 443 to srv-01, and a second rule says not to translate
+ * the NAS. Three rules, so the box reads `NAT · 3 RULES`. */
+export function seedRoutingNatScene(catalogue: CatalogueModel[], me: string): Document {
+  const working = seedRoutingScene(catalogue, me);
+  const ch = firstRack(working, catalogue).chassis.find((c) => c.hostname === 'edge-fw')!;
+  const fwDevice = ch.deviceId;
+  const ports = ch.ports.filter((p) => p.connector.toLowerCase() === 'rj45').sort((x, y) => naturalLabelCompare(x.label, y.label));
+  const unitOf = (label: string) => {
+    const iface = edgesOut(working, fwDevice, 'HasInterface').map((e) => findNode(working, e.to)!).find((n) => n.fields['Interface.name']?.value === label)!;
+    return edgesOut(working, iface.id, 'HasUnit')[0]!.to;
+  };
+  const b = begin(working, { actor: me });
+  const zone = (name: string, unit: string) => {
+    const z = addNode(b, 'Zone', { 'Zone.name': identifier(name) });
+    addEdge(b, 'HasZone', fwDevice, z);
+    addEdge(b, 'ZoneMember', z, unit);
+    return parseNodeId(z).ulid;
+  };
+  const outside = zone('outside', unitOf(ports[0]!.label));
+  const inside = zone('inside', unitOf(ports[1]!.label));
+  const ruleSet = (name: string, type: string, scope: Record<string, unknown>) => {
+    const s = addNode(b, 'NatRuleSet', { 'NatRuleSet.name': identifier(name), 'NatRuleSet.nat_type': token(type), ...scope });
+    addEdge(b, 'HasNatRuleSet', fwDevice, s);
+    return s;
+  };
+  const rule = (set: string, ordinal: number, name: string, fields: Record<string, unknown>) => {
+    const r = addNode(b, 'NatRule', { 'NatRule.name': identifier(name), 'NatRule.ordinal': ordinal, ...fields });
+    addEdge(b, 'HasNatRule', set, r);
+  };
+  const out = ruleSet('inside-out', 'source', { 'NatRuleSet.from': { zone: inside }, 'NatRuleSet.to': { zone: outside } });
+  rule(out, 0, 'hide', { 'NatRule.match_source': ['10.10.0.0/16'], 'NatRule.then': 'interface' });
+  const pool = addNode(b, 'NatPool', { 'NatPool.name': identifier('web'), 'NatPool.nat_type': token('destination'), 'NatPool.address': '10.10.11.20/32', 'NatPool.port': '443' });
+  addEdge(b, 'HasNatPool', fwDevice, pool);
+  const inbound = ruleSet('from-internet', 'destination', { 'NatRuleSet.from': { zone: outside } });
+  rule(inbound, 0, 'web', { 'NatRule.match_destination': ['203.0.113.2/32'], 'NatRule.match_destination_port': ['443'], 'NatRule.then': { pool: 'web' } });
+  rule(inbound, 1, 'keep-nas', { 'NatRule.match_destination': ['10.10.11.30/32'], 'NatRule.then': 'off' });
+  return finish(b, 'NAT on edge-fw');
+}

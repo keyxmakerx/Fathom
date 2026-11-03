@@ -4,7 +4,7 @@
 # Top-level key order is fixed and validated (62 §2.3). New declarations are appended to their block.
 
 schema:
-  version: "0.38"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
+  version: "0.39"    # 0.1 was one minor bump from an empty baseline (19 §7.5, 62 §16.1 — 62's
                     # "3.2" is explicitly illustrative). 0.2 added physical placement
                     # (ADR-0035), priced against 62 §16.2's table item by item: one new node
                     # kind (Rack, minor), two new edge kinds (HasRack, MountedIn, minor),
@@ -421,6 +421,14 @@ schema:
                     # its server id (field key 637). Its lead or supervisor approves the plan
                     # where a folder asks for approval. Nothing removed, retyped or reordered.
                     # Whole change = MINOR. The reader still opens 0.10 to 0.37.
+                    #
+                    # 0.39 is NAT on firewalls (sign-off r104, round 3 of the routing build
+                    # order, 2026-11-02): one new kind, NatPool (a source or destination NAT
+                    # pool, which NatAction::Pool names), its containment edge HasNatPool, and
+                    # one optional field on NatRule, match_destination_port. Six field keys
+                    # (638-643). 62 §16.2: a new node kind, a new edge kind and an optional
+                    # field are each minor. Whole change = MINOR. The reader still opens 0.10
+                    # to 0.38.
 
 scalars:
   # ---- 11 §4.3 catalogue, bound row for row (62 §3.2). Meanings are 11's; impl paths are the
@@ -571,6 +579,7 @@ classes:
       - ApplicationSet
       - NatRuleSet
       - NatRule
+      - NatPool
       - IkeProposal
       - IkePolicy
       - IkeGateway
@@ -1225,7 +1234,26 @@ kinds:
       - { name: match_source, type: IpPrefix, card: "0..n", emit: O }
       - { name: match_destination, type: IpPrefix, card: "0..n", emit: O }
       - { name: then, type: NatAction, card: "1", emit: R, doc: Interface / Pool / Off / Static. }
+      - { name: match_destination_port, type: L4Port, card: "0..n", emit: O, doc: "0.39. Junos `rule R match destination-port 80` (Juniper, Destination NAT topic, Example 2, read 2026-11-02)." }
     identity: []    # VERIFY: no identity tuple stated in 11 §10.3 for NatRule.
+
+  - kind: NatPool
+    layer: config
+    emits: true
+    doc: |
+      A NAT pool (0.39): the addresses a `NatAction::Pool` rule translates to, by the pool's
+      name. Junos writes `security nat destination pool P address 192.168.1.200/32 port 80`
+      and `security nat source pool P address 100.100.100.20/32 to 100.100.100.29/32`
+      (Juniper, Destination NAT topic, Examples 1 and 2; Juniper "207 source NAT", pool-based
+      slides; both read 2026-11-02). Source and destination pools are separate namespaces on
+      the device, so `nat_type` is part of what a rule's pool name means.
+    fields:
+      - { name: name, type: Identifier, card: "1", emit: R }
+      - { name: nat_type, type: "enum { source, destination }", card: "1", emit: R }
+      - { name: address, type: IpPrefix, card: "0..1", emit: O, doc: "The pool's address, or the first of a range." }
+      - { name: address_to, type: IpPrefix, card: "0..1", emit: O, doc: "The last address of a range, as Junos writes it (`address 100.100.100.20/32 to 100.100.100.29/32`)." }
+      - { name: port, type: L4Port, card: "0..1", emit: O, doc: "A destination pool's port (`address A port 80`)." }
+    identity: []    # VERIFY: as NatRuleSet and NatRule; the binder keys a pool by its type and name.
 
   # ======================= config layer — 11 §6.7 crypto and VPN kinds =======================
   - kind: IkeProposal
@@ -2899,6 +2927,17 @@ edges:
     fields: []
     emit_dict: null
     doc: 11 §7.2.
+  - edge: HasNatPool
+    class: containment
+    from: [Device]
+    to: [NatPool]
+    out: "0..n"
+    in: "1"
+    reverse_index: true
+    symmetric: false
+    fields: []
+    emit_dict: null
+    doc: A device's NAT pools (0.39).
   - edge: HasIkeProposal
     class: containment
     from: [Device]
