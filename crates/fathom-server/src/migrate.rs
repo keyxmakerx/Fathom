@@ -545,11 +545,18 @@ pub async fn run(client: &mut Client) -> Result<u32, MigrateError> {
     }
 }
 
-/// `CREATE ROLE` lost a race with another database's migration.
+/// `CREATE ROLE` lost a race with another database's migration. It loses in
+/// one of two ways: while the winner's transaction is still open, as a unique
+/// violation on `pg_authid`; or after the winner committed but past this
+/// transaction's "role missing?" check, as "role ... already exists"
+/// (42710, raised by PostgreSQL's `CreateRole`; seen on main's CI 2026-11-03,
+/// run 41573203757, once the Rust tests ran in more databases at once).
 fn is_role_race(e: &tokio_postgres::Error) -> bool {
+    use tokio_postgres::error::SqlState;
     e.as_db_error().is_some_and(|d| {
-        d.code() == &tokio_postgres::error::SqlState::UNIQUE_VIOLATION
-            && d.constraint() == Some("pg_authid_rolname_index")
+        (d.code() == &SqlState::UNIQUE_VIOLATION
+            && d.constraint() == Some("pg_authid_rolname_index"))
+            || (d.code() == &SqlState::DUPLICATE_OBJECT && d.routine() == Some("CreateRole"))
     })
 }
 
