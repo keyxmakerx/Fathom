@@ -269,7 +269,13 @@ export function readPlain(bytes: Uint8Array): Document {
     throw new PlainError({ kind: 'missing-plaintext-banner' });
   }
 
-  const line3 = decoder.decode(header[2]);
+  // Strict UTF-8 here, as `read_plain` is: line 3 is compared, never shown.
+  let line3: string;
+  try {
+    line3 = new TextDecoder('utf-8', { fatal: true }).decode(header[2]);
+  } catch {
+    throw new PlainError({ kind: 'malformed-header', line: 3 });
+  }
   if (!line3.startsWith('schema ')) {
     throw new PlainError({ kind: 'malformed-header', line: 3 });
   }

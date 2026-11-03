@@ -3,6 +3,10 @@
 //! in-memory finder index (16 §9 at seed scale), and runs the mechanically-
 //! checkable subset of 61 §14's gates as an inventory.
 //!
+//! Section marks in this crate are archived specs this crate was built from, history now:
+//! `61` is the command corpus spec (docs/archive/60-content/61-command-corpus-spec.md), `16`
+//! the command finder (docs/archive/10-core/16-command-finder.md), `14` parsers and ingest.
+//!
 //! Nothing here ships anything: gates report, they do not fail the build.
 //! Determinism is an invariant — no hash maps, no clocks, no RNG, no
 //! transcendental math at query time (idf/icf are precomputed via a
