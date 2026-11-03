@@ -892,3 +892,35 @@
 .plans-btn--warn:hover:not(:disabled) {
   background: var(--danger-wash);
 }
+
+/* Other open work on the same devices (sign-off r105). Caution, never a cable colour. */
+.plans-clashes {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--caution);
+}
+
+.plans-clashes__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plans-clash__offer {
+  margin-left: 6px;
+}
+
+.plans-clashes__move {
+  margin-top: 6px;
+}
+
+.plans-clash-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--caution);
+}

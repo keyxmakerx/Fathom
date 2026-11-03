@@ -32,6 +32,7 @@ mod inventory;
 mod rack;
 mod render;
 mod trace;
+mod work;
 
 pub use author::{is_authorable, parse_into_slot, AuthorError};
 #[cfg(feature = "demo-estate")]
@@ -46,3 +47,7 @@ pub use inventory::{column_keys, columns, rows, InvKind, Row};
 pub use rack::{elevation, rack_label, Elevation, Slot};
 pub use render::field_text;
 pub use trace::{trace, trace_in, Flow, Hop, PolicyLine, Trace};
+pub use work::{
+    plan_clashes, plan_span, running_on, window_span, window_text, Clash, ClashKind, PlanClashes,
+    Running, Span,
+};

@@ -24,6 +24,7 @@ use crate::{
     OP_EQUIPMENT, OP_EQUIP_ADD, OP_EXPORT_PLAIN, OP_FIELD_SET, OP_FINDINGS, OP_INIT, OP_INSIDE,
     OP_INV_ROWS, OP_LINK, OP_LOAD_PLAIN, OP_PASTE, OP_PASTE_INTO, OP_PLACE, OP_PLAN_PREVIEW,
     OP_QUERY, OP_RACK_ELEVATION, OP_RACK_PLACE, OP_REDACT_TEXT, OP_SYNC, OP_TRACE, OP_VAULT_KDF,
+    OP_WORK_CLASHES,
 };
 
 pub struct Shell {
@@ -82,6 +83,7 @@ impl Shell {
             OP_PASTE_INTO => self.paste_into(req),
             OP_REDACT_TEXT => self.redact_text(req),
             OP_VAULT_KDF => crate::vaultkdf::call(req),
+            OP_WORK_CLASHES => self.work_clashes(req),
             OP_LOAD_PLAIN => self.load_plain(req),
             OP_SYNC => self.sync(req),
             OP_EXPORT_PLAIN => self.export_plain(req),
@@ -1926,6 +1928,30 @@ impl Shell {
             self.checks.unfinished,
         );
         protocol::encode_checks_reply(Some(head), &rows)
+    }
+
+    /// `OP_WORK_CLASHES`: other open work on a plan's devices, or the plans under way on a device.
+    /// Reads only; frame in [`crate::OP_WORK_CLASHES`].
+    fn work_clashes(&mut self, req: &[u8]) -> Vec<u8> {
+        use fathom_ir::generated::ir_types::NodeKind;
+        let Some(estate) = self.estate.as_ref() else {
+            return protocol::encode_error(ERR_NOT_INITIALISED, "no estate loaded");
+        };
+        let Some((&mode, id)) = req.split_first() else {
+            return protocol::encode_running_reply(&[]);
+        };
+        let node = core::str::from_utf8(id)
+            .ok()
+            .and_then(|id| self.resolve_node(id));
+        match (mode, node) {
+            (0, Some(n)) if n.kind == NodeKind::MaintenancePlan => {
+                protocol::encode_clashes_reply(&fathom_inventory::plan_clashes(estate, n))
+            }
+            (1, Some(n)) => {
+                protocol::encode_running_reply(&fathom_inventory::running_on(estate, n))
+            }
+            _ => protocol::encode_running_reply(&[]),
+        }
     }
 
     /// `OP_PLAN_PREVIEW`: the plan's remaining steps applied in order to a scratch copy of the

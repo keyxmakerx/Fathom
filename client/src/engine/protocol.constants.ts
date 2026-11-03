@@ -54,6 +54,8 @@ export const OPCODES = {
   OP_TRACE: 36,
   /** ADR-0043 §6: Argon2id over a vault passphrase with the vault key as its secret input. */
   OP_VAULT_KDF: 37,
+  /** Sign-off r105: other open work on a plan's devices (mode 0), or plans under way on a device (mode 1). */
+  OP_WORK_CLASHES: 38,
 } as const;
 
 /** `protocol.rs`'s face role bytes — one `KIND_FACE_ROW` (5) record kind,
@@ -103,6 +105,14 @@ export const FACES = {
   /** ADR-0061 §5: one finding. */
   FACE_CHECK: 33,
   FACE_PLAN_STEP: 34,
+  /** `OP_WORK_CLASHES` on a plan, record 0: a free window for it, or two empty strings. */
+  FACE_CLASH_HEAD: 39,
+  /** One clash: kind, id, title, stage, devices, ports, window start, window end. */
+  FACE_CLASH: 40,
+  /** Who has the clash before it, and a window for them after mine. */
+  FACE_CLASH_WHO: 41,
+  /** `OP_WORK_CLASHES` on a device: a plan under way there and its finished steps. */
+  FACE_RUNNING: 42,
 } as const;
 
 /** `protocol.rs`'s `ERR_*` codes carried on a `KIND_ERROR` (0) reply. */

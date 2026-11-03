@@ -438,3 +438,15 @@
 .issue-page__outcome {
   font-weight: 700;
 }
+
+/* A plan under way on this device (sign-off r105): caution, never a cable colour. */
+.trouble-running {
+  margin: var(--s2) 0;
+  padding: 8px 10px;
+  border: 1px solid var(--caution);
+}
+
+.trouble-running__steps {
+  margin: 4px 0;
+  padding-left: 20px;
+}

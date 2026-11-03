@@ -162,6 +162,10 @@ fn opcodes() -> Vec<Entry> {
             name: "OP_VAULT_KDF",
             code: m::OP_VAULT_KDF,
         },
+        Entry {
+            name: "OP_WORK_CLASHES",
+            code: m::OP_WORK_CLASHES,
+        },
     ]
 }
 
@@ -636,6 +640,44 @@ fn faces() -> Vec<FaceEntry> {
             name: "FACE_PLAN_STEP",
             code: p::FACE_PLAN_STEP as u32,
             columns: &["step", "ordinal", "error", "impact", "touches", "", "", ""],
+        },
+        FaceEntry {
+            name: "FACE_CLASH_HEAD",
+            code: p::FACE_CLASH_HEAD as u32,
+            columns: &["free_start", "free_end", "", "", "", "", "", ""],
+        },
+        FaceEntry {
+            name: "FACE_CLASH",
+            code: p::FACE_CLASH as u32,
+            columns: &[
+                "kind",
+                "id",
+                "title",
+                "stage",
+                "devices",
+                "ports",
+                "window_start",
+                "window_end",
+            ],
+        },
+        FaceEntry {
+            name: "FACE_CLASH_WHO",
+            code: p::FACE_CLASH_WHO as u32,
+            columns: &[
+                "team",
+                "assigned_to",
+                "author",
+                "theirs_start",
+                "theirs_end",
+                "",
+                "",
+                "",
+            ],
+        },
+        FaceEntry {
+            name: "FACE_RUNNING",
+            code: p::FACE_RUNNING as u32,
+            columns: &["plan", "steps", "", "", "", "", "", ""],
         },
     ]
 }

@@ -68,6 +68,8 @@ function stub(over: Partial<TroubleController> = {}): TroubleController {
     confirmingClose: false,
     issues: [],
     issuesOf: () => [],
+    runningHere: [],
+    openPlan: noop,
     start: () => true,
     openIssue: noop,
     focusStep: noop,
@@ -482,5 +484,22 @@ describe('the Issue page', () => {
     const html = renderToStaticMarkup(createElement(IssuesList, { doc, onShowOnCanvas: () => {} }));
     expect(html).toContain('tabindex="0"');
     expect(html).toContain('aria-label="Open nas-01 is down"');
+  });
+});
+
+describe('a plan running on the device (sign-off r105)', () => {
+  it('puts the plan and its finished steps there at the top, and says nothing when none is running', () => {
+    const { draft } = drafted();
+    const step = { id: 'plan-step:S', label: '2', change: 'Cut the cable on Gi1/0/48\nmore', state: 'done', doneAt: '2026-11-04T22:14:00' };
+    const plan = { id: 'maintenance-plan:P', title: 'Move uplinks', stage: 'doing', steps: [{ ...step, label: '1', state: 'done' }, step, { ...step, id: 'plan-step:T', label: '3', state: 'planned' }] };
+    const runningHere = [{ plan, steps: [step] }] as unknown as TroubleController['runningHere'];
+    const html = renderToStaticMarkup(createElement(TroublePanel, { controller: stub({ draft, focus: 0, runningHere }), besideChecks: false }));
+    expect(html).toContain('A plan is running here.');
+    expect(html).toContain('Move uplinks');
+    expect(html).toContain('step 3 of 3');
+    expect(html).toContain('Step 2: Cut the cable on Gi1/0/48');
+    expect(html).not.toContain('more');
+    expect(html).toContain('Check these first.');
+    expect(renderToStaticMarkup(createElement(TroublePanel, { controller: stub({ draft, focus: 0 }), besideChecks: false }))).not.toContain('trouble-running');
   });
 });

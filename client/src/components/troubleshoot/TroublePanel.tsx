@@ -9,6 +9,7 @@ import type { Answer, Issue } from '../../document/issues';
 import { isTypingTarget } from '../checks/checksModel';
 import { Glossed } from '../learn/Glossed';
 import { TypedSentence, isPasteInput, usePasteMark } from '../plans/PlanParts';
+import { firstLine, progress } from '../plans/plansModel';
 import { ANSWER_WORD, GLYPH, answerForKey, answered, headerText, planFixState, pointOf, whenText, type Draft, type DraftStepState } from './troubleModel';
 import type { TroubleController } from './useTroubleController';
 import '../plans/plans.css';
@@ -276,9 +277,48 @@ function Footer({ draft, controller }: { draft: Draft; controller: TroubleContro
   );
 }
 
+/** A plan under way on this device: the first thing to suspect (sign-off r105 "trouble" A). Its finished steps on
+ * the device, newest first, so a cable cut ten minutes ago is at the top. */
+function RunningHereBlock({ controller }: { controller: TroubleController }) {
+  if (controller.runningHere.length === 0) return null;
+  return (
+    <section className="trouble-running" aria-label="A plan is running here" data-testid="trouble-running">
+      {controller.runningHere.map(({ plan, steps }) => {
+        const p = progress(plan);
+        return (
+          <div key={plan.id}>
+            <p>
+              <strong>A plan is running here.</strong>{' '}
+              <button type="button" className="trouble-link" onClick={() => controller.openPlan(plan.id)}>
+                {plan.title}
+              </button>
+              , step {p.at} of {p.total}.
+            </p>
+            {steps.length > 0 ? (
+              <ul className="trouble-running__steps">
+                {steps.map((st) => (
+                  <li key={st.id}>
+                    Step {st.label}
+                    {st.state === 'went_differently' ? ' went differently' : ''}: {firstLine(st.change)}
+                    {st.doneAt !== '' && <span className="trouble-hint"> · {whenText(st.doneAt)}</span>}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="trouble-hint">No step on this device is marked yet.</p>
+            )}
+            {steps.length > 0 && <p className="trouble-hint">Check these first.</p>}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
 function DraftBody({ draft, controller, onTie }: { draft: Draft; controller: TroubleController; onTie?: (deviceId: string) => void }) {
   return (
     <>
+      <RunningHereBlock controller={controller} />
       {draft.from != null && (
         <p className="trouble-hint" data-testid="trouble-from">
           From {draft.from.said}

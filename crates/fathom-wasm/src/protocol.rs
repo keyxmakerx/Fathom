@@ -245,6 +245,20 @@ pub const FACE_TR_HOP: u8 = 36;
 pub const FACE_TR_POL: u8 = 37;
 /// `OP_VAULT_KDF`'s one row: the derived 32 bytes as 64 lowercase hex characters.
 pub const FACE_VAULT_KEY: u8 = 38;
+/// `OP_WORK_CLASHES` on a plan, record 0: the earliest window at or after the plan's own, of the
+/// same length, that meets no other open plan on its devices: `<start> <end>`, both empty when
+/// there is none to offer.
+pub const FACE_CLASH_HEAD: u8 = 39;
+/// One clash: `<plan or issue> <display id> <title> <stage> <devices: display id TAB name, one per
+/// line> <ports, the same> <window start> <window end>`.
+pub const FACE_CLASH: u8 = 40;
+/// Who has the clash before it, and what the plan's owner can offer them: `<team id>
+/// <assigned to> <author> <their window start after mine> <its end>` (the last two empty when
+/// either window is open).
+pub const FACE_CLASH_WHO: u8 = 41;
+/// `OP_WORK_CLASHES` on a device: `<plan display id> <its finished steps there, newest first,
+/// display ids one per line>`.
+pub const FACE_RUNNING: u8 = 42;
 
 // --- the shape reply (`49` §19 phase 0, item 3) ---
 
@@ -1659,6 +1673,71 @@ pub struct RedactReply<'a> {
     pub capture: &'a str,
     /// [`FACE_DROP`] rows, one per destroyed value, as `PasteReply::drops`.
     pub drops: &'a [[String; 5]],
+}
+
+/// `OP_WORK_CLASHES` on a plan.
+pub fn encode_clashes_reply(c: &fathom_inventory::PlanClashes) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+    let pair = |p: &Option<(String, String)>| p.clone().unwrap_or_default();
+    let (fs, fe) = pair(&c.mine_free);
+    let rec = face_slots(&mut blob, FACE_CLASH_HEAD, 2, &[&fs, &fe]);
+    write_face_record(&mut records, &rec);
+    let mut count = 1usize;
+    let joined = |v: &[(String, String)]| {
+        v.iter()
+            .map(|(id, name)| format!("{id}\t{name}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    for x in &c.clashes {
+        let id = x.id.to_string();
+        let (devices, ports) = (joined(&x.devices), joined(&x.ports));
+        let rec = face_slots(
+            &mut blob,
+            FACE_CLASH,
+            8,
+            &[
+                x.kind.word(),
+                &id,
+                &x.title,
+                &x.stage,
+                &devices,
+                &ports,
+                &x.window_start,
+                &x.window_end,
+            ],
+        );
+        write_face_record(&mut records, &rec);
+        let (ts, te) = pair(&x.theirs_after_mine);
+        let rec = face_slots(
+            &mut blob,
+            FACE_CLASH_WHO,
+            5,
+            &[&x.team, &x.assigned_to, &x.author, &ts, &te],
+        );
+        write_face_record(&mut records, &rec);
+        count += 2;
+    }
+    face_reply(records, count, blob)
+}
+
+/// `OP_WORK_CLASHES` on a device.
+pub fn encode_running_reply(rows: &[fathom_inventory::Running]) -> Vec<u8> {
+    let mut blob = Blob::default();
+    let mut records: Vec<u8> = Vec::new();
+    for r in rows {
+        let plan = r.plan.to_string();
+        let steps = r
+            .steps
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let rec = face_slots(&mut blob, FACE_RUNNING, 2, &[&plan, &steps]);
+        write_face_record(&mut records, &rec);
+    }
+    face_reply(records, rows.len(), blob)
 }
 
 /// `OP_VAULT_KDF`'s reply: one `FACE_VAULT_KEY` row.
