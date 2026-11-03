@@ -145,6 +145,7 @@ fn convert(g: &Graph) -> Graph {
         BatchId(ulid(500_000)),
         by(SYSTEM),
         Timestamp(AT + 1),
+        "Opened by Dana",
         || {
             n += 1;
             ulid(600_000 + n)
@@ -230,6 +231,11 @@ fn a_design_holding_a_link_opens_with_one_cable_carrying_its_fields() {
     assert!(live_links(&opened).is_empty());
     let last = opened.log().last().unwrap();
     assert_eq!(last.label, LINKS_TO_CABLES_LABEL);
+    assert_eq!(
+        last.comment.as_ref().map(|c| c.0.as_str()),
+        Some("Opened by Dana"),
+        "the note names who opened it"
+    );
     assert_eq!(opened.log().len(), 2, "the hand-drawn batch is untouched");
     for rec in opened.log()[1].ops.iter().filter_map(|op| match op {
         fathom_graph::Op::AddNode { prov, .. }
@@ -287,9 +293,14 @@ fn an_end_with_no_port_is_left_open_and_named() {
 #[test]
 fn a_design_without_live_links_needs_no_change() {
     let after = convert(&two_devices([true, true], None).g);
-    let again = links_to_cables(&after, BatchId(ulid(1)), by(SYSTEM), Timestamp(AT), || {
-        unreachable!("nothing to mint")
-    })
+    let again = links_to_cables(
+        &after,
+        BatchId(ulid(1)),
+        by(SYSTEM),
+        Timestamp(AT),
+        "",
+        || unreachable!("nothing to mint"),
+    )
     .unwrap();
     assert!(again.is_none(), "converting twice changes nothing");
 }

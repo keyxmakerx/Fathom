@@ -10,6 +10,8 @@ import {
   collectChangesSince,
   parseSeen,
   sinceWords,
+  SYSTEM_ACCOUNT_ID,
+  whoWord,
   whoWords,
   type SeenMarker,
 } from './changesSince';
@@ -146,5 +148,12 @@ describe('the seen marker', () => {
     expect(parseSeen({ batchId: '', at: 5 })).toBeNull();
     expect(parseSeen({ batchId: 'b', at: 'x' })).toBeNull();
     expect(parseSeen(null)).toBeNull();
+  });
+});
+
+describe('the system account', () => {
+  it('is named as Fathom, never as a colleague or someone', () => {
+    expect(whoWord(SYSTEM_ACCOUNT_ID, 'me', 'd')).toBe('Fathom (system change)');
+    expect(whoWords([{ account: SYSTEM_ACCOUNT_ID }], () => null)).toBe('Fathom (system change)');
   });
 });

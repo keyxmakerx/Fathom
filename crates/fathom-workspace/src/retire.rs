@@ -75,12 +75,15 @@ pub fn live_links(graph: &Graph) -> Vec<EdgeId> {
 /// name the interface it was.
 ///
 /// Every record names `actor` and is `Derived`: the cable is read off the link,
-/// not asserted afresh. `next_id` mints every id.
+/// not asserted afresh. `note` becomes the batch's comment; the server puts who
+/// opened the design there, since the actor is its own system account. `next_id`
+/// mints every id.
 pub fn links_to_cables(
     graph: &Graph,
     batch: BatchId,
     actor: Actor,
     at: Timestamp,
+    note: &str,
     next_id: impl FnMut() -> Ulid,
 ) -> Result<Option<Change>, ChangeError> {
     let links = live_links(graph);
@@ -96,6 +99,9 @@ pub fn links_to_cables(
         values: Vec::new(),
     };
     b.g.begin_batch(batch, LINKS_TO_CABLES_LABEL)?;
+    if !note.is_empty() {
+        b.g.set_batch_comment(Text(note.to_owned()))?;
+    }
     for id in links {
         let link = graph.edge(id).expect("a live link").clone();
         b.g.tombstone(ElementId::Edge(id), at, actor)?;

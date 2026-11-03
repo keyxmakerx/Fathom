@@ -3652,8 +3652,12 @@ async fn a_session_may_not_name_an_evidence_key_that_does_not_exist_or_belongs_t
     );
     let triggers: i64 = superuser
         .query_one(
+            // `0074`'s system-account refusal is the one trigger allowed: it reads
+            // only the new row's own column and no other table, so it answers no
+            // visibility question.
             "SELECT count(*) FROM pg_trigger \
-              WHERE tgrelid = 'sessions'::regclass AND NOT tgisinternal",
+              WHERE tgrelid = 'sessions'::regclass AND NOT tgisinternal \
+                AND tgname <> 'sessions_refuse_system_account'",
             &[],
         )
         .await

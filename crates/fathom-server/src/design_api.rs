@@ -2710,7 +2710,7 @@ async fn open_design_handler(
         watch: &state.watch,
     };
 
-    let stored = designs::read_version_in_tx(
+    let mut stored = designs::read_version_in_tx(
         &tx,
         &auth,
         Some(&state.live.heads),
@@ -2719,7 +2719,44 @@ async fn open_design_handler(
         version,
     )
     .await?;
-    tx.commit().await.map_err(SessionError::Db)?;
+    // Sign-off r107: a current design still holding a live Link turns it into a cable as
+    // it opens for someone with Draw, in a change by the system account.
+    let mut converted: Option<designs::ChangeWritten> = None;
+    if version.is_none() {
+        if let Some(written) =
+            retire_links_on_open(&tx, &state, &auth, design_id, scope, &stored).await?
+        {
+            stored = designs::read_version_in_tx(
+                &tx,
+                &auth,
+                Some(&state.live.heads),
+                design_id,
+                scope,
+                Some(written.version),
+            )
+            .await?;
+            converted = Some(written);
+        }
+    }
+    let design_text = design_id.to_string();
+    match tx.commit().await {
+        Ok(()) => {
+            if let Some(applied) = converted.as_ref().and_then(|w| w.applied.as_ref()) {
+                let version = converted.as_ref().map_or(0, |w| w.version);
+                state
+                    .live
+                    .heads
+                    .commit(&design_text, applied.ticket, version, applied.tip.clone());
+                state.live.hub.wake_design(&design_text);
+            }
+        }
+        Err(e) => {
+            if let Some(applied) = converted.as_ref().and_then(|w| w.applied.as_ref()) {
+                state.live.heads.abort(&design_text, applied.ticket);
+            }
+            return Err(SessionError::Db(e).into());
+        }
+    }
 
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -2754,6 +2791,78 @@ async fn open_design_handler(
             .expect("a static cache-control is a valid header value"),
     );
     Ok((StatusCode::OK, headers, stored.payload).into_response())
+}
+
+/// Sign-off r107: when `stored` (the current version) still holds a live Link and
+/// the caller holds Draw, write the change that turns each into a cable, as the
+/// system account, with a note naming who opened the design. A caller with Read
+/// only causes no write: the design opens as it is, Links and all, and is converted
+/// the next time someone with Draw opens it.
+async fn retire_links_on_open(
+    tx: &deadpool_postgres::Transaction<'_>,
+    state: &DesignApiState,
+    auth: &Authority<'_>,
+    design: DesignId,
+    scope: Option<ScopeId>,
+    stored: &designs::DesignVersion,
+) -> Result<Option<designs::ChangeWritten>, RouteError> {
+    // `Graph` is not `Send`: it is read inside a block each time, never held over an await.
+    let holds_links = fathom_workspace::read_plain(&stored.payload)
+        .is_ok_and(|g| !fathom_workspace::live_links(&g).is_empty());
+    if !holds_links {
+        return Ok(None);
+    }
+    if !crate::grants::holds(tx, auth, scope, Capability::Draw)
+        .await
+        .map_err(DesignError::Authority)?
+    {
+        return Ok(None);
+    }
+    let opener = auth.ctx.actor().to_string();
+    let name: String = tx
+        .query_opt(
+            "SELECT display_name FROM accounts WHERE id = $1",
+            &[&opener],
+        )
+        .await
+        .map_err(SessionError::Db)?
+        .map(|r| r.get(0))
+        .unwrap_or_default();
+    let note = format!("Opened by {name} (account {opener}).");
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64);
+    let system = fathom_graph::Actor::User(fathom_graph::UserId(
+        crate::system_account::system_account().0,
+    ));
+    let change = {
+        let graph = fathom_workspace::read_plain(&stored.payload)
+            .map_err(|_| DesignError::Corrupt("design payload"))?;
+        fathom_workspace::links_to_cables(
+            &graph,
+            fathom_graph::BatchId(crate::ids::new_ulid()),
+            system,
+            fathom_graph::Timestamp(now_ms),
+            &note,
+            crate::ids::new_ulid,
+        )
+        .map_err(|e| DesignError::ChangeRefused(e.to_string()))?
+    };
+    let Some(change) = change else {
+        return Ok(None);
+    };
+    let written = designs::write_system_change_in_tx(
+        tx,
+        auth,
+        &state.live.heads,
+        design,
+        scope,
+        &change,
+        stored.version,
+        &audit::SpoolBounds::from_env(),
+    )
+    .await?;
+    Ok(Some(written))
 }
 
 // ---- Files on docs ----

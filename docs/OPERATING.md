@@ -706,6 +706,25 @@ by themselves once the log server takes the backlog. Until 2026-10-28 the bound 
 server named too, so every install that never set one stopped saving designs 72 hours after its
 first write; updating the server ends that, and nothing queued is lost.
 
+## The system account
+
+History names who made each change, and a few changes are made by Fathom itself rather than by a
+person. Those name **Fathom (system change)**, account `0000000000000000000000SYST`, which
+migration 0074 creates once. The first is turning an old Link into a cable (sign-off r107): it
+happens the first time someone who may draw opens a design that still holds one, and the change's
+note says who opened it. Someone who may only read opens the design unchanged.
+
+**It cannot sign in.** It has no password, passkey, second factor, AI key or Termix setting, and
+the database refuses any row that would give it one, a session, a membership, a grant, a team seat
+or a signature (a trigger on each of those tables, so it holds for every role, superuser
+included). Its address, `system@fathom.invalid`, answers a sign-in or a forgotten-password request
+as an address that belongs to nobody. A change sent to the server can never name it; only the
+server's own code acts as it.
+
+**Never delete it.** Once any sealed change names it, deleting it would leave history that no
+longer verifies. The database refuses the delete and any change to its row; do not drop that
+trigger to get round it, and leave it in place on a restore.
+
 ## AI connections
 
 ADR-0072. AI access is off in every organisation until a Steward turns it on, and Admin › AI turns it
