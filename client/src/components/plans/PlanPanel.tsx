@@ -5,7 +5,7 @@ import { useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 
 import type { PointerEvent as ReactPointerEvent } from 'react';
 
 import { OUTCOMES, backOutSteps, checksLeft, currentStep, type Plan, type PlanOutcome, type PlanStep } from '../../document/plans';
-import { CalledOffMode, PlanRoute, WhatNext } from './PlanNext';
+import { CalledOffMode, PlanClashes, PlanRoute, WhatNext } from './PlanNext';
 import { AfterTheWork, IfPath, PlanChecks, ReleaseNotes, StepFollowUp, TakeIfPath } from './PlanFlow';
 import { clampOffset } from '../checks/checksModel';
 import { AddStepForm } from './AddStepForm';
@@ -134,7 +134,8 @@ function PlanMode({ controller, plan, approval }: { controller: PlansController;
       <PlanChecks controller={controller} plan={plan} />
       <ReleaseNotes controller={controller} plan={plan} />
       <PlanApprovalSection state={approval} canEdit={canEdit} onEmergencyStarted={() => void controller.start().then((ok) => (ok ? termixWindow.started() : undefined))} />
-      <WhatNext controller={controller} plan={plan} held={approval?.startHeld ?? false} onStart={() => void controller.start().then((ok) => (ok ? termixWindow.started() : undefined))} />
+      <PlanClashes controller={controller} />
+      <WhatNext controller={controller} plan={plan} held={approval?.startHeld ?? false} onStart={(note) => void controller.start(note).then((ok) => (ok ? termixWindow.started() : undefined))} />
       {canEdit && <AddStepForm controller={controller} stepCount={plan.steps.length} />}
     </>
   );
@@ -326,6 +327,7 @@ function DoMode({ controller, plan }: { controller: PlansController; plan: Plan 
         Step {p.at} of {p.total}
       </h3>
       <WindowNote planId={plan.id} />
+      <PlanClashes controller={controller} />
       <ol className="plans-checklist">
         {plan.steps.map((s) => (
           <DoStep key={s.id} controller={controller} plan={plan} step={s} />

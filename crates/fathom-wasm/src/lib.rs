@@ -415,6 +415,14 @@ pub const OP_PLAN_PREVIEW: u32 = 35;
 /// nothing, keeps nothing: the passphrase lives only for the call.
 pub const OP_VAULT_KDF: u32 = 37;
 
+/// Work that lands on the same devices (sign-off r105), read by `fathom_inventory::plan_clashes`
+/// and `running_on`. Request: one mode byte, then a display id. Mode 0, a plan: one
+/// `FACE_CLASH_HEAD` (a free window for the plan, or two empty strings), then for each clash a
+/// `FACE_CLASH` followed by its `FACE_CLASH_WHO`. Mode 1, a device: one `FACE_RUNNING` per plan in
+/// Do whose steps touch it. An id that is not a live plan or device, or another mode, answers with
+/// no rows. Never writes.
+pub const OP_WORK_CLASHES: u32 = 38;
+
 // There is deliberately no OP_RACK_LIST. A rack is inventory -- it has a
 // label, a capacity and a count of what is in it -- so it is an `InvKind` and
 // `OP_INV_ROWS` already lists it. A bespoke opcode would have been a second

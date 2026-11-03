@@ -639,6 +639,7 @@ export function RacksPlace(props: RacksPlaceProps) {
   const trouble = useTroubleController({
     doc,
     boot: ensureMirror,
+    mirrorNow,
     redact,
     applyDocChange,
     actor: actorOpts(accountId),
