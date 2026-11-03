@@ -1,6 +1,6 @@
 //! Loading a pack from corpus text, and the fixture gate.
 //!
-//! Layout (63 §2): `rules/<id>/rule.yaml` and `rules/<id>/fixtures/{fire,pass}-*.yaml`.
+//! Layout (rule pack spec §2): `rules/<id>/rule.yaml` and `rules/<id>/fixtures/{fire,pass}-*.yaml`.
 //! A rule with no `fire-` fixture and no `pass-` fixture does not load: a rule nobody has
 //! shown firing, and shown not firing, is a specification and not a rule.
 

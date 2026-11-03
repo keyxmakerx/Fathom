@@ -1,5 +1,5 @@
 //! Static types and runtime values. Deliberately small: no floats, no time, no maps
-//! (12 §3.4). Integers are checked; an overflow is an evaluation error, never a wrap.
+//! (§3.4). Integers are checked; an overflow is an evaluation error, never a wrap.
 
 use std::rc::Rc;
 

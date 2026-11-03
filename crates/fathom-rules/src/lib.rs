@@ -6,9 +6,12 @@
 //! and fex is lexed, type-checked, compiled to a 28-opcode VM and run under a step
 //! budget by the code in this crate. Nothing in the trusted path is third-party.
 //!
-//! Where the spec (docs/archive/10-core/12-rule-engine.md) is narrower or wider than this
-//! build:
-//! - a binding may walk up to `rule::MAX_HOPS` (6) edges, not 12 §4.2's 3, because the
+//! This crate was built from the rule engine spec, docs/archive/10-core/12-rule-engine.md,
+//! and the rule pack spec, docs/archive/60-content/63-rulepack-spec.md. Both are history now;
+//! a bare §N in this crate's comments is a section of the rule engine spec.
+//!
+//! Where that spec is narrower or wider than this build:
+//! - a binding may walk up to `rule::MAX_HOPS` (6) edges, not §4.2's 3, because the
 //!   physical layer needs cable → port → interface → unit → address. Bindings are bounded
 //!   instead by a per-binding visit cap (`eval::MAX_VISITS`);
 //! - the builtin table is the first rule set's (`compile::Builtin`), and grows with rules;

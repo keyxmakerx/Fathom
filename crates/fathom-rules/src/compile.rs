@@ -1,7 +1,7 @@
 //! fex's checker and compiler in one pass: source text → typed bytecode, plus the
 //! static read set.
 //!
-//! **The read set is total by construction** (12 §5.3). Every field a program can read is
+//! **The read set is total by construction** (§5.3). Every field a program can read is
 //! named by a literal in its source, on an object whose kind the checker knows, so the
 //! set is collected as the checker walks and there is no dynamic case.
 
@@ -16,7 +16,7 @@ use crate::value::{Elem, EnumId, FieldId, Ip, KindId, Ty};
 pub const MAX_CODE: usize = 2048;
 pub const MAX_ITER_DEPTH: usize = 3;
 
-/// The 28 opcodes (12 §3.8). One opcode is one step; `Call` charges its builtin's cost.
+/// The 28 opcodes (§3.8). One opcode is one step; `Call` charges its builtin's cost.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Op {
     PushConst(u16),
@@ -112,7 +112,7 @@ pub enum Owner {
     Edge(crate::value::EdgeId),
 }
 
-/// Everything a rule can read, known without running it (12 §5.1). The incremental
+/// Everything a rule can read, known without running it (§5.1). The incremental
 /// engine re-evaluates a rule only when a change touches this.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReadSet {
@@ -541,7 +541,7 @@ impl C<'_> {
 
     /// Enum tokens must be string literals the schema declares: a rule that compares
     /// against a token that does not exist would never fire, and silence is the failure
-    /// 12 §3.5 exists to prevent.
+    /// §3.5 exists to prevent.
     fn check_tokens(&self, e: EnumId, items: &[Expr]) -> Result<(), Error> {
         let declared = self.s.enum_tokens(e);
         for it in items {

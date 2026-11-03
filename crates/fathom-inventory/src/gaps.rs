@@ -158,7 +158,7 @@ impl Findings {
 /// Biggest gap first, because the view is a work list and the work is
 /// wherever the count is. Ties break on `NodeKind::ALL` order and then on
 /// declared field order — both schema declaration orders, which is the
-/// deterministic iteration invariant 9 relies on (62 §2.3). The same estate
+/// deterministic iteration invariant 9 relies on. The same estate
 /// therefore produces the same list every time, with no clock, no map
 /// iteration and no sort by anything a build could reorder.
 pub fn findings(g: &Graph) -> Findings {
@@ -260,7 +260,7 @@ pub fn findings(g: &Graph) -> Findings {
     // Insertion sort is stable, so equal counts keep the push order above,
     // which is `NodeKind::ALL` order then declared field order — both schema
     // declaration orders, which is the deterministic iteration invariant 9
-    // relies on (62 §2.3). The list is one row per (kind, required field) and
+    // relies on. The list is one row per (kind, required field) and
     // cannot exceed the schema's own count of those, so the quadratic term is
     // bounded by the schema and not by the estate.
     for i in 1..gaps.len() {

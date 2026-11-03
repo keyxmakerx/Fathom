@@ -23,7 +23,7 @@ pub struct CabledPeer {
 pub struct PortRow {
     /// The port's display id.
     pub id: String,
-    /// The silkscreen (19 §3.3), verbatim.
+    /// The silkscreen, verbatim.
     pub label: String,
     /// The owning Chassis' `member_index`, decimal.
     pub chassis: String,

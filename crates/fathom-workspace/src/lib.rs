@@ -242,7 +242,7 @@ pub fn read_plain_declared(bytes: &[u8]) -> Result<(Graph, String), PlainError> 
 
     let (header, body) = split_header(bytes)?;
 
-    // 2 — the face version, before anything expensive or refusable (17 §2.2).
+    // 2 — the face version, before anything expensive or refusable.
     let version = String::from_utf8_lossy(&header[0][magic.len()..]).into_owned();
     if version != PLAIN_FACE_VERSION.to_string() {
         return Err(PlainError::UnsupportedFaceVersion { found: version });

@@ -26,8 +26,8 @@ use std::path::Path;
 pub mod dictionary;
 
 /// Workspace-relative paths and the three splice tokens. The names carry
-/// `dev` on purpose: this is 45 §9.1's dev build, not `fathom-<ver>.html`
-/// (43 §3.5) — versioned assembly is WO-08 §10 item 7.
+/// `dev` on purpose: this is the dev build, not a versioned `fathom-<ver>.html`,
+/// which nothing assembles yet.
 pub const SHELL_SOURCE: &str = "crates/fathom-artifact/html/fathom-dev.src.html";
 pub const TOKENS_SOURCE: &str = "design/tokens.css";
 pub const ARTIFACT_OUT: &str = "target/artifact/fathom-dev.html";

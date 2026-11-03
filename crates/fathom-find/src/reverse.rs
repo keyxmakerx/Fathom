@@ -1,4 +1,4 @@
-//! Worked-trace-D machinery, 16 §15: the reverse query shape — a pasted
+//! Worked-trace-D machinery, §15: the reverse query shape — a pasted
 //! command resolves to its entry via a longest-prefix walk with typed
 //! argument capture. Degradation is explicit, never silent: an unmatched
 //! remainder is reported as "not in corpus", never guessed at.

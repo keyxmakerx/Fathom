@@ -1,4 +1,4 @@
-//! The fex VM: a stack machine with a step budget (12 §3.8, §7).
+//! The fex VM: a stack machine with a step budget (§3.8, §7).
 //!
 //! It cannot panic and cannot allocate without bound: every index is checked, arithmetic
 //! is checked, the stack and the iteration depth are capped, and one step is charged per
@@ -12,7 +12,7 @@ use crate::compile::{Builtin, Cst, Mode, Op, Program, MAX_ITER_DEPTH};
 use crate::schema::World;
 use crate::value::{Field, Ip, Val};
 
-/// Per rule instance (12 §15.3 gate 7).
+/// Per rule instance (§15.3 gate 7).
 pub const STEP_BUDGET: u32 = 2000;
 pub const MAX_STACK: usize = 128;
 

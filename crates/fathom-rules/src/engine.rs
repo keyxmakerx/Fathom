@@ -1,9 +1,9 @@
-//! The incremental model (12 §6), at the grain this product needs.
+//! The incremental model (§6), at the grain this product needs.
 //!
 //! A rule's cached findings stay valid until a change touches its static read set
 //! (`ReadSet`): a node of a kind it walks over appears or goes, an edge role it traverses
 //! changes, or a field it reads is written. Only those rules run again, and each runs over
-//! its whole anchor set. Anything finer (instance-level dependency keys) is 12 §6.3's
+//! its whole anchor set. Anything finer (instance-level dependency keys) is §6.3's
 //! design and waits for a workload that needs it.
 
 use std::collections::BTreeSet;

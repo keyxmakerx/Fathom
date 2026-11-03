@@ -1,6 +1,6 @@
 //! Evaluating one rule over a world: anchors, bindings, the condition, the finding.
 //!
-//! Bounded at every level (12 §4.2, §7): the VM has its step budget, a binding may visit
+//! Bounded at every level (§4.2, §7): the VM has its step budget, a binding may visit
 //! at most `MAX_VISITS` nodes, and a rule that fails stops for this pass with a diagnostic
 //! instead of a finding. A broken rule is loud and cannot take the panel down.
 

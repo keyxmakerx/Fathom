@@ -1,7 +1,11 @@
-//! fathom-find: the finder core — 16 §4 normalisation, the three matchers
+//! fathom-find: the finder core — §4 normalisation, the three matchers
 //! (§5 lexical BM25F, §6 syntax, §7 concept), and §8's fusion with the risk
 //! prior and integer-milli ordering. Deterministic by construction: identical
 //! corpus + identical query ⇒ identical ranked list, across runs (invariant 9).
+//!
+//! This crate was built from the command finder spec,
+//! docs/archive/10-core/16-command-finder.md, which is history now. A bare §N in
+//! this crate's comments is a section of that spec.
 
 #![forbid(unsafe_code)]
 
@@ -20,7 +24,7 @@ use conceptm::ConceptQuery;
 use reverse::ReverseHit;
 use syntax::{SyntaxHit, Via};
 
-/// §8.1's weights, as pinned in 61 §2.2's `[finder]` table.
+/// §8.1's weights, as pinned in the command corpus spec's `[finder]` table.
 pub const W_CONCEPT: f64 = 3.0;
 pub const W_LEXICAL: f64 = 1.0;
 pub const W_SYNTAX: f64 = 2.0;
@@ -61,7 +65,7 @@ pub struct SearchResult {
     pub reverse: Option<ReverseHit>,
     pub filter_clause: Option<String>,
     /// Broad State concepts fired (§3.4) — where the §17.3 ladder group will
-    /// attach once ladders exist as corpus documents. TODO(16 §17.3): no
+    /// attach once ladders exist as corpus documents. TODO(§17.3): no
     /// ladder documents are authored in corpus/ yet; the entry-local
     /// `next_if_bad` chain on each row is the honest first cut.
     pub ladder_group_trigger: bool,

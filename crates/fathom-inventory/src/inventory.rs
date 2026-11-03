@@ -145,7 +145,7 @@ impl InvKind {
 /// One inventory row. `id` is the element's full display id
 /// (`<kind-lower>:<ulid>`, ADR-0005) — rows reference IDs, never names
 /// (invariant 7). `opinions` is "—" in this build: no rule engine exists,
-/// and the column is structural (52 §3.7.1), so it renders empty rather
+/// and the column is structural, so it renders empty rather
 /// than being dropped.
 ///
 /// `hints` is ADR-0041's mark, D6/D7: a comma-separated list of 0-based
