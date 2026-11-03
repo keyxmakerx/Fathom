@@ -7,7 +7,7 @@ open orders keep their version; Stewards make order types), ticked the three rec
 plus "more starters" and "overdue jobs move on or reassign by themselves", and wrote: *"Overdue
 orders based on types and such CAN move. Also i want the IP stuff, and the engine ... before we
 release."* Decision 11 is the overdue answer; decision 12 the starters; decision 13 the release
-gate. Piece 1 (read and check) is built; the rest is not.
+gate. Pieces 1 (read and check) and 2 (the engine, without its server tables) are built.
 
 **Comes from:** sign-off card r75-work-plan, approved 2026-11-02 with every pick A, piece 7 ("Orders
 and jobs"), and the owner's note on it: *"we'll probably need a job engine, can you make it yaml
@@ -186,6 +186,36 @@ format covers it too: it does, as `lanes`, `starts_after`, `use` and `field_sets
     anyone holding that power on the job's team, or a Steward of the folder; the author, the assignee
     and whoever asked never can. `escalate: lead | overseer` in an overdue rule still names role ids,
     which stay fixed. `approve_plans` is the only power the check accepts for now.
+
+18. **A job may hold devices or ports (sign-off r105, "orders" B, 3 November).** A job may say
+    `holds: [<field>, …]`, naming fields of kind `device` or `port` (a new kind: one port on one
+    device). From when the job is ready until the order closes, what those fields name counts as
+    busy with this order, and the clash check (r105) compares it with plans and open issues as it
+    compares plans with each other. It lasts until the order closes, not until the job is done,
+    because the thing being guarded is the order's: DIA's "Pick the edge port" makes no plan, and
+    without a hold the port it chose is unguarded from Design until Provisioning, which is exactly the
+    failure its "Port is wrong" send-back exists for. The key is optional, so an order type that
+    doesn't use it, and a homelab that has no orders, sees nothing new.
+
+19. **The engine keeps the actions, not the state (piece 2, built 3 November).** An order is its
+    installed definition plus the list of actions taken on it (open, answer, pick up, tick, link a
+    plan, finish, send back, cancel a job, sign a stage off, cancel the order), each with who and
+    when. Its state is rebuilt by replaying them, so the sealed history is the only record and can't
+    disagree with what is shown; a history that no longer replays is refused. Each action is checked
+    first and a refused one changes nothing. Who may: a person on the job's team works on it; the
+    engine itself only finishes a `makes: plan` job once its plan is recorded; a sign-off needs the
+    stage's power on one of the stage's teams, or a Steward, and never comes from whoever opened the
+    order or worked a job in that stage; a job that isn't optional is cancelled only by a lead of its
+    team or a Steward, with a reason; only a lead of one of the order's teams or a Steward cancels the
+    order, and the engine never does. A send-back restarts its target stage and every later stage in
+    its lane; other lanes carry on, and a job there that needs a reset job goes back to waiting. A
+    job left out by its `when` counts as met for `needs`.
+
+**Built (piece 2):** `fathom_orders::engine`, pure and deterministic, with `People` as the server's
+answer to who is on which team and holds what. Not yet: the server's tables, routes and sealed rows
+for orders (the next PR), the overdue clock (piece 3), and the Work tab and order page (piece 4).
+The two later items from r105 are issues #315 (a Steward makes a clash a hard stop for a folder)
+and #316 (change freezes).
 
 **Built (piece 1):** `crates/fathom-orders` reads a definition or a field set through the subset
 parser and checks everything above, returning every problem with its line. Starters:

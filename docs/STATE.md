@@ -269,6 +269,13 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   lane, `move_on` on a job that isn't optional or behind a sign-off, field kinds and conditions.
   Starters in `corpus/orders/`: DIA, a new site build in two lanes and taking a service out (both
   drafts), and the Customer details field set. No server records, engine or screens yet.
+- **The order engine (ADR-0084 piece 2 and decisions 18 and 19, sign-off r105, 2026-11-03).**
+  `fathom_orders::engine` runs one order from its installed definition and the actions taken on it,
+  and rebuilds it by replaying them: jobs move Waiting, Ready, Done, Cancelled or left out by `when`;
+  stages wait for a sign-off by the stage's power and never by the opener or a worker; a send-back
+  restarts its lane from the target stage; answers follow decision 16. A job's `holds` (a device or a
+  `port` field) counts as busy from when it is ready until the order closes. No server tables or
+  screens yet.
 - **The IP plan store, server half (ADR-0083 decisions 1, 3, 4 and 5; schema 0.36, field keys
   562-636; migration 0065; 2026-11-02).** A fourth schema layer, `plan`, declares eleven kinds
   (`IpamVrf`, `IpamRouteTarget`, `IpamAggregate`, `IpamPrefix`, `IpamRange`, `IpamAddress`,

@@ -14,6 +14,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod engine;
 mod read;
 
 pub use read::{read_definition, read_field_set};
@@ -56,6 +57,8 @@ pub enum FieldKind {
     Choices,
     Site,
     Device,
+    /// One port on one device.
+    Port,
     Team,
     Person,
     /// An address block of a family and size (ADR-0084 decision 9, ADR-0083).
@@ -73,6 +76,7 @@ impl FieldKind {
         ("choices", FieldKind::Choices),
         ("site", FieldKind::Site),
         ("device", FieldKind::Device),
+        ("port", FieldKind::Port),
         ("team", FieldKind::Team),
         ("person", FieldKind::Person),
         ("prefix", FieldKind::Prefix),
@@ -194,6 +198,10 @@ pub struct Job {
     pub needs: Vec<String>,
     pub send_back: Option<SendBack>,
     pub reserves: Option<String>,
+    /// Device or port fields this job holds (ADR-0084 decision 18): from when
+    /// the job is ready until the order closes, the clash check counts what
+    /// those fields name as busy with this order.
+    pub holds: Vec<String>,
     pub line: usize,
 }
 
@@ -281,5 +289,32 @@ impl Definition {
             .filter(|s| !is_team(s))
             .map(str::to_owned)
             .collect()
+    }
+
+    /// The definition as installed for one organisation (decision 8): every
+    /// team slug replaced by the team id `teams` maps it to. A slug left
+    /// unmatched blocks the install, so the error lists them all.
+    pub fn installed(
+        &self,
+        teams: &std::collections::BTreeMap<String, String>,
+    ) -> Result<Definition, Vec<String>> {
+        let missing = self.unmatched_teams(|t| teams.contains_key(t));
+        if !missing.is_empty() {
+            return Err(missing);
+        }
+        let mut out = self.clone();
+        for lane in &mut out.lanes {
+            for stage in &mut lane.stages {
+                for job in &mut stage.jobs {
+                    job.team = teams[&job.team].clone();
+                    for rule in &mut job.overdue {
+                        if let OverdueAction::ReassignTo(slug) = &mut rule.action {
+                            *slug = teams[slug.as_str()].clone();
+                        }
+                    }
+                }
+            }
+        }
+        Ok(out)
     }
 }
