@@ -143,12 +143,13 @@ function commitField(
   return withBatch(working, batch);
 }
 
-export type DeviceFieldKey = 'hostname' | 'role' | 'management_address' | 'os_version';
+export type DeviceFieldKey = 'hostname' | 'role' | 'management_address' | 'os_version' | 'platform';
 export type ChassisFieldKey = 'serial';
 
 /**
  * `Device.hostname` (`Identifier`), `Device.role` (the enum above) or
- * `Device.management_address` (`IpAddr`) or `Device.os_version` (`OsVersion`) on one `Device` node — pure, one
+ * `Device.management_address` (`IpAddr`), `Device.os_version` (`OsVersion`) or `Device.platform`
+ * (`PlatformId`, a key of `schema/platforms.yaml` such as `junos-srx`) on one `Device` node — pure, one
  * `Origin::Hand` batch, `value: null` clears the field (UI-SPEC "Absent is
  * drawn as absent": a cleared field is `presence: 'absent'`, never `""`).
  */
@@ -187,6 +188,13 @@ export function setDeviceField(
           throw new FieldValueError(wireKey, value, 'is not a version (write it as the device prints it, like 21.4R3-S5)');
         }
         encoded = text(value.trim());
+        break;
+      case 'platform':
+        // `PlatformId`: a lower-case key of schema/platforms.yaml, the same text a paste stamps.
+        if (!/^[a-z0-9][a-z0-9-]*$/.test(value)) {
+          throw new FieldValueError(wireKey, value, 'is not a platform id (like junos-srx)');
+        }
+        encoded = text(value);
         break;
     }
   }

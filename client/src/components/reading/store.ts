@@ -6,7 +6,7 @@ import { createContext, useEffect, useSyncExternalStore } from 'react';
 
 import { fetchDeviceReading, fetchReadingPanel, readDevice, type DeviceReading, type Identity, type ReadAnswer, type ReadKind, type ReadingPanel } from '../../api/deviceRead';
 import type { EditorChange } from '../drawing';
-import type { Document } from '../../document/model';
+import { asString, fieldValue, findNode, type Document } from '../../document/model';
 
 /** What the design gives the panel. Absent outside a saved design, and then nothing here shows. */
 export interface ReadingPlace {
@@ -134,6 +134,12 @@ export async function runRead(place: ReadingPlace, element: string, kind: ReadKi
     const platform = kind === 'config' ? (states.get(k)?.sshPlatform ?? null) : null;
     answer = await readDevice(place.organisation, place.design, { element, kind, login, confirm, platform });
     if (answer.outcome === 'read') {
+      // A platform chosen for a device drawn without one is kept in the design once a read with it
+      // succeeds: an ordinary change by this person (only someone with Draw is offered the choice).
+      if (platform && place.canDraw && !drawnPlatform(place, element)) {
+        const r = place.onEdit({ kind: 'device', id: element, field: 'platform', value: platform });
+        if (!r) patch(k, { sshPlatform: null });
+      }
       await loadPanel(place, element);
       patch(k, { busy: null, halt: null });
     } else if (answer.outcome === 'confirm') {
@@ -163,6 +169,11 @@ export function openDialog(place: ReadingPlace, element: string, kind: ReadKind,
 
 export function closeDialog(place: ReadingPlace, element: string) {
   patch(key(place.design, element), { dialog: null });
+}
+
+function drawnPlatform(place: ReadingPlace, element: string): string | null {
+  const node = findNode(place.doc, element);
+  return node ? (asString(fieldValue(node.fields, 'Device.platform')) ?? null) : null;
 }
 
 /** The platform to read a configuration as, for a device the design names none for. */

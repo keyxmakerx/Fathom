@@ -228,10 +228,13 @@ export function ReadLine({ deviceId }: { deviceId: string }) {
         Reading {d.address} over {d.state.busy.kind === 'config' ? 'SSH' : 'SNMPv3'}…
       </div>
     );
-  if (!d.latest) return d.state.panel.status === 'ready' ? <div className="read-line" data-testid="read-line">Never read</div> : null;
+  // The newest read of any kind: the device's details, or its configuration over SSH.
+  const config = configsOf(d)[0] ?? null;
+  const newest = d.latest && (!config || d.latest.readAt >= config.readAt) ? d.latest : config;
+  if (!newest) return d.state.panel.status === 'ready' ? <div className="read-line" data-testid="read-line">Never read</div> : null;
   return (
     <div className="read-line" data-testid="read-line">
-      Read <b>{when(d.latest.readAt)}</b> by <b>{who(d.latest)}</b>
+      Read <b>{when(newest.readAt)}</b> by <b>{who(newest)}</b>
       {d.work.running.length ? <span className="read-line__work" data-testid="read-line-work">{underWay(d.work)} under way</span> : null}
     </div>
   );
@@ -630,7 +633,7 @@ export function ReadingsTab({ deviceId }: { deviceId: string }) {
   else if (!latest)
     body = (
       <div className="small muted" data-testid="never-read">
-        Never read. Read now asks the device what it is over SNMPv3 and compares that with the drawing. Nothing on the device is changed.
+        {configsOf(d).length ? "Its details haven't been read yet." : 'Never read.'} Read now asks the device what it is over SNMPv3 and compares that with the drawing. Nothing on the device is changed.
       </div>
     );
   else {

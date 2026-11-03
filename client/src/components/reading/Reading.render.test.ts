@@ -177,6 +177,18 @@ describe('the configuration, read over SSH (ADR-0082 §4.1)', () => {
     expect(tab).toContain('Read before');
   });
 
+  it('counts a configuration read in the head and the tab, when the details were never read', () => {
+    const { doc, device } = srx();
+    seedReading(DESIGN, device, { panel: { status: 'ready', value: panel({ readings: [], configs: [config] }) } }, ORG, on);
+    const place: ReadingPlace = { organisation: ORG, design: DESIGN, doc, canDraw: true, onEdit: () => undefined };
+    const line = render(place, createElement(ReadLine, { deviceId: device }));
+    expect(line).not.toContain('Never read');
+    expect(line).toContain('by <b>Key Maker</b>');
+    const tab = render(place, createElement(ReadingsTab, { deviceId: device }));
+    expect(tab).not.toContain('Never read');
+    expect(tab).toContain('Its details haven&#x27;t been read yet.');
+  });
+
   it('asks what a hand-drawn device is, then says which command runs before the first read', () => {
     const { doc, device } = srx();
     seedReading(DESIGN, device, { panel: { status: 'ready', value: panel() } }, ORG, on);

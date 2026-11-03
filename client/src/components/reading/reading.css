@@ -94,7 +94,9 @@ table.macs tr.hit td { background: var(--caution-wash); }
   font-family: var(--mono);
   font-size: var(--t-mono);
   line-height: 1.45;
-  white-space: pre;
+  /* Long lines wrap, so a <REDACTED:...> marker at the end of one is never cut off. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .reading-tab .config-platform { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: var(--t-small); }
 .reading-tab .config-platform .lbl { color: var(--ink); }
