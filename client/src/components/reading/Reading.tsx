@@ -5,7 +5,20 @@
 
 import { useContext, useMemo, useState, type ReactNode } from 'react';
 
-import { dismissDifference, enginePairs, lastEight, type DeviceReading, type KeptReading, type ReadKind, type ReadRange } from '../../api/deviceRead';
+import {
+  SSH_READ_PLATFORMS,
+  configOutputs,
+  dismissDifference,
+  identityGroups,
+  lastEight,
+  protocolOf,
+  typedEight,
+  type DeviceReading,
+  type KeptReading,
+  type ReadKind,
+  type ReadProtocol,
+  type ReadRange,
+} from '../../api/deviceRead';
 import { SNMP_AUTH_LABELS, type VaultEntry } from '../../api/vault';
 import { asString, fieldValue, findNode } from '../../document/model';
 import { DEVICE_WORDS } from '../drawing/contextMenuItems';
@@ -15,7 +28,9 @@ import { acceptAll, acceptable, againstPlan, compare, withWork, type Comparison,
 import { asCsv, macRows, matches } from './macTable';
 import { inRange } from './ranges';
 import {
+  READ_AS_PASTE,
   ReadingContext,
+  chooseSshPlatform,
   closeDialog,
   openDialog,
   reloadPanel,
@@ -45,26 +60,39 @@ export interface UsableLogin {
   from: string;
 }
 
-/** Read-only SNMP logins this device may be read with: marked on it, or set for its range, and copied for Fathom to use. */
-export function usableLogins(entries: readonly VaultEntry[], design: string, element: string, range: ReadRange | null): UsableLogin[] {
+/**
+ * Read-only logins this device may be read with: marked on it, or set for its range, and copied for Fathom
+ * to use. Over SNMP, SNMP logins that name their authentication; over SSH, logins.
+ */
+export function usableLogins(
+  entries: readonly VaultEntry[],
+  design: string,
+  element: string,
+  range: ReadRange | null,
+  protocol: ReadProtocol = 'snmp',
+): UsableLogin[] {
   const out: UsableLogin[] = [];
   for (const e of entries) {
-    if (e.kind !== 'snmp' || !e.readOnly || e.snmpAuth === null || e.fathom?.state !== 'on') continue;
+    if (!e.readOnly || e.fathom?.state !== 'on') continue;
+    if (protocol === 'snmp' ? e.kind !== 'snmp' || e.snmpAuth === null : e.kind !== 'login') continue;
     if (e.usedOn.some((u) => u.design === design && u.element === element)) out.push({ entry: e, from: 'Marked on this device' });
     else if (range?.login === e.id) out.push({ entry: e, from: `Set for the range ${range.cidr}` });
   }
   return out;
 }
 
-/** The first reason Read now can't be pressed, or null when it can. */
-export function whyOff(settings: DeviceReading, address: string | null, logins: readonly UsableLogin[]): Off | null {
+/** The first reason a read can't be pressed, or null when it can. */
+export function whyOff(settings: DeviceReading, address: string | null, logins: readonly UsableLogin[], protocol: ReadProtocol = 'snmp'): Off | null {
   if (!settings.on) return { head: 'Reading is off', todo: 'A Steward turns reading on for the organisation on Device reading.' };
   if (!address) return { head: 'No management address', todo: 'Add one on Details › Management.' };
   if (!settings.ranges.some((r) => inRange(address, r.cidr))) return { head: 'Address outside the ranges', todo: `${address} isn't in a range a Steward has listed.` };
   if (logins.length === 0)
     return {
       head: 'No read-only login',
-      todo: 'Mark an SNMP login on this device, or a Steward sets one for its range. It must be ticked "This is a read-only account" and copied for Fathom to use.',
+      todo:
+        protocol === 'snmp'
+          ? 'Mark an SNMP login on this device, or a Steward sets one for its range. It must be ticked "This is a read-only account" and copied for Fathom to use.'
+          : 'Mark a login on this device, or a Steward sets one for its range. It must be ticked "This is a read-only account" and copied for Fathom to use.',
     };
   if (!settings.reader) return { head: "The reader isn't answering", todo: "This server's device reader did not answer just now. Its operator can check it." };
   return null;
@@ -84,13 +112,27 @@ function useDevice(deviceId: string) {
   const node = findNode(place.doc, deviceId);
   const address = node ? (asString(fieldValue(node.fields, 'Device.management_address')) ?? null) : null;
   const hostname = node ? (asString(fieldValue(node.fields, 'Device.hostname')) ?? null) : null;
+  // The design's platform; for a device drawn by hand, none until someone chooses one for a configuration read.
+  const drawnPlatform = node ? (asString(fieldValue(node.fields, 'Device.platform')) ?? null) : null;
+  const platform = drawnPlatform ?? state.sshPlatform;
   const range = address ? (s.ranges.find((r) => inRange(address, r.cidr)) ?? null) : null;
-  const logins = vault.load.status === 'ready' ? usableLogins(vault.load.value.entries, place.design, deviceId, range) : [];
-  const off = vault.load.status === 'loading' ? { head: 'Loading logins', todo: '' } : whyOff(s, address, logins);
+  const entries = vault.load.status === 'ready' ? vault.load.value.entries : [];
+  const logins = usableLogins(entries, place.design, deviceId, range);
+  const sshLogins = usableLogins(entries, place.design, deviceId, range, 'ssh');
+  const loading = vault.load.status === 'loading' ? { head: 'Loading logins', todo: '' } : null;
+  const off = loading ?? whyOff(s, address, logins);
+  const sshOff = loading ?? whyOff(s, address, sshLogins, 'ssh');
   const latest = state.panel.status === 'ready' ? (state.panel.value.readings[0] ?? null) : null;
   const dismissed = state.panel.status === 'ready' ? state.panel.value.dismissed : [];
   const comparison = withWork(compare(place.doc, deviceId, latest?.reading ?? null, dismissed), work);
-  return { place, settings: s, state, address, hostname, logins, off, latest, comparison, work };
+  return { place, settings: s, state, address, hostname, platform, drawnPlatform, logins, sshLogins, off, sshOff, latest, comparison, work };
+}
+
+type Device = NonNullable<ReturnType<typeof useDevice>>;
+
+/** The logins offered for a kind of read, and why it can't be pressed. */
+function forKind(d: Device, kind: ReadKind): { logins: UsableLogin[]; off: Off | null } {
+  return protocolOf(kind) === 'ssh' ? { logins: d.sshLogins, off: d.sshOff } : { logins: d.logins, off: d.off };
 }
 
 /** True when this device's panel has a Readings tab: a saved design on a server that reads devices. */
@@ -120,10 +162,12 @@ function who(r: KeptReading): string {
 }
 
 /** Reads with the login used last, when it is still offered; otherwise asks which one. */
-function startRead(d: NonNullable<ReturnType<typeof useDevice>>, deviceId: string, kind: ReadKind) {
-  const last = d.logins.find((l) => l.entry.id === d.state.login);
-  const only = d.logins.length === 1 ? d.logins[0] : undefined;
-  const login = last ?? (d.latest ? only : undefined);
+function startRead(d: Device, deviceId: string, kind: ReadKind) {
+  const { logins } = forKind(d, kind);
+  const last = logins.find((l) => l.entry.id === d.state.login);
+  const only = logins.length === 1 ? logins[0] : undefined;
+  const readBefore = kind === 'config' ? configsOf(d).length > 0 : d.latest !== null;
+  const login = last ?? (readBefore ? only : undefined);
   if (login) void readThen(d.place, deviceId, kind, login.entry.id, null);
   else openDialog(d.place, deviceId, kind);
 }
@@ -178,7 +222,12 @@ export function ReadingChip({ deviceId }: { deviceId: string }) {
 export function ReadLine({ deviceId }: { deviceId: string }) {
   const d = useDevice(deviceId);
   if (!d) return null;
-  if (d.state.busy) return <div className="read-line" data-testid="read-line">Reading {d.address} over SNMPv3…</div>;
+  if (d.state.busy)
+    return (
+      <div className="read-line" data-testid="read-line">
+        Reading {d.address} over {d.state.busy.kind === 'config' ? 'SSH' : 'SNMPv3'}…
+      </div>
+    );
   if (!d.latest) return d.state.panel.status === 'ready' ? <div className="read-line" data-testid="read-line">Never read</div> : null;
   return (
     <div className="read-line" data-testid="read-line">
@@ -284,23 +333,27 @@ function matchWords(c: Comparison): string {
   return m.join(', ');
 }
 
-function Refusal({ d, deviceId }: { d: NonNullable<ReturnType<typeof useDevice>>; deviceId: string }) {
+function Refusal({ d, deviceId }: { d: Device; deviceId: string }) {
   const halt = d.state.halt;
   if (!halt || halt.kind !== 'failed') return null;
   const again = () => startRead(d, deviceId, halt.read);
-  if (halt.code === 'engine_changed' && halt.engineId) {
+  const identity = halt.identity;
+  if ((halt.code === 'engine_changed' || halt.code === 'host_key_changed') && identity) {
+    const p = identity.protocol;
     return (
       <div className="read-fail" role="alert" data-testid="read-fail">
         <b>Not read: this isn't the device Fathom read before</b>
         <span>
-          Its engine ID changed{halt.previous ? ` from …${lastEight(halt.previous)}` : ''} to …{lastEight(halt.engineId)}. It may have been replaced or reset. Nothing was sent to it.
+          Its {p === 'ssh' ? 'SSH host key' : 'engine ID'} changed{halt.previous ? ` from …${lastEight(p, halt.previous)}` : ''} to …
+          {lastEight(p, identity.value)}. It may have been replaced or reset{p === 'ssh' ? ', or something else is answering at its address' : ''}. Nothing was
+          sent to it.
         </span>
         {d.place.canDraw ? (
           <span>
             <button
               type="button"
               className="btn-small"
-              onClick={() => openDialog(d.place, deviceId, halt.read, { kind: 'confirm', engineId: halt.engineId!, state: 'changed', previous: halt.previous })}
+              onClick={() => openDialog(d.place, deviceId, halt.read, { kind: 'confirm', identity, state: 'changed', previous: halt.previous })}
             >
               Confirm the new one
             </button>
@@ -314,7 +367,13 @@ function Refusal({ d, deviceId }: { d: NonNullable<ReturnType<typeof useDevice>>
   return (
     <div className="read-fail" role="alert" data-testid="read-fail">
       <b>{refusedLogin ? 'Not read: the login was refused' : busyElsewhere ? 'Not read: someone is reading it now' : 'Not read'}</b>
-      <span>{refusedLogin ? 'The device answered SNMP but not this login. Check its privacy password and authentication on the login.' : halt.message}</span>
+      <span>
+        {refusedLogin
+          ? protocolOf(halt.read) === 'ssh'
+            ? 'The device answered SSH but refused this login. It was tried once and not again. Check the user and password on the login.'
+            : 'The device answered SNMP but not this login. Check its privacy password and authentication on the login.'
+          : halt.message}
+      </span>
       {d.place.canDraw ? (
         <span>
           <button type="button" className="btn-small" onClick={again}>
@@ -334,7 +393,7 @@ function Refusal({ d, deviceId }: { d: NonNullable<ReturnType<typeof useDevice>>
 /** At most this many MAC rows before Find narrows them. */
 const MAC_ROWS = 40;
 
-function MacArp({ d, deviceId }: { d: NonNullable<ReturnType<typeof useDevice>>; deviceId: string }) {
+function MacArp({ d, deviceId }: { d: Device; deviceId: string }) {
   const [find, setFind] = useState('');
   const [copied, setCopied] = useState(false);
   const panel = d.state.panel.status === 'ready' ? d.state.panel.value : null;
@@ -416,6 +475,146 @@ function MacArp({ d, deviceId }: { d: NonNullable<ReturnType<typeof useDevice>>;
   );
 }
 
+/** The configurations read over SSH, newest first. */
+function configsOf(d: Device): KeptReading[] {
+  return d.state.panel.status === 'ready' ? d.state.panel.value.configs : [];
+}
+
+/** The platforms Fathom reads a configuration from, as a person says them: "Juniper SRX, Juniper EX and Arista EOS". */
+function sshPlatformWords(): string {
+  const w = Object.values(SSH_READ_PLATFORMS).map((p) => p.words);
+  return w.length > 1 ? `${w.slice(0, -1).join(', ')} and ${w[w.length - 1]}` : (w[0] ?? '');
+}
+
+/** The configuration, read over SSH with the platform's fixed commands (ADR-0082 §4.1), and read by the paste readers on request. */
+function Configuration({ d, deviceId }: { d: Device; deviceId: string }) {
+  const [copied, setCopied] = useState(false);
+  const known = d.platform ? SSH_READ_PLATFORMS[d.platform] : undefined;
+  const configs = configsOf(d);
+  const latest = configs[0] ?? null;
+  const busy = d.state.busy?.kind === 'config';
+  if (d.drawnPlatform && !known) {
+    return (
+      <div className="small muted" data-testid="config-unknown">
+        Fathom reads a configuration over SSH from {sshPlatformWords()} so far. There is no fixed list of commands for {d.drawnPlatform} yet.
+      </div>
+    );
+  }
+  // A device drawn by hand says no platform: the person says which, for this read. A pasted one carries its own.
+  const choose =
+    !d.drawnPlatform && d.place.canDraw ? (
+      <div className="config-platform" data-testid="config-platform">
+        <span className="lbl">What is it?</span>
+        {Object.entries(SSH_READ_PLATFORMS).map(([id, p]) => (
+          <label key={id} className={`opt-inline${d.platform === id ? ' on' : ''}`}>
+            <input type="radio" name={`ssh-platform-${deviceId}`} checked={d.platform === id} onChange={() => chooseSshPlatform(d.place, deviceId, id)} />
+            {p.words}
+          </label>
+        ))}
+        <span className="small muted">It decides which read-only command runs. A pasted configuration says it for itself.</span>
+      </div>
+    ) : null;
+  if (!known) {
+    return (
+      <>
+        {choose ?? (
+          <div className="small muted" data-testid="config-unknown">
+            Fathom reads a configuration over SSH from {sshPlatformWords()} so far. This device doesn't say which it is yet.
+          </div>
+        )}
+      </>
+    );
+  }
+  const commands = known.commands.map((c) => `“${c}”`).join(' and ');
+  const readButton = (label: string) =>
+    d.place.canDraw ? (
+      <button type="button" className="btn-small" disabled={d.state.busy !== null || d.sshOff !== null} onClick={() => startRead(d, deviceId, 'config')} data-testid="read-config">
+        {busy ? 'Reading…' : label}
+      </button>
+    ) : null;
+  const off =
+    d.sshOff && d.sshOff.todo && d.place.canDraw && !d.off ? (
+      <div className="why-off" data-testid="why-off-ssh">
+        <div>
+          <span className="q">{d.sshOff.head}</span>
+          {d.sshOff.todo}
+        </div>
+      </div>
+    ) : null;
+  const outputs = configOutputs(latest?.reading ?? null);
+  if (!latest || outputs.length === 0) {
+    return (
+      <>
+        {choose}
+        {off}
+        <div className="small muted" data-testid="config-never">
+          Not read yet. Fathom logs in over SSH once and runs only {commands}. Nothing on the device is changed, and passwords in it are removed
+          before it leaves the reader.
+        </div>
+        <div>{readButton('Read the configuration')}</div>
+      </>
+    );
+  }
+  const text = outputs.map((o) => o.text).join('\n');
+  const drops = outputs.reduce((n, o) => n + o.drops, 0);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
+  const compare = () => window.dispatchEvent(new CustomEvent(READ_AS_PASTE, { detail: { text, platform: d.platform } }));
+  return (
+    <>
+      {off}
+      <div className="read-meta" data-testid="config-meta">
+        Read <b>{when(latest.readAt)}</b> by <b>{who(latest)}</b>, over SSH <span className="read-ro">(read-only)</span>
+        {latest.hostKey ? (
+          <>
+            , host key <span className="m">…{lastEight('ssh', latest.hostKey)}</span>
+          </>
+        ) : null}
+        .{drops ? ` ${drops} password${drops === 1 ? '' : 's'} removed before it left the reader.` : ''}
+        {latest.withheld ? ` ${latest.withheld} more line${latest.withheld === 1 ? '' : 's'} withheld by the second check.` : ''}
+      </div>
+      {outputs.map((o) => (
+        <div key={o.command} className="config-out">
+          <div className="config-out__cmd">
+            <span className="m">{o.command}</span>
+            {o.incomplete ? <span className="muted"> · cut short: the device printed more than Fathom keeps</span> : null}
+            {o.exit !== null && o.exit !== 0 ? <span className="muted"> · the device said it did not finish (exit {o.exit})</span> : null}
+          </div>
+          <pre className="config-text" data-testid="config-text">
+            {o.text}
+          </pre>
+        </div>
+      ))}
+      <div>
+        {readButton('Read again')}{' '}
+        {d.place.canDraw ? (
+          <button type="button" className="btn-small btn-quiet" onClick={compare} data-testid="config-compare" title="Reads it as a pasted configuration: the same card, nothing changed until you choose.">
+            Compare with the drawing
+          </button>
+        ) : null}{' '}
+        <button type="button" className="btn-small btn-quiet" onClick={() => void copy()}>
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      {configs.length > 1 ? (
+        <div className="small muted" data-testid="config-earlier">
+          Read before {configs
+            .slice(1)
+            .map((c) => when(c.readAt))
+            .join(', ')}
+          .
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 /** The Readings tab. */
 export function ReadingsTab({ deviceId }: { deviceId: string }) {
   const d = useDevice(deviceId);
@@ -483,7 +682,13 @@ export function ReadingsTab({ deviceId }: { deviceId: string }) {
     <div className="reading-tab" data-testid="readings-tab">
       {state.busy ? (
         <div className="progress" data-testid="read-progress">
-          <span className="now">{state.busy.kind === 'macarp' ? 'Reading the MAC and ARP tables.' : 'Reading system, inventory, interfaces and LLDP neighbours.'}</span>
+          <span className="now">
+            {state.busy.kind === 'macarp'
+              ? 'Reading the MAC and ARP tables.'
+              : state.busy.kind === 'config'
+                ? 'Reading the configuration over SSH.'
+                : 'Reading system, inventory, interfaces and LLDP neighbours.'}
+          </span>
           <span className="wait">Usually a few seconds. It gives up after 50 seconds and says what it got.</span>
           <span>
             <button type="button" className="btn-small btn-quiet" onClick={() => stopWaiting(place, deviceId)} title="Stops waiting here. What the device answers is still kept.">
@@ -507,6 +712,8 @@ export function ReadingsTab({ deviceId }: { deviceId: string }) {
         <>
           <div className="dev-panel__h">MAC and ARP</div>
           <MacArp d={d} deviceId={deviceId} />
+          <div className="dev-panel__h">Configuration</div>
+          <Configuration d={d} deviceId={deviceId} />
         </>
       ) : null}
       {earlier.length ? (
@@ -526,34 +733,43 @@ export function ReadingsTab({ deviceId }: { deviceId: string }) {
   );
 }
 
-function ReadDialog({ d, deviceId, kind }: { d: NonNullable<ReturnType<typeof useDevice>>; deviceId: string; kind: ReadKind }) {
-  const halt = d.state.halt?.kind === 'confirm' ? d.state.halt : null;
-  const [login, setLogin] = useState<string | null>(d.logins.find((l) => l.entry.id === d.state.login)?.entry.id ?? d.logins[0]?.entry.id ?? null);
+function ReadDialog({ d, deviceId, kind }: { d: Device; deviceId: string; kind: ReadKind }) {
+  const protocol = protocolOf(kind);
+  // A confirmation is for this kind's protocol only: an SNMP agent is never confirmed from an SSH read.
+  const halt = d.state.halt?.kind === 'confirm' && d.state.halt.identity.protocol === protocol ? d.state.halt : null;
+  const { logins } = forKind(d, kind);
+  const [login, setLogin] = useState<string | null>(logins.find((l) => l.entry.id === d.state.login)?.entry.id ?? logins[0]?.entry.id ?? null);
   const [typed, setTyped] = useState('');
   const close = () => closeDialog(d.place, deviceId);
-  const confirmed = halt ? typed.trim().toUpperCase() === lastEight(halt.engineId) : true;
+  const confirmed = halt ? typedEight(protocol, typed) === lastEight(protocol, halt.identity.value) : true;
   const read = () => {
     if (!login || !confirmed) return;
     close();
-    void readThen(d.place, deviceId, kind, login, halt ? typed.trim().toUpperCase() : null);
+    void readThen(d.place, deviceId, kind, login, halt ? typedEight(protocol, typed) : null);
   };
-  const pairs = halt ? enginePairs(halt.engineId) : [];
-  const mark = Math.max(0, pairs.length - 4);
+  const groups = halt ? identityGroups(halt.identity) : [];
+  // The last 8 characters: four pairs of an engine id, two groups of four of a host key.
+  const mark = Math.max(0, groups.length - (protocol === 'ssh' ? 2 : 4));
+  const what = protocol === 'ssh' ? 'SSH host key' : 'engine ID';
   return (
     <VaultModal title={`Read ${d.hostname ?? 'this device'}`} onClose={close} testId="read-dialog">
       <div className="read-dialog">
         <div className="muted">
           {kind === 'macarp'
             ? `Fathom reads the MAC and ARP tables of ${d.address} over SNMPv3 and changes nothing on it.`
-            : `Fathom reads ${d.address} over SNMPv3 and changes nothing on it. What it reads comes back as suggestions here.`}
+            : kind === 'config'
+              ? `Fathom logs in to ${d.address} over SSH once and runs only ${(d.platform ? (SSH_READ_PLATFORMS[d.platform]?.commands ?? []) : []).map((c) => `“${c}”`).join(' and ')}. It changes nothing on it, and passwords in what it prints are removed before it leaves the reader.`
+              : `Fathom reads ${d.address} over SNMPv3 and changes nothing on it. What it reads comes back as suggestions here.`}
         </div>
         <div>
           <div className="lbl">Login</div>
-          {d.logins.map((l) => (
+          {logins.map((l) => (
             <label key={l.entry.id} className={`opt${login === l.entry.id ? ' on' : ''}`}>
               <input type="radio" name="read-login" checked={login === l.entry.id} onChange={() => setLogin(l.entry.id)} />
               <span>
-                <b>{l.entry.name}</b> · SNMPv3, {l.entry.snmpAuth ? SNMP_AUTH_LABELS[l.entry.snmpAuth] : ''}, AES <span className="read-ro">· read-only</span>
+                <b>{l.entry.name}</b> ·{' '}
+                {protocol === 'ssh' ? 'SSH login' : `SNMPv3, ${l.entry.snmpAuth ? SNMP_AUTH_LABELS[l.entry.snmpAuth] : ''}, AES`}{' '}
+                <span className="read-ro">· read-only</span>
                 <br />
                 <span className="sub">{l.from}</span>
               </span>
@@ -568,15 +784,31 @@ function ReadDialog({ d, deviceId, kind }: { d: NonNullable<ReturnType<typeof us
             <div className="lbl">Is this the device you mean?</div>
             <div>
               {halt.state === 'changed'
-                ? `This address answered with a different engine ID${halt.previous ? ` than before (…${lastEight(halt.previous)})` : ''}. It may have been replaced or reset. It answered with`
-                : "It's the first time Fathom has read this address. It answered with engine ID"}
+                ? `This address answered with a different ${what}${halt.previous ? ` than before (…${lastEight(protocol, halt.previous)})` : ''}. It may have been replaced or reset. It answered with`
+                : `It's the first time Fathom has read this address${protocol === 'ssh' ? ' over SSH' : ''}. It answered with ${what}`}
+              {protocol === 'ssh' && halt.identity.keyType ? ` (${halt.identity.keyType})` : ''}
             </div>
             <div className="engine" data-testid="read-engine">
-              {pairs.slice(0, mark).join(' ')} <mark>{pairs.slice(mark).join(' ')}</mark>
+              {groups.slice(0, mark).join(' ')} <mark>{groups.slice(mark).join(' ')}</mark>
             </div>
+            {protocol === 'ssh' ? (
+              <div className="small muted">
+                Check it against the device itself, for example from its console. No login was sent and nothing ran.
+              </div>
+            ) : null}
             <div>
-              Type its last 8 characters to confirm:{' '}
-              <input className="type8" value={typed} onChange={(e) => setTyped(e.target.value)} aria-label="Last 8 characters" maxLength={8} data-testid="read-type8" />{' '}
+              Type its last 8 characters to confirm{protocol === 'ssh' ? ', capitals as shown' : ''}:{' '}
+              <input
+                className="type8"
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                aria-label="Last 8 characters"
+                maxLength={8}
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                data-testid="read-type8"
+              />{' '}
               {confirmed ? <span className="okline">matches</span> : null}
             </div>
             <div className="small muted" style={{ marginTop: 6 }}>

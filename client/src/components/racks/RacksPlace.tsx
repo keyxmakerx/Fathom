@@ -53,7 +53,8 @@ import { looksLikeFacts } from '../../document/facts';
 import { looksLikeMacTable } from '../../document/hosts';
 import { looksLikeNeighbours } from '../../document/neighbours';
 import type { PastePlatform } from '../../engine/frames';
-import { devicePlatform, platformChoices, previewPaste, worthReading } from '../paste/pasteConfig';
+import { devicePlatform, pastePlatform, platformChoices, previewPaste, worthReading } from '../paste/pasteConfig';
+import { READ_AS_PASTE } from '../reading/store';
 import { countsOfCapture, pastedNotice } from '../paste/pastedNotice';
 import { ConfigDrawer } from '../config/ConfigDrawer';
 import { canDrawFor, refusalFor, type DesignSession } from '../design/useDesignSession';
@@ -1492,6 +1493,17 @@ export function RacksPlace(props: RacksPlaceProps) {
     };
     document.addEventListener('paste', onPaste);
     return () => document.removeEventListener('paste', onPaste);
+  }, [canDraw, doc, startPaste]);
+  // A configuration read over SSH, compared with the drawing through the same paste reader and card (ADR-0082 §4.7).
+  useEffect(() => {
+    if (!canDraw || doc == null) return;
+    const onRead = (event: Event) => {
+      const detail = (event as CustomEvent<{ text?: unknown; platform?: unknown }>).detail;
+      if (typeof detail?.text !== 'string' || !worthReading(detail.text)) return;
+      startPaste(detail.text, pastePlatform(typeof detail.platform === 'string' ? detail.platform : null) ?? undefined);
+    };
+    window.addEventListener(READ_AS_PASTE, onRead);
+    return () => window.removeEventListener(READ_AS_PASTE, onRead);
   }, [canDraw, doc, startPaste]);
 
   const jotOrigin = useMemo(() => (jot ? originOf(realView, jot.id, jot.origin) : { x: 0, y: 0 }), [jot, realView]);

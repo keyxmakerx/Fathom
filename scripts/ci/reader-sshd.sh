@@ -15,6 +15,8 @@ mkdir -p "$DIR"
 id fathomro >/dev/null 2>&1 || useradd -m -s /bin/sh fathomro
 echo 'fathomro:read-only-pw-7Qx' | chpasswd
 install -m 0755 "$HERE/reader-fake-device.sh" /usr/local/bin/fathom-fake-device
+# What the fake device was asked: written by `fathomro`, read and emptied by the test's user.
+install -m 0666 /dev/null /tmp/fathom-fake-device.log
 rm -f "$DIR/host_ed25519" "$DIR/client_ed25519"
 ssh-keygen -q -t ed25519 -N '' -f "$DIR/host_ed25519"
 ssh-keygen -q -t ed25519 -N '' -f "$DIR/client_ed25519"

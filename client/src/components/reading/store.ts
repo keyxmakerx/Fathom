@@ -4,7 +4,7 @@
 
 import { createContext, useEffect, useSyncExternalStore } from 'react';
 
-import { fetchDeviceReading, fetchReadingPanel, readDevice, type DeviceReading, type ReadAnswer, type ReadKind, type ReadingPanel } from '../../api/deviceRead';
+import { fetchDeviceReading, fetchReadingPanel, readDevice, type DeviceReading, type Identity, type ReadAnswer, type ReadKind, type ReadingPanel } from '../../api/deviceRead';
 import type { EditorChange } from '../drawing';
 import type { Document } from '../../document/model';
 
@@ -19,12 +19,19 @@ export interface ReadingPlace {
 
 export const ReadingContext = createContext<ReadingPlace | null>(null);
 
+/**
+ * Hands text to the canvas's paste reader, as if it had been pasted (`RacksPlace.tsx` listens, with
+ * `detail: { text, platform }`): a configuration read over SSH goes through the same readers, and the
+ * same card, as a pasted one. Nothing changes in the design until the person chooses on the card.
+ */
+export const READ_AS_PASTE = 'fathom:read-as-paste';
+
 export type Load<T> = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; value: T };
 
 /** A refusal, said once in words, or a confirmation still owed. */
 export type Halt =
-  | { kind: 'failed'; code: string; message: string; engineId: string | null; previous: string | null; read: ReadKind }
-  | { kind: 'confirm'; engineId: string; state: 'seen' | 'changed'; previous: string | null };
+  | { kind: 'failed'; code: string; message: string; identity: Identity | null; previous: string | null; read: ReadKind }
+  | { kind: 'confirm'; identity: Identity; state: 'seen' | 'changed'; previous: string | null };
 
 export interface DeviceState {
   panel: Load<ReadingPanel>;
@@ -35,13 +42,15 @@ export interface DeviceState {
   login: string | null;
   /** The Read dialog, open for this kind of read. */
   dialog: ReadKind | null;
+  /** The platform a person chose for a configuration read, when the design names none. */
+  sshPlatform: string | null;
 }
 
 const states = new Map<string, DeviceState>();
 const listeners = new Set<() => void>();
 const settings = new Map<string, Load<DeviceReading>>();
 
-const EMPTY: DeviceState = { panel: { status: 'loading' }, busy: null, halt: null, login: null, dialog: null };
+const EMPTY: DeviceState = { panel: { status: 'loading' }, busy: null, halt: null, login: null, dialog: null, sshPlatform: null };
 
 function key(design: string, element: string): string {
   return `${design}|${element}`;
@@ -122,17 +131,18 @@ export async function runRead(place: ReadingPlace, element: string, kind: ReadKi
   patch(k, { busy: { kind, since: Date.now() }, halt: null, login });
   let answer: ReadAnswer | null = null;
   try {
-    answer = await readDevice(place.organisation, place.design, { element, kind, login, confirm });
+    const platform = kind === 'config' ? (states.get(k)?.sshPlatform ?? null) : null;
+    answer = await readDevice(place.organisation, place.design, { element, kind, login, confirm, platform });
     if (answer.outcome === 'read') {
       await loadPanel(place, element);
       patch(k, { busy: null, halt: null });
     } else if (answer.outcome === 'confirm') {
-      patch(k, { busy: null, halt: { kind: 'confirm', engineId: answer.engineId, state: answer.state, previous: answer.previous } });
+      patch(k, { busy: null, halt: { kind: 'confirm', identity: answer.identity, state: answer.state, previous: answer.previous } });
     } else {
-      patch(k, { busy: null, halt: { kind: 'failed', code: answer.code, message: answer.message, engineId: answer.engineId, previous: answer.previous, read: kind } });
+      patch(k, { busy: null, halt: { kind: 'failed', code: answer.code, message: answer.message, identity: answer.identity, previous: answer.previous, read: kind } });
     }
   } catch (e) {
-    patch(k, { busy: null, halt: { kind: 'failed', code: 'refused', message: words(e), engineId: null, previous: null, read: kind } });
+    patch(k, { busy: null, halt: { kind: 'failed', code: 'refused', message: words(e), identity: null, previous: null, read: kind } });
   }
   return answer;
 }
@@ -153,6 +163,11 @@ export function openDialog(place: ReadingPlace, element: string, kind: ReadKind,
 
 export function closeDialog(place: ReadingPlace, element: string) {
   patch(key(place.design, element), { dialog: null });
+}
+
+/** The platform to read a configuration as, for a device the design names none for. */
+export function chooseSshPlatform(place: ReadingPlace, element: string, platform: string | null) {
+  patch(key(place.design, element), { sshPlatform: platform });
 }
 
 export function reloadPanel(place: ReadingPlace, element: string) {
