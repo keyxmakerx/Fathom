@@ -262,6 +262,14 @@ unreachable, as it is from this environment. Read the crate count off `./scripts
   the tab asks again every five seconds while it is shown. Plans, issues and spares gain `assigned_to`
   (an account id, picked from those holding Draw) and `ticket` (an outside link, only http and https
   open); issues gain `due`. Comments are notes on the item. On a phone the rows become cards.
+- **Work that clashes, inside one design (sign-off r105 part 1, built on its recommended picks, not yet
+  answered; 2026-11-03).** A plan's panel lists **Also on these devices**: another plan still planned or under way,
+  or an open It's down issue, on a device the plan could touch (If paths too), when the windows overlap; a plan with
+  no window, or an unreadable one, overlaps anything, and an issue is open now. A port or cable both touch is named
+  in bold. Start the maintenance then asks once more, and **Start anyway** puts a note on the plan naming each clash,
+  in the same undo step. It warns and never blocks. It's down on a device with a plan under way puts the plan and its
+  finished steps there, newest first, at the top. Logic: `components/plans/clashes.ts`. Not built: across designs,
+  one person on two things, work you can't open (part 2, the server's work index), and orders (with ADR-0084 piece 2).
 - **Order types, read and checked (ADR-0084 piece 1 and decisions 14 to 17, sign-offs r103,
   2026-11-02).** `crates/fathom-orders` reads an order definition (`order-definition/1`) or a shared
   field set (`field-set/1`) through the YAML subset and returns every problem with its line: unknown

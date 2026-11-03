@@ -4,8 +4,9 @@
 import { useId, useState } from 'react';
 
 import { CALL_OFF_REASONS, CALL_OFF_WORD, calledOffWhy, type CallOffReason, type Plan } from '../../document/plans';
+import { clashNote, type Clash } from './clashes';
 import { TypedSentence, usePasteMark } from './PlanParts';
-import { firstLine, planRoute } from './plansModel';
+import { firstLine, planRoute, windowText } from './plansModel';
 import type { PlansController } from './usePlansController';
 
 const AT_WORD = { done: 'done', now: 'now', next: 'to come', skipped: 'not done' } as const;
@@ -32,9 +33,62 @@ const REASON_HINT: Record<CallOffReason, string> = {
   troubleshoot: "Something is wrong first. Opens It's down on this plan's device.",
 };
 
-/** While planning: start the maintenance, or call the plan off. Replaces the lone Start work. */
-export function WhatNext({ controller, plan, onStart, held = false }: { controller: PlansController; plan: Plan; onStart: () => void; held?: boolean }) {
+const CLASH_STAGE: Record<string, string> = { planned: 'planned', doing: 'under way', open: 'open issue' };
+
+/** One clash as a line: what it is, where, and when, with a shared port in bold (sign-off r105 "what" A). */
+function ClashLine({ clash, onOpen }: { clash: Clash; onOpen: ((c: Clash) => void) | null }) {
+  const what = clash.kind === 'issue' ? `It's down: ${clash.title}` : clash.title;
+  const when = clash.kind === 'plan' ? windowText(clash.windowStart, clash.windowEnd) : '';
+  return (
+    <li className="plans-clash" data-kind={clash.kind} data-testid="plans-clash">
+      {onOpen ? (
+        <button type="button" className="plans-link" onClick={() => onOpen(clash)}>
+          {what}
+        </button>
+      ) : (
+        <span>{what}</span>
+      )}
+      <span className="plans-note">
+        {' · '}
+        {clash.devices.join(', ')} · {CLASH_STAGE[clash.stage] ?? clash.stage}
+        {when !== '' && ` · ${when}`}
+      </span>
+      {clash.ports.length > 0 && (
+        <>
+          {' · '}
+          <strong>same port {clash.ports.join(', ')}</strong>
+        </>
+      )}
+    </li>
+  );
+}
+
+/** Other open work on the devices this plan touches (sign-off r105). Shown while planning and during the work. */
+export function PlanClashes({ controller }: { controller: PlansController }) {
+  const { clashes } = controller;
+  if (clashes.length === 0) return null;
+  const open = (c: Clash): void => {
+    if (c.kind === 'plan') controller.openPlan(c.id);
+    else controller.openIssue?.(c.id);
+  };
+  const canOpen = (c: Clash): boolean => c.kind === 'plan' || controller.openIssue != null;
+  return (
+    <section className="plans-clashes" aria-label="Also on these devices" data-testid="plans-clashes">
+      <h3 className="plans-label">Also on these devices</h3>
+      <ul className="plans-clashes__list">
+        {clashes.map((c) => (
+          <ClashLine key={c.id} clash={c} onOpen={canOpen(c) ? open : null} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** While planning: start the maintenance, or call the plan off. Replaces the lone Start work. With other work open on
+ * the same devices, Start asks once more, and Start anyway leaves a note on the plan naming it (sign-off r105 "act" A). */
+export function WhatNext({ controller, plan, onStart, held = false }: { controller: PlansController; plan: Plan; onStart: (note?: string) => void; held?: boolean }) {
   const [asking, setAsking] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [reason, setReason] = useState<CallOffReason>('not_needed');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -47,10 +101,41 @@ export function WhatNext({ controller, plan, onStart, held = false }: { controll
       <h3 className="plans-label" id={`${id}-h`}>
         What happens next
       </h3>
-      {!asking ? (
+      {confirming && controller.clashes.length > 0 ? (
+        <div className="plans-clash-confirm" role="group" aria-label="Start anyway?" data-testid="plans-clash-confirm">
+          <p>
+            <strong>
+              {controller.clashes.length === 1 ? 'Other work touches these devices' : `${controller.clashes.length} other pieces of work touch these devices`}
+            </strong>
+          </p>
+          <p className="plans-note">Starting anyway leaves a note on this plan naming them, with who and when.</p>
+          <p className="plans-step__actions">
+            <button
+              type="button"
+              className="plans-btn btn-main"
+              data-testid="plans-start-anyway"
+              onClick={() => {
+                setConfirming(false);
+                onStart(clashNote(controller.clashes));
+              }}
+            >
+              Start anyway
+            </button>
+            <button type="button" className="plans-btn" onClick={() => setConfirming(false)}>
+              Not yet
+            </button>
+          </p>
+        </div>
+      ) : !asking ? (
         <>
           <p className="plans-step__actions">
-            <button type="button" className="plans-btn btn-main" disabled={plan.steps.length === 0 || held} onClick={onStart} data-testid="plans-start">
+            <button
+              type="button"
+              className="plans-btn btn-main"
+              disabled={plan.steps.length === 0 || held}
+              onClick={() => (controller.clashes.length > 0 ? setConfirming(true) : onStart())}
+              data-testid="plans-start"
+            >
               Start the maintenance
             </button>
             <button type="button" className="plans-btn" onClick={() => setAsking(true)} data-testid="plans-call-off">

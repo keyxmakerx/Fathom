@@ -8,6 +8,7 @@ import { FIELD_KEYS } from '../../../../schema/generated/ir_types';
 import { IncompatibleConnectorError, PortAlreadyTerminatedError } from '../../document/cables';
 import { parseNodeId, type Document } from '../../document/model';
 import { foldFrom } from '../../document/freeform';
+import { addNote } from '../../document/notes';
 import { reserve } from '../../document/stock';
 import {
   PlanRefusal,
@@ -49,6 +50,7 @@ import type { Comparison } from './checkSeen';
 import type { Mirror } from '../../engine/mirror';
 import type { UpgradeTemplate } from '../firmware/upgradePlan';
 import { buildCanon, CHECKS_DEBOUNCE_MS, isTypingTarget, standingDelay, type Canon } from '../checks/checksModel';
+import { planClashes, type Clash } from './clashes';
 import { buildMarks, buildStep, changedMarks, EMPTY_FORM, focusKeys, planEscTarget, prefillFor, stepCheck, titleFor, type StepForm } from './plansModel';
 import { createPlansStore, type PlansStore } from './plansStore';
 
@@ -158,7 +160,10 @@ export interface PlansController {
   addStep(form: StepForm, pasted?: boolean): Promise<boolean>;
   removeStep(stepId: string): Promise<boolean>;
   moveStep(stepId: string, index: number): Promise<boolean>;
-  start(): Promise<boolean>;
+  /** Planning to doing. With `note`, the note goes on the plan in the same undo step (r105: Start anyway). */
+  start(note?: string): Promise<boolean>;
+  /** Other open work on the devices this plan could touch, at an overlapping time (sign-off r105); [] when over. */
+  clashes: Clash[];
   done(stepId: string): Promise<boolean>;
   wentDifferently(stepId: string, note: string, pasted?: boolean): Promise<boolean>;
   /** What the device answered for a check step (ADR-0080 decision 5). Always gated: it is device output, never typed prose. */
@@ -436,6 +441,7 @@ export function usePlansController({
     }
   }, []);
 
+  const clashes = useMemo(() => (doc && plan ? planClashes(doc, canon, plan) : []), [doc, plan, canon]);
   const troubleDevice = useMemo(() => (plan == null ? null : (couldTouch(plan).map(canon).find(isDevice) ?? null)), [plan, canon]);
   const stamp = () => ({ ...(latest.current.actor ?? {}), now: Date.now() });
 
@@ -558,7 +564,13 @@ export function usePlansController({
       }, howOf(pasted)),
     removeStep: (stepId) => run((doc0) => removeStep(doc0, stepId, stamp())),
     moveStep: (stepId, index) => run((doc0) => moveStep(doc0, stepId, index, stamp())),
-    start: () => run((doc0) => (plan ? startPlan(doc0, plan.id, stamp()) : null)),
+    start: (note) =>
+      run((doc0) => {
+        if (plan == null) return null;
+        const started = startPlan(doc0, plan.id, stamp());
+        return note ? foldFrom(addNote(started, plan.id, { text: note, how: 'typed', ...stamp() }), doc0.batches.length) : started;
+      }),
+    clashes,
     done: (stepId) => {
       setRefused(null);
       return run((doc0, _gate, mirror) => {

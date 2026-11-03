@@ -39,6 +39,7 @@ import {
   type Draft,
 } from './troubleModel';
 import { createTroubleStore, type TroubleStore } from './troubleStore';
+import { runningOn, type RunningHere } from '../plans/clashes';
 
 export interface TroubleController {
   store: TroubleStore;
@@ -63,6 +64,10 @@ export interface TroubleController {
   /** Saved issues, newest first. */
   issues: Issue[];
   issuesOf(deviceId: string): Issue[];
+  /** Plans under way on the checklist's device, with their finished steps there (sign-off r105 "trouble" A). */
+  runningHere: RunningHere[];
+  /** Opens a plan in the plan panel. */
+  openPlan(id: string): void;
   /** Right-click "It's down" or the device's button: a chassis or device id. Returns whether a session opened.
    * `from`: opened from a plan (Troubleshoot on a step, or a check after the work); the issue saved says so. */
   start(elementId: string, from?: { stepId: string | null; said: string }): boolean;
@@ -111,6 +116,8 @@ export function useTroubleController({ doc, boot, redact, applyDocChange, actor,
 
   const canon = useMemo<Canon>(() => (doc ? buildCanon(doc) : IDENTITY), [doc]);
   const issues = useMemo(() => (doc ? listIssues(doc) : []), [doc]);
+  const draftDevice = draft?.deviceId ?? null;
+  const runningHere = useMemo(() => (doc && draftDevice ? runningOn(doc, canon, draftDevice) : []), [doc, canon, draftDevice]);
   const viewing = useMemo(() => {
     if (doc == null || viewingId == null) return null;
     try {
@@ -267,6 +274,8 @@ export function useTroubleController({ doc, boot, redact, applyDocChange, actor,
     confirmingClose,
     issues,
     issuesOf: (deviceId) => (doc ? issuesTouching(doc, deviceId, canon) : []),
+    runningHere,
+    openPlan: (id) => latest.current.openPlan(id),
     start: (elementId, from) => {
       const now = latest.current;
       if (now.doc == null || !now.canEdit) return false;

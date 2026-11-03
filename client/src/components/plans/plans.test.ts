@@ -31,7 +31,10 @@ import type { Mirror } from '../../engine/mirror';
 import { buildCanon } from '../checks/checksModel';
 import { PlanBand } from './PlanBand';
 import { PlanListPage } from './PlanListPage';
+import { PlanClashes } from './PlanNext';
 import { PlanPanel } from './PlanPanel';
+import { clashNote } from './clashes';
+import { notesOf } from '../../document/notes';
 import {
   EMPTY_FORM,
   buildMarks,
@@ -977,5 +980,35 @@ describe('the plan-to-maintenance flow, rendered (sign-off r73)', () => {
     const next = panelFor(answered, id, { troubleshoot: true });
     expect(next).not.toContain('to answer before Record');
     expect(next).toContain('data-testid="plans-check-troubleshoot"');
+  });
+});
+
+describe('work that clashes on the same devices (sign-off r105)', () => {
+  it('names the other plan, shows a shared port, and Start anyway leaves a note in the same undo step', async () => {
+    const { doc, ports } = lab();
+    const a = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
+    const b = planWith(a.doc, [{ t: 'cable', a: ports[0], b: ports[2] }]);
+    const h = harness(b.doc, { open: a.id });
+    expect(h.controller.clashes.map((c) => [c.id, c.ports.length])).toEqual([[b.id, 1]]);
+    const html = renderToStaticMarkup(createElement(PlanClashes, { controller: h.controller }));
+    expect(html).toContain('Also on these devices');
+    expect(html).toContain('same port');
+
+    const note = clashNote(h.controller.clashes);
+    expect(await h.controller.start(note)).toBe(true);
+    const after = h.applied[0];
+    expect(after.batches.length).toBe(b.doc.batches.length + 1);
+    expect(readPlan(after, a.id).stage).toBe('doing');
+    expect(notesOf(after, a.id).map((n) => n.text)).toEqual([note]);
+  });
+
+  it('shows nothing, and Start adds no note, when nothing else is open there', async () => {
+    const { doc, ports } = lab();
+    const a = planWith(doc, [{ t: 'cable', a: ports[0], b: ports[1] }]);
+    const h = harness(a.doc, { open: a.id });
+    expect(h.controller.clashes).toEqual([]);
+    expect(renderToStaticMarkup(createElement(PlanClashes, { controller: h.controller }))).toBe('');
+    expect(await h.controller.start()).toBe(true);
+    expect(notesOf(h.applied[0], a.id)).toEqual([]);
   });
 });
