@@ -230,7 +230,9 @@ fn schema_version_is_the_trees() {
     // 0.36 -> 0.37: a plan called off. One variant, `called_off`, on `MaintenancePlan.stage`;
     // no field key; MINOR.
     // 0.37 -> 0.38: a plan's team. One optional field, `MaintenancePlan.team` (637); MINOR.
-    assert_eq!(SCHEMA_VERSION, "0.38");
+    // 0.38 -> 0.39: NAT on firewalls. One kind (NatPool), one edge (HasNatPool) and one
+    // optional field (NatRule.match_destination_port); field keys 638-643; MINOR.
+    assert_eq!(SCHEMA_VERSION, "0.39");
 }
 
 #[test]
@@ -781,7 +783,8 @@ fn dispatch_names_every_registry_key() {
     // 489 -> 496: the Work tab's ticket parts (555-561, schema 0.35).
     // 496 -> 571: the IP plan store (562-636, schema 0.36).
     // 571 -> 572: a plan's team (637, schema 0.38).
-    assert_eq!(FIELD_KEYS.len(), 572, "the registry grew or shrank");
+    // 572 -> 578: NAT on firewalls (638-643, schema 0.39).
+    assert_eq!(FIELD_KEYS.len(), 578, "the registry grew or shrank");
     // `()` is no slot type, so every key must reach an arm and refuse on the
     // type — which proves the arm exists. A missing arm would answer
     // `UnknownKey` instead.

@@ -683,3 +683,10 @@ fields:
   IpamAsn.folder: 635
   IpamAsn.note: 636
   MaintenancePlan.team: 637
+  # 0.39: NAT on firewalls
+  NatRule.match_destination_port: 638
+  NatPool.name: 639
+  NatPool.nat_type: 640
+  NatPool.address: 641
+  NatPool.address_to: 642
+  NatPool.port: 643

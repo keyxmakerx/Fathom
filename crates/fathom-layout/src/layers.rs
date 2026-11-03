@@ -356,6 +356,7 @@ pub const fn projection_of(kind: NodeKind) -> Projection {
         //     inspector-only `AddressObject` and `Application`. Extending a row
         //     to its obvious sibling is still inventing a row.
         | NodeKind::NatRule
+        | NodeKind::NatPool
         | NodeKind::AddressSet
         | NodeKind::ApplicationSet
         // (e) Per-device settings, and the redundancy group §4.2 draws as a

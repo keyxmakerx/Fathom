@@ -63,6 +63,7 @@ enums!(
     IpsecVpnDfBit,
     LacpMode,
     LinkMedia,
+    NatPoolNatType,
     NatRuleSetNatType,
     PassiveNodeForm,
     PathSegmentBoundaryReason,

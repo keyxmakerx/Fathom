@@ -437,7 +437,7 @@ the same few spots. ADR-0088 has the reasons; this is the list.
 | Steward, grouped | People (People, **Teams**, Waiting for you) · Estate (Folders, Firmware, **Device reading**) · Work (**Order types**, **Mail**) · Passwords and AI (Passwords, AI, AI rules) |
 | Admin | a **Mail** tab; AI gains Waiting for approval, allowed apps and account domains; Settings shows device reading on or off |
 | The work page | one page for every W-number; orders add the stage track, approvals add Approve, IP adds Reserve |
-| The device panel | **Read now** and a **Readings** tab beside Checks, Plans and History |
+| The device panel | **Read now** in its header, and a **Readings** tab in its own tabs after Ports (card r100) |
 | Inventory › Addresses | the IP tree, narrowed to this design's folder |
 | The account menu | **Mail**: each kind at once, in the digest, or off |
 | A phone | bottom tabs Scan · Find · Canvas · **Work** |

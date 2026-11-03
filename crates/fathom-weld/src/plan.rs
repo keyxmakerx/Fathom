@@ -16,7 +16,7 @@
 
 use fathom_graph::{ElementId, Graph, NodeId, WriteError};
 use fathom_ingest::bind::{
-    BoundNextHop, BoundScope, BoundValue, FieldAssertion, FragNodeId, Fragment,
+    BoundNatScope, BoundNextHop, BoundScope, BoundValue, FieldAssertion, FragNodeId, Fragment,
 };
 use fathom_ir::generated::ir_types::NodeKind;
 use fathom_ir::value;
@@ -41,6 +41,7 @@ pub(crate) fn validate(fragment: &Fragment) -> Result<(), WeldError> {
             BoundNextHop::Interface(u) => in_range(u),
             _ => true,
         }),
+        BoundValue::NatScope(BoundNatScope::Zone(n) | BoundNatScope::Interface(n)) => in_range(n),
         _ => true,
     };
     let edges_ok = fragment.edges.iter().all(|e| e.fields.iter().all(refs_ok));
@@ -163,6 +164,16 @@ pub(crate) fn write_field(
             }
             Box::new(out)
         }
+        BoundValue::L4Port(v) => Box::new(*v),
+        BoundValue::NatRuleSetNatType(v) => Box::new(v.clone()),
+        BoundValue::NatPoolNatType(v) => Box::new(v.clone()),
+        BoundValue::IpPrefixes(v) => Box::new(v.clone()),
+        BoundValue::L4Ports(v) => Box::new(v.clone()),
+        BoundValue::NatScope(BoundNatScope::Zone(n)) => Box::new(value::NatScope::Zone(node(*n)?)),
+        BoundValue::NatScope(BoundNatScope::Interface(n)) => {
+            Box::new(value::NatScope::Interface(node(*n)?))
+        }
+        BoundValue::NatAction(v) => Box::new(v.clone()),
     };
     graph.set_field_boxed(element, key, value, record)
 }

@@ -310,6 +310,13 @@ pub(crate) enum ValueTy {
     /// `models/OPNsense/Firewall/Filter.xml` on `opnsense/core` master, and
     /// the manual's prose at `docs.opnsense.org/manual/firewall.html`.
     PolicyAction,
+    // --- NAT on firewalls (schema 0.39, 2026-11-02) ---------------------------
+    /// A pool's `port 80`. One TCP or UDP port; 0 to 65535.
+    L4Port,
+    /// `security nat source|destination|static`, read off the path itself.
+    NatRuleSetNatType,
+    /// `security nat source|destination pool`.
+    NatPoolNatType,
 }
 
 impl ValueTy {
@@ -347,6 +354,9 @@ impl ValueTy {
             "ProtocolAdjacencyNetworkType" => ValueTy::ProtocolAdjacencyNetworkType,
             "bool" => ValueTy::Bool,
             "PolicyAction" => ValueTy::PolicyAction,
+            "L4Port" => ValueTy::L4Port,
+            "NatRuleSetNatType" => ValueTy::NatRuleSetNatType,
+            "NatPoolNatType" => ValueTy::NatPoolNatType,
             _ => return None,
         })
     }
@@ -487,6 +497,48 @@ pub(crate) enum ValueSpec {
     NextHopConst {
         token: NextHopConst,
     },
+    /// One element of a `0..n` list of plain scalars (`NatRule.match_source`,
+    /// `match_destination`, `match_destination_port`), from one capture.
+    /// Appends, in the order the statements said them; a repeat is coalesced.
+    AppendScalar {
+        ty: ListTy,
+        from: String,
+    },
+    /// `NatRuleSet.from` / `.to`. A zone resolves at once (made by name, as a
+    /// policy's zone pair is); an interface unit waits for the whole paste,
+    /// as a next hop's does, because `security` prints before `interfaces`.
+    NatScope {
+        scope: NatScopeSpec,
+        from: String,
+    },
+    /// `NatRule.then`.
+    NatAction {
+        action: NatActionSpec,
+    },
+}
+
+/// The plain scalars a `0..n` list field can hold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ListTy {
+    IpPrefix,
+    L4Port,
+}
+
+/// Which `NatScope` a capture names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NatScopeSpec {
+    Zone,
+    InterfaceUnit,
+}
+
+/// A NAT rule's `then`: the two argument-less actions, or one that carries a
+/// captured pool name or prefix.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum NatActionSpec {
+    Interface,
+    Off,
+    Pool { from: String },
+    Static { from: String },
 }
 
 /// The argument-less next hops (`11` §6.5's `NextHop::Discard` / `Reject`).
@@ -1813,6 +1865,86 @@ fn load_field(
             )),
         };
     }
+    if let Some(text) = spec.get("append_scalar").and_then(|n| n.as_str()) {
+        let ty = match text {
+            "IpPrefix" => ListTy::IpPrefix,
+            "L4Port" => ListTy::L4Port,
+            other => {
+                return Err(err(
+                    file,
+                    line,
+                    DictGate::TypeUnknown,
+                    format!("`{id}`: `append_scalar: {other}` is not IpPrefix or L4Port"),
+                ))
+            }
+        };
+        let from = capture_ref(file, id, line, spec, "from", path)?.ok_or_else(|| {
+            err(
+                file,
+                line,
+                DictGate::CaptureArity,
+                format!("`{id}`: `append_scalar` has no `from`"),
+            )
+        })?;
+        return Ok(FieldSpec {
+            field,
+            value: ValueSpec::AppendScalar { ty, from },
+        });
+    }
+    if let Some(scope) = spec.get("nat_scope") {
+        let zone = capture_ref(file, id, line, scope, "zone", path)?;
+        let unit = capture_ref(file, id, line, scope, "interface_unit", path)?;
+        let (scope, from) = match (zone, unit) {
+            (Some(z), None) => (NatScopeSpec::Zone, z),
+            (None, Some(u)) => (NatScopeSpec::InterfaceUnit, u),
+            _ => {
+                return Err(err(
+                    file,
+                    line,
+                    DictGate::CaptureArity,
+                    format!("`{id}`: `nat_scope` needs exactly one of `zone`, `interface_unit`"),
+                ))
+            }
+        };
+        return Ok(FieldSpec {
+            field,
+            value: ValueSpec::NatScope { scope, from },
+        });
+    }
+    if let Some(action) = spec.get("nat_action") {
+        let action = match action.as_str() {
+            Some("interface") => NatActionSpec::Interface,
+            Some("off") => NatActionSpec::Off,
+            Some(other) => {
+                return Err(err(
+                    file,
+                    line,
+                    DictGate::TypeUnknown,
+                    format!("`{id}`: `nat_action: {other}` is not interface or off"),
+                ))
+            }
+            None => {
+                let pool = capture_ref(file, id, line, action, "pool", path)?;
+                let fixed = capture_ref(file, id, line, action, "static", path)?;
+                match (pool, fixed) {
+                    (Some(from), None) => NatActionSpec::Pool { from },
+                    (None, Some(from)) => NatActionSpec::Static { from },
+                    _ => {
+                        return Err(err(
+                            file,
+                            line,
+                            DictGate::CaptureArity,
+                            format!("`{id}`: `nat_action` needs exactly one of `pool`, `static`"),
+                        ))
+                    }
+                }
+            }
+        };
+        return Ok(FieldSpec {
+            field,
+            value: ValueSpec::NatAction { action },
+        });
+    }
     if let Some(from) = capture_ref(file, id, line, spec, "address_prefix", path)? {
         return Ok(FieldSpec {
             field,
@@ -2293,7 +2425,11 @@ mod tests {
         // +14 on 2026-10-03 — path trace (schema 0.17): `security policies` grows to
         // ten (scope on every entry, `match … address`/`application`, `then deny`
         // and `reject`), the global address book five, static routes three.
-        assert_eq!(d.entry_count(), 104);
+        //
+        // +15 on 2026-11-02 — NAT (schema 0.39, sign-off r104): three rule-set
+        // scopes, three matches, six `then` forms and three pool shapes. See
+        // `corpus/dict/junos-srx/security-nat.yaml`.
+        assert_eq!(d.entry_count(), 119);
     }
 
     /// The precise half of `lookup_budget_within_8`: the gate runs inside
