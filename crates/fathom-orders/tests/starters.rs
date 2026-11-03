@@ -369,3 +369,34 @@ fn the_wrong_format_and_yaml_outside_the_subset_are_refused() {
     let p = refused("fathom: order-definition/1\nid: &x t\n");
     assert!(!p.is_empty());
 }
+
+#[test]
+fn holds_names_a_device_or_port_field() {
+    let src = format!(
+        "{HEAD}fields:
+  - {{ key: port, label: Port, kind: port }}
+  - {{ key: note, label: Note, kind: text }}
+stages:
+  - id: a
+    name: A
+    jobs:
+      - {{ id: j, name: J, team: x, holds: [port, note, ghost, port] }}
+"
+    );
+    let p = refused(&src);
+    for needle in [
+        "`holds` names `note`, which is not a device or port field",
+        "`holds` names `ghost`, which is not a field",
+        "`holds` names `port` twice",
+    ] {
+        assert!(has(&p, needle), "missing {needle}: {p:?}");
+    }
+}
+
+#[test]
+fn dia_holds_its_edge_port() {
+    let d = starter("dia.yaml");
+    let port = d.jobs().find(|j| j.id == "port").unwrap();
+    assert_eq!(port.holds, ["edge_port"]);
+    assert_eq!(d.field("edge_port").unwrap().kind, FieldKind::Port);
+}

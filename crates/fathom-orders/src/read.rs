@@ -44,6 +44,7 @@ const JOB_KEYS: &[&str] = &[
     "needs",
     "send_back",
     "reserves",
+    "holds",
 ];
 const SEND_BACK_KEYS: &[&str] = &["to", "label"];
 const COMPARE_WORDS: &[&str] = &[
@@ -874,6 +875,21 @@ impl Reader {
                 ),
             }
         }
+        let holds = self.texts(n, "holds");
+        let mut seen_holds = BTreeSet::new();
+        for h in &holds {
+            if !seen_holds.insert(h) {
+                self.err(n.line, format!("`holds` names `{h}` twice"));
+            }
+            match fields.iter().find(|f| &f.key == h) {
+                Some(f) if matches!(f.kind, FieldKind::Device | FieldKind::Port) => {}
+                Some(_) => self.err(
+                    n.line,
+                    format!("`holds` names `{h}`, which is not a device or port field"),
+                ),
+                None => self.err(n.line, format!("`holds` names `{h}`, which is not a field")),
+            }
+        }
         let overdue = self.overdue(n);
         if !overdue.is_empty() && due.is_none() {
             self.err(n.line, "`overdue` needs a `due` to count from");
@@ -892,6 +908,7 @@ impl Reader {
             needs,
             send_back,
             reserves,
+            holds,
             line: n.line,
         })
     }

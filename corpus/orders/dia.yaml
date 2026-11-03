@@ -11,6 +11,7 @@ fields:
   - { key: bandwidth, label: Bandwidth,  kind: choice, choices: [100M, 1G, 10G], required: true }
   - { key: circuit,   label: Circuit id, kind: text }
   - { key: wan_v4,    label: WAN block,  kind: prefix, family: ipv4, size: 29 }
+  - { key: edge_port, label: Edge port,  kind: port }
 
 stages:
   - id: order
@@ -35,6 +36,8 @@ stages:
         team: network-design
         when: { field: bandwidth, in: [1G, 10G] }
         steps: [Port with a free 10G optic chosen]
+        asks: [edge_port]
+        holds: [edge_port]          # the port stays held for this order until it closes
 
   - id: provision
     name: Provisioning
